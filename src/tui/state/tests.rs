@@ -786,6 +786,89 @@ fn finalize_agent_stream_updates_latest_committed_turn_when_final_text_arrives_l
 }
 
 #[test]
+fn streamed_agent_output_scrubs_internal_runtime_blocks_before_commit() {
+    let dir = tempdir().expect("tempdir");
+    let cm = ConfigManager {
+        path: dir.path().join("config.json"),
+    };
+    let mut app = TuiApp::new(cm).expect("app");
+
+    app.append_agent_delta("Visible answer.\n");
+    app.append_agent_delta("<agent_runtime>\n{\"phase\":\"tool_results_available\"}");
+    let live_text = app
+        .agent_stream_lines()
+        .expect("agent stream")
+        .iter()
+        .flat_map(|line| line.spans.iter())
+        .map(|span| span.content.as_ref())
+        .collect::<String>();
+    assert!(live_text.contains("Visible answer."));
+    assert!(!live_text.contains("agent_runtime"));
+    assert!(!live_text.contains("tool_results_available"));
+
+    app.append_agent_delta("\n</agent_runtime>\nFinal answer.");
+    app.finalize_agent_stream(None);
+
+    let message = app
+        .active_turn
+        .entries
+        .iter()
+        .find(|entry| entry.role == "Agent")
+        .map(|entry| entry.message.as_str())
+        .expect("agent message");
+    assert!(message.contains("Visible answer."));
+    assert!(message.contains("Final answer."));
+    assert!(!message.contains("agent_runtime"));
+    assert!(!message.contains("tool_results_available"));
+}
+
+#[test]
+fn streamed_agent_output_appends_visible_text_after_internal_block() {
+    let dir = tempdir().expect("tempdir");
+    let cm = ConfigManager {
+        path: dir.path().join("config.json"),
+    };
+    let mut app = TuiApp::new(cm).expect("app");
+
+    app.append_agent_delta("Visible before.\n");
+    app.append_agent_delta("<agent_runtime>\nhidden");
+    app.append_agent_delta("\n</agent_runtime>\nVisible after.");
+
+    let live_text = app
+        .agent_stream_lines()
+        .expect("agent stream")
+        .iter()
+        .flat_map(|line| line.spans.iter())
+        .map(|span| span.content.as_ref())
+        .collect::<String>();
+    assert_eq!(live_text.matches("Visible before.").count(), 1);
+    assert_eq!(live_text.matches("Visible after.").count(), 1);
+    assert!(!live_text.contains("agent_runtime"));
+    assert!(!live_text.contains("hidden"));
+}
+
+#[test]
+fn flushed_agent_thinking_stream_scrubs_internal_runtime_blocks() {
+    let dir = tempdir().expect("tempdir");
+    let cm = ConfigManager {
+        path: dir.path().join("config.json"),
+    };
+    let mut app = TuiApp::new(cm).expect("app");
+
+    app.append_agent_thinking_delta("Visible thought.\n");
+    app.append_agent_thinking_delta("<agent_runtime>\n{\"phase\":\"tool_results_available\"}");
+    app.append_agent_thinking_delta("\n</agent_runtime>\nNext thought.");
+    app.flush_agent_thinking_stream_to_live_event();
+
+    assert_eq!(app.active_live.events.len(), 1);
+    let event = app.active_live.events.first().expect("thinking event");
+    assert_eq!(event.role(), "Thinking");
+    assert_eq!(event.message(), "Visible thought.\n\nNext thought.");
+    assert!(!event.message().contains("agent_runtime"));
+    assert!(!event.message().contains("tool_results_available"));
+}
+
+#[test]
 fn finalize_agent_stream_replaces_earlier_agent_entries_in_active_turn() {
     let dir = tempdir().expect("tempdir");
     let cm = ConfigManager {

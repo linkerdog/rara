@@ -125,7 +125,10 @@ impl TuiApp {
         if stream.raw_text.trim().is_empty() {
             return;
         }
-        let message = stream.raw_text.trim_end().to_string();
+        let message = stream.sanitized_raw_text().trim_end().to_string();
+        if message.trim().is_empty() {
+            return;
+        }
         self.push_active_live_event(ActiveLiveEvent::Thinking(message));
         self.reset_transcript_scroll_if_following_tail();
     }
@@ -155,11 +158,15 @@ impl TuiApp {
         let fallback = self
             .agent_markdown_stream
             .take()
-            .map(|stream| stream.raw_text)
+            .map(|stream| stream.sanitized_raw_text())
             .filter(|text| !text.is_empty());
         let Some(message) = final_message.or(fallback) else {
             return;
         };
+        let message = crate::control_tokens::scrub_internal_control_tokens(&message);
+        if message.trim().is_empty() {
+            return;
+        }
 
         if Self::replace_turn_agent_message(&mut self.active_turn, message.clone()) {
             self.reset_transcript_scroll_if_following_tail();

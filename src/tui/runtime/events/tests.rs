@@ -9,6 +9,7 @@ use super::helpers::{
 use super::{apply_tui_event, convert_agent_event};
 use crate::agent::{AgentEvent, AgentExecutionMode};
 use crate::config::ConfigManager;
+use crate::control_tokens::has_pending_internal_control_context;
 use crate::tool::ToolOutputStream;
 use crate::tui::state::{ActivePendingInteractionKind, TranscriptEntryPayload};
 use crate::tui::state::{RuntimePhase, TuiApp, TuiEvent};
@@ -162,6 +163,47 @@ fn scrub_internal_channel_markers_preserves_text_boundaries() {
 }
 
 #[test]
+fn scrub_internal_control_tokens_removes_agent_runtime_blocks() {
+    let cleaned = scrub_internal_control_tokens(
+        "Before\n<agent_runtime>\n{\"phase\":\"tool_results_available\"}\n</agent_runtime>\nAfter",
+    );
+
+    assert_eq!(cleaned.trim(), "Before\n\nAfter");
+    assert!(!cleaned.contains("agent_runtime"));
+    assert!(!cleaned.contains("tool_results_available"));
+}
+
+#[test]
+fn scrub_internal_control_tokens_preserves_inline_runtime_block_boundaries() {
+    let cleaned = scrub_internal_control_tokens(
+        "Before<agent_runtime>{\"phase\":\"tool_results_available\"}</agent_runtime>After",
+    );
+
+    assert_eq!(cleaned, "Before\nAfter");
+    assert!(!cleaned.contains("agent_runtime"));
+    assert!(!cleaned.contains("tool_results_available"));
+}
+
+#[test]
+fn scrub_internal_control_tokens_removes_open_runtime_blocks() {
+    let cleaned = scrub_internal_control_tokens(
+        "Before\n<agent_runtime>\n{\"phase\":\"tool_results_available\"}",
+    );
+
+    assert_eq!(cleaned.trim(), "Before");
+}
+
+#[test]
+fn scrub_internal_control_tokens_removes_folded_history_context_blocks() {
+    let cleaned = scrub_internal_control_tokens(
+        "Visible\n<rara_internal_history_context>\nassistant: historical tool request: name=read_file\n</rara_internal_history_context>\nDone",
+    );
+
+    assert_eq!(cleaned.trim(), "Visible\n\nDone");
+    assert!(!cleaned.contains("historical tool request"));
+}
+
+#[test]
 fn scrub_internal_control_tokens_removes_dsml_tool_blocks() {
     let cleaned = scrub_internal_control_tokens(
         "Before\n<｜DSML｜tool_calls>\n<｜DSML｜invoke name=\"apply_patch\">\n<｜DSML｜parameter name=\"path\" string=\"true\">src/lib.rs</｜DSML｜parameter>\n</｜DSML｜invoke>\n</｜DSML｜tool_calls>\nAfter",
@@ -209,6 +251,32 @@ fn scrub_internal_control_tokens_removes_dsml_after_thinking_like_deepseek_compl
 }
 
 #[test]
+fn scrub_internal_control_tokens_preserves_literal_open_leading_think_block() {
+    let cleaned = scrub_internal_control_tokens("<think>literal XML example still streaming");
+
+    assert_eq!(cleaned, "<think>literal XML example still streaming");
+}
+
+#[test]
+fn scrub_internal_control_tokens_removes_deepseek_open_leading_think_block() {
+    let cleaned = scrub_internal_control_tokens(
+        "<think>private reasoning still streaming<｜end▁of▁sentence｜>",
+    );
+
+    assert!(cleaned.is_empty());
+}
+
+#[test]
+fn scrub_internal_control_tokens_removes_deepseek_closed_leading_think_block() {
+    let cleaned = scrub_internal_control_tokens(
+        "<think>private reasoning</think>\nVisible answer.<｜end▁of▁sentence｜>",
+    );
+
+    assert_eq!(cleaned.trim(), "Visible answer.");
+    assert!(!cleaned.contains("private reasoning"));
+}
+
+#[test]
 fn scrub_internal_control_tokens_preserves_malformed_think_block() {
     let cleaned = scrub_internal_control_tokens(
         "The literal malformed marker <think> has no closing tag in this answer.",
@@ -225,6 +293,13 @@ fn scrub_internal_control_tokens_preserves_literal_balanced_think_text() {
     let cleaned = scrub_internal_control_tokens("Use <think>inner</think> in this XML example.");
 
     assert_eq!(cleaned, "Use <think>inner</think> in this XML example.");
+}
+
+#[test]
+fn scrub_internal_control_tokens_preserves_literal_leading_balanced_think_text() {
+    let cleaned = scrub_internal_control_tokens("<think>inner</think> is an XML example.");
+
+    assert_eq!(cleaned, "<think>inner</think> is an XML example.");
 }
 
 #[test]
@@ -298,6 +373,39 @@ fn scrub_internal_control_tokens_drops_orphaned_dsml_payload() {
     );
 
     assert!(cleaned.trim().is_empty());
+}
+
+#[test]
+fn scrub_internal_control_tokens_preserves_visible_text_before_orphaned_dsml_tail() {
+    let cleaned = scrub_internal_control_tokens(
+        "Visible answer.\n<｜DSML｜parameter name=\"path\" string=\"true\">src/context/selection.rs</｜DSML｜parameter>\n</｜DSML｜invoke>\n</｜DSML｜tool_calls>",
+    );
+
+    assert_eq!(cleaned, "Visible answer.");
+}
+
+#[test]
+fn scrub_internal_control_tokens_preserves_literal_dsml_closing_tag_text() {
+    let input = "Document `path</|DSML|parameter>` as literal markup.";
+
+    assert_eq!(scrub_internal_control_tokens(input), input);
+}
+
+#[test]
+fn pending_control_prefix_detects_tags_after_visible_punctuation() {
+    assert!(has_pending_internal_control_context("Visible:<agent_"));
+    assert!(has_pending_internal_control_context(
+        "Visible:<｜DSML｜tool_"
+    ));
+}
+
+#[test]
+fn scrub_internal_control_tokens_preserves_colon_text_before_valid_dsml() {
+    let cleaned = scrub_internal_control_tokens(
+        "The status is: ok\n<｜DSML｜tool_calls>\n<｜DSML｜invoke name=\"read_file\">\n<｜DSML｜parameter name=\"path\" string=\"true\">Cargo.toml</｜DSML｜parameter>\n</｜DSML｜invoke>\n</｜DSML｜tool_calls>",
+    );
+
+    assert_eq!(cleaned.trim(), "The status is: ok");
 }
 
 #[test]

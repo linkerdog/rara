@@ -6,12 +6,13 @@ use super::ollama::{
     suggest_ollama_num_ctx, to_ollama_messages,
 };
 use super::openai_compatible::{
-    OpenAiApiError, apply_codex_stream_event, build_chat_completion_request_body,
-    build_codex_responses_request, build_streaming_response_content,
-    infer_openai_compatible_auxiliary_model, is_auxiliary_model_retryable_error,
-    is_auxiliary_model_unsupported_error, is_context_window_error, is_openai_stream_idle_error,
-    merge_streaming_tool_calls, parse_chat_completion_response, parse_codex_response,
-    to_codex_input_items, to_openai_messages, to_openai_messages_for_endpoint,
+    DeepseekTextStreamScrubber, OpenAiApiError, apply_codex_stream_event,
+    build_chat_completion_request_body, build_codex_responses_request,
+    build_streaming_response_content, infer_openai_compatible_auxiliary_model,
+    is_auxiliary_model_retryable_error, is_auxiliary_model_unsupported_error,
+    is_context_window_error, is_openai_stream_idle_error, merge_streaming_tool_calls,
+    parse_chat_completion_response, parse_codex_response, to_codex_input_items, to_openai_messages,
+    to_openai_messages_for_endpoint,
 };
 use super::shared::{
     extract_message_text, model_context_budget, parse_tool_arguments, should_bypass_proxy,
@@ -242,6 +243,76 @@ fn deepseek_reasoning_content_roundtrips_as_provider_metadata() {
 
     let generic_messages = to_openai_messages(&messages);
     assert!(generic_messages[0].get("reasoning_content").is_none());
+}
+
+#[test]
+fn deepseek_raw_leading_think_block_is_not_visible_text() {
+    let response = parse_chat_completion_response(
+        &json!({
+            "choices": [{
+                "message": {
+                    "role": "assistant",
+                    "content": "<think>private reasoning</think>\nVisible answer.<｜end▁of▁sentence｜>"
+                },
+                "finish_reason": "stop"
+            }]
+        }),
+        OpenAiEndpointKind::Deepseek,
+    )
+    .expect("parse response");
+
+    assert_eq!(response.content.len(), 1);
+    assert!(matches!(
+        &response.content[0],
+        ContentBlock::Text { text }
+            if text.trim() == "Visible answer." && !text.contains("private reasoning")
+    ));
+}
+
+#[test]
+fn deepseek_endpoint_preserves_literal_leading_think_without_control_evidence() {
+    let response = parse_chat_completion_response(
+        &json!({
+            "choices": [{
+                "message": {
+                    "role": "assistant",
+                    "content": "<think>inner</think> is an XML example."
+                },
+                "finish_reason": "stop"
+            }]
+        }),
+        OpenAiEndpointKind::Deepseek,
+    )
+    .expect("parse response");
+
+    assert_eq!(response.content.len(), 1);
+    assert!(matches!(
+        &response.content[0],
+        ContentBlock::Text { text } if text == "<think>inner</think> is an XML example."
+    ));
+}
+
+#[test]
+fn generic_openai_compatible_endpoint_preserves_literal_leading_think_text() {
+    let response = parse_chat_completion_response(
+        &json!({
+            "choices": [{
+                "message": {
+                    "role": "assistant",
+                    "content": "<think>inner</think> is an XML example."
+                },
+                "finish_reason": "stop"
+            }]
+        }),
+        OpenAiEndpointKind::Custom,
+    )
+    .expect("parse response");
+
+    assert_eq!(response.content.len(), 1);
+    assert!(matches!(
+        &response.content[0],
+        ContentBlock::Text { text } if text == "<think>inner</think> is an XML example."
+    ));
 }
 
 #[test]
@@ -525,16 +596,79 @@ fn deepseek_v4_defaults_fold_legacy_tool_results_without_reasoning_content() {
     assert_eq!(messages.len(), 2);
     assert_eq!(messages[0]["role"], "user");
     let folded_note = messages[0]["content"].as_str().expect("folded note");
-    assert!(folded_note.contains("tool_call: bash"));
+    assert!(folded_note.contains("<rara_internal_history_context>"));
+    assert!(folded_note.contains("historical tool request: name=bash"));
     assert!(folded_note.contains("id=tool-1"));
     assert!(folded_note.contains("cargo check"));
     assert!(folded_note.contains("tool: ok"));
+    assert!(!folded_note.contains("<agent_runtime>"));
+    assert!(!folded_note.contains("tool_call:"));
     assert_eq!(messages[1]["role"], "user");
     assert!(
         messages[1]["content"]
             .as_str()
             .is_some_and(|content| content.contains("tool_results_available"))
     );
+}
+
+#[test]
+fn deepseek_folded_legacy_history_excludes_runtime_control_messages() {
+    let body = build_chat_completion_request_body(
+        "deepseek-v4-pro",
+        &[
+            Message {
+                role: "assistant".to_string(),
+                content: json!([
+                    {"type":"tool_use","id":"tool-1","name":"read_file","input":{"path":"Cargo.toml"}}
+                ]),
+            },
+            Message {
+                role: "user".to_string(),
+                content: json!([
+                    {"type":"tool_result","tool_use_id":"tool-1","content":"[package]"}
+                ]),
+            },
+            Message {
+                role: "user".to_string(),
+                content: json!([{
+                    "type": "text",
+                    "text": "<agent_runtime>\n{\"phase\":\"tool_results_available\"}\n</agent_runtime>"
+                }]),
+            },
+            Message {
+                role: "assistant".to_string(),
+                content: json!([
+                    {"type":"text","text":"Now inspect the status file."},
+                    {"type":"tool_use","id":"tool-2","name":"read_file","input":{"path":"src/tui/status_display.rs"}}
+                ]),
+            },
+            Message {
+                role: "user".to_string(),
+                content: json!([
+                    {"type":"tool_result","tool_use_id":"tool-2","content":"status content"}
+                ]),
+            },
+        ],
+        &[json!({
+            "name": "read_file",
+            "description": "Read a file",
+            "input_schema": {"type":"object"}
+        })],
+        OpenAiEndpointKind::Deepseek,
+        None,
+        None,
+        LlmTurnMetadata::default(),
+    );
+
+    let messages = body["messages"].as_array().expect("messages");
+    assert_eq!(messages.len(), 1);
+    let folded_note = messages[0]["content"].as_str().expect("folded note");
+    assert!(folded_note.contains("historical tool request: name=read_file"));
+    assert!(folded_note.contains("src/tui/status_display.rs"));
+    assert!(folded_note.contains("status content"));
+    assert!(!folded_note.contains("<agent_runtime>"));
+    assert!(!folded_note.contains("tool_results_available"));
+    assert!(!folded_note.contains("tool_call:"));
 }
 
 #[test]
@@ -572,10 +706,12 @@ fn deepseek_thinking_tool_history_folds_missing_reasoning_content() {
     assert_eq!(messages[0]["role"], "user");
     let folded_note = messages[0]["content"].as_str().expect("folded note");
     assert!(folded_note.contains("context only"));
-    assert!(folded_note.contains("tool_call: read_file"));
+    assert!(folded_note.contains("<rara_internal_history_context>"));
+    assert!(folded_note.contains("historical tool request: name=read_file"));
     assert!(folded_note.contains("id=tool-1"));
     assert!(folded_note.contains("Cargo.toml"));
     assert!(folded_note.contains("[package]"));
+    assert!(!folded_note.contains("tool_call:"));
 }
 
 #[test]
@@ -819,9 +955,10 @@ fn deepseek_folds_legacy_tool_calls_with_id_and_arguments() {
     let messages = body["messages"].as_array().expect("messages");
     assert_eq!(messages[0]["role"], "user");
     let folded_note = messages[0]["content"].as_str().expect("folded note");
-    assert!(folded_note.contains("tool_call: read_file"));
+    assert!(folded_note.contains("historical tool request: name=read_file"));
     assert!(folded_note.contains("id=call-1"));
     assert!(folded_note.contains("Cargo.toml"));
+    assert!(!folded_note.contains("tool_call:"));
 }
 
 #[test]
@@ -1021,6 +1158,75 @@ fn deepseek_reasoner_explicit_thinking_normalizes_reasoning_effort() {
 
     assert_eq!(medium_body["reasoning_effort"], "high");
     assert_eq!(xhigh_body["reasoning_effort"], "max");
+}
+
+#[test]
+fn deepseek_streaming_raw_leading_think_block_is_not_visible_text() {
+    let content = build_streaming_response_content(
+        OpenAiEndpointKind::Deepseek,
+        "<think>private reasoning</think>\nVisible answer.<｜end▁of▁sentence｜>".to_string(),
+        String::new(),
+        &[],
+    )
+    .expect("build streaming content");
+
+    assert_eq!(content.len(), 1);
+    assert!(matches!(
+        &content[0],
+        ContentBlock::Text { text }
+            if text.trim() == "Visible answer." && !text.contains("private reasoning")
+    ));
+}
+
+#[test]
+fn deepseek_streaming_preserves_literal_leading_think_without_control_evidence() {
+    let content = build_streaming_response_content(
+        OpenAiEndpointKind::Deepseek,
+        "<think>inner</think> is an XML example.".to_string(),
+        String::new(),
+        &[],
+    )
+    .expect("build streaming content");
+
+    assert_eq!(content.len(), 1);
+    assert!(matches!(
+        &content[0],
+        ContentBlock::Text { text } if text == "<think>inner</think> is an XML example."
+    ));
+}
+
+#[test]
+fn deepseek_stream_scrubber_buffers_literal_leading_think_until_finish() {
+    let mut scrubber = DeepseekTextStreamScrubber::default();
+
+    assert_eq!(scrubber.push("<think>"), "");
+    assert_eq!(scrubber.push("inner</think> is an XML example."), "");
+    assert_eq!(scrubber.finish(), "<think>inner</think> is an XML example.");
+}
+
+#[test]
+fn deepseek_stream_scrubber_strips_leading_think_when_control_evidence_arrives() {
+    let mut scrubber = DeepseekTextStreamScrubber::default();
+
+    assert_eq!(scrubber.push("<think>private"), "");
+    assert_eq!(
+        scrubber.push(" reasoning</think>\nVisible answer.<｜end▁of▁sentence｜>"),
+        "\nVisible answer."
+    );
+    assert_eq!(scrubber.finish(), "");
+}
+
+#[test]
+fn deepseek_stream_scrubber_streams_after_think_when_thinking_is_enabled() {
+    let mut scrubber = DeepseekTextStreamScrubber::new(true);
+
+    assert_eq!(scrubber.push("<think>private"), "");
+    assert_eq!(
+        scrubber.push(" reasoning</think>\nVisible answer."),
+        "\nVisible answer."
+    );
+    assert_eq!(scrubber.push(" More."), " More.");
+    assert_eq!(scrubber.finish(), "");
 }
 
 #[test]

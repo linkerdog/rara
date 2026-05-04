@@ -7,6 +7,26 @@ use nom::{Err as NomErr, IResult, Parser};
 use serde_json::Value;
 
 const DSML_TOKENS: [&str; 2] = ["｜DSML｜", "|DSML|"];
+const DSML_TAG_PREFIXES: [&str; 12] = [
+    "<｜DSML｜tool_calls>",
+    "<｜DSML｜invoke",
+    "<｜DSML｜parameter",
+    "</｜DSML｜tool_calls>",
+    "</｜DSML｜invoke>",
+    "</｜DSML｜parameter>",
+    "<|DSML|tool_calls>",
+    "<|DSML|invoke",
+    "<|DSML|parameter",
+    "</|DSML|tool_calls>",
+    "</|DSML|invoke>",
+    "</|DSML|parameter>",
+];
+const DSML_ORPHAN_CLOSING_TAGS: [&str; 4] = [
+    "</｜DSML｜tool_calls>",
+    "</｜DSML｜invoke>",
+    "</|DSML|tool_calls>",
+    "</|DSML|invoke>",
+];
 const TOOL_CALLS_BLOCK_NAME: &str = "tool_calls";
 const INVOKE_TAG_NAME: &str = "invoke";
 const PARAMETER_TAG_NAME: &str = "parameter";
@@ -65,6 +85,19 @@ pub(crate) fn strip_tool_call_blocks(text: &str) -> Cow<'_, str> {
         Cow::Borrowed(text)
     } else {
         Cow::Owned(extraction.visible_text)
+    }
+}
+
+pub(crate) fn strip_orphaned_tool_call_tail(text: &str) -> Cow<'_, str> {
+    let Some(tail_start) = orphaned_tool_call_tail_start(text) else {
+        return Cow::Borrowed(text);
+    };
+
+    let prefix = text[..tail_start].trim_end();
+    if prefix.is_empty() || looks_like_leaked_tool_argument_prefix(prefix) {
+        Cow::Owned(String::new())
+    } else {
+        Cow::Owned(prefix.to_string())
     }
 }
 
@@ -192,6 +225,78 @@ fn close_tag(token: &str, name: &str) -> String {
     format!("</{token}{name}>")
 }
 
+fn orphaned_tool_call_tail_start(text: &str) -> Option<usize> {
+    let mut line_start = 0usize;
+    while line_start < text.len() {
+        let line_end = text[line_start..]
+            .find('\n')
+            .map(|offset| line_start + offset)
+            .unwrap_or(text.len());
+        let line = &text[line_start..line_end];
+        if starts_with_dsml_tag(line.trim_start()) {
+            let tail = &text[line_start..];
+            if has_orphaned_tool_call_closing_sequence(tail) {
+                return Some(line_start);
+            }
+        }
+
+        if line_end == text.len() {
+            break;
+        }
+        line_start = line_end + '\n'.len_utf8();
+    }
+
+    None
+}
+
+fn starts_with_dsml_tag(line: &str) -> bool {
+    DSML_TAG_PREFIXES
+        .into_iter()
+        .any(|tag| line.starts_with(tag))
+}
+
+fn has_orphaned_tool_call_closing_sequence(text: &str) -> bool {
+    DSML_ORPHAN_CLOSING_TAGS
+        .into_iter()
+        .any(|tag| text.contains(tag))
+}
+
+fn looks_like_leaked_tool_argument_prefix(prefix: &str) -> bool {
+    let mut saw_line = false;
+    for line in prefix
+        .lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty())
+    {
+        saw_line = true;
+        if !looks_like_leaked_tool_argument_line(line) {
+            return false;
+        }
+    }
+    saw_line
+}
+
+fn looks_like_leaked_tool_argument_line(line: &str) -> bool {
+    matches!(line, "}" | "},")
+        || line.ends_with('{')
+        || line.ends_with("},")
+        || looks_like_struct_field_line(line)
+}
+
+fn looks_like_struct_field_line(line: &str) -> bool {
+    let Some((field, value)) = line.split_once(':') else {
+        return false;
+    };
+    let field = field.trim();
+    let value = value.trim();
+    !field.is_empty()
+        && !value.is_empty()
+        && field
+            .chars()
+            .all(|ch| ch.is_ascii_lowercase() || ch.is_ascii_digit() || ch == '_')
+        && (line.ends_with(',') || value.contains("format!("))
+}
+
 fn quoted_attr<'a>(tag: &'a str, name: &str) -> Option<&'a str> {
     let needle = format!("{name}=\"");
     let start = tag.find(&needle)? + needle.len();
@@ -240,5 +345,45 @@ mod tests {
 
         assert_eq!(extraction.visible_text, input);
         assert!(extraction.tool_calls.is_empty());
+    }
+
+    #[test]
+    fn strips_orphaned_dsml_tail_and_preserves_visible_prefix() {
+        let cleaned = strip_orphaned_tool_call_tail(
+            "Visible answer.\n<｜DSML｜parameter name=\"path\" string=\"true\">src/lib.rs</｜DSML｜parameter>\n</｜DSML｜invoke>\n</｜DSML｜tool_calls>",
+        );
+
+        assert_eq!(cleaned.as_ref(), "Visible answer.");
+    }
+
+    #[test]
+    fn drops_orphaned_dsml_tail_with_leaked_argument_prefix() {
+        let cleaned = strip_orphaned_tool_call_tail(
+            "kind: format!(\"unknown_{tool_name}\"),\nlabel: format!(\"Unknown ({tool_name})\"),\n}\n<｜DSML｜parameter name=\"path\" string=\"true\">src/lib.rs</｜DSML｜parameter>\n</｜DSML｜invoke>\n</｜DSML｜tool_calls>",
+        );
+
+        assert!(cleaned.trim().is_empty());
+    }
+
+    #[test]
+    fn preserves_literal_dsml_closing_markup() {
+        let inline = "Document `path</|DSML|parameter>` literally.";
+        assert_eq!(strip_orphaned_tool_call_tail(inline).as_ref(), inline);
+
+        let multiline = "Document this literal:\n</|DSML|parameter>";
+        assert_eq!(strip_orphaned_tool_call_tail(multiline).as_ref(), multiline);
+    }
+
+    #[test]
+    fn ignores_plain_text_and_open_malformed_blocks_as_orphaned_tail() {
+        assert_eq!(
+            strip_orphaned_tool_call_tail("The status is: ok").as_ref(),
+            "The status is: ok"
+        );
+        let malformed = "Before\n<｜DSML｜tool_calls>\n<｜DSML｜invoke name=\"read_file\">\nAfter";
+        assert_eq!(
+            strip_orphaned_tool_call_tail(malformed).as_ref(),
+            "Before\n<｜DSML｜tool_calls>\n<｜DSML｜invoke name=\"read_file\">\nAfter"
+        );
     }
 }

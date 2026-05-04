@@ -16,6 +16,7 @@ use crate::context::{
     CompactionSourceContextEntry, ContextAssemblyEntry, PromptSourceContextEntry,
     RetrievalSourceContextEntry,
 };
+use crate::control_tokens::{has_pending_internal_control_context, scrub_internal_control_tokens};
 use crate::oauth::SavedCodexAuthMode;
 use crate::state_db::StateDb;
 use crate::thread_store::ThreadSummary;
@@ -390,6 +391,9 @@ pub(crate) struct CommittedTranscriptRenderCache {
 
 pub struct AgentMarkdownStreamState {
     pub(crate) raw_text: String,
+    last_visible_text: String,
+    incremental_passthrough: bool,
+    cwd: PathBuf,
     collector: MarkdownStreamCollector,
     committed_lines: Vec<Line<'static>>,
     pub(crate) display_lines: Vec<Line<'static>>,
@@ -399,6 +403,9 @@ impl AgentMarkdownStreamState {
     pub(crate) fn new(cwd: PathBuf) -> Self {
         Self {
             raw_text: String::new(),
+            last_visible_text: String::new(),
+            incremental_passthrough: true,
+            cwd: cwd.clone(),
             collector: MarkdownStreamCollector::new(None, &cwd),
             committed_lines: Vec::new(),
             display_lines: Vec::new(),
@@ -406,8 +413,41 @@ impl AgentMarkdownStreamState {
     }
 
     pub(crate) fn push_delta(&mut self, delta: &str) {
+        if self.incremental_passthrough && !delta.contains('<') {
+            self.raw_text.push_str(delta);
+            self.last_visible_text.push_str(delta);
+            self.collector.push_delta(delta);
+            self.refresh_display_lines();
+            return;
+        }
+
         self.raw_text.push_str(delta);
-        self.collector.push_delta(delta);
+        let visible_text = scrub_internal_control_tokens(&self.raw_text);
+        if let Some(new_visible_delta) = visible_text.strip_prefix(&self.last_visible_text) {
+            if !new_visible_delta.is_empty() {
+                self.collector.push_delta(new_visible_delta);
+                self.refresh_display_lines();
+            }
+        } else {
+            self.replace_display_text(&visible_text);
+        }
+        self.last_visible_text = visible_text;
+        self.incremental_passthrough = !has_pending_internal_control_context(&self.raw_text);
+    }
+
+    pub(crate) fn sanitized_raw_text(&self) -> String {
+        scrub_internal_control_tokens(&self.raw_text)
+    }
+
+    fn replace_display_text(&mut self, text: &str) {
+        self.collector = MarkdownStreamCollector::new(None, &self.cwd);
+        self.committed_lines.clear();
+        self.display_lines.clear();
+        self.collector.push_delta(text);
+        self.refresh_display_lines();
+    }
+
+    fn refresh_display_lines(&mut self) {
         self.committed_lines
             .extend(self.collector.commit_complete_lines());
         self.display_lines = self.committed_lines.clone();
