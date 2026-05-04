@@ -50,6 +50,10 @@ pub(crate) fn map_key_to_event(key: KeyEvent, app: &TuiApp) -> AppEvent {
         },
         Some(Overlay::Context) => match code {
             KeyCode::Esc | KeyCode::Enter => AppEvent::CloseOverlay,
+            KeyCode::Up | KeyCode::Char('k') => AppEvent::ScrollContext(-1),
+            KeyCode::Down | KeyCode::Char('j') => AppEvent::ScrollContext(1),
+            KeyCode::PageUp => AppEvent::ScrollContext(-5),
+            KeyCode::PageDown => AppEvent::ScrollContext(5),
             _ => AppEvent::Noop,
         },
         Some(Overlay::ProviderPicker) => match code {

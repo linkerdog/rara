@@ -72,6 +72,7 @@ pub(crate) async fn dispatch_event(
             app.navigate_input_history(delta);
         }
         AppEvent::ScrollTranscript(delta) => app.scroll_transcript(delta),
+        AppEvent::ScrollContext(delta) => app.scroll_context(delta),
         AppEvent::MoveCommandSelection(delta) => {
             let len = palette_commands(app, app.command_query()).len();
             if len > 0 {

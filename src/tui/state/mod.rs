@@ -231,6 +231,7 @@ impl TuiApp {
             committed_render_generation: 0,
             committed_render_cache: RefCell::new(CommittedTranscriptRenderCache::default()),
             transcript_scroll: 0,
+            context_scroll: 0,
             terminal_width: 80,
             agent_markdown_stream: None,
             agent_thinking_stream: None,
@@ -1157,6 +1158,9 @@ impl TuiApp {
         }
         if matches!(overlay, Overlay::SkillsPicker) {
             self.skill_picker_idx = 0;
+        }
+        if matches!(overlay, Overlay::Context) {
+            self.context_scroll = 0;
         }
         self.overlay = Some(overlay);
     }

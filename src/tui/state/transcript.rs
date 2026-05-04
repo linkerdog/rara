@@ -217,6 +217,16 @@ impl TuiApp {
         }
     }
 
+    pub fn scroll_context(&mut self, delta: i32) {
+        if delta > 0 {
+            self.context_scroll = self.context_scroll.saturating_add(delta as u16);
+        } else {
+            self.context_scroll = self
+                .context_scroll
+                .saturating_sub(delta.unsigned_abs() as u16);
+        }
+    }
+
     pub fn set_runtime_phase(&mut self, phase: RuntimePhase, detail: Option<String>) {
         self.runtime_phase = phase;
         self.runtime_phase_detail = detail;
