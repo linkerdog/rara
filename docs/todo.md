@@ -93,7 +93,7 @@ Active backlog only. Keep this file small and current.
 
 ## Security / Reliability / Performance
 
-- [ ] Structured command model (`program`, `args`, `cwd`, `allow_net`) in `src/tools/bash.rs` and `crates/sandbox`.
+- [x] Structured command model (`program`, `args`, `cwd`, `allow_net`) in `src/tools/bash.rs` and `crates/sandbox`.
 - [ ] Classifier and routing model from `docs/features/classifier-and-routing.md`.
 - [ ] Auditable permission + sandbox-bypass rules (Codex/Claude-inspired).
 - [ ] Structured auto-permission classifier with compact transcript projection.

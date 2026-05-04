@@ -56,6 +56,12 @@ pub struct BackgroundTaskStore {
 pub struct BackgroundTaskRecord {
     id: String,
     command: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    program: Option<String>,
+    #[serde(skip_serializing_if = "Vec::is_empty", default)]
+    args: Vec<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    cwd: Option<String>,
     output_path: PathBuf,
     status: BackgroundTaskStatus,
     exit_code: Option<i32>,
@@ -554,7 +560,7 @@ impl BackgroundTaskStore {
 
     fn start_record(
         &self,
-        command: String,
+        request: &BashCommandInput,
         sandboxed: bool,
         sandbox_backend: String,
         network_access: bool,
@@ -563,7 +569,14 @@ impl BackgroundTaskStore {
         let output_path = self.dir.join(format!("{id}.log"));
         let record = BackgroundTaskRecord {
             id: id.clone(),
-            command,
+            command: request.summary(),
+            program: request
+                .program
+                .as_deref()
+                .filter(|v| !v.trim().is_empty())
+                .map(String::from),
+            args: request.args.clone(),
+            cwd: request.cwd.clone(),
             output_path,
             status: BackgroundTaskStatus::Running,
             exit_code: None,
@@ -892,7 +905,7 @@ impl Tool for BashTool {
 
         if request.run_in_background {
             let (record, stop_rx) = self.background_tasks.start_record(
-                request.summary(),
+                &request,
                 wrapped.sandboxed,
                 wrapped.sandbox_backend.clone(),
                 wrapped.network_access,
@@ -1125,6 +1138,9 @@ impl Tool for BackgroundTaskStatusTool {
         Ok(json!({
             "task_id": record.id,
             "command": record.command,
+            "program": record.program,
+            "args": record.args,
+            "cwd": record.cwd,
             "status": record.status,
             "exit_code": record.exit_code,
             "output_path": record.output_path,

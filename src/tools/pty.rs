@@ -375,6 +375,15 @@ impl PtySessionSnapshot {
                 "type": "string",
                 "description": "Shell command to run inside a PTY. Use PTY only for interactive commands; use bash for ordinary non-interactive commands."
             },
+            "program": {
+                "type": "string",
+                "description": "Executable to run directly without a shell. Prefer this with args for ordinary commands."
+            },
+            "args": {
+                "type": "array",
+                "items": { "type": "string" },
+                "description": "Arguments for program."
+            },
             "cwd": {
                 "type": "string",
                 "description": "Optional working directory. Defaults to the current turn cwd; prefer this over prepending cd to a command."
@@ -392,17 +401,15 @@ impl PtySessionSnapshot {
             "rows": { "type": "integer", "default": 24, "minimum": 1, "maximum": 65535 },
             "cols": { "type": "integer", "default": 120, "minimum": 1, "maximum": 65535 }
         },
-        "required": ["command"]
+        "anyOf": [
+            { "required": ["command"] },
+            { "required": ["program"] }
+        ]
     }
 )]
 #[async_trait]
 impl Tool for PtyStartTool {
     async fn call(&self, input: Value) -> Result<Value, ToolError> {
-        let command = input["command"]
-            .as_str()
-            .filter(|value| !value.trim().is_empty())
-            .ok_or_else(|| ToolError::InvalidInput("command".into()))?
-            .to_string();
         let cwd = input
             .get("cwd")
             .and_then(Value::as_str)
@@ -419,12 +426,48 @@ impl Tool for PtyStartTool {
             .and_then(Value::as_bool)
             .unwrap_or(false);
         let allow_net = self.sandbox_network_access.load(Ordering::Relaxed) || allow_net;
-        let wrapped = self
-            .sandbox
-            .wrap_pty_shell_command(&command, &cwd, allow_net)
-            .map_err(|err| {
-                ToolError::ExecutionFailed(format!("{} {}", err, sandbox_failure_hint()))
-            })?;
+        let (command, wrapped) = if let Some(cmd) = input
+            .get("command")
+            .and_then(Value::as_str)
+            .filter(|v| !v.trim().is_empty())
+        {
+            let cmd = cmd.to_string();
+            let wrapped = self
+                .sandbox
+                .wrap_pty_shell_command(&cmd, &cwd, allow_net)
+                .map_err(|err| {
+                    ToolError::ExecutionFailed(format!("{} {}", err, sandbox_failure_hint()))
+                })?;
+            (cmd, wrapped)
+        } else {
+            let program = input
+                .get("program")
+                .and_then(Value::as_str)
+                .filter(|v| !v.trim().is_empty())
+                .ok_or_else(|| ToolError::InvalidInput("program".into()))?
+                .to_string();
+            let args: Vec<String> = input
+                .get("args")
+                .and_then(Value::as_array)
+                .map(|arr| {
+                    arr.iter()
+                        .filter_map(|v| v.as_str().map(String::from))
+                        .collect()
+                })
+                .unwrap_or_default();
+            let summary = if args.is_empty() {
+                program.clone()
+            } else {
+                format!("{} {}", program, args.join(" "))
+            };
+            let wrapped = self
+                .sandbox
+                .wrap_pty_exec_command(&program, &args, &cwd, allow_net)
+                .map_err(|err| {
+                    ToolError::ExecutionFailed(format!("{} {}", err, sandbox_failure_hint()))
+                })?;
+            (summary, wrapped)
+        };
         let rows = parse_pty_dimension(input.get("rows"), 24, "rows")?;
         let cols = parse_pty_dimension(input.get("cols"), 120, "cols")?;
         let started =
