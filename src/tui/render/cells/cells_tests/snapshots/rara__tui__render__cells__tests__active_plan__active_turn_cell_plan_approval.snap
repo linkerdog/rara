@@ -1,9 +1,9 @@
 ---
-source: src/tui/render/cells_tests/active_plan.rs
-assertion_line: 35
+source: src/tui/render/cells/cells_tests/active_plan.rs
 expression: rendered
 ---
-› Review the codebase and propose changes
+▌ You
+  Review the codebase and propose changes
 
 • Updated Plan
   └ The current discovery path is hardcoded and should be generalized.
