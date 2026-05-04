@@ -11,6 +11,9 @@ pub(crate) const TEXT_ACCENT: Color = Color::Cyan;
 pub(crate) const TEXT_MUTED: Color = Color::Gray;
 
 // ── Message roles ───────────────────────────────────────────────
+pub(crate) const ROLE_USER: Color = Color::LightBlue;
+pub(crate) const ROLE_AGENT: Color = Color::Cyan;
+pub(crate) const ROLE_SYSTEM: Color = Color::Gray;
 pub(crate) const ROLE_PREFIX: Color = Color::Cyan;
 
 // ── Progress phases ─────────────────────────────────────────────
@@ -41,6 +44,14 @@ pub(crate) const INTERACTION_SUB_AGENT: Color = Color::Rgb(231, 201, 92); // gol
 // ── Tool output ─────────────────────────────────────────────────
 pub(crate) const TOOL_STDERR_BG: Color = Color::Rgb(172, 76, 108);
 pub(crate) const TOOL_STDERR_FG: Color = Color::White;
+
+// ── Diff view ───────────────────────────────────────────────────
+pub(crate) const DIFF_ADD_BG: Color = Color::Rgb(21, 58, 42);
+pub(crate) const DIFF_ADD_FG: Color = Color::Rgb(74, 222, 128);
+pub(crate) const DIFF_DEL_BG: Color = Color::Rgb(58, 26, 26);
+pub(crate) const DIFF_DEL_FG: Color = Color::Rgb(248, 113, 113);
+pub(crate) const DIFF_HUNK_BG: Color = Color::Rgb(30, 30, 46);
+pub(crate) const DIFF_HUNK_FG: Color = Color::Rgb(148, 163, 184);
 
 // ── Budget bar segments ─────────────────────────────────────────
 pub(crate) const BUDGET_SYSTEM: Color = Color::LightBlue;

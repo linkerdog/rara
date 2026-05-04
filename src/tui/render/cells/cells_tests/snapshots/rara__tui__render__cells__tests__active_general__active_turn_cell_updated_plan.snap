@@ -1,8 +1,9 @@
 ---
-source: src/tui/render/cells_tests/active_general.rs
+source: src/tui/render/cells/cells_tests/active_general.rs
 expression: rendered
 ---
-› Read the local codebase and propose the next refactor
+▌ You
+  Read the local codebase and propose the next refactor
 
  Plan Mode 
  Planning 

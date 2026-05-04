@@ -805,7 +805,7 @@ fn format_write_file_result(value: &serde_json::Value) -> String {
         .get("path")
         .and_then(serde_json::Value::as_str)
         .unwrap_or("<unknown>");
-    let operation = value
+    let op = value
         .get("operation")
         .and_then(serde_json::Value::as_str)
         .unwrap_or("updated");
@@ -818,20 +818,23 @@ fn format_write_file_result(value: &serde_json::Value) -> String {
         .and_then(serde_json::Value::as_u64)
         .unwrap_or_default();
 
+    let op_icon = if op == "created" { "+" } else { "~" };
     let mut lines = vec![format!(
-        "write_file {operation} {path} ({line_count} lines, {bytes_written} bytes)"
+        "{op_icon} write_file {op} {path}  (+{line_count} lines, +{bytes_written} bytes)"
     )];
 
-    if let Some(previous_bytes) = value
+    let previous_lines = value
+        .get("previous_line_count")
+        .and_then(serde_json::Value::as_u64);
+    let previous_bytes = value
         .get("previous_bytes")
-        .and_then(serde_json::Value::as_u64)
-    {
-        let previous_lines = value
-            .get("previous_line_count")
-            .and_then(serde_json::Value::as_u64)
-            .unwrap_or_default();
+        .and_then(serde_json::Value::as_u64);
+    if previous_bytes.is_some() || previous_lines.is_some() {
+        let pl = previous_lines.unwrap_or_default();
+        let pb = previous_bytes.unwrap_or_default();
+        let delta_lines = line_count as i64 - pl as i64;
         lines.push(format!(
-            "previous: {previous_lines} lines, {previous_bytes} bytes"
+            "  previous: {pl} lines, {pb} bytes  (Δ {delta_lines:+} lines)"
         ));
     }
 
@@ -852,13 +855,13 @@ fn format_replace_result(value: &serde_json::Value) -> String {
         .and_then(serde_json::Value::as_i64)
         .unwrap_or_default();
     let mut lines = vec![format!(
-        "replace {path} {replacements} replacement(s) (Δlines={line_delta})"
+        "~ replace {path}  {replacements} replacement(s)  (Δ {line_delta:+} lines)"
     )];
-    if let Some(old_preview) = value.get("old_preview").and_then(serde_json::Value::as_str) {
-        lines.push(format!("old: {old_preview}"));
+    if let Some(old) = value.get("old_preview").and_then(serde_json::Value::as_str) {
+        lines.push(format!("  - {old}"));
     }
-    if let Some(new_preview) = value.get("new_preview").and_then(serde_json::Value::as_str) {
-        lines.push(format!("new: {new_preview}"));
+    if let Some(new) = value.get("new_preview").and_then(serde_json::Value::as_str) {
+        lines.push(format!("  + {new}"));
     }
     lines.join("\n")
 }
@@ -889,7 +892,7 @@ fn format_replace_lines_result(value: &serde_json::Value) -> String {
         .and_then(serde_json::Value::as_i64)
         .unwrap_or_default();
     format!(
-        "replace_lines {path}:{start_line}-{end_line}\nremoved={removed_lines} inserted={inserted_lines} line_delta={line_delta}"
+        "~ replace_lines {path}:{start_line}-{end_line}  -{removed_lines} lines  +{inserted_lines} lines  (Δ {line_delta:+})"
     )
 }
 

@@ -53,7 +53,7 @@ fn committed_turn_cell_keeps_user_summary_and_agent_sections_in_order() {
         .collect::<Vec<_>>()
         .join("\n");
 
-    let you_idx = rendered.find("› Review this repo").unwrap();
+    let you_idx = rendered.find("Review this repo").unwrap();
     let ran_idx = rendered.find(" Ran ").unwrap();
     let agent_idx = rendered.find("• Final recommendation").unwrap();
 
@@ -122,7 +122,7 @@ fn committed_turn_cell_renders_materialized_sidecar_sections() {
         .collect::<Vec<_>>()
         .join("\n");
 
-    let you_idx = rendered.find("› Review the workspace logic").unwrap();
+    let you_idx = rendered.find("Review the workspace logic").unwrap();
     let explored_idx = rendered.find(" Explored ").unwrap();
     let planning_idx = rendered.find(" Planned ").unwrap();
     let agent_idx = rendered

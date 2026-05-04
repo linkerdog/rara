@@ -282,33 +282,35 @@ fn push_wrapped_diff_line(
     width: usize,
     indent: &'static str,
 ) -> Vec<Line<'static>> {
-    let (sign, sign_style, content_style) = match kind {
+    let (sign, sign_style, line_bg, content_style) = match kind {
         DiffLineType::Insert => (
             "+",
             Style::default()
-                .fg(STATUS_SUCCESS)
+                .fg(DIFF_ADD_FG)
                 .add_modifier(Modifier::BOLD),
-            Style::default().fg(STATUS_SUCCESS),
+            Some(DIFF_ADD_BG),
+            Style::default().fg(DIFF_ADD_FG),
         ),
         DiffLineType::Delete => (
             "-",
             Style::default()
-                .fg(STATUS_ERROR)
+                .fg(DIFF_DEL_FG)
                 .add_modifier(Modifier::BOLD),
-            Style::default()
-                .fg(STATUS_ERROR)
-                .add_modifier(Modifier::DIM),
+            Some(DIFF_DEL_BG),
+            Style::default().fg(DIFF_DEL_FG).add_modifier(Modifier::DIM),
         ),
         DiffLineType::Header => (
             " ",
             Style::default().fg(TEXT_SECONDARY),
+            Some(DIFF_HUNK_BG),
             Style::default()
-                .fg(TEXT_ACCENT)
+                .fg(DIFF_HUNK_FG)
                 .add_modifier(Modifier::BOLD),
         ),
         DiffLineType::Context => (
             " ",
             Style::default().fg(TEXT_SECONDARY),
+            None,
             Style::default().fg(TEXT_MUTED),
         ),
     };
@@ -320,12 +322,19 @@ fn push_wrapped_diff_line(
         .enumerate()
         .map(|(idx, chunk)| {
             let prefix = if idx == 0 { sign } else { " " };
-            Line::from(vec![
+            let mut spans = vec![
                 Span::raw(indent),
                 Span::styled(prefix.to_string(), sign_style),
                 Span::raw(" "),
                 Span::styled(chunk, content_style),
-            ])
+            ];
+            if let Some(bg) = line_bg {
+                spans = spans
+                    .into_iter()
+                    .map(|s| Span::styled(s.content.to_string(), s.style.bg(bg)))
+                    .collect();
+            }
+            Line::from(spans)
         })
         .collect()
 }

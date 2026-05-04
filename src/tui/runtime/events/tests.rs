@@ -629,7 +629,7 @@ fn formats_replace_lines_tool_result_as_edit_summary() {
 
     assert_eq!(
         rendered,
-        "replace_lines src/context/assembler.rs:426-1263\nremoved=838 inserted=0 line_delta=-838"
+        "~ replace_lines src/context/assembler.rs:426-1263  -838 lines  +0 lines  (Δ -838)"
     );
 }
 
