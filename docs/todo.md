@@ -56,7 +56,7 @@ Active backlog only. Keep this file small and current.
 - [x] Persist full `MemoryRecord` domain records with session id, thread id, and source span provenance.
 - [x] Replace `retrieve_session_context` stub with LanceDB hybrid search over conversation checkpoints.
 - [x] Add backend `ThreadStore` APIs for markdown export and summary-to-memory distillation.
-- [ ] Promote LanceDB-backed retrieval from `MemoryStore` into ranked `MemorySelection` candidates.
+- [x] Promote LanceDB-backed retrieval from `MemoryStore` into ranked `MemorySelection` candidates.
 - [ ] Add pinned/retention policy so pinned, user-created, and high-importance memories are excluded from automatic cleanup.
 - [ ] Add memory update/delete/list-label control-plane scaffolding for ACP/Wire without exposing LanceDB APIs.
 - [ ] Upgrade thread distillation from summary capture to LLM-assisted 2-8 record extraction with deduplication.

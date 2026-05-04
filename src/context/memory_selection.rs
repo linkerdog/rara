@@ -8,7 +8,10 @@ use crate::context::assembler::{
 };
 use crate::context::{
     CompactionSourceContextEntry, DropReason, MemorySelectionContextView,
-    MemorySelectionItemContextEntry,
+    MemorySelectionItemContextEntry, RETRIEVED_THREAD_CONTEXT_KIND,
+    RETRIEVED_WORKSPACE_MEMORY_KIND, RetrievedMemoryCandidate, RetrievedMemoryRenderItem,
+    is_retrieved_memory_kind, render_retrieved_memory_context,
+    render_retrieved_memory_context_item,
 };
 use crate::prompt::PromptSource;
 
@@ -21,6 +24,7 @@ pub(crate) fn memory_selection(
     history: &[Message],
     session_id: &str,
     vdb_uri: &str,
+    retrieved_memory_candidates: &[RetrievedMemoryCandidate],
     selection_budget_tokens: Option<usize>,
 ) -> MemorySelectionContextView {
     let mut selected_items = fixed_memory_selection_items(
@@ -36,7 +40,7 @@ pub(crate) fn memory_selection(
         .map(|item| item.kind.clone())
         .collect::<Vec<_>>();
     let mut discretionary = select_memory_candidates(
-        retrieval_memory_candidates(history, session_id, vdb_uri),
+        retrieval_memory_candidates(history, session_id, vdb_uri, retrieved_memory_candidates),
         selection_budget_tokens,
         fixed_kinds.as_slice(),
     );
@@ -242,11 +246,50 @@ fn retrieval_memory_candidates(
     history: &[Message],
     session_id: &str,
     vdb_uri: &str,
+    retrieved_memory_candidates: &[RetrievedMemoryCandidate],
 ) -> Vec<MemorySelectionCandidate> {
-    let mut candidates = retrieval_tool_candidates(history);
+    let mut candidates = direct_retrieved_memory_candidates(retrieved_memory_candidates);
+    candidates.extend(retrieval_tool_candidates(history));
     candidates.push(thread_history_candidate(history, session_id));
     candidates.push(vector_memory_candidate(vdb_uri));
     candidates
+}
+
+fn direct_retrieved_memory_candidates(
+    retrieved_memory_candidates: &[RetrievedMemoryCandidate],
+) -> Vec<MemorySelectionCandidate> {
+    retrieved_memory_candidates
+        .iter()
+        .map(|candidate| {
+            let base_priority = match candidate.kind.as_str() {
+                RETRIEVED_THREAD_CONTEXT_KIND => 10,
+                RETRIEVED_WORKSPACE_MEMORY_KIND => 20,
+                _ => 25,
+            };
+            MemorySelectionCandidate {
+                kind: candidate.kind.clone(),
+                label: candidate.label.clone(),
+                detail: candidate.detail.clone(),
+                selection_reason: candidate.selection_reason.clone(),
+                budget_impact_tokens: Some(direct_retrieved_memory_budget_impact(candidate)),
+                priority: base_priority + candidate.rank,
+                selectable: true,
+                dropped_reason: DropReason::NotSelected {
+                    reason:
+                        "not selected after ranking the retrieved memory candidate against the current memory-selection budget"
+                            .to_string(),
+                },
+            }
+        })
+        .collect()
+}
+
+fn direct_retrieved_memory_budget_impact(candidate: &RetrievedMemoryCandidate) -> usize {
+    let item = RetrievedMemoryRenderItem {
+        label: candidate.label.as_str(),
+        detail: candidate.detail.as_str(),
+    };
+    estimate_text_tokens(&render_retrieved_memory_context_item(item))
 }
 
 fn retrieval_tool_candidates(history: &[Message]) -> Vec<MemorySelectionCandidate> {
@@ -345,8 +388,14 @@ fn select_memory_candidates(
     });
     let mut decision = MemorySelectionDecision::default();
     let mut selected_kinds = fixed_selected_kinds.to_vec();
+    let mut selected_retrieved_items: Vec<(String, String)> = Vec::new();
 
     for candidate in candidates {
+        let candidate_budget_impact =
+            candidate_budget_impact_tokens(&candidate, selected_retrieved_items.as_slice());
+        let is_retrieved_memory = is_retrieved_memory_kind(candidate.kind.as_str());
+        let selected_retrieved_item =
+            is_retrieved_memory.then(|| (candidate.label.clone(), candidate.detail.clone()));
         let should_drop: Option<DropReason> = if !candidate.selectable {
             Some(candidate.dropped_reason.clone())
         } else if candidate.kind == "thread_history" && has_compacted_history {
@@ -361,9 +410,7 @@ fn select_memory_candidates(
                 reason:
                     "not selected because a more focused retrieved thread-context candidate already won the current memory selection".to_string(),
             })
-        } else if let (Some(remaining), Some(cost)) =
-            (remaining_budget, candidate.budget_impact_tokens)
-        {
+        } else if let (Some(remaining), Some(cost)) = (remaining_budget, candidate_budget_impact) {
             (cost > remaining).then(|| DropReason::BudgetExceeded {
                 reason: format!(
                     "not selected because it would exceed the remaining memory-selection budget ({cost} > {remaining})"
@@ -381,7 +428,7 @@ fn select_memory_candidates(
                 label: candidate.label,
                 detail: candidate.detail,
                 selection_reason: candidate.selection_reason,
-                budget_impact_tokens: candidate.budget_impact_tokens,
+                budget_impact_tokens: candidate_budget_impact,
                 dropped_reason: Some(dropped_reason),
             };
             if is_budget {
@@ -392,10 +439,12 @@ fn select_memory_candidates(
             continue;
         }
 
-        if let (Some(remaining), Some(cost)) =
-            (remaining_budget.as_mut(), candidate.budget_impact_tokens)
+        if let (Some(remaining), Some(cost)) = (remaining_budget.as_mut(), candidate_budget_impact)
         {
             *remaining = remaining.saturating_sub(cost);
+        }
+        if let Some(item) = selected_retrieved_item {
+            selected_retrieved_items.push(item);
         }
         selected_kinds.push(candidate.kind.clone());
         decision
@@ -406,12 +455,48 @@ fn select_memory_candidates(
                 label: candidate.label,
                 detail: candidate.detail,
                 selection_reason: candidate.selection_reason,
-                budget_impact_tokens: candidate.budget_impact_tokens,
+                budget_impact_tokens: candidate_budget_impact,
                 dropped_reason: None,
             });
     }
 
     decision
+}
+
+fn candidate_budget_impact_tokens(
+    candidate: &MemorySelectionCandidate,
+    selected_retrieved_items: &[(String, String)],
+) -> Option<usize> {
+    if !is_retrieved_memory_kind(candidate.kind.as_str()) {
+        return candidate.budget_impact_tokens;
+    }
+    Some(retrieved_memory_incremental_budget_impact(
+        selected_retrieved_items,
+        candidate,
+    ))
+}
+
+fn retrieved_memory_incremental_budget_impact(
+    selected_items: &[(String, String)],
+    candidate: &MemorySelectionCandidate,
+) -> usize {
+    let current = retrieved_memory_context_budget(selected_items);
+    let mut with_candidate = selected_items.to_vec();
+    with_candidate.push((candidate.label.clone(), candidate.detail.clone()));
+    retrieved_memory_context_budget(with_candidate.as_slice()).saturating_sub(current)
+}
+
+fn retrieved_memory_context_budget(items: &[(String, String)]) -> usize {
+    let render_items = items
+        .iter()
+        .map(|(label, detail)| RetrievedMemoryRenderItem {
+            label: label.as_str(),
+            detail: detail.as_str(),
+        })
+        .collect::<Vec<_>>();
+    render_retrieved_memory_context(render_items.as_slice())
+        .map(|rendered| estimate_text_tokens(&rendered))
+        .unwrap_or_default()
 }
 
 fn workspace_memory_available_item(
@@ -627,6 +712,7 @@ mod tests {
             &history,
             "session-1",
             "",
+            &[],
             Some(10_000),
         );
 
@@ -668,6 +754,7 @@ mod tests {
             &history,
             "session-1",
             "",
+            &[],
             Some(10_000),
         );
 
@@ -703,6 +790,7 @@ mod tests {
             &history,
             "session-1",
             "memory://vdb",
+            &[],
             Some(10_000),
         );
 
@@ -756,7 +844,18 @@ mod tests {
         ];
         // Budget of 1 token forces the retrieval candidate to be dropped,
         // proving it was captured as a candidate.
-        let result = memory_selection(&[], None, &[], &[], &[], &history, "session-1", "", Some(1));
+        let result = memory_selection(
+            &[],
+            None,
+            &[],
+            &[],
+            &[],
+            &history,
+            "session-1",
+            "",
+            &[],
+            Some(1),
+        );
 
         let dropped_kinds: Vec<&str> = result
             .dropped_items
@@ -820,6 +919,7 @@ mod tests {
             &history,
             "session-1",
             "",
+            &[],
             Some(10_000),
         );
 
@@ -831,6 +931,163 @@ mod tests {
         assert!(
             selected_kinds.contains(&"retrieved_thread_context"),
             "retrieve_session_context results should be selected when budget allows"
+        );
+    }
+
+    #[test]
+    fn direct_retrieved_memory_candidates_are_selected_when_budget_allows() {
+        let history = vec![Message {
+            role: "user".to_string(),
+            content: json!([{"type":"text","text":"Where is the reference project?"}]),
+        }];
+        let retrieved = vec![RetrievedMemoryCandidate {
+            kind: RETRIEVED_WORKSPACE_MEMORY_KIND.to_string(),
+            label: "Memory: reference project path".to_string(),
+            detail: "content: Reference project source lives at /Users/example/reference-project."
+                .to_string(),
+            selection_reason: "retrieved as a candidate for the current turn query".to_string(),
+            rank: 1,
+        }];
+
+        let result = memory_selection(
+            &[],
+            None,
+            &[],
+            &[],
+            &[],
+            &history,
+            "session-1",
+            "memory://vdb",
+            &retrieved,
+            Some(10_000),
+        );
+
+        let selected = result
+            .selected_items
+            .iter()
+            .find(|item| item.kind == RETRIEVED_WORKSPACE_MEMORY_KIND)
+            .expect("direct retrieved workspace memory should be selected");
+        assert_eq!(selected.label, "Memory: reference project path");
+        assert!(selected.detail.contains("/Users/example/reference-project"));
+        let expected_rendered = render_retrieved_memory_context(&[RetrievedMemoryRenderItem {
+            label: selected.label.as_str(),
+            detail: selected.detail.as_str(),
+        }])
+        .expect("retrieved memory context should render");
+        assert_eq!(
+            selected.budget_impact_tokens,
+            Some(estimate_text_tokens(&expected_rendered))
+        );
+    }
+
+    #[test]
+    fn direct_retrieved_memory_candidates_charge_shared_context_overhead_once() {
+        let history = vec![Message {
+            role: "user".to_string(),
+            content: json!([{"type":"text","text":"Where are the reference project notes?"}]),
+        }];
+        let retrieved = vec![
+            RetrievedMemoryCandidate {
+                kind: RETRIEVED_WORKSPACE_MEMORY_KIND.to_string(),
+                label: "Memory: reference project path".to_string(),
+                detail: "content: Reference project source lives at /Users/example/reference-project."
+                    .to_string(),
+                selection_reason: "retrieved as a candidate for the current turn query".to_string(),
+                rank: 1,
+            },
+            RetrievedMemoryCandidate {
+                kind: RETRIEVED_WORKSPACE_MEMORY_KIND.to_string(),
+                label: "Memory: reference project docs".to_string(),
+                detail: "content: Reference project docs live under /Users/example/reference-project/docs."
+                    .to_string(),
+                selection_reason: "retrieved as a candidate for the current turn query".to_string(),
+                rank: 2,
+            },
+        ];
+        let rendered = render_retrieved_memory_context(
+            retrieved
+                .iter()
+                .map(|candidate| RetrievedMemoryRenderItem {
+                    label: candidate.label.as_str(),
+                    detail: candidate.detail.as_str(),
+                })
+                .collect::<Vec<_>>()
+                .as_slice(),
+        )
+        .expect("retrieved memory context should render");
+        let exact_budget = estimate_text_tokens(&rendered);
+
+        let result = memory_selection(
+            &[],
+            None,
+            &[],
+            &[],
+            &[],
+            &history,
+            "session-1",
+            "memory://vdb",
+            &retrieved,
+            Some(exact_budget),
+        );
+
+        let selected = result
+            .selected_items
+            .iter()
+            .filter(|item| item.kind == RETRIEVED_WORKSPACE_MEMORY_KIND)
+            .collect::<Vec<_>>();
+        assert_eq!(
+            selected.len(),
+            2,
+            "shared memory-context overhead should be charged once, not once per candidate"
+        );
+        assert_eq!(
+            selected
+                .iter()
+                .map(|item| item.budget_impact_tokens.unwrap_or_default())
+                .sum::<usize>(),
+            exact_budget
+        );
+    }
+
+    #[test]
+    fn direct_retrieved_memory_candidates_are_dropped_when_budget_is_tight() {
+        let history = vec![Message {
+            role: "user".to_string(),
+            content: json!([{"type":"text","text":"Where is the reference project?"}]),
+        }];
+        let retrieved = vec![RetrievedMemoryCandidate {
+            kind: RETRIEVED_THREAD_CONTEXT_KIND.to_string(),
+            label: "Session Context session-1#3".to_string(),
+            detail:
+                "content: a long prior session observation that will exceed the one-token budget"
+                    .to_string(),
+            selection_reason: "retrieved as a candidate for the current turn query".to_string(),
+            rank: 1,
+        }];
+
+        let result = memory_selection(
+            &[],
+            None,
+            &[],
+            &[],
+            &[],
+            &history,
+            "session-1",
+            "memory://vdb",
+            &retrieved,
+            Some(1),
+        );
+
+        let dropped = result
+            .dropped_items
+            .iter()
+            .find(|item| item.kind == RETRIEVED_THREAD_CONTEXT_KIND)
+            .expect("direct retrieved thread context should be dropped by budget");
+        assert!(
+            dropped
+                .dropped_reason
+                .as_ref()
+                .is_some_and(|reason| reason.reason().contains("memory-selection budget"))
         );
     }
 
@@ -851,6 +1108,7 @@ mod tests {
             &history,
             "session-1",
             "memory://vdb",
+            &[],
             Some(10_000),
         );
 

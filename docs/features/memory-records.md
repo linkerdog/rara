@@ -118,7 +118,7 @@ Importance scale:
 | Memory delete | User or control-plane request can delete records with audit-safe semantics. | Not implemented as a public memory capability. |
 | Memory retention | Pinned, user-created, and high-importance memories are protected from automatic cleanup; explicit delete remains possible with provenance. | Spec only. No automatic cleanup path exists yet. |
 | Thread distillation | Thread history can be distilled into 2-8 durable memory records. | Partial. `ThreadStore::distill_thread_summary` can persist one thread-linked summary record; LLM extraction and deduplication remain future work. |
-| Context injection | Ranked memory candidates pass through `MemorySelection` before prompt injection. | Partial. `MemorySelection` exists, but LanceDB search results are not yet direct ranked candidates. |
+| Context injection | Ranked memory candidates pass through `MemorySelection` before prompt injection. | Partial. LanceDB-backed memory and session search now produce direct ranked `MemorySelection` candidates; retention, deduplication, and protocol mutation remain future work. |
 | Graph retrieval | Entity and relationship traversal complements vector recall. | Future work. |
 | Working memory | Daily or session briefing summarizes recent and important memories. | Future work. |
 | MCP / ACP / Wire memory APIs | Protocol clients can query and mutate memory through the runtime control plane. | Future work over the `MemoryStore` boundary. |
@@ -239,8 +239,11 @@ Current implementation checkpoint:
 - `ThreadStore::distill_thread_summary` can promote a loaded thread summary into
   a thread-linked `MemoryRecord` with `session_id`, `thread_id`, and source span.
 - Agent turn checkpoints continue writing to the `conversations` table.
-- `MemorySelection` is not yet switched to direct ranked memory candidates;
-  retrieved memories still enter through retrieval-tool results.
+- `MemoryRetrievalOrchestrator` promotes LanceDB-backed workspace memories and
+  session-context hits into direct ranked `MemorySelection` candidates.
+- Selected retrieval candidates are rendered as a per-turn internal context
+  block prepended to the current user request. They are not persisted into
+  thread history and do not change the stable system prompt prefix.
 
 ## Migration
 
@@ -253,7 +256,7 @@ Current implementation checkpoint:
    over `MemoryStore`. Done.
 6. Persist full `MemoryRecord` records separately from the LanceDB search index.
    Done.
-7. Wire `MemorySelection` to ranked memory candidates.
+7. Wire `MemorySelection` to ranked memory candidates. Done.
 8. Add pinned/retention policy so pinned, user-created, and high-importance
    memories are excluded from automatic cleanup.
 9. Add update/delete/list-label control-plane scaffolding without exposing

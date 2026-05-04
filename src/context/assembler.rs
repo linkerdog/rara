@@ -7,7 +7,8 @@ use crate::context::memory_selection::memory_selection;
 use crate::context::retrieval_view::retrieval_source_entries;
 use crate::context::{
     CompactionContextView, ContextBudgetView, PlanContextView, PromptContextView,
-    RetrievalContextView, SharedRuntimeContext, TodoContextView,
+    RETRIEVED_WORKSPACE_MEMORY_KIND, RetrievalContextView, RetrievedMemoryCandidate,
+    SharedRuntimeContext, TodoContextView,
 };
 use crate::llm::{ContextBudget, LlmBackend};
 use crate::prompt::{self, EffectivePrompt, PromptMode, PromptRuntimeConfig};
@@ -45,6 +46,7 @@ pub struct RuntimeContextInputs<'a> {
     pub vdb_uri: &'a str,
     pub pending_interactions: Vec<RuntimeInteractionInput>,
     pub skill_listing: Option<String>,
+    pub retrieved_memory_candidates: Vec<RetrievedMemoryCandidate>,
 }
 
 #[derive(Debug, Clone)]
@@ -162,6 +164,7 @@ impl<'a> ContextAssembler<'a> {
                 inputs.history,
                 inputs.session_id.as_str(),
                 inputs.vdb_uri,
+                inputs.retrieved_memory_candidates.as_slice(),
                 selection_budget,
             ),
         };
@@ -435,6 +438,7 @@ mod tests {
                 vdb_uri: "memory://vdb",
                 pending_interactions: Vec::new(),
                 skill_listing: None,
+                retrieved_memory_candidates: Vec::new(),
             },
         );
 
@@ -494,6 +498,7 @@ mod tests {
                 vdb_uri: "memory://vdb",
                 pending_interactions: Vec::new(),
                 skill_listing: None,
+                retrieved_memory_candidates: Vec::new(),
             },
         );
 
@@ -575,6 +580,7 @@ mod tests {
                 vdb_uri: "memory://vdb",
                 pending_interactions: Vec::new(),
                 skill_listing: None,
+                retrieved_memory_candidates: Vec::new(),
             },
         );
 
@@ -612,6 +618,67 @@ mod tests {
                         .is_some_and(|r| r.reason().contains("memory-selection budget"))
                 })
         );
+    }
+
+    #[test]
+    fn assemble_runtime_places_selected_retrieved_memory_in_active_memory_inputs() {
+        let workspace = test_workspace();
+        let runtime = PromptRuntimeConfig::default();
+        let history = vec![Message {
+            role: "user".to_string(),
+            content: json!([{"type":"text","text":"Where is the reference project?"}]),
+        }];
+
+        let runtime_context = ContextAssembler::new(&workspace, &runtime).assemble_runtime(
+            PromptMode::Execute,
+            RuntimeContextInputs {
+                cwd: "repo".to_string(),
+                branch: "main".to_string(),
+                session_id: "session-1".to_string(),
+                history_len: history.len(),
+                total_input_tokens: 0,
+                total_output_tokens: 0,
+                total_cache_hit_tokens: 0,
+                total_cache_miss_tokens: 0,
+                execution_mode: "execute".to_string(),
+                plan_steps: Vec::new(),
+                plan_explanation: None,
+                todo_state: None,
+                compact_state: crate::agent::CompactState {
+                    context_window_tokens: Some(200_000),
+                    compact_threshold_tokens: 190_000,
+                    reserved_output_tokens: 1_024,
+                    ..Default::default()
+                },
+                history: &history,
+                vdb_uri: "memory://vdb",
+                pending_interactions: Vec::new(),
+                skill_listing: None,
+                retrieved_memory_candidates: vec![RetrievedMemoryCandidate {
+                    kind: RETRIEVED_WORKSPACE_MEMORY_KIND.to_string(),
+                    label: "Memory: reference project path".to_string(),
+                    detail: "content: Reference project source lives at /Users/example/reference-project."
+                        .to_string(),
+                    selection_reason: "retrieved as a candidate for the current turn query"
+                        .to_string(),
+                    rank: 1,
+                }],
+            },
+        );
+
+        assert!(
+            runtime_context
+                .retrieval
+                .memory_selection
+                .selected_items
+                .iter()
+                .any(|item| item.kind == RETRIEVED_WORKSPACE_MEMORY_KIND)
+        );
+        assert!(runtime_context.assembly.entries.iter().any(|entry| {
+            entry.layer == "active_memory_inputs"
+                && entry.kind == RETRIEVED_WORKSPACE_MEMORY_KIND
+                && entry.injected
+        }));
     }
 
     #[test]
@@ -665,6 +732,7 @@ mod tests {
                     source: None,
                 }],
                 skill_listing: None,
+                retrieved_memory_candidates: Vec::new(),
             },
         );
 

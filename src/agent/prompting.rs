@@ -63,6 +63,7 @@ impl Agent {
             vdb_uri: self.vdb.uri(),
             pending_interactions: self.pending_runtime_interactions(),
             skill_listing: prompt::render_skill_listing(&self.prompt_config.available_skills),
+            retrieved_memory_candidates: self.retrieved_memory_candidates.clone(),
         }
     }
 

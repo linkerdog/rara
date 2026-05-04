@@ -182,6 +182,18 @@ impl MemoryStore {
             return Ok(Vec::new());
         }
         let query_vector = self.backend.embed(query).await?;
+        self.search_with_embedding(query, query_vector, limit).await
+    }
+
+    pub async fn search_with_embedding(
+        &self,
+        query: &str,
+        query_vector: Vec<f32>,
+        limit: usize,
+    ) -> Result<Vec<MemoryRecordSearchHit>> {
+        if query.trim().is_empty() || query_vector.is_empty() || limit == 0 {
+            return Ok(Vec::new());
+        }
         let hits = self
             .vdb
             .hybrid_search_with_metadata(EXPERIENCES_TABLE, query, query_vector, limit)

@@ -1,5 +1,6 @@
 mod compact;
 mod context_view;
+mod memory_retrieval;
 mod planning;
 mod prompting;
 #[cfg(test)]
@@ -12,8 +13,10 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use uuid::Uuid;
 
+use crate::context::RetrievedMemoryCandidate;
 use crate::control_tokens::scrub_internal_control_tokens;
 use crate::llm::{ContentBlock, LlmBackend, LlmStreamEvent, LlmTurnMetadata};
+use crate::memory_store::MemoryStore;
 use crate::prompt::{self, PromptMode, PromptRuntimeConfig};
 use crate::redaction::redact_secrets;
 use crate::session::SessionManager;
@@ -118,6 +121,7 @@ pub struct Agent {
     pub tool_manager: ToolManager,
     pub llm_backend: Arc<dyn LlmBackend>,
     pub vdb: Arc<VectorDB>,
+    pub memory_store: Arc<MemoryStore>,
     pub session_manager: Arc<SessionManager>,
     pub workspace: Arc<WorkspaceMemory>,
     pub history: Vec<Message>,
@@ -138,6 +142,7 @@ pub struct Agent {
     pub completed_approval: Option<CompletedInteraction>,
     pub approved_bash_prefixes: Vec<String>,
     pub compact_state: CompactState,
+    pub retrieved_memory_candidates: Vec<RetrievedMemoryCandidate>,
     inspection_progress: InspectionProgress,
     last_query_plan_updated: bool,
     pending_plan_exit_tool_id: Option<String>,
@@ -153,10 +158,12 @@ impl Agent {
         session_manager: Arc<SessionManager>,
         workspace: Arc<WorkspaceMemory>,
     ) -> Self {
+        let memory_store = Arc::new(MemoryStore::new(llm_backend.clone(), vdb.clone()));
         Self {
             tool_manager,
             llm_backend,
             vdb,
+            memory_store,
             session_manager,
             workspace,
             history: Vec::new(),
@@ -180,6 +187,7 @@ impl Agent {
             completed_approval: None,
             approved_bash_prefixes: Vec::new(),
             compact_state: CompactState::default(),
+            retrieved_memory_candidates: Vec::new(),
             inspection_progress: InspectionProgress::default(),
             last_query_plan_updated: false,
             pending_plan_exit_tool_id: None,
@@ -230,6 +238,7 @@ impl Agent {
             content: json!([{"type": "text", "text": prompt.clone()}]),
         });
         self.checkpoint_session()?;
+        self.refresh_memory_retrieval_candidates().await;
 
         match self
             .run_agent_loop_with_limit(output_mode, &mut report, &mut agentic_turns)
@@ -311,6 +320,7 @@ impl Agent {
         report(AgentEvent::Status("Sending prompt to model.".to_string()));
         let turn_metadata = self.llm_turn_metadata();
         turn_metadata.ensure_not_cancelled()?;
+        let assembled = self.assemble_turn_context();
         let mut messages = self
             .history
             .iter()
@@ -321,9 +331,12 @@ impl Agent {
             0,
             Message {
                 role: "system".to_string(),
-                content: json!(self.build_system_prompt()),
+                content: json!(assembled.prompt.effective_prompt.text),
             },
         );
+        if let Some(memory_context) = Agent::selected_memory_context_text(&assembled.runtime) {
+            Agent::prepend_memory_context_to_latest_user_message(&mut messages, memory_context);
+        }
 
         let mut streamed_any_text_delta = false;
         let mut streamed_any_reasoning_delta = false;
