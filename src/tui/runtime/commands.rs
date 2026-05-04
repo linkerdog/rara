@@ -40,7 +40,7 @@ pub(super) async fn execute_local_command(
                 BashApprovalMode::Always => BashApprovalMode::Suggestion,
             };
             app.bash_approval_mode = next_mode;
-            app.permission_mode = PermissionMode::Auto;
+            app.permission_mode = PermissionMode::Custom;
             if let Some(agent) = agent_slot.as_mut() {
                 agent.set_bash_approval_mode(next_mode);
             }
@@ -109,7 +109,7 @@ pub(super) async fn execute_local_command(
                 Some("entering planning mode".into()),
             );
             app.set_pending_plan_approval(false);
-            app.permission_mode = PermissionMode::Auto;
+            app.permission_mode = PermissionMode::Custom;
             app.set_agent_execution_mode(AgentExecutionMode::Plan);
             if let Some(agent) = agent_slot.as_mut() {
                 agent.set_execution_mode(AgentExecutionMode::Plan);
@@ -251,6 +251,7 @@ fn apply_permission_mode(app: &mut TuiApp, agent_slot: &mut Option<Agent>, mode:
             false,
         ),
         PermissionMode::FullAccess => (AgentExecutionMode::Execute, BashApprovalMode::Always, true),
+        PermissionMode::Custom => return,
     };
 
     app.set_agent_execution_mode(execution);
