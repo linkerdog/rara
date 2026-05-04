@@ -7,6 +7,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 use crate::agent::Message;
+use crate::atomic_file;
 
 const TRANSCRIPT_FILE_NAME: &str = "transcript.jsonl";
 const TRANSCRIPT_SCHEMA_VERSION: u32 = 1;
@@ -136,11 +137,21 @@ pub fn load_transcript(path: &Path) -> Result<SessionTranscriptLoad> {
     let reader = BufReader::new(file);
     let mut entries = Vec::new();
     let mut parse_errors = 0usize;
-    for line in reader.lines() {
-        let line = match line {
-            Ok(line) => line,
+    let mut line_bytes = Vec::new();
+    loop {
+        line_bytes.clear();
+        match reader.read_until(b'\n', &mut line_bytes) {
+            Ok(0) => break,
+            Ok(_) => {}
             Err(err) if err.kind() == ErrorKind::Interrupted => continue,
             Err(err) => return Err(err.into()),
+        }
+        let line = match std::str::from_utf8(&line_bytes) {
+            Ok(line) => line,
+            Err(_) => {
+                parse_errors = parse_errors.saturating_add(1);
+                continue;
+            }
         };
         let line = line.trim();
         if line.is_empty() {
@@ -215,7 +226,7 @@ fn write_entries_atomic(path: &Path, entries: &[SessionTranscriptEntry]) -> Resu
         }
         writer.flush()?;
         writer.into_inner()?.sync_all()?;
-        replace_file(&tmp_path, path)?;
+        atomic_file::replace_file(&tmp_path, path)?;
         Ok(())
     })();
     if let Err(err) = result {
@@ -223,25 +234,6 @@ fn write_entries_atomic(path: &Path, entries: &[SessionTranscriptEntry]) -> Resu
         return Err(err);
     }
     Ok(())
-}
-
-#[cfg(not(windows))]
-fn replace_file(src: &Path, dst: &Path) -> Result<()> {
-    fs::rename(src, dst)?;
-    Ok(())
-}
-
-#[cfg(windows)]
-fn replace_file(src: &Path, dst: &Path) -> Result<()> {
-    match fs::rename(src, dst) {
-        Ok(()) => Ok(()),
-        Err(err) if err.kind() == std::io::ErrorKind::AlreadyExists && dst.exists() => {
-            fs::remove_file(dst)?;
-            fs::rename(src, dst)?;
-            Ok(())
-        }
-        Err(err) => Err(err.into()),
-    }
 }
 
 fn message_id(idx: usize) -> String {
@@ -382,6 +374,46 @@ mod tests {
 
         let load = load_transcript(&path)?;
         assert_eq!(load.entries.len(), 1);
+        assert_eq!(load.parse_errors, 1);
+        Ok(())
+    }
+
+    #[test]
+    fn load_transcript_counts_non_utf8_lines_as_parse_errors() -> Result<()> {
+        let temp = tempdir()?;
+        let path = main_transcript_path(temp.path(), "session-1");
+        append_entry(
+            &path,
+            &SessionTranscriptEntry::SpawnAgent {
+                event_id: "spawn-1".to_string(),
+                session_id: "session-1".to_string(),
+                child_session_id: Some("child-1".to_string()),
+                agent_id: Some("worker".to_string()),
+                name: Some("worker".to_string()),
+                status: "completed".to_string(),
+                summary: Some("done".to_string()),
+            },
+        )?;
+        std::fs::OpenOptions::new()
+            .append(true)
+            .open(&path)?
+            .write_all(b"\xff\xfe\xfd\n")?;
+        append_entry(
+            &path,
+            &SessionTranscriptEntry::SpawnAgent {
+                event_id: "spawn-2".to_string(),
+                session_id: "session-1".to_string(),
+                child_session_id: Some("child-2".to_string()),
+                agent_id: Some("worker".to_string()),
+                name: Some("worker".to_string()),
+                status: "completed".to_string(),
+                summary: Some("done again".to_string()),
+            },
+        )?;
+
+        let load = load_transcript(&path)?;
+
+        assert_eq!(load.entries.len(), 2);
         assert_eq!(load.parse_errors, 1);
         Ok(())
     }

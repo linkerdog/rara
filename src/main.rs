@@ -1,6 +1,7 @@
 mod acp;
 mod agent;
 mod app_cli;
+mod atomic_file;
 mod codex_model_catalog;
 mod config;
 mod context;
