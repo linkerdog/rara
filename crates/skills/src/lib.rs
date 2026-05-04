@@ -747,6 +747,10 @@ mod tests {
 
 // ── Bundled System Skills ────────────────────────────────────────
 
-const SYSTEM_SKILL_VERIFY: &str = include_str!("../../../../assets/skills/verify/SKILL.md");
+const SYSTEM_SKILL_VERIFY: &str =
+    include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../assets/skills/verify/SKILL.md"));
 const SYSTEM_SKILL_VERIFIER_GENERIC: &str =
-    include_str!("../../../../assets/skills/verifier-generic/SKILL.md");
+    include_str!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../assets/skills/verifier-generic/SKILL.md"
+    ));
