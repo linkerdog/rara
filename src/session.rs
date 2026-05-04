@@ -314,9 +314,12 @@ impl SessionManager {
         if let Some(parent) = path.parent() {
             fs::create_dir_all(parent)?;
         }
-        let temp_path = path.with_extension("json.tmp");
+        let temp_path = path.with_extension(format!("json.tmp-{}", uuid::Uuid::new_v4()));
         fs::write(&temp_path, serde_json::to_string(history)?)?;
-        fs::rename(temp_path, path)?;
+        if let Err(err) = Self::replace_file(&temp_path, &path) {
+            let _ = fs::remove_file(&temp_path);
+            return Err(err);
+        }
         session_transcript::write_history_snapshot(&self.storage_dir, thread_id, history)
             .context("write legacy session transcript snapshot")?;
         Ok(())
