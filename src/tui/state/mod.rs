@@ -449,12 +449,12 @@ impl TuiApp {
         self.model_picker_idx = self.selected_preset_idx();
     }
 
-    fn selected_model_preset(&self) -> (&'static str, &'static str, &'static str) {
+    fn selected_model_preset(&self) -> Option<(&'static str, &'static str, &'static str)> {
         let presets = current_model_presets(self.provider_picker_idx);
         if presets.is_empty() {
-            return ("", "", "");
+            return None;
         }
-        presets[self.model_picker_idx.min(presets.len().saturating_sub(1))]
+        Some(presets[self.model_picker_idx.min(presets.len().saturating_sub(1))])
     }
 
     pub fn selected_openai_profile_kind(&self) -> Option<OpenAiEndpointKind> {
@@ -1126,12 +1126,11 @@ impl TuiApp {
             self.api_key_cursor_offset = None;
         }
         if matches!(overlay, Overlay::ModelNameEditor) {
-            let (_, _, default_model) = self.selected_model_preset();
-            self.model_name_input = self
-                .config
-                .model
-                .clone()
-                .unwrap_or_else(|| default_model.to_string());
+            self.model_name_input = self.config.model.clone().unwrap_or_else(|| {
+                self.selected_model_preset()
+                    .map(|(_, _, default_model)| default_model.to_string())
+                    .unwrap_or_default()
+            });
             self.model_name_cursor_offset = None;
         }
         if matches!(overlay, Overlay::OpenAiProfileLabelEditor) {
