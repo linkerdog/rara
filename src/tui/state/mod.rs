@@ -7,6 +7,8 @@ mod types;
 
 use std::cell::RefCell;
 use std::process::Command;
+use std::sync::Arc;
+use std::sync::atomic::AtomicBool;
 
 use unicode_width::UnicodeWidthChar;
 
@@ -19,10 +21,10 @@ pub use self::types::{
     ActiveLiveEvent, ActiveLiveSections, ActivePendingInteraction, ActivePendingInteractionKind,
     AgentMarkdownStreamState, CommandSpec, CompletedInteractionSnapshot, HelpTab, InteractionKind,
     LocalCommand, LocalCommandKind, OAuthLoginMode, OpenAiModelPickerAction, Overlay,
-    PROVIDER_FAMILIES, PendingApprovalSnapshot, PendingInteractionSnapshot, ProviderFamily,
-    RebuildSuccess, RunningTask, RuntimePhase, RuntimeSnapshot, SkillPickerEntry, StatusTab,
-    TaskCompletion, TaskKind, TranscriptEntry, TranscriptEntryPayload, TranscriptTurn, TuiApp,
-    TuiEvent,
+    PROVIDER_FAMILIES, PendingApprovalSnapshot, PendingInteractionSnapshot, PermissionMode,
+    ProviderFamily, RebuildSuccess, RunningTask, RuntimePhase, RuntimeSnapshot, SkillPickerEntry,
+    StatusTab, TaskCompletion, TaskKind, TranscriptEntry, TranscriptEntryPayload, TranscriptTurn,
+    TuiApp, TuiEvent,
 };
 
 const OPENAI_PROFILE_SETUP_KINDS: [OpenAiEndpointKind; 3] = [
@@ -183,6 +185,7 @@ impl TuiApp {
         let startup_notice = startup_warning_for_config(&cfg);
         let provider_picker_idx = selected_provider_family_idx_for_config(&cfg);
         let model_picker_idx = selected_preset_idx_for_config(&cfg, provider_picker_idx);
+        let sandbox_network = cfg.sandbox_workspace_write.network_access;
         Ok(Self {
             input: String::new(),
             input_cursor_offset: None,
@@ -246,6 +249,8 @@ impl TuiApp {
             codex_auth_mode: None,
             skill_picker_idx: 0,
             skill_picker_entries: Vec::new(),
+            sandbox_network_access: Arc::new(AtomicBool::new(sandbox_network)),
+            permission_mode: PermissionMode::Auto,
         })
     }
 
@@ -451,6 +456,9 @@ impl TuiApp {
 
     fn selected_model_preset(&self) -> (&'static str, &'static str, &'static str) {
         let presets = current_model_presets(self.provider_picker_idx);
+        if presets.is_empty() {
+            return ("", "", "");
+        }
         presets[self.model_picker_idx.min(presets.len().saturating_sub(1))]
     }
 
@@ -934,7 +942,9 @@ impl TuiApp {
                 approval: Some(PendingApprovalSnapshot {
                     tool_use_id: pending.tool_use_id.clone(),
                     command: pending.request.summary(),
-                    allow_net: self.config.sandbox_workspace_write.network_access
+                    allow_net: self
+                        .sandbox_network_access
+                        .load(std::sync::atomic::Ordering::Relaxed)
                         || pending.request.allow_net,
                     payload: pending.request.clone(),
                 }),
@@ -1171,6 +1181,10 @@ impl TuiApp {
             AgentExecutionMode::Plan => "plan",
             AgentExecutionMode::Review => "review",
         }
+    }
+
+    pub fn permission_mode_label(&self) -> &'static str {
+        self.permission_mode.label()
     }
 
     pub fn bash_approval_mode_label(&self) -> &'static str {

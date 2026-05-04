@@ -165,8 +165,10 @@ async fn run_tui_command(
 ) -> Result<()> {
     let bootstrap = runtime_context::initialize_rara_context(config, None).await?;
     emit_bootstrap_warnings(&bootstrap.warnings);
+    let sandbox_network_access = bootstrap.sandbox_network_access.clone();
     let agent = bootstrap.into_agent();
-    let resumed_thread_id = crate::tui::run_tui(agent, oauth_manager, startup_resume).await?;
+    let resumed_thread_id =
+        crate::tui::run_tui(agent, oauth_manager, startup_resume, sandbox_network_access).await?;
     if let Some(thread_id) = resumed_thread_id {
         print!("{}", rendered_resume_hint(&thread_id));
     }

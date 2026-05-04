@@ -72,6 +72,34 @@ pub enum OpenAiModelPickerAction {
     DeleteProfile,
 }
 
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum PermissionMode {
+    Auto,
+    ReadOnly,
+    AcceptEdits,
+    FullAccess,
+}
+
+impl PermissionMode {
+    pub fn cycle(self) -> Self {
+        match self {
+            Self::Auto => Self::AcceptEdits,
+            Self::AcceptEdits => Self::ReadOnly,
+            Self::ReadOnly => Self::FullAccess,
+            Self::FullAccess => Self::Auto,
+        }
+    }
+
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Auto => "auto",
+            Self::AcceptEdits => "accept-edits",
+            Self::ReadOnly => "read-only",
+            Self::FullAccess => "full-access",
+        }
+    }
+}
+
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum LocalCommandKind {
     Help,
@@ -83,9 +111,9 @@ pub enum LocalCommandKind {
     Approval,
     Compact,
     Model,
-    ModelName,
     BaseUrl,
     Login,
+    Permissions,
     Logout,
     Review,
     Quit,
@@ -261,6 +289,7 @@ pub enum TaskCompletion {
 pub struct RebuildSuccess {
     pub agent: Agent,
     pub warnings: Vec<String>,
+    pub sandbox_network_access: Arc<AtomicBool>,
 }
 
 pub enum TuiEvent {
@@ -492,6 +521,8 @@ pub struct TuiApp {
     pub codex_auth_mode: Option<SavedCodexAuthMode>,
     pub skill_picker_idx: usize,
     pub skill_picker_entries: Vec<SkillPickerEntry>,
+    pub sandbox_network_access: Arc<AtomicBool>,
+    pub permission_mode: PermissionMode,
 }
 
 #[derive(Debug, Clone)]

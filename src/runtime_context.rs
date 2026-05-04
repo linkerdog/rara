@@ -1,6 +1,6 @@
 mod tooling;
 
-use std::sync::Arc;
+use std::sync::{Arc, atomic::AtomicBool};
 
 use anyhow::{Context, Result, bail};
 
@@ -32,15 +32,16 @@ pub(crate) struct RuntimeBootstrap {
     pub tool_manager: ToolManager,
     pub prompt_config: PromptRuntimeConfig,
     pub warnings: Vec<String>,
+    pub sandbox_network_access: Arc<AtomicBool>,
 }
 
 impl RuntimeBootstrap {
     pub(crate) fn into_agent(self) -> Agent {
-        let (agent, _) = self.into_parts();
+        let (agent, _, _) = self.into_parts();
         agent
     }
 
-    pub(crate) fn into_parts(self) -> (Agent, Vec<String>) {
+    pub(crate) fn into_parts(self) -> (Agent, Vec<String>, Arc<AtomicBool>) {
         let mut agent = Agent::new(
             self.tool_manager,
             self.backend,
@@ -49,7 +50,7 @@ impl RuntimeBootstrap {
             self.workspace,
         );
         agent.set_prompt_config(self.prompt_config);
-        (agent, self.warnings)
+        (agent, self.warnings, self.sandbox_network_access)
     }
 }
 
@@ -91,6 +92,10 @@ pub(crate) async fn initialize_rara_context(
         })
         .collect();
 
+    let sandbox_network_access = Arc::new(AtomicBool::new(
+        config.sandbox_workspace_write.network_access,
+    ));
+
     let tool_manager = create_full_tool_manager(
         backend.clone(),
         vdb.clone(),
@@ -100,7 +105,7 @@ pub(crate) async fn initialize_rara_context(
         skill_manager,
         prompt_config.clone(),
         Arc::new(shell_env.env),
-        config.sandbox_workspace_write.network_access,
+        sandbox_network_access.clone(),
     );
     let warnings = prompt_config.warnings.clone();
 
@@ -112,6 +117,7 @@ pub(crate) async fn initialize_rara_context(
         tool_manager,
         prompt_config,
         warnings,
+        sandbox_network_access,
     })
 }
 

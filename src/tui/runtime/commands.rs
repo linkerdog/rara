@@ -1,7 +1,8 @@
 use std::sync::Arc;
 
 use super::super::state::{
-    HelpTab, LocalCommand, LocalCommandKind, Overlay, RuntimePhase, StatusTab, TuiApp,
+    HelpTab, LocalCommand, LocalCommandKind, Overlay, PermissionMode, RuntimePhase, StatusTab,
+    TuiApp,
 };
 use super::tasks::{start_compact_task, start_rebuild_task, start_review_task};
 use crate::agent::{Agent, AgentExecutionMode, BashApprovalMode};
@@ -23,13 +24,13 @@ pub(super) async fn execute_local_command(
         LocalCommandKind::Login => "login",
         LocalCommandKind::Logout => "logout",
         LocalCommandKind::Model => "model",
-        LocalCommandKind::ModelName => "model-name",
         LocalCommandKind::Plan => "plan",
         LocalCommandKind::Quit => "quit",
         LocalCommandKind::Resume => "resume",
         LocalCommandKind::Review => "review",
         LocalCommandKind::Status => "status",
         LocalCommandKind::Skills => "skills",
+        LocalCommandKind::Permissions => "permissions",
     });
     match command.kind {
         LocalCommandKind::Approval => {
@@ -39,6 +40,7 @@ pub(super) async fn execute_local_command(
                 BashApprovalMode::Always => BashApprovalMode::Suggestion,
             };
             app.bash_approval_mode = next_mode;
+            app.permission_mode = PermissionMode::Auto;
             if let Some(agent) = agent_slot.as_mut() {
                 agent.set_bash_approval_mode(next_mode);
             }
@@ -101,13 +103,13 @@ pub(super) async fn execute_local_command(
             }
         }
         LocalCommandKind::Model => handle_model_command(command.arg.as_deref(), app)?,
-        LocalCommandKind::ModelName => handle_model_name_command(command.arg.as_deref(), app)?,
         LocalCommandKind::Plan => {
             app.set_runtime_phase(
                 RuntimePhase::LocalCommand,
                 Some("entering planning mode".into()),
             );
             app.set_pending_plan_approval(false);
+            app.permission_mode = PermissionMode::Auto;
             app.set_agent_execution_mode(AgentExecutionMode::Plan);
             if let Some(agent) = agent_slot.as_mut() {
                 agent.set_execution_mode(AgentExecutionMode::Plan);
@@ -139,6 +141,16 @@ pub(super) async fn execute_local_command(
                 };
                 start_review_task(app, prompt, agent);
             }
+        }
+        LocalCommandKind::Permissions => {
+            let next_mode = app.permission_mode.cycle();
+            app.permission_mode = next_mode;
+            apply_permission_mode(app, agent_slot, next_mode);
+            let notice = format!(
+                "Permission mode: {label}.",
+                label = app.permission_mode_label()
+            );
+            app.push_notice(notice);
         }
         LocalCommandKind::Quit => {
             app.set_runtime_phase(RuntimePhase::LocalCommand, Some("quitting".into()));
@@ -175,15 +187,6 @@ fn handle_model_command(arg: Option<&str>, app: &mut TuiApp) -> anyhow::Result<(
     }
     app.open_overlay(Overlay::ProviderPicker);
     app.notice = Some("Opened provider picker.".into());
-    Ok(())
-}
-
-fn handle_model_name_command(arg: Option<&str>, app: &mut TuiApp) -> anyhow::Result<()> {
-    if arg.map(str::trim).filter(|arg| !arg.is_empty()).is_some() {
-        app.push_notice("/model-name does not accept arguments. Edit the value in the TUI.");
-    }
-    app.open_overlay(Overlay::ModelNameEditor);
-    app.push_notice("Opened model name editor.");
     Ok(())
 }
 
@@ -230,4 +233,39 @@ fn capture_git_diff(cwd: &str) -> String {
         (None, Some(u)) => u,
         (None, None) => String::new(),
     }
+}
+
+fn apply_permission_mode(app: &mut TuiApp, agent_slot: &mut Option<Agent>, mode: PermissionMode) {
+    use std::sync::atomic::Ordering;
+
+    let (execution, approval, allow_net) = match mode {
+        PermissionMode::Auto => (AgentExecutionMode::Execute, BashApprovalMode::Always, false),
+        PermissionMode::AcceptEdits => (
+            AgentExecutionMode::Execute,
+            BashApprovalMode::Suggestion,
+            false,
+        ),
+        PermissionMode::ReadOnly => (
+            AgentExecutionMode::Plan,
+            BashApprovalMode::Suggestion,
+            false,
+        ),
+        PermissionMode::FullAccess => (AgentExecutionMode::Execute, BashApprovalMode::Always, true),
+    };
+
+    app.set_agent_execution_mode(execution);
+    app.bash_approval_mode = approval;
+    app.sandbox_network_access
+        .store(allow_net, Ordering::Relaxed);
+
+    if let Some(agent) = agent_slot.as_mut() {
+        agent.set_execution_mode(execution);
+        agent.set_bash_approval_mode(approval);
+    }
+
+    app.set_runtime_phase(
+        RuntimePhase::LocalCommand,
+        Some("updating permissions".into()),
+    );
+    app.set_pending_plan_approval(false);
 }

@@ -1,5 +1,5 @@
 use std::collections::HashMap;
-use std::sync::Arc;
+use std::sync::{Arc, atomic::AtomicBool};
 
 use crate::llm::LlmBackend;
 use crate::prompt::PromptRuntimeConfig;
@@ -40,7 +40,7 @@ pub(super) fn create_full_tool_manager(
     skill_manager: Arc<SkillManager>,
     prompt_config: PromptRuntimeConfig,
     shell_env: Arc<HashMap<String, String>>,
-    sandbox_network_access: bool,
+    sandbox_network_access: Arc<AtomicBool>,
 ) -> ToolManager {
     let mut tm = ToolManager::new();
     let vector_db_uri = vector_db_uri_for_workspace(&workspace);
@@ -57,7 +57,7 @@ pub(super) fn create_full_tool_manager(
         sandbox: sandbox.clone(),
         background_tasks: background_tasks.clone(),
         base_env: shell_env.clone(),
-        sandbox_network_access,
+        sandbox_network_access: sandbox_network_access.clone(),
     }));
     tm.register(Box::new(BackgroundTaskListTool {
         background_tasks: background_tasks.clone(),
@@ -70,7 +70,7 @@ pub(super) fn create_full_tool_manager(
         sessions: pty_sessions.clone(),
         sandbox: sandbox.clone(),
         base_env: shell_env.clone(),
-        sandbox_network_access,
+        sandbox_network_access: sandbox_network_access.clone(),
     }));
     tm.register(Box::new(PtyReadTool {
         sessions: pty_sessions.clone(),
