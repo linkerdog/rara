@@ -1,6 +1,7 @@
 use std::sync::Arc;
 
 use async_trait::async_trait;
+use rara_tool_macros::tool_spec;
 use serde_json::{Value, json};
 
 use crate::agent::{Agent, AgentExecutionMode, Message, PendingUserInput, PlanStep};
@@ -118,27 +119,20 @@ pub struct AgentTool {
     pub prompt_config: PromptRuntimeConfig,
 }
 
+#[tool_spec(
+    name = "spawn_agent",
+    description = "Spawn a no-tool reasoning sub-agent. It cannot inspect files, run shell commands, edit files, or spawn other agents; use explore_agent or plan_agent for read-only repository inspection.",
+    input_schema = {
+        "type": "object",
+        "properties": {
+            "name": { "type": "string" },
+            "instruction": { "type": "string" }
+        },
+        "required": ["name", "instruction"]
+    }
+)]
 #[async_trait]
 impl Tool for AgentTool {
-    fn name(&self) -> &str {
-        "spawn_agent"
-    }
-
-    fn description(&self) -> &str {
-        "Spawn a no-tool reasoning sub-agent. It cannot inspect files, run shell commands, edit files, or spawn other agents; use explore_agent or plan_agent for read-only repository inspection."
-    }
-
-    fn input_schema(&self) -> Value {
-        json!({
-            "type": "object",
-            "properties": {
-                "name": { "type": "string" },
-                "instruction": { "type": "string" }
-            },
-            "required": ["name", "instruction"]
-        })
-    }
-
     async fn call(&self, i: Value) -> Result<Value, ToolError> {
         let name = i["name"].as_str().unwrap_or("worker");
         let instruction = i["instruction"]
@@ -174,26 +168,19 @@ pub struct ExploreAgentTool {
     pub prompt_config: PromptRuntimeConfig,
 }
 
+#[tool_spec(
+    name = "explore_agent",
+    description = "Spawn a read-only exploration sub-agent for bounded independent sidecar repository inspection. The instruction must be self-contained and include all user constraints.",
+    input_schema = {
+        "type": "object",
+        "properties": {
+            "instruction": { "type": "string" }
+        },
+        "required": ["instruction"]
+    }
+)]
 #[async_trait]
 impl Tool for ExploreAgentTool {
-    fn name(&self) -> &str {
-        "explore_agent"
-    }
-
-    fn description(&self) -> &str {
-        "Spawn a read-only exploration sub-agent for bounded independent sidecar repository inspection. The instruction must be self-contained and include all user constraints."
-    }
-
-    fn input_schema(&self) -> Value {
-        json!({
-            "type": "object",
-            "properties": {
-                "instruction": { "type": "string" }
-            },
-            "required": ["instruction"]
-        })
-    }
-
     async fn call(&self, i: Value) -> Result<Value, ToolError> {
         let instruction = i["instruction"]
             .as_str()
@@ -227,26 +214,19 @@ pub struct PlanAgentTool {
     pub prompt_config: PromptRuntimeConfig,
 }
 
+#[tool_spec(
+    name = "plan_agent",
+    description = "Spawn a read-only planning sub-agent for bounded independent sidecar plan refinement. The instruction must be self-contained and include all user constraints.",
+    input_schema = {
+        "type": "object",
+        "properties": {
+            "instruction": { "type": "string" }
+        },
+        "required": ["instruction"]
+    }
+)]
 #[async_trait]
 impl Tool for PlanAgentTool {
-    fn name(&self) -> &str {
-        "plan_agent"
-    }
-
-    fn description(&self) -> &str {
-        "Spawn a read-only planning sub-agent for bounded independent sidecar plan refinement. The instruction must be self-contained and include all user constraints."
-    }
-
-    fn input_schema(&self) -> Value {
-        json!({
-            "type": "object",
-            "properties": {
-                "instruction": { "type": "string" }
-            },
-            "required": ["instruction"]
-        })
-    }
-
     async fn call(&self, i: Value) -> Result<Value, ToolError> {
         let instruction = i["instruction"]
             .as_str()
@@ -284,24 +264,17 @@ pub struct TeamCreateTool {
     pub workspace: Arc<WorkspaceMemory>,
 }
 
+#[tool_spec(
+    name = "team_create",
+    description = "Launch parallel sub-agents",
+    input_schema = {
+        "type": "object",
+        "properties": { "tasks": { "type": "array" } },
+        "required": ["tasks"]
+    }
+)]
 #[async_trait]
 impl Tool for TeamCreateTool {
-    fn name(&self) -> &str {
-        "team_create"
-    }
-
-    fn description(&self) -> &str {
-        "Launch parallel sub-agents"
-    }
-
-    fn input_schema(&self) -> Value {
-        json!({
-            "type": "object",
-            "properties": { "tasks": { "type": "array" } },
-            "required": ["tasks"]
-        })
-    }
-
     async fn call(&self, i: Value) -> Result<Value, ToolError> {
         let tasks = i["tasks"]
             .as_array()

@@ -9,6 +9,7 @@ use std::time::{Duration, Instant};
 
 use async_trait::async_trait;
 use portable_pty::{CommandBuilder, NativePtySystem, PtySize, PtySystem};
+use rara_tool_macros::tool_spec;
 use serde_json::{Value, json};
 use tokio::io::{AsyncReadExt, AsyncSeekExt};
 use uuid::Uuid;
@@ -363,45 +364,38 @@ impl PtySessionSnapshot {
     }
 }
 
+#[tool_spec(
+    name = "pty_start",
+    description = "Start an interactive PTY session only for commands that need terminal input, terminal control, or an interactive program. For ordinary non-interactive commands, use bash instead. Prefer dedicated RARA tools for file search, file reads, and file edits. Use the cwd field instead of prepending cd. PTY sandboxing is platform-dependent and best-effort; with the macOS seatbelt backend, PTY commands currently run directly because sandbox-exec does not preserve interactive PTY stdin reliably. Treat allow_net as a network-access toggle, not a sandbox guarantee. Inspect or stop sessions with pty_status, pty_list, and pty_stop.",
+    input_schema = {
+        "type": "object",
+        "properties": {
+            "command": {
+                "type": "string",
+                "description": "Shell command to run inside a PTY. Use PTY only for interactive commands; use bash for ordinary non-interactive commands."
+            },
+            "cwd": {
+                "type": "string",
+                "description": "Optional working directory. Defaults to the current turn cwd; prefer this over prepending cd to a command."
+            },
+            "env": {
+                "type": "object",
+                "additionalProperties": { "type": "string" },
+                "description": "Optional environment overrides."
+            },
+            "allow_net": {
+                "type": "boolean",
+                "default": false,
+                "description": "Request network access for this PTY session. PTY sessions already have network access when sandbox_workspace_write.network_access is enabled in config."
+            },
+            "rows": { "type": "integer", "default": 24, "minimum": 1, "maximum": 65535 },
+            "cols": { "type": "integer", "default": 120, "minimum": 1, "maximum": 65535 }
+        },
+        "required": ["command"]
+    }
+)]
 #[async_trait]
 impl Tool for PtyStartTool {
-    fn name(&self) -> &str {
-        "pty_start"
-    }
-
-    fn description(&self) -> &str {
-        "Start an interactive PTY session only for commands that need terminal input, terminal control, or an interactive program. For ordinary non-interactive commands, use bash instead. Prefer dedicated RARA tools for file search, file reads, and file edits. Use the cwd field instead of prepending cd. PTY sandboxing is platform-dependent and best-effort; with the macOS seatbelt backend, PTY commands currently run directly because sandbox-exec does not preserve interactive PTY stdin reliably. Treat allow_net as a network-access toggle, not a sandbox guarantee. Inspect or stop sessions with pty_status, pty_list, and pty_stop."
-    }
-
-    fn input_schema(&self) -> Value {
-        json!({
-            "type": "object",
-            "properties": {
-                "command": {
-                    "type": "string",
-                    "description": "Shell command to run inside a PTY. Use PTY only for interactive commands; use bash for ordinary non-interactive commands."
-                },
-                "cwd": {
-                    "type": "string",
-                    "description": "Optional working directory. Defaults to the current turn cwd; prefer this over prepending cd to a command."
-                },
-                "env": {
-                    "type": "object",
-                    "additionalProperties": { "type": "string" },
-                    "description": "Optional environment overrides."
-                },
-                "allow_net": {
-                    "type": "boolean",
-                    "default": false,
-                    "description": "Request network access for this PTY session. PTY sessions already have network access when sandbox_workspace_write.network_access is enabled in config."
-                },
-                "rows": { "type": "integer", "default": 24, "minimum": 1, "maximum": 65535 },
-                "cols": { "type": "integer", "default": 120, "minimum": 1, "maximum": 65535 }
-            },
-            "required": ["command"]
-        })
-    }
-
     async fn call(&self, input: Value) -> Result<Value, ToolError> {
         let command = input["command"]
             .as_str()
@@ -443,27 +437,20 @@ impl Tool for PtyStartTool {
     }
 }
 
+#[tool_spec(
+    name = "pty_read",
+    description = "Read recent output from a PTY session started with pty_start.",
+    input_schema = {
+        "type": "object",
+        "properties": {
+            "session_id": { "type": "string" },
+            "tail_bytes": { "type": "integer", "default": 12000, "minimum": 1 }
+        },
+        "required": ["session_id"]
+    }
+)]
 #[async_trait]
 impl Tool for PtyReadTool {
-    fn name(&self) -> &str {
-        "pty_read"
-    }
-
-    fn description(&self) -> &str {
-        "Read recent output from a PTY session started with pty_start."
-    }
-
-    fn input_schema(&self) -> Value {
-        json!({
-            "type": "object",
-            "properties": {
-                "session_id": { "type": "string" },
-                "tail_bytes": { "type": "integer", "default": 12000, "minimum": 1 }
-            },
-            "required": ["session_id"]
-        })
-    }
-
     async fn call(&self, input: Value) -> Result<Value, ToolError> {
         let session_id = input["session_id"]
             .as_str()
@@ -483,23 +470,16 @@ impl Tool for PtyReadTool {
     }
 }
 
+#[tool_spec(
+    name = "pty_list",
+    description = "List PTY sessions started with pty_start. Use this before starting duplicate interactive work when session state is unclear.",
+    input_schema = {
+        "type": "object",
+        "properties": {}
+    }
+)]
 #[async_trait]
 impl Tool for PtyListTool {
-    fn name(&self) -> &str {
-        "pty_list"
-    }
-
-    fn description(&self) -> &str {
-        "List PTY sessions started with pty_start. Use this before starting duplicate interactive work when session state is unclear."
-    }
-
-    fn input_schema(&self) -> Value {
-        json!({
-            "type": "object",
-            "properties": {}
-        })
-    }
-
     async fn call(&self, _input: Value) -> Result<Value, ToolError> {
         let sessions = self
             .sessions
@@ -511,27 +491,20 @@ impl Tool for PtyListTool {
     }
 }
 
+#[tool_spec(
+    name = "pty_status",
+    description = "Inspect a PTY session started with pty_start and read the tail of its output.",
+    input_schema = {
+        "type": "object",
+        "properties": {
+            "session_id": { "type": "string" },
+            "tail_bytes": { "type": "integer", "default": 12000, "minimum": 1 }
+        },
+        "required": ["session_id"]
+    }
+)]
 #[async_trait]
 impl Tool for PtyStatusTool {
-    fn name(&self) -> &str {
-        "pty_status"
-    }
-
-    fn description(&self) -> &str {
-        "Inspect a PTY session started with pty_start and read the tail of its output."
-    }
-
-    fn input_schema(&self) -> Value {
-        json!({
-            "type": "object",
-            "properties": {
-                "session_id": { "type": "string" },
-                "tail_bytes": { "type": "integer", "default": 12000, "minimum": 1 }
-            },
-            "required": ["session_id"]
-        })
-    }
-
     async fn call(&self, input: Value) -> Result<Value, ToolError> {
         PtyReadTool {
             sessions: self.sessions.clone(),
@@ -541,27 +514,20 @@ impl Tool for PtyStatusTool {
     }
 }
 
+#[tool_spec(
+    name = "pty_write",
+    description = "Write input to a running PTY session started with pty_start.",
+    input_schema = {
+        "type": "object",
+        "properties": {
+            "session_id": { "type": "string" },
+            "input": { "type": "string", "description": "Text to write, including newlines or control characters when needed." }
+        },
+        "required": ["session_id", "input"]
+    }
+)]
 #[async_trait]
 impl Tool for PtyWriteTool {
-    fn name(&self) -> &str {
-        "pty_write"
-    }
-
-    fn description(&self) -> &str {
-        "Write input to a running PTY session started with pty_start."
-    }
-
-    fn input_schema(&self) -> Value {
-        json!({
-            "type": "object",
-            "properties": {
-                "session_id": { "type": "string" },
-                "input": { "type": "string", "description": "Text to write, including newlines or control characters when needed." }
-            },
-            "required": ["session_id", "input"]
-        })
-    }
-
     async fn call(&self, input: Value) -> Result<Value, ToolError> {
         let session_id = input["session_id"]
             .as_str()
@@ -576,26 +542,19 @@ impl Tool for PtyWriteTool {
     }
 }
 
+#[tool_spec(
+    name = "pty_kill",
+    description = "Kill a PTY session started with pty_start.",
+    input_schema = {
+        "type": "object",
+        "properties": {
+            "session_id": { "type": "string" }
+        },
+        "required": ["session_id"]
+    }
+)]
 #[async_trait]
 impl Tool for PtyKillTool {
-    fn name(&self) -> &str {
-        "pty_kill"
-    }
-
-    fn description(&self) -> &str {
-        "Kill a PTY session started with pty_start."
-    }
-
-    fn input_schema(&self) -> Value {
-        json!({
-            "type": "object",
-            "properties": {
-                "session_id": { "type": "string" }
-            },
-            "required": ["session_id"]
-        })
-    }
-
     async fn call(&self, input: Value) -> Result<Value, ToolError> {
         let session_id = input["session_id"]
             .as_str()
@@ -604,28 +563,21 @@ impl Tool for PtyKillTool {
     }
 }
 
+#[tool_spec(
+    name = "pty_stop",
+    description = "Stop one PTY session, or all running PTY sessions when session_id is omitted.",
+    input_schema = {
+        "type": "object",
+        "properties": {
+            "session_id": {
+                "type": "string",
+                "description": "PTY session id returned by pty_start. Omit to stop all running PTY sessions."
+            }
+        }
+    }
+)]
 #[async_trait]
 impl Tool for PtyStopTool {
-    fn name(&self) -> &str {
-        "pty_stop"
-    }
-
-    fn description(&self) -> &str {
-        "Stop one PTY session, or all running PTY sessions when session_id is omitted."
-    }
-
-    fn input_schema(&self) -> Value {
-        json!({
-            "type": "object",
-            "properties": {
-                "session_id": {
-                    "type": "string",
-                    "description": "PTY session id returned by pty_start. Omit to stop all running PTY sessions."
-                }
-            }
-        })
-    }
-
     async fn call(&self, input: Value) -> Result<Value, ToolError> {
         if let Some(session_id) = input.get("session_id").and_then(Value::as_str) {
             let session = self.sessions.kill(session_id)?;

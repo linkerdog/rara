@@ -2,6 +2,7 @@ use std::fs;
 use std::path::Path;
 
 use async_trait::async_trait;
+use rara_tool_macros::tool_spec;
 use serde_json::{Value, json};
 
 use crate::tool::{Tool, ToolError};
@@ -79,33 +80,26 @@ struct PatchStats {
     removed_lines: usize,
 }
 
+#[tool_spec(
+    name = "apply_patch",
+    description = "Apply structured file edits using Begin Patch syntax. Prefer this for editing existing files. Update operations verify hunks against current file contents.",
+    input_schema = {
+        "type": "object",
+        "properties": {
+            "patch": {
+                "type": "string",
+                "description": "Patch text using *** Begin Patch / *** End Patch syntax."
+            },
+            "dry_run": {
+                "type": "boolean",
+                "description": "Validate and preview without writing files."
+            }
+        },
+        "required": ["patch"]
+    }
+)]
 #[async_trait]
 impl Tool for ApplyPatchTool {
-    fn name(&self) -> &str {
-        "apply_patch"
-    }
-
-    fn description(&self) -> &str {
-        "Apply structured file edits using Begin Patch syntax. Prefer this for editing existing files. Update operations verify hunks against current file contents."
-    }
-
-    fn input_schema(&self) -> Value {
-        json!({
-            "type": "object",
-            "properties": {
-                "patch": {
-                    "type": "string",
-                    "description": "Patch text using *** Begin Patch / *** End Patch syntax."
-                },
-                "dry_run": {
-                    "type": "boolean",
-                    "description": "Validate and preview without writing files."
-                }
-            },
-            "required": ["patch"]
-        })
-    }
-
     async fn call(&self, input: Value) -> Result<Value, ToolError> {
         let patch = input
             .get("patch")

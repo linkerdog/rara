@@ -10,6 +10,7 @@ use std::time::Duration;
 use std::time::Instant;
 
 use async_trait::async_trait;
+use rara_tool_macros::tool_spec;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use tokio::fs;
@@ -740,72 +741,68 @@ fn command_env_for_wrapped(
     }
 }
 
+#[tool_spec(
+    name = "bash",
+    description = "Run a shell command in the sandbox for commands that need process execution. Prefer dedicated RARA tools for file search, file reads, and file edits; do not use shell redirection, sed, awk, perl, or ad-hoc scripts to edit files when apply_patch or direct file tools can do the job. Use the cwd field instead of prepending cd. Avoid newline-separated command chaining. If commands are independent and can run in parallel, make multiple bash tool calls in one assistant turn instead of joining them with &&, ;, or pipelines. Do not add 2>&1, head, tail, or grep only to reduce displayed output; RARA preserves stdout/stderr and provides bounded model-facing previews. Commands must be non-interactive: do not start editors, pagers, REPLs, prompts, or TUI programs from bash. For git commits, always supply the message with git commit -m or git commit -F; never run bare git commit and wait for an editor. Keep commands sandboxed unless require_escalated is justified by user request or clear sandbox failure evidence. Use run_in_background for long-running non-interactive commands, then inspect or stop them with background_task_status, background_task_list, and background_task_stop.",
+    input_schema = {
+        "type": "object",
+        "properties": {
+            "command": {
+                "type": "string",
+                "description": "Legacy shell command string. Prefer program+args for new calls. Avoid newline-separated command chaining. Do not join independent validation commands with &&, ;, or pipelines just to run them together; make multiple bash tool calls instead. Do not add 2>&1, head, tail, or grep only to trim output for the model. Do not run interactive editors, pagers, REPLs, prompts, or TUI programs from bash. For git commits, use git commit -m or git commit -F, never bare git commit. Do not use this field for file edits when apply_patch or direct file tools can do the job."
+            },
+            "program": {
+                "type": "string",
+                "description": "Executable to run directly without a shell. Prefer this with args for ordinary commands."
+            },
+            "args": {
+                "type": "array",
+                "items": { "type": "string" },
+                "description": "Arguments for program."
+            },
+            "cwd": {
+                "type": "string",
+                "description": "Optional working directory override. Defaults to the current turn cwd; prefer this over prepending cd to a command."
+            },
+            "env": {
+                "type": "object",
+                "additionalProperties": { "type": "string" },
+                "description": "Optional environment overrides."
+            },
+            "allow_net": {
+                "type": "boolean",
+                "default": false,
+                "description": "Request network access for this command. Commands already have network access when sandbox_workspace_write.network_access is enabled in config."
+            },
+            "run_in_background": {
+                "type": "boolean",
+                "default": false,
+                "description": "Run a long-running non-interactive command as a background task and return a task id immediately. Use background_task_status to inspect output later, background_task_list to find tasks, and background_task_stop to stop them."
+            },
+            "sandbox_permissions": {
+                "type": "string",
+                "enum": ["use_default", "require_escalated"],
+                "default": "use_default",
+                "description": "Sandbox permissions for the command. Defaults to use_default. Set to require_escalated only when the user asked for it or sandbox failure evidence shows the command cannot work inside the sandbox."
+            },
+            "justification": {
+                "type": "string",
+                "description": "Only set if sandbox_permissions is require_escalated. Ask the user a short question explaining why this command needs to run outside the sandbox."
+            },
+            "prefix_rule": {
+                "type": "array",
+                "items": { "type": "string" },
+                "description": "Only set if sandbox_permissions is require_escalated. Suggested scoped command prefix to approve for similar future commands, for example [\"git\", \"push\"] or [\"cargo\", \"test\"]. Do not suggest broad prefixes."
+            }
+        },
+        "anyOf": [
+            { "required": ["command"] },
+            { "required": ["program"] }
+        ]
+    }
+)]
 #[async_trait]
 impl Tool for BashTool {
-    fn name(&self) -> &str {
-        "bash"
-    }
-    fn description(&self) -> &str {
-        "Run a shell command in the sandbox for commands that need process execution. Prefer dedicated RARA tools for file search, file reads, and file edits; do not use shell redirection, sed, awk, perl, or ad-hoc scripts to edit files when apply_patch or direct file tools can do the job. Use the cwd field instead of prepending cd. Avoid newline-separated command chaining. If commands are independent and can run in parallel, make multiple bash tool calls in one assistant turn instead of joining them with &&, ;, or pipelines. Do not add 2>&1, head, tail, or grep only to reduce displayed output; RARA preserves stdout/stderr and provides bounded model-facing previews. Commands must be non-interactive: do not start editors, pagers, REPLs, prompts, or TUI programs from bash. For git commits, always supply the message with git commit -m or git commit -F; never run bare git commit and wait for an editor. Keep commands sandboxed unless require_escalated is justified by user request or clear sandbox failure evidence. Use run_in_background for long-running non-interactive commands, then inspect or stop them with background_task_status, background_task_list, and background_task_stop."
-    }
-    fn input_schema(&self) -> Value {
-        json!({
-            "type": "object",
-            "properties": {
-                "command": {
-                    "type": "string",
-                    "description": "Legacy shell command string. Prefer program+args for new calls. Avoid newline-separated command chaining. Do not join independent validation commands with &&, ;, or pipelines just to run them together; make multiple bash tool calls instead. Do not add 2>&1, head, tail, or grep only to trim output for the model. Do not run interactive editors, pagers, REPLs, prompts, or TUI programs from bash. For git commits, use git commit -m or git commit -F, never bare git commit. Do not use this field for file edits when apply_patch or direct file tools can do the job."
-                },
-                "program": {
-                    "type": "string",
-                    "description": "Executable to run directly without a shell. Prefer this with args for ordinary commands."
-                },
-                "args": {
-                    "type": "array",
-                    "items": { "type": "string" },
-                    "description": "Arguments for program."
-                },
-                "cwd": {
-                    "type": "string",
-                    "description": "Optional working directory override. Defaults to the current turn cwd; prefer this over prepending cd to a command."
-                },
-                "env": {
-                    "type": "object",
-                    "additionalProperties": { "type": "string" },
-                    "description": "Optional environment overrides."
-                },
-                "allow_net": {
-                    "type": "boolean",
-                    "default": false,
-                    "description": "Request network access for this command. Commands already have network access when sandbox_workspace_write.network_access is enabled in config."
-                },
-                "run_in_background": {
-                    "type": "boolean",
-                    "default": false,
-                    "description": "Run a long-running non-interactive command as a background task and return a task id immediately. Use background_task_status to inspect output later, background_task_list to find tasks, and background_task_stop to stop them."
-                },
-                "sandbox_permissions": {
-                    "type": "string",
-                    "enum": ["use_default", "require_escalated"],
-                    "default": "use_default",
-                    "description": "Sandbox permissions for the command. Defaults to use_default. Set to require_escalated only when the user asked for it or sandbox failure evidence shows the command cannot work inside the sandbox."
-                },
-                "justification": {
-                    "type": "string",
-                    "description": "Only set if sandbox_permissions is require_escalated. Ask the user a short question explaining why this command needs to run outside the sandbox."
-                },
-                "prefix_rule": {
-                    "type": "array",
-                    "items": { "type": "string" },
-                    "description": "Only set if sandbox_permissions is require_escalated. Suggested scoped command prefix to approve for similar future commands, for example [\"git\", \"push\"] or [\"cargo\", \"test\"]. Do not suggest broad prefixes."
-                }
-            },
-            "anyOf": [
-                { "required": ["command"] },
-                { "required": ["program"] }
-            ]
-        })
-    }
     async fn call(&self, i: Value) -> Result<Value, ToolError> {
         self.call_with_events(i, &mut |_| {}).await
     }
@@ -1070,23 +1067,16 @@ impl Tool for BashTool {
     }
 }
 
+#[tool_spec(
+    name = "background_task_list",
+    description = "List background bash tasks started with bash run_in_background. Use this before starting duplicate long-running work when task state is unclear.",
+    input_schema = {
+        "type": "object",
+        "properties": {}
+    }
+)]
 #[async_trait]
 impl Tool for BackgroundTaskListTool {
-    fn name(&self) -> &str {
-        "background_task_list"
-    }
-
-    fn description(&self) -> &str {
-        "List background bash tasks started with bash run_in_background. Use this before starting duplicate long-running work when task state is unclear."
-    }
-
-    fn input_schema(&self) -> Value {
-        json!({
-            "type": "object",
-            "properties": {}
-        })
-    }
-
     async fn call(&self, _input: Value) -> Result<Value, ToolError> {
         Ok(json!({
             "tasks": self.background_tasks.list(),
@@ -1094,35 +1084,28 @@ impl Tool for BackgroundTaskListTool {
     }
 }
 
+#[tool_spec(
+    name = "background_task_status",
+    description = "Inspect a background bash task started with bash run_in_background and read the tail of its output.",
+    input_schema = {
+        "type": "object",
+        "properties": {
+            "task_id": {
+                "type": "string",
+                "description": "Background task id returned by bash run_in_background."
+            },
+            "tail_bytes": {
+                "type": "integer",
+                "minimum": 1,
+                "default": 12000,
+                "description": "Maximum number of output bytes to return from the end of the task log."
+            }
+        },
+        "required": ["task_id"]
+    }
+)]
 #[async_trait]
 impl Tool for BackgroundTaskStatusTool {
-    fn name(&self) -> &str {
-        "background_task_status"
-    }
-
-    fn description(&self) -> &str {
-        "Inspect a background bash task started with bash run_in_background and read the tail of its output."
-    }
-
-    fn input_schema(&self) -> Value {
-        json!({
-            "type": "object",
-            "properties": {
-                "task_id": {
-                    "type": "string",
-                    "description": "Background task id returned by bash run_in_background."
-                },
-                "tail_bytes": {
-                    "type": "integer",
-                    "minimum": 1,
-                    "default": 12000,
-                    "description": "Maximum number of output bytes to return from the end of the task log."
-                }
-            },
-            "required": ["task_id"]
-        })
-    }
-
     async fn call(&self, input: Value) -> Result<Value, ToolError> {
         let task_id = input["task_id"]
             .as_str()
@@ -1152,28 +1135,21 @@ impl Tool for BackgroundTaskStatusTool {
     }
 }
 
+#[tool_spec(
+    name = "background_task_stop",
+    description = "Stop one background bash task, or all running background bash tasks when task_id is omitted.",
+    input_schema = {
+        "type": "object",
+        "properties": {
+            "task_id": {
+                "type": "string",
+                "description": "Background task id returned by bash run_in_background. Omit to stop all running background bash tasks."
+            }
+        }
+    }
+)]
 #[async_trait]
 impl Tool for BackgroundTaskStopTool {
-    fn name(&self) -> &str {
-        "background_task_stop"
-    }
-
-    fn description(&self) -> &str {
-        "Stop one background bash task, or all running background bash tasks when task_id is omitted."
-    }
-
-    fn input_schema(&self) -> Value {
-        json!({
-            "type": "object",
-            "properties": {
-                "task_id": {
-                    "type": "string",
-                    "description": "Background task id returned by bash run_in_background. Omit to stop all running background bash tasks."
-                }
-            }
-        })
-    }
-
     async fn call(&self, input: Value) -> Result<Value, ToolError> {
         if let Some(task_id) = input.get("task_id").and_then(Value::as_str) {
             let task = self.background_tasks.stop(task_id)?;

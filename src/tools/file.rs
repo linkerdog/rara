@@ -6,6 +6,7 @@ use std::sync::{Arc, Mutex};
 use std::time::SystemTime;
 
 use async_trait::async_trait;
+use rara_tool_macros::tool_spec;
 use serde_json::{Value, json};
 use tokio::io::{AsyncBufRead, AsyncBufReadExt, BufReader as AsyncBufReader};
 use walkdir::WalkDir;
@@ -166,27 +167,23 @@ impl Default for ReadFileTool {
     }
 }
 
+#[tool_spec(
+    name = "read_file",
+    description = "Read a file with Codex-style 1-based offset/limit windows. Defaults to the first 2000 lines and reports next_offset when more content remains.",
+    input_schema = {
+        "type": "object",
+        "properties": {
+            "path": { "type": "string", "description": "Path to read." },
+            "offset": { "type": "integer", "minimum": 1, "description": "Optional 1-based first line to include. Use next_offset from a truncated result to continue." },
+            "limit": { "type": "integer", "minimum": 1, "description": "Optional maximum number of lines to return. Defaults to 2000." },
+            "start_line": { "type": "integer", "minimum": 1, "description": "Legacy alias for offset." },
+            "end_line": { "type": "integer", "minimum": 1, "description": "Legacy 1-based inclusive last line. Prefer offset/limit for new calls." }
+        },
+        "required": ["path"]
+    }
+)]
 #[async_trait]
 impl Tool for ReadFileTool {
-    fn name(&self) -> &str {
-        "read_file"
-    }
-    fn description(&self) -> &str {
-        "Read a file with Codex-style 1-based offset/limit windows. Defaults to the first 2000 lines and reports next_offset when more content remains."
-    }
-    fn input_schema(&self) -> Value {
-        json!({
-            "type": "object",
-            "properties": {
-                "path": { "type": "string", "description": "Path to read." },
-                "offset": { "type": "integer", "minimum": 1, "description": "Optional 1-based first line to include. Use next_offset from a truncated result to continue." },
-                "limit": { "type": "integer", "minimum": 1, "description": "Optional maximum number of lines to return. Defaults to 2000." },
-                "start_line": { "type": "integer", "minimum": 1, "description": "Legacy alias for offset." },
-                "end_line": { "type": "integer", "minimum": 1, "description": "Legacy 1-based inclusive last line. Prefer offset/limit for new calls." }
-            },
-            "required": ["path"]
-        })
-    }
     async fn call(&self, i: Value) -> Result<Value, ToolError> {
         let p = i["path"]
             .as_str()
@@ -463,24 +460,20 @@ impl Default for WriteFileTool {
     }
 }
 
+#[tool_spec(
+    name = "write_file",
+    description = "Create a new file or intentionally rewrite one whole file. For existing files, read the full file first and prefer apply_patch for partial edits. If a large write fails or appears truncated, retry with direct edit tools or report the tool failure; do not fall back to shell heredocs or redirection to write files.",
+    input_schema = {
+        "type": "object",
+        "properties": {
+            "path": { "type": "string", "description": "Path to create or fully rewrite." },
+            "content": { "type": "string", "description": "Complete new file contents for exactly this path. Do not use for small edits to existing files or shell heredoc fallbacks." }
+        },
+        "required": ["path", "content"]
+    }
+)]
 #[async_trait]
 impl Tool for WriteFileTool {
-    fn name(&self) -> &str {
-        "write_file"
-    }
-    fn description(&self) -> &str {
-        "Create a new file or intentionally rewrite one whole file. For existing files, read the full file first and prefer apply_patch for partial edits. If a large write fails or appears truncated, retry with direct edit tools or report the tool failure; do not fall back to shell heredocs or redirection to write files."
-    }
-    fn input_schema(&self) -> Value {
-        json!({
-            "type": "object",
-            "properties": {
-                "path": { "type": "string", "description": "Path to create or fully rewrite." },
-                "content": { "type": "string", "description": "Complete new file contents for exactly this path. Do not use for small edits to existing files or shell heredoc fallbacks." }
-            },
-            "required": ["path", "content"]
-        })
-    }
     async fn call(&self, i: Value) -> Result<Value, ToolError> {
         let p = i["path"]
             .as_str()
@@ -533,25 +526,21 @@ impl Default for ReplaceTool {
     }
 }
 
+#[tool_spec(
+    name = "replace",
+    description = "Replace one exact, unique string in a file. Read the relevant file content first and prefer apply_patch for structured multi-line edits.",
+    input_schema = {
+        "type": "object",
+        "properties": {
+            "path": { "type": "string", "description": "Path to edit." },
+            "old_string": { "type": "string", "description": "Exact text to replace. It must appear exactly once in the file." },
+            "new_string": { "type": "string", "description": "Replacement text." }
+        },
+        "required": ["path", "old_string", "new_string"]
+    }
+)]
 #[async_trait]
 impl Tool for ReplaceTool {
-    fn name(&self) -> &str {
-        "replace"
-    }
-    fn description(&self) -> &str {
-        "Replace one exact, unique string in a file. Read the relevant file content first and prefer apply_patch for structured multi-line edits."
-    }
-    fn input_schema(&self) -> Value {
-        json!({
-            "type": "object",
-            "properties": {
-                "path": { "type": "string", "description": "Path to edit." },
-                "old_string": { "type": "string", "description": "Exact text to replace. It must appear exactly once in the file." },
-                "new_string": { "type": "string", "description": "Replacement text." }
-            },
-            "required": ["path", "old_string", "new_string"]
-        })
-    }
     async fn call(&self, i: Value) -> Result<Value, ToolError> {
         let p = i["path"]
             .as_str()
@@ -605,29 +594,25 @@ impl Default for ReplaceLinesTool {
     }
 }
 
+#[tool_spec(
+    name = "replace_lines",
+    description = "Replace an inclusive line range in a file. Use only after reading the full file and verifying the current line numbers.",
+    input_schema = {
+        "type": "object",
+        "properties": {
+            "path": { "type": "string", "description": "Path to edit." },
+            "start_line": { "type": "integer", "minimum": 1, "description": "1-based first line to replace." },
+            "end_line": { "type": "integer", "minimum": 1, "description": "1-based last line to replace, inclusive." },
+            "new_string": {
+                "type": "string",
+                "description": "Replacement text for the inclusive line range. Use an empty string to delete the range."
+            }
+        },
+        "required": ["path", "start_line", "end_line", "new_string"]
+    }
+)]
 #[async_trait]
 impl Tool for ReplaceLinesTool {
-    fn name(&self) -> &str {
-        "replace_lines"
-    }
-    fn description(&self) -> &str {
-        "Replace an inclusive line range in a file. Use only after reading the full file and verifying the current line numbers."
-    }
-    fn input_schema(&self) -> Value {
-        json!({
-            "type": "object",
-            "properties": {
-                "path": { "type": "string", "description": "Path to edit." },
-                "start_line": { "type": "integer", "minimum": 1, "description": "1-based first line to replace." },
-                "end_line": { "type": "integer", "minimum": 1, "description": "1-based last line to replace, inclusive." },
-                "new_string": {
-                    "type": "string",
-                    "description": "Replacement text for the inclusive line range. Use an empty string to delete the range."
-                }
-            },
-            "required": ["path", "start_line", "end_line", "new_string"]
-        })
-    }
     async fn call(&self, i: Value) -> Result<Value, ToolError> {
         let path = i["path"]
             .as_str()
@@ -708,24 +693,20 @@ impl Tool for ReplaceLinesTool {
 }
 
 pub struct ListFilesTool;
+#[tool_spec(
+    name = "list_files",
+    description = "Recursively list files",
+    input_schema = {
+        "type": "object",
+        "properties": {
+            "path": { "type": "string" },
+            "include_ignored": { "type": "boolean" }
+        },
+        "required": ["path"]
+    }
+)]
 #[async_trait]
 impl Tool for ListFilesTool {
-    fn name(&self) -> &str {
-        "list_files"
-    }
-    fn description(&self) -> &str {
-        "Recursively list files"
-    }
-    fn input_schema(&self) -> Value {
-        json!({
-            "type": "object",
-            "properties": {
-                "path": { "type": "string" },
-                "include_ignored": { "type": "boolean" }
-            },
-            "required": ["path"]
-        })
-    }
     async fn call(&self, i: Value) -> Result<Value, ToolError> {
         let p = i["path"]
             .as_str()

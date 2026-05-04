@@ -8654,6 +8654,7 @@ dependencies = [
  "rara-provider-catalog",
  "rara-sandbox",
  "rara-skills",
+ "rara-tool-macros",
  "ratatui",
  "regex",
  "regex-lite",
@@ -8733,6 +8734,15 @@ dependencies = [
  "dirs",
  "serde",
  "tempfile",
+]
+
+[[package]]
+name = "rara-tool-macros"
+version = "0.1.0"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 2.0.117",
 ]
 
 [[package]]

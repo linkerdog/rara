@@ -1,4 +1,5 @@
 use async_trait::async_trait;
+use rara_tool_macros::tool_spec;
 use serde::Serialize;
 use serde_json::{Value, json};
 
@@ -33,54 +34,47 @@ impl WebSearchTool {
     }
 }
 
+#[tool_spec(
+    name = "web_search",
+    description = "Search the web using Exa MCP for current or external information",
+    input_schema = {
+        "type": "object",
+        "properties": {
+            "query": {
+                "type": "string",
+                "description": "Search query."
+            },
+            "num_results": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 20,
+                "default": DEFAULT_NUM_RESULTS,
+                "description": "Maximum number of search results to return."
+            },
+            "livecrawl": {
+                "type": "string",
+                "enum": ["fallback", "preferred"],
+                "default": DEFAULT_LIVECRAWL,
+                "description": "Whether Exa should live-crawl result pages when cached content is missing or preferred."
+            },
+            "type": {
+                "type": "string",
+                "enum": ["auto", "fast", "deep"],
+                "default": DEFAULT_SEARCH_TYPE,
+                "description": "Exa search depth."
+            },
+            "context_max_characters": {
+                "type": "integer",
+                "minimum": 1000,
+                "maximum": 100000,
+                "description": "Optional maximum result context size."
+            }
+        },
+        "required": ["query"]
+    }
+)]
 #[async_trait]
 impl Tool for WebSearchTool {
-    fn name(&self) -> &str {
-        "web_search"
-    }
-
-    fn description(&self) -> &str {
-        "Search the web using Exa MCP for current or external information"
-    }
-
-    fn input_schema(&self) -> Value {
-        json!({
-            "type": "object",
-            "properties": {
-                "query": {
-                    "type": "string",
-                    "description": "Search query."
-                },
-                "num_results": {
-                    "type": "integer",
-                    "minimum": 1,
-                    "maximum": 20,
-                    "default": DEFAULT_NUM_RESULTS,
-                    "description": "Maximum number of search results to return."
-                },
-                "livecrawl": {
-                    "type": "string",
-                    "enum": ["fallback", "preferred"],
-                    "default": DEFAULT_LIVECRAWL,
-                    "description": "Whether Exa should live-crawl result pages when cached content is missing or preferred."
-                },
-                "type": {
-                    "type": "string",
-                    "enum": ["auto", "fast", "deep"],
-                    "default": DEFAULT_SEARCH_TYPE,
-                    "description": "Exa search depth."
-                },
-                "context_max_characters": {
-                    "type": "integer",
-                    "minimum": 1000,
-                    "maximum": 100000,
-                    "description": "Optional maximum result context size."
-                }
-            },
-            "required": ["query"]
-        })
-    }
-
     async fn call(&self, input: Value) -> Result<Value, ToolError> {
         let args = parse_search_args(&input)?;
         let query = args.query.clone();

@@ -3,27 +3,24 @@ use std::path::Path;
 
 use async_trait::async_trait;
 use glob::glob;
+use rara_tool_macros::tool_spec;
 use regex::Regex;
 use serde_json::{Value, json};
 
 use crate::tool::{Tool, ToolError};
 
 pub struct GlobTool;
+#[tool_spec(
+    name = "glob",
+    description = "Find files matching glob pattern",
+    input_schema = {
+        "type": "object",
+        "properties": { "pattern": { "type": "string" } },
+        "required": ["pattern"]
+    }
+)]
 #[async_trait]
 impl Tool for GlobTool {
-    fn name(&self) -> &str {
-        "glob"
-    }
-    fn description(&self) -> &str {
-        "Find files matching glob pattern"
-    }
-    fn input_schema(&self) -> Value {
-        json!({
-            "type": "object",
-            "properties": { "pattern": { "type": "string" } },
-            "required": ["pattern"]
-        })
-    }
     async fn call(&self, i: Value) -> Result<Value, ToolError> {
         let p = i["pattern"]
             .as_str()
@@ -39,25 +36,21 @@ impl Tool for GlobTool {
 }
 
 pub struct GrepTool;
+#[tool_spec(
+    name = "grep",
+    description = "Regex search in files",
+    input_schema = {
+        "type": "object",
+        "properties": {
+            "pattern": { "type": "string" },
+            "path": { "type": "string", "default": "." },
+            "include_ignored": { "type": "boolean", "default": false }
+        },
+        "required": ["pattern"]
+    }
+)]
 #[async_trait]
 impl Tool for GrepTool {
-    fn name(&self) -> &str {
-        "grep"
-    }
-    fn description(&self) -> &str {
-        "Regex search in files"
-    }
-    fn input_schema(&self) -> Value {
-        json!({
-            "type": "object",
-            "properties": {
-                "pattern": { "type": "string" },
-                "path": { "type": "string", "default": "." },
-                "include_ignored": { "type": "boolean", "default": false }
-            },
-            "required": ["pattern"]
-        })
-    }
     async fn call(&self, i: Value) -> Result<Value, ToolError> {
         let p = i["pattern"]
             .as_str()

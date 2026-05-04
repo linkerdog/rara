@@ -6,6 +6,7 @@ members = [
     "crates/provider-catalog",
     "crates/sandbox",
     "crates/skills",
+    "crates/tool-macros",
 ]
 resolver = "2"
 
@@ -54,6 +55,7 @@ rara-instructions = { path = "crates/instructions" }
 rara-provider-catalog = { path = "crates/provider-catalog" }
 rara-sandbox = { path = "crates/sandbox" }
 rara-skills = { path = "crates/skills" }
+rara-tool-macros = { path = "crates/tool-macros" }
 urlencoding = "2.1"
 url = "2.5"
 ratatui = "0.30"

@@ -1,6 +1,7 @@
 use std::sync::Arc;
 
 use async_trait::async_trait;
+use rara_tool_macros::tool_spec;
 use serde_json::{Value, json};
 
 use crate::tool::{Tool, ToolError};
@@ -9,17 +10,20 @@ use crate::workspace::WorkspaceMemory;
 pub struct UpdateProjectMemoryTool {
     pub workspace: Arc<WorkspaceMemory>,
 }
+#[tool_spec(
+    name = "update_project_memory",
+    description = "Update memory.md",
+    input_schema = {
+        "type": "object",
+        "properties": {
+            "content": { "type": "string" },
+            "append": { "type": "boolean", "default": true }
+        },
+        "required": ["content"]
+    }
+)]
 #[async_trait]
 impl Tool for UpdateProjectMemoryTool {
-    fn name(&self) -> &str {
-        "update_project_memory"
-    }
-    fn description(&self) -> &str {
-        "Update memory.md"
-    }
-    fn input_schema(&self) -> Value {
-        json!({ "type": "object", "properties": { "content": { "type": "string" }, "append": { "type": "boolean", "default": true } }, "required": ["content"] })
-    }
     async fn call(&self, i: Value) -> Result<Value, ToolError> {
         let content = i["content"]
             .as_str()

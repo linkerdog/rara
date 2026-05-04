@@ -1,6 +1,7 @@
 use std::sync::Arc;
 
 use async_trait::async_trait;
+use rara_tool_macros::tool_spec;
 use serde_json::{Value, json};
 
 use crate::skill::SkillManager;
@@ -9,24 +10,20 @@ use crate::tool::{Tool, ToolError};
 pub struct SkillTool {
     pub skill_manager: Arc<SkillManager>,
 }
+#[tool_spec(
+    name = "skill",
+    description = "Manage and invoke reusable skills",
+    input_schema = {
+        "type": "object",
+        "properties": {
+            "action": { "type": "string", "enum": ["list", "invoke"] },
+            "skill_name": { "type": "string" }
+        },
+        "required": ["action"]
+    }
+)]
 #[async_trait]
 impl Tool for SkillTool {
-    fn name(&self) -> &str {
-        "skill"
-    }
-    fn description(&self) -> &str {
-        "Manage and invoke reusable skills"
-    }
-    fn input_schema(&self) -> Value {
-        json!({
-            "type": "object",
-            "properties": {
-                "action": { "type": "string", "enum": ["list", "invoke"] },
-                "skill_name": { "type": "string" }
-            },
-            "required": ["action"]
-        })
-    }
     async fn call(&self, i: Value) -> Result<Value, ToolError> {
         let action = i["action"]
             .as_str()

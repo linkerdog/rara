@@ -1,6 +1,7 @@
 use std::sync::Arc;
 
 use async_trait::async_trait;
+use rara_tool_macros::tool_spec;
 use serde_json::{Value, json};
 
 use crate::llm::LlmBackend;
@@ -13,17 +14,13 @@ pub struct RememberExperienceTool {
     pub vdb: Arc<VectorDB>,
     pub db_uri: String,
 }
+#[tool_spec(
+    name = "remember_experience",
+    description = "Save insight",
+    input_schema = { "type": "object", "properties": { "experience": { "type": "string" } }, "required": ["experience"] }
+)]
 #[async_trait]
 impl Tool for RememberExperienceTool {
-    fn name(&self) -> &str {
-        "remember_experience"
-    }
-    fn description(&self) -> &str {
-        "Save insight"
-    }
-    fn input_schema(&self) -> Value {
-        json!({ "type": "object", "properties": { "experience": { "type": "string" } }, "required": ["experience"] })
-    }
     async fn call(&self, i: Value) -> Result<Value, ToolError> {
         let text = i["experience"]
             .as_str()
@@ -44,17 +41,13 @@ pub struct RetrieveExperienceTool {
     pub vdb: Arc<VectorDB>,
     pub db_uri: String,
 }
+#[tool_spec(
+    name = "retrieve_experience",
+    description = "Retrieve past insights",
+    input_schema = { "type": "object", "properties": { "query": { "type": "string" } }, "required": ["query"] }
+)]
 #[async_trait]
 impl Tool for RetrieveExperienceTool {
-    fn name(&self) -> &str {
-        "retrieve_experience"
-    }
-    fn description(&self) -> &str {
-        "Retrieve past insights"
-    }
-    fn input_schema(&self) -> Value {
-        json!({ "type": "object", "properties": { "query": { "type": "string" } }, "required": ["query"] })
-    }
     async fn call(&self, input: Value) -> Result<Value, ToolError> {
         let query = input["query"]
             .as_str()

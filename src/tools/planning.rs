@@ -1,4 +1,5 @@
 use async_trait::async_trait;
+use rara_tool_macros::tool_spec;
 use serde_json::{Value, json};
 
 use crate::tool::{Tool, ToolError};
@@ -9,23 +10,16 @@ pub const EXIT_PLAN_MODE_TOOL_NAME: &str = "exit_plan_mode";
 pub struct EnterPlanModeTool;
 pub struct ExitPlanModeTool;
 
+#[tool_spec(
+    name = ENTER_PLAN_MODE_TOOL_NAME,
+    description = "Enter read-only planning mode when the task needs repository exploration and design before implementation",
+    input_schema = {
+        "type": "object",
+        "properties": {},
+    }
+)]
 #[async_trait]
 impl Tool for EnterPlanModeTool {
-    fn name(&self) -> &str {
-        ENTER_PLAN_MODE_TOOL_NAME
-    }
-
-    fn description(&self) -> &str {
-        "Enter read-only planning mode when the task needs repository exploration and design before implementation"
-    }
-
-    fn input_schema(&self) -> Value {
-        json!({
-            "type": "object",
-            "properties": {},
-        })
-    }
-
     async fn call(&self, _input: Value) -> Result<Value, ToolError> {
         Ok(json!({
             "status": "entered_plan_mode",
@@ -65,63 +59,56 @@ mod tests {
     }
 }
 
-#[async_trait]
-impl Tool for ExitPlanModeTool {
-    fn name(&self) -> &str {
-        EXIT_PLAN_MODE_TOOL_NAME
-    }
-
-    fn description(&self) -> &str {
-        "Submit a concrete implementation plan for structured user approval. Prefer passing the plan in the proposed_plan argument. If structured tool arguments are unavailable, this same assistant response must emit a complete <proposed_plan>...</proposed_plan> block before calling this tool."
-    }
-
-    fn input_schema(&self) -> Value {
-        json!({
-            "type": "object",
-            "properties": {
-                "proposed_plan": {
-                    "type": "object",
-                    "description": "Structured implementation plan to submit for approval.",
-                    "properties": {
-                        "summary": {
-                            "type": "string",
-                            "description": "One concise sentence describing the implementation goal."
-                        },
-                        "steps": {
-                            "type": "array",
-                            "description": "Concrete implementation steps. Runtime treats only this array as executable plan state.",
-                            "items": {
-                                "type": "object",
-                                "properties": {
-                                    "step": {
-                                        "type": "string",
-                                        "description": "One concrete implementation step."
-                                    },
-                                    "status": {
-                                        "type": "string",
-                                        "enum": ["pending", "in_progress", "completed"],
-                                        "description": "Current step status. Use pending for new plans unless a step is already complete."
-                                    }
+#[tool_spec(
+    name = EXIT_PLAN_MODE_TOOL_NAME,
+    description = "Submit a concrete implementation plan for structured user approval. Prefer passing the plan in the proposed_plan argument. If structured tool arguments are unavailable, this same assistant response must emit a complete <proposed_plan>...</proposed_plan> block before calling this tool.",
+    input_schema = {
+        "type": "object",
+        "properties": {
+            "proposed_plan": {
+                "type": "object",
+                "description": "Structured implementation plan to submit for approval.",
+                "properties": {
+                    "summary": {
+                        "type": "string",
+                        "description": "One concise sentence describing the implementation goal."
+                    },
+                    "steps": {
+                        "type": "array",
+                        "description": "Concrete implementation steps. Runtime treats only this array as executable plan state.",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "step": {
+                                    "type": "string",
+                                    "description": "One concrete implementation step."
                                 },
-                                "required": ["step", "status"],
-                                "additionalProperties": false
-                            }
-                        },
-                        "validation": {
-                            "type": "array",
-                            "description": "Focused tests or commands that should validate the implementation.",
-                            "items": { "type": "string" }
+                                "status": {
+                                    "type": "string",
+                                    "enum": ["pending", "in_progress", "completed"],
+                                    "description": "Current step status. Use pending for new plans unless a step is already complete."
+                                }
+                            },
+                            "required": ["step", "status"],
+                            "additionalProperties": false
                         }
                     },
-                    "required": ["summary", "steps", "validation"],
-                    "additionalProperties": false
-                }
-            },
-            "required": ["proposed_plan"],
-            "additionalProperties": false,
-        })
+                    "validation": {
+                        "type": "array",
+                        "description": "Focused tests or commands that should validate the implementation.",
+                        "items": { "type": "string" }
+                    }
+                },
+                "required": ["summary", "steps", "validation"],
+                "additionalProperties": false
+            }
+        },
+        "required": ["proposed_plan"],
+        "additionalProperties": false,
     }
-
+)]
+#[async_trait]
+impl Tool for ExitPlanModeTool {
     async fn call(&self, _input: Value) -> Result<Value, ToolError> {
         Ok(json!({
             "status": "exited_plan_mode",

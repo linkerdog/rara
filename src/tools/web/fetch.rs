@@ -4,6 +4,7 @@ use std::time::Duration;
 use async_trait::async_trait;
 use backon::{ExponentialBuilder, Retryable};
 use futures::StreamExt;
+use rara_tool_macros::tool_spec;
 use serde_json::{Value, json};
 use url::Url;
 
@@ -53,47 +54,40 @@ struct FetchRequest {
     max_bytes: u64,
 }
 
+#[tool_spec(
+    name = "web_fetch",
+    description = "Fetch a URL as markdown, text, or HTML with timeout and size limits",
+    input_schema = {
+        "type": "object",
+        "properties": {
+            "url": {
+                "type": "string",
+                "description": "HTTP or HTTPS URL to fetch."
+            },
+            "format": {
+                "type": "string",
+                "enum": ["markdown", "text", "html"],
+                "default": "markdown",
+                "description": "Output format."
+            },
+            "timeout_seconds": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": MAX_TIMEOUT_SECS,
+                "default": DEFAULT_TIMEOUT_SECS
+            },
+            "max_bytes": {
+                "type": "integer",
+                "minimum": 1024,
+                "maximum": HARD_MAX_BYTES,
+                "default": DEFAULT_MAX_BYTES
+            }
+        },
+        "required": ["url"]
+    }
+)]
 #[async_trait]
 impl Tool for WebFetchTool {
-    fn name(&self) -> &str {
-        "web_fetch"
-    }
-
-    fn description(&self) -> &str {
-        "Fetch a URL as markdown, text, or HTML with timeout and size limits"
-    }
-
-    fn input_schema(&self) -> Value {
-        json!({
-            "type": "object",
-            "properties": {
-                "url": {
-                    "type": "string",
-                    "description": "HTTP or HTTPS URL to fetch."
-                },
-                "format": {
-                    "type": "string",
-                    "enum": ["markdown", "text", "html"],
-                    "default": "markdown",
-                    "description": "Output format."
-                },
-                "timeout_seconds": {
-                    "type": "integer",
-                    "minimum": 1,
-                    "maximum": MAX_TIMEOUT_SECS,
-                    "default": DEFAULT_TIMEOUT_SECS
-                },
-                "max_bytes": {
-                    "type": "integer",
-                    "minimum": 1024,
-                    "maximum": HARD_MAX_BYTES,
-                    "default": DEFAULT_MAX_BYTES
-                }
-            },
-            "required": ["url"]
-        })
-    }
-
     async fn call(&self, input: Value) -> Result<Value, ToolError> {
         let request = FetchRequest::parse(&input)?;
         let client = reqwest::Client::builder()

@@ -2,6 +2,7 @@ use std::sync::{Arc, Mutex};
 
 use anyhow::Result;
 use async_trait::async_trait;
+use rara_tool_macros::tool_spec;
 use serde_json::{Value, json};
 use tempfile::tempdir;
 
@@ -16,33 +17,25 @@ use crate::workspace::WorkspaceMemory;
 pub(super) struct StubTool;
 pub(super) struct StubBashTool;
 
+#[tool_spec(
+    name = "stub_tool",
+    description = "Return a simple structured result",
+    input_schema = { "type": "object" }
+)]
 #[async_trait]
 impl Tool for StubTool {
-    fn name(&self) -> &str {
-        "stub_tool"
-    }
-    fn description(&self) -> &str {
-        "Return a simple structured result"
-    }
-    fn input_schema(&self) -> Value {
-        json!({"type":"object"})
-    }
     async fn call(&self, _input: Value) -> Result<Value, ToolError> {
         Ok(json!({ "status": "ok", "value": 42 }))
     }
 }
 
+#[tool_spec(
+    name = "bash",
+    description = "Return a simple bash result",
+    input_schema = { "type": "object" }
+)]
 #[async_trait]
 impl Tool for StubBashTool {
-    fn name(&self) -> &str {
-        "bash"
-    }
-    fn description(&self) -> &str {
-        "Return a simple bash result"
-    }
-    fn input_schema(&self) -> Value {
-        json!({"type":"object"})
-    }
     async fn call(&self, _input: Value) -> Result<Value, ToolError> {
         Ok(json!({ "stdout": "ok\n", "stderr": "", "exit_code": 0 }))
     }
@@ -50,17 +43,13 @@ impl Tool for StubBashTool {
 
 pub(super) struct ListFilesStub;
 
+#[tool_spec(
+    name = "list_files",
+    description = "Return a simple list result",
+    input_schema = { "type": "object" }
+)]
 #[async_trait]
 impl Tool for ListFilesStub {
-    fn name(&self) -> &str {
-        "list_files"
-    }
-    fn description(&self) -> &str {
-        "Return a simple list result"
-    }
-    fn input_schema(&self) -> Value {
-        json!({"type":"object"})
-    }
     async fn call(&self, _input: Value) -> Result<Value, ToolError> {
         Ok(json!({ "path": ".", "entries": [] }))
     }
@@ -68,17 +57,13 @@ impl Tool for ListFilesStub {
 
 pub(super) struct PlanAgentStub;
 
+#[tool_spec(
+    name = "plan_agent",
+    description = "Return a delegated planning result",
+    input_schema = { "type": "object" }
+)]
 #[async_trait]
 impl Tool for PlanAgentStub {
-    fn name(&self) -> &str {
-        "plan_agent"
-    }
-    fn description(&self) -> &str {
-        "Return a delegated planning result"
-    }
-    fn input_schema(&self) -> Value {
-        json!({"type":"object"})
-    }
     async fn call(&self, _input: Value) -> Result<Value, ToolError> {
         Ok(json!({ "status": "ok", "summary": "delegated inspection complete" }))
     }
