@@ -149,6 +149,10 @@ The transcript should move toward Codex/Claude-style tool visibility:
   - `pty_status` reads status and recent output for one session;
   - `pty_stop` stops one session, or all running PTY sessions when no session id
     is supplied.
+- `pty_kill` and `pty_stop` use a two-step stop state for running sessions:
+  return `killing` after the stop request is sent, then report `killed` only
+  after the PTY reader observes EOF. Completed sessions stay `completed` when a
+  later stop request is submitted.
 - `pty_read`, `pty_write`, and `pty_kill` remain supported for direct session
   interaction and backward compatibility.
 

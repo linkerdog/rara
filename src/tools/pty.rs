@@ -9,7 +9,7 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 use async_trait::async_trait;
-use portable_pty::{CommandBuilder, NativePtySystem, PtySize, PtySystem};
+use portable_pty::{Child, CommandBuilder, NativePtySystem, PtySize, PtySystem};
 use rara_tool_macros::tool_spec;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
@@ -67,12 +67,14 @@ struct PtySessionRecord {
     network_access: bool,
     writer: Arc<Mutex<Box<dyn Write + Send>>>,
     child: Arc<Mutex<Box<dyn portable_pty::Child + Send + Sync>>>,
+    child_pid: Option<u32>,
     status: Arc<Mutex<PtySessionStatus>>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum PtySessionStatus {
     Running,
+    Killing,
     Completed,
     Killed,
 }
@@ -81,6 +83,7 @@ impl PtySessionStatus {
     fn as_str(self) -> &'static str {
         match self {
             Self::Running => "running",
+            Self::Killing => "killing",
             Self::Completed => "completed",
             Self::Killed => "killed",
         }
@@ -141,6 +144,7 @@ impl PtySessionStore {
             .slave
             .spawn_command(cmd)
             .map_err(|err| ToolError::ExecutionFailed(format!("spawn pty command: {err}")))?;
+        let child_pid = child.process_id();
         drop(pair.slave);
         let mut reader = pair
             .master
@@ -172,8 +176,10 @@ impl PtySessionStore {
                 }
             }
             let mut status = reader_status.lock().expect("pty status lock");
-            if matches!(*status, PtySessionStatus::Running) {
-                *status = PtySessionStatus::Completed;
+            match *status {
+                PtySessionStatus::Running => *status = PtySessionStatus::Completed,
+                PtySessionStatus::Killing => *status = PtySessionStatus::Killed,
+                PtySessionStatus::Completed | PtySessionStatus::Killed => {}
             }
         });
 
@@ -186,6 +192,7 @@ impl PtySessionStore {
             network_access: wrapped.network_access,
             writer: Arc::new(Mutex::new(writer)),
             child,
+            child_pid,
             status,
         };
         let snapshot = record.snapshot();
@@ -266,24 +273,36 @@ impl PtySessionStore {
     }
 
     fn kill(&self, id: &str) -> Result<PtySessionSnapshot, ToolError> {
-        let (child, status, mut snapshot) = {
+        let (child, child_pid, status, mut snapshot) = {
             let sessions = self.sessions.lock().expect("pty session store lock");
             let record = sessions
                 .get(id)
                 .ok_or_else(|| ToolError::InvalidInput(format!("unknown pty session id: {id}")))?;
             (
                 record.child.clone(),
+                record.child_pid,
                 record.status.clone(),
                 record.snapshot(),
             )
         };
-        child
-            .lock()
-            .expect("pty child lock")
-            .kill()
-            .map_err(|err| ToolError::ExecutionFailed(format!("kill pty session: {err}")))?;
-        *status.lock().expect("pty status lock") = PtySessionStatus::Killed;
-        snapshot.status = PtySessionStatus::Killed;
+        let should_kill = {
+            let mut status = status.lock().expect("pty status lock");
+            if matches!(*status, PtySessionStatus::Running) {
+                *status = PtySessionStatus::Killing;
+            }
+            snapshot.status = *status;
+            matches!(*status, PtySessionStatus::Killing)
+        };
+        if should_kill {
+            if let Err(err) =
+                kill_pty_child(&mut **child.lock().expect("pty child lock"), child_pid)
+            {
+                restore_running_after_failed_kill(&status);
+                return Err(ToolError::ExecutionFailed(format!(
+                    "kill pty session: {err}"
+                )));
+            }
+        }
         Ok(snapshot)
     }
 
@@ -766,6 +785,51 @@ fn ensure_sandbox_home_dirs(sandbox_home: &Path) -> Result<(), ToolError> {
     Ok(())
 }
 
+fn kill_pty_child(child: &mut dyn Child, child_pid: Option<u32>) -> Result<(), std::io::Error> {
+    #[cfg(unix)]
+    if let Some(child_pid) = child_pid {
+        let process_group_result = kill_child_process_group(child_pid);
+        let child_result = child.kill();
+        return match (process_group_result, child_result) {
+            (Err(group_err), _) => Err(group_err),
+            (Ok(()), Ok(())) => Ok(()),
+            (Ok(()), Err(err)) if err.kind() == std::io::ErrorKind::NotFound => Ok(()),
+            (Ok(()), Err(err)) => Err(err),
+        };
+    }
+
+    #[cfg(not(unix))]
+    let _ = child_pid;
+
+    child.kill()
+}
+
+fn restore_running_after_failed_kill(status: &Mutex<PtySessionStatus>) {
+    let mut status = status.lock().expect("pty status lock");
+    if matches!(*status, PtySessionStatus::Killing) {
+        *status = PtySessionStatus::Running;
+    }
+}
+
+#[cfg(unix)]
+fn kill_child_process_group(child_pid: u32) -> Result<(), std::io::Error> {
+    use nix::errno::Errno;
+    use nix::sys::signal::{Signal, killpg};
+    use nix::unistd::{Pid, getpgid};
+
+    let child_pid = Pid::from_raw(child_pid as i32);
+    let process_group_id = match getpgid(Some(child_pid)) {
+        Ok(process_group_id) => process_group_id,
+        Err(Errno::ESRCH) => return Ok(()),
+        Err(err) => return Err(std::io::Error::from_raw_os_error(err as i32)),
+    };
+
+    match killpg(process_group_id, Signal::SIGKILL) {
+        Ok(()) | Err(Errno::ESRCH) => Ok(()),
+        Err(err) => Err(std::io::Error::from_raw_os_error(err as i32)),
+    }
+}
+
 async fn read_output_tail(path: &Path, max_bytes: usize) -> Result<String, ToolError> {
     let mut file = match tokio::fs::File::open(path).await {
         Ok(file) => file,
@@ -1058,6 +1122,151 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn pty_kill_reports_killing_until_reader_observes_eof() {
+        let temp = tempdir().expect("tempdir");
+        let sessions = Arc::new(PtySessionStore::new(temp.path().join("pty")).expect("pty store"));
+
+        let command = "sleep 30".to_string();
+        let started = sessions
+            .start(
+                command.clone(),
+                direct_shell_wrapped(&command),
+                temp.path().display().to_string(),
+                &HashMap::new(),
+                HashMap::new(),
+                24,
+                120,
+            )
+            .expect("start pty");
+
+        let killing = sessions.kill(&started.id).expect("kill pty");
+
+        assert_eq!(killing.status, PtySessionStatus::Killing);
+        assert_eq!(
+            wait_for_session_status(
+                &sessions,
+                &started.id,
+                PtySessionStatus::Killed,
+                Duration::from_secs(3)
+            )
+            .await,
+            Some(PtySessionStatus::Killed)
+        );
+    }
+
+    #[tokio::test]
+    async fn pty_kill_keeps_completed_session_completed() {
+        let temp = tempdir().expect("tempdir");
+        let sessions = Arc::new(PtySessionStore::new(temp.path().join("pty")).expect("pty store"));
+
+        let command = "printf done".to_string();
+        let started = sessions
+            .start(
+                command.clone(),
+                direct_shell_wrapped(&command),
+                temp.path().display().to_string(),
+                &HashMap::new(),
+                HashMap::new(),
+                24,
+                120,
+            )
+            .expect("start pty");
+        let completed = sessions
+            .wait_for_quick_completion(&started.id, PTY_START_QUICK_COMPLETION_TIMEOUT)
+            .await;
+
+        assert_eq!(completed.status, PtySessionStatus::Completed);
+        let stopped = sessions.kill(&started.id).expect("kill completed pty");
+        assert_eq!(stopped.status, PtySessionStatus::Completed);
+    }
+
+    #[test]
+    fn pty_kill_error_restores_running_status() {
+        let temp = tempdir().expect("tempdir");
+        let sessions = PtySessionStore::new(temp.path().join("pty")).expect("pty store");
+        let id = "pty-test".to_string();
+        let status = Arc::new(Mutex::new(PtySessionStatus::Running));
+        let record = PtySessionRecord {
+            id: id.clone(),
+            command: "failing".to_string(),
+            output_path: temp.path().join("pty.log"),
+            sandboxed: false,
+            sandbox_backend: "direct".to_string(),
+            network_access: true,
+            writer: Arc::new(Mutex::new(Box::new(Vec::<u8>::new()))),
+            child: Arc::new(Mutex::new(Box::new(FailingKillChild))),
+            child_pid: None,
+            status,
+        };
+        sessions
+            .sessions
+            .lock()
+            .expect("pty session store lock")
+            .insert(id.clone(), record);
+
+        let err = match sessions.kill(&id) {
+            Ok(_) => panic!("kill should fail"),
+            Err(err) => err,
+        };
+
+        assert!(err.to_string().contains("permission denied"));
+        assert_eq!(
+            sessions.get(&id).map(|snapshot| snapshot.status),
+            Some(PtySessionStatus::Running)
+        );
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn pty_kill_terminates_background_children_in_process_group() {
+        let temp = tempdir().expect("tempdir");
+        let sessions = Arc::new(PtySessionStore::new(temp.path().join("pty")).expect("pty store"));
+
+        let marker = "__rara_bg_pid:";
+        let command = format!("sleep 1000 & bg=$!; echo {marker}$bg; wait");
+        let started = sessions
+            .start(
+                command.clone(),
+                direct_shell_wrapped(&command),
+                temp.path().display().to_string(),
+                &HashMap::new(),
+                HashMap::new(),
+                24,
+                120,
+            )
+            .expect("start pty");
+        let bg_pid = wait_for_marker_pid(&started.output_path, marker, Duration::from_secs(3))
+            .await
+            .expect("background pid marker");
+        assert!(
+            process_is_active(bg_pid),
+            "expected background child pid {bg_pid} to exist before kill"
+        );
+
+        let killing = sessions.kill(&started.id).expect("kill pty");
+
+        assert_eq!(killing.status, PtySessionStatus::Killing);
+        let inactive = wait_for_process_inactive(bg_pid, Duration::from_secs(3)).await;
+        if !inactive {
+            let _ = nix::sys::signal::kill(
+                nix::unistd::Pid::from_raw(bg_pid as i32),
+                nix::sys::signal::Signal::SIGKILL,
+            );
+        }
+        assert!(inactive, "background child pid {bg_pid} survived pty_kill");
+        assert_eq!(
+            wait_for_session_status(
+                &sessions,
+                &started.id,
+                PtySessionStatus::Killed,
+                Duration::from_secs(3)
+            )
+            .await,
+            Some(PtySessionStatus::Killed)
+        );
+    }
+
+    #[tokio::test]
     async fn pty_sessions_can_be_listed_statused_and_stopped() {
         let temp = tempdir().expect("tempdir");
         let sessions = Arc::new(PtySessionStore::new(temp.path().join("pty")).expect("pty store"));
@@ -1135,7 +1344,7 @@ mod tests {
         let stopped = stop.call(json!({})).await.expect("stop all ptys");
         assert_eq!(
             stopped.pointer("/stopped/0/status").and_then(Value::as_str),
-            Some("killed")
+            Some("killing")
         );
         assert_eq!(
             stopped
@@ -1143,6 +1352,123 @@ mod tests {
                 .and_then(Value::as_bool),
             Some(true)
         );
+    }
+
+    fn direct_shell_wrapped(command: &str) -> WrappedCommand {
+        WrappedCommand {
+            program: "/bin/sh".to_string(),
+            args: vec!["-c".to_string(), command.to_string()],
+            cleanup_path: None,
+            sandboxed: false,
+            sandbox_backend: "direct".to_string(),
+            sandbox_home: None,
+            network_access: true,
+        }
+    }
+
+    #[derive(Debug)]
+    struct FailingKillChild;
+
+    impl portable_pty::ChildKiller for FailingKillChild {
+        fn kill(&mut self) -> std::io::Result<()> {
+            Err(std::io::Error::new(
+                std::io::ErrorKind::PermissionDenied,
+                "permission denied",
+            ))
+        }
+
+        fn clone_killer(&self) -> Box<dyn portable_pty::ChildKiller + Send + Sync> {
+            Box::new(FailingKillChild)
+        }
+    }
+
+    impl Child for FailingKillChild {
+        fn try_wait(&mut self) -> std::io::Result<Option<portable_pty::ExitStatus>> {
+            Ok(None)
+        }
+
+        fn wait(&mut self) -> std::io::Result<portable_pty::ExitStatus> {
+            Ok(portable_pty::ExitStatus::with_exit_code(1))
+        }
+
+        fn process_id(&self) -> Option<u32> {
+            None
+        }
+    }
+
+    async fn wait_for_session_status(
+        sessions: &PtySessionStore,
+        id: &str,
+        expected: PtySessionStatus,
+        timeout: Duration,
+    ) -> Option<PtySessionStatus> {
+        let deadline = Instant::now() + timeout;
+        loop {
+            let status = sessions.get(id).map(|snapshot| snapshot.status);
+            if status == Some(expected) || Instant::now() >= deadline {
+                return status;
+            }
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+    }
+
+    #[cfg(unix)]
+    async fn wait_for_marker_pid(path: &Path, marker: &str, timeout: Duration) -> Option<u32> {
+        let deadline = Instant::now() + timeout;
+        loop {
+            let output = read_output_tail(path, 4096).await.ok()?;
+            if let Some(pid) = parse_marker_pid(&output, marker) {
+                return Some(pid);
+            }
+            if Instant::now() >= deadline {
+                return None;
+            }
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+    }
+
+    #[cfg(unix)]
+    fn parse_marker_pid(output: &str, marker: &str) -> Option<u32> {
+        output.lines().find_map(|line| {
+            let (_, tail) = line.split_once(marker)?;
+            let pid = tail
+                .chars()
+                .take_while(|ch| ch.is_ascii_digit())
+                .collect::<String>();
+            pid.parse().ok()
+        })
+    }
+
+    #[cfg(unix)]
+    fn process_is_active(pid: u32) -> bool {
+        process_state(pid).is_some_and(|state| !state.starts_with('Z'))
+    }
+
+    #[cfg(unix)]
+    fn process_state(pid: u32) -> Option<String> {
+        let output = std::process::Command::new("ps")
+            .args(["-o", "stat=", "-p", &pid.to_string()])
+            .output()
+            .ok()?;
+        if !output.status.success() {
+            return None;
+        }
+        let state = String::from_utf8_lossy(&output.stdout).trim().to_string();
+        (!state.is_empty()).then_some(state)
+    }
+
+    #[cfg(unix)]
+    async fn wait_for_process_inactive(pid: u32, timeout: Duration) -> bool {
+        let deadline = Instant::now() + timeout;
+        loop {
+            if !process_is_active(pid) {
+                return true;
+            }
+            if Instant::now() >= deadline {
+                return false;
+            }
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
     }
 }
 
