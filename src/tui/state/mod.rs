@@ -6,7 +6,6 @@ mod transcript;
 mod types;
 
 use std::cell::RefCell;
-use std::process::Command;
 use std::sync::Arc;
 use std::sync::atomic::AtomicBool;
 

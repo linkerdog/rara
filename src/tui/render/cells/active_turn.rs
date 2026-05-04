@@ -1,15 +1,11 @@
 use std::path::Path;
 
-use ratatui::{
-    style::{Color, Modifier, Style},
-    text::{Line, Span},
-};
+use ratatui::text::Line;
 
 use super::components::{
-    CommittedInteractionCell, ExploredCell, ExploringCell, MessageCell, PendingInteractionCell,
-    PlanModeCell, PlanSummaryCell, PlanningCell, PlanningSuggestionCell, QueuedFollowUpCell,
-    RanCell, RespondingCell, RunningCell, TerminalCell, ThinkingGroupCell, ThinkingTextCell,
-    UserCell, planning_suggestion_text,
+    CommittedInteractionCell, ExploringCell, MessageCell, PendingInteractionCell, PlanModeCell,
+    PlanSummaryCell, PlanningCell, PlanningSuggestionCell, QueuedFollowUpCell, RespondingCell,
+    RunningCell, UserCell, planning_suggestion_text,
 };
 use super::plan::{compact_live_response_message, parse_render_plan_block};
 use super::progress::{
@@ -17,9 +13,9 @@ use super::progress::{
 };
 use super::terminal::terminal_cell_from_entries;
 use super::{
-    ActiveCell, HistoryCell, InteractionCompletionKind, OrderedActiveSegment, TerminalCellData,
-    completion_role_kind, is_progress_stack_title, is_renderable_system_message,
-    ordered_exploration_agent_segments, trim_trailing_empty_lines,
+    ActiveCell, HistoryCell, InteractionCompletionKind, OrderedActiveSegment, completion_role_kind,
+    is_progress_stack_title, is_renderable_system_message, ordered_exploration_agent_segments,
+    trim_trailing_empty_lines,
 };
 use crate::tui::interaction_text::{
     pending_interaction_detail_text, pending_interaction_shortcut_text,
@@ -29,17 +25,10 @@ use crate::tui::queued_input::queued_follow_up_sections;
 use crate::tui::render::{
     compact_progress_summary_lines, compact_recent_first_summary_lines, compact_summary_lines,
     compact_summary_text, current_turn_exploration_summary_from_entries, current_turn_tool_summary,
-    wrapped_history_line_count,
 };
 use crate::tui::state::{
-    ActiveLiveEvent, RuntimePhase, TranscriptEntryPayload, TuiApp,
-    contains_structured_planning_output,
+    RuntimePhase, TranscriptEntryPayload, TuiApp, contains_structured_planning_output,
 };
-use crate::tui::sub_agent_display::SubAgentKind;
-use crate::tui::terminal_event::{
-    TerminalCollectionEvent, TerminalCommandEvent, TerminalEvent, TerminalTarget,
-};
-use crate::tui::tool_text::{compact_delegate_rest, compact_instruction};
 
 pub(crate) struct ActiveTurnCell<'a> {
     app: &'a TuiApp,

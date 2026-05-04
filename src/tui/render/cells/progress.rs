@@ -1,22 +1,13 @@
-use std::path::Path;
-
-use ratatui::{style::Color, text::Line};
+use ratatui::text::Line;
 
 use super::super::{
     compact_progress_summary_lines, compact_recent_first_summary_lines, compact_summary_lines,
-    compact_summary_text, current_turn_exploration_summary,
-    current_turn_exploration_summary_from_entries, wrapped_history_line_count,
 };
 use super::HistoryCell;
 use super::components::{
-    ExploredCell, ExploringCell, PlanningCell, RanCell, RunningCell, TerminalCell,
-    ThinkingGroupCell, ThinkingTextCell,
+    ExploringCell, PlanningCell, RunningCell, ThinkingGroupCell, ThinkingTextCell,
 };
-use crate::tui::state::{ActiveLiveEvent, TranscriptEntry, TranscriptEntryPayload};
-use crate::tui::terminal_event::{
-    TerminalCollectionEvent, TerminalCommandEvent, TerminalEvent, TerminalTarget,
-};
-use crate::tui::theme::*;
+use crate::tui::state::{ActiveLiveEvent, TranscriptEntry};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(super) enum ProgressRole {

@@ -1,4 +1,3 @@
-use super::super::super::config::ConfigManager;
 use super::types::{Overlay, TuiApp};
 use super::{
     INPUT_HISTORY_LIMIT, TextInputTarget, char_offset_to_byte_index, composer_display_char_width,
