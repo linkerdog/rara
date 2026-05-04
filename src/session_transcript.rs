@@ -134,7 +134,7 @@ pub fn load_transcript(path: &Path) -> Result<SessionTranscriptLoad> {
         return Ok(SessionTranscriptLoad::default());
     }
     let file = fs::File::open(path)?;
-    let reader = BufReader::new(file);
+    let mut reader = BufReader::new(file);
     let mut entries = Vec::new();
     let mut parse_errors = 0usize;
     let mut line_bytes = Vec::new();
