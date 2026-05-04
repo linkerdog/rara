@@ -105,7 +105,9 @@ Active backlog only. Keep this file small and current.
 
 - [x] Structured command model (`program`, `args`, `cwd`, `allow_net`) in `src/tools/bash.rs` and `crates/sandbox`.
 - [ ] Classifier and routing model from `docs/features/classifier-and-routing.md`.
-- [ ] Auditable permission + sandbox-bypass rules (Codex/Claude-inspired).
+- [ ] Auditable permission + sandbox-bypass rules (Codex/Claude-inspired);
+      segment-level bash prefix reuse is implemented, but typed approval-policy
+      modes and full rule provenance remain open.
 - [ ] Structured auto-permission classifier with compact transcript projection.
 - [ ] Background-task state classifier: `working` / `blocked` / `done` / `failed`.
 - [ ] `secrecy::SecretString` end-to-end for API keys, audit error paths.

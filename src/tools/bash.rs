@@ -222,12 +222,11 @@ impl BashCommandInput {
             .map(|value| value.trim())
             .filter(|value| !value.is_empty())
         {
-            let segments = split_shell_segments(command)?;
+            let segments = shell_command_prefix_segments(command)?;
             if segments.len() != 1 {
                 return None;
             }
-            let tokens = tokenize_shell_segment(&segments[0])?;
-            return prefix_from_tokens(&tokens);
+            return prefix_from_tokens(&segments[0]);
         }
 
         let program = self
@@ -241,11 +240,55 @@ impl BashCommandInput {
     }
 
     pub fn matches_approval_prefix(&self, prefix: &str) -> bool {
+        if let Some(command) = self
+            .command
+            .as_ref()
+            .map(|value| value.trim())
+            .filter(|value| !value.is_empty())
+        {
+            return shell_command_matches_single_approval_prefix(command, prefix);
+        }
+
         let normalized = self.normalized_approval_summary();
-        normalized == prefix
-            || normalized
-                .strip_prefix(prefix)
-                .is_some_and(|suffix| suffix.starts_with(char::is_whitespace))
+        normalized_summary_matches_prefix(&normalized, prefix)
+    }
+
+    pub fn is_allowed_by_approval_prefixes(&self, prefixes: &[String]) -> bool {
+        if prefixes.is_empty() {
+            return false;
+        }
+        if prefixes
+            .iter()
+            .any(|prefix| summary_matches_exact_approval(&self.summary(), prefix))
+        {
+            return true;
+        }
+
+        if let Some(command) = self
+            .command
+            .as_ref()
+            .map(|value| value.trim())
+            .filter(|value| !value.is_empty())
+        {
+            return shell_command_allowed_by_approval_prefixes(
+                command,
+                prefixes,
+                self.can_use_read_only_segment_bypass(),
+            );
+        }
+
+        prefixes
+            .iter()
+            .any(|prefix| self.matches_approval_prefix(prefix))
+    }
+
+    fn can_use_read_only_segment_bypass(&self) -> bool {
+        !self.allow_net
+            && !self.run_in_background
+            && self.env.is_empty()
+            && self.sandbox_permissions == BashSandboxPermissions::UseDefault
+            && self.justification.is_none()
+            && self.prefix_rule.is_empty()
     }
 
     fn normalized_approval_summary(&self) -> String {
@@ -458,6 +501,106 @@ fn git_args_are_read_only(args: &[String]) -> bool {
 fn docker_args_are_read_only(args: &[String]) -> bool {
     args.first()
         .is_some_and(|value| matches!(value.as_str(), "ps" | "images" | "logs" | "inspect"))
+}
+
+fn shell_command_matches_single_approval_prefix(command: &str, prefix: &str) -> bool {
+    let Some(segments) = shell_command_prefix_segments(command) else {
+        return false;
+    };
+    if segments.len() != 1 {
+        return false;
+    }
+    tokens_match_approval_prefix(&segments[0], prefix)
+}
+
+fn shell_command_allowed_by_approval_prefixes(
+    command: &str,
+    prefixes: &[String],
+    allow_read_only_segments: bool,
+) -> bool {
+    let Some(segments) = shell_command_prefix_segments(command) else {
+        return false;
+    };
+    if segments.is_empty() {
+        return false;
+    }
+
+    segments.iter().all(|tokens| {
+        if tokens.is_empty() {
+            return false;
+        }
+        if allow_read_only_segments && argv_is_read_only(&tokens[0], &tokens[1..]) {
+            return true;
+        }
+        prefixes
+            .iter()
+            .any(|prefix| tokens_match_approval_prefix(tokens, prefix))
+    })
+}
+
+fn shell_command_prefix_segments(command: &str) -> Option<Vec<Vec<String>>> {
+    if command_has_prefix_rule_unsafe_syntax(command) {
+        return None;
+    }
+    split_shell_segments(command).and_then(|segments| {
+        segments
+            .into_iter()
+            .map(|segment| {
+                let tokens = tokenize_shell_segment(&segment)?;
+                if tokens_have_env_assignment_prefix(&tokens) {
+                    return None;
+                }
+                Some(tokens)
+            })
+            .collect()
+    })
+}
+
+fn command_has_prefix_rule_unsafe_syntax(command: &str) -> bool {
+    command.contains('\n')
+        || command.contains('`')
+        || command.contains('$')
+        || command.contains('>')
+        || command.contains('<')
+        || command.contains('*')
+        || command.contains('?')
+        || command.contains('(')
+        || command.contains(')')
+}
+
+fn tokens_have_env_assignment_prefix(tokens: &[String]) -> bool {
+    tokens.first().is_some_and(|token| is_env_assignment(token))
+}
+
+fn is_env_assignment(token: &str) -> bool {
+    let Some((name, _)) = token.split_once('=') else {
+        return false;
+    };
+    let mut chars = name.chars();
+    let Some(first) = chars.next() else {
+        return false;
+    };
+    (first == '_' || first.is_ascii_alphabetic())
+        && chars.all(|ch| ch == '_' || ch.is_ascii_alphanumeric())
+}
+
+fn tokens_match_approval_prefix(tokens: &[String], prefix: &str) -> bool {
+    let normalized = normalized_tokens_summary(tokens);
+    normalized_summary_matches_prefix(&normalized, prefix)
+}
+
+fn summary_matches_exact_approval(summary: &str, prefix: &str) -> bool {
+    let prefix = prefix.trim();
+    !prefix.is_empty() && summary.trim() == prefix
+}
+
+fn normalized_summary_matches_prefix(normalized: &str, prefix: &str) -> bool {
+    let prefix = prefix.trim();
+    !prefix.is_empty()
+        && (normalized == prefix
+            || normalized
+                .strip_prefix(prefix)
+                .is_some_and(|suffix| suffix.starts_with(char::is_whitespace)))
 }
 
 fn split_shell_segments(command: &str) -> Option<Vec<String>> {
@@ -1707,6 +1850,83 @@ mod tests {
 
         assert_eq!(input.approval_prefix().as_deref(), Some("git push"));
         assert!(input.matches_approval_prefix("git push"));
+    }
+
+    #[test]
+    fn approval_prefix_does_not_match_multi_segment_command_by_first_segment() {
+        let input = BashCommandInput::from_value(json!({
+            "command": "git push origin main && rm -rf target"
+        }))
+        .expect("shell payload");
+
+        assert_eq!(input.approval_prefix(), None);
+        assert!(!input.matches_approval_prefix("git push"));
+        assert!(!input.is_allowed_by_approval_prefixes(&["git push".to_string()]));
+    }
+
+    #[test]
+    fn approval_prefixes_evaluate_every_shell_segment() {
+        let push_then_status = BashCommandInput::from_value(json!({
+            "command": "git push origin main && git status --short"
+        }))
+        .expect("shell payload");
+        assert!(
+            push_then_status.is_allowed_by_approval_prefixes(&["git push".to_string()]),
+            "approved write segment plus read-only segment should be allowed"
+        );
+
+        let push_then_test = BashCommandInput::from_value(json!({
+            "command": "git push origin main && cargo test"
+        }))
+        .expect("shell payload");
+        assert!(!push_then_test.is_allowed_by_approval_prefixes(&["git push".to_string()]));
+        assert!(
+            push_then_test.is_allowed_by_approval_prefixes(&[
+                "git push".to_string(),
+                "cargo test".to_string(),
+            ])
+        );
+    }
+
+    #[test]
+    fn approval_prefix_fallback_allows_only_exact_multi_segment_command() {
+        let input = BashCommandInput::from_value(json!({
+            "command": "git push origin main && git status --short"
+        }))
+        .expect("shell payload");
+        let exact_approval = "git push origin main && git status --short".to_string();
+
+        assert_eq!(input.approval_prefix(), None);
+        assert!(input.is_allowed_by_approval_prefixes(std::slice::from_ref(&exact_approval)));
+
+        let extra_segment = BashCommandInput::from_value(json!({
+            "command": "git push origin main && git status --short && rm -rf target"
+        }))
+        .expect("shell payload");
+        assert!(!extra_segment.is_allowed_by_approval_prefixes(&[exact_approval]));
+    }
+
+    #[test]
+    fn approval_prefixes_reject_shell_features_outside_rule_matching() {
+        for command in [
+            "git push origin main > /tmp/out",
+            "git push origin $BRANCH",
+            "git push origin main && rm -rf *",
+            "FOO=bar git push origin main",
+            "(git push origin main)",
+        ] {
+            let input =
+                BashCommandInput::from_value(json!({ "command": command })).expect("shell payload");
+            assert_eq!(
+                input.approval_prefix(),
+                None,
+                "{command} should not suggest a reusable prefix"
+            );
+            assert!(
+                !input.is_allowed_by_approval_prefixes(&["git push".to_string()]),
+                "{command} should not be allowed by a simple prefix"
+            );
+        }
     }
 
     #[test]

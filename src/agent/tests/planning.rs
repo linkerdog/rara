@@ -1233,6 +1233,42 @@ async fn approved_bash_prefix_auto_allows_later_matching_commands() {
 }
 
 #[tokio::test]
+async fn approved_bash_prefix_does_not_auto_allow_unapproved_shell_segments() {
+    let backend = Arc::new(SequencedBackend::new(vec![LlmResponse {
+        content: vec![ContentBlock::ToolUse {
+            id: "tool-chained-push-rm".to_string(),
+            name: "bash".to_string(),
+            input: json!({ "command": "git push origin main && rm -rf target" }),
+        }],
+        stop_reason: Some("tool_use".to_string()),
+        usage: Some(TokenUsage::default()),
+    }]));
+    let mut tool_manager = ToolManager::new();
+    tool_manager.register(Box::new(StubBashTool));
+    let (_temp, session_manager, workspace, rara_dir) = test_runtime_storage();
+    let mut agent = Agent::new(
+        tool_manager,
+        backend.clone(),
+        Arc::new(VectorDB::new(&rara_dir.join("lancedb").to_string_lossy())),
+        session_manager,
+        workspace,
+    );
+    agent.bash_approval_mode = crate::agent::BashApprovalMode::Suggestion;
+    agent.approved_bash_prefixes.push("git push".to_string());
+
+    agent
+        .query_with_mode(
+            "push and clean".to_string(),
+            super::super::AgentOutputMode::Silent,
+        )
+        .await
+        .expect("query should pause on the unapproved chained segment");
+
+    assert!(agent.pending_approval.is_some());
+    assert_eq!(backend.observed_messages().len(), 1);
+}
+
+#[tokio::test]
 async fn checkpoints_user_message_before_first_model_turn() {
     let (_temp, session_manager, workspace, rara_dir) = test_runtime_storage();
     let session_id = "checkpoint-before-model".to_string();
