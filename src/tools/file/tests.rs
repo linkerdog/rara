@@ -305,7 +305,7 @@ async fn replace_allows_partial_read_when_old_string_is_unique() {
 }
 
 #[tokio::test]
-async fn replace_lines_rejects_partial_read_state() {
+async fn replace_lines_allows_offset_read_not_truncated() {
     let tempdir = tempfile::tempdir().expect("tempdir");
     let path = tempdir.path().join("sample.txt");
     std::fs::write(&path, "one\ntwo\nthree\n").expect("write sample");
@@ -313,6 +313,7 @@ async fn replace_lines_rejects_partial_read_state() {
     let read_tool = ReadFileTool::new(read_state.clone());
     let replace_lines_tool = ReplaceLinesTool::new(read_state);
 
+    // Read only first line — not truncated, just a sub-range.
     read_tool
         .call(json!({
             "path": path.display().to_string(),
@@ -320,8 +321,11 @@ async fn replace_lines_rejects_partial_read_state() {
             "limit": 1
         }))
         .await
-        .expect("partial read");
-    let error = replace_lines_tool
+        .expect("offset read");
+    // Clode Code / Codex semantics: sub-range reads are not partial.
+    // replace_lines re-reads the file internally, so line-number
+    // validation is still correct.
+    let result = replace_lines_tool
         .call(json!({
             "path": path.display().to_string(),
             "start_line": 2,
@@ -329,8 +333,8 @@ async fn replace_lines_rejects_partial_read_state() {
             "new_string": "second"
         }))
         .await
-        .expect_err("line-only edit should still require full read");
-    assert!(error.to_string().contains("only partially read"));
+        .expect("replace_lines after offset read");
+    assert!(result["path"].as_str().unwrap().ends_with("sample.txt"));
 }
 
 #[tokio::test]
