@@ -302,8 +302,8 @@ impl SessionManager {
             let _ = fs::remove_file(&temp_path);
             return Err(err);
         }
-        session_transcript::write_history_snapshot(&self.storage_dir, thread_id, history)
-            .context("write legacy session transcript snapshot")?;
+        // Legacy restore should remain available even if the additive transcript mirror fails.
+        let _ = session_transcript::write_history_snapshot(&self.storage_dir, thread_id, history);
         Ok(())
     }
 
@@ -439,6 +439,36 @@ mod tests {
             model_visible_messages(&transcript.entries),
             canonical_messages
         );
+        Ok(())
+    }
+
+    #[test]
+    fn legacy_history_restore_survives_transcript_backfill_failure() -> Result<()> {
+        let temp = tempdir()?;
+        let session_manager = SessionManager::new_for_rara_dir(temp.path().join(".rara"))?;
+        let legacy_path = session_manager.legacy_session_history_path("thread-transcript-blocked");
+        let history = vec![Message {
+            role: "user".to_string(),
+            content: serde_json::json!("legacy restore should win"),
+        }];
+        fs::write(&legacy_path, serde_json::to_string(&history)?)?;
+        fs::create_dir_all(main_transcript_path(
+            &session_manager.storage_dir,
+            "thread-transcript-blocked",
+        ))?;
+
+        let migration =
+            session_manager.load_thread_history_migration("thread-transcript-blocked")?;
+
+        assert_eq!(migration.history, history);
+        assert_eq!(
+            migration.source,
+            PersistedThreadHistorySource::LegacyBackfilled
+        );
+        let canonical_history =
+            fs::read_to_string(session_manager.session_history_path("thread-transcript-blocked"))?;
+        let canonical_messages: Vec<Message> = serde_json::from_str(&canonical_history)?;
+        assert_eq!(canonical_messages, history);
         Ok(())
     }
 
