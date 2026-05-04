@@ -1,4 +1,5 @@
 mod defaults;
+mod mcp;
 mod migration;
 mod model;
 mod provider_surface;
@@ -13,6 +14,10 @@ pub use self::defaults::{
     LEGACY_CODEX_BASE_URL, LEGACY_CODEX_MODEL, LEGACY_CODEX_MODEL_V1, LEGACY_CODEX_MODEL_V1_MINI,
     REASONING_SUMMARY_DETAILED, REASONING_SUMMARY_NONE, should_apply_codex_base_url,
     should_reset_codex_base_url, should_reset_codex_model,
+};
+pub use self::mcp::{
+    McpRegistry, McpServerConfig, McpServerScope, McpServerSource, McpServerTransport,
+    SourcedMcpServerConfig,
 };
 pub use self::migration::migrate_reasoning_summary;
 pub use self::model::{

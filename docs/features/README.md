@@ -38,3 +38,8 @@ future appserver integrations can use.
 
 - `shell-approval-policy.md`: bash read-only classification and reusable prefix
   approval boundaries.
+
+## Runtime Extension Specs
+
+- `mcp-runtime.md`: source-aware MCP configuration, registry, status, refresh,
+  reconnect, resource, and Tool Search contracts.
