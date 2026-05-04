@@ -19,12 +19,6 @@ fn parses_model_command_argument() {
     assert_eq!(command.arg.as_deref(), Some("anything"));
 }
 
-#[test]
-fn parses_model_name_command_separately_from_model_picker() {
-    let command = parse_local_command("/model-name").expect("command should parse");
-    assert!(matches!(command.kind, LocalCommandKind::ModelName));
-    assert!(command.arg.is_none());
-}
 
 #[test]
 fn model_help_text_labels_deepseek_as_openai_compatible_endpoint() {

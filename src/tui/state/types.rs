@@ -111,7 +111,6 @@ pub enum LocalCommandKind {
     Approval,
     Compact,
     Model,
-    ModelName,
     BaseUrl,
     Login,
     Permissions,

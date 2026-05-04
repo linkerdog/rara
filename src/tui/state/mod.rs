@@ -455,6 +455,9 @@ impl TuiApp {
 
     fn selected_model_preset(&self) -> (&'static str, &'static str, &'static str) {
         let presets = current_model_presets(self.provider_picker_idx);
+        if presets.is_empty() {
+            return ("", "", "");
+        }
         presets[self.model_picker_idx.min(presets.len().saturating_sub(1))]
     }
 
