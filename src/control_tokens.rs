@@ -7,10 +7,11 @@ const INTERNAL_BLOCK_TAGS: [&str; 3] = [
     "agent_runtime_error",
     "rara_internal_history_context",
 ];
+pub(crate) const DEEPSEEK_EOS: &str = "<｜end▁of▁sentence｜>";
 
 pub(crate) fn scrub_internal_control_tokens(message: &str) -> String {
     let had_deepseek_dsml = deepseek_dsml::contains_dsml(message);
-    let had_deepseek_eos = message.contains("<｜end▁of▁sentence｜>");
+    let had_deepseek_eos = message.contains(DEEPSEEK_EOS);
 
     let message = if had_deepseek_dsml {
         strip_deepseek_v4_dsml_control_blocks(message)
@@ -24,7 +25,7 @@ pub(crate) fn scrub_internal_control_tokens(message: &str) -> String {
             message
         };
     let message = if had_deepseek_eos {
-        Cow::Owned(message.replace("<｜end▁of▁sentence｜>", ""))
+        Cow::Owned(message.replace(DEEPSEEK_EOS, ""))
     } else {
         message
     };
@@ -36,13 +37,17 @@ pub(crate) fn scrub_internal_control_tokens(message: &str) -> String {
     strip_legacy_control_markers(&message)
 }
 
-pub(crate) fn scrub_deepseek_visible_text(message: &str) -> String {
-    let message = if message.trim_start().starts_with("<think>") {
+pub(crate) fn has_deepseek_control_evidence(message: &str) -> bool {
+    deepseek_dsml::contains_dsml(message) || message.contains(DEEPSEEK_EOS)
+}
+
+pub(crate) fn scrub_deepseek_visible_text(message: &str, has_control_evidence: bool) -> String {
+    let message = if has_control_evidence && message.trim_start().starts_with("<think>") {
         strip_deepseek_leading_think_block(message)
     } else {
         Cow::Borrowed(message)
     };
-    message.replace("<｜end▁of▁sentence｜>", "")
+    message.replace(DEEPSEEK_EOS, "")
 }
 
 pub(crate) fn has_pending_internal_control_context(message: &str) -> bool {

@@ -23,14 +23,13 @@ use super::shared::{
 };
 use crate::agent::Message;
 use crate::config::OpenAiEndpointKind;
-use crate::control_tokens::scrub_deepseek_visible_text;
+use crate::control_tokens::{has_deepseek_control_evidence, scrub_deepseek_visible_text};
 use crate::llm::{ContentBlock, LlmResponse};
 use crate::redaction::{redact_secrets, sanitize_url_for_display};
 
 const STREAM_IDLE_RETRY_ATTEMPTS: usize = 1;
 const STREAM_IDLE_ERROR_FRAGMENT: &str = "stream produced no events";
 const DEEPSEEK_THINK_OPEN: &str = "<think>";
-const DEEPSEEK_THINK_CLOSE: &str = "</think>";
 
 #[derive(Debug)]
 pub(crate) struct OpenAiApiError {
@@ -41,25 +40,27 @@ pub(crate) struct OpenAiApiError {
 }
 
 #[derive(Default)]
-struct DeepseekTextStreamScrubber {
+pub(super) struct DeepseekTextStreamScrubber {
     state: DeepseekThinkStreamState,
     prefix_buffer: String,
-    hidden_buffer: String,
 }
 
 #[derive(Default)]
 enum DeepseekThinkStreamState {
     #[default]
     AtStart,
-    InsideThink,
+    PendingLeadingThink,
     Done,
 }
 
 impl DeepseekTextStreamScrubber {
-    fn push(&mut self, delta: &str) -> String {
+    pub(super) fn push(&mut self, delta: &str) -> String {
         match self.state {
             DeepseekThinkStreamState::AtStart => self.push_at_start(delta),
-            DeepseekThinkStreamState::InsideThink => self.push_inside_think(delta),
+            DeepseekThinkStreamState::PendingLeadingThink => {
+                self.prefix_buffer.push_str(delta);
+                String::new()
+            }
             DeepseekThinkStreamState::Done => delta.to_string(),
         }
     }
@@ -75,23 +76,18 @@ impl DeepseekTextStreamScrubber {
             return std::mem::take(&mut self.prefix_buffer);
         }
 
-        let think_start = self.prefix_buffer.len() - trimmed_prefix.len();
-        let rest = self.prefix_buffer[think_start + DEEPSEEK_THINK_OPEN.len()..].to_string();
-        self.prefix_buffer.clear();
-        self.state = DeepseekThinkStreamState::InsideThink;
-        self.push_inside_think(&rest)
+        self.state = DeepseekThinkStreamState::PendingLeadingThink;
+        String::new()
     }
 
-    fn push_inside_think(&mut self, delta: &str) -> String {
-        self.hidden_buffer.push_str(delta);
-        let Some(close_idx) = self.hidden_buffer.find(DEEPSEEK_THINK_CLOSE) else {
-            return String::new();
-        };
-
-        let visible = self.hidden_buffer[close_idx + DEEPSEEK_THINK_CLOSE.len()..].to_string();
-        self.hidden_buffer.clear();
+    pub(super) fn finish(&mut self) -> String {
+        let buffered = std::mem::take(&mut self.prefix_buffer);
         self.state = DeepseekThinkStreamState::Done;
-        visible
+        if buffered.is_empty() {
+            return String::new();
+        }
+        let has_control_evidence = has_deepseek_control_evidence(&buffered);
+        scrub_deepseek_visible_text(&buffered, has_control_evidence)
     }
 }
 
@@ -309,6 +305,13 @@ impl OpenAiCompatibleBackend {
                 if !u.is_null() {
                     usage = Some(u.clone());
                 }
+            }
+        }
+
+        if let Some(scrubber) = deepseek_text_scrubber.as_mut() {
+            let visible = scrubber.finish();
+            if !visible.is_empty() {
+                on_event(LlmStreamEvent::TextDelta(visible));
             }
         }
 
@@ -1156,10 +1159,12 @@ pub(super) fn parse_chat_completion_response(
     let mut parsed_dsml_tool_calls = Vec::new();
     if let Some(text) = extract_message_text(choice.get("content")) {
         if endpoint_kind == OpenAiEndpointKind::Deepseek {
+            let has_control_evidence = has_deepseek_control_evidence(&text);
             let extraction = deepseek_dsml::extract_tool_calls_from_text(&text);
             parsed_dsml_tool_calls =
                 deepseek_dsml_tool_calls_to_content_blocks(extraction.tool_calls);
-            let visible_text = scrub_deepseek_visible_text(&extraction.visible_text);
+            let visible_text =
+                scrub_deepseek_visible_text(&extraction.visible_text, has_control_evidence);
             if !visible_text.trim().is_empty() {
                 content.push(ContentBlock::Text { text: visible_text });
             }
@@ -1238,9 +1243,11 @@ pub(super) fn build_streaming_response_content(
     let mut parsed_dsml_tool_calls = Vec::new();
 
     if endpoint_kind == OpenAiEndpointKind::Deepseek {
+        let has_control_evidence = has_deepseek_control_evidence(&streamed_text);
         let extraction = deepseek_dsml::extract_tool_calls_from_text(&streamed_text);
         parsed_dsml_tool_calls = deepseek_dsml_tool_calls_to_content_blocks(extraction.tool_calls);
-        let visible_text = scrub_deepseek_visible_text(&extraction.visible_text);
+        let visible_text =
+            scrub_deepseek_visible_text(&extraction.visible_text, has_control_evidence);
         if !visible_text.trim().is_empty() {
             content.push(ContentBlock::Text { text: visible_text });
         }

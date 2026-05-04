@@ -6,12 +6,13 @@ use super::ollama::{
     suggest_ollama_num_ctx, to_ollama_messages,
 };
 use super::openai_compatible::{
-    OpenAiApiError, apply_codex_stream_event, build_chat_completion_request_body,
-    build_codex_responses_request, build_streaming_response_content,
-    infer_openai_compatible_auxiliary_model, is_auxiliary_model_retryable_error,
-    is_auxiliary_model_unsupported_error, is_context_window_error, is_openai_stream_idle_error,
-    merge_streaming_tool_calls, parse_chat_completion_response, parse_codex_response,
-    to_codex_input_items, to_openai_messages, to_openai_messages_for_endpoint,
+    DeepseekTextStreamScrubber, OpenAiApiError, apply_codex_stream_event,
+    build_chat_completion_request_body, build_codex_responses_request,
+    build_streaming_response_content, infer_openai_compatible_auxiliary_model,
+    is_auxiliary_model_retryable_error, is_auxiliary_model_unsupported_error,
+    is_context_window_error, is_openai_stream_idle_error, merge_streaming_tool_calls,
+    parse_chat_completion_response, parse_codex_response, to_codex_input_items, to_openai_messages,
+    to_openai_messages_for_endpoint,
 };
 use super::shared::{
     extract_message_text, model_context_budget, parse_tool_arguments, should_bypass_proxy,
@@ -251,7 +252,7 @@ fn deepseek_raw_leading_think_block_is_not_visible_text() {
             "choices": [{
                 "message": {
                     "role": "assistant",
-                    "content": "<think>private reasoning</think>\nVisible answer."
+                    "content": "<think>private reasoning</think>\nVisible answer.<｜end▁of▁sentence｜>"
                 },
                 "finish_reason": "stop"
             }]
@@ -265,6 +266,29 @@ fn deepseek_raw_leading_think_block_is_not_visible_text() {
         &response.content[0],
         ContentBlock::Text { text }
             if text.trim() == "Visible answer." && !text.contains("private reasoning")
+    ));
+}
+
+#[test]
+fn deepseek_endpoint_preserves_literal_leading_think_without_control_evidence() {
+    let response = parse_chat_completion_response(
+        &json!({
+            "choices": [{
+                "message": {
+                    "role": "assistant",
+                    "content": "<think>inner</think> is an XML example."
+                },
+                "finish_reason": "stop"
+            }]
+        }),
+        OpenAiEndpointKind::Deepseek,
+    )
+    .expect("parse response");
+
+    assert_eq!(response.content.len(), 1);
+    assert!(matches!(
+        &response.content[0],
+        ContentBlock::Text { text } if text == "<think>inner</think> is an XML example."
     ));
 }
 
@@ -1140,7 +1164,7 @@ fn deepseek_reasoner_explicit_thinking_normalizes_reasoning_effort() {
 fn deepseek_streaming_raw_leading_think_block_is_not_visible_text() {
     let content = build_streaming_response_content(
         OpenAiEndpointKind::Deepseek,
-        "<think>private reasoning</think>\nVisible answer.".to_string(),
+        "<think>private reasoning</think>\nVisible answer.<｜end▁of▁sentence｜>".to_string(),
         String::new(),
         &[],
     )
@@ -1152,6 +1176,44 @@ fn deepseek_streaming_raw_leading_think_block_is_not_visible_text() {
         ContentBlock::Text { text }
             if text.trim() == "Visible answer." && !text.contains("private reasoning")
     ));
+}
+
+#[test]
+fn deepseek_streaming_preserves_literal_leading_think_without_control_evidence() {
+    let content = build_streaming_response_content(
+        OpenAiEndpointKind::Deepseek,
+        "<think>inner</think> is an XML example.".to_string(),
+        String::new(),
+        &[],
+    )
+    .expect("build streaming content");
+
+    assert_eq!(content.len(), 1);
+    assert!(matches!(
+        &content[0],
+        ContentBlock::Text { text } if text == "<think>inner</think> is an XML example."
+    ));
+}
+
+#[test]
+fn deepseek_stream_scrubber_buffers_literal_leading_think_until_finish() {
+    let mut scrubber = DeepseekTextStreamScrubber::default();
+
+    assert_eq!(scrubber.push("<think>"), "");
+    assert_eq!(scrubber.push("inner</think> is an XML example."), "");
+    assert_eq!(scrubber.finish(), "<think>inner</think> is an XML example.");
+}
+
+#[test]
+fn deepseek_stream_scrubber_strips_leading_think_when_control_evidence_arrives() {
+    let mut scrubber = DeepseekTextStreamScrubber::default();
+
+    assert_eq!(scrubber.push("<think>private"), "");
+    assert_eq!(
+        scrubber.push(" reasoning</think>\nVisible answer.<｜end▁of▁sentence｜>"),
+        ""
+    );
+    assert_eq!(scrubber.finish().trim(), "Visible answer.");
 }
 
 #[test]
