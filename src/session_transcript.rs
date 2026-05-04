@@ -1,5 +1,5 @@
 use std::fs;
-use std::io::Write;
+use std::io::{BufRead, BufReader, BufWriter, ErrorKind, Write};
 use std::path::{Path, PathBuf};
 
 use anyhow::Result;
@@ -83,9 +83,13 @@ pub fn main_transcript_path(root_dir: &Path, session_id: &str) -> PathBuf {
     root_dir.join(session_id).join(TRANSCRIPT_FILE_NAME)
 }
 
-pub fn subagent_transcript_path(root_dir: &Path, session_id: &str, agent_id: &str) -> PathBuf {
+pub fn subagent_transcript_path(
+    root_dir: &Path,
+    parent_session_id: &str,
+    agent_id: &str,
+) -> PathBuf {
     root_dir
-        .join(session_id)
+        .join(parent_session_id)
         .join("subagents")
         .join(format!("agent-{}.jsonl", sanitize_path_component(agent_id)))
 }
@@ -112,12 +116,15 @@ pub fn append_entry(path: &Path, entry: &SessionTranscriptEntry) -> Result<()> {
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent)?;
     }
-    let mut file = fs::OpenOptions::new()
+    let file = fs::OpenOptions::new()
         .create(true)
         .append(true)
         .open(path)?;
-    serde_json::to_writer(&mut file, entry)?;
-    file.write_all(b"\n")?;
+    let mut writer = BufWriter::new(file);
+    serde_json::to_writer(&mut writer, entry)?;
+    writer.write_all(b"\n")?;
+    writer.flush()?;
+    writer.into_inner()?.sync_all()?;
     Ok(())
 }
 
@@ -125,10 +132,16 @@ pub fn load_transcript(path: &Path) -> Result<SessionTranscriptLoad> {
     if !path.exists() {
         return Ok(SessionTranscriptLoad::default());
     }
-    let content = fs::read_to_string(path)?;
+    let file = fs::File::open(path)?;
+    let reader = BufReader::new(file);
     let mut entries = Vec::new();
     let mut parse_errors = 0usize;
-    for line in content.lines() {
+    for line in reader.lines() {
+        let line = match line {
+            Ok(line) => line,
+            Err(err) if err.kind() == ErrorKind::Interrupted => continue,
+            Err(err) => return Err(err.into()),
+        };
         let line = line.trim();
         if line.is_empty() {
             continue;
@@ -193,14 +206,19 @@ fn write_entries_atomic(path: &Path, entries: &[SessionTranscriptEntry]) -> Resu
         fs::create_dir_all(parent)?;
     }
     let tmp_path = path.with_extension(format!("jsonl.tmp-{}", uuid::Uuid::new_v4()));
-    {
-        let mut file = fs::File::create(&tmp_path)?;
+    let result = (|| -> Result<()> {
+        let file = fs::File::create(&tmp_path)?;
+        let mut writer = BufWriter::new(file);
         for entry in entries {
-            serde_json::to_writer(&mut file, entry)?;
-            file.write_all(b"\n")?;
+            serde_json::to_writer(&mut writer, entry)?;
+            writer.write_all(b"\n")?;
         }
-    }
-    if let Err(err) = replace_file(&tmp_path, path) {
+        writer.flush()?;
+        writer.into_inner()?.sync_all()?;
+        replace_file(&tmp_path, path)?;
+        Ok(())
+    })();
+    if let Err(err) = result {
         let _ = fs::remove_file(&tmp_path);
         return Err(err);
     }
@@ -231,21 +249,10 @@ fn message_id(idx: usize) -> String {
 }
 
 fn sanitize_path_component(value: &str) -> String {
-    let sanitized = value
-        .chars()
-        .map(|ch| {
-            if ch.is_ascii_alphanumeric() || matches!(ch, '.' | '-' | '_') {
-                ch
-            } else {
-                '_'
-            }
-        })
-        .collect::<String>();
-    let trimmed = sanitized.trim_matches('_');
-    if trimmed.is_empty() {
+    if value.is_empty() {
         "agent".to_string()
     } else {
-        trimmed.to_string()
+        urlencoding::encode(value).into_owned()
     }
 }
 
@@ -377,5 +384,16 @@ mod tests {
         assert_eq!(load.entries.len(), 1);
         assert_eq!(load.parse_errors, 1);
         Ok(())
+    }
+
+    #[test]
+    fn subagent_paths_preserve_distinct_agent_ids() {
+        let temp = tempdir().expect("tempdir");
+        let slash_path = subagent_transcript_path(temp.path(), "session-1", "review/worker");
+        let colon_path = subagent_transcript_path(temp.path(), "session-1", "review:worker");
+
+        assert_ne!(slash_path, colon_path);
+        assert!(slash_path.ends_with("subagents/agent-review%2Fworker.jsonl"));
+        assert!(colon_path.ends_with("subagents/agent-review%3Aworker.jsonl"));
     }
 }
