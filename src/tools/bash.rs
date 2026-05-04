@@ -576,7 +576,11 @@ impl BackgroundTaskStore {
                 .filter(|v| !v.trim().is_empty())
                 .map(String::from),
             args: request.args.clone(),
-            cwd: request.cwd.clone(),
+            cwd: request
+                .cwd
+                .as_ref()
+                .filter(|d| !d.trim().is_empty())
+                .cloned(),
             output_path,
             status: BackgroundTaskStatus::Running,
             exit_code: None,
