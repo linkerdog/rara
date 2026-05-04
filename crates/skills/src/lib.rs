@@ -196,6 +196,44 @@ impl SkillManager {
         });
         items
     }
+
+    /// Returns the set of scopes that contributed at least one active skill.
+    pub fn active_scopes(&self) -> Vec<SkillScope> {
+        let mut scopes: Vec<SkillScope> = self
+            .skills
+            .values()
+            .map(|s| s.scope)
+            .collect::<std::collections::HashSet<_>>()
+            .into_iter()
+            .collect();
+        scopes.sort_by_key(|s| scope_priority(*s));
+        scopes
+    }
+
+    /// Returns whether a skill name has been overridden by a higher-precedence scope.
+    pub fn is_overridden(&self, name: &str) -> bool {
+        self.overrides.contains_key(name)
+    }
+
+    /// Returns the override chain for a skill name (lower-precedence versions that were replaced).
+    pub fn override_chain(&self, name: &str) -> Vec<SkillSummary> {
+        self.overrides
+            .get(name)
+            .map(|chain| {
+                chain
+                    .iter()
+                    .map(|skill| SkillSummary {
+                        name: skill.name.clone(),
+                        title: skill.title.clone(),
+                        description: skill.description.clone(),
+                        display_path: skill.display_path.clone(),
+                        scope: skill.scope,
+                        disable_model_invocation: skill.disable_model_invocation,
+                    })
+                    .collect()
+            })
+            .unwrap_or_default()
+    }
 }
 
 fn scope_for_search_dir(dir: &Path, home: &Path, cwd: &Path) -> SkillScope {
@@ -218,10 +256,15 @@ fn scope_priority(scope: SkillScope) -> u8 {
 }
 
 fn skill_search_dirs(home: &Path, cwd: &Path) -> Vec<PathBuf> {
-    let mut dirs = vec![home.join(".rara/skills"), home.join(".agents/skills")];
+    let mut dirs = vec![
+        home.join(".rara/skills"),
+        home.join(".agents/skills"),
+        home.join(".claude/skills"),
+    ];
 
     for dir in repo_skill_search_dirs(cwd) {
         dirs.push(dir.join(".agents/skills"));
+        dirs.push(dir.join(".claude/skills"));
     }
 
     dirs.push(cwd.join(".rara/skills"));
@@ -583,7 +626,7 @@ mod tests {
     }
 
     #[test]
-    fn search_dirs_keep_stable_prefix_order_without_codex_home_root() {
+    fn search_dirs_include_claude_skill_roots() {
         let temp = tempdir().expect("tempdir");
         let home = temp.path().join("home");
         let repo = temp.path().join("repo");
@@ -598,9 +641,13 @@ mod tests {
             vec![
                 home.join(".rara/skills"),
                 home.join(".agents/skills"),
+                home.join(".claude/skills"),
                 repo.join(".agents/skills"),
+                repo.join(".claude/skills"),
                 repo.join("crates/.agents/skills"),
+                repo.join("crates/.claude/skills"),
                 nested.join(".agents/skills"),
+                nested.join(".claude/skills"),
                 nested.join(".rara/skills"),
             ]
         );
