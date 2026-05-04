@@ -47,6 +47,13 @@ Active backlog only. Keep this file small and current.
 ## Web Tools
 
 - [ ] Replace `web_fetch` HTML-to-text with higher-fidelity markdown conversion.
+- [ ] Add capability-aware web prompt injection and tool registration so `/status`, `/context`, ACP, and Wire can show whether web search is disabled, anonymous Exa-backed, authenticated Exa-backed, or provider-native.
+- [ ] Add source-reporting enforcement for web-backed answers: capture source URLs from `web_search` / `web_fetch` and surface them to the final-response path.
+- [ ] Add current-date query hints for recent/current web searches so models do not search with stale years.
+- [ ] Add first-class domain allow/block filters and bounded per-turn search budget to the RARA `web_search` tool schema.
+- [ ] Add structured web-search runtime events with query, provider, source URLs, truncation state, and source-reporting readiness for `/context`, `/status`, ACP, and Wire.
+- [ ] Study auxiliary-model execution for search-only subqueries while preserving source reporting and prompt-injection boundaries.
+- [ ] Add provider-native web search mode support for compatible OpenAI Responses-style backends, with local Exa-backed search as the portable fallback.
 
 ## Memory / Retrieval / Persistence
 

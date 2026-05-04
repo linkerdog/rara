@@ -58,6 +58,8 @@ The effective prompt is assembled in this order:
 The default base prompt includes source-grounded engineering workflow guidance for:
 
 - factual verification before claims about repository, PR, CI, provider, or local-tool behavior;
+- external-source and web-search selection, including when to prefer local source, GitHub tooling,
+  MCP resources, upstream open-source documentation, or fetched web evidence;
 - structured tool use, including edit-tool discipline and unfiltered command-output inspection;
 - reviewable implementation workflow, focused validation, and PR hygiene;
 - Git conflict resolution when conflict markers are present.
@@ -76,6 +78,17 @@ Large-write guidance follows the same edit-tool boundary:
 - preserve the Codex distinction that heredoc can be a transport for `apply_patch`, while Claude's
   Bash/PowerShell guidance routes ordinary file writes through Write rather than `cat <<EOF`,
   `echo >`, `Set-Content`, or `Out-File`.
+
+External-source guidance is evidence routing, not a requirement to browse for every question. For
+repository, branch, PR, CI, local-tool, and local-configuration claims, the model should prefer the
+current codebase, git, GitHub tools, or `gh`. For current external facts and open-source software
+questions where local source or docs are unavailable, stale, or insufficient, web search is allowed
+only when a web-search or web-fetch tool is actually available in the current tool list. The model
+should prefer upstream repositories, official docs, release notes, issue trackers, standards, MCP
+resources, or project-provided references over secondary summaries, and should fetch/open source
+content before treating search results as evidence when a page-open/fetch tool is available. If web
+tools are unavailable or fail, the model should report that limitation instead of pretending to
+browse.
 
 ### 4) Compact Prompt
 
