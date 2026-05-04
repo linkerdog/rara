@@ -2,10 +2,11 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use anyhow::{Result, anyhow};
+use anyhow::{Context, Result, anyhow};
 use serde::{Deserialize, Serialize};
 
 use crate::agent::Message;
+use crate::session_transcript;
 use crate::state_db::PersistedStructuredRolloutEvent;
 use crate::thread_rollout_log;
 use crate::todo::TodoState;
@@ -90,6 +91,8 @@ impl SessionManager {
             let _ = fs::remove_file(&tmp_path);
             return Err(err);
         }
+        session_transcript::write_history_snapshot(&self.storage_dir, session_id, history)
+            .context("write session transcript snapshot")?;
         Ok(())
     }
 
@@ -314,6 +317,8 @@ impl SessionManager {
         let temp_path = path.with_extension("json.tmp");
         fs::write(&temp_path, serde_json::to_string(history)?)?;
         fs::rename(temp_path, path)?;
+        session_transcript::write_history_snapshot(&self.storage_dir, thread_id, history)
+            .context("write legacy session transcript snapshot")?;
         Ok(())
     }
 
@@ -376,6 +381,9 @@ mod tests {
     use tempfile::tempdir;
 
     use super::*;
+    use crate::session_transcript::{
+        SessionTranscriptEntry, load_transcript, main_transcript_path, model_visible_messages,
+    };
 
     #[test]
     fn save_compaction_event_appends_jsonl_lines() -> Result<()> {
@@ -438,6 +446,14 @@ mod tests {
         let canonical_messages: Vec<Message> = serde_json::from_str(&canonical_history)?;
         assert_eq!(canonical_messages.len(), 1);
         assert_eq!(canonical_messages[0].role, "user");
+        let transcript = load_transcript(&main_transcript_path(
+            &session_manager.storage_dir,
+            "thread-legacy-history",
+        ))?;
+        assert_eq!(
+            model_visible_messages(&transcript.entries),
+            canonical_messages
+        );
         Ok(())
     }
 
@@ -455,6 +471,19 @@ mod tests {
         let path = session_manager.session_history_path("thread-atomic-history");
         let persisted: Vec<Message> = serde_json::from_str(&fs::read_to_string(&path)?)?;
         assert_eq!(persisted, history);
+        let transcript_path =
+            main_transcript_path(&session_manager.storage_dir, "thread-atomic-history");
+        let transcript = load_transcript(&transcript_path)?;
+        assert_eq!(transcript.parse_errors, 0);
+        assert_eq!(model_visible_messages(&transcript.entries), history);
+        assert!(matches!(
+            &transcript.entries[0],
+            SessionTranscriptEntry::SessionMeta {
+                session_id,
+                is_sidechain: false,
+                ..
+            } if session_id == "thread-atomic-history"
+        ));
         let leftovers = fs::read_dir(path.parent().expect("history parent"))?
             .filter_map(std::result::Result::ok)
             .filter(|entry| entry.file_name().to_string_lossy().contains(".tmp-"))

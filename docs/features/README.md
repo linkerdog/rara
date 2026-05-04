@@ -22,6 +22,10 @@ Each active feature spec should include:
 - `docs/journal/`: date-prefixed implementation records
 - When a feature evolves, update the canonical feature doc and add or append a journal note.
 
+## Current Persistence Specs
+
+- `session-transcript.md`: typed session and sub-agent transcript storage.
+
 ## Control-Plane Readiness
 
 Features that affect skills, memory, prompt sources, hooks, planning, approvals,

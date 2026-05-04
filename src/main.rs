@@ -16,6 +16,7 @@ mod runtime_context;
 mod runtime_control;
 mod sandbox;
 mod session;
+mod session_transcript;
 mod shell_env;
 mod skill;
 mod state_db;
