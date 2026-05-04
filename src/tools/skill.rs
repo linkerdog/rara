@@ -48,7 +48,7 @@ impl Tool for SkillTool {
                     .list_summaries()
                     .iter()
                     .map(|s| {
-                        let overridden = self.skill_manager.is_overridden(&s.name);
+                        let shadows = self.skill_manager.shadows_others(&s.name);
                         json!({
                             "name": s.name,
                             "title": s.title,
@@ -56,8 +56,8 @@ impl Tool for SkillTool {
                             "scope": format!("{:?}", s.scope).to_lowercase(),
                             "display_path": s.display_path,
                             "disable_model_invocation": s.disable_model_invocation,
-                            "overridden": overridden,
-                            "overridden_by": if overridden {
+                            "overrides_others": shadows,
+                            "shadowed_scopes": if shadows {
                                 self.skill_manager.override_chain(&s.name)
                                     .iter()
                                     .map(|o| format!("{:?}", o.scope).to_lowercase())
@@ -85,7 +85,7 @@ impl Tool for SkillTool {
                         .ok_or(ToolError::ExecutionFailed(format!(
                             "Skill not found: {name}"
                         )))?;
-                let overridden_by: Vec<String> = self
+                let shadowed_scopes: Vec<String> = self
                     .skill_manager
                     .override_chain(name)
                     .iter()
@@ -98,8 +98,8 @@ impl Tool for SkillTool {
                     "display_path": skill.display_path,
                     "instructions": skill.prompt,
                     "disable_model_invocation": skill.disable_model_invocation,
-                    "overridden": !overridden_by.is_empty(),
-                    "overridden_by": overridden_by,
+                    "overrides_others": !shadowed_scopes.is_empty(),
+                    "shadowed_scopes": shadowed_scopes,
                 }))
             }
             _ => Err(ToolError::InvalidInput("Invalid action".into())),
@@ -161,8 +161,8 @@ mod tests {
         assert_eq!(result["title"].as_str(), Some("Test Skill"));
         assert_eq!(result["scope"].as_str(), Some("cwd"));
         assert_eq!(result["instructions"].as_str(), Some("# Test\nbody"));
-        assert_eq!(result["overridden"].as_bool(), Some(false));
-        assert!(result["overridden_by"].as_array().unwrap().is_empty());
+        assert_eq!(result["overrides_others"].as_bool(), Some(false));
+        assert!(result["shadowed_scopes"].as_array().unwrap().is_empty());
     }
 
     #[tokio::test]
@@ -218,10 +218,10 @@ mod tests {
 
         let skill = &skills[0];
         assert_eq!(skill["name"].as_str(), Some("overridden-skill"));
-        assert_eq!(skill["overridden"].as_bool(), Some(true));
-        let overridden_by = skill["overridden_by"].as_array().unwrap();
-        assert_eq!(overridden_by.len(), 1);
-        assert_eq!(overridden_by[0].as_str(), Some("home"));
+        assert_eq!(skill["overrides_others"].as_bool(), Some(true));
+        let shadowed = skill["shadowed_scopes"].as_array().unwrap();
+        assert_eq!(shadowed.len(), 1);
+        assert_eq!(shadowed[0].as_str(), Some("home"));
     }
 
     #[tokio::test]

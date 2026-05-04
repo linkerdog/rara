@@ -244,15 +244,15 @@ impl SkillManager {
             .skills
             .values()
             .map(|s| s.scope)
-            .collect::<std::collections::HashSet<_>>()
+            .collect::<HashSet<_>>()
             .into_iter()
             .collect();
         scopes.sort_by_key(|s| scope_priority(*s));
         scopes
     }
 
-    /// Returns whether a skill name has been overridden by a higher-precedence scope.
-    pub fn is_overridden(&self, name: &str) -> bool {
+    /// Returns whether this active skill shadows lower-precedence versions (i.e., it overrides them).
+    pub fn shadows_others(&self, name: &str) -> bool {
         self.overrides.contains_key(name)
     }
 
