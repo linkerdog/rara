@@ -502,34 +502,31 @@ impl Tool for PtyStartTool {
         let request = PtyCommandInput::from_value(input)?;
         let cwd = request.working_dir();
         let allow_net = self.sandbox_network_access.load(Ordering::Relaxed) || request.allow_net;
-        let (command, wrapped) = if let Some(cmd) = request
-            .command
-            .as_deref()
-            .filter(|v| !v.trim().is_empty())
-        {
-            let wrapped = self
-                .sandbox
-                .wrap_pty_shell_command(cmd, &cwd, allow_net)
-                .map_err(|err| {
-                    ToolError::ExecutionFailed(format!("{} {}", err, sandbox_failure_hint()))
-                })?;
-            (cmd.to_string(), wrapped)
-        } else {
-            let program = request
-                .program
-                .as_deref()
-                .filter(|v| !v.trim().is_empty())
-                .ok_or_else(|| ToolError::InvalidInput("program".into()))?
-                .to_string();
-            let summary = request.summary();
-            let wrapped = self
-                .sandbox
-                .wrap_pty_exec_command(&program, &request.args, &cwd, allow_net)
-                .map_err(|err| {
-                    ToolError::ExecutionFailed(format!("{} {}", err, sandbox_failure_hint()))
-                })?;
-            (summary, wrapped)
-        };
+        let (command, wrapped) =
+            if let Some(cmd) = request.command.as_deref().filter(|v| !v.trim().is_empty()) {
+                let wrapped = self
+                    .sandbox
+                    .wrap_pty_shell_command(cmd, &cwd, allow_net)
+                    .map_err(|err| {
+                        ToolError::ExecutionFailed(format!("{} {}", err, sandbox_failure_hint()))
+                    })?;
+                (cmd.to_string(), wrapped)
+            } else {
+                let program = request
+                    .program
+                    .as_deref()
+                    .filter(|v| !v.trim().is_empty())
+                    .ok_or_else(|| ToolError::InvalidInput("program".into()))?
+                    .to_string();
+                let summary = request.summary();
+                let wrapped = self
+                    .sandbox
+                    .wrap_pty_exec_command(&program, &request.args, &cwd, allow_net)
+                    .map_err(|err| {
+                        ToolError::ExecutionFailed(format!("{} {}", err, sandbox_failure_hint()))
+                    })?;
+                (summary, wrapped)
+            };
         let started = self.sessions.start(
             command,
             wrapped,
@@ -1151,8 +1148,9 @@ mod tests {
 
 #[cfg(test)]
 mod input_tests {
-    use super::*;
     use serde_json::json;
+
+    use super::*;
 
     #[test]
     fn parses_structured_program_payload() {
