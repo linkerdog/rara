@@ -271,59 +271,177 @@ impl TerminalCell {
         }
     }
 
-    fn bullet(&self) -> Span<'static> {
+    fn status_icon(&self) -> &'static str {
+        match (self.active, self.success) {
+            (true, _) => "▶",
+            (false, Some(true)) => "✓",
+            (false, Some(false)) => "✕",
+            (false, None) => "•",
+        }
+    }
+
+    fn status_style(&self) -> Style {
         let color = match (self.active, self.success) {
             (true, _) => PHASE_EXPLORING,
             (false, Some(true)) => STATUS_SUCCESS,
             (false, Some(false)) => STATUS_ERROR,
             (false, None) => PHASE_RAN,
         };
-        Span::styled("•", Style::default().fg(color).add_modifier(Modifier::BOLD))
+        Style::default().fg(color).add_modifier(Modifier::BOLD)
     }
 
     fn title(&self) -> &'static str {
         if self.active { "Running" } else { "Ran" }
     }
 
-    fn output_lines(&self) -> Vec<String> {
-        const EDGE_LIMIT: usize = 3;
-        if self.output.len() <= EDGE_LIMIT * 2 + 1 {
-            return self.output.clone();
+    fn stdout_stderr_split(&self) -> (Vec<String>, Vec<String>) {
+        let stderr_prefix = "[stderr] ";
+        let mut stdout = Vec::new();
+        let mut stderr = Vec::new();
+        for line in &self.output {
+            if let Some(rest) = line.strip_prefix(stderr_prefix) {
+                stderr.push(rest.trim_end().to_string());
+            } else {
+                stdout.push(line.clone());
+            }
         }
+        (stdout, stderr)
+    }
 
-        let omitted = self.output.len() - EDGE_LIMIT * 2;
-        let mut lines = self
-            .output
-            .iter()
-            .take(EDGE_LIMIT)
-            .cloned()
-            .collect::<Vec<_>>();
-        lines.push(format!("... {omitted} more line(s)"));
-        lines.extend(
-            self.output
+    fn fold_output(total: usize, visible: &[String], indent: &str) -> Vec<Line<'static>> {
+        let edge = 3;
+        let indent_owned = indent.to_string();
+        if visible.len() <= edge * 2 + 1 {
+            return visible
                 .iter()
-                .skip(self.output.len() - EDGE_LIMIT)
-                .cloned(),
-        );
+                .enumerate()
+                .map(|(i, line)| {
+                    let prefix = if i == 0 { "  └ " } else { "    " };
+                    Line::from(vec![
+                        Span::styled(prefix, Style::default().fg(TEXT_SECONDARY)),
+                        Span::styled(line.clone(), Style::default().fg(TEXT_SECONDARY)),
+                    ])
+                })
+                .collect();
+        }
+        let omitted = visible.len() - edge * 2;
+        let mut lines: Vec<Line<'static>> = visible
+            .iter()
+            .take(edge)
+            .enumerate()
+            .map(|(i, line)| {
+                let prefix = if i == 0 { "  └ " } else { "    " };
+                Line::from(vec![
+                    Span::styled(prefix, Style::default().fg(TEXT_SECONDARY)),
+                    Span::styled(line.clone(), Style::default().fg(TEXT_SECONDARY)),
+                ])
+            })
+            .collect();
+        lines.push(Line::from(Span::styled(
+            format!("{indent}  ... {omitted} more line(s)  (showing {edge} + {edge} of {total})"),
+            Style::default().fg(TEXT_SECONDARY),
+        )));
+        lines.extend(visible.iter().skip(visible.len() - edge).map(|line| {
+            Line::from(vec![
+                Span::styled(indent_owned.clone(), Style::default().fg(TEXT_SECONDARY)),
+                Span::styled(line.clone(), Style::default().fg(TEXT_SECONDARY)),
+            ])
+        }));
         lines
     }
 }
 
 impl HistoryCell for TerminalCell {
     fn display_lines(&self, _width: u16) -> Vec<Line<'static>> {
-        let mut lines = vec![Line::from(vec![
-            self.bullet(),
+        let mut lines = Vec::new();
+
+        // Header: status icon + title + command
+        lines.push(Line::from(vec![
+            Span::styled(self.status_icon().to_string(), self.status_style()),
             Span::raw(" "),
             Span::styled(self.title(), Style::default().add_modifier(Modifier::BOLD)),
             Span::raw(" "),
             Span::raw(self.command.clone()),
-        ])];
+        ]));
 
-        for (idx, output) in self.output_lines().into_iter().enumerate() {
-            let prefix = if idx == 0 { "  └ " } else { "    " };
+        let (stdout, stderr) = self.stdout_stderr_split();
+
+        // Stdout section
+        if !stdout.is_empty() {
+            lines.extend(Self::fold_output(stdout.len(), &stdout, "    "));
+        }
+
+        // Stderr section with colored background
+        if !stderr.is_empty() {
+            let stderr_count = stderr.len();
+            let edge = 3;
+            let hidden = stderr_count > edge * 2 + 1;
+
+            if hidden {
+                for (i, line) in stderr.iter().take(edge).enumerate() {
+                    let prefix = if i == 0 { "  └ " } else { "    " };
+                    lines.push(Line::from(vec![
+                        Span::styled(prefix, Style::default().fg(TOOL_STDERR_FG)),
+                        Span::styled(
+                            line.clone(),
+                            Style::default().bg(TOOL_STDERR_BG).fg(TOOL_STDERR_FG),
+                        ),
+                    ]));
+                }
+                let omitted = stderr_count - edge * 2;
+                lines.push(Line::from(Span::styled(
+                    format!(
+                        "      ... {omitted} more stderr line(s)  (showing {edge} + {edge} of {stderr_count})"
+                    ),
+                    Style::default()
+                        .fg(TOOL_STDERR_FG)
+                        .bg(TOOL_STDERR_BG),
+                )));
+                for line in stderr.iter().skip(stderr_count - edge) {
+                    lines.push(Line::from(vec![
+                        Span::styled("    ", Style::default().fg(TOOL_STDERR_FG)),
+                        Span::styled(
+                            line.clone(),
+                            Style::default().bg(TOOL_STDERR_BG).fg(TOOL_STDERR_FG),
+                        ),
+                    ]));
+                }
+            } else {
+                for (i, line) in stderr.iter().enumerate() {
+                    let prefix = if i == 0 { "  └ " } else { "    " };
+                    lines.push(Line::from(vec![
+                        Span::styled(prefix, Style::default().fg(TOOL_STDERR_FG)),
+                        Span::styled(
+                            line.clone(),
+                            Style::default().bg(TOOL_STDERR_BG).fg(TOOL_STDERR_FG),
+                        ),
+                    ]));
+                }
+            }
+        }
+
+        // Footer: status line when completed
+        if !self.active {
+            let exit_status = match self.success {
+                Some(true) => Span::styled(
+                    "exit: 0",
+                    Style::default()
+                        .fg(STATUS_SUCCESS)
+                        .add_modifier(Modifier::BOLD),
+                ),
+                Some(false) => Span::styled(
+                    "exit: non-zero",
+                    Style::default()
+                        .fg(STATUS_ERROR)
+                        .add_modifier(Modifier::BOLD),
+                ),
+                None => Span::styled("done", Style::default().fg(TEXT_SECONDARY)),
+            };
             lines.push(Line::from(vec![
-                Span::styled(prefix, Style::default().fg(TEXT_SECONDARY)),
-                Span::styled(output, Style::default().fg(TEXT_SECONDARY)),
+                Span::styled("  ", Style::default().fg(TEXT_SECONDARY)),
+                Span::styled("┄", Style::default().fg(TEXT_SECONDARY)),
+                Span::raw(" "),
+                exit_status,
             ]));
         }
 
