@@ -863,7 +863,7 @@ fn flushed_agent_thinking_stream_scrubs_internal_runtime_blocks() {
     assert_eq!(app.active_live.events.len(), 1);
     let event = app.active_live.events.first().expect("thinking event");
     assert_eq!(event.role(), "Thinking");
-    assert_eq!(event.message(), "Visible thought.\nNext thought.");
+    assert_eq!(event.message(), "Visible thought.\n\nNext thought.");
     assert!(!event.message().contains("agent_runtime"));
     assert!(!event.message().contains("tool_results_available"));
 }
