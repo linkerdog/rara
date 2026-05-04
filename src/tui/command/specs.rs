@@ -1,6 +1,13 @@
 use crate::tui::state::{CommandSpec, LocalCommand, LocalCommandKind, TuiApp};
 
-pub const COMMAND_SPECS: [CommandSpec; 21] = [
+pub const COMMAND_SPECS: [CommandSpec; 22] = [
+    CommandSpec {
+        category: "Session",
+        name: "permissions",
+        usage: "/permissions",
+        summary: "Cycle permission mode (Auto → AcceptEdits → ReadOnly → FullAccess).",
+        detail: "Set what RARA can do without asking first. Cycles through Auto (sandbox workspace-write, bash always-approve), AcceptEdits (auto-approve file edits, suggestion bash), ReadOnly (plan mode, no edits), and FullAccess (danger-full-access with network, no approvals).",
+    },
     CommandSpec {
         category: "Session",
         name: "help",
@@ -178,6 +185,7 @@ pub fn parse_local_command(input: &str) -> Option<LocalCommand> {
         "logout" => LocalCommandKind::Logout,
         "review" => LocalCommandKind::Review,
         "skills" => LocalCommandKind::Skills,
+        "permissions" | "permission" => LocalCommandKind::Permissions,
         _ => return None,
     };
 
@@ -248,7 +256,7 @@ pub fn command_detail_text(spec: &CommandSpec) -> String {
 }
 
 pub fn general_help_text() -> &'static str {
-    "RARA uses a single composer as the control surface.\n\nNormal input goes to the current agent.\nSlash commands stay local and open overlays or update runtime state.\n\nCompaction:\n  /compact forces one history compaction pass\n\nContext:\n  /context shows the effective runtime context for the current turn\n\nModes:\n  /plan enters planning mode for the current task\n  The agent may call enter_plan_mode for non-trivial repository work\n  /approval toggles bash approval between suggestion and always\n\nAuth:\n  /login opens the provider auth picker\n  /logout clears the saved provider credential\n\nEditing:\n  apply_patch is the default tool for updating existing files\n  replace_lines is for verified large line-range edits\n  write_file is for new files or full rewrites\n  replace is only a simple fallback for unique string swaps\n\nKeyboard:\n  Enter submit current composer input\n  Shift+Enter insert a newline in the composer\n  Esc close the current overlay only\n  Up/Down or j/k move inside lists\n  1/2/3 switch help tabs or choose guided model options\n\nExit:\n  /quit or /exit leave the TUI."
+    "RARA uses a single composer as the control surface.\n\nNormal input goes to the current agent.\nSlash commands stay local and open overlays or update runtime state.\n\nCompaction:\n  /compact forces one history compaction pass\n\nContext:\n  /context shows the effective runtime context for the current turn\n\nModes:\n  /permissions cycles through permission presets (auto, accept-edits, read-only, full-access)\n  /plan enters planning mode for the current task\n  The agent may call enter_plan_mode for non-trivial repository work\n  /approval toggles bash approval between suggestion and always\n\nAuth:\n  /login opens the provider auth picker\n  /logout clears the saved provider credential\n\nEditing:\n  apply_patch is the default tool for updating existing files\n  replace_lines is for verified large line-range edits\n  write_file is for new files or full rewrites\n  replace is only a simple fallback for unique string swaps\n\nKeyboard:\n  Enter submit current composer input\n  Shift+Enter insert a newline in the composer\n  Esc close the current overlay only\n  Up/Down or j/k move inside lists\n  1/2/3 switch help tabs or choose guided model options\n\nExit:\n  /quit or /exit leave the TUI."
 }
 
 fn command_score(spec: &CommandSpec, query: &str) -> Option<u8> {
@@ -296,21 +304,22 @@ pub fn help_text() -> String {
         .collect::<Vec<_>>()
         .join("\n");
     format!(
-        "Built-in commands:\n{}\n\nCompaction:\n  /compact   summarize older conversation history now\n\nThreads:\n  /resume    reopen a recent local thread\n\nModes:\n  /plan      enter planning mode for the current task\n  Agent may call enter_plan_mode automatically\n  /approval  toggle bash approval mode\n\nAuth:\n  /login     open the provider auth picker\n  /logout    clear the saved provider credential\n\nEditing:\n  apply_patch    preferred for editing existing files\n  replace_lines  use for verified large line-range edits\n  write_file     use for new files or full rewrites\n  replace        simple fallback for unique string replacement\n\nKeyboard:\n  Enter submit\n  Shift+Enter insert newline\n  Esc close current overlay\n\nExit:\n  /quit\n  /exit\n\nModel switching:\n  /model\n\nProvider URL:\n  /base-url",
+        "Built-in commands:\n{}\n\nCompaction:\n  /compact   summarize older conversation history now\n\nThreads:\n  /resume    reopen a recent local thread\n\nModes:\n  /permissions   cycle permission presets (auto, accept-edits, read-only, full-access)\n  /plan      enter planning mode for the current task\n  Agent may call enter_plan_mode automatically\n  /approval  toggle bash approval mode\n\nAuth:\n  /login     open the provider auth picker\n  /logout    clear the saved provider credential\n\nEditing:\n  apply_patch    preferred for editing existing files\n  replace_lines  use for verified large line-range edits\n  write_file     use for new files or full rewrites\n  replace        simple fallback for unique string replacement\n\nKeyboard:\n  Enter submit\n  Shift+Enter insert newline\n  Esc close current overlay\n\nExit:\n  /quit\n  /exit\n\nModel switching:\n  /model\n\nProvider URL:\n  /base-url",
         commands
     )
 }
 
 pub fn quick_actions_text() -> &'static str {
-    "/approval  toggle bash approval mode\n\
-     /base-url  open the provider URL editor\n\
-     /clear     reset the visible transcript\n\
-     /context   inspect effective runtime context\n\
-     /help      browse commands and keyboard hints\n\
-     /model     open guided model switching\n\
-     /plan      enter planning mode for the current task\n\
-     /status    inspect runtime and workspace\n\
-     /quit      leave the TUI"
+    "/permissions  cycle permission presets\n\
+     /approval    toggle bash approval mode\n\
+     /base-url    open the provider URL editor\n\
+     /clear       reset the visible transcript\n\
+     /context     inspect effective runtime context\n\
+     /help        browse commands and keyboard hints\n\
+     /model       open guided model switching\n\
+     /plan        enter planning mode for the current task\n\
+     /status      inspect runtime and workspace\n\
+     /quit        leave the TUI"
 }
 
 #[cfg(test)]

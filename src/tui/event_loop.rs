@@ -1,4 +1,5 @@
 use std::sync::Arc;
+use std::sync::atomic::AtomicBool;
 
 use crossterm::{event::EventStream, terminal::enable_raw_mode, terminal::size as terminal_size};
 use futures::StreamExt;
@@ -32,10 +33,12 @@ pub async fn run_tui(
     agent: Agent,
     oauth_manager: OAuthManager,
     startup_resume: StartupResumeTarget,
+    sandbox_network_access: Arc<AtomicBool>,
 ) -> anyhow::Result<Option<String>> {
     enable_raw_mode()?;
     let initial_size = terminal_size()?;
     let mut app = TuiApp::new(crate::config::ConfigManager::new()?)?;
+    app.sandbox_network_access = sandbox_network_access;
     app.terminal_width = initial_size.0;
     let viewport_height = desired_viewport_height(&app, initial_size.0, initial_size.1);
     let mut terminal = build_terminal(viewport_height)?;

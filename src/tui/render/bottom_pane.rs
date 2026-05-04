@@ -80,6 +80,10 @@ fn render_activity_bar(f: &mut Frame, app: &TuiApp, area: Rect) {
         spans.push(Span::raw("  "));
         spans.push(badge("mode", "plan", TEXT_ACCENT));
     }
+    if app.permission_mode_label() != "auto" {
+        spans.push(Span::raw("  "));
+        spans.push(badge("perm", app.permission_mode_label(), STATUS_INFO));
+    }
     if !detail.is_empty() {
         spans.push(Span::raw("  "));
         spans.push(Span::styled(detail, Style::default().fg(TEXT_SECONDARY)));

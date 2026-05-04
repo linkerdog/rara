@@ -4,6 +4,7 @@
 // actually render in the TUI, not just plain text.
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
+use std::sync::atomic::Ordering;
 
 use crate::tui::state::{StatusTab, TuiApp};
 
@@ -38,6 +39,12 @@ fn render_overview_status(app: &TuiApp, lines: &mut Vec<Line<'static>>) {
         lines,
         "mode",
         app.agent_execution_mode_label(),
+        Color::LightBlue,
+    );
+    kv(
+        lines,
+        "permissions",
+        app.permission_mode_label(),
         Color::LightBlue,
     );
     kv(lines, "phase", app.runtime_phase_label(), Color::DarkGray);
@@ -95,12 +102,12 @@ fn render_config_status(app: &TuiApp, lines: &mut Vec<Line<'static>>) {
     kv(
         lines,
         "network",
-        if app.config.sandbox_workspace_write.network_access {
+        if app.sandbox_network_access.load(Ordering::Relaxed) {
             "permitted"
         } else {
             "restricted"
         },
-        if app.config.sandbox_workspace_write.network_access {
+        if app.sandbox_network_access.load(Ordering::Relaxed) {
             Color::Yellow
         } else {
             Color::LightGreen

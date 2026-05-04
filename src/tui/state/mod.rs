@@ -7,6 +7,8 @@ mod types;
 
 use std::cell::RefCell;
 use std::process::Command;
+use std::sync::Arc;
+use std::sync::atomic::AtomicBool;
 
 use unicode_width::UnicodeWidthChar;
 
@@ -19,10 +21,10 @@ pub use self::types::{
     ActiveLiveEvent, ActiveLiveSections, ActivePendingInteraction, ActivePendingInteractionKind,
     AgentMarkdownStreamState, CommandSpec, CompletedInteractionSnapshot, HelpTab, InteractionKind,
     LocalCommand, LocalCommandKind, OAuthLoginMode, OpenAiModelPickerAction, Overlay,
-    PROVIDER_FAMILIES, PendingApprovalSnapshot, PendingInteractionSnapshot, ProviderFamily,
-    RebuildSuccess, RunningTask, RuntimePhase, RuntimeSnapshot, SkillPickerEntry, StatusTab,
-    TaskCompletion, TaskKind, TranscriptEntry, TranscriptEntryPayload, TranscriptTurn, TuiApp,
-    TuiEvent,
+    PROVIDER_FAMILIES, PendingApprovalSnapshot, PendingInteractionSnapshot, PermissionMode,
+    ProviderFamily, RebuildSuccess, RunningTask, RuntimePhase, RuntimeSnapshot,
+    SkillPickerEntry, StatusTab, TaskCompletion, TaskKind, TranscriptEntry, TranscriptEntryPayload,
+    TranscriptTurn, TuiApp, TuiEvent,
 };
 
 const OPENAI_PROFILE_SETUP_KINDS: [OpenAiEndpointKind; 3] = [
@@ -246,6 +248,8 @@ impl TuiApp {
             codex_auth_mode: None,
             skill_picker_idx: 0,
             skill_picker_entries: Vec::new(),
+            sandbox_network_access: Arc::new(AtomicBool::new(false)),
+            permission_mode: PermissionMode::Auto,
         })
     }
 
@@ -1171,6 +1175,10 @@ impl TuiApp {
             AgentExecutionMode::Plan => "plan",
             AgentExecutionMode::Review => "review",
         }
+    }
+
+    pub fn permission_mode_label(&self) -> &'static str {
+        self.permission_mode.label()
     }
 
     pub fn bash_approval_mode_label(&self) -> &'static str {

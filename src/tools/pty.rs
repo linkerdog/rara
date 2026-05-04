@@ -3,6 +3,7 @@ use std::env;
 use std::fs::OpenOptions;
 use std::io::{Read, SeekFrom, Write};
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
@@ -23,7 +24,7 @@ pub struct PtyStartTool {
     pub sessions: Arc<PtySessionStore>,
     pub sandbox: Arc<SandboxManager>,
     pub base_env: Arc<HashMap<String, String>>,
-    pub sandbox_network_access: bool,
+    pub sandbox_network_access: Arc<AtomicBool>,
 }
 
 pub struct PtyReadTool {
@@ -423,7 +424,7 @@ impl Tool for PtyStartTool {
             .get("allow_net")
             .and_then(Value::as_bool)
             .unwrap_or(false);
-        let allow_net = self.sandbox_network_access || allow_net;
+        let allow_net = self.sandbox_network_access.load(Ordering::Relaxed) || allow_net;
         let wrapped = self
             .sandbox
             .wrap_pty_shell_command(&command, &cwd, allow_net)
@@ -787,7 +788,7 @@ mod tests {
                 SandboxManager::new_for_rara_dir(temp.path().join(".rara")).expect("sandbox"),
             ),
             base_env: Arc::new(HashMap::new()),
-            sandbox_network_access: false,
+            sandbox_network_access: Arc::new(AtomicBool::new(false)),
         };
         let list = PtyListTool {
             sessions: sessions.clone(),

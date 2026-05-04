@@ -4,6 +4,7 @@ use std::io::SeekFrom;
 use std::path::Path;
 use std::path::PathBuf;
 use std::process::Stdio;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::sync::Mutex;
 use std::time::Duration;
@@ -28,7 +29,7 @@ pub struct BashTool {
     pub sandbox: Arc<SandboxManager>,
     pub background_tasks: Arc<BackgroundTaskStore>,
     pub base_env: Arc<HashMap<String, String>>,
-    pub sandbox_network_access: bool,
+    pub sandbox_network_access: Arc<AtomicBool>,
 }
 
 pub struct BackgroundTaskStatusTool {
@@ -827,7 +828,7 @@ impl Tool for BashTool {
     ) -> Result<Value, ToolError> {
         let request = BashCommandInput::from_value(i)?;
         let cwd = request.working_dir()?;
-        let allow_net = self.sandbox_network_access || request.allow_net;
+        let allow_net = self.sandbox_network_access.load(Ordering::Relaxed) || request.allow_net;
         let wrapped = if let Some(command) = request.command.as_deref() {
             if request.sandbox_permissions == BashSandboxPermissions::RequireEscalated {
                 self.sandbox.wrap_unsandboxed_shell_command(command)
@@ -1557,7 +1558,7 @@ mod tests {
                     .expect("background task store"),
             ),
             base_env: Arc::new(HashMap::new()),
-            sandbox_network_access: false,
+            sandbox_network_access: Arc::new(AtomicBool::new(false)),
         };
 
         let description = tool.description();
@@ -1871,7 +1872,7 @@ mod tests {
                     .expect("background task store"),
             ),
             base_env: Arc::new(HashMap::new()),
-            sandbox_network_access: false,
+            sandbox_network_access: Arc::new(AtomicBool::new(false)),
         };
 
         let result = tool
@@ -1938,7 +1939,7 @@ mod tests {
                     .expect("background task store"),
             ),
             base_env: Arc::new(HashMap::new()),
-            sandbox_network_access: false,
+            sandbox_network_access: Arc::new(AtomicBool::new(false)),
         };
         let mut events = Vec::new();
         let result = tool
@@ -2001,7 +2002,7 @@ mod tests {
                     .expect("background task store"),
             ),
             base_env: Arc::new(HashMap::new()),
-            sandbox_network_access: false,
+            sandbox_network_access: Arc::new(AtomicBool::new(false)),
         };
         let cancellation = Arc::new(AtomicBool::new(false));
         let cancellation_for_task = cancellation.clone();
@@ -2115,7 +2116,7 @@ mod tests {
             sandbox: Arc::new(sandbox),
             background_tasks: background_tasks.clone(),
             base_env: Arc::new(HashMap::new()),
-            sandbox_network_access: false,
+            sandbox_network_access: Arc::new(AtomicBool::new(false)),
         };
         let status_tool = BackgroundTaskStatusTool {
             background_tasks: background_tasks.clone(),
@@ -2190,7 +2191,7 @@ mod tests {
             sandbox: Arc::new(sandbox),
             background_tasks: background_tasks.clone(),
             base_env: Arc::new(HashMap::new()),
-            sandbox_network_access: false,
+            sandbox_network_access: Arc::new(AtomicBool::new(false)),
         };
         let list_tool = BackgroundTaskListTool {
             background_tasks: background_tasks.clone(),
