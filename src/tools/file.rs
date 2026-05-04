@@ -239,8 +239,13 @@ pub(crate) struct ReadFileOutput {
 }
 
 impl ReadFileOutput {
+    /// Returns true only when the content delivered to the model was
+    /// line-truncated (a single line exceeded the max read length).
+    /// Having more lines in the file than were returned (has_more_lines)
+    /// does NOT make it partial — the model saw real, untransformed
+    /// content from the file, and next_offset tells it where to continue.
     fn is_partial(&self) -> bool {
-        self.truncated || self.start_line != 1 || !self.total_lines_exact
+        self.line_truncated
     }
 }
 
