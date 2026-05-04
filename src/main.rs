@@ -1,5 +1,6 @@
 mod acp;
 mod agent;
+mod agents_ext;
 mod app_cli;
 mod atomic_file;
 mod codex_model_catalog;
@@ -7,6 +8,7 @@ mod config;
 mod context;
 mod control_tokens;
 mod file_lock;
+mod hooks;
 mod llm;
 mod local_backend;
 mod memory_store;

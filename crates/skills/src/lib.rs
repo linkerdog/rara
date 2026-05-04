@@ -61,7 +61,48 @@ impl SkillManager {
                 self.load_from_dir(dir, scope)?;
             }
         }
+        self.load_system_skills();
         Ok(())
+    }
+
+    /// Load bundled system skills that ship with RARA.
+    /// These provide the lowest-precedence defaults (overridden by
+    /// home, repo, and cwd skills).
+    fn load_system_skills(&mut self) {
+        self.load_skill_content(
+            "verify",
+            Some("Verify"),
+            "Verify that a code change works through the real user-facing surface.",
+            SYSTEM_SKILL_VERIFY,
+        );
+        self.load_skill_content(
+            "verifier-generic",
+            Some("Verifier (generic)"),
+            "Generic verifier template for project-specific evidence-capture protocols.",
+            SYSTEM_SKILL_VERIFIER_GENERIC,
+        );
+    }
+
+    fn load_skill_content(
+        &mut self,
+        name: &str,
+        title: Option<&str>,
+        description: &str,
+        prompt: &str,
+    ) {
+        let skill = Skill {
+            name: name.to_string(),
+            title: title.map(|s| s.to_string()),
+            description: description.to_string(),
+            prompt: prompt.to_string(),
+            display_path: format!("system/{name}"),
+            scope: SkillScope::System,
+            disable_model_invocation: false,
+        };
+        // System skills yield to skills from any other scope.
+        if !self.skills.contains_key(name) {
+            self.skills.insert(name.to_string(), skill);
+        }
     }
 
     pub fn load_from_dir(&mut self, dir: &Path, scope: SkillScope) -> Result<()> {
@@ -196,6 +237,44 @@ impl SkillManager {
         });
         items
     }
+
+    /// Returns the set of scopes that contributed at least one active skill.
+    pub fn active_scopes(&self) -> Vec<SkillScope> {
+        let mut scopes: Vec<SkillScope> = self
+            .skills
+            .values()
+            .map(|s| s.scope)
+            .collect::<HashSet<_>>()
+            .into_iter()
+            .collect();
+        scopes.sort_by_key(|s| scope_priority(*s));
+        scopes
+    }
+
+    /// Returns whether this active skill shadows lower-precedence versions (i.e., it overrides them).
+    pub fn shadows_others(&self, name: &str) -> bool {
+        self.overrides.contains_key(name)
+    }
+
+    /// Returns the override chain for a skill name (lower-precedence versions that were replaced).
+    pub fn override_chain(&self, name: &str) -> Vec<SkillSummary> {
+        self.overrides
+            .get(name)
+            .map(|chain| {
+                chain
+                    .iter()
+                    .map(|skill| SkillSummary {
+                        name: skill.name.clone(),
+                        title: skill.title.clone(),
+                        description: skill.description.clone(),
+                        display_path: skill.display_path.clone(),
+                        scope: skill.scope,
+                        disable_model_invocation: skill.disable_model_invocation,
+                    })
+                    .collect()
+            })
+            .unwrap_or_default()
+    }
 }
 
 fn scope_for_search_dir(dir: &Path, home: &Path, cwd: &Path) -> SkillScope {
@@ -218,10 +297,15 @@ fn scope_priority(scope: SkillScope) -> u8 {
 }
 
 fn skill_search_dirs(home: &Path, cwd: &Path) -> Vec<PathBuf> {
-    let mut dirs = vec![home.join(".rara/skills"), home.join(".agents/skills")];
+    let mut dirs = vec![
+        home.join(".rara/skills"),
+        home.join(".agents/skills"),
+        home.join(".claude/skills"),
+    ];
 
     for dir in repo_skill_search_dirs(cwd) {
         dirs.push(dir.join(".agents/skills"));
+        dirs.push(dir.join(".claude/skills"));
     }
 
     dirs.push(cwd.join(".rara/skills"));
@@ -583,7 +667,7 @@ mod tests {
     }
 
     #[test]
-    fn search_dirs_keep_stable_prefix_order_without_codex_home_root() {
+    fn search_dirs_include_claude_skill_roots() {
         let temp = tempdir().expect("tempdir");
         let home = temp.path().join("home");
         let repo = temp.path().join("repo");
@@ -598,9 +682,13 @@ mod tests {
             vec![
                 home.join(".rara/skills"),
                 home.join(".agents/skills"),
+                home.join(".claude/skills"),
                 repo.join(".agents/skills"),
+                repo.join(".claude/skills"),
                 repo.join("crates/.agents/skills"),
+                repo.join("crates/.claude/skills"),
                 nested.join(".agents/skills"),
+                nested.join(".claude/skills"),
                 nested.join(".rara/skills"),
             ]
         );
@@ -656,3 +744,14 @@ mod tests {
         assert!(!skill.disable_model_invocation);
     }
 }
+
+// ── Bundled System Skills ────────────────────────────────────────
+
+const SYSTEM_SKILL_VERIFY: &str = include_str!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/../../assets/skills/verify/SKILL.md"
+));
+const SYSTEM_SKILL_VERIFIER_GENERIC: &str = include_str!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/../../assets/skills/verifier-generic/SKILL.md"
+));
