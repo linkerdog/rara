@@ -43,6 +43,7 @@ pub(crate) struct OpenAiApiError {
 pub(super) struct DeepseekTextStreamScrubber {
     state: DeepseekThinkStreamState,
     prefix_buffer: String,
+    leading_think_is_control: bool,
 }
 
 #[derive(Default)]
@@ -54,12 +55,19 @@ enum DeepseekThinkStreamState {
 }
 
 impl DeepseekTextStreamScrubber {
+    pub(super) fn new(leading_think_is_control: bool) -> Self {
+        Self {
+            leading_think_is_control,
+            ..Self::default()
+        }
+    }
+
     pub(super) fn push(&mut self, delta: &str) -> String {
         match self.state {
             DeepseekThinkStreamState::AtStart => self.push_at_start(delta),
             DeepseekThinkStreamState::PendingLeadingThink => {
                 self.prefix_buffer.push_str(delta);
-                String::new()
+                self.flush_pending_leading_think_if_ready()
             }
             DeepseekThinkStreamState::Done => delta.to_string(),
         }
@@ -77,7 +85,17 @@ impl DeepseekTextStreamScrubber {
         }
 
         self.state = DeepseekThinkStreamState::PendingLeadingThink;
-        String::new()
+        self.flush_pending_leading_think_if_ready()
+    }
+
+    fn flush_pending_leading_think_if_ready(&mut self) -> String {
+        if !self.leading_think_is_control && !has_deepseek_control_evidence(&self.prefix_buffer) {
+            return String::new();
+        }
+        if !self.prefix_buffer.contains("</think>") {
+            return String::new();
+        }
+        self.finish()
     }
 
     pub(super) fn finish(&mut self) -> String {
@@ -86,7 +104,8 @@ impl DeepseekTextStreamScrubber {
         if buffered.is_empty() {
             return String::new();
         }
-        let has_control_evidence = has_deepseek_control_evidence(&buffered);
+        let has_control_evidence =
+            self.leading_think_is_control || has_deepseek_control_evidence(&buffered);
         scrub_deepseek_visible_text(&buffered, has_control_evidence)
     }
 }
@@ -248,7 +267,7 @@ impl OpenAiCompatibleBackend {
         let mut streamed_reasoning_content = String::new();
         let mut streamed_tool_calls: Vec<Value> = Vec::new();
         let mut deepseek_text_scrubber = (self.endpoint_kind == OpenAiEndpointKind::Deepseek)
-            .then(DeepseekTextStreamScrubber::default);
+            .then(|| DeepseekTextStreamScrubber::new(self.thinking == Some(true)));
         let mut stop_reason = None;
         let mut usage = None;
 

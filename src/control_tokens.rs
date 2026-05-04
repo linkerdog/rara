@@ -219,33 +219,9 @@ fn strip_deepseek_v4_dsml_control_blocks(message: &str) -> Cow<'_, str> {
     }
 
     let output = deepseek_dsml::strip_tool_call_blocks(message);
-    if looks_like_orphaned_deepseek_v4_dsml_payload(output.trim()) {
+    if deepseek_dsml::contains_orphaned_tool_call_markup(output.trim()) {
         Cow::Owned(String::new())
     } else {
         output
     }
-}
-
-fn looks_like_orphaned_deepseek_v4_dsml_payload(text: &str) -> bool {
-    let lines = text
-        .lines()
-        .map(str::trim)
-        .filter(|line| !line.is_empty())
-        .collect::<Vec<_>>();
-    if lines.is_empty() {
-        return false;
-    }
-
-    let code_like = lines
-        .iter()
-        .filter(|line| {
-            line.starts_with('}')
-                || line.ends_with('{')
-                || line.ends_with("},")
-                || line.contains(": ")
-                || line.starts_with("let ")
-                || line.starts_with("MemorySelectionCandidate")
-        })
-        .count();
-    code_like * 2 >= lines.len()
 }

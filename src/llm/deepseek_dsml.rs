@@ -68,6 +68,20 @@ pub(crate) fn strip_tool_call_blocks(text: &str) -> Cow<'_, str> {
     }
 }
 
+pub(crate) fn contains_orphaned_tool_call_markup(text: &str) -> bool {
+    let text = text.trim();
+    !text.is_empty()
+        && DSML_TOKENS.into_iter().any(|token| {
+            [
+                close_tag(token, TOOL_CALLS_BLOCK_NAME),
+                close_tag(token, INVOKE_TAG_NAME),
+                close_tag(token, PARAMETER_TAG_NAME),
+            ]
+            .into_iter()
+            .any(|tag| text.contains(tag.as_str()))
+        })
+}
+
 type NomResult<'a, T> = IResult<&'a str, T>;
 
 fn parse_tool_call_block(block: &str, token: &'static str) -> Option<Vec<DeepSeekDsmlToolCall>> {
@@ -240,5 +254,21 @@ mod tests {
 
         assert_eq!(extraction.visible_text, input);
         assert!(extraction.tool_calls.is_empty());
+    }
+
+    #[test]
+    fn detects_orphaned_dsml_closing_markup() {
+        assert!(contains_orphaned_tool_call_markup(
+            "kind: value\n</｜DSML｜invoke>\n</｜DSML｜tool_calls>"
+        ));
+        assert!(contains_orphaned_tool_call_markup("path</|DSML|parameter>"));
+    }
+
+    #[test]
+    fn ignores_plain_text_and_open_malformed_blocks_as_orphaned_markup() {
+        assert!(!contains_orphaned_tool_call_markup("The status is: ok"));
+        assert!(!contains_orphaned_tool_call_markup(
+            "Before\n<｜DSML｜tool_calls>\n<｜DSML｜invoke name=\"read_file\">\nAfter"
+        ));
     }
 }

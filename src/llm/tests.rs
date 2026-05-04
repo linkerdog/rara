@@ -1211,9 +1211,22 @@ fn deepseek_stream_scrubber_strips_leading_think_when_control_evidence_arrives()
     assert_eq!(scrubber.push("<think>private"), "");
     assert_eq!(
         scrubber.push(" reasoning</think>\nVisible answer.<｜end▁of▁sentence｜>"),
-        ""
+        "\nVisible answer."
     );
-    assert_eq!(scrubber.finish().trim(), "Visible answer.");
+    assert_eq!(scrubber.finish(), "");
+}
+
+#[test]
+fn deepseek_stream_scrubber_streams_after_think_when_thinking_is_enabled() {
+    let mut scrubber = DeepseekTextStreamScrubber::new(true);
+
+    assert_eq!(scrubber.push("<think>private"), "");
+    assert_eq!(
+        scrubber.push(" reasoning</think>\nVisible answer."),
+        "\nVisible answer."
+    );
+    assert_eq!(scrubber.push(" More."), " More.");
+    assert_eq!(scrubber.finish(), "");
 }
 
 #[test]

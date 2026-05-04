@@ -364,6 +364,15 @@ fn scrub_internal_control_tokens_drops_orphaned_dsml_payload() {
 }
 
 #[test]
+fn scrub_internal_control_tokens_preserves_colon_text_before_valid_dsml() {
+    let cleaned = scrub_internal_control_tokens(
+        "The status is: ok\n<｜DSML｜tool_calls>\n<｜DSML｜invoke name=\"read_file\">\n<｜DSML｜parameter name=\"path\" string=\"true\">Cargo.toml</｜DSML｜parameter>\n</｜DSML｜invoke>\n</｜DSML｜tool_calls>",
+    );
+
+    assert_eq!(cleaned.trim(), "The status is: ok");
+}
+
+#[test]
 fn scrub_internal_control_tokens_preserves_malformed_dsml_remainder() {
     let cleaned = scrub_internal_control_tokens(
         "Before\n<｜DSML｜tool_calls>\n<｜DSML｜invoke name=\"replace\">\nAfter normal text",
