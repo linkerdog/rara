@@ -1,7 +1,8 @@
 use std::sync::Arc;
 
 use super::super::state::{
-    HelpTab, LocalCommand, LocalCommandKind, Overlay, PermissionMode, RuntimePhase, StatusTab, TuiApp,
+    HelpTab, LocalCommand, LocalCommandKind, Overlay, PermissionMode, RuntimePhase, StatusTab,
+    TuiApp,
 };
 use super::tasks::{start_compact_task, start_rebuild_task, start_review_task};
 use crate::agent::{Agent, AgentExecutionMode, BashApprovalMode};
@@ -243,19 +244,11 @@ fn capture_git_diff(cwd: &str) -> String {
     }
 }
 
-fn apply_permission_mode(
-    app: &mut TuiApp,
-    agent_slot: &mut Option<Agent>,
-    mode: PermissionMode,
-) {
+fn apply_permission_mode(app: &mut TuiApp, agent_slot: &mut Option<Agent>, mode: PermissionMode) {
     use std::sync::atomic::Ordering;
 
     let (execution, approval, allow_net) = match mode {
-        PermissionMode::Auto => (
-            AgentExecutionMode::Execute,
-            BashApprovalMode::Always,
-            false,
-        ),
+        PermissionMode::Auto => (AgentExecutionMode::Execute, BashApprovalMode::Always, false),
         PermissionMode::AcceptEdits => (
             AgentExecutionMode::Execute,
             BashApprovalMode::Suggestion,
@@ -275,12 +268,16 @@ fn apply_permission_mode(
 
     app.set_agent_execution_mode(execution);
     app.bash_approval_mode = approval;
-    app.sandbox_network_access.store(allow_net, Ordering::Relaxed);
+    app.sandbox_network_access
+        .store(allow_net, Ordering::Relaxed);
 
     if let Some(agent) = agent_slot.as_mut() {
         agent.set_execution_mode(execution);
         agent.set_bash_approval_mode(approval);
     }
 
-    app.set_runtime_phase(RuntimePhase::LocalCommand, Some("updating permissions".into()));
+    app.set_runtime_phase(
+        RuntimePhase::LocalCommand,
+        Some("updating permissions".into()),
+    );
 }

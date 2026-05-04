@@ -1,8 +1,5 @@
 use std::collections::HashMap;
-use std::sync::{
-    Arc,
-    atomic::AtomicBool,
-};
+use std::sync::{Arc, atomic::AtomicBool};
 
 use crate::llm::LlmBackend;
 use crate::prompt::PromptRuntimeConfig;

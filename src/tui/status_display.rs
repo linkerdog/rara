@@ -2,9 +2,10 @@
 //
 // Each line is a ratatui Line with Span-styled values so colors
 // actually render in the TUI, not just plain text.
+use std::sync::atomic::Ordering;
+
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
-use std::sync::atomic::Ordering;
 
 use crate::tui::state::{StatusTab, TuiApp};
 
