@@ -219,6 +219,13 @@ consume the remaining discretionary retrieval budget inside `MemorySelection`.
 Overall model-window budgeting stays owned by the broader context assembly and
 compaction layers.
 
+Retrieved memory candidates should charge budget against the same rendered
+context block that is injected into the next model turn. The shared
+header/footer/instruction overhead is charged once per selected retrieved-memory
+block, and each later retrieved item only charges its incremental rendered
+cost. Multi-line labels and details are normalized before rendering so one
+memory candidate cannot break the injected list shape.
+
 ### Dedupe
 
 The selector should avoid injecting redundant views of the same source.
@@ -243,6 +250,61 @@ Ownership boundaries:
 - retrieval backends own candidate discovery;
 - `MemorySelection` owns per-turn classification, ordering, reasons, and budget
   outcome.
+
+Direct retrieval candidates are injected only after selection. RARA follows the
+same reference-agent shape here: stable base instructions remain fixed, while
+turn-specific recall is attached as separate contextual material. Selected
+retrieval candidates must therefore be rendered as a per-turn internal context
+block before the current user request content, not appended to the base system
+prompt or persisted as conversation history. The block must not create an extra
+user-role message before the request because some providers require strict role
+alternation. Retrieval runs once after the user request is accepted, then the
+selected candidates are reused for tool-followup model turns until the next
+user request.
+
+### Reference Implementation Alignment
+
+RARA should keep the following alignment points with mature coding-agent memory
+systems:
+
+- Stable base instructions and prompt-file sources should remain ordered and
+  byte-stable. Per-turn recall must be injected as contextual material after
+  selection instead of being appended to the base system prompt.
+- Recall should run once for a user turn, then be reused for tool-followup model
+  turns. Re-running retrieval inside every model-loop iteration wastes
+  embedding/search work and can create inconsistent context inside one user
+  request.
+- Retrieved memory must not become ordinary conversation history. It is an input
+  artifact for the current model request and should be regenerated or reused by
+  the runtime contract, not checkpointed as if the user had said it.
+- The injection shape must preserve provider role constraints. If the transport
+  requires strict user/assistant alternation, contextual recall should be merged
+  into the current user request content or represented as a provider-safe
+  attachment-like input, not inserted as an extra adjacent user message.
+- Recall output should be inspectable as structured state. The runtime should be
+  able to explain what was selected, what was available, what was dropped, why it
+  happened, and how much budget was consumed.
+
+The main architectural difference is storage and selection. File-memory
+reference agents commonly keep durable memories as markdown files with a compact
+index, scan file headers, then use a side-query selector to choose a small number
+of relevant files. RARA instead routes durable workspace memory and thread
+context through retrieval backends first, then lets `MemorySelection` make the
+final per-turn decision. This keeps RARA compatible with LanceDB-backed full-text,
+vector, and later graph retrieval while preserving the same cache-safe injection
+boundary.
+
+Future work can borrow three additional ideas without changing this PR's core
+contract:
+
+- add a lightweight selector/reranker over retrieval candidates using structured
+  output, so the model can choose from a manifest-like view before injection;
+- add cumulative surfaced-memory accounting and per-item truncation limits so a
+  long session cannot repeatedly surface large recall blocks;
+- add a unified attachment-like context carrier for retrieved memory, skills,
+  queued input, hook output, and post-compaction restoration. Until that carrier
+  exists, prepending an internal context block to the latest user text request is
+  the provider-safe bridge.
 
 ### `/context` Priority
 

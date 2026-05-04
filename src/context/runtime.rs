@@ -292,6 +292,15 @@ pub struct RetrievalSourceContextEntry {
     pub inclusion_reason: String,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RetrievedMemoryCandidate {
+    pub kind: String,
+    pub label: String,
+    pub detail: String,
+    pub selection_reason: String,
+    pub rank: usize,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct MemorySelectionContextView {
     pub selection_budget_tokens: Option<usize>,

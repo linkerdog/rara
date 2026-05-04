@@ -49,8 +49,6 @@ updated through explicit memory writes or periodic promotion and distillation.
 
 ## Follow-Up
 
-- Feed ranked memory candidates into `MemorySelection` directly instead of only
-  through retrieval tool results.
 - Move raw session checkpoints into per-session append shards.
 - Add periodic promotion from session shards into global `MemoryRecord`s.
 - Extend records with provenance, source scope, trust level, labels, and path

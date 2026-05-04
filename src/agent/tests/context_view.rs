@@ -5,6 +5,7 @@ use serde_json::json;
 use super::support::{SequencedBackend, test_runtime_storage};
 use crate::agent::{Agent, AgentExecutionMode, Message, PlanStep, PlanStepStatus};
 use crate::llm::{ContentBlock, LlmResponse};
+use crate::memory_store::{MemoryLabel, MemoryScope, MemorySource, MemoryStore, NewMemoryRecord};
 use crate::prompt::PromptRuntimeConfig;
 use crate::tool::ToolManager;
 use crate::vectordb::VectorDB;
@@ -386,4 +387,192 @@ fn assemble_turn_context_matches_prompt_and_runtime_views() {
         Some("appendix")
     );
     assert_eq!(assembled.runtime.plan.execution_mode, "plan");
+}
+
+#[tokio::test]
+async fn query_injects_selected_memory_context_without_persisting_it_to_history() {
+    let (_temp, session_manager, workspace, rara_dir) = test_runtime_storage();
+    let backend = Arc::new(SequencedBackend::new(vec![LlmResponse {
+        content: vec![ContentBlock::Text {
+            text: "ok".to_string(),
+        }],
+        stop_reason: Some("end_turn".to_string()),
+        usage: None,
+    }]));
+    let vdb = Arc::new(VectorDB::new(
+        &rara_dir.join("lancedb").display().to_string(),
+    ));
+    let store = MemoryStore::new(backend.clone(), vdb.clone());
+    store
+        .insert(NewMemoryRecord {
+            title: Some("Reference project path".to_string()),
+            content: "Reference project source lives at /Users/example/reference-project."
+                .to_string(),
+            labels: vec![MemoryLabel::Fact],
+            importance: 0.9,
+            source: MemorySource::UserCreated,
+            scope: MemoryScope::Workspace,
+            session_id: None,
+            thread_id: None,
+            source_span: None,
+        })
+        .await
+        .expect("insert memory");
+
+    let mut agent = Agent::new(
+        ToolManager::new(),
+        backend.clone(),
+        vdb,
+        session_manager,
+        workspace,
+    );
+
+    agent
+        .query_with_mode(
+            "Where is the reference project source path?".to_string(),
+            crate::agent::AgentOutputMode::Silent,
+        )
+        .await
+        .expect("query");
+
+    let observed = backend.observed_messages();
+    let first_turn = observed.first().expect("model call");
+    assert_eq!(first_turn[0].role, "system");
+    assert!(
+        !first_turn
+            .windows(2)
+            .any(|pair| pair[0].role == "user" && pair[1].role == "user")
+    );
+    let user_index = first_turn
+        .iter()
+        .position(|message| {
+            message
+                .content
+                .to_string()
+                .contains("Where is the reference project source path?")
+        })
+        .expect("user request");
+    let user_message = &first_turn[user_index];
+    assert_eq!(user_message.role, "user");
+    let user_content = user_message.content.to_string();
+    let memory_position = user_content
+        .find("<rara_internal_history_context>")
+        .expect("memory context");
+    let request_position = user_content
+        .find("Where is the reference project source path?")
+        .expect("user request");
+    assert!(memory_position < request_position);
+    assert!(user_content.contains("reference-project"));
+    assert!(!first_turn.iter().enumerate().any(|(idx, message)| {
+        idx != user_index
+            && message
+                .content
+                .to_string()
+                .contains("<rara_internal_history_context>")
+    }));
+    assert!(!agent.history.iter().any(|message| {
+        message
+            .content
+            .to_string()
+            .contains("<rara_internal_history_context>")
+    }));
+    assert!(
+        agent
+            .shared_runtime_context()
+            .retrieval
+            .memory_selection
+            .selected_items
+            .iter()
+            .any(|item| item.kind == crate::context::RETRIEVED_WORKSPACE_MEMORY_KIND)
+    );
+}
+
+#[test]
+fn memory_context_prepends_to_existing_user_message_without_adding_user_turn() {
+    let mut messages = vec![
+        Message {
+            role: "system".to_string(),
+            content: json!("system"),
+        },
+        Message {
+            role: "user".to_string(),
+            content: json!([{"type":"text","text":"current request"}]),
+        },
+    ];
+
+    Agent::prepend_memory_context_to_latest_user_message(
+        &mut messages,
+        "<rara_internal_history_context>\nrecall\n</rara_internal_history_context>".to_string(),
+    );
+
+    assert_eq!(messages.len(), 2);
+    assert_eq!(messages[1].role, "user");
+    let text = messages[1].content.to_string();
+    assert!(text.contains("<rara_internal_history_context>"));
+    assert!(text.find("recall").expect("recall") < text.find("current request").expect("request"));
+    assert!(
+        !messages
+            .windows(2)
+            .any(|pair| pair[0].role == "user" && pair[1].role == "user")
+    );
+}
+
+#[test]
+fn memory_context_noops_without_user_text_request() {
+    let mut messages = vec![
+        Message {
+            role: "system".to_string(),
+            content: json!("system"),
+        },
+        Message {
+            role: "assistant".to_string(),
+            content: json!([{"type":"tool_use","id":"tool-1","name":"list_files","input":{}}]),
+        },
+        Message {
+            role: "user".to_string(),
+            content: json!([{"type":"tool_result","tool_use_id":"tool-1","content":"ok"}]),
+        },
+    ];
+
+    Agent::prepend_memory_context_to_latest_user_message(
+        &mut messages,
+        "<rara_internal_history_context>\nrecall\n</rara_internal_history_context>".to_string(),
+    );
+
+    assert_eq!(messages.len(), 3);
+    assert!(
+        !messages
+            .iter()
+            .any(|message| message.content.to_string().contains("recall"))
+    );
+}
+
+#[test]
+fn memory_context_skips_tool_result_user_messages() {
+    let mut messages = vec![
+        Message {
+            role: "system".to_string(),
+            content: json!("system"),
+        },
+        Message {
+            role: "user".to_string(),
+            content: json!([{"type":"text","text":"current request"}]),
+        },
+        Message {
+            role: "assistant".to_string(),
+            content: json!([{"type":"tool_use","id":"tool-1","name":"list_files","input":{}}]),
+        },
+        Message {
+            role: "user".to_string(),
+            content: json!([{"type":"tool_result","tool_use_id":"tool-1","content":"ok"}]),
+        },
+    ];
+
+    Agent::prepend_memory_context_to_latest_user_message(
+        &mut messages,
+        "<rara_internal_history_context>\nrecall\n</rara_internal_history_context>".to_string(),
+    );
+
+    assert!(messages[1].content.to_string().contains("recall"));
+    assert!(!messages[3].content.to_string().contains("recall"));
 }
