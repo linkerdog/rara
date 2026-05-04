@@ -450,16 +450,17 @@ fn head_tail_line_window<T>(items: &[T], max_lines: usize) -> (&[T], &[T]) {
 fn role_prefix_icon(role: &str) -> (&'static str, Color) {
     use crate::tui::message_role::MessageRole;
     match MessageRole::try_from_str(role) {
-        Some(MessageRole::ToolResult) => ("✓ ", STATUS_SUCCESS),
-        Some(MessageRole::ToolError) => ("✕ ", STATUS_ERROR),
-        Some(MessageRole::ToolProgress) => ("… ", STATUS_WARNING),
-        Some(MessageRole::Tool) => ("⚙ ", TEXT_SECONDARY),
-        Some(MessageRole::System) => ("ℹ ", STATUS_INFO),
-        Some(MessageRole::Exploring) => ("🔍 ", PHASE_EXPLORING),
-        Some(MessageRole::Planning) => ("📋 ", PHASE_PLANNING),
-        Some(MessageRole::Running) => ("▶ ", PHASE_RUNNING),
-        Some(MessageRole::Agent) => ("🤖 ", ROLE_PREFIX),
-        Some(MessageRole::Todo) => ("☑ ", PHASE_PLANNING),
+        Some(MessageRole::User) => ("You", ROLE_USER),
+        Some(MessageRole::Agent) => ("Agent", ROLE_AGENT),
+        Some(MessageRole::System) => ("System", ROLE_SYSTEM),
+        Some(MessageRole::ToolResult) => ("✓", STATUS_SUCCESS),
+        Some(MessageRole::ToolError) => ("✕", STATUS_ERROR),
+        Some(MessageRole::ToolProgress) => ("…", STATUS_WARNING),
+        Some(MessageRole::Tool) => ("⚙", TEXT_SECONDARY),
+        Some(MessageRole::Exploring) => ("🔍", PHASE_EXPLORING),
+        Some(MessageRole::Planning) => ("📋", PHASE_PLANNING),
+        Some(MessageRole::Running) => ("▶", PHASE_RUNNING),
+        Some(MessageRole::Todo) => ("☑", PHASE_PLANNING),
         _ => ("", TEXT_SECONDARY),
     }
 }
@@ -473,18 +474,35 @@ pub(crate) fn prefixed_message_lines(
     if MessageRole::try_from_str(role) == Some(MessageRole::User) {
         return user_message_lines(message, max_lines);
     }
-
+    if MessageRole::try_from_str(role) == Some(MessageRole::Agent) {
+        return agent_message_lines(message, max_lines);
+    }
+    if MessageRole::try_from_str(role) == Some(MessageRole::System) {
+        return system_message_lines(message, max_lines);
+    }
     let (icon, color) = role_prefix_icon(role);
-    let prefix = if icon.is_empty() {
-        format!("{}:", role)
+    let prefix = if !icon.is_empty() {
+        icon.to_string()
     } else {
-        icon.trim_end().to_string()
+        role.to_string()
     };
+    let suffix = if icon.is_empty()
+        || MessageRole::try_from_str(role).is_none_or(|r| {
+            matches!(
+                r,
+                MessageRole::User | MessageRole::Agent | MessageRole::System
+            )
+        }) {
+        ":"
+    } else {
+        ""
+    };
+    let label = format!("{prefix}{suffix}");
 
     let message_lines = message.lines().collect::<Vec<_>>();
     if message_lines.is_empty() {
         return vec![Line::from(vec![Span::styled(
-            prefix,
+            label,
             Style::default().fg(color).add_modifier(Modifier::BOLD),
         )])];
     }
@@ -494,7 +512,7 @@ pub(crate) fn prefixed_message_lines(
     let (head, tail) = head_tail_line_window(message_lines.as_slice(), max_lines);
     if let Some(first) = head.first() {
         let mut spans = vec![Span::styled(
-            prefix,
+            label,
             Style::default().fg(color).add_modifier(Modifier::BOLD),
         )];
         spans.push(Span::raw(format!(" {first}")));
@@ -513,22 +531,85 @@ pub(crate) fn prefixed_message_lines(
 fn user_message_lines(message: &str, max_lines: usize) -> Vec<Line<'static>> {
     let message_lines = message.lines().collect::<Vec<_>>();
     if message_lines.is_empty() {
-        return vec![Line::from("›")];
+        return vec![Line::from(Span::styled(
+            "▌ You",
+            Style::default().fg(ROLE_USER).add_modifier(Modifier::BOLD),
+        ))];
     }
-
     let mut lines = Vec::new();
+    lines.push(Line::from(Span::styled(
+        "▌ You",
+        Style::default().fg(ROLE_USER).add_modifier(Modifier::BOLD),
+    )));
     let hidden_count = truncated_line_count(message_lines.len(), max_lines);
     let (head, tail) = head_tail_line_window(message_lines.as_slice(), max_lines);
     if let Some(first) = head.first() {
-        lines.push(Line::from(format!("› {first}")));
+        lines.push(Line::from(Span::styled(
+            format!("  {first}"),
+            Style::default(),
+        )));
     }
     if hidden_count > 0 {
         lines.push(Line::from(Span::styled(
-            format!("  ... {} more line(s)", hidden_count),
+            format!("    ... {} more line(s)", hidden_count),
             Style::default().fg(Color::DarkGray),
         )));
     }
     lines.extend(tail.iter().map(|line| Line::from(format!("  {line}"))));
+    lines
+}
+
+fn agent_message_lines(message: &str, max_lines: usize) -> Vec<Line<'static>> {
+    let mut lines = vec![Line::from(Span::styled(
+        "▌ Agent",
+        Style::default().fg(ROLE_AGENT).add_modifier(Modifier::BOLD),
+    ))];
+    let message_lines: Vec<&str> = message.lines().collect();
+    if message_lines.is_empty() {
+        return lines;
+    }
+    let hidden_count = truncated_line_count(message_lines.len(), max_lines);
+    let (head, tail) = head_tail_line_window(&message_lines, max_lines);
+    for line in head {
+        lines.push(Line::from(format!("  {line}")));
+    }
+    if hidden_count > 0 {
+        lines.push(Line::from(Span::styled(
+            format!("    ... {} more line(s)", hidden_count),
+            Style::default().fg(Color::DarkGray),
+        )));
+    }
+    for line in tail {
+        lines.push(Line::from(format!("  {line}")));
+    }
+    lines
+}
+
+fn system_message_lines(message: &str, max_lines: usize) -> Vec<Line<'static>> {
+    let mut lines = vec![Line::from(Span::styled(
+        "▌ System",
+        Style::default()
+            .fg(ROLE_SYSTEM)
+            .add_modifier(Modifier::BOLD),
+    ))];
+    let message_lines: Vec<&str> = message.lines().collect();
+    if message_lines.is_empty() {
+        return lines;
+    }
+    let hidden_count = truncated_line_count(message_lines.len(), max_lines);
+    let (head, tail) = head_tail_line_window(&message_lines, max_lines);
+    for line in head {
+        lines.push(Line::from(format!("  {line}")));
+    }
+    if hidden_count > 0 {
+        lines.push(Line::from(Span::styled(
+            format!("    ... {} more line(s)", hidden_count),
+            Style::default().fg(Color::DarkGray),
+        )));
+    }
+    for line in tail {
+        lines.push(Line::from(format!("  {line}")));
+    }
     lines
 }
 
@@ -542,17 +623,15 @@ pub(crate) fn formatted_message_lines(
     let role_kind = MessageRole::try_from_str(role);
     if role_kind == Some(MessageRole::Agent) {
         let mut lines = vec![Line::from(Span::styled(
-            "🤖",
-            Style::default()
-                .fg(ROLE_PREFIX)
-                .add_modifier(Modifier::BOLD),
+            "▌ Agent",
+            Style::default().fg(ROLE_AGENT).add_modifier(Modifier::BOLD),
         ))];
         let body = bulleted_markdown_message_lines(message, max_lines, cwd);
         lines.extend(body);
         return lines;
     }
     if role_kind == Some(MessageRole::System) {
-        return markdown_message_lines(role, message, max_lines, cwd);
+        return system_message_lines(message, max_lines);
     }
     prefixed_message_lines(role, message, max_lines)
 }

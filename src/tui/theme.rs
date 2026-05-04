@@ -11,6 +11,9 @@ pub(crate) const TEXT_ACCENT: Color = Color::Cyan;
 pub(crate) const TEXT_MUTED: Color = Color::Gray;
 
 // ── Message roles ───────────────────────────────────────────────
+pub(crate) const ROLE_USER: Color = Color::LightBlue;
+pub(crate) const ROLE_AGENT: Color = Color::Cyan;
+pub(crate) const ROLE_SYSTEM: Color = Color::Gray;
 pub(crate) const ROLE_PREFIX: Color = Color::Cyan;
 
 // ── Progress phases ─────────────────────────────────────────────
