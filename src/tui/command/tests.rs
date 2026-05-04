@@ -19,7 +19,6 @@ fn parses_model_command_argument() {
     assert_eq!(command.arg.as_deref(), Some("anything"));
 }
 
-
 #[test]
 fn model_help_text_labels_deepseek_as_openai_compatible_endpoint() {
     let dir = tempdir().expect("tempdir");
@@ -100,6 +99,17 @@ fn parses_plan_command() {
 fn parses_approval_command() {
     let approval = parse_local_command("/approval").expect("approval should parse");
     assert!(matches!(approval.kind, LocalCommandKind::Approval));
+}
+
+#[test]
+fn parses_permissions_command() {
+    let cmd = parse_local_command("/permissions").expect("/permissions should parse");
+    assert!(matches!(cmd.kind, LocalCommandKind::Permissions));
+    assert!(cmd.arg.is_none());
+
+    let alias = parse_local_command("/permission").expect("/permission should parse");
+    assert!(matches!(alias.kind, LocalCommandKind::Permissions));
+    assert!(alias.arg.is_none());
 }
 
 #[test]

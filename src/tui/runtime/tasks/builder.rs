@@ -5,6 +5,10 @@ pub(super) async fn rebuild_agent_with_progress(
     progress: Option<crate::local_backend::LocalProgressReporter>,
 ) -> anyhow::Result<RebuildSuccess> {
     let bootstrap = crate::runtime_context::initialize_rara_context(config, progress).await?;
-    let (agent, warnings) = bootstrap.into_parts();
-    Ok(RebuildSuccess { agent, warnings })
+    let (agent, warnings, sandbox_network_access) = bootstrap.into_parts();
+    Ok(RebuildSuccess {
+        agent,
+        warnings,
+        sandbox_network_access,
+    })
 }

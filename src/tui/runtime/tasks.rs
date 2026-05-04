@@ -633,6 +633,7 @@ pub(super) async fn finish_running_task_if_ready(
                 }
                 agent.set_execution_mode(app.agent_execution_mode);
                 agent.set_bash_approval_mode(app.bash_approval_mode);
+                app.sandbox_network_access = rebuilt.sandbox_network_access;
                 app.config_manager.save(&app.config)?;
                 app.setup_status = Some(format!(
                     "Applied {} / {}",

@@ -37,11 +37,11 @@ pub(crate) struct RuntimeBootstrap {
 
 impl RuntimeBootstrap {
     pub(crate) fn into_agent(self) -> Agent {
-        let (agent, _) = self.into_parts();
+        let (agent, _, _) = self.into_parts();
         agent
     }
 
-    pub(crate) fn into_parts(self) -> (Agent, Vec<String>) {
+    pub(crate) fn into_parts(self) -> (Agent, Vec<String>, Arc<AtomicBool>) {
         let mut agent = Agent::new(
             self.tool_manager,
             self.backend,
@@ -50,7 +50,7 @@ impl RuntimeBootstrap {
             self.workspace,
         );
         agent.set_prompt_config(self.prompt_config);
-        (agent, self.warnings)
+        (agent, self.warnings, self.sandbox_network_access)
     }
 }
 

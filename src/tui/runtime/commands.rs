@@ -40,6 +40,7 @@ pub(super) async fn execute_local_command(
                 BashApprovalMode::Always => BashApprovalMode::Suggestion,
             };
             app.bash_approval_mode = next_mode;
+            app.permission_mode = PermissionMode::Auto;
             if let Some(agent) = agent_slot.as_mut() {
                 agent.set_bash_approval_mode(next_mode);
             }
@@ -108,6 +109,7 @@ pub(super) async fn execute_local_command(
                 Some("entering planning mode".into()),
             );
             app.set_pending_plan_approval(false);
+            app.permission_mode = PermissionMode::Auto;
             app.set_agent_execution_mode(AgentExecutionMode::Plan);
             if let Some(agent) = agent_slot.as_mut() {
                 agent.set_execution_mode(AgentExecutionMode::Plan);
@@ -188,7 +190,6 @@ fn handle_model_command(arg: Option<&str>, app: &mut TuiApp) -> anyhow::Result<(
     Ok(())
 }
 
-
 fn handle_base_url_command(arg: Option<&str>, app: &mut TuiApp) -> anyhow::Result<()> {
     if arg.map(str::trim).filter(|arg| !arg.is_empty()).is_some() {
         app.push_notice("/base-url does not accept arguments. Edit the value in the TUI.");
@@ -249,11 +250,7 @@ fn apply_permission_mode(app: &mut TuiApp, agent_slot: &mut Option<Agent>, mode:
             BashApprovalMode::Suggestion,
             false,
         ),
-        PermissionMode::FullAccess => (
-            AgentExecutionMode::Execute,
-            BashApprovalMode::Suggestion,
-            true,
-        ),
+        PermissionMode::FullAccess => (AgentExecutionMode::Execute, BashApprovalMode::Always, true),
     };
 
     app.set_agent_execution_mode(execution);
@@ -270,4 +267,5 @@ fn apply_permission_mode(app: &mut TuiApp, agent_slot: &mut Option<Agent>, mode:
         RuntimePhase::LocalCommand,
         Some("updating permissions".into()),
     );
+    app.set_pending_plan_approval(false);
 }

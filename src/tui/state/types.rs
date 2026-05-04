@@ -289,6 +289,7 @@ pub enum TaskCompletion {
 pub struct RebuildSuccess {
     pub agent: Agent,
     pub warnings: Vec<String>,
+    pub sandbox_network_access: Arc<AtomicBool>,
 }
 
 pub enum TuiEvent {
