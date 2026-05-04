@@ -6,11 +6,17 @@ use agent_client_protocol::schema::{
 };
 
 use crate::llm::LlmBackend;
+use crate::runtime_event_bus::RuntimeEventBus;
 use crate::tool::ToolManager;
+use std::sync::Arc;
 
 pub struct RaraAcpAgent {
     pub tool_manager: ToolManager,
     pub backend_builder: Box<dyn Fn() -> Box<dyn LlmBackend> + Send + Sync>,
+    /// Runtime event bus for subscribing to AgentEvent streams during
+    /// prompt turns.  Shared with the TUI runtime when running in the
+    /// same process.
+    pub event_bus: Arc<RuntimeEventBus>,
 }
 
 impl RaraAcpAgent {
@@ -33,6 +39,10 @@ impl RaraAcpAgent {
     }
 
     pub async fn prompt(&self, _: PromptRequest) -> Result<PromptResponse, Error> {
+        // TODO: spawn agent turn via self.event_bus, translate AgentEvent
+        // stream into ACP PromptResponse content blocks, and return the final
+        // response with StopReason::EndTurn.
+        let _sub = self.event_bus.subscribe();
         Ok(PromptResponse::new(StopReason::EndTurn))
     }
 

@@ -109,6 +109,7 @@ fn sync_bash_prefixes_to_config(app: &mut TuiApp, agent: &Agent) -> anyhow::Resu
 pub(super) fn start_query_task(app: &mut TuiApp, prompt: String, mut agent: Agent) {
     let (sender, receiver) = mpsc::unbounded_channel();
     let cancellation_token = Arc::new(AtomicBool::new(false));
+    let bus = app.event_bus.clone();
     app.clear_pending_planning_suggestion();
     app.clear_active_live_sections();
     app.begin_running_turn();
@@ -124,8 +125,11 @@ pub(super) fn start_query_task(app: &mut TuiApp, prompt: String, mut agent: Agen
         let tx = sender.clone();
         let result = agent
             .query_with_mode_and_events(prompt, AgentOutputMode::Silent, move |event| {
-                if let Some(event) = convert_agent_event(event) {
-                    let _ = tx.send(event);
+                if let Some(ref bus) = bus {
+                    bus.send(event.clone());
+                }
+                if let Some(tui_event) = convert_agent_event(event) {
+                    let _ = tx.send(tui_event);
                 }
             })
             .await;
@@ -145,6 +149,7 @@ pub(super) fn start_query_task(app: &mut TuiApp, prompt: String, mut agent: Agen
 
 pub(super) fn start_compact_task(app: &mut TuiApp, mut agent: Agent) {
     let (sender, receiver) = mpsc::unbounded_channel();
+    let bus = app.event_bus.clone();
     agent.set_execution_mode(app.agent_execution_mode);
     agent.set_bash_approval_mode(app.bash_approval_mode);
     app.notice = Some("Compacting conversation history.".into());
@@ -158,8 +163,11 @@ pub(super) fn start_compact_task(app: &mut TuiApp, mut agent: Agent) {
         let tx = sender.clone();
         let result = agent
             .compact_now_with_reporter(move |event| {
-                if let Some(event) = convert_agent_event(event) {
-                    let _ = tx.send(event);
+                if let Some(ref bus) = bus {
+                    bus.send(event.clone());
+                }
+                if let Some(tui_event) = convert_agent_event(event) {
+                    let _ = tx.send(tui_event);
                 }
             })
             .await;
@@ -180,6 +188,7 @@ pub(super) fn start_compact_task(app: &mut TuiApp, mut agent: Agent) {
 pub(super) fn start_review_task(app: &mut TuiApp, prompt: String, mut agent: Agent) {
     use crate::agent::{AgentExecutionMode, BashApprovalMode};
     let (sender, receiver) = mpsc::unbounded_channel();
+    let bus = app.event_bus.clone();
     agent.set_execution_mode(AgentExecutionMode::Review);
     agent.set_bash_approval_mode(BashApprovalMode::Always);
     app.notice = Some("Running code review.".into());
@@ -193,8 +202,11 @@ pub(super) fn start_review_task(app: &mut TuiApp, prompt: String, mut agent: Age
         let tx = sender.clone();
         let result = agent
             .query_with_mode_and_events(prompt, AgentOutputMode::Silent, move |event| {
-                if let Some(event) = convert_agent_event(event) {
-                    let _ = tx.send(event);
+                if let Some(ref bus) = bus {
+                    bus.send(event.clone());
+                }
+                if let Some(tui_event) = convert_agent_event(event) {
+                    let _ = tx.send(tui_event);
                 }
             })
             .await;
@@ -219,6 +231,7 @@ pub(super) fn start_pending_approval_task(
 ) {
     let (sender, receiver) = mpsc::unbounded_channel();
     let cancellation_token = Arc::new(AtomicBool::new(false));
+    let bus = app.event_bus.clone();
     let selection_label = match selection {
         BashApprovalDecision::Once => "run once",
         BashApprovalDecision::Prefix => "allow matching prefix",
@@ -238,8 +251,11 @@ pub(super) fn start_pending_approval_task(
         let tx = sender.clone();
         let result = agent
             .answer_pending_approval_with_events(selection, AgentOutputMode::Silent, move |event| {
-                if let Some(event) = convert_agent_event(event) {
-                    let _ = tx.send(event);
+                if let Some(ref bus) = bus {
+                    bus.send(event.clone());
+                }
+                if let Some(tui_event) = convert_agent_event(event) {
+                    let _ = tx.send(tui_event);
                 }
             })
             .await;
@@ -288,6 +304,7 @@ fn start_plan_resume_task(
 ) {
     let (sender, receiver) = mpsc::unbounded_channel();
     let cancellation_token = Arc::new(AtomicBool::new(false));
+    let bus = app.event_bus.clone();
     app.clear_active_live_sections();
     app.set_pending_plan_approval(false);
     app.notice = Some(notice);
@@ -315,8 +332,11 @@ fn start_plan_resume_task(
                 continue_planning,
                 AgentOutputMode::Silent,
                 move |event| {
-                    if let Some(event) = convert_agent_event(event) {
-                        let _ = tx.send(event);
+                    if let Some(ref bus) = bus {
+                        bus.send(event.clone());
+                    }
+                    if let Some(tui_event) = convert_agent_event(event) {
+                        let _ = tx.send(tui_event);
                     }
                 },
             )

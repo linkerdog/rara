@@ -18,6 +18,7 @@ use crate::context::{
 };
 use crate::control_tokens::{has_pending_internal_control_context, scrub_internal_control_tokens};
 use crate::oauth::SavedCodexAuthMode;
+use crate::runtime_event_bus::RuntimeEventBus;
 use crate::state_db::StateDb;
 use crate::thread_store::ThreadSummary;
 use crate::tool::ToolOutputStream;
@@ -566,6 +567,9 @@ pub struct TuiApp {
     pub skill_picker_entries: Vec<SkillPickerEntry>,
     pub sandbox_network_access: Arc<AtomicBool>,
     pub permission_mode: PermissionMode,
+    /// Optional runtime event bus that mirrors AgentEvent to ACP/Wire
+    /// subscribers. Set during TUI startup; None only in test contexts.
+    pub event_bus: Option<Arc<RuntimeEventBus>>,
 }
 
 #[derive(Debug, Clone)]

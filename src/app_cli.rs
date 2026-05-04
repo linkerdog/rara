@@ -143,10 +143,12 @@ fn apply_cli_overrides(config: &mut RaraConfig, cli: Cli) -> Option<Commands> {
 async fn run_acp_command(config: &RaraConfig) -> Result<()> {
     let bootstrap = runtime_context::initialize_rara_context(config, None).await?;
     emit_bootstrap_warnings(&bootstrap.warnings);
+    let event_bus = bootstrap.event_bus.clone();
     let backend_builder = Box::new(move || Box::new(MockLlm) as Box<dyn LlmBackend>);
     let acp_agent = RaraAcpAgent {
         tool_manager: bootstrap.tool_manager,
         backend_builder,
+        event_bus,
     };
     run_acp_stdio(acp_agent).await
 }
@@ -166,9 +168,10 @@ async fn run_tui_command(
     let bootstrap = runtime_context::initialize_rara_context(config, None).await?;
     emit_bootstrap_warnings(&bootstrap.warnings);
     let sandbox_network_access = bootstrap.sandbox_network_access.clone();
+    let event_bus = bootstrap.event_bus.clone();
     let agent = bootstrap.into_agent();
     let resumed_thread_id =
-        crate::tui::run_tui(agent, oauth_manager, startup_resume, sandbox_network_access).await?;
+        crate::tui::run_tui(agent, oauth_manager, startup_resume, sandbox_network_access, event_bus).await?;
     if let Some(thread_id) = resumed_thread_id {
         print!("{}", rendered_resume_hint(&thread_id));
     }

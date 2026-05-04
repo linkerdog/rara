@@ -12,6 +12,7 @@ mod memory_store;
 mod oauth;
 mod prompt;
 mod redaction;
+mod runtime_event_bus;
 mod runtime_context;
 mod runtime_control;
 mod sandbox;

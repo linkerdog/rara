@@ -22,6 +22,7 @@ use crate::shell_env::capture_shell_environment_snapshot;
 use crate::skill::SkillScope;
 use crate::tool::ToolManager;
 use crate::vectordb::VectorDB;
+use crate::runtime_event_bus::RuntimeEventBus;
 use crate::workspace::WorkspaceMemory;
 
 pub(crate) struct RuntimeBootstrap {
@@ -33,6 +34,7 @@ pub(crate) struct RuntimeBootstrap {
     pub prompt_config: PromptRuntimeConfig,
     pub warnings: Vec<String>,
     pub sandbox_network_access: Arc<AtomicBool>,
+    pub event_bus: Arc<RuntimeEventBus>,
 }
 
 impl RuntimeBootstrap {
@@ -96,6 +98,8 @@ pub(crate) async fn initialize_rara_context(
         config.sandbox_workspace_write.network_access,
     ));
 
+    let event_bus = Arc::new(RuntimeEventBus::new(256));
+
     let tool_manager = create_full_tool_manager(
         backend.clone(),
         vdb.clone(),
@@ -118,6 +122,7 @@ pub(crate) async fn initialize_rara_context(
         prompt_config,
         warnings,
         sandbox_network_access,
+        event_bus,
     })
 }
 
