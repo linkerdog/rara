@@ -589,10 +589,8 @@ fn wrap_exec_command_fails_closed_on_unsupported_platform() {
 fn wrap_exec_command_unsandboxed_exec_runs_directly() {
     let manager = manager("macos", SandboxBackend::Direct);
 
-    let wrapped = manager.wrap_unsandboxed_exec_command(
-        "cargo",
-        &["check".to_string(), "--workspace".to_string()],
-    );
+    let wrapped = manager
+        .wrap_unsandboxed_exec_command("cargo", &["check".to_string(), "--workspace".to_string()]);
 
     assert_eq!(wrapped.program, "cargo");
     assert_eq!(wrapped.args, vec!["check", "--workspace"]);
@@ -605,12 +603,7 @@ fn wrap_exec_command_direct_fallback() {
     let manager = manager("macos", SandboxBackend::Direct);
 
     let wrapped = manager
-        .wrap_exec_command(
-            "cargo",
-            &["test".to_string()],
-            "/workspace",
-            false,
-        )
+        .wrap_exec_command("cargo", &["test".to_string()], "/workspace", false)
         .expect("direct exec");
 
     assert_eq!(wrapped.program, "cargo");
@@ -629,9 +622,7 @@ fn wrap_exec_command_macos_seatbelt() {
         profile_dir: tempdir.path().to_path_buf(),
         sandbox_home: tempdir.path().join("home"),
         backend: SandboxBackend::MacosSeatbelt,
-        command_install_roots: command_search_install_roots(
-            std::env::var_os("PATH").as_deref(),
-        ),
+        command_install_roots: command_search_install_roots(std::env::var_os("PATH").as_deref()),
     };
 
     let wrapped = manager
@@ -671,12 +662,7 @@ fn wrap_exec_command_linux_bubblewrap() {
     let manager = manager("linux", SandboxBackend::LinuxBubblewrap);
 
     let wrapped = manager
-        .wrap_exec_command(
-            "cargo",
-            &["check".to_string()],
-            "/workspace/project",
-            false,
-        )
+        .wrap_exec_command("cargo", &["check".to_string()], "/workspace/project", false)
         .expect("linux exec wrapper");
 
     assert_eq!(wrapped.program, "bwrap");
