@@ -41,9 +41,21 @@ impl FileReadState {
         let modified = metadata.modified()?;
         let is_partial = output.is_partial();
         let mut files = self.files.lock().expect("file read state lock");
+        // Never downgrade: partial reads must not overwrite existing
+        // full-read entries (same mtime).
         if is_partial {
             if let Some(existing) = files.get(&key) {
                 if !existing.is_partial && existing.modified == modified {
+                    return Ok(());
+                }
+            }
+        }
+        // Sub-range reads are not partial under the new semantics,
+        // but they don't carry full content.  Don't let a sub-range read
+        // overwrite a previously cached full read with the same mtime.
+        if content.is_none() {
+            if let Some(existing) = files.get(&key) {
+                if existing.content.is_some() && existing.modified == modified {
                     return Ok(());
                 }
             }
@@ -239,8 +251,13 @@ pub(crate) struct ReadFileOutput {
 }
 
 impl ReadFileOutput {
+    /// Returns true only when the content delivered to the model was
+    /// line-truncated (a single line exceeded the max read length).
+    /// Having more lines in the file than were returned (has_more_lines)
+    /// does NOT make it partial — the model saw real, untransformed
+    /// content from the file, and next_offset tells it where to continue.
     fn is_partial(&self) -> bool {
-        self.truncated || self.start_line != 1 || !self.total_lines_exact
+        self.line_truncated
     }
 }
 
@@ -596,7 +613,7 @@ impl Default for ReplaceLinesTool {
 
 #[tool_spec(
     name = "replace_lines",
-    description = "Replace an inclusive line range in a file. Use only after reading the full file and verifying the current line numbers.",
+    description = "Replace an inclusive line range in a file. Use after reading the relevant portion of the file and verifying the current line numbers. A sub-range read via offset/limit is sufficient as long as the targeted lines have been seen.",
     input_schema = {
         "type": "object",
         "properties": {
