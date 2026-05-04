@@ -305,7 +305,7 @@ async fn replace_allows_partial_read_when_old_string_is_unique() {
 }
 
 #[tokio::test]
-async fn replace_lines_allows_offset_read_not_truncated() {
+async fn replace_lines_allows_offset_read_when_lines_not_truncated() {
     let tempdir = tempfile::tempdir().expect("tempdir");
     let path = tempdir.path().join("sample.txt");
     std::fs::write(&path, "one\ntwo\nthree\n").expect("write sample");
@@ -322,7 +322,7 @@ async fn replace_lines_allows_offset_read_not_truncated() {
         }))
         .await
         .expect("offset read");
-    // Clode Code / Codex semantics: sub-range reads are not partial.
+    // Claude Code / Codex semantics: sub-range reads are not partial.
     // replace_lines re-reads the file internally, so line-number
     // validation is still correct.
     let result = replace_lines_tool
@@ -335,6 +335,8 @@ async fn replace_lines_allows_offset_read_not_truncated() {
         .await
         .expect("replace_lines after offset read");
     assert!(result["path"].as_str().unwrap().ends_with("sample.txt"));
+    let updated = std::fs::read_to_string(&path).expect("read file");
+    assert_eq!(updated, "one\nsecond\nthree\n");
 }
 
 #[tokio::test]
