@@ -7,6 +7,7 @@ mod config;
 mod context;
 mod control_tokens;
 mod file_lock;
+mod hooks;
 mod llm;
 mod local_backend;
 mod memory_store;
