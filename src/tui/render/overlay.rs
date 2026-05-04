@@ -470,11 +470,13 @@ fn render_context_modal(f: &mut Frame, app: &TuiApp, area: Rect) {
     f.render_widget(
         Paragraph::new(lines)
             .block(Block::default().borders(Borders::LEFT | Borders::RIGHT))
-            .wrap(Wrap { trim: false }),
+            .wrap(Wrap { trim: false })
+            .scroll((app.context_scroll, 0)),
         chunks[0],
     );
     f.render_widget(
-        Paragraph::new("esc close").alignment(Alignment::Center),
+        Paragraph::new("esc close  j/k ↑↓ scroll")
+            .alignment(Alignment::Center),
         chunks[1],
     );
 }
