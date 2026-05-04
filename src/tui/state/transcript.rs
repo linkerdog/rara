@@ -125,7 +125,10 @@ impl TuiApp {
         if stream.raw_text.trim().is_empty() {
             return;
         }
-        let message = stream.raw_text.trim_end().to_string();
+        let message = stream.sanitized_raw_text().trim_end().to_string();
+        if message.trim().is_empty() {
+            return;
+        }
         self.push_active_live_event(ActiveLiveEvent::Thinking(message));
         self.reset_transcript_scroll_if_following_tail();
     }

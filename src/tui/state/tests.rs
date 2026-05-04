@@ -848,6 +848,27 @@ fn streamed_agent_output_appends_visible_text_after_internal_block() {
 }
 
 #[test]
+fn flushed_agent_thinking_stream_scrubs_internal_runtime_blocks() {
+    let dir = tempdir().expect("tempdir");
+    let cm = ConfigManager {
+        path: dir.path().join("config.json"),
+    };
+    let mut app = TuiApp::new(cm).expect("app");
+
+    app.append_agent_thinking_delta("Visible thought.\n");
+    app.append_agent_thinking_delta("<agent_runtime>\n{\"phase\":\"tool_results_available\"}");
+    app.append_agent_thinking_delta("\n</agent_runtime>\nNext thought.");
+    app.flush_agent_thinking_stream_to_live_event();
+
+    assert_eq!(app.active_live.events.len(), 1);
+    let event = app.active_live.events.first().expect("thinking event");
+    assert_eq!(event.role(), "Thinking");
+    assert_eq!(event.message(), "Visible thought.\nNext thought.");
+    assert!(!event.message().contains("agent_runtime"));
+    assert!(!event.message().contains("tool_results_available"));
+}
+
+#[test]
 fn finalize_agent_stream_replaces_earlier_agent_entries_in_active_turn() {
     let dir = tempdir().expect("tempdir");
     let cm = ConfigManager {

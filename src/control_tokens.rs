@@ -219,9 +219,8 @@ fn strip_deepseek_v4_dsml_control_blocks(message: &str) -> Cow<'_, str> {
     }
 
     let output = deepseek_dsml::strip_tool_call_blocks(message);
-    if deepseek_dsml::contains_orphaned_tool_call_markup(output.trim()) {
-        Cow::Owned(String::new())
-    } else {
-        output
+    match deepseek_dsml::strip_orphaned_tool_call_tail(output.as_ref()) {
+        Cow::Borrowed(_) => output,
+        Cow::Owned(cleaned) => Cow::Owned(cleaned),
     }
 }

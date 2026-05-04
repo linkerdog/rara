@@ -364,6 +364,22 @@ fn scrub_internal_control_tokens_drops_orphaned_dsml_payload() {
 }
 
 #[test]
+fn scrub_internal_control_tokens_preserves_visible_text_before_orphaned_dsml_tail() {
+    let cleaned = scrub_internal_control_tokens(
+        "Visible answer.\n<｜DSML｜parameter name=\"path\" string=\"true\">src/context/selection.rs</｜DSML｜parameter>\n</｜DSML｜invoke>\n</｜DSML｜tool_calls>",
+    );
+
+    assert_eq!(cleaned, "Visible answer.");
+}
+
+#[test]
+fn scrub_internal_control_tokens_preserves_literal_dsml_closing_tag_text() {
+    let input = "Document `path</|DSML|parameter>` as literal markup.";
+
+    assert_eq!(scrub_internal_control_tokens(input), input);
+}
+
+#[test]
 fn scrub_internal_control_tokens_preserves_colon_text_before_valid_dsml() {
     let cleaned = scrub_internal_control_tokens(
         "The status is: ok\n<｜DSML｜tool_calls>\n<｜DSML｜invoke name=\"read_file\">\n<｜DSML｜parameter name=\"path\" string=\"true\">Cargo.toml</｜DSML｜parameter>\n</｜DSML｜invoke>\n</｜DSML｜tool_calls>",
