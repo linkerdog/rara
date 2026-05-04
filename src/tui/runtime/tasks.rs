@@ -22,6 +22,17 @@ use super::super::state::{
 use super::events::{apply_tui_event, convert_agent_event, format_error_chain};
 use crate::agent::{Agent, AgentOutputMode, BashApprovalDecision};
 use crate::redaction::sanitize_url_for_display;
+use crate::runtime_event_bus::RuntimeEventBus;
+
+/// Forward `event` to the broadcast bus when there are active subscribers.
+/// Avoids the clone cost when nobody is listening (the common TUI-only case).
+fn forward_event_to_bus(bus: &Option<Arc<RuntimeEventBus>>, event: &crate::agent::AgentEvent) {
+    if let Some(bus) = bus.as_ref() {
+        if bus.receiver_count() > 0 {
+            bus.send(event.clone());
+        }
+    }
+}
 
 fn merge_rebuilt_agent(mut rebuilt: Agent, previous: Agent) -> Agent {
     let previous_prompt_config = previous.prompt_config().clone();
@@ -125,9 +136,7 @@ pub(super) fn start_query_task(app: &mut TuiApp, prompt: String, mut agent: Agen
         let tx = sender.clone();
         let result = agent
             .query_with_mode_and_events(prompt, AgentOutputMode::Silent, move |event| {
-                if let Some(ref bus) = bus {
-                    bus.send(event.clone());
-                }
+                forward_event_to_bus(&bus, &event);
                 if let Some(tui_event) = convert_agent_event(event) {
                     let _ = tx.send(tui_event);
                 }
@@ -163,9 +172,7 @@ pub(super) fn start_compact_task(app: &mut TuiApp, mut agent: Agent) {
         let tx = sender.clone();
         let result = agent
             .compact_now_with_reporter(move |event| {
-                if let Some(ref bus) = bus {
-                    bus.send(event.clone());
-                }
+                forward_event_to_bus(&bus, &event);
                 if let Some(tui_event) = convert_agent_event(event) {
                     let _ = tx.send(tui_event);
                 }
@@ -202,9 +209,7 @@ pub(super) fn start_review_task(app: &mut TuiApp, prompt: String, mut agent: Age
         let tx = sender.clone();
         let result = agent
             .query_with_mode_and_events(prompt, AgentOutputMode::Silent, move |event| {
-                if let Some(ref bus) = bus {
-                    bus.send(event.clone());
-                }
+                forward_event_to_bus(&bus, &event);
                 if let Some(tui_event) = convert_agent_event(event) {
                     let _ = tx.send(tui_event);
                 }
@@ -251,9 +256,7 @@ pub(super) fn start_pending_approval_task(
         let tx = sender.clone();
         let result = agent
             .answer_pending_approval_with_events(selection, AgentOutputMode::Silent, move |event| {
-                if let Some(ref bus) = bus {
-                    bus.send(event.clone());
-                }
+                forward_event_to_bus(&bus, &event);
                 if let Some(tui_event) = convert_agent_event(event) {
                     let _ = tx.send(tui_event);
                 }
@@ -332,9 +335,7 @@ fn start_plan_resume_task(
                 continue_planning,
                 AgentOutputMode::Silent,
                 move |event| {
-                    if let Some(ref bus) = bus {
-                        bus.send(event.clone());
-                    }
+                    forward_event_to_bus(&bus, &event);
                     if let Some(tui_event) = convert_agent_event(event) {
                         let _ = tx.send(tui_event);
                     }

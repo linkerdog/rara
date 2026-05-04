@@ -2,8 +2,9 @@ use tokio::sync::broadcast;
 
 use crate::agent::AgentEvent;
 
-/// Shared runtime event bus that lets multiple subscribers (TUI, ACP, Wire,
-/// rollout log) consume the same structured `AgentEvent` stream.
+/// Shared runtime event bus that mirrors `AgentEvent` for non-TUI
+/// subscribers (ACP, Wire, rollout log).  The TUI continues to receive
+/// events through the separate `convert_agent_event → mpsc` path.
 ///
 /// Built on a `tokio::sync::broadcast` channel so subscribers receive every
 /// event without the bus needing to know about them ahead of time.  Slow
@@ -32,5 +33,10 @@ impl RuntimeEventBus {
     /// are not replayed.
     pub fn subscribe(&self) -> broadcast::Receiver<AgentEvent> {
         self.sender.subscribe()
+    }
+
+    /// Return the number of active subscribers.
+    pub fn receiver_count(&self) -> usize {
+        self.sender.receiver_count()
     }
 }
