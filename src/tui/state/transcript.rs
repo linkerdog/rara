@@ -160,7 +160,7 @@ impl TuiApp {
         let Some(message) = final_message.or(fallback) else {
             return;
         };
-        let message = crate::tui::control_tokens::scrub_internal_control_tokens(&message);
+        let message = crate::control_tokens::scrub_internal_control_tokens(&message);
         if message.trim().is_empty() {
             return;
         }

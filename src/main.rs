@@ -4,6 +4,7 @@ mod app_cli;
 mod codex_model_catalog;
 mod config;
 mod context;
+mod control_tokens;
 mod file_lock;
 mod llm;
 mod local_backend;

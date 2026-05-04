@@ -16,12 +16,12 @@ use crate::context::{
     CompactionSourceContextEntry, ContextAssemblyEntry, PromptSourceContextEntry,
     RetrievalSourceContextEntry,
 };
+use crate::control_tokens::scrub_internal_control_tokens;
 use crate::oauth::SavedCodexAuthMode;
 use crate::state_db::StateDb;
 use crate::thread_store::ThreadSummary;
 use crate::tool::ToolOutputStream;
 use crate::tools::bash::BashCommandInput;
-use crate::tui::control_tokens::scrub_internal_control_tokens;
 use crate::tui::terminal_event::TerminalEvent;
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]

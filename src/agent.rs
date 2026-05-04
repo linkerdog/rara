@@ -12,6 +12,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use uuid::Uuid;
 
+use crate::control_tokens::scrub_internal_control_tokens;
 use crate::llm::{ContentBlock, LlmBackend, LlmStreamEvent, LlmTurnMetadata};
 use crate::prompt::{self, PromptMode, PromptRuntimeConfig};
 use crate::redaction::redact_secrets;
@@ -362,6 +363,7 @@ impl Agent {
                     let (clean_text, block_requests_continue) =
                         planning::strip_continue_inspection_control(text);
                     continue_inspection |= block_requests_continue;
+                    let clean_text = scrub_internal_control_tokens(&clean_text);
                     if !clean_text.trim().is_empty() {
                         had_text_response = true;
                         sanitized_content.push(ContentBlock::Text {

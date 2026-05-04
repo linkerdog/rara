@@ -279,6 +279,70 @@ async fn visible_text_before_tool_call_does_not_end_agent_turn() {
 }
 
 #[tokio::test]
+async fn raw_leading_think_is_not_persisted_as_assistant_context_text() {
+    let backend = Arc::new(SequencedBackend::new(vec![
+        LlmResponse {
+            content: vec![ContentBlock::Text {
+                text: "<think>private reasoning</think>\nVisible answer.".to_string(),
+            }],
+            stop_reason: Some("end_turn".to_string()),
+            usage: Some(TokenUsage::default()),
+        },
+        LlmResponse {
+            content: vec![ContentBlock::Text {
+                text: "Second answer.".to_string(),
+            }],
+            stop_reason: Some("end_turn".to_string()),
+            usage: Some(TokenUsage::default()),
+        },
+    ]));
+
+    let tool_manager = ToolManager::new();
+    let (_temp, session_manager, workspace, rara_dir) = test_runtime_storage();
+    let mut agent = Agent::new(
+        tool_manager,
+        backend.clone(),
+        Arc::new(VectorDB::new(&rara_dir.join("lancedb").to_string_lossy())),
+        session_manager,
+        workspace,
+    );
+
+    agent
+        .query_with_mode_and_events(
+            "first".to_string(),
+            super::super::AgentOutputMode::Silent,
+            |_| {},
+        )
+        .await
+        .expect("first query");
+    agent
+        .query_with_mode_and_events(
+            "second".to_string(),
+            super::super::AgentOutputMode::Silent,
+            |_| {},
+        )
+        .await
+        .expect("second query");
+
+    let history_text = serde_json::to_string(&agent.history).expect("history json");
+    assert!(history_text.contains("Visible answer."));
+    assert!(!history_text.contains("<think>"));
+    assert!(!history_text.contains("private reasoning"));
+
+    let observed = backend.observed_messages();
+    assert_eq!(observed.len(), 2);
+    let second_assistant_text = observed[1]
+        .iter()
+        .filter(|message| message.role == "assistant")
+        .map(|message| message.content.to_string())
+        .collect::<Vec<_>>()
+        .join("\n");
+    assert!(second_assistant_text.contains("Visible answer."));
+    assert!(!second_assistant_text.contains("<think>"));
+    assert!(!second_assistant_text.contains("private reasoning"));
+}
+
+#[tokio::test]
 async fn todo_write_updates_session_state_and_emits_event() {
     let backend = Arc::new(SequencedBackend::new(vec![
         LlmResponse {
