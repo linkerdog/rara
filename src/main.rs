@@ -1,5 +1,6 @@
 mod acp;
 mod agent;
+mod agents_ext;
 mod app_cli;
 mod atomic_file;
 mod codex_model_catalog;
