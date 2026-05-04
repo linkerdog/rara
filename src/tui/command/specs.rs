@@ -1,6 +1,6 @@
 use crate::tui::state::{CommandSpec, LocalCommand, LocalCommandKind, TuiApp};
 
-pub const COMMAND_SPECS: [CommandSpec; 21] = [
+pub const COMMAND_SPECS: [CommandSpec; 20] = [
     CommandSpec {
         category: "Session",
         name: "help",
@@ -87,13 +87,6 @@ pub const COMMAND_SPECS: [CommandSpec; 21] = [
     },
     CommandSpec {
         category: "Setup",
-        name: "model-name",
-        usage: "/model-name",
-        summary: "Open the model name editor.",
-        detail: "Open the interactive model name editor. Type a model identifier to override the default for the active provider. This accepts arbitrary provider model IDs.",
-    },
-    CommandSpec {
-        category: "Setup",
         name: "base-url",
         usage: "/base-url",
         summary: "Open the provider base URL editor.",
@@ -172,7 +165,6 @@ pub fn parse_local_command(input: &str) -> Option<LocalCommand> {
         "approval" => LocalCommandKind::Approval,
         "compact" => LocalCommandKind::Compact,
         "model" | "models" => LocalCommandKind::Model,
-        "model-name" => LocalCommandKind::ModelName,
         "base-url" => LocalCommandKind::BaseUrl,
         "login" | "auth" => LocalCommandKind::Login,
         "logout" => LocalCommandKind::Logout,
