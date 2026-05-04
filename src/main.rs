@@ -1,6 +1,7 @@
 mod acp;
 mod agent;
 mod app_cli;
+mod atomic_file;
 mod codex_model_catalog;
 mod config;
 mod context;
@@ -17,6 +18,7 @@ mod runtime_control;
 mod runtime_event_bus;
 mod sandbox;
 mod session;
+mod session_transcript;
 mod shell_env;
 mod skill;
 mod state_db;

@@ -7,6 +7,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use anyhow::{Context, Result, bail};
 
+use crate::atomic_file;
 use crate::file_lock::AdvisoryFileLock;
 use crate::llm::LlmBackend;
 use crate::vectordb::{MemoryMetadata, VectorDB};
@@ -457,21 +458,11 @@ fn write_record_file_sync(path: &Path, file: &PersistedMemoryRecordFile) -> Resu
     writer
         .flush()
         .with_context(|| format!("flush memory records temp file {}", tmp_path.display()))?;
-    if let Err(err) = replace_record_file_sync(&tmp_path, path) {
+    if let Err(err) = atomic_file::replace_file(&tmp_path, path) {
         let _ = fs::remove_file(&tmp_path);
         return Err(err).with_context(|| format!("replace memory records {}", path.display()));
     }
     Ok(())
-}
-
-fn replace_record_file_sync(tmp_path: &Path, path: &Path) -> std::io::Result<()> {
-    #[cfg(windows)]
-    match fs::remove_file(path) {
-        Ok(()) => {}
-        Err(err) if err.kind() == std::io::ErrorKind::NotFound => {}
-        Err(err) => return Err(err),
-    }
-    fs::rename(tmp_path, path)
 }
 
 fn memory_record_for_hit(
