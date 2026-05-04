@@ -1,6 +1,6 @@
 use crate::tui::state::{CommandSpec, LocalCommand, LocalCommandKind, TuiApp};
 
-pub const COMMAND_SPECS: [CommandSpec; 21] = [
+pub const COMMAND_SPECS: [CommandSpec; 20] = [
     CommandSpec {
         category: "Session",
         name: "permissions",
