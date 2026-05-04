@@ -7,6 +7,26 @@ use nom::{Err as NomErr, IResult, Parser};
 use serde_json::Value;
 
 const DSML_TOKENS: [&str; 2] = ["｜DSML｜", "|DSML|"];
+const DSML_TAG_PREFIXES: [&str; 12] = [
+    "<｜DSML｜tool_calls>",
+    "<｜DSML｜invoke",
+    "<｜DSML｜parameter",
+    "</｜DSML｜tool_calls>",
+    "</｜DSML｜invoke>",
+    "</｜DSML｜parameter>",
+    "<|DSML|tool_calls>",
+    "<|DSML|invoke",
+    "<|DSML|parameter",
+    "</|DSML|tool_calls>",
+    "</|DSML|invoke>",
+    "</|DSML|parameter>",
+];
+const DSML_ORPHAN_CLOSING_TAGS: [&str; 4] = [
+    "</｜DSML｜tool_calls>",
+    "</｜DSML｜invoke>",
+    "</|DSML|tool_calls>",
+    "</|DSML|invoke>",
+];
 const TOOL_CALLS_BLOCK_NAME: &str = "tool_calls";
 const INVOKE_TAG_NAME: &str = "invoke";
 const PARAMETER_TAG_NAME: &str = "parameter";
@@ -230,25 +250,15 @@ fn orphaned_tool_call_tail_start(text: &str) -> Option<usize> {
 }
 
 fn starts_with_dsml_tag(line: &str) -> bool {
-    DSML_TOKENS.iter().any(|token| {
-        [
-            exact_open_tag(token, TOOL_CALLS_BLOCK_NAME),
-            open_tag(token, INVOKE_TAG_NAME),
-            open_tag(token, PARAMETER_TAG_NAME),
-            close_tag(token, TOOL_CALLS_BLOCK_NAME),
-            close_tag(token, INVOKE_TAG_NAME),
-            close_tag(token, PARAMETER_TAG_NAME),
-        ]
+    DSML_TAG_PREFIXES
         .into_iter()
-        .any(|tag| line.starts_with(tag.as_str()))
-    })
+        .any(|tag| line.starts_with(tag))
 }
 
 fn has_orphaned_tool_call_closing_sequence(text: &str) -> bool {
-    DSML_TOKENS.iter().any(|token| {
-        text.contains(close_tag(token, TOOL_CALLS_BLOCK_NAME).as_str())
-            || text.contains(close_tag(token, INVOKE_TAG_NAME).as_str())
-    })
+    DSML_ORPHAN_CLOSING_TAGS
+        .into_iter()
+        .any(|tag| text.contains(tag))
 }
 
 fn looks_like_leaked_tool_argument_prefix(prefix: &str) -> bool {

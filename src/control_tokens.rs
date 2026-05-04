@@ -2,10 +2,34 @@ use std::borrow::Cow;
 
 use crate::llm::deepseek_dsml;
 
-const INTERNAL_BLOCK_TAGS: [&str; 3] = [
-    "agent_runtime",
-    "agent_runtime_error",
-    "rara_internal_history_context",
+#[derive(Clone, Copy)]
+struct InternalBlockTag {
+    open: &'static str,
+    close: &'static str,
+}
+
+const INTERNAL_BLOCK_TAGS: [InternalBlockTag; 3] = [
+    InternalBlockTag {
+        open: "<agent_runtime>",
+        close: "</agent_runtime>",
+    },
+    InternalBlockTag {
+        open: "<agent_runtime_error>",
+        close: "</agent_runtime_error>",
+    },
+    InternalBlockTag {
+        open: "<rara_internal_history_context>",
+        close: "</rara_internal_history_context>",
+    },
+];
+const CONTROL_PREFIX_TOKENS: [&str; 7] = [
+    "<think>",
+    "<agent_runtime>",
+    "<agent_runtime_error>",
+    "<rara_internal_history_context>",
+    "<｜DSML｜tool_calls>",
+    "<|DSML|tool_calls>",
+    "<｜end▁of▁sentence｜>",
 ];
 pub(crate) const DEEPSEEK_EOS: &str = "<｜end▁of▁sentence｜>";
 
@@ -111,36 +135,49 @@ fn strip_internal_blocks(message: &str) -> Cow<'_, str> {
     output
 }
 
-fn strip_balanced_or_open_internal_block<'a>(message: Cow<'a, str>, tag: &str) -> Cow<'a, str> {
-    let open = format!("<{tag}>");
-    if !message.contains(open.as_str()) {
+fn strip_balanced_or_open_internal_block<'a>(
+    message: Cow<'a, str>,
+    tag: InternalBlockTag,
+) -> Cow<'a, str> {
+    if !message.contains(tag.open) {
         return message;
     }
 
-    let close = format!("</{tag}>");
     let mut remaining = message.as_ref();
     let mut cleaned = String::with_capacity(remaining.len());
-    while let Some(start) = remaining.find(open.as_str()) {
+    while let Some(start) = remaining.find(tag.open) {
         cleaned.push_str(&remaining[..start]);
-        let after_open = &remaining[start + open.len()..];
-        let Some(end) = after_open.find(close.as_str()) else {
+        let after_open = &remaining[start + tag.open.len()..];
+        let Some(end) = after_open.find(tag.close) else {
             remaining = "";
             break;
         };
-        remaining = &after_open[end + close.len()..];
+        let after_close = &after_open[end + tag.close.len()..];
+        push_visible_boundary_separator(&mut cleaned, after_close);
+        remaining = after_close;
     }
     cleaned.push_str(remaining);
     Cow::Owned(cleaned)
 }
 
+fn push_visible_boundary_separator(cleaned: &mut String, next: &str) {
+    let Some(prev) = cleaned.chars().last() else {
+        return;
+    };
+    let Some(next) = next.chars().next() else {
+        return;
+    };
+    if !prev.is_whitespace() && !next.is_whitespace() {
+        cleaned.push('\n');
+    }
+}
+
 fn has_open_internal_block(message: &str) -> bool {
     INTERNAL_BLOCK_TAGS.iter().any(|tag| {
-        let open = format!("<{tag}>");
-        let Some(open_idx) = message.rfind(open.as_str()) else {
+        let Some(open_idx) = message.rfind(tag.open) else {
             return false;
         };
-        let close = format!("</{tag}>");
-        !message[open_idx + open.len()..].contains(close.as_str())
+        !message[open_idx + tag.open.len()..].contains(tag.close)
     })
 }
 
@@ -166,24 +203,16 @@ fn has_open_deepseek_dsml_tool_block(message: &str) -> bool {
 }
 
 fn ends_with_possible_control_prefix(message: &str) -> bool {
-    let suffix = message
-        .rsplit_once(|c: char| c.is_whitespace())
-        .map(|(_, tail)| tail)
-        .unwrap_or(message);
+    let Some(start) = message.rfind('<') else {
+        return false;
+    };
+    let suffix = &message[start..];
     if suffix.is_empty() {
         return false;
     }
-    [
-        "<think>",
-        "<agent_runtime>",
-        "<agent_runtime_error>",
-        "<rara_internal_history_context>",
-        "<｜DSML｜tool_calls>",
-        "<|DSML|tool_calls>",
-        "<｜end▁of▁sentence｜>",
-    ]
-    .into_iter()
-    .any(|token| token.starts_with(suffix))
+    CONTROL_PREFIX_TOKENS
+        .into_iter()
+        .any(|token| token.starts_with(suffix))
         || is_possible_legacy_control_marker_prefix(suffix)
 }
 

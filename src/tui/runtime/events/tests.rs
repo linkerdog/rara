@@ -9,6 +9,7 @@ use super::helpers::{
 use super::{apply_tui_event, convert_agent_event};
 use crate::agent::{AgentEvent, AgentExecutionMode};
 use crate::config::ConfigManager;
+use crate::control_tokens::has_pending_internal_control_context;
 use crate::tool::ToolOutputStream;
 use crate::tui::state::{ActivePendingInteractionKind, TranscriptEntryPayload};
 use crate::tui::state::{RuntimePhase, TuiApp, TuiEvent};
@@ -168,6 +169,17 @@ fn scrub_internal_control_tokens_removes_agent_runtime_blocks() {
     );
 
     assert_eq!(cleaned.trim(), "Before\n\nAfter");
+    assert!(!cleaned.contains("agent_runtime"));
+    assert!(!cleaned.contains("tool_results_available"));
+}
+
+#[test]
+fn scrub_internal_control_tokens_preserves_inline_runtime_block_boundaries() {
+    let cleaned = scrub_internal_control_tokens(
+        "Before<agent_runtime>{\"phase\":\"tool_results_available\"}</agent_runtime>After",
+    );
+
+    assert_eq!(cleaned, "Before\nAfter");
     assert!(!cleaned.contains("agent_runtime"));
     assert!(!cleaned.contains("tool_results_available"));
 }
@@ -377,6 +389,14 @@ fn scrub_internal_control_tokens_preserves_literal_dsml_closing_tag_text() {
     let input = "Document `path</|DSML|parameter>` as literal markup.";
 
     assert_eq!(scrub_internal_control_tokens(input), input);
+}
+
+#[test]
+fn pending_control_prefix_detects_tags_after_visible_punctuation() {
+    assert!(has_pending_internal_control_context("Visible:<agent_"));
+    assert!(has_pending_internal_control_context(
+        "Visible:<｜DSML｜tool_"
+    ));
 }
 
 #[test]
