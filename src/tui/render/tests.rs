@@ -213,9 +213,7 @@ fn tool_summary_compacts_spawn_agent_instruction_json() {
     let refs = entries.iter().collect::<Vec<_>>();
 
     let rendered = current_turn_tool_summary(&refs, false, None).expect("tool summary");
-    assert!(
-        rendered.contains("Agent Delegate fix-assembler: Fix the file src/context/assembler.rs")
-    );
+    assert!(rendered.contains("Delegate fix-assembler: Fix the file src/context/assembler.rs"));
     assert!(rendered.contains('…'));
     assert!(!rendered.contains("\"instruction\""));
     assert!(!rendered.contains("avoid one giant replacement payload"));
@@ -1008,14 +1006,18 @@ fn prefixed_message_lines_show_truncation_when_max_lines_is_one() {
         .map(|line| line.to_string())
         .collect::<Vec<_>>();
     assert_eq!(agent_rendered[0], "▌ Agent");
-    assert_eq!(agent_rendered[1], "    ... 2 more line(s)");
+    assert_eq!(agent_rendered[1], "  intro");
+    assert_eq!(agent_rendered[2], "    ... 1 more line(s)");
+    assert_eq!(agent_rendered[3], "  latest 1");
 
     let user_rendered = prefixed_message_lines("You", &["intro", "latest 1"].join("\n"), 1)
         .into_iter()
         .map(|line| line.to_string())
         .collect::<Vec<_>>();
     assert_eq!(user_rendered[0], "▌ You");
-    assert_eq!(user_rendered[1], "    ... 2 more line(s)");
+    assert_eq!(user_rendered[1], "  intro");
+    assert_eq!(user_rendered[2], "    ... 1 more line(s)");
+    assert_eq!(user_rendered[3], "  latest 1");
 }
 
 #[test]
