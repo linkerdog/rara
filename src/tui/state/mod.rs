@@ -251,6 +251,7 @@ impl TuiApp {
             skill_picker_entries: Vec::new(),
             sandbox_network_access: Arc::new(AtomicBool::new(sandbox_network)),
             permission_mode: PermissionMode::Auto,
+            event_bus: None,
         })
     }
 

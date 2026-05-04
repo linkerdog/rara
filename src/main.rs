@@ -14,6 +14,7 @@ mod prompt;
 mod redaction;
 mod runtime_context;
 mod runtime_control;
+mod runtime_event_bus;
 mod sandbox;
 mod session;
 mod shell_env;

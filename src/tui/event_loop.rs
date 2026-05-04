@@ -19,6 +19,7 @@ use super::terminal_ui::{
 };
 use crate::agent::Agent;
 use crate::oauth::OAuthManager;
+use crate::runtime_event_bus::RuntimeEventBus;
 use crate::state_db::StateDb;
 
 #[derive(Debug, Clone)]
@@ -34,11 +35,13 @@ pub async fn run_tui(
     oauth_manager: OAuthManager,
     startup_resume: StartupResumeTarget,
     sandbox_network_access: Arc<AtomicBool>,
+    event_bus: Arc<RuntimeEventBus>,
 ) -> anyhow::Result<Option<String>> {
     enable_raw_mode()?;
     let initial_size = terminal_size()?;
     let mut app = TuiApp::new(crate::config::ConfigManager::new()?)?;
     app.sandbox_network_access = sandbox_network_access;
+    app.event_bus = Some(event_bus);
     // Sync the AtomicBool to match the default Auto preset (network off).
     app.sandbox_network_access
         .store(false, std::sync::atomic::Ordering::Relaxed);
