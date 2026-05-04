@@ -239,6 +239,22 @@ fn scrub_internal_control_tokens_removes_dsml_after_thinking_like_deepseek_compl
 }
 
 #[test]
+fn scrub_internal_control_tokens_removes_open_leading_think_block() {
+    let cleaned = scrub_internal_control_tokens("<think>private reasoning still streaming");
+
+    assert!(cleaned.is_empty());
+}
+
+#[test]
+fn scrub_internal_control_tokens_removes_closed_leading_think_block() {
+    let cleaned =
+        scrub_internal_control_tokens("<think>private reasoning</think>\nVisible answer.");
+
+    assert_eq!(cleaned.trim(), "Visible answer.");
+    assert!(!cleaned.contains("private reasoning"));
+}
+
+#[test]
 fn scrub_internal_control_tokens_preserves_malformed_think_block() {
     let cleaned = scrub_internal_control_tokens(
         "The literal malformed marker <think> has no closing tag in this answer.",

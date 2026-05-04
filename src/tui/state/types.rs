@@ -359,6 +359,7 @@ pub(crate) struct CommittedTranscriptRenderCache {
 
 pub struct AgentMarkdownStreamState {
     pub(crate) raw_text: String,
+    last_visible_text: String,
     cwd: PathBuf,
     collector: MarkdownStreamCollector,
     committed_lines: Vec<Line<'static>>,
@@ -369,6 +370,7 @@ impl AgentMarkdownStreamState {
     pub(crate) fn new(cwd: PathBuf) -> Self {
         Self {
             raw_text: String::new(),
+            last_visible_text: String::new(),
             cwd: cwd.clone(),
             collector: MarkdownStreamCollector::new(None, &cwd),
             committed_lines: Vec::new(),
@@ -379,12 +381,15 @@ impl AgentMarkdownStreamState {
     pub(crate) fn push_delta(&mut self, delta: &str) {
         self.raw_text.push_str(delta);
         let visible_text = scrub_internal_control_tokens(&self.raw_text);
-        if visible_text != self.raw_text {
+        if let Some(new_visible_delta) = visible_text.strip_prefix(&self.last_visible_text) {
+            if !new_visible_delta.is_empty() {
+                self.collector.push_delta(new_visible_delta);
+                self.refresh_display_lines();
+            }
+        } else {
             self.replace_display_text(&visible_text);
-            return;
         }
-        self.collector.push_delta(delta);
-        self.refresh_display_lines();
+        self.last_visible_text = visible_text;
     }
 
     pub(crate) fn sanitized_raw_text(&self) -> String {

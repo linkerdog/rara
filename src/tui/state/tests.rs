@@ -823,6 +823,31 @@ fn streamed_agent_output_scrubs_internal_runtime_blocks_before_commit() {
 }
 
 #[test]
+fn streamed_agent_output_appends_visible_text_after_internal_block() {
+    let dir = tempdir().expect("tempdir");
+    let cm = ConfigManager {
+        path: dir.path().join("config.json"),
+    };
+    let mut app = TuiApp::new(cm).expect("app");
+
+    app.append_agent_delta("Visible before.\n");
+    app.append_agent_delta("<agent_runtime>\nhidden");
+    app.append_agent_delta("\n</agent_runtime>\nVisible after.");
+
+    let live_text = app
+        .agent_stream_lines()
+        .expect("agent stream")
+        .iter()
+        .flat_map(|line| line.spans.iter())
+        .map(|span| span.content.as_ref())
+        .collect::<String>();
+    assert_eq!(live_text.matches("Visible before.").count(), 1);
+    assert_eq!(live_text.matches("Visible after.").count(), 1);
+    assert!(!live_text.contains("agent_runtime"));
+    assert!(!live_text.contains("hidden"));
+}
+
+#[test]
 fn finalize_agent_stream_replaces_earlier_agent_entries_in_active_turn() {
     let dir = tempdir().expect("tempdir");
     let cm = ConfigManager {

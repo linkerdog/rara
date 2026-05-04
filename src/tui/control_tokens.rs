@@ -17,12 +17,11 @@ pub(crate) fn scrub_internal_control_tokens(message: &str) -> String {
     } else {
         Cow::Borrowed(message)
     };
-    let message =
-        if (had_deepseek_dsml || had_deepseek_eos) && message.trim_start().starts_with("<think>") {
-            strip_deepseek_leading_think_block(&message)
-        } else {
-            message
-        };
+    let message = if message.trim_start().starts_with("<think>") {
+        strip_deepseek_leading_think_block(&message)
+    } else {
+        message
+    };
     let message = if had_deepseek_eos {
         Cow::Owned(message.replace("<｜end▁of▁sentence｜>", ""))
     } else {
@@ -107,11 +106,10 @@ fn strip_deepseek_leading_think_block(message: &str) -> Cow<'_, str> {
     }
 
     let block = &trimmed[THINK_OPEN.len()..];
-    let Some(close_idx) = block.find(THINK_CLOSE) else {
-        return Cow::Borrowed(message);
-    };
-
-    Cow::Owned(block[close_idx + THINK_CLOSE.len()..].to_string())
+    match block.find(THINK_CLOSE) {
+        Some(close_idx) => Cow::Owned(block[close_idx + THINK_CLOSE.len()..].to_string()),
+        None => Cow::Owned(String::new()),
+    }
 }
 
 fn strip_deepseek_v4_dsml_control_blocks(message: &str) -> Cow<'_, str> {
