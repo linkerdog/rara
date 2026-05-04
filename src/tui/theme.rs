@@ -29,7 +29,7 @@ pub(crate) const STATUS_READY: Color = Color::Green;
 pub(crate) const STATUS_INFO: Color = Color::LightBlue;
 
 // ── UI surfaces ─────────────────────────────────────────────────
-pub(crate) const SURFACE_BOTTOM_PANE_BG: Color = Color::Gray;
+pub(crate) const SURFACE_BOTTOM_PANE_BG: Color = Color::Reset;
 
 // ── Badge / section label ───────────────────────────────────────
 pub(crate) const BADGE_FG_DARK: Color = Color::White;
