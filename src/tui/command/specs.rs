@@ -6,7 +6,7 @@ pub const COMMAND_SPECS: [CommandSpec; 21] = [
         name: "permissions",
         usage: "/permissions",
         summary: "Cycle permission mode (Auto → AcceptEdits → ReadOnly → FullAccess).",
-        detail: "Set what RARA can do without asking first. Cycles through Auto (sandbox workspace-write, bash always-approve), AcceptEdits (auto-approve file edits, suggestion bash), ReadOnly (plan mode, no edits), and FullAccess (danger-full-access with network, no approvals).",
+        detail: "Set what RARA can do without asking first. Cycles through Auto (sandbox workspace-write, bash always-approve), AcceptEdits (auto-approve file edits, suggestion bash), ReadOnly (plan mode, no edits), and FullAccess (network access, bash always-approve).",
     },
     CommandSpec {
         category: "Session",

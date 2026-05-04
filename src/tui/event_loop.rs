@@ -39,6 +39,9 @@ pub async fn run_tui(
     let initial_size = terminal_size()?;
     let mut app = TuiApp::new(crate::config::ConfigManager::new()?)?;
     app.sandbox_network_access = sandbox_network_access;
+    // Sync the AtomicBool to match the default Auto preset (network off).
+    app.sandbox_network_access
+        .store(false, std::sync::atomic::Ordering::Relaxed);
     app.terminal_width = initial_size.0;
     let viewport_height = desired_viewport_height(&app, initial_size.0, initial_size.1);
     let mut terminal = build_terminal(viewport_height)?;

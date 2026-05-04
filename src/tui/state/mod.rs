@@ -941,7 +941,9 @@ impl TuiApp {
                 approval: Some(PendingApprovalSnapshot {
                     tool_use_id: pending.tool_use_id.clone(),
                     command: pending.request.summary(),
-                    allow_net: self.config.sandbox_workspace_write.network_access
+                    allow_net: self
+                        .sandbox_network_access
+                        .load(std::sync::atomic::Ordering::Relaxed)
                         || pending.request.allow_net,
                     payload: pending.request.clone(),
                 }),
