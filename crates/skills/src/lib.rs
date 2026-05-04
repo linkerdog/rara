@@ -61,7 +61,48 @@ impl SkillManager {
                 self.load_from_dir(dir, scope)?;
             }
         }
+        self.load_system_skills();
         Ok(())
+    }
+
+    /// Load bundled system skills that ship with RARA.
+    /// These provide the lowest-precedence defaults (overridden by
+    /// home, repo, and cwd skills).
+    fn load_system_skills(&mut self) {
+        self.load_skill_content(
+            "verify",
+            Some("Verify"),
+            "Verify that a code change works through the real user-facing surface.",
+            SYSTEM_SKILL_VERIFY,
+        );
+        self.load_skill_content(
+            "verifier-generic",
+            Some("Verifier (generic)"),
+            "Generic verifier template for project-specific evidence-capture protocols.",
+            SYSTEM_SKILL_VERIFIER_GENERIC,
+        );
+    }
+
+    fn load_skill_content(
+        &mut self,
+        name: &str,
+        title: Option<&str>,
+        description: &str,
+        prompt: &str,
+    ) {
+        let skill = Skill {
+            name: name.to_string(),
+            title: title.map(|s| s.to_string()),
+            description: description.to_string(),
+            prompt: prompt.to_string(),
+            display_path: format!("system/{name}"),
+            scope: SkillScope::System,
+            disable_model_invocation: false,
+        };
+        // System skills yield to skills from any other scope.
+        if !self.skills.contains_key(name) {
+            self.skills.insert(name.to_string(), skill);
+        }
     }
 
     pub fn load_from_dir(&mut self, dir: &Path, scope: SkillScope) -> Result<()> {
@@ -703,3 +744,9 @@ mod tests {
         assert!(!skill.disable_model_invocation);
     }
 }
+
+// ── Bundled System Skills ────────────────────────────────────────
+
+const SYSTEM_SKILL_VERIFY: &str = include_str!("../../../../assets/skills/verify/SKILL.md");
+const SYSTEM_SKILL_VERIFIER_GENERIC: &str =
+    include_str!("../../../../assets/skills/verifier-generic/SKILL.md");
