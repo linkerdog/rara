@@ -155,7 +155,7 @@ fn bottom_pane_background_covers_hint_and_footer_rows() {
     let buffer = render_screen_buffer(&app, width, height);
     let bottom_height = desired_bottom_pane_height(&app, width, height);
     let bottom_start = height.saturating_sub(bottom_height);
-    let expected_bg = Color::Rgb(18, 20, 24);
+    let expected_bg = Color::Reset;
 
     for y in bottom_start..height {
         for x in 0..width {
