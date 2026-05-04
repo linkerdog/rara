@@ -17,11 +17,12 @@ pub(crate) fn scrub_internal_control_tokens(message: &str) -> String {
     } else {
         Cow::Borrowed(message)
     };
-    let message = if message.trim_start().starts_with("<think>") {
-        strip_deepseek_leading_think_block(&message)
-    } else {
-        message
-    };
+    let message =
+        if (had_deepseek_dsml || had_deepseek_eos) && message.trim_start().starts_with("<think>") {
+            strip_deepseek_leading_think_block(&message)
+        } else {
+            message
+        };
     let message = if had_deepseek_eos {
         Cow::Owned(message.replace("<｜end▁of▁sentence｜>", ""))
     } else {
@@ -32,38 +33,69 @@ pub(crate) fn scrub_internal_control_tokens(message: &str) -> String {
         return message.into_owned();
     }
 
+    strip_legacy_control_markers(&message)
+}
+
+pub(crate) fn scrub_deepseek_visible_text(message: &str) -> String {
+    let message = if message.trim_start().starts_with("<think>") {
+        strip_deepseek_leading_think_block(message)
+    } else {
+        Cow::Borrowed(message)
+    };
+    message.replace("<｜end▁of▁sentence｜>", "")
+}
+
+pub(crate) fn has_pending_internal_control_context(message: &str) -> bool {
+    has_open_internal_block(message)
+        || has_open_leading_think_block(message)
+        || has_open_deepseek_dsml_tool_block(message)
+        || ends_with_possible_control_prefix(message)
+}
+
+fn strip_legacy_control_markers(message: &str) -> String {
     let mut cleaned = String::with_capacity(message.len());
-    let mut chars = message.char_indices().peekable();
-
-    while let Some((idx, ch)) = chars.next() {
-        if ch == '<' {
-            if let Some(end) = message[idx..].find("|>") {
-                let end_idx = idx + end;
-                let candidate = &message[idx + 1..end_idx];
-                if !candidate.is_empty()
-                    && candidate
-                        .chars()
-                        .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-')
-                {
-                    if cleaned.chars().last().is_some_and(|c| !c.is_whitespace()) {
-                        cleaned.push('\n');
-                    }
-                    let skip_to = end_idx + 2;
-                    while let Some(&(next_idx, _)) = chars.peek() {
-                        if next_idx < skip_to {
-                            chars.next();
-                        } else {
-                            break;
-                        }
-                    }
-                    continue;
-                }
-            }
+    let mut last_copied = 0usize;
+    let mut idx = 0usize;
+    while idx < message.len() {
+        let Some(ch) = message[idx..].chars().next() else {
+            break;
+        };
+        if ch != '<' {
+            idx += ch.len_utf8();
+            continue;
         }
-        cleaned.push(ch);
-    }
 
+        let Some(end_idx) = legacy_control_marker_end(message, idx) else {
+            idx += ch.len_utf8();
+            continue;
+        };
+
+        cleaned.push_str(&message[last_copied..idx]);
+        if cleaned.chars().last().is_some_and(|c| !c.is_whitespace()) {
+            cleaned.push('\n');
+        }
+        idx = end_idx + 2;
+        last_copied = idx;
+    }
+    cleaned.push_str(&message[last_copied..]);
     cleaned
+}
+
+fn legacy_control_marker_end(message: &str, start: usize) -> Option<usize> {
+    let mut idx = start + '<'.len_utf8();
+    let mut saw_candidate = false;
+    while idx < message.len() {
+        let ch = message[idx..].chars().next()?;
+        if ch == '|' && message[idx + ch.len_utf8()..].starts_with('>') {
+            return saw_candidate.then_some(idx);
+        }
+        if !(ch.is_ascii_alphanumeric() || ch == '_' || ch == '-') {
+            return None;
+        }
+        saw_candidate = true;
+        idx += ch.len_utf8();
+    }
+    None
 }
 
 fn strip_internal_blocks(message: &str) -> Cow<'_, str> {
@@ -94,6 +126,70 @@ fn strip_balanced_or_open_internal_block<'a>(message: Cow<'a, str>, tag: &str) -
     }
     cleaned.push_str(remaining);
     Cow::Owned(cleaned)
+}
+
+fn has_open_internal_block(message: &str) -> bool {
+    INTERNAL_BLOCK_TAGS.iter().any(|tag| {
+        let open = format!("<{tag}>");
+        let Some(open_idx) = message.rfind(open.as_str()) else {
+            return false;
+        };
+        let close = format!("</{tag}>");
+        !message[open_idx + open.len()..].contains(close.as_str())
+    })
+}
+
+fn has_open_leading_think_block(message: &str) -> bool {
+    let trimmed = message.trim_start();
+    trimmed.starts_with("<think>") && !trimmed.contains("</think>")
+}
+
+fn has_open_deepseek_dsml_tool_block(message: &str) -> bool {
+    ["<｜DSML｜tool_calls>", "<|DSML|tool_calls>"]
+        .into_iter()
+        .any(|open| {
+            let Some(open_idx) = message.rfind(open) else {
+                return false;
+            };
+            let close = if open.contains("｜DSML｜") {
+                "</｜DSML｜tool_calls>"
+            } else {
+                "</|DSML|tool_calls>"
+            };
+            !message[open_idx + open.len()..].contains(close)
+        })
+}
+
+fn ends_with_possible_control_prefix(message: &str) -> bool {
+    let suffix = message
+        .rsplit_once(|c: char| c.is_whitespace())
+        .map(|(_, tail)| tail)
+        .unwrap_or(message);
+    if suffix.is_empty() {
+        return false;
+    }
+    [
+        "<think>",
+        "<agent_runtime>",
+        "<agent_runtime_error>",
+        "<rara_internal_history_context>",
+        "<｜DSML｜tool_calls>",
+        "<|DSML|tool_calls>",
+        "<｜end▁of▁sentence｜>",
+    ]
+    .into_iter()
+    .any(|token| token.starts_with(suffix))
+        || is_possible_legacy_control_marker_prefix(suffix)
+}
+
+fn is_possible_legacy_control_marker_prefix(suffix: &str) -> bool {
+    let Some(candidate) = suffix.strip_prefix('<') else {
+        return false;
+    };
+    !candidate.contains("|>")
+        && candidate
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-')
 }
 
 fn strip_deepseek_leading_think_block(message: &str) -> Cow<'_, str> {

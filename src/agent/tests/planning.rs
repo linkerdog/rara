@@ -283,7 +283,8 @@ async fn raw_leading_think_is_not_persisted_as_assistant_context_text() {
     let backend = Arc::new(SequencedBackend::new(vec![
         LlmResponse {
             content: vec![ContentBlock::Text {
-                text: "<think>private reasoning</think>\nVisible answer.".to_string(),
+                text: "<think>private reasoning</think>\nVisible answer.<｜end▁of▁sentence｜>"
+                    .to_string(),
             }],
             stop_reason: Some("end_turn".to_string()),
             usage: Some(TokenUsage::default()),

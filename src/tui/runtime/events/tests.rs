@@ -239,16 +239,26 @@ fn scrub_internal_control_tokens_removes_dsml_after_thinking_like_deepseek_compl
 }
 
 #[test]
-fn scrub_internal_control_tokens_removes_open_leading_think_block() {
-    let cleaned = scrub_internal_control_tokens("<think>private reasoning still streaming");
+fn scrub_internal_control_tokens_preserves_literal_open_leading_think_block() {
+    let cleaned = scrub_internal_control_tokens("<think>literal XML example still streaming");
+
+    assert_eq!(cleaned, "<think>literal XML example still streaming");
+}
+
+#[test]
+fn scrub_internal_control_tokens_removes_deepseek_open_leading_think_block() {
+    let cleaned = scrub_internal_control_tokens(
+        "<think>private reasoning still streaming<｜end▁of▁sentence｜>",
+    );
 
     assert!(cleaned.is_empty());
 }
 
 #[test]
-fn scrub_internal_control_tokens_removes_closed_leading_think_block() {
-    let cleaned =
-        scrub_internal_control_tokens("<think>private reasoning</think>\nVisible answer.");
+fn scrub_internal_control_tokens_removes_deepseek_closed_leading_think_block() {
+    let cleaned = scrub_internal_control_tokens(
+        "<think>private reasoning</think>\nVisible answer.<｜end▁of▁sentence｜>",
+    );
 
     assert_eq!(cleaned.trim(), "Visible answer.");
     assert!(!cleaned.contains("private reasoning"));
@@ -271,6 +281,13 @@ fn scrub_internal_control_tokens_preserves_literal_balanced_think_text() {
     let cleaned = scrub_internal_control_tokens("Use <think>inner</think> in this XML example.");
 
     assert_eq!(cleaned, "Use <think>inner</think> in this XML example.");
+}
+
+#[test]
+fn scrub_internal_control_tokens_preserves_literal_leading_balanced_think_text() {
+    let cleaned = scrub_internal_control_tokens("<think>inner</think> is an XML example.");
+
+    assert_eq!(cleaned, "<think>inner</think> is an XML example.");
 }
 
 #[test]

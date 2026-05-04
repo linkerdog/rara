@@ -16,7 +16,7 @@ use crate::context::{
     CompactionSourceContextEntry, ContextAssemblyEntry, PromptSourceContextEntry,
     RetrievalSourceContextEntry,
 };
-use crate::control_tokens::scrub_internal_control_tokens;
+use crate::control_tokens::{has_pending_internal_control_context, scrub_internal_control_tokens};
 use crate::oauth::SavedCodexAuthMode;
 use crate::state_db::StateDb;
 use crate::thread_store::ThreadSummary;
@@ -360,6 +360,7 @@ pub(crate) struct CommittedTranscriptRenderCache {
 pub struct AgentMarkdownStreamState {
     pub(crate) raw_text: String,
     last_visible_text: String,
+    incremental_passthrough: bool,
     cwd: PathBuf,
     collector: MarkdownStreamCollector,
     committed_lines: Vec<Line<'static>>,
@@ -371,6 +372,7 @@ impl AgentMarkdownStreamState {
         Self {
             raw_text: String::new(),
             last_visible_text: String::new(),
+            incremental_passthrough: true,
             cwd: cwd.clone(),
             collector: MarkdownStreamCollector::new(None, &cwd),
             committed_lines: Vec::new(),
@@ -379,6 +381,14 @@ impl AgentMarkdownStreamState {
     }
 
     pub(crate) fn push_delta(&mut self, delta: &str) {
+        if self.incremental_passthrough && !delta.contains('<') {
+            self.raw_text.push_str(delta);
+            self.last_visible_text.push_str(delta);
+            self.collector.push_delta(delta);
+            self.refresh_display_lines();
+            return;
+        }
+
         self.raw_text.push_str(delta);
         let visible_text = scrub_internal_control_tokens(&self.raw_text);
         if let Some(new_visible_delta) = visible_text.strip_prefix(&self.last_visible_text) {
@@ -390,6 +400,7 @@ impl AgentMarkdownStreamState {
             self.replace_display_text(&visible_text);
         }
         self.last_visible_text = visible_text;
+        self.incremental_passthrough = !has_pending_internal_control_context(&self.raw_text);
     }
 
     pub(crate) fn sanitized_raw_text(&self) -> String {

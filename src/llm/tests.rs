@@ -245,6 +245,53 @@ fn deepseek_reasoning_content_roundtrips_as_provider_metadata() {
 }
 
 #[test]
+fn deepseek_raw_leading_think_block_is_not_visible_text() {
+    let response = parse_chat_completion_response(
+        &json!({
+            "choices": [{
+                "message": {
+                    "role": "assistant",
+                    "content": "<think>private reasoning</think>\nVisible answer."
+                },
+                "finish_reason": "stop"
+            }]
+        }),
+        OpenAiEndpointKind::Deepseek,
+    )
+    .expect("parse response");
+
+    assert_eq!(response.content.len(), 1);
+    assert!(matches!(
+        &response.content[0],
+        ContentBlock::Text { text }
+            if text.trim() == "Visible answer." && !text.contains("private reasoning")
+    ));
+}
+
+#[test]
+fn generic_openai_compatible_endpoint_preserves_literal_leading_think_text() {
+    let response = parse_chat_completion_response(
+        &json!({
+            "choices": [{
+                "message": {
+                    "role": "assistant",
+                    "content": "<think>inner</think> is an XML example."
+                },
+                "finish_reason": "stop"
+            }]
+        }),
+        OpenAiEndpointKind::Custom,
+    )
+    .expect("parse response");
+
+    assert_eq!(response.content.len(), 1);
+    assert!(matches!(
+        &response.content[0],
+        ContentBlock::Text { text } if text == "<think>inner</think> is an XML example."
+    ));
+}
+
+#[test]
 fn openai_usage_tracks_cache_hit_and_miss_tokens() {
     let response = parse_chat_completion_response(
         &json!({
@@ -1087,6 +1134,24 @@ fn deepseek_reasoner_explicit_thinking_normalizes_reasoning_effort() {
 
     assert_eq!(medium_body["reasoning_effort"], "high");
     assert_eq!(xhigh_body["reasoning_effort"], "max");
+}
+
+#[test]
+fn deepseek_streaming_raw_leading_think_block_is_not_visible_text() {
+    let content = build_streaming_response_content(
+        OpenAiEndpointKind::Deepseek,
+        "<think>private reasoning</think>\nVisible answer.".to_string(),
+        String::new(),
+        &[],
+    )
+    .expect("build streaming content");
+
+    assert_eq!(content.len(), 1);
+    assert!(matches!(
+        &content[0],
+        ContentBlock::Text { text }
+            if text.trim() == "Visible answer." && !text.contains("private reasoning")
+    ));
 }
 
 #[test]
