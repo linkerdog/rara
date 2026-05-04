@@ -78,6 +78,7 @@ pub enum PermissionMode {
     ReadOnly,
     AcceptEdits,
     FullAccess,
+    Custom,
 }
 
 impl PermissionMode {
@@ -86,6 +87,7 @@ impl PermissionMode {
             Self::Auto => Self::AcceptEdits,
             Self::AcceptEdits => Self::ReadOnly,
             Self::ReadOnly => Self::FullAccess,
+            Self::Custom => Self::Auto,
             Self::FullAccess => Self::Auto,
         }
     }
@@ -95,6 +97,7 @@ impl PermissionMode {
             Self::Auto => "auto",
             Self::AcceptEdits => "accept-edits",
             Self::ReadOnly => "read-only",
+            Self::Custom => "custom",
             Self::FullAccess => "full-access",
         }
     }
