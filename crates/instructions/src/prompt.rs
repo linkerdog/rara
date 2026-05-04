@@ -398,6 +398,22 @@ fn default_system_prompt_sections() -> Vec<PromptSection> {
             ),
         ),
         PromptSection::new(
+            "external_sources_and_web_search",
+            section(
+                "External Sources And Web Search",
+                &[
+                    "Choose web search based on the claim that needs evidence. For repository behavior, branch state, PR status, CI status, local tool behavior, or local configuration, prefer the current codebase, git, GitHub tools, or the 'gh' CLI over web search.",
+                    "Use web search only when a web-search or web-fetch tool is actually available in the current tool list. If those tools are unavailable, say that live external verification is unavailable instead of pretending to browse.",
+                    "When web tools are available, use web search if the user explicitly asks to search, or when the answer depends on current external facts such as open-source project behavior, provider documentation, API availability, model names, release notes, prices, laws, incidents, third-party service behavior, or other information likely to have changed.",
+                    "For open-source software questions, web search is acceptable when web tools are available and local source or local documentation is unavailable, stale, or insufficient. Prefer the upstream repository, official documentation, release notes, issue tracker, or standards documents over blog posts and summaries.",
+                    "When MCP resources, local docs, or project-provided reference files can answer the question, prefer those sources before web search. Do not browse just because a web tool exists.",
+                    "Treat web search results as an index, not as proof. When web_fetch or an equivalent page-open tool is available, fetch or open the relevant result and inspect the source content before using it as evidence.",
+                    "When web evidence materially supports the answer, cite the sources used. If web tools are unavailable or fail, report that limitation. If sources conflict, state the conflict and identify which source is more authoritative instead of merging them into a single unsupported conclusion.",
+                    "Distinguish verified facts from inferences and assumptions. If current external verification is not possible or not worth the cost, say so instead of presenting the claim as confirmed.",
+                ],
+            ),
+        ),
+        PromptSection::new(
             "tool_use_safety",
             section(
                 "Tool Use And Safety",
@@ -1120,6 +1136,7 @@ mod tests {
 
         for key in [
             "codebase_search_and_evidence",
+            "external_sources_and_web_search",
             "task_workflow",
             "testing_and_validation",
             "review_and_pr_hygiene",
@@ -1140,6 +1157,25 @@ mod tests {
             effective
                 .text
                 .contains("follow the runtime path from entry point to state mutation")
+        );
+        assert!(effective.text.contains(
+            "For repository behavior, branch state, PR status, CI status, local tool behavior, or local configuration, prefer the current codebase, git, GitHub tools, or the 'gh' CLI over web search."
+        ));
+        assert!(effective.text.contains(
+            "Use web search only when a web-search or web-fetch tool is actually available in the current tool list."
+        ));
+        assert!(effective.text.contains(
+            "For open-source software questions, web search is acceptable when web tools are available and local source or local documentation is unavailable, stale, or insufficient."
+        ));
+        assert!(
+            effective
+                .text
+                .contains("Treat web search results as an index, not as proof.")
+        );
+        assert!(
+            effective.text.contains(
+                "When web evidence materially supports the answer, cite the sources used."
+            )
         );
         assert!(
             effective
