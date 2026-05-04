@@ -691,6 +691,25 @@ fn model_name_editor_seeds_from_selected_provider_state() {
 }
 
 #[test]
+fn model_name_editor_does_not_panic_when_provider_has_no_presets() {
+    let dir = tempdir().expect("tempdir");
+    let cm = ConfigManager {
+        path: dir.path().join("config.json"),
+    };
+    let mut app = TuiApp::new(cm).expect("app");
+
+    // DeepSeek has empty presets (&[])
+    app.provider_picker_idx = provider_family_idx(ProviderFamily::DeepSeek);
+
+    app.open_overlay(Overlay::ModelPicker);
+    app.open_overlay(Overlay::ModelNameEditor);
+
+    // Should not panic, and model_name_input stays empty since
+    // config.model is None and there is no preset to fall back to.
+    assert_eq!(app.model_name_input, "");
+}
+
+#[test]
 fn closing_auth_mode_picker_without_codex_catalog_returns_to_provider_picker() {
     let dir = tempdir().expect("tempdir");
     let cm = ConfigManager {
