@@ -1,3 +1,4 @@
+use std::path::PathBuf;
 use std::sync::Arc;
 
 use super::super::state::{
@@ -6,6 +7,7 @@ use super::super::state::{
 };
 use super::tasks::{start_compact_task, start_rebuild_task, start_review_task};
 use crate::agent::{Agent, AgentExecutionMode, BashApprovalMode};
+use crate::mcp_status::{McpStatusSnapshot, format_mcp_status};
 use crate::oauth::OAuthManager;
 
 pub(super) async fn execute_local_command(
@@ -23,6 +25,7 @@ pub(super) async fn execute_local_command(
         LocalCommandKind::Help => "help",
         LocalCommandKind::Login => "login",
         LocalCommandKind::Logout => "logout",
+        LocalCommandKind::Mcp => "mcp",
         LocalCommandKind::Model => "model",
         LocalCommandKind::Plan => "plan",
         LocalCommandKind::Quit => "quit",
@@ -103,6 +106,7 @@ pub(super) async fn execute_local_command(
             }
         }
         LocalCommandKind::Model => handle_model_command(command.arg.as_deref(), app)?,
+        LocalCommandKind::Mcp => handle_mcp_command(app),
         LocalCommandKind::Plan => {
             app.set_runtime_phase(
                 RuntimePhase::LocalCommand,
@@ -196,6 +200,39 @@ fn handle_base_url_command(arg: Option<&str>, app: &mut TuiApp) -> anyhow::Resul
     }
     app.open_overlay(Overlay::BaseUrlEditor);
     Ok(())
+}
+
+fn handle_mcp_command(app: &mut TuiApp) {
+    app.set_runtime_phase(
+        RuntimePhase::LocalCommand,
+        Some("showing mcp status".into()),
+    );
+    let project_root = command_project_root(app);
+    match app
+        .config_manager
+        .load_mcp_registry_for_project(&project_root)
+    {
+        Ok(registry) => {
+            let snapshot = McpStatusSnapshot::from_registry(&registry);
+            app.push_entry("System", format_mcp_status(&snapshot));
+            app.notice = Some("MCP status updated.".into());
+        }
+        Err(err) => {
+            app.push_entry(
+                "System",
+                format!("MCP Servers\n\nFailed to load MCP configuration:\n{err}"),
+            );
+            app.notice = Some("MCP status failed.".into());
+        }
+    }
+}
+
+fn command_project_root(app: &TuiApp) -> PathBuf {
+    if app.snapshot.cwd.is_empty() {
+        std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."))
+    } else {
+        PathBuf::from(&app.snapshot.cwd)
+    }
 }
 
 fn capture_git_diff(cwd: &str) -> String {

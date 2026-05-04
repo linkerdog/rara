@@ -108,6 +108,12 @@ The status event must include server name, scope, source path, transport kind,
 last error, discovered tools count, discovered resources count, and whether the
 server is required.
 
+The first implemented status slice is read-only. It derives `configured` and
+`disabled` from `McpRegistry`, preserves scope/source provenance, redacts URL
+secrets, and reports load failures through `/mcp` without starting any server
+process. Later connection-manager work should update the same status objects
+instead of adding a second representation.
+
 ### Dynamic Refresh
 
 MCP tool/resource/prompt lists can change after startup. RARA should support:
@@ -169,6 +175,9 @@ large dynamic surfaces should be searched or referenced, not eagerly appended.
 - Source scope and path are preserved for every server.
 - Registry parsing is independent from TUI rendering and future connection
   startup.
+- `/mcp` renders the registry-derived status grouped by scope and source path.
+- `/mcp` must report parse/conflict failures instead of silently ignoring broken
+  config.
 - MCP tools, resources, prompts, and status changes must later enter the
   runtime control plane as structured events.
 
@@ -182,6 +191,8 @@ large dynamic surfaces should be searched or referenced, not eagerly appended.
 | both files define the same server name | load fails with both source paths |
 | neither file exists | empty registry |
 | invalid TOML or JSON | load fails with parse path |
+| `/mcp` with configured servers | grouped status includes scope, source path, transport, state, and tool filters |
+| `/mcp` with no servers | status says no MCP servers are configured |
 
 ## Open Risks
 
@@ -195,3 +206,4 @@ large dynamic surfaces should be searched or referenced, not eagerly appended.
 ## Source Journals
 
 - `docs/journal/2026-05-05-mcp-config-registry.md`
+- `docs/journal/2026-05-05-mcp-status-surface.md`
