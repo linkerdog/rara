@@ -185,6 +185,7 @@ impl TuiApp {
         let startup_notice = startup_warning_for_config(&cfg);
         let provider_picker_idx = selected_provider_family_idx_for_config(&cfg);
         let model_picker_idx = selected_preset_idx_for_config(&cfg, provider_picker_idx);
+        let sandbox_network = cfg.sandbox_workspace_write.network_access;
         Ok(Self {
             input: String::new(),
             input_cursor_offset: None,
@@ -248,7 +249,7 @@ impl TuiApp {
             codex_auth_mode: None,
             skill_picker_idx: 0,
             skill_picker_entries: Vec::new(),
-            sandbox_network_access: Arc::new(AtomicBool::new(false)),
+            sandbox_network_access: Arc::new(AtomicBool::new(sandbox_network)),
             permission_mode: PermissionMode::Auto,
         })
     }
