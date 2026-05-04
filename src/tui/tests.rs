@@ -126,6 +126,83 @@ fn status_overlay_shortcuts_switch_tabs() {
     ));
 }
 
+#[test]
+fn context_overlay_scroll_keybindings() {
+    let temp = tempdir().expect("tempdir");
+    let mut app = TuiApp::new(ConfigManager {
+        path: temp.path().join("config.json"),
+    })
+    .expect("app");
+    app.open_overlay(Overlay::Context);
+
+    // j / Down scroll down → positive delta
+    assert!(matches!(
+        map_key_to_event(key(KeyCode::Char('j')), &app),
+        AppEvent::ScrollContext(1)
+    ));
+    assert!(matches!(
+        map_key_to_event(key(KeyCode::Down), &app),
+        AppEvent::ScrollContext(1)
+    ));
+    // k / Up scroll up → negative delta
+    assert!(matches!(
+        map_key_to_event(key(KeyCode::Char('k')), &app),
+        AppEvent::ScrollContext(-1)
+    ));
+    assert!(matches!(
+        map_key_to_event(key(KeyCode::Up), &app),
+        AppEvent::ScrollContext(-1)
+    ));
+    // Esc / Enter close
+    assert!(matches!(
+        map_key_to_event(key(KeyCode::Esc), &app),
+        AppEvent::CloseOverlay
+    ));
+    assert!(matches!(
+        map_key_to_event(key(KeyCode::Enter), &app),
+        AppEvent::CloseOverlay
+    ));
+}
+
+#[test]
+fn context_scroll_direction_is_top_down() {
+    let temp = tempdir().expect("tempdir");
+    let mut app = TuiApp::new(ConfigManager {
+        path: temp.path().join("config.json"),
+    })
+    .expect("app");
+    app.open_overlay(Overlay::Context);
+    assert_eq!(app.context_scroll, 0);
+
+    // Down / j → scroll away from top, offset increases
+    app.scroll_context(1);
+    assert_eq!(app.context_scroll, 1);
+    app.scroll_context(1);
+    assert_eq!(app.context_scroll, 2);
+
+    // Up / k → scroll back toward top, offset decreases
+    app.scroll_context(-1);
+    assert_eq!(app.context_scroll, 1);
+    app.scroll_context(-1);
+    assert_eq!(app.context_scroll, 0);
+
+    // Cannot go below 0
+    app.scroll_context(-1);
+    assert_eq!(app.context_scroll, 0);
+
+    // PageDown / PageUp
+    app.scroll_context(5);
+    assert_eq!(app.context_scroll, 5);
+    app.scroll_context(-5);
+    assert_eq!(app.context_scroll, 0);
+
+    // Reopen resets scroll
+    app.scroll_context(10);
+    assert_eq!(app.context_scroll, 10);
+    app.open_overlay(Overlay::Context);
+    assert_eq!(app.context_scroll, 0);
+}
+
 #[tokio::test]
 async fn pending_plan_approval_blocks_plain_submit() {
     let temp = tempdir().expect("tempdir");

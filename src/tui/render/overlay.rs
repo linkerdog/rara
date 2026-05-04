@@ -475,8 +475,7 @@ fn render_context_modal(f: &mut Frame, app: &TuiApp, area: Rect) {
         chunks[0],
     );
     f.render_widget(
-        Paragraph::new("esc close  j/k ↑↓ scroll")
-            .alignment(Alignment::Center),
+        Paragraph::new("esc close  j/k ↑↓ scroll").alignment(Alignment::Center),
         chunks[1],
     );
 }
