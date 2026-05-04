@@ -65,6 +65,35 @@ fn render_overview_status(app: &TuiApp, lines: &mut Vec<Line<'static>>) {
     kv(lines, "dir", &home_path(&snap.cwd), Color::DarkGray);
     kv(lines, "branch", &snap.branch, Color::DarkGray);
     kv(lines, "session", &snap.session_id, Color::Gray);
+
+    section_spacer(lines);
+    section_header(lines, "Extensions");
+    kv(
+        lines,
+        "skills",
+        &format!(
+            "{} loaded ({})",
+            snap.extension_skill_count,
+            snap.extension_skill_scopes.join(", ")
+        ),
+        if snap.extension_skill_count > 0 {
+            Color::LightBlue
+        } else {
+            Color::DarkGray
+        },
+    );
+    kv(
+        lines,
+        "hooks",
+        &snap.extension_hook_count.to_string(),
+        Color::DarkGray,
+    );
+    kv(
+        lines,
+        "agents",
+        &snap.extension_agent_count.to_string(),
+        Color::DarkGray,
+    );
 }
 
 fn render_config_status(app: &TuiApp, lines: &mut Vec<Line<'static>>) {
