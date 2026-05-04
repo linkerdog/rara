@@ -15,6 +15,7 @@ use crate::defaults::{
     DEFAULT_OPENAI_COMPATIBLE_MODEL, DEFAULT_OPENROUTER_BASE_URL, DEFAULT_OPENROUTER_MODEL,
     DEFAULT_REASONING_SUMMARY, should_apply_codex_base_url, should_reset_codex_model,
 };
+use crate::mcp::{McpRegistry, load_mcp_registry};
 use crate::migration::migrate_reasoning_summary;
 use crate::provider_surface::{ConfigValueSource, EffectiveProviderSurface, ResolvedProviderValue};
 use crate::secrets::{deserialize_secret_option, serialize_secret_option};
@@ -763,6 +764,17 @@ impl ConfigManager {
         let content = serde_json::to_string_pretty(config)?;
         fs::write(&self.path, content)?;
         Ok(())
+    }
+
+    pub fn load_mcp_registry_for_project(&self, project_root: &Path) -> Result<McpRegistry> {
+        load_mcp_registry(&self.config_toml_path(), project_root)
+    }
+
+    pub fn config_toml_path(&self) -> PathBuf {
+        self.path
+            .parent()
+            .unwrap_or_else(|| Path::new("."))
+            .join("config.toml")
     }
 
     pub fn rules_path(&self) -> PathBuf {
@@ -1527,6 +1539,33 @@ prefix_rule(pattern=["rm", "-rf"], decision="prompt")
         let manager =
             ConfigManager::new_for_rara_home(dir.path().join(".rara")).expect("config manager");
         assert_eq!(manager.path, dir.path().join(".rara").join("config.json"));
+    }
+
+    #[test]
+    fn config_toml_path_lives_next_to_config_json() {
+        let dir = tempdir().expect("tempdir");
+        let manager =
+            ConfigManager::new_for_rara_home(dir.path().join(".rara")).expect("config manager");
+
+        assert_eq!(
+            manager.config_toml_path(),
+            dir.path().join(".rara").join("config.toml")
+        );
+    }
+
+    #[test]
+    fn load_mcp_registry_for_project_returns_empty_when_configs_are_missing() {
+        let dir = tempdir().expect("tempdir");
+        let manager =
+            ConfigManager::new_for_rara_home(dir.path().join(".rara")).expect("config manager");
+        let project = dir.path().join("project");
+        fs::create_dir_all(&project).expect("project dir");
+
+        let registry = manager
+            .load_mcp_registry_for_project(&project)
+            .expect("mcp registry");
+
+        assert!(registry.servers.is_empty());
     }
 
     #[test]
