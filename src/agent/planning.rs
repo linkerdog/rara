@@ -163,9 +163,7 @@ impl Agent {
     }
 
     pub fn is_bash_prefix_approved(&self, request: &BashCommandInput) -> bool {
-        self.approved_bash_prefixes
-            .iter()
-            .any(|prefix| request.matches_approval_prefix(prefix))
+        request.is_allowed_by_approval_prefixes(&self.approved_bash_prefixes)
     }
 
     pub fn clear_completed_interactions(&mut self) {

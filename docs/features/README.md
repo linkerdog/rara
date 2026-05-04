@@ -33,3 +33,8 @@ tool output, `/context`, or `/status` must describe how the behavior can be
 driven through the runtime control plane. Local TUI behavior should be one
 adapter over the same structured request/event contract that ACP, Wire, and
 future appserver integrations can use.
+
+## Security And Approval Specs
+
+- `shell-approval-policy.md`: bash read-only classification and reusable prefix
+  approval boundaries.
