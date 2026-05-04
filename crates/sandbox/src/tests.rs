@@ -565,3 +565,114 @@ fn sandbox_profile_string_literal_escapes_control_characters() {
 
     assert_eq!(escaped, "/tmp/a\\nb\\tc");
 }
+
+#[test]
+fn wrap_exec_command_fails_closed_on_unsupported_platform() {
+    let manager = manager(
+        "freebsd",
+        SandboxBackend::Unsupported {
+            platform: "freebsd".to_string(),
+        },
+    );
+
+    let err = manager
+        .wrap_exec_command("cargo", &["check".to_string()], "/tmp", false)
+        .expect_err("unsupported platforms should not fall back to unsandboxed execution");
+
+    assert!(
+        err.to_string()
+            .contains("sandboxed command execution is unsupported on platform freebsd")
+    );
+}
+
+#[test]
+fn wrap_exec_command_unsandboxed_exec_runs_directly() {
+    let manager = manager("macos", SandboxBackend::Direct);
+
+    let wrapped = manager
+        .wrap_unsandboxed_exec_command("cargo", &["check".to_string(), "--workspace".to_string()]);
+
+    assert_eq!(wrapped.program, "cargo");
+    assert_eq!(wrapped.args, vec!["check", "--workspace"]);
+    assert!(!wrapped.sandboxed);
+    assert_eq!(wrapped.sandbox_backend, "direct");
+}
+
+#[test]
+fn wrap_exec_command_direct_fallback() {
+    let manager = manager("macos", SandboxBackend::Direct);
+
+    let wrapped = manager
+        .wrap_exec_command("cargo", &["test".to_string()], "/workspace", false)
+        .expect("direct exec");
+
+    assert_eq!(wrapped.program, "cargo");
+    assert_eq!(wrapped.args, vec!["test"]);
+    assert!(!wrapped.sandboxed);
+    assert_eq!(wrapped.sandbox_backend, "direct");
+    assert!(wrapped.network_access);
+    assert!(wrapped.cleanup_path.is_none());
+}
+
+#[test]
+fn wrap_exec_command_macos_seatbelt() {
+    let tempdir = tempfile::tempdir().expect("tempdir");
+    let manager = SandboxManager {
+        os: "macos".to_string(),
+        profile_dir: tempdir.path().to_path_buf(),
+        sandbox_home: tempdir.path().join("home"),
+        backend: SandboxBackend::MacosSeatbelt,
+        command_install_roots: command_search_install_roots(std::env::var_os("PATH").as_deref()),
+    };
+
+    let wrapped = manager
+        .wrap_exec_command(
+            "cargo",
+            &["check".to_string(), "--workspace".to_string()],
+            "/tmp",
+            false,
+        )
+        .expect("macos exec wrapper");
+
+    assert_eq!(wrapped.program, MACOS_SANDBOX_EXEC);
+    assert!(wrapped.sandboxed);
+    assert_eq!(wrapped.sandbox_backend, "macos-seatbelt");
+
+    let cleanup_path = wrapped
+        .cleanup_path
+        .expect("macos wrapper should return cleanup path");
+    assert!(cleanup_path.exists());
+
+    assert!(
+        wrapped.args.contains(&"cargo".to_string()),
+        "wrapped args should contain the program name"
+    );
+    assert!(
+        wrapped.args.iter().any(|arg| arg == "check"),
+        "wrapped args should contain program args"
+    );
+    assert!(
+        wrapped.args.iter().any(|arg| arg == "--workspace"),
+        "wrapped args should contain all program args"
+    );
+}
+
+#[test]
+fn wrap_exec_command_linux_bubblewrap() {
+    let manager = manager("linux", SandboxBackend::LinuxBubblewrap);
+
+    let wrapped = manager
+        .wrap_exec_command("cargo", &["check".to_string()], "/workspace/project", false)
+        .expect("linux exec wrapper");
+
+    assert_eq!(wrapped.program, "bwrap");
+    assert!(wrapped.sandboxed);
+    assert_eq!(wrapped.sandbox_backend, "linux-bubblewrap");
+
+    let dash_dash_pos = wrapped.args.iter().position(|a| a == "--");
+    assert!(dash_dash_pos.is_some(), "-- separator should be present");
+    let after_sep = &wrapped.args[dash_dash_pos.unwrap() + 1..];
+    assert_eq!(after_sep[0], "cargo");
+    assert_eq!(after_sep[1], "check");
+    assert_eq!(after_sep.len(), 2);
+}

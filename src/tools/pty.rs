@@ -11,6 +11,7 @@ use std::time::{Duration, Instant};
 use async_trait::async_trait;
 use portable_pty::{CommandBuilder, NativePtySystem, PtySize, PtySystem};
 use rara_tool_macros::tool_spec;
+use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use tokio::io::{AsyncReadExt, AsyncSeekExt};
 use uuid::Uuid;
@@ -365,6 +366,94 @@ impl PtySessionSnapshot {
     }
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PtyCommandInput {
+    #[serde(default)]
+    pub command: Option<String>,
+    #[serde(default)]
+    pub program: Option<String>,
+    #[serde(default)]
+    pub args: Vec<String>,
+    #[serde(default)]
+    pub cwd: Option<String>,
+    #[serde(default)]
+    pub env: HashMap<String, String>,
+    #[serde(default)]
+    pub allow_net: bool,
+    #[serde(default = "default_rows")]
+    pub rows: u16,
+    #[serde(default = "default_cols")]
+    pub cols: u16,
+}
+
+fn default_rows() -> u16 {
+    24
+}
+fn default_cols() -> u16 {
+    120
+}
+
+impl PtyCommandInput {
+    pub fn from_value(input: Value) -> Result<Self, ToolError> {
+        let parsed: Self = serde_json::from_value(input)
+            .map_err(|err| ToolError::InvalidInput(format!("pty payload: {err}")))?;
+        parsed.validate()?;
+        Ok(parsed)
+    }
+
+    pub fn validate(&self) -> Result<(), ToolError> {
+        let has_command = self
+            .command
+            .as_ref()
+            .is_some_and(|value| !value.trim().is_empty());
+        let has_program = self
+            .program
+            .as_ref()
+            .is_some_and(|value| !value.trim().is_empty());
+        if !has_command && !has_program {
+            return Err(ToolError::InvalidInput(
+                "pty payload requires either command or program".into(),
+            ));
+        }
+        if self.rows == 0 {
+            return Err(ToolError::InvalidInput("rows must be >= 1".into()));
+        }
+        if self.cols == 0 {
+            return Err(ToolError::InvalidInput("cols must be >= 1".into()));
+        }
+        Ok(())
+    }
+
+    pub fn working_dir(&self) -> String {
+        match self.cwd.as_ref() {
+            Some(cwd) if !cwd.trim().is_empty() => cwd.clone(),
+            _ => env::current_dir()
+                .map(|path| path.display().to_string())
+                .unwrap_or_else(|_| ".".to_string()),
+        }
+    }
+
+    pub fn summary(&self) -> String {
+        if let Some(command) = self
+            .command
+            .as_ref()
+            .map(|value| value.trim())
+            .filter(|value| !value.is_empty())
+        {
+            return command.to_string();
+        }
+        let program = self
+            .program
+            .as_deref()
+            .filter(|value| !value.trim().is_empty())
+            .unwrap_or("<program>");
+        if self.args.is_empty() {
+            program.to_string()
+        } else {
+            format!("{program} {}", self.args.join(" "))
+        }
+    }
+}
 #[tool_spec(
     name = "pty_start",
     description = "Start an interactive PTY session only for commands that need terminal input, terminal control, or an interactive program. For ordinary non-interactive commands, use bash instead. Prefer dedicated RARA tools for file search, file reads, and file edits. Use the cwd field instead of prepending cd. PTY sandboxing is platform-dependent and best-effort; with the macOS seatbelt backend, PTY commands currently run directly because sandbox-exec does not preserve interactive PTY stdin reliably. Treat allow_net as a network-access toggle, not a sandbox guarantee. Inspect or stop sessions with pty_status, pty_list, and pty_stop.",
@@ -374,6 +463,15 @@ impl PtySessionSnapshot {
             "command": {
                 "type": "string",
                 "description": "Shell command to run inside a PTY. Use PTY only for interactive commands; use bash for ordinary non-interactive commands."
+            },
+            "program": {
+                "type": "string",
+                "description": "Executable to run directly without a shell. Prefer this with args for ordinary commands."
+            },
+            "args": {
+                "type": "array",
+                "items": { "type": "string" },
+                "description": "Arguments for program."
             },
             "cwd": {
                 "type": "string",
@@ -392,44 +490,52 @@ impl PtySessionSnapshot {
             "rows": { "type": "integer", "default": 24, "minimum": 1, "maximum": 65535 },
             "cols": { "type": "integer", "default": 120, "minimum": 1, "maximum": 65535 }
         },
-        "required": ["command"]
+        "anyOf": [
+            { "required": ["command"] },
+            { "required": ["program"] }
+        ]
     }
 )]
 #[async_trait]
 impl Tool for PtyStartTool {
     async fn call(&self, input: Value) -> Result<Value, ToolError> {
-        let command = input["command"]
-            .as_str()
-            .filter(|value| !value.trim().is_empty())
-            .ok_or_else(|| ToolError::InvalidInput("command".into()))?
-            .to_string();
-        let cwd = input
-            .get("cwd")
-            .and_then(Value::as_str)
-            .filter(|value| !value.trim().is_empty())
-            .map(str::to_string)
-            .unwrap_or_else(|| {
-                env::current_dir()
-                    .map(|path| path.display().to_string())
-                    .unwrap_or_else(|_| ".".to_string())
-            });
-        let env = parse_env(input.get("env"))?;
-        let allow_net = input
-            .get("allow_net")
-            .and_then(Value::as_bool)
-            .unwrap_or(false);
-        let allow_net = self.sandbox_network_access.load(Ordering::Relaxed) || allow_net;
-        let wrapped = self
-            .sandbox
-            .wrap_pty_shell_command(&command, &cwd, allow_net)
-            .map_err(|err| {
-                ToolError::ExecutionFailed(format!("{} {}", err, sandbox_failure_hint()))
-            })?;
-        let rows = parse_pty_dimension(input.get("rows"), 24, "rows")?;
-        let cols = parse_pty_dimension(input.get("cols"), 120, "cols")?;
-        let started =
-            self.sessions
-                .start(command, wrapped, cwd, &self.base_env, env, rows, cols)?;
+        let request = PtyCommandInput::from_value(input)?;
+        let cwd = request.working_dir();
+        let allow_net = self.sandbox_network_access.load(Ordering::Relaxed) || request.allow_net;
+        let (command, wrapped) =
+            if let Some(cmd) = request.command.as_deref().filter(|v| !v.trim().is_empty()) {
+                let wrapped = self
+                    .sandbox
+                    .wrap_pty_shell_command(cmd, &cwd, allow_net)
+                    .map_err(|err| {
+                        ToolError::ExecutionFailed(format!("{} {}", err, sandbox_failure_hint()))
+                    })?;
+                (cmd.to_string(), wrapped)
+            } else {
+                let program = request
+                    .program
+                    .as_deref()
+                    .filter(|v| !v.trim().is_empty())
+                    .ok_or_else(|| ToolError::InvalidInput("program".into()))?
+                    .to_string();
+                let summary = request.summary();
+                let wrapped = self
+                    .sandbox
+                    .wrap_pty_exec_command(&program, &request.args, &cwd, allow_net)
+                    .map_err(|err| {
+                        ToolError::ExecutionFailed(format!("{} {}", err, sandbox_failure_hint()))
+                    })?;
+                (summary, wrapped)
+            };
+        let started = self.sessions.start(
+            command,
+            wrapped,
+            cwd,
+            &self.base_env,
+            request.env,
+            request.rows,
+            request.cols,
+        )?;
         self.sessions
             .wait_for_quick_completion(&started.id, PTY_START_QUICK_COMPLETION_TIMEOUT)
             .await
@@ -593,15 +699,6 @@ impl Tool for PtyStopTool {
         Ok(json!({ "stopped": stopped }))
     }
 }
-
-fn parse_env(value: Option<&Value>) -> Result<HashMap<String, String>, ToolError> {
-    let Some(value) = value else {
-        return Ok(HashMap::new());
-    };
-    serde_json::from_value(value.clone())
-        .map_err(|err| ToolError::InvalidInput(format!("env: {err}")))
-}
-
 fn command_env_for_wrapped(
     wrapped: &WrappedCommand,
     base_env: &HashMap<String, String>,
@@ -1046,5 +1143,98 @@ mod tests {
                 .and_then(Value::as_bool),
             Some(true)
         );
+    }
+}
+
+#[cfg(test)]
+mod input_tests {
+    use serde_json::json;
+
+    use super::*;
+
+    #[test]
+    fn parses_structured_program_payload() {
+        let input = PtyCommandInput::from_value(json!({
+            "program": "cargo",
+            "args": ["check", "--workspace"],
+            "cwd": "/tmp",
+            "allow_net": true,
+            "rows": 30,
+            "cols": 100,
+        }))
+        .expect("structured pty payload");
+
+        assert_eq!(input.program.as_deref(), Some("cargo"));
+        assert_eq!(
+            input.args,
+            vec!["check".to_string(), "--workspace".to_string()]
+        );
+        assert_eq!(input.cwd.as_deref(), Some("/tmp"));
+        assert!(input.allow_net);
+        assert_eq!(input.rows, 30);
+        assert_eq!(input.cols, 100);
+        assert_eq!(input.summary(), "cargo check --workspace");
+    }
+
+    #[test]
+    fn parses_legacy_command_payload() {
+        let input = PtyCommandInput::from_value(json!({
+            "command": "echo hello",
+        }))
+        .expect("legacy pty payload");
+
+        assert_eq!(input.command.as_deref(), Some("echo hello"));
+        assert_eq!(input.summary(), "echo hello");
+        assert_eq!(input.rows, 24);
+        assert_eq!(input.cols, 120);
+    }
+
+    #[test]
+    fn rejects_missing_command_and_program() {
+        let err = PtyCommandInput::from_value(json!({
+            "rows": 24,
+            "cols": 120,
+        }))
+        .expect_err("no command or program");
+
+        assert!(
+            err.to_string().contains("either command or program"),
+            "{err}"
+        );
+    }
+
+    #[test]
+    fn rejects_zero_rows() {
+        let err = PtyCommandInput::from_value(json!({
+            "command": "echo hi",
+            "rows": 0,
+        }))
+        .expect_err("zero rows");
+
+        assert!(err.to_string().contains("rows must be >= 1"), "{err}");
+    }
+
+    #[test]
+    fn rejects_zero_cols() {
+        let err = PtyCommandInput::from_value(json!({
+            "command": "echo hi",
+            "cols": 0,
+        }))
+        .expect_err("zero cols");
+
+        assert!(err.to_string().contains("cols must be >= 1"), "{err}");
+    }
+
+    #[test]
+    fn whitespace_command_falls_back_to_program() {
+        let input = PtyCommandInput::from_value(json!({
+            "command": "   ",
+            "program": "cargo",
+            "args": ["test"],
+        }))
+        .expect("whitespace command");
+
+        assert_eq!(input.program.as_deref(), Some("cargo"));
+        assert_eq!(input.summary(), "cargo test");
     }
 }

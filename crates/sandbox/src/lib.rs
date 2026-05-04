@@ -311,6 +311,20 @@ impl SandboxManager {
         }
     }
 
+    pub fn wrap_pty_exec_command(
+        &self,
+        program: &str,
+        args: &[String],
+        cwd: &str,
+        allow_net: bool,
+    ) -> Result<WrappedCommand> {
+        match &self.backend {
+            // macOS sandbox-exec does not preserve interactive PTY stdin reliably.
+            SandboxBackend::MacosSeatbelt => Ok(wrap_direct_exec_command(program, args)),
+            _ => self.wrap_exec_command(program, args, cwd, allow_net),
+        }
+    }
+
     pub fn wrap_unsandboxed_exec_command(&self, program: &str, args: &[String]) -> WrappedCommand {
         wrap_direct_exec_command(program, args)
     }
