@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use agent_client_protocol::Error;
 use agent_client_protocol::schema::{
     AuthenticateRequest, AuthenticateResponse, CancelNotification, Implementation,
@@ -8,7 +10,6 @@ use agent_client_protocol::schema::{
 use crate::llm::LlmBackend;
 use crate::runtime_event_bus::RuntimeEventBus;
 use crate::tool::ToolManager;
-use std::sync::Arc;
 
 pub struct RaraAcpAgent {
     pub tool_manager: ToolManager,

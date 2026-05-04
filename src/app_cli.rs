@@ -170,8 +170,14 @@ async fn run_tui_command(
     let sandbox_network_access = bootstrap.sandbox_network_access.clone();
     let event_bus = bootstrap.event_bus.clone();
     let agent = bootstrap.into_agent();
-    let resumed_thread_id =
-        crate::tui::run_tui(agent, oauth_manager, startup_resume, sandbox_network_access, event_bus).await?;
+    let resumed_thread_id = crate::tui::run_tui(
+        agent,
+        oauth_manager,
+        startup_resume,
+        sandbox_network_access,
+        event_bus,
+    )
+    .await?;
     if let Some(thread_id) = resumed_thread_id {
         print!("{}", rendered_resume_hint(&thread_id));
     }

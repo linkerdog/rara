@@ -16,13 +16,13 @@ use crate::llm::{
 };
 use crate::local_backend::{LocalLlmBackend, LocalProgressReporter};
 use crate::prompt::{PromptRuntimeConfig, PromptSkillSummary};
+use crate::runtime_event_bus::RuntimeEventBus;
 use crate::sandbox::SandboxManager;
 use crate::session::SessionManager;
 use crate::shell_env::capture_shell_environment_snapshot;
 use crate::skill::SkillScope;
 use crate::tool::ToolManager;
 use crate::vectordb::VectorDB;
-use crate::runtime_event_bus::RuntimeEventBus;
 use crate::workspace::WorkspaceMemory;
 
 pub(crate) struct RuntimeBootstrap {
