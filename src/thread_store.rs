@@ -964,6 +964,7 @@ fn thread_summary_memory_record(thread: &ThreadSnapshot) -> Option<NewMemoryReco
         ),
         labels: vec![MemoryLabel::Experience],
         importance: 0.6,
+        pinned: false,
         source: MemorySource::ThreadDistill,
         scope: MemoryScope::Thread,
         session_id: Some(thread.metadata.session_id.clone()),

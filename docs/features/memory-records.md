@@ -14,10 +14,11 @@ LanceDB as a unified local memory index: raw text, metadata, full-text search,
 and vector search live in one table, while context assembly still goes through
 `MemorySelection`.
 
-This spec describes the target product contract. The first implementation
-slices provide the LanceDB-backed index, retrieval tools, and a runtime
-`MemoryStore` facade; update/delete, filtering, distillation, and direct
-`MemorySelection` integration remain follow-up work.
+This spec describes the target product contract. The current implementation
+slices provide the LanceDB-backed index, retrieval tools, a runtime
+`MemoryStore` facade, ranked `MemorySelection` candidates, and pinned retention
+metadata. Update/delete, filtering, and multi-record distillation remain
+follow-up work.
 
 ## Six Design Laws (Cross-Industry Consensus)
 
@@ -111,12 +112,12 @@ Importance scale:
 
 | Capability | Target Behavior | Current Runtime Status |
 |------------|-----------------|------------------------|
-| Memory record anatomy | Title, Markdown content, labels, importance, timestamps, source, scope, embedding, and provenance. | Partial. `MemoryRecord` is now persisted as the domain record; LanceDB rows still store the compact search index shape. |
+| Memory record anatomy | Title, Markdown content, labels, importance, pinned status, timestamps, source, scope, embedding, and provenance. | Partial. `MemoryRecord` is now persisted as the domain record; LanceDB rows still store the compact search index shape. |
 | Memory creation | Agent or user creates a durable `MemoryRecord`; title, labels, and importance can be generated or explicit. | Partial. `remember_experience` is now a compatibility adapter over `MemoryStore::insert`. |
 | Memory search | Hybrid semantic + keyword search with metadata filters and explainable scores. | Partial. LanceDB vector, FTS, and hybrid helpers exist; `MemoryStore::search` rehydrates full persisted records before returning hits. |
-| Memory update | Existing records can be edited without creating duplicates. | Not implemented as a public memory capability. |
+| Memory update | Existing records can be edited without creating duplicates. | Partial. `MemoryStore::set_pinned` updates retention metadata; general content/title/label updates remain future work. |
 | Memory delete | User or control-plane request can delete records with audit-safe semantics. | Not implemented as a public memory capability. |
-| Memory retention | Pinned, user-created, and high-importance memories are protected from automatic cleanup; explicit delete remains possible with provenance. | Spec only. No automatic cleanup path exists yet. |
+| Memory retention | Pinned, user-created, and high-importance memories are protected from automatic cleanup; explicit delete remains possible with provenance. | Implemented as a domain guard on `MemoryRecord`; no automatic cleanup path exists yet. |
 | Thread distillation | Thread history can be distilled into 2-8 durable memory records. | Partial. `ThreadStore::distill_thread_summary` can persist one thread-linked summary record; LLM extraction and deduplication remain future work. |
 | Context injection | Ranked memory candidates pass through `MemorySelection` before prompt injection. | Partial. LanceDB-backed memory and session search now produce direct ranked `MemorySelection` candidates; retention, deduplication, and protocol mutation remain future work. |
 | Graph retrieval | Entity and relationship traversal complements vector recall. | Future work. |
@@ -231,6 +232,10 @@ Current implementation checkpoint:
   index.
 - `MemoryStore` persists full domain records in `records.json`; search uses
   LanceDB for recall and then rehydrates the full record by id.
+- `MemoryStore::set_pinned` updates persistent retention metadata without
+  touching the LanceDB search row.
+- `MemoryRecord::is_protected_from_automatic_cleanup` protects pinned,
+  user-created, and high-importance records from future automatic cleanup paths.
 - `remember_experience` writes through `MemoryStore::insert`.
 - `retrieve_experience` searches through `MemoryStore::search` and returns both
   `relevant_experiences` and memory diagnostics.
@@ -258,7 +263,7 @@ Current implementation checkpoint:
    Done.
 7. Wire `MemorySelection` to ranked memory candidates. Done.
 8. Add pinned/retention policy so pinned, user-created, and high-importance
-   memories are excluded from automatic cleanup.
+   memories are excluded from automatic cleanup. Done.
 9. Add update/delete/list-label control-plane scaffolding without exposing
    storage internals.
 10. Add thread distillation into `MemoryRecord`. Partial: summary distillation is
