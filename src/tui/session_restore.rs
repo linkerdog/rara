@@ -220,7 +220,7 @@ fn parse_bash_approval_mode(mode: &str) -> BashApprovalMode {
 pub(crate) fn provider_requires_api_key(provider: &str) -> bool {
     !matches!(
         provider,
-        "mock" | "local" | "local-candle" | "gemma4" | "qwen3" | "qwn3" | "ollama"
+        "mock" | "local" | "local-candle" | "gemma4" | "qwen3" | "qwn3" | "ollama" | "bedrock"
     )
 }
 

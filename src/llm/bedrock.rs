@@ -59,7 +59,11 @@ pub struct BedrockBackend {
 
 impl BedrockBackend {
     pub async fn new(region: Option<String>, model_id: String) -> Result<Self> {
-        let sdk_config = aws_config::load_from_env().await;
+        let mut config_loader = aws_config::from_env();
+        if let Some(r) = region.as_deref() {
+            config_loader = config_loader.region(aws_config::Region::new(r.to_string()));
+        }
+        let sdk_config = config_loader.load().await;
         let client = BedrockClient::new(&sdk_config);
 
         Ok(Self {
@@ -224,13 +228,14 @@ fn to_bedrock_tools(tools: &[Value]) -> Vec<Tool> {
             let name = tool["name"].as_str().unwrap_or("unknown").to_string();
             let description = tool["description"].as_str().unwrap_or("").to_string();
             let schema = value_to_document(&tool["input_schema"]);
+            let tool_name = name.clone();
             Tool::ToolSpec(
                 ToolSpecification::builder()
                     .name(name)
                     .description(description)
                     .input_schema(ToolInputSchema::Json(schema))
                     .build()
-                    .expect("valid tool spec"),
+                    .unwrap_or_else(|_| panic!("invalid tool spec: {tool_name}")),
             )
         })
         .collect()
@@ -323,17 +328,6 @@ impl LlmBackend for BedrockBackend {
         })?;
 
         from_bedrock_response(output.output, output.stop_reason, output.usage)
-    }
-
-    async fn ask_streaming(
-        &self,
-        _messages: &[Message],
-        _tools: &[Value],
-        _on_event: &mut (dyn FnMut(LlmStreamEvent) + Send),
-    ) -> Result<LlmResponse> {
-        Err(anyhow!(
-            "Bedrock streaming not yet implemented. Use non-streaming path."
-        ))
     }
 
     async fn embed(&self, _text: &str) -> Result<Vec<f32>> {
