@@ -329,7 +329,7 @@ fn composer_hint(app: &TuiApp) -> &'static str {
             .as_ref()
             .is_some_and(|task| matches!(task.kind, TaskKind::Query))
         {
-            "Enter queue  Esc cancel"
+            "Enter queue  Esc/Ctrl+C cancel"
         } else {
             "Enter queue"
         }
