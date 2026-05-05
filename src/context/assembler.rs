@@ -334,7 +334,6 @@ pub(crate) fn estimate_text_tokens(text: &str) -> usize {
 #[cfg(test)]
 mod tests {
     use std::path::PathBuf;
-    use crate::context::RETRIEVED_WORKSPACE_MEMORY_KIND;
 
     use anyhow::Result;
     use async_trait::async_trait;
@@ -342,6 +341,7 @@ mod tests {
     use serde_json::json;
 
     use super::*;
+    use crate::context::RETRIEVED_WORKSPACE_MEMORY_KIND;
     use crate::llm::{ContentBlock, LlmResponse};
 
     struct BudgetBackend {

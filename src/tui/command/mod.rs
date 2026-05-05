@@ -10,6 +10,7 @@ pub use self::specs::{
     parse_local_command,
 };
 pub use self::status::{
-    api_key_status, is_local_provider, model_help_text, recent_transcript_preview, status_context_text,
-    status_prompt_sources_text, status_resources_text, status_runtime_text, status_workspace_text,
+    api_key_status, is_local_provider, model_help_text, recent_transcript_preview,
+    status_context_text, status_prompt_sources_text, status_resources_text, status_runtime_text,
+    status_workspace_text,
 };
