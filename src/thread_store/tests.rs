@@ -1052,7 +1052,7 @@ fn thread_recorder_writes_runtime_rollout_events_directly() -> Result<()> {
 }
 
 #[test]
-fn load_thread_prefers_turn_log_over_state_db_turns() -> Result<()> {
+fn load_thread_merges_turn_log_with_state_db_fallback_turns() -> Result<()> {
     let temp = tempdir()?;
     let state_db = StateDb::new_for_root_dir(temp.path().join(".rara"))?;
     let recorder = ThreadRecorder::new(&state_db);
@@ -1093,6 +1093,14 @@ fn load_thread_prefers_turn_log_over_state_db_turns() -> Result<()> {
             message: "stale state db entry".to_string(),
         }],
     )?;
+    state_db.persist_turn(
+        "session-turn-log",
+        1,
+        &[PersistedTurnEntry {
+            role: "Agent".to_string(),
+            message: "legacy state db only entry".to_string(),
+        }],
+    )?;
 
     let turn_records =
         thread_turn_log::load_turn_records(&state_db.rollout_root(), "session-turn-log")?;
@@ -1110,6 +1118,10 @@ fn load_thread_prefers_turn_log_over_state_db_turns() -> Result<()> {
     assert!(!snapshot.rollout_items.iter().any(|item| matches!(
         item,
         RolloutItem::Turn(turn) if turn.entries[0].message == "stale state db entry"
+    )));
+    assert!(snapshot.rollout_items.iter().any(|item| matches!(
+        item,
+        RolloutItem::Turn(turn) if turn.entries[0].message == "legacy state db only entry"
     )));
     Ok(())
 }

@@ -54,7 +54,9 @@ pub(crate) fn append_rollout_event_line(
     thread_id: &str,
     event: &PersistedStructuredRolloutEvent,
 ) -> Result<()> {
-    RolloutEventRecorder::new(root_dir, thread_id).append_event(event)
+    let recorder = RolloutEventRecorder::new(root_dir, thread_id);
+    recorder.append_event(event)?;
+    recorder.shutdown()
 }
 
 fn append_rollout_event_to_path(

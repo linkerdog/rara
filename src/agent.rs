@@ -8,7 +8,7 @@ mod tests;
 
 use std::sync::{Arc, atomic::AtomicBool};
 
-use anyhow::Result;
+use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use uuid::Uuid;
@@ -168,11 +168,19 @@ impl Agent {
         workspace: Arc<WorkspaceMemory>,
     ) -> Self {
         let memory_store = Arc::new(MemoryStore::new(llm_backend.clone(), vdb.clone()));
-        let state_db = session_manager
-            .storage_dir
-            .parent()
-            .and_then(|rara_dir| StateDb::new_for_root_dir(rara_dir.to_path_buf()).ok())
-            .map(Arc::new);
+        let state_db =
+            session_manager.storage_dir.parent().and_then(
+                |rara_dir| match StateDb::new_for_root_dir(rara_dir.to_path_buf()) {
+                    Ok(state_db) => Some(Arc::new(state_db)),
+                    Err(err) => {
+                        eprintln!(
+                            "Warning: could not initialize session state db at {}: {err}",
+                            rara_dir.display()
+                        );
+                        None
+                    }
+                },
+            );
         Self {
             tool_manager,
             llm_backend,
@@ -316,12 +324,13 @@ impl Agent {
     }
 
     pub(super) fn checkpoint_session(&self) -> Result<()> {
-        let state_db = self
-            .state_db
-            .as_deref()
-            .ok_or_else(|| anyhow::anyhow!("session state db is not available"))?;
-        let recorder = ThreadRecorder::new(state_db);
-        recorder.persist_history_checkpoint(&self.session_id, &self.history)
+        if let Some(state_db) = self.state_db.as_deref() {
+            let recorder = ThreadRecorder::new(state_db);
+            return recorder.persist_history_checkpoint(&self.session_id, &self.history);
+        }
+        self.session_manager
+            .save_session(&self.session_id, &self.history)
+            .context("save session without state db")
     }
 
     async fn run_model_turn<F>(

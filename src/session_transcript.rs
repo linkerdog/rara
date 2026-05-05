@@ -13,6 +13,7 @@ use crate::atomic_file;
 
 const TRANSCRIPT_FILE_NAME: &str = "transcript.jsonl";
 const TRANSCRIPT_SCHEMA_VERSION: u32 = 1;
+const TRANSCRIPT_CACHE_MAX_ENTRIES: usize = 256;
 
 #[derive(Clone)]
 struct TranscriptCacheEntry {
@@ -25,6 +26,18 @@ fn transcript_cache() -> &'static Mutex<std::collections::HashMap<PathBuf, Trans
     static CACHE: OnceLock<Mutex<std::collections::HashMap<PathBuf, TranscriptCacheEntry>>> =
         OnceLock::new();
     CACHE.get_or_init(|| Mutex::new(std::collections::HashMap::new()))
+}
+
+fn prune_transcript_cache(
+    cache: &mut std::collections::HashMap<PathBuf, TranscriptCacheEntry>,
+    preserve: &Path,
+) {
+    while cache.len() >= TRANSCRIPT_CACHE_MAX_ENTRIES {
+        let Some(key) = cache.keys().find(|key| key.as_path() != preserve).cloned() else {
+            break;
+        };
+        cache.remove(&key);
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -292,17 +305,18 @@ fn load_transcript_cached(path: &Path) -> Result<SessionTranscriptLoad> {
         }
     }
     let load = load_transcript(path)?;
-    transcript_cache()
+    let mut cache = transcript_cache()
         .lock()
-        .expect("session transcript cache mutex poisoned")
-        .insert(
-            path.to_path_buf(),
-            TranscriptCacheEntry {
-                modified,
-                len,
-                load: load.clone(),
-            },
-        );
+        .expect("session transcript cache mutex poisoned");
+    prune_transcript_cache(&mut cache, path);
+    cache.insert(
+        path.to_path_buf(),
+        TranscriptCacheEntry {
+            modified,
+            len,
+            load: load.clone(),
+        },
+    );
     Ok(load)
 }
 
@@ -393,17 +407,18 @@ fn cache_transcript_load_if_present(path: &Path, load: SessionTranscriptLoad) {
     let Ok(metadata) = fs::metadata(path) else {
         return;
     };
-    transcript_cache()
+    let mut cache = transcript_cache()
         .lock()
-        .expect("session transcript cache mutex poisoned")
-        .insert(
-            path.to_path_buf(),
-            TranscriptCacheEntry {
-                modified: metadata.modified().ok(),
-                len: metadata.len(),
-                load,
-            },
-        );
+        .expect("session transcript cache mutex poisoned");
+    prune_transcript_cache(&mut cache, path);
+    cache.insert(
+        path.to_path_buf(),
+        TranscriptCacheEntry {
+            modified: metadata.modified().ok(),
+            len: metadata.len(),
+            load,
+        },
+    );
 }
 
 #[cfg(unix)]
@@ -438,9 +453,10 @@ mod tests {
     use tempfile::tempdir;
 
     use super::{
-        SessionTranscriptEntry, TranscriptScope, append_entry, load_transcript,
-        main_transcript_path, model_visible_messages, subagent_transcript_path,
-        sync_history_checkpoint, write_history_snapshot, write_message_snapshot,
+        SessionTranscriptEntry, TRANSCRIPT_CACHE_MAX_ENTRIES, TranscriptScope, append_entry,
+        load_transcript, load_transcript_cached, main_transcript_path, model_visible_messages,
+        subagent_transcript_path, sync_history_checkpoint, transcript_cache,
+        write_history_snapshot, write_message_snapshot,
     };
     use crate::agent::Message;
 
@@ -696,5 +712,39 @@ mod tests {
         assert_ne!(slash_path, colon_path);
         assert!(slash_path.ends_with("subagents/agent-review%2Fworker.jsonl"));
         assert!(colon_path.ends_with("subagents/agent-review%3Aworker.jsonl"));
+    }
+
+    #[test]
+    fn transcript_cache_is_bounded() -> Result<()> {
+        transcript_cache()
+            .lock()
+            .expect("session transcript cache mutex poisoned")
+            .clear();
+        let temp = tempdir()?;
+
+        for index in 0..=TRANSCRIPT_CACHE_MAX_ENTRIES {
+            let session_id = format!("session-{index}");
+            let path = main_transcript_path(temp.path(), &session_id);
+            append_entry(
+                &path,
+                &SessionTranscriptEntry::Message {
+                    message_id: format!("message-{index}"),
+                    parent_message_id: None,
+                    session_id,
+                    agent_id: None,
+                    is_sidechain: false,
+                    role: "user".to_string(),
+                    content: json!(format!("hello {index}")),
+                },
+            )?;
+            let load = load_transcript_cached(&path)?;
+            assert_eq!(load.entries.len(), 1);
+        }
+
+        let cache = transcript_cache()
+            .lock()
+            .expect("session transcript cache mutex poisoned");
+        assert!(cache.len() <= TRANSCRIPT_CACHE_MAX_ENTRIES);
+        Ok(())
     }
 }

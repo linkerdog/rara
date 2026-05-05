@@ -11,6 +11,7 @@ use serde::{Deserialize, Serialize};
 use crate::file_lock::AdvisoryFileLock;
 
 const CONTEXT_SHARD_FILE: &str = "context.jsonl";
+const CONTEXT_SHARD_CACHE_MAX_ENTRIES: usize = 256;
 
 #[derive(Clone)]
 struct ContextShardCacheEntry {
@@ -22,6 +23,18 @@ struct ContextShardCacheEntry {
 fn context_shard_cache() -> &'static Mutex<HashMap<PathBuf, ContextShardCacheEntry>> {
     static CACHE: OnceLock<Mutex<HashMap<PathBuf, ContextShardCacheEntry>>> = OnceLock::new();
     CACHE.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+fn prune_context_shard_cache(
+    cache: &mut HashMap<PathBuf, ContextShardCacheEntry>,
+    preserve: &Path,
+) {
+    while cache.len() >= CONTEXT_SHARD_CACHE_MAX_ENTRIES {
+        let Some(key) = cache.keys().find(|key| key.as_path() != preserve).cloned() else {
+            break;
+        };
+        cache.remove(&key);
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -162,17 +175,18 @@ fn load_context_checkpoint_file_cached(path: &Path) -> Result<Vec<SessionContext
     }
 
     let checkpoints = load_context_checkpoint_file(path)?;
-    context_shard_cache()
+    let mut cache = context_shard_cache()
         .lock()
-        .expect("session context shard cache mutex poisoned")
-        .insert(
-            path.to_path_buf(),
-            ContextShardCacheEntry {
-                modified,
-                len,
-                checkpoints: checkpoints.clone(),
-            },
-        );
+        .expect("session context shard cache mutex poisoned");
+    prune_context_shard_cache(&mut cache, path);
+    cache.insert(
+        path.to_path_buf(),
+        ContextShardCacheEntry {
+            modified,
+            len,
+            checkpoints: checkpoints.clone(),
+        },
+    );
     Ok(checkpoints)
 }
 
@@ -382,6 +396,35 @@ mod tests {
         assert_eq!(checkpoints.len(), 2);
         assert_eq!(checkpoints[0].turn_index, 1);
         assert_eq!(checkpoints[1].turn_index, 2);
+        Ok(())
+    }
+
+    #[test]
+    fn context_shard_cache_is_bounded() -> Result<()> {
+        context_shard_cache()
+            .lock()
+            .expect("session context shard cache mutex poisoned")
+            .clear();
+        let temp = tempfile::tempdir()?;
+
+        for index in 0..=CONTEXT_SHARD_CACHE_MAX_ENTRIES {
+            let session_id = format!("session-{index}");
+            append_context_checkpoint(
+                temp.path(),
+                &session_id,
+                index as u32,
+                format!("checkpoint {index}"),
+                vec![index as f32],
+            )?;
+            let path = context_shard_path(temp.path(), &session_id);
+            let checkpoints = load_context_checkpoint_file_cached(&path)?;
+            assert_eq!(checkpoints.len(), 1);
+        }
+
+        let cache = context_shard_cache()
+            .lock()
+            .expect("session context shard cache mutex poisoned");
+        assert!(cache.len() <= CONTEXT_SHARD_CACHE_MAX_ENTRIES);
         Ok(())
     }
 }

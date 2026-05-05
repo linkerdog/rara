@@ -1,3 +1,4 @@
+use std::collections::BTreeMap;
 use std::fs;
 use std::io::Write;
 use std::path::{Path, PathBuf};
@@ -459,7 +460,7 @@ impl<'a> ThreadStore<'a> {
                     }
                 },
             ),
-            Err(err) if is_missing_thread_history_error(&err) => {
+            Err(err) if SessionManager::is_missing_thread_history_error(&err) => {
                 (Vec::new(), ThreadHistorySource::Missing)
             }
             Err(err) => return Err(err),
@@ -853,26 +854,23 @@ impl<'a> ThreadStore<'a> {
 
     fn load_turn_items(&self, session_id: &str) -> Result<Vec<RolloutTurnItem>> {
         let turn_records = thread_turn_log::load_turn_records(&self.rollout_root, session_id)?;
-        if !turn_records.is_empty() {
-            return Ok(turn_records
-                .into_iter()
-                .map(|record| RolloutTurnItem {
+        let mut by_ordinal = BTreeMap::new();
+        for summary in self.state_db.load_turn_summaries(session_id)? {
+            let entries = self
+                .state_db
+                .load_turn_entries(session_id, summary.ordinal)?;
+            by_ordinal.insert(summary.ordinal, RolloutTurnItem { summary, entries });
+        }
+        for record in turn_records {
+            by_ordinal.insert(
+                record.summary.ordinal,
+                RolloutTurnItem {
                     summary: record.summary,
                     entries: record.entries,
-                })
-                .collect());
+                },
+            );
         }
-
-        self.state_db
-            .load_turn_summaries(session_id)?
-            .into_iter()
-            .map(|summary| {
-                let entries = self
-                    .state_db
-                    .load_turn_entries(session_id, summary.ordinal)?;
-                Ok(RolloutTurnItem { summary, entries })
-            })
-            .collect()
+        Ok(by_ordinal.into_values().collect())
     }
 
     fn load_thread_history_migration(
@@ -1282,7 +1280,8 @@ impl<'a> ThreadRecorder<'a> {
                 items,
                 Some(epoch_seconds()),
             ),
-        )
+        )?;
+        self.shutdown(session_id)
     }
 
     pub fn persist_turn(
@@ -1297,7 +1296,11 @@ impl<'a> ThreadRecorder<'a> {
             ordinal,
             entries,
         )?;
-        self.state_db.persist_turn(session_id, ordinal, entries)?;
+        if let Err(err) = self.state_db.persist_turn(session_id, ordinal, entries) {
+            eprintln!(
+                "Warning: canonical turn log advanced for {session_id}, but StateDb turn index update failed: {err}"
+            );
+        }
         Ok(summary)
     }
 }
@@ -1482,10 +1485,6 @@ fn compact_state_from_record(record: &CompactionRecord) -> PersistedCompactState
             .or(Some(record.recent_files.len()).filter(|value| *value > 0)),
         last_compaction_boundary_version: record.boundary_version,
     }
-}
-
-fn is_missing_thread_history_error(err: &anyhow::Error) -> bool {
-    err.to_string().contains("Thread not found locally")
 }
 
 fn write_history_snapshot(root_dir: &Path, session_id: &str, history: &[Message]) -> Result<()> {

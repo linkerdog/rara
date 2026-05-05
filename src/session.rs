@@ -1,4 +1,5 @@
 use std::fs;
+use std::io::Write;
 use std::path::PathBuf;
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -102,10 +103,17 @@ impl SessionManager {
         }
         let content = serde_json::to_string(history)?;
         let tmp_path = path.with_extension(format!("json.tmp-{}", uuid::Uuid::new_v4()));
-        fs::write(&tmp_path, content)?;
+        {
+            let mut file = fs::File::create(&tmp_path)?;
+            file.write_all(content.as_bytes())?;
+            file.sync_all()?;
+        }
         if let Err(err) = atomic_file::replace_file(&tmp_path, &path) {
             let _ = fs::remove_file(&tmp_path);
             return Err(err);
+        }
+        if let Some(parent) = path.parent() {
+            sync_parent_dir_best_effort(parent);
         }
         Ok(())
     }
@@ -472,6 +480,16 @@ impl SessionManager {
         thread_rollout_log::load_rollout_events(&self.storage_dir, session_id)
     }
 }
+
+#[cfg(unix)]
+fn sync_parent_dir_best_effort(parent: &std::path::Path) {
+    if let Ok(dir) = fs::File::open(parent) {
+        let _ = dir.sync_all();
+    }
+}
+
+#[cfg(not(unix))]
+fn sync_parent_dir_best_effort(_parent: &std::path::Path) {}
 
 fn epoch_seconds() -> i64 {
     SystemTime::now()

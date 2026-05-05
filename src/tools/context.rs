@@ -31,10 +31,14 @@ impl Tool for RetrieveSessionContextTool {
             .embed(query)
             .await
             .map_err(|err| ToolError::ExecutionFailed(err.to_string()))?;
-        let hits = self
-            .session_manager
-            .search_session_context(query, &vector, 8)
-            .map_err(|err| ToolError::ExecutionFailed(err.to_string()))?;
+        let session_manager = self.session_manager.clone();
+        let query = query.to_string();
+        let hits = tokio::task::spawn_blocking(move || {
+            session_manager.search_session_context(&query, &vector, 8)
+        })
+        .await
+        .map_err(|err| ToolError::ExecutionFailed(err.to_string()))?
+        .map_err(|err| ToolError::ExecutionFailed(err.to_string()))?;
         if hits.is_empty() {
             return Ok(json!({ "status": "no_context_found", "matches": [] }));
         }

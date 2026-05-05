@@ -347,12 +347,12 @@ impl Agent {
     }
 
     fn persist_compaction_event(&self, event: &PersistedCompactionEvent) -> Result<()> {
-        let state_db = self
-            .state_db
-            .as_deref()
-            .ok_or_else(|| anyhow::anyhow!("session state db is not available"))?;
-        let recorder = ThreadRecorder::new(state_db);
-        recorder.persist_compaction_event(&self.session_id, event)
+        if let Some(state_db) = self.state_db.as_deref() {
+            let recorder = ThreadRecorder::new(state_db);
+            return recorder.persist_compaction_event(&self.session_id, event);
+        }
+        self.session_manager
+            .save_compaction_event(&self.session_id, event)
     }
 
     fn record_auto_compaction_failure(&mut self, current_tokens: usize) {
