@@ -184,9 +184,8 @@ This mirrors Codex's fork filtering while keeping Claude-style sidechain files.
   still return structured results without writing detached sidechain files.
 - Sidechain persistence failures are reported through `persistence_error`; they
   do not abort an otherwise completed foreground sub-agent call.
-- `StateDb` still stores parent/child relationships only indirectly through
-  rollout events. A queryable spawn-edge table is needed before cross-session
-  sub-agent resume is complete.
+- `StateDb` indexes parent/child spawn edges from rollout events, but live
+  background resume/stop semantics still need to consume that index.
 - Context compaction must preserve transcript boundaries and avoid injecting
   summaries before stable prompt-prefix sources.
 - Background sub-agent execution, resume, and stop semantics remain future work.
@@ -195,3 +194,4 @@ This mirrors Codex's fork filtering while keeping Claude-style sidechain files.
 
 - 2026-05-04-session-transcript-foundation.md
 - 2026-05-05-subagent-sidechain-transcripts.md
+- 2026-05-05-subagent-spawn-edge-index.md
