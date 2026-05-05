@@ -552,7 +552,8 @@ pub(super) async fn finish_running_task_if_ready(
                     let agent_had_tools = agent.last_turn_had_tool_calls();
                     let should_auto_continue_goal = !finished_plan_turn
                         && agent_had_tools
-                        && app.goal_handle
+                        && app
+                            .goal_handle
                             .read()
                             .unwrap()
                             .as_ref()

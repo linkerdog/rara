@@ -211,9 +211,10 @@ mod tests {
             store: store.clone(),
         };
 
-        let result =
-            block(create.call(serde_json::json!({"objective": "Fix the build", "token_budget": 50000})))
-                .unwrap();
+        let result = block(
+            create.call(serde_json::json!({"objective": "Fix the build", "token_budget": 50000})),
+        )
+        .unwrap();
         assert_eq!(result["objective"], "Fix the build");
         assert_eq!(result["status"], "pursuing");
         assert_eq!(result["token_budget"], 50000);
@@ -264,8 +265,10 @@ mod tests {
     fn create_goal_rejects_oversized_token_budget() {
         let store = goal_handle();
         let create = CreateGoalTool { store };
-        let err = block(create.call(serde_json::json!({"objective": "x", "token_budget": 5_000_000_000u64})))
-            .unwrap_err();
+        let err = block(
+            create.call(serde_json::json!({"objective": "x", "token_budget": 5_000_000_000u64})),
+        )
+        .unwrap_err();
         assert!(err.to_string().contains("exceeds maximum u32 value"));
     }
 
@@ -318,8 +321,7 @@ mod tests {
         });
 
         let update = UpdateGoalTool { store };
-        let err =
-            block(update.call(serde_json::json!({"status": "pursuing"}))).unwrap_err();
+        let err = block(update.call(serde_json::json!({"status": "pursuing"}))).unwrap_err();
         assert!(err.to_string().contains("Invalid status"));
     }
 
@@ -327,8 +329,7 @@ mod tests {
     fn update_goal_fails_without_existing_goal() {
         let store = goal_handle();
         let update = UpdateGoalTool { store };
-        let err =
-            block(update.call(serde_json::json!({"status": "achieved"}))).unwrap_err();
+        let err = block(update.call(serde_json::json!({"status": "achieved"}))).unwrap_err();
         assert!(err.to_string().contains("No active goal"));
     }
 
