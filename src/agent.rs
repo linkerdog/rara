@@ -178,9 +178,17 @@ impl Agent {
             total_cache_hit_tokens: 0,
             total_cache_miss_tokens: 0,
             tool_result_store: ToolResultStore::new(
-                default_tool_result_store_dir().expect("tool result store dir"),
+                default_tool_result_store_dir()
+                    .unwrap_or_else(|_| std::env::temp_dir().join("rara-tool-results")),
             )
-            .expect("tool result store"),
+            .unwrap_or_else(|err| {
+                // If the tool result store can't be created at all,
+                // create an in-memory fallback. The agent will log
+                // the error but continue operating.
+                eprintln!("Warning: could not create tool result store: {err}");
+                ToolResultStore::new(std::env::temp_dir().join("rara-tool-results"))
+                    .expect("in-memory tool result store fallback")
+            }),
             execution_mode: AgentExecutionMode::Execute,
             bash_approval_mode: BashApprovalMode::Always,
             current_plan: Vec::new(),
