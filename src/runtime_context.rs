@@ -11,8 +11,8 @@ use crate::config::{
     RaraConfig,
 };
 use crate::llm::{
-    CodexBackend, GeminiBackend, LlmBackend, MockLlm, OllamaBackend, OpenAiCompatibleBackend,
-    fetch_model_context_window,
+    BedrockBackend, CodexBackend, GeminiBackend, LlmBackend, MockLlm, OllamaBackend,
+    OpenAiCompatibleBackend, fetch_model_context_window,
 };
 use crate::local_backend::{LocalLlmBackend, LocalProgressReporter};
 use crate::prompt::{PromptRuntimeConfig, PromptSkillSummary};
@@ -232,6 +232,16 @@ pub(crate) async fn build_backend_with_progress(
             .await??;
             Ok(Box::new(backend))
         }
+        "bedrock" => Ok(Box::new(
+            BedrockBackend::new(
+                config.aws_region.clone(),
+                config
+                    .model
+                    .clone()
+                    .context("Model required for Bedrock provider")?,
+            )
+            .await?,
+        )),
         "mock" => Ok(Box::new(MockLlm)),
         other => bail!("Unsupported provider '{other}'"),
     }

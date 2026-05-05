@@ -22,6 +22,20 @@ pub const OLLAMA_MODEL_PRESETS: [(&str, &str, &str); 3] = [
     ("Gemma 4 E2B", "ollama", "gemma4:e2b"),
 ];
 
+pub const BEDROCK_MODEL_PRESETS: [(&str, &str, &str); 3] = [
+    (
+        "Claude Sonnet 4",
+        "bedrock",
+        "us.anthropic.claude-sonnet-4-20250514-v1:0",
+    ),
+    (
+        "Claude 3.5 Sonnet v2",
+        "bedrock",
+        "us.anthropic.claude-3-5-sonnet-20241022-v2:0",
+    ),
+    ("Nova Pro", "bedrock", "us.amazon.nova-pro-v1:0"),
+];
+
 pub fn selected_provider_family_idx_for_config(config: &RaraConfig) -> usize {
     let family = match config.provider.as_str() {
         "codex" => ProviderFamily::Codex,
@@ -35,6 +49,7 @@ pub fn selected_provider_family_idx_for_config(config: &RaraConfig) -> usize {
         }
         "kimi" | "openrouter" => ProviderFamily::OpenAiCompatible,
         "ollama" | "ollama-native" | "ollama-openai" => ProviderFamily::Ollama,
+        "bedrock" => ProviderFamily::Bedrock,
         "gemma4" | "qwn3" | "qwen3" => ProviderFamily::CandleLocal,
         _ => ProviderFamily::Codex,
     };
@@ -57,6 +72,7 @@ pub fn current_model_presets(
         ProviderFamily::OpenAiCompatible => &OPENAI_COMPATIBLE_MODEL_PRESETS,
         ProviderFamily::CandleLocal => &LOCAL_MODEL_PRESETS,
         ProviderFamily::Ollama => &OLLAMA_MODEL_PRESETS,
+        ProviderFamily::Bedrock => &BEDROCK_MODEL_PRESETS,
     }
 }
 
