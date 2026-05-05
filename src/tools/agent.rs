@@ -5,11 +5,18 @@ use futures::stream::{self, StreamExt, TryStreamExt};
 use rara_tool_macros::tool_spec;
 use serde_json::{Value, json};
 
-use crate::agent::{Agent, AgentExecutionMode, Message, PendingUserInput, PlanStep};
+use crate::agent::{
+    Agent, AgentExecutionMode, Message, PendingUserInput, PlanStep, PlanStepStatus,
+};
 use crate::llm::LlmBackend;
 use crate::prompt::PromptRuntimeConfig;
 use crate::session::SessionManager;
 use crate::session_transcript::{self, TranscriptScope};
+use crate::state_db::{
+    PersistedCompactState, PersistedInteraction, PersistedPlanStep, PersistedPromptRuntimeState,
+    StateDb,
+};
+use crate::thread_store::{ThreadRecorder, ThreadRuntimeLineage, ThreadRuntimeState};
 use crate::tool::{Tool, ToolCallContext, ToolError, ToolManager};
 use crate::tools::file::{ListFilesTool, ReadFileTool};
 use crate::tools::search::{GlobTool, GrepTool};
@@ -492,7 +499,7 @@ async fn run_sub_agent(
         backend,
         vdb,
         session_manager.clone(),
-        workspace,
+        workspace.clone(),
     );
     sub.set_execution_mode(kind.execution_mode());
     sub.set_prompt_config(append_subagent_prompt(prompt_config, kind.append_prompt()));
@@ -509,6 +516,7 @@ async fn run_sub_agent(
     let persistence_error = parent_session_id.and_then(|parent_session_id| {
         persist_subagent_edge(
             &session_manager,
+            &workspace,
             parent_session_id,
             agent_id,
             name,
@@ -534,6 +542,7 @@ async fn run_sub_agent(
 
 fn persist_subagent_edge(
     session_manager: &SessionManager,
+    workspace: &WorkspaceMemory,
     parent_session_id: &str,
     agent_id: &str,
     name: Option<&str>,
@@ -542,6 +551,7 @@ fn persist_subagent_edge(
     summary: &str,
 ) -> anyhow::Result<()> {
     write_subagent_sidechain(session_manager, parent_session_id, agent_id, sub)?;
+    persist_subagent_runtime_state(session_manager, workspace, parent_session_id, sub)?;
     session_manager.save_spawn_agent_event(
         parent_session_id,
         &format!("spawn-{}", uuid::Uuid::new_v4()),
@@ -566,6 +576,51 @@ fn write_subagent_sidechain(
     );
     let scope = TranscriptScope::sidechain(parent_session_id, agent_id, sub.session_id.clone());
     session_transcript::write_message_snapshot(&path, &scope, &sub.history)
+}
+
+fn persist_subagent_runtime_state(
+    session_manager: &SessionManager,
+    workspace: &WorkspaceMemory,
+    parent_session_id: &str,
+    sub: &Agent,
+) -> anyhow::Result<()> {
+    let rara_dir = session_manager
+        .storage_dir
+        .parent()
+        .ok_or_else(|| anyhow::anyhow!("session storage dir has no parent"))?;
+    let state_db = StateDb::new_for_root_dir(rara_dir.to_path_buf())?;
+    let recorder = ThreadRecorder::new(&state_db);
+    let (cwd, branch) = workspace.get_env_info();
+
+    recorder.persist_runtime_state_with_lineage(
+        &ThreadRuntimeState {
+            session_id: &sub.session_id,
+            cwd: &cwd,
+            branch: &branch,
+            provider: "subagent",
+            model: "subagent",
+            base_url: None,
+            agent_mode: sub.execution_mode_label(),
+            bash_approval: "unavailable",
+            plan_explanation: sub.plan_explanation.as_deref(),
+            prompt_runtime: PersistedPromptRuntimeState::default(),
+            history_len: sub.history.len(),
+            transcript_len: sub.history.len(),
+            compact_state: PersistedCompactState::default(),
+        },
+        &ThreadRuntimeLineage {
+            origin_kind: "subagent".to_string(),
+            forked_from_thread_id: Some(parent_session_id.to_string()),
+        },
+    )?;
+
+    recorder.replace_plan_steps(&sub.session_id, &persisted_plan_steps(&sub.current_plan))?;
+    recorder.replace_interactions(
+        &sub.session_id,
+        &persisted_pending_interactions(sub.pending_user_input.as_ref()),
+    )?;
+
+    Ok(())
 }
 
 fn build_read_only_tool_manager() -> ToolManager {
@@ -736,14 +791,30 @@ fn serialize_plan_steps(steps: &[PlanStep]) -> Vec<Value> {
         .map(|step| {
             json!({
                 "step": step.step,
-                "status": match step.status {
-                    crate::agent::PlanStepStatus::Pending => "pending",
-                    crate::agent::PlanStepStatus::InProgress => "in_progress",
-                    crate::agent::PlanStepStatus::Completed => "completed",
-                }
+                "status": plan_step_status_label(&step.status),
             })
         })
         .collect()
+}
+
+fn persisted_plan_steps(steps: &[PlanStep]) -> Vec<PersistedPlanStep> {
+    steps
+        .iter()
+        .enumerate()
+        .map(|(step_index, step)| PersistedPlanStep {
+            step_index,
+            status: plan_step_status_label(&step.status).to_string(),
+            step: step.step.clone(),
+        })
+        .collect()
+}
+
+fn plan_step_status_label(status: &PlanStepStatus) -> &'static str {
+    match status {
+        PlanStepStatus::Pending => "pending",
+        PlanStepStatus::InProgress => "in_progress",
+        PlanStepStatus::Completed => "completed",
+    }
 }
 
 fn serialize_pending_user_input(request: &PendingUserInput) -> Value {
@@ -752,6 +823,20 @@ fn serialize_pending_user_input(request: &PendingUserInput) -> Value {
         "options": request.options,
         "note": request.note,
     })
+}
+
+fn persisted_pending_interactions(request: Option<&PendingUserInput>) -> Vec<PersistedInteraction> {
+    request
+        .map(|request| {
+            vec![PersistedInteraction {
+                kind: "request_user_input".to_string(),
+                status: "pending".to_string(),
+                title: request.question.clone(),
+                summary: request.note.clone().unwrap_or_default(),
+                payload: Some(serialize_pending_user_input(request)),
+            }]
+        })
+        .unwrap_or_default()
 }
 
 #[cfg(test)]
@@ -793,6 +878,8 @@ mod tests {
         peak: Arc<AtomicUsize>,
     }
 
+    struct PlanStateBackend;
+
     fn record_peak(current: usize, peak: &AtomicUsize) {
         let mut observed = peak.load(Ordering::SeqCst);
         while current > observed {
@@ -818,6 +905,35 @@ mod tests {
             Ok(LlmResponse {
                 content: vec![ContentBlock::Text {
                     text: format!("counted {last}"),
+                }],
+                stop_reason: Some("end_turn".to_string()),
+                usage: None,
+            })
+        }
+
+        async fn embed(&self, _text: &str) -> anyhow::Result<Vec<f32>> {
+            Ok(vec![0.0; 4])
+        }
+
+        async fn summarize(
+            &self,
+            _messages: &[Message],
+            _instruction: &str,
+        ) -> anyhow::Result<String> {
+            Ok("summary".to_string())
+        }
+    }
+
+    #[async_trait]
+    impl LlmBackend for PlanStateBackend {
+        async fn ask(
+            &self,
+            _messages: &[Message],
+            _tools: &[serde_json::Value],
+        ) -> anyhow::Result<LlmResponse> {
+            Ok(LlmResponse {
+                content: vec![ContentBlock::Text {
+                    text: "<proposed_plan>\n- [pending] Inspect subagent restore\n- [in_progress] Persist child state\n</proposed_plan>\nPlan state ready.".to_string(),
                 }],
                 stop_reason: Some("end_turn".to_string()),
                 usage: None,
@@ -1165,6 +1281,40 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn spawn_agent_rejects_name_that_normalizes_empty_before_running_subagent() {
+        let calls = Arc::new(AtomicUsize::new(0));
+        let temp = tempdir().expect("tempdir");
+        let root = temp.path().join("workspace");
+        let rara_dir = temp.path().join(".rara");
+        std::fs::create_dir_all(&root).expect("workspace");
+        let tool = AgentTool {
+            backend: Arc::new(CountingBackend {
+                calls: calls.clone(),
+            }),
+            vdb: Arc::new(VectorDB::new(
+                &rara_dir.join("lancedb").display().to_string(),
+            )),
+            session_manager: Arc::new(
+                SessionManager::new_for_rara_dir(rara_dir.clone()).expect("session manager"),
+            ),
+            workspace: Arc::new(WorkspaceMemory::from_paths(root, rara_dir)),
+            prompt_config: PromptRuntimeConfig::default(),
+        };
+
+        let err = tool
+            .call(json!({
+                "name": "!!!",
+                "instruction": "should not run"
+            }))
+            .await
+            .expect_err("invalid name");
+
+        assert!(matches!(err, ToolError::InvalidInput(message)
+                if message == "name must normalize to a non-empty agent id label"));
+        assert_eq!(calls.load(Ordering::SeqCst), 0);
+    }
+
+    #[tokio::test]
     async fn team_create_limits_concurrent_subagents() {
         let in_flight = Arc::new(AtomicUsize::new(0));
         let peak = Arc::new(AtomicUsize::new(0));
@@ -1358,7 +1508,12 @@ mod tests {
             .expect("child thread");
         assert_eq!(
             child.provenance.metadata_source,
-            ThreadMetadataSource::HistoryFallback
+            ThreadMetadataSource::StateDb
+        );
+        assert_eq!(child.metadata.origin_kind, "subagent");
+        assert_eq!(
+            child.metadata.forked_from_thread_id.as_deref(),
+            Some("parent-session")
         );
         assert!(!child.history.is_empty());
     }
@@ -1370,9 +1525,7 @@ mod tests {
         let rara_dir = temp.path().join(".rara");
         std::fs::create_dir_all(&root).expect("workspace");
         let tool = PlanAgentTool {
-            backend: Arc::new(CountingBackend {
-                calls: Arc::new(AtomicUsize::new(0)),
-            }),
+            backend: Arc::new(PlanStateBackend),
             vdb: Arc::new(VectorDB::new(
                 &rara_dir.join("lancedb").display().to_string(),
             )),
@@ -1420,6 +1573,21 @@ mod tests {
                 && event_child_session_id == child_session_id
                 && status == "planned"
         ));
+
+        let state_db = StateDb::new_for_root_dir(rara_dir).expect("state db");
+        let thread_store = ThreadStore::new(tool.session_manager.as_ref(), &state_db);
+        let child = thread_store
+            .load_thread(child_session_id)
+            .expect("child thread");
+        assert_eq!(
+            child.provenance.metadata_source,
+            ThreadMetadataSource::StateDb
+        );
+        assert_eq!(child.plan_steps.len(), 2);
+        assert_eq!(child.plan_steps[0].step, "Inspect subagent restore");
+        assert_eq!(child.plan_steps[0].status, "pending");
+        assert_eq!(child.plan_steps[1].step, "Persist child state");
+        assert_eq!(child.plan_steps[1].status, "in_progress");
     }
 
     #[tokio::test]

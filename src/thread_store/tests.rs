@@ -209,7 +209,7 @@ fn load_thread_keeps_session_without_history_file() -> Result<()> {
 }
 
 #[test]
-fn load_thread_uses_history_fallback_without_state_db_record() -> Result<()> {
+fn load_thread_rejects_history_without_state_db_record() -> Result<()> {
     let temp = tempdir()?;
     let rara_dir = temp.path().join(".rara");
     let session_manager = SessionManager::new_for_rara_dir(rara_dir.clone())?;
@@ -223,18 +223,13 @@ fn load_thread_uses_history_fallback_without_state_db_record() -> Result<()> {
     )?;
 
     let store = ThreadStore::new(&session_manager, &state_db);
-    let snapshot = store.load_thread("child-session")?;
+    let err = store
+        .load_thread("child-session")
+        .expect_err("history-only session should not fabricate metadata");
 
-    assert_eq!(snapshot.metadata.session_id, "child-session");
-    assert_eq!(snapshot.metadata.agent_mode, "subagent");
-    assert_eq!(snapshot.history.len(), 1);
-    assert_eq!(
-        snapshot.provenance.metadata_source,
-        ThreadMetadataSource::HistoryFallback
-    );
-    assert_eq!(
-        snapshot.provenance.history_source,
-        ThreadHistorySource::CanonicalHistory
+    assert!(
+        err.to_string()
+            .contains("Thread child-session not found in state db")
     );
     Ok(())
 }

@@ -60,6 +60,12 @@ without inlining the child transcript. This is intentionally additive: existing
 session restore behavior stays unchanged while tests start locking down the
 model-visible transcript boundary.
 
+Parent-scoped sub-agent calls also register a child `StateDb` session row with
+`origin_kind = subagent` and `forked_from_thread_id = <parent_session_id>`.
+Plan steps, plan explanation, and pending request-input state are copied into
+the child row so `ThreadStore` does not need to fabricate metadata from
+history-only files.
+
 If sidechain or spawn-edge persistence fails after the child agent has already
 completed, the tool call should still return the child result and include a
 structured `persistence_error` field. This keeps foreground delegation useful
