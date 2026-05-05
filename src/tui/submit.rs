@@ -21,12 +21,22 @@ pub(crate) async fn handle_submit(
     }
 
     if app.input.is_empty() {
+        // Lightweight feedback so the user knows Enter was received.
+        // Don't overwrite existing notices (e.g., status-info after a command).
+        if app.notice.is_none() {
+            app.notice = Some("Ready.".into());
+        }
         return Ok(false);
     }
     let input = std::mem::take(&mut app.input);
     app.input_cursor_offset = None;
     let trimmed = input.trim().to_string();
     if trimmed.is_empty() {
+        // Whitespace-only input: same lightweight feedback.
+        if app.notice.is_none() {
+            app.notice = Some("Ready.".into());
+        }
+        app.input.clear();
         return Ok(false);
     }
     app.record_input_history(&trimmed);
