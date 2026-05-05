@@ -178,9 +178,20 @@ impl Agent {
             total_cache_hit_tokens: 0,
             total_cache_miss_tokens: 0,
             tool_result_store: ToolResultStore::new(
-                default_tool_result_store_dir().expect("tool result store dir"),
+                default_tool_result_store_dir().unwrap_or_else(|_| {
+                    std::env::temp_dir().join(format!("rara-tool-results-{}", Uuid::new_v4()))
+                }),
             )
-            .expect("tool result store"),
+            .unwrap_or_else(|err| {
+                eprintln!("Warning: could not create tool result store: {err}");
+                ToolResultStore::new(std::env::temp_dir().join("rara-fallback")).unwrap_or_else(
+                    |_| {
+                        // Absolute last resort: use a /tmp subdir that should always work
+                        ToolResultStore::new(format!("/tmp/rara-tool-results-{}", Uuid::new_v4()))
+                            .expect("unrecoverable: cannot create tool result store")
+                    },
+                )
+            }),
             execution_mode: AgentExecutionMode::Execute,
             bash_approval_mode: BashApprovalMode::Always,
             current_plan: Vec::new(),
