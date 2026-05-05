@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use futures::stream::{self, StreamExt};
+use futures::stream::{self, StreamExt, TryStreamExt};
 use rara_tool_macros::tool_spec;
 use serde_json::{Value, json};
 
@@ -277,6 +277,7 @@ pub struct TeamCreateTool {
         "properties": {
             "tasks": {
                 "type": "array",
+                "maxItems": 8,
                 "items": {
                     "type": "object",
                     "properties": {
@@ -331,10 +332,8 @@ impl Tool for TeamCreateTool {
 
         let results = stream::iter(runs)
             .buffered(TEAM_CREATE_CONCURRENCY_LIMIT)
-            .collect::<Vec<_>>()
-            .await
-            .into_iter()
-            .collect::<Result<Vec<_>, _>>()?;
+            .try_collect::<Vec<_>>()
+            .await?;
         Ok(json!({ "team_results": results }))
     }
 }
@@ -413,7 +412,15 @@ fn normalize_team_tasks(tasks: &[Value]) -> Result<Vec<TeamTask>, ToolError> {
                 .as_str()
                 .map(str::to_string)
                 .ok_or_else(|| ToolError::InvalidInput(format!("tasks[{idx}].instruction")))?;
-            let kind = parse_team_task_kind(idx, task["kind"].as_str())?;
+            let kind = match task.get("kind") {
+                Some(value) => {
+                    let kind = value.as_str().ok_or_else(|| {
+                        ToolError::InvalidInput(format!("tasks[{idx}].kind must be a string"))
+                    })?;
+                    parse_team_task_kind(idx, Some(kind))?
+                }
+                None => parse_team_task_kind(idx, None)?,
+            };
             Ok(TeamTask {
                 name,
                 instruction,
@@ -530,10 +537,12 @@ mod tests {
     use async_trait::async_trait;
     use serde_json::json;
     use tempfile::tempdir;
+    use tokio::time::{Duration, sleep};
 
     use super::{
-        SubAgentKind, append_subagent_prompt, build_read_only_tool_manager,
-        build_subagent_tool_manager, latest_assistant_text_from_history, parse_team_task_kind,
+        SubAgentKind, TEAM_CREATE_CONCURRENCY_LIMIT, append_subagent_prompt,
+        build_read_only_tool_manager, build_subagent_tool_manager,
+        latest_assistant_text_from_history, parse_team_task_kind,
     };
     use crate::agent::Message;
     use crate::llm::{ContentBlock, LlmBackend, LlmResponse, MockLlm};
@@ -546,6 +555,21 @@ mod tests {
 
     struct CountingBackend {
         calls: Arc<AtomicUsize>,
+    }
+
+    struct PeakBackend {
+        in_flight: Arc<AtomicUsize>,
+        peak: Arc<AtomicUsize>,
+    }
+
+    fn record_peak(current: usize, peak: &AtomicUsize) {
+        let mut observed = peak.load(Ordering::SeqCst);
+        while current > observed {
+            match peak.compare_exchange(observed, current, Ordering::SeqCst, Ordering::SeqCst) {
+                Ok(_) => break,
+                Err(next) => observed = next,
+            }
+        }
     }
 
     #[async_trait]
@@ -563,6 +587,43 @@ mod tests {
             Ok(LlmResponse {
                 content: vec![ContentBlock::Text {
                     text: format!("counted {last}"),
+                }],
+                stop_reason: Some("end_turn".to_string()),
+                usage: None,
+            })
+        }
+
+        async fn embed(&self, _text: &str) -> anyhow::Result<Vec<f32>> {
+            Ok(vec![0.0; 4])
+        }
+
+        async fn summarize(
+            &self,
+            _messages: &[Message],
+            _instruction: &str,
+        ) -> anyhow::Result<String> {
+            Ok("summary".to_string())
+        }
+    }
+
+    #[async_trait]
+    impl LlmBackend for PeakBackend {
+        async fn ask(
+            &self,
+            messages: &[Message],
+            _tools: &[serde_json::Value],
+        ) -> anyhow::Result<LlmResponse> {
+            let current = self.in_flight.fetch_add(1, Ordering::SeqCst) + 1;
+            record_peak(current, &self.peak);
+            sleep(Duration::from_millis(50)).await;
+            self.in_flight.fetch_sub(1, Ordering::SeqCst);
+            let last = messages
+                .last()
+                .and_then(|message| message.content.as_str())
+                .unwrap_or_default();
+            Ok(LlmResponse {
+                content: vec![ContentBlock::Text {
+                    text: format!("peak {last}"),
                 }],
                 stop_reason: Some("end_turn".to_string()),
                 usage: None,
@@ -793,6 +854,82 @@ mod tests {
             matches!(err, ToolError::InvalidInput(message) if message == "tasks[1].instruction")
         );
         assert_eq!(calls.load(Ordering::SeqCst), 0);
+    }
+
+    #[tokio::test]
+    async fn team_create_rejects_non_string_kind_before_running_subagents() {
+        let calls = Arc::new(AtomicUsize::new(0));
+        let temp = tempdir().expect("tempdir");
+        let root = temp.path().join("workspace");
+        let rara_dir = temp.path().join(".rara");
+        std::fs::create_dir_all(&root).expect("workspace");
+        let tool = TeamCreateTool {
+            backend: Arc::new(CountingBackend {
+                calls: calls.clone(),
+            }),
+            vdb: Arc::new(VectorDB::new(
+                &rara_dir.join("lancedb").display().to_string(),
+            )),
+            session_manager: Arc::new(
+                SessionManager::new_for_rara_dir(rara_dir.clone()).expect("session manager"),
+            ),
+            workspace: Arc::new(WorkspaceMemory::from_paths(root, rara_dir)),
+            prompt_config: PromptRuntimeConfig::default(),
+        };
+
+        let err = tool
+            .call(json!({
+                "tasks": [
+                    {
+                        "instruction": "should not run",
+                        "kind": 1
+                    }
+                ]
+            }))
+            .await
+            .expect_err("invalid kind");
+
+        assert!(
+            matches!(err, ToolError::InvalidInput(message) if message == "tasks[0].kind must be a string")
+        );
+        assert_eq!(calls.load(Ordering::SeqCst), 0);
+    }
+
+    #[tokio::test]
+    async fn team_create_limits_concurrent_subagents() {
+        let in_flight = Arc::new(AtomicUsize::new(0));
+        let peak = Arc::new(AtomicUsize::new(0));
+        let temp = tempdir().expect("tempdir");
+        let root = temp.path().join("workspace");
+        let rara_dir = temp.path().join(".rara");
+        std::fs::create_dir_all(&root).expect("workspace");
+        let tool = TeamCreateTool {
+            backend: Arc::new(PeakBackend {
+                in_flight,
+                peak: peak.clone(),
+            }),
+            vdb: Arc::new(VectorDB::new(
+                &rara_dir.join("lancedb").display().to_string(),
+            )),
+            session_manager: Arc::new(
+                SessionManager::new_for_rara_dir(rara_dir.clone()).expect("session manager"),
+            ),
+            workspace: Arc::new(WorkspaceMemory::from_paths(root, rara_dir)),
+            prompt_config: PromptRuntimeConfig::default(),
+        };
+        let tasks = (0..8)
+            .map(|idx| json!({ "kind": "general", "instruction": format!("task {idx}") }))
+            .collect::<Vec<_>>();
+
+        let result = tool
+            .call(json!({ "tasks": tasks }))
+            .await
+            .expect("team_create result");
+
+        assert_eq!(result["team_results"].as_array().expect("results").len(), 8);
+        let observed_peak = peak.load(Ordering::SeqCst);
+        assert!(observed_peak <= TEAM_CREATE_CONCURRENCY_LIMIT);
+        assert!(observed_peak > 1);
     }
 
     #[tokio::test]
