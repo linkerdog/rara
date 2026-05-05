@@ -91,23 +91,14 @@ impl Tool for SkillTool {
                     .iter()
                     .map(|o| format!("{:?}", o.scope).to_lowercase())
                     .collect();
-                let body = strip_frontmatter(&skill.prompt);
-                let tagged_block = format!(
-                    "<skill>\n<name>{name}</name>\n<path>{display_path}</path>\n<scope>{scope}</scope>\n\n<![CDATA[\n{instructions}\n]]>\n</skill>",
-                    name = skill.name,
-                    display_path = skill.display_path,
-                    scope = format!("{:?}", skill.scope).to_lowercase(),
-                    instructions = body,
-                );
                 Ok(json!({
                     "name": skill.name,
                     "title": skill.title,
                     "scope": format!("{:?}", skill.scope).to_lowercase(),
                     "display_path": skill.display_path,
-                    "instructions": tagged_block,
+                    "instructions": strip_frontmatter(&skill.prompt),
                     "disable_model_invocation": skill.disable_model_invocation,
                     "overrides_others": !shadowed_scopes.is_empty(),
-                    "shadowed_scopes": shadowed_scopes,
                     "shadowed_scopes": shadowed_scopes,
                 }))
             }
@@ -127,6 +118,8 @@ fn strip_frontmatter(content: &str) -> String {
     }
     content.to_string()
 }
+
+#[cfg(test)]
 mod tests {
     use rara_skills::SkillManager;
     use serde_json::json;
@@ -179,16 +172,7 @@ mod tests {
         assert_eq!(result["name"].as_str(), Some("test-skill"));
         assert_eq!(result["title"].as_str(), Some("Test Skill"));
         assert_eq!(result["scope"].as_str(), Some("cwd"));
-        let instructions = result["instructions"].as_str().unwrap();
-        assert!(
-            instructions.starts_with("<skill>"),
-            "should start with <skill>"
-        );
-        assert!(instructions.contains("<name>test-skill</name>"));
-        assert!(instructions.contains("<path>test-skill/SKILL.md</path>"));
-        assert!(instructions.contains("<scope>cwd</scope>"));
-        assert!(instructions.contains("</skill>"));
-        assert!(instructions.contains("# Test\nbody"));
+        assert_eq!(result["instructions"].as_str(), Some("# Test\nbody"));
         assert_eq!(result["overrides_others"].as_bool(), Some(false));
         assert!(result["shadowed_scopes"].as_array().unwrap().is_empty());
     }
