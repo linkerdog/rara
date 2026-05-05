@@ -1,6 +1,7 @@
 use std::sync::Arc;
 
 use async_trait::async_trait;
+use futures::future::join_all;
 use rara_tool_macros::tool_spec;
 use serde_json::{Value, json};
 
@@ -262,14 +263,31 @@ pub struct TeamCreateTool {
     pub vdb: Arc<VectorDB>,
     pub session_manager: Arc<SessionManager>,
     pub workspace: Arc<WorkspaceMemory>,
+    pub prompt_config: PromptRuntimeConfig,
 }
 
 #[tool_spec(
     name = "team_create",
-    description = "Launch parallel sub-agents",
+    description = "Launch multiple bounded sub-agents concurrently. Each task must include a self-contained instruction and may set kind to general, explore, or plan.",
     input_schema = {
         "type": "object",
-        "properties": { "tasks": { "type": "array" } },
+        "properties": {
+            "tasks": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "name": { "type": "string" },
+                        "instruction": { "type": "string" },
+                        "kind": {
+                            "type": "string",
+                            "enum": ["general", "spawn", "reasoning", "explore", "plan"]
+                        }
+                    },
+                    "required": ["instruction"]
+                }
+            }
+        },
         "required": ["tasks"]
     }
 )]
@@ -279,11 +297,42 @@ impl Tool for TeamCreateTool {
         let tasks = i["tasks"]
             .as_array()
             .ok_or(ToolError::InvalidInput("tasks".into()))?;
-        let mut results = Vec::new();
-        for task in tasks {
-            let name = task["name"].as_str().unwrap_or("worker");
-            results.push(json!({ "name": name, "status": "mocked_done" }));
-        }
+        let runs = tasks.iter().enumerate().map(|(idx, task)| {
+            let name = task["name"]
+                .as_str()
+                .map(str::to_string)
+                .unwrap_or_else(|| format!("worker-{}", idx + 1));
+            let instruction = task["instruction"]
+                .as_str()
+                .map(str::to_string)
+                .ok_or_else(|| ToolError::InvalidInput("tasks[].instruction".into()));
+            let kind = parse_team_task_kind(task["kind"].as_str());
+            let backend = self.backend.clone();
+            let vdb = self.vdb.clone();
+            let session_manager = self.session_manager.clone();
+            let workspace = self.workspace.clone();
+            let prompt_config = self.prompt_config.clone();
+
+            async move {
+                let instruction = instruction?;
+                let result = run_sub_agent(
+                    kind,
+                    &instruction,
+                    backend,
+                    vdb,
+                    session_manager,
+                    workspace,
+                    prompt_config,
+                )
+                .await?;
+                Ok::<_, ToolError>(serialize_team_result(&name, result))
+            }
+        });
+
+        let results = join_all(runs)
+            .await
+            .into_iter()
+            .collect::<Result<Vec<_>, _>>()?;
         Ok(json!({ "team_results": results }))
     }
 }
@@ -341,6 +390,28 @@ fn build_subagent_tool_manager(kind: SubAgentKind) -> ToolManager {
     } else {
         ToolManager::new()
     }
+}
+
+fn parse_team_task_kind(kind: Option<&str>) -> SubAgentKind {
+    match kind.unwrap_or("explore") {
+        "general" | "spawn" | "reasoning" => SubAgentKind::General,
+        "plan" => SubAgentKind::Plan,
+        _ => SubAgentKind::Explore,
+    }
+}
+
+fn serialize_team_result(name: &str, result: SubAgentResult) -> Value {
+    json!({
+        "name": name,
+        "status": result.status,
+        "summary": result.summary,
+        "plan": result.plan.as_ref().map(|steps| serialize_plan_steps(steps)),
+        "plan_explanation": result.plan_explanation,
+        "request_user_input": result
+            .request_user_input
+            .as_ref()
+            .map(serialize_pending_user_input),
+    })
 }
 
 fn append_subagent_prompt(
@@ -417,14 +488,23 @@ fn serialize_pending_user_input(request: &PendingUserInput) -> Value {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::Arc;
+
     use serde_json::json;
+    use tempfile::tempdir;
 
     use super::{
         SubAgentKind, append_subagent_prompt, build_read_only_tool_manager,
-        build_subagent_tool_manager, latest_assistant_text_from_history,
+        build_subagent_tool_manager, latest_assistant_text_from_history, parse_team_task_kind,
     };
     use crate::agent::Message;
+    use crate::llm::MockLlm;
     use crate::prompt::PromptRuntimeConfig;
+    use crate::session::SessionManager;
+    use crate::tool::Tool;
+    use crate::tools::agent::TeamCreateTool;
+    use crate::vectordb::VectorDB;
+    use crate::workspace::WorkspaceMemory;
 
     #[test]
     fn read_only_subagent_manager_excludes_mutating_and_agent_tools() {
@@ -526,5 +606,71 @@ mod tests {
             latest_assistant_text_from_history(&history).as_deref(),
             Some("plain string assistant content")
         );
+    }
+
+    #[test]
+    fn team_task_kind_defaults_to_explore() {
+        assert!(matches!(parse_team_task_kind(None), SubAgentKind::Explore));
+        assert!(matches!(
+            parse_team_task_kind(Some("general")),
+            SubAgentKind::General
+        ));
+        assert!(matches!(
+            parse_team_task_kind(Some("plan")),
+            SubAgentKind::Plan
+        ));
+        assert!(matches!(
+            parse_team_task_kind(Some("unknown")),
+            SubAgentKind::Explore
+        ));
+    }
+
+    #[tokio::test]
+    async fn team_create_runs_real_subagents_in_order() {
+        let temp = tempdir().expect("tempdir");
+        let root = temp.path().join("workspace");
+        let rara_dir = temp.path().join(".rara");
+        std::fs::create_dir_all(&root).expect("workspace");
+        let tool = TeamCreateTool {
+            backend: Arc::new(MockLlm),
+            vdb: Arc::new(VectorDB::new(
+                &rara_dir.join("lancedb").display().to_string(),
+            )),
+            session_manager: Arc::new(
+                SessionManager::new_for_rara_dir(rara_dir.clone()).expect("session manager"),
+            ),
+            workspace: Arc::new(WorkspaceMemory::from_paths(root, rara_dir)),
+            prompt_config: PromptRuntimeConfig::default(),
+        };
+
+        let result = tool
+            .call(json!({
+                "tasks": [
+                    {
+                        "name": "research",
+                        "kind": "general",
+                        "instruction": "summarize one"
+                    },
+                    {
+                        "name": "inspect",
+                        "kind": "explore",
+                        "instruction": "summarize two"
+                    }
+                ]
+            }))
+            .await
+            .expect("team_create result");
+        let results = result["team_results"]
+            .as_array()
+            .expect("team_results array");
+
+        assert_eq!(results.len(), 2);
+        assert_eq!(results[0]["name"], "research");
+        assert_eq!(results[0]["status"], "done");
+        assert_eq!(results[0]["summary"], "Mock Response: summarize one");
+        assert_eq!(results[1]["name"], "inspect");
+        assert_eq!(results[1]["status"], "explored");
+        assert_eq!(results[1]["summary"], "Mock Response: summarize two");
+        assert_ne!(results[0]["status"], "mocked_done");
     }
 }

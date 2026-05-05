@@ -1,9 +1,8 @@
 // Sub-agent display helpers — icons, labels, and role detection.
 //
 // Centralizes the distinction between spawn_agent, explore_agent,
-// plan_agent, and team_create so tool labels, result badges, and
-// interaction cards show the right icon + color instead of generic
-// "Tool Result" / "Delegate" text.
+// plan_agent, and team_create so tool labels show the right icon + color
+// instead of generic "Tool Result" / "Delegate" text.
 use ratatui::style::Color;
 
 use crate::tui::theme::*;
@@ -45,21 +44,6 @@ impl SubAgentKind {
             Self::Plan => "Plan",
             Self::Team => "Team",
         }
-    }
-
-    /// Icon + color for the tool result badge (shown after completion).
-    pub(crate) fn result_icon(self) -> (&'static str, Color) {
-        match self {
-            Self::General => ("🤖 Sub-agent", STATUS_SUCCESS),
-            Self::Explore => ("🔍 Explored", PHASE_EXPLORED),
-            Self::Plan => ("📋 Planned", PHASE_PLANNING),
-            Self::Team => ("👥 Team", STATUS_INFO),
-        }
-    }
-
-    /// Returns true if this sub-agent kind can ask a follow-up question.
-    pub(crate) fn can_ask_question(self) -> bool {
-        matches!(self, Self::Explore | Self::Plan)
     }
 }
 

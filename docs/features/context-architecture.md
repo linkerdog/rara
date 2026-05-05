@@ -1060,6 +1060,24 @@ A sub-agent invocation is a structured delegation event:
 - it produces structured outputs back to the parent;
 - it may contribute summaries back into the parent thread context.
 
+### Current Runtime Checkpoint
+
+The current runtime has three direct sub-agent tools:
+
+- `spawn_agent`: a no-tool reasoning worker;
+- `explore_agent`: a read-only repository inspection worker;
+- `plan_agent`: a read-only planning worker.
+
+`team_create` is a synchronous aggregation tool over the same sub-agent runtime.
+It accepts multiple task contracts and runs them concurrently inside one tool
+call, then returns one ordered `team_results` array to the parent. This matches
+the current foreground delegation boundary, but it is not yet a durable
+background task system.
+
+The next alignment step is to give each sub-agent invocation a stable
+`agent_id`, persist its sidechain transcript under the parent session, and store
+only a structured delegation result in the parent context.
+
 ### Required Objects
 
 RARA should represent delegation with objects such as:
