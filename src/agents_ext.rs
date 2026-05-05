@@ -65,8 +65,9 @@ impl AgentRegistry {
     /// Scan a directory for `.md` agent definition files.
     pub fn discover_from_dir(&mut self, dir: &Path) {
         if !dir.exists() {
+            return;
+        }
         let entries = match fs::read_dir(dir) {
-            Ok(entries) => entries,
             Err(err) => {
                 self.load_warnings
                     .push(format!("agent dir {}: {err}", dir.display()));
