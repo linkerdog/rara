@@ -15,7 +15,7 @@ use crate::tui::state::{
 };
 
 #[test]
-fn footer_summary_text_prefers_minimal_idle_context() {
+fn footer_summary_text_is_empty_when_idle_and_no_repo_context() {
     let temp = tempdir().unwrap();
     let mut app = TuiApp::new(ConfigManager {
         path: temp.path().join("config.json"),
@@ -28,7 +28,7 @@ fn footer_summary_text_prefers_minimal_idle_context() {
     };
 
     let rendered = footer_summary_text(&app);
-    assert_eq!(rendered, "ctx~=1234/32768");
+    assert_eq!(rendered, "");
 }
 
 #[test]
@@ -48,7 +48,7 @@ fn footer_summary_text_shows_tokens_only_while_busy() {
     };
 
     let rendered = footer_summary_text(&app);
-    assert_eq!(rendered, "ctx~=2048/32768  tokens=111 in / 22 out");
+    assert_eq!(rendered, "  tokens=111 in / 22 out");
     assert!(!rendered.contains("history="));
     assert!(!rendered.contains("local="));
     assert!(!rendered.contains("key="));
@@ -257,7 +257,7 @@ fn footer_summary_text_includes_repo_context_when_available() {
     assert!(rendered.contains("repo: hawkingrei/rara"));
     assert!(rendered.contains("branch: feat/test"));
     assert!(rendered.contains("PR: https://github.com/hawkingrei/rara/pull/46"));
-    assert!(rendered.contains("ctx~=1234/32768"));
+    assert!(!rendered.contains("ctx~="));
 }
 
 #[test]

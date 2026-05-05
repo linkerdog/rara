@@ -894,7 +894,7 @@ fn command_palette_query_uses_full_width_without_leaking_bottom_status() {
 
     let rendered = render_screen_text(&app, 107, 53);
     assert!(rendered.contains("/model"));
-    assert!(!rendered.contains("ctx~=0"));
+    assert!(!rendered.contains("ctx~="));
     assert!(!rendered.contains("enter run  esc close"));
 }
 

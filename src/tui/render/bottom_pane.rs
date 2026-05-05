@@ -355,17 +355,9 @@ fn bottom_pane_style() -> Style {
 }
 
 fn footer_summary_text(app: &TuiApp) -> String {
-    let context = match app.snapshot.context_window_tokens {
-        Some(window) => format!("ctx~={}/{}", app.snapshot.estimated_history_tokens, window),
-        None => format!("ctx~={}", app.snapshot.estimated_history_tokens),
-    };
-
-    let repo_part = app
+    let prefix = app
         .repo_context_hint()
-        .map(|hint| format!("{hint}  "))
         .unwrap_or_default();
-
-    let prefix = format!("{repo_part}{context}");
 
     let cache_summary = cache_hit_rate_label(
         app.snapshot.total_cache_hit_tokens,
