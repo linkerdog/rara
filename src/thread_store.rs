@@ -23,6 +23,7 @@ use crate::state_db::{
     PersistedThreadLineage, PersistedThreadRecord, PersistedTurnEntry, PersistedTurnSummary,
     StateDb,
 };
+use crate::thread_metadata;
 use crate::thread_rollout_log::{self, RolloutEventRecorder};
 use crate::thread_turn_log;
 
@@ -104,6 +105,7 @@ pub struct ThreadSummary {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ThreadMetadataSource {
+    StructuredMetadata,
     StateDb,
 }
 
@@ -135,7 +137,8 @@ impl ThreadMaterializationProvenance {
     /// was sourced from, making the legacy-fallback hierarchy explicit.
     pub fn describe(&self) -> String {
         let metadata = match self.metadata_source {
-            ThreadMetadataSource::StateDb => "StateDb (canonical)",
+            ThreadMetadataSource::StructuredMetadata => "structured thread metadata",
+            ThreadMetadataSource::StateDb => "StateDb fallback",
         };
         let history = match self.history_source {
             ThreadHistorySource::CanonicalHistory => "canonical transcript.jsonl",
@@ -461,14 +464,13 @@ impl<'a> ThreadStore<'a> {
             }
             Err(err) => return Err(err),
         };
-        let metadata_record = self.state_db.load_thread_record(session_id)?;
+        let (metadata_record, metadata_source) = self.load_thread_metadata(session_id)?;
         if metadata_record.is_none() {
-            anyhow::bail!("Thread {session_id} not found in state db");
+            anyhow::bail!("Thread {session_id} not found in thread metadata");
         }
-        let metadata_source = ThreadMetadataSource::StateDb;
-        let metadata = metadata_record
-            .map(ThreadMetadata::from)
-            .expect("metadata record checked above");
+        let metadata_record = metadata_record.expect("metadata record checked above");
+        let mut plan_explanation = metadata_record.plan_explanation.clone();
+        let metadata = ThreadMetadata::from(metadata_record);
         let LegacyNonTurnRolloutMigration {
             structured_events,
             runtime_rollout: migration_runtime_rollout,
@@ -490,7 +492,6 @@ impl<'a> ThreadStore<'a> {
                     .map(CompactionRecord::from)
                     .unwrap_or_default()
             });
-        let mut plan_explanation = self.state_db.load_session_plan_explanation(session_id)?;
         let mut plan_steps = self.state_db.load_plan_steps(session_id)?;
         let mut interactions = self.state_db.load_interactions(session_id)?;
         let turn_items = self.load_turn_items(session_id)?;
@@ -1084,6 +1085,19 @@ impl<'a> ThreadStore<'a> {
         Ok(transcript_history.len() < snapshot_history.len()
             && snapshot_history.starts_with(transcript_history))
     }
+
+    fn load_thread_metadata(
+        &self,
+        session_id: &str,
+    ) -> Result<(Option<PersistedThreadRecord>, ThreadMetadataSource)> {
+        if let Some(record) = thread_metadata::load_thread_record(&self.rollout_root, session_id)? {
+            return Ok((Some(record), ThreadMetadataSource::StructuredMetadata));
+        }
+        Ok((
+            self.state_db.load_thread_record(session_id)?,
+            ThreadMetadataSource::StateDb,
+        ))
+    }
 }
 
 pub struct ThreadRuntimeState<'a> {
@@ -1177,6 +1191,38 @@ impl<'a> ThreadRecorder<'a> {
         state: &ThreadRuntimeState<'_>,
         lineage: &ThreadRuntimeLineage,
     ) -> Result<()> {
+        let now = epoch_seconds();
+        let existing_metadata = match thread_metadata::load_thread_record(
+            &self.state_db.rollout_root(),
+            state.session_id,
+        )? {
+            Some(record) => Some(record),
+            None => self.state_db.load_thread_record(state.session_id)?,
+        };
+        let created_at = existing_metadata
+            .as_ref()
+            .map(|record| record.created_at)
+            .unwrap_or(now);
+        let record = PersistedThreadRecord {
+            session_id: state.session_id.to_string(),
+            cwd: state.cwd.to_string(),
+            branch: state.branch.to_string(),
+            provider: state.provider.to_string(),
+            model: state.model.to_string(),
+            base_url: state.base_url.map(str::to_string),
+            agent_mode: state.agent_mode.to_string(),
+            bash_approval: state.bash_approval.to_string(),
+            created_at,
+            lineage: PersistedThreadLineage {
+                origin_kind: lineage.origin_kind.clone(),
+                forked_from_thread_id: lineage.forked_from_thread_id.clone(),
+            },
+            plan_explanation: state.plan_explanation.map(str::to_string),
+            history_len: state.history_len,
+            transcript_len: state.transcript_len,
+            updated_at: now,
+        };
+        thread_metadata::write_thread_record(&self.state_db.rollout_root(), &record)?;
         self.state_db.upsert_session_with_lineage(
             state.session_id,
             state.cwd,

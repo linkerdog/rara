@@ -75,7 +75,7 @@ Storage: `~/.rara/threads/`.
 Current backend slice:
 
 - `load_thread(session_id) -> ThreadSnapshot` materializes canonical history,
-  state-db metadata, plan state, interactions, turns, and compaction events.
+  structured thread metadata, plan state, interactions, turns, and compaction events.
 - `ThreadStore` can be constructed from explicit rollout and legacy-session
   roots; the materialization path reads `transcript.jsonl`, `history.json`,
   legacy history, and compaction migrations directly instead of delegating those
@@ -91,6 +91,9 @@ Current backend slice:
 - Runtime rollout snapshots are normalized by `ThreadRecorder` into one
   canonical `runtime_state` event before appending to `events.jsonl`; `StateDb`
   side tables remain compatibility/index surfaces.
+- Runtime metadata is written to per-session `thread.json` before updating the
+  `StateDb` listing/index row. `ThreadStore` prefers `thread.json` and only
+  falls back to `StateDb` metadata for older sessions.
 - `ThreadStore` treats `runtime_state` entries as snapshots and materializes
   only the latest snapshot into current plan/interactions, avoiding duplicate
   rollout items from stale snapshots.
@@ -104,11 +107,10 @@ Current backend slice:
 - `distill_thread_summary(memory_store, session_id) -> Option<MemoryRecord>`
   persists one summary-style `MemoryRecord` linked to the source session/thread.
 
-The current implementation still stores thread metadata in `StateDb` and keeps
-`history.json` as a compatibility snapshot beside the canonical transcript.
-History, committed turns, rollout events, and context checkpoints now have
-per-session append/log sources, but the thread store is not yet a dedicated
-LanceDB thread table.
+The current implementation still keeps `history.json` as a compatibility
+snapshot beside the canonical transcript and keeps `StateDb` as the listing and
+legacy side-table fallback. The structured thread source lives under the
+per-session rollout directory rather than a dedicated LanceDB thread table.
 
 ## Conversation Markdown Format
 

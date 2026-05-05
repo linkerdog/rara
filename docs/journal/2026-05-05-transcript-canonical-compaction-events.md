@@ -79,12 +79,15 @@ and enriches persisted compaction events with lifecycle metadata.
 - Runtime rollout snapshots are materialized as snapshots: `ThreadStore` uses
   the latest `runtime_state` event for plan/interactions instead of expanding
   stale snapshots into duplicate rollout items.
+- Thread runtime metadata now writes to per-session `thread.json` before
+  updating the `StateDb` index row. `ThreadStore` prefers that structured
+  metadata file and can materialize a thread without a `StateDb` session row.
 
 ## Remaining Work
 
 - Continue shrinking `StateDb` side-table fallback usage for plan/interactions
-  and thread metadata now that history, turns, runtime rollout state, and
-  compaction events have append/log sources.
+  now that history, metadata, turns, runtime rollout state, and compaction events
+  have structured per-session sources.
 - Move stable compaction retain hints into the real hook/MCP execution paths
   once those runtime extension points produce context source descriptors
   directly.

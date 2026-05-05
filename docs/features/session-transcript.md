@@ -45,6 +45,7 @@ events:
 ```text
 rollouts/<session_id>/
   history.json              # compatibility snapshot, not the long-term source
+  thread.json               # canonical thread metadata
   transcript.jsonl          # typed main-session transcript
   turns.jsonl               # committed TUI turn summaries and entries
   context.jsonl             # per-session context-retrieval shard
@@ -57,11 +58,12 @@ rollouts/<session_id>/
 The current implementation reads `transcript.jsonl` first when restoring
 model-visible history. `history.json` remains as a compatibility snapshot and
 fallback source. Runtime checkpoints enter through `ThreadRecorder`, write that
-typed transcript through `ThreadTranscriptRecorder`, then write the
-compatibility snapshot separately. `ThreadStore` materialization reads the
-rollout root directly for transcript, snapshot, legacy-history, and compaction
-migration sources; `SessionManager` remains a compatibility entry point for
-older callers. The recorder appends new message entries when the existing
+typed transcript through `ThreadTranscriptRecorder`, then write per-session
+thread metadata and the compatibility snapshot separately. `ThreadStore`
+materialization reads the rollout root directly for metadata, transcript,
+snapshot, legacy-history, and compaction migration sources; `SessionManager`
+remains a compatibility entry point for older callers. The recorder appends new
+message entries when the existing
 transcript is a prefix of the new history, exposes flush/shutdown boundaries,
 and falls back to an atomic transcript rewrite when history was replaced by
 repair or compaction. If a transcript has parse errors and a snapshot exists,
@@ -90,6 +92,7 @@ The long-term target is:
 - `transcript.jsonl` becomes the canonical model-history stream;
 - `history.json` becomes an optional acceleration snapshot or disappears;
 - `StateDb` indexes sessions, turns, plan state, and parent/child edges;
+- `thread.json` is the canonical thread metadata source for materialization;
 - sidechain transcripts remain separate files and are never replayed into the
   parent model context unless an explicit fork/context operation selects a
   filtered subset.

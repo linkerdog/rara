@@ -14,8 +14,10 @@ use crate::memory_store::{MemoryScope, MemorySource, MemoryStore};
 use crate::session::{PersistedCompactionEvent, SessionManager};
 use crate::state_db::{
     PersistedCompactState, PersistedInteraction, PersistedPlanStep, PersistedPromptRuntimeState,
-    PersistedRuntimeRolloutItem, PersistedStructuredRolloutEvent, PersistedTurnEntry, StateDb,
+    PersistedRuntimeRolloutItem, PersistedStructuredRolloutEvent, PersistedThreadLineage,
+    PersistedThreadRecord, PersistedTurnEntry, StateDb,
 };
+use crate::thread_metadata;
 use crate::thread_rollout_log;
 use crate::thread_turn_log;
 use crate::vectordb::VectorDB;
@@ -255,6 +257,55 @@ fn load_thread_materializes_from_roots_without_session_manager_facade() -> Resul
 }
 
 #[test]
+fn load_thread_prefers_structured_metadata_without_state_db_row() -> Result<()> {
+    let temp = tempdir()?;
+    let rara_dir = temp.path().join(".rara");
+    let state_db = StateDb::new_for_root_dir(rara_dir.clone())?;
+    let rollout_root = state_db.rollout_root();
+    let legacy_session_root = rara_dir.join("sessions");
+    fs::create_dir_all(&legacy_session_root)?;
+    let history = vec![Message {
+        role: "user".to_string(),
+        content: serde_json::json!("load metadata from thread.json"),
+    }];
+    crate::session_transcript::write_history_snapshot(
+        &rollout_root,
+        "session-structured-metadata",
+        &history,
+    )?;
+    thread_metadata::write_thread_record(
+        &rollout_root,
+        &PersistedThreadRecord {
+            session_id: "session-structured-metadata".to_string(),
+            cwd: "/tmp/structured-workspace".to_string(),
+            branch: "main".to_string(),
+            provider: "openai".to_string(),
+            model: "gpt-5".to_string(),
+            base_url: None,
+            agent_mode: "execute".to_string(),
+            bash_approval: "suggest".to_string(),
+            created_at: 10,
+            lineage: PersistedThreadLineage::default(),
+            plan_explanation: None,
+            history_len: 1,
+            transcript_len: 1,
+            updated_at: 20,
+        },
+    )?;
+
+    let store = ThreadStore::new_for_roots(rollout_root, legacy_session_root, &state_db);
+    let snapshot = store.load_thread("session-structured-metadata")?;
+
+    assert_eq!(
+        snapshot.provenance.metadata_source,
+        ThreadMetadataSource::StructuredMetadata
+    );
+    assert_eq!(snapshot.metadata.cwd, "/tmp/structured-workspace");
+    assert_eq!(snapshot.history, history);
+    Ok(())
+}
+
+#[test]
 fn load_thread_keeps_session_without_history_file() -> Result<()> {
     let temp = tempdir()?;
     let rara_dir = temp.path().join(".rara");
@@ -289,7 +340,7 @@ fn load_thread_keeps_session_without_history_file() -> Result<()> {
 }
 
 #[test]
-fn load_thread_rejects_history_without_state_db_record() -> Result<()> {
+fn load_thread_rejects_history_without_thread_metadata() -> Result<()> {
     let temp = tempdir()?;
     let rara_dir = temp.path().join(".rara");
     let session_manager = SessionManager::new_for_rara_dir(rara_dir.clone())?;
@@ -309,7 +360,7 @@ fn load_thread_rejects_history_without_state_db_record() -> Result<()> {
 
     assert!(
         err.to_string()
-            .contains("Thread child-session not found in state db")
+            .contains("Thread child-session not found in thread metadata")
     );
     Ok(())
 }
@@ -866,7 +917,7 @@ fn load_thread_reports_state_db_fallback_for_non_turn_rollout() -> Result<()> {
 }
 
 #[test]
-fn thread_recorder_persists_runtime_state_via_state_db() -> Result<()> {
+fn thread_recorder_persists_runtime_state_to_metadata_and_state_db_index() -> Result<()> {
     let temp = tempdir()?;
     let state_db = StateDb::new_for_root_dir(temp.path().join(".rara"))?;
     let recorder = ThreadRecorder::new(&state_db);
@@ -898,6 +949,16 @@ fn thread_recorder_persists_runtime_state_via_state_db() -> Result<()> {
     assert_eq!(threads[0].session_id, "session-recorder");
     assert_eq!(threads[0].compaction_count, 1);
     assert_eq!(threads[0].last_compaction_after_tokens, Some(1200));
+    let metadata =
+        thread_metadata::load_thread_record(&state_db.rollout_root(), "session-recorder")?
+            .expect("thread metadata record");
+    assert_eq!(metadata.session_id, "session-recorder");
+    assert_eq!(metadata.cwd, "/tmp/workspace");
+    assert_eq!(metadata.model, "qwen3");
+    assert_eq!(
+        metadata.plan_explanation.as_deref(),
+        Some("Keep persistence writes structured.")
+    );
     Ok(())
 }
 

@@ -174,7 +174,7 @@ pub enum PersistedLegacyRolloutSource {
     Empty,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PersistedThreadLineage {
     pub origin_kind: String,
     pub forked_from_thread_id: Option<String>,
@@ -227,7 +227,7 @@ pub struct PersistedRecentThreadRecord {
     pub last_compaction_boundary_version: Option<u32>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PersistedThreadRecord {
     pub session_id: String,
     pub cwd: String,

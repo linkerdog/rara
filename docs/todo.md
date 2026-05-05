@@ -93,7 +93,7 @@ Active backlog only. Keep this file small and current.
 - [x] Add concrete invoked-skill carry-over producer.
 - [x] Add concrete hook/MCP carry-over producers.
 - [ ] Surface main model vs auxiliary model routing in `/status` and `/context`.
-- [ ] `ThreadStore` / `ThreadRecorder`: from façade over `SessionManager`+`StateDb` to true structured thread store.
+- [x] `ThreadStore` / `ThreadRecorder`: from façade over `SessionManager`+`StateDb` to true structured thread store.
 - [ ] Thread-scoped and workspace-scoped `MemoryRecord` storage with promotion rules.
 - [ ] Retrieval orchestration layer from `docs/features/context-architecture.md`.
 - [x] Initialize LanceDB and wire FTS/vector/hybrid search paths behind the existing memory index façade.
