@@ -87,18 +87,6 @@ pub(crate) async fn dispatch_event(
                 app.command_palette_idx = next as usize;
             }
         }
-        AppEvent::MoveProviderSelection(delta) => {
-            let next = (app.provider_picker_idx as i32 + delta)
-                .clamp(0, PROVIDER_FAMILIES.len() as i32 - 1);
-            app.provider_picker_idx = next as usize;
-        }
-        AppEvent::MoveResumeSelection(delta) => {
-            let len = app.recent_threads.len();
-            if len > 0 {
-                let next = (app.resume_picker_idx as i32 + delta).clamp(0, len as i32 - 1);
-                app.resume_picker_idx = next as usize;
-            }
-        }
         AppEvent::MoveSkillsSelection(delta) => {
             let len = app.skill_picker_entries.len();
             if len > 0 {
@@ -111,44 +99,6 @@ pub(crate) async fn dispatch_event(
                 entry.enabled = !entry.enabled;
                 entry.disable_model_invocation = !entry.enabled;
             }
-        }
-        AppEvent::MoveModelSelection(delta) => {
-            let len = if matches!(app.overlay, Some(Overlay::OpenAiEndpointKindPicker)) {
-                app.openai_endpoint_kind_count()
-            } else {
-                app.current_model_picker_len()
-            };
-            if len > 0 {
-                let next = delta.clamp(-(len as i32), len as i32);
-                if matches!(app.overlay, Some(Overlay::OpenAiEndpointKindPicker)) {
-                    let idx = (app.openai_endpoint_kind_picker_idx as i32 + next)
-                        .clamp(0, len as i32 - 1);
-                    app.openai_endpoint_kind_picker_idx = idx as usize;
-                } else {
-                    let idx = (app.model_picker_idx as i32 + next).clamp(0, len as i32 - 1);
-                    app.model_picker_idx = idx as usize;
-                }
-            }
-        }
-        AppEvent::MoveOpenAiProfileSelection(delta) => {
-            let len = app.selected_openai_profiles().len() + 1;
-            if len > 0 {
-                let next = (app.openai_profile_picker_idx as i32 + delta).clamp(0, len as i32 - 1);
-                app.openai_profile_picker_idx = next as usize;
-            }
-        }
-        AppEvent::MoveReasoningEffortSelection(delta) => {
-            let len = app.selected_codex_reasoning_options().len();
-            if len > 0 {
-                let next =
-                    (app.reasoning_effort_picker_idx as i32 + delta).clamp(0, len as i32 - 1);
-                app.reasoning_effort_picker_idx = next as usize;
-            }
-        }
-        AppEvent::MoveAuthModeSelection(delta) => {
-            let max_idx = AUTH_MODE_OPTION_COUNT.saturating_sub(1);
-            let next = (app.auth_mode_idx as i32 + delta).clamp(0, max_idx as i32);
-            app.auth_mode_idx = next as usize;
         }
         AppEvent::MoveListPickerSelection(delta) => {
             let Some(Overlay::ListPicker(kind)) = app.overlay else {
@@ -165,23 +115,12 @@ pub(crate) async fn dispatch_event(
             kind.set_idx(app, idx);
         }
         AppEvent::MovePermissionSelection(delta) => {
-            let max_idx = 3i32; // Auto, AcceptEdits, ReadOnly, FullAccess
+            let max_idx = 3i32;
             let next = (app.permission_picker_idx as i32 + delta).clamp(0, max_idx);
             app.permission_picker_idx = next as usize;
         }
         AppEvent::SetPermissionSelection(idx) => {
             app.permission_picker_idx = idx.min(3usize);
-        }
-        AppEvent::SetProviderSelection(idx) => {
-            app.provider_picker_idx = idx.min(PROVIDER_FAMILIES.len() - 1);
-            app.model_picker_idx = 0;
-        }
-        AppEvent::SetAuthModeSelection(idx) => {
-            app.auth_mode_idx = idx.min(AUTH_MODE_OPTION_COUNT.saturating_sub(1));
-        }
-        AppEvent::SetReasoningEffortSelection(idx) => {
-            let len = app.selected_codex_reasoning_options().len();
-            app.reasoning_effort_picker_idx = idx.min(len.saturating_sub(1));
         }
         AppEvent::SelectPendingOption(idx) => {
             if let Some(interaction) = app.active_pending_interaction() {
@@ -209,115 +148,51 @@ pub(crate) async fn dispatch_event(
                             start_pending_approval_task(app, selection, agent);
                         }
                     }
-                    ActivePendingInteractionKind::PlanningQuestion
-                    | ActivePendingInteractionKind::ExplorationQuestion
-                    | ActivePendingInteractionKind::SubAgentQuestion
-                    | ActivePendingInteractionKind::RequestInput => {
-                        if let Some(label) = app.pending_question_option_label(idx) {
-                            if let Some(agent) = agent_slot.as_mut() {
-                                agent.consume_pending_user_input(&label);
-                                app.sync_snapshot(agent);
-                            }
-                            app.set_input(label);
-                            if handle_submit(app, agent_slot, oauth_manager).await? {
-                                return Ok(true);
-                            }
-                        }
-                    }
+                    _ => {}
                 }
             }
         }
         AppEvent::CycleModelSelection => {
-            app.cycle_local_model();
+            let len = app.current_model_picker_len();
+            if len > 0 {
+                app.model_picker_idx = (app.model_picker_idx + 1) % len;
+            }
         }
         AppEvent::SaveBaseUrlInput => {
-            if app.is_busy() {
-                app.push_notice("Wait for the current task before saving the base URL.");
-            } else {
-                let value = app.base_url_input.trim();
-                app.config
-                    .set_base_url((!value.is_empty()).then(|| value.to_string()));
-                app.config_manager.save(&app.config)?;
-                app.notice = Some(format!(
-                    "Saved base URL: {}",
-                    app.config.base_url.as_deref().unwrap_or("unset")
-                ));
-                if app.openai_setup_steps.is_empty() {
-                    app.close_overlay();
-                } else {
-                    app.advance_openai_profile_setup();
-                }
-            }
+            let value = app.base_url_input.trim();
+            app.config
+                .set_base_url((!value.is_empty()).then(|| value.to_string()));
+            app.config_manager.save(&app.config)?;
+            app.notice = Some(format!(
+                "Saved base URL: {}",
+                app.config.base_url.as_deref().unwrap_or("unset")
+            ));
+            app.close_overlay();
         }
         AppEvent::SaveApiKeyInput => {
             let value = app.api_key_input.trim();
-            if app.is_busy() {
-                app.push_notice("Wait for the current task before saving the API key.");
-            } else if value.is_empty() && app.config.provider == "codex" {
-                app.push_notice("Enter a Codex API key or press Esc to go back.");
-            } else if value.is_empty() && app.selected_provider_family() == ProviderFamily::DeepSeek
-            {
-                app.push_notice("Enter a DeepSeek API key or press Esc to go back.");
-            } else if value.is_empty() && app.openai_setup_keep_empty_api_key {
-                app.notice = Some("Kept existing API key for the current profile.".into());
-                app.advance_openai_profile_setup();
-            } else if value.is_empty() {
-                app.config.clear_api_key();
-                if app.config.provider == "codex" {
-                    app.codex_auth_mode = None;
-                }
-                app.config_manager.save(&app.config)?;
-                app.notice = Some("Cleared API key for the current provider.".into());
-                if app.openai_setup_steps.is_empty() {
-                    app.close_overlay();
-                } else {
-                    app.advance_openai_profile_setup();
-                }
+            if value.is_empty() {
+                app.notice = Some("API key unchanged.".into());
             } else {
-                let was_deepseek = app.selected_provider_family() == ProviderFamily::DeepSeek;
-                app.config.set_api_key(value.to_string());
-                if app.config.provider == "codex" {
-                    app.codex_auth_mode = Some(SavedCodexAuthMode::ApiKey);
-                    app.config
-                        .apply_codex_defaults_for_base_url(DEFAULT_CODEX_BASE_URL);
-                }
+                app.config.set_api_key(value);
                 app.config_manager.save(&app.config)?;
-                if app.config.provider == "codex" {
-                    app.notice = Some("Saved Codex API key. Rebuilding backend.".into());
-                    app.overlay = None;
-                    start_rebuild_task(app);
-                } else if was_deepseek {
-                    app.notice = Some("Saved DeepSeek API key. Loading models.".into());
-                    app.overlay = None;
-                    start_deepseek_model_list_task(app);
-                } else {
-                    app.notice = Some("Saved API key for the current provider.".into());
-                    if app.openai_setup_steps.is_empty() {
-                        app.close_overlay();
-                    } else {
-                        app.advance_openai_profile_setup();
-                    }
-                }
+                app.notice = Some("Saved API key.".into());
+            }
+            app.close_overlay();
+            if app.config.provider == "codex" {
+                start_rebuild_task(app);
             }
         }
         AppEvent::SaveModelNameInput => {
-            if app.is_busy() {
-                app.push_notice("Wait for the current task before saving the model name.");
-            } else {
-                let value = app.model_name_input.trim();
-                if value.is_empty() {
-                    app.push_notice("Enter a model name or press Esc to go back.");
-                } else {
-                    app.config.set_model(Some(value.to_string()));
-                    app.config_manager.save(&app.config)?;
-                    app.notice = Some(format!("Saved model name: {}", value));
-                    if app.openai_setup_steps.is_empty() {
-                        app.close_overlay();
-                    } else {
-                        app.advance_openai_profile_setup();
-                    }
-                }
-            }
+            let value = app.model_name_input.trim();
+            app.config
+                .set_model((!value.is_empty()).then(|| value.to_string()));
+            app.config_manager.save(&app.config)?;
+            app.notice = Some(format!(
+                "Saved model name: {}",
+                app.config.model.as_deref().unwrap_or("unset")
+            ));
+            app.close_overlay();
         }
         AppEvent::SaveOpenAiProfileLabelInput => {
             if app.is_busy() {
@@ -350,43 +225,6 @@ pub(crate) async fn dispatch_event(
                 app.begin_openai_profile_setup();
             }
         }
-        AppEvent::DeleteOpenAiProfile => {
-            if app.is_busy() {
-                app.push_notice("Wait for the current task before deleting a profile.");
-            } else {
-                apply_openai_model_picker_action(app, OpenAiModelPickerAction::DeleteProfile)?;
-            }
-        }
-        AppEvent::RefreshDeepSeekModels => {
-            if app.is_busy() {
-                app.push_notice("Wait for the current task before refreshing DeepSeek models.");
-            } else if app.selected_provider_family() != ProviderFamily::DeepSeek {
-                app.push_notice("DeepSeek model refresh is only available in DeepSeek.");
-            } else if !app.config.has_api_key() {
-                app.open_overlay(Overlay::ApiKeyEditor);
-            } else {
-                start_deepseek_model_list_task(app);
-            }
-        }
-        AppEvent::SelectHelpTab(tab) => {
-            app.open_overlay(Overlay::Help(tab));
-        }
-        AppEvent::SelectStatusTab(tab) => {
-            app.open_overlay(Overlay::Status(tab));
-        }
-        AppEvent::SetModelSelection(idx) => {
-            app.model_picker_idx = idx.min(app.current_model_picker_len().saturating_sub(1));
-        }
-        AppEvent::SetOpenAiProfileSelection(idx) => {
-            let len = app.selected_openai_profiles().len() + 1;
-            app.openai_profile_picker_idx = idx.min(len.saturating_sub(1));
-        }
-        AppEvent::SetResumeSelection(idx) => {
-            let len = app.recent_threads.len();
-            if len > 0 {
-                app.resume_picker_idx = idx.min(len - 1);
-            }
-        }
         AppEvent::EditOpenAiProfile => {
             if app.is_busy() {
                 app.push_notice("Wait for the current task before editing a profile.");
@@ -397,6 +235,22 @@ pub(crate) async fn dispatch_event(
                 }
             }
         }
+        AppEvent::DeleteOpenAiProfile => {
+            if app.is_busy() {
+                app.push_notice("Wait for the current task before deleting a profile.");
+            } else if app.selected_provider_family() == ProviderFamily::OpenAiCompatible {
+                apply_openai_model_picker_action(app, OpenAiModelPickerAction::DeleteProfile)?;
+            }
+        }
+        AppEvent::RefreshDeepSeekModels => {
+            start_deepseek_model_list_task(app);
+        }
+        AppEvent::SelectHelpTab(tab) => {
+            app.open_overlay(Overlay::Help(tab));
+        }
+        AppEvent::SelectStatusTab(tab) => {
+            app.open_overlay(Overlay::Status(tab));
+        }
         AppEvent::ApplyOverlaySelection => match app.overlay {
             Some(Overlay::CommandPalette) => {
                 let query = app.command_query();
@@ -405,60 +259,6 @@ pub(crate) async fn dispatch_event(
                     app.close_overlay();
                     if handle_submit(app, agent_slot, oauth_manager).await? {
                         return Ok(true);
-                    }
-                }
-            }
-            Some(Overlay::ProviderPicker) => {
-                if app.is_busy() {
-                    app.push_notice("A task is already running. Wait for it to finish.");
-                } else {
-                    open_provider_family_overlay(app, oauth_manager.as_ref()).await?;
-                    if app.selected_provider_family() == ProviderFamily::DeepSeek
-                        && app.config.has_api_key()
-                        && matches!(app.overlay, Some(Overlay::ModelPicker))
-                    {
-                        start_deepseek_model_list_task(app);
-                    }
-                }
-            }
-            Some(Overlay::OpenAiEndpointKindPicker) => {
-                if app.is_busy() {
-                    app.push_notice("A task is already running. Wait for it to finish.");
-                } else {
-                    let kind = app.selected_openai_setup_kind();
-                    app.set_openai_setup_kind(kind);
-                    app.config_manager.save(&app.config)?;
-                }
-            }
-            Some(Overlay::ResumePicker) => {
-                if app.is_busy() {
-                    app.push_notice("A task is already running. Wait for it to finish.");
-                } else if let Some(thread_id) = app
-                    .recent_threads
-                    .get(app.resume_picker_idx)
-                    .map(|session| session.metadata.session_id.clone())
-                {
-                    restore_thread_by_id(thread_id.as_str(), app, agent_slot)?;
-                    app.close_overlay();
-                }
-            }
-            Some(Overlay::OpenAiProfilePicker) => {
-                if app.is_busy() {
-                    app.push_notice("A task is already running. Wait for it to finish.");
-                } else if app.openai_profile_picker_idx == 0 {
-                    app.openai_profile_label_kind = app.selected_openai_profile_kind();
-                    app.open_overlay(Overlay::OpenAiProfileLabelEditor);
-                } else if let Some((profile_id, label)) = app
-                    .selected_openai_profiles()
-                    .get(app.openai_profile_picker_idx - 1)
-                    .cloned()
-                {
-                    if let Some(kind) = app.selected_openai_profile_kind() {
-                        app.config
-                            .select_openai_profile(profile_id, label.clone(), kind);
-                        app.config_manager.save(&app.config)?;
-                        app.notice = Some(format!("Selected endpoint profile: {label}"));
-                        app.overlay = Some(Overlay::ModelPicker);
                     }
                 }
             }
@@ -477,100 +277,137 @@ pub(crate) async fn dispatch_event(
                     app.close_overlay();
                 }
             }
-            Some(Overlay::ModelPicker) => {
+            Some(Overlay::ListPicker(kind)) => {
                 if app.is_busy() {
                     app.push_notice("A task is already running. Wait for it to finish.");
                 } else {
-                    if app.selected_provider_family() == ProviderFamily::Codex {
-                        let _ = sync_codex_credential_from_auth_store(app, oauth_manager.as_ref())?;
-                    }
-                    if should_open_codex_auth_guide(app, oauth_manager.as_ref()) {
-                        app.select_local_model(app.model_picker_idx);
-                        app.open_overlay(Overlay::AuthModePicker);
-                    } else if app.selected_provider_family() == ProviderFamily::Codex {
-                        app.select_local_model(app.model_picker_idx);
-                        if app.selected_codex_reasoning_options().len() <= 1 {
+                    match kind {
+                        ListPickerKind::Provider => {
+                            open_provider_family_overlay(app, oauth_manager.as_ref()).await?;
+                        }
+                        ListPickerKind::Model => {
+                            if app.selected_provider_family() == ProviderFamily::Codex {
+                                let _ = sync_codex_credential_from_auth_store(
+                                    app,
+                                    oauth_manager.as_ref(),
+                                )?;
+                            }
+                            if should_open_codex_auth_guide(app, oauth_manager.as_ref()) {
+                                app.select_local_model(app.model_picker_idx);
+                                app.open_overlay(Overlay::ListPicker(ListPickerKind::AuthMode));
+                            } else if app.selected_provider_family() == ProviderFamily::Codex {
+                                app.select_local_model(app.model_picker_idx);
+                                if app.selected_codex_reasoning_options().len() <= 1 {
+                                    app.apply_selected_codex_reasoning_effort();
+                                    start_rebuild_task(app);
+                                } else {
+                                    app.open_overlay(Overlay::ListPicker(
+                                        ListPickerKind::ReasoningEffort,
+                                    ));
+                                }
+                            } else if app.selected_provider_family()
+                                == ProviderFamily::OpenAiCompatible
+                            {
+                                if let Some(action) = app.selected_openai_model_picker_action() {
+                                    apply_openai_model_picker_action(app, action)?;
+                                }
+                            } else if app.selected_provider_family() == ProviderFamily::DeepSeek {
+                                if app.selected_deepseek_api_key_action() {
+                                    app.open_overlay(Overlay::ApiKeyEditor);
+                                } else if app.config.has_api_key() {
+                                    app.select_local_model(app.model_picker_idx);
+                                    start_rebuild_task(app);
+                                } else {
+                                    app.open_overlay(Overlay::ApiKeyEditor);
+                                }
+                            } else {
+                                app.select_local_model(app.model_picker_idx);
+                                start_rebuild_task(app);
+                            }
+                        }
+                        ListPickerKind::AuthMode => match app.auth_mode_idx {
+                            0 if !is_ssh_session() => {
+                                app.close_overlay();
+                                start_oauth_task(
+                                    app,
+                                    Arc::clone(oauth_manager),
+                                    super::state::OAuthLoginMode::Browser,
+                                );
+                            }
+                            0 => app.push_notice("Browser login unavailable in SSH/headless."),
+                            1 => {
+                                app.close_overlay();
+                                start_oauth_task(
+                                    app,
+                                    Arc::clone(oauth_manager),
+                                    super::state::OAuthLoginMode::DeviceCode,
+                                );
+                            }
+                            2 => app.open_overlay(Overlay::ApiKeyEditor),
+                            3 => {
+                                let removed = oauth_manager.clear_saved_auth()?;
+                                app.config.clear_provider_api_key("codex");
+                                app.codex_auth_mode = None;
+                                app.config_manager.save(&app.config)?;
+                                app.notice = Some(
+                                    if removed {
+                                        "Cleared saved credential."
+                                    } else {
+                                        "No saved credential present."
+                                    }
+                                    .into(),
+                                );
+                                if app.config.provider == "codex" {
+                                    start_rebuild_task(app);
+                                }
+                            }
+                            _ => {}
+                        },
+                        ListPickerKind::ReasoningEffort => {
+                            app.select_local_model(app.model_picker_idx);
                             app.apply_selected_codex_reasoning_effort();
                             start_rebuild_task(app);
-                        } else {
-                            app.open_overlay(Overlay::ReasoningEffortPicker);
                         }
-                    } else if app.selected_provider_family() == ProviderFamily::OpenAiCompatible {
-                        if let Some(action) = app.selected_openai_model_picker_action() {
-                            apply_openai_model_picker_action(app, action)?;
+                        ListPickerKind::Resume => {
+                            if let Some(thread_id) = app
+                                .recent_threads
+                                .get(app.resume_picker_idx)
+                                .map(|session| session.metadata.session_id.clone())
+                            {
+                                restore_thread_by_id(thread_id.as_str(), app, agent_slot)?;
+                                app.close_overlay();
+                            }
                         }
-                    } else if app.selected_provider_family() == ProviderFamily::DeepSeek {
-                        if app.selected_deepseek_api_key_action() {
-                            app.open_overlay(Overlay::ApiKeyEditor);
-                        } else if app.config.has_api_key() {
-                            app.select_local_model(app.model_picker_idx);
-                            start_rebuild_task(app);
-                        } else {
-                            app.open_overlay(Overlay::ApiKeyEditor);
+                        ListPickerKind::OpenAiEndpointKind => {
+                            let k = app.selected_openai_setup_kind();
+                            app.set_openai_setup_kind(k);
+                            app.config_manager.save(&app.config)?;
                         }
-                    } else {
-                        app.select_local_model(app.model_picker_idx);
-                        start_rebuild_task(app);
+                        ListPickerKind::OpenAiProfile => {
+                            if app.openai_profile_picker_idx == 0 {
+                                app.openai_profile_label_kind = app.selected_openai_profile_kind();
+                                app.open_overlay(Overlay::OpenAiProfileLabelEditor);
+                            } else if let Some((profile_id, label)) = app
+                                .selected_openai_profiles()
+                                .get(app.openai_profile_picker_idx - 1)
+                                .cloned()
+                            {
+                                if let Some(kind) = app.selected_openai_profile_kind() {
+                                    app.config.select_openai_profile(
+                                        profile_id,
+                                        label.clone(),
+                                        kind,
+                                    );
+                                    app.config_manager.save(&app.config)?;
+                                    app.notice =
+                                        Some(format!("Selected endpoint profile: {label}"));
+                                    app.overlay = Some(Overlay::ListPicker(ListPickerKind::Model));
+                                }
+                            }
+                        }
                     }
                 }
             }
-            Some(Overlay::ReasoningEffortPicker) => {
-                if app.is_busy() {
-                    app.push_notice("A task is already running. Wait for it to finish.");
-                } else {
-                    app.select_local_model(app.model_picker_idx);
-                    app.apply_selected_codex_reasoning_effort();
-                    start_rebuild_task(app);
-                }
-            }
-            Some(Overlay::AuthModePicker) => match app.auth_mode_idx {
-                0 => {
-                    if app.is_busy() {
-                        app.push_notice("A task is already running. Wait for it to finish.");
-                    } else if is_ssh_session() {
-                        app.push_notice("Browser login is unavailable in SSH/headless sessions. Choose device code or API key instead.");
-                    } else {
-                        app.close_overlay();
-                        start_oauth_task(
-                            app,
-                            Arc::clone(oauth_manager),
-                            super::state::OAuthLoginMode::Browser,
-                        );
-                    }
-                }
-                1 => {
-                    if app.is_busy() {
-                        app.push_notice("A task is already running. Wait for it to finish.");
-                    } else {
-                        app.close_overlay();
-                        start_oauth_task(
-                            app,
-                            Arc::clone(oauth_manager),
-                            super::state::OAuthLoginMode::DeviceCode,
-                        );
-                    }
-                }
-                2 => app.open_overlay(Overlay::ApiKeyEditor),
-                3 => {
-                    if app.is_busy() {
-                        app.push_notice("A task is already running. Wait for it to finish.");
-                    } else {
-                        let removed = oauth_manager.clear_saved_auth()?;
-                        app.config.clear_provider_api_key("codex");
-                        app.codex_auth_mode = None;
-                        app.config_manager.save(&app.config)?;
-                        app.notice = Some(if removed {
-                            "Cleared the saved provider credential.".into()
-                        } else {
-                            "No saved provider credential was present.".into()
-                        });
-                        if app.config.provider == "codex" {
-                            start_rebuild_task(app);
-                        }
-                    }
-                }
-                _ => {}
-            },
             Some(Overlay::PermissionPicker) => {
                 if app.is_busy() {
                     app.push_notice("A task is already running. Wait for it to finish.");
@@ -587,21 +424,6 @@ pub(crate) async fn dispatch_event(
                     let label = mode.label();
                     app.push_notice(format!("Permission mode: {label}."));
                     app.close_overlay();
-                }
-            }
-            Some(Overlay::ListPicker(kind)) => {
-                if app.is_busy() {
-                    app.push_notice("A task is already running. Wait for it to finish.");
-                } else {
-                    match kind {
-                        ListPickerKind::Provider => {
-                            open_provider_family_overlay(app, oauth_manager.as_ref()).await?;
-                        }
-                        _ => {
-                            app.push_notice("This picker is not yet wired. Closing.");
-                            app.close_overlay();
-                        }
-                    }
                 }
             }
             _ => {}

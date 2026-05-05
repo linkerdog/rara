@@ -11,6 +11,7 @@ use super::render::{desired_viewport_height, render};
 use super::runtime::finish_running_task_if_ready;
 use super::session_restore::{restore_latest_thread, restore_thread_by_id};
 use super::state::GoalHandle;
+use super::state::ListPickerKind;
 use super::state::Overlay;
 use super::state::TuiApp;
 use super::submit::clamp_command_palette_selection;
@@ -68,7 +69,7 @@ pub async fn run_tui(
                     restore_thread_by_id(thread_id.as_str(), &mut app, &mut agent_slot)?;
                 }
                 StartupResumeTarget::Picker => {
-                    app.open_overlay(Overlay::ResumePicker);
+                    app.open_overlay(Overlay::ListPicker(ListPickerKind::Resume));
                 }
             }
         }

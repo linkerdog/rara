@@ -2,8 +2,8 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use super::super::state::{
-    GoalStatus, HelpTab, LocalCommand, LocalCommandKind, Overlay, PermissionMode, RalphGoal,
-    RuntimePhase, StatusTab, TuiApp,
+    GoalStatus, HelpTab, ListPickerKind, LocalCommand, LocalCommandKind, Overlay, PermissionMode,
+    RalphGoal, RuntimePhase, StatusTab, TuiApp,
 };
 use super::tasks::{start_compact_task, start_rebuild_task, start_review_task};
 use crate::agent::{Agent, AgentEvent, AgentExecutionMode, BashApprovalMode};
@@ -87,7 +87,7 @@ pub(super) async fn execute_local_command(
             if app.is_busy() {
                 app.push_notice("A task is already running. Wait for it to finish.");
             } else {
-                app.open_overlay(Overlay::AuthModePicker);
+                app.open_overlay(Overlay::ListPicker(ListPickerKind::AuthMode));
             }
         }
         LocalCommandKind::Logout => {
@@ -173,7 +173,7 @@ pub(super) async fn execute_local_command(
                 RuntimePhase::LocalCommand,
                 Some("opening resume picker".into()),
             );
-            app.open_overlay(Overlay::ResumePicker);
+            app.open_overlay(Overlay::ListPicker(ListPickerKind::Resume));
         }
         LocalCommandKind::Status => {
             app.set_runtime_phase(RuntimePhase::LocalCommand, Some("opening status".into()));
