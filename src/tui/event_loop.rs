@@ -10,6 +10,7 @@ use super::event_stream::{UiEvent, translate_event};
 use super::render::{desired_viewport_height, render};
 use super::runtime::finish_running_task_if_ready;
 use super::session_restore::{restore_latest_thread, restore_thread_by_id};
+use super::state::GoalHandle;
 use super::state::Overlay;
 use super::state::TuiApp;
 use super::submit::clamp_command_palette_selection;
@@ -32,6 +33,7 @@ pub enum StartupResumeTarget {
 
 pub async fn run_tui(
     agent: Agent,
+    goal_handle: GoalHandle,
     oauth_manager: OAuthManager,
     startup_resume: StartupResumeTarget,
     sandbox_network_access: Arc<AtomicBool>,
@@ -40,6 +42,8 @@ pub async fn run_tui(
     enable_raw_mode()?;
     let initial_size = terminal_size()?;
     let mut app = TuiApp::new(crate::config::ConfigManager::new()?)?;
+    app.goal_handle = goal_handle;
+    app.goal = app.goal_handle.read().unwrap().clone();
     app.sandbox_network_access = sandbox_network_access;
     app.event_bus = Some(event_bus);
     // Sync the AtomicBool to match the default Auto preset (network off).

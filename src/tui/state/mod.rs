@@ -19,12 +19,12 @@ pub use self::state_presets::{
 use self::types::CommittedTranscriptRenderCache;
 pub use self::types::{
     ActiveLiveEvent, ActiveLiveSections, ActivePendingInteraction, ActivePendingInteractionKind,
-    AgentMarkdownStreamState, CommandSpec, CompletedInteractionSnapshot, HelpTab, InteractionKind,
-    LocalCommand, LocalCommandKind, OAuthLoginMode, OpenAiModelPickerAction, Overlay,
-    PROVIDER_FAMILIES, PendingApprovalSnapshot, PendingInteractionSnapshot, PermissionMode,
-    ProviderFamily, RebuildSuccess, RunningTask, RuntimePhase, RuntimeSnapshot, SkillPickerEntry,
-    StatusTab, TaskCompletion, TaskKind, TranscriptEntry, TranscriptEntryPayload, TranscriptTurn,
-    TuiApp, TuiEvent,
+    AgentMarkdownStreamState, CommandSpec, CompletedInteractionSnapshot, GoalHandle, GoalStatus,
+    HelpTab, InteractionKind, LocalCommand, LocalCommandKind, OAuthLoginMode,
+    OpenAiModelPickerAction, Overlay, PROVIDER_FAMILIES, PendingApprovalSnapshot,
+    PendingInteractionSnapshot, PermissionMode, ProviderFamily, RalphGoal, RebuildSuccess,
+    RunningTask, RuntimePhase, RuntimeSnapshot, SkillPickerEntry, StatusTab, TaskCompletion,
+    TaskKind, TranscriptEntry, TranscriptEntryPayload, TranscriptTurn, TuiApp, TuiEvent,
 };
 
 const OPENAI_PROFILE_SETUP_KINDS: [OpenAiEndpointKind; 3] = [
@@ -252,6 +252,8 @@ impl TuiApp {
             skill_picker_entries: Vec::new(),
             sandbox_network_access: Arc::new(AtomicBool::new(sandbox_network)),
             permission_mode: PermissionMode::Auto,
+            goal: None,
+            goal_handle: Arc::new(std::sync::RwLock::new(None)),
             event_bus: None,
         })
     }

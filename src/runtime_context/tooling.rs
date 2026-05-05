@@ -16,6 +16,7 @@ use crate::tools::context::RetrieveSessionContextTool;
 use crate::tools::file::{
     FileReadState, ListFilesTool, ReadFileTool, ReplaceLinesTool, ReplaceTool, WriteFileTool,
 };
+use crate::tools::goal::{CreateGoalTool, GetGoalTool, UpdateGoalTool};
 use crate::tools::patch::ApplyPatchTool;
 use crate::tools::planning::{EnterPlanModeTool, ExitPlanModeTool};
 use crate::tools::pty::{
@@ -28,6 +29,7 @@ use crate::tools::todo::TodoWriteTool;
 use crate::tools::vector::{RememberExperienceTool, RetrieveExperienceTool};
 use crate::tools::web::{WebFetchTool, WebSearchTool};
 use crate::tools::workspace::UpdateProjectMemoryTool;
+use crate::tui::state::GoalHandle;
 use crate::vectordb::VectorDB;
 use crate::workspace::WorkspaceMemory;
 
@@ -41,6 +43,7 @@ pub(super) fn create_full_tool_manager(
     prompt_config: PromptRuntimeConfig,
     shell_env: Arc<HashMap<String, String>>,
     sandbox_network_access: Arc<AtomicBool>,
+    goal_handle: GoalHandle,
 ) -> ToolManager {
     let mut tm = ToolManager::new();
     let vector_db_uri = vector_db_uri_for_workspace(&workspace);
@@ -152,6 +155,13 @@ pub(super) fn create_full_tool_manager(
         workspace,
         prompt_config,
     }));
+    tm.register(Box::new(GetGoalTool {
+        store: goal_handle.clone(),
+    }));
+    tm.register(Box::new(CreateGoalTool {
+        store: goal_handle.clone(),
+    }));
+    tm.register(Box::new(UpdateGoalTool { store: goal_handle }));
     tm
 }
 

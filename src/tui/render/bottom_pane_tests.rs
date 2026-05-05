@@ -399,3 +399,35 @@ fn activity_status_line_hides_completed_prompt_notice() {
     assert_eq!(label, "Ready");
     assert_eq!(detail, "waiting for input");
 }
+
+#[test]
+fn goal_is_none_by_default() {
+    let temp = tempdir().unwrap();
+    let app = TuiApp::new(ConfigManager {
+        path: temp.path().join("config.json"),
+    })
+    .expect("build tui app");
+    assert!(app.goal.is_none());
+}
+
+#[test]
+fn setting_goal_preserves_activity_status_label() {
+    use crate::tui::state::{GoalStatus, RalphGoal};
+
+    let temp = tempdir().unwrap();
+    let mut app = TuiApp::new(ConfigManager {
+        path: temp.path().join("config.json"),
+    })
+    .expect("build tui app");
+    app.goal = Some(RalphGoal {
+        objective: "fix the build".into(),
+        status: GoalStatus::Pursuing,
+        token_budget: None,
+        tokens_used: 0,
+        turns_completed: 0,
+    });
+
+    // Goal rendering is in render_activity_bar (badge), not in activity_status_line.
+    let (label, _, _) = activity_status_line(&app);
+    assert_eq!(label, "Ready");
+}

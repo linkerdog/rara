@@ -2,8 +2,8 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use super::super::state::{
-    HelpTab, LocalCommand, LocalCommandKind, Overlay, PermissionMode, RuntimePhase, StatusTab,
-    TuiApp,
+    GoalStatus, HelpTab, LocalCommand, LocalCommandKind, Overlay, PermissionMode, RalphGoal,
+    RuntimePhase, StatusTab, TuiApp,
 };
 use super::tasks::{start_compact_task, start_rebuild_task, start_review_task};
 use crate::agent::{Agent, AgentEvent, AgentExecutionMode, BashApprovalMode};
@@ -35,6 +35,7 @@ pub(super) async fn execute_local_command(
         LocalCommandKind::Status => "status",
         LocalCommandKind::Skills => "skills",
         LocalCommandKind::Permissions => "permissions",
+        LocalCommandKind::Goal => "goal",
     });
     match command.kind {
         LocalCommandKind::Approval => {
@@ -171,6 +172,109 @@ pub(super) async fn execute_local_command(
         LocalCommandKind::Status => {
             app.set_runtime_phase(RuntimePhase::LocalCommand, Some("opening status".into()));
             app.open_overlay(Overlay::Status(StatusTab::Overview));
+        }
+        LocalCommandKind::Goal => {
+            app.set_runtime_phase(
+                RuntimePhase::LocalCommand,
+                Some("processing goal command".into()),
+            );
+            let arg = command.arg.as_deref().unwrap_or("").trim();
+            match arg {
+                "" => {
+                    // /goal with no subcommand: show current goal status
+                    if let Some(goal) = app.goal.as_ref() {
+                        let status_str = match goal.status {
+                            GoalStatus::Pursuing => "pursuing",
+                            GoalStatus::Paused => "paused",
+                            GoalStatus::Achieved => "achieved",
+                            GoalStatus::Unmet => "unmet",
+                            GoalStatus::BudgetLimited => "budget-limited",
+                        };
+                        let mut notice = format!(
+                            "Goal: {} [{}] · turns={} · tokens={}",
+                            goal.objective, status_str, goal.turns_completed, goal.tokens_used
+                        );
+                        if let Some(budget) = goal.token_budget {
+                            notice.push_str(&format!("/{budget}"));
+                        }
+                        app.push_notice(notice);
+                    } else {
+                        app.push_notice("No active goal. Set one with /goal <objective>.");
+                    }
+                }
+                "pause" => {
+                    if let Some(goal) = app.goal.as_mut() {
+                        if goal.status == GoalStatus::Pursuing {
+                            goal.status = GoalStatus::Paused;
+                            app.push_notice("Goal paused. Use /goal resume to continue.");
+                            *app.goal_handle.write().unwrap() = app.goal.clone();
+                        } else {
+                            app.push_notice("Goal is not currently pursuing; nothing to pause.");
+                        }
+                    } else {
+                        app.push_notice("No active goal to pause.");
+                    }
+                }
+                "resume" => {
+                    if let Some(goal) = app.goal.as_mut() {
+                        if goal.status == GoalStatus::Paused {
+                            goal.status = GoalStatus::Pursuing;
+                            *app.goal_handle.write().unwrap() = app.goal.clone();
+                            app.push_notice("Goal resumed. The agent will continue working.");
+                        } else {
+                            app.push_notice("Goal is not paused; nothing to resume.");
+                        }
+                    } else {
+                        app.push_notice("No active goal to resume.");
+                    }
+                }
+                "clear" => {
+                    if app.goal.is_some() {
+                        app.goal = None;
+                        *app.goal_handle.write().unwrap() = None;
+                        app.push_notice("Goal cleared.");
+                    } else {
+                        app.push_notice("No active goal to clear.");
+                    }
+                }
+                objective => {
+                    // /goal <objective> — start a new goal.
+                    // Optional numeric budget prefix: /goal 50000 fix the build.
+                    let mut budget: Option<u32> = None;
+                    let objective_clean = if let Some((first, rest)) = objective.split_once(' ') {
+                        // Only treat the first word as a budget if it is purely ASCII digits.
+                        if first.bytes().all(|b| b.is_ascii_digit()) {
+                            if let Ok(b) = first.parse::<u32>() {
+                                budget = Some(b);
+                                rest
+                            } else {
+                                objective
+                            }
+                        } else {
+                            objective
+                        }
+                    } else {
+                        objective
+                    };
+                    if objective_clean.is_empty() {
+                        app.push_notice("Goal objective cannot be empty.");
+                    } else {
+                        app.goal = Some(RalphGoal {
+                            objective: objective_clean.to_string(),
+                            status: GoalStatus::Pursuing,
+                            token_budget: budget,
+                            tokens_used: 0,
+                            turns_completed: 0,
+                        });
+                        *app.goal_handle.write().unwrap() = app.goal.clone();
+                        let mut notice = format!("Goal set: {}", objective_clean);
+                        if let Some(b) = budget {
+                            notice.push_str(&format!(" [budget: {b} tokens]"));
+                        }
+                        app.push_notice(notice);
+                    }
+                }
+            }
         }
         LocalCommandKind::Skills => {
             app.set_runtime_phase(

@@ -10,7 +10,7 @@ use super::super::custom_terminal::Frame;
 use super::super::interaction_text::pending_interaction_hint_text;
 use super::super::queued_input::{pending_follow_up_hint, queued_follow_up_hint};
 use super::super::state::char_offset_to_byte_index;
-use super::super::state::{ActivePendingInteractionKind, TaskKind, TuiApp};
+use super::super::state::{ActivePendingInteractionKind, GoalStatus, TaskKind, TuiApp};
 use super::badge;
 use crate::tui::format::cache_hit_rate_label;
 use crate::tui::theme::*;
@@ -83,6 +83,27 @@ fn render_activity_bar(f: &mut Frame, app: &TuiApp, area: Rect) {
     if app.permission_mode_label() != "auto" {
         spans.push(Span::raw("  "));
         spans.push(badge("perm", app.permission_mode_label(), STATUS_INFO));
+    }
+    if let Some(goal) = app.goal.as_ref() {
+        spans.push(Span::raw("  "));
+        let (goal_label, goal_color) = match goal.status {
+            GoalStatus::Pursuing => ("pursuing", STATUS_INFO),
+            GoalStatus::Paused => ("paused", STATUS_WARNING),
+            GoalStatus::Achieved => ("done", STATUS_SUCCESS),
+            GoalStatus::Unmet => ("unmet", STATUS_ERROR),
+            GoalStatus::BudgetLimited => ("budget", STATUS_WARNING),
+        };
+        spans.push(badge("goal", goal_label, goal_color));
+        let goal_detail = if let Some(budget) = goal.token_budget {
+            format!(
+                "t{} · {}/{}tk",
+                goal.turns_completed, goal.tokens_used, budget
+            )
+        } else {
+            format!("t{} · {}tk", goal.turns_completed, goal.tokens_used)
+        };
+        spans.push(Span::raw(" "));
+        spans.push(Span::styled(goal_detail, Style::default().fg(TEXT_MUTED)));
     }
     if !detail.is_empty() {
         spans.push(Span::raw("  "));

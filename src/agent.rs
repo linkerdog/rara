@@ -150,6 +150,7 @@ pub struct Agent {
     pub retrieved_memory_candidates: Vec<RetrievedMemoryCandidate>,
     inspection_progress: InspectionProgress,
     last_query_plan_updated: bool,
+    last_turn_had_tool_calls: bool,
     pending_plan_exit_tool_id: Option<String>,
     prompt_config: PromptRuntimeConfig,
     cancellation_token: Option<Arc<AtomicBool>>,
@@ -206,6 +207,7 @@ impl Agent {
             retrieved_memory_candidates: Vec::new(),
             inspection_progress: InspectionProgress::default(),
             last_query_plan_updated: false,
+            last_turn_had_tool_calls: false,
             pending_plan_exit_tool_id: None,
             prompt_config: PromptRuntimeConfig::default(),
             cancellation_token: None,
@@ -511,6 +513,7 @@ impl Agent {
             self.ensure_active_plan_step();
             let mut turn_output = self.run_model_turn(output_mode, report).await?;
             self.last_query_plan_updated = turn_output.plan_updated;
+            self.last_turn_had_tool_calls = !turn_output.tool_calls.is_empty();
             if turn_output
                 .tool_calls
                 .iter()

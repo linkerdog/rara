@@ -492,19 +492,19 @@ fn deepseek_reasoner_defaults_preserve_standard_body() {
 }
 
 #[test]
-fn deepseek_v4_pro_infers_lite_auxiliary_model() {
+fn deepseek_v4_pro_infers_flash_auxiliary_model() {
     assert_eq!(
         infer_openai_compatible_auxiliary_model("deepseek-v4-pro", OpenAiEndpointKind::Deepseek)
             .as_deref(),
-        Some("deepseek-v4-lite")
+        Some("deepseek-v4-flash")
     );
     assert_eq!(
         infer_openai_compatible_auxiliary_model("DeepSeek-V4-PRO", OpenAiEndpointKind::Deepseek)
             .as_deref(),
-        Some("DeepSeek-V4-lite")
+        Some("DeepSeek-V4-flash")
     );
     assert_eq!(
-        infer_openai_compatible_auxiliary_model("deepseek-v4-lite", OpenAiEndpointKind::Deepseek),
+        infer_openai_compatible_auxiliary_model("deepseek-v4-flash", OpenAiEndpointKind::Deepseek),
         None
     );
     assert_eq!(

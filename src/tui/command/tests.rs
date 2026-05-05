@@ -677,3 +677,53 @@ fn skills_picker_render_shows_entries() {
     assert!(app.skill_picker_entries[1].disable_model_invocation);
     assert!(app.skill_picker_entries[0].enabled);
 }
+
+#[test]
+fn parses_goal_command_with_objective() {
+    let command = parse_local_command("/goal fix the build").expect("/goal should parse");
+    assert!(matches!(command.kind, LocalCommandKind::Goal));
+    assert_eq!(command.arg.as_deref(), Some("fix the build"));
+}
+
+#[test]
+fn parses_goal_command_with_subcommand() {
+    let command = parse_local_command("/goal pause").expect("/goal should parse");
+    assert!(matches!(command.kind, LocalCommandKind::Goal));
+    assert_eq!(command.arg.as_deref(), Some("pause"));
+}
+
+#[test]
+fn parses_goal_bare_command_without_argument() {
+    let command = parse_local_command("/goal").expect("/goal should parse");
+    assert!(matches!(command.kind, LocalCommandKind::Goal));
+    assert!(command.arg.is_none());
+}
+
+#[test]
+fn goal_command_spec_is_registered() {
+    let spec = COMMAND_SPECS
+        .iter()
+        .find(|s| s.name == "goal")
+        .expect("goal should be in COMMAND_SPECS");
+    assert_eq!(
+        spec.usage,
+        "/goal [<N> <objective> | <objective> | pause | resume | clear]"
+    );
+    assert!(spec.summary.contains("goal"));
+    assert!(spec.detail.contains("/goal <N>"));
+    assert!(spec.detail.contains("/goal <objective>"));
+    assert!(spec.detail.contains("/goal pause"));
+    assert!(spec.detail.contains("/goal resume"));
+    assert!(spec.detail.contains("/goal clear"));
+}
+
+#[test]
+fn goal_appears_in_palette_commands() {
+    let temp = tempdir().expect("tempdir");
+    let app = TuiApp::new(ConfigManager {
+        path: temp.path().join("config.json"),
+    })
+    .expect("build app");
+    let results = palette_commands(&app, "goal");
+    assert!(results.iter().any(|s| s.name == "goal"));
+}
