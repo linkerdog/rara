@@ -95,9 +95,30 @@ pub(super) fn render_overlay(
             None
         }
         Overlay::ListPicker(kind) => {
-            let popup = centered_rect(72, 70, f.area());
-            f.render_widget(Clear, popup);
-            super::super::list_picker::render_list_picker(f, app, kind, popup);
+            // Delegate to existing render functions while migration is in progress.
+            match kind {
+                super::super::state::ListPickerKind::Provider => {
+                    let popup = setup_flow_rect(f.area());
+                    f.render_widget(Clear, popup);
+                    render_provider_picker_modal(f, app, popup);
+                }
+                super::super::state::ListPickerKind::Model => {
+                    let popup = setup_flow_rect(f.area());
+                    f.render_widget(Clear, popup);
+                    render_model_picker_modal(f, app, popup);
+                }
+                super::super::state::ListPickerKind::Resume => {
+                    let popup = setup_flow_rect(f.area());
+                    f.render_widget(Clear, popup);
+                    render_resume_picker_modal(f, app, popup);
+                }
+                _ => {
+                    // Everything else uses the generic render path.
+                    let popup = centered_rect(72, 70, f.area());
+                    f.render_widget(Clear, popup);
+                    super::super::list_picker::render_list_picker(f, app, kind, popup);
+                }
+            }
             None
         }
         Overlay::PermissionPicker => {

@@ -597,9 +597,123 @@ pub(crate) async fn dispatch_event(
                         ListPickerKind::Provider => {
                             open_provider_family_overlay(app, oauth_manager.as_ref()).await?;
                         }
-                        _ => {
-                            app.push_notice("This picker is not yet wired. Closing.");
-                            app.close_overlay();
+                        ListPickerKind::Model => {
+                            if app.selected_provider_family() == ProviderFamily::Codex {
+                                let _ = sync_codex_credential_from_auth_store(
+                                    app,
+                                    oauth_manager.as_ref(),
+                                )?;
+                            }
+                            if should_open_codex_auth_guide(app, oauth_manager.as_ref()) {
+                                app.select_local_model(app.model_picker_idx);
+                                app.open_overlay(Overlay::AuthModePicker);
+                            } else if app.selected_provider_family() == ProviderFamily::Codex {
+                                app.select_local_model(app.model_picker_idx);
+                                if app.selected_codex_reasoning_options().len() <= 1 {
+                                    app.apply_selected_codex_reasoning_effort();
+                                    start_rebuild_task(app);
+                                } else {
+                                    app.open_overlay(Overlay::ReasoningEffortPicker);
+                                }
+                            } else if app.selected_provider_family()
+                                == ProviderFamily::OpenAiCompatible
+                            {
+                                if let Some(action) = app.selected_openai_model_picker_action() {
+                                    apply_openai_model_picker_action(app, action)?;
+                                }
+                            } else if app.selected_provider_family() == ProviderFamily::DeepSeek {
+                                if app.selected_deepseek_api_key_action() {
+                                    app.open_overlay(Overlay::ApiKeyEditor);
+                                } else if app.config.has_api_key() {
+                                    app.select_local_model(app.model_picker_idx);
+                                    start_rebuild_task(app);
+                                } else {
+                                    app.open_overlay(Overlay::ApiKeyEditor);
+                                }
+                            } else {
+                                app.select_local_model(app.model_picker_idx);
+                                start_rebuild_task(app);
+                            }
+                        }
+                        ListPickerKind::AuthMode => match app.auth_mode_idx {
+                            0 if !is_ssh_session() => {
+                                app.close_overlay();
+                                start_oauth_task(
+                                    app,
+                                    Arc::clone(oauth_manager),
+                                    super::state::OAuthLoginMode::Browser,
+                                );
+                            }
+                            0 => app.push_notice("Browser login unavailable in SSH/headless."),
+                            1 => {
+                                app.close_overlay();
+                                start_oauth_task(
+                                    app,
+                                    Arc::clone(oauth_manager),
+                                    super::state::OAuthLoginMode::DeviceCode,
+                                );
+                            }
+                            2 => app.open_overlay(Overlay::ApiKeyEditor),
+                            3 => {
+                                let removed = oauth_manager.clear_saved_auth()?;
+                                app.config.clear_provider_api_key("codex");
+                                app.codex_auth_mode = None;
+                                app.config_manager.save(&app.config)?;
+                                app.notice = Some(
+                                    if removed {
+                                        "Cleared saved credential."
+                                    } else {
+                                        "No saved credential present."
+                                    }
+                                    .into(),
+                                );
+                                if app.config.provider == "codex" {
+                                    start_rebuild_task(app);
+                                }
+                            }
+                            _ => {}
+                        },
+                        ListPickerKind::ReasoningEffort => {
+                            app.select_local_model(app.model_picker_idx);
+                            app.apply_selected_codex_reasoning_effort();
+                            start_rebuild_task(app);
+                        }
+                        ListPickerKind::Resume => {
+                            if let Some(thread_id) = app
+                                .recent_threads
+                                .get(app.resume_picker_idx)
+                                .map(|session| session.metadata.session_id.clone())
+                            {
+                                restore_thread_by_id(thread_id.as_str(), app, agent_slot)?;
+                                app.close_overlay();
+                            }
+                        }
+                        ListPickerKind::OpenAiEndpointKind => {
+                            let kind = app.selected_openai_setup_kind();
+                            app.set_openai_setup_kind(kind);
+                            app.config_manager.save(&app.config)?;
+                        }
+                        ListPickerKind::OpenAiProfile => {
+                            if app.openai_profile_picker_idx == 0 {
+                                app.openai_profile_label_kind = app.selected_openai_profile_kind();
+                                app.open_overlay(Overlay::OpenAiProfileLabelEditor);
+                            } else if let Some((profile_id, label)) = app
+                                .selected_openai_profiles()
+                                .get(app.openai_profile_picker_idx - 1)
+                                .cloned()
+                            {
+                                if let Some(kind) = app.selected_openai_profile_kind() {
+                                    app.config.select_openai_profile(
+                                        profile_id,
+                                        label.clone(),
+                                        kind,
+                                    );
+                                    app.config_manager.save(&app.config)?;
+                                    app.notice =
+                                        Some(format!("Selected endpoint profile: {label}"));
+                                    app.overlay = Some(Overlay::ModelPicker);
+                                }
+                            }
                         }
                     }
                 }
