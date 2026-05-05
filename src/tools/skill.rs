@@ -12,18 +12,22 @@ pub struct SkillTool {
 }
 #[tool_spec(
     name = "skill",
-    description = "Manage and invoke reusable skills. Skills are stored in SKILL.md files across home, repo, and cwd scopes. Higher-precedence scopes override lower-precedence skills with the same name. Use this to discover available skills and load their instructions.",
+    description = "Manage and invoke reusable skills. Skills are stored in SKILL.md files across home, repo, and cwd scopes. Higher-precedence scopes override lower-precedence skills with the same name. Use list to discover available skills, invoke to load instructions, reload to re-scan after file changes.",
     input_schema = {
         "type": "object",
         "properties": {
             "action": {
                 "type": "string",
-                "enum": ["list", "invoke"],
-                "description": "list: discover available skills with their scopes, override status, and metadata. invoke: load a specific skill's full instructions by name."
+                "enum": ["list", "invoke", "reload"],
+                "description": "list: discover available skills with their scopes, override status, and metadata. invoke: load a specific skill's full instructions by name. reload: re-scan skill directories after file changes."
             },
             "skill_name": {
                 "type": "string",
-                "description": "Name of the skill to invoke. Required when action is invoke. The skill name comes from frontmatter name field or the file/directory name."
+                "description": "Name of the skill to invoke. Required when action is invoke."
+            },
+            "args": {
+                "type": "string",
+                "description": "Optional arguments to pass to the invoked skill (for slash-command-style skills)."
             }
         },
         "required": ["action"]
@@ -78,7 +82,8 @@ impl Tool for SkillTool {
             "invoke" => {
                 let name = i["skill_name"]
                     .as_str()
-                    .ok_or(ToolError::InvalidInput("name".into()))?;
+                    .ok_or(ToolError::InvalidInput("skill_name".into()))?;
+                let args = i.get("args").and_then(|v| v.as_str()).map(String::from);
                 let skill =
                     self.skill_manager
                         .get_skill(name)
@@ -97,10 +102,22 @@ impl Tool for SkillTool {
                     "scope": format!("{:?}", skill.scope).to_lowercase(),
                     "display_path": skill.display_path,
                     "instructions": strip_frontmatter(&skill.prompt),
+                    "args": args,
                     "disable_model_invocation": skill.disable_model_invocation,
                     "overrides_others": !shadowed_scopes.is_empty(),
                     "shadowed_scopes": shadowed_scopes,
                 }))
+            }
+            "reload" => {
+                let mut verify = SkillManager::new();
+                match verify.load_all() {
+                    Ok(()) => Ok(json!({
+                        "reloaded": true,
+                        "skill_count": verify.list_summaries().len(),
+                        "warnings": &verify.load_warnings,
+                    })),
+                    Err(e) => Err(ToolError::ExecutionFailed(e.to_string())),
+                }
             }
             _ => Err(ToolError::InvalidInput("Invalid action".into())),
         }
