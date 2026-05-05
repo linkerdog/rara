@@ -1,4 +1,9 @@
-use std::sync::Arc;
+use std::collections::HashMap;
+use std::sync::{
+    Arc, Mutex,
+    atomic::{AtomicBool, Ordering},
+};
+use std::time::{SystemTime, UNIX_EPOCH};
 
 use async_trait::async_trait;
 use futures::stream::{self, StreamExt, TryStreamExt};
@@ -137,6 +142,7 @@ pub struct AgentTool {
     pub session_manager: Arc<SessionManager>,
     pub workspace: Arc<WorkspaceMemory>,
     pub prompt_config: PromptRuntimeConfig,
+    pub background_subagents: Arc<BackgroundSubAgentStore>,
 }
 
 #[tool_spec(
@@ -146,7 +152,12 @@ pub struct AgentTool {
         "type": "object",
         "properties": {
             "name": { "type": "string" },
-            "instruction": { "type": "string" }
+            "instruction": { "type": "string" },
+            "run_in_background": {
+                "type": "boolean",
+                "default": false,
+                "description": "Start the sub-agent in the background and return immediately. Use subagent_resume to inspect the result and subagent_stop to cancel a running sub-agent."
+            }
         },
         "required": ["name", "instruction"]
     }
@@ -185,12 +196,33 @@ impl AgentTool {
         let instruction = i["instruction"]
             .as_str()
             .ok_or(ToolError::InvalidInput("instruction".into()))?;
+        let agent_id = next_subagent_id(SubAgentKind::General, Some(name));
+        if i.get("run_in_background")
+            .and_then(Value::as_bool)
+            .unwrap_or(false)
+        {
+            let task = self.background_subagents.start(BackgroundSubAgentStart {
+                kind: SubAgentKind::General,
+                agent_id,
+                name: Some(name.to_string()),
+                parent_session_id: parent_session_id.map(str::to_string),
+                instruction: instruction.to_string(),
+                backend: self.backend.clone(),
+                vdb: self.vdb.clone(),
+                session_manager: self.session_manager.clone(),
+                workspace: self.workspace.clone(),
+                prompt_config: self.prompt_config.clone(),
+            })?;
+            return Ok(task.to_json());
+        }
         let result = run_sub_agent(
             SubAgentKind::General,
-            &next_subagent_id(SubAgentKind::General, Some(name)),
+            &agent_id,
             Some(name),
             parent_session_id,
             instruction,
+            None,
+            None,
             self.backend.clone(),
             self.vdb.clone(),
             self.session_manager.clone(),
@@ -219,6 +251,7 @@ pub struct ExploreAgentTool {
     pub session_manager: Arc<SessionManager>,
     pub workspace: Arc<WorkspaceMemory>,
     pub prompt_config: PromptRuntimeConfig,
+    pub background_subagents: Arc<BackgroundSubAgentStore>,
 }
 
 #[tool_spec(
@@ -227,7 +260,12 @@ pub struct ExploreAgentTool {
     input_schema = {
         "type": "object",
         "properties": {
-            "instruction": { "type": "string" }
+            "instruction": { "type": "string" },
+            "run_in_background": {
+                "type": "boolean",
+                "default": false,
+                "description": "Start the exploration sub-agent in the background and return immediately. Use subagent_resume to inspect the result and subagent_stop to cancel a running sub-agent."
+            }
         },
         "required": ["instruction"]
     }
@@ -258,12 +296,33 @@ impl ExploreAgentTool {
         let instruction = i["instruction"]
             .as_str()
             .ok_or(ToolError::InvalidInput("instruction".into()))?;
+        let agent_id = next_subagent_id(SubAgentKind::Explore, None);
+        if i.get("run_in_background")
+            .and_then(Value::as_bool)
+            .unwrap_or(false)
+        {
+            let task = self.background_subagents.start(BackgroundSubAgentStart {
+                kind: SubAgentKind::Explore,
+                agent_id,
+                name: None,
+                parent_session_id: parent_session_id.map(str::to_string),
+                instruction: instruction.to_string(),
+                backend: self.backend.clone(),
+                vdb: self.vdb.clone(),
+                session_manager: self.session_manager.clone(),
+                workspace: self.workspace.clone(),
+                prompt_config: self.prompt_config.clone(),
+            })?;
+            return Ok(task.to_json());
+        }
         let result = run_sub_agent(
             SubAgentKind::Explore,
-            &next_subagent_id(SubAgentKind::Explore, None),
+            &agent_id,
             None,
             parent_session_id,
             instruction,
+            None,
+            None,
             self.backend.clone(),
             self.vdb.clone(),
             self.session_manager.clone(),
@@ -291,6 +350,7 @@ pub struct PlanAgentTool {
     pub session_manager: Arc<SessionManager>,
     pub workspace: Arc<WorkspaceMemory>,
     pub prompt_config: PromptRuntimeConfig,
+    pub background_subagents: Arc<BackgroundSubAgentStore>,
 }
 
 #[tool_spec(
@@ -299,7 +359,12 @@ pub struct PlanAgentTool {
     input_schema = {
         "type": "object",
         "properties": {
-            "instruction": { "type": "string" }
+            "instruction": { "type": "string" },
+            "run_in_background": {
+                "type": "boolean",
+                "default": false,
+                "description": "Start the planning sub-agent in the background and return immediately. Use subagent_resume to inspect the result and subagent_stop to cancel a running sub-agent."
+            }
         },
         "required": ["instruction"]
     }
@@ -330,12 +395,33 @@ impl PlanAgentTool {
         let instruction = i["instruction"]
             .as_str()
             .ok_or(ToolError::InvalidInput("instruction".into()))?;
+        let agent_id = next_subagent_id(SubAgentKind::Plan, None);
+        if i.get("run_in_background")
+            .and_then(Value::as_bool)
+            .unwrap_or(false)
+        {
+            let task = self.background_subagents.start(BackgroundSubAgentStart {
+                kind: SubAgentKind::Plan,
+                agent_id,
+                name: None,
+                parent_session_id: parent_session_id.map(str::to_string),
+                instruction: instruction.to_string(),
+                backend: self.backend.clone(),
+                vdb: self.vdb.clone(),
+                session_manager: self.session_manager.clone(),
+                workspace: self.workspace.clone(),
+                prompt_config: self.prompt_config.clone(),
+            })?;
+            return Ok(task.to_json());
+        }
         let result = run_sub_agent(
             SubAgentKind::Plan,
-            &next_subagent_id(SubAgentKind::Plan, None),
+            &agent_id,
             None,
             parent_session_id,
             instruction,
+            None,
+            None,
             self.backend.clone(),
             self.vdb.clone(),
             self.session_manager.clone(),
@@ -368,6 +454,343 @@ pub struct TeamCreateTool {
     pub session_manager: Arc<SessionManager>,
     pub workspace: Arc<WorkspaceMemory>,
     pub prompt_config: PromptRuntimeConfig,
+}
+
+const BACKGROUND_SUBAGENT_COMPLETED_RETENTION: usize = 64;
+
+#[derive(Clone, Default)]
+pub struct BackgroundSubAgentStore {
+    inner: Arc<Mutex<BackgroundSubAgentState>>,
+}
+
+#[derive(Default)]
+struct BackgroundSubAgentState {
+    tasks: HashMap<String, BackgroundSubAgentRecord>,
+    cancellations: HashMap<String, Arc<AtomicBool>>,
+}
+
+struct BackgroundSubAgentStart {
+    kind: SubAgentKind,
+    agent_id: String,
+    name: Option<String>,
+    parent_session_id: Option<String>,
+    instruction: String,
+    backend: Arc<dyn LlmBackend>,
+    vdb: Arc<VectorDB>,
+    session_manager: Arc<SessionManager>,
+    workspace: Arc<WorkspaceMemory>,
+    prompt_config: PromptRuntimeConfig,
+}
+
+#[derive(Clone, Debug)]
+struct BackgroundSubAgentRecord {
+    agent_id: String,
+    session_id: String,
+    name: Option<String>,
+    kind: &'static str,
+    parent_session_id: Option<String>,
+    status: &'static str,
+    summary: Option<String>,
+    error: Option<String>,
+    persistence_error: Option<String>,
+    plan: Option<Vec<PlanStep>>,
+    plan_explanation: Option<String>,
+    request_user_input: Option<PendingUserInput>,
+    started_at: u64,
+    finished_at: Option<u64>,
+}
+
+impl BackgroundSubAgentStore {
+    fn start(&self, start: BackgroundSubAgentStart) -> Result<BackgroundSubAgentRecord, ToolError> {
+        let session_id = uuid::Uuid::new_v4().to_string();
+        let cancellation = Arc::new(AtomicBool::new(false));
+        let record = BackgroundSubAgentRecord {
+            agent_id: start.agent_id.clone(),
+            session_id: session_id.clone(),
+            name: start.name.clone(),
+            kind: start.kind.label(),
+            parent_session_id: start.parent_session_id.clone(),
+            status: "running",
+            summary: None,
+            error: None,
+            persistence_error: None,
+            plan: None,
+            plan_explanation: None,
+            request_user_input: None,
+            started_at: unix_timestamp_secs(),
+            finished_at: None,
+        };
+        {
+            let mut inner = self
+                .inner
+                .lock()
+                .map_err(|_| ToolError::ExecutionFailed("sub-agent store poisoned".into()))?;
+            if inner.tasks.contains_key(&start.agent_id) {
+                return Err(ToolError::InvalidInput(format!(
+                    "duplicate sub-agent id: {}",
+                    start.agent_id
+                )));
+            }
+            inner.tasks.insert(start.agent_id.clone(), record.clone());
+            inner
+                .cancellations
+                .insert(start.agent_id.clone(), cancellation.clone());
+        }
+
+        let store = self.clone();
+        let agent_id = start.agent_id.clone();
+        tokio::spawn(async move {
+            let result = run_sub_agent(
+                start.kind,
+                &start.agent_id,
+                start.name.as_deref(),
+                start.parent_session_id.as_deref(),
+                &start.instruction,
+                Some(session_id),
+                Some(cancellation),
+                start.backend,
+                start.vdb,
+                start.session_manager,
+                start.workspace,
+                start.prompt_config,
+            )
+            .await;
+            store.finish(&agent_id, result);
+        });
+
+        Ok(record)
+    }
+
+    fn get(&self, agent_id: &str) -> Result<BackgroundSubAgentRecord, ToolError> {
+        self.inner
+            .lock()
+            .map_err(|_| ToolError::ExecutionFailed("sub-agent store poisoned".into()))?
+            .tasks
+            .get(agent_id)
+            .cloned()
+            .ok_or_else(|| ToolError::InvalidInput(format!("unknown sub-agent id: {agent_id}")))
+    }
+
+    fn list(&self) -> Result<Vec<BackgroundSubAgentRecord>, ToolError> {
+        let records = self
+            .inner
+            .lock()
+            .map_err(|_| ToolError::ExecutionFailed("sub-agent store poisoned".into()))?
+            .tasks
+            .values()
+            .cloned()
+            .collect::<Vec<_>>();
+        Ok(records)
+    }
+
+    fn stop(&self, agent_id: &str) -> Result<BackgroundSubAgentRecord, ToolError> {
+        let mut inner = self
+            .inner
+            .lock()
+            .map_err(|_| ToolError::ExecutionFailed("sub-agent store poisoned".into()))?;
+        let record = inner
+            .tasks
+            .get_mut(agent_id)
+            .ok_or_else(|| ToolError::InvalidInput(format!("unknown sub-agent id: {agent_id}")))?;
+        if record.status != "running" {
+            return Ok(record.clone());
+        }
+        record.status = "cancelled";
+        record.finished_at = Some(unix_timestamp_secs());
+        let stopped = record.clone();
+        let token = inner.cancellations.remove(agent_id);
+        prune_completed_subagents(&mut inner, Some(agent_id));
+        drop(inner);
+
+        if let Some(token) = token {
+            token.store(true, Ordering::SeqCst);
+        }
+        Ok(stopped)
+    }
+
+    fn finish(&self, agent_id: &str, result: Result<SubAgentResult, ToolError>) {
+        let Ok(mut inner) = self.inner.lock() else {
+            eprintln!("sub-agent store poisoned while finishing {agent_id}");
+            return;
+        };
+        inner.cancellations.remove(agent_id);
+        let Some(record) = inner.tasks.get_mut(agent_id) else {
+            return;
+        };
+        if record.status == "cancelled" {
+            return;
+        }
+        record.finished_at = Some(unix_timestamp_secs());
+        match result {
+            Ok(result) => {
+                record.status = result.status;
+                record.summary = Some(result.summary);
+                record.persistence_error = result.persistence_error;
+                record.plan = result.plan;
+                record.plan_explanation = result.plan_explanation;
+                record.request_user_input = result.request_user_input;
+                record.error = None;
+            }
+            Err(err) => {
+                record.status = "failed";
+                record.error = Some(err.to_string());
+            }
+        }
+        prune_completed_subagents(&mut inner, Some(agent_id));
+    }
+}
+
+fn prune_completed_subagents(inner: &mut BackgroundSubAgentState, preserve_agent_id: Option<&str>) {
+    let completed_count = inner
+        .tasks
+        .values()
+        .filter(|record| record.finished_at.is_some())
+        .count();
+    if completed_count <= BACKGROUND_SUBAGENT_COMPLETED_RETENTION {
+        return;
+    }
+
+    let mut candidates = inner
+        .tasks
+        .values()
+        .filter(|record| {
+            record.finished_at.is_some() && Some(record.agent_id.as_str()) != preserve_agent_id
+        })
+        .map(|record| {
+            (
+                record.agent_id.clone(),
+                record.finished_at.unwrap_or(u64::MAX),
+                record.started_at,
+            )
+        })
+        .collect::<Vec<_>>();
+    candidates.sort_by(|left, right| left.1.cmp(&right.1).then(left.2.cmp(&right.2)));
+
+    let remove_count = completed_count.saturating_sub(BACKGROUND_SUBAGENT_COMPLETED_RETENTION);
+    for (agent_id, _, _) in candidates.into_iter().take(remove_count) {
+        inner.tasks.remove(&agent_id);
+        inner.cancellations.remove(&agent_id);
+    }
+}
+
+impl BackgroundSubAgentRecord {
+    fn to_json(&self) -> Value {
+        json!({
+            "agent_id": self.agent_id,
+            "session_id": self.session_id,
+            "name": self.name,
+            "kind": self.kind,
+            "parent_session_id": self.parent_session_id,
+            "status": self.status,
+            "summary": self.summary,
+            "error": self.error,
+            "persistence_error": self.persistence_error,
+            "plan": self.plan.as_ref().map(|steps| serialize_plan_steps(steps)),
+            "plan_explanation": self.plan_explanation,
+            "request_user_input": self
+                .request_user_input
+                .as_ref()
+                .map(serialize_pending_user_input),
+            "started_at": self.started_at,
+            "finished_at": self.finished_at,
+        })
+    }
+}
+
+fn unix_timestamp_secs() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|duration| duration.as_secs())
+        .unwrap_or_default()
+}
+
+pub struct SubAgentResumeTool {
+    pub background_subagents: Arc<BackgroundSubAgentStore>,
+}
+
+#[tool_spec(
+    name = "subagent_resume",
+    description = "Resume observing a background sub-agent by agent_id. Returns the running status or the completed result summary without reading the sidechain transcript into parent context.",
+    input_schema = {
+        "type": "object",
+        "properties": {
+            "agent_id": {
+                "type": "string",
+                "description": "Background sub-agent id returned by spawn_agent, explore_agent, or plan_agent when run_in_background is true."
+            }
+        },
+        "required": ["agent_id"]
+    }
+)]
+#[async_trait]
+impl Tool for SubAgentResumeTool {
+    async fn call(&self, input: Value) -> Result<Value, ToolError> {
+        let agent_id = input["agent_id"]
+            .as_str()
+            .ok_or(ToolError::InvalidInput("agent_id".into()))?;
+        Ok(self.background_subagents.get(agent_id)?.to_json())
+    }
+}
+
+pub struct SubAgentListTool {
+    pub background_subagents: Arc<BackgroundSubAgentStore>,
+}
+
+#[tool_spec(
+    name = "subagent_list",
+    description = "List in-process background sub-agents for this RARA runtime. Completed sidechain transcripts remain on disk; this list is for live background control.",
+    input_schema = {
+        "type": "object",
+        "properties": {}
+    }
+)]
+#[async_trait]
+impl Tool for SubAgentListTool {
+    async fn call(&self, _input: Value) -> Result<Value, ToolError> {
+        let mut agents = self
+            .background_subagents
+            .list()?
+            .into_iter()
+            .collect::<Vec<_>>();
+        agents.sort_by(|left, right| {
+            left.started_at
+                .cmp(&right.started_at)
+                .then(left.agent_id.cmp(&right.agent_id))
+        });
+        let agents = agents
+            .into_iter()
+            .map(|record| record.to_json())
+            .collect::<Vec<_>>();
+        Ok(json!({ "subagents": agents }))
+    }
+}
+
+pub struct SubAgentStopTool {
+    pub background_subagents: Arc<BackgroundSubAgentStore>,
+}
+
+#[tool_spec(
+    name = "subagent_stop",
+    description = "Request cancellation for a running background sub-agent by agent_id. The sidechain contract remains parent-scoped; this does not inject the child transcript into parent context.",
+    input_schema = {
+        "type": "object",
+        "properties": {
+            "agent_id": {
+                "type": "string",
+                "description": "Background sub-agent id returned by spawn_agent, explore_agent, or plan_agent when run_in_background is true."
+            }
+        },
+        "required": ["agent_id"]
+    }
+)]
+#[async_trait]
+impl Tool for SubAgentStopTool {
+    async fn call(&self, input: Value) -> Result<Value, ToolError> {
+        let agent_id = input["agent_id"]
+            .as_str()
+            .ok_or(ToolError::InvalidInput("agent_id".into()))?;
+        Ok(self.background_subagents.stop(agent_id)?.to_json())
+    }
 }
 
 #[tool_spec(
@@ -445,6 +868,8 @@ impl TeamCreateTool {
                     Some(&task.name),
                     parent_session_id.as_deref(),
                     &task.instruction,
+                    None,
+                    None,
                     backend,
                     vdb,
                     session_manager,
@@ -487,6 +912,8 @@ async fn run_sub_agent(
     name: Option<&str>,
     parent_session_id: Option<&str>,
     instruction: &str,
+    session_id: Option<String>,
+    cancellation_token: Option<Arc<AtomicBool>>,
     backend: Arc<dyn LlmBackend>,
     vdb: Arc<VectorDB>,
     session_manager: Arc<SessionManager>,
@@ -501,6 +928,10 @@ async fn run_sub_agent(
         session_manager.clone(),
         workspace.clone(),
     );
+    if let Some(session_id) = session_id {
+        sub.session_id = session_id;
+    }
+    sub.set_cancellation_token(cancellation_token);
     sub.set_execution_mode(kind.execution_mode());
     sub.set_prompt_config(append_subagent_prompt(prompt_config, kind.append_prompt()));
     sub.query_with_mode(
@@ -852,6 +1283,7 @@ mod tests {
     use tokio::time::{Duration, sleep};
 
     use super::{
+        BACKGROUND_SUBAGENT_COMPLETED_RETENTION, BackgroundSubAgentRecord, BackgroundSubAgentStore,
         SubAgentKind, TEAM_CREATE_CONCURRENCY_LIMIT, append_subagent_prompt,
         build_read_only_tool_manager, build_subagent_tool_manager,
         latest_assistant_text_from_history, parse_team_task_kind,
@@ -865,7 +1297,10 @@ mod tests {
     use crate::thread_rollout_log;
     use crate::thread_store::{ThreadMetadataSource, ThreadStore};
     use crate::tool::{Tool, ToolCallContext, ToolError};
-    use crate::tools::agent::{AgentTool, ExploreAgentTool, PlanAgentTool, TeamCreateTool};
+    use crate::tools::agent::{
+        AgentTool, ExploreAgentTool, PlanAgentTool, SubAgentResumeTool, SubAgentStopTool,
+        TeamCreateTool,
+    };
     use crate::vectordb::VectorDB;
     use crate::workspace::WorkspaceMemory;
 
@@ -879,6 +1314,8 @@ mod tests {
     }
 
     struct PlanStateBackend;
+
+    struct SlowBackend;
 
     fn record_peak(current: usize, peak: &AtomicUsize) {
         let mut observed = peak.load(Ordering::SeqCst);
@@ -971,6 +1408,40 @@ mod tests {
             Ok(LlmResponse {
                 content: vec![ContentBlock::Text {
                     text: format!("peak {last}"),
+                }],
+                stop_reason: Some("end_turn".to_string()),
+                usage: None,
+            })
+        }
+
+        async fn embed(&self, _text: &str) -> anyhow::Result<Vec<f32>> {
+            Ok(vec![0.0; 4])
+        }
+
+        async fn summarize(
+            &self,
+            _messages: &[Message],
+            _instruction: &str,
+        ) -> anyhow::Result<String> {
+            Ok("summary".to_string())
+        }
+    }
+
+    #[async_trait]
+    impl LlmBackend for SlowBackend {
+        async fn ask(
+            &self,
+            messages: &[Message],
+            _tools: &[serde_json::Value],
+        ) -> anyhow::Result<LlmResponse> {
+            sleep(Duration::from_millis(250)).await;
+            let last = messages
+                .last()
+                .and_then(|message| message.content.as_str())
+                .unwrap_or_default();
+            Ok(LlmResponse {
+                content: vec![ContentBlock::Text {
+                    text: format!("slow {last}"),
                 }],
                 stop_reason: Some("end_turn".to_string()),
                 usage: None,
@@ -1299,6 +1770,7 @@ mod tests {
             ),
             workspace: Arc::new(WorkspaceMemory::from_paths(root, rara_dir)),
             prompt_config: PromptRuntimeConfig::default(),
+            background_subagents: Arc::new(BackgroundSubAgentStore::default()),
         };
 
         let err = tool
@@ -1457,6 +1929,7 @@ mod tests {
             ),
             workspace: Arc::new(WorkspaceMemory::from_paths(root, rara_dir.clone())),
             prompt_config: PromptRuntimeConfig::default(),
+            background_subagents: Arc::new(BackgroundSubAgentStore::default()),
         };
 
         let mut progress = |_| {};
@@ -1519,6 +1992,230 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn background_subagent_resume_returns_completed_summary_without_inline_sidechain() {
+        let temp = tempdir().expect("tempdir");
+        let root = temp.path().join("workspace");
+        let rara_dir = temp.path().join(".rara");
+        std::fs::create_dir_all(&root).expect("workspace");
+        let background_subagents = Arc::new(BackgroundSubAgentStore::default());
+        let session_manager =
+            Arc::new(SessionManager::new_for_rara_dir(rara_dir.clone()).expect("session manager"));
+        let tool = ExploreAgentTool {
+            backend: Arc::new(CountingBackend {
+                calls: Arc::new(AtomicUsize::new(0)),
+            }),
+            vdb: Arc::new(VectorDB::new(
+                &rara_dir.join("lancedb").display().to_string(),
+            )),
+            session_manager,
+            workspace: Arc::new(WorkspaceMemory::from_paths(root, rara_dir.clone())),
+            prompt_config: PromptRuntimeConfig::default(),
+            background_subagents: background_subagents.clone(),
+        };
+        let resume = SubAgentResumeTool {
+            background_subagents,
+        };
+
+        let mut progress = |_| {};
+        let started = tool
+            .call_with_context_events(
+                json!({
+                    "instruction": "inspect this in the background",
+                    "run_in_background": true
+                }),
+                ToolCallContext::default().with_session_id("parent-session"),
+                &mut progress,
+            )
+            .await
+            .expect("background start");
+        let agent_id = started["agent_id"].as_str().expect("agent_id");
+        let child_session_id = started["session_id"].as_str().expect("session_id");
+        assert_eq!(started["status"], "running");
+
+        let mut completed = None;
+        for _ in 0..20 {
+            let status = resume
+                .call(json!({ "agent_id": agent_id }))
+                .await
+                .expect("resume status");
+            if status["status"] != "running" {
+                completed = Some(status);
+                break;
+            }
+            sleep(Duration::from_millis(10)).await;
+        }
+        let completed = completed.expect("background sub-agent completed");
+        assert_eq!(completed["status"], "explored");
+        assert!(
+            completed["summary"]
+                .as_str()
+                .expect("summary")
+                .starts_with("counted")
+        );
+        assert_eq!(completed["session_id"], child_session_id);
+
+        let transcript_path = rara_dir
+            .join("rollouts")
+            .join("parent-session")
+            .join("subagents")
+            .join(format!("agent-{agent_id}.jsonl"));
+        let transcript = load_transcript(&transcript_path).expect("transcript");
+        assert_eq!(transcript.parse_errors, 0);
+        assert!(model_visible_messages(&transcript.entries).is_empty());
+    }
+
+    #[tokio::test]
+    async fn background_subagent_stop_marks_running_task_cancelled() {
+        let temp = tempdir().expect("tempdir");
+        let root = temp.path().join("workspace");
+        let rara_dir = temp.path().join(".rara");
+        std::fs::create_dir_all(&root).expect("workspace");
+        let background_subagents = Arc::new(BackgroundSubAgentStore::default());
+        let tool = ExploreAgentTool {
+            backend: Arc::new(SlowBackend),
+            vdb: Arc::new(VectorDB::new(
+                &rara_dir.join("lancedb").display().to_string(),
+            )),
+            session_manager: Arc::new(
+                SessionManager::new_for_rara_dir(rara_dir.clone()).expect("session manager"),
+            ),
+            workspace: Arc::new(WorkspaceMemory::from_paths(root, rara_dir)),
+            prompt_config: PromptRuntimeConfig::default(),
+            background_subagents: background_subagents.clone(),
+        };
+        let stop = SubAgentStopTool {
+            background_subagents: background_subagents.clone(),
+        };
+        let resume = SubAgentResumeTool {
+            background_subagents,
+        };
+
+        let mut progress = |_| {};
+        let started = tool
+            .call_with_context_events(
+                json!({
+                    "instruction": "keep running until stopped",
+                    "run_in_background": true
+                }),
+                ToolCallContext::default().with_session_id("parent-session"),
+                &mut progress,
+            )
+            .await
+            .expect("background start");
+        let agent_id = started["agent_id"].as_str().expect("agent_id");
+
+        let stopped = stop
+            .call(json!({ "agent_id": agent_id }))
+            .await
+            .expect("stop sub-agent");
+        assert_eq!(stopped["status"], "cancelled");
+
+        let resumed = resume
+            .call(json!({ "agent_id": agent_id }))
+            .await
+            .expect("resume cancelled sub-agent");
+        assert_eq!(resumed["status"], "cancelled");
+        assert!(resumed["finished_at"].as_u64().is_some());
+    }
+
+    #[test]
+    fn background_subagent_store_prunes_old_completed_records() {
+        let store = BackgroundSubAgentStore::default();
+        {
+            let mut inner = store.inner.lock().expect("store");
+            for idx in 0..(BACKGROUND_SUBAGENT_COMPLETED_RETENTION + 3) {
+                let agent_id = format!("agent-{idx}");
+                inner.tasks.insert(
+                    agent_id.clone(),
+                    BackgroundSubAgentRecord {
+                        agent_id,
+                        session_id: format!("session-{idx}"),
+                        name: None,
+                        kind: "general",
+                        parent_session_id: None,
+                        status: "done",
+                        summary: Some(format!("summary {idx}")),
+                        error: None,
+                        persistence_error: None,
+                        plan: None,
+                        plan_explanation: None,
+                        request_user_input: None,
+                        started_at: idx as u64,
+                        finished_at: Some(idx as u64),
+                    },
+                );
+            }
+        }
+
+        store.finish(
+            &format!("agent-{}", BACKGROUND_SUBAGENT_COMPLETED_RETENTION + 2),
+            Err(ToolError::ExecutionFailed("refresh latest".to_string())),
+        );
+
+        let records = store.list().expect("records");
+        assert_eq!(records.len(), BACKGROUND_SUBAGENT_COMPLETED_RETENTION);
+        assert!(records.iter().any(|record| record.agent_id == "agent-66"));
+        assert!(!records.iter().any(|record| record.agent_id == "agent-0"));
+    }
+
+    #[tokio::test]
+    async fn background_plan_agent_resume_returns_plan_state() {
+        let temp = tempdir().expect("tempdir");
+        let root = temp.path().join("workspace");
+        let rara_dir = temp.path().join(".rara");
+        std::fs::create_dir_all(&root).expect("workspace");
+        let background_subagents = Arc::new(BackgroundSubAgentStore::default());
+        let tool = PlanAgentTool {
+            backend: Arc::new(PlanStateBackend),
+            vdb: Arc::new(VectorDB::new(
+                &rara_dir.join("lancedb").display().to_string(),
+            )),
+            session_manager: Arc::new(
+                SessionManager::new_for_rara_dir(rara_dir).expect("session manager"),
+            ),
+            workspace: Arc::new(WorkspaceMemory::from_paths(root, temp.path().join(".rara"))),
+            prompt_config: PromptRuntimeConfig::default(),
+            background_subagents: background_subagents.clone(),
+        };
+        let resume = SubAgentResumeTool {
+            background_subagents,
+        };
+
+        let mut progress = |_| {};
+        let started = tool
+            .call_with_context_events(
+                json!({
+                    "instruction": "plan this in the background",
+                    "run_in_background": true
+                }),
+                ToolCallContext::default().with_session_id("parent-session"),
+                &mut progress,
+            )
+            .await
+            .expect("background start");
+        let agent_id = started["agent_id"].as_str().expect("agent_id");
+
+        let mut completed = None;
+        for _ in 0..20 {
+            let status = resume
+                .call(json!({ "agent_id": agent_id }))
+                .await
+                .expect("resume status");
+            if status["status"] != "running" {
+                completed = Some(status);
+                break;
+            }
+            sleep(Duration::from_millis(10)).await;
+        }
+        let completed = completed.expect("background plan sub-agent completed");
+        assert_eq!(completed["status"], "planned");
+        let steps = completed["plan"].as_array().expect("plan steps");
+        assert_eq!(steps.len(), 2);
+        assert_eq!(steps[0]["step"], "Inspect subagent restore");
+        assert_eq!(steps[1]["status"], "in_progress");
+    }
+
+    #[tokio::test]
     async fn plan_agent_writes_parent_scoped_sidechain_transcript() {
         let temp = tempdir().expect("tempdir");
         let root = temp.path().join("workspace");
@@ -1534,6 +2231,7 @@ mod tests {
             ),
             workspace: Arc::new(WorkspaceMemory::from_paths(root, rara_dir.clone())),
             prompt_config: PromptRuntimeConfig::default(),
+            background_subagents: Arc::new(BackgroundSubAgentStore::default()),
         };
 
         let mut progress = |_| {};
@@ -1608,6 +2306,7 @@ mod tests {
             ),
             workspace: Arc::new(WorkspaceMemory::from_paths(root, rara_dir.clone())),
             prompt_config: PromptRuntimeConfig::default(),
+            background_subagents: Arc::new(BackgroundSubAgentStore::default()),
         };
 
         let result = tool
@@ -1651,6 +2350,7 @@ mod tests {
             ),
             workspace: Arc::new(WorkspaceMemory::from_paths(root, rara_dir)),
             prompt_config: PromptRuntimeConfig::default(),
+            background_subagents: Arc::new(BackgroundSubAgentStore::default()),
         };
 
         let mut progress = |_| {};
