@@ -147,13 +147,17 @@ pub(crate) async fn dispatch_event(
             app.auth_mode_idx = next as usize;
         }
         AppEvent::MoveListPickerSelection(delta) => {
-            let Some(Overlay::ListPicker(kind)) = app.overlay else { return Ok(false) };
+            let Some(Overlay::ListPicker(kind)) = app.overlay else {
+                return Ok(false);
+            };
             let max = kind.item_count(app).saturating_sub(1) as i32;
             let next = (kind.idx(app) as i32 + delta).clamp(0, max);
             kind.set_idx(app, next as usize);
         }
         AppEvent::SetListPickerSelection(idx) => {
-            let Some(Overlay::ListPicker(kind)) = app.overlay else { return Ok(false) };
+            let Some(Overlay::ListPicker(kind)) = app.overlay else {
+                return Ok(false);
+            };
             kind.set_idx(app, idx);
         }
         AppEvent::MovePermissionSelection(delta) => {
