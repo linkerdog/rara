@@ -91,12 +91,19 @@ impl Tool for SkillTool {
                     .iter()
                     .map(|o| format!("{:?}", o.scope).to_lowercase())
                     .collect();
+                let tagged_block = format!(
+                    "<skill>\n<name>{name}</name>\n<path>{display_path}</path>\n<scope>{scope}</scope>\n\n{instructions}\n</skill>",
+                    name = skill.name,
+                    display_path = skill.display_path,
+                    scope = format!("{:?}", skill.scope).to_lowercase(),
+                    instructions = skill.prompt,
+                );
                 Ok(json!({
                     "name": skill.name,
                     "title": skill.title,
                     "scope": format!("{:?}", skill.scope).to_lowercase(),
                     "display_path": skill.display_path,
-                    "instructions": skill.prompt,
+                    "instructions": tagged_block,
                     "disable_model_invocation": skill.disable_model_invocation,
                     "overrides_others": !shadowed_scopes.is_empty(),
                     "shadowed_scopes": shadowed_scopes,
@@ -160,7 +167,12 @@ mod tests {
         assert_eq!(result["name"].as_str(), Some("test-skill"));
         assert_eq!(result["title"].as_str(), Some("Test Skill"));
         assert_eq!(result["scope"].as_str(), Some("cwd"));
-        assert_eq!(result["instructions"].as_str(), Some("# Test\nbody"));
+        assert!(
+            result["instructions"]
+                .as_str()
+                .unwrap()
+                .contains("# Test\nbody")
+        );
         assert_eq!(result["overrides_others"].as_bool(), Some(false));
         assert!(result["shadowed_scopes"].as_array().unwrap().is_empty());
     }
