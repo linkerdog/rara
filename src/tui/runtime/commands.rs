@@ -5,7 +5,7 @@ use super::super::state::{
     GoalStatus, HelpTab, LocalCommand, LocalCommandKind, Overlay, PermissionMode, RalphGoal,
     RuntimePhase, StatusTab, TuiApp,
 };
-use super::tasks::{start_compact_task, start_rebuild_task, start_review_task};
+use super::tasks::{start_compact_task, start_query_task, start_rebuild_task, start_review_task};
 use crate::agent::{Agent, AgentEvent, AgentExecutionMode, BashApprovalMode};
 use crate::mcp_status::{McpStatusSnapshot, format_mcp_status};
 use crate::oauth::OAuthManager;
@@ -216,16 +216,46 @@ pub(super) async fn execute_local_command(
                     }
                 }
                 "resume" => {
-                    if let Some(goal) = app.goal.as_mut() {
-                        if goal.status == GoalStatus::Paused {
-                            goal.status = GoalStatus::Pursuing;
-                            *app.goal_handle.write().unwrap() = app.goal.clone();
-                            app.push_notice("Goal resumed. The agent will continue working.");
+                    let resumed_goal: Option<RalphGoal>;
+                    let (can_kick_off, is_not_plan, has_agent);
+                    {
+                        if let Some(goal) = app.goal.as_mut() {
+                            if goal.status == GoalStatus::Paused {
+                                goal.status = GoalStatus::Pursuing;
+                                resumed_goal = Some(goal.clone());
+                            } else {
+                                resumed_goal = None;
+                            }
                         } else {
-                            app.push_notice("Goal is not paused; nothing to resume.");
+                            resumed_goal = None;
                         }
+                        can_kick_off = !app.is_busy();
+                        is_not_plan = !matches!(
+                            app.agent_execution_mode,
+                            crate::agent::AgentExecutionMode::Plan
+                        );
+                        has_agent = agent_slot.is_some();
+                    }
+                    if let Some(goal) = resumed_goal {
+                        *app.goal_handle.write().unwrap() = Some(goal.clone());
+                        if can_kick_off && is_not_plan && has_agent {
+                            if let Some(agent) = agent_slot.take() {
+                                start_query_task(
+                                    app,
+                                    format!(
+                                        "Continue working toward the goal: {}\n\n(Goal turn 0 · tokens used: 0)",
+                                        goal.objective
+                                    ),
+                                    agent,
+                                );
+                                return Ok(false);
+                            }
+                        }
+                        app.push_notice(
+                            "Goal resumed. The agent will continue working after your next input.",
+                        );
                     } else {
-                        app.push_notice("No active goal to resume.");
+                        app.push_notice("Goal is not paused; nothing to resume.");
                     }
                 }
                 "clear" => {

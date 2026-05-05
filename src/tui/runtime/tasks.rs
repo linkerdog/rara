@@ -579,6 +579,10 @@ pub(super) async fn finish_running_task_if_ready(
                                 .saturating_sub(prior_total_input_tokens);
                             goal.tokens_used += turn_input_tokens;
                             goal.turns_completed += 1;
+                            // Check budget after counting this turn.
+                            if goal.token_budget.is_some_and(|b| goal.tokens_used >= b) {
+                                goal.status = GoalStatus::BudgetLimited;
+                            }
                             *app.goal_handle.write().unwrap() = app.goal.clone();
                         }
                     }

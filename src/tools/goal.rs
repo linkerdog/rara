@@ -93,14 +93,21 @@ impl Tool for CreateGoalTool {
                 "objective must not be empty".into(),
             ));
         }
-        let token_budget = match input["token_budget"].as_u64() {
-            None => None,
-            Some(v) if v > u32::MAX as u64 => {
-                return Err(ToolError::InvalidInput(format!(
-                    "token_budget {v} exceeds maximum u32 value"
-                )));
-            }
-            Some(v) => Some(v as u32),
+        let token_budget = match input.get("token_budget") {
+            None | Some(serde_json::Value::Null) => None,
+            Some(v) => match v.as_u64() {
+                Some(n) if n > u32::MAX as u64 => {
+                    return Err(ToolError::InvalidInput(format!(
+                        "token_budget {n} exceeds maximum u32 value"
+                    )));
+                }
+                Some(n) => Some(n as u32),
+                None => {
+                    return Err(ToolError::InvalidInput(
+                        "token_budget must be a non-negative integer".into(),
+                    ));
+                }
+            },
         };
 
         let goal = RalphGoal {
