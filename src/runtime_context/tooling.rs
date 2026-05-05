@@ -143,13 +143,14 @@ pub(super) fn create_full_tool_manager(
         vdb: vdb.clone(),
         session_manager: session_manager.clone(),
         workspace: workspace.clone(),
-        prompt_config,
+        prompt_config: prompt_config.clone(),
     }));
     tm.register(Box::new(TeamCreateTool {
         backend,
         vdb,
         session_manager,
         workspace,
+        prompt_config,
     }));
     tm
 }
