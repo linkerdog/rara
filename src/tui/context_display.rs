@@ -41,7 +41,7 @@ pub(crate) fn render_context_lines(app: &TuiApp, available_width: u16) -> Vec<Li
                 .map(format_token_count)
                 .unwrap_or_else(|| "unknown".to_string())
         ),
-        Color::DarkGray,
+        TEXT_SECONDARY,
     );
 
     // Visual budget bar
@@ -137,9 +137,9 @@ pub(crate) fn render_context_lines(app: &TuiApp, available_width: u16) -> Vec<Li
 
     // ── Session ──
     section_header(&mut lines, "Session");
-    kv(&mut lines, "cwd", &home_path(&snap.cwd), Color::DarkGray);
-    kv(&mut lines, "branch", &snap.branch, Color::DarkGray);
-    kv(&mut lines, "session", &snap.session_id, Color::Gray);
+    kv(&mut lines, "cwd", &home_path(&snap.cwd), TEXT_SECONDARY);
+    kv(&mut lines, "branch", &snap.branch, TEXT_SECONDARY);
+    kv(&mut lines, "session", &snap.session_id, TEXT_MUTED);
     kv(
         &mut lines,
         "history",
@@ -148,7 +148,7 @@ pub(crate) fn render_context_lines(app: &TuiApp, available_width: u16) -> Vec<Li
             snap.history_len,
             app.transcript_entry_count()
         ),
-        Color::DarkGray,
+        TEXT_SECONDARY,
     );
     section_spacer(&mut lines);
 
@@ -162,7 +162,7 @@ pub(crate) fn render_context_lines(app: &TuiApp, available_width: u16) -> Vec<Li
                 "{} tokens",
                 format_token_count(snap.estimated_history_tokens)
             ),
-            Color::DarkGray,
+            TEXT_SECONDARY,
         );
         kv(
             &mut lines,
@@ -171,13 +171,13 @@ pub(crate) fn render_context_lines(app: &TuiApp, available_width: u16) -> Vec<Li
                 "{} tokens",
                 format_token_count(snap.compact_threshold_tokens)
             ),
-            Color::DarkGray,
+            TEXT_SECONDARY,
         );
         kv(
             &mut lines,
             "count",
             &snap.compaction_count.to_string(),
-            Color::DarkGray,
+            TEXT_SECONDARY,
         );
         if let (Some(before), Some(after)) = (
             snap.last_compaction_before_tokens,
@@ -191,7 +191,36 @@ pub(crate) fn render_context_lines(app: &TuiApp, available_width: u16) -> Vec<Li
                     format_token_count(before),
                     format_token_count(after)
                 ),
-                Color::Gray,
+                TEXT_MUTED,
+            );
+        }
+        if let Some(version) = snap.last_compaction_boundary_version {
+            let before = snap
+                .last_compaction_boundary_before_tokens
+                .map(format_token_count)
+                .unwrap_or_else(|| "-".to_string());
+            let files = snap
+                .last_compaction_boundary_recent_file_count
+                .map(|count| count.to_string())
+                .unwrap_or_else(|| "-".to_string());
+            kv(
+                &mut lines,
+                "boundary",
+                &format!("v{version} before={before} recent_files={files}"),
+                TEXT_MUTED,
+            );
+        }
+        if !snap.compaction_source_entries.is_empty() {
+            kv(
+                &mut lines,
+                "sources",
+                &snap
+                    .compaction_source_entries
+                    .iter()
+                    .map(|entry| entry.source_descriptor.as_str())
+                    .collect::<Vec<_>>()
+                    .join(", "),
+                TEXT_SECONDARY,
             );
         }
         section_spacer(&mut lines);
@@ -206,14 +235,14 @@ pub(crate) fn render_context_lines(app: &TuiApp, available_width: u16) -> Vec<Li
         Color::LightBlue,
     );
     if snap.plan_steps.is_empty() {
-        kv(&mut lines, "plan", "no active plan steps", Color::Gray);
+        kv(&mut lines, "plan", "no active plan steps", TEXT_MUTED);
     } else {
         for (idx, (status, step)) in snap.plan_steps.iter().enumerate() {
             let color = match status.as_str() {
-                "pending" => Color::DarkGray,
+                "pending" => TEXT_SECONDARY,
                 "in_progress" => STATUS_INFO,
                 "completed" => STATUS_SUCCESS,
-                _ => Color::Gray,
+                _ => TEXT_MUTED,
             };
             kv(
                 &mut lines,

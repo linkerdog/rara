@@ -162,7 +162,7 @@ pub(crate) fn assemble_context_view(
             layer: "compacted_history".to_string(),
             kind: entry.kind.clone(),
             label: entry.label.clone(),
-            source_path: None,
+            source_path: Some(entry.source_descriptor.clone()),
             injected: true,
             inclusion_reason: entry.inclusion_reason.clone(),
             budget_impact_tokens: Some(estimate_text_tokens(entry.detail.as_str())),

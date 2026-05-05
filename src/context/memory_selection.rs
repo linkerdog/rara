@@ -380,12 +380,9 @@ fn select_memory_candidates(
 ) -> MemorySelectionDecision {
     candidates.sort_by_key(|candidate| candidate.priority);
     let mut remaining_budget = selection_budget_tokens;
-    let has_compacted_history = fixed_selected_kinds.iter().any(|kind| {
-        matches!(
-            kind.as_str(),
-            "compacted_summary" | "recent_files" | "recent_file_excerpts"
-        )
-    });
+    let has_compacted_history = fixed_selected_kinds
+        .iter()
+        .any(|kind| is_compacted_history_kind(kind.as_str()));
     let mut decision = MemorySelectionDecision::default();
     let mut selected_kinds = fixed_selected_kinds.to_vec();
     let mut selected_retrieved_items: Vec<(String, String)> = Vec::new();
@@ -461,6 +458,13 @@ fn select_memory_candidates(
     }
 
     decision
+}
+
+fn is_compacted_history_kind(kind: &str) -> bool {
+    matches!(
+        kind,
+        "compacted_summary" | "recent_files" | "recent_file_excerpts"
+    ) || kind.starts_with("compacted_")
 }
 
 fn candidate_budget_impact_tokens(
@@ -742,6 +746,7 @@ mod tests {
             order: 1,
             kind: "compacted_summary".to_string(),
             label: "Compacted Summary".to_string(),
+            source_descriptor: "history.compaction.summary".to_string(),
             detail: "previous work".to_string(),
             inclusion_reason: "carried forward".to_string(),
         }];
@@ -775,6 +780,52 @@ mod tests {
         assert!(
             !selected_kinds.contains(&"thread_history"),
             "thread_history should not be selected when compacted history exists"
+        );
+    }
+
+    #[test]
+    fn thread_history_available_not_selected_when_generic_compacted_carry_over_exists() {
+        let history = vec![Message {
+            role: "user".to_string(),
+            content: json!("hello"),
+        }];
+        let compacted = vec![CompactionSourceContextEntry {
+            order: 1,
+            kind: "compacted_memory".to_string(),
+            label: "Memory Carry-over".to_string(),
+            source_descriptor: "history.compaction.memory".to_string(),
+            detail: "stable transcript path".to_string(),
+            inclusion_reason: "carried forward".to_string(),
+        }];
+        let result = memory_selection(
+            &[],
+            None,
+            &[],
+            &[],
+            &compacted,
+            &history,
+            "session-1",
+            "",
+            &[],
+            Some(10_000),
+        );
+
+        assert!(result.selected_items.iter().any(|item| {
+            item.kind == "compacted_memory"
+                && item.selection_reason == "carried forward"
+                && item.detail == "stable transcript path"
+        }));
+        assert!(
+            result
+                .available_items
+                .iter()
+                .any(|item| item.kind == "thread_history")
+        );
+        assert!(
+            !result
+                .selected_items
+                .iter()
+                .any(|item| item.kind == "thread_history")
         );
     }
 

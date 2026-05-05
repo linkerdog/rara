@@ -7,7 +7,8 @@ use crate::context::{
 };
 use crate::llm::LlmBackend;
 use crate::memory_store::{MemoryRecordSearchHit, MemoryStore};
-use crate::vectordb::{MemorySearchHit, VectorDB};
+use crate::session::SessionManager;
+use crate::session_context::SessionContextSearchHit;
 
 const WORKSPACE_MEMORY_LIMIT: usize = 6;
 const THREAD_CONTEXT_LIMIT: usize = 4;
@@ -15,19 +16,19 @@ const MEMORY_DETAIL_MAX_CHARS: usize = 1_200;
 
 pub(crate) struct MemoryRetrievalOrchestrator {
     backend: Arc<dyn LlmBackend>,
-    vdb: Arc<VectorDB>,
+    session_manager: Arc<SessionManager>,
     memory_store: Arc<MemoryStore>,
 }
 
 impl MemoryRetrievalOrchestrator {
     pub(crate) fn new(
         backend: Arc<dyn LlmBackend>,
-        vdb: Arc<VectorDB>,
+        session_manager: Arc<SessionManager>,
         memory_store: Arc<MemoryStore>,
     ) -> Self {
         Self {
             backend,
-            vdb,
+            session_manager,
             memory_store,
         }
     }
@@ -84,10 +85,12 @@ impl MemoryRetrievalOrchestrator {
         query: &str,
         query_vector: Vec<f32>,
     ) -> Vec<RetrievedMemoryCandidate> {
-        let Ok(hits) = self
-            .vdb
-            .hybrid_search_with_metadata("conversations", query, query_vector, THREAD_CONTEXT_LIMIT)
-            .await
+        let session_manager = self.session_manager.clone();
+        let query = query.to_string();
+        let Ok(Ok(hits)) = tokio::task::spawn_blocking(move || {
+            session_manager.search_session_context(&query, &query_vector, THREAD_CONTEXT_LIMIT)
+        })
+        .await
         else {
             return Vec::new();
         };
@@ -129,22 +132,23 @@ fn workspace_memory_candidate(rank: usize, hit: MemoryRecordSearchHit) -> Retrie
     }
 }
 
-fn thread_context_candidate(rank: usize, hit: MemorySearchHit) -> RetrievedMemoryCandidate {
+fn thread_context_candidate(rank: usize, hit: SessionContextSearchHit) -> RetrievedMemoryCandidate {
     RetrievedMemoryCandidate {
         kind: RETRIEVED_THREAD_CONTEXT_KIND.to_string(),
         label: format!(
             "Session Context {}#{}",
-            hit.metadata.session_id, hit.metadata.turn_index
+            hit.checkpoint.session_id, hit.checkpoint.turn_index
         ),
         detail: format!(
-            "session={}; turn={}; score={:.3}; text: {}",
-            hit.metadata.session_id,
-            hit.metadata.turn_index,
+            "session={}; turn={}; score={:.3}; keyword_score={:.3}; text: {}",
+            hit.checkpoint.session_id,
+            hit.checkpoint.turn_index,
             hit.score,
-            truncate_for_memory_context(hit.metadata.text.as_str(), MEMORY_DETAIL_MAX_CHARS)
+            hit.keyword_score,
+            truncate_for_memory_context(hit.checkpoint.text.as_str(), MEMORY_DETAIL_MAX_CHARS)
         ),
         selection_reason:
-            "retrieved as a candidate because LanceDB-backed session-context retrieval matched the current turn query"
+            "retrieved as a candidate because the per-session context shard matched the current turn query"
                 .to_string(),
         rank,
     }
@@ -173,6 +177,7 @@ mod tests {
     use super::*;
     use crate::llm::{ContentBlock, LlmResponse};
     use crate::memory_store::{MemoryLabel, MemoryScope, MemorySource, NewMemoryRecord};
+    use crate::vectordb::VectorDB;
 
     #[derive(Default)]
     struct TestBackend {
@@ -207,6 +212,9 @@ mod tests {
         let backend = Arc::new(TestBackend::default());
         let vdb = Arc::new(VectorDB::new(temp.path().to_str().expect("utf8 path")));
         let store = Arc::new(MemoryStore::new(backend.clone(), vdb.clone()));
+        let session_manager = Arc::new(
+            SessionManager::new_for_rara_dir(temp.path().join(".rara")).expect("session manager"),
+        );
         store
             .insert(NewMemoryRecord {
                 title: Some("Reference project path".to_string()),
@@ -232,7 +240,7 @@ mod tests {
             ]),
         }];
 
-        let candidates = MemoryRetrievalOrchestrator::new(backend.clone(), vdb, store)
+        let candidates = MemoryRetrievalOrchestrator::new(backend.clone(), session_manager, store)
             .retrieve_for_history(&history)
             .await;
 
@@ -245,5 +253,40 @@ mod tests {
             1,
             "orchestrator should embed the latest user query once and reuse it across retrieval sources"
         );
+    }
+
+    #[tokio::test]
+    async fn retrieves_thread_context_candidates_from_session_shards() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let backend = Arc::new(TestBackend::default());
+        let vdb = Arc::new(VectorDB::new(temp.path().to_str().expect("utf8 path")));
+        let store = Arc::new(MemoryStore::new(backend.clone(), vdb));
+        let session_manager = Arc::new(
+            SessionManager::new_for_rara_dir(temp.path().join(".rara")).expect("session manager"),
+        );
+        session_manager
+            .save_session_context_checkpoint(
+                "session-thread",
+                7,
+                "approval denial is stored as an errored tool result".to_string(),
+                vec![1.0; 8],
+            )
+            .expect("save session context checkpoint");
+        let history = vec![Message {
+            role: "user".to_string(),
+            content: serde_json::json!([
+                {"type": "text", "text": "How did approval denial get recorded?"}
+            ]),
+        }];
+
+        let candidates = MemoryRetrievalOrchestrator::new(backend, session_manager, store)
+            .retrieve_for_history(&history)
+            .await;
+
+        assert!(candidates.iter().any(|candidate| {
+            candidate.kind == RETRIEVED_THREAD_CONTEXT_KIND
+                && candidate.detail.contains("approval denial")
+                && candidate.detail.contains("session=session-thread")
+        }));
     }
 }

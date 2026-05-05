@@ -126,7 +126,6 @@ pub(super) fn create_full_tool_manager(
     }));
     tm.register(Box::new(RetrieveSessionContextTool {
         backend: backend.clone(),
-        vdb: vdb.clone(),
         session_manager: session_manager.clone(),
     }));
     tm.register(Box::new(UpdateProjectMemoryTool {

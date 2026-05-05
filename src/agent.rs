@@ -21,6 +21,8 @@ use crate::memory_store::MemoryStore;
 use crate::prompt::{self, PromptMode, PromptRuntimeConfig};
 use crate::redaction::redact_secrets;
 use crate::session::SessionManager;
+use crate::state_db::StateDb;
+use crate::thread_store::ThreadRecorder;
 use crate::todo::TodoState;
 use crate::tool::ToolOutputStream;
 use crate::tool::{ToolCallContext, ToolManager, ToolProgressEvent};
@@ -31,7 +33,7 @@ use crate::tool_result::{
 use crate::tools::bash::BashCommandInput;
 use crate::tools::planning::{ENTER_PLAN_MODE_TOOL_NAME, EXIT_PLAN_MODE_TOOL_NAME};
 use crate::tools::todo::TODO_WRITE_TOOL_NAME;
-use crate::vectordb::{MemoryMetadata, VectorDB};
+use crate::vectordb::VectorDB;
 use crate::workspace::WorkspaceMemory;
 
 const MAX_RUNTIME_ERROR_RECOVERY_ATTEMPTS: usize = 1;
@@ -128,6 +130,7 @@ pub struct Agent {
     pub vdb: Arc<VectorDB>,
     pub memory_store: Arc<MemoryStore>,
     pub session_manager: Arc<SessionManager>,
+    state_db: Option<Arc<StateDb>>,
     pub workspace: Arc<WorkspaceMemory>,
     pub history: Vec<Message>,
     pub session_id: String,
@@ -165,12 +168,18 @@ impl Agent {
         workspace: Arc<WorkspaceMemory>,
     ) -> Self {
         let memory_store = Arc::new(MemoryStore::new(llm_backend.clone(), vdb.clone()));
+        let state_db = session_manager
+            .storage_dir
+            .parent()
+            .and_then(|rara_dir| StateDb::new_for_root_dir(rara_dir.to_path_buf()).ok())
+            .map(Arc::new);
         Self {
             tool_manager,
             llm_backend,
             vdb,
             memory_store,
             session_manager,
+            state_db,
             workspace,
             history: Vec::new(),
             session_id: Uuid::new_v4().to_string(),
@@ -291,26 +300,28 @@ impl Agent {
             self.history.last().unwrap().content
         );
         if let Ok(vector) = self.llm_backend.embed(&turn_text).await {
-            let _ = self
-                .vdb
-                .upsert_turn(
-                    "conversations",
-                    MemoryMetadata {
-                        id: None,
-                        session_id: self.session_id.clone(),
-                        turn_index: turn_start_idx as u32,
-                        text: turn_text,
-                    },
+            let session_manager = self.session_manager.clone();
+            let session_id = self.session_id.clone();
+            let _ = tokio::task::spawn_blocking(move || {
+                session_manager.save_session_context_checkpoint(
+                    &session_id,
+                    turn_start_idx as u32,
+                    turn_text,
                     vector,
                 )
-                .await;
+            })
+            .await;
         }
         Ok(())
     }
 
     pub(super) fn checkpoint_session(&self) -> Result<()> {
-        self.session_manager
-            .save_session(&self.session_id, &self.history)
+        let state_db = self
+            .state_db
+            .as_deref()
+            .ok_or_else(|| anyhow::anyhow!("session state db is not available"))?;
+        let recorder = ThreadRecorder::new(state_db);
+        recorder.persist_history_checkpoint(&self.session_id, &self.history)
     }
 
     async fn run_model_turn<F>(
@@ -877,8 +888,7 @@ fn incomplete_proposed_plan_error() -> String {
 }
 
 fn is_compact_boundary_message(message: &Message) -> bool {
-    message.role == "system"
-        && message.content.get("type").and_then(Value::as_str) == Some("compact_boundary")
+    message.role == "system" && self::compact::compact_boundary_item(&message.content).is_some()
 }
 
 fn recoverable_runtime_error_kind(err: &anyhow::Error) -> Option<&'static str> {

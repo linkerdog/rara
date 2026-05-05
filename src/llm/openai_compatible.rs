@@ -629,6 +629,15 @@ pub(crate) fn is_context_window_error(error: &anyhow::Error) -> bool {
     api_error.error_code.as_deref() == Some("context_length_exceeded")
 }
 
+#[cfg(test)]
+pub(crate) fn context_window_error_for_test() -> anyhow::Error {
+    anyhow::Error::new(OpenAiApiError::for_test(
+        Some(StatusCode::BAD_REQUEST),
+        Some("invalid_request_error"),
+        Some("context_length_exceeded"),
+    ))
+}
+
 pub(crate) fn infer_openai_compatible_auxiliary_model(
     model: &str,
     endpoint_kind: OpenAiEndpointKind,

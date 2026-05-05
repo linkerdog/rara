@@ -7,6 +7,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::agent::Message;
 use crate::atomic_file;
+use crate::session_context::{self, SessionContextSearchHit};
 use crate::session_transcript;
 use crate::state_db::PersistedStructuredRolloutEvent;
 use crate::thread_rollout_log;
@@ -18,6 +19,12 @@ pub struct PersistedCompactionEvent {
     pub before_tokens: usize,
     pub after_tokens: usize,
     pub boundary_version: u32,
+    #[serde(default)]
+    pub replaced_start: Option<usize>,
+    #[serde(default)]
+    pub replaced_end: Option<usize>,
+    #[serde(default)]
+    pub metadata_owner: Option<String>,
     pub recent_files: Vec<String>,
     pub summary: String,
 }
@@ -31,7 +38,8 @@ pub struct PersistedThreadHistoryMigration {
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub enum PersistedThreadHistorySource {
     #[default]
-    Canonical,
+    Transcript,
+    SnapshotBackfilled,
     LegacyBackfilled,
 }
 
@@ -81,6 +89,13 @@ impl SessionManager {
     }
 
     pub fn save_session(&self, session_id: &str, history: &[Message]) -> Result<()> {
+        session_transcript::sync_history_checkpoint(&self.storage_dir, session_id, history)
+            .context("sync session transcript checkpoint")?;
+        self.save_history_snapshot(session_id, history)?;
+        Ok(())
+    }
+
+    pub fn save_history_snapshot(&self, session_id: &str, history: &[Message]) -> Result<()> {
         let path = self.session_history_path(session_id);
         if let Some(parent) = path.parent() {
             fs::create_dir_all(parent)?;
@@ -92,9 +107,39 @@ impl SessionManager {
             let _ = fs::remove_file(&tmp_path);
             return Err(err);
         }
-        session_transcript::write_history_snapshot(&self.storage_dir, session_id, history)
-            .context("write session transcript snapshot")?;
         Ok(())
+    }
+
+    pub fn thread_transcript_recorder(
+        &self,
+        session_id: &str,
+    ) -> session_transcript::ThreadTranscriptRecorder {
+        session_transcript::ThreadTranscriptRecorder::main(&self.storage_dir, session_id)
+    }
+
+    pub fn save_session_context_checkpoint(
+        &self,
+        session_id: &str,
+        turn_index: u32,
+        text: String,
+        vector: Vec<f32>,
+    ) -> Result<()> {
+        session_context::append_context_checkpoint(
+            &self.storage_dir,
+            session_id,
+            turn_index,
+            text,
+            vector,
+        )
+    }
+
+    pub fn search_session_context(
+        &self,
+        query: &str,
+        query_vector: &[f32],
+        limit: usize,
+    ) -> Result<Vec<SessionContextSearchHit>> {
+        session_context::search_context_shards(&self.storage_dir, query, query_vector, limit)
     }
 
     pub fn plan_file_path(&self, session_id: &str) -> PathBuf {
@@ -151,13 +196,49 @@ impl SessionManager {
         &self,
         thread_id: &str,
     ) -> Result<PersistedThreadHistoryMigration> {
+        let transcript_path =
+            session_transcript::main_transcript_path(&self.storage_dir, thread_id);
+        if transcript_path.exists() {
+            match session_transcript::load_transcript(&transcript_path) {
+                Ok(load) => {
+                    let history = session_transcript::model_visible_messages(&load.entries);
+                    let has_snapshot_fallback = self.session_history_path(thread_id).exists()
+                        || self.legacy_session_history_path(thread_id).exists();
+                    let should_use_fallback = has_snapshot_fallback
+                        && (history.is_empty()
+                            || load.parse_errors > 0
+                            || transcript_is_shorter_than_snapshot_prefix(
+                                self, thread_id, &history,
+                            )
+                            .unwrap_or(false));
+                    if !should_use_fallback && (load.parse_errors == 0 || !has_snapshot_fallback) {
+                        return Ok(PersistedThreadHistoryMigration {
+                            history,
+                            source: PersistedThreadHistorySource::Transcript,
+                        });
+                    }
+                }
+                Err(err)
+                    if !self.session_history_path(thread_id).exists()
+                        && !self.legacy_session_history_path(thread_id).exists() =>
+                {
+                    return Err(err).context("load canonical session transcript");
+                }
+                Err(err) => {
+                    eprintln!(
+                        "Warning: could not load canonical session transcript for {thread_id}: {err}"
+                    );
+                }
+            }
+        }
+
         let path = self.session_history_path(thread_id);
         let (history, source) = if path.exists() {
             let content = fs::read_to_string(path)?;
-            (
-                serde_json::from_str(&content)?,
-                PersistedThreadHistorySource::Canonical,
-            )
+            let history: Vec<Message> = serde_json::from_str(&content)?;
+            let _ =
+                session_transcript::write_history_snapshot(&self.storage_dir, thread_id, &history);
+            (history, PersistedThreadHistorySource::SnapshotBackfilled)
         } else {
             let legacy = self.legacy_session_history_path(thread_id);
             if !legacy.exists() {
@@ -188,6 +269,9 @@ impl SessionManager {
                 before_tokens: event.before_tokens,
                 after_tokens: event.after_tokens,
                 boundary_version: event.boundary_version,
+                replaced_start: event.replaced_start,
+                replaced_end: event.replaced_end,
+                metadata_owner: event.metadata_owner.clone(),
                 recent_files: event.recent_files.clone(),
                 summary: event.summary.clone(),
             },
@@ -241,6 +325,9 @@ impl SessionManager {
                     before_tokens,
                     after_tokens,
                     boundary_version,
+                    replaced_start,
+                    replaced_end,
+                    metadata_owner,
                     recent_files,
                     summary,
                 } => Some(PersistedCompactionEvent {
@@ -248,6 +335,9 @@ impl SessionManager {
                     before_tokens,
                     after_tokens,
                     boundary_version,
+                    replaced_start,
+                    replaced_end,
+                    metadata_owner,
                     recent_files,
                     summary,
                 }),
@@ -364,6 +454,9 @@ impl SessionManager {
                     before_tokens: compaction.before_tokens,
                     after_tokens: compaction.after_tokens,
                     boundary_version: compaction.boundary_version,
+                    replaced_start: compaction.replaced_start,
+                    replaced_end: compaction.replaced_end,
+                    metadata_owner: compaction.metadata_owner.clone(),
                     recent_files: compaction.recent_files.clone(),
                     summary: compaction.summary.clone(),
                 },
@@ -387,6 +480,21 @@ fn epoch_seconds() -> i64 {
         .as_secs() as i64
 }
 
+fn transcript_is_shorter_than_snapshot_prefix(
+    session_manager: &SessionManager,
+    thread_id: &str,
+    transcript_history: &[Message],
+) -> Result<bool> {
+    let snapshot_path = session_manager.session_history_path(thread_id);
+    if !snapshot_path.exists() {
+        return Ok(false);
+    }
+    let content = fs::read_to_string(snapshot_path)?;
+    let snapshot_history: Vec<Message> = serde_json::from_str(&content)?;
+    Ok(transcript_history.len() < snapshot_history.len()
+        && snapshot_history.starts_with(transcript_history))
+}
+
 #[cfg(test)]
 mod tests {
     use tempfile::tempdir;
@@ -408,6 +516,9 @@ mod tests {
                 before_tokens: 100,
                 after_tokens: 40,
                 boundary_version: 1,
+                replaced_start: Some(0),
+                replaced_end: Some(3),
+                metadata_owner: Some("runtime.compaction".to_string()),
                 recent_files: vec!["src/main.rs".to_string()],
                 summary: "first".to_string(),
             },
@@ -419,6 +530,9 @@ mod tests {
                 before_tokens: 200,
                 after_tokens: 80,
                 boundary_version: 2,
+                replaced_start: None,
+                replaced_end: None,
+                metadata_owner: None,
                 recent_files: vec!["src/thread_store.rs".to_string()],
                 summary: "second".to_string(),
             },
@@ -432,6 +546,12 @@ mod tests {
         let events = session_manager.load_compaction_events("thread-1")?;
         assert_eq!(events.len(), 2);
         assert_eq!(events[0].summary, "first");
+        assert_eq!(events[0].replaced_start, Some(0));
+        assert_eq!(events[0].replaced_end, Some(3));
+        assert_eq!(
+            events[0].metadata_owner.as_deref(),
+            Some("runtime.compaction")
+        );
         assert_eq!(events[1].summary, "second");
         Ok(())
     }
@@ -464,6 +584,157 @@ mod tests {
         assert_eq!(
             model_visible_messages(&transcript.entries),
             canonical_messages
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn load_thread_history_prefers_transcript_over_history_snapshot() -> Result<()> {
+        let temp = tempdir()?;
+        let session_manager = SessionManager::new_for_rara_dir(temp.path().join(".rara"))?;
+        let snapshot_history = vec![Message {
+            role: "user".to_string(),
+            content: serde_json::json!("old snapshot history"),
+        }];
+        let transcript_history = vec![Message {
+            role: "user".to_string(),
+            content: serde_json::json!("new transcript history"),
+        }];
+        fs::create_dir_all(
+            session_manager
+                .session_history_path("thread-transcript-canonical")
+                .parent()
+                .expect("history parent"),
+        )?;
+        fs::write(
+            session_manager.session_history_path("thread-transcript-canonical"),
+            serde_json::to_string(&snapshot_history)?,
+        )?;
+        session_transcript::write_history_snapshot(
+            &session_manager.storage_dir,
+            "thread-transcript-canonical",
+            &transcript_history,
+        )?;
+
+        let migration =
+            session_manager.load_thread_history_migration("thread-transcript-canonical")?;
+
+        assert_eq!(migration.history, transcript_history);
+        assert_eq!(migration.source, PersistedThreadHistorySource::Transcript);
+        Ok(())
+    }
+
+    #[test]
+    fn load_thread_history_falls_back_to_snapshot_when_transcript_has_parse_errors() -> Result<()> {
+        let temp = tempdir()?;
+        let session_manager = SessionManager::new_for_rara_dir(temp.path().join(".rara"))?;
+        let snapshot_history = vec![Message {
+            role: "user".to_string(),
+            content: serde_json::json!("snapshot fallback history"),
+        }];
+        session_manager.save_session("thread-damaged-transcript", &snapshot_history)?;
+        let transcript_path =
+            main_transcript_path(&session_manager.storage_dir, "thread-damaged-transcript");
+        use std::io::Write as _;
+        let mut file = fs::OpenOptions::new().append(true).open(&transcript_path)?;
+        writeln!(file, "{{not valid json")?;
+
+        let migration =
+            session_manager.load_thread_history_migration("thread-damaged-transcript")?;
+
+        assert_eq!(migration.history, snapshot_history);
+        assert_eq!(
+            migration.source,
+            PersistedThreadHistorySource::SnapshotBackfilled
+        );
+        let transcript = load_transcript(&transcript_path)?;
+        assert_eq!(transcript.parse_errors, 0);
+        assert_eq!(
+            model_visible_messages(&transcript.entries),
+            snapshot_history
+        );
+
+        session_manager.save_session("thread-empty-transcript", &snapshot_history)?;
+        fs::write(
+            main_transcript_path(&session_manager.storage_dir, "thread-empty-transcript"),
+            "",
+        )?;
+
+        let empty_migration =
+            session_manager.load_thread_history_migration("thread-empty-transcript")?;
+
+        assert_eq!(empty_migration.history, snapshot_history);
+        assert_eq!(
+            empty_migration.source,
+            PersistedThreadHistorySource::SnapshotBackfilled
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn load_thread_history_falls_back_when_transcript_is_empty_or_shorter_prefix() -> Result<()> {
+        let temp = tempdir()?;
+        let session_manager = SessionManager::new_for_rara_dir(temp.path().join(".rara"))?;
+        let snapshot_history = vec![
+            Message {
+                role: "user".to_string(),
+                content: serde_json::json!("first"),
+            },
+            Message {
+                role: "assistant".to_string(),
+                content: serde_json::json!("second"),
+            },
+        ];
+        session_manager.save_session("thread-short-transcript", &snapshot_history)?;
+        session_transcript::write_history_snapshot(
+            &session_manager.storage_dir,
+            "thread-short-transcript",
+            &snapshot_history[..1],
+        )?;
+
+        let migration = session_manager.load_thread_history_migration("thread-short-transcript")?;
+
+        assert_eq!(migration.history, snapshot_history);
+        assert_eq!(
+            migration.source,
+            PersistedThreadHistorySource::SnapshotBackfilled
+        );
+        let transcript = load_transcript(&main_transcript_path(
+            &session_manager.storage_dir,
+            "thread-short-transcript",
+        ))?;
+        assert_eq!(
+            model_visible_messages(&transcript.entries),
+            snapshot_history
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn snapshot_restore_survives_transcript_backfill_failure() -> Result<()> {
+        let temp = tempdir()?;
+        let session_manager = SessionManager::new_for_rara_dir(temp.path().join(".rara"))?;
+        let history = vec![Message {
+            role: "user".to_string(),
+            content: serde_json::json!("snapshot restore should win"),
+        }];
+        session_manager.save_session("thread-snapshot-transcript-blocked", &history)?;
+        fs::remove_file(main_transcript_path(
+            &session_manager.storage_dir,
+            "thread-snapshot-transcript-blocked",
+        ))?;
+        fs::create_dir_all(main_transcript_path(
+            &session_manager.storage_dir,
+            "thread-snapshot-transcript-blocked",
+        ))?;
+
+        let migration =
+            session_manager.load_thread_history_migration("thread-snapshot-transcript-blocked")?;
+
+        assert_eq!(migration.history, history);
+        assert_eq!(
+            migration.source,
+            PersistedThreadHistorySource::SnapshotBackfilled
         );
         Ok(())
     }
@@ -534,6 +805,35 @@ mod tests {
     }
 
     #[test]
+    fn save_session_does_not_advance_snapshot_when_transcript_write_fails() -> Result<()> {
+        let temp = tempdir()?;
+        let session_manager = SessionManager::new_for_rara_dir(temp.path().join(".rara"))?;
+        let history = vec![Message {
+            role: "user".to_string(),
+            content: serde_json::json!("must stay out of snapshot when transcript fails"),
+        }];
+        let transcript_path =
+            main_transcript_path(&session_manager.storage_dir, "thread-blocked-transcript");
+        fs::create_dir_all(&transcript_path)?;
+
+        let err = session_manager
+            .save_session("thread-blocked-transcript", &history)
+            .expect_err("transcript path should block checkpoint");
+
+        assert!(
+            format!("{err:#}").contains("sync session transcript checkpoint"),
+            "error should preserve transcript checkpoint context: {err:#}"
+        );
+        assert!(
+            !session_manager
+                .session_history_path("thread-blocked-transcript")
+                .exists(),
+            "history snapshot must not advance ahead of canonical transcript"
+        );
+        Ok(())
+    }
+
+    #[test]
     fn save_and_load_todo_state_roundtrips_session_artifact() -> Result<()> {
         let temp = tempdir()?;
         let session_manager = SessionManager::new_for_rara_dir(temp.path().join(".rara"))?;
@@ -578,6 +878,9 @@ mod tests {
                     before_tokens: 100,
                     after_tokens: 40,
                     boundary_version: 1,
+                    replaced_start: None,
+                    replaced_end: None,
+                    metadata_owner: None,
                     recent_files: vec!["src/main.rs".to_string()],
                     summary: "first".to_string(),
                 },
@@ -586,6 +889,9 @@ mod tests {
                     before_tokens: 220,
                     after_tokens: 80,
                     boundary_version: 2,
+                    replaced_start: None,
+                    replaced_end: None,
+                    metadata_owner: None,
                     recent_files: vec!["src/thread_store.rs".to_string()],
                     summary: "second".to_string(),
                 },

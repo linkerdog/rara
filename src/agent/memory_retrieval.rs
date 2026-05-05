@@ -10,7 +10,7 @@ impl Agent {
     pub(super) async fn refresh_memory_retrieval_candidates(&mut self) {
         self.retrieved_memory_candidates = MemoryRetrievalOrchestrator::new(
             self.llm_backend.clone(),
-            self.vdb.clone(),
+            self.session_manager.clone(),
             self.memory_store.clone(),
         )
         .retrieve_for_history(&self.history)

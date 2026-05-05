@@ -20,15 +20,50 @@ pub(crate) fn rollout_events_snapshot_path(root_dir: &Path, thread_id: &str) -> 
     root_dir.join(thread_id).join("events.json")
 }
 
+pub(crate) struct RolloutEventRecorder {
+    path: PathBuf,
+}
+
+impl RolloutEventRecorder {
+    pub(crate) fn new(root_dir: &Path, thread_id: &str) -> Self {
+        Self {
+            path: rollout_events_log_path(root_dir, thread_id),
+        }
+    }
+
+    pub(crate) fn append_event(&self, event: &PersistedStructuredRolloutEvent) -> Result<()> {
+        append_rollout_event_to_path(&self.path, event)
+    }
+
+    pub(crate) fn flush(&self) -> Result<()> {
+        if let Some(parent) = self.path.parent()
+            && parent.exists()
+        {
+            sync_parent_dir_best_effort(parent);
+        }
+        Ok(())
+    }
+
+    pub(crate) fn shutdown(self) -> Result<()> {
+        self.flush()
+    }
+}
+
 pub(crate) fn append_rollout_event_line(
     root_dir: &Path,
     thread_id: &str,
     event: &PersistedStructuredRolloutEvent,
 ) -> Result<()> {
+    RolloutEventRecorder::new(root_dir, thread_id).append_event(event)
+}
+
+fn append_rollout_event_to_path(
+    path: &Path,
+    event: &PersistedStructuredRolloutEvent,
+) -> Result<()> {
     let _guard = rollout_log_write_lock()
         .lock()
         .expect("rollout log write mutex poisoned");
-    let path = rollout_events_log_path(root_dir, thread_id);
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent)?;
     }
@@ -38,8 +73,19 @@ pub(crate) fn append_rollout_event_line(
         .open(path)?;
     serde_json::to_writer(&mut file, event)?;
     file.write_all(b"\n")?;
+    file.sync_data()?;
     Ok(())
 }
+
+#[cfg(unix)]
+fn sync_parent_dir_best_effort(parent: &Path) {
+    if let Ok(dir) = fs::File::open(parent) {
+        let _ = dir.sync_all();
+    }
+}
+
+#[cfg(not(unix))]
+fn sync_parent_dir_best_effort(_parent: &Path) {}
 
 pub(crate) fn load_rollout_events(
     root_dir: &Path,

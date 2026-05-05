@@ -16,6 +16,8 @@ use crate::state_db::{
     PersistedCompactState, PersistedInteraction, PersistedPlanStep, PersistedPromptRuntimeState,
     PersistedRuntimeRolloutItem, PersistedStructuredRolloutEvent, PersistedTurnEntry, StateDb,
 };
+use crate::thread_rollout_log;
+use crate::thread_turn_log;
 use crate::vectordb::VectorDB;
 
 #[test]
@@ -85,6 +87,9 @@ fn load_thread_aggregates_history_state_and_rollout_items() -> Result<()> {
             before_tokens: 8000,
             after_tokens: 2400,
             boundary_version: 3,
+            replaced_start: None,
+            replaced_end: None,
+            metadata_owner: None,
             recent_files: vec!["src/thread_store.rs".to_string()],
             summary: "Compacted earlier repository inspection.".to_string(),
         },
@@ -175,6 +180,77 @@ fn load_thread_aggregates_history_state_and_rollout_items() -> Result<()> {
                 && turn.entries[0].message == "Investigating."
     )));
 
+    Ok(())
+}
+
+#[test]
+fn load_thread_materializes_from_roots_without_session_manager_facade() -> Result<()> {
+    let temp = tempdir()?;
+    let rara_dir = temp.path().join(".rara");
+    let state_db = StateDb::new_for_root_dir(rara_dir.clone())?;
+    let rollout_root = state_db.rollout_root();
+    let legacy_session_root = rara_dir.join("sessions");
+    fs::create_dir_all(&legacy_session_root)?;
+    let history = vec![Message {
+        role: "user".to_string(),
+        content: serde_json::json!("load directly from thread roots"),
+    }];
+    crate::session_transcript::write_history_snapshot(
+        &rollout_root,
+        "session-root-store",
+        &history,
+    )?;
+    state_db.upsert_session(
+        "session-root-store",
+        "/tmp/workspace",
+        "main",
+        "ollama",
+        "qwen3",
+        None,
+        "execute",
+        "always",
+        None,
+        &PersistedPromptRuntimeState::default(),
+        1,
+        1,
+        &PersistedCompactState::default(),
+    )?;
+    thread_rollout_log::append_rollout_event_line(
+        &rollout_root,
+        "session-root-store",
+        &PersistedStructuredRolloutEvent::Compaction {
+            recorded_at: None,
+            event_index: 1,
+            before_tokens: 4096,
+            after_tokens: 1024,
+            boundary_version: 2,
+            replaced_start: Some(0),
+            replaced_end: Some(1),
+            metadata_owner: Some("runtime.compaction".to_string()),
+            recent_files: vec!["src/thread_store.rs".to_string()],
+            summary: "Compacted direct root materialization.".to_string(),
+        },
+    )?;
+
+    let store = ThreadStore::new_for_roots(rollout_root, legacy_session_root, &state_db);
+    let snapshot = store.load_thread("session-root-store")?;
+
+    assert_eq!(
+        snapshot.provenance.history_source,
+        ThreadHistorySource::CanonicalHistory
+    );
+    assert_eq!(
+        snapshot.provenance.non_turn_rollout_source,
+        ThreadNonTurnRolloutSource::StructuredEventsLog
+    );
+    assert_eq!(snapshot.history, history);
+    assert_eq!(snapshot.compaction.compaction_count, 1);
+    assert_eq!(snapshot.compaction.replaced_start, Some(0));
+    assert_eq!(snapshot.compaction.replaced_end, Some(1));
+    assert_eq!(
+        snapshot.compaction.metadata_owner.as_deref(),
+        Some("runtime.compaction")
+    );
     Ok(())
 }
 
@@ -323,6 +399,9 @@ fn load_thread_prefers_structured_compaction_event_over_session_counters() -> Re
             before_tokens: 12000,
             after_tokens: 3100,
             boundary_version: 3,
+            replaced_start: None,
+            replaced_end: None,
+            metadata_owner: None,
             recent_files: vec!["src/agent/compact.rs".to_string()],
             summary: "Compacted long planning history.".to_string(),
         },
@@ -574,6 +653,9 @@ fn load_thread_backfills_legacy_non_turn_rollout_files_into_event_log() -> Resul
             before_tokens: 1200,
             after_tokens: 320,
             boundary_version: 2,
+            replaced_start: None,
+            replaced_end: None,
+            metadata_owner: None,
             recent_files: vec!["src/thread_store.rs".to_string()],
             summary: "Legacy compaction".to_string(),
         }])?,
@@ -655,6 +737,9 @@ fn load_thread_preserves_structured_rollout_event_order() -> Result<()> {
             before_tokens: 9000,
             after_tokens: 3200,
             boundary_version: 2,
+            replaced_start: None,
+            replaced_end: None,
+            metadata_owner: None,
             recent_files: vec!["src/agent/compact.rs".to_string()],
             summary: "Compacted repository scan.".to_string(),
         },
@@ -690,6 +775,9 @@ fn load_thread_preserves_structured_rollout_event_order() -> Result<()> {
             before_tokens: 6000,
             after_tokens: 2500,
             boundary_version: 3,
+            replaced_start: None,
+            replaced_end: None,
+            metadata_owner: None,
             recent_files: vec!["src/thread_store.rs".to_string()],
             summary: "Compacted after planning.".to_string(),
         },
@@ -810,6 +898,263 @@ fn thread_recorder_persists_runtime_state_via_state_db() -> Result<()> {
     assert_eq!(threads[0].session_id, "session-recorder");
     assert_eq!(threads[0].compaction_count, 1);
     assert_eq!(threads[0].last_compaction_after_tokens, Some(1200));
+    Ok(())
+}
+
+#[test]
+fn thread_recorder_appends_flushes_and_shuts_down_rollout_items() -> Result<()> {
+    let temp = tempdir()?;
+    let state_db = StateDb::new_for_root_dir(temp.path().join(".rara"))?;
+    let recorder = ThreadRecorder::new(&state_db);
+
+    recorder.append_rollout_item(
+        "session-recorder-rollout",
+        &PersistedStructuredRolloutEvent::PlanState {
+            recorded_at: None,
+            explanation: Some("Keep rollout items append-only.".to_string()),
+            steps: vec![PersistedPlanStep {
+                step_index: 0,
+                step: "append rollout item".to_string(),
+                status: "completed".to_string(),
+            }],
+        },
+    )?;
+    recorder.flush("session-recorder-rollout")?;
+    recorder.shutdown("session-recorder-rollout")?;
+
+    let events = thread_rollout_log::load_rollout_events(
+        &state_db.rollout_root(),
+        "session-recorder-rollout",
+    )?;
+    assert!(matches!(
+        events.as_slice(),
+        [PersistedStructuredRolloutEvent::PlanState {
+            explanation: Some(explanation),
+            steps,
+            ..
+        }] if explanation == "Keep rollout items append-only."
+            && steps.len() == 1
+            && steps[0].step == "append rollout item"
+    ));
+    Ok(())
+}
+
+#[test]
+fn thread_recorder_writes_runtime_rollout_events_directly() -> Result<()> {
+    let temp = tempdir()?;
+    let state_db = StateDb::new_for_root_dir(temp.path().join(".rara"))?;
+    let recorder = ThreadRecorder::new(&state_db);
+
+    recorder.replace_runtime_rollout_events(
+        "session-runtime-recorder",
+        &[
+            PersistedStructuredRolloutEvent::PlanState {
+                recorded_at: None,
+                explanation: Some("Runtime rollout belongs to ThreadRecorder.".to_string()),
+                steps: vec![PersistedPlanStep {
+                    step_index: 0,
+                    step: "append canonical runtime state".to_string(),
+                    status: "completed".to_string(),
+                }],
+            },
+            PersistedStructuredRolloutEvent::Interaction {
+                recorded_at: None,
+                interaction: PersistedInteraction {
+                    kind: "request_input".to_string(),
+                    status: "completed".to_string(),
+                    title: "Runtime Question".to_string(),
+                    summary: "answered".to_string(),
+                    payload: None,
+                },
+            },
+        ],
+    )?;
+
+    let events = thread_rollout_log::load_rollout_events(
+        &state_db.rollout_root(),
+        "session-runtime-recorder",
+    )?;
+    assert!(matches!(
+        events.as_slice(),
+        [PersistedStructuredRolloutEvent::RuntimeState {
+            explanation: Some(explanation),
+            steps,
+            interactions,
+            ..
+        }] if explanation == "Runtime rollout belongs to ThreadRecorder."
+            && steps.len() == 1
+            && steps[0].step == "append canonical runtime state"
+            && interactions.len() == 1
+            && interactions[0].title == "Runtime Question"
+    ));
+    Ok(())
+}
+
+#[test]
+fn load_thread_prefers_turn_log_over_state_db_turns() -> Result<()> {
+    let temp = tempdir()?;
+    let state_db = StateDb::new_for_root_dir(temp.path().join(".rara"))?;
+    let recorder = ThreadRecorder::new(&state_db);
+    let store = ThreadStore::new_for_roots(
+        state_db.rollout_root(),
+        temp.path().join("legacy-sessions"),
+        &state_db,
+    );
+
+    recorder.persist_runtime_state(&ThreadRuntimeState {
+        session_id: "session-turn-log",
+        cwd: "/workspace",
+        branch: "main",
+        provider: "openai",
+        model: "gpt-5",
+        base_url: None,
+        agent_mode: "execute",
+        bash_approval: "suggestion",
+        plan_explanation: None,
+        prompt_runtime: PersistedPromptRuntimeState::default(),
+        history_len: 0,
+        transcript_len: 0,
+        compact_state: PersistedCompactState::default(),
+    })?;
+    recorder.persist_turn(
+        "session-turn-log",
+        0,
+        &[PersistedTurnEntry {
+            role: "Agent".to_string(),
+            message: "canonical turn log entry".to_string(),
+        }],
+    )?;
+    state_db.persist_turn(
+        "session-turn-log",
+        0,
+        &[PersistedTurnEntry {
+            role: "Agent".to_string(),
+            message: "stale state db entry".to_string(),
+        }],
+    )?;
+
+    let turn_records =
+        thread_turn_log::load_turn_records(&state_db.rollout_root(), "session-turn-log")?;
+    assert_eq!(turn_records.len(), 1);
+    assert_eq!(
+        turn_records[0].entries[0].message,
+        "canonical turn log entry"
+    );
+
+    let snapshot = store.load_thread("session-turn-log")?;
+    assert!(snapshot.rollout_items.iter().any(|item| matches!(
+        item,
+        RolloutItem::Turn(turn) if turn.entries[0].message == "canonical turn log entry"
+    )));
+    assert!(!snapshot.rollout_items.iter().any(|item| matches!(
+        item,
+        RolloutItem::Turn(turn) if turn.entries[0].message == "stale state db entry"
+    )));
+    Ok(())
+}
+
+#[test]
+fn load_thread_coalesces_runtime_state_snapshots() -> Result<()> {
+    let temp = tempdir()?;
+    let state_db = StateDb::new_for_root_dir(temp.path().join(".rara"))?;
+    let recorder = ThreadRecorder::new(&state_db);
+    let store = ThreadStore::new_for_roots(
+        state_db.rollout_root(),
+        temp.path().join("legacy-sessions"),
+        &state_db,
+    );
+
+    recorder.persist_runtime_state(&ThreadRuntimeState {
+        session_id: "session-runtime-snapshots",
+        cwd: "/workspace",
+        branch: "main",
+        provider: "openai",
+        model: "gpt-5",
+        base_url: None,
+        agent_mode: "execute",
+        bash_approval: "suggestion",
+        plan_explanation: None,
+        prompt_runtime: PersistedPromptRuntimeState::default(),
+        history_len: 0,
+        transcript_len: 0,
+        compact_state: PersistedCompactState::default(),
+    })?;
+    recorder.replace_runtime_rollout_events(
+        "session-runtime-snapshots",
+        &[PersistedStructuredRolloutEvent::PlanState {
+            recorded_at: None,
+            explanation: Some("old plan".to_string()),
+            steps: vec![PersistedPlanStep {
+                step_index: 0,
+                status: "pending".to_string(),
+                step: "old runtime state".to_string(),
+            }],
+        }],
+    )?;
+    recorder.replace_runtime_rollout_events(
+        "session-runtime-snapshots",
+        &[PersistedStructuredRolloutEvent::PlanState {
+            recorded_at: None,
+            explanation: Some("new plan".to_string()),
+            steps: vec![PersistedPlanStep {
+                step_index: 0,
+                status: "completed".to_string(),
+                step: "new runtime state".to_string(),
+            }],
+        }],
+    )?;
+
+    let snapshot = store.load_thread("session-runtime-snapshots")?;
+    assert_eq!(snapshot.plan_explanation.as_deref(), Some("new plan"));
+    assert_eq!(snapshot.plan_steps[0].step, "new runtime state");
+    let plan_items = snapshot
+        .rollout_items
+        .iter()
+        .filter_map(|item| match item {
+            RolloutItem::PlanState { explanation, steps } => Some((explanation, steps)),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(plan_items.len(), 1);
+    assert_eq!(plan_items[0].0.as_deref(), Some("new plan"));
+    assert_eq!(plan_items[0].1[0].step, "new runtime state");
+    Ok(())
+}
+
+#[test]
+fn thread_recorder_does_not_advance_snapshot_when_transcript_write_fails() -> Result<()> {
+    let temp = tempdir()?;
+    let rara_dir = temp.path().join(".rara");
+    let session_manager = SessionManager::new_for_rara_dir(rara_dir.clone())?;
+    let state_db = StateDb::new_for_root_dir(rara_dir)?;
+    let recorder = ThreadRecorder::new(&state_db);
+    let session_id = "session-blocked-transcript";
+    fs::create_dir_all(
+        session_manager
+            .storage_dir
+            .join(session_id)
+            .join("transcript.jsonl"),
+    )?;
+
+    let err = recorder
+        .persist_history_checkpoint(
+            session_id,
+            &[Message {
+                role: "user".to_string(),
+                content: serde_json::json!("new checkpoint"),
+            }],
+        )
+        .expect_err("transcript path should block checkpoint");
+
+    assert!(!format!("{err:#}").is_empty());
+    assert!(
+        !session_manager
+            .storage_dir
+            .join(session_id)
+            .join("history.json")
+            .exists(),
+        "history snapshot must not advance ahead of canonical transcript"
+    );
     Ok(())
 }
 
@@ -1045,6 +1390,9 @@ fn export_thread_markdown_renders_metadata_summary_and_messages() -> Result<()> 
             before_tokens: 3000,
             after_tokens: 900,
             boundary_version: 1,
+            replaced_start: None,
+            replaced_end: None,
+            metadata_owner: None,
             recent_files: vec!["src/memory_store.rs".to_string()],
             summary: "Memory records are durable; threads are source material.".to_string(),
         },
@@ -1099,6 +1447,9 @@ async fn distill_thread_summary_persists_thread_linked_memory_record() -> Result
             before_tokens: 4000,
             after_tokens: 1200,
             boundary_version: 1,
+            replaced_start: None,
+            replaced_end: None,
+            metadata_owner: None,
             recent_files: vec!["src/thread_store.rs".to_string()],
             summary: "Thread lifecycle APIs should export markdown and distill durable memory."
                 .to_string(),
@@ -1204,6 +1555,9 @@ fn fork_thread_preserves_materialized_state_and_sets_lineage() -> Result<()> {
             before_tokens: 9000,
             after_tokens: 2400,
             boundary_version: 3,
+            replaced_start: Some(0),
+            replaced_end: Some(3),
+            metadata_owner: Some("runtime.compaction".to_string()),
             recent_files: vec!["src/thread_store.rs".to_string()],
             summary: "Compacted earlier lifecycle exploration.".to_string(),
         },
@@ -1250,9 +1604,16 @@ fn fork_thread_preserves_materialized_state_and_sets_lineage() -> Result<()> {
         event,
         PersistedStructuredRolloutEvent::Compaction {
             event_index,
+            replaced_start,
+            replaced_end,
+            metadata_owner,
             summary,
             ..
-        } if *event_index == 2 && summary == "Compacted earlier lifecycle exploration."
+        } if *event_index == 2
+            && *replaced_start == Some(0)
+            && *replaced_end == Some(3)
+            && metadata_owner.as_deref() == Some("runtime.compaction")
+            && summary == "Compacted earlier lifecycle exploration."
     )));
     assert!(rollout_events.iter().any(|event| matches!(
         event,
