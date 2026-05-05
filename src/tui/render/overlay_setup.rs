@@ -18,7 +18,8 @@ use crate::tui::command::api_key_status;
 use crate::tui::is_ssh_session;
 use crate::tui::render::bottom_pane::editor_cursor_position;
 use crate::tui::state::{
-    PROVIDER_FAMILIES, ProviderFamily, TuiApp, current_model_presets, openai_profile_setup_kinds,
+    PROVIDER_FAMILIES, PermissionMode, ProviderFamily, TuiApp, current_model_presets,
+    openai_profile_setup_kinds,
 };
 use crate::tui::theme::*;
 
@@ -670,6 +671,85 @@ pub(super) fn render_reasoning_effort_picker_modal(f: &mut Frame, app: &TuiApp, 
     );
     f.render_widget(
         Paragraph::new("1-5 jump  Up/Down move  Enter apply  Esc back")
+            .alignment(Alignment::Center),
+        chunks[2],
+    );
+}
+
+pub(super) fn render_permission_picker_modal(f: &mut Frame, app: &TuiApp, area: Rect) {
+    // Keep in sync with PermissionMode enum order (skip Custom).
+    let modes: &[(PermissionMode, &str, &str)] = &[
+        (
+            PermissionMode::Auto,
+            "Ask Permissions",
+            "Ask before file edits and commands. Only reads are auto-approved. Best for sensitive work.",
+        ),
+        (
+            PermissionMode::AcceptEdits,
+            "Auto Accept Edits",
+            "Auto-approve file edits and common filesystem commands. Ask for network and destructive operations.",
+        ),
+        (
+            PermissionMode::ReadOnly,
+            "Plan Mode",
+            "Read and explore only. No file changes permitted. Best for codebase analysis.",
+        ),
+        (
+            PermissionMode::FullAccess,
+            "Full Access",
+            "Auto-approve everything including network access. For isolated, trusted tasks.",
+        ),
+    ];
+
+    let title = " Permission Mode ";
+    let items = modes
+        .iter()
+        .enumerate()
+        .map(|(idx, (mode, label, desc))| {
+            let is_current = app.permission_mode == *mode
+                || (app.permission_mode == PermissionMode::Custom
+                    && idx == app.permission_picker_idx);
+            let style = if idx == app.permission_picker_idx {
+                Style::default()
+                    .fg(TEXT_ACCENT)
+                    .add_modifier(Modifier::BOLD)
+            } else {
+                Style::default()
+            };
+            let current_marker = if is_current && app.permission_mode != PermissionMode::Custom {
+                " (current)"
+            } else {
+                ""
+            };
+            let mode_label = format!("[{}] {}{}", idx + 1, label, current_marker);
+            ListItem::new(vec![
+                Line::from(mode_label),
+                Line::from(desc.to_string()),
+                Line::from(""),
+            ])
+            .style(style)
+        })
+        .collect::<Vec<_>>();
+
+    let chunks = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([
+            Constraint::Length(3),
+            Constraint::Min(8),
+            Constraint::Length(2),
+        ])
+        .split(area);
+    f.render_widget(
+        Paragraph::new("Choose how RARA handles file edits, commands, and network access. Press Enter to apply the selected mode.")
+            .block(Block::default().borders(Borders::ALL).title(title)),
+        chunks[0],
+    );
+    f.render_widget(
+        List::new(items).block(Block::default().borders(Borders::LEFT | Borders::RIGHT)),
+        chunks[1],
+    );
+    f.render_widget(
+        Paragraph::new("1-4 jump  Up/Down move  Enter apply  Esc back")
             .alignment(Alignment::Center),
         chunks[2],
     );

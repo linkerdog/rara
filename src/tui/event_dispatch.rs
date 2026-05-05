@@ -7,6 +7,7 @@ use super::provider_flow::{
     open_provider_family_overlay, should_open_codex_auth_guide,
     sync_codex_credential_from_auth_store,
 };
+use super::runtime::apply_permission_mode;
 use super::runtime::{
     request_running_task_cancellation, start_deepseek_model_list_task, start_oauth_task,
     start_pending_approval_task, start_rebuild_task,
@@ -14,7 +15,7 @@ use super::runtime::{
 use super::session_restore::restore_thread_by_id;
 use super::state::{
     ActivePendingInteractionKind, OpenAiModelPickerAction, Overlay, PROVIDER_FAMILIES,
-    ProviderFamily, TuiApp,
+    PermissionMode, ProviderFamily, TuiApp,
 };
 use super::submit::{apply_openai_model_picker_action, handle_submit};
 use super::terminal_ui::is_ssh_session;
@@ -142,6 +143,15 @@ pub(crate) async fn dispatch_event(
             let max_idx = AUTH_MODE_OPTION_COUNT.saturating_sub(1);
             let next = (app.auth_mode_idx as i32 + delta).clamp(0, max_idx as i32);
             app.auth_mode_idx = next as usize;
+        }
+        AppEvent::MovePermissionSelection(delta) => {
+            let max_idx = 3i32; // Auto, AcceptEdits, ReadOnly, FullAccess
+            let next = (app.permission_picker_idx as i32 + delta).clamp(0, max_idx);
+            app.permission_picker_idx = next as usize;
+        }
+        AppEvent::SetPermissionSelection(idx) => {
+            let max = 3usize;
+            app.permission_picker_idx = idx.min(max);
         }
         AppEvent::SetProviderSelection(idx) => {
             app.provider_picker_idx = idx.min(PROVIDER_FAMILIES.len() - 1);
@@ -542,6 +552,24 @@ pub(crate) async fn dispatch_event(
                 }
                 _ => {}
             },
+            Some(Overlay::PermissionPicker) => {
+                if app.is_busy() {
+                    app.push_notice("A task is already running. Wait for it to finish.");
+                } else {
+                    let mode = match app.permission_picker_idx {
+                        0 => PermissionMode::Auto,
+                        1 => PermissionMode::AcceptEdits,
+                        2 => PermissionMode::ReadOnly,
+                        3 => PermissionMode::FullAccess,
+                        _ => PermissionMode::Auto,
+                    };
+                    apply_permission_mode(app, agent_slot, mode);
+                    app.permission_mode = mode;
+                    let label = mode.label();
+                    app.push_notice(format!("Permission mode: {label}."));
+                    app.close_overlay();
+                }
+            }
             _ => {}
         },
     }

@@ -149,14 +149,20 @@ pub(super) async fn execute_local_command(
             }
         }
         LocalCommandKind::Permissions => {
-            let next_mode = app.permission_mode.cycle();
-            app.permission_mode = next_mode;
-            apply_permission_mode(app, agent_slot, next_mode);
-            let notice = format!(
-                "Permission mode: {label}.",
-                label = app.permission_mode_label()
+            // Sync picker index to current mode before opening.
+            let current_idx = match app.permission_mode {
+                PermissionMode::Auto => 0,
+                PermissionMode::AcceptEdits => 1,
+                PermissionMode::ReadOnly => 2,
+                PermissionMode::FullAccess => 3,
+                PermissionMode::Custom => 0,
+            };
+            app.permission_picker_idx = current_idx;
+            app.set_runtime_phase(
+                RuntimePhase::LocalCommand,
+                Some("opening permission picker".into()),
             );
-            app.push_notice(notice);
+            app.open_overlay(Overlay::PermissionPicker);
         }
         LocalCommandKind::Quit => {
             app.set_runtime_phase(RuntimePhase::LocalCommand, Some("quitting".into()));
@@ -413,7 +419,11 @@ fn capture_git_diff(cwd: &str) -> String {
     }
 }
 
-fn apply_permission_mode(app: &mut TuiApp, agent_slot: &mut Option<Agent>, mode: PermissionMode) {
+pub(crate) fn apply_permission_mode(
+    app: &mut TuiApp,
+    agent_slot: &mut Option<Agent>,
+    mode: PermissionMode,
+) {
     use std::sync::atomic::Ordering;
 
     let (execution, approval, allow_net) = match mode {
