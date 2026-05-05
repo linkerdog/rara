@@ -875,7 +875,10 @@ pub(super) async fn finish_running_task_if_ready(
                 let msg = saved_message.clone();
                 app.setup_status = Some(saved_message.into());
                 app.notice = app.setup_status.clone();
-                app.set_runtime_phase(RuntimePhase::OAuthSaved, Some("google oauth token saved".into()));
+                app.set_runtime_phase(
+                    RuntimePhase::OAuthSaved,
+                    Some("google oauth token saved".into()),
+                );
                 app.overlay = None;
                 app.push_entry("Runtime", msg);
                 start_rebuild_task(app);

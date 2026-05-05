@@ -52,10 +52,7 @@ pub(crate) fn build_auth_mode_picker_view(app: &TuiApp, ssh_session: bool) -> Au
                 "—",
                 "For API key access, go back and select the standard Gemini (AI Studio) provider.",
             ),
-            (
-                "Logout",
-                "Clear the saved Google OAuth credential.",
-            ),
+            ("Logout", "Clear the saved Google OAuth credential."),
         ]
     } else {
         &[

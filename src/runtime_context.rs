@@ -7,8 +7,8 @@ use anyhow::{Context, Result, bail};
 use self::tooling::{create_full_tool_manager, load_skill_manager, vector_db_uri_for_workspace};
 use crate::agent::Agent;
 use crate::config::{
-    DEFAULT_CODEX_BASE_URL, DEFAULT_CODEX_MODEL, OpenAiEndpointKind, REASONING_SUMMARY_NONE,
-    DEFAULT_GEMINI_BASE_URL, DEFAULT_GEMINI_MODEL, RaraConfig, ensure_rara_home_dir,
+    DEFAULT_CODEX_BASE_URL, DEFAULT_CODEX_MODEL, DEFAULT_GEMINI_BASE_URL, DEFAULT_GEMINI_MODEL,
+    OpenAiEndpointKind, REASONING_SUMMARY_NONE, RaraConfig, ensure_rara_home_dir,
 };
 use crate::google_oauth::GoogleOAuthManager;
 use crate::llm::{

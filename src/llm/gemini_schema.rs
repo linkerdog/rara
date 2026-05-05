@@ -47,10 +47,8 @@ pub fn sanitize_gemini_schema(schema: &Value) -> Value {
                         if let Value::Object(props) = value {
                             let mut cleaned_props = Map::new();
                             for (prop_name, prop_schema) in props {
-                                cleaned_props.insert(
-                                    prop_name.clone(),
-                                    sanitize_gemini_schema(prop_schema),
-                                );
+                                cleaned_props
+                                    .insert(prop_name.clone(), sanitize_gemini_schema(prop_schema));
                             }
                             cleaned.insert(key.clone(), Value::Object(cleaned_props));
                         }
@@ -65,8 +63,7 @@ pub fn sanitize_gemini_schema(schema: &Value) -> Value {
                                 .filter(|v| v.is_object())
                                 .map(sanitize_gemini_schema)
                                 .collect();
-                            cleaned
-                                .insert(key.clone(), Value::Array(cleaned_anyof));
+                            cleaned.insert(key.clone(), Value::Array(cleaned_anyof));
                         }
                     }
                     _ => {
@@ -81,9 +78,7 @@ pub fn sanitize_gemini_schema(schema: &Value) -> Value {
             // — keeping `type` plus the description gives the model enough
             // guidance; the tool handler still validates the value.
             if let Some(enum_val) = cleaned.get("enum") {
-                let type_val = cleaned
-                    .get("type")
-                    .and_then(|v| v.as_str());
+                let type_val = cleaned.get("type").and_then(|v| v.as_str());
                 if matches!(type_val, Some("integer" | "number" | "boolean")) {
                     if let Value::Array(items) = enum_val {
                         if items.iter().any(|v| !v.is_string()) {
@@ -105,9 +100,7 @@ pub fn sanitize_gemini_schema(schema: &Value) -> Value {
 /// properties: {}}` schema.
 pub fn sanitize_gemini_tool_parameters(parameters: &Value) -> Value {
     let cleaned = sanitize_gemini_schema(parameters);
-    if cleaned.is_null()
-        || cleaned.as_object().map_or(true, |o| o.is_empty())
-    {
+    if cleaned.is_null() || cleaned.as_object().map_or(true, |o| o.is_empty()) {
         serde_json::json!({"type": "object", "properties": {}})
     } else {
         cleaned
@@ -116,8 +109,9 @@ pub fn sanitize_gemini_tool_parameters(parameters: &Value) -> Value {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use serde_json::json;
+
+    use super::*;
 
     #[test]
     fn removes_additional_properties() {
@@ -168,10 +162,7 @@ mod tests {
             "enum": ["celsius", "fahrenheit"]
         });
         let cleaned = sanitize_gemini_schema(&schema);
-        assert_eq!(
-            cleaned.get("enum").unwrap().as_array().unwrap().len(),
-            2
-        );
+        assert_eq!(cleaned.get("enum").unwrap().as_array().unwrap().len(), 2);
     }
 
     #[test]

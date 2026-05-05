@@ -32,28 +32,25 @@ fn google_oauth_client_id() -> &'static str {
 
 fn google_oauth_client_secret() -> &'static str {
     static SECRET: OnceLock<String> = OnceLock::new();
-    SECRET.get_or_init(|| {
-        std::env::var("RARA_GOOGLE_CLIENT_SECRET").unwrap_or_else(|_| {
-            unimplemented!(
-                "RARA_GOOGLE_CLIENT_SECRET env var not set. \
+    SECRET
+        .get_or_init(|| {
+            std::env::var("RARA_GOOGLE_CLIENT_SECRET").unwrap_or_else(|_| {
+                unimplemented!(
+                    "RARA_GOOGLE_CLIENT_SECRET env var not set. \
                  Set it to your Google OAuth client secret."
-            )
+                )
+            })
         })
-    })
-    .as_str()
+        .as_str()
 }
 
 const GOOGLE_AUTH_URL: &str = "https://accounts.google.com/o/oauth2/v2/auth";
 const GOOGLE_TOKEN_URL: &str = "https://oauth2.googleapis.com/token";
 const REDIRECT_URI_PREFIX: &str = "http://127.0.0.1:";
-const GOOGLE_USERINFO_URL: &str =
-    "https://openidconnect.googleapis.com/v1/userinfo";
-const OAUTH_SCOPES: &str =
-    "openid email https://www.googleapis.com/auth/cloud-platform";
-const DEFAULT_DEVICE_CODE_URL: &str =
-    "https://oauth2.googleapis.com/device/code";
-const DEFAULT_DEVICE_CODE_GRANT_URL: &str =
-    "https://oauth2.googleapis.com/token";
+const GOOGLE_USERINFO_URL: &str = "https://openidconnect.googleapis.com/v1/userinfo";
+const OAUTH_SCOPES: &str = "openid email https://www.googleapis.com/auth/cloud-platform";
+const DEFAULT_DEVICE_CODE_URL: &str = "https://oauth2.googleapis.com/device/code";
+const DEFAULT_DEVICE_CODE_GRANT_URL: &str = "https://oauth2.googleapis.com/token";
 
 // ── Data types ────────────────────────────────────────────────
 
@@ -173,8 +170,7 @@ impl GoogleOAuthManager {
         let data = std::fs::read_to_string(&self.token_path)
             .context("No saved Google OAuth credential")?;
         let stored: StoredCredential =
-            serde_json::from_str(&data)
-                .context("Failed to parse Google OAuth credential")?;
+            serde_json::from_str(&data).context("Failed to parse Google OAuth credential")?;
 
         let cred = GoogleCredential {
             access_token: stored.access_token,
@@ -209,26 +205,18 @@ impl GoogleOAuthManager {
         })
     }
 
-    pub async fn complete_browser_login(
-        session: BrowserLoginSession,
-    ) -> Result<GoogleCredential> {
+    pub async fn complete_browser_login(session: BrowserLoginSession) -> Result<GoogleCredential> {
         let listener = TcpListener::bind(session.addr)?;
         listener
             .set_nonblocking(false)
             .context("Failed to set listener blocking")?;
         let code = receive_callback(listener)?;
-        let token = exchange_authorization_code(
-            &session.code_verifier,
-            &code,
-        )
-        .await?;
+        let token = exchange_authorization_code(&session.code_verifier, &code).await?;
         let cred = persist_credential(&session.token_path, &token).await?;
         Ok(cred)
     }
 
-    pub async fn request_device_code(
-        &self,
-    ) -> Result<DeviceCodeSession> {
+    pub async fn request_device_code(&self) -> Result<DeviceCodeSession> {
         let code_verifier = generate_code_verifier();
         let code_challenge = compute_code_challenge(&code_verifier);
 
@@ -239,15 +227,11 @@ impl GoogleOAuthManager {
             ("code_challenge_method", "S256"),
         ];
 
-        let url =
-            Url::parse_with_params(DEFAULT_DEVICE_CODE_URL, &params)?;
+        let url = Url::parse_with_params(DEFAULT_DEVICE_CODE_URL, &params)?;
         let resp: serde_json::Value = self
             .http
             .post(url)
-            .header(
-                "Content-Type",
-                "application/x-www-form-urlencoded",
-            )
+            .header("Content-Type", "application/x-www-form-urlencoded")
             .send()
             .await?
             .json()
@@ -273,11 +257,8 @@ impl GoogleOAuthManager {
         })
     }
 
-    pub async fn complete_device_code(
-        session: DeviceCodeSession,
-    ) -> Result<GoogleCredential> {
-        let deadline = system_time_millis()
-            + session.expires_in_secs * 1000;
+    pub async fn complete_device_code(session: DeviceCodeSession) -> Result<GoogleCredential> {
+        let deadline = system_time_millis() + session.expires_in_secs * 1000;
 
         loop {
             if system_time_millis() >= deadline {
@@ -287,10 +268,7 @@ impl GoogleOAuthManager {
             let form_body = device_code_form_body(&session);
             let resp = reqwest::Client::new()
                 .post(DEFAULT_DEVICE_CODE_GRANT_URL)
-                .header(
-                    "Content-Type",
-                    "application/x-www-form-urlencoded",
-                )
+                .header("Content-Type", "application/x-www-form-urlencoded")
                 .body(form_body)
                 .send()
                 .await?;
@@ -303,10 +281,7 @@ impl GoogleOAuthManager {
             let body = resp.text().await.unwrap_or_default();
             if body.contains("authorization_pending") {
                 // Still waiting — sleep and retry.
-                tokio::time::sleep(Duration::from_secs(
-                    session.interval_secs,
-                ))
-                .await;
+                tokio::time::sleep(Duration::from_secs(session.interval_secs)).await;
                 continue;
             }
 
@@ -318,10 +293,7 @@ impl GoogleOAuthManager {
 // ── Internal helpers ──────────────────────────────────────────
 
 impl GoogleOAuthManager {
-    async fn refresh_if_needed(
-        &self,
-        cred: GoogleCredential,
-    ) -> Result<GoogleCredential> {
+    async fn refresh_if_needed(&self, cred: GoogleCredential) -> Result<GoogleCredential> {
         let now_ms = system_time_millis();
         if now_ms + 300_000 >= cred.expires_at {
             return self.refresh_access_token(&cred).await;
@@ -329,10 +301,7 @@ impl GoogleOAuthManager {
         Ok(cred)
     }
 
-    async fn refresh_access_token(
-        &self,
-        cred: &GoogleCredential,
-    ) -> Result<GoogleCredential> {
+    async fn refresh_access_token(&self, cred: &GoogleCredential) -> Result<GoogleCredential> {
         let form_body = urlencode_pairs(&[
             ("client_id", google_oauth_client_id()),
             ("client_secret", google_oauth_client_secret()),
@@ -343,10 +312,7 @@ impl GoogleOAuthManager {
         let resp = self
             .http
             .post(GOOGLE_TOKEN_URL)
-            .header(
-                "Content-Type",
-                "application/x-www-form-urlencoded",
-            )
+            .header("Content-Type", "application/x-www-form-urlencoded")
             .body(form_body)
             .send()
             .await?;
@@ -357,8 +323,7 @@ impl GoogleOAuthManager {
         }
 
         let token: TokenResponse = resp.json().await?;
-        let expires_at = system_time_millis()
-            + token.expires_in.unwrap_or(3600) * 1000;
+        let expires_at = system_time_millis() + token.expires_in.unwrap_or(3600) * 1000;
 
         Ok(GoogleCredential {
             access_token: token.access_token,
@@ -385,10 +350,7 @@ fn compute_code_challenge(verifier: &str) -> String {
     URL_SAFE_NO_PAD.encode(&digest)
 }
 
-fn build_auth_url(
-    code_verifier: &str,
-    redirect_uri: &str,
-) -> Result<String> {
+fn build_auth_url(code_verifier: &str, redirect_uri: &str) -> Result<String> {
     let code_challenge = compute_code_challenge(code_verifier);
     let state = generate_state();
 
@@ -447,10 +409,7 @@ fn receive_callback(listener: TcpListener) -> Result<String> {
 
 // ── Token exchange ────────────────────────────────────────────
 
-async fn exchange_authorization_code(
-    code_verifier: &str,
-    code: &str,
-) -> Result<TokenResponse> {
+async fn exchange_authorization_code(code_verifier: &str, code: &str) -> Result<TokenResponse> {
     let client = reqwest::Client::builder()
         .timeout(Duration::from_secs(30))
         .build()?;
@@ -465,10 +424,7 @@ async fn exchange_authorization_code(
 
     let resp = client
         .post(GOOGLE_TOKEN_URL)
-        .header(
-            "Content-Type",
-            "application/x-www-form-urlencoded",
-        )
+        .header("Content-Type", "application/x-www-form-urlencoded")
         .body(form_body)
         .send()
         .await?;
@@ -487,10 +443,7 @@ fn device_code_form_body(session: &DeviceCodeSession) -> String {
         ("client_id", google_oauth_client_id()),
         ("client_secret", google_oauth_client_secret()),
         ("device_code", &session.device_code),
-        (
-            "grant_type",
-            "urn:ietf:params:oauth:grant-type:device_code",
-        ),
+        ("grant_type", "urn:ietf:params:oauth:grant-type:device_code"),
         ("code_verifier", &session.code_verifier),
     ])
 }
@@ -506,13 +459,9 @@ fn urlencode_pairs(pairs: &[(&str, &str)]) -> String {
 
 // ── Persistence ───────────────────────────────────────────────
 
-async fn persist_credential(
-    path: &Path,
-    token: &TokenResponse,
-) -> Result<GoogleCredential> {
+async fn persist_credential(path: &Path, token: &TokenResponse) -> Result<GoogleCredential> {
     let email = resolve_email(&token.access_token).await?;
-    let expires_at = system_time_millis()
-        + token.expires_in.unwrap_or(3600) * 1000;
+    let expires_at = system_time_millis() + token.expires_in.unwrap_or(3600) * 1000;
     let refresh_token = token
         .refresh_token
         .clone()

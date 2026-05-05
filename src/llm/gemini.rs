@@ -18,12 +18,10 @@ use crate::llm::{ContentBlock, LlmResponse, TokenUsage};
 use crate::redaction::sanitize_url_for_display;
 
 /// Code Assist production endpoint.
-const CODE_ASSIST_ENDPOINT: &str =
-    "https://cloudcode-pa.googleapis.com";
+const CODE_ASSIST_ENDPOINT: &str = "https://cloudcode-pa.googleapis.com";
 
 /// AI Studio endpoint for native Gemini API (not OpenAI-compatible).
-const AI_STUDIO_ENDPOINT: &str =
-    "https://generativelanguage.googleapis.com/v1beta";
+const AI_STUDIO_ENDPOINT: &str = "https://generativelanguage.googleapis.com/v1beta";
 
 /// Auth mode for Gemini.
 #[derive(Debug, Clone)]
@@ -54,10 +52,7 @@ impl GeminiBackend {
         })
     }
 
-    pub fn with_oauth(
-        oauth: GoogleOAuthManager,
-        model: String,
-    ) -> Result<Self> {
+    pub fn with_oauth(oauth: GoogleOAuthManager, model: String) -> Result<Self> {
         Ok(Self {
             auth: GeminiAuthMode::OAuth { oauth },
             model,
@@ -89,11 +84,7 @@ impl GeminiBackend {
         }
     }
 
-    async fn send_gemini_request(
-        &self,
-        body: &Value,
-        stream: bool,
-    ) -> Result<reqwest::Response> {
+    async fn send_gemini_request(&self, body: &Value, stream: bool) -> Result<reqwest::Response> {
         let endpoint = self.base_endpoint();
         let model = &self.model;
 
@@ -105,7 +96,11 @@ impl GeminiBackend {
                 "{}/v1internal/projects/-/locations/global/models/{}:{}",
                 endpoint,
                 model,
-                if stream { "streamGenerateContent" } else { "generateContent" }
+                if stream {
+                    "streamGenerateContent"
+                } else {
+                    "generateContent"
+                }
             );
             let envelope = json!({
                 "project": project_id,
@@ -125,7 +120,11 @@ impl GeminiBackend {
                 "{}/models/{}:{}?key={}&alt={}",
                 endpoint,
                 model,
-                if stream { "streamGenerateContent" } else { "generateContent" },
+                if stream {
+                    "streamGenerateContent"
+                } else {
+                    "generateContent"
+                },
                 key,
                 if stream { "sse" } else { "" }
             );
@@ -164,11 +163,7 @@ impl GeminiBackend {
 
 #[async_trait]
 impl LlmBackend for GeminiBackend {
-    async fn ask(
-        &self,
-        messages: &[Message],
-        tools: &[Value],
-    ) -> Result<LlmResponse> {
+    async fn ask(&self, messages: &[Message], tools: &[Value]) -> Result<LlmResponse> {
         let body = build_gemini_request(messages, tools)?;
         let res = self.send_gemini_request(&body, false).await?;
 
@@ -213,8 +208,8 @@ impl LlmBackend for GeminiBackend {
             }
 
             // Gemini streaming returns JSON arrays of response objects.
-            let chunk: Value = serde_json::from_str(data)
-                .context("Failed to parse Gemini SSE chunk")?;
+            let chunk: Value =
+                serde_json::from_str(data).context("Failed to parse Gemini SSE chunk")?;
 
             // Accumulate the response and extract text deltas.
             if let Some(candidates) = chunk.as_array() {
@@ -225,23 +220,16 @@ impl LlmBackend for GeminiBackend {
                         .and_then(|p| p.as_array())
                     {
                         for part in content {
-                            if let Some(text) =
-                                part.get("text").and_then(|t| t.as_str())
-                            {
+                            if let Some(text) = part.get("text").and_then(|t| t.as_str()) {
                                 if !text.is_empty() {
                                     streamed_text.push_str(text);
-                                    on_event(LlmStreamEvent::TextDelta(
-                                        text.to_string(),
-                                    ));
+                                    on_event(LlmStreamEvent::TextDelta(text.to_string()));
                                 }
                             }
                         }
                     }
                     // Track the most complete candidate as the response.
-                    if candidate
-                        .get("finishReason")
-                        .is_some()
-                    {
+                    if candidate.get("finishReason").is_some() {
                         accumulated_response = Some(candidate.clone());
                     }
                 }
@@ -259,9 +247,10 @@ impl LlmBackend for GeminiBackend {
             let mut response = parse_gemini_candidate(&resp)?;
             // Replace text with streamed version for accuracy.
             if !streamed_text.is_empty()
-                && response.content.iter().all(|b| {
-                    !matches!(b, ContentBlock::Text { .. })
-                })
+                && response
+                    .content
+                    .iter()
+                    .all(|b| !matches!(b, ContentBlock::Text { .. }))
             {
                 response.content.push(ContentBlock::Text {
                     text: streamed_text,
@@ -277,9 +266,7 @@ impl LlmBackend for GeminiBackend {
                 usage: None,
             })
         } else {
-            Err(anyhow!(
-                "Gemini streaming produced no content"
-            ))
+            Err(anyhow!("Gemini streaming produced no content"))
         }
     }
 
@@ -318,11 +305,7 @@ impl LlmBackend for GeminiBackend {
         Ok(embedding)
     }
 
-    async fn summarize(
-        &self,
-        messages: &[Message],
-        instruction: &str,
-    ) -> Result<String> {
+    async fn summarize(&self, messages: &[Message], instruction: &str) -> Result<String> {
         // Use a flash model for summarization.
         let summary_messages = {
             let mut msgs = messages.to_vec();
@@ -345,21 +328,14 @@ impl LlmBackend for GeminiBackend {
         Ok(String::new())
     }
 
-    fn context_budget(
-        &self,
-        _messages: &[Message],
-        _tools: &[Value],
-    ) -> Option<ContextBudget> {
+    fn context_budget(&self, _messages: &[Message], _tools: &[Value]) -> Option<ContextBudget> {
         gemini_context_budget(&self.model)
     }
 }
 
 // ── Request building ──────────────────────────────────────────────
 
-fn build_gemini_request(
-    messages: &[Message],
-    tools: &[Value],
-) -> Result<Value> {
+fn build_gemini_request(messages: &[Message], tools: &[Value]) -> Result<Value> {
     let mut contents = Vec::new();
     let mut system_instruction: Option<Value> = None;
 
@@ -388,8 +364,7 @@ fn build_gemini_request(
             }
             "tool" => {
                 // Tool result — find the function name and response.
-                let (tool_name, tool_result) =
-                    extract_tool_result(&msg.content);
+                let (tool_name, tool_result) = extract_tool_result(&msg.content);
                 contents.push(json!({
                     "role": "function",
                     "parts": [{
@@ -431,9 +406,7 @@ fn build_gemini_request(
                 let schema = tool
                     .get("input_schema")
                     .map(|s| sanitize_gemini_schema(s))
-                    .unwrap_or_else(|| {
-                        json!({"type": "object", "properties": {}})
-                    });
+                    .unwrap_or_else(|| json!({"type": "object", "properties": {}}));
                 decl["parameters"] = schema;
                 decl
             })
@@ -454,9 +427,7 @@ fn extract_text_content(content: &Value) -> String {
     if let Some(arr) = content.as_array() {
         let texts: Vec<String> = arr
             .iter()
-            .filter_map(|block| {
-                block.get("text").and_then(|t| t.as_str())
-            })
+            .filter_map(|block| block.get("text").and_then(|t| t.as_str()))
             .map(|s| s.to_string())
             .collect();
         return texts.join("\n");
@@ -471,23 +442,15 @@ fn convert_assistant_parts(content: &Value) -> Vec<Value> {
         for block in arr {
             match block.get("type").and_then(|t| t.as_str()) {
                 Some("text") => {
-                    if let Some(text) =
-                        block.get("text").and_then(|t| t.as_str())
-                    {
+                    if let Some(text) = block.get("text").and_then(|t| t.as_str()) {
                         if !text.is_empty() {
                             parts.push(json!({"text": text}));
                         }
                     }
                 }
                 Some("tool_use") => {
-                    let name = block
-                        .get("name")
-                        .and_then(|n| n.as_str())
-                        .unwrap_or("");
-                    let input = block
-                        .get("input")
-                        .cloned()
-                        .unwrap_or(json!({}));
+                    let name = block.get("name").and_then(|n| n.as_str()).unwrap_or("");
+                    let input = block.get("input").cloned().unwrap_or(json!({}));
                     parts.push(json!({
                         "functionCall": {
                             "name": name,
@@ -514,18 +477,13 @@ fn extract_tool_result(content: &Value) -> (String, Value) {
     // Look for tool_use result in the content array.
     if let Some(arr) = content.as_array() {
         for block in arr {
-            if block.get("type").and_then(|t| t.as_str())
-                == Some("tool_result")
-            {
+            if block.get("type").and_then(|t| t.as_str()) == Some("tool_result") {
                 let name = block
                     .get("name")
                     .and_then(|n| n.as_str())
                     .unwrap_or("")
                     .to_string();
-                let result = block
-                    .get("content")
-                    .cloned()
-                    .unwrap_or(json!(""));
+                let result = block.get("content").cloned().unwrap_or(json!(""));
                 return (name, result);
             }
         }
@@ -623,11 +581,7 @@ const GEMINI_LONG_CONTEXT_WINDOW: usize = 1_048_576;
 const GEMINI_MEDIUM_CONTEXT_WINDOW: usize = 128_000;
 
 /// Models with 1M+ token context window.
-const GEMINI_LONG_CONTEXT_MODELS: &[&str] = &[
-    "gemini-2.5-pro",
-    "gemini-2.5-flash",
-    "gemini-3",
-];
+const GEMINI_LONG_CONTEXT_MODELS: &[&str] = &["gemini-2.5-pro", "gemini-2.5-flash", "gemini-3"];
 
 fn gemini_context_budget(model: &str) -> Option<ContextBudget> {
     let canonical = model.trim().to_ascii_lowercase();
