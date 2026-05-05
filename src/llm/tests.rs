@@ -2092,7 +2092,7 @@ fn derives_context_budget_for_codex_like_models() {
 #[test]
 fn derives_context_budget_for_deepseek_v4_models() {
     let budget = model_context_budget("deepseek-v4-preview").expect("budget");
-    assert_eq!(budget.context_window_tokens, 1_000_000);
+    assert_eq!(budget.context_window_tokens, 1_048_576);
     assert!(budget.compact_threshold_tokens > 900_000);
 }
 
