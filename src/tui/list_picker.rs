@@ -93,12 +93,12 @@ impl ListPickerKind {
         let selected = self.idx(app);
         match self {
             Self::Provider => Self::render_provider_items(app, selected),
-            _ => {
-                // Stub: return placeholder items for pickers not yet migrated.
-                (0..self.item_count(app))
-                    .map(|_| ListItem::new("(pending migration to ListPicker)"))
-                    .collect()
-            }
+            Self::Model => Self::render_model_items(app, selected),
+            Self::AuthMode => Self::render_auth_mode_items(selected),
+            Self::ReasoningEffort => Self::render_reasoning_effort_items(app, selected),
+            Self::Resume => Self::render_resume_items(app, selected),
+            Self::OpenAiEndpointKind => Self::render_endpoint_kind_items(app, selected),
+            Self::OpenAiProfile => Self::render_openai_profile_items(app, selected),
         }
     }
 
@@ -132,6 +132,160 @@ impl ListPickerKind {
                 .style(Self::selected_style(idx, selected))
             })
             .collect()
+    }
+
+    fn render_model_items(app: &TuiApp, selected: usize) -> Vec<ListItem<'static>> {
+        use super::state::{PROVIDER_FAMILIES, ProviderFamily, current_model_presets};
+        let provider_label = PROVIDER_FAMILIES[app.provider_picker_idx].1;
+        let presets = current_model_presets(app.provider_picker_idx);
+        let mut items: Vec<ListItem<'static>> = presets
+            .iter()
+            .enumerate()
+            .map(|(idx, preset)| {
+                // presets are tuples: (model_id, label, extra)
+                ListItem::new(ratatui::text::Line::from(format!(
+                    "[{}] {} ({})",
+                    idx + 1,
+                    preset.1,
+                    provider_label,
+                )))
+                .style(Self::selected_style(idx, selected))
+            })
+            .collect();
+        if matches!(
+            app.selected_provider_family(),
+            ProviderFamily::OpenAiCompatible
+        ) {
+            let base = presets.len();
+            for (offset, label) in ["Select Profile", "Delete Profile"].iter().enumerate() {
+                let idx = base + offset;
+                items.push(
+                    ListItem::new(ratatui::text::Line::from(format!(
+                        "[{}] {}",
+                        idx + 1,
+                        label
+                    )))
+                    .style(Self::selected_style(idx, selected)),
+                );
+            }
+        }
+        items
+    }
+
+    fn render_auth_mode_items(selected: usize) -> Vec<ListItem<'static>> {
+        vec![
+            ListItem::new(ratatui::text::Line::from(
+                "[1] Browser Login (browser-based OAuth)",
+            ))
+            .style(Self::selected_style(0, selected)),
+            ListItem::new(ratatui::text::Line::from(
+                "[2] Device Code Login (headless/SSH)",
+            ))
+            .style(Self::selected_style(1, selected)),
+            ListItem::new(ratatui::text::Line::from("[3] API Key"))
+                .style(Self::selected_style(2, selected)),
+            ListItem::new(ratatui::text::Line::from("[4] Sign Out"))
+                .style(Self::selected_style(3, selected)),
+        ]
+    }
+
+    fn render_reasoning_effort_items(app: &TuiApp, selected: usize) -> Vec<ListItem<'static>> {
+        let options = app.selected_codex_reasoning_options();
+        options
+            .iter()
+            .enumerate()
+            .map(|(idx, option)| {
+                let default_suffix = if option.is_default { " default" } else { "" };
+                ListItem::new(vec![
+                    ratatui::text::Line::from(format!(
+                        "[{}] {}{}",
+                        idx + 1,
+                        option.label,
+                        default_suffix
+                    )),
+                    ratatui::text::Line::from(option.description.clone()),
+                    ratatui::text::Line::from(""),
+                ])
+                .style(Self::selected_style(idx, selected))
+            })
+            .collect()
+    }
+
+    fn render_resume_items(app: &TuiApp, selected: usize) -> Vec<ListItem<'static>> {
+        if app.recent_threads.is_empty() {
+            return vec![ListItem::new("No threads available.")];
+        }
+        app.recent_threads
+            .iter()
+            .enumerate()
+            .map(|(idx, summary)| {
+                let preview = if summary.preview.is_empty() {
+                    "(no preview)"
+                } else {
+                    summary.preview.as_str()
+                };
+                ListItem::new(vec![
+                    ratatui::text::Line::from(format!(
+                        "[{}] {} / {}  branch={}",
+                        idx + 1,
+                        summary.metadata.session_id,
+                        summary.metadata.provider,
+                        summary.metadata.branch,
+                    )),
+                    ratatui::text::Line::from(format!("     {}", preview)),
+                    ratatui::text::Line::from(""),
+                ])
+                .style(Self::selected_style(idx, selected))
+            })
+            .collect()
+    }
+
+    fn render_endpoint_kind_items(app: &TuiApp, selected: usize) -> Vec<ListItem<'static>> {
+        use super::state::openai_profile_setup_kinds;
+        openai_profile_setup_kinds()
+            .iter()
+            .enumerate()
+            .map(|(idx, kind)| {
+                let label = kind.label();
+                let marker = if app.selected_openai_profile_kind() == Some(*kind) {
+                    " (current)"
+                } else {
+                    ""
+                };
+                ListItem::new(ratatui::text::Line::from(format!(
+                    "[{}] {}{}",
+                    idx + 1,
+                    label,
+                    marker
+                )))
+                .style(Self::selected_style(idx, selected))
+            })
+            .collect()
+    }
+
+    fn render_openai_profile_items(app: &TuiApp, selected: usize) -> Vec<ListItem<'static>> {
+        let mut items = vec![
+            ListItem::new(ratatui::text::Line::from("[1] + New Profile"))
+                .style(Self::selected_style(0, selected)),
+        ];
+        for (idx, (profile_id, label)) in app.selected_openai_profiles().iter().enumerate() {
+            let i = idx + 1;
+            let marker = if app.config.active_openai_profile_id() == Some(profile_id.as_str()) {
+                " (current)"
+            } else {
+                ""
+            };
+            items.push(
+                ListItem::new(ratatui::text::Line::from(format!(
+                    "[{}] {}{}",
+                    i + 1,
+                    label,
+                    marker
+                )))
+                .style(Self::selected_style(i, selected)),
+            );
+        }
+        items
     }
 }
 

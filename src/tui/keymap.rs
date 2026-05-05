@@ -244,7 +244,6 @@ pub(crate) fn map_key_to_event(key: KeyEvent, app: &TuiApp) -> AppEvent {
             _ => AppEvent::Noop,
         },
         Some(Overlay::ListPicker(kind)) => super::list_picker::list_picker_key_event(kind, code),
-        Some(Overlay::ListPicker(kind)) => super::list_picker::list_picker_key_event(kind, code),
         Some(Overlay::PermissionPicker) => match code {
             KeyCode::Esc => AppEvent::CloseOverlay,
             KeyCode::Up | KeyCode::Char('k') => AppEvent::MovePermissionSelection(-1),
