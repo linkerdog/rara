@@ -1,4 +1,3 @@
-
 use ratatui::{style::Color, text::Line};
 
 use crate::tui::state::TranscriptEntry;

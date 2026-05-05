@@ -1,4 +1,3 @@
-
 use ratatui::text::Line;
 
 use super::super::{
@@ -6,8 +5,7 @@ use super::super::{
 };
 use super::HistoryCell;
 use super::components::{
-    ExploringCell, PlanningCell, RunningCell,
-    ThinkingGroupCell, ThinkingTextCell,
+    ExploringCell, PlanningCell, RunningCell, ThinkingGroupCell, ThinkingTextCell,
 };
 use crate::tui::state::{ActiveLiveEvent, TranscriptEntry};
 

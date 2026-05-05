@@ -3,9 +3,9 @@ use std::path::Path;
 use ratatui::text::Line;
 
 use super::components::{
-    CommittedInteractionCell, ExploringCell, MessageCell, PendingInteractionCell,
-    PlanModeCell, PlanSummaryCell, PlanningCell, PlanningSuggestionCell, QueuedFollowUpCell, RespondingCell, RunningCell,
-    UserCell, planning_suggestion_text,
+    CommittedInteractionCell, ExploringCell, MessageCell, PendingInteractionCell, PlanModeCell,
+    PlanSummaryCell, PlanningCell, PlanningSuggestionCell, QueuedFollowUpCell, RespondingCell,
+    RunningCell, UserCell, planning_suggestion_text,
 };
 use super::plan::{compact_live_response_message, parse_render_plan_block};
 use super::progress::{
@@ -13,9 +13,9 @@ use super::progress::{
 };
 use super::terminal::terminal_cell_from_entries;
 use super::{
-    ActiveCell, HistoryCell, InteractionCompletionKind, OrderedActiveSegment,
-    completion_role_kind, is_progress_stack_title, is_renderable_system_message,
-    ordered_exploration_agent_segments, trim_trailing_empty_lines,
+    ActiveCell, HistoryCell, InteractionCompletionKind, OrderedActiveSegment, completion_role_kind,
+    is_progress_stack_title, is_renderable_system_message, ordered_exploration_agent_segments,
+    trim_trailing_empty_lines,
 };
 use crate::tui::interaction_text::{
     pending_interaction_detail_text, pending_interaction_shortcut_text,
@@ -27,8 +27,7 @@ use crate::tui::render::{
     compact_summary_text, current_turn_exploration_summary_from_entries, current_turn_tool_summary,
 };
 use crate::tui::state::{
-    RuntimePhase, TranscriptEntryPayload, TuiApp,
-    contains_structured_planning_output,
+    RuntimePhase, TranscriptEntryPayload, TuiApp, contains_structured_planning_output,
 };
 
 pub(crate) struct ActiveTurnCell<'a> {
