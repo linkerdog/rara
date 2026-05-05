@@ -264,7 +264,7 @@ fn footer_summary_text_includes_repo_context_when_available() {
 fn wrapped_text_rows_preserve_space_only_and_blank_lines() {
     let rows = wrapped_text_rows(" \n\n  ", 12, Some("› "), Some("  "));
 
-    assert_eq!(rows, vec!["›  ", "› ", "›   "]);
+    assert_eq!(rows, vec!["›  ", "  ", "    "]);
 }
 
 #[test]
