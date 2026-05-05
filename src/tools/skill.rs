@@ -82,7 +82,7 @@ impl Tool for SkillTool {
             "invoke" => {
                 let name = i["skill_name"]
                     .as_str()
-                    .ok_or(ToolError::InvalidInput("name".into()))?;
+                    .ok_or(ToolError::InvalidInput("skill_name".into()))?;
                 let args = i.get("args").and_then(|v| v.as_str()).map(String::from);
                 let skill =
                     self.skill_manager

@@ -728,7 +728,7 @@ fn render_available_skills_section(skills: &[PromptSkillSummary]) -> Option<Stri
 
 /// Renders the actual skill listing for injection into per-turn context
 /// (not the system prompt). Like Claude Code's skill_listing attachment.
-/// Truncates descriptions under budget pressure to save context tokens.
+/// Truncates long descriptions to keep the listing compact.
 pub fn render_skill_listing(skills: &[PromptSkillSummary]) -> Option<String> {
     const MAX_DESC_CHARS: usize = 80;
     if skills.is_empty() {
@@ -748,11 +748,7 @@ pub fn render_skill_listing(skills: &[PromptSkillSummary]) -> Option<String> {
     lines.push("[".to_string());
     for (index, skill) in skills.iter().enumerate() {
         let suffix = if index + 1 == skills.len() { "" } else { "," };
-        let desc = if skill.description.len() > MAX_DESC_CHARS {
-            format!("{}…", &skill.description[..MAX_DESC_CHARS - 1])
-        } else {
-            skill.description.clone()
-        };
+        let desc = truncate_for_skill_listing(&skill.description, MAX_DESC_CHARS);
         lines.push(format!(
             "  {{\"name\":\"{}\",\"title\":{},\"description\":\"{}\",\"file\":\"{}\",\"scope\":\"{}\",\"disableModelInvocation\":{}}}{}",
             escape_json_string(&skill.name),
@@ -767,6 +763,15 @@ pub fn render_skill_listing(skills: &[PromptSkillSummary]) -> Option<String> {
     lines.push("]".to_string());
     lines.push("```".to_string());
     Some(lines.join("\n"))
+}
+
+fn truncate_for_skill_listing(desc: &str, max_chars: usize) -> String {
+    if desc.chars().count() <= max_chars {
+        return desc.to_string();
+    }
+    let mut truncated: String = desc.chars().take(max_chars - 1).collect();
+    truncated.push('…');
+    truncated
 }
 
 fn json_string_or_null(value: Option<&str>) -> String {
