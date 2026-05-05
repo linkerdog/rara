@@ -642,12 +642,12 @@ pub(crate) fn infer_openai_compatible_auxiliary_model(
 fn infer_deepseek_lite_model(model: &str) -> Option<Cow<'_, str>> {
     let trimmed = model.trim();
     let lower = trimmed.to_ascii_lowercase();
-    if !lower.contains("deepseek") || lower.contains("lite") {
+    if !lower.contains("deepseek") || lower.contains("flash") {
         return None;
     }
     if lower.contains("v4") && lower.ends_with("-pro") {
         let prefix = &trimmed[..trimmed.len().saturating_sub("-pro".len())];
-        return Some(Cow::Owned(format!("{prefix}-lite")));
+        return Some(Cow::Owned(format!("{prefix}-flash")));
     }
     None
 }

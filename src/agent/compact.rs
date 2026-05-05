@@ -16,7 +16,7 @@ const ROLE_ASSISTANT: &str = "assistant";
 // compaction after a timeout or backend failure.
 const AUTO_COMPACTION_RETRY_HYSTERESIS_TOKENS: usize = 8_192;
 #[cfg(not(test))]
-const COMPACTION_SUMMARY_TIMEOUT: Duration = Duration::from_secs(120);
+const COMPACTION_SUMMARY_TIMEOUT: Duration = Duration::from_secs(300);
 
 #[cfg(test)]
 const TEST_COMPACTION_SUMMARY_TIMEOUT: Duration = Duration::from_millis(10);

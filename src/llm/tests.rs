@@ -492,19 +492,19 @@ fn deepseek_reasoner_defaults_preserve_standard_body() {
 }
 
 #[test]
-fn deepseek_v4_pro_infers_lite_auxiliary_model() {
+fn deepseek_v4_pro_infers_flash_auxiliary_model() {
     assert_eq!(
         infer_openai_compatible_auxiliary_model("deepseek-v4-pro", OpenAiEndpointKind::Deepseek)
             .as_deref(),
-        Some("deepseek-v4-lite")
+        Some("deepseek-v4-flash")
     );
     assert_eq!(
         infer_openai_compatible_auxiliary_model("DeepSeek-V4-PRO", OpenAiEndpointKind::Deepseek)
             .as_deref(),
-        Some("DeepSeek-V4-lite")
+        Some("DeepSeek-V4-flash")
     );
     assert_eq!(
-        infer_openai_compatible_auxiliary_model("deepseek-v4-lite", OpenAiEndpointKind::Deepseek),
+        infer_openai_compatible_auxiliary_model("deepseek-v4-flash", OpenAiEndpointKind::Deepseek),
         None
     );
     assert_eq!(
@@ -2092,7 +2092,7 @@ fn derives_context_budget_for_codex_like_models() {
 #[test]
 fn derives_context_budget_for_deepseek_v4_models() {
     let budget = model_context_budget("deepseek-v4-preview").expect("budget");
-    assert_eq!(budget.context_window_tokens, 1_000_000);
+    assert_eq!(budget.context_window_tokens, 1_048_576);
     assert!(budget.compact_threshold_tokens > 900_000);
 }
 
