@@ -548,30 +548,35 @@ pub(super) async fn finish_running_task_if_ready(
                     }
                     // Ralph loop: auto-continue if a goal is pursuing and we're in execute mode.
                     // Suppress continuation when the last turn made no tool calls (Codex pattern).
-                    // Sync model-tool goal updates into TUI state.
-                    app.goal = app.goal_handle.read().unwrap().clone();
-                    let agent_had_tools = agent_slot
-                        .as_ref()
-                        .is_some_and(|a| a.last_turn_had_tool_calls());
+                    let prior_total_input_tokens = app.snapshot.total_input_tokens;
+                    let agent_had_tools = agent.last_turn_had_tool_calls();
                     let should_auto_continue_goal = !finished_plan_turn
                         && agent_had_tools
-                        && app
-                            .goal
+                        && app.goal_handle
+                            .read()
+                            .unwrap()
                             .as_ref()
                             .is_some_and(|g| g.status == GoalStatus::Pursuing)
                         && !app.has_pending_plan_approval();
                     if should_auto_continue_goal {
-                        if let Some(mut agent) = agent_slot.take() {
-                            let tokens_this_turn = app.snapshot.total_input_tokens;
+                        // Sync agent state into snapshot before using token counters.
+                        app.sync_snapshot(&agent);
+                        app.goal = app.goal_handle.read().unwrap().clone();
+                        {
+                            let turn_input_tokens = app
+                                .snapshot
+                                .total_input_tokens
+                                .saturating_sub(prior_total_input_tokens);
                             let (goal_obj, goal_turns, goal_used, goal_budget, budget_exhausted) = {
                                 let goal = app.goal.as_mut().expect("goal must exist");
-                                goal.tokens_used += tokens_this_turn;
+                                goal.tokens_used += turn_input_tokens;
                                 goal.turns_completed += 1;
                                 let exhausted =
                                     goal.token_budget.is_some_and(|b| goal.tokens_used >= b);
                                 if exhausted {
                                     goal.status = GoalStatus::BudgetLimited;
                                 }
+                                // Snapshot fields before mutable borrow ends.
                                 let (obj, tc, tu, tb) = (
                                     goal.objective.clone(),
                                     goal.turns_completed,
@@ -589,8 +594,8 @@ pub(super) async fn finish_running_task_if_ready(
                                 ));
                                 *agent_slot = Some(agent);
                                 app.release_pending_follow_ups();
-                                app.finalize_agent_stream(None);
                                 app.finalize_active_turn();
+                                app.finalize_agent_stream(None);
                                 app.set_runtime_phase(
                                     RuntimePhase::Idle,
                                     Some("goal budget limited".into()),
@@ -598,8 +603,9 @@ pub(super) async fn finish_running_task_if_ready(
                                 try_start_queued_follow_up(app, agent_slot);
                                 return Ok(());
                             }
-                            app.release_pending_follow_ups();
-                            app.finalize_agent_stream(None);
+                            // finalize_active_turn closes the current turn's transcript
+                            // before start_query_task begins a new one.
+                            app.finalize_active_turn();
                             start_query_task(
                                 app,
                                 format!(
@@ -609,6 +615,11 @@ pub(super) async fn finish_running_task_if_ready(
                             );
                             return Ok(());
                         }
+                    }
+                    // Non-auto-continue path: put agent back before idle / plan-approval logic.
+                    *agent_slot = Some(agent);
+                    if let Some(a) = agent_slot.as_ref() {
+                        app.sync_snapshot(a);
                     }
                     app.release_pending_follow_ups();
                     app.finalize_agent_stream(None);

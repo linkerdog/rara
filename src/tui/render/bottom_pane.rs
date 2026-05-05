@@ -90,7 +90,7 @@ fn render_activity_bar(f: &mut Frame, app: &TuiApp, area: Rect) {
             GoalStatus::Pursuing => ("pursuing", STATUS_INFO),
             GoalStatus::Paused => ("paused", STATUS_WARNING),
             GoalStatus::Achieved => ("done", STATUS_SUCCESS),
-            GoalStatus::Unmet => ("unmet", Color::Red),
+            GoalStatus::Unmet => ("unmet", STATUS_ERROR),
             GoalStatus::BudgetLimited => ("budget", STATUS_WARNING),
         };
         spans.push(badge("goal", goal_label, goal_color));

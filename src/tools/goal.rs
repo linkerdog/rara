@@ -88,7 +88,20 @@ impl Tool for CreateGoalTool {
             .as_str()
             .ok_or_else(|| ToolError::InvalidInput("objective must be a string".into()))?
             .to_string();
-        let token_budget = input["token_budget"].as_u64().map(|v| v as u32);
+        if objective.trim().is_empty() {
+            return Err(ToolError::InvalidInput(
+                "objective must not be empty".into(),
+            ));
+        }
+        let token_budget = match input["token_budget"].as_u64() {
+            None => None,
+            Some(v) if v > u32::MAX as u64 => {
+                return Err(ToolError::InvalidInput(format!(
+                    "token_budget {v} exceeds maximum u32 value"
+                )));
+            }
+            Some(v) => Some(v as u32),
+        };
 
         let goal = RalphGoal {
             objective: objective.clone(),
@@ -180,45 +193,152 @@ mod tests {
         Arc::new(std::sync::RwLock::new(None))
     }
 
-    #[test]
-    fn goal_tools_expose_correct_names() {
-        let store = goal_handle();
-        assert_eq!(
-            GetGoalTool {
-                store: store.clone()
-            }
-            .name(),
-            GET_GOAL_TOOL_NAME
-        );
-        assert_eq!(
-            CreateGoalTool {
-                store: store.clone()
-            }
-            .name(),
-            CREATE_GOAL_TOOL_NAME
-        );
-        assert_eq!(
-            UpdateGoalTool {
-                store: store.clone()
-            }
-            .name(),
-            UPDATE_GOAL_TOOL_NAME
-        );
+    fn block<F: std::future::Future>(f: F) -> F::Output {
+        tokio::runtime::Builder::new_current_thread()
+            .enable_time()
+            .build()
+            .unwrap()
+            .block_on(f)
     }
 
     #[test]
-    fn create_goal_schema_requires_objective() {
+    fn create_and_read_goal_roundtrip() {
         let store = goal_handle();
-        let tool = CreateGoalTool { store };
-        let schema = tool.input_schema();
-        assert_eq!(schema["required"][0], "objective");
+        let create = CreateGoalTool {
+            store: store.clone(),
+        };
+        let get = GetGoalTool {
+            store: store.clone(),
+        };
+
+        let result =
+            block(create.call(serde_json::json!({"objective": "Fix the build", "token_budget": 50000})))
+                .unwrap();
+        assert_eq!(result["objective"], "Fix the build");
+        assert_eq!(result["status"], "pursuing");
+        assert_eq!(result["token_budget"], 50000);
+        assert_eq!(result["turns_completed"], 0);
+
+        let state = block(get.call(serde_json::json!({}))).unwrap();
+        assert_eq!(state["objective"], "Fix the build");
+        assert_eq!(state["status"], "pursuing");
+        assert_eq!(state["token_budget"], 50000);
+        assert_eq!(state["tokens_used"], 0);
     }
 
     #[test]
-    fn update_goal_schema_requires_status() {
+    fn create_goal_fails_when_goal_exists() {
         let store = goal_handle();
-        let tool = UpdateGoalTool { store };
-        let schema = tool.input_schema();
-        assert_eq!(schema["required"][0], "status");
+        *store.write().unwrap() = Some(RalphGoal {
+            objective: "existing".into(),
+            status: GoalStatus::Pursuing,
+            token_budget: None,
+            tokens_used: 0,
+            turns_completed: 0,
+        });
+
+        let create = CreateGoalTool {
+            store: store.clone(),
+        };
+        let err = block(create.call(serde_json::json!({"objective": "new"}))).unwrap_err();
+        assert!(err.to_string().contains("already exists"));
+    }
+
+    #[test]
+    fn create_goal_rejects_empty_objective() {
+        let store = goal_handle();
+        let create = CreateGoalTool { store };
+        let err = block(create.call(serde_json::json!({"objective": ""}))).unwrap_err();
+        assert!(err.to_string().contains("must not be empty"));
+    }
+
+    #[test]
+    fn create_goal_rejects_whitespace_only_objective() {
+        let store = goal_handle();
+        let create = CreateGoalTool { store };
+        let err = block(create.call(serde_json::json!({"objective": "   "}))).unwrap_err();
+        assert!(err.to_string().contains("must not be empty"));
+    }
+
+    #[test]
+    fn create_goal_rejects_oversized_token_budget() {
+        let store = goal_handle();
+        let create = CreateGoalTool { store };
+        let err = block(create.call(serde_json::json!({"objective": "x", "token_budget": 5_000_000_000u64})))
+            .unwrap_err();
+        assert!(err.to_string().contains("exceeds maximum u32 value"));
+    }
+
+    #[test]
+    fn update_goal_mark_achieved() {
+        let store = goal_handle();
+        *store.write().unwrap() = Some(RalphGoal {
+            objective: "test".into(),
+            status: GoalStatus::Pursuing,
+            token_budget: None,
+            tokens_used: 1000,
+            turns_completed: 3,
+        });
+
+        let update = UpdateGoalTool {
+            store: store.clone(),
+        };
+        let result = block(update.call(serde_json::json!({"status": "achieved"}))).unwrap();
+        assert_eq!(result["status"], "achieved");
+        assert_eq!(result["objective"], "test");
+        assert_eq!(result["tokens_used"], 1000);
+        assert_eq!(result["turns_completed"], 3);
+    }
+
+    #[test]
+    fn update_goal_mark_unmet() {
+        let store = goal_handle();
+        *store.write().unwrap() = Some(RalphGoal {
+            objective: "blocked task".into(),
+            status: GoalStatus::Pursuing,
+            token_budget: None,
+            tokens_used: 0,
+            turns_completed: 0,
+        });
+
+        let update = UpdateGoalTool { store };
+        let result = block(update.call(serde_json::json!({"status": "unmet"}))).unwrap();
+        assert_eq!(result["status"], "unmet");
+    }
+
+    #[test]
+    fn update_goal_rejects_invalid_status() {
+        let store = goal_handle();
+        *store.write().unwrap() = Some(RalphGoal {
+            objective: "test".into(),
+            status: GoalStatus::Pursuing,
+            token_budget: None,
+            tokens_used: 0,
+            turns_completed: 0,
+        });
+
+        let update = UpdateGoalTool { store };
+        let err =
+            block(update.call(serde_json::json!({"status": "pursuing"}))).unwrap_err();
+        assert!(err.to_string().contains("Invalid status"));
+    }
+
+    #[test]
+    fn update_goal_fails_without_existing_goal() {
+        let store = goal_handle();
+        let update = UpdateGoalTool { store };
+        let err =
+            block(update.call(serde_json::json!({"status": "achieved"}))).unwrap_err();
+        assert!(err.to_string().contains("No active goal"));
+    }
+
+    #[test]
+    fn get_goal_returns_nulls_when_empty() {
+        let store = goal_handle();
+        let get = GetGoalTool { store };
+        let result = block(get.call(serde_json::json!({}))).unwrap();
+        assert_eq!(result["objective"], serde_json::Value::Null);
+        assert_eq!(result["status"], serde_json::Value::Null);
+        assert_eq!(result["tokens_used"], 0);
     }
 }
