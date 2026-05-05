@@ -558,7 +558,7 @@ impl TuiApp {
         self.openai_setup_steps.clear();
         self.openai_setup_keep_empty_api_key = false;
         self.openai_profile_label_kind = None;
-        self.open_overlay(Overlay::OpenAiEndpointKindPicker);
+        self.open_overlay(Overlay::ListPicker(ListPickerKind::OpenAiEndpointKind));
     }
 
     pub fn begin_active_openai_profile_setup(&mut self) {
@@ -590,7 +590,7 @@ impl TuiApp {
     pub fn advance_openai_profile_setup(&mut self) {
         if self.openai_setup_steps.is_empty() {
             self.openai_setup_keep_empty_api_key = false;
-            self.open_overlay(Overlay::ModelPicker);
+            self.open_overlay(Overlay::ListPicker(ListPickerKind::Model));
             self.notice = Some(
                 "Endpoint setup complete. Review the active profile and press Enter to rebuild."
                     .into(),
@@ -1091,13 +1091,22 @@ impl TuiApp {
         if matches!(overlay, Overlay::CommandPalette) {
             self.command_palette_idx = 0;
         }
-        if matches!(overlay, Overlay::ProviderPicker) {
+        if matches!(
+            overlay,
+            Overlay::ProviderPicker | Overlay::ListPicker(ListPickerKind::Provider)
+        ) {
             self.provider_picker_idx = selected_provider_family_idx_for_config(&self.config);
         }
-        if matches!(overlay, Overlay::ResumePicker) {
+        if matches!(
+            overlay,
+            Overlay::ResumePicker | Overlay::ListPicker(ListPickerKind::Resume)
+        ) {
             self.refresh_recent_threads_for_resume_picker();
         }
-        if matches!(overlay, Overlay::ModelPicker) {
+        if matches!(
+            overlay,
+            Overlay::ModelPicker | Overlay::ListPicker(ListPickerKind::Model)
+        ) {
             let selected_family = self.selected_provider_family();
             if matches!(selected_family, ProviderFamily::OpenAiCompatible) {
                 if !matches!(
@@ -1122,7 +1131,11 @@ impl TuiApp {
             }
             self.sync_reasoning_effort_picker();
         }
-        if matches!(overlay, Overlay::OpenAiEndpointKindPicker) {
+        if matches!(
+            overlay,
+            Overlay::OpenAiEndpointKindPicker
+                | Overlay::ListPicker(ListPickerKind::OpenAiEndpointKind)
+        ) {
             self.openai_endpoint_kind_picker_idx = self
                 .selected_openai_profile_kind()
                 .and_then(|kind| {
@@ -1173,7 +1186,10 @@ impl TuiApp {
         if matches!(overlay, Overlay::AuthModePicker) {
             self.auth_mode_idx = if is_ssh_session() { 1 } else { 0 };
         }
-        if matches!(overlay, Overlay::ReasoningEffortPicker) {
+        if matches!(
+            overlay,
+            Overlay::ReasoningEffortPicker | Overlay::ListPicker(ListPickerKind::ReasoningEffort)
+        ) {
             self.sync_reasoning_effort_picker();
         }
         if matches!(overlay, Overlay::SkillsPicker) {
@@ -1397,19 +1413,26 @@ impl TuiApp {
             self.cancel_openai_profile_setup();
         }
         self.overlay = match self.overlay {
-            Some(Overlay::OpenAiEndpointKindPicker) => Some(Overlay::ModelPicker),
-            Some(Overlay::OpenAiProfilePicker) => Some(Overlay::ModelPicker),
+            Some(
+                Overlay::OpenAiEndpointKindPicker
+                | Overlay::ListPicker(ListPickerKind::OpenAiEndpointKind),
+            ) => Some(Overlay::ModelPicker),
+            Some(
+                Overlay::OpenAiProfilePicker | Overlay::ListPicker(ListPickerKind::OpenAiProfile),
+            ) => Some(Overlay::ModelPicker),
             Some(Overlay::BaseUrlEditor) => Some(Overlay::ModelPicker),
             Some(Overlay::ApiKeyEditor) => {
                 if self.config.provider == "codex" {
-                    Some(Overlay::AuthModePicker)
+                    Some(Overlay::ListPicker(ListPickerKind::AuthMode))
                 } else {
                     Some(Overlay::ModelPicker)
                 }
             }
             Some(Overlay::ModelNameEditor) => Some(Overlay::ModelPicker),
-            Some(Overlay::OpenAiProfileLabelEditor) => Some(Overlay::OpenAiProfilePicker),
-            Some(Overlay::AuthModePicker) => {
+            Some(Overlay::OpenAiProfileLabelEditor) => {
+                Some(Overlay::ListPicker(ListPickerKind::OpenAiProfile))
+            }
+            Some(Overlay::AuthModePicker | Overlay::ListPicker(ListPickerKind::AuthMode)) => {
                 if self.codex_model_options.is_empty() {
                     Some(Overlay::ProviderPicker)
                 } else {

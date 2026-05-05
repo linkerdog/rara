@@ -23,7 +23,7 @@ use super::super::command::{
     status_runtime_text, status_workspace_text,
 };
 use super::super::custom_terminal::Frame;
-use super::super::state::{CommandSpec, HelpTab, Overlay, StatusTab, TuiApp};
+use super::super::state::{CommandSpec, HelpTab, ListPickerKind, Overlay, StatusTab, TuiApp};
 use crate::tui::context_display::render_context_lines;
 use crate::tui::status_display::render_status_lines;
 
@@ -58,37 +58,38 @@ pub(super) fn render_overlay(
             render_context_modal(f, app, popup);
             None
         }
-        Overlay::ProviderPicker => {
+        Overlay::ProviderPicker | Overlay::ListPicker(ListPickerKind::Provider) => {
             let popup = setup_flow_rect(f.area());
             f.render_widget(Clear, popup);
             render_provider_picker_modal(f, app, popup);
             None
         }
-        Overlay::ResumePicker => {
+        Overlay::ResumePicker | Overlay::ListPicker(ListPickerKind::Resume) => {
             let popup = setup_flow_rect(f.area());
             f.render_widget(Clear, popup);
             render_resume_picker_modal(f, app, popup);
             None
         }
-        Overlay::ModelPicker => {
+        Overlay::ModelPicker | Overlay::ListPicker(ListPickerKind::Model) => {
             let popup = setup_flow_rect(f.area());
             f.render_widget(Clear, popup);
             render_model_picker_modal(f, app, popup);
             None
         }
-        Overlay::OpenAiEndpointKindPicker => {
+        Overlay::OpenAiEndpointKindPicker
+        | Overlay::ListPicker(ListPickerKind::OpenAiEndpointKind) => {
             let popup = setup_flow_rect(f.area());
             f.render_widget(Clear, popup);
             render_openai_endpoint_kind_picker_modal(f, app, popup);
             None
         }
-        Overlay::OpenAiProfilePicker => {
+        Overlay::OpenAiProfilePicker | Overlay::ListPicker(ListPickerKind::OpenAiProfile) => {
             let popup = setup_flow_rect(f.area());
             f.render_widget(Clear, popup);
             render_openai_profile_picker_modal(f, app, popup);
             None
         }
-        Overlay::ReasoningEffortPicker => {
+        Overlay::ReasoningEffortPicker | Overlay::ListPicker(ListPickerKind::ReasoningEffort) => {
             let popup = centered_rect(78, 70, f.area());
             f.render_widget(Clear, popup);
             render_reasoning_effort_picker_modal(f, app, popup);
@@ -132,7 +133,7 @@ pub(super) fn render_overlay(
             f.render_widget(Clear, popup);
             render_base_url_editor_modal(f, app, popup)
         }
-        Overlay::AuthModePicker => {
+        Overlay::AuthModePicker | Overlay::ListPicker(ListPickerKind::AuthMode) => {
             let popup = setup_flow_rect(f.area());
             f.render_widget(Clear, popup);
             render_auth_mode_picker_modal(f, app, popup);
