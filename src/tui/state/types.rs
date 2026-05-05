@@ -123,6 +123,7 @@ pub enum LocalCommandKind {
     Permissions,
     Logout,
     Review,
+    Goal,
     Quit,
     Skills,
 }
@@ -302,6 +303,8 @@ pub struct RebuildSuccess {
     pub agent: Agent,
     pub warnings: Vec<String>,
     pub sandbox_network_access: Arc<AtomicBool>,
+    /// Shared goal handle for model-facing tools.
+    pub goal_handle: crate::tui::state::GoalHandle,
 }
 
 pub enum TuiEvent {
@@ -580,6 +583,10 @@ pub struct TuiApp {
     pub skill_picker_entries: Vec<SkillPickerEntry>,
     pub sandbox_network_access: Arc<AtomicBool>,
     pub permission_mode: PermissionMode,
+    /// Currently active ralph loop goal, if any.
+    pub goal: Option<RalphGoal>,
+    /// Shared handle that model-facing goal tools write to.
+    pub goal_handle: GoalHandle,
     /// Optional runtime event bus that mirrors AgentEvent to ACP/Wire
     /// subscribers. Set during TUI startup; None only in test contexts.
     pub event_bus: Option<Arc<RuntimeEventBus>>,
@@ -594,3 +601,36 @@ pub struct SkillPickerEntry {
     pub enabled: bool,
     pub disable_model_invocation: bool,
 }
+
+/// Represents the lifecycle state of a ralph loop goal.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum GoalStatus {
+    /// Agent is actively working toward the goal across turns.
+    Pursuing,
+    /// User paused the goal; can be resumed.
+    Paused,
+    /// Goal was completed successfully.
+    Achieved,
+    /// Goal could not be completed (e.g. blocked).
+    Unmet,
+    /// Goal exceeded its configured token budget; soft-stop.
+    BudgetLimited,
+}
+
+/// Tracks a long-running objective that the agent autonomously works toward.
+#[derive(Clone, Debug)]
+pub struct RalphGoal {
+    /// The objective text set by `/goal <objective>`.
+    pub objective: String,
+    /// Current lifecycle status.
+    pub status: GoalStatus,
+    /// Optional token budget (input tokens). None = unlimited.
+    pub token_budget: Option<u32>,
+    /// Total input tokens consumed by goal turns.
+    pub tokens_used: u32,
+    /// Number of autonomous turns completed toward this goal.
+    pub turns_completed: u32,
+}
+
+/// Shared handle for model-facing goal tools and TUI to observe/update goal state.
+pub type GoalHandle = std::sync::Arc<std::sync::RwLock<Option<RalphGoal>>>;

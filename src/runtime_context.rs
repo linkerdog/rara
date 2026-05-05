@@ -4,6 +4,8 @@ use std::sync::{Arc, atomic::AtomicBool};
 
 use anyhow::{Context, Result, bail};
 
+use crate::tui::state::GoalHandle;
+
 use self::tooling::{create_full_tool_manager, load_skill_manager, vector_db_uri_for_workspace};
 use crate::agent::Agent;
 use crate::config::{
@@ -35,15 +37,16 @@ pub(crate) struct RuntimeBootstrap {
     pub warnings: Vec<String>,
     pub sandbox_network_access: Arc<AtomicBool>,
     pub event_bus: Arc<RuntimeEventBus>,
+    pub goal_handle: GoalHandle,
 }
 
 impl RuntimeBootstrap {
     pub(crate) fn into_agent(self) -> Agent {
-        let (agent, _, _) = self.into_parts();
+        let (agent, _, _, _) = self.into_parts();
         agent
     }
 
-    pub(crate) fn into_parts(self) -> (Agent, Vec<String>, Arc<AtomicBool>) {
+    pub(crate) fn into_parts(self) -> (Agent, Vec<String>, Arc<AtomicBool>, GoalHandle) {
         let mut agent = Agent::new(
             self.tool_manager,
             self.backend,
@@ -52,7 +55,7 @@ impl RuntimeBootstrap {
             self.workspace,
         );
         agent.set_prompt_config(self.prompt_config);
-        (agent, self.warnings, self.sandbox_network_access)
+        (agent, self.warnings, self.sandbox_network_access, self.goal_handle)
     }
 }
 
@@ -99,17 +102,19 @@ pub(crate) async fn initialize_rara_context(
     ));
 
     let event_bus = Arc::new(RuntimeEventBus::new(256));
+    let goal_handle: GoalHandle = Arc::new(std::sync::RwLock::new(None));
 
     let tool_manager = create_full_tool_manager(
         backend.clone(),
         vdb.clone(),
         session_manager.clone(),
         workspace.clone(),
-        sandbox_manager,
+        sandbox_manager.clone(),
         skill_manager,
         prompt_config.clone(),
         Arc::new(shell_env.env),
         sandbox_network_access.clone(),
+        goal_handle.clone(),
     );
     let warnings = prompt_config.warnings.clone();
 
@@ -123,6 +128,7 @@ pub(crate) async fn initialize_rara_context(
         warnings,
         sandbox_network_access,
         event_bus,
+        goal_handle,
     })
 }
 

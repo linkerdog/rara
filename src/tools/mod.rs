@@ -2,6 +2,7 @@ pub mod agent;
 pub mod bash;
 pub mod context;
 pub mod file;
+pub mod goal;
 pub mod patch;
 pub mod planning;
 pub mod pty;

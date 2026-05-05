@@ -142,6 +142,10 @@ impl Agent {
         self.last_query_plan_updated
     }
 
+    pub fn last_turn_had_tool_calls(&self) -> bool {
+        self.last_turn_had_tool_calls
+    }
+
     pub fn has_pending_plan_exit_approval(&self) -> bool {
         self.pending_plan_exit_tool_id.is_some()
     }

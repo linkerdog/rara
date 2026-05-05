@@ -1,6 +1,6 @@
 use crate::tui::state::{CommandSpec, LocalCommand, LocalCommandKind, TuiApp};
 
-pub const COMMAND_SPECS: [CommandSpec; 22] = [
+pub const COMMAND_SPECS: [CommandSpec; 23] = [
     CommandSpec {
         category: "Session",
         name: "permissions",
@@ -155,6 +155,13 @@ pub const COMMAND_SPECS: [CommandSpec; 22] = [
         summary: "View and toggle loaded skills.",
         detail: "Open a skills picker that shows all loaded skills grouped by scope. Use space to toggle enable/disable. Changes take effect on next turn context assembly.",
     },
+    CommandSpec {
+        category: "Session",
+        name: "goal",
+        usage: "/goal [<objective> | pause | resume | clear]",
+        summary: "Set a long-running goal for autonomous cross-turn work.",
+        detail: "Set a persistent objective that the agent keeps working toward across turns.\n\n/goal <objective>     start a new goal\n/goal <N> <objective>  start with a token budget\n/goal                  show current goal status\n/goal pause            pause an active goal\n/goal resume           resume a paused goal\n/goal clear            clear the current goal",
+    },
 ];
 
 pub fn parse_local_command(input: &str) -> Option<LocalCommand> {
@@ -186,6 +193,7 @@ pub fn parse_local_command(input: &str) -> Option<LocalCommand> {
         "mcp" => LocalCommandKind::Mcp,
         "skills" => LocalCommandKind::Skills,
         "permissions" | "permission" => LocalCommandKind::Permissions,
+        "goal" => LocalCommandKind::Goal,
         _ => return None,
     };
 

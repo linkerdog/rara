@@ -18,6 +18,7 @@ use tokio::sync::mpsc;
 
 use super::super::state::{
     OAuthLoginMode, RunningTask, RuntimePhase, TaskCompletion, TaskKind, TuiApp, TuiEvent,
+    GoalStatus,
 };
 use super::events::{apply_tui_event, convert_agent_event, format_error_chain};
 use crate::agent::{Agent, AgentOutputMode, BashApprovalDecision};
@@ -545,9 +546,62 @@ pub(super) async fn finish_running_task_if_ready(
                             return Ok(());
                         }
                     }
-                    *agent_slot = Some(agent);
-                    if let Some(agent) = agent_slot.as_ref() {
-                        app.sync_snapshot(agent);
+                    // Ralph loop: auto-continue if a goal is pursuing and we're in execute mode.
+                    // Suppress continuation when the last turn made no tool calls (Codex pattern).
+                    // Sync model-tool goal updates into TUI state.
+                    app.goal = app.goal_handle.read().unwrap().clone();
+                    let agent_had_tools = agent_slot
+                        .as_ref()
+                        .is_some_and(|a| a.last_turn_had_tool_calls());
+                    let should_auto_continue_goal = !finished_plan_turn
+                        && agent_had_tools
+                        && app.goal.as_ref().is_some_and(|g| g.status == GoalStatus::Pursuing)
+                        && !app.has_pending_plan_approval();
+                    if should_auto_continue_goal {
+                        if let Some(mut agent) = agent_slot.take() {
+                            let tokens_this_turn = app.snapshot.total_input_tokens;
+                            let (goal_obj, goal_turns, goal_used, goal_budget, budget_exhausted) = {
+                                let goal = app.goal.as_mut().expect("goal must exist");
+                                goal.tokens_used += tokens_this_turn;
+                                goal.turns_completed += 1;
+                                let exhausted = goal
+                                    .token_budget
+                                    .is_some_and(|b| goal.tokens_used >= b);
+                                if exhausted {
+                                    goal.status = GoalStatus::BudgetLimited;
+                                }
+                                let (obj, tc, tu, tb) = (goal.objective.clone(), goal.turns_completed, goal.tokens_used, goal.token_budget);
+                                (obj, tc, tu, tb, exhausted)
+                            };
+                            // Sync goal_handle after mutable borrow on app.goal ends.
+                            *app.goal_handle.write().unwrap() = app.goal.clone();
+                            if budget_exhausted {
+                                app.push_notice(format!(
+                                    "Goal budget exhausted: {goal_used} / {} tokens.",
+                                    goal_budget.unwrap_or(0)
+                                ));
+                                *agent_slot = Some(agent);
+                                app.release_pending_follow_ups();
+                                app.finalize_agent_stream(None);
+                                app.finalize_active_turn();
+                                app.set_runtime_phase(
+                                    RuntimePhase::Idle,
+                                    Some("goal budget limited".into()),
+                                );
+                                try_start_queued_follow_up(app, agent_slot);
+                                return Ok(());
+                            }
+                            app.release_pending_follow_ups();
+                            app.finalize_agent_stream(None);
+                            start_query_task(
+                                app,
+                                format!(
+                                    "Continue working toward the goal: {goal_obj}\n\n(Goal turn {goal_turns} · tokens used: {goal_used})"
+                                ),
+                                agent,
+                            );
+                            return Ok(());
+                        }
                     }
                     app.release_pending_follow_ups();
                     app.finalize_agent_stream(None);
@@ -675,6 +729,8 @@ pub(super) async fn finish_running_task_if_ready(
                     std::sync::atomic::Ordering::Relaxed,
                 );
                 app.sandbox_network_access = rebuilt.sandbox_network_access;
+                app.goal_handle = rebuilt.goal_handle;
+                app.goal = app.goal_handle.read().unwrap().clone();
                 app.config_manager.save(&app.config)?;
                 app.setup_status = Some(format!(
                     "Applied {} / {}",
