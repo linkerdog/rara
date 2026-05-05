@@ -1070,8 +1070,9 @@ The current runtime has three direct sub-agent tools:
 
 `team_create` is a synchronous aggregation tool over the same sub-agent runtime.
 It accepts multiple task contracts and runs them concurrently inside one tool
-call, then returns one ordered `team_results` array to the parent. This matches
-the current foreground delegation boundary, but it is not yet a durable
+call, then returns one ordered `team_results` array to the parent. The current
+runtime accepts at most 8 tasks and runs at most 4 sub-agents at once. This
+matches the current foreground delegation boundary, but it is not yet a durable
 background task system.
 
 The next alignment step is to give each sub-agent invocation a stable

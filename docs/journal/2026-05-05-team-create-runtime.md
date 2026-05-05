@@ -11,8 +11,9 @@ real foreground aggregation path.
   - optional `kind`: `general`, `explore`, or `plan`
 - Each task is executed through the existing sub-agent runtime instead of
   returning a mocked status.
-- Task futures are joined concurrently and the returned `team_results` preserve
-  the input order.
+- The tool accepts at most 8 tasks and runs at most 4 sub-agents concurrently.
+- Task payloads are validated before any sub-agent starts, and the returned
+  `team_results` preserve the input order.
 - The implementation remains foreground-only: the parent tool call waits for
   all child work before returning.
 - Unused TUI display helpers for unfinished completed-state badges were removed

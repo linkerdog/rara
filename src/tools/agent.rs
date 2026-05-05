@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use futures::future::join_all;
+use futures::stream::{self, StreamExt};
 use rara_tool_macros::tool_spec;
 use serde_json::{Value, json};
 
@@ -15,12 +15,15 @@ use crate::tools::search::{GlobTool, GrepTool};
 use crate::vectordb::VectorDB;
 use crate::workspace::WorkspaceMemory;
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 enum SubAgentKind {
     General,
     Explore,
     Plan,
 }
+
+const TEAM_CREATE_MAX_TASKS: usize = 8;
+const TEAM_CREATE_CONCURRENCY_LIMIT: usize = 4;
 
 macro_rules! strict_read_only_subagent_prompt {
     () => {
@@ -268,7 +271,7 @@ pub struct TeamCreateTool {
 
 #[tool_spec(
     name = "team_create",
-    description = "Launch multiple bounded sub-agents concurrently. Each task must include a self-contained instruction and may set kind to general, explore, or plan.",
+    description = "Launch up to 8 bounded sub-agents with at most 4 running concurrently. Each task must include a self-contained instruction and may set kind to general, explore, or plan.",
     input_schema = {
         "type": "object",
         "properties": {
@@ -281,7 +284,7 @@ pub struct TeamCreateTool {
                         "instruction": { "type": "string" },
                         "kind": {
                             "type": "string",
-                            "enum": ["general", "spawn", "reasoning", "explore", "plan"]
+                            "enum": ["general", "explore", "plan"]
                         }
                     },
                     "required": ["instruction"]
@@ -297,16 +300,14 @@ impl Tool for TeamCreateTool {
         let tasks = i["tasks"]
             .as_array()
             .ok_or(ToolError::InvalidInput("tasks".into()))?;
-        let runs = tasks.iter().enumerate().map(|(idx, task)| {
-            let name = task["name"]
-                .as_str()
-                .map(str::to_string)
-                .unwrap_or_else(|| format!("worker-{}", idx + 1));
-            let instruction = task["instruction"]
-                .as_str()
-                .map(str::to_string)
-                .ok_or_else(|| ToolError::InvalidInput("tasks[].instruction".into()));
-            let kind = parse_team_task_kind(task["kind"].as_str());
+        if tasks.len() > TEAM_CREATE_MAX_TASKS {
+            return Err(ToolError::InvalidInput(format!(
+                "tasks must contain at most {TEAM_CREATE_MAX_TASKS} items"
+            )));
+        }
+
+        let tasks = normalize_team_tasks(tasks)?;
+        let runs = tasks.into_iter().map(|task| {
             let backend = self.backend.clone();
             let vdb = self.vdb.clone();
             let session_manager = self.session_manager.clone();
@@ -314,10 +315,9 @@ impl Tool for TeamCreateTool {
             let prompt_config = self.prompt_config.clone();
 
             async move {
-                let instruction = instruction?;
                 let result = run_sub_agent(
-                    kind,
-                    &instruction,
+                    task.kind,
+                    &task.instruction,
                     backend,
                     vdb,
                     session_manager,
@@ -325,16 +325,24 @@ impl Tool for TeamCreateTool {
                     prompt_config,
                 )
                 .await?;
-                Ok::<_, ToolError>(serialize_team_result(&name, result))
+                Ok::<_, ToolError>(serialize_team_result(&task.name, result))
             }
         });
 
-        let results = join_all(runs)
+        let results = stream::iter(runs)
+            .buffered(TEAM_CREATE_CONCURRENCY_LIMIT)
+            .collect::<Vec<_>>()
             .await
             .into_iter()
             .collect::<Result<Vec<_>, _>>()?;
         Ok(json!({ "team_results": results }))
     }
+}
+
+struct TeamTask {
+    name: String,
+    instruction: String,
+    kind: SubAgentKind,
 }
 
 struct SubAgentResult {
@@ -392,11 +400,37 @@ fn build_subagent_tool_manager(kind: SubAgentKind) -> ToolManager {
     }
 }
 
-fn parse_team_task_kind(kind: Option<&str>) -> SubAgentKind {
+fn normalize_team_tasks(tasks: &[Value]) -> Result<Vec<TeamTask>, ToolError> {
+    tasks
+        .iter()
+        .enumerate()
+        .map(|(idx, task)| {
+            let name = task["name"]
+                .as_str()
+                .map(str::to_string)
+                .unwrap_or_else(|| format!("worker-{}", idx + 1));
+            let instruction = task["instruction"]
+                .as_str()
+                .map(str::to_string)
+                .ok_or_else(|| ToolError::InvalidInput(format!("tasks[{idx}].instruction")))?;
+            let kind = parse_team_task_kind(idx, task["kind"].as_str())?;
+            Ok(TeamTask {
+                name,
+                instruction,
+                kind,
+            })
+        })
+        .collect()
+}
+
+fn parse_team_task_kind(idx: usize, kind: Option<&str>) -> Result<SubAgentKind, ToolError> {
     match kind.unwrap_or("explore") {
-        "general" | "spawn" | "reasoning" => SubAgentKind::General,
-        "plan" => SubAgentKind::Plan,
-        _ => SubAgentKind::Explore,
+        "general" => Ok(SubAgentKind::General),
+        "explore" => Ok(SubAgentKind::Explore),
+        "plan" => Ok(SubAgentKind::Plan),
+        other => Err(ToolError::InvalidInput(format!(
+            "tasks[{idx}].kind must be one of general, explore, or plan; got {other}"
+        ))),
     }
 }
 
@@ -488,8 +522,12 @@ fn serialize_pending_user_input(request: &PendingUserInput) -> Value {
 
 #[cfg(test)]
 mod tests {
-    use std::sync::Arc;
+    use std::sync::{
+        Arc,
+        atomic::{AtomicUsize, Ordering},
+    };
 
+    use async_trait::async_trait;
     use serde_json::json;
     use tempfile::tempdir;
 
@@ -498,13 +536,51 @@ mod tests {
         build_subagent_tool_manager, latest_assistant_text_from_history, parse_team_task_kind,
     };
     use crate::agent::Message;
-    use crate::llm::MockLlm;
+    use crate::llm::{ContentBlock, LlmBackend, LlmResponse, MockLlm};
     use crate::prompt::PromptRuntimeConfig;
     use crate::session::SessionManager;
-    use crate::tool::Tool;
+    use crate::tool::{Tool, ToolError};
     use crate::tools::agent::TeamCreateTool;
     use crate::vectordb::VectorDB;
     use crate::workspace::WorkspaceMemory;
+
+    struct CountingBackend {
+        calls: Arc<AtomicUsize>,
+    }
+
+    #[async_trait]
+    impl LlmBackend for CountingBackend {
+        async fn ask(
+            &self,
+            messages: &[Message],
+            _tools: &[serde_json::Value],
+        ) -> anyhow::Result<LlmResponse> {
+            self.calls.fetch_add(1, Ordering::SeqCst);
+            let last = messages
+                .last()
+                .and_then(|message| message.content.as_str())
+                .unwrap_or_default();
+            Ok(LlmResponse {
+                content: vec![ContentBlock::Text {
+                    text: format!("counted {last}"),
+                }],
+                stop_reason: Some("end_turn".to_string()),
+                usage: None,
+            })
+        }
+
+        async fn embed(&self, _text: &str) -> anyhow::Result<Vec<f32>> {
+            Ok(vec![0.0; 4])
+        }
+
+        async fn summarize(
+            &self,
+            _messages: &[Message],
+            _instruction: &str,
+        ) -> anyhow::Result<String> {
+            Ok("summary".to_string())
+        }
+    }
 
     #[test]
     fn read_only_subagent_manager_excludes_mutating_and_agent_tools() {
@@ -609,20 +685,23 @@ mod tests {
     }
 
     #[test]
-    fn team_task_kind_defaults_to_explore() {
-        assert!(matches!(parse_team_task_kind(None), SubAgentKind::Explore));
+    fn team_task_kind_defaults_to_explore_and_rejects_unknown_values() {
         assert!(matches!(
-            parse_team_task_kind(Some("general")),
+            parse_team_task_kind(0, None).unwrap(),
+            SubAgentKind::Explore
+        ));
+        assert!(matches!(
+            parse_team_task_kind(0, Some("general")).unwrap(),
             SubAgentKind::General
         ));
         assert!(matches!(
-            parse_team_task_kind(Some("plan")),
+            parse_team_task_kind(0, Some("plan")).unwrap(),
             SubAgentKind::Plan
         ));
-        assert!(matches!(
-            parse_team_task_kind(Some("unknown")),
-            SubAgentKind::Explore
-        ));
+        let err = parse_team_task_kind(3, Some("unknown")).expect_err("invalid kind");
+        assert!(
+            matches!(err, ToolError::InvalidInput(message) if message.contains("tasks[3].kind"))
+        );
     }
 
     #[tokio::test]
@@ -672,5 +751,78 @@ mod tests {
         assert_eq!(results[1]["status"], "explored");
         assert_eq!(results[1]["summary"], "Mock Response: summarize two");
         assert_ne!(results[0]["status"], "mocked_done");
+    }
+
+    #[tokio::test]
+    async fn team_create_validates_all_tasks_before_running_subagents() {
+        let calls = Arc::new(AtomicUsize::new(0));
+        let temp = tempdir().expect("tempdir");
+        let root = temp.path().join("workspace");
+        let rara_dir = temp.path().join(".rara");
+        std::fs::create_dir_all(&root).expect("workspace");
+        let tool = TeamCreateTool {
+            backend: Arc::new(CountingBackend {
+                calls: calls.clone(),
+            }),
+            vdb: Arc::new(VectorDB::new(
+                &rara_dir.join("lancedb").display().to_string(),
+            )),
+            session_manager: Arc::new(
+                SessionManager::new_for_rara_dir(rara_dir.clone()).expect("session manager"),
+            ),
+            workspace: Arc::new(WorkspaceMemory::from_paths(root, rara_dir)),
+            prompt_config: PromptRuntimeConfig::default(),
+        };
+
+        let err = tool
+            .call(json!({
+                "tasks": [
+                    {
+                        "name": "valid",
+                        "instruction": "should not run"
+                    },
+                    {
+                        "name": "invalid"
+                    }
+                ]
+            }))
+            .await
+            .expect_err("invalid task");
+
+        assert!(
+            matches!(err, ToolError::InvalidInput(message) if message == "tasks[1].instruction")
+        );
+        assert_eq!(calls.load(Ordering::SeqCst), 0);
+    }
+
+    #[tokio::test]
+    async fn team_create_rejects_too_many_tasks() {
+        let temp = tempdir().expect("tempdir");
+        let root = temp.path().join("workspace");
+        let rara_dir = temp.path().join(".rara");
+        std::fs::create_dir_all(&root).expect("workspace");
+        let tool = TeamCreateTool {
+            backend: Arc::new(MockLlm),
+            vdb: Arc::new(VectorDB::new(
+                &rara_dir.join("lancedb").display().to_string(),
+            )),
+            session_manager: Arc::new(
+                SessionManager::new_for_rara_dir(rara_dir.clone()).expect("session manager"),
+            ),
+            workspace: Arc::new(WorkspaceMemory::from_paths(root, rara_dir)),
+            prompt_config: PromptRuntimeConfig::default(),
+        };
+
+        let tasks = (0..9)
+            .map(|idx| json!({ "instruction": format!("task {idx}") }))
+            .collect::<Vec<_>>();
+        let err = tool
+            .call(json!({ "tasks": tasks }))
+            .await
+            .expect_err("too many tasks");
+
+        assert!(
+            matches!(err, ToolError::InvalidInput(message) if message.contains("at most 8 items"))
+        );
     }
 }
