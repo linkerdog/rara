@@ -205,6 +205,11 @@ pub struct RuntimeSnapshot {
     pub retrieval_source_entries: Vec<RetrievalSourceContextEntry>,
     pub memory_selection: crate::context::MemorySelectionContextView,
     pub assembly_entries: Vec<ContextAssemblyEntry>,
+    // ── Extensions ──────────────────────────────────────
+    pub extension_skill_count: usize,
+    pub extension_skill_scopes: Vec<String>,
+    pub extension_hook_count: usize,
+    pub extension_agent_count: usize,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

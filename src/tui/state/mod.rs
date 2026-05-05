@@ -976,7 +976,7 @@ impl TuiApp {
         if let Some(item) = existing_plan_completion {
             completed_interactions.push(item);
         }
-        for interaction in &completed_interactions {
+        for interaction in completed_interactions.iter() {
             self.ensure_completed_interaction_entry(
                 interaction.kind,
                 interaction.title.as_str(),
@@ -1042,6 +1042,23 @@ impl TuiApp {
             retrieval_source_entries: runtime_context.retrieval.entries,
             memory_selection: runtime_context.retrieval.memory_selection,
             assembly_entries: runtime_context.assembly.entries,
+            // ── Extensions ──────────────────────────────────────
+            // ── Extensions ──────────────────────────────────────
+            extension_skill_count: agent.prompt_config().available_skills.len(),
+            extension_skill_scopes: {
+                let mut scopes: Vec<String> = agent
+                    .prompt_config()
+                    .available_skills
+                    .iter()
+                    .map(|s| s.scope.clone())
+                    .collect::<std::collections::BTreeSet<_>>()
+                    .into_iter()
+                    .collect();
+                scopes.sort();
+                scopes
+            },
+            extension_hook_count: 0,
+            extension_agent_count: 0,
         };
         self.agent_execution_mode = agent.execution_mode;
         self.bash_approval_mode = agent.bash_approval_mode;
