@@ -220,7 +220,7 @@ fn handle_mcp_command(app: &mut TuiApp) {
         Err(err) => {
             app.push_entry(
                 "System",
-                format!("MCP Servers\n\nFailed to load MCP configuration:\n{err}"),
+                format!("MCP Servers\n\nFailed to load MCP configuration:\n{err:#}"),
             );
             app.notice = Some("MCP status failed.".into());
         }
@@ -228,11 +228,21 @@ fn handle_mcp_command(app: &mut TuiApp) {
 }
 
 fn command_project_root(app: &TuiApp) -> PathBuf {
-    if app.snapshot.cwd.is_empty() {
+    let cwd = if app.snapshot.cwd.is_empty() {
         std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."))
     } else {
         PathBuf::from(&app.snapshot.cwd)
+    };
+    mcp_project_root_from_cwd(cwd)
+}
+
+fn mcp_project_root_from_cwd(cwd: PathBuf) -> PathBuf {
+    for ancestor in cwd.ancestors() {
+        if ancestor.join(".mcp.json").is_file() {
+            return ancestor.to_path_buf();
+        }
     }
+    cwd
 }
 
 fn capture_git_diff(cwd: &str) -> String {
@@ -306,4 +316,31 @@ fn apply_permission_mode(app: &mut TuiApp, agent_slot: &mut Option<Agent>, mode:
         Some("updating permissions".into()),
     );
     app.set_pending_plan_approval(false);
+}
+
+#[cfg(test)]
+mod tests {
+    use std::fs;
+
+    use super::mcp_project_root_from_cwd;
+
+    #[test]
+    fn mcp_project_root_walks_up_to_project_config() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let project = dir.path().join("project");
+        let nested = project.join("src").join("bin");
+        fs::create_dir_all(&nested).expect("nested dirs");
+        fs::write(project.join(".mcp.json"), r#"{"mcpServers":{}}"#).expect("project config");
+
+        assert_eq!(mcp_project_root_from_cwd(nested), project);
+    }
+
+    #[test]
+    fn mcp_project_root_keeps_cwd_when_no_project_config_exists() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let cwd = dir.path().join("project").join("src");
+        fs::create_dir_all(&cwd).expect("cwd");
+
+        assert_eq!(mcp_project_root_from_cwd(cwd.clone()), cwd);
+    }
 }

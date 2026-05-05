@@ -115,12 +115,9 @@ pub fn format_mcp_status(snapshot: &McpStatusSnapshot) -> String {
                 server.display_target,
                 status_flags(server)
             ));
-            if server.allowed_tools_count.is_some() || server.disabled_tools_count.is_some() {
-                lines.push(format!(
-                    "  tools: allow {}, deny {}",
-                    server.allowed_tools_count.unwrap_or(0),
-                    server.disabled_tools_count.unwrap_or(0)
-                ));
+            let tool_filters = tool_filter_parts(server);
+            if !tool_filters.is_empty() {
+                lines.push(format!("  tools: {}", tool_filters.join(", ")));
             }
             if let Some(error) = &server.last_error {
                 lines.push(format!("  error: {error}"));
@@ -155,8 +152,8 @@ fn server_status(name: &str, sourced: &SourcedMcpServerConfig) -> McpServerStatu
 fn transport_display(config: &McpServerConfig) -> (McpTransportKind, String) {
     match &config.transport {
         McpServerTransport::Stdio { command, args, .. } => {
-            let mut parts = vec![command.clone()];
-            parts.extend(args.iter().cloned());
+            let mut parts = vec![quote_stdio_display_part(command)];
+            parts.extend(args.iter().map(|arg| quote_stdio_display_part(arg)));
             (McpTransportKind::Stdio, parts.join(" "))
         }
         McpServerTransport::StreamableHttp { url, .. } => (
@@ -177,11 +174,33 @@ fn scope_heading(scope: McpServerScope) -> &'static str {
 }
 
 fn status_flags(server: &McpServerStatus) -> String {
-    match (server.required, server.enabled) {
-        (true, true) => " (required)".to_string(),
-        (true, false) => " (required, disabled)".to_string(),
-        (false, false) => " (disabled)".to_string(),
-        (false, true) => String::new(),
+    if server.required {
+        " (required)".to_string()
+    } else {
+        String::new()
+    }
+}
+
+fn tool_filter_parts(server: &McpServerStatus) -> Vec<String> {
+    let mut parts = Vec::new();
+    if let Some(count) = server.allowed_tools_count {
+        parts.push(format!("allow {count}"));
+    }
+    if let Some(count) = server.disabled_tools_count {
+        parts.push(format!("deny {count}"));
+    }
+    parts
+}
+
+fn quote_stdio_display_part(value: &str) -> String {
+    if value.is_empty()
+        || value
+            .chars()
+            .any(|ch| ch.is_whitespace() || matches!(ch, '\'' | '"' | '\\'))
+    {
+        format!("'{}'", value.replace('\'', r"'\''"))
+    } else {
+        value.to_string()
     }
 }
 
@@ -220,7 +239,7 @@ enabled = false
   "mcpServers": {
     "repo": {
       "command": "repo-mcp",
-      "args": ["--root", "."],
+      "args": ["--root", ".", "--label", "my repo"],
       "required": true
     }
   }
@@ -245,7 +264,7 @@ enabled = false
         assert_eq!(repo.scope, McpServerScope::Project);
         assert_eq!(repo.state, McpConnectionState::Configured);
         assert!(repo.required);
-        assert_eq!(repo.display_target, "repo-mcp --root .");
+        assert_eq!(repo.display_target, "repo-mcp --root . --label 'my repo'");
 
         let remote = snapshot
             .servers
@@ -272,6 +291,10 @@ enabled = false
 command = "docs-server"
 args = ["--stdio"]
 enabled_tools = ["search"]
+
+[mcp_servers.deny]
+command = "deny-server"
+disabled_tools = ["delete"]
 
 [mcp_servers.remote]
 url = "https://example.com/mcp?token=secret"
@@ -307,10 +330,13 @@ enabled = false
         assert!(rendered.contains("User ("));
         assert!(rendered.contains("- repo [configured] stdio: repo-mcp (required)"));
         assert!(rendered.contains("- docs [configured] stdio: docs-server --stdio"));
-        assert!(rendered.contains("tools: allow 1, deny 0"));
+        assert!(rendered.contains("tools: allow 1"));
+        assert!(rendered.contains("tools: deny 1"));
+        assert!(!rendered.contains("allow 0"));
         assert!(rendered.contains(
-            "- remote [disabled] streamable-http: https://example.com/mcp?token=%3Credacted%3E (disabled)"
+            "- remote [disabled] streamable-http: https://example.com/mcp?token=%3Credacted%3E"
         ));
+        assert!(!rendered.contains("(disabled)"));
     }
 
     #[test]

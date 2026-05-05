@@ -89,8 +89,8 @@ pub const COMMAND_SPECS: [CommandSpec; 22] = [
         category: "Session",
         name: "mcp",
         usage: "/mcp",
-        summary: "Show configured MCP servers and current connection state.",
-        detail: "Load user config.toml and project .mcp.json, then show MCP servers grouped by scope and source path. This status surface reports configured, disabled, and configuration failures without starting servers yet.",
+        summary: "Show configured MCP servers from the effective registry.",
+        detail: "Load user config.toml and project .mcp.json, then show MCP servers grouped by scope and source path. This read-only status surface reports configured, disabled, and configuration failures without starting servers yet.",
     },
     CommandSpec {
         category: "Setup",
