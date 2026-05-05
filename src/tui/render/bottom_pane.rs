@@ -355,32 +355,31 @@ fn bottom_pane_style() -> Style {
 }
 
 fn footer_summary_text(app: &TuiApp) -> String {
-    let prefix = app
-        .repo_context_hint()
-        .unwrap_or_default();
+    let mut parts: Vec<String> = Vec::new();
 
-    let cache_summary = cache_hit_rate_label(
+    if let Some(hint) = app.repo_context_hint() {
+        parts.push(hint);
+    }
+
+    if shows_live_task_stats(app) {
+        parts.push(format!(
+            "tokens={} in / {} out",
+            app.snapshot.total_input_tokens, app.snapshot.total_output_tokens,
+        ));
+    }
+
+    if let Some(rate) = cache_hit_rate_label(
         app.snapshot.total_cache_hit_tokens,
         app.snapshot.total_cache_miss_tokens,
-    )
-    .map(|rate| format!("  cache_hit={rate}"))
-    .unwrap_or_default();
-    if shows_live_task_stats(app) {
-        format!(
-            "{}  tokens={} in / {} out{}",
-            prefix,
-            app.snapshot.total_input_tokens,
-            app.snapshot.total_output_tokens,
-            cache_summary
-        )
-    } else if app.snapshot.compaction_count > 0 {
-        format!(
-            "{}  compactions={}{}",
-            prefix, app.snapshot.compaction_count, cache_summary
-        )
-    } else {
-        format!("{prefix}{cache_summary}")
+    ) {
+        parts.push(format!("cache_hit={rate}"));
     }
+
+    if !shows_live_task_stats(app) && app.snapshot.compaction_count > 0 {
+        parts.push(format!("compactions={}", app.snapshot.compaction_count));
+    }
+
+    parts.join("  ")
 }
 
 fn shows_live_task_stats(app: &TuiApp) -> bool {
