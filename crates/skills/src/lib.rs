@@ -65,6 +65,14 @@ impl SkillManager {
         Ok(())
     }
 
+    /// Clear and re-discover all skills.
+    pub fn reload_all(&mut self) -> Result<()> {
+        self.skills.clear();
+        self.overrides.clear();
+        self.load_warnings.clear();
+        self.load_all()
+    }
+
     /// Load bundled system skills that ship with RARA.
     /// These provide the lowest-precedence defaults (overridden by
     /// home, repo, and cwd skills).

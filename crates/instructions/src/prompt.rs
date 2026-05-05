@@ -728,7 +728,9 @@ fn render_available_skills_section(skills: &[PromptSkillSummary]) -> Option<Stri
 
 /// Renders the actual skill listing for injection into per-turn context
 /// (not the system prompt). Like Claude Code's skill_listing attachment.
+/// Truncates descriptions under budget pressure to save context tokens.
 pub fn render_skill_listing(skills: &[PromptSkillSummary]) -> Option<String> {
+    const MAX_DESC_CHARS: usize = 80;
     if skills.is_empty() {
         return None;
     }
@@ -746,11 +748,16 @@ pub fn render_skill_listing(skills: &[PromptSkillSummary]) -> Option<String> {
     lines.push("[".to_string());
     for (index, skill) in skills.iter().enumerate() {
         let suffix = if index + 1 == skills.len() { "" } else { "," };
+        let desc = if skill.description.len() > MAX_DESC_CHARS {
+            format!("{}…", &skill.description[..MAX_DESC_CHARS - 1])
+        } else {
+            skill.description.clone()
+        };
         lines.push(format!(
             "  {{\"name\":\"{}\",\"title\":{},\"description\":\"{}\",\"file\":\"{}\",\"scope\":\"{}\",\"disableModelInvocation\":{}}}{}",
             escape_json_string(&skill.name),
             json_string_or_null(skill.title.as_deref()),
-            escape_json_string(&skill.description),
+            escape_json_string(&desc),
             escape_json_string(&skill.display_path),
             escape_json_string(&skill.scope),
             skill.disable_model_invocation,
