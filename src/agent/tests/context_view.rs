@@ -410,6 +410,7 @@ async fn query_injects_selected_memory_context_without_persisting_it_to_history(
                 .to_string(),
             labels: vec![MemoryLabel::Fact],
             importance: 0.9,
+            pinned: false,
             source: MemorySource::UserCreated,
             scope: MemoryScope::Workspace,
             session_id: None,

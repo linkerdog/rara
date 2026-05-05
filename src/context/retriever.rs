@@ -215,6 +215,7 @@ mod tests {
                         .to_string(),
                 labels: vec![MemoryLabel::Fact],
                 importance: 0.9,
+                pinned: false,
                 source: MemorySource::UserCreated,
                 scope: MemoryScope::Workspace,
                 session_id: None,

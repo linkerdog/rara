@@ -14,6 +14,7 @@ use crate::vectordb::{MemoryMetadata, VectorDB};
 
 const EXPERIENCES_TABLE: &str = "experiences";
 const DEFAULT_IMPORTANCE: f32 = 0.5;
+const HIGH_IMPORTANCE_RETENTION_THRESHOLD: f32 = 0.8;
 const MEMORY_RECORD_INDEX_PLACEHOLDER: u32 = 0;
 const MEMORY_RECORDS_FILE_VERSION: u32 = 1;
 
@@ -60,6 +61,8 @@ pub struct MemoryRecord {
     pub content: String,
     pub labels: Vec<MemoryLabel>,
     pub importance: f32,
+    #[serde(default)]
+    pub pinned: bool,
     pub source: MemorySource,
     pub scope: MemoryScope,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -78,6 +81,7 @@ pub struct NewMemoryRecord {
     pub content: String,
     pub labels: Vec<MemoryLabel>,
     pub importance: f32,
+    pub pinned: bool,
     pub source: MemorySource,
     pub scope: MemoryScope,
     pub session_id: Option<String>,
@@ -92,6 +96,7 @@ impl NewMemoryRecord {
             content: content.into(),
             labels: vec![MemoryLabel::Experience],
             importance: DEFAULT_IMPORTANCE,
+            pinned: false,
             source: MemorySource::AgentTurn,
             scope: MemoryScope::Project,
             session_id: None,
@@ -153,6 +158,7 @@ impl MemoryStore {
             content: content.to_string(),
             labels: normalized_labels(input.labels),
             importance,
+            pinned: input.pinned,
             source: input.source,
             scope: input.scope,
             session_id: normalized_optional_id(input.session_id),
@@ -214,6 +220,10 @@ impl MemoryStore {
     pub async fn get(&self, id: &str) -> Result<Option<MemoryRecord>> {
         self.records.get(id).await
     }
+
+    pub async fn set_pinned(&self, id: &str, pinned: bool) -> Result<MemoryRecord> {
+        self.records.set_pinned(id, pinned).await
+    }
 }
 
 impl MemoryRecord {
@@ -222,6 +232,12 @@ impl MemoryRecord {
             .clone()
             .or_else(|| self.thread_id.clone())
             .unwrap_or_else(|| memory_scope_key(&self.scope).to_string())
+    }
+
+    pub fn is_protected_from_automatic_cleanup(&self) -> bool {
+        self.pinned
+            || self.source == MemorySource::UserCreated
+            || self.importance >= HIGH_IMPORTANCE_RETENTION_THRESHOLD
     }
 }
 
@@ -238,6 +254,7 @@ impl From<MemoryMetadata> for MemoryRecord {
             content: metadata.text,
             labels: vec![MemoryLabel::Experience],
             importance: DEFAULT_IMPORTANCE,
+            pinned: false,
             source: MemorySource::AgentTurn,
             scope: memory_scope_from_key(&metadata.session_id),
             session_id: Some(session_id),
@@ -335,6 +352,26 @@ impl MemoryRecordFileStore {
             .await
             .context("join memory record get task")?
     }
+
+    async fn set_pinned(&self, id: &str, pinned: bool) -> Result<MemoryRecord> {
+        let path = self.path.clone();
+        let lock_path = self.lock_path.clone();
+        let cache = self.cache.clone();
+        let id = id.to_string();
+        tokio::task::spawn_blocking(move || {
+            update_record_sync(path, lock_path, cache, &id, |record| {
+                if record.pinned != pinned {
+                    record.pinned = pinned;
+                    record.updated_at_unix_seconds = unix_timestamp_seconds();
+                    true
+                } else {
+                    false
+                }
+            })
+        })
+        .await
+        .context("join memory record pin update task")?
+    }
 }
 
 fn default_record_path_for_vdb_uri(uri: &str) -> PathBuf {
@@ -370,6 +407,35 @@ fn upsert_record_sync(
     let state = record_file_state(&path)?;
     update_record_cache(&cache, state, records);
     Ok(())
+}
+
+fn update_record_sync<F>(
+    path: PathBuf,
+    lock_path: PathBuf,
+    cache: Arc<Mutex<MemoryRecordCache>>,
+    id: &str,
+    update: F,
+) -> Result<MemoryRecord>
+where
+    F: FnOnce(&mut MemoryRecord) -> bool,
+{
+    let _lock = AdvisoryFileLock::acquire(lock_path)?;
+    let mut file = PersistedMemoryRecordFile {
+        records: load_records_sync(&path)?,
+        ..Default::default()
+    };
+    let Some(record) = file.records.iter_mut().find(|item| item.id == id) else {
+        bail!("memory record not found: {id}");
+    };
+    let changed = update(record);
+    let updated = record.clone();
+    if changed {
+        write_record_file_sync(&path, &file)?;
+        let records = record_map_from_records(file.records);
+        let state = record_file_state(&path)?;
+        update_record_cache(&cache, state, records);
+    }
+    Ok(updated)
 }
 
 fn load_record_map_cached_sync(
@@ -559,6 +625,7 @@ mod tests {
             content: content.to_string(),
             labels: vec![MemoryLabel::Fact],
             importance: DEFAULT_IMPORTANCE,
+            pinned: false,
             source: MemorySource::UserCreated,
             scope: MemoryScope::Project,
             session_id: None,
@@ -682,6 +749,7 @@ mod tests {
                 content: "A durable fact".to_string(),
                 labels: Vec::new(),
                 importance: 4.0,
+                pinned: false,
                 source: MemorySource::UserCreated,
                 scope: MemoryScope::Workspace,
                 session_id: None,
@@ -712,6 +780,7 @@ mod tests {
                 content: "Keep memory retrieval behind MemoryStore.".to_string(),
                 labels: vec![MemoryLabel::Decision],
                 importance: 0.9,
+                pinned: true,
                 source: MemorySource::ThreadDistill,
                 scope: MemoryScope::Thread,
                 session_id: Some("session-123".to_string()),
@@ -733,6 +802,7 @@ mod tests {
         assert_eq!(hits[0].record.title, "Thread decision");
         assert_eq!(hits[0].record.labels, vec![MemoryLabel::Decision]);
         assert_eq!(hits[0].record.importance, 0.9);
+        assert!(hits[0].record.pinned);
         assert_eq!(hits[0].record.source, MemorySource::ThreadDistill);
         assert_eq!(hits[0].record.scope, MemoryScope::Thread);
         assert_eq!(hits[0].record.session_id.as_deref(), Some("session-123"));
@@ -744,5 +814,54 @@ mod tests {
                 end_turn_index: 4,
             })
         );
+    }
+
+    #[test]
+    fn memory_record_retention_protects_pinned_user_created_and_high_importance_records() {
+        let mut record = test_memory_record("memory-retention-1", "Durable user note.");
+        assert!(record.is_protected_from_automatic_cleanup());
+
+        record.source = MemorySource::AgentTurn;
+        assert!(!record.is_protected_from_automatic_cleanup());
+
+        record.importance = HIGH_IMPORTANCE_RETENTION_THRESHOLD;
+        assert!(record.is_protected_from_automatic_cleanup());
+
+        record.importance = DEFAULT_IMPORTANCE;
+        record.pinned = true;
+        assert!(record.is_protected_from_automatic_cleanup());
+    }
+
+    #[tokio::test]
+    async fn memory_store_set_pinned_updates_and_persists_record_metadata() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let db_path = temp.path().join("lancedb");
+        let record_path = temp.path().join("memories").join("records.json");
+        let backend = Arc::new(MockLlm);
+        let vdb = Arc::new(VectorDB::new(db_path.to_str().expect("utf8 path")));
+        let store =
+            MemoryStore::new_with_record_path(backend.clone(), vdb.clone(), record_path.clone());
+
+        let saved = store
+            .insert(NewMemoryRecord::experience(
+                "Pinned records survive automatic cleanup.",
+            ))
+            .await
+            .expect("insert memory");
+        assert!(!saved.pinned);
+        assert!(!saved.is_protected_from_automatic_cleanup());
+
+        let pinned = store.set_pinned(&saved.id, true).await.expect("pin memory");
+        assert!(pinned.pinned);
+        assert!(pinned.is_protected_from_automatic_cleanup());
+
+        let reloaded = MemoryStore::new_with_record_path(backend, vdb, record_path);
+        let persisted = reloaded
+            .get(&saved.id)
+            .await
+            .expect("get memory")
+            .expect("persisted memory");
+        assert!(persisted.pinned);
+        assert!(persisted.is_protected_from_automatic_cleanup());
     }
 }
