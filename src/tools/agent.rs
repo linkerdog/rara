@@ -172,7 +172,7 @@ impl AgentTool {
             .ok_or(ToolError::InvalidInput("name".into()))?;
         if validate_agent_id_label(name).is_none() {
             return Err(ToolError::InvalidInput(
-                "name must contain ascii letters, digits, '-' or '_'".into(),
+                "name must normalize to a non-empty agent id label".into(),
             ));
         }
         let instruction = i["instruction"]
@@ -622,7 +622,7 @@ fn normalize_team_task_name(idx: usize, task: &Value) -> Result<String, ToolErro
             })?;
             if validate_agent_id_label(name).is_none() {
                 return Err(ToolError::InvalidInput(format!(
-                    "tasks[{idx}].name must contain ascii letters, digits, '-' or '_'"
+                    "tasks[{idx}].name must normalize to a non-empty agent id label"
                 )));
             }
             Ok(name.to_string())
@@ -776,8 +776,9 @@ mod tests {
     use crate::prompt::PromptRuntimeConfig;
     use crate::session::SessionManager;
     use crate::session_transcript::{load_transcript, model_visible_messages};
-    use crate::state_db::PersistedStructuredRolloutEvent;
+    use crate::state_db::{PersistedStructuredRolloutEvent, StateDb};
     use crate::thread_rollout_log;
+    use crate::thread_store::{ThreadMetadataSource, ThreadStore};
     use crate::tool::{Tool, ToolCallContext, ToolError};
     use crate::tools::agent::{AgentTool, ExploreAgentTool, PlanAgentTool, TeamCreateTool};
     use crate::vectordb::VectorDB;
@@ -1158,9 +1159,8 @@ mod tests {
             .await
             .expect_err("invalid name");
 
-        assert!(
-            matches!(err, ToolError::InvalidInput(message) if message.contains("tasks[0].name"))
-        );
+        assert!(matches!(err, ToolError::InvalidInput(message)
+                if message == "tasks[0].name must normalize to a non-empty agent id label"));
         assert_eq!(calls.load(Ordering::SeqCst), 0);
     }
 
@@ -1350,6 +1350,17 @@ mod tests {
                 && event_child_session_id == child_session_id
                 && status == "done"
         ));
+
+        let state_db = StateDb::new_for_root_dir(rara_dir).expect("state db");
+        let thread_store = ThreadStore::new(tool.session_manager.as_ref(), &state_db);
+        let child = thread_store
+            .load_thread(child_session_id)
+            .expect("child thread");
+        assert_eq!(
+            child.provenance.metadata_source,
+            ThreadMetadataSource::HistoryFallback
+        );
+        assert!(!child.history.is_empty());
     }
 
     #[tokio::test]

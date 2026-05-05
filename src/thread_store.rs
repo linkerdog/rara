@@ -88,6 +88,7 @@ pub struct ThreadSummary {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ThreadMetadataSource {
     StateDb,
+    HistoryFallback,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -118,6 +119,7 @@ impl ThreadMaterializationProvenance {
     pub fn describe(&self) -> String {
         let metadata = match self.metadata_source {
             ThreadMetadataSource::StateDb => "StateDb (canonical)",
+            ThreadMetadataSource::HistoryFallback => "local history fallback",
         };
         let history = match self.history_source {
             ThreadHistorySource::CanonicalHistory => "canonical history.json",
@@ -156,6 +158,25 @@ impl From<PersistedThreadRecord> for ThreadMetadata {
 }
 
 impl ThreadMetadata {
+    fn from_history_fallback(session_id: &str, history_len: usize) -> Self {
+        Self {
+            session_id: session_id.to_string(),
+            cwd: String::new(),
+            branch: String::new(),
+            provider: String::new(),
+            model: String::new(),
+            base_url: None,
+            agent_mode: "subagent".to_string(),
+            bash_approval: String::new(),
+            created_at: 0,
+            origin_kind: "subagent".to_string(),
+            forked_from_thread_id: None,
+            history_len,
+            transcript_len: history_len,
+            updated_at: 0,
+        }
+    }
+
     /// Returns true when this thread was forked from another thread.
     pub fn is_fork(&self) -> bool {
         self.origin_kind == "fork" && self.forked_from_thread_id.is_some()
@@ -440,10 +461,19 @@ impl<'a> ThreadStore<'a> {
             }
             Err(err) => return Err(err),
         };
-        let metadata = self
-            .state_db
-            .load_thread_record(session_id)?
-            .ok_or_else(|| anyhow::anyhow!("Thread {session_id} not found in state db"))?;
+        let metadata_record = self.state_db.load_thread_record(session_id)?;
+        if metadata_record.is_none() && matches!(history_source, ThreadHistorySource::Missing) {
+            anyhow::bail!("Thread {session_id} not found in state db");
+        }
+        let has_metadata_record = metadata_record.is_some();
+        let metadata_source = if has_metadata_record {
+            ThreadMetadataSource::StateDb
+        } else {
+            ThreadMetadataSource::HistoryFallback
+        };
+        let metadata = metadata_record
+            .map(ThreadMetadata::from)
+            .unwrap_or_else(|| ThreadMetadata::from_history_fallback(session_id, history.len()));
         let LegacyNonTurnRolloutMigration {
             structured_events,
             runtime_rollout: migration_runtime_rollout,
@@ -463,9 +493,21 @@ impl<'a> ThreadStore<'a> {
                     .map(CompactionRecord::from)
                     .unwrap_or_default()
             });
-        let mut plan_explanation = self.state_db.load_session_plan_explanation(session_id)?;
-        let mut plan_steps = self.state_db.load_plan_steps(session_id)?;
-        let mut interactions = self.state_db.load_interactions(session_id)?;
+        let mut plan_explanation = if has_metadata_record {
+            self.state_db.load_session_plan_explanation(session_id)?
+        } else {
+            None
+        };
+        let mut plan_steps = if has_metadata_record {
+            self.state_db.load_plan_steps(session_id)?
+        } else {
+            Vec::new()
+        };
+        let mut interactions = if has_metadata_record {
+            self.state_db.load_interactions(session_id)?
+        } else {
+            Vec::new()
+        };
         let turn_items = self
             .state_db
             .load_turn_summaries(session_id)?
@@ -781,9 +823,9 @@ impl<'a> ThreadStore<'a> {
         };
 
         Ok(ThreadMaterializedState {
-            metadata: metadata.into(),
+            metadata,
             provenance: ThreadMaterializationProvenance {
-                metadata_source: ThreadMetadataSource::StateDb,
+                metadata_source,
                 history_source,
                 non_turn_rollout_source,
             },

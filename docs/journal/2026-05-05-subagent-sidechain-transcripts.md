@@ -36,6 +36,8 @@ any child agent starts.
   not write detached sidechain files.
 - Sidechain transcripts use `TranscriptScope::sidechain`, so every entry is
   marked `is_sidechain = true`.
+- Child sessions with local history but no `StateDb` row can still be loaded
+  through `ThreadStore` with fallback metadata.
 - Parent rollout events store the compact spawn edge. The parent transcript
   remains free of child transcript content.
 - Persistence failure is result metadata, not a fatal tool error, once the child
@@ -44,9 +46,11 @@ any child agent starts.
 ## Validation
 
 - `team_create_writes_parent_scoped_sidechain_transcripts`
+- `spawn_agent_writes_parent_scoped_sidechain_transcript`
+- `plan_agent_writes_parent_scoped_sidechain_transcript`
 - `subagent_without_parent_context_does_not_write_sidechain`
-- `team_create_writes_parent_scoped_sidechain_transcripts` also asserts the
-  `SpawnAgent` rollout event.
+- `load_thread_uses_history_fallback_without_state_db_record`
+- `formats_subagent_tool_result_with_returned_ids`
 - `team_create_rejects_unstable_explicit_name_before_running_subagents`
 - `subagent_returns_result_when_sidechain_persistence_fails`
 - Existing `model_visible_messages` coverage confirms sidechain messages are not

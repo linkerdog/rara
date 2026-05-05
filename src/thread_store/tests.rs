@@ -209,6 +209,37 @@ fn load_thread_keeps_session_without_history_file() -> Result<()> {
 }
 
 #[test]
+fn load_thread_uses_history_fallback_without_state_db_record() -> Result<()> {
+    let temp = tempdir()?;
+    let rara_dir = temp.path().join(".rara");
+    let session_manager = SessionManager::new_for_rara_dir(rara_dir.clone())?;
+    let state_db = StateDb::new_for_root_dir(rara_dir)?;
+    session_manager.save_session(
+        "child-session",
+        &[Message {
+            role: "assistant".to_string(),
+            content: serde_json::Value::String("Child result.".to_string()),
+        }],
+    )?;
+
+    let store = ThreadStore::new(&session_manager, &state_db);
+    let snapshot = store.load_thread("child-session")?;
+
+    assert_eq!(snapshot.metadata.session_id, "child-session");
+    assert_eq!(snapshot.metadata.agent_mode, "subagent");
+    assert_eq!(snapshot.history.len(), 1);
+    assert_eq!(
+        snapshot.provenance.metadata_source,
+        ThreadMetadataSource::HistoryFallback
+    );
+    assert_eq!(
+        snapshot.provenance.history_source,
+        ThreadHistorySource::CanonicalHistory
+    );
+    Ok(())
+}
+
+#[test]
 fn load_thread_backfills_legacy_history_file_into_rollout_root() -> Result<()> {
     let temp = tempdir()?;
     let rara_dir = temp.path().join(".rara");
