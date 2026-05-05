@@ -466,6 +466,30 @@ pub(super) fn format_tool_result(name: &str, content: &str) -> String {
             } else {
                 format!("{name} {summary}")
             };
+            if let Some(agent_id) = value
+                .get("agent_id")
+                .and_then(serde_json::Value::as_str)
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+            {
+                rendered.push_str(&format!("\nagent_id: {agent_id}"));
+            }
+            if let Some(session_id) = value
+                .get("session_id")
+                .and_then(serde_json::Value::as_str)
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+            {
+                rendered.push_str(&format!("\nsession_id: {session_id}"));
+            }
+            if let Some(persistence_error) = value
+                .get("persistence_error")
+                .and_then(serde_json::Value::as_str)
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+            {
+                rendered.push_str(&format!("\npersistence_error: {persistence_error}"));
+            }
             if let Some(request) = value.get("request_user_input") {
                 if let Some(question) = request.get("question").and_then(serde_json::Value::as_str)
                 {

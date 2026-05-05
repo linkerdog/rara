@@ -195,6 +195,31 @@ impl SessionManager {
         Ok(())
     }
 
+    pub fn save_spawn_agent_event(
+        &self,
+        session_id: &str,
+        event_id: &str,
+        agent_id: &str,
+        name: Option<&str>,
+        child_session_id: &str,
+        status: &str,
+        summary: Option<&str>,
+    ) -> Result<()> {
+        self.append_rollout_event(
+            session_id,
+            PersistedStructuredRolloutEvent::SpawnAgent {
+                recorded_at: Some(epoch_seconds()),
+                event_id: event_id.to_string(),
+                agent_id: agent_id.to_string(),
+                name: name.map(str::to_string),
+                child_session_id: child_session_id.to_string(),
+                status: status.to_string(),
+                summary: summary.map(str::to_string),
+            },
+        )?;
+        Ok(())
+    }
+
     pub fn load_compaction_events(
         &self,
         session_id: &str,
@@ -228,7 +253,8 @@ impl SessionManager {
                 }),
                 PersistedStructuredRolloutEvent::RuntimeState { .. }
                 | PersistedStructuredRolloutEvent::PlanState { .. }
-                | PersistedStructuredRolloutEvent::Interaction { .. } => None,
+                | PersistedStructuredRolloutEvent::Interaction { .. }
+                | PersistedStructuredRolloutEvent::SpawnAgent { .. } => None,
             })
             .collect::<Vec<_>>();
         if !structured_compactions.is_empty() {

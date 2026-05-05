@@ -93,6 +93,16 @@ pub enum PersistedStructuredRolloutEvent {
         #[serde(flatten)]
         interaction: PersistedInteraction,
     },
+    SpawnAgent {
+        #[serde(default)]
+        recorded_at: Option<i64>,
+        event_id: String,
+        agent_id: String,
+        name: Option<String>,
+        child_session_id: String,
+        status: String,
+        summary: Option<String>,
+    },
 }
 
 #[derive(Debug, Clone, Default)]
@@ -639,7 +649,8 @@ impl StateDb {
                 } => {
                     interactions.push(interaction.clone());
                 }
-                PersistedStructuredRolloutEvent::Compaction { .. } => {}
+                PersistedStructuredRolloutEvent::Compaction { .. }
+                | PersistedStructuredRolloutEvent::SpawnAgent { .. } => {}
             }
         }
 

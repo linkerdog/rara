@@ -845,9 +845,10 @@ impl Agent {
     }
 
     fn tool_call_context(&self) -> ToolCallContext {
+        let context = ToolCallContext::default().with_session_id(self.session_id.clone());
         match self.cancellation_token.as_ref() {
-            Some(token) => ToolCallContext::default().with_cancellation(token.clone()),
-            None => ToolCallContext::default(),
+            Some(token) => context.with_cancellation(token.clone()),
+            None => context,
         }
     }
 }

@@ -190,7 +190,8 @@ pub(super) fn restore_thread_by_id(
             RolloutItem::Turn(_)
             | RolloutItem::Compaction(_)
             | RolloutItem::PlanState { .. }
-            | RolloutItem::Interaction(_) => {}
+            | RolloutItem::Interaction(_)
+            | RolloutItem::SpawnAgent { .. } => {}
         }
     }
     if !turns.is_empty() {

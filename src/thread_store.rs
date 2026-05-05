@@ -218,6 +218,14 @@ pub enum RolloutItem {
         steps: Vec<PersistedPlanStep>,
     },
     Interaction(PersistedInteraction),
+    SpawnAgent {
+        event_id: String,
+        agent_id: String,
+        name: Option<String>,
+        child_session_id: String,
+        status: String,
+        summary: Option<String>,
+    },
     Turn(RolloutTurnItem),
 }
 
@@ -432,10 +440,14 @@ impl<'a> ThreadStore<'a> {
             }
             Err(err) => return Err(err),
         };
-        let metadata = self
-            .state_db
-            .load_thread_record(session_id)?
-            .ok_or_else(|| anyhow::anyhow!("Thread {session_id} not found in state db"))?;
+        let metadata_record = self.state_db.load_thread_record(session_id)?;
+        if metadata_record.is_none() {
+            anyhow::bail!("Thread {session_id} not found in state db");
+        }
+        let metadata_source = ThreadMetadataSource::StateDb;
+        let metadata = metadata_record
+            .map(ThreadMetadata::from)
+            .expect("metadata record checked above");
         let LegacyNonTurnRolloutMigration {
             structured_events,
             runtime_rollout: migration_runtime_rollout,
@@ -565,6 +577,29 @@ impl<'a> ThreadStore<'a> {
                         &mut rollout_order,
                         recorded_at.unwrap_or(0),
                         RolloutItem::Interaction(interaction),
+                    );
+                }
+                PersistedStructuredRolloutEvent::SpawnAgent {
+                    recorded_at,
+                    event_id,
+                    agent_id,
+                    name,
+                    child_session_id,
+                    status,
+                    summary,
+                } => {
+                    push_rollout_item(
+                        &mut ordered_rollout_items,
+                        &mut rollout_order,
+                        recorded_at.unwrap_or(0),
+                        RolloutItem::SpawnAgent {
+                            event_id,
+                            agent_id,
+                            name,
+                            child_session_id,
+                            status,
+                            summary,
+                        },
                     );
                 }
             }
@@ -708,7 +743,8 @@ impl<'a> ThreadStore<'a> {
                 RolloutItem::Turn(turn) => turn.summary.updated_at,
                 RolloutItem::Compaction(_)
                 | RolloutItem::PlanState { .. }
-                | RolloutItem::Interaction(_) => 0,
+                | RolloutItem::Interaction(_)
+                | RolloutItem::SpawnAgent { .. } => 0,
             };
             push_rollout_item(
                 &mut ordered_rollout_items,
@@ -749,9 +785,9 @@ impl<'a> ThreadStore<'a> {
         };
 
         Ok(ThreadMaterializedState {
-            metadata: metadata.into(),
+            metadata,
             provenance: ThreadMaterializationProvenance {
-                metadata_source: ThreadMetadataSource::StateDb,
+                metadata_source,
                 history_source,
                 non_turn_rollout_source,
             },
