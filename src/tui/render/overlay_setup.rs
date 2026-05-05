@@ -2,7 +2,7 @@ use std::path::Path;
 
 use ratatui::{
     layout::{Alignment, Constraint, Direction, Layout, Rect},
-    style::{Color, Modifier, Style},
+    style::{Modifier, Style},
     text::Line,
     widgets::{
         Block, Borders, Cell, List, ListItem, ListState, Paragraph, Row, Table, TableState, Wrap,

@@ -6,8 +6,7 @@ use crate::context::compaction_view::compaction_source_entries;
 use crate::context::memory_selection::memory_selection;
 use crate::context::retrieval_view::retrieval_source_entries;
 use crate::context::{
-    CompactionContextView, ContextBudgetView, PlanContextView, PromptContextView,
-    RETRIEVED_WORKSPACE_MEMORY_KIND, RetrievalContextView, RetrievedMemoryCandidate,
+    CompactionContextView, ContextBudgetView, PlanContextView, PromptContextView, RetrievalContextView, RetrievedMemoryCandidate,
     SharedRuntimeContext, TodoContextView,
 };
 use crate::llm::{ContextBudget, LlmBackend};
