@@ -35,6 +35,8 @@ pub(crate) struct RuntimeBootstrap {
     pub warnings: Vec<String>,
     pub sandbox_network_access: Arc<AtomicBool>,
     pub event_bus: Arc<RuntimeEventBus>,
+    pub hook_count: usize,
+    pub agent_count: usize,
 }
 
 impl RuntimeBootstrap {
@@ -122,6 +124,8 @@ pub(crate) async fn initialize_rara_context(
         prompt_config,
         warnings,
         sandbox_network_access,
+        hook_count: 0,
+        agent_count: 0,
         event_bus,
     })
 }

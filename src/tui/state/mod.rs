@@ -1057,8 +1057,8 @@ impl TuiApp {
                 scopes.sort();
                 scopes
             },
-            extension_hook_count: 0,
-            extension_agent_count: 0,
+            extension_hook_count: discover_extension_counts().0,
+            extension_agent_count: discover_extension_counts().1,
         };
         self.agent_execution_mode = agent.execution_mode;
         self.bash_approval_mode = agent.bash_approval_mode;
@@ -1416,6 +1416,23 @@ impl TuiApp {
             _ => None,
         };
     }
+}
+fn discover_extension_counts() -> (usize, usize) {
+    let hook_count = {
+        let mut registry = crate::hooks::HookRegistry::new();
+        if let Ok(cwd) = std::env::current_dir() {
+            registry.discover_repo_hooks(&cwd);
+        }
+        registry.hooks.len()
+    };
+    let agent_count = {
+        let mut registry = crate::agents_ext::AgentRegistry::new();
+        if let Ok(cwd) = std::env::current_dir() {
+            registry.discover_from_dir(&cwd.join(".claude").join("agents"));
+        }
+        registry.agents.len()
+    };
+    (hook_count, agent_count)
 }
 mod helpers;
 pub(crate) use helpers::*;
