@@ -36,6 +36,10 @@ pub(crate) async fn dispatch_event(
         AppEvent::OpenOverlay(overlay) => app.open_overlay(overlay),
         AppEvent::CloseOverlay => app.close_overlay(),
         AppEvent::CancelRunningTask => request_running_task_cancellation(app),
+        AppEvent::ClearComposer => {
+            app.input.clear();
+            app.input_cursor_offset = None;
+        }
         AppEvent::SubmitComposer => {
             if handle_submit(app, agent_slot, oauth_manager).await? {
                 return Ok(true);

@@ -177,7 +177,7 @@ async fn busy_composer_hint_keeps_only_action_keys() {
         cancellation_requested: false,
     });
 
-    assert_eq!(composer_hint(&app), "Enter queue  Esc cancel");
+    assert_eq!(composer_hint(&app), "Enter queue  Esc/Ctrl+C cancel");
 
     if let Some(task) = app.running_task.take() {
         task.handle.abort();

@@ -53,4 +53,5 @@ pub enum AppEvent {
     SelectStatusTab(StatusTab),
     ApplyOverlaySelection,
     CancelRunningTask,
+    ClearComposer,
 }
