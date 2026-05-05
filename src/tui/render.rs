@@ -472,7 +472,6 @@ pub(crate) fn prefixed_message_lines(
 ) -> Vec<Line<'static>> {
     use crate::tui::message_role::MessageRole;
     let role_kind = MessageRole::try_from_str(role);
-    let role_kind = MessageRole::try_from_str(role);
     if role_kind == Some(MessageRole::User) {
         return user_message_lines(message, usize::MAX);
     }
