@@ -1981,7 +1981,7 @@ mod tests {
             .expect("child thread");
         assert_eq!(
             child.provenance.metadata_source,
-            ThreadMetadataSource::StateDb
+            ThreadMetadataSource::StructuredMetadata
         );
         assert_eq!(child.metadata.origin_kind, "subagent");
         assert_eq!(
@@ -2279,7 +2279,7 @@ mod tests {
             .expect("child thread");
         assert_eq!(
             child.provenance.metadata_source,
-            ThreadMetadataSource::StateDb
+            ThreadMetadataSource::StructuredMetadata
         );
         assert_eq!(child.plan_steps.len(), 2);
         assert_eq!(child.plan_steps[0].step, "Inspect subagent restore");
