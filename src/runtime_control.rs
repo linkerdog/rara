@@ -264,8 +264,39 @@ pub enum MemoryControlRequest {
         content: String,
         metadata: Value,
     },
+    UpdateRecord {
+        memory_id: String,
+        patch: MemoryRecordControlPatch,
+    },
+    DeleteRecord {
+        memory_id: String,
+    },
+    ListLabels {
+        scope: Option<MemoryScope>,
+    },
     QueryMetadata,
     SelectionSnapshot,
+}
+
+#[allow(dead_code)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+pub struct MemoryRecordControlPatch {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub title: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub content: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub labels: Option<Vec<String>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub importance: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pinned: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub scope: Option<MemoryScope>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub session_id: Option<Option<String>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub thread_id: Option<Option<String>>,
 }
 
 #[allow(dead_code)]
@@ -454,6 +485,8 @@ pub enum McpEvent {
 #[serde(tag = "type", content = "payload", rename_all = "snake_case")]
 pub enum MemoryEvent {
     RecordAdded { memory_id: String },
+    RecordUpdated { memory_id: String },
+    RecordDeleted { memory_id: String },
     SelectionUpdated,
 }
 
@@ -800,6 +833,83 @@ mod tests {
                     "type": "reconnect",
                     "payload": {
                         "server_name": "docs"
+                    }
+                }
+            })
+        );
+    }
+
+    #[test]
+    fn memory_update_delete_and_label_requests_use_structured_wire_shape() {
+        let update = serde_json::to_value(RuntimeControlRequest::Memory(
+            MemoryControlRequest::UpdateRecord {
+                memory_id: "memory-1".to_string(),
+                patch: MemoryRecordControlPatch {
+                    title: Some("Updated memory".to_string()),
+                    labels: Some(vec!["decision".to_string(), "fact".to_string()]),
+                    importance: Some(0.9),
+                    pinned: Some(true),
+                    scope: Some(MemoryScope::Workspace),
+                    thread_id: Some(None),
+                    ..Default::default()
+                },
+            },
+        ))
+        .unwrap();
+        assert_eq!(
+            update,
+            json!({
+                "type": "memory",
+                "payload": {
+                    "type": "update_record",
+                    "payload": {
+                        "memory_id": "memory-1",
+                        "patch": {
+                            "title": "Updated memory",
+                            "labels": ["decision", "fact"],
+                            "importance": 0.9,
+                            "pinned": true,
+                            "scope": "workspace",
+                            "thread_id": null
+                        }
+                    }
+                }
+            })
+        );
+
+        let delete = serde_json::to_value(RuntimeControlRequest::Memory(
+            MemoryControlRequest::DeleteRecord {
+                memory_id: "memory-1".to_string(),
+            },
+        ))
+        .unwrap();
+        assert_eq!(
+            delete,
+            json!({
+                "type": "memory",
+                "payload": {
+                    "type": "delete_record",
+                    "payload": {
+                        "memory_id": "memory-1"
+                    }
+                }
+            })
+        );
+
+        let labels = serde_json::to_value(RuntimeControlRequest::Memory(
+            MemoryControlRequest::ListLabels {
+                scope: Some(MemoryScope::Thread),
+            },
+        ))
+        .unwrap();
+        assert_eq!(
+            labels,
+            json!({
+                "type": "memory",
+                "payload": {
+                    "type": "list_labels",
+                    "payload": {
+                        "scope": "thread"
                     }
                 }
             })
