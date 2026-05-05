@@ -37,8 +37,11 @@ pub(crate) async fn dispatch_event(
         AppEvent::CloseOverlay => app.close_overlay(),
         AppEvent::CancelRunningTask => request_running_task_cancellation(app),
         AppEvent::ClearComposer => {
-            app.input.clear();
-            app.input_cursor_offset = None;
+            if !app.input.is_empty() {
+                app.record_input_history(&app.input.clone());
+                app.input.clear();
+                app.input_cursor_offset = None;
+            }
         }
         AppEvent::SubmitComposer => {
             if handle_submit(app, agent_slot, oauth_manager).await? {
