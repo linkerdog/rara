@@ -257,7 +257,7 @@ pub(crate) async fn build_backend_with_progress(
             let model = config
                 .model
                 .clone()
-                .unwrap_or_else(|| "gemini-3-flash-preview".to_string());
+                .unwrap_or_else(|| "gemini-2.5-flash".to_string());
             let home = ensure_rara_home_dir()?;
             let oauth = GoogleOAuthManager::new(home)?;
             let backend = GeminiBackend::with_oauth(oauth, model)?;

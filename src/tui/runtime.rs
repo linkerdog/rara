@@ -1,4 +1,5 @@
 mod commands;
+pub(crate) use commands::apply_permission_mode;
 mod events;
 mod tasks;
 

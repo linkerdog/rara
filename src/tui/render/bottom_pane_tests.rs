@@ -177,7 +177,7 @@ async fn busy_composer_hint_keeps_only_action_keys() {
         cancellation_requested: false,
     });
 
-    assert_eq!(composer_hint(&app), "Enter queue  Esc cancel");
+    assert_eq!(composer_hint(&app), "Enter queue  Esc/Ctrl+C cancel");
 
     if let Some(task) = app.running_task.take() {
         task.handle.abort();
@@ -264,7 +264,7 @@ fn footer_summary_text_includes_repo_context_when_available() {
 fn wrapped_text_rows_preserve_space_only_and_blank_lines() {
     let rows = wrapped_text_rows(" \n\n  ", 12, Some("› "), Some("  "));
 
-    assert_eq!(rows, vec!["›  ", "› ", "›   "]);
+    assert_eq!(rows, vec!["›  ", "  ", "    "]);
 }
 
 #[test]

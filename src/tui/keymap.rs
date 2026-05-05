@@ -243,6 +243,19 @@ pub(crate) fn map_key_to_event(key: KeyEvent, app: &TuiApp) -> AppEvent {
             KeyCode::Enter => AppEvent::ApplyOverlaySelection,
             _ => AppEvent::Noop,
         },
+        Some(Overlay::ListPicker(kind)) => super::list_picker::list_picker_key_event(kind, code),
+        Some(Overlay::PermissionPicker) => match code {
+            KeyCode::Esc => AppEvent::CloseOverlay,
+            KeyCode::Up | KeyCode::Char('k') => AppEvent::MovePermissionSelection(-1),
+            KeyCode::Down | KeyCode::Char('j') => AppEvent::MovePermissionSelection(1),
+            KeyCode::Char('1') => AppEvent::SetPermissionSelection(0),
+            KeyCode::Char('2') => AppEvent::SetPermissionSelection(1),
+            KeyCode::Char('3') => AppEvent::SetPermissionSelection(2),
+            KeyCode::Char('4') => AppEvent::SetPermissionSelection(3),
+            KeyCode::Enter => AppEvent::ApplyOverlaySelection,
+            _ => AppEvent::Noop,
+        },
+
         None => {
             if app.input.is_empty()
                 && let Some(index) = pending_shortcut_index(code, app)
@@ -252,7 +265,11 @@ pub(crate) fn map_key_to_event(key: KeyEvent, app: &TuiApp) -> AppEvent {
 
             match (code, modifiers) {
                 (KeyCode::Esc, _) if app.is_busy() => AppEvent::CancelRunningTask,
+                (KeyCode::Char('c'), KeyModifiers::CONTROL) if app.is_busy() => {
+                    AppEvent::CancelRunningTask
+                }
                 (KeyCode::Esc, _) => AppEvent::Noop,
+                (KeyCode::Char('c'), KeyModifiers::CONTROL) => AppEvent::ClearComposer,
                 (KeyCode::Enter, KeyModifiers::SHIFT)
                 | (KeyCode::Char('j'), KeyModifiers::CONTROL) => AppEvent::InsertNewline,
                 (KeyCode::Enter, _) => AppEvent::SubmitComposer,

@@ -510,6 +510,73 @@ fn load_rollout_events_prefers_append_only_log_without_snapshot_rewrite() -> Res
 }
 
 #[test]
+fn indexes_spawn_agent_edges_for_listing_queries() -> Result<()> {
+    let temp = tempdir()?;
+    let db = StateDb::new_for_root_dir(temp.path().join(".rara"))?;
+    db.sync_spawn_agent_edges_from_events(
+        "parent-session",
+        &[
+            PersistedStructuredRolloutEvent::PlanState {
+                recorded_at: Some(9),
+                explanation: Some("ignored".to_string()),
+                steps: Vec::new(),
+            },
+            PersistedStructuredRolloutEvent::SpawnAgent {
+                recorded_at: Some(10),
+                event_id: "spawn-1".to_string(),
+                agent_id: "worker-1".to_string(),
+                name: Some("Worker 1".to_string()),
+                child_session_id: "child-1".to_string(),
+                status: "done".to_string(),
+                summary: Some("Finished.".to_string()),
+            },
+        ],
+    )?;
+
+    let edges = db.load_spawn_agent_edges("parent-session")?;
+    assert_eq!(edges.len(), 1);
+    assert_eq!(edges[0].parent_session_id, "parent-session");
+    assert_eq!(edges[0].event_id, "spawn-1");
+    assert_eq!(edges[0].agent_id, "worker-1");
+    assert_eq!(edges[0].name.as_deref(), Some("Worker 1"));
+    assert_eq!(edges[0].child_session_id, "child-1");
+    assert_eq!(edges[0].status, "done");
+    assert_eq!(edges[0].summary.as_deref(), Some("Finished."));
+    assert_eq!(edges[0].recorded_at, Some(10));
+
+    let original_id: i64 = {
+        let verify = Connection::open(db.path())?;
+        verify.query_row(
+            "SELECT id FROM spawn_agent_edges WHERE parent_session_id = 'parent-session'",
+            [],
+            |row| row.get(0),
+        )?
+    };
+    db.sync_spawn_agent_edges_from_events(
+        "parent-session",
+        &[PersistedStructuredRolloutEvent::SpawnAgent {
+            recorded_at: Some(10),
+            event_id: "spawn-1".to_string(),
+            agent_id: "worker-1".to_string(),
+            name: Some("Worker 1".to_string()),
+            child_session_id: "child-1".to_string(),
+            status: "done".to_string(),
+            summary: Some("Finished.".to_string()),
+        }],
+    )?;
+    let id_after_noop_sync: i64 = {
+        let verify = Connection::open(db.path())?;
+        verify.query_row(
+            "SELECT id FROM spawn_agent_edges WHERE parent_session_id = 'parent-session'",
+            [],
+            |row| row.get(0),
+        )?
+    };
+    assert_eq!(id_after_noop_sync, original_id);
+    Ok(())
+}
+
+#[test]
 fn load_legacy_rollout_migration_collects_structured_and_runtime_fallbacks() -> Result<()> {
     let temp = tempdir()?;
     let db = StateDb::new_for_root_dir(temp.path().join(".rara"))?;

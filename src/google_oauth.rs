@@ -3,7 +3,7 @@
 use std::io::{Read, Write};
 use std::net::{SocketAddr, TcpListener};
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use anyhow::{Context, Result, bail};
@@ -13,29 +13,34 @@ use sha2::{Digest, Sha256};
 use tokio::sync::Mutex;
 use url::Url;
 
+use crate::atomic_file;
+
 // ── Constants ─────────────────────────────────────────────────
 
-/// Google OAuth client ID. Set `RARA_GOOGLE_CLIENT_ID` in the
-/// environment, or use the public gemini-cli desktop OAuth client
-/// shipped in Google's open-source gemini-cli repository.
 fn google_oauth_client_id() -> &'static str {
-    let s = std::env::var("RARA_GOOGLE_CLIENT_ID").unwrap_or_else(|_| {
-        unimplemented!(
-            "RARA_GOOGLE_CLIENT_ID env var not set. \
-             Set it to your Google OAuth client ID."
-        )
-    });
-    Box::leak(s.into_boxed_str())
+    static ID: OnceLock<String> = OnceLock::new();
+    ID.get_or_init(|| {
+        std::env::var("RARA_GOOGLE_CLIENT_ID").unwrap_or_else(|_| {
+            unimplemented!(
+                "RARA_GOOGLE_CLIENT_ID env var not set. \
+                 Set it to your Google OAuth client ID."
+            )
+        })
+    })
+    .as_str()
 }
 
 fn google_oauth_client_secret() -> &'static str {
-    let s = std::env::var("RARA_GOOGLE_CLIENT_SECRET").unwrap_or_else(|_| {
-        unimplemented!(
-            "RARA_GOOGLE_CLIENT_SECRET env var not set. \
-             Set it to your Google OAuth client secret."
-        )
-    });
-    Box::leak(s.into_boxed_str())
+    static SECRET: OnceLock<String> = OnceLock::new();
+    SECRET.get_or_init(|| {
+        std::env::var("RARA_GOOGLE_CLIENT_SECRET").unwrap_or_else(|_| {
+            unimplemented!(
+                "RARA_GOOGLE_CLIENT_SECRET env var not set. \
+                 Set it to your Google OAuth client secret."
+            )
+        })
+    })
+    .as_str()
 }
 
 const GOOGLE_AUTH_URL: &str = "https://accounts.google.com/o/oauth2/v2/auth";
@@ -64,12 +69,17 @@ struct TokenResponse {
     managed_project_id: Option<String>,
 }
 
+/// Persisted credential with separate fields (no packed delimiter).
 #[derive(Debug, Serialize, Deserialize, Clone)]
 struct StoredCredential {
-    refresh: String,
-    access: String,
-    expires: u64,
+    access_token: String,
+    refresh_token: String,
+    expires_at: u64,
     email: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    project_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    managed_project_id: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -133,7 +143,14 @@ impl GoogleOAuthManager {
     }
 
     pub fn has_saved_auth(&self) -> bool {
-        self.token_path.exists()
+        if !self.token_path.exists() {
+            return false;
+        }
+        // Also verify the file is valid JSON.
+        std::fs::read_to_string(&self.token_path)
+            .ok()
+            .and_then(|data| serde_json::from_str::<StoredCredential>(&data).ok())
+            .is_some()
     }
 
     pub fn clear_saved_auth(&self) -> anyhow::Result<bool> {
@@ -159,15 +176,13 @@ impl GoogleOAuthManager {
             serde_json::from_str(&data)
                 .context("Failed to parse Google OAuth credential")?;
 
-        let (refresh_token, project_id, managed_project_id) =
-            unpack_refresh(&stored.refresh);
         let cred = GoogleCredential {
-            access_token: stored.access,
-            refresh_token,
-            expires_at: stored.expires,
+            access_token: stored.access_token,
+            refresh_token: stored.refresh_token,
+            expires_at: stored.expires_at,
             email: stored.email,
-            project_id,
-            managed_project_id,
+            project_id: stored.project_id,
+            managed_project_id: stored.managed_project_id,
         };
 
         let cred = self.refresh_if_needed(cred).await?;
@@ -180,9 +195,6 @@ impl GoogleOAuthManager {
         let listener = TcpListener::bind("127.0.0.1:0")?;
         let addr = listener.local_addr()?;
         let port = addr.port();
-        // Close the listener immediately; reopen it in complete_browser_login.
-        // This keeps TcpListener (non-Send on some platforms) out of the
-        // BrowserLoginSession struct that travels across async boundaries.
         drop(listener);
         let redirect_uri = format!("{REDIRECT_URI_PREFIX}{port}");
 
@@ -210,8 +222,7 @@ impl GoogleOAuthManager {
             &code,
         )
         .await?;
-        let cred =
-            persist_credential(&session.token_path, &token).await?;
+        let cred = persist_credential(&session.token_path, &token).await?;
         Ok(cred)
     }
 
@@ -267,8 +278,6 @@ impl GoogleOAuthManager {
     ) -> Result<GoogleCredential> {
         let deadline = system_time_millis()
             + session.expires_in_secs * 1000;
-        let interval =
-            Duration::from_secs(session.interval_secs.min(30));
 
         loop {
             if system_time_millis() >= deadline {
@@ -288,44 +297,27 @@ impl GoogleOAuthManager {
 
             if resp.status().is_success() {
                 let token: TokenResponse = resp.json().await?;
-                return persist_credential(
-                    &session.token_path,
-                    &token,
-                )
+                return persist_credential(&session.token_path, &token).await;
+            }
+
+            let body = resp.text().await.unwrap_or_default();
+            if body.contains("authorization_pending") {
+                // Still waiting — sleep and retry.
+                tokio::time::sleep(Duration::from_secs(
+                    session.interval_secs,
+                ))
                 .await;
+                continue;
             }
 
-            if resp.status().as_u16() == 400 {
-                let body: serde_json::Value =
-                    resp.json().await?;
-                let error = body["error"]
-                    .as_str()
-                    .unwrap_or("unknown");
-                if error == "authorization_pending" {
-                    tokio::time::sleep(interval).await;
-                    continue;
-                }
-                if error == "slow_down" {
-                    tokio::time::sleep(
-                        Duration::from_secs(
-                            session.interval_secs.min(10) + 5,
-                        ),
-                    )
-                    .await;
-                    continue;
-                }
-                bail!("Device code error: {error}");
-            }
-
-            bail!(
-                "Unexpected device code response: {}",
-                resp.status()
-            );
+            bail!("Device code grant failed: {body}");
         }
     }
+}
 
-    // ── Token refresh ──────────────────────────────────────
+// ── Internal helpers ──────────────────────────────────────────
 
+impl GoogleOAuthManager {
     async fn refresh_if_needed(
         &self,
         cred: GoogleCredential,
@@ -503,38 +495,45 @@ fn device_code_form_body(session: &DeviceCodeSession) -> String {
     ])
 }
 
+/// Build a URL-encoded form body from key-value pairs.
+fn urlencode_pairs(pairs: &[(&str, &str)]) -> String {
+    pairs
+        .iter()
+        .map(|(k, v)| format!("{k}={v}"))
+        .collect::<Vec<_>>()
+        .join("&")
+}
+
 // ── Persistence ───────────────────────────────────────────────
 
 async fn persist_credential(
     path: &Path,
     token: &TokenResponse,
 ) -> Result<GoogleCredential> {
+    let email = resolve_email(&token.access_token).await?;
+    let expires_at = system_time_millis()
+        + token.expires_in.unwrap_or(3600) * 1000;
     let refresh_token = token
         .refresh_token
         .clone()
-        .context("No refresh token in response")?;
-    let expires_in = token.expires_in.unwrap_or(3600);
-    let expires_at = system_time_millis() + expires_in * 1000;
-
-    // Resolve email and project info.
-    let email = resolve_email(&token.access_token).await?;
-    let packed_refresh = pack_refresh(
-        &refresh_token,
-        token.project_id.as_deref(),
-        token.managed_project_id.as_deref(),
-    );
+        .context("No refresh_token in token response")?;
 
     let stored = StoredCredential {
-        refresh: packed_refresh,
-        access: token.access_token.clone(),
-        expires: expires_at,
+        access_token: token.access_token.clone(),
+        refresh_token: refresh_token.clone(),
+        expires_at,
         email: email.clone(),
+        project_id: token.project_id.clone(),
+        managed_project_id: token.managed_project_id.clone(),
     };
 
     let json = serde_json::to_string_pretty(&stored)?;
-    std::fs::write(path, json)?;
 
-    // Set restrictive permissions on Unix.
+    // Write to temp file then atomically rename.
+    let tmp = path.with_extension("tmp");
+    std::fs::write(&tmp, &json)?;
+    atomic_file::replace_file(&tmp, path)?;
+
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
@@ -572,36 +571,7 @@ async fn resolve_email(access_token: &str) -> Result<String> {
         .context("No email in userinfo response")
 }
 
-// ── Helpers ───────────────────────────────────────────────────
-
-/// Build a URL-encoded form body from key-value pairs.
-///
-/// All OAuth parameter values are ASCII-safe (alphanumeric plus `-_.`).
-fn urlencode_pairs(pairs: &[(&str, &str)]) -> String {
-    pairs
-        .iter()
-        .map(|(k, v)| format!("{k}={v}"))
-        .collect::<Vec<_>>()
-        .join("&")
-}
-
-fn pack_refresh(
-    refresh_token: &str,
-    project_id: Option<&str>,
-    managed_project_id: Option<&str>,
-) -> String {
-    let pid = project_id.unwrap_or("");
-    let mpid = managed_project_id.unwrap_or("");
-    format!("{refresh_token}|{pid}|{mpid}")
-}
-
-fn unpack_refresh(packed: &str) -> (String, Option<String>, Option<String>) {
-    let parts: Vec<&str> = packed.splitn(3, '|').collect();
-    let rt = parts.first().map(|s| s.to_string()).unwrap_or_default();
-    let pid = parts.get(1).filter(|s| !s.is_empty()).map(|s| s.to_string());
-    let mpid = parts.get(2).filter(|s| !s.is_empty()).map(|s| s.to_string());
-    (rt, pid, mpid)
-}
+// ── Time ──────────────────────────────────────────────────────
 
 fn system_time_millis() -> u64 {
     SystemTime::now()

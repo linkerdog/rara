@@ -3,18 +3,21 @@ use std::sync::Arc;
 use super::app_event::AppEvent;
 use super::auth_mode_picker::AUTH_MODE_OPTION_COUNT;
 use super::command::{palette_command_by_index, palette_commands};
+#[allow(unused_imports)]
+use super::list_picker;
 use super::provider_flow::{
     open_provider_family_overlay, should_open_codex_auth_guide,
     sync_codex_credential_from_auth_store,
 };
+use super::runtime::apply_permission_mode;
 use super::runtime::{
     request_running_task_cancellation, start_deepseek_model_list_task, start_google_oauth_task,
     start_oauth_task, start_pending_approval_task, start_rebuild_task,
 };
 use super::session_restore::restore_thread_by_id;
 use super::state::{
-    ActivePendingInteractionKind, OpenAiModelPickerAction, Overlay, PROVIDER_FAMILIES,
-    ProviderFamily, TuiApp,
+    ActivePendingInteractionKind, ListPickerKind, OpenAiModelPickerAction, Overlay,
+    PROVIDER_FAMILIES, PermissionMode, ProviderFamily, TuiApp,
 };
 use super::submit::{apply_openai_model_picker_action, handle_submit};
 use super::terminal_ui::is_ssh_session;
@@ -36,6 +39,10 @@ pub(crate) async fn dispatch_event(
         AppEvent::OpenOverlay(overlay) => app.open_overlay(overlay),
         AppEvent::CloseOverlay => app.close_overlay(),
         AppEvent::CancelRunningTask => request_running_task_cancellation(app),
+        AppEvent::ClearComposer => {
+            app.input.clear();
+            app.input_cursor_offset = None;
+        }
         AppEvent::SubmitComposer => {
             if handle_submit(app, agent_slot, oauth_manager).await? {
                 return Ok(true);
@@ -145,6 +152,28 @@ pub(crate) async fn dispatch_event(
             let max_idx = AUTH_MODE_OPTION_COUNT.saturating_sub(1);
             let next = (app.auth_mode_idx as i32 + delta).clamp(0, max_idx as i32);
             app.auth_mode_idx = next as usize;
+        }
+        AppEvent::MoveListPickerSelection(delta) => {
+            let Some(Overlay::ListPicker(kind)) = app.overlay else {
+                return Ok(false);
+            };
+            let max = kind.item_count(app).saturating_sub(1) as i32;
+            let next = (kind.idx(app) as i32 + delta).clamp(0, max);
+            kind.set_idx(app, next as usize);
+        }
+        AppEvent::SetListPickerSelection(idx) => {
+            let Some(Overlay::ListPicker(kind)) = app.overlay else {
+                return Ok(false);
+            };
+            kind.set_idx(app, idx);
+        }
+        AppEvent::MovePermissionSelection(delta) => {
+            let max_idx = 3i32; // Auto, AcceptEdits, ReadOnly, FullAccess
+            let next = (app.permission_picker_idx as i32 + delta).clamp(0, max_idx);
+            app.permission_picker_idx = next as usize;
+        }
+        AppEvent::SetPermissionSelection(idx) => {
+            app.permission_picker_idx = idx.min(3usize);
         }
         AppEvent::SetProviderSelection(idx) => {
             app.provider_picker_idx = idx.min(PROVIDER_FAMILIES.len() - 1);
@@ -589,6 +618,101 @@ pub(crate) async fn dispatch_event(
                         }
                     }
                     _ => {}
+                }
+            }
+            Some(Overlay::PermissionPicker) => {
+                if app.is_busy() {
+                    app.push_notice("A task is already running. Wait for it to finish.");
+                } else {
+                    let mode = match app.permission_picker_idx {
+                        0 => PermissionMode::Auto,
+                        1 => PermissionMode::AcceptEdits,
+                        2 => PermissionMode::ReadOnly,
+                        3 => PermissionMode::FullAccess,
+                        _ => PermissionMode::Auto,
+                    };
+                    apply_permission_mode(app, agent_slot, mode);
+                    app.permission_mode = mode;
+                    let label = mode.label();
+                    app.push_notice(format!("Permission mode: {label}."));
+                    app.close_overlay();
+                }
+            }
+            Some(Overlay::ListPicker(kind)) => {
+                if app.is_busy() {
+                    app.push_notice("A task is already running. Wait for it to finish.");
+                } else {
+                    match kind {
+                        ListPickerKind::Provider => {
+                            open_provider_family_overlay(app, oauth_manager.as_ref()).await?;
+                        }
+                        ListPickerKind::Model => {
+                            if app.selected_provider_family() == ProviderFamily::Codex {
+                                let _ = sync_codex_credential_from_auth_store(
+                                    app,
+                                    oauth_manager.as_ref(),
+                                )?;
+                            }
+                            if should_open_codex_auth_guide(app, oauth_manager.as_ref()) {
+                                app.select_local_model(app.model_picker_idx);
+                                app.open_overlay(Overlay::AuthModePicker);
+                            } else if app.selected_provider_family() == ProviderFamily::Codex {
+                                app.select_local_model(app.model_picker_idx);
+                                if app.selected_codex_reasoning_options().len() <= 1 {
+                                    app.apply_selected_codex_reasoning_effort();
+                                    start_rebuild_task(app);
+                                } else {
+                                    app.open_overlay(Overlay::ReasoningEffortPicker);
+                                }
+                            } else if app.selected_provider_family()
+                                == ProviderFamily::OpenAiCompatible
+                            {
+                                if let Some(action) = app.selected_openai_model_picker_action() {
+                                    apply_openai_model_picker_action(app, action)?;
+                                }
+                            } else if app.selected_provider_family() == ProviderFamily::DeepSeek {
+                                if app.selected_deepseek_api_key_action() {
+                                    app.open_overlay(Overlay::ApiKeyEditor);
+                                } else if app.config.has_api_key() {
+                                    app.select_local_model(app.model_picker_idx);
+                                    start_rebuild_task(app);
+                                } else {
+                                    app.open_overlay(Overlay::ApiKeyEditor);
+                                }
+                            } else {
+                                app.select_local_model(app.model_picker_idx);
+                                start_rebuild_task(app);
+                            }
+                        }
+                        ListPickerKind::OpenAiEndpointKind => {
+                            let kind = app.selected_openai_setup_kind();
+                            app.set_openai_setup_kind(kind);
+                            app.config_manager.save(&app.config)?;
+                        }
+                        ListPickerKind::OpenAiProfile => {
+                            if app.openai_profile_picker_idx == 0 {
+                                app.openai_profile_label_kind = app.selected_openai_profile_kind();
+                                app.open_overlay(Overlay::OpenAiProfileLabelEditor);
+                            } else if let Some((profile_id, label)) = app
+                                .selected_openai_profiles()
+                                .get(app.openai_profile_picker_idx - 1)
+                                .cloned()
+                            {
+                                if let Some(kind) = app.selected_openai_profile_kind() {
+                                    app.config.select_openai_profile(
+                                        profile_id,
+                                        label.clone(),
+                                        kind,
+                                    );
+                                    app.config_manager.save(&app.config)?;
+                                    app.notice =
+                                        Some(format!("Selected endpoint profile: {label}"));
+                                    app.overlay = Some(Overlay::ModelPicker);
+                                }
+                            }
+                        }
+                        _ => {}
+                    }
                 }
             }
             _ => {}

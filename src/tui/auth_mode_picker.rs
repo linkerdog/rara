@@ -1,6 +1,14 @@
 use super::command::api_key_status;
 use super::state::{ProviderFamily, TuiApp};
 
+/// Check whether a saved Google OAuth credential exists.
+fn google_oauth_has_saved_auth() -> bool {
+    crate::config::ensure_rara_home_dir()
+        .ok()
+        .map(|home| home.join("auth").join("google_oauth.json").exists())
+        .unwrap_or(false)
+}
+
 pub(crate) struct AuthModePickerView {
     pub(crate) intro: String,
     pub(crate) lines: Vec<String>,
@@ -71,10 +79,19 @@ pub(crate) fn build_auth_mode_picker_view(app: &TuiApp, ssh_session: bool) -> Au
     };
 
     debug_assert_eq!(options.len(), AUTH_MODE_OPTION_COUNT);
+    let credential_label = if is_gemini {
+        if google_oauth_has_saved_auth() {
+            "saved (OAuth)"
+        } else {
+            "missing (OAuth login required)"
+        }
+    } else {
+        api_key_status(&app.config)
+    };
     let mut lines = vec![
         format!("Current model: {}", app.current_model_label()),
         format!("Provider: {provider_id}"),
-        format!("Credential status: {}", api_key_status(&app.config)),
+        format!("Credential status: {credential_label}"),
         String::new(),
     ];
     for (idx, (title, detail)) in options.iter().enumerate() {

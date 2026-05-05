@@ -5,19 +5,14 @@ repos:
         name: cargo fmt
         entry: cargo fmt --check
         language: system
+        files: (\.rs|\.?rustfmt\.toml)$
         stages: [pre-commit]
         pass_filenames: false
 
       - id: cargo-clippy
         name: cargo clippy
-        entry: cargo clippy --no-deps -- -D warnings
+        entry: cargo clippy --locked --all-targets --no-deps -- -D warnings
         language: system
-        stages: [pre-commit]
-        pass_filenames: false
-
-      - id: cargo-check
-        name: cargo check
-        entry: cargo check
-        language: system
+        files: \.(rs|toml|lock)$
         stages: [pre-commit]
         pass_filenames: false

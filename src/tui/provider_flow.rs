@@ -1,7 +1,7 @@
 use codex_models_manager::manager::RefreshStrategy;
 use secrecy::{ExposeSecret, SecretString};
 
-use super::state::{Overlay, ProviderFamily, TuiApp};
+use super::state::{ListPickerKind, Overlay, ProviderFamily, TuiApp};
 use crate::agent::Agent;
 use crate::codex_model_catalog::load_codex_model_catalog;
 use crate::config::{OpenAiEndpointKind, ensure_rara_home_dir};
@@ -159,7 +159,7 @@ pub(super) async fn open_provider_family_overlay(
         if !app.config.has_api_key() {
             app.open_overlay(Overlay::ApiKeyEditor);
         } else {
-            app.open_overlay(Overlay::ModelPicker);
+            app.open_overlay(Overlay::ListPicker(ListPickerKind::Model));
         }
         return Ok(());
     }
@@ -185,13 +185,13 @@ pub(super) async fn open_provider_family_overlay(
         && !codex_auth_is_available(app, oauth_manager)
     {
         app.config.set_provider("codex");
-        app.open_overlay(Overlay::AuthModePicker);
+        app.open_overlay(Overlay::ListPicker(ListPickerKind::AuthMode));
     } else {
         if entering_codex_family {
             refresh_codex_model_picker(app, oauth_manager, RefreshStrategy::OnlineIfUncached)
                 .await?;
         }
-        app.open_overlay(Overlay::ModelPicker);
+        app.open_overlay(Overlay::ListPicker(ListPickerKind::Model));
         if matches!(
             app.selected_provider_family(),
             ProviderFamily::OpenAiCompatible

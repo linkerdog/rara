@@ -392,7 +392,7 @@ async fn slash_palette_model_selection_opens_provider_picker_in_local_and_ssh() 
         .await
         .expect("apply command palette selection");
 
-        assert!(matches!(app.overlay, Some(Overlay::ProviderPicker)));
+        assert!(matches!(app.overlay, Some(Overlay::ListPicker(_))));
         assert_eq!(app.notice.as_deref(), Some("Opened provider picker."));
     }
 }
@@ -1308,10 +1308,7 @@ async fn openai_model_picker_create_shortcut_opens_endpoint_kind_picker() {
     .await
     .expect("open endpoint kind picker");
 
-    assert!(matches!(
-        app.overlay,
-        Some(Overlay::OpenAiEndpointKindPicker)
-    ));
+    assert!(matches!(app.overlay, Some(Overlay::ListPicker(_))));
     assert_eq!(app.openai_endpoint_kind_picker_idx, 0);
 }
 
@@ -1525,7 +1522,7 @@ async fn codex_provider_family_routes_to_auth_picker_without_saved_login() {
         .await
         .expect("open overlay");
     assert_eq!(app.config.provider, "codex");
-    assert!(matches!(app.overlay, Some(Overlay::AuthModePicker)));
+    assert!(matches!(app.overlay, Some(Overlay::ListPicker(_))));
 }
 
 #[tokio::test]
@@ -1545,7 +1542,7 @@ async fn codex_provider_family_routes_to_model_picker_with_saved_login() {
     open_provider_family_overlay(&mut app, &oauth_manager)
         .await
         .expect("open overlay");
-    assert!(matches!(app.overlay, Some(Overlay::ModelPicker)));
+    assert!(matches!(app.overlay, Some(Overlay::ListPicker(_))));
     assert!(!app.codex_model_options.is_empty());
 }
 
@@ -1571,7 +1568,7 @@ async fn codex_provider_family_uses_saved_codex_provider_state() {
     open_provider_family_overlay(&mut app, &oauth_manager)
         .await
         .expect("open overlay");
-    assert!(matches!(app.overlay, Some(Overlay::ModelPicker)));
+    assert!(matches!(app.overlay, Some(Overlay::ListPicker(_))));
 }
 
 #[tokio::test]

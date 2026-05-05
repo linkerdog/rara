@@ -77,11 +77,13 @@ Active backlog only. Keep this file small and current.
 - [ ] Upgrade thread distillation from summary capture to LLM-assisted 2-8 record extraction with deduplication.
 - [ ] Move raw session checkpoints into per-session append shards instead of the global LanceDB `conversations` table.
 - [ ] Promote `rollouts/<session_id>/transcript.jsonl` from compatibility mirror to canonical model-history source.
-- [ ] Wire sub-agent tools to write parent-scoped sidechain transcripts under `rollouts/<parent_session_id>/subagents/`.
-- [ ] Add durable parent/child spawn-edge metadata in `StateDb`.
+- [x] Wire foreground sub-agent tools to write parent-scoped sidechain transcripts under `rollouts/<parent_session_id>/subagents/`.
+- [x] Add append-only parent/child spawn-edge rollout metadata for foreground sub-agent calls.
+- [x] Index parent/child spawn-edge metadata in `StateDb` for resume/listing queries.
+- [x] Add in-process background sub-agent resume/stop over the sidechain transcript contract.
 - [ ] Add periodic promotion from session shards into global `MemoryRecord`s.
 - [ ] Durable in-turn checkpoints: persist after each message/tool-result batch, atomic writes, crash-tolerant `SessionManager`.
-- [ ] Define background task restart/reattach semantics.
+- [ ] Define cross-process background sub-agent restart/reattach semantics.
 - [ ] Compaction as first-class lifecycle event: persist summaries, token counters, metadata ownership.
 - [ ] Add prompt-too-long retry for compaction by dropping oldest API-round groups.
 - [ ] Add partial compact support around a selected message boundary (`from` / `up_to`).

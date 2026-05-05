@@ -25,8 +25,13 @@ pub enum AppEvent {
     MoveOpenAiProfileSelection(i32),
     MoveAuthModeSelection(i32),
     MoveReasoningEffortSelection(i32),
+    MovePermissionSelection(i32),
+    SetPermissionSelection(usize),
     MoveResumeSelection(i32),
     MoveSkillsSelection(i32),
+    /// Generic list-picker move/set events — used by Overlay::ListPicker.
+    MoveListPickerSelection(i32),
+    SetListPickerSelection(usize),
     ToggleSkillSelection,
     SetProviderSelection(usize),
     SetModelSelection(usize),
@@ -48,4 +53,5 @@ pub enum AppEvent {
     SelectStatusTab(StatusTab),
     ApplyOverlaySelection,
     CancelRunningTask,
+    ClearComposer,
 }

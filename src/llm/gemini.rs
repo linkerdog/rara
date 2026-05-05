@@ -97,79 +97,68 @@ impl GeminiBackend {
         let endpoint = self.base_endpoint();
         let model = &self.model;
 
-        let url = if self.is_code_assist() {
-            format!(
+        let (url, request_builder) = if self.is_code_assist() {
+            // Code Assist: single credential load for token + project_id.
+            let cred = self.code_assist_credential().await?;
+            let project_id = cred.project_id.as_deref().unwrap_or("unknown");
+            let url = format!(
                 "{}/v1internal/projects/-/locations/global/models/{}:{}",
                 endpoint,
                 model,
-                if stream {
-                    "streamGenerateContent"
-                } else {
-                    "generateContent"
-                }
-            )
-        } else {
-            let key = self
-                .resolve_auth()
-                .await?;
-            format!(
-                "{}/models/{}:{}?key={}&alt={}",
-                endpoint,
-                model,
-                if stream {
-                    "streamGenerateContent"
-                } else {
-                    "generateContent"
-                },
-                key,
-                if stream { "sse" } else { "" }
-            )
-        };
-
-        let request_builder = if self.is_code_assist() {
-            let token = self.resolve_auth().await?;
-            // Code Assist wraps the request in an envelope.
+                if stream { "streamGenerateContent" } else { "generateContent" }
+            );
             let envelope = json!({
-                "project": body.get("project").unwrap_or(&json!("")),
+                "project": project_id,
                 "model": model,
                 "user_prompt_id": Uuid::new_v4().to_string(),
                 "request": body,
             });
-            self.client
+            let rb = self
+                .client
                 .post(&url)
-                .bearer_auth(token)
-                .json(&envelope)
+                .bearer_auth(cred.access_token)
+                .json(&envelope);
+            (url, rb)
         } else {
-            self.client
-                .post(&url)
-                .json(body)
+            let key = self.resolve_auth().await?;
+            let url = format!(
+                "{}/models/{}:{}?key={}&alt={}",
+                endpoint,
+                model,
+                if stream { "streamGenerateContent" } else { "generateContent" },
+                key,
+                if stream { "sse" } else { "" }
+            );
+            let rb = self.client.post(&url).json(body);
+            (url.clone(), rb)
         };
 
-        let res = {
-            let url = url.clone();
-            let request = request_builder
+        let res = (|| async {
+            request_builder
                 .try_clone()
-                .ok_or_else(|| anyhow!("Request not cloneable"))?;
-            (|| async {
-                request
-                    .try_clone()
-                    .ok_or_else(|| anyhow!("Request not cloneable"))?
-                    .send()
-                    .await
-                    .map_err(|e| anyhow!(e))
-            })
-            .retry(ExponentialBuilder::default().with_jitter())
-            .when(|e: &anyhow::Error| is_retryable_http_error(e))
-            .await
-            .map_err(|e| {
-                anyhow!(
-                    "Gemini API request failed at {}: {}",
-                    sanitize_url_for_display(&url),
-                    e
-                )
-            })?
-        };
+                .ok_or_else(|| anyhow!("Request not cloneable"))?
+                .send()
+                .await
+                .map_err(|e| anyhow!(e))
+        })
+        .retry(ExponentialBuilder::default().with_jitter())
+        .when(|e: &anyhow::Error| is_retryable_http_error(e))
+        .await
+        .map_err(|e| {
+            anyhow!(
+                "Gemini API request failed at {}: {}",
+                sanitize_url_for_display(&url),
+                e
+            )
+        })?;
         Ok(res)
+    }
+
+    async fn code_assist_credential(&self) -> Result<crate::google_oauth::GoogleCredential> {
+        match &self.auth {
+            GeminiAuthMode::OAuth { oauth } => oauth.load_credential().await,
+            _ => bail!("code_assist_credential called for non-OAuth auth mode"),
+        }
     }
 }
 
@@ -295,7 +284,11 @@ impl LlmBackend for GeminiBackend {
     }
 
     async fn embed(&self, text: &str) -> Result<Vec<f32>> {
-        // Gemini text-embedding-004 via AI Studio.
+        // Code Assist does not support embeddings; use hashed fallback.
+        if self.is_code_assist() {
+            return Ok(crate::llm::hashed_embedding(text, 768));
+        }
+        // AI Studio: text-embedding-004.
         let key = self.resolve_auth().await?;
         let url = format!(
             "{}/models/text-embedding-004:embedContent?key={}",
