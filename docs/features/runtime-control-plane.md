@@ -177,6 +177,20 @@ The event stream should remain richer than a plain text stream. Plain text can
 be derived from it, but protocol adapters should not be the only owner of
 structured output.
 
+Runtime subscribers receive `RuntimeControlEvent` objects, not raw TUI text.
+Each event carries:
+
+- a stable event id;
+- a monotonically increasing sequence number from the shared runtime bus;
+- source provenance;
+- the structured `RuntimeEvent` payload derived from the internal `AgentEvent`.
+
+The local TUI may still consume raw `AgentEvent` values for compatibility and
+presentation-specific state, but ACP, Wire, appserver, and future protocol
+adapters should use the structured subscription surface. Slow subscribers must
+treat missed broadcast events as a reconnect/resync boundary rather than
+silently continuing with a partial stream.
+
 ### Prompt Source Registration
 
 External applications may register prompt sources through structured objects:

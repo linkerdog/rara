@@ -18,7 +18,7 @@ Active backlog only. Keep this file small and current.
 - [x] Add Claude-style `todo_write` runtime state with session persistence, TUI update cards, and structured Wire/ACP-ready events.
 - [x] Add source-aware MCP config registry for user `config.toml` and project `.mcp.json` with duplicate-name conflict failure.
 - [ ] Route ACP prompt/cancel/session handling through the normal RARA runtime path instead of the current stub.
-- [ ] Add protocol subscriber plumbing on top of the structured `AgentEvent` runtime-control bridge.
+- [x] Add protocol subscriber plumbing on top of the structured `AgentEvent` runtime-control bridge.
 - [x] Add MCP connection manager status model (`configured`, `connecting`, `connected`, `refreshing`, `reconnecting`, `failed`, `disabled`) from `McpRegistry`.
 - [x] Add `/mcp` status surface grouped by scope and source path.
 - [x] Publish `/mcp` status snapshots as structured runtime events for future ACP/Wire/appserver subscribers.
