@@ -35,12 +35,22 @@ pub enum ToolProgressEvent {
 #[derive(Clone, Debug, Default)]
 pub struct ToolCallContext {
     cancellation: Option<Arc<AtomicBool>>,
+    session_id: Option<String>,
 }
 
 impl ToolCallContext {
     pub fn with_cancellation(mut self, cancellation: Arc<AtomicBool>) -> Self {
         self.cancellation = Some(cancellation);
         self
+    }
+
+    pub fn with_session_id(mut self, session_id: impl Into<String>) -> Self {
+        self.session_id = Some(session_id.into());
+        self
+    }
+
+    pub fn session_id(&self) -> Option<&str> {
+        self.session_id.as_deref()
     }
 
     pub fn is_cancelled(&self) -> bool {

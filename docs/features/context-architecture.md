@@ -1075,9 +1075,11 @@ runtime accepts at most 8 tasks and runs at most 4 sub-agents at once. This
 matches the current foreground delegation boundary, but it is not yet a durable
 background task system.
 
-The next alignment step is to give each sub-agent invocation a stable
-`agent_id`, persist its sidechain transcript under the parent session, and store
-only a structured delegation result in the parent context.
+Foreground sub-agent invocations now generate an `agent_id`, persist completed
+child history as a parent-scoped sidechain transcript, and return only a
+structured delegation result to the parent context. The next alignment step is
+to persist durable spawn-edge metadata and add background resume/stop semantics
+on top of the same sidechain contract.
 
 ### Required Objects
 

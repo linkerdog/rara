@@ -11,7 +11,7 @@ artifacts are per-turn JSON arrays.
 That mixed shape makes the resume boundary harder to reason about:
 
 - model-visible messages can be confused with TUI-only transcript artifacts;
-- sub-agent output has no first-class sidechain identity;
+- sub-agent output needs first-class sidechain identity;
 - fork/resume work has no stable typed event stream to filter by semantic role;
 - future ACP/Wire subscribers cannot follow one ordered transcript contract.
 
@@ -52,9 +52,10 @@ rollouts/<session_id>/
 ```
 
 The first implementation keeps `history.json` as the resume source and writes
-`transcript.jsonl` as a typed compatibility mirror. This is intentionally
-additive: existing session restore behavior stays unchanged while tests start
-locking down the model-visible transcript boundary.
+`transcript.jsonl` as a typed compatibility mirror. Foreground sub-agent tools
+also write parent-scoped sidechain transcripts after each completed invocation.
+This is intentionally additive: existing session restore behavior stays
+unchanged while tests start locking down the model-visible transcript boundary.
 
 The long-term target is:
 
@@ -163,13 +164,16 @@ This mirrors Codex's fork filtering while keeping Claude-style sidechain files.
 - The first implementation rewrites the transcript mirror from `history.json`.
   The canonical target is append-only, but the compatibility bridge must stay
   consistent with the existing snapshot source until resume migrates.
-- Existing sub-agent tools create independent `Agent` sessions. They need a
-  follow-up wiring step to write sidechain transcripts under the parent session.
+- Existing foreground sub-agent tools write sidechain transcripts only when
+  invoked with parent session context. Direct test calls without parent context
+  still return structured results without writing detached sidechain files.
 - `StateDb` still stores parent/child relationships only indirectly. A durable
   spawn-edge table is needed before cross-session sub-agent resume is complete.
 - Context compaction must preserve transcript boundaries and avoid injecting
   summaries before stable prompt-prefix sources.
+- Background sub-agent execution, resume, and stop semantics remain future work.
 
 ## Source Journals
 
 - 2026-05-04-session-transcript-foundation.md
+- 2026-05-05-subagent-sidechain-transcripts.md
