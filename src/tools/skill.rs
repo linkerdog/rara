@@ -96,7 +96,7 @@ impl Tool for SkillTool {
                     "title": skill.title,
                     "scope": format!("{:?}", skill.scope).to_lowercase(),
                     "display_path": skill.display_path,
-                    "instructions": skill.prompt,
+                    "instructions": strip_frontmatter(&skill.prompt),
                     "disable_model_invocation": skill.disable_model_invocation,
                     "overrides_others": !shadowed_scopes.is_empty(),
                     "shadowed_scopes": shadowed_scopes,
@@ -105,6 +105,18 @@ impl Tool for SkillTool {
             _ => Err(ToolError::InvalidInput("Invalid action".into())),
         }
     }
+}
+
+fn strip_frontmatter(content: &str) -> String {
+    let trimmed = content.trim_start();
+    if !trimmed.starts_with("---") {
+        return content.to_string();
+    }
+    if let Some(rest) = trimmed[3..].find("---") {
+        let after = &trimmed[3 + rest + 3..];
+        return after.trim_start().to_string();
+    }
+    content.to_string()
 }
 
 #[cfg(test)]
