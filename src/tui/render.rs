@@ -473,13 +473,13 @@ pub(crate) fn prefixed_message_lines(
     use crate::tui::message_role::MessageRole;
     let role_kind = MessageRole::try_from_str(role);
     if role_kind == Some(MessageRole::User) {
-        return user_message_lines(message, max_lines);
+        return user_message_lines(message, usize::MAX);
     }
     if role_kind == Some(MessageRole::Agent) {
-        return agent_message_lines(message, max_lines);
+        return agent_message_lines(message, usize::MAX);
     }
     if role_kind == Some(MessageRole::System) {
-        return system_message_lines(message, max_lines);
+        return system_message_lines(message, usize::MAX);
     }
     let (icon, color) = role_prefix_icon(role);
     let label = if icon.is_empty() {
@@ -487,7 +487,6 @@ pub(crate) fn prefixed_message_lines(
     } else {
         icon.to_string()
     };
-
     let message_lines = message.lines().collect::<Vec<_>>();
     if message_lines.is_empty() {
         return vec![Line::from(vec![Span::styled(
@@ -825,13 +824,19 @@ fn tool_action_label(message: &str) -> Option<String> {
             }
         )),
         "spawn_agent" => {
-            let kind = SubAgentKind::from_tool_name(name).unwrap();
+            let kind = SubAgentKind::from_tool_name(name).unwrap_or_else(|| {
+                eprintln!("Warning: unknown sub-agent tool name in render: {name}");
+                SubAgentKind::General
+            });
             let (icon, _) = kind.action_icon();
             let delegate = compact_delegate_rest(&rest).unwrap_or_else(|| "sub-agent".to_string());
             Some(format!("{}{} {}", icon, kind.action_label(), delegate))
         }
         "explore_agent" | "plan_agent" | "team_create" => {
-            let kind = SubAgentKind::from_tool_name(name).unwrap();
+            let kind = SubAgentKind::from_tool_name(name).unwrap_or_else(|| {
+                eprintln!("Warning: unknown sub-agent tool name in render: {name}");
+                SubAgentKind::General
+            });
             let (icon, _) = kind.action_icon();
             let abbreviation = compact_instruction(&rest);
             Some(format!("{}{} {}", icon, kind.action_label(), abbreviation))

@@ -1,11 +1,9 @@
 use std::path::Path;
 
-use ratatui::{style::Color, text::Line};
+use ratatui::text::Line;
 
 use super::super::history_pipeline::{narrative_entries, ordered_completion_entries};
-use super::components::{
-    CommittedInteractionCell, ExploredCell, MessageCell, RanCell, TerminalCell, UserCell,
-};
+use super::components::{CommittedInteractionCell, ExploredCell, MessageCell, RanCell, UserCell};
 use super::progress::{explicit_progress_entry_groups, push_progress_group};
 use super::terminal::terminal_cell_from_entries;
 use super::{

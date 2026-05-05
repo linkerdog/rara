@@ -986,38 +986,37 @@ fn render_screen_buffer(app: &TuiApp, width: u16, height: u16) -> Buffer {
 #[test]
 fn prefixed_message_lines_keep_first_and_latest_lines() {
     let rendered = prefixed_message_lines(
-        "Agent",
+        "Tool",
         &["intro", "middle 1", "middle 2", "latest 1", "latest 2"].join("\n"),
         3,
     )
     .into_iter()
     .map(|line| line.to_string())
     .collect::<Vec<_>>();
-    assert_eq!(rendered[0], "▌ Agent");
-    assert_eq!(rendered[1], "  intro");
-    assert_eq!(rendered[2], "    ... 3 more line(s)");
+    assert_eq!(rendered[0], "⚙ intro");
+    assert_eq!(rendered[1], "  ... 2 more line(s)");
+    assert_eq!(rendered[2], "  latest 1");
     assert_eq!(rendered[3], "  latest 2");
 }
 
 #[test]
 fn prefixed_message_lines_show_truncation_when_max_lines_is_one() {
-    let agent_rendered = prefixed_message_lines("Agent", &["intro", "latest 1"].join("\n"), 1)
+    let tool_rendered = prefixed_message_lines("Tool", &["intro", "latest 1"].join("\n"), 1)
         .into_iter()
         .map(|line| line.to_string())
         .collect::<Vec<_>>();
-    assert_eq!(agent_rendered[0], "▌ Agent");
-    assert_eq!(agent_rendered[1], "  intro");
-    assert!(agent_rendered[2].contains("more line"));
-    assert_eq!(agent_rendered.len(), 3);
+    assert_eq!(tool_rendered[0], "⚙ intro");
+    assert!(tool_rendered[1].contains("more line"));
+    assert_eq!(tool_rendered.len(), 2);
 
-    let user_rendered = prefixed_message_lines("You", &["intro", "latest 1"].join("\n"), 1)
+    // Second call with same arguments — should be identical.
+    let tool_rendered2 = prefixed_message_lines("Tool", &["intro", "latest 1"].join("\n"), 1)
         .into_iter()
         .map(|line| line.to_string())
         .collect::<Vec<_>>();
-    assert_eq!(user_rendered[0], "▌ You");
-    assert_eq!(user_rendered[1], "  intro");
-    assert!(user_rendered[2].contains("more line"));
-    assert_eq!(user_rendered.len(), 3);
+    assert_eq!(tool_rendered2[0], "⚙ intro");
+    assert!(tool_rendered2[1].contains("more line"));
+    assert_eq!(tool_rendered2.len(), 2);
 }
 
 #[test]

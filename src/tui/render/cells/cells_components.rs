@@ -919,8 +919,6 @@ pub(super) fn planning_suggestion_text(app: &TuiApp) -> String {
 
 #[cfg(test)]
 mod tests {
-    use ratatui::style::Color;
-
     use super::{HistoryCell, SummaryCell};
     use crate::tui::theme::PHASE_RAN;
 

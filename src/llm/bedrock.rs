@@ -4,7 +4,7 @@
 // (Claude, Llama, Nova, etc.) similar to the OpenAI chat completions API.
 // Tool use / function calling is supported natively.
 
-use anyhow::{Context as _, Result, anyhow};
+use anyhow::{Result, anyhow};
 use async_trait::async_trait;
 use aws_sdk_bedrockruntime::Client as BedrockClient;
 use aws_sdk_bedrockruntime::types::{
@@ -15,7 +15,7 @@ use aws_sdk_bedrockruntime::types::{
 use aws_smithy_types::{Document, Number};
 use serde_json::{Value, json};
 
-use super::shared::{ContextBudget, LlmBackend, LlmStreamEvent, LlmTurnMetadata};
+use super::shared::{ContextBudget, LlmBackend};
 use crate::agent::Message;
 use crate::llm::{ContentBlock, LlmResponse, TokenUsage};
 

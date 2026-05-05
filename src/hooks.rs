@@ -7,9 +7,9 @@
 // Execution is explicitly disabled until permission and sandbox
 // policy are defined.
 
-use std::collections::{BTreeMap, HashMap};
+use std::collections::BTreeMap;
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 use serde::Serialize;
 

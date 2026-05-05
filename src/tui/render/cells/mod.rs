@@ -1,20 +1,6 @@
-use std::path::Path;
-
 use ratatui::{style::Color, text::Line};
 
-use crate::tui::interaction_text::{
-    pending_interaction_detail_text, pending_interaction_shortcut_text,
-};
-use crate::tui::plan_display::should_show_updated_plan;
-use crate::tui::queued_input::queued_follow_up_sections;
-use crate::tui::state::{
-    ActiveLiveEvent, RuntimePhase, TranscriptEntry, TranscriptEntryPayload, TuiApp,
-    contains_structured_planning_output,
-};
-use crate::tui::terminal_event::{
-    TerminalCollectionEvent, TerminalCommandEvent, TerminalEvent, TerminalTarget,
-};
-use crate::tui::theme::*;
+use crate::tui::state::TranscriptEntry;
 
 #[path = "active_turn.rs"]
 mod active_turn;
@@ -26,19 +12,7 @@ mod tool_progress;
 
 pub(crate) use self::active_turn::ActiveTurnCell;
 pub(crate) use self::components::StartupCardCell;
-use self::components::{
-    CommittedInteractionCell, ExploredCell, ExploringCell, MessageCell, PendingInteractionCell,
-    PlanModeCell, PlanSummaryCell, PlanningCell, PlanningSuggestionCell, QueuedFollowUpCell,
-    RanCell, RespondingCell, RunningCell, TerminalCell, ThinkingGroupCell, ThinkingTextCell,
-    UserCell, planning_suggestion_text,
-};
-use super::{
-    compact_progress_summary_lines, compact_recent_first_summary_lines, compact_summary_lines,
-    compact_summary_text, current_turn_exploration_summary,
-    current_turn_exploration_summary_from_entries, current_turn_tool_summary,
-    history_pipeline::{narrative_entries, ordered_completion_entries},
-    wrapped_history_line_count,
-};
+use super::wrapped_history_line_count;
 
 pub(crate) trait HistoryCell {
     fn display_lines(&self, width: u16) -> Vec<Line<'static>>;
@@ -85,24 +59,9 @@ pub(super) fn is_progress_stack_title(line: &Line<'static>) -> bool {
 }
 
 pub(super) mod progress;
-use self::progress::{
-    ProgressRole, explicit_progress_entry_groups, progress_entry_message_lines, push_live_events,
-    push_live_exploration_group, push_live_planning_group, push_live_running_group,
-    push_live_thinking_group, push_progress_group,
-};
+use self::progress::ProgressRole;
 pub(super) mod plan;
-use self::plan::{
-    compact_live_response_message, compact_live_response_source,
-    find_render_legacy_plan_block_bounds, find_render_plan_block_bounds,
-    is_structured_progress_list_line, is_structured_response_marker, parse_render_plan_block,
-    parse_render_plan_step_line, split_progress_sentences,
-};
 pub(super) mod terminal;
-use self::terminal::{
-    parse_terminal_result_head, parse_terminal_tool_result, terminal_cell_data_from_collection,
-    terminal_cell_data_from_command, terminal_cell_data_from_entry, terminal_cell_data_from_event,
-    terminal_cell_from_entries, terminal_status_success,
-};
 
 fn ordered_exploration_agent_segments<'a>(
     current_turn: &[&'a TranscriptEntry],
@@ -228,8 +187,8 @@ pub(crate) use self::committed_turn::CommittedTurnCell;
 #[cfg(test)]
 mod helper_tests {
     use super::{
-        compact_live_response_message, compact_live_response_source, parse_render_plan_block,
-        split_progress_sentences,
+        plan::compact_live_response_message, plan::compact_live_response_source,
+        plan::parse_render_plan_block, plan::split_progress_sentences,
     };
 
     #[test]
