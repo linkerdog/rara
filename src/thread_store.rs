@@ -455,6 +455,8 @@ impl<'a> ThreadStore<'a> {
             rollout_source,
             compaction_source,
         } = self.load_legacy_non_turn_rollout_migration(session_id)?;
+        self.state_db
+            .sync_spawn_agent_edges_from_events(session_id, &structured_events)?;
         let had_structured_events = !structured_events.is_empty();
         let had_compaction_events = !compaction_events.is_empty();
         let compaction = compaction_events

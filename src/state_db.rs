@@ -191,6 +191,18 @@ pub struct PersistedThreadRecord {
     pub updated_at: i64,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PersistedSpawnAgentEdge {
+    pub parent_session_id: String,
+    pub event_id: String,
+    pub agent_id: String,
+    pub name: Option<String>,
+    pub child_session_id: String,
+    pub status: String,
+    pub summary: Option<String>,
+    pub recorded_at: Option<i64>,
+}
+
 #[derive(Debug, Clone, Default)]
 pub struct PersistedCompactState {
     pub compaction_count: usize,
@@ -665,6 +677,85 @@ impl StateDb {
         )
     }
 
+    pub fn sync_spawn_agent_edges_from_events(
+        &self,
+        parent_session_id: &str,
+        events: &[PersistedStructuredRolloutEvent],
+    ) -> Result<()> {
+        let desired_edges = spawn_agent_edges_from_events(parent_session_id, events);
+        if desired_edges == self.load_spawn_agent_edges(parent_session_id)? {
+            return Ok(());
+        }
+
+        let mut conn = self.conn.lock().expect("state db mutex poisoned");
+        let tx = conn.transaction()?;
+        tx.execute(
+            "DELETE FROM spawn_agent_edges WHERE parent_session_id = ?",
+            params![parent_session_id],
+        )?;
+        let now = epoch_seconds();
+        for edge in desired_edges {
+            tx.execute(
+                "INSERT INTO spawn_agent_edges (
+                    parent_session_id, event_id, agent_id, name, child_session_id,
+                    status, summary, recorded_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(parent_session_id, event_id) DO UPDATE SET
+                    agent_id = excluded.agent_id,
+                    name = excluded.name,
+                    child_session_id = excluded.child_session_id,
+                    status = excluded.status,
+                    summary = excluded.summary,
+                    recorded_at = excluded.recorded_at,
+                    updated_at = excluded.updated_at",
+                params![
+                    edge.parent_session_id,
+                    edge.event_id,
+                    edge.agent_id,
+                    edge.name,
+                    edge.child_session_id,
+                    edge.status,
+                    edge.summary,
+                    edge.recorded_at,
+                    now
+                ],
+            )?;
+        }
+        tx.commit()?;
+        Ok(())
+    }
+
+    pub fn load_spawn_agent_edges(
+        &self,
+        parent_session_id: &str,
+    ) -> Result<Vec<PersistedSpawnAgentEdge>> {
+        let conn = self.conn.lock().expect("state db mutex poisoned");
+        let mut stmt = conn.prepare(
+            "SELECT parent_session_id, event_id, agent_id, name, child_session_id,
+                    status, summary, recorded_at
+             FROM spawn_agent_edges
+             WHERE parent_session_id = ?
+             ORDER BY COALESCE(recorded_at, 0) ASC, event_id ASC",
+        )?;
+        let rows = stmt.query_map(params![parent_session_id], |row| {
+            Ok(PersistedSpawnAgentEdge {
+                parent_session_id: row.get(0)?,
+                event_id: row.get(1)?,
+                agent_id: row.get(2)?,
+                name: row.get(3)?,
+                child_session_id: row.get(4)?,
+                status: row.get(5)?,
+                summary: row.get(6)?,
+                recorded_at: row.get(7)?,
+            })
+        })?;
+        let mut edges = Vec::new();
+        for row in rows {
+            edges.push(row?);
+        }
+        Ok(edges)
+    }
+
     pub fn load_plan_steps(&self, session_id: &str) -> Result<Vec<PersistedPlanStep>> {
         let conn = self.conn.lock().expect("state db mutex poisoned");
         let mut stmt = conn.prepare(
@@ -1063,12 +1154,30 @@ impl StateDb {
                 updated_at INTEGER NOT NULL
             );
 
+            CREATE TABLE IF NOT EXISTS spawn_agent_edges (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                parent_session_id TEXT NOT NULL,
+                event_id TEXT NOT NULL,
+                agent_id TEXT NOT NULL,
+                name TEXT,
+                child_session_id TEXT NOT NULL,
+                status TEXT NOT NULL,
+                summary TEXT,
+                recorded_at INTEGER,
+                updated_at INTEGER NOT NULL,
+                UNIQUE(parent_session_id, event_id)
+            );
+
             CREATE INDEX IF NOT EXISTS idx_turns_session_ordinal
                 ON turns(session_id, ordinal);
             CREATE INDEX IF NOT EXISTS idx_plan_steps_session_step
                 ON plan_steps(session_id, step_index);
             CREATE INDEX IF NOT EXISTS idx_interactions_session_kind
                 ON interactions(session_id, kind);
+            CREATE INDEX IF NOT EXISTS idx_spawn_agent_edges_parent_agent
+                ON spawn_agent_edges(parent_session_id, agent_id);
+            CREATE INDEX IF NOT EXISTS idx_spawn_agent_edges_child
+                ON spawn_agent_edges(child_session_id);
             ",
         )?;
         ensure_column(&conn, "sessions", "plan_explanation", "TEXT")?;
@@ -1177,6 +1286,46 @@ fn legacy_runtime_interactions(items: &[PersistedRuntimeRolloutItem]) -> Vec<Per
             PersistedRuntimeRolloutItem::PlanState { .. } => None,
         })
         .collect()
+}
+
+fn spawn_agent_edges_from_events(
+    parent_session_id: &str,
+    events: &[PersistedStructuredRolloutEvent],
+) -> Vec<PersistedSpawnAgentEdge> {
+    let mut edges = events
+        .iter()
+        .filter_map(|event| {
+            let PersistedStructuredRolloutEvent::SpawnAgent {
+                recorded_at,
+                event_id,
+                agent_id,
+                name,
+                child_session_id,
+                status,
+                summary,
+            } = event
+            else {
+                return None;
+            };
+            Some(PersistedSpawnAgentEdge {
+                parent_session_id: parent_session_id.to_string(),
+                event_id: event_id.clone(),
+                agent_id: agent_id.clone(),
+                name: name.clone(),
+                child_session_id: child_session_id.clone(),
+                status: status.clone(),
+                summary: summary.clone(),
+                recorded_at: *recorded_at,
+            })
+        })
+        .collect::<Vec<_>>();
+    edges.sort_by(|left, right| {
+        left.recorded_at
+            .unwrap_or_default()
+            .cmp(&right.recorded_at.unwrap_or_default())
+            .then_with(|| left.event_id.cmp(&right.event_id))
+    });
+    edges
 }
 
 fn turn_preview(entries: &[PersistedTurnEntry]) -> String {

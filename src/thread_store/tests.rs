@@ -101,8 +101,12 @@ fn load_thread_aggregates_history_state_and_rollout_items() -> Result<()> {
 
     let store = ThreadStore::new(&session_manager, &state_db);
     let snapshot = store.load_thread("session-1")?;
+    let spawn_edges = state_db.load_spawn_agent_edges("session-1")?;
 
     assert_eq!(snapshot.metadata.session_id, "session-1");
+    assert_eq!(spawn_edges.len(), 1);
+    assert_eq!(spawn_edges[0].agent_id, "worker-1");
+    assert_eq!(spawn_edges[0].child_session_id, "child-session-1");
     assert_eq!(
         snapshot.provenance.metadata_source,
         ThreadMetadataSource::StateDb

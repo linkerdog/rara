@@ -79,7 +79,7 @@ Active backlog only. Keep this file small and current.
 - [ ] Promote `rollouts/<session_id>/transcript.jsonl` from compatibility mirror to canonical model-history source.
 - [x] Wire foreground sub-agent tools to write parent-scoped sidechain transcripts under `rollouts/<parent_session_id>/subagents/`.
 - [x] Add append-only parent/child spawn-edge rollout metadata for foreground sub-agent calls.
-- [ ] Index parent/child spawn-edge metadata in `StateDb` for resume/listing queries.
+- [x] Index parent/child spawn-edge metadata in `StateDb` for resume/listing queries.
 - [ ] Add background sub-agent resume/stop over the sidechain transcript contract.
 - [ ] Add periodic promotion from session shards into global `MemoryRecord`s.
 - [ ] Durable in-turn checkpoints: persist after each message/tool-result batch, atomic writes, crash-tolerant `SessionManager`.
