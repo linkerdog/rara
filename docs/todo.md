@@ -19,8 +19,8 @@ Active backlog only. Keep this file small and current.
 - [x] Add source-aware MCP config registry for user `config.toml` and project `.mcp.json` with duplicate-name conflict failure.
 - [ ] Route ACP prompt/cancel/session handling through the normal RARA runtime path instead of the current stub.
 - [ ] Add protocol subscriber plumbing on top of the structured `AgentEvent` runtime-control bridge.
-- [ ] Add MCP connection manager status model (`configured`, `connecting`, `connected`, `refreshing`, `reconnecting`, `failed`, `disabled`) from `McpRegistry`.
-- [ ] Add `/mcp` status surface grouped by scope and source path.
+- [x] Add MCP connection manager status model (`configured`, `connecting`, `connected`, `refreshing`, `reconnecting`, `failed`, `disabled`) from `McpRegistry`.
+- [x] Add `/mcp` status surface grouped by scope and source path.
 - [ ] Add dynamic MCP tool/resource/prompt refresh through structured runtime events.
 - [ ] Add bounded MCP auto-reconnect with manual reconnect command.
 - [ ] Add MCP resource references as source objects visible in `/context`.

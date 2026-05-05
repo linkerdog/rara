@@ -118,6 +118,7 @@ pub enum LocalCommandKind {
     Model,
     BaseUrl,
     Login,
+    Mcp,
     Permissions,
     Logout,
     Review,

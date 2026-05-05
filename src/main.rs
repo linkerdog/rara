@@ -11,6 +11,7 @@ mod file_lock;
 mod hooks;
 mod llm;
 mod local_backend;
+mod mcp_status;
 mod memory_store;
 mod oauth;
 mod prompt;

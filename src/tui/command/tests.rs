@@ -113,6 +113,13 @@ fn parses_permissions_command() {
 }
 
 #[test]
+fn parses_mcp_command() {
+    let command = parse_local_command("/mcp").expect("/mcp should parse");
+    assert!(matches!(command.kind, LocalCommandKind::Mcp));
+    assert!(command.arg.is_none());
+}
+
+#[test]
 fn parses_compact_command() {
     let command = parse_local_command("/compact").expect("compact should parse");
     assert!(matches!(command.kind, LocalCommandKind::Compact));

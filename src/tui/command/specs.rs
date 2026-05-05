@@ -1,6 +1,6 @@
 use crate::tui::state::{CommandSpec, LocalCommand, LocalCommandKind, TuiApp};
 
-pub const COMMAND_SPECS: [CommandSpec; 21] = [
+pub const COMMAND_SPECS: [CommandSpec; 22] = [
     CommandSpec {
         category: "Session",
         name: "permissions",
@@ -84,6 +84,13 @@ pub const COMMAND_SPECS: [CommandSpec; 21] = [
         usage: "/compact",
         summary: "Compact the current conversation history immediately.",
         detail: "Force one explicit history compaction pass. Compaction summarizes older turns into a structured summary so the model can continue a long conversation without losing early context. Compaction runs on every message and tool-result batch, but /compact lets you trigger one on demand.",
+    },
+    CommandSpec {
+        category: "Session",
+        name: "mcp",
+        usage: "/mcp",
+        summary: "Show configured MCP servers from the effective registry.",
+        detail: "Load user config.toml and project .mcp.json, then show MCP servers grouped by scope and source path. This read-only status surface reports configured, disabled, and configuration failures without starting servers yet.",
     },
     CommandSpec {
         category: "Setup",
@@ -176,6 +183,7 @@ pub fn parse_local_command(input: &str) -> Option<LocalCommand> {
         "login" | "auth" => LocalCommandKind::Login,
         "logout" => LocalCommandKind::Logout,
         "review" => LocalCommandKind::Review,
+        "mcp" => LocalCommandKind::Mcp,
         "skills" => LocalCommandKind::Skills,
         "permissions" | "permission" => LocalCommandKind::Permissions,
         _ => return None,

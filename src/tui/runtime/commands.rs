@@ -1,3 +1,4 @@
+use std::path::PathBuf;
 use std::sync::Arc;
 
 use super::super::state::{
@@ -6,6 +7,7 @@ use super::super::state::{
 };
 use super::tasks::{start_compact_task, start_rebuild_task, start_review_task};
 use crate::agent::{Agent, AgentExecutionMode, BashApprovalMode};
+use crate::mcp_status::{McpStatusSnapshot, format_mcp_status};
 use crate::oauth::OAuthManager;
 
 pub(super) async fn execute_local_command(
@@ -23,6 +25,7 @@ pub(super) async fn execute_local_command(
         LocalCommandKind::Help => "help",
         LocalCommandKind::Login => "login",
         LocalCommandKind::Logout => "logout",
+        LocalCommandKind::Mcp => "mcp",
         LocalCommandKind::Model => "model",
         LocalCommandKind::Plan => "plan",
         LocalCommandKind::Quit => "quit",
@@ -103,6 +106,7 @@ pub(super) async fn execute_local_command(
             }
         }
         LocalCommandKind::Model => handle_model_command(command.arg.as_deref(), app)?,
+        LocalCommandKind::Mcp => handle_mcp_command(app),
         LocalCommandKind::Plan => {
             app.set_runtime_phase(
                 RuntimePhase::LocalCommand,
@@ -198,6 +202,49 @@ fn handle_base_url_command(arg: Option<&str>, app: &mut TuiApp) -> anyhow::Resul
     Ok(())
 }
 
+fn handle_mcp_command(app: &mut TuiApp) {
+    app.set_runtime_phase(
+        RuntimePhase::LocalCommand,
+        Some("showing mcp status".into()),
+    );
+    let project_root = command_project_root(app);
+    match app
+        .config_manager
+        .load_mcp_registry_for_project(&project_root)
+    {
+        Ok(registry) => {
+            let snapshot = McpStatusSnapshot::from_registry(&registry);
+            app.push_entry("System", format_mcp_status(&snapshot));
+            app.notice = Some("MCP status updated.".into());
+        }
+        Err(err) => {
+            app.push_entry(
+                "System",
+                format!("MCP Servers\n\nFailed to load MCP configuration:\n{err:#}"),
+            );
+            app.notice = Some("MCP status failed.".into());
+        }
+    }
+}
+
+fn command_project_root(app: &TuiApp) -> PathBuf {
+    let cwd = if app.snapshot.cwd.is_empty() {
+        std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."))
+    } else {
+        PathBuf::from(&app.snapshot.cwd)
+    };
+    mcp_project_root_from_cwd(cwd)
+}
+
+fn mcp_project_root_from_cwd(cwd: PathBuf) -> PathBuf {
+    for ancestor in cwd.ancestors() {
+        if ancestor.join(".mcp.json").is_file() {
+            return ancestor.to_path_buf();
+        }
+    }
+    cwd
+}
+
 fn capture_git_diff(cwd: &str) -> String {
     use std::path::Path;
     use std::process::Command;
@@ -269,4 +316,31 @@ fn apply_permission_mode(app: &mut TuiApp, agent_slot: &mut Option<Agent>, mode:
         Some("updating permissions".into()),
     );
     app.set_pending_plan_approval(false);
+}
+
+#[cfg(test)]
+mod tests {
+    use std::fs;
+
+    use super::mcp_project_root_from_cwd;
+
+    #[test]
+    fn mcp_project_root_walks_up_to_project_config() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let project = dir.path().join("project");
+        let nested = project.join("src").join("bin");
+        fs::create_dir_all(&nested).expect("nested dirs");
+        fs::write(project.join(".mcp.json"), r#"{"mcpServers":{}}"#).expect("project config");
+
+        assert_eq!(mcp_project_root_from_cwd(nested), project);
+    }
+
+    #[test]
+    fn mcp_project_root_keeps_cwd_when_no_project_config_exists() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let cwd = dir.path().join("project").join("src");
+        fs::create_dir_all(&cwd).expect("cwd");
+
+        assert_eq!(mcp_project_root_from_cwd(cwd.clone()), cwd);
+    }
 }
