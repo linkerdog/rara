@@ -14,6 +14,7 @@ mod interaction_text;
 mod keymap;
 mod layout_utils;
 mod line_utils;
+mod list_picker;
 mod markdown;
 mod markdown_render;
 mod markdown_stream;

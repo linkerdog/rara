@@ -19,7 +19,7 @@ use self::types::CommittedTranscriptRenderCache;
 pub use self::types::{
     ActiveLiveEvent, ActiveLiveSections, ActivePendingInteraction, ActivePendingInteractionKind,
     AgentMarkdownStreamState, CommandSpec, CompletedInteractionSnapshot, GoalHandle, GoalStatus,
-    HelpTab, InteractionKind, LocalCommand, LocalCommandKind, OAuthLoginMode,
+    HelpTab, InteractionKind, ListPickerKind, LocalCommand, LocalCommandKind, OAuthLoginMode,
     OpenAiModelPickerAction, Overlay, PROVIDER_FAMILIES, PendingApprovalSnapshot,
     PendingInteractionSnapshot, PermissionMode, ProviderFamily, RalphGoal, RebuildSuccess,
     RunningTask, RuntimePhase, RuntimeSnapshot, SkillPickerEntry, StatusTab, TaskCompletion,

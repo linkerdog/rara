@@ -57,7 +57,21 @@ pub enum Overlay {
     OpenAiProfileLabelEditor,
     ReasoningEffortPicker,
     SkillsPicker,
+    /// Generic list-picker overlay — render content driven by ListPickerKind.
+    ListPicker(ListPickerKind),
     PermissionPicker,
+}
+
+/// Identifies which content a generic `Overlay::ListPicker` should render.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum ListPickerKind {
+    Provider,
+    Model,
+    OpenAiEndpointKind,
+    OpenAiProfile,
+    Resume,
+    AuthMode,
+    ReasoningEffort,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]

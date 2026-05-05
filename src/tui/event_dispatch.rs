@@ -3,6 +3,8 @@ use std::sync::Arc;
 use super::app_event::AppEvent;
 use super::auth_mode_picker::AUTH_MODE_OPTION_COUNT;
 use super::command::{palette_command_by_index, palette_commands};
+#[allow(unused_imports)]
+use super::list_picker;
 use super::provider_flow::{
     open_provider_family_overlay, should_open_codex_auth_guide,
     sync_codex_credential_from_auth_store,
@@ -14,8 +16,8 @@ use super::runtime::{
 };
 use super::session_restore::restore_thread_by_id;
 use super::state::{
-    ActivePendingInteractionKind, OpenAiModelPickerAction, Overlay, PROVIDER_FAMILIES,
-    PermissionMode, ProviderFamily, TuiApp,
+    ActivePendingInteractionKind, ListPickerKind, OpenAiModelPickerAction, Overlay,
+    PROVIDER_FAMILIES, PermissionMode, ProviderFamily, TuiApp,
 };
 use super::submit::{apply_openai_model_picker_action, handle_submit};
 use super::terminal_ui::is_ssh_session;
@@ -144,14 +146,27 @@ pub(crate) async fn dispatch_event(
             let next = (app.auth_mode_idx as i32 + delta).clamp(0, max_idx as i32);
             app.auth_mode_idx = next as usize;
         }
+        AppEvent::MoveListPickerSelection(delta) => {
+            let Some(Overlay::ListPicker(kind)) = app.overlay else {
+                return Ok(false);
+            };
+            let max = kind.item_count(app).saturating_sub(1) as i32;
+            let next = (kind.idx(app) as i32 + delta).clamp(0, max);
+            kind.set_idx(app, next as usize);
+        }
+        AppEvent::SetListPickerSelection(idx) => {
+            let Some(Overlay::ListPicker(kind)) = app.overlay else {
+                return Ok(false);
+            };
+            kind.set_idx(app, idx);
+        }
         AppEvent::MovePermissionSelection(delta) => {
             let max_idx = 3i32; // Auto, AcceptEdits, ReadOnly, FullAccess
             let next = (app.permission_picker_idx as i32 + delta).clamp(0, max_idx);
             app.permission_picker_idx = next as usize;
         }
         AppEvent::SetPermissionSelection(idx) => {
-            let max = 3usize;
-            app.permission_picker_idx = idx.min(max);
+            app.permission_picker_idx = idx.min(3usize);
         }
         AppEvent::SetProviderSelection(idx) => {
             app.provider_picker_idx = idx.min(PROVIDER_FAMILIES.len() - 1);
@@ -568,6 +583,21 @@ pub(crate) async fn dispatch_event(
                     let label = mode.label();
                     app.push_notice(format!("Permission mode: {label}."));
                     app.close_overlay();
+                }
+            }
+            Some(Overlay::ListPicker(kind)) => {
+                if app.is_busy() {
+                    app.push_notice("A task is already running. Wait for it to finish.");
+                } else {
+                    match kind {
+                        ListPickerKind::Provider => {
+                            open_provider_family_overlay(app, oauth_manager.as_ref()).await?;
+                        }
+                        _ => {
+                            app.push_notice("This picker is not yet wired. Closing.");
+                            app.close_overlay();
+                        }
+                    }
                 }
             }
             _ => {}
