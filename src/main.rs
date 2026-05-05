@@ -8,6 +8,7 @@ mod config;
 mod context;
 mod control_tokens;
 mod file_lock;
+mod google_oauth;
 mod hooks;
 mod llm;
 mod local_backend;

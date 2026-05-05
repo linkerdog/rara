@@ -1399,27 +1399,3 @@ pub struct CodexBackend {
     model: String,
     auxiliary_model: Option<String>,
 }
-
-pub struct GeminiBackend {
-    pub api_key: SecretString,
-    pub model: String,
-}
-
-#[async_trait]
-impl LlmBackend for GeminiBackend {
-    async fn ask(&self, _: &[Message], _: &[Value]) -> Result<LlmResponse> {
-        Err(anyhow!("Gemini pending"))
-    }
-
-    async fn embed(&self, _: &str) -> Result<Vec<f32>> {
-        Err(anyhow!("Gemini pending"))
-    }
-
-    async fn summarize(&self, _: &[Message], _: &str) -> Result<String> {
-        Err(anyhow!("Gemini pending"))
-    }
-
-    fn context_budget(&self, _messages: &[Message], _tools: &[Value]) -> Option<ContextBudget> {
-        model_context_budget(self.model.as_str())
-    }
-}

@@ -8,8 +8,9 @@ use self::tooling::{create_full_tool_manager, load_skill_manager, vector_db_uri_
 use crate::agent::Agent;
 use crate::config::{
     DEFAULT_CODEX_BASE_URL, DEFAULT_CODEX_MODEL, OpenAiEndpointKind, REASONING_SUMMARY_NONE,
-    RaraConfig,
+    DEFAULT_GEMINI_BASE_URL, DEFAULT_GEMINI_MODEL, RaraConfig, ensure_rara_home_dir,
 };
+use crate::google_oauth::GoogleOAuthManager;
 use crate::llm::{
     BedrockBackend, CodexBackend, GeminiBackend, LlmBackend, MockLlm, OllamaBackend,
     OpenAiCompatibleBackend, fetch_model_context_window,
@@ -223,16 +224,45 @@ pub(crate) async fn build_backend_with_progress(
             )?
             .with_auxiliary_model(config.auxiliary_model.clone()),
         )),
-        "gemini" => Ok(Box::new(GeminiBackend {
-            api_key: config
-                .api_key
-                .clone()
-                .context("API key required for Gemini provider")?,
-            model: config
+        "gemini" => {
+            let model = config
                 .model
                 .clone()
-                .unwrap_or_else(|| "gemini-1.5-pro".to_string()),
-        })),
+                .unwrap_or_else(|| DEFAULT_GEMINI_MODEL.to_string());
+            let base_url = config
+                .base_url
+                .clone()
+                .unwrap_or_else(|| DEFAULT_GEMINI_BASE_URL.to_string());
+            let mut backend = OpenAiCompatibleBackend::new_with_endpoint_kind_and_reasoning(
+                config.api_key_secret(),
+                base_url.clone(),
+                model.clone(),
+                OpenAiEndpointKind::Custom,
+                config.reasoning_effort.clone(),
+                config.thinking,
+            )?
+            .with_auxiliary_model(config.auxiliary_model.clone());
+            if backend.context_budget(&[], &[]).is_none() {
+                backend.context_window_override = fetch_model_context_window(
+                    &backend.client,
+                    &base_url,
+                    backend.api_key.as_ref(),
+                    &model,
+                )
+                .await;
+            }
+            Ok(Box::new(backend))
+        }
+        "gemini-code-assist" => {
+            let model = config
+                .model
+                .clone()
+                .unwrap_or_else(|| "gemini-3-flash-preview".to_string());
+            let home = ensure_rara_home_dir()?;
+            let oauth = GoogleOAuthManager::new(home)?;
+            let backend = GeminiBackend::with_oauth(oauth, model)?;
+            Ok(Box::new(backend))
+        }
         "gemma4" | "qwen3" | "qwn3" | "local" | "local-candle" => {
             let config = config.clone();
             let progress = progress.clone();
