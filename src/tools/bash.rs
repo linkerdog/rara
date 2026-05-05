@@ -79,6 +79,26 @@ pub enum BackgroundTaskStatus {
     Killed,
 }
 
+/// Higher-level classifier for background task lifecycle state.
+#[derive(Debug, Clone, Copy, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum BackgroundTaskState {
+    Working,
+    Blocked,
+    Done,
+    Failed,
+}
+
+impl BackgroundTaskStatus {
+    pub fn classify(self) -> BackgroundTaskState {
+        match self {
+            Self::Running | Self::Killed => BackgroundTaskState::Working,
+            Self::Completed => BackgroundTaskState::Done,
+            Self::Failed => BackgroundTaskState::Failed,
+        }
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum BashStreamKind {
     Stdout,
