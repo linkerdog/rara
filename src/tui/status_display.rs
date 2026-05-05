@@ -68,14 +68,19 @@ fn render_overview_status(app: &TuiApp, lines: &mut Vec<Line<'static>>) {
 
     section_spacer(lines);
     section_header(lines, "Extensions");
-    kv(
-        lines,
-        "skills",
-        &format!(
+    let skill_label = if snap.extension_skill_count == 0 {
+        "0 loaded".to_string()
+    } else {
+        format!(
             "{} loaded ({})",
             snap.extension_skill_count,
             snap.extension_skill_scopes.join(", ")
-        ),
+        )
+    };
+    kv(
+        lines,
+        "skills",
+        &skill_label,
         if snap.extension_skill_count > 0 {
             Color::LightBlue
         } else {

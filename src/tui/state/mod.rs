@@ -1043,19 +1043,26 @@ impl TuiApp {
             memory_selection: runtime_context.retrieval.memory_selection,
             assembly_entries: runtime_context.assembly.entries,
             // ── Extensions ──────────────────────────────────────
+            // ── Extensions ──────────────────────────────────────
             extension_skill_count: agent.prompt_config().available_skills.len(),
-            extension_skill_scopes: agent
-                .prompt_config()
-                .available_skills
-                .iter()
-                .map(|s| s.scope.clone())
-                .collect::<std::collections::HashSet<_>>()
-                .into_iter()
-                .collect::<Vec<_>>(),
+            extension_skill_scopes: {
+                let mut scopes: Vec<String> = agent
+                    .prompt_config()
+                    .available_skills
+                    .iter()
+                    .map(|s| s.scope.clone())
+                    .collect::<std::collections::BTreeSet<_>>()
+                    .into_iter()
+                    .collect();
+                scopes.sort();
+                scopes
+            },
             extension_hook_count: 0,
             extension_agent_count: 0,
         };
         self.agent_execution_mode = agent.execution_mode;
+        self.bash_approval_mode = agent.bash_approval_mode;
+        self.populate_skill_picker_entries(agent);
         self.persist_runtime_state();
     }
 
