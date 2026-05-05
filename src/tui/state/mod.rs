@@ -1047,20 +1047,12 @@ impl TuiApp {
             extension_skill_count: agent.prompt_config().available_skills.len(),
             extension_skill_scopes: {
                 let mut scopes: Vec<String> = agent
-            extension_hook_count: {
-                let mut r = crate::hooks::HookRegistry::new();
-                if let Ok(cwd) = std::env::current_dir() {
-                    r.discover_repo_hooks(&cwd);
-                }
-                r.hooks.len()
-            },
-            extension_agent_count: {
-                let mut r = crate::agents_ext::AgentRegistry::new();
-                if let Ok(cwd) = std::env::current_dir() {
-                    r.discover_repo_agents(&cwd);
-                }
-                r.agents.len()
-            },
+                    .prompt_config()
+                    .available_skills
+                    .iter()
+                    .map(|s| s.scope.clone())
+                    .collect::<std::collections::BTreeSet<_>>()
+                    .into_iter()
                     .collect();
                 scopes.sort();
                 scopes
