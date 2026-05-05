@@ -10,9 +10,9 @@ use super::event_stream::{UiEvent, translate_event};
 use super::render::{desired_viewport_height, render};
 use super::runtime::finish_running_task_if_ready;
 use super::session_restore::{restore_latest_thread, restore_thread_by_id};
+use super::state::GoalHandle;
 use super::state::Overlay;
 use super::state::TuiApp;
-use super::state::GoalHandle;
 use super::submit::clamp_command_palette_selection;
 use super::terminal_ui::{
     build_terminal, flush_committed_history, handle_paste, teardown_terminal,

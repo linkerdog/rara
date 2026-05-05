@@ -241,8 +241,7 @@ pub(super) async fn execute_local_command(
                     // /goal <objective> — start a new goal.
                     // Optional numeric budget prefix: /goal 50000 fix the build.
                     let mut budget: Option<u32> = None;
-                    let objective_clean = if let Some((first, rest)) = objective.split_once(' ')
-                    {
+                    let objective_clean = if let Some((first, rest)) = objective.split_once(' ') {
                         // Only treat the first word as a budget if it is purely ASCII digits.
                         if first.bytes().all(|b| b.is_ascii_digit()) {
                             if let Ok(b) = first.parse::<u32>() {
