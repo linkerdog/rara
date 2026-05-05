@@ -17,8 +17,8 @@ use secrecy::ExposeSecret;
 use tokio::sync::mpsc;
 
 use super::super::state::{
-    GoalStatus, OAuthLoginMode, RunningTask, RuntimePhase, TaskCompletion, TaskKind, TuiApp,
-    TuiEvent,
+    GoalStatus, ListPickerKind, OAuthLoginMode, RunningTask, RuntimePhase, TaskCompletion,
+    TaskKind, TuiApp, TuiEvent,
 };
 use super::events::{apply_tui_event, convert_agent_event, format_error_chain};
 use crate::agent::{Agent, AgentOutputMode, BashApprovalDecision};
@@ -849,7 +849,9 @@ pub(super) async fn finish_running_task_if_ready(
                 app.set_deepseek_model_options(models);
                 app.notice = Some(format!("Loaded {count} DeepSeek models."));
                 app.set_runtime_phase(RuntimePhase::Idle, Some("models loaded".into()));
-                app.open_overlay(super::super::state::Overlay::ModelPicker);
+                app.open_overlay(super::super::state::Overlay::ListPicker(
+                    ListPickerKind::Model,
+                ));
             }
             Err(err) => {
                 app.set_deepseek_model_options(fallback_models(ModelCatalogProvider::DeepSeek));
@@ -860,7 +862,9 @@ pub(super) async fn finish_running_task_if_ready(
                 app.push_entry("System", message.clone());
                 app.push_notice(message);
                 app.set_runtime_phase(RuntimePhase::Idle, Some("model list fallback".into()));
-                app.open_overlay(super::super::state::Overlay::ModelPicker);
+                app.open_overlay(super::super::state::Overlay::ListPicker(
+                    ListPickerKind::Model,
+                ));
             }
         },
     }
