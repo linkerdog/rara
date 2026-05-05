@@ -95,7 +95,10 @@ impl Agent {
     where
         F: FnMut(AgentEvent) + Send,
     {
-        let current_tokens = estimate_history_tokens(&self.history)?;
+        let mut current_tokens = self.compact_state.estimated_history_tokens;
+        if current_tokens == 0 {
+            current_tokens = estimate_history_tokens(&self.history).unwrap_or_default();
+        }
         let compact_budget = self.current_compact_budget();
         self.compact_state.estimated_history_tokens = current_tokens;
         self.compact_state.context_window_tokens = compact_budget
