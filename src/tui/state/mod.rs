@@ -984,6 +984,7 @@ impl TuiApp {
                 interaction.source.as_deref(),
             );
         }
+        let ext_counts = discover_extension_counts(&runtime_context.cwd);
         self.snapshot = RuntimeSnapshot {
             cwd: runtime_context.cwd,
             branch: runtime_context.branch,
@@ -1057,8 +1058,8 @@ impl TuiApp {
                 scopes.sort();
                 scopes
             },
-            extension_hook_count: 0,
-            extension_agent_count: 0,
+            extension_hook_count: ext_counts.0,
+            extension_agent_count: ext_counts.1,
         };
         self.agent_execution_mode = agent.execution_mode;
         self.bash_approval_mode = agent.bash_approval_mode;
@@ -1417,5 +1418,15 @@ impl TuiApp {
         };
     }
 }
+
+fn discover_extension_counts(cwd: &str) -> (usize, usize) {
+    let root = std::path::Path::new(cwd);
+    let mut hr = crate::hooks::HookRegistry::new();
+    let mut ar = crate::agents_ext::AgentRegistry::new();
+    hr.discover_repo_hooks(root);
+    ar.discover_repo_agents(root);
+    (hr.hooks.len(), ar.agents.len())
+}
+
 mod helpers;
 pub(crate) use helpers::*;
