@@ -825,13 +825,19 @@ fn tool_action_label(message: &str) -> Option<String> {
             }
         )),
         "spawn_agent" => {
-            let kind = SubAgentKind::from_tool_name(name).unwrap_or(SubAgentKind::General);
+            let kind = SubAgentKind::from_tool_name(name).unwrap_or_else(|| {
+                eprintln!("Warning: unknown sub-agent tool name in render: {name}");
+                SubAgentKind::General
+            });
             let (icon, _) = kind.action_icon();
             let delegate = compact_delegate_rest(&rest).unwrap_or_else(|| "sub-agent".to_string());
             Some(format!("{}{} {}", icon, kind.action_label(), delegate))
         }
         "explore_agent" | "plan_agent" | "team_create" => {
-            let kind = SubAgentKind::from_tool_name(name).unwrap_or(SubAgentKind::General);
+            let kind = SubAgentKind::from_tool_name(name).unwrap_or_else(|| {
+                eprintln!("Warning: unknown sub-agent tool name in render: {name}");
+                SubAgentKind::General
+            });
             let (icon, _) = kind.action_icon();
             let abbreviation = compact_instruction(&rest);
             Some(format!("{}{} {}", icon, kind.action_label(), abbreviation))
