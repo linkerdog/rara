@@ -361,6 +361,8 @@ mod tests {
         let compacted = compact_subagent_result(
             "spawn_agent",
             &json!({
+                "agent_id": "fix-assembler-123",
+                "session_id": "child-session-123",
                 "name": "fix-assembler",
                 "status": "done",
                 "summary": "Removed the orphaned test block and kept one cfg(test) module.",
@@ -376,6 +378,8 @@ mod tests {
         );
 
         assert!(compacted.starts_with("spawn_agent fix-assembler: Removed"));
+        assert!(compacted.contains("agent_id: fix-assembler-123"));
+        assert!(compacted.contains("session_id: child-session-123"));
         assert!(compacted.contains("request_user_input: Proceed?"));
         assert!(compacted.contains("option: Yes | Apply the cleanup."));
         assert!(compacted.contains("option: No | Leave the file unchanged."));

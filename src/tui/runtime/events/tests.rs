@@ -612,6 +612,26 @@ fn formats_spawn_agent_tool_result_with_agent_name() {
 }
 
 #[test]
+fn formats_subagent_tool_result_with_returned_ids() {
+    let rendered = format_tool_result(
+        "spawn_agent",
+        &json!({
+            "agent_id": "fix-assembler-1",
+            "session_id": "child-session-1",
+            "name": "fix-assembler",
+            "status": "done",
+            "summary": "Removed the orphaned code block.",
+            "persistence_error": "sidechain write failed"
+        })
+        .to_string(),
+    );
+
+    assert!(rendered.contains("agent_id: fix-assembler-1"));
+    assert!(rendered.contains("session_id: child-session-1"));
+    assert!(rendered.contains("persistence_error: sidechain write failed"));
+}
+
+#[test]
 fn formats_replace_lines_tool_result_as_edit_summary() {
     let rendered = format_tool_result(
         "replace_lines",

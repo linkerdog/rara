@@ -59,6 +59,7 @@ pub enum Overlay {
     SkillsPicker,
     /// Generic list-picker overlay — render content driven by ListPickerKind.
     ListPicker(ListPickerKind),
+    PermissionPicker,
 }
 
 /// Identifies which content a generic `Overlay::ListPicker` should render.
@@ -556,6 +557,7 @@ pub struct TuiApp {
     pub openai_profile_picker_idx: usize,
     pub reasoning_effort_picker_idx: usize,
     pub auth_mode_idx: usize,
+    pub permission_picker_idx: usize,
     pub command_palette_idx: usize,
     pub base_url_input: String,
     pub base_url_cursor_offset: Option<usize>,

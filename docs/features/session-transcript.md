@@ -11,7 +11,7 @@ artifacts are per-turn JSON arrays.
 That mixed shape makes the resume boundary harder to reason about:
 
 - model-visible messages can be confused with TUI-only transcript artifacts;
-- sub-agent output has no first-class sidechain identity;
+- sub-agent output needs first-class sidechain identity;
 - fork/resume work has no stable typed event stream to filter by semantic role;
 - future ACP/Wire subscribers cannot follow one ordered transcript contract.
 
@@ -52,9 +52,24 @@ rollouts/<session_id>/
 ```
 
 The first implementation keeps `history.json` as the resume source and writes
-`transcript.jsonl` as a typed compatibility mirror. This is intentionally
-additive: existing session restore behavior stays unchanged while tests start
-locking down the model-visible transcript boundary.
+`transcript.jsonl` as a typed compatibility mirror. Foreground sub-agent tools
+also write parent-scoped sidechain transcripts after each completed invocation.
+They also append a parent-session `SpawnAgent` rollout event that records the
+generated `agent_id`, child `session_id`, optional display name, status, and summary
+without inlining the child transcript. This is intentionally additive: existing
+session restore behavior stays unchanged while tests start locking down the
+model-visible transcript boundary.
+
+Parent-scoped sub-agent calls also register a child `StateDb` session row with
+`origin_kind = subagent` and `forked_from_thread_id = <parent_session_id>`.
+Plan steps, plan explanation, and pending request-input state are copied into
+the child row so `ThreadStore` does not need to fabricate metadata from
+history-only files.
+
+If sidechain or spawn-edge persistence fails after the child agent has already
+completed, the tool call should still return the child result and include a
+structured `persistence_error` field. This keeps foreground delegation useful
+while making the missing sidechain explicit to the parent agent and TUI.
 
 The long-term target is:
 
@@ -155,6 +170,7 @@ This mirrors Codex's fork filtering while keeping Claude-style sidechain files.
 | Load transcript with malformed line | Valid lines load; parse error count increments. |
 | Project model-visible messages | Only non-sidechain `Message` entries are returned. |
 | Write sub-agent sidechain | File is under `subagents/`; entries carry `is_sidechain = true`. |
+| Record sub-agent spawn edge | Parent rollout events include one `spawn_agent` edge summary with child identity. |
 | Legacy history backfill | `history.json` and `transcript.jsonl` are both backfilled. |
 | Future resume migration | Resume can switch from `history.json` to transcript projection without reading TUI artifacts. |
 
@@ -163,13 +179,19 @@ This mirrors Codex's fork filtering while keeping Claude-style sidechain files.
 - The first implementation rewrites the transcript mirror from `history.json`.
   The canonical target is append-only, but the compatibility bridge must stay
   consistent with the existing snapshot source until resume migrates.
-- Existing sub-agent tools create independent `Agent` sessions. They need a
-  follow-up wiring step to write sidechain transcripts under the parent session.
-- `StateDb` still stores parent/child relationships only indirectly. A durable
-  spawn-edge table is needed before cross-session sub-agent resume is complete.
+- Existing foreground sub-agent tools write sidechain transcripts only when
+  invoked with parent session context. Direct test calls without parent context
+  still return structured results without writing detached sidechain files.
+- Sidechain persistence failures are reported through `persistence_error`; they
+  do not abort an otherwise completed foreground sub-agent call.
+- `StateDb` indexes parent/child spawn edges from rollout events, but live
+  background resume/stop semantics still need to consume that index.
 - Context compaction must preserve transcript boundaries and avoid injecting
   summaries before stable prompt-prefix sources.
+- Background sub-agent execution, resume, and stop semantics remain future work.
 
 ## Source Journals
 
 - 2026-05-04-session-transcript-foundation.md
+- 2026-05-05-subagent-sidechain-transcripts.md
+- 2026-05-05-subagent-spawn-edge-index.md

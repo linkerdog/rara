@@ -89,11 +89,24 @@ fn load_thread_aggregates_history_state_and_rollout_items() -> Result<()> {
             summary: "Compacted earlier repository inspection.".to_string(),
         },
     )?;
+    session_manager.save_spawn_agent_event(
+        "session-1",
+        "spawn-1",
+        "worker-1",
+        Some("Worker 1"),
+        "child-session-1",
+        "done",
+        Some("Child completed."),
+    )?;
 
     let store = ThreadStore::new(&session_manager, &state_db);
     let snapshot = store.load_thread("session-1")?;
+    let spawn_edges = state_db.load_spawn_agent_edges("session-1")?;
 
     assert_eq!(snapshot.metadata.session_id, "session-1");
+    assert_eq!(spawn_edges.len(), 1);
+    assert_eq!(spawn_edges[0].agent_id, "worker-1");
+    assert_eq!(spawn_edges[0].child_session_id, "child-session-1");
     assert_eq!(
         snapshot.provenance.metadata_source,
         ThreadMetadataSource::StateDb
@@ -123,7 +136,7 @@ fn load_thread_aggregates_history_state_and_rollout_items() -> Result<()> {
     );
     assert_eq!(snapshot.plan_steps.len(), 1);
     assert_eq!(snapshot.interactions.len(), 1);
-    assert_eq!(snapshot.rollout_items.len(), 4);
+    assert_eq!(snapshot.rollout_items.len(), 5);
     assert!(snapshot.rollout_items.iter().any(|item| matches!(
         item,
         RolloutItem::Compaction(compaction) if compaction.compaction_count == 2
@@ -137,6 +150,22 @@ fn load_thread_aggregates_history_state_and_rollout_items() -> Result<()> {
         item,
         RolloutItem::Interaction(interaction)
             if interaction.kind == "approval" && interaction.status == "pending"
+    )));
+    assert!(snapshot.rollout_items.iter().any(|item| matches!(
+        item,
+        RolloutItem::SpawnAgent {
+            event_id,
+            agent_id,
+            name: Some(name),
+            child_session_id,
+            status,
+            summary: Some(summary),
+        } if event_id == "spawn-1"
+            && agent_id == "worker-1"
+            && name == "Worker 1"
+            && child_session_id == "child-session-1"
+            && status == "done"
+            && summary == "Child completed."
     )));
     assert!(snapshot.rollout_items.iter().any(|item| matches!(
         item,
@@ -179,6 +208,32 @@ fn load_thread_keeps_session_without_history_file() -> Result<()> {
     assert_eq!(
         snapshot.provenance.history_source,
         ThreadHistorySource::Missing
+    );
+    Ok(())
+}
+
+#[test]
+fn load_thread_rejects_history_without_state_db_record() -> Result<()> {
+    let temp = tempdir()?;
+    let rara_dir = temp.path().join(".rara");
+    let session_manager = SessionManager::new_for_rara_dir(rara_dir.clone())?;
+    let state_db = StateDb::new_for_root_dir(rara_dir)?;
+    session_manager.save_session(
+        "child-session",
+        &[Message {
+            role: "assistant".to_string(),
+            content: serde_json::Value::String("Child result.".to_string()),
+        }],
+    )?;
+
+    let store = ThreadStore::new(&session_manager, &state_db);
+    let err = store
+        .load_thread("child-session")
+        .expect_err("history-only session should not fabricate metadata");
+
+    assert!(
+        err.to_string()
+            .contains("Thread child-session not found in state db")
     );
     Ok(())
 }

@@ -663,6 +663,30 @@ fn compact_subagent_result(tool_name: &str, result: &Value) -> String {
         _ => format!("{tool_name} {summary}"),
     };
 
+    if let Some(agent_id) = result
+        .get("agent_id")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
+        rendered.push_str(&format!("\nagent_id: {agent_id}"));
+    }
+    if let Some(session_id) = result
+        .get("session_id")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
+        rendered.push_str(&format!("\nsession_id: {session_id}"));
+    }
+    if let Some(persistence_error) = result
+        .get("persistence_error")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
+        rendered.push_str(&format!("\npersistence_error: {persistence_error}"));
+    }
     append_request_user_input(&mut rendered, result.get("request_user_input"));
     rendered
 }
