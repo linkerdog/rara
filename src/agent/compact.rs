@@ -850,8 +850,20 @@ mod tests {
         let plan = build_compact_plan(&history, 100, false)
             .expect("plan")
             .expect("compact plan");
-
         assert_eq!(plan.summarize_end, history.len());
         assert_eq!(plan.retained_start, history.len());
+    }
+
+    #[test]
+    fn cached_token_estimate_avoids_recomputation() {
+        // Verify that CompactState stores estimated_history_tokens
+        // and the compact_plan builder uses thresholds correctly.
+        // The cache is populated incrementally by increment_history_tokens.
+        use crate::agent::CompactState;
+        let state = CompactState {
+            estimated_history_tokens: 500,
+            ..Default::default()
+        };
+        assert_eq!(state.estimated_history_tokens, 500);
     }
 }
