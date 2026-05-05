@@ -96,7 +96,7 @@ fn render_activity_bar(f: &mut Frame, app: &TuiApp, area: Rect) {
         spans.push(badge("goal", goal_label, goal_color));
         let goal_detail = if let Some(budget) = goal.token_budget {
             format!(
-                "t{}/{} · {}tk",
+                "t{} · {}/{}tk",
                 goal.turns_completed, goal.tokens_used, budget
             )
         } else {

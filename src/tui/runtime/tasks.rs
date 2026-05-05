@@ -559,6 +559,29 @@ pub(super) async fn finish_running_task_if_ready(
                             .as_ref()
                             .is_some_and(|g| g.status == GoalStatus::Pursuing)
                         && !app.has_pending_plan_approval();
+                    // Always account goal turn usage, even when we suppress
+                    // continuation (no-tool-call turns still consume budget).
+                    let goal_is_pursuing = !finished_plan_turn
+                        && app
+                            .goal_handle
+                            .read()
+                            .unwrap()
+                            .as_ref()
+                            .is_some_and(|g| g.status == GoalStatus::Pursuing)
+                        && !app.has_pending_plan_approval();
+                    if goal_is_pursuing && !agent_had_tools {
+                        app.sync_snapshot(&agent);
+                        app.goal = app.goal_handle.read().unwrap().clone();
+                        if let Some(goal) = app.goal.as_mut() {
+                            let turn_input_tokens = app
+                                .snapshot
+                                .total_input_tokens
+                                .saturating_sub(prior_total_input_tokens);
+                            goal.tokens_used += turn_input_tokens;
+                            goal.turns_completed += 1;
+                            *app.goal_handle.write().unwrap() = app.goal.clone();
+                        }
+                    }
                     if should_auto_continue_goal {
                         // Sync agent state into snapshot before using token counters.
                         app.sync_snapshot(&agent);
@@ -619,6 +642,8 @@ pub(super) async fn finish_running_task_if_ready(
                     }
                     // Non-auto-continue path: put agent back before idle / plan-approval logic.
                     *agent_slot = Some(agent);
+                    // Sync any goal updates that the model made via tools.
+                    app.goal = app.goal_handle.read().unwrap().clone();
                     if let Some(a) = agent_slot.as_ref() {
                         app.sync_snapshot(a);
                     }
@@ -748,6 +773,11 @@ pub(super) async fn finish_running_task_if_ready(
                     std::sync::atomic::Ordering::Relaxed,
                 );
                 app.sandbox_network_access = rebuilt.sandbox_network_access;
+                // Preserve the current goal across the rebuild by copying it
+                // into the new handle before swapping.
+                if let Some(goal) = app.goal.as_ref() {
+                    *rebuilt.goal_handle.write().unwrap() = Some(goal.clone());
+                }
                 app.goal_handle = rebuilt.goal_handle;
                 app.goal = app.goal_handle.read().unwrap().clone();
                 app.config_manager.save(&app.config)?;

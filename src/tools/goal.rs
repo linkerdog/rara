@@ -80,7 +80,7 @@ impl Tool for CreateGoalTool {
     async fn call(&self, input: Value) -> Result<Value, ToolError> {
         if self.store.read().unwrap().is_some() {
             return Err(ToolError::InvalidInput(
-                "A goal already exists. Use update_goal to modify it, or clear it first.".into(),
+                "A goal already exists. Use update_goal to mark it achieved or unmet, or clear it first to set a new one.".into(),
             ));
         }
 

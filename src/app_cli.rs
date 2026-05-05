@@ -169,9 +169,10 @@ async fn run_tui_command(
     emit_bootstrap_warnings(&bootstrap.warnings);
     let sandbox_network_access = bootstrap.sandbox_network_access.clone();
     let event_bus = bootstrap.event_bus.clone();
-    let agent = bootstrap.into_agent();
+    let (agent, _warnings, _network, goal_handle) = bootstrap.into_parts();
     let resumed_thread_id = crate::tui::run_tui(
         agent,
+        goal_handle,
         oauth_manager,
         startup_resume,
         sandbox_network_access,
