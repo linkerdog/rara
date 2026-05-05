@@ -56,10 +56,9 @@ impl AgentRegistry {
         }
     }
 
-    /// Discover agents from a repository root directory.
+    /// Discover agents from a repository root (.claude/agents).
     pub fn discover_repo_agents(&mut self, repo_root: &Path) {
-        let agents_dir = repo_root.join(".claude").join("agents");
-        self.discover_from_dir(&agents_dir);
+        self.discover_from_dir(&repo_root.join(".claude").join("agents"));
     }
 
     /// Scan a directory for `.md` agent definition files.
@@ -68,6 +67,7 @@ impl AgentRegistry {
             return;
         }
         let entries = match fs::read_dir(dir) {
+            Ok(entries) => entries,
             Err(err) => {
                 self.load_warnings
                     .push(format!("agent dir {}: {err}", dir.display()));
