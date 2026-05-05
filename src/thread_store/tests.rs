@@ -89,6 +89,15 @@ fn load_thread_aggregates_history_state_and_rollout_items() -> Result<()> {
             summary: "Compacted earlier repository inspection.".to_string(),
         },
     )?;
+    session_manager.save_spawn_agent_event(
+        "session-1",
+        "spawn-1",
+        "worker-1",
+        Some("Worker 1"),
+        "child-session-1",
+        "done",
+        Some("Child completed."),
+    )?;
 
     let store = ThreadStore::new(&session_manager, &state_db);
     let snapshot = store.load_thread("session-1")?;
@@ -123,7 +132,7 @@ fn load_thread_aggregates_history_state_and_rollout_items() -> Result<()> {
     );
     assert_eq!(snapshot.plan_steps.len(), 1);
     assert_eq!(snapshot.interactions.len(), 1);
-    assert_eq!(snapshot.rollout_items.len(), 4);
+    assert_eq!(snapshot.rollout_items.len(), 5);
     assert!(snapshot.rollout_items.iter().any(|item| matches!(
         item,
         RolloutItem::Compaction(compaction) if compaction.compaction_count == 2
@@ -137,6 +146,22 @@ fn load_thread_aggregates_history_state_and_rollout_items() -> Result<()> {
         item,
         RolloutItem::Interaction(interaction)
             if interaction.kind == "approval" && interaction.status == "pending"
+    )));
+    assert!(snapshot.rollout_items.iter().any(|item| matches!(
+        item,
+        RolloutItem::SpawnAgent {
+            event_id,
+            agent_id,
+            name: Some(name),
+            child_session_id,
+            status,
+            summary: Some(summary),
+        } if event_id == "spawn-1"
+            && agent_id == "worker-1"
+            && name == "Worker 1"
+            && child_session_id == "child-session-1"
+            && status == "done"
+            && summary == "Child completed."
     )));
     assert!(snapshot.rollout_items.iter().any(|item| matches!(
         item,

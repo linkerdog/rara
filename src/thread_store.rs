@@ -218,6 +218,14 @@ pub enum RolloutItem {
         steps: Vec<PersistedPlanStep>,
     },
     Interaction(PersistedInteraction),
+    SpawnAgent {
+        event_id: String,
+        agent_id: String,
+        name: Option<String>,
+        child_session_id: String,
+        status: String,
+        summary: Option<String>,
+    },
     Turn(RolloutTurnItem),
 }
 
@@ -567,6 +575,29 @@ impl<'a> ThreadStore<'a> {
                         RolloutItem::Interaction(interaction),
                     );
                 }
+                PersistedStructuredRolloutEvent::SpawnAgent {
+                    recorded_at,
+                    event_id,
+                    agent_id,
+                    name,
+                    child_session_id,
+                    status,
+                    summary,
+                } => {
+                    push_rollout_item(
+                        &mut ordered_rollout_items,
+                        &mut rollout_order,
+                        recorded_at.unwrap_or(0),
+                        RolloutItem::SpawnAgent {
+                            event_id,
+                            agent_id,
+                            name,
+                            child_session_id,
+                            status,
+                            summary,
+                        },
+                    );
+                }
             }
         }
 
@@ -708,7 +739,8 @@ impl<'a> ThreadStore<'a> {
                 RolloutItem::Turn(turn) => turn.summary.updated_at,
                 RolloutItem::Compaction(_)
                 | RolloutItem::PlanState { .. }
-                | RolloutItem::Interaction(_) => 0,
+                | RolloutItem::Interaction(_)
+                | RolloutItem::SpawnAgent { .. } => 0,
             };
             push_rollout_item(
                 &mut ordered_rollout_items,

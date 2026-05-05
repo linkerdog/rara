@@ -1076,10 +1076,11 @@ matches the current foreground delegation boundary, but it is not yet a durable
 background task system.
 
 Foreground sub-agent invocations now generate an `agent_id`, persist completed
-child history as a parent-scoped sidechain transcript, and return only a
-structured delegation result to the parent context. The next alignment step is
-to persist durable spawn-edge metadata and add background resume/stop semantics
-on top of the same sidechain contract.
+child history as a parent-scoped sidechain transcript, append a `SpawnAgent`
+rollout event with parent/child edge metadata, and return only a structured
+delegation result to the parent context. The next alignment step is to index
+those edges for query/resume and add background resume/stop semantics on top of
+the same sidechain contract.
 
 ### Required Objects
 

@@ -167,13 +167,21 @@ impl AgentTool {
         i: Value,
         parent_session_id: Option<&str>,
     ) -> Result<Value, ToolError> {
-        let name = i["name"].as_str().unwrap_or("worker");
+        let name = i["name"]
+            .as_str()
+            .ok_or(ToolError::InvalidInput("name".into()))?;
+        if validate_agent_id_label(name).is_none() {
+            return Err(ToolError::InvalidInput(
+                "name must contain ascii letters, digits, '-' or '_'".into(),
+            ));
+        }
         let instruction = i["instruction"]
             .as_str()
             .ok_or(ToolError::InvalidInput("instruction".into()))?;
         let result = run_sub_agent(
             SubAgentKind::General,
             &next_subagent_id(SubAgentKind::General, Some(name)),
+            Some(name),
             parent_session_id,
             instruction,
             self.backend.clone(),
@@ -189,6 +197,7 @@ impl AgentTool {
             "name": name,
             "status": result.status,
             "summary": result.summary,
+            "persistence_error": result.persistence_error,
             "request_user_input": result
                 .request_user_input
                 .as_ref()
@@ -245,6 +254,7 @@ impl ExploreAgentTool {
         let result = run_sub_agent(
             SubAgentKind::Explore,
             &next_subagent_id(SubAgentKind::Explore, None),
+            None,
             parent_session_id,
             instruction,
             self.backend.clone(),
@@ -259,6 +269,7 @@ impl ExploreAgentTool {
             "session_id": result.session_id,
             "status": result.status,
             "summary": result.summary,
+            "persistence_error": result.persistence_error,
             "request_user_input": result
                 .request_user_input
                 .as_ref()
@@ -315,6 +326,7 @@ impl PlanAgentTool {
         let result = run_sub_agent(
             SubAgentKind::Plan,
             &next_subagent_id(SubAgentKind::Plan, None),
+            None,
             parent_session_id,
             instruction,
             self.backend.clone(),
@@ -329,6 +341,7 @@ impl PlanAgentTool {
             "session_id": result.session_id,
             "status": result.status,
             "summary": result.summary,
+            "persistence_error": result.persistence_error,
             "plan": result
                 .plan
                 .as_ref()
@@ -422,6 +435,7 @@ impl TeamCreateTool {
                 let result = run_sub_agent(
                     task.kind,
                     &agent_id,
+                    Some(&task.name),
                     parent_session_id.as_deref(),
                     &task.instruction,
                     backend,
@@ -454,6 +468,7 @@ struct SubAgentResult {
     session_id: String,
     status: &'static str,
     summary: String,
+    persistence_error: Option<String>,
     plan: Option<Vec<PlanStep>>,
     plan_explanation: Option<String>,
     request_user_input: Option<PendingUserInput>,
@@ -462,6 +477,7 @@ struct SubAgentResult {
 async fn run_sub_agent(
     kind: SubAgentKind,
     agent_id: &str,
+    name: Option<&str>,
     parent_session_id: Option<&str>,
     instruction: &str,
     backend: Arc<dyn LlmBackend>,
@@ -487,20 +503,54 @@ async fn run_sub_agent(
     .await
     .map_err(|e| ToolError::ExecutionFailed(e.to_string()))?;
 
-    if let Some(parent_session_id) = parent_session_id {
-        write_subagent_sidechain(&session_manager, parent_session_id, agent_id, &sub)
-            .map_err(|e| ToolError::ExecutionFailed(e.to_string()))?;
-    }
+    let status = kind.result_status();
+    let summary = latest_assistant_text(&sub).unwrap_or_else(|| "Sub-agent finished.".to_string());
+
+    let persistence_error = parent_session_id.and_then(|parent_session_id| {
+        persist_subagent_edge(
+            &session_manager,
+            parent_session_id,
+            agent_id,
+            name,
+            &sub,
+            status,
+            &summary,
+        )
+        .err()
+        .map(|err| err.to_string())
+    });
 
     Ok(SubAgentResult {
         agent_id: agent_id.to_string(),
         session_id: sub.session_id.clone(),
-        status: kind.result_status(),
-        summary: latest_assistant_text(&sub).unwrap_or_else(|| "Sub-agent finished.".to_string()),
+        status,
+        summary,
+        persistence_error,
         plan: (!sub.current_plan.is_empty()).then_some(sub.current_plan.clone()),
         plan_explanation: sub.plan_explanation.clone(),
         request_user_input: sub.pending_user_input.clone(),
     })
+}
+
+fn persist_subagent_edge(
+    session_manager: &SessionManager,
+    parent_session_id: &str,
+    agent_id: &str,
+    name: Option<&str>,
+    sub: &Agent,
+    status: &str,
+    summary: &str,
+) -> anyhow::Result<()> {
+    write_subagent_sidechain(session_manager, parent_session_id, agent_id, sub)?;
+    session_manager.save_spawn_agent_event(
+        parent_session_id,
+        &format!("spawn-{}", uuid::Uuid::new_v4()),
+        agent_id,
+        name,
+        &sub.session_id,
+        status,
+        Some(summary),
+    )
 }
 
 fn write_subagent_sidechain(
@@ -541,10 +591,7 @@ fn normalize_team_tasks(tasks: &[Value]) -> Result<Vec<TeamTask>, ToolError> {
         .iter()
         .enumerate()
         .map(|(idx, task)| {
-            let name = task["name"]
-                .as_str()
-                .map(str::to_string)
-                .unwrap_or_else(|| format!("worker-{}", idx + 1));
+            let name = normalize_team_task_name(idx, task)?;
             let instruction = task["instruction"]
                 .as_str()
                 .map(str::to_string)
@@ -567,6 +614,23 @@ fn normalize_team_tasks(tasks: &[Value]) -> Result<Vec<TeamTask>, ToolError> {
         .collect()
 }
 
+fn normalize_team_task_name(idx: usize, task: &Value) -> Result<String, ToolError> {
+    match task.get("name") {
+        Some(value) => {
+            let name = value.as_str().ok_or_else(|| {
+                ToolError::InvalidInput(format!("tasks[{idx}].name must be a string"))
+            })?;
+            if validate_agent_id_label(name).is_none() {
+                return Err(ToolError::InvalidInput(format!(
+                    "tasks[{idx}].name must contain ascii letters, digits, '-' or '_'"
+                )));
+            }
+            Ok(name.to_string())
+        }
+        None => Ok(format!("worker-{}", idx + 1)),
+    }
+}
+
 fn parse_team_task_kind(idx: usize, kind: Option<&str>) -> Result<SubAgentKind, ToolError> {
     match kind.unwrap_or("explore") {
         "general" => Ok(SubAgentKind::General),
@@ -585,6 +649,7 @@ fn serialize_team_result(name: &str, result: SubAgentResult) -> Value {
         "name": name,
         "status": result.status,
         "summary": result.summary,
+        "persistence_error": result.persistence_error,
         "plan": result.plan.as_ref().map(|steps| serialize_plan_steps(steps)),
         "plan_explanation": result.plan_explanation,
         "request_user_input": result
@@ -596,14 +661,13 @@ fn serialize_team_result(name: &str, result: SubAgentResult) -> Value {
 
 fn next_subagent_id(kind: SubAgentKind, name: Option<&str>) -> String {
     let label = name
-        .map(sanitize_agent_id_part)
-        .filter(|name| !name.is_empty())
+        .and_then(validate_agent_id_label)
         .unwrap_or_else(|| kind.label().to_string());
     format!("{label}-{}", uuid::Uuid::new_v4())
 }
 
-fn sanitize_agent_id_part(value: &str) -> String {
-    value
+fn validate_agent_id_label(value: &str) -> Option<String> {
+    let label = value
         .chars()
         .map(|ch| {
             if ch.is_ascii_alphanumeric() || ch == '-' || ch == '_' {
@@ -614,7 +678,8 @@ fn sanitize_agent_id_part(value: &str) -> String {
         })
         .collect::<String>()
         .trim_matches('-')
-        .to_string()
+        .to_string();
+    (!label.is_empty()).then_some(label)
 }
 
 fn append_subagent_prompt(
@@ -711,8 +776,10 @@ mod tests {
     use crate::prompt::PromptRuntimeConfig;
     use crate::session::SessionManager;
     use crate::session_transcript::{load_transcript, model_visible_messages};
+    use crate::state_db::PersistedStructuredRolloutEvent;
+    use crate::thread_rollout_log;
     use crate::tool::{Tool, ToolCallContext, ToolError};
-    use crate::tools::agent::{ExploreAgentTool, TeamCreateTool};
+    use crate::tools::agent::{AgentTool, ExploreAgentTool, PlanAgentTool, TeamCreateTool};
     use crate::vectordb::VectorDB;
     use crate::workspace::WorkspaceMemory;
 
@@ -1059,6 +1126,45 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn team_create_rejects_unstable_explicit_name_before_running_subagents() {
+        let calls = Arc::new(AtomicUsize::new(0));
+        let temp = tempdir().expect("tempdir");
+        let root = temp.path().join("workspace");
+        let rara_dir = temp.path().join(".rara");
+        std::fs::create_dir_all(&root).expect("workspace");
+        let tool = TeamCreateTool {
+            backend: Arc::new(CountingBackend {
+                calls: calls.clone(),
+            }),
+            vdb: Arc::new(VectorDB::new(
+                &rara_dir.join("lancedb").display().to_string(),
+            )),
+            session_manager: Arc::new(
+                SessionManager::new_for_rara_dir(rara_dir.clone()).expect("session manager"),
+            ),
+            workspace: Arc::new(WorkspaceMemory::from_paths(root, rara_dir)),
+            prompt_config: PromptRuntimeConfig::default(),
+        };
+
+        let err = tool
+            .call(json!({
+                "tasks": [
+                    {
+                        "name": "!!!",
+                        "instruction": "should not run"
+                    }
+                ]
+            }))
+            .await
+            .expect_err("invalid name");
+
+        assert!(
+            matches!(err, ToolError::InvalidInput(message) if message.contains("tasks[0].name"))
+        );
+        assert_eq!(calls.load(Ordering::SeqCst), 0);
+    }
+
+    #[tokio::test]
     async fn team_create_limits_concurrent_subagents() {
         let in_flight = Arc::new(AtomicUsize::new(0));
         let peak = Arc::new(AtomicUsize::new(0));
@@ -1136,6 +1242,8 @@ mod tests {
         let item = &result["team_results"][0];
         let agent_id = item["agent_id"].as_str().expect("agent_id");
         let child_session_id = item["session_id"].as_str().expect("session_id");
+        let result_status = item["status"].as_str().expect("status");
+        let result_summary = item["summary"].as_str().expect("summary");
         assert!(agent_id.starts_with("review-worker-"));
         let transcript_path = rara_dir
             .join("rollouts")
@@ -1157,6 +1265,149 @@ mod tests {
             } if session_id == child_session_id
                 && parent == "parent-session"
                 && entry_agent_id == agent_id
+        ));
+
+        let events =
+            thread_rollout_log::load_rollout_events(&rara_dir.join("rollouts"), "parent-session")
+                .expect("rollout events");
+        assert!(matches!(
+            events.as_slice(),
+            [PersistedStructuredRolloutEvent::SpawnAgent {
+                event_id,
+                agent_id: event_agent_id,
+                name: Some(name),
+                child_session_id: event_child_session_id,
+                status,
+                summary: Some(summary),
+                ..
+            }] if event_id.starts_with("spawn-")
+                && event_agent_id == agent_id
+                && name == "Review Worker"
+                && event_child_session_id == child_session_id
+                && status == result_status
+                && summary == result_summary
+        ));
+    }
+
+    #[tokio::test]
+    async fn spawn_agent_writes_parent_scoped_sidechain_transcript() {
+        let temp = tempdir().expect("tempdir");
+        let root = temp.path().join("workspace");
+        let rara_dir = temp.path().join(".rara");
+        std::fs::create_dir_all(&root).expect("workspace");
+        let tool = AgentTool {
+            backend: Arc::new(CountingBackend {
+                calls: Arc::new(AtomicUsize::new(0)),
+            }),
+            vdb: Arc::new(VectorDB::new(
+                &rara_dir.join("lancedb").display().to_string(),
+            )),
+            session_manager: Arc::new(
+                SessionManager::new_for_rara_dir(rara_dir.clone()).expect("session manager"),
+            ),
+            workspace: Arc::new(WorkspaceMemory::from_paths(root, rara_dir.clone())),
+            prompt_config: PromptRuntimeConfig::default(),
+        };
+
+        let mut progress = |_| {};
+        let result = tool
+            .call_with_context_events(
+                json!({
+                    "name": "General Worker",
+                    "instruction": "summarize this task"
+                }),
+                ToolCallContext::default().with_session_id("parent-session"),
+                &mut progress,
+            )
+            .await
+            .expect("spawn_agent result");
+
+        let agent_id = result["agent_id"].as_str().expect("agent_id");
+        let child_session_id = result["session_id"].as_str().expect("session_id");
+        assert!(agent_id.starts_with("general-worker-"));
+        let transcript_path = rara_dir
+            .join("rollouts")
+            .join("parent-session")
+            .join("subagents")
+            .join(format!("agent-{agent_id}.jsonl"));
+        let transcript = load_transcript(&transcript_path).expect("transcript");
+        assert_eq!(transcript.parse_errors, 0);
+        assert!(model_visible_messages(&transcript.entries).is_empty());
+
+        let events =
+            thread_rollout_log::load_rollout_events(&rara_dir.join("rollouts"), "parent-session")
+                .expect("rollout events");
+        assert!(matches!(
+            events.as_slice(),
+            [PersistedStructuredRolloutEvent::SpawnAgent {
+                agent_id: event_agent_id,
+                name: Some(name),
+                child_session_id: event_child_session_id,
+                status,
+                ..
+            }] if event_agent_id == agent_id
+                && name == "General Worker"
+                && event_child_session_id == child_session_id
+                && status == "done"
+        ));
+    }
+
+    #[tokio::test]
+    async fn plan_agent_writes_parent_scoped_sidechain_transcript() {
+        let temp = tempdir().expect("tempdir");
+        let root = temp.path().join("workspace");
+        let rara_dir = temp.path().join(".rara");
+        std::fs::create_dir_all(&root).expect("workspace");
+        let tool = PlanAgentTool {
+            backend: Arc::new(CountingBackend {
+                calls: Arc::new(AtomicUsize::new(0)),
+            }),
+            vdb: Arc::new(VectorDB::new(
+                &rara_dir.join("lancedb").display().to_string(),
+            )),
+            session_manager: Arc::new(
+                SessionManager::new_for_rara_dir(rara_dir.clone()).expect("session manager"),
+            ),
+            workspace: Arc::new(WorkspaceMemory::from_paths(root, rara_dir.clone())),
+            prompt_config: PromptRuntimeConfig::default(),
+        };
+
+        let mut progress = |_| {};
+        let result = tool
+            .call_with_context_events(
+                json!({ "instruction": "plan this task" }),
+                ToolCallContext::default().with_session_id("parent-session"),
+                &mut progress,
+            )
+            .await
+            .expect("plan_agent result");
+
+        let agent_id = result["agent_id"].as_str().expect("agent_id");
+        let child_session_id = result["session_id"].as_str().expect("session_id");
+        assert!(agent_id.starts_with("plan-"));
+        let transcript_path = rara_dir
+            .join("rollouts")
+            .join("parent-session")
+            .join("subagents")
+            .join(format!("agent-{agent_id}.jsonl"));
+        let transcript = load_transcript(&transcript_path).expect("transcript");
+        assert_eq!(transcript.parse_errors, 0);
+        assert!(model_visible_messages(&transcript.entries).is_empty());
+
+        let events =
+            thread_rollout_log::load_rollout_events(&rara_dir.join("rollouts"), "parent-session")
+                .expect("rollout events");
+        assert!(matches!(
+            events.as_slice(),
+            [PersistedStructuredRolloutEvent::SpawnAgent {
+                agent_id: event_agent_id,
+                name: None,
+                child_session_id: event_child_session_id,
+                status,
+                ..
+            }] if event_agent_id == agent_id
+                && event_child_session_id == child_session_id
+                && status == "planned"
         ));
     }
 
@@ -1192,6 +1443,61 @@ mod tests {
                 .starts_with("explore-")
         );
         assert!(!rara_dir.join("rollouts").join("subagents").exists());
+        assert!(
+            thread_rollout_log::load_rollout_events(&rara_dir.join("rollouts"), "parent-session")
+                .expect("rollout events")
+                .is_empty()
+        );
+    }
+
+    #[tokio::test]
+    async fn subagent_returns_result_when_sidechain_persistence_fails() {
+        let temp = tempdir().expect("tempdir");
+        let root = temp.path().join("workspace");
+        let rara_dir = temp.path().join(".rara");
+        std::fs::create_dir_all(&root).expect("workspace");
+        let rollouts_dir = rara_dir.join("rollouts");
+        std::fs::create_dir_all(&rollouts_dir).expect("rollouts");
+        std::fs::write(rollouts_dir.join("blocked-parent"), b"not a directory")
+            .expect("blocking file");
+        let tool = ExploreAgentTool {
+            backend: Arc::new(CountingBackend {
+                calls: Arc::new(AtomicUsize::new(0)),
+            }),
+            vdb: Arc::new(VectorDB::new(
+                &rara_dir.join("lancedb").display().to_string(),
+            )),
+            session_manager: Arc::new(
+                SessionManager::new_for_rara_dir(rara_dir.clone()).expect("session manager"),
+            ),
+            workspace: Arc::new(WorkspaceMemory::from_paths(root, rara_dir)),
+            prompt_config: PromptRuntimeConfig::default(),
+        };
+
+        let mut progress = |_| {};
+        let result = tool
+            .call_with_context_events(
+                json!({ "instruction": "look around" }),
+                ToolCallContext::default().with_session_id("blocked-parent"),
+                &mut progress,
+            )
+            .await
+            .expect("explore result");
+
+        assert_eq!(result["status"], "explored");
+        assert!(
+            result["summary"]
+                .as_str()
+                .expect("summary")
+                .starts_with("counted")
+        );
+        assert!(
+            result["persistence_error"]
+                .as_str()
+                .expect("persistence error")
+                .len()
+                > 0
+        );
     }
 
     #[tokio::test]
