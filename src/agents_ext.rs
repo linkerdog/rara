@@ -56,11 +56,6 @@ impl AgentRegistry {
         }
     }
 
-    /// Discover agents from a repository root (.claude/agents).
-    pub fn discover_repo_agents(&mut self, repo_root: &Path) {
-        self.discover_from_dir(&repo_root.join(".claude").join("agents"));
-    }
-
     /// Scan a directory for `.md` agent definition files.
     pub fn discover_from_dir(&mut self, dir: &Path) {
         if !dir.exists() {
