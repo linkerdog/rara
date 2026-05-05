@@ -18,7 +18,7 @@ const HIGH_IMPORTANCE_RETENTION_THRESHOLD: f32 = 0.8;
 const MEMORY_RECORD_INDEX_PLACEHOLDER: u32 = 0;
 const MEMORY_RECORDS_FILE_VERSION: u32 = 1;
 
-#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum MemoryLabel {
     Insight,
@@ -28,7 +28,7 @@ pub enum MemoryLabel {
     Experience,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum MemorySource {
     AgentTurn,
@@ -38,7 +38,7 @@ pub enum MemorySource {
     ProtocolWrite,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum MemoryScope {
     User,
@@ -104,6 +104,25 @@ impl NewMemoryRecord {
             source_span: None,
         }
     }
+}
+
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct MemoryRecordPatch {
+    pub title: Option<String>,
+    pub content: Option<String>,
+    pub labels: Option<Vec<MemoryLabel>>,
+    pub importance: Option<f32>,
+    pub pinned: Option<bool>,
+    pub scope: Option<MemoryScope>,
+    pub session_id: Option<Option<String>>,
+    pub thread_id: Option<Option<String>>,
+    pub source_span: Option<Option<MemorySourceSpan>>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MemoryLabelCount {
+    pub label: MemoryLabel,
+    pub count: usize,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -208,11 +227,13 @@ impl MemoryStore {
         let records = self.records.load_map().await?;
         Ok(hits
             .into_iter()
-            .map(|hit| MemoryRecordSearchHit {
-                record: memory_record_for_hit(&records, &hit.metadata),
-                score: hit.score,
-                vector_distance: hit.vector_distance,
-                fts_score: hit.fts_score,
+            .filter_map(|hit| {
+                memory_record_for_hit(&records, &hit.metadata).map(|record| MemoryRecordSearchHit {
+                    record,
+                    score: hit.score,
+                    vector_distance: hit.vector_distance,
+                    fts_score: hit.fts_score,
+                })
             })
             .collect())
     }
@@ -223,6 +244,36 @@ impl MemoryStore {
 
     pub async fn set_pinned(&self, id: &str, pinned: bool) -> Result<MemoryRecord> {
         self.records.set_pinned(id, pinned).await
+    }
+
+    pub async fn update(&self, id: &str, patch: MemoryRecordPatch) -> Result<MemoryRecord> {
+        let normalized_patch = normalize_memory_record_patch(patch)?;
+        let updated = self.records.update(id, normalized_patch.clone()).await?;
+        if normalized_patch.content.is_some() {
+            let vector = self.backend.embed(&updated.content).await?;
+            self.vdb
+                .upsert_turn(
+                    EXPERIENCES_TABLE,
+                    MemoryMetadata {
+                        id: Some(updated.id.clone()),
+                        session_id: updated.index_scope_key(),
+                        turn_index: MEMORY_RECORD_INDEX_PLACEHOLDER,
+                        text: updated.content.clone(),
+                    },
+                    vector,
+                )
+                .await?;
+        }
+        Ok(updated)
+    }
+
+    pub async fn delete(&self, id: &str) -> Result<Option<MemoryRecord>> {
+        self.records.delete(id).await
+    }
+
+    pub async fn list_labels(&self, scope: Option<MemoryScope>) -> Result<Vec<MemoryLabelCount>> {
+        let records = self.records.load_map().await?;
+        Ok(list_label_counts(records.values(), scope.as_ref()))
     }
 }
 
@@ -372,6 +423,30 @@ impl MemoryRecordFileStore {
         .await
         .context("join memory record pin update task")?
     }
+
+    async fn update(&self, id: &str, patch: MemoryRecordPatch) -> Result<MemoryRecord> {
+        let path = self.path.clone();
+        let lock_path = self.lock_path.clone();
+        let cache = self.cache.clone();
+        let id = id.to_string();
+        tokio::task::spawn_blocking(move || {
+            update_record_sync(path, lock_path, cache, &id, |record| {
+                apply_memory_record_patch(record, patch)
+            })
+        })
+        .await
+        .context("join memory record update task")?
+    }
+
+    async fn delete(&self, id: &str) -> Result<Option<MemoryRecord>> {
+        let path = self.path.clone();
+        let lock_path = self.lock_path.clone();
+        let cache = self.cache.clone();
+        let id = id.to_string();
+        tokio::task::spawn_blocking(move || delete_record_sync(path, lock_path, cache, &id))
+            .await
+            .context("join memory record delete task")?
+    }
 }
 
 fn default_record_path_for_vdb_uri(uri: &str) -> PathBuf {
@@ -436,6 +511,28 @@ where
         update_record_cache(&cache, state, records);
     }
     Ok(updated)
+}
+
+fn delete_record_sync(
+    path: PathBuf,
+    lock_path: PathBuf,
+    cache: Arc<Mutex<MemoryRecordCache>>,
+    id: &str,
+) -> Result<Option<MemoryRecord>> {
+    let _lock = AdvisoryFileLock::acquire(lock_path)?;
+    let mut file = PersistedMemoryRecordFile {
+        records: load_records_sync(&path)?,
+        ..Default::default()
+    };
+    let Some(index) = file.records.iter().position(|record| record.id == id) else {
+        return Ok(None);
+    };
+    let deleted = file.records.remove(index);
+    write_record_file_sync(&path, &file)?;
+    let records = record_map_from_records(file.records);
+    let state = record_file_state(&path)?;
+    update_record_cache(&cache, state, records);
+    Ok(Some(deleted))
 }
 
 fn load_record_map_cached_sync(
@@ -534,13 +631,109 @@ fn write_record_file_sync(path: &Path, file: &PersistedMemoryRecordFile) -> Resu
 fn memory_record_for_hit(
     records: &HashMap<String, MemoryRecord>,
     metadata: &MemoryMetadata,
-) -> MemoryRecord {
-    metadata
-        .id
-        .as_ref()
-        .and_then(|id| records.get(id))
-        .cloned()
-        .unwrap_or_else(|| MemoryRecord::from(metadata.clone()))
+) -> Option<MemoryRecord> {
+    match metadata.id.as_ref() {
+        Some(id) => records.get(id).cloned(),
+        None => Some(MemoryRecord::from(metadata.clone())),
+    }
+}
+
+fn normalize_memory_record_patch(mut patch: MemoryRecordPatch) -> Result<MemoryRecordPatch> {
+    if let Some(title) = patch.title.take() {
+        patch.title = Some(title.trim().to_string());
+    }
+    if let Some(content) = patch.content.take() {
+        let content = content.trim().to_string();
+        if content.is_empty() {
+            bail!("memory content must not be empty");
+        }
+        patch.content = Some(content);
+    }
+    if let Some(labels) = patch.labels.take() {
+        patch.labels = Some(normalized_labels(labels));
+    }
+    if let Some(importance) = patch.importance.take() {
+        patch.importance = Some(clamp_importance(importance));
+    }
+    if let Some(session_id) = patch.session_id.take() {
+        patch.session_id = Some(normalized_optional_id(session_id));
+    }
+    if let Some(thread_id) = patch.thread_id.take() {
+        patch.thread_id = Some(normalized_optional_id(thread_id));
+    }
+    Ok(patch)
+}
+
+fn apply_memory_record_patch(record: &mut MemoryRecord, patch: MemoryRecordPatch) -> bool {
+    let before = record.clone();
+    if let Some(title) = patch.title.filter(|title| !title.is_empty()) {
+        record.title = title;
+    }
+    if let Some(content) = patch.content {
+        record.content = content;
+    }
+    if let Some(labels) = patch.labels {
+        record.labels = labels;
+    }
+    if let Some(importance) = patch.importance {
+        record.importance = importance;
+    }
+    if let Some(pinned) = patch.pinned {
+        record.pinned = pinned;
+    }
+    if let Some(scope) = patch.scope {
+        record.scope = scope;
+    }
+    if let Some(session_id) = patch.session_id {
+        record.session_id = session_id;
+    }
+    if let Some(thread_id) = patch.thread_id {
+        record.thread_id = thread_id;
+    }
+    if let Some(source_span) = patch.source_span {
+        record.source_span = source_span;
+    }
+    if *record != before {
+        record.updated_at_unix_seconds = unix_timestamp_seconds();
+        true
+    } else {
+        false
+    }
+}
+
+fn list_label_counts<'a>(
+    records: impl IntoIterator<Item = &'a MemoryRecord>,
+    scope: Option<&MemoryScope>,
+) -> Vec<MemoryLabelCount> {
+    let mut counts = HashMap::<MemoryLabel, usize>::new();
+    for record in records {
+        if scope.is_some_and(|scope| &record.scope != scope) {
+            continue;
+        }
+        for label in &record.labels {
+            *counts.entry(label.clone()).or_default() += 1;
+        }
+    }
+    let mut counts = counts
+        .into_iter()
+        .map(|(label, count)| MemoryLabelCount { label, count })
+        .collect::<Vec<_>>();
+    counts.sort_by(|left, right| {
+        right.count.cmp(&left.count).then_with(|| {
+            memory_label_sort_key(&left.label).cmp(memory_label_sort_key(&right.label))
+        })
+    });
+    counts
+}
+
+fn memory_label_sort_key(label: &MemoryLabel) -> &'static str {
+    match label {
+        MemoryLabel::Insight => "insight",
+        MemoryLabel::Decision => "decision",
+        MemoryLabel::Fact => "fact",
+        MemoryLabel::Procedure => "procedure",
+        MemoryLabel::Experience => "experience",
+    }
 }
 
 fn normalized_labels(labels: Vec<MemoryLabel>) -> Vec<MemoryLabel> {
@@ -863,5 +1056,155 @@ mod tests {
             .expect("persisted memory");
         assert!(persisted.pinned);
         assert!(persisted.is_protected_from_automatic_cleanup());
+    }
+
+    #[tokio::test]
+    async fn memory_store_updates_record_and_refreshes_search_index() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let db_path = temp.path().join("lancedb");
+        let record_path = temp.path().join("memories").join("records.json");
+        let backend = Arc::new(MockLlm);
+        let vdb = Arc::new(VectorDB::new(db_path.to_str().expect("utf8 path")));
+        let store =
+            MemoryStore::new_with_record_path(backend.clone(), vdb.clone(), record_path.clone());
+
+        let saved = store
+            .insert(NewMemoryRecord::experience("Old parser note."))
+            .await
+            .expect("insert memory");
+        let updated = store
+            .update(
+                &saved.id,
+                MemoryRecordPatch {
+                    title: Some("DSML parser decision".to_string()),
+                    content: Some(
+                        "DeepSeek DSML parser should use a structured parser.".to_string(),
+                    ),
+                    labels: Some(vec![MemoryLabel::Decision, MemoryLabel::Fact]),
+                    importance: Some(0.95),
+                    pinned: Some(true),
+                    scope: Some(MemoryScope::Workspace),
+                    ..Default::default()
+                },
+            )
+            .await
+            .expect("update memory");
+
+        assert_eq!(updated.id, saved.id);
+        assert_eq!(updated.title, "DSML parser decision");
+        assert_eq!(
+            updated.content,
+            "DeepSeek DSML parser should use a structured parser."
+        );
+        assert_eq!(
+            updated.labels,
+            vec![MemoryLabel::Decision, MemoryLabel::Fact]
+        );
+        assert_eq!(updated.importance, 0.95);
+        assert!(updated.pinned);
+        assert_eq!(updated.scope, MemoryScope::Workspace);
+
+        let reloaded = MemoryStore::new_with_record_path(backend, vdb, record_path);
+        let hits = reloaded
+            .search("structured parser", 5)
+            .await
+            .expect("search");
+        assert!(hits.iter().any(|hit| hit.record.id == saved.id));
+    }
+
+    #[tokio::test]
+    async fn memory_store_delete_hides_stale_lancedb_hits() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let backend = Arc::new(MockLlm);
+        let vdb = Arc::new(VectorDB::new(temp.path().to_str().expect("utf8 path")));
+        let store = MemoryStore::new(backend, vdb);
+
+        let saved = store
+            .insert(NewMemoryRecord::experience(
+                "Deleted memory should not be rehydrated from stale LanceDB rows.",
+            ))
+            .await
+            .expect("insert memory");
+        assert_eq!(
+            store.delete(&saved.id).await.expect("delete memory"),
+            Some(saved.clone())
+        );
+        assert_eq!(store.get(&saved.id).await.expect("get deleted"), None);
+
+        let hits = store.search("stale LanceDB rows", 5).await.expect("search");
+        assert!(
+            hits.iter().all(|hit| hit.record.id != saved.id),
+            "deleted domain records must not be reconstructed from stale LanceDB index rows"
+        );
+    }
+
+    #[tokio::test]
+    async fn memory_store_list_labels_counts_records_by_scope() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let store = MemoryStore::new(
+            Arc::new(MockLlm),
+            Arc::new(VectorDB::new(temp.path().to_str().expect("utf8 path"))),
+        );
+
+        store
+            .insert(NewMemoryRecord {
+                title: Some("Workspace decision".to_string()),
+                content: "Use the shared MemoryStore API.".to_string(),
+                labels: vec![MemoryLabel::Decision, MemoryLabel::Fact],
+                importance: 0.7,
+                pinned: false,
+                source: MemorySource::UserCreated,
+                scope: MemoryScope::Workspace,
+                session_id: None,
+                thread_id: None,
+                source_span: None,
+            })
+            .await
+            .expect("insert workspace memory");
+        store
+            .insert(NewMemoryRecord {
+                title: Some("Thread fact".to_string()),
+                content: "Thread facts stay scoped to the thread.".to_string(),
+                labels: vec![MemoryLabel::Fact],
+                importance: 0.4,
+                pinned: false,
+                source: MemorySource::ThreadDistill,
+                scope: MemoryScope::Thread,
+                session_id: Some("session-1".to_string()),
+                thread_id: Some("thread-1".to_string()),
+                source_span: None,
+            })
+            .await
+            .expect("insert thread memory");
+
+        assert_eq!(
+            store.list_labels(None).await.expect("all labels"),
+            vec![
+                MemoryLabelCount {
+                    label: MemoryLabel::Fact,
+                    count: 2,
+                },
+                MemoryLabelCount {
+                    label: MemoryLabel::Decision,
+                    count: 1,
+                },
+            ]
+        );
+        assert_eq!(
+            store
+                .list_labels(Some(MemoryScope::Workspace))
+                .await
+                .expect("workspace labels"),
+            vec![
+                MemoryLabelCount {
+                    label: MemoryLabel::Decision,
+                    count: 1,
+                },
+                MemoryLabelCount {
+                    label: MemoryLabel::Fact,
+                    count: 1,
+                },
+            ]
+        );
     }
 }
