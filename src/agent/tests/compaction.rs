@@ -182,12 +182,13 @@ async fn manual_compact_replaces_older_history_with_summary() {
 #[tokio::test]
 async fn automatic_compaction_timeout_does_not_block_query() {
     let backend = Arc::new(SlowSummarizeBackend);
+    let (_temp, session_manager, workspace, _rara_dir) = test_runtime_storage();
     let mut agent = Agent::new(
         ToolManager::new(),
         backend,
         Arc::new(VectorDB::new("data/lancedb")),
-        Arc::new(SessionManager::new().expect("session manager")),
-        Arc::new(WorkspaceMemory::new().expect("workspace memory")),
+        session_manager,
+        workspace,
     );
     agent.history = vec![
         Message {
