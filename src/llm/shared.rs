@@ -373,8 +373,11 @@ pub(super) fn should_bypass_proxy(base_url: &str) -> bool {
 }
 
 pub(super) fn context_budget_from_window(context_window_tokens: usize) -> ContextBudget {
-    let reserved_output_tokens = (context_window_tokens / 8).clamp(1024, 4096);
-    let compact_threshold_tokens = context_window_tokens
+    // Reserve ~0.5% for token-estimation error (min 1024 tokens).
+    let estimation_margin = (context_window_tokens / 200).max(1024);
+    let effective_window = context_window_tokens.saturating_sub(estimation_margin);
+    let reserved_output_tokens = (effective_window / 8).clamp(1024, 4096);
+    let compact_threshold_tokens = effective_window
         .saturating_sub(reserved_output_tokens)
         .saturating_sub(2048);
     ContextBudget {
@@ -384,7 +387,7 @@ pub(super) fn context_budget_from_window(context_window_tokens: usize) -> Contex
     }
 }
 
-const DEEPSEEK_LONG_CONTEXT_WINDOW_TOKENS: usize = 1_000_000;
+const DEEPSEEK_LONG_CONTEXT_WINDOW_TOKENS: usize = 1_048_576;
 const OPENAI_LONG_CONTEXT_WINDOW_TOKENS: usize = 200_000;
 const OPENAI_GPT4_CONTEXT_WINDOW_TOKENS: usize = 128_000;
 const DEEPSEEK_LONG_CONTEXT_MODEL_MARKERS: &[&str] = &["deepseek-v4"];
