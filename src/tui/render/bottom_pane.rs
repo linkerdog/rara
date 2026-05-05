@@ -524,13 +524,26 @@ fn wrapped_text_rows(
         return wrapped_rows;
     }
 
-    for logical_line in input.split('\n') {
-        wrapped_rows.extend(wrap_logical_line_preserving_whitespace(
-            logical_line,
-            width,
-            initial_indent,
-            subsequent_indent,
-        ));
+    {
+        let mut lines = input.split('\n');
+        // First logical line keeps the caller-supplied initial indent.
+        if let Some(first) = lines.next() {
+            wrapped_rows.extend(wrap_logical_line_preserving_whitespace(
+                first,
+                width,
+                initial_indent,
+                subsequent_indent,
+            ));
+        }
+        // Lines after embedded newlines use the subsequent indent.
+        for logical_line in lines {
+            wrapped_rows.extend(wrap_logical_line_preserving_whitespace(
+                logical_line,
+                width,
+                subsequent_indent,
+                subsequent_indent,
+            ));
+        }
     }
 
     wrapped_rows
