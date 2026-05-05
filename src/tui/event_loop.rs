@@ -3,7 +3,7 @@ use std::sync::atomic::AtomicBool;
 
 use crossterm::{event::EventStream, terminal::enable_raw_mode, terminal::size as terminal_size};
 use futures::StreamExt;
-use tokio::time::{Duration, interval};
+use tokio::time::{Duration, MissedTickBehavior, interval};
 
 use super::event_dispatch::dispatch_event;
 use super::event_stream::{UiEvent, translate_event};
@@ -73,7 +73,8 @@ pub async fn run_tui(
     let oauth_manager = Arc::new(oauth_manager);
     app.codex_auth_mode = oauth_manager.saved_auth_mode().ok().flatten();
     let mut events = EventStream::new();
-    let mut tick = interval(Duration::from_millis(100));
+    let mut tick = interval(Duration::from_millis(166));
+    tick.set_missed_tick_behavior(MissedTickBehavior::Delay);
 
     if let Some(agent_ref) = agent_slot.as_ref() {
         app.sync_snapshot(agent_ref);
