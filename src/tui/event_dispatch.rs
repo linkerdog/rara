@@ -3,6 +3,8 @@ use std::sync::Arc;
 use super::app_event::AppEvent;
 use super::auth_mode_picker::AUTH_MODE_OPTION_COUNT;
 use super::command::{palette_command_by_index, palette_commands};
+#[allow(unused_imports)]
+use super::list_picker;
 use super::provider_flow::{
     open_provider_family_overlay, should_open_codex_auth_guide,
     sync_codex_credential_from_auth_store,
@@ -142,6 +144,20 @@ pub(crate) async fn dispatch_event(
             let max_idx = AUTH_MODE_OPTION_COUNT.saturating_sub(1);
             let next = (app.auth_mode_idx as i32 + delta).clamp(0, max_idx as i32);
             app.auth_mode_idx = next as usize;
+        }
+        AppEvent::MoveListPickerSelection(delta) => {
+            let Some(Overlay::ListPicker(kind)) = app.overlay else {
+                return Ok(false);
+            };
+            let max = kind.item_count(app).saturating_sub(1) as i32;
+            let next = (kind.idx(app) as i32 + delta).clamp(0, max);
+            kind.set_idx(app, next as usize);
+        }
+        AppEvent::SetListPickerSelection(idx) => {
+            let Some(Overlay::ListPicker(kind)) = app.overlay else {
+                return Ok(false);
+            };
+            kind.set_idx(app, idx);
         }
         AppEvent::SetProviderSelection(idx) => {
             app.provider_picker_idx = idx.min(PROVIDER_FAMILIES.len() - 1);

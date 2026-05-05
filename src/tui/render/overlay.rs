@@ -93,6 +93,12 @@ pub(super) fn render_overlay(
             render_reasoning_effort_picker_modal(f, app, popup);
             None
         }
+        Overlay::ListPicker(kind) => {
+            let popup = centered_rect(72, 70, f.area());
+            f.render_widget(Clear, popup);
+            super::super::list_picker::render_list_picker(f, app, kind, popup);
+            None
+        }
         Overlay::BaseUrlEditor => {
             let popup = setup_flow_rect(f.area());
             f.render_widget(Clear, popup);

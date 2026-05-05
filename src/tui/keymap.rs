@@ -243,6 +243,7 @@ pub(crate) fn map_key_to_event(key: KeyEvent, app: &TuiApp) -> AppEvent {
             KeyCode::Enter => AppEvent::ApplyOverlaySelection,
             _ => AppEvent::Noop,
         },
+        Some(Overlay::ListPicker(kind)) => super::list_picker::list_picker_key_event(kind, code),
         None => {
             if app.input.is_empty()
                 && let Some(index) = pending_shortcut_index(code, app)

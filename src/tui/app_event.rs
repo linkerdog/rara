@@ -27,6 +27,9 @@ pub enum AppEvent {
     MoveReasoningEffortSelection(i32),
     MoveResumeSelection(i32),
     MoveSkillsSelection(i32),
+    /// Generic list-picker move/set events — used by Overlay::ListPicker.
+    MoveListPickerSelection(i32),
+    SetListPickerSelection(usize),
     ToggleSkillSelection,
     SetProviderSelection(usize),
     SetModelSelection(usize),
