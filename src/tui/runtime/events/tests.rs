@@ -869,6 +869,21 @@ fn todo_write_events_render_as_compact_todo_transcript() {
 }
 
 #[test]
+fn mcp_status_update_events_stay_off_tui_transcript() {
+    let event = convert_agent_event(AgentEvent::McpStatusUpdated(
+        crate::mcp_status::McpStatusSnapshot { servers: vec![] },
+    ));
+
+    assert!(event.is_none());
+
+    let event = convert_agent_event(AgentEvent::McpStatusLoadFailed {
+        message: "invalid config".to_string(),
+    });
+
+    assert!(event.is_none());
+}
+
+#[test]
 fn applies_terminal_begin_event_as_running_action() {
     let temp = tempdir().expect("tempdir");
     let mut app = TuiApp::new(ConfigManager {

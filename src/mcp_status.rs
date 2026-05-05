@@ -1,12 +1,15 @@
 use std::collections::BTreeMap;
 use std::path::PathBuf;
 
+use serde::{Deserialize, Serialize};
+
 use crate::config::{
     McpRegistry, McpServerConfig, McpServerScope, McpServerTransport, SourcedMcpServerConfig,
 };
-use crate::redaction::sanitize_url_for_display;
+use crate::redaction::{redact_secrets, sanitize_url_for_display};
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
 #[allow(dead_code)]
 pub enum McpConnectionState {
     Configured,
@@ -34,7 +37,8 @@ impl McpConnectionState {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum McpTransportKind {
     Stdio,
     StreamableHttp,
@@ -49,7 +53,7 @@ impl McpTransportKind {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct McpServerStatus {
     pub name: String,
     pub scope: McpServerScope,
@@ -64,7 +68,7 @@ pub struct McpServerStatus {
     pub last_error: Option<String>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct McpStatusSnapshot {
     pub servers: Vec<McpServerStatus>,
 }
@@ -154,7 +158,7 @@ fn transport_display(config: &McpServerConfig) -> (McpTransportKind, String) {
         McpServerTransport::Stdio { command, args, .. } => {
             let mut parts = vec![quote_stdio_display_part(command)];
             parts.extend(args.iter().map(|arg| quote_stdio_display_part(arg)));
-            (McpTransportKind::Stdio, parts.join(" "))
+            (McpTransportKind::Stdio, redact_secrets(parts.join(" ")))
         }
         McpServerTransport::StreamableHttp { url, .. } => (
             McpTransportKind::StreamableHttp,
@@ -224,6 +228,10 @@ args = ["--stdio"]
 enabled_tools = ["search", "fetch"]
 disabled_tools = ["delete"]
 
+[mcp_servers.secret]
+command = "secret-server"
+args = ["--token=supersecretvalue"]
+
 [mcp_servers.remote]
 url = "https://example.com/mcp?token=secret"
 enabled = false
@@ -255,7 +263,7 @@ enabled = false
             .expect("registry");
         let snapshot = McpStatusSnapshot::from_registry(&registry);
 
-        assert_eq!(snapshot.servers.len(), 3);
+        assert_eq!(snapshot.servers.len(), 4);
         let repo = snapshot
             .servers
             .iter()
@@ -276,6 +284,17 @@ enabled = false
             remote.display_target,
             "https://example.com/mcp?token=%3Credacted%3E"
         );
+
+        let secret = snapshot
+            .servers
+            .iter()
+            .find(|server| server.name == "secret")
+            .expect("secret server");
+        assert_eq!(
+            secret.display_target,
+            "secret-server --token=[REDACTED_SECRET]"
+        );
+        assert!(!secret.display_target.contains("supersecretvalue"));
 
         assert_eq!(manager.config_toml_path(), user_config);
     }

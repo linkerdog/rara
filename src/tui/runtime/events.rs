@@ -315,6 +315,8 @@ pub(super) fn convert_agent_event(event: AgentEvent) -> Option<TuiEvent> {
             role: "Todo",
             message: format_todo_update(&state),
         }),
+        AgentEvent::McpStatusUpdated(_) => None,
+        AgentEvent::McpStatusLoadFailed { .. } => None,
     }
 }
 

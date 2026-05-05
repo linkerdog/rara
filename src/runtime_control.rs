@@ -2,6 +2,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 use crate::agent::{AgentEvent, BashApprovalDecision};
+use crate::mcp_status::McpStatusSnapshot;
 use crate::todo::TodoState;
 use crate::tool::ToolOutputStream;
 
@@ -84,6 +85,7 @@ pub enum RuntimeControlRequest {
     Output(OutputSubscriptionRequest),
     PromptSource(PromptSourceControlRequest),
     SkillSource(SkillSourceControlRequest),
+    Mcp(McpControlRequest),
     Memory(MemoryControlRequest),
     Hook(HookControlRequest),
     Approval(ApprovalControlRequest),
@@ -233,6 +235,15 @@ pub enum SkillSourceControlRequest {
 }
 
 #[allow(dead_code)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "type", content = "payload", rename_all = "snake_case")]
+pub enum McpControlRequest {
+    QueryStatus,
+    Refresh { server_name: Option<String> },
+    Reconnect { server_name: String },
+}
+
+#[allow(dead_code)]
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "type", content = "payload", rename_all = "snake_case")]
 pub enum MemoryControlRequest {
@@ -307,6 +318,7 @@ pub enum RuntimeEvent {
     Plan(PlanEvent),
     PromptSource(PromptSourceEvent),
     Skill(SkillEvent),
+    Mcp(McpEvent),
     Memory(MemoryEvent),
     Hook(HookEvent),
     Context(ContextEvent),
@@ -421,6 +433,14 @@ pub enum SkillEvent {
 #[allow(dead_code)]
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "type", content = "payload", rename_all = "snake_case")]
+pub enum McpEvent {
+    StatusUpdated { snapshot: McpStatusSnapshot },
+    StatusLoadFailed { message: String },
+}
+
+#[allow(dead_code)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "type", content = "payload", rename_all = "snake_case")]
 pub enum MemoryEvent {
     RecordAdded { memory_id: String },
     SelectionUpdated,
@@ -498,6 +518,12 @@ pub fn agent_event_to_runtime_event(event: AgentEvent) -> RuntimeEvent {
             stream: stream.into(),
             chunk,
         }),
+        AgentEvent::McpStatusUpdated(snapshot) => {
+            RuntimeEvent::Mcp(McpEvent::StatusUpdated { snapshot })
+        }
+        AgentEvent::McpStatusLoadFailed { message } => {
+            RuntimeEvent::Mcp(McpEvent::StatusLoadFailed { message })
+        }
         AgentEvent::TodoUpdated(state) => RuntimeEvent::Todo(TodoEvent::Updated { state }),
     }
 }
@@ -671,6 +697,98 @@ mod tests {
                             ],
                             "updated_at": value["payload"]["payload"]["state"]["updated_at"]
                         }
+                    }
+                }
+            })
+        );
+    }
+
+    #[test]
+    fn mcp_status_update_event_uses_structured_wire_shape() {
+        let value = serde_json::to_value(agent_event_to_runtime_event(
+            AgentEvent::McpStatusUpdated(McpStatusSnapshot { servers: vec![] }),
+        ))
+        .unwrap();
+
+        assert_eq!(
+            value,
+            json!({
+                "type": "mcp",
+                "payload": {
+                    "type": "status_updated",
+                    "payload": {
+                        "snapshot": {
+                            "servers": []
+                        }
+                    }
+                }
+            })
+        );
+    }
+
+    #[test]
+    fn mcp_status_load_failed_event_uses_structured_wire_shape() {
+        let value = serde_json::to_value(agent_event_to_runtime_event(
+            AgentEvent::McpStatusLoadFailed {
+                message: "invalid config".to_string(),
+            },
+        ))
+        .unwrap();
+
+        assert_eq!(
+            value,
+            json!({
+                "type": "mcp",
+                "payload": {
+                    "type": "status_load_failed",
+                    "payload": {
+                        "message": "invalid config"
+                    }
+                }
+            })
+        );
+    }
+
+    #[test]
+    fn mcp_control_requests_use_structured_wire_shape() {
+        let query = RuntimeControlRequest::Mcp(McpControlRequest::QueryStatus);
+        assert_eq!(
+            serde_json::to_value(query).unwrap(),
+            json!({
+                "type": "mcp",
+                "payload": {
+                    "type": "query_status"
+                }
+            })
+        );
+
+        let refresh = RuntimeControlRequest::Mcp(McpControlRequest::Refresh {
+            server_name: Some("docs".to_string()),
+        });
+        assert_eq!(
+            serde_json::to_value(refresh).unwrap(),
+            json!({
+                "type": "mcp",
+                "payload": {
+                    "type": "refresh",
+                    "payload": {
+                        "server_name": "docs"
+                    }
+                }
+            })
+        );
+
+        let reconnect = RuntimeControlRequest::Mcp(McpControlRequest::Reconnect {
+            server_name: "docs".to_string(),
+        });
+        assert_eq!(
+            serde_json::to_value(reconnect).unwrap(),
+            json!({
+                "type": "mcp",
+                "payload": {
+                    "type": "reconnect",
+                    "payload": {
+                        "server_name": "docs"
                     }
                 }
             })

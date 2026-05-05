@@ -178,6 +178,17 @@ large dynamic surfaces should be searched or referenced, not eagerly appended.
 - `/mcp` renders the registry-derived status grouped by scope and source path.
 - `/mcp` must report parse/conflict failures instead of silently ignoring broken
   config.
+- `/mcp` publishes the registry-derived status as a structured runtime event so
+  ACP, Wire, and future appserver subscribers do not need to parse TUI text.
+- `/mcp` publishes a structured `status_load_failed` event when registry loading
+  fails so subscribers can drop stale status.
+- MCP runtime-control requests use the `mcp` request family with
+  `query_status`, `refresh { server_name? }`, and
+  `reconnect { server_name }` variants. These request names are part of the
+  external control-plane contract.
+- MCP status snapshots must carry display-safe targets only. Stdio command
+  targets and HTTP URLs are redacted before entering either TUI text or
+  structured runtime events.
 - MCP tools, resources, prompts, and status changes must later enter the
   runtime control plane as structured events.
 
@@ -193,6 +204,10 @@ large dynamic surfaces should be searched or referenced, not eagerly appended.
 | invalid TOML or JSON | load fails with parse path |
 | `/mcp` with configured servers | grouped status includes scope, source path, transport, state, and tool filters |
 | `/mcp` with no servers | status says no MCP servers are configured |
+| `/mcp` with runtime subscribers | emits an `mcp.status_updated` runtime event with the same snapshot |
+| `/mcp` load failure with runtime subscribers | emits an `mcp.status_load_failed` runtime event |
+| MCP control request serde | locks `query_status`, `refresh`, and `reconnect` wire shapes |
+| MCP server target contains secrets | status snapshot stores only redacted display text |
 
 ## Open Risks
 
@@ -207,3 +222,4 @@ large dynamic surfaces should be searched or referenced, not eagerly appended.
 
 - `docs/journal/2026-05-05-mcp-config-registry.md`
 - `docs/journal/2026-05-05-mcp-status-surface.md`
+- `docs/journal/2026-05-05-mcp-runtime-events.md`
