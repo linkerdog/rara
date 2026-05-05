@@ -249,7 +249,7 @@ impl MemoryStore {
     pub async fn update(&self, id: &str, patch: MemoryRecordPatch) -> Result<MemoryRecord> {
         let normalized_patch = normalize_memory_record_patch(patch)?;
         let updated = self.records.update(id, normalized_patch.clone()).await?;
-        if normalized_patch.content.is_some() {
+        if patch_requires_index_refresh(&normalized_patch) {
             let vector = self.backend.embed(&updated.content).await?;
             self.vdb
                 .upsert_turn(
@@ -662,6 +662,13 @@ fn normalize_memory_record_patch(mut patch: MemoryRecordPatch) -> Result<MemoryR
         patch.thread_id = Some(normalized_optional_id(thread_id));
     }
     Ok(patch)
+}
+
+fn patch_requires_index_refresh(patch: &MemoryRecordPatch) -> bool {
+    patch.content.is_some()
+        || patch.scope.is_some()
+        || patch.session_id.is_some()
+        || patch.thread_id.is_some()
 }
 
 fn apply_memory_record_patch(record: &mut MemoryRecord, patch: MemoryRecordPatch) -> bool {
@@ -1110,6 +1117,49 @@ mod tests {
             .await
             .expect("search");
         assert!(hits.iter().any(|hit| hit.record.id == saved.id));
+    }
+
+    #[tokio::test]
+    async fn memory_store_refreshes_index_metadata_for_scope_only_update() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let backend = Arc::new(MockLlm);
+        let vdb = Arc::new(VectorDB::new(temp.path().to_str().expect("utf8 path")));
+        let store = MemoryStore::new(backend.clone(), vdb.clone());
+
+        let saved = store
+            .insert(NewMemoryRecord::experience(
+                "Scope-only updates must refresh search index metadata.",
+            ))
+            .await
+            .expect("insert memory");
+        store
+            .update(
+                &saved.id,
+                MemoryRecordPatch {
+                    scope: Some(MemoryScope::Workspace),
+                    ..Default::default()
+                },
+            )
+            .await
+            .expect("update scope");
+
+        let metadata_hits = vdb
+            .search_with_metadata(
+                EXPERIENCES_TABLE,
+                backend.embed("Scope-only updates").await.expect("embed"),
+                5,
+            )
+            .await
+            .expect("search metadata");
+        let metadata = metadata_hits
+            .into_iter()
+            .map(|(metadata, _score)| metadata)
+            .find(|metadata| metadata.id.as_deref() == Some(saved.id.as_str()))
+            .expect("updated index metadata");
+        assert_eq!(
+            metadata.session_id,
+            memory_scope_key(&MemoryScope::Workspace)
+        );
     }
 
     #[tokio::test]
