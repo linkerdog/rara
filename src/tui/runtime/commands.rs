@@ -9,6 +9,7 @@ use super::tasks::{start_compact_task, start_rebuild_task, start_review_task};
 use crate::agent::{Agent, AgentEvent, AgentExecutionMode, BashApprovalMode};
 use crate::mcp_status::{McpStatusSnapshot, format_mcp_status};
 use crate::oauth::OAuthManager;
+use crate::runtime_control::RuntimeProvenance;
 
 pub(super) async fn execute_local_command(
     command: LocalCommand,
@@ -232,9 +233,12 @@ fn handle_mcp_command(app: &mut TuiApp) {
 fn publish_mcp_status_load_failed_event(app: &TuiApp, message: &str) {
     if let Some(bus) = app.event_bus.as_ref() {
         if bus.receiver_count() > 0 {
-            bus.send(AgentEvent::McpStatusLoadFailed {
-                message: message.to_string(),
-            });
+            bus.send_with_provenance(
+                AgentEvent::McpStatusLoadFailed {
+                    message: message.to_string(),
+                },
+                RuntimeProvenance::local_tui(app.snapshot.session_id.clone()),
+            );
         }
     }
 }
@@ -242,7 +246,10 @@ fn publish_mcp_status_load_failed_event(app: &TuiApp, message: &str) {
 fn publish_mcp_status_event(app: &TuiApp, snapshot: &McpStatusSnapshot) {
     if let Some(bus) = app.event_bus.as_ref() {
         if bus.receiver_count() > 0 {
-            bus.send(AgentEvent::McpStatusUpdated(snapshot.clone()));
+            bus.send_with_provenance(
+                AgentEvent::McpStatusUpdated(snapshot.clone()),
+                RuntimeProvenance::local_tui(app.snapshot.session_id.clone()),
+            );
         }
     }
 }

@@ -59,6 +59,17 @@ impl RuntimeProvenance {
         }
     }
 
+    pub fn runtime(session_id: Option<String>) -> Self {
+        Self {
+            controller: RuntimeControllerKind::Runtime,
+            adapter: None,
+            session_id,
+            source_id: None,
+            trust: RuntimeSourceTrust::Trusted,
+            authorship: RuntimeSourceAuthorship::Runtime,
+        }
+    }
+
     pub fn protocol(
         controller: RuntimeControllerKind,
         adapter: impl Into<String>,
