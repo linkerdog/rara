@@ -6,7 +6,7 @@ use super::super::state::{
     TuiApp,
 };
 use super::tasks::{start_compact_task, start_rebuild_task, start_review_task};
-use crate::agent::{Agent, AgentExecutionMode, BashApprovalMode};
+use crate::agent::{Agent, AgentEvent, AgentExecutionMode, BashApprovalMode};
 use crate::mcp_status::{McpStatusSnapshot, format_mcp_status};
 use crate::oauth::OAuthManager;
 
@@ -214,15 +214,35 @@ fn handle_mcp_command(app: &mut TuiApp) {
     {
         Ok(registry) => {
             let snapshot = McpStatusSnapshot::from_registry(&registry);
+            publish_mcp_status_event(app, &snapshot);
             app.push_entry("System", format_mcp_status(&snapshot));
             app.notice = Some("MCP status updated.".into());
         }
         Err(err) => {
+            publish_mcp_status_load_failed_event(app, &format!("{err:#}"));
             app.push_entry(
                 "System",
                 format!("MCP Servers\n\nFailed to load MCP configuration:\n{err:#}"),
             );
             app.notice = Some("MCP status failed.".into());
+        }
+    }
+}
+
+fn publish_mcp_status_load_failed_event(app: &TuiApp, message: &str) {
+    if let Some(bus) = app.event_bus.as_ref() {
+        if bus.receiver_count() > 0 {
+            bus.send(AgentEvent::McpStatusLoadFailed {
+                message: message.to_string(),
+            });
+        }
+    }
+}
+
+fn publish_mcp_status_event(app: &TuiApp, snapshot: &McpStatusSnapshot) {
+    if let Some(bus) = app.event_bus.as_ref() {
+        if bus.receiver_count() > 0 {
+            bus.send(AgentEvent::McpStatusUpdated(snapshot.clone()));
         }
     }
 }
@@ -321,8 +341,13 @@ fn apply_permission_mode(app: &mut TuiApp, agent_slot: &mut Option<Agent>, mode:
 #[cfg(test)]
 mod tests {
     use std::fs;
+    use std::sync::Arc;
 
-    use super::mcp_project_root_from_cwd;
+    use super::{handle_mcp_command, mcp_project_root_from_cwd};
+    use crate::agent::AgentEvent;
+    use crate::config::ConfigManager;
+    use crate::runtime_event_bus::RuntimeEventBus;
+    use crate::tui::state::TuiApp;
 
     #[test]
     fn mcp_project_root_walks_up_to_project_config() {
@@ -342,5 +367,63 @@ mod tests {
         fs::create_dir_all(&cwd).expect("cwd");
 
         assert_eq!(mcp_project_root_from_cwd(cwd.clone()), cwd);
+    }
+
+    #[test]
+    fn mcp_command_publishes_structured_status_event() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        fs::write(
+            dir.path().join("config.toml"),
+            r#"
+[mcp_servers.docs]
+command = "docs-server"
+"#,
+        )
+        .expect("user config");
+        let project = dir.path().join("project");
+        fs::create_dir_all(&project).expect("project");
+
+        let mut app = TuiApp::new(ConfigManager {
+            path: dir.path().join("config.json"),
+        })
+        .expect("app");
+        app.snapshot.cwd = project.to_string_lossy().to_string();
+        let bus = Arc::new(RuntimeEventBus::new(8));
+        let mut receiver = bus.subscribe();
+        app.event_bus = Some(bus);
+
+        handle_mcp_command(&mut app);
+
+        let event = receiver.try_recv().expect("mcp status event");
+        let AgentEvent::McpStatusUpdated(snapshot) = event else {
+            panic!("expected mcp status event");
+        };
+        assert_eq!(snapshot.servers.len(), 1);
+        assert_eq!(snapshot.servers[0].name, "docs");
+    }
+
+    #[test]
+    fn mcp_command_publishes_structured_load_failure_event() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        fs::write(dir.path().join("config.toml"), "[mcp_servers.docs\n").expect("user config");
+        let project = dir.path().join("project");
+        fs::create_dir_all(&project).expect("project");
+
+        let mut app = TuiApp::new(ConfigManager {
+            path: dir.path().join("config.json"),
+        })
+        .expect("app");
+        app.snapshot.cwd = project.to_string_lossy().to_string();
+        let bus = Arc::new(RuntimeEventBus::new(8));
+        let mut receiver = bus.subscribe();
+        app.event_bus = Some(bus);
+
+        handle_mcp_command(&mut app);
+
+        let event = receiver.try_recv().expect("mcp failure event");
+        let AgentEvent::McpStatusLoadFailed { message } = event else {
+            panic!("expected mcp load failure event");
+        };
+        assert!(message.contains("config.toml"));
     }
 }

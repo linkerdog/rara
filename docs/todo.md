@@ -21,6 +21,7 @@ Active backlog only. Keep this file small and current.
 - [ ] Add protocol subscriber plumbing on top of the structured `AgentEvent` runtime-control bridge.
 - [x] Add MCP connection manager status model (`configured`, `connecting`, `connected`, `refreshing`, `reconnecting`, `failed`, `disabled`) from `McpRegistry`.
 - [x] Add `/mcp` status surface grouped by scope and source path.
+- [x] Publish `/mcp` status snapshots as structured runtime events for future ACP/Wire/appserver subscribers.
 - [ ] Add dynamic MCP tool/resource/prompt refresh through structured runtime events.
 - [ ] Add bounded MCP auto-reconnect with manual reconnect command.
 - [ ] Add MCP resource references as source objects visible in `/context`.

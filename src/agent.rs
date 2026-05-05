@@ -16,6 +16,7 @@ use uuid::Uuid;
 use crate::context::RetrievedMemoryCandidate;
 use crate::control_tokens::scrub_internal_control_tokens;
 use crate::llm::{ContentBlock, LlmBackend, LlmStreamEvent, LlmTurnMetadata};
+use crate::mcp_status::McpStatusSnapshot;
 use crate::memory_store::MemoryStore;
 use crate::prompt::{self, PromptMode, PromptRuntimeConfig};
 use crate::redaction::redact_secrets;
@@ -95,6 +96,10 @@ pub enum AgentEvent {
         name: String,
         stream: ToolOutputStream,
         chunk: String,
+    },
+    McpStatusUpdated(McpStatusSnapshot),
+    McpStatusLoadFailed {
+        message: String,
     },
     TodoUpdated(TodoState),
 }
