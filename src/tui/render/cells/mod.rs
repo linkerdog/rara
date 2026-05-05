@@ -187,8 +187,8 @@ pub(crate) use self::committed_turn::CommittedTurnCell;
 #[cfg(test)]
 mod helper_tests {
     use super::{
-        compact_live_response_message, compact_live_response_source, parse_render_plan_block,
-        split_progress_sentences,
+        plan::compact_live_response_message, plan::compact_live_response_source,
+        plan::parse_render_plan_block, plan::split_progress_sentences,
     };
 
     #[test]
