@@ -450,6 +450,7 @@ pub(super) fn start_deepseek_model_list_task(app: &mut TuiApp) {
 
 pub(super) fn request_running_task_cancellation(app: &mut TuiApp) {
     let Some(task) = app.running_task.as_mut() else {
+        app.notice = Some("No running task to cancel.".into());
         return;
     };
     if !matches!(task.kind, TaskKind::Query) {
