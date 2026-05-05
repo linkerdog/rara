@@ -16,8 +16,8 @@ use super::runtime::{
 };
 use super::session_restore::restore_thread_by_id;
 use super::state::{
-    ActivePendingInteractionKind, OpenAiModelPickerAction, Overlay, PROVIDER_FAMILIES,
-    PermissionMode, ProviderFamily, TuiApp,
+    ActivePendingInteractionKind, ListPickerKind, OpenAiModelPickerAction, Overlay,
+    PROVIDER_FAMILIES, PermissionMode, ProviderFamily, TuiApp,
 };
 use super::submit::{apply_openai_model_picker_action, handle_submit};
 use super::terminal_ui::is_ssh_session;
@@ -583,6 +583,21 @@ pub(crate) async fn dispatch_event(
                     let label = mode.label();
                     app.push_notice(format!("Permission mode: {label}."));
                     app.close_overlay();
+                }
+            }
+            Some(Overlay::ListPicker(kind)) => {
+                if app.is_busy() {
+                    app.push_notice("A task is already running. Wait for it to finish.");
+                } else {
+                    match kind {
+                        ListPickerKind::Provider => {
+                            open_provider_family_overlay(app, oauth_manager.as_ref()).await?;
+                        }
+                        _ => {
+                            app.push_notice("This picker is not yet wired. Closing.");
+                            app.close_overlay();
+                        }
+                    }
                 }
             }
             _ => {}
