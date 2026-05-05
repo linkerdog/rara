@@ -2,8 +2,8 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use super::super::state::{
-    HelpTab, LocalCommand, LocalCommandKind, Overlay, PermissionMode, RuntimePhase, StatusTab,
-    TuiApp, GoalStatus, RalphGoal,
+    GoalStatus, HelpTab, LocalCommand, LocalCommandKind, Overlay, PermissionMode, RalphGoal,
+    RuntimePhase, StatusTab, TuiApp,
 };
 use super::tasks::{start_compact_task, start_rebuild_task, start_review_task};
 use crate::agent::{Agent, AgentEvent, AgentExecutionMode, BashApprovalMode};
@@ -240,7 +240,8 @@ pub(super) async fn execute_local_command(
                 objective => {
                     // /goal <objective> — start a new goal
                     let mut budget: Option<u32> = None;
-                    let objective_clean = if let Some((budget_str, obj)) = objective.split_once(' ') {
+                    let objective_clean = if let Some((budget_str, obj)) = objective.split_once(' ')
+                    {
                         if let Ok(b) = budget_str.trim().parse::<u32>() {
                             budget = Some(b);
                             obj

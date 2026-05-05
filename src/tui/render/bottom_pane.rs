@@ -97,18 +97,13 @@ fn render_activity_bar(f: &mut Frame, app: &TuiApp, area: Rect) {
         let goal_detail = if let Some(budget) = goal.token_budget {
             format!(
                 "t{}/{} · {}tk",
-                goal.turns_completed,
-                goal.tokens_used,
-                budget
+                goal.turns_completed, goal.tokens_used, budget
             )
         } else {
             format!("t{} · {}tk", goal.turns_completed, goal.tokens_used)
         };
         spans.push(Span::raw(" "));
-        spans.push(Span::styled(
-            goal_detail,
-            Style::default().fg(TEXT_MUTED),
-        ));
+        spans.push(Span::styled(goal_detail, Style::default().fg(TEXT_MUTED)));
     }
     if !detail.is_empty() {
         spans.push(Span::raw("  "));

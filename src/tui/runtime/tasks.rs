@@ -17,8 +17,8 @@ use secrecy::ExposeSecret;
 use tokio::sync::mpsc;
 
 use super::super::state::{
-    OAuthLoginMode, RunningTask, RuntimePhase, TaskCompletion, TaskKind, TuiApp, TuiEvent,
-    GoalStatus,
+    GoalStatus, OAuthLoginMode, RunningTask, RuntimePhase, TaskCompletion, TaskKind, TuiApp,
+    TuiEvent,
 };
 use super::events::{apply_tui_event, convert_agent_event, format_error_chain};
 use crate::agent::{Agent, AgentOutputMode, BashApprovalDecision};
@@ -555,7 +555,10 @@ pub(super) async fn finish_running_task_if_ready(
                         .is_some_and(|a| a.last_turn_had_tool_calls());
                     let should_auto_continue_goal = !finished_plan_turn
                         && agent_had_tools
-                        && app.goal.as_ref().is_some_and(|g| g.status == GoalStatus::Pursuing)
+                        && app
+                            .goal
+                            .as_ref()
+                            .is_some_and(|g| g.status == GoalStatus::Pursuing)
                         && !app.has_pending_plan_approval();
                     if should_auto_continue_goal {
                         if let Some(mut agent) = agent_slot.take() {
@@ -564,13 +567,17 @@ pub(super) async fn finish_running_task_if_ready(
                                 let goal = app.goal.as_mut().expect("goal must exist");
                                 goal.tokens_used += tokens_this_turn;
                                 goal.turns_completed += 1;
-                                let exhausted = goal
-                                    .token_budget
-                                    .is_some_and(|b| goal.tokens_used >= b);
+                                let exhausted =
+                                    goal.token_budget.is_some_and(|b| goal.tokens_used >= b);
                                 if exhausted {
                                     goal.status = GoalStatus::BudgetLimited;
                                 }
-                                let (obj, tc, tu, tb) = (goal.objective.clone(), goal.turns_completed, goal.tokens_used, goal.token_budget);
+                                let (obj, tc, tu, tb) = (
+                                    goal.objective.clone(),
+                                    goal.turns_completed,
+                                    goal.tokens_used,
+                                    goal.token_budget,
+                                );
                                 (obj, tc, tu, tb, exhausted)
                             };
                             // Sync goal_handle after mutable borrow on app.goal ends.

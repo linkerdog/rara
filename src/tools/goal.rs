@@ -171,9 +171,10 @@ impl Tool for UpdateGoalTool {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::Arc;
+
     use super::*;
     use crate::tool::Tool;
-    use std::sync::Arc;
 
     fn goal_handle() -> GoalHandle {
         Arc::new(std::sync::RwLock::new(None))
@@ -182,7 +183,13 @@ mod tests {
     #[test]
     fn goal_tools_expose_correct_names() {
         let store = goal_handle();
-        assert_eq!(GetGoalTool { store: store.clone() }.name(), GET_GOAL_TOOL_NAME);
+        assert_eq!(
+            GetGoalTool {
+                store: store.clone()
+            }
+            .name(),
+            GET_GOAL_TOOL_NAME
+        );
         assert_eq!(
             CreateGoalTool {
                 store: store.clone()
