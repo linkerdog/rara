@@ -1072,15 +1072,17 @@ The current runtime has three direct sub-agent tools:
 It accepts multiple task contracts and runs them concurrently inside one tool
 call, then returns one ordered `team_results` array to the parent. The current
 runtime accepts at most 8 tasks and runs at most 4 sub-agents at once. This
-matches the current foreground delegation boundary, but it is not yet a durable
-background task system.
+matches the foreground delegation boundary.
 
 Foreground sub-agent invocations now generate an `agent_id`, persist completed
 child history as a parent-scoped sidechain transcript, append a `SpawnAgent`
 rollout event with parent/child edge metadata, and return only a structured
-delegation result to the parent context. The next alignment step is to index
-those edges for query/resume and add background resume/stop semantics on top of
-the same sidechain contract.
+delegation result to the parent context. Background sub-agent invocations use
+the same contract but return immediately with `status = running`; the live
+runtime keeps an in-process task registry for `subagent_list`,
+`subagent_resume`, and `subagent_stop`. These tools expose only edge/status
+metadata and final summaries to the parent, not the child sidechain transcript.
+Cross-process restart/reattach remains a separate durable task-registry layer.
 
 ### Required Objects
 

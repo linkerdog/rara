@@ -1,5 +1,5 @@
 use std::collections::HashMap;
-use std::sync::{Arc, atomic::AtomicBool};
+use std::sync::{Arc, OnceLock, atomic::AtomicBool};
 
 use crate::llm::LlmBackend;
 use crate::prompt::PromptRuntimeConfig;
@@ -7,7 +7,10 @@ use crate::sandbox::SandboxManager;
 use crate::session::SessionManager;
 use crate::skill::SkillManager;
 use crate::tool::ToolManager;
-use crate::tools::agent::{AgentTool, ExploreAgentTool, PlanAgentTool, TeamCreateTool};
+use crate::tools::agent::{
+    AgentTool, BackgroundSubAgentStore, ExploreAgentTool, PlanAgentTool, SubAgentListTool,
+    SubAgentResumeTool, SubAgentStopTool, TeamCreateTool,
+};
 use crate::tools::bash::{
     BackgroundTaskListTool, BackgroundTaskStatusTool, BackgroundTaskStopTool, BackgroundTaskStore,
     BashTool,
@@ -33,6 +36,8 @@ use crate::tui::state::GoalHandle;
 use crate::vectordb::VectorDB;
 use crate::workspace::WorkspaceMemory;
 
+static BACKGROUND_SUBAGENTS: OnceLock<Arc<BackgroundSubAgentStore>> = OnceLock::new();
+
 pub(super) fn create_full_tool_manager(
     backend: Arc<dyn LlmBackend>,
     vdb: Arc<VectorDB>,
@@ -54,6 +59,9 @@ pub(super) fn create_full_tool_manager(
     let pty_sessions = Arc::new(
         PtySessionStore::new(workspace.rara_dir.join("pty-sessions")).expect("pty session store"),
     );
+    let background_subagents = BACKGROUND_SUBAGENTS
+        .get_or_init(|| Arc::new(BackgroundSubAgentStore::default()))
+        .clone();
     let file_read_state = Arc::new(FileReadState::default());
 
     tm.register(Box::new(BashTool {
@@ -133,6 +141,7 @@ pub(super) fn create_full_tool_manager(
         session_manager: session_manager.clone(),
         workspace: workspace.clone(),
         prompt_config: prompt_config.clone(),
+        background_subagents: background_subagents.clone(),
     }));
     tm.register(Box::new(ExploreAgentTool {
         backend: backend.clone(),
@@ -140,6 +149,7 @@ pub(super) fn create_full_tool_manager(
         session_manager: session_manager.clone(),
         workspace: workspace.clone(),
         prompt_config: prompt_config.clone(),
+        background_subagents: background_subagents.clone(),
     }));
     tm.register(Box::new(PlanAgentTool {
         backend: backend.clone(),
@@ -147,6 +157,7 @@ pub(super) fn create_full_tool_manager(
         session_manager: session_manager.clone(),
         workspace: workspace.clone(),
         prompt_config: prompt_config.clone(),
+        background_subagents: background_subagents.clone(),
     }));
     tm.register(Box::new(TeamCreateTool {
         backend,
@@ -154,6 +165,15 @@ pub(super) fn create_full_tool_manager(
         session_manager,
         workspace,
         prompt_config,
+    }));
+    tm.register(Box::new(SubAgentResumeTool {
+        background_subagents: background_subagents.clone(),
+    }));
+    tm.register(Box::new(SubAgentListTool {
+        background_subagents: background_subagents.clone(),
+    }));
+    tm.register(Box::new(SubAgentStopTool {
+        background_subagents,
     }));
     tm.register(Box::new(GetGoalTool {
         store: goal_handle.clone(),

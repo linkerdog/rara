@@ -171,6 +171,9 @@ This mirrors Codex's fork filtering while keeping Claude-style sidechain files.
 | Project model-visible messages | Only non-sidechain `Message` entries are returned. |
 | Write sub-agent sidechain | File is under `subagents/`; entries carry `is_sidechain = true`. |
 | Record sub-agent spawn edge | Parent rollout events include one `spawn_agent` edge summary with child identity. |
+| Run background sub-agent | Tool result returns `agent_id`, `session_id`, and `status = running` without inlining the child transcript. |
+| Resume background sub-agent | `subagent_resume` returns the live status or final summary without loading the sidechain into parent context. |
+| Stop background sub-agent | `subagent_stop` marks an in-process running sub-agent as `cancelled` and requests model cancellation. |
 | Legacy history backfill | `history.json` and `transcript.jsonl` are both backfilled. |
 | Future resume migration | Resume can switch from `history.json` to transcript projection without reading TUI artifacts. |
 
@@ -184,14 +187,17 @@ This mirrors Codex's fork filtering while keeping Claude-style sidechain files.
   still return structured results without writing detached sidechain files.
 - Sidechain persistence failures are reported through `persistence_error`; they
   do not abort an otherwise completed foreground sub-agent call.
-- `StateDb` indexes parent/child spawn edges from rollout events, but live
-  background resume/stop semantics still need to consume that index.
+- `StateDb` indexes parent/child spawn edges from rollout events. In-process
+  background sub-agent control now exposes `subagent_list`, `subagent_resume`,
+  and `subagent_stop`; cross-process restart/reattach still needs a durable
+  task registry above the sidechain transcript contract.
 - Context compaction must preserve transcript boundaries and avoid injecting
   summaries before stable prompt-prefix sources.
-- Background sub-agent execution, resume, and stop semantics remain future work.
+- Background sub-agent execution is still local to the active RARA process.
 
 ## Source Journals
 
 - 2026-05-04-session-transcript-foundation.md
 - 2026-05-05-subagent-sidechain-transcripts.md
 - 2026-05-05-subagent-spawn-edge-index.md
+- 2026-05-05-subagent-background-control.md
