@@ -883,6 +883,7 @@ pub fn model_help_text(app: &TuiApp) -> String {
                             ProviderFamily::OpenAiCompatible => (idx + 1).to_string(),
                             ProviderFamily::CandleLocal => (idx + 1).to_string(),
                             ProviderFamily::Ollama => model.to_string(),
+                            ProviderFamily::Bedrock => model.to_string(),
                         };
                         format!("{marker} {shortcut}. {label} ({provider}/{model})")
                     })

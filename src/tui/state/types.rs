@@ -66,6 +66,7 @@ pub enum ProviderFamily {
     OpenAiCompatible,
     CandleLocal,
     Ollama,
+    Bedrock,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -320,7 +321,7 @@ pub struct RunningTask {
     pub cancellation_requested: bool,
 }
 
-pub const PROVIDER_FAMILIES: [(ProviderFamily, &str, &str); 5] = [
+pub const PROVIDER_FAMILIES: [(ProviderFamily, &str, &str); 6] = [
     (
         ProviderFamily::Codex,
         "Codex",
@@ -345,6 +346,11 @@ pub const PROVIDER_FAMILIES: [(ProviderFamily, &str, &str); 5] = [
         ProviderFamily::Ollama,
         "Ollama",
         "Use an external Ollama server and choose a local tag.",
+    ),
+    (
+        ProviderFamily::Bedrock,
+        "Bedrock",
+        "Use AWS Bedrock with the Converse API. Credentials from the default AWS chain.",
     ),
 ];
 

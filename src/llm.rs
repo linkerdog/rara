@@ -1,3 +1,4 @@
+mod bedrock;
 mod codex_tools_compat;
 pub(crate) mod deepseek_dsml;
 mod ollama;
@@ -7,6 +8,7 @@ mod shared;
 mod tests;
 mod types;
 
+pub use self::bedrock::BedrockBackend;
 pub use self::ollama::OllamaBackend;
 pub use self::openai_compatible::{
     CodexBackend, GeminiBackend, OpenAiCompatibleBackend, fetch_model_context_window,
