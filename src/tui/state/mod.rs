@@ -210,6 +210,7 @@ impl TuiApp {
             openai_profile_picker_idx: 0,
             reasoning_effort_picker_idx: 0,
             auth_mode_idx: 0,
+            permission_picker_idx: 0,
             command_palette_idx: 0,
             base_url_input: String::new(),
             base_url_cursor_offset: None,

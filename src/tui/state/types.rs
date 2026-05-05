@@ -57,6 +57,7 @@ pub enum Overlay {
     OpenAiProfileLabelEditor,
     ReasoningEffortPicker,
     SkillsPicker,
+    PermissionPicker,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -542,6 +543,7 @@ pub struct TuiApp {
     pub openai_profile_picker_idx: usize,
     pub reasoning_effort_picker_idx: usize,
     pub auth_mode_idx: usize,
+    pub permission_picker_idx: usize,
     pub command_palette_idx: usize,
     pub base_url_input: String,
     pub base_url_cursor_offset: Option<usize>,
