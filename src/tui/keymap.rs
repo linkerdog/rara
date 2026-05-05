@@ -56,26 +56,6 @@ pub(crate) fn map_key_to_event(key: KeyEvent, app: &TuiApp) -> AppEvent {
             KeyCode::PageDown => AppEvent::ScrollContext(5),
             _ => AppEvent::Noop,
         },
-        Some(Overlay::ProviderPicker) => match code {
-            KeyCode::Esc => AppEvent::CloseOverlay,
-            KeyCode::Up | KeyCode::Char('k') => AppEvent::MoveProviderSelection(-1),
-            KeyCode::Down | KeyCode::Char('j') => AppEvent::MoveProviderSelection(1),
-            KeyCode::Char(ch) if ('1'..='9').contains(&ch) => {
-                AppEvent::SetProviderSelection(ch as usize - '1' as usize)
-            }
-            KeyCode::Enter => AppEvent::ApplyOverlaySelection,
-            _ => AppEvent::Noop,
-        },
-        Some(Overlay::ResumePicker) => match code {
-            KeyCode::Esc => AppEvent::CloseOverlay,
-            KeyCode::Up | KeyCode::Char('k') => AppEvent::MoveResumeSelection(-1),
-            KeyCode::Down | KeyCode::Char('j') => AppEvent::MoveResumeSelection(1),
-            KeyCode::Char('1') => AppEvent::SetResumeSelection(0),
-            KeyCode::Char('2') => AppEvent::SetResumeSelection(1),
-            KeyCode::Char('3') => AppEvent::SetResumeSelection(2),
-            KeyCode::Enter => AppEvent::ApplyOverlaySelection,
-            _ => AppEvent::Noop,
-        },
         Some(Overlay::SkillsPicker) => match code {
             KeyCode::Esc => AppEvent::CloseOverlay,
             KeyCode::Up | KeyCode::Char('k') => AppEvent::MoveSkillsSelection(-1),
@@ -84,102 +64,15 @@ pub(crate) fn map_key_to_event(key: KeyEvent, app: &TuiApp) -> AppEvent {
             KeyCode::Enter => AppEvent::CloseOverlay,
             _ => AppEvent::Noop,
         },
-        Some(Overlay::ModelPicker) => match code {
+        Some(Overlay::ListPicker(kind)) => super::list_picker::list_picker_key_event(kind, code),
+        Some(Overlay::PermissionPicker) => match code {
             KeyCode::Esc => AppEvent::CloseOverlay,
-            KeyCode::Up | KeyCode::Char('k') => AppEvent::MoveModelSelection(-1),
-            KeyCode::Down | KeyCode::Char('j') => AppEvent::MoveModelSelection(1),
-            KeyCode::Char(' ')
-                if matches!(
-                    app.selected_provider_family(),
-                    ProviderFamily::OpenAiCompatible
-                ) =>
-            {
-                AppEvent::ApplyOverlaySelection
-            }
-            KeyCode::Char('1') => AppEvent::SetModelSelection(0),
-            KeyCode::Char('2') => AppEvent::SetModelSelection(1),
-            KeyCode::Char('3') => AppEvent::SetModelSelection(2),
-            KeyCode::Char('4') => AppEvent::SetModelSelection(3),
-            KeyCode::Char('5') => AppEvent::SetModelSelection(4),
-            KeyCode::Char('6') => AppEvent::SetModelSelection(5),
-            KeyCode::Char('7') => AppEvent::SetModelSelection(6),
-            KeyCode::Char('8') => AppEvent::SetModelSelection(7),
-            KeyCode::Char('9') => AppEvent::SetModelSelection(8),
-            KeyCode::Char('b') if app.selected_provider_family() == ProviderFamily::Ollama => {
-                AppEvent::OpenOverlay(Overlay::BaseUrlEditor)
-            }
-            KeyCode::Char('r' | 'R')
-                if app.selected_provider_family() == ProviderFamily::DeepSeek =>
-            {
-                AppEvent::RefreshDeepSeekModels
-            }
-            KeyCode::Char('a' | 'A')
-                if app.selected_provider_family() == ProviderFamily::DeepSeek =>
-            {
-                AppEvent::OpenOverlay(Overlay::ApiKeyEditor)
-            }
-            KeyCode::Char('e')
-                if matches!(
-                    app.selected_provider_family(),
-                    ProviderFamily::OpenAiCompatible
-                ) =>
-            {
-                AppEvent::EditOpenAiProfile
-            }
-            KeyCode::Char('c')
-                if matches!(
-                    app.selected_provider_family(),
-                    ProviderFamily::OpenAiCompatible
-                ) =>
-            {
-                AppEvent::CreateOpenAiProfile
-            }
-            KeyCode::Char('d')
-                if matches!(
-                    app.selected_provider_family(),
-                    ProviderFamily::OpenAiCompatible
-                ) =>
-            {
-                AppEvent::DeleteOpenAiProfile
-            }
-            KeyCode::Enter => AppEvent::ApplyOverlaySelection,
-            _ => AppEvent::Noop,
-        },
-        Some(Overlay::OpenAiEndpointKindPicker) => match code {
-            KeyCode::Esc => AppEvent::CloseOverlay,
-            KeyCode::Up | KeyCode::Char('k') => AppEvent::MoveModelSelection(-1),
-            KeyCode::Down | KeyCode::Char('j') => AppEvent::MoveModelSelection(1),
-            KeyCode::Char('1') => AppEvent::SetModelSelection(0),
-            KeyCode::Char('2') => AppEvent::SetModelSelection(1),
-            KeyCode::Char('3') => AppEvent::SetModelSelection(2),
-            KeyCode::Char('4') => AppEvent::SetModelSelection(3),
-            KeyCode::Enter => AppEvent::ApplyOverlaySelection,
-            _ => AppEvent::Noop,
-        },
-        Some(Overlay::OpenAiProfilePicker) => match code {
-            KeyCode::Esc => AppEvent::CloseOverlay,
-            KeyCode::Up | KeyCode::Char('k') => AppEvent::MoveOpenAiProfileSelection(-1),
-            KeyCode::Down | KeyCode::Char('j') => AppEvent::MoveOpenAiProfileSelection(1),
-            KeyCode::Char('1') => AppEvent::SetOpenAiProfileSelection(0),
-            KeyCode::Char('2') => AppEvent::SetOpenAiProfileSelection(1),
-            KeyCode::Char('3') => AppEvent::SetOpenAiProfileSelection(2),
-            KeyCode::Char('4') => AppEvent::SetOpenAiProfileSelection(3),
-            KeyCode::Char('5') => AppEvent::SetOpenAiProfileSelection(4),
-            KeyCode::Char('6') => AppEvent::SetOpenAiProfileSelection(5),
-            KeyCode::Char('7') => AppEvent::SetOpenAiProfileSelection(6),
-            KeyCode::Char('8') => AppEvent::SetOpenAiProfileSelection(7),
-            KeyCode::Char('9') => AppEvent::SetOpenAiProfileSelection(8),
-            KeyCode::Enter => AppEvent::ApplyOverlaySelection,
-            _ => AppEvent::Noop,
-        },
-        Some(Overlay::AuthModePicker) => match code {
-            KeyCode::Esc => AppEvent::CloseOverlay,
-            KeyCode::Up | KeyCode::Char('k') => AppEvent::MoveAuthModeSelection(-1),
-            KeyCode::Down | KeyCode::Char('j') => AppEvent::MoveAuthModeSelection(1),
-            KeyCode::Char('1') => AppEvent::SetAuthModeSelection(0),
-            KeyCode::Char('2') => AppEvent::SetAuthModeSelection(1),
-            KeyCode::Char('3') => AppEvent::SetAuthModeSelection(2),
-            KeyCode::Char('4') => AppEvent::SetAuthModeSelection(3),
+            KeyCode::Up | KeyCode::Char('k') => AppEvent::MovePermissionSelection(-1),
+            KeyCode::Down | KeyCode::Char('j') => AppEvent::MovePermissionSelection(1),
+            KeyCode::Char('1') => AppEvent::SetPermissionSelection(0),
+            KeyCode::Char('2') => AppEvent::SetPermissionSelection(1),
+            KeyCode::Char('3') => AppEvent::SetPermissionSelection(2),
+            KeyCode::Char('4') => AppEvent::SetPermissionSelection(3),
             KeyCode::Enter => AppEvent::ApplyOverlaySelection,
             _ => AppEvent::Noop,
         },
@@ -231,32 +124,6 @@ pub(crate) fn map_key_to_event(key: KeyEvent, app: &TuiApp) -> AppEvent {
             KeyCode::Char(c) => AppEvent::InputChar(c),
             _ => AppEvent::Noop,
         },
-        Some(Overlay::ReasoningEffortPicker) => match code {
-            KeyCode::Esc => AppEvent::CloseOverlay,
-            KeyCode::Up | KeyCode::Char('k') => AppEvent::MoveReasoningEffortSelection(-1),
-            KeyCode::Down | KeyCode::Char('j') => AppEvent::MoveReasoningEffortSelection(1),
-            KeyCode::Char('1') => AppEvent::SetReasoningEffortSelection(0),
-            KeyCode::Char('2') => AppEvent::SetReasoningEffortSelection(1),
-            KeyCode::Char('3') => AppEvent::SetReasoningEffortSelection(2),
-            KeyCode::Char('4') => AppEvent::SetReasoningEffortSelection(3),
-            KeyCode::Char('5') => AppEvent::SetReasoningEffortSelection(4),
-            KeyCode::Enter => AppEvent::ApplyOverlaySelection,
-            _ => AppEvent::Noop,
-        },
-        Some(Overlay::ListPicker(kind)) => super::list_picker::list_picker_key_event(kind, code),
-        Some(Overlay::ListPicker(kind)) => super::list_picker::list_picker_key_event(kind, code),
-        Some(Overlay::PermissionPicker) => match code {
-            KeyCode::Esc => AppEvent::CloseOverlay,
-            KeyCode::Up | KeyCode::Char('k') => AppEvent::MovePermissionSelection(-1),
-            KeyCode::Down | KeyCode::Char('j') => AppEvent::MovePermissionSelection(1),
-            KeyCode::Char('1') => AppEvent::SetPermissionSelection(0),
-            KeyCode::Char('2') => AppEvent::SetPermissionSelection(1),
-            KeyCode::Char('3') => AppEvent::SetPermissionSelection(2),
-            KeyCode::Char('4') => AppEvent::SetPermissionSelection(3),
-            KeyCode::Enter => AppEvent::ApplyOverlaySelection,
-            _ => AppEvent::Noop,
-        },
-
         None => {
             if app.input.is_empty()
                 && let Some(index) = pending_shortcut_index(code, app)
