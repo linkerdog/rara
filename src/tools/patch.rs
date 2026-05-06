@@ -418,12 +418,7 @@ fn apply_update_chunks(
     replacements.sort_by_key(|(pos, _, _)| *pos);
     for (pos, old_len, new_lines) in replacements.into_iter().rev() {
         let end = pos + old_len;
-        // Re-verify that the target slice still matches (defense against
-        // overlapping hunks or model errors).
-        let replaced: Vec<String> = output[pos..end].to_vec();
-        output.splice(pos..end, new_lines.iter().cloned());
-        // Best-effort: drop replaced lines to free memory.
-        drop(replaced);
+        output.splice(pos..end, new_lines);
     }
 
     Ok(join_lines(&output))
@@ -495,11 +490,12 @@ fn seek_sequence(lines: &[String], pattern: &[String], start: usize, eof: bool) 
     }
 
     // 4. Unicode-normalised (fancy punctuation → ASCII, mirroring git apply)
+    let npattern: Vec<String> = pattern.iter().map(|s| normalise_unicode(s)).collect();
     for i in search_start..=lines.len().saturating_sub(pattern.len()) {
         if lines[i..i + pattern.len()]
             .iter()
-            .zip(pattern)
-            .all(|(a, b)| normalise_unicode(a) == normalise_unicode(b))
+            .zip(&npattern)
+            .all(|(a, b)| normalise_unicode(a) == *b)
         {
             return Some(i);
         }
