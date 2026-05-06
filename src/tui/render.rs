@@ -521,10 +521,13 @@ fn user_message_lines(message: &str, max_lines: usize) -> Vec<Line<'static>> {
     let message = crate::tui::display_sanitize::sanitize_display_text(message);
     let message = message.as_str();
     let body_max = max_lines.saturating_sub(1);
-    let header = Line::from(Span::styled(
-        "▌ You",
-        Style::default().fg(ROLE_USER).add_modifier(Modifier::BOLD),
-    ));
+    let header = Line::from(vec![
+        Span::styled("▌", Style::default().fg(ROLE_USER)),
+        Span::styled(
+            " You",
+            Style::default().fg(ROLE_USER).add_modifier(Modifier::BOLD),
+        ),
+    ]);
     let message_lines = message.lines().collect::<Vec<_>>();
     if message_lines.is_empty() {
         return vec![header];
@@ -549,10 +552,13 @@ fn agent_message_lines(message: &str, max_lines: usize) -> Vec<Line<'static>> {
     let message = crate::tui::display_sanitize::sanitize_display_text(message);
     let message = message.as_str();
     let body_max = max_lines.saturating_sub(1);
-    let mut lines = vec![Line::from(Span::styled(
-        "▌ Agent",
-        Style::default().fg(ROLE_AGENT).add_modifier(Modifier::BOLD),
-    ))];
+    let mut lines = vec![Line::from(vec![
+        Span::styled("▌", Style::default().fg(ROLE_AGENT)),
+        Span::styled(
+            " Agent",
+            Style::default().fg(ROLE_AGENT).add_modifier(Modifier::BOLD),
+        ),
+    ])];
     let message_lines: Vec<&str> = message.lines().collect();
     if message_lines.is_empty() {
         return lines;
@@ -578,12 +584,15 @@ fn system_message_lines(message: &str, max_lines: usize) -> Vec<Line<'static>> {
     let message = crate::tui::display_sanitize::sanitize_display_text(message);
     let message = message.as_str();
     let body_max = max_lines.saturating_sub(1);
-    let mut lines = vec![Line::from(Span::styled(
-        "▌ System",
-        Style::default()
-            .fg(ROLE_SYSTEM)
-            .add_modifier(Modifier::BOLD),
-    ))];
+    let mut lines = vec![Line::from(vec![
+        Span::styled("▌", Style::default().fg(ROLE_SYSTEM)),
+        Span::styled(
+            " System",
+            Style::default()
+                .fg(ROLE_SYSTEM)
+                .add_modifier(Modifier::BOLD),
+        ),
+    ])];
     let message_lines: Vec<&str> = message.lines().collect();
     if message_lines.is_empty() {
         return lines;
@@ -615,21 +624,27 @@ pub(crate) fn formatted_message_lines(
     let message = message.as_str();
     let role_kind = MessageRole::try_from_str(role);
     if role_kind == Some(MessageRole::Agent) {
-        let mut lines = vec![Line::from(Span::styled(
-            "▌ Agent",
-            Style::default().fg(ROLE_AGENT).add_modifier(Modifier::BOLD),
-        ))];
+        let mut lines = vec![Line::from(vec![
+            Span::styled("▌", Style::default().fg(ROLE_AGENT)),
+            Span::styled(
+                " Agent",
+                Style::default().fg(ROLE_AGENT).add_modifier(Modifier::BOLD),
+            ),
+        ])];
         let body = bulleted_markdown_message_lines(message, max_lines, cwd);
         lines.extend(body);
         return lines;
     }
     if role_kind == Some(MessageRole::System) {
-        let mut lines = vec![Line::from(Span::styled(
-            "▌ System",
-            Style::default()
-                .fg(ROLE_SYSTEM)
-                .add_modifier(Modifier::BOLD),
-        ))];
+        let mut lines = vec![Line::from(vec![
+            Span::styled("▌", Style::default().fg(ROLE_SYSTEM)),
+            Span::styled(
+                " System",
+                Style::default()
+                    .fg(ROLE_SYSTEM)
+                    .add_modifier(Modifier::BOLD),
+            ),
+        ])];
         let body_max = max_lines.saturating_sub(1);
         let mut rendered = Vec::new();
         super::markdown::append_markdown(message, None, cwd, &mut rendered);
