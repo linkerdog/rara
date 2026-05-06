@@ -111,6 +111,23 @@ impl Tool for ApplyPatchTool {
             .unwrap_or(false);
         let ops = parse_patch(patch)?;
         validate_patch_update_context(&ops)?;
+
+        // Pre-read enforcement: every Update or Delete must target a file
+        // that was fully read in this conversation and hasn't been modified
+        // since.  Add ops (new files) are exempt.
+        if !dry_run {
+            if let Some(read_state) = &self.read_state {
+                for op in &ops {
+                    match op {
+                        PatchOp::Update { path, .. } | PatchOp::Delete { path } => {
+                            read_state.validate_existing_edit(path)?;
+                        }
+                        _ => {}
+                    }
+                }
+            }
+        }
+
         let mut stats = PatchStats::default();
         let mut previews = Vec::new();
 
@@ -405,6 +422,18 @@ fn apply_update_chunks(
                 "Patch hunk did not match file {path}"
             )));
         };
+
+        // Compare the matched slice against the pattern.  When they differ
+        // (Unicode-normalised matching was used, e.g. curly vs straight
+        // quotes), preserve the file's typographic style in new_lines so
+        // the edit doesn't silently downgrade curly quotes to ASCII.
+        let actual: &[String] = &original_lines[pos..pos + old_lines.len()];
+        let new_lines = if old_lines != actual {
+            preserve_file_quote_style(actual, &new_lines)
+        } else {
+            new_lines
+        };
+
         replacements.push((pos, old_lines.len(), new_lines));
         cursor = pos + old_lines.len();
         stats.hunks_applied += 1;
@@ -527,6 +556,70 @@ fn normalise_unicode(s: &str) -> String {
         .collect()
 }
 
+/// When a hunk matched via Unicode-normalised seek (curly quotes in the file
+/// vs straight quotes from the model), apply the file's typographic quote
+/// style to the replacement lines so the edit doesn't silently downgrade
+/// curly quotes to ASCII.
+fn preserve_file_quote_style(actual: &[String], new_lines: &[String]) -> Vec<String> {
+    // Determine which curly quote types appear in the file slice.  When the
+    // file uses typographic quotes for both single and double, we preserve
+    // both; when it only uses one, we only convert that one.
+    let has_curly_double = actual.iter().any(|line| {
+        line.contains('\u{201C}') || line.contains('\u{201D}')
+    });
+    let has_curly_single = actual.iter().any(|line| {
+        line.contains('\u{2018}') || line.contains('\u{2019}')
+    });
+    if !has_curly_double && !has_curly_single {
+        return new_lines.to_vec();
+    }
+
+    new_lines
+        .iter()
+        .map(|line| {
+            let mut result = String::with_capacity(line.len());
+            let chars: Vec<char> = line.chars().collect();
+            for (i, &ch) in chars.iter().enumerate() {
+                if has_curly_double && (ch == '"') {
+                    result.push(if is_opening_context(&chars, i) {
+                        '\u{201C}' // LEFT DOUBLE
+                    } else {
+                        '\u{201D}' // RIGHT DOUBLE
+                    });
+                } else if has_curly_single && (ch == '\'') {
+                    // Skip apostrophes in contractions (e.g. "don't", "it's").
+                    let prev_is_letter =
+                        i > 0 && chars[i - 1].is_alphabetic();
+                    let next_is_letter =
+                        i + 1 < chars.len() && chars[i + 1].is_alphabetic();
+                    if prev_is_letter && next_is_letter {
+                        result.push('\u{2019}'); // RIGHT SINGLE (apostrophe)
+                    } else {
+                        result.push(if is_opening_context(&chars, i) {
+                            '\u{2018}' // LEFT SINGLE
+                        } else {
+                            '\u{2019}' // RIGHT SINGLE
+                        });
+                    }
+                } else {
+                    result.push(ch);
+                }
+            }
+            result
+        })
+        .collect()
+}
+
+/// Heuristic: a quote character is "opening" when preceded by whitespace,
+/// start-of-string, or opening punctuation.
+fn is_opening_context(chars: &[char], pos: usize) -> bool {
+    if pos == 0 {
+        return true;
+    }
+    let prev = chars[pos - 1];
+    matches!(prev, ' ' | '\t' | '\n' | '(' | '[' | '{' | '\u{2014}' | '\u{2013}')
+}
+
 fn find_subsequence(haystack: &[String], needle: &[String]) -> Option<usize> {
     seek_sequence(haystack, needle, 0, false)
 }
@@ -631,7 +724,34 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn update_patch_allows_partial_read_when_hunk_matches_current_file() {
+    async fn update_patch_allows_full_read_when_hunk_matches_current_file() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let file = dir.path().join("sample.txt");
+        std::fs::write(&file, "hello\nworld\n").expect("write");
+        let read_state = Arc::new(FileReadState::default());
+        let read_tool = ReadFileTool::new(read_state.clone());
+        let patch_tool = ApplyPatchTool::new(read_state.clone());
+
+        // Full read (no offset/limit).
+        read_tool
+            .call(json!({
+                "path": file.display().to_string()
+            }))
+            .await
+            .expect("full read");
+        let patch = format!(
+            "*** Begin Patch\n*** Update File: {}\n@@\n-hello\n+hi\n world\n*** End Patch",
+            file.display()
+        );
+        patch_tool
+            .call(json!({ "patch": patch }))
+            .await
+            .expect("patch after full read");
+        assert_eq!(std::fs::read_to_string(&file).expect("read"), "hi\nworld\n");
+    }
+
+    #[tokio::test]
+    async fn update_patch_rejects_stale_file() {
         let dir = tempfile::tempdir().expect("tempdir");
         let file = dir.path().join("sample.txt");
         std::fs::write(&file, "hello\nworld\n").expect("write");
@@ -640,22 +760,22 @@ mod tests {
         let patch_tool = ApplyPatchTool::new(read_state.clone());
 
         read_tool
-            .call(json!({
-                "path": file.display().to_string(),
-                "offset": 1,
-                "limit": 1
-            }))
+            .call(json!({ "path": file.display().to_string() }))
             .await
-            .expect("partial read");
+            .expect("full read");
+
+        // Modify file after read — simulates formatter or user edit.
+        std::fs::write(&file, "goodbye\nworld\n").expect("external write");
+
         let patch = format!(
             "*** Begin Patch\n*** Update File: {}\n@@\n-hello\n+hi\n world\n*** End Patch",
             file.display()
         );
-        patch_tool
+        let err = patch_tool
             .call(json!({ "patch": patch }))
             .await
-            .expect("patch after partial read");
-        assert_eq!(std::fs::read_to_string(&file).expect("read"), "hi\nworld\n");
+            .expect_err("stale file should be rejected");
+        assert!(err.to_string().contains("modified since read"));
     }
 
     #[tokio::test]
@@ -751,6 +871,31 @@ mod tests {
 
         assert_eq!(std::fs::read_to_string(&file).expect("read"), "hi\nworld\n");
         assert_eq!(result["status"], "applied");
+    }
+
+    #[tokio::test]
+    async fn update_patch_preserves_curly_quotes_in_new_text() {
+        // When the file uses curly quotes and the model sends straight
+        // quotes in both old_string and new_string, the written file
+        // should keep the original curly-quote style.
+        let dir = tempfile::tempdir().expect("tempdir");
+        let file = dir.path().join("sample.txt");
+        std::fs::write(&file, "\u{201C}old\u{201D}\nworld\n").expect("write");
+
+        let tool = ApplyPatchTool::default();
+        tool.call(json!({
+            "patch": format!(
+                "*** Begin Patch\n*** Update File: {}\n@@\n-\"old\"\n+\"new\"\n world\n*** End Patch",
+                file.display()
+            )
+        }))
+        .await
+        .expect("apply patch with curly quote preservation");
+
+        assert_eq!(
+            std::fs::read_to_string(&file).expect("read"),
+            "\u{201C}new\u{201D}\nworld\n"
+        );
     }
 
     #[tokio::test]
