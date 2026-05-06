@@ -17,6 +17,45 @@ const DEFAULT_READ_LINE_LIMIT: usize = 2_000;
 const MAX_READ_LINE_CHARS: usize = 4_000;
 const MAX_READ_LINE_BYTES: usize = MAX_READ_LINE_CHARS * 4;
 
+/// Read a file with encoding detection (UTF-16LE BOM) and CRLF→LF
+/// normalisation, matching Claude Code's `readFileForEdit` contract.
+///
+/// Returns the normalised content, or `None` if the file does not exist.
+pub(crate) fn read_file_content(path: &str) -> Result<String, ToolError> {
+    let bytes = fs::read(path)?;
+    if bytes.len() >= 2 && bytes[0] == 0xFF && bytes[1] == 0xFE {
+        // UTF-16LE BOM — decode and skip BOM.
+        let utf16: Vec<u16> = bytes[2..]
+            .chunks_exact(2)
+            .map(|chunk| u16::from_le_bytes([chunk[0], chunk[1]]))
+            .collect();
+        Ok(String::from_utf16_lossy(&utf16).replace("\r\n", "\n"))
+    } else {
+        Ok(String::from_utf8_lossy(&bytes).replace("\r\n", "\n"))
+    }
+}
+
+/// Return a path suggestion when a file is not found: look for a sibling
+/// with a different extension but the same stem, or the same file under
+/// the current working directory.
+fn find_similar_file(path: &str) -> Option<String> {
+    let p = Path::new(path);
+    let parent = p.parent()?;
+    let stem = p.file_stem()?.to_str()?;
+    // Check siblings: same stem, different extension.
+    if let Ok(entries) = fs::read_dir(parent) {
+        for entry in entries.flatten() {
+            let candidate = entry.path();
+            if candidate.file_stem().and_then(|s| s.to_str()) == Some(stem)
+                && candidate.extension() != p.extension()
+            {
+                return Some(candidate.display().to_string());
+            }
+        }
+    }
+    None
+}
+
 #[derive(Debug, Default)]
 pub struct FileReadState {
     files: Mutex<HashMap<PathBuf, FileReadEntry>>,
@@ -87,7 +126,7 @@ impl FileReadState {
         let modified = metadata.modified()?;
         if modified > entry.modified {
             if let Some(content) = &entry.content {
-                if fs::read_to_string(&key)? == *content {
+                if read_file_content(&key.display().to_string())? == *content {
                     return Ok(());
                 }
             }
@@ -97,7 +136,7 @@ impl FileReadState {
         }
 
         if let Some(content) = &entry.content {
-            let current = fs::read_to_string(&key)?;
+            let current = read_file_content(&key.display().to_string())?;
             if current != *content {
                 return Err(ToolError::ExecutionFailed(
                     "File has changed since read. Read it again before attempting to write it."
@@ -205,7 +244,7 @@ impl Tool for ReadFileTool {
         if let Some(read_state) = &self.read_state {
             let full_content =
                 (!output.truncated && output.start_line == 1 && output.total_lines_exact)
-                    .then(|| fs::read_to_string(p))
+                    .then(|| read_file_content(p))
                     .transpose()?;
             read_state.record_read(p, &output, full_content)?;
         }
@@ -571,7 +610,7 @@ impl Tool for ReplaceTool {
         if let Some(read_state) = &self.read_state {
             read_state.validate_exact_replace_edit(p)?;
         }
-        let c = fs::read_to_string(p)?;
+        let c = read_file_content(p)?;
         if c.matches(o).count() != 1 {
             return Err(ToolError::ExecutionFailed("String not unique".into()));
         }
@@ -657,7 +696,7 @@ impl Tool for ReplaceLinesTool {
             read_state.validate_existing_edit(path)?;
         }
 
-        let original = fs::read_to_string(path)?;
+        let original = read_file_content(path)?;
         let had_trailing_newline = original.ends_with('\n');
         let mut lines = original
             .lines()
