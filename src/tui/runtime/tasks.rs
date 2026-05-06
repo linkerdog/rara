@@ -56,6 +56,7 @@ fn merge_rebuilt_agent(mut rebuilt: Agent, previous: Agent) -> Agent {
     rebuilt.tool_result_store = previous.tool_result_store;
     rebuilt.execution_mode = previous.execution_mode;
     rebuilt.bash_approval_mode = previous.bash_approval_mode;
+    rebuilt.full_access_mode = previous.full_access_mode;
     rebuilt.approved_bash_prefixes = previous.approved_bash_prefixes;
     rebuilt.current_plan = previous.current_plan;
     rebuilt.plan_explanation = previous.plan_explanation;
@@ -138,6 +139,7 @@ pub(super) fn start_query_task(app: &mut TuiApp, prompt: String, mut agent: Agen
     app.begin_running_turn();
     agent.set_execution_mode(app.agent_execution_mode);
     agent.set_bash_approval_mode(app.bash_approval_mode);
+    agent.set_full_access_mode(app.permission_mode == PermissionMode::FullAccess);
     sync_bash_prefixes_from_config(app, &mut agent);
     app.notice = Some("Running prompt.".into());
     app.set_runtime_phase(RuntimePhase::SendingPrompt, Some("sending prompt".into()));
@@ -174,6 +176,7 @@ pub(super) fn start_compact_task(app: &mut TuiApp, mut agent: Agent) {
     let event_provenance = local_tui_event_provenance(&agent.session_id);
     agent.set_execution_mode(app.agent_execution_mode);
     agent.set_bash_approval_mode(app.bash_approval_mode);
+    agent.set_full_access_mode(app.permission_mode == PermissionMode::FullAccess);
     app.notice = Some("Compacting conversation history.".into());
     app.set_runtime_phase(
         RuntimePhase::ProcessingResponse,
@@ -212,6 +215,7 @@ pub(super) fn start_review_task(app: &mut TuiApp, prompt: String, mut agent: Age
     let event_provenance = local_tui_event_provenance(&agent.session_id);
     agent.set_execution_mode(AgentExecutionMode::Review);
     agent.set_bash_approval_mode(BashApprovalMode::Always);
+    agent.set_full_access_mode(false);
     app.notice = Some("Running code review.".into());
     app.set_runtime_phase(
         RuntimePhase::ProcessingResponse,
@@ -776,6 +780,7 @@ pub(super) async fn finish_running_task_if_ready(
                 }
                 agent.set_execution_mode(app.agent_execution_mode);
                 agent.set_bash_approval_mode(app.bash_approval_mode);
+                agent.set_full_access_mode(app.permission_mode == PermissionMode::FullAccess);
                 // Preserve any runtime /permissions override across rebuilds.
                 rebuilt.sandbox_network_access.store(
                     app.sandbox_network_access
