@@ -300,7 +300,7 @@ fn handle_model_command(arg: Option<&str>, app: &mut TuiApp) -> anyhow::Result<(
     if arg.map(str::trim).filter(|arg| !arg.is_empty()).is_some() {
         app.push_notice("/model does not accept arguments. Use the interactive menu.");
     }
-    app.open_overlay(Overlay::ProviderPicker);
+    app.open_overlay(Overlay::ListPicker(ListPickerKind::Provider));
     app.notice = Some("Opened provider picker.".into());
     Ok(())
 }
