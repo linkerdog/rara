@@ -167,10 +167,10 @@ pub(super) async fn open_provider_family_overlay(
         let home = ensure_rara_home_dir()?;
         let google_oauth = GoogleOAuthManager::new(home)?;
         if google_oauth.has_saved_auth() {
-            app.open_overlay(Overlay::ModelPicker);
+            app.open_overlay(Overlay::ListPicker(ListPickerKind::Model));
         } else {
             app.config.set_provider("gemini-code-assist");
-            app.open_overlay(Overlay::AuthModePicker);
+            app.open_overlay(Overlay::ListPicker(ListPickerKind::AuthMode));
         }
         return Ok(());
     }
