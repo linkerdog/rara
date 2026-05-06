@@ -187,6 +187,52 @@ async fn list_files_skips_build_artifacts_by_default() {
 }
 
 #[tokio::test]
+async fn list_files_can_include_build_artifacts_when_requested() {
+    let tempdir = tempfile::tempdir().expect("tempdir");
+    let root = tempdir.path();
+    std::fs::create_dir_all(root.join("target/debug")).expect("mkdir target");
+    std::fs::write(root.join("target/debug/app"), "bin").expect("write artifact");
+
+    let tool = ListFilesTool;
+    let result = tool
+        .call(json!({
+            "path": root.display().to_string(),
+            "include_ignored": true
+        }))
+        .await
+        .expect("list files");
+    let files = result["files"].as_array().expect("files array");
+    let rendered = files
+        .iter()
+        .filter_map(|value| value.as_str())
+        .collect::<Vec<_>>()
+        .join("\n");
+
+    assert!(rendered.contains("target/debug/app"));
+}
+
+#[tokio::test]
+async fn list_files_reports_limit_and_truncated_status() {
+    let tempdir = tempfile::tempdir().expect("tempdir");
+    let root = tempdir.path();
+    std::fs::write(root.join("a.txt"), "a").expect("write a");
+    std::fs::write(root.join("b.txt"), "b").expect("write b");
+
+    let tool = ListFilesTool;
+    let result = tool
+        .call(json!({
+            "path": root.display().to_string(),
+            "limit": 1
+        }))
+        .await
+        .expect("list files");
+
+    assert_eq!(result["files"].as_array().expect("files array").len(), 1);
+    assert_eq!(result["total_count"], 2);
+    assert_eq!(result["truncated"], true);
+}
+
+#[tokio::test]
 async fn write_file_reports_created_or_overwritten() {
     let tempdir = tempfile::tempdir().expect("tempdir");
     let path = tempdir.path().join("sample.txt");

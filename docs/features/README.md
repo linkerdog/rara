@@ -45,6 +45,8 @@ future appserver integrations can use.
   reconnect, resource, and Tool Search contracts.
 - `bedrock-backend.md`: Bedrock SDK backend crate boundary and RARA adapter
   contract.
+- `file-search.md`: shared gitignore-aware file discovery and fuzzy path
+  ranking crate for tools, TUI pickers, and context routing.
 
 ## Release Specs
 
