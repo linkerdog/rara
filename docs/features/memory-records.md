@@ -17,8 +17,9 @@ and vector search live in one table, while context assembly still goes through
 This spec describes the target product contract. The current implementation
 slices provide the LanceDB-backed index, retrieval tools, a runtime
 `MemoryStore` facade, ranked `MemorySelection` candidates, pinned retention
-metadata, and update/delete/list-label scaffolding. Filtering and multi-record
-distillation remain follow-up work.
+metadata, update/delete/list-label scaffolding, and LLM-assisted thread
+distillation into multiple durable records. Background promotion and richer
+filtering remain follow-up work.
 
 ## Six Design Laws (Cross-Industry Consensus)
 
@@ -118,7 +119,7 @@ Importance scale:
 | Memory update | Existing records can be edited without creating duplicates. | Partial. `MemoryStore::update` updates domain records and refreshes the LanceDB row when content changes; external protocol execution remains future work. |
 | Memory delete | User or control-plane request can delete records with audit-safe semantics. | Partial. `MemoryStore::delete` removes the domain record and search rehydration filters stale indexed rows; physical LanceDB row cleanup remains future work. |
 | Memory retention | Pinned, user-created, and high-importance memories are protected from automatic cleanup; explicit delete remains possible with provenance. | Implemented as a domain guard on `MemoryRecord`; no automatic cleanup path exists yet. |
-| Thread distillation | Thread history can be distilled into 2-8 durable memory records. | Partial. `ThreadStore::distill_thread_summary` can persist one thread-linked summary record; LLM extraction and deduplication remain future work. |
+| Thread distillation | Thread history can be distilled into 2-8 durable memory records. | Implemented for loaded threads through `ThreadStore::distill_thread_memories`, with LLM-assisted extraction, batch/existing-memory deduplication, and thread provenance. Long-thread chunking remains future work. |
 | Context injection | Ranked memory candidates pass through `MemorySelection` before prompt injection. | Partial. LanceDB-backed memory and session search now produce direct ranked `MemorySelection` candidates; retention, deduplication, and protocol mutation remain future work. |
 | Graph retrieval | Entity and relationship traversal complements vector recall. | Future work. |
 | Working memory | Daily or session briefing summarizes recent and important memories. | Future work. |
@@ -246,8 +247,18 @@ Current implementation checkpoint:
   `relevant_experiences` and memory diagnostics.
 - `retrieve_session_context` searches per-session context shards instead of
   returning a stub response.
-- `ThreadStore::distill_thread_summary` can promote a loaded thread summary into
-  a thread-linked `MemoryRecord` with `session_id`, `thread_id`, and source span.
+- `ThreadStore::distill_thread_summary` remains as the compatibility path for
+  promoting one summary-style record.
+- `ThreadStore::distill_thread_memories` promotes a loaded thread into 2-8
+  independently useful `MemoryRecord`s using `MemoryDistiller`.
+- The distillation prompt treats older memory and prior conclusions as
+  historical context, not current truth. If the inspected thread proves the
+  current design is stale or poor, the distiller should extract the corrected
+  durable fact, procedure, or need for a small purpose-built tool instead of
+  preserving the old state.
+- Generated records preserve `session_id`, `thread_id`, and a source span over
+  the source thread. The first implementation uses the whole loaded thread as
+  the span; finer per-message spans remain future work.
 - Agent turn checkpoints write to per-session `context.jsonl` shards under
   `rollouts/<session_id>/`.
 - `MemoryRetrievalOrchestrator` promotes LanceDB-backed workspace memories and
@@ -272,8 +283,9 @@ Current implementation checkpoint:
    memories are excluded from automatic cleanup. Done.
 9. Add update/delete/list-label control-plane scaffolding without exposing
    storage internals. Done.
-10. Add thread distillation into `MemoryRecord`. Partial: summary distillation is
-   implemented; multi-record LLM extraction and deduplication remain open.
+10. Add thread distillation into `MemoryRecord`. Done for loaded threads:
+    summary distillation remains as compatibility, and LLM-assisted multi-record
+    extraction with deduplication is available through `distill_thread_memories`.
 11. Move raw session checkpoints out of the global `conversations` LanceDB table
    into per-session append shards. Done.
 12. Add periodic promotion from session shards into global `MemoryRecord`s.

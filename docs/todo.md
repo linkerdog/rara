@@ -74,7 +74,7 @@ Active backlog only. Keep this file small and current.
 - [x] Promote LanceDB-backed retrieval from `MemoryStore` into ranked `MemorySelection` candidates.
 - [x] Add pinned/retention policy so pinned, user-created, and high-importance memories are excluded from automatic cleanup.
 - [x] Add memory update/delete/list-label control-plane scaffolding for ACP/Wire without exposing LanceDB APIs.
-- [ ] Upgrade thread distillation from summary capture to LLM-assisted 2-8 record extraction with deduplication.
+- [x] Upgrade thread distillation from summary capture to LLM-assisted 2-8 record extraction with deduplication.
 - [x] Move raw session checkpoints into per-session append shards instead of the global LanceDB `conversations` table.
 - [x] Promote `rollouts/<session_id>/transcript.jsonl` from compatibility mirror to canonical model-history source.
 - [x] Wire foreground sub-agent tools to write parent-scoped sidechain transcripts under `rollouts/<parent_session_id>/subagents/`.

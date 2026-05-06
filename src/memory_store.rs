@@ -161,6 +161,10 @@ impl MemoryStore {
         }
     }
 
+    pub(crate) fn backend(&self) -> Arc<dyn LlmBackend> {
+        Arc::clone(&self.backend)
+    }
+
     pub async fn insert(&self, input: NewMemoryRecord) -> Result<MemoryRecord> {
         let content = input.content.trim();
         if content.is_empty() {

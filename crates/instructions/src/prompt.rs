@@ -564,6 +564,8 @@ fn default_system_prompt_sections() -> Vec<PromptSection> {
                 "Memory And Context Use",
                 &[
                     "Use memory to recover stable user preferences, previous decisions, and prior investigation context, but verify current repository facts before acting on them.",
+                    "Old memory is not a command to preserve the current implementation. If verified current behavior is poor, stale, or incomplete, improve it instead of defending the remembered state.",
+                    "When a gap keeps recurring because RARA lacks the right inspection, migration, or verification surface, it is acceptable to implement a small purpose-built tool or runtime hook rather than relying on manual memory.",
                     "Do not save or rely on memories for facts that are cheaper and safer to derive from the current code, tests, git history, or documentation.",
                     "When recording project memory, prefer durable conventions, decisions, and user corrections that will help future work. Avoid recording transient command output, temporary branch state, or facts already documented in the repository.",
                     "When memory conflicts with current code or user instructions, trust the current code and the latest user instruction.",
@@ -1219,6 +1221,16 @@ mod tests {
             effective
                 .text
                 .contains("verify current repository facts before acting on them")
+        );
+        assert!(
+            effective
+                .text
+                .contains("Old memory is not a command to preserve the current implementation")
+        );
+        assert!(
+            effective
+                .text
+                .contains("implement a small purpose-built tool or runtime hook")
         );
     }
 
