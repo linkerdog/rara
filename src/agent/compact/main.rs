@@ -1,117 +1,10 @@
 use std::sync::OnceLock;
 use std::time::Duration;
 
-use super::*;
-use crate::context::RetrievedMemoryCandidate;
+use super::types::*;
+use crate::agent::*;
 use crate::llm::{ContextBudget, is_context_window_error};
 use crate::session::PersistedCompactionEvent;
-
-const RECENT_FILE_CARRY_OVER_LIMIT: usize = 5;
-const RECENT_FILE_EXCERPT_LIMIT: usize = 3;
-const RECENT_FILE_EXCERPT_CHAR_LIMIT: usize = 600;
-const MEMORY_CARRY_OVER_LIMIT: usize = 3;
-const SKILL_CARRY_OVER_LIMIT: usize = 3;
-const SKILL_INSTRUCTION_PREVIEW_CHAR_LIMIT: usize = 600;
-const HOOK_CARRY_OVER_LIMIT: usize = 3;
-const MCP_CARRY_OVER_LIMIT: usize = 3;
-const RETAINED_HISTORY_BUDGET_FRACTION: usize = 2;
-const COMPACT_BOUNDARY_KIND: &str = "compact_boundary";
-const COMPACT_BOUNDARY_VERSION: u32 = 1;
-const ROLE_ASSISTANT: &str = "assistant";
-// Wait for about two 4K chunks of new context before retrying automatic
-// compaction after a timeout or backend failure.
-const AUTO_COMPACTION_RETRY_HYSTERESIS_TOKENS: usize = 8_192;
-#[cfg(not(test))]
-const COMPACTION_SUMMARY_TIMEOUT: Duration = Duration::from_secs(300);
-
-#[cfg(test)]
-const TEST_COMPACTION_SUMMARY_TIMEOUT: Duration = Duration::from_millis(10);
-
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
-pub struct CompactBoundaryMetadata {
-    pub version: u32,
-    pub before_tokens: usize,
-    pub recent_file_count: usize,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-struct RecentFileExcerpt {
-    path: String,
-    line_range: Option<(usize, usize)>,
-    snippet: String,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-struct ApiRoundGroup {
-    start: usize,
-    end: usize,
-    token_estimate: usize,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-struct CompactPlan {
-    summarize_end: usize,
-    retained_start: usize,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-struct CompactCarryOver {
-    summary: String,
-    recent_files: Vec<String>,
-    recent_file_excerpts: Vec<RecentFileExcerpt>,
-    retrieved_memory: Vec<RetrievedMemoryCandidate>,
-    invoked_skills: Vec<InvokedSkillCarryOver>,
-    retained_hooks: Vec<RetainedContextCarryOver>,
-    retained_mcp: Vec<RetainedContextCarryOver>,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-struct InvokedSkillCarryOver {
-    name: String,
-    title: Option<String>,
-    scope: Option<String>,
-    display_path: Option<String>,
-    args: Option<String>,
-    instruction_preview: Option<String>,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-struct RetainedContextCarryOver {
-    label: String,
-    source_descriptor: String,
-    detail: String,
-    inclusion_reason: Option<String>,
-}
-
-#[derive(Debug)]
-struct CompactionSummaryTimeout;
-
-impl std::fmt::Display for CompactionSummaryTimeout {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(
-            f,
-            "history compaction timed out after {} seconds",
-            compaction_summary_timeout().as_secs()
-        )
-    }
-}
-
-impl std::error::Error for CompactionSummaryTimeout {}
-
-#[derive(Debug, Clone, Default)]
-pub struct CompactState {
-    pub estimated_history_tokens: usize,
-    pub context_window_tokens: Option<usize>,
-    pub compact_threshold_tokens: usize,
-    pub reserved_output_tokens: usize,
-    pub compaction_count: usize,
-    pub last_compaction_before_tokens: Option<usize>,
-    pub last_compaction_after_tokens: Option<usize>,
-    pub last_compaction_recent_files: Vec<String>,
-    pub last_compaction_boundary: Option<CompactBoundaryMetadata>,
-    pub consecutive_auto_compaction_failures: usize,
-    pub auto_compaction_retry_after_tokens: Option<usize>,
-}
 
 impl Agent {
     pub async fn compact_if_needed(&mut self) -> Result<()> {
@@ -397,23 +290,23 @@ impl Agent {
         }
     }
 
-    pub(super) fn current_compact_budget(&self) -> Option<ContextBudget> {
+    pub(crate) fn current_compact_budget(&self) -> Option<ContextBudget> {
         let tools = self.visible_tool_schemas();
         self.context_assembler()
             .budget_for(self.llm_backend.as_ref(), &self.history, &tools)
     }
 
-    pub(super) fn push_history_message(&mut self, message: Message) {
+    pub(crate) fn push_history_message(&mut self, message: Message) {
         self.record_history_message_tokens(&message);
         self.history.push(message);
     }
 
-    pub(super) fn extend_history_messages(&mut self, messages: Vec<Message>) {
+    pub(crate) fn extend_history_messages(&mut self, messages: Vec<Message>) {
         self.record_history_messages_tokens(&messages);
         self.history.extend(messages);
     }
 
-    pub(super) fn replace_history(&mut self, history: Vec<Message>) {
+    pub(crate) fn replace_history(&mut self, history: Vec<Message>) {
         self.history = history;
         self.recompute_history_token_estimate();
     }
@@ -446,7 +339,7 @@ impl Agent {
     }
 }
 
-fn build_compact_plan(
+pub(crate) fn build_compact_plan(
     history: &[Message],
     threshold: usize,
     force: bool,
@@ -521,7 +414,7 @@ fn ensure_api_round_boundary_range(history: &[Message], from: usize, up_to: usiz
     Ok(())
 }
 
-fn group_history_by_api_round(history: &[Message]) -> Result<Vec<ApiRoundGroup>> {
+pub(crate) fn group_history_by_api_round(history: &[Message]) -> Result<Vec<ApiRoundGroup>> {
     let bpe = tokenizer()?;
     let mut groups = Vec::new();
     let mut group_start = 0usize;
@@ -749,7 +642,7 @@ fn compact_source_content(text: String, source_item: Value) -> Value {
     ])
 }
 
-fn compaction_summary_timeout() -> Duration {
+pub(crate) fn compaction_summary_timeout() -> Duration {
     #[cfg(test)]
     {
         TEST_COMPACTION_SUMMARY_TIMEOUT
@@ -787,7 +680,7 @@ fn estimate_message_tokens_with_bpe(
     Ok(bpe.encode_with_special_tokens(content).len())
 }
 
-fn tokenizer() -> Result<&'static tiktoken_rs::CoreBPE> {
+pub(crate) fn tokenizer() -> Result<&'static tiktoken_rs::CoreBPE> {
     static BPE: OnceLock<std::result::Result<tiktoken_rs::CoreBPE, String>> = OnceLock::new();
     match BPE.get_or_init(|| tiktoken_rs::cl100k_base().map_err(|err| err.to_string())) {
         Ok(bpe) => Ok(bpe),
@@ -1222,7 +1115,9 @@ fn collect_recent_file_excerpts(
     excerpts
 }
 
-fn read_file_line_range(input: &serde_json::Map<String, Value>) -> Option<(usize, usize)> {
+pub(crate) fn read_file_line_range(
+    input: &serde_json::Map<String, Value>,
+) -> Option<(usize, usize)> {
     match (
         input.get("offset").and_then(Value::as_u64),
         input.get("limit").and_then(Value::as_u64),

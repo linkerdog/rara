@@ -3,6 +3,27 @@
 This document records RARA goals, scope, architecture constraints, and documentation rules.
 It is the baseline index for future implementation and evolution.
 
+---
+
+## Index
+
+### Project
+- [1. Project Goals](#1-project-goals)
+- [2. Scope](#2-scope)
+- [3. Architecture Constraints](#3-architecture-constraints)
+- [4. Current Key Decisions](#4-current-key-decisions)
+- [5. Documentation Rules](#5-documentation-rules)
+- [6. Near-Term Focus](#6-near-term-focus)
+- [7. Commit Rules](#7-commit-rules)
+
+### Docs
+- [docs/features/](docs/features/README.md) — engineering specs and contracts (28 files)
+- [docs/journal/](docs/journal/) — dated implementation notes and checkpoints
+- [docs/journal/2026-05-07-file-split-lessons.md](docs/journal/2026-05-07-file-split-lessons.md) — file splitting patterns, pitfalls, and workflow
+- [docs/todo.md](docs/todo.md) — active follow-up work
+
+---
+
 ## 1. Project Goals
 
 RARA is a local-first coding agent runtime with:
