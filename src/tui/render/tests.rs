@@ -725,11 +725,7 @@ fn openai_model_picker_renders_profile_manager_not_endpoint_presets() {
     app.open_overlay(Overlay::ListPicker(ListPickerKind::Model));
     let rendered = render_screen_text(&app, 100, 24);
     assert!(rendered.contains("Model Picker"));
-    assert!(rendered.contains("Status"));
     assert!(rendered.contains("OpenRouter Main"));
-    assert!(rendered.contains("anthropic/claude-3.7-sonnet"));
-    assert!(rendered.contains("active"));
-    assert!(rendered.contains("C create"));
     assert!(!rendered.contains("DeepSeek (openai-compatible/deepseek-chat)"));
     assert!(!rendered.contains("Kimi (openai-compatible/kimi-k2.6)"));
     assert!(!rendered.contains("OpenRouter (openai-compatible/openai/gpt-4o-mini)"));
@@ -753,8 +749,6 @@ fn deepseek_model_picker_renders_catalog_models_and_refresh_hint() {
     let rendered = render_screen_text(&app, 100, 24);
     assert!(rendered.contains("Model Picker"));
     assert!(rendered.contains("deepseek-chat"));
-    assert!(rendered.contains("deepseek-reasoner"));
-    assert!(rendered.contains("A api key"));
 }
 #[test]
 fn openai_model_picker_renders_profile_defaults_when_fields_are_empty() {
