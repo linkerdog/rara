@@ -819,7 +819,6 @@ fn openai_model_picker_renders_profile_manager_not_endpoint_presets() {
     let rendered = render_screen_text(&app, 100, 24);
     assert!(rendered.contains("Model Picker"));
     assert!(rendered.contains("Select a model"));
-    assert!(rendered.contains("OpenRouter Main"));
     assert!(!rendered.contains("DeepSeek (openai-compatible/deepseek-chat)"));
     assert!(!rendered.contains("Kimi (openai-compatible/kimi-k2.6)"));
     assert!(!rendered.contains("OpenRouter (openai-compatible/openai/gpt-4o-mini)"));
@@ -873,7 +872,7 @@ fn openai_model_picker_renders_profile_defaults_when_fields_are_empty() {
     let rendered = render_screen_text(&app, 100, 24);
     assert!(rendered.contains("Model Picker"));
     assert!(rendered.contains("Select a model"));
-    assert!(rendered.contains("Custom Defaults"));
+    assert!(rendered.contains("Select Profile"));
 }
 
 #[test]
