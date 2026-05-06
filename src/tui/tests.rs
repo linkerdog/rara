@@ -11,10 +11,17 @@ use super::event_stream::{UiEvent, translate_event};
 use super::provider_flow::{
     codex_auth_is_available, open_provider_family_overlay, sync_codex_credential_from_auth_store,
 };
+use crate::agent::{Agent, PendingApproval};
 use crate::codex_model_catalog::{CodexModelOption, CodexReasoningOption};
 use crate::config::{ConfigManager, OpenAiEndpointKind};
 use crate::config::{DEFAULT_CODEX_BASE_URL, DEFAULT_CODEX_CHATGPT_BASE_URL, DEFAULT_CODEX_MODEL};
+use crate::llm::MockLlm;
+use crate::session::SessionManager;
+use crate::tool::ToolManager;
+use crate::tools::bash::BashCommandInput;
 use crate::tui::command::palette_commands;
+use crate::vectordb::VectorDB;
+use crate::workspace::WorkspaceMemory;
 
 fn key(code: KeyCode) -> KeyEvent {
     KeyEvent::new(code, KeyModifiers::NONE)
@@ -34,7 +41,7 @@ fn mouse_scroll(kind: MouseEventKind) -> Event {
 }
 use super::state::{
     InteractionKind, ListPickerKind, Overlay, PendingApprovalSnapshot, PendingInteractionSnapshot,
-    ProviderFamily, RunningTask, StatusTab, TaskKind, TuiApp,
+    PermissionMode, ProviderFamily, RunningTask, StatusTab, TaskKind, TuiApp,
 };
 use super::{dispatch_event, map_key_to_event};
 
@@ -457,6 +464,57 @@ fn add_pending_shell_approval(app: &mut TuiApp) {
         });
 }
 
+fn add_pending_plan_approval(app: &mut TuiApp) {
+    app.snapshot
+        .pending_interactions
+        .push(PendingInteractionSnapshot {
+            kind: InteractionKind::PlanApproval,
+            title: "Plan Ready".into(),
+            summary: "Review the plan.".into(),
+            options: Vec::new(),
+            note: None,
+            approval: None,
+            source: None,
+        });
+}
+
+fn test_agent_for_pending_approval(temp: &tempfile::TempDir) -> Agent {
+    let rara_dir = temp.path().join(".rara");
+    std::fs::create_dir_all(rara_dir.join("rollouts")).expect("rollouts");
+    std::fs::create_dir_all(rara_dir.join("sessions")).expect("sessions");
+    std::fs::create_dir_all(rara_dir.join("tool-results")).expect("tool results");
+
+    let mut agent = Agent::new(
+        ToolManager::new(),
+        Arc::new(MockLlm),
+        Arc::new(VectorDB::new(
+            &rara_dir.join("lancedb").display().to_string(),
+        )),
+        Arc::new(SessionManager {
+            storage_dir: rara_dir.join("rollouts"),
+            legacy_storage_dir: rara_dir.join("sessions"),
+        }),
+        Arc::new(WorkspaceMemory::from_paths(
+            temp.path().join("repo"),
+            rara_dir,
+        )),
+    );
+    agent.pending_approval = Some(PendingApproval {
+        tool_use_id: "tool-1".to_string(),
+        request: BashCommandInput {
+            command: Some("git rebase --continue".to_string()),
+            ..Default::default()
+        },
+    });
+    agent
+}
+
+fn abort_running_task(app: &mut TuiApp) {
+    if let Some(task) = app.running_task.take() {
+        task.handle.abort();
+    }
+}
+
 fn add_pending_request_input(app: &mut TuiApp, option_count: usize) {
     app.snapshot
         .pending_interactions
@@ -509,6 +567,112 @@ fn pending_shell_approval_does_not_render_as_request_input() {
         Some(super::state::ActivePendingInteractionKind::ShellApproval)
     );
     assert_eq!(app.active_pending_option_count(), 4);
+}
+
+#[tokio::test]
+async fn full_access_permission_picker_resumes_pending_shell_approval_in_local_and_ssh() {
+    for ssh in [false, true] {
+        let _ssh_env = super::terminal_ui::test_env::set_ssh_session(ssh);
+        let temp = tempdir().expect("tempdir");
+        let mut app = TuiApp::new(ConfigManager {
+            path: temp.path().join("config.json"),
+        })
+        .expect("app");
+        add_pending_shell_approval(&mut app);
+        app.open_overlay(Overlay::PermissionPicker);
+
+        let oauth_manager = Arc::new(
+            crate::oauth::OAuthManager::new_for_config_dir(temp.path().join(".rara"))
+                .expect("oauth manager"),
+        );
+        let mut agent_slot = Some(test_agent_for_pending_approval(&temp));
+
+        dispatch_event(
+            AppEvent::SetPermissionSelection(3),
+            &mut app,
+            &mut agent_slot,
+            &oauth_manager,
+        )
+        .await
+        .expect("select full access");
+        dispatch_event(
+            AppEvent::ApplyOverlaySelection,
+            &mut app,
+            &mut agent_slot,
+            &oauth_manager,
+        )
+        .await
+        .expect("apply full access");
+
+        assert_eq!(app.permission_mode, PermissionMode::FullAccess);
+        assert!(app.pending_command_approval().is_none());
+        assert!(agent_slot.is_none());
+        assert!(app.running_task.is_some());
+        abort_running_task(&mut app);
+    }
+}
+
+#[tokio::test]
+async fn full_access_mode_resumes_stale_pending_shell_approval_from_shortcuts() {
+    for event in [AppEvent::SelectPendingOption(3), AppEvent::SubmitComposer] {
+        let temp = tempdir().expect("tempdir");
+        let mut app = TuiApp::new(ConfigManager {
+            path: temp.path().join("config.json"),
+        })
+        .expect("app");
+        add_pending_shell_approval(&mut app);
+        app.permission_mode = PermissionMode::FullAccess;
+
+        let oauth_manager = Arc::new(
+            crate::oauth::OAuthManager::new_for_config_dir(temp.path().join(".rara"))
+                .expect("oauth manager"),
+        );
+        let mut agent_slot = Some(test_agent_for_pending_approval(&temp));
+
+        dispatch_event(event.clone(), &mut app, &mut agent_slot, &oauth_manager)
+            .await
+            .expect("dispatch stale approval");
+
+        assert!(app.pending_command_approval().is_none());
+        assert!(agent_slot.is_none());
+        assert!(app.running_task.is_some());
+        abort_running_task(&mut app);
+    }
+}
+
+#[tokio::test]
+async fn full_access_mode_does_not_resume_shell_approval_behind_active_plan_approval() {
+    let temp = tempdir().expect("tempdir");
+    let mut app = TuiApp::new(ConfigManager {
+        path: temp.path().join("config.json"),
+    })
+    .expect("app");
+    add_pending_shell_approval(&mut app);
+    add_pending_plan_approval(&mut app);
+    app.permission_mode = PermissionMode::FullAccess;
+
+    let oauth_manager = Arc::new(
+        crate::oauth::OAuthManager::new_for_config_dir(temp.path().join(".rara"))
+            .expect("oauth manager"),
+    );
+    let mut agent_slot = Some(test_agent_for_pending_approval(&temp));
+
+    dispatch_event(
+        AppEvent::SubmitComposer,
+        &mut app,
+        &mut agent_slot,
+        &oauth_manager,
+    )
+    .await
+    .expect("dispatch submit");
+
+    assert_eq!(
+        app.active_pending_interaction().map(|item| item.kind),
+        Some(super::state::ActivePendingInteractionKind::PlanApproval)
+    );
+    assert!(app.pending_command_approval().is_some());
+    assert!(agent_slot.is_some());
+    assert!(app.running_task.is_none());
 }
 
 #[test]
