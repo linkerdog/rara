@@ -16,10 +16,11 @@ use serde_json::{Value, json};
 use self::usage::parse_openai_token_usage;
 use super::deepseek_dsml;
 use super::shared::{
-    ContextBudget, LlmBackend, LlmStreamEvent, LlmTurnMetadata, collect_assistant_content,
-    context_budget_from_window, extract_message_text, http_client_for_target,
-    is_retryable_http_error, model_context_budget, next_stream_item_with_idle_timeout,
-    parse_tool_arguments, render_openai_message_content, retry_send_json,
+    ContextBudget, LlmBackend, LlmStreamEvent, LlmTurnMetadata, ProviderCacheProfile,
+    collect_assistant_content, context_budget_from_window, extract_message_text,
+    http_client_for_target, is_retryable_http_error, model_context_budget,
+    next_stream_item_with_idle_timeout, parse_tool_arguments, render_openai_message_content,
+    retry_send_json,
 };
 use crate::agent::Message;
 use crate::config::OpenAiEndpointKind;
@@ -535,6 +536,17 @@ impl LlmBackend for OpenAiCompatibleBackend {
             (Some(main), None) => Some(main),
             (None, Some(summary)) => Some(summary),
             (None, None) => None,
+        }
+    }
+
+    fn cache_profile(&self) -> ProviderCacheProfile {
+        match self.endpoint_kind {
+            OpenAiEndpointKind::Deepseek => {
+                ProviderCacheProfile::automatic_prefix_cache_with_usage()
+            }
+            OpenAiEndpointKind::Custom
+            | OpenAiEndpointKind::Kimi
+            | OpenAiEndpointKind::Openrouter => ProviderCacheProfile::none(),
         }
     }
 }

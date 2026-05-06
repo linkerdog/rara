@@ -28,6 +28,34 @@ pub struct ContextBudget {
     pub compact_threshold_tokens: usize,
 }
 
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct ProviderCacheProfile {
+    pub automatic_prefix_cache: bool,
+    pub cache_usage_accounting: bool,
+    pub cache_edit: bool,
+    pub cache_retention_control: bool,
+}
+
+impl ProviderCacheProfile {
+    pub const fn none() -> Self {
+        Self {
+            automatic_prefix_cache: false,
+            cache_usage_accounting: false,
+            cache_edit: false,
+            cache_retention_control: false,
+        }
+    }
+
+    pub const fn automatic_prefix_cache_with_usage() -> Self {
+        Self {
+            automatic_prefix_cache: true,
+            cache_usage_accounting: true,
+            cache_edit: false,
+            cache_retention_control: false,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum LlmExecutionMode {
     Execute,
@@ -127,6 +155,9 @@ pub trait LlmBackend: Send + Sync {
     async fn summarize(&self, messages: &[Message], instruction: &str) -> Result<String>;
     fn context_budget(&self, _messages: &[Message], _tools: &[Value]) -> Option<ContextBudget> {
         None
+    }
+    fn cache_profile(&self) -> ProviderCacheProfile {
+        ProviderCacheProfile::none()
     }
 }
 

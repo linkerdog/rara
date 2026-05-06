@@ -27,8 +27,8 @@ use crate::todo::TodoState;
 use crate::tool::ToolOutputStream;
 use crate::tool::{ToolCallContext, ToolManager, ToolProgressEvent};
 use crate::tool_result::{
-    ToolResultStore, default_tool_result_store_dir, enforce_tool_result_batch_budget,
-    repair_tool_result_history,
+    ToolResultProjectionPolicy, ToolResultStore, default_tool_result_store_dir,
+    enforce_tool_result_batch_budget, project_tool_results_for_context, repair_tool_result_history,
 };
 use crate::tools::bash::BashCommandInput;
 use crate::tools::planning::{ENTER_PLAN_MODE_TOOL_NAME, EXIT_PLAN_MODE_TOOL_NAME};
@@ -361,12 +361,22 @@ impl Agent {
         let turn_metadata = self.llm_turn_metadata();
         turn_metadata.ensure_not_cancelled()?;
         let assembled = self.assemble_turn_context();
-        let mut messages = self
+        let history_for_query = self
             .history
             .iter()
             .filter(|message| !is_compact_boundary_message(message))
             .cloned()
             .collect::<Vec<_>>();
+        let (mut messages, projection_report) = project_tool_results_for_context(
+            &history_for_query,
+            &ToolResultProjectionPolicy::default(),
+        );
+        if projection_report.cleared_results > 0 {
+            report(AgentEvent::Status(format!(
+                "Projected {} old tool result(s) out of this model request.",
+                projection_report.cleared_results
+            )));
+        }
         messages.insert(
             0,
             Message {

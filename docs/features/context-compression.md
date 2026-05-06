@@ -21,6 +21,7 @@ For long coding sessions, this increases the risk of losing:
 - The compacted history marker that gets written back into `Agent.history`.
 - Recent-file carry-over and compact observability in `/status`.
 - Limited recent-file excerpt carry-over for the most recent `read_file` results.
+- Per-request tool-result projection before model calls.
 - Compact-boundary metadata persistence across session save/restore.
 - Focused tests for compaction prompt and stored summary shape.
 
@@ -29,6 +30,8 @@ For long coding sessions, this increases the risk of losing:
 - Full recent-file snippet reattachment after compaction.
 - Token-cache aware prompt reuse.
 - Provider-specific remote compaction APIs.
+- Claude-style cache-edit microcompaction for providers that do not expose a
+  cache-edit API.
 
 ## Architecture
 
@@ -147,7 +150,97 @@ deterministic descriptor namespace.
 - The retained recent API-round suffix always comes after compact metadata, summary, and carry-over
   sources. This keeps deterministic system/context material before volatile conversation history.
 
-### 7) Dedicated Compact Worker
+### 7) Tool Result Projection
+
+Tool-result projection is a read-time microcompact pass that runs before the
+model request and before summary autocompaction pressure becomes the only
+option.
+
+The projection pass:
+
+- operates on the request copy of `Agent.history`, not the persisted transcript;
+- targets only high-volume tools such as shell, file read/search, web, and edit
+  tools;
+- keeps the most recent compactable tool results verbatim;
+- replaces older compactable tool-result content with a short structured
+  marker only when the projected request would exceed the per-request
+  tool-result budget;
+- never changes `tool_use` / `tool_result` pairing or removes the block itself;
+- never rewrites stable system, tool schema, skill, or memory prompt prefixes.
+
+This is the safe baseline for DeepSeek and OpenAI-compatible providers that
+have automatic prefix caching but no cache-edit API. It reduces volatile
+history size while preserving the full local transcript for restore,
+distillation, and debugging.
+
+The first runtime slice exposes projection only as a transient status event when
+old tool results are projected out of a model request. Durable observability
+belongs in `/context`, backed by structured per-request projection reports
+rather than display text scraping.
+
+The same structured projection report should be reusable by future OpenTelemetry
+exporters. `/context` remains the local debugging surface, while OTEL should
+export session-scoped events, counters, histograms, and trace context from the
+same runtime data model. Context compression must not introduce a separate
+display-only accounting path that would drift from exported telemetry.
+
+Provider-specific cache-edit microcompaction is a future optional branch. It
+must be gated by a declared provider capability and must not be inferred from
+OpenAI-compatible request shape alone.
+
+### 8) Provider Cache Profiles
+
+Model backends expose a cache profile with these independent capabilities:
+
+- `automatic_prefix_cache`: repeated prompt prefixes may be cached by the
+  provider without request parameters.
+- `cache_usage_accounting`: usage metadata can report cache hit/miss tokens.
+- `cache_edit`: the provider can delete or edit cached content without
+  rewriting the local prompt content.
+- `cache_retention_control`: the request API supports explicit cache retention
+  controls.
+
+DeepSeek is modeled as automatic prefix cache plus usage accounting, with no
+cache edit and no retention control. OpenAI-compatible custom endpoints default
+to no declared cache capability unless RARA has a provider-specific contract.
+
+Compression logic must choose behavior from the cache profile:
+
+- no `cache_edit`: use projection and ordinary compaction only;
+- `cache_edit`: a future pass may submit cache edits while preserving local
+  messages;
+- no `cache_retention_control`: do not inject provider-specific retention
+  parameters.
+
+### 9) Memory Placement
+
+RARA has two memory classes with different cache behavior:
+
+- Stable workspace memory, such as `.rara/memory.md`, is a prompt source. It
+  belongs with stable instructions and should keep deterministic source order.
+- Retrieved memory from session, thread, workspace, vector, or hybrid search is
+  volatile per-turn context. It should be selected by `MemorySelection` and
+  injected after stable prompt material, compacted carry-over, and the retained
+  history projection, close to the latest user request.
+
+Retrieved memory must not be prepended to the stable system prompt or inserted
+before tool schemas. Doing so would make automatic prefix caches less useful for
+providers such as DeepSeek. The current runtime injects selected retrieved memory
+into the latest user message and does not persist that injected block to
+`Agent.history`; this is the correct baseline until RARA has a first-class
+attachment carrier for volatile context.
+
+When future models are added, memory placement must follow the provider cache
+profile:
+
+- providers without cache edit: keep retrieved memory in the volatile suffix;
+- providers with cache edit: cache-edit may optimize old tool results, but
+  retrieved memory still remains per-turn volatile context unless explicitly
+  promoted to workspace memory;
+- providers without cache usage accounting: do not infer cache hit quality from
+  memory placement alone.
+
+### 10) Dedicated Compact Worker
 
 Compaction can be executed by a dedicated internal worker, but it should not be exposed as a normal
 model-callable sub-agent tool. Compact is a runtime lifecycle operation, not delegated task work.
@@ -245,3 +338,4 @@ This is similar in spirit to sub-agent isolation, but its storage model is diffe
 ## Source Journals
 
 - [2026-04-19-context-compression](../journal/2026-04-19-context-compression.md)
+- [2026-05-06-prefix-stable-microcompact](../journal/2026-05-06-prefix-stable-microcompact.md)

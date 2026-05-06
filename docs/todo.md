@@ -93,6 +93,10 @@ Active backlog only. Keep this file small and current.
 - [x] Add concrete retrieved-memory carry-over producer.
 - [x] Add concrete invoked-skill carry-over producer.
 - [x] Add concrete hook/MCP carry-over producers.
+- [x] Add prefix-stable tool-result projection before model requests.
+- [ ] Add per-request microcompact observability to `/context`.
+- [ ] Add an OTEL-ready context observability event model for compaction, microcompact projection, cache usage, and memory retrieval.
+- [ ] Add provider-gated cache-edit microcompact only for backends that explicitly declare cache-edit support.
 - [ ] Surface main model vs auxiliary model routing in `/status` and `/context`.
 - [x] `ThreadStore` / `ThreadRecorder`: from façade over `SessionManager`+`StateDb` to true structured thread store.
 - [ ] Thread-scoped and workspace-scoped `MemoryRecord` storage with promotion rules.

@@ -1,3 +1,4 @@
+use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::path::PathBuf;
 
@@ -18,6 +19,44 @@ const BASH_SUCCESS_HEAD_CHARS: usize = 2_000;
 const BASH_SUCCESS_TAIL_CHARS: usize = 2_000;
 const BASH_ERROR_HEAD_CHARS: usize = 1_000;
 const BASH_ERROR_TAIL_CHARS: usize = 3_000;
+const MICROCOMPACT_TOOL_RESULT_BUDGET: usize = 48_000;
+const MICROCOMPACT_KEEP_RECENT_TOOL_RESULTS: usize = 6;
+const MICROCOMPACT_CLEARED_MESSAGE: &str =
+    "[Old tool result content cleared by RARA microcompact projection]";
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ToolResultProjectionPolicy {
+    pub enabled: bool,
+    pub budget_chars: usize,
+    pub keep_recent: usize,
+}
+
+impl Default for ToolResultProjectionPolicy {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            budget_chars: MICROCOMPACT_TOOL_RESULT_BUDGET,
+            keep_recent: MICROCOMPACT_KEEP_RECENT_TOOL_RESULTS,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct ToolResultProjectionReport {
+    pub original_chars: usize,
+    pub projected_chars: usize,
+    pub cleared_results: usize,
+    pub kept_results: usize,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct ToolResultProjectionCandidate {
+    message_index: usize,
+    block_index: usize,
+    tool_use_id: String,
+    tool_name: String,
+    chars: usize,
+}
 
 pub struct ToolResultStore {
     base_dir: PathBuf,
@@ -176,6 +215,168 @@ pub fn enforce_tool_result_batch_budget(mut messages: Vec<Message>) -> Vec<Messa
     }
 
     messages
+}
+
+pub fn project_tool_results_for_context(
+    messages: &[Message],
+    policy: &ToolResultProjectionPolicy,
+) -> (Vec<Message>, ToolResultProjectionReport) {
+    if !policy.enabled || policy.budget_chars == 0 {
+        return (messages.to_vec(), ToolResultProjectionReport::default());
+    }
+
+    let tool_names = compactable_tool_use_names(messages);
+    if tool_names.is_empty() {
+        return (messages.to_vec(), ToolResultProjectionReport::default());
+    }
+
+    let candidates = projection_candidates(messages, &tool_names);
+    let original_chars = candidates
+        .iter()
+        .map(|candidate| candidate.chars)
+        .sum::<usize>();
+    if original_chars <= policy.budget_chars {
+        return (
+            messages.to_vec(),
+            ToolResultProjectionReport {
+                original_chars,
+                projected_chars: original_chars,
+                cleared_results: 0,
+                kept_results: candidates.len(),
+            },
+        );
+    }
+
+    let keep_recent = policy.keep_recent.max(1);
+    let keep_ids = candidates
+        .iter()
+        .rev()
+        .take(keep_recent)
+        .map(|candidate| candidate.tool_use_id.as_str())
+        .collect::<HashSet<_>>();
+    let mut projected = messages.to_vec();
+    let mut projected_chars = original_chars;
+    let mut cleared_results = 0usize;
+
+    for candidate in &candidates {
+        if projected_chars <= policy.budget_chars
+            || keep_ids.contains(candidate.tool_use_id.as_str())
+        {
+            continue;
+        }
+        let Some(content) = tool_result_content_mut(
+            &mut projected,
+            candidate.message_index,
+            candidate.block_index,
+        ) else {
+            continue;
+        };
+        if content == MICROCOMPACT_CLEARED_MESSAGE {
+            continue;
+        }
+        let replacement = microcompact_cleared_tool_result(&candidate.tool_name);
+        projected_chars = projected_chars
+            .saturating_sub(candidate.chars)
+            .saturating_add(replacement.chars().count());
+        *content = replacement;
+        cleared_results += 1;
+    }
+
+    (
+        projected,
+        ToolResultProjectionReport {
+            original_chars,
+            projected_chars,
+            cleared_results,
+            kept_results: candidates.len().saturating_sub(cleared_results),
+        },
+    )
+}
+
+fn compactable_tool_use_names(messages: &[Message]) -> HashMap<String, String> {
+    let mut tool_names = HashMap::new();
+    for message in messages {
+        if message.role != "assistant" {
+            continue;
+        }
+        let Some(blocks) = message.content.as_array() else {
+            continue;
+        };
+        for block in blocks {
+            if block.get("type").and_then(Value::as_str) != Some("tool_use") {
+                continue;
+            }
+            let Some(id) = block.get("id").and_then(Value::as_str) else {
+                continue;
+            };
+            let Some(name) = block.get("name").and_then(Value::as_str) else {
+                continue;
+            };
+            if is_microcompactable_tool(name) {
+                tool_names.insert(id.to_string(), name.to_string());
+            }
+        }
+    }
+    tool_names
+}
+
+fn projection_candidates(
+    messages: &[Message],
+    tool_names: &HashMap<String, String>,
+) -> Vec<ToolResultProjectionCandidate> {
+    let mut candidates = Vec::new();
+    for (message_index, message) in messages.iter().enumerate() {
+        if message.role != "user" {
+            continue;
+        }
+        let Some(blocks) = message.content.as_array() else {
+            continue;
+        };
+        for (block_index, block) in blocks.iter().enumerate() {
+            if block.get("type").and_then(Value::as_str) != Some("tool_result") {
+                continue;
+            }
+            let Some(tool_use_id) = block.get("tool_use_id").and_then(Value::as_str) else {
+                continue;
+            };
+            let Some(tool_name) = tool_names.get(tool_use_id) else {
+                continue;
+            };
+            let Some(content) = block.get("content").and_then(Value::as_str) else {
+                continue;
+            };
+            candidates.push(ToolResultProjectionCandidate {
+                message_index,
+                block_index,
+                tool_use_id: tool_use_id.to_string(),
+                tool_name: tool_name.clone(),
+                chars: content.chars().count(),
+            });
+        }
+    }
+    candidates
+}
+
+fn is_microcompactable_tool(name: &str) -> bool {
+    matches!(
+        name,
+        "bash"
+            | "read_file"
+            | "grep"
+            | "glob"
+            | "web_search"
+            | "web_fetch"
+            | "apply_patch"
+            | "write_file"
+            | "replace"
+            | "replace_lines"
+    )
+}
+
+fn microcompact_cleared_tool_result(tool_name: &str) -> String {
+    format!(
+        "{MICROCOMPACT_CLEARED_MESSAGE}\ntool={tool_name}\nreason=older compactable tool results exceeded the per-request projection budget; original transcript remains unchanged"
+    )
 }
 
 #[derive(Debug)]

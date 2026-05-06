@@ -4,8 +4,9 @@ mod tests {
 
     use crate::agent::Message;
     use crate::tool_result::{
-        TOOL_RESULT_BATCH_BUDGET, ToolResultStore, compact_read_file, compact_subagent_result,
-        compact_web_search, default_tool_result_store_dir, enforce_tool_result_batch_budget,
+        TOOL_RESULT_BATCH_BUDGET, ToolResultProjectionPolicy, ToolResultStore, compact_read_file,
+        compact_subagent_result, compact_web_search, default_tool_result_store_dir,
+        enforce_tool_result_batch_budget, project_tool_results_for_context,
         repair_tool_result_history, tool_result_content_candidates,
     };
 
@@ -242,6 +243,85 @@ mod tests {
                 .filter_map(|message| message.content[0]["content"].as_str())
                 .any(|content| content.contains("tool_result shortened"))
         );
+    }
+
+    #[test]
+    fn projects_old_compactable_tool_results_without_changing_source_messages() {
+        let messages = (0..4)
+            .flat_map(|idx| {
+                [
+                    Message {
+                        role: "assistant".to_string(),
+                        content: json!([{
+                            "type": "tool_use",
+                            "id": format!("tool-{idx}"),
+                            "name": "read_file",
+                            "input": {}
+                        }]),
+                    },
+                    Message {
+                        role: "user".to_string(),
+                        content: json!([{
+                            "type": "tool_result",
+                            "tool_use_id": format!("tool-{idx}"),
+                            "content": format!("result-{idx}-{}", "x".repeat(128))
+                        }]),
+                    },
+                ]
+            })
+            .collect::<Vec<_>>();
+
+        let (projected, report) = project_tool_results_for_context(
+            &messages,
+            &ToolResultProjectionPolicy {
+                enabled: true,
+                budget_chars: 180,
+                keep_recent: 1,
+            },
+        );
+        let projected_text = serde_json::to_string(&projected).expect("projected json");
+        let source_text = serde_json::to_string(&messages).expect("source json");
+
+        assert!(report.cleared_results > 0);
+        assert!(projected_text.contains("Old tool result content cleared"));
+        assert!(!projected_text.contains("result-0-"));
+        assert!(projected_text.contains("result-3-"));
+        assert!(source_text.contains("result-0-"));
+    }
+
+    #[test]
+    fn projection_ignores_non_compactable_tool_results() {
+        let messages = vec![
+            Message {
+                role: "assistant".to_string(),
+                content: json!([{
+                    "type": "tool_use",
+                    "id": "tool-1",
+                    "name": "remember_project_memory",
+                    "input": {}
+                }]),
+            },
+            Message {
+                role: "user".to_string(),
+                content: json!([{
+                    "type": "tool_result",
+                    "tool_use_id": "tool-1",
+                    "content": format!("memory-result-{}", "x".repeat(1_000))
+                }]),
+            },
+        ];
+
+        let (projected, report) = project_tool_results_for_context(
+            &messages,
+            &ToolResultProjectionPolicy {
+                enabled: true,
+                budget_chars: 1,
+                keep_recent: 1,
+            },
+        );
+
+        assert_eq!(projected, messages);
+        assert_eq!(report.cleared_results, 0);
     }
 
     #[test]

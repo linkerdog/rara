@@ -19,7 +19,9 @@ use super::shared::{
 };
 use crate::agent::Message;
 use crate::config::OpenAiEndpointKind;
-use crate::llm::{ContentBlock, LlmStreamEvent, LlmTurnMetadata};
+use crate::llm::{
+    ContentBlock, LlmBackend, LlmStreamEvent, LlmTurnMetadata, OpenAiCompatibleBackend,
+};
 use crate::tool::Tool;
 use crate::tools::planning::ExitPlanModeTool;
 
@@ -343,6 +345,23 @@ fn openai_usage_tracks_cache_hit_and_miss_tokens() {
     assert_eq!(usage.output_tokens, 4);
     assert_eq!(usage.cache_hit_tokens, 64);
     assert_eq!(usage.cache_miss_tokens, 36);
+}
+
+#[test]
+fn deepseek_cache_profile_uses_automatic_prefix_cache_without_cache_edit() {
+    let backend = OpenAiCompatibleBackend::new_with_endpoint_kind(
+        None,
+        "https://api.deepseek.com".to_string(),
+        "deepseek-chat".to_string(),
+        OpenAiEndpointKind::Deepseek,
+    )
+    .expect("backend");
+
+    let profile = backend.cache_profile();
+    assert!(profile.automatic_prefix_cache);
+    assert!(profile.cache_usage_accounting);
+    assert!(!profile.cache_edit);
+    assert!(!profile.cache_retention_control);
 }
 
 #[test]
