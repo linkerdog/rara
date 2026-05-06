@@ -867,6 +867,55 @@ fn streamed_agent_output_appends_visible_text_after_internal_block() {
 }
 
 #[test]
+fn finalized_agent_stream_does_not_replace_agent_text_before_tool_boundary() {
+    let dir = tempdir().expect("tempdir");
+    let cm = ConfigManager {
+        path: dir.path().join("config.json"),
+    };
+    let mut app = TuiApp::new(cm).expect("app");
+    app.push_entry("You", "Fix the rendering order");
+
+    app.append_agent_delta("First assistant segment.");
+    app.finalize_agent_stream(None);
+    app.push_entry("Running", "Run cargo check");
+    app.append_agent_delta("Second assistant segment.");
+    app.finalize_agent_stream(None);
+
+    let agent_entries = app
+        .active_turn
+        .entries
+        .iter()
+        .filter(|entry| entry.role == "Agent")
+        .map(|entry| entry.message.as_str())
+        .collect::<Vec<_>>();
+    assert_eq!(
+        agent_entries,
+        vec!["First assistant segment.", "Second assistant segment."]
+    );
+
+    let first_agent = app
+        .active_turn
+        .entries
+        .iter()
+        .position(|entry| entry.message == "First assistant segment.")
+        .unwrap();
+    let running = app
+        .active_turn
+        .entries
+        .iter()
+        .position(|entry| entry.message == "Run cargo check")
+        .unwrap();
+    let second_agent = app
+        .active_turn
+        .entries
+        .iter()
+        .position(|entry| entry.message == "Second assistant segment.")
+        .unwrap();
+    assert!(first_agent < running);
+    assert!(running < second_agent);
+}
+
+#[test]
 fn flushed_agent_thinking_stream_scrubs_internal_runtime_blocks() {
     let dir = tempdir().expect("tempdir");
     let cm = ConfigManager {
