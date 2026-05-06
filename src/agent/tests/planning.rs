@@ -1008,6 +1008,55 @@ async fn always_mode_still_requires_approval_for_escalated_sandbox_request() {
 }
 
 #[tokio::test]
+async fn full_access_mode_auto_allows_escalated_sandbox_request() {
+    let backend = Arc::new(SequencedBackend::new(vec![
+        LlmResponse {
+            content: vec![ContentBlock::ToolUse {
+                id: "tool-escalated-bash".to_string(),
+                name: "bash".to_string(),
+                input: json!({
+                    "program": "cargo",
+                    "args": ["check"],
+                    "sandbox_permissions": "require_escalated"
+                }),
+            }],
+            stop_reason: Some("tool_use".to_string()),
+            usage: Some(TokenUsage::default()),
+        },
+        LlmResponse {
+            content: vec![ContentBlock::Text {
+                text: "done".to_string(),
+            }],
+            stop_reason: Some("end_turn".to_string()),
+            usage: Some(TokenUsage::default()),
+        },
+    ]));
+    let mut tool_manager = ToolManager::new();
+    tool_manager.register(Box::new(StubBashTool));
+    let (_temp, session_manager, workspace, rara_dir) = test_runtime_storage();
+    let mut agent = Agent::new(
+        tool_manager,
+        backend.clone(),
+        Arc::new(VectorDB::new(&rara_dir.join("lancedb").to_string_lossy())),
+        session_manager,
+        workspace,
+    );
+    agent.bash_approval_mode = crate::agent::BashApprovalMode::Always;
+    agent.set_full_access_mode(true);
+
+    agent
+        .query_with_mode(
+            "run check with full access".to_string(),
+            super::super::AgentOutputMode::Silent,
+        )
+        .await
+        .expect("full access should auto-allow escalated bash");
+
+    assert!(agent.pending_approval.is_none());
+    assert_eq!(backend.observed_messages().len(), 2);
+}
+
+#[tokio::test]
 async fn approved_prefix_auto_allows_matching_escalated_request() {
     let backend = Arc::new(SequencedBackend::new(vec![
         LlmResponse {

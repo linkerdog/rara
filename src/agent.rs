@@ -141,6 +141,7 @@ pub struct Agent {
     pub tool_result_store: ToolResultStore,
     pub execution_mode: AgentExecutionMode,
     pub bash_approval_mode: BashApprovalMode,
+    pub full_access_mode: bool,
     pub current_plan: Vec<PlanStep>,
     pub plan_explanation: Option<String>,
     pub pending_user_input: Option<PendingUserInput>,
@@ -212,6 +213,7 @@ impl Agent {
             }),
             execution_mode: AgentExecutionMode::Execute,
             bash_approval_mode: BashApprovalMode::Always,
+            full_access_mode: false,
             current_plan: Vec::new(),
             plan_explanation: None,
             pending_user_input: None,
@@ -761,6 +763,7 @@ impl Agent {
                 }
             }
             if let Some(request) = bash_request.as_ref()
+                && !self.full_access_mode
                 && (request.requires_escalated_permissions()
                     || matches!(self.bash_approval_mode, BashApprovalMode::Suggestion))
             {
