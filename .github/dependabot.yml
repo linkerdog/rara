@@ -7,6 +7,10 @@ updates:
       time: "09:00"
       timezone: "Asia/Shanghai"
     open-pull-requests-limit: 8
+    ignore:
+      - dependency-name: "*"
+        update-types:
+          - "version-update:semver-major"
     groups:
       rust-minor-patch-dependencies:
         applies-to: "version-updates"
