@@ -22,12 +22,14 @@ use crate::tui::state::{
     ListPickerKind, Overlay, ProviderFamily, RuntimeSnapshot, StatusTab, TranscriptEntry,
     TranscriptTurn, TuiApp,
 };
+
 fn provider_family_idx(family: ProviderFamily) -> usize {
     crate::tui::state::PROVIDER_FAMILIES
         .iter()
         .position(|(candidate, _, _)| *candidate == family)
         .expect("provider family present")
 }
+
 #[test]
 fn committed_turn_does_not_truncate_agent_response() {
     let entries = vec![
@@ -45,15 +47,18 @@ fn committed_turn_does_not_truncate_agent_response() {
             payload: None,
         },
     ];
+
     let rendered = committed_turn_cell(entries.as_slice(), Some(Path::new(".")))
         .display_lines(100)
         .into_iter()
         .map(|line| line.to_string())
         .collect::<Vec<_>>()
         .join("\n");
+
     assert!(rendered.contains("Line 12"));
     assert!(!rendered.contains("more line(s)"));
 }
+
 #[test]
 fn keeps_history_reserve_once_transcript_exists() {
     let temp = tempdir().expect("tempdir");
@@ -68,10 +73,12 @@ fn keeps_history_reserve_once_transcript_exists() {
             payload: None,
         }],
     });
+
     let height = desired_viewport_height(&app, 120, 24);
     assert!(height > 5);
     assert!(height < 24);
 }
+
 #[test]
 fn startup_viewport_uses_full_height_for_header() {
     let temp = tempdir().expect("tempdir");
@@ -79,8 +86,10 @@ fn startup_viewport_uses_full_height_for_header() {
         path: temp.path().join("config.json"),
     })
     .expect("build tui app");
+
     assert_eq!(desired_viewport_height(&app, 107, 53), 53);
 }
+
 #[test]
 fn overlay_viewport_uses_full_height_on_empty_transcript() {
     let temp = tempdir().expect("tempdir");
@@ -90,8 +99,10 @@ fn overlay_viewport_uses_full_height_on_empty_transcript() {
     .expect("build tui app");
     app.input = "/model".into();
     app.open_overlay(Overlay::CommandPalette);
+
     assert_eq!(desired_viewport_height(&app, 107, 53), 53);
 }
+
 #[test]
 fn transcript_render_stays_above_bottom_pane() {
     let temp = tempdir().expect("tempdir");
@@ -114,6 +125,7 @@ fn transcript_render_stays_above_bottom_pane() {
         ],
     });
     app.input = "composer text".into();
+
     let width = 80;
     let height = 14;
     let rendered = render_screen_text(&app, width, height);
@@ -122,10 +134,12 @@ fn transcript_render_stays_above_bottom_pane() {
     let transcript_end = usize::from(height).saturating_sub(bottom_height);
     let transcript = lines[..transcript_end].join("\n");
     let bottom = lines[transcript_end..].join("\n");
+
     assert!(transcript.contains("TRANSCRIPT_SENTINEL"));
     assert!(!bottom.contains("TRANSCRIPT_SENTINEL"));
     assert!(bottom.contains("composer text"));
 }
+
 #[test]
 fn bottom_pane_background_covers_hint_and_footer_rows() {
     let temp = tempdir().expect("tempdir");
@@ -136,12 +150,14 @@ fn bottom_pane_background_covers_hint_and_footer_rows() {
     app.notice = Some("Prompt finished.".into());
     app.repo_slug = Some("hawkingrei/rara".into());
     app.snapshot.branch = "main".into();
+
     let width = 100;
     let height = 14;
     let buffer = render_screen_buffer(&app, width, height);
     let bottom_height = desired_bottom_pane_height(&app, width, height);
     let bottom_start = height.saturating_sub(bottom_height);
     let expected_bg = Color::Reset;
+
     for y in bottom_start..height {
         for x in 0..width {
             assert_eq!(
@@ -152,6 +168,7 @@ fn bottom_pane_background_covers_hint_and_footer_rows() {
         }
     }
 }
+
 #[test]
 fn tool_summary_includes_apply_patch_target_files() {
     let entries = vec![TranscriptEntry {
@@ -160,9 +177,11 @@ fn tool_summary_includes_apply_patch_target_files() {
         payload: None,
     }];
     let refs = entries.iter().collect::<Vec<_>>();
+
     let rendered = current_turn_tool_summary(&refs, false, None).expect("tool summary");
     assert!(rendered.contains("Apply patch src/tui/render.rs, src/tui/runtime/events.rs"));
 }
+
 #[test]
 fn tool_summary_includes_bash_result_status_and_output_tail() {
     let entries = vec![
@@ -170,6 +189,7 @@ fn tool_summary_includes_bash_result_status_and_output_tail() {
         TranscriptEntry { role: "Tool Result".into(), message: "bash failed with exit code 101\nstdout:\n   Compiling rara v0.1.0\nstderr:\nerror[E0425]: cannot find value `foo` in this scope".into(), payload: None },
     ];
     let refs = entries.iter().collect::<Vec<_>>();
+
     let rendered = current_turn_tool_summary(&refs, false, None).expect("tool summary");
     assert!(rendered.contains("Run cd /Users/vl/Code/rara && cargo build 2>&1"));
     assert!(rendered.contains("bash failed with exit code 101"));
@@ -177,6 +197,7 @@ fn tool_summary_includes_bash_result_status_and_output_tail() {
     assert!(rendered.contains("Compiling rara v0.1.0"));
     assert!(rendered.contains("error[E0425]"));
 }
+
 #[test]
 fn tool_summary_compacts_spawn_agent_instruction_json() {
     let entries = vec![TranscriptEntry {
@@ -191,30 +212,35 @@ fn tool_summary_compacts_spawn_agent_instruction_json() {
         payload: None,
     }];
     let refs = entries.iter().collect::<Vec<_>>();
+
     let rendered = current_turn_tool_summary(&refs, false, None).expect("tool summary");
     assert!(rendered.contains("Delegate fix-assembler: Fix the file src/context/assembler.rs"));
     assert!(rendered.contains('…'));
     assert!(!rendered.contains("\"instruction\""));
     assert!(!rendered.contains("avoid one giant replacement payload"));
 }
+
 #[test]
 fn tool_action_label_uses_explore_icon_for_explore_agent() {
     let rendered = tool_action_label("explore_agent inspect the runtime path");
     assert!(rendered.is_some());
     assert!(rendered.unwrap().starts_with("🔍 Explore"));
 }
+
 #[test]
 fn tool_action_label_uses_plan_icon_for_plan_agent() {
     let rendered = tool_action_label("plan_agent reorganize the module");
     assert!(rendered.is_some());
     assert!(rendered.unwrap().starts_with("📋 Plan"));
 }
+
 #[test]
 fn tool_action_label_uses_team_icon_for_team_create() {
     let rendered = tool_action_label("team_create review PR");
     assert!(rendered.is_some());
     assert!(rendered.unwrap().starts_with("👥 Team"));
 }
+
 #[test]
 fn renderable_transcript_lines_include_committed_and_active_turns() {
     let temp = tempdir().expect("tempdir");
@@ -241,16 +267,19 @@ fn renderable_transcript_lines_include_committed_and_active_turns() {
         message: "Current prompt".into(),
         payload: None,
     });
+
     let rendered = renderable_transcript_lines(&app, 100)
         .into_iter()
         .map(|line| line.to_string())
         .collect::<Vec<_>>()
         .join("\n");
+
     assert!(rendered.contains("▌ You"));
     assert!(rendered.contains("Earlier prompt"));
     assert!(rendered.contains("Committed answer"));
     assert!(rendered.contains("Current prompt"));
 }
+
 #[test]
 fn renderable_transcript_lines_insert_turn_dividers_between_rounds() {
     let temp = tempdir().expect("tempdir");
@@ -279,10 +308,12 @@ fn renderable_transcript_lines_insert_turn_dividers_between_rounds() {
         message: "Current prompt".into(),
         payload: None,
     });
+
     let rendered = renderable_transcript_lines(&app, 24)
         .into_iter()
         .map(|line| line.to_string())
         .collect::<Vec<_>>();
+
     let divider = "─".repeat(24);
     assert_eq!(
         rendered
@@ -292,6 +323,7 @@ fn renderable_transcript_lines_insert_turn_dividers_between_rounds() {
         2
     );
 }
+
 #[test]
 fn startup_header_renders_but_does_not_enter_transcript_lines() {
     let temp = tempdir().expect("tempdir");
@@ -299,8 +331,10 @@ fn startup_header_renders_but_does_not_enter_transcript_lines() {
         path: temp.path().join("config.json"),
     })
     .expect("build tui app");
+
     let rendered = render_screen_text(&app, 100, 24);
     assert!(rendered.contains(">_ RARA"));
+
     let transcript = renderable_transcript_lines(&app, 100)
         .into_iter()
         .map(|line| line.to_string())
@@ -309,6 +343,7 @@ fn startup_header_renders_but_does_not_enter_transcript_lines() {
     assert!(!transcript.contains(">_ RARA"));
     assert!(!transcript.contains("directory:"));
 }
+
 #[test]
 fn transcript_scroll_offset_keeps_zero_sticky_to_bottom() {
     let temp = tempdir().expect("tempdir");
@@ -317,10 +352,13 @@ fn transcript_scroll_offset_keeps_zero_sticky_to_bottom() {
     })
     .expect("build tui app");
     app.transcript_scroll = 0;
+
     assert_eq!(transcript_scroll_offset(&app, 3, 10), 7);
+
     app.scroll_transcript(-2);
     assert_eq!(transcript_scroll_offset(&app, 3, 10), 5);
 }
+
 #[test]
 fn transcript_scroll_offset_uses_wrapped_visual_height() {
     let temp = tempdir().expect("tempdir");
@@ -332,6 +370,7 @@ fn transcript_scroll_offset_uses_wrapped_visual_height() {
         Line::from("Agent"),
         Line::from("  This is a long streamed response that should wrap across rows."),
     ];
+
     let visual_rows = transcript_visual_row_count(&lines, 12);
     assert!(visual_rows > lines.len());
     assert_eq!(
@@ -339,6 +378,7 @@ fn transcript_scroll_offset_uses_wrapped_visual_height() {
         visual_rows as u16 - 3
     );
 }
+
 #[test]
 fn effective_height_includes_final_row_at_bottom_sticky() {
     let temp = tempdir().expect("tempdir");
@@ -346,6 +386,7 @@ fn effective_height_includes_final_row_at_bottom_sticky() {
         path: temp.path().join("config.json"),
     })
     .expect("build tui app");
+
     // Pre-build committed turns so that visual rows exceed a 5-row viewport.
     let entries: Vec<TranscriptEntry> = (0..8)
         .map(|i| TranscriptEntry {
@@ -355,11 +396,14 @@ fn effective_height_includes_final_row_at_bottom_sticky() {
         })
         .collect();
     app.restore_committed_turns(vec![TranscriptTurn { entries }]);
+
     let viewport = transcript_viewport(&app, 80, 5);
     let (visible_lines, _inner) = viewport.visible_window(80, 5);
+
     // Effective height = 5 - 1 = 4. With scroll=0 (bottom sticky),
     // the viewport should show the last 4 content rows.
     assert_eq!(visible_lines.len(), 4);
+
     let last_line = visible_lines
         .last()
         .map(|line| line.to_string())
@@ -369,6 +413,7 @@ fn effective_height_includes_final_row_at_bottom_sticky() {
         "bottom sticky should include final content row ('Line 7') not: {last_line}"
     );
 }
+
 #[test]
 fn renderable_transcript_lines_cache_is_invalidated_when_committed_turns_change() {
     let temp = tempdir().expect("tempdir");
@@ -383,12 +428,14 @@ fn renderable_transcript_lines_cache_is_invalidated_when_committed_turns_change(
             payload: None,
         }],
     }]);
+
     let first = renderable_transcript_lines(&app, 100)
         .into_iter()
         .map(|line| line.to_string())
         .collect::<Vec<_>>()
         .join("\n");
     assert!(first.contains("First answer"));
+
     app.restore_committed_turns(vec![TranscriptTurn {
         entries: vec![TranscriptEntry {
             role: "Agent".into(),
@@ -396,6 +443,7 @@ fn renderable_transcript_lines_cache_is_invalidated_when_committed_turns_change(
             payload: None,
         }],
     }]);
+
     let second = renderable_transcript_lines(&app, 100)
         .into_iter()
         .map(|line| line.to_string())
@@ -404,6 +452,7 @@ fn renderable_transcript_lines_cache_is_invalidated_when_committed_turns_change(
     assert!(!second.contains("First answer"));
     assert!(second.contains("Second answer"));
 }
+
 #[test]
 fn transcript_viewport_is_independent_from_overlay_state() {
     let temp = tempdir().expect("tempdir");
@@ -430,9 +479,11 @@ fn transcript_viewport_is_independent_from_overlay_state() {
         message: "Current prompt".into(),
         payload: None,
     });
+
     let base = transcript_viewport(&app, 80, 18);
     app.overlay = Some(Overlay::Status(StatusTab::Overview));
     let with_overlay = transcript_viewport(&app, 80, 18);
+
     let base_rendered = base
         .lines
         .into_iter()
@@ -443,9 +494,11 @@ fn transcript_viewport_is_independent_from_overlay_state() {
         .into_iter()
         .map(|line| line.to_string())
         .collect::<Vec<_>>();
+
     assert_eq!(base_rendered, overlay_rendered);
     assert_eq!(base.scroll_offset, with_overlay.scroll_offset);
 }
+
 #[test]
 fn transcript_viewport_keeps_manual_scroll_when_overlay_opens() {
     let temp = tempdir().expect("tempdir");
@@ -471,12 +524,15 @@ fn transcript_viewport_keeps_manual_scroll_when_overlay_opens() {
         ],
     });
     app.scroll_transcript(-3);
+
     let base = transcript_viewport(&app, 60, 8);
     app.overlay = Some(Overlay::Status(StatusTab::Overview));
     let with_overlay = transcript_viewport(&app, 60, 8);
+
     assert_eq!(base.scroll_offset, with_overlay.scroll_offset);
     assert_eq!(app.transcript_scroll, 3);
 }
+
 #[test]
 fn command_palette_does_not_change_scrolled_viewport_height() {
     let temp = tempdir().expect("tempdir");
@@ -485,12 +541,15 @@ fn command_palette_does_not_change_scrolled_viewport_height() {
     })
     .expect("build tui app");
     app.transcript_scroll = 5;
+
     let base = desired_viewport_height(&app, 80, 24);
     app.overlay = Some(Overlay::CommandPalette);
     let with_palette = desired_viewport_height(&app, 80, 24);
+
     assert_eq!(base, 24);
     assert_eq!(base, with_palette);
 }
+
 #[test]
 fn bottom_pane_grows_for_multiline_input() {
     let temp = tempdir().expect("tempdir");
@@ -498,12 +557,15 @@ fn bottom_pane_grows_for_multiline_input() {
         path: temp.path().join("config.json"),
     })
     .expect("build tui app");
+
     let base = desired_bottom_pane_height(&app, 80, 24);
     app.input = "first line\nsecond line\nthird line\nfourth line".into();
     let expanded = desired_bottom_pane_height(&app, 80, 24);
+
     assert_eq!(base, 5);
     assert!(expanded > base);
 }
+
 #[test]
 fn bottom_pane_preserves_space_only_input_layout() {
     let temp = tempdir().expect("tempdir");
@@ -511,13 +573,17 @@ fn bottom_pane_preserves_space_only_input_layout() {
         path: temp.path().join("config.json"),
     })
     .expect("build tui app");
+
     app.input = " ".into();
     let space_only = desired_bottom_pane_height(&app, 80, 24);
+
     app.input = "  \n ".into();
     let multiline_space_only = desired_bottom_pane_height(&app, 80, 24);
+
     assert_eq!(space_only, 5);
     assert!(multiline_space_only >= space_only);
 }
+
 #[test]
 fn bottom_pane_height_does_not_panic_on_tiny_terminal() {
     let temp = tempdir().expect("tempdir");
@@ -525,9 +591,11 @@ fn bottom_pane_height_does_not_panic_on_tiny_terminal() {
         path: temp.path().join("config.json"),
     })
     .expect("build tui app");
+
     assert_eq!(desired_bottom_pane_height(&app, 80, 1), 1);
     assert_eq!(desired_bottom_pane_height(&app, 80, 3), 3);
 }
+
 #[test]
 fn transcript_viewport_visible_window_keeps_partial_wrapped_line_offset() {
     let viewport = TranscriptViewport::new(
@@ -537,15 +605,18 @@ fn transcript_viewport_visible_window_keeps_partial_wrapped_line_offset() {
         ],
         1,
     );
+
     let (lines, inner_scroll) = viewport.visible_window(12, 3);
     let rendered = lines
         .into_iter()
         .map(|line| line.to_string())
         .collect::<Vec<_>>();
+
     assert_eq!(inner_scroll, 1);
     assert_eq!(rendered.len(), 1);
     assert!(rendered[0].contains("long first line"));
 }
+
 #[test]
 fn transcript_viewport_visible_window_slices_to_visible_rows() {
     let viewport = TranscriptViewport::new(
@@ -557,15 +628,18 @@ fn transcript_viewport_visible_window_slices_to_visible_rows() {
         ],
         1,
     );
+
     // height=3 reserves 1 bottom row, giving 2 visible content rows.
     let (lines, inner_scroll) = viewport.visible_window(80, 3);
     let rendered = lines
         .into_iter()
         .map(|line| line.to_string())
         .collect::<Vec<_>>();
+
     assert_eq!(inner_scroll, 0);
     assert_eq!(rendered, vec!["• Second", "  Third"]);
 }
+
 #[test]
 fn exploration_summary_only_keeps_read_actions() {
     let entries = vec![
@@ -596,6 +670,7 @@ fn exploration_summary_only_keeps_read_actions() {
         },
     ];
     let refs = entries.iter().collect::<Vec<_>>();
+
     let rendered = current_turn_exploration_summary_from_entries(refs.as_slice(), false, None)
         .expect("exploration summary");
     assert!(rendered.contains("Read src/main.rs"));
@@ -604,6 +679,7 @@ fn exploration_summary_only_keeps_read_actions() {
     assert!(!rendered.contains("Search planning mode src"));
     assert!(!rendered.contains("listing files"));
 }
+
 #[test]
 fn compact_progress_summary_lines_prioritizes_latest_note_and_recent_actions() {
     let actions = vec![
@@ -615,18 +691,21 @@ fn compact_progress_summary_lines_prioritizes_latest_note_and_recent_actions() {
         "Initial inspection complete.".to_string(),
         "Next I will verify the persistence path.".to_string(),
     ];
+
     let rendered = compact_progress_summary_lines(
         actions.as_slice(),
         notes.as_slice(),
         2,
         "more exploration step(s)",
     );
+
     assert!(rendered.contains("Next I will verify the persistence path."));
     assert!(!rendered.contains("Initial inspection complete."));
     assert!(rendered.contains("... 1 more exploration step(s)"));
     assert!(rendered.contains("Read src/module_2.rs"));
     assert!(rendered.contains("Read src/module_3.rs"));
 }
+
 #[test]
 fn compact_recent_first_summary_lines_puts_current_running_step_first() {
     let items = vec![
@@ -636,7 +715,9 @@ fn compact_recent_first_summary_lines_puts_current_running_step_first() {
         "Run task 4".to_string(),
         "Run task 5".to_string(),
     ];
+
     let rendered = compact_recent_first_summary_lines(items.as_slice(), 4, "more running step(s)");
+
     let lines = rendered.lines().collect::<Vec<_>>();
     assert_eq!(lines[0], "└ Run task 5");
     assert_eq!(lines[1], "└ ... 1 more running step(s)");
@@ -644,6 +725,7 @@ fn compact_recent_first_summary_lines_puts_current_running_step_first() {
     assert!(rendered.contains("Run task 2"));
     assert!(!rendered.contains("Run task 1"));
 }
+
 #[test]
 fn exploration_summary_compacts_long_read_lists() {
     let entries = (1..=6)
@@ -654,6 +736,7 @@ fn exploration_summary_compacts_long_read_lists() {
         })
         .collect::<Vec<_>>();
     let refs = entries.iter().collect::<Vec<_>>();
+
     let rendered = current_turn_exploration_summary_from_entries(refs.as_slice(), false, None)
         .expect("exploration summary");
     assert!(rendered.contains("... 2 more file(s) inspected"));
@@ -662,6 +745,7 @@ fn exploration_summary_compacts_long_read_lists() {
     assert!(rendered.contains("module_3.rs"));
     assert!(rendered.contains("module_6.rs"));
 }
+
 #[test]
 fn compact_summary_text_keeps_tail_of_long_explicit_blocks() {
     let summary = [
@@ -672,16 +756,19 @@ fn compact_summary_text_keeps_tail_of_long_explicit_blocks() {
         "└ Read src/e.rs",
     ]
     .join("\n");
+
     let rendered = compact_summary_text(&summary, 4, "more exploration step(s)");
     assert!(rendered.contains("... 1 more exploration step(s)"));
     assert!(!rendered.contains("src/a.rs"));
     assert!(rendered.contains("src/b.rs"));
     assert!(rendered.contains("src/e.rs"));
 }
+
 #[test]
 fn ssh_startup_page_warns_without_opening_setup_window() {
     let temp = tempdir().expect("tempdir");
     let _ssh_env = crate::tui::terminal_ui::test_env::set_ssh_session(true);
+
     let cm = ConfigManager {
         path: temp.path().join("config.json"),
     };
@@ -689,12 +776,15 @@ fn ssh_startup_page_warns_without_opening_setup_window() {
     config.set_provider("openai-compatible");
     config.clear_api_key();
     cm.save(&config).expect("save config");
+
     let mut app = TuiApp::new(cm).expect("build tui app");
     app.snapshot.cwd = "~/devel/opensource/rara".into();
     assert!(app.overlay.is_none());
+
     let rendered = render_screen_text(&app, 100, 24);
     assert_snapshot!("ssh_startup_warning_screen", rendered);
 }
+
 #[test]
 fn provider_picker_renders_as_full_overlay_on_standard_terminal() {
     let temp = tempdir().expect("tempdir");
@@ -703,9 +793,11 @@ fn provider_picker_renders_as_full_overlay_on_standard_terminal() {
     })
     .expect("build tui app");
     app.open_overlay(Overlay::ListPicker(ListPickerKind::Provider));
+
     let rendered = render_screen_text(&app, 100, 24);
     assert_snapshot!("provider_picker_standard_terminal", rendered);
 }
+
 #[test]
 fn openai_model_picker_renders_profile_manager_not_endpoint_presets() {
     let temp = tempdir().expect("tempdir");
@@ -723,13 +815,19 @@ fn openai_model_picker_renders_profile_manager_not_endpoint_presets() {
         .set_model(Some("anthropic/claude-3.7-sonnet".to_string()));
     app.config.set_api_key("sk-openrouter");
     app.open_overlay(Overlay::ListPicker(ListPickerKind::Model));
+
     let rendered = render_screen_text(&app, 100, 24);
-    assert!(rendered.contains("Model Picker"));
+    assert!(rendered.contains("OpenAI-compatible profiles"));
+    assert!(rendered.contains("Status"));
     assert!(rendered.contains("OpenRouter Main"));
+    assert!(rendered.contains("anthropic/claude-3.7-sonnet"));
+    assert!(rendered.contains("active"));
+    assert!(rendered.contains("C create"));
     assert!(!rendered.contains("DeepSeek (openai-compatible/deepseek-chat)"));
     assert!(!rendered.contains("Kimi (openai-compatible/kimi-k2.6)"));
     assert!(!rendered.contains("OpenRouter (openai-compatible/openai/gpt-4o-mini)"));
 }
+
 #[test]
 fn deepseek_model_picker_renders_catalog_models_and_refresh_hint() {
     let temp = tempdir().expect("tempdir");
@@ -746,10 +844,17 @@ fn deepseek_model_picker_renders_catalog_models_and_refresh_hint() {
         "deepseek-reasoner".to_string(),
     ]);
     app.open_overlay(Overlay::ListPicker(ListPickerKind::Model));
+
     let rendered = render_screen_text(&app, 100, 24);
-    assert!(rendered.contains("Model Picker"));
+    assert!(rendered.contains("Provider: DeepSeek"));
     assert!(rendered.contains("deepseek-chat"));
+    assert!(rendered.contains("deepseek-reasoner"));
+    assert!(rendered.contains("API key"));
+    assert!(rendered.contains("Edit the active DeepSeek API key"));
+    assert!(rendered.contains("R refreshes /models"));
+    assert!(rendered.contains("A api key"));
 }
+
 #[test]
 fn openai_model_picker_renders_profile_defaults_when_fields_are_empty() {
     let temp = tempdir().expect("tempdir");
@@ -771,9 +876,13 @@ fn openai_model_picker_renders_profile_defaults_when_fields_are_empty() {
     profile.model = None;
     profile.base_url = None;
     app.open_overlay(Overlay::ListPicker(ListPickerKind::Model));
+
     let rendered = render_screen_text(&app, 100, 24);
     assert!(rendered.contains("Custom Defaults"));
+    assert!(rendered.contains(OpenAiEndpointKind::Custom.default_model()));
+    assert!(rendered.contains("https://api.openai"));
 }
+
 #[test]
 fn command_palette_query_uses_full_width_without_leaking_bottom_status() {
     let temp = tempdir().expect("tempdir");
@@ -783,11 +892,13 @@ fn command_palette_query_uses_full_width_without_leaking_bottom_status() {
     .expect("build tui app");
     app.input = "/m".into();
     app.open_overlay(Overlay::CommandPalette);
+
     let rendered = render_screen_text(&app, 107, 53);
     assert!(rendered.contains("/model"));
     assert!(!rendered.contains("ctx~="));
     assert!(!rendered.contains("enter run  esc close"));
 }
+
 #[test]
 fn command_palette_empty_query_does_not_render_inline_footer_hint() {
     let temp = tempdir().expect("tempdir");
@@ -797,12 +908,14 @@ fn command_palette_empty_query_does_not_render_inline_footer_hint() {
     .expect("build tui app");
     app.input = "/".into();
     app.open_overlay(Overlay::CommandPalette);
+
     let rendered = render_screen_text(&app, 107, 53);
     assert!(rendered.contains("/approval"));
     assert!(rendered.contains("/model"));
     assert!(!rendered.contains("enter run  esc close"));
     assert!(!rendered.contains("up/down move  enter run  esc close"));
 }
+
 #[test]
 fn api_key_editor_renders_full_prompt_on_standard_terminal() {
     let temp = tempdir().expect("tempdir");
@@ -817,9 +930,11 @@ fn api_key_editor_renders_full_prompt_on_standard_terminal() {
     app.config = config;
     app.provider_picker_idx = provider_family_idx(ProviderFamily::OpenAiCompatible);
     app.open_overlay(Overlay::ApiKeyEditor);
+
     let rendered = render_screen_text(&app, 100, 24);
     assert_snapshot!("api_key_editor_standard_terminal", rendered);
 }
+
 #[test]
 fn deepseek_api_key_editor_uses_deepseek_copy() {
     let temp = tempdir().expect("tempdir");
@@ -832,6 +947,7 @@ fn deepseek_api_key_editor_uses_deepseek_copy() {
         .select_openai_profile("deepseek-default", "DeepSeek", OpenAiEndpointKind::Deepseek);
     app.config.set_api_key("sk-deepseek");
     app.open_overlay(Overlay::ApiKeyEditor);
+
     let rendered = render_screen_text(&app, 100, 24);
     assert!(rendered.contains("DeepSeek API Key"));
     assert!(rendered.contains("Paste a DeepSeek API key"));
@@ -840,8 +956,10 @@ fn deepseek_api_key_editor_uses_deepseek_copy() {
     assert!(!rendered.contains("Codex API Key"));
     assert!(!rendered.contains("Esc back to login guide"));
 }
+
 fn render_screen_text(app: &TuiApp, width: u16, height: u16) -> String {
     let buffer = render_screen_buffer(app, width, height);
+
     (0..height)
         .map(|y| {
             let mut line = String::new();
@@ -853,6 +971,7 @@ fn render_screen_text(app: &TuiApp, width: u16, height: u16) -> String {
         .collect::<Vec<_>>()
         .join("\n")
 }
+
 fn render_screen_buffer(app: &TuiApp, width: u16, height: u16) -> Buffer {
     let area = Rect::new(0, 0, width, height);
     let mut buffer = Buffer::empty(area);
@@ -864,6 +983,7 @@ fn render_screen_buffer(app: &TuiApp, width: u16, height: u16) -> Buffer {
     super::render(&mut frame, app);
     buffer
 }
+
 #[test]
 fn prefixed_message_lines_keep_first_and_latest_lines() {
     let rendered = prefixed_message_lines(
@@ -879,6 +999,7 @@ fn prefixed_message_lines_keep_first_and_latest_lines() {
     assert_eq!(rendered[2], "  latest 1");
     assert_eq!(rendered[3], "  latest 2");
 }
+
 #[test]
 fn prefixed_message_lines_show_truncation_when_max_lines_is_one() {
     let tool_rendered = prefixed_message_lines("Tool", &["intro", "latest 1"].join("\n"), 1)
@@ -888,6 +1009,7 @@ fn prefixed_message_lines_show_truncation_when_max_lines_is_one() {
     assert_eq!(tool_rendered[0], "⚙ intro");
     assert!(tool_rendered[1].contains("more line"));
     assert_eq!(tool_rendered.len(), 2);
+
     // Second call with same arguments — should be identical.
     let tool_rendered2 = prefixed_message_lines("Tool", &["intro", "latest 1"].join("\n"), 1)
         .into_iter()
@@ -897,6 +1019,7 @@ fn prefixed_message_lines_show_truncation_when_max_lines_is_one() {
     assert!(tool_rendered2[1].contains("more line"));
     assert_eq!(tool_rendered2.len(), 2);
 }
+
 #[test]
 fn formatted_agent_markdown_keeps_first_and_latest_lines() {
     let rendered = formatted_message_lines(
@@ -908,6 +1031,7 @@ fn formatted_agent_markdown_keeps_first_and_latest_lines() {
     .into_iter()
     .map(|line| line.to_string())
     .collect::<Vec<_>>();
+
     assert!(rendered.iter().any(|line| line.contains("first line")));
     assert!(
         rendered
@@ -918,10 +1042,12 @@ fn formatted_agent_markdown_keeps_first_and_latest_lines() {
     assert!(rendered.iter().any(|line| line.contains("latest 2")));
     assert!(!rendered.iter().any(|line| line.contains("middle 1")));
 }
+
 #[test]
 fn context_overlay_snapshot_with_typical_budget() {
     use crate::context::ContextAssemblyEntry;
     use crate::tui::context_display::render_context_lines;
+
     let temp = tempdir().expect("tempdir");
     let mut app = TuiApp::new(ConfigManager {
         path: temp.path().join("config.json"),
@@ -977,6 +1103,7 @@ fn context_overlay_snapshot_with_typical_budget() {
     };
     app.config
         .set_model(Some("anthropic/claude-sonnet-4".to_string()));
+
     let lines = render_context_lines(&app, 78);
     let rendered = lines
         .into_iter()
@@ -989,5 +1116,6 @@ fn context_overlay_snapshot_with_typical_budget() {
         })
         .collect::<Vec<_>>()
         .join("\n");
+
     assert_snapshot!("context_overlay_typical_budget", rendered);
 }
