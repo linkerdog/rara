@@ -35,6 +35,30 @@ The current product direction is to make local inference a first-class path inst
 - Non-trivial behavior changes should add or update focused tests when practical.
 - Before implementing any non-trivial behavior change, first inspect the relevant Codex and Claude Code implementations, extract the interaction or runtime pattern that applies, write a short plan for how RARA should mirror or adapt it, and only then start implementation.
 
+## 3.1 Rust Engineering Rules
+
+- Avoid ambiguous positional booleans, numeric literals, or `Option` arguments in new APIs when they make call sites hard to read. Prefer enums, newtypes, named methods, or small parameter structs.
+- Prefer exhaustive `match` statements over wildcard arms when the variants are part of a meaningful state machine or protocol contract.
+- Newly introduced traits should include concise doc comments that explain the trait role and what implementors must preserve.
+- Keep modules private by default and expose public APIs intentionally through explicit module exports.
+- Do not add helper functions that are only used once unless they name a non-obvious invariant or isolate a testable boundary.
+- When adding a new concept, first check whether it belongs in an existing narrow crate/module or whether a small new module avoids growing a high-touch orchestration file.
+
+## 3.2 TUI Engineering Rules
+
+- Keep TUI state, display data, and rendering separate. State modules should not build Ratatui `Line`, `Span`, color, or layout objects.
+- Prefer semantic theme/style helpers over hardcoded colors. Avoid hardcoded white; use default foreground or theme constants unless a specific semantic color is required.
+- Use shared wrapping and display-sanitization helpers instead of hand-rolled wrapping, ANSI stripping, or width accounting in individual renderers.
+- User-visible TUI behavior changes should add or update focused render tests or snapshots when layout, ordering, labels, grouping, or card boundaries are the contract.
+- Review generated snapshot changes before accepting them. Do not update snapshots just because the test output changed.
+
+## 3.3 Runtime Prompt And Tool Guidance
+
+- Rules that shape agent behavior across all tasks belong in the default prompt only when they materially affect task completion, correctness, or safety.
+- Tool-selection rules belong in the relevant tool descriptions when the model needs the rule at call time.
+- RARA repository maintenance rules belong in this file, specs, or skills instead of being added to every runtime prompt.
+- Keep prompt-section order stable. New prompt material should prefer additive sections near related guidance instead of reordering existing sections, to preserve provider cache-prefix stability.
+
 ## 4. Current Key Decisions
 
 1. Local model support uses Hugging Face `candle` from the upstream `main` branch.

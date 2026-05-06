@@ -349,6 +349,19 @@ fn default_system_prompt_sections() -> Vec<PromptSection> {
             ),
         ),
         PromptSection::new(
+            "software_engineering_context",
+            section(
+                "Software Engineering Task Context",
+                &[
+                    "Most user requests in a repository are software-engineering tasks. Interpret terse or generic instructions in the current workspace context before treating them as abstract text transformations.",
+                    "If the user asks to rename, convert, clean up, review, fix, update, sync, merge, or continue something and local context can identify the target, inspect and act on the repository target instead of only explaining the phrase.",
+                    "When the target is ambiguous, search current files, git state, open PR state, available project docs, and recent runtime context before asking the user to restate information that can be discovered locally.",
+                    "Do not create planning, decision, analysis, README, or other documentation files unless the user explicitly asks for documentation.",
+                    "Keep user-visible updates concise: state what changed, what was verified, and what remains. Do not narrate private deliberation or every intermediate next step.",
+                ],
+            ),
+        ),
+        PromptSection::new(
             "communication",
             section(
                 "Communicating With The User",
@@ -360,6 +373,12 @@ fn default_system_prompt_sections() -> Vec<PromptSection> {
                     "While working, only send short progress updates at meaningful milestones.",
                     "Write user-facing text in complete sentences and avoid unexplained internal shorthand.",
                     "Do not use a colon immediately before a tool call; write a normal sentence instead.",
+                    "User-facing text is rendered as GitHub-flavored Markdown in a terminal.",
+                    "Match Markdown structure to task complexity: simple answers should not use headings, while longer findings, reviews, plans, or validation reports may use short headings and concise bullet lists.",
+                    "Use fenced code blocks with language tags for multi-line code, commands, or structured examples. Use inline code for paths, commands, symbols, field names, and literal values.",
+                    "When referencing local code, prefer path:line locations when practical, and include only code snippets whose exact text is necessary to understand the point.",
+                    "Avoid large tables in normal terminal replies unless a comparison is clearly easier to read as a table.",
+                    "Avoid emojis unless the user explicitly asks for them.",
                     "Report outcomes faithfully. If something is not verified or not completed, say so plainly.",
                     "When you make a mistake, say so and fix it. Do not spiral into apology or self-deprecation.",
                 ],
@@ -1155,6 +1174,7 @@ mod tests {
         );
 
         for key in [
+            "software_engineering_context",
             "codebase_search_and_evidence",
             "external_sources_and_web_search",
             "task_workflow",
@@ -1168,6 +1188,42 @@ mod tests {
             );
         }
 
+        assert!(
+            effective
+                .text
+                .contains("Most user requests in a repository are software-engineering tasks.")
+        );
+        assert!(
+            effective.text.contains(
+                "Interpret terse or generic instructions in the current workspace context"
+            )
+        );
+        assert!(effective.text.contains(
+            "inspect and act on the repository target instead of only explaining the phrase"
+        ));
+        assert!(effective.text.contains(
+            "Do not create planning, decision, analysis, README, or other documentation files"
+        ));
+        assert!(
+            effective
+                .text
+                .contains("GitHub-flavored Markdown in a terminal")
+        );
+        assert!(
+            effective
+                .text
+                .contains("simple answers should not use headings")
+        );
+        assert!(
+            effective
+                .text
+                .contains("fenced code blocks with language tags")
+        );
+        assert!(effective.text.contains("path:line locations"));
+        assert!(effective.text.contains("Avoid large tables"));
+        assert!(effective.text.contains("Avoid emojis"));
+        assert!(!effective.text.contains("Specification-Driven Development"));
+        assert!(!effective.text.contains("SDD"));
         assert!(
             effective
                 .text
