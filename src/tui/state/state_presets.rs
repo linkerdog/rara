@@ -151,10 +151,10 @@ mod tests {
             ..RaraConfig::default()
         };
 
-        assert_eq!(selected_provider_family_idx_for_config(&local), 3);
-        assert_eq!(selected_provider_family_idx_for_config(&ollama), 4);
-        assert_eq!(selected_provider_family_idx_for_config(&ollama_native), 4);
-        assert_eq!(selected_provider_family_idx_for_config(&ollama_openai), 4);
+        assert_eq!(selected_provider_family_idx_for_config(&local), 4);
+        assert_eq!(selected_provider_family_idx_for_config(&ollama), 5);
+        assert_eq!(selected_provider_family_idx_for_config(&ollama_native), 5);
+        assert_eq!(selected_provider_family_idx_for_config(&ollama_openai), 5);
     }
 
     #[test]
