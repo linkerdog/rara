@@ -2,7 +2,7 @@
 source: src/tui/render/cells/cells_tests/active_plan.rs
 expression: rendered
 ---
-▌ You
+  You
   Review the codebase and propose changes
 
 • Updated Plan

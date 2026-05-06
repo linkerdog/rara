@@ -93,16 +93,17 @@ pub async fn run_tui(
         let size = terminal_size()?;
         app.terminal_width = size.0;
         let desired_height = desired_viewport_height(&app, size.0, size.1);
-        match update_terminal_viewport(&mut terminal, desired_height) {
+        match update_terminal_viewport(&mut terminal, desired_height, &mut app) {
             Ok(()) => {}
             Err(err) => app.push_notice(format!("Skipped viewport update: {err}")),
         }
         flush_committed_history(&mut terminal, &mut app)?;
         // flush_committed_history writes lines above the viewport via crossterm
         // (DECSTBM scroll regions / raw Print), bypassing ratatui's double-buffer.
-        // Invalidate the viewport so the next draw pass does a full repaint instead
-        // of diffing against a stale buffer that doesn't match the real screen.
-        terminal.invalidate_viewport();
+        // Clear the viewport area on the terminal and reset the diff buffer so
+        // the next draw pass does a full repaint instead of diffing against a
+        // stale buffer that doesn't match the real screen.
+        terminal.clear_and_invalidate_viewport()?;
         terminal.draw(|f| render(f, &app))?;
 
         tokio::select! {
@@ -121,7 +122,7 @@ pub async fn run_tui(
                         Some(UiEvent::Draw) => {
                             let size = terminal_size()?;
                             let desired_height = desired_viewport_height(&app, size.0, size.1);
-                            match update_terminal_viewport(&mut terminal, desired_height) {
+                            match update_terminal_viewport(&mut terminal, desired_height, &mut app) {
                                 Ok(()) => {}
                                 Err(err) => app.push_notice(format!("Skipped viewport redraw update: {err}")),
                             }

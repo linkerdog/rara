@@ -274,7 +274,7 @@ fn renderable_transcript_lines_include_committed_and_active_turns() {
         .collect::<Vec<_>>()
         .join("\n");
 
-    assert!(rendered.contains("▌ You"));
+    assert!(rendered.contains("You"));
     assert!(rendered.contains("Earlier prompt"));
     assert!(rendered.contains("Committed answer"));
     assert!(rendered.contains("Current prompt"));

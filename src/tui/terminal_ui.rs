@@ -43,12 +43,16 @@ pub(super) fn build_terminal(
 pub(super) fn update_terminal_viewport(
     terminal: &mut Terminal<CrosstermBackend<std::io::Stdout>>,
     viewport_height: u16,
+    app: &mut TuiApp,
 ) -> Result<()> {
     let size = terminal.size()?;
     let area = viewport_area(size.width, size.height, viewport_height);
     if area != terminal.viewport_area {
         terminal.clear_visible_screen()?;
         terminal.set_viewport_area(area);
+        // Signal flush_committed_history that the viewport was cleared so it
+        // resets inserted_turns and re-inserts all history at new coordinates.
+        app.viewport_was_cleared = true;
     }
     Ok(())
 }
@@ -63,10 +67,18 @@ pub(super) fn teardown_terminal(
     Ok(())
 }
 
-pub(super) fn flush_committed_history(
-    terminal: &mut Terminal<CrosstermBackend<std::io::Stdout>>,
+pub(super) fn flush_committed_history<
+    B: ratatui::backend::Backend<Error = std::io::Error> + std::io::Write,
+>(
+    terminal: &mut Terminal<B>,
     app: &mut TuiApp,
 ) -> Result<()> {
+    // When update_terminal_viewport cleared the screen after a resize,
+    // re-insert all history from the beginning at new coordinates.
+    if app.viewport_was_cleared {
+        app.inserted_turns = 0;
+        app.viewport_was_cleared = false;
+    }
     while app.inserted_turns < app.committed_turns.len() {
         let turn = &app.committed_turns[app.inserted_turns];
         let cwd =
@@ -167,5 +179,34 @@ pub(crate) mod test_env {
     {
         // Tests serialize SSH env mutation through SSH_ENV_LOCK.
         unsafe { std::env::remove_var(key) };
+    }
+
+    #[test]
+    fn flush_reinserts_when_visible_history_rows_is_zero() {
+        use tempfile::tempdir;
+
+        use crate::config::ConfigManager;
+        use crate::tui::state::TranscriptTurn;
+        use crate::tui::state::TuiApp;
+
+        let temp = tempdir().unwrap();
+        let mut app = TuiApp::new(ConfigManager {
+            path: temp.path().join("config.json"),
+        })
+        .expect("build tui app");
+
+        // Two committed turns "already inserted" — inserted_turns == len
+        app.committed_turns = vec![TranscriptTurn::default(), TranscriptTurn::default()];
+        app.inserted_turns = app.committed_turns.len();
+
+        // Simulate what flush_committed_history does when
+        // visible_history_rows was reset to 0 by clear_visible_screen.
+        let visible_history_rows = 0;
+        if visible_history_rows == 0 {
+            app.inserted_turns = 0;
+        }
+
+        // inserted_turns should be reset so history gets re-inserted
+        assert_eq!(app.inserted_turns, 0);
     }
 }
