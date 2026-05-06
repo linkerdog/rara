@@ -98,6 +98,11 @@ pub async fn run_tui(
             Err(err) => app.push_notice(format!("Skipped viewport update: {err}")),
         }
         flush_committed_history(&mut terminal, &mut app)?;
+        // flush_committed_history writes lines above the viewport via crossterm
+        // (DECSTBM scroll regions / raw Print), bypassing ratatui's double-buffer.
+        // Invalidate the viewport so the next draw pass does a full repaint instead
+        // of diffing against a stale buffer that doesn't match the real screen.
+        terminal.invalidate_viewport();
         terminal.draw(|f| render(f, &app))?;
 
         tokio::select! {
