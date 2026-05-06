@@ -1,7 +1,6 @@
 use std::sync::Arc;
 
 use super::app_event::AppEvent;
-use super::auth_mode_picker::AUTH_MODE_OPTION_COUNT;
 use super::command::{palette_command_by_index, palette_commands};
 #[allow(unused_imports)]
 use super::list_picker;
@@ -16,8 +15,8 @@ use super::runtime::{
 };
 use super::session_restore::restore_thread_by_id;
 use super::state::{
-    ActivePendingInteractionKind, ListPickerKind, OpenAiModelPickerAction, Overlay,
-    PROVIDER_FAMILIES, PermissionMode, ProviderFamily, TuiApp,
+    ActivePendingInteractionKind, ListPickerKind, OpenAiModelPickerAction, Overlay, PermissionMode,
+    ProviderFamily, TuiApp,
 };
 use super::submit::{apply_openai_model_picker_action, handle_submit};
 use super::terminal_ui::is_ssh_session;
@@ -41,6 +40,9 @@ pub(crate) async fn dispatch_event(
             app.input_cursor_offset = None;
         }
         AppEvent::SubmitComposer => {
+            if resume_pending_shell_approval_after_full_access(app, agent_slot) {
+                return Ok(false);
+            }
             if handle_submit(app, agent_slot, oauth_manager).await? {
                 return Ok(true);
             }
@@ -123,6 +125,9 @@ pub(crate) async fn dispatch_event(
             app.permission_picker_idx = idx.min(3usize);
         }
         AppEvent::SelectPendingOption(idx) => {
+            if resume_pending_shell_approval_after_full_access(app, agent_slot) {
+                return Ok(false);
+            }
             if let Some(interaction) = app.active_pending_interaction() {
                 match interaction.kind {
                     ActivePendingInteractionKind::PlanApproval => {
@@ -163,7 +168,6 @@ pub(crate) async fn dispatch_event(
                             }
                         }
                     }
-                    _ => {}
                 }
             }
         }
@@ -487,12 +491,35 @@ pub(crate) async fn dispatch_event(
                     apply_permission_mode(app, agent_slot, mode);
                     app.permission_mode = mode;
                     let label = mode.label();
-                    app.push_notice(format!("Permission mode: {label}."));
                     app.close_overlay();
+                    if !resume_pending_shell_approval_after_full_access(app, agent_slot) {
+                        app.push_notice(format!("Permission mode: {label}."));
+                    }
                 }
             }
             _ => {}
         },
     }
     Ok(false)
+}
+
+fn resume_pending_shell_approval_after_full_access(
+    app: &mut TuiApp,
+    agent_slot: &mut Option<Agent>,
+) -> bool {
+    if app.permission_mode != PermissionMode::FullAccess
+        || !app.active_pending_interaction().is_some_and(|interaction| {
+            interaction.kind == ActivePendingInteractionKind::ShellApproval
+        })
+        || app.is_busy()
+    {
+        return false;
+    }
+
+    if let Some(agent) = agent_slot.take() {
+        start_pending_approval_task(app, BashApprovalDecision::Once, agent);
+    } else {
+        app.push_notice("Permission mode: full-access. Approval is still preparing.");
+    }
+    true
 }

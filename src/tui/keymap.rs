@@ -1,7 +1,7 @@
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
 use super::app_event::AppEvent;
-use super::state::{HelpTab, Overlay, ProviderFamily, StatusTab, TuiApp};
+use super::state::{HelpTab, Overlay, StatusTab, TuiApp};
 
 pub(crate) fn map_key_to_event(key: KeyEvent, app: &TuiApp) -> AppEvent {
     let code = key.code;
