@@ -54,6 +54,21 @@ macro_rules! strict_read_only_subagent_prompt {
     };
 }
 
+macro_rules! subagent_search_guidelines {
+    () => {
+        concat!(
+            "## Search & Analysis Guidelines\n",
+            "- For searches: search broadly with glob/grep when you don't know where something lives. Use read_file when you know the specific file path.\n",
+            "- For analysis: start broad and narrow down. Use multiple search strategies if the first doesn't yield results.\n",
+            "- Be thorough: check multiple locations, consider different naming conventions, look for related files.\n",
+            "- Prefer 'rg' for text search and 'rg --files' for file discovery — faster than grep/find.\n",
+            "- Do not repeat the same discovery tool call with the same arguments unless the workspace changed.\n",
+            "- When tracing behavior, follow one complete path from entry point to side effect before branching into other paths.\n",
+            "- Do not narrate each next tool call; let the tool transcript show inspection steps.",
+        )
+    };
+}
+
 impl SubAgentKind {
     fn result_status(self) -> &'static str {
         match self {
@@ -87,6 +102,8 @@ impl SubAgentKind {
                     "\n",
                     strict_read_only_subagent_prompt!(),
                     "\n",
+                    subagent_search_guidelines!(),
+                    "\n",
                     "- Inspect the repository and summarize concrete findings.\n",
                     "- Do not propose edits you cannot justify from inspected code.\n",
                     "- Do not narrate each next tool call; call the tool directly.\n",
@@ -103,6 +120,8 @@ impl SubAgentKind {
                     "- Stay inside the current workspace unless the assigned instruction explicitly allows another path.\n",
                     "\n",
                     strict_read_only_subagent_prompt!(),
+                    "\n",
+                    subagent_search_guidelines!(),
                     "\n",
                     "- Inspect the repository and refine an implementation approach.\n",
                     "- Keep plans shallow and grouped by behavior.\n",
