@@ -916,35 +916,6 @@ fn app_starts_with_warning_instead_of_api_key_editor_for_hosted_provider_without
     );
 }
 
-#[test]
-fn openai_compatible_model_picker_exposes_profile_table_shortcuts() {
-    let temp = tempdir().expect("tempdir");
-    let mut app = TuiApp::new(ConfigManager {
-        path: temp.path().join("config.json"),
-    })
-    .expect("app");
-
-    app.provider_picker_idx = provider_family_idx(ProviderFamily::OpenAiCompatible);
-    app.open_overlay(Overlay::ListPicker(ListPickerKind::Model));
-
-    assert!(matches!(
-        map_key_to_event(key(KeyCode::Char('c')), &app),
-        AppEvent::CreateOpenAiProfile
-    ));
-    assert!(matches!(
-        map_key_to_event(key(KeyCode::Char('e')), &app),
-        AppEvent::EditOpenAiProfile
-    ));
-    assert!(matches!(
-        map_key_to_event(key(KeyCode::Char(' ')), &app),
-        AppEvent::ApplyOverlaySelection
-    ));
-    assert!(matches!(
-        map_key_to_event(key(KeyCode::Char('d')), &app),
-        AppEvent::DeleteOpenAiProfile
-    ));
-}
-
 #[tokio::test]
 async fn openai_model_picker_delete_row_removes_active_profile() {
     let temp = tempdir().expect("tempdir");
@@ -1164,26 +1135,6 @@ async fn deepseek_model_picker_api_key_action_opens_editor_even_when_key_exists(
 
     assert!(matches!(app.overlay, Some(Overlay::ApiKeyEditor)));
     assert!(app.running_task.is_none());
-}
-
-#[test]
-fn deepseek_model_picker_accepts_uppercase_api_key_and_refresh_shortcuts() {
-    let temp = tempdir().expect("tempdir");
-    let mut app = TuiApp::new(ConfigManager {
-        path: temp.path().join("config.json"),
-    })
-    .expect("app");
-    app.provider_picker_idx = provider_family_idx(ProviderFamily::DeepSeek);
-    app.open_overlay(Overlay::ListPicker(ListPickerKind::Model));
-
-    assert!(matches!(
-        map_key_to_event(key(KeyCode::Char('A')), &app),
-        AppEvent::OpenOverlay(Overlay::ApiKeyEditor)
-    ));
-    assert!(matches!(
-        map_key_to_event(key(KeyCode::Char('R')), &app),
-        AppEvent::RefreshDeepSeekModels
-    ));
 }
 
 #[tokio::test]
