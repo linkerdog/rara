@@ -614,6 +614,10 @@ pub struct TuiApp {
     /// Optional runtime event bus that mirrors AgentEvent to ACP/Wire
     /// subscribers. Set during TUI startup; None only in test contexts.
     pub event_bus: Option<Arc<RuntimeEventBus>>,
+    /// Tracked so flush_committed_history can distinguish "fresh terminal after
+    /// resume" from "viewport cleared after resize". Only set by
+    /// [`update_terminal_viewport`] when it decides to clear_visible_screen.
+    pub viewport_was_cleared: bool,
 }
 
 #[derive(Debug, Clone)]

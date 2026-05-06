@@ -255,6 +255,7 @@ impl TuiApp {
             goal: None,
             goal_handle: Arc::new(std::sync::RwLock::new(None)),
             event_bus: None,
+            viewport_was_cleared: false,
         })
     }
 

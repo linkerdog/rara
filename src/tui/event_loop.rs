@@ -93,7 +93,7 @@ pub async fn run_tui(
         let size = terminal_size()?;
         app.terminal_width = size.0;
         let desired_height = desired_viewport_height(&app, size.0, size.1);
-        match update_terminal_viewport(&mut terminal, desired_height) {
+        match update_terminal_viewport(&mut terminal, desired_height, &mut app) {
             Ok(()) => {}
             Err(err) => app.push_notice(format!("Skipped viewport update: {err}")),
         }
@@ -122,7 +122,7 @@ pub async fn run_tui(
                         Some(UiEvent::Draw) => {
                             let size = terminal_size()?;
                             let desired_height = desired_viewport_height(&app, size.0, size.1);
-                            match update_terminal_viewport(&mut terminal, desired_height) {
+                            match update_terminal_viewport(&mut terminal, desired_height, &mut app) {
                                 Ok(()) => {}
                                 Err(err) => app.push_notice(format!("Skipped viewport redraw update: {err}")),
                             }
