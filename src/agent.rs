@@ -38,6 +38,7 @@ use crate::workspace::WorkspaceMemory;
 
 const MAX_RUNTIME_ERROR_RECOVERY_ATTEMPTS: usize = 1;
 const MAX_PLAN_EXIT_REPAIR_ATTEMPTS: usize = 1;
+const MAX_CONSECUTIVE_REASONING_ONLY_TURNS: usize = 1;
 
 pub use self::compact::{CompactBoundaryMetadata, CompactState, latest_compact_boundary_metadata};
 pub use self::planning::{
@@ -158,6 +159,7 @@ pub struct Agent {
     pending_plan_exit_tool_id: Option<String>,
     prompt_config: PromptRuntimeConfig,
     cancellation_token: Option<Arc<AtomicBool>>,
+    consecutive_reasoning_only_turns: usize,
 }
 
 impl Agent {
@@ -230,6 +232,7 @@ impl Agent {
             pending_plan_exit_tool_id: None,
             prompt_config: PromptRuntimeConfig::default(),
             cancellation_token: None,
+            consecutive_reasoning_only_turns: 0,
         }
     }
 
@@ -575,6 +578,27 @@ impl Agent {
             }
 
             if turn_output.tool_calls.is_empty() {
+                // Reset consecutive reasoning-only counter when the model
+                // produces visible text.
+                if turn_output.had_text_response {
+                    self.consecutive_reasoning_only_turns = 0;
+                }
+                let is_reasoning_only = Self::is_reasoning_only_turn(
+                    turn_output.had_text_response,
+                    turn_output.had_reasoning_response,
+                );
+                if is_reasoning_only {
+                    self.consecutive_reasoning_only_turns += 1;
+                    if self.consecutive_reasoning_only_turns > MAX_CONSECUTIVE_REASONING_ONLY_TURNS
+                    {
+                        report(AgentEvent::Status(
+                            "Model produced reasoning-only for too many consecutive turns. Stopping."
+                                .to_string(),
+                        ));
+                        self.complete_active_plan_step();
+                        break;
+                    }
+                }
                 if self.should_continue_plan_without_tools(
                     turn_output.plan_updated,
                     turn_output.continue_inspection,
@@ -586,7 +610,11 @@ impl Agent {
                         "Plan mode needs more evidence. Continuing in read-only mode.".to_string(),
                     ));
                     *agentic_turns += 1;
-                    let phase = RuntimeContinuationPhase::PlanContinuationRequired;
+                    let phase = if is_reasoning_only {
+                        RuntimeContinuationPhase::ReasoningOnlyContinuationRequired
+                    } else {
+                        RuntimeContinuationPhase::PlanContinuationRequired
+                    };
                     self.push_history_message(
                         self.runtime_continuation_message(phase, *agentic_turns),
                     );
@@ -594,16 +622,11 @@ impl Agent {
                     continue;
                 }
                 if self.should_continue_execute_without_tools(
-                    *agentic_turns,
                     turn_output.continue_inspection,
                     turn_output.had_text_response,
                     turn_output.had_reasoning_response,
                 ) {
-                    let phase = if Self::is_reasoning_only_initial_turn(
-                        turn_output.had_text_response,
-                        turn_output.had_reasoning_response,
-                        *agentic_turns,
-                    ) {
+                    let phase = if is_reasoning_only {
                         report(AgentEvent::Status(
                             "Model produced reasoning only. Continuing for a visible answer or tool call."
                                 .to_string(),
@@ -626,6 +649,9 @@ impl Agent {
                 self.complete_active_plan_step();
                 break;
             }
+            // Reset consecutive reasoning-only counter when the model
+            // produces tool calls.
+            self.consecutive_reasoning_only_turns = 0;
             *agentic_turns += 1;
 
             let tool_results = self

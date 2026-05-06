@@ -704,7 +704,7 @@ async fn plan_mode_consecutive_reasoning_only_turns_stop_after_one_continuation(
         },
         LlmResponse {
             content: vec![ContentBlock::Text {
-                text: "This response should not be reached.".to_string(),
+                text: "plan-mode unreachable text".to_string(),
             }],
             stop_reason: Some("end_turn".to_string()),
             usage: Some(TokenUsage::default()),
@@ -740,7 +740,64 @@ async fn plan_mode_consecutive_reasoning_only_turns_stop_after_one_continuation(
         message
             .content
             .to_string()
-            .contains("This response should not be reached.")
+            .contains("plan-mode unreachable text")
+    }));
+}
+
+#[tokio::test]
+async fn execute_mode_consecutive_reasoning_only_turns_stop_after_one_continuation() {
+    let backend = Arc::new(SequencedBackend::new(vec![
+        LlmResponse {
+            content: vec![ContentBlock::ProviderMetadata {
+                provider: "deepseek".to_string(),
+                key: "reasoning_content".to_string(),
+                value: json!("Let me think about this first."),
+            }],
+            stop_reason: Some("end_turn".to_string()),
+            usage: Some(TokenUsage::default()),
+        },
+        LlmResponse {
+            content: vec![ContentBlock::ProviderMetadata {
+                provider: "deepseek".to_string(),
+                key: "reasoning_content".to_string(),
+                value: json!("Still thinking only."),
+            }],
+            stop_reason: Some("end_turn".to_string()),
+            usage: Some(TokenUsage::default()),
+        },
+        LlmResponse {
+            content: vec![ContentBlock::Text {
+                text: "execute-mode unreachable text".to_string(),
+            }],
+            stop_reason: Some("end_turn".to_string()),
+            usage: Some(TokenUsage::default()),
+        },
+    ]));
+    let (_temp, session_manager, workspace, rara_dir) = test_runtime_storage();
+    let mut agent = Agent::new(
+        ToolManager::new(),
+        backend.clone(),
+        Arc::new(VectorDB::new(&rara_dir.join("lancedb").to_string_lossy())),
+        session_manager,
+        workspace,
+    );
+    agent.set_execution_mode(AgentExecutionMode::Execute);
+
+    agent
+        .query_with_mode(
+            "do a thing".to_string(),
+            super::super::AgentOutputMode::Silent,
+        )
+        .await
+        .expect("consecutive reasoning-only execute turns should stop after one retry");
+
+    let observed_messages = backend.observed_messages();
+    assert_eq!(observed_messages.len(), 2);
+    assert!(!agent.history.iter().any(|message| {
+        message
+            .content
+            .to_string()
+            .contains("execute-mode unreachable text")
     }));
 }
 
@@ -2147,11 +2204,14 @@ fn missing_minimum_review_evidence_continues_without_plan_update() {
 }
 
 #[test]
-fn reasoning_only_initial_plan_turn_continues_once() {
+fn reasoning_only_plan_turn_signals_continuation() {
+    // should_continue_plan_without_tools always returns true for
+    // reasoning-only turns. The consecutive-turn cap is enforced in
+    // run_agent_loop_with_limit.
     let agent = new_planning_agent();
 
-    assert!(agent.should_continue_plan_without_tools(false, false, false, true, 0,));
-    assert!(!agent.should_continue_plan_without_tools(false, false, false, true, 1,));
+    assert!(agent.should_continue_plan_without_tools(false, false, false, true, 0));
+    assert!(agent.should_continue_plan_without_tools(false, false, false, true, 1));
 }
 
 #[test]
@@ -2160,13 +2220,17 @@ fn execute_mode_continuation_requires_structured_inspection_marker() {
     agent.set_execution_mode(AgentExecutionMode::Execute);
     agent.inspection_progress.source_reads = 1;
 
-    assert!(!agent.should_continue_execute_without_tools(1, false, true, false));
-    assert!(agent.should_continue_execute_without_tools(1, true, true, false));
-    assert!(agent.should_continue_execute_without_tools(0, false, false, true));
-    assert!(!agent.should_continue_execute_without_tools(1, false, false, true));
+    // Without continue_inspection or reasoning, bare text doesn't continue.
+    assert!(!agent.should_continue_execute_without_tools(false, true, false));
+    // With continue_inspection, text continues.
+    assert!(agent.should_continue_execute_without_tools(true, true, false));
+    // Reasoning-only turn always continues at this level (cap in agent loop).
+    assert!(agent.should_continue_execute_without_tools(false, false, true));
+    // Same — reasoning-only continuation is turn-agnostic here.
+    assert!(agent.should_continue_execute_without_tools(false, false, true));
 
     agent.inspection_progress.source_reads = 2;
-    assert!(agent.should_continue_execute_without_tools(1, true, true, false));
+    assert!(agent.should_continue_execute_without_tools(true, true, false));
 }
 
 #[test]
