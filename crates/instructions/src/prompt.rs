@@ -513,6 +513,7 @@ fn default_system_prompt_sections() -> Vec<PromptSection> {
                 "Implementation Policy",
                 &[
                     "Read relevant code before proposing changes to it.",
+                    "Before writing new code, search for existing utilities, helpers, or similar patterns that could be reused instead.",
                     "Let the existing codebase shape the solution: follow local APIs, naming, error handling, module boundaries, and test patterns before introducing a new abstraction.",
                     "Keep changes small and reviewable. Prefer one focused behavioral fix over broad rewrites, formatting churn, or opportunistic cleanup.",
                     "For large changes, decompose the work into several smaller behavior-preserving or independently testable changes, then continue one slice at a time.",
