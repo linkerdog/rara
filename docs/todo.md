@@ -121,6 +121,7 @@ Active backlog only. Keep this file small and current.
 - [x] Tool-action summaries more source-aware and file-aware.
 - [ ] Live `bash` transcript: lifecycle framing, streamed stdout/stderr, long-output folding.
 - [ ] High-fidelity render pass for `write/update`, inline diffs, approval cards, message-card hierarchy.
+- [ ] Strengthen terminal Markdown rendering parity: GitHub-flavored Markdown coverage, local file-link rendering, fenced code blocks, list wrapping, and focused snapshot coverage.
 - [ ] Expand TUI snapshot coverage.
 - [ ] Keep transcript and pending-interaction state backed by structured events that ACP/Wire output subscribers can reuse.
 - [x] Add first-class todo sections to `/context` and `/status` from `TodoContextView`.

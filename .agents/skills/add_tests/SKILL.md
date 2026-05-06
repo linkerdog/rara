@@ -40,6 +40,17 @@ For a non-trivial change, choose the narrowest useful test surface:
 
 ## Repository-Specific Guidance
 
+### Assertion Style
+
+- Prefer object-level equality assertions when the whole value is the contract.
+- Use field-by-field assertions only when each field communicates a distinct
+  behavior or failure mode.
+- Avoid assertions that only check debug text when the same behavior can be
+  asserted through structured state or typed events.
+- Avoid mutating global process environment in tests. Prefer passing
+  environment-derived inputs through constructors, config structs, or small test
+  doubles.
+
 ### TUI Tests
 
 Common places:
@@ -77,6 +88,25 @@ Use snapshots for:
 - other transcript-heavy cards where ordering and grouping matter
 
 Do not use snapshots when a short structural assertion is enough.
+
+When a snapshot changes:
+
+- Review the generated snapshot text before accepting it.
+- Confirm that the visible ordering, labels, grouping, and truncation behavior
+  match the intended user-visible contract.
+- Do not accept snapshots only to make CI green.
+
+### Runtime / Protocol Tests
+
+For agent-loop, provider, Wire/ACP, or tool-result tests:
+
+- Assert structured request or event payloads where possible instead of
+  substring-matching serialized JSON.
+- Keep fixtures close to the behavior under test and avoid broad provider mocks
+  when a narrow fake backend is enough.
+- If a regression depends on transcript order, assert the ordered typed entries
+  first, then add rendered text or snapshot coverage only when the UI contract is
+  also affected.
 
 ## What Good Tests Look Like Here
 
