@@ -755,7 +755,101 @@ impl ModifierDiff {
 
 #[cfg(test)]
 mod tests {
-    use super::display_width;
+    use std::io::{self, Write};
+
+    use ratatui::{
+        backend::{Backend, ClearType, WindowSize},
+        layout::{Position, Rect, Size},
+        style::Style,
+    };
+
+    use super::{Terminal, display_width};
+
+    /// Minimal backend for testing Terminal state transitions.
+    /// Captures written bytes, reports a fixed size and cursor position.
+    struct StateTestBackend {
+        inner: Vec<u8>,
+        screen_size: Size,
+        cursor_pos: Position,
+    }
+
+    impl StateTestBackend {
+        fn new(width: u16, height: u16) -> Self {
+            Self {
+                inner: Vec::new(),
+                screen_size: Size::new(width, height),
+                cursor_pos: Position { x: 0, y: 0 },
+            }
+        }
+    }
+
+    impl Write for StateTestBackend {
+        fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+            self.inner.write(buf)
+        }
+
+        fn flush(&mut self) -> io::Result<()> {
+            self.inner.flush()
+        }
+    }
+
+    impl Backend for StateTestBackend {
+        type Error = io::Error;
+
+        fn size(&self) -> io::Result<Size> {
+            Ok(self.screen_size)
+        }
+
+        fn get_cursor_position(&mut self) -> io::Result<Position> {
+            Ok(self.cursor_pos)
+        }
+
+        fn set_cursor_position<P: Into<Position>>(&mut self, position: P) -> io::Result<()> {
+            self.cursor_pos = position.into();
+            Ok(())
+        }
+
+        fn hide_cursor(&mut self) -> io::Result<()> {
+            Ok(())
+        }
+
+        fn show_cursor(&mut self) -> io::Result<()> {
+            Ok(())
+        }
+
+        fn clear_region(&mut self, _clear_type: ClearType) -> io::Result<()> {
+            Ok(())
+        }
+
+        fn clear(&mut self) -> io::Result<()> {
+            Ok(())
+        }
+
+        fn window_size(&mut self) -> io::Result<WindowSize> {
+            Ok(WindowSize {
+                columns_rows: self.screen_size,
+                pixels: Size::new(0, 0),
+            })
+        }
+
+        fn draw<'a, I>(&mut self, _content: I) -> io::Result<()>
+        where
+            I: Iterator<Item = (u16, u16, &'a ratatui::buffer::Cell)>,
+        {
+            Ok(())
+        }
+
+        fn flush(&mut self) -> io::Result<()> {
+            Ok(())
+        }
+    }
+
+    fn make_test_terminal(width: u16, height: u16) -> Terminal<StateTestBackend> {
+        let backend = StateTestBackend::new(width, height);
+        let mut terminal = Terminal::new(backend).expect("create test terminal");
+        terminal.set_viewport_area(Rect::new(0, height.saturating_sub(5), width, 5));
+        terminal
+    }
 
     #[test]
     fn display_width_ignores_osc_sequences() {
@@ -773,5 +867,72 @@ mod tests {
     fn display_width_ignores_csi_sequences() {
         let text = "\x1b[31mred\x1b[0m";
         assert_eq!(display_width(text), 3);
+    }
+
+    #[test]
+    fn invalidate_viewport_resets_previous_buffer() {
+        let mut terminal = make_test_terminal(80, 24);
+        // viewport area: x=0, y=19, w=80, h=5
+        let top = terminal.viewport_area.y;
+
+        // Write into the current buffer at viewport-relative (0,0) = absolute (0, top).
+        terminal
+            .current_buffer_mut()
+            .set_string(0, top, "old-content", Style::default());
+
+        // Swap to simulate a completed draw pass.
+        terminal.swap_buffers();
+
+        // Now the "previous" buffer has "old-content". Write fresh content.
+        terminal
+            .current_buffer_mut()
+            .set_string(0, top, "new-content", Style::default());
+
+        // Before invalidation, diff would see both buffers have content.
+        let cell_before = terminal
+            .previous_buffer()
+            .cell(Position { x: 0, y: top })
+            .unwrap();
+        assert_eq!(cell_before.symbol(), "o");
+
+        terminal.invalidate_viewport();
+
+        // After invalidation, previous buffer is reset — diff will treat it as empty.
+        let cell_after = terminal
+            .previous_buffer()
+            .cell(Position { x: 0, y: top })
+            .unwrap();
+        assert_eq!(cell_after.symbol(), " ");
+    }
+
+    #[test]
+    fn note_history_rows_inserted_tracks_and_clamps() {
+        let mut terminal = make_test_terminal(80, 24);
+        // viewport_area: y=19, height=5 → top is 19
+
+        assert_eq!(terminal.visible_history_rows(), 0);
+
+        terminal.note_history_rows_inserted(5);
+        assert_eq!(terminal.visible_history_rows(), 5);
+
+        // Insert more — should clamp to viewport top (19)
+        terminal.note_history_rows_inserted(20);
+        assert_eq!(terminal.visible_history_rows(), 19);
+    }
+
+    #[test]
+    fn set_viewport_area_clamps_visible_history_rows() {
+        let mut terminal = make_test_terminal(80, 24);
+        // viewport_area: y=19 → top=19. Insert some history.
+        terminal.note_history_rows_inserted(5);
+        assert_eq!(terminal.visible_history_rows(), 5);
+
+        // Shrink viewport (raise the top) — visible_history_rows clamps to the new top.
+        terminal.set_viewport_area(Rect::new(0, 22, 80, 2));
+        assert_eq!(terminal.visible_history_rows(), 5);
+
+        // Grow viewport (lower the top) — visible_history_rows stays at 5.
+        terminal.note_history_rows_inserted(20);
+        assert_eq!(terminal.visible_history_rows(), 22); // clamped to top=22
     }
 }

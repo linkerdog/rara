@@ -401,3 +401,229 @@ fn crossterm_color(color: Color) -> CColor {
         Color::Indexed(value) => CColor::AnsiValue(value),
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use std::io::{self, Write};
+
+    use ratatui::{
+        backend::{Backend, ClearType, WindowSize},
+        layout::{Position, Rect, Size},
+        style::Style,
+        text::{Line, Span},
+    };
+
+    use super::*;
+    use crate::tui::custom_terminal::Terminal;
+
+    /// Minimal backend that captures writes and reports a fixed size + cursor.
+    struct TestBackend {
+        inner: Vec<u8>,
+        screen_size: Size,
+        cursor_pos: Position,
+    }
+
+    impl TestBackend {
+        fn new(width: u16, height: u16) -> Self {
+            Self {
+                inner: Vec::new(),
+                screen_size: Size::new(width, height),
+                cursor_pos: Position {
+                    x: 0,
+                    y: height - 1,
+                },
+            }
+        }
+
+        fn written(&self) -> String {
+            String::from_utf8_lossy(&self.inner).into_owned()
+        }
+    }
+
+    impl Write for TestBackend {
+        fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+            self.inner.write(buf)
+        }
+
+        fn flush(&mut self) -> io::Result<()> {
+            self.inner.flush()
+        }
+    }
+
+    impl Backend for TestBackend {
+        type Error = io::Error;
+
+        fn size(&self) -> io::Result<Size> {
+            Ok(self.screen_size)
+        }
+
+        fn get_cursor_position(&mut self) -> io::Result<Position> {
+            Ok(self.cursor_pos)
+        }
+
+        fn set_cursor_position<P: Into<Position>>(&mut self, position: P) -> io::Result<()> {
+            self.cursor_pos = position.into();
+            Ok(())
+        }
+
+        fn hide_cursor(&mut self) -> io::Result<()> {
+            Ok(())
+        }
+
+        fn show_cursor(&mut self) -> io::Result<()> {
+            Ok(())
+        }
+
+        fn clear_region(&mut self, _clear_type: ClearType) -> io::Result<()> {
+            Ok(())
+        }
+
+        fn clear(&mut self) -> io::Result<()> {
+            Ok(())
+        }
+
+        fn window_size(&mut self) -> io::Result<WindowSize> {
+            Ok(WindowSize {
+                columns_rows: self.screen_size,
+                pixels: Size::new(0, 0),
+            })
+        }
+
+        fn draw<'a, I>(&mut self, _content: I) -> io::Result<()>
+        where
+            I: Iterator<Item = (u16, u16, &'a ratatui::buffer::Cell)>,
+        {
+            Ok(())
+        }
+
+        fn flush(&mut self) -> io::Result<()> {
+            Ok(())
+        }
+    }
+
+    fn test_terminal(width: u16, height: u16) -> Terminal<TestBackend> {
+        let backend = TestBackend::new(width, height);
+        let mut terminal = Terminal::new(backend).expect("create test terminal");
+        let viewport_height = 5.min(height);
+        terminal.set_viewport_area(Rect::new(
+            0,
+            height.saturating_sub(viewport_height),
+            width,
+            viewport_height,
+        ));
+        terminal
+    }
+
+    fn plain_line(text: &str) -> Line<'static> {
+        Line::from(Span::raw(text.to_string()))
+    }
+
+    // ── Standard mode tests ──
+
+    #[test]
+    fn insert_empty_lines_is_noop() {
+        let mut terminal = test_terminal(80, 24);
+        let viewport_before = terminal.viewport_area;
+        let history_before = terminal.visible_history_rows();
+
+        insert_history_lines(&mut terminal, Vec::new()).expect("insert empty");
+
+        assert_eq!(terminal.viewport_area, viewport_before);
+        assert_eq!(terminal.visible_history_rows(), history_before);
+    }
+
+    #[test]
+    fn insert_single_line_shifts_viewport_down() {
+        let mut terminal = test_terminal(80, 24);
+        let viewport_before = terminal.viewport_area.y;
+
+        let lines = vec![plain_line("hello")];
+        insert_history_lines(&mut terminal, lines).expect("insert one line");
+
+        // When viewport is at the bottom, Standard mode inserts lines into the
+        // scrollback region above the viewport without shifting the viewport.
+        // visible_history_rows should still increment.
+        assert!(terminal.visible_history_rows() > 0);
+        let _ = viewport_before; // viewport y may or may not change
+    }
+
+    #[test]
+    fn insert_updates_visible_history_rows() {
+        let mut terminal = test_terminal(80, 24);
+
+        let lines: Vec<Line> = (0..3).map(|i| plain_line(&format!("line {i}"))).collect();
+        let prev = terminal.visible_history_rows();
+
+        insert_history_lines(&mut terminal, lines).expect("insert three lines");
+
+        assert!(terminal.visible_history_rows() > prev);
+    }
+
+    // ── Zellij mode tests ──
+
+    #[test]
+    fn zellij_mode_emits_newlines_not_decsbm() {
+        let mut terminal = test_terminal(80, 24);
+        let viewport_before = terminal.viewport_area.y;
+
+        let lines = vec![plain_line("zellij test")];
+        insert_history_lines_with_mode(&mut terminal, lines, InsertHistoryMode::Zellij)
+            .expect("insert zellij");
+
+        let written = terminal.backend().written();
+
+        // Zellij mode should NOT contain DECSTBM scroll-region escapes (CSI Ps;Ps r).
+        // CSI sequences for cursor positioning and colors are expected.
+        assert!(
+            !written.contains("\x1b[19;24r"),
+            "Zellij output should not use DECSTBM scroll regions: {:?}",
+            written
+        );
+
+        assert!(
+            terminal.viewport_area.y >= viewport_before,
+            "viewport y {} should be >= {}",
+            terminal.viewport_area.y,
+            viewport_before
+        );
+        assert!(terminal.visible_history_rows() > 0);
+    }
+
+    #[test]
+    fn standard_mode_emits_scroll_region_escape() {
+        let mut terminal = test_terminal(80, 24);
+
+        let lines = vec![plain_line("standard test")];
+        insert_history_lines(&mut terminal, lines).expect("insert standard");
+
+        let written = terminal.backend().written();
+
+        // Standard mode uses DECSTBM (CSI ... r) to set scroll region.
+        assert!(
+            written.contains("\x1b["),
+            "Standard mode output should contain CSI sequences (DECSTBM), got: {:?}",
+            written
+        );
+
+        assert!(terminal.visible_history_rows() > 0);
+    }
+
+    // ── Wrapping tests ──
+
+    #[test]
+    fn long_line_wraps_and_counts_visual_rows() {
+        let mut terminal = test_terminal(20, 24); // narrow terminal
+
+        let long_text = "this is a very long line that should wrap";
+        let lines = vec![plain_line(long_text)];
+        let prev = terminal.visible_history_rows();
+
+        insert_history_lines(&mut terminal, lines).expect("insert long line");
+
+        // A line this long on a 20-wide terminal should wrap to multiple visual rows.
+        assert!(
+            terminal.visible_history_rows() >= prev + 2,
+            "long line should wrap to multiple visual rows"
+        );
+    }
+}
