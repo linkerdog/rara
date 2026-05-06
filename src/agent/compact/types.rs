@@ -20,7 +20,7 @@ pub(crate) const ROLE_ASSISTANT: &str = "assistant";
 // Wait for about two 4K chunks of new context before retrying automatic
 // compaction after a timeout or backend failure.
 pub(crate) const AUTO_COMPACTION_RETRY_HYSTERESIS_TOKENS: usize = 8_192;
-#[cfg(not(test))]
+
 pub(crate) const COMPACTION_SUMMARY_TIMEOUT: Duration = Duration::from_secs(300);
 
 #[cfg(test)]
@@ -111,4 +111,3 @@ pub struct CompactState {
     pub consecutive_auto_compaction_failures: usize,
     pub auto_compaction_retry_after_tokens: Option<usize>,
 }
-

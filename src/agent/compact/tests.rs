@@ -8,7 +8,8 @@ use super::*;
 mod tests {
     use serde_json::{Map, Value, json};
 
-    use super::{build_compact_plan, group_history_by_api_round, read_file_line_range};
+    use super::main::{build_compact_plan, group_history_by_api_round, read_file_line_range};
+    use super::types::COMPACTION_SUMMARY_TIMEOUT;
     use crate::agent::Message;
 
     fn object(value: Value) -> Map<String, Value> {

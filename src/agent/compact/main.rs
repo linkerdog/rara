@@ -339,7 +339,7 @@ impl Agent {
     }
 }
 
-fn build_compact_plan(
+pub(crate) fn build_compact_plan(
     history: &[Message],
     threshold: usize,
     force: bool,
@@ -414,7 +414,7 @@ fn ensure_api_round_boundary_range(history: &[Message], from: usize, up_to: usiz
     Ok(())
 }
 
-fn group_history_by_api_round(history: &[Message]) -> Result<Vec<ApiRoundGroup>> {
+pub(crate) fn group_history_by_api_round(history: &[Message]) -> Result<Vec<ApiRoundGroup>> {
     let bpe = tokenizer()?;
     let mut groups = Vec::new();
     let mut group_start = 0usize;
@@ -1115,7 +1115,9 @@ fn collect_recent_file_excerpts(
     excerpts
 }
 
-fn read_file_line_range(input: &serde_json::Map<String, Value>) -> Option<(usize, usize)> {
+pub(crate) fn read_file_line_range(
+    input: &serde_json::Map<String, Value>,
+) -> Option<(usize, usize)> {
     match (
         input.get("offset").and_then(Value::as_u64),
         input.get("limit").and_then(Value::as_u64),
