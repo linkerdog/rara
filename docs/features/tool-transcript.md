@@ -201,6 +201,24 @@ The TUI should keep input state, display data, and visual cells separate:
 - Tool-result compactors should emit renderer-neutral text. Renderer helpers
   may add the tool name, styling, and truncation frame, but should not need
   bash-specific source cleanup for normal output.
+- All text that can reach the terminal renderer must pass through one
+  display-sanitization boundary before it is printed or converted into markdown
+  display lines. This includes streaming agent deltas, committed agent
+  messages, live progress events such as Thinking/Exploring/Running, terminal
+  event previews, and inline history insertion. The sanitizer must preserve
+  user-visible text and line boundaries while removing terminal control effects
+  such as ANSI/OSC escape sequences, carriage returns, backspaces, bells, and
+  other non-printing controls. Tabs should be normalized to spaces so display
+  width and wrapping stay stable.
+- The transcript data model may still preserve richer raw payloads where needed,
+  but the TUI must never `Print` raw model/tool text that can move the terminal
+  cursor or rewrite previous cells. Rendering tests should cover both active
+  streaming text and committed transcript text when this contract changes.
+- Code-level ownership lives in a single display-sanitization module. Renderer
+  code should call that module instead of duplicating ANSI/control-character
+  stripping. Inline history insertion must sanitize full `Line` objects before
+  both width/row calculation and terminal printing, so row accounting and
+  visible output are derived from the same display-safe text.
 
 This mirrors the Codex-style split where queued follow-up input is active
 transcript status and the composer remains a prompt/input surface. It also keeps

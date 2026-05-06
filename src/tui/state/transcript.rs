@@ -187,7 +187,9 @@ impl TuiApp {
         let Some(message) = final_message.or(fallback) else {
             return;
         };
-        let message = crate::control_tokens::scrub_internal_control_tokens(&message);
+        let message = crate::tui::display_sanitize::sanitize_display_text(
+            &crate::control_tokens::scrub_internal_control_tokens(&message),
+        );
         if message.trim().is_empty() {
             return;
         }
@@ -365,11 +367,13 @@ impl TuiApp {
     }
 
     fn push_active_live_event(&mut self, event: ActiveLiveEvent) {
-        self.active_live.events.push(event);
+        self.active_live
+            .events
+            .push(sanitize_active_live_event(event));
     }
 
     pub fn record_exploration_action(&mut self, action: impl Into<String>) {
-        let action = action.into();
+        let action = crate::tui::display_sanitize::sanitize_display_text(&action.into());
         if !self
             .active_live
             .exploration_actions
@@ -382,7 +386,7 @@ impl TuiApp {
     }
 
     pub fn record_exploration_note(&mut self, note: impl Into<String>) {
-        let note = note.into();
+        let note = crate::tui::display_sanitize::sanitize_display_text(&note.into());
         if !self
             .active_live
             .exploration_notes
@@ -395,7 +399,7 @@ impl TuiApp {
     }
 
     pub fn record_running_action(&mut self, action: impl Into<String>) {
-        let action = action.into();
+        let action = crate::tui::display_sanitize::sanitize_display_text(&action.into());
         if !self
             .active_live
             .running_actions
@@ -408,7 +412,7 @@ impl TuiApp {
     }
 
     pub fn record_planning_action(&mut self, action: impl Into<String>) {
-        let action = action.into();
+        let action = crate::tui::display_sanitize::sanitize_display_text(&action.into());
         if !self
             .active_live
             .planning_actions
@@ -421,7 +425,7 @@ impl TuiApp {
     }
 
     pub fn record_planning_note(&mut self, note: impl Into<String>) {
-        let note = note.into();
+        let note = crate::tui::display_sanitize::sanitize_display_text(&note.into());
         if !self
             .active_live
             .planning_notes
@@ -555,5 +559,28 @@ impl TuiApp {
 
     pub fn clear_pending_planning_suggestion(&mut self) {
         self.pending_planning_suggestion = None;
+    }
+}
+
+fn sanitize_active_live_event(event: ActiveLiveEvent) -> ActiveLiveEvent {
+    match event {
+        ActiveLiveEvent::Thinking(message) => ActiveLiveEvent::Thinking(
+            crate::tui::display_sanitize::sanitize_display_text(&message),
+        ),
+        ActiveLiveEvent::ExplorationAction(message) => ActiveLiveEvent::ExplorationAction(
+            crate::tui::display_sanitize::sanitize_display_text(&message),
+        ),
+        ActiveLiveEvent::ExplorationNote(message) => ActiveLiveEvent::ExplorationNote(
+            crate::tui::display_sanitize::sanitize_display_text(&message),
+        ),
+        ActiveLiveEvent::PlanningAction(message) => ActiveLiveEvent::PlanningAction(
+            crate::tui::display_sanitize::sanitize_display_text(&message),
+        ),
+        ActiveLiveEvent::PlanningNote(message) => ActiveLiveEvent::PlanningNote(
+            crate::tui::display_sanitize::sanitize_display_text(&message),
+        ),
+        ActiveLiveEvent::RunningAction(message) => ActiveLiveEvent::RunningAction(
+            crate::tui::display_sanitize::sanitize_display_text(&message),
+        ),
     }
 }

@@ -1,9 +1,10 @@
 use tempfile::tempdir;
 
 use super::{
-    ActivePendingInteractionKind, InteractionKind, ListPickerKind, Overlay, PROVIDER_FAMILIES,
-    PendingInteractionSnapshot, ProviderFamily, RuntimeSnapshot, TranscriptEntry, TranscriptTurn,
-    TuiApp, input_requests_command_palette, parse_repo_slug, state_db_status_error,
+    ActivePendingInteractionKind, AgentMarkdownStreamState, InteractionKind, ListPickerKind,
+    Overlay, PROVIDER_FAMILIES, PendingInteractionSnapshot, ProviderFamily, RuntimeSnapshot,
+    TranscriptEntry, TranscriptTurn, TuiApp, input_requests_command_palette, parse_repo_slug,
+    state_db_status_error,
 };
 use crate::agent::{Agent, PendingApproval};
 use crate::codex_model_catalog::{CodexModelOption, CodexReasoningOption};
@@ -44,6 +45,26 @@ fn redacts_secrets_in_state_db_status_messages() {
     assert!(rendered.contains("[REDACTED_SECRET]"));
     assert!(!rendered.contains("supersecretvalue"));
     assert!(!rendered.contains("abcdefghijklmnopqrstuvwxyz"));
+}
+
+#[test]
+fn agent_markdown_stream_sanitizes_terminal_controls() {
+    let mut stream = AgentMarkdownStreamState::new(std::path::PathBuf::from("."));
+
+    stream.push_delta("First\rSecond\u{1b}[31m red\u{1b}[0m\u{8}!");
+
+    assert_eq!(stream.sanitized_raw_text(), "First\nSecond red!");
+    let rendered = stream
+        .display_lines
+        .iter()
+        .map(|line| line.to_string())
+        .collect::<Vec<_>>()
+        .join("\n");
+    assert!(rendered.contains("First"));
+    assert!(rendered.contains("Second red!"));
+    assert!(!rendered.contains('\r'));
+    assert!(!rendered.contains('\u{1b}'));
+    assert!(!rendered.contains('\u{8}'));
 }
 
 #[test]
@@ -937,6 +958,25 @@ fn flushed_agent_thinking_stream_scrubs_internal_runtime_blocks() {
     assert_eq!(event.message(), "Visible thought.\n\nNext thought.");
     assert!(!event.message().contains("agent_runtime"));
     assert!(!event.message().contains("tool_results_available"));
+}
+
+#[test]
+fn live_progress_events_sanitize_terminal_controls() {
+    let dir = tempdir().expect("tempdir");
+    let cm = ConfigManager {
+        path: dir.path().join("config.json"),
+    };
+    let mut app = TuiApp::new(cm).expect("app");
+
+    app.record_running_action("Run\r\u{1b}[31mcargo check\u{1b}[0m\u{8}");
+    app.record_exploration_note("Read\tfile\u{7}");
+
+    assert_eq!(app.active_live.events.len(), 2);
+    assert_eq!(app.active_live.events[0].message(), "Run\ncargo check");
+    assert_eq!(app.active_live.events[1].message(), "Read    file");
+    assert!(!app.active_live.events[0].message().contains('\r'));
+    assert!(!app.active_live.events[0].message().contains('\u{1b}'));
+    assert!(!app.active_live.events[1].message().contains('\u{7}'));
 }
 
 #[test]

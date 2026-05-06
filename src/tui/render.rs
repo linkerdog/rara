@@ -471,6 +471,8 @@ pub(crate) fn prefixed_message_lines(
     max_lines: usize,
 ) -> Vec<Line<'static>> {
     use crate::tui::message_role::MessageRole;
+    let message = crate::tui::display_sanitize::sanitize_display_text(message);
+    let message = message.as_str();
     let role_kind = MessageRole::try_from_str(role);
     if role_kind == Some(MessageRole::User) {
         return user_message_lines(message, usize::MAX);
@@ -516,6 +518,8 @@ pub(crate) fn prefixed_message_lines(
     lines
 }
 fn user_message_lines(message: &str, max_lines: usize) -> Vec<Line<'static>> {
+    let message = crate::tui::display_sanitize::sanitize_display_text(message);
+    let message = message.as_str();
     let body_max = max_lines.saturating_sub(1);
     let header = Line::from(Span::styled(
         "▌ You",
@@ -542,6 +546,8 @@ fn user_message_lines(message: &str, max_lines: usize) -> Vec<Line<'static>> {
 }
 
 fn agent_message_lines(message: &str, max_lines: usize) -> Vec<Line<'static>> {
+    let message = crate::tui::display_sanitize::sanitize_display_text(message);
+    let message = message.as_str();
     let body_max = max_lines.saturating_sub(1);
     let mut lines = vec![Line::from(Span::styled(
         "▌ Agent",
@@ -569,6 +575,8 @@ fn agent_message_lines(message: &str, max_lines: usize) -> Vec<Line<'static>> {
 }
 
 fn system_message_lines(message: &str, max_lines: usize) -> Vec<Line<'static>> {
+    let message = crate::tui::display_sanitize::sanitize_display_text(message);
+    let message = message.as_str();
     let body_max = max_lines.saturating_sub(1);
     let mut lines = vec![Line::from(Span::styled(
         "▌ System",
@@ -603,6 +611,8 @@ pub(crate) fn formatted_message_lines(
     cwd: Option<&Path>,
 ) -> Vec<Line<'static>> {
     use crate::tui::message_role::MessageRole;
+    let message = crate::tui::display_sanitize::sanitize_display_text(message);
+    let message = message.as_str();
     let role_kind = MessageRole::try_from_str(role);
     if role_kind == Some(MessageRole::Agent) {
         let mut lines = vec![Line::from(Span::styled(
