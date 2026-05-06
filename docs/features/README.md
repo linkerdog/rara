@@ -43,3 +43,8 @@ future appserver integrations can use.
 
 - `mcp-runtime.md`: source-aware MCP configuration, registry, status, refresh,
   reconnect, resource, and Tool Search contracts.
+
+## Release Specs
+
+- `release-distribution.md`: tag-driven binary release, GitHub Release assets,
+  Homebrew adapter, and npm adapter contracts.

@@ -11,6 +11,7 @@ Active backlog only. Keep this file small and current.
 5. Memory / retrieval / thread persistence
 6. TUI transcript parity and command-surface polish
 7. Terminal-Bench evaluation readiness
+8. Release distribution and package-manager adapters
 
 ## Runtime Control Plane / ACP / Wire
 
@@ -133,6 +134,14 @@ Active backlog only. Keep this file small and current.
 ## Evaluation / Benchmarks
 
 - [ ] Terminal-Bench readiness: add a headless adapter, preserve structured trajectories, and start with a small smoke run that records RARA revision, dataset version, provider/model, sandbox mode, and failure taxonomy.
+
+## Release / Distribution
+
+- [x] Add tag-driven GitHub Release workflow for `rara` binary archives and checksums.
+- [x] Add release matrix smoke test that unpacks each archive and runs `rara --version`.
+- [ ] Add npm package layout and staging script for meta-package plus platform packages.
+- [ ] Add npm packaging tests and trusted-publishing workflow step.
+- [ ] Decide Homebrew tap ownership and add formula update workflow consuming GitHub Release checksums.
 
 ## Code Organization / Docs
 
