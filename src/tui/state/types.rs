@@ -72,6 +72,7 @@ pub enum ProviderFamily {
     Codex,
     DeepSeek,
     OpenAiCompatible,
+    Gemini,
     CandleLocal,
     Ollama,
     Bedrock,
@@ -277,6 +278,7 @@ pub enum TaskKind {
     Compact,
     Rebuild,
     OAuth,
+    GoogleOAuth,
     DeepSeekModels,
 }
 
@@ -301,6 +303,10 @@ pub enum TaskCompletion {
     OAuth {
         mode: OAuthLoginMode,
         result: anyhow::Result<secrecy::SecretString>,
+    },
+    GoogleOAuth {
+        mode: OAuthLoginMode,
+        result: anyhow::Result<crate::google_oauth::GoogleCredential>,
     },
     DeepSeekModels {
         result: anyhow::Result<Vec<String>>,
@@ -338,7 +344,7 @@ pub struct RunningTask {
     pub cancellation_requested: bool,
 }
 
-pub const PROVIDER_FAMILIES: [(ProviderFamily, &str, &str); 6] = [
+pub const PROVIDER_FAMILIES: [(ProviderFamily, &str, &str); 7] = [
     (
         ProviderFamily::Codex,
         "Codex",
@@ -353,6 +359,11 @@ pub const PROVIDER_FAMILIES: [(ProviderFamily, &str, &str); 6] = [
         ProviderFamily::OpenAiCompatible,
         "OpenAI-compatible",
         "Use OpenAI-compatible endpoint profiles such as Custom, Kimi, or OpenRouter.",
+    ),
+    (
+        ProviderFamily::Gemini,
+        "Gemini",
+        "Use Google Gemini via AI Studio (API key) or Code Assist (OAuth).",
     ),
     (
         ProviderFamily::CandleLocal,

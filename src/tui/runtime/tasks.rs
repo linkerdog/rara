@@ -1,4 +1,5 @@
 mod builder;
+mod google_oauth;
 mod oauth;
 #[cfg(test)]
 mod tests;
@@ -412,6 +413,14 @@ pub(super) fn start_oauth_task(
     mode: OAuthLoginMode,
 ) {
     oauth::start_oauth_task(app, oauth_manager, mode);
+}
+
+pub(super) fn start_google_oauth_task(
+    app: &mut TuiApp,
+    oauth_manager: Arc<crate::google_oauth::GoogleOAuthManager>,
+    mode: OAuthLoginMode,
+) {
+    google_oauth::start_google_oauth_task(app, oauth_manager, mode);
 }
 
 pub(super) fn start_deepseek_model_list_task(app: &mut TuiApp) {
@@ -839,6 +848,44 @@ pub(super) async fn finish_running_task_if_ready(
             Err(err) => {
                 app.set_runtime_phase(RuntimePhase::Failed, Some("oauth failed".into()));
                 let message = format!("OAuth failed:\n{}", format_error_chain(&err));
+                app.push_entry("System", message.clone());
+                app.push_notice(message);
+            }
+        },
+        TaskCompletion::GoogleOAuth { mode, result } => match result {
+            Ok(credential) => {
+                app.config.set_provider("gemini-code-assist");
+                // Clear any api_key since Code Assist uses OAuth, not API key.
+                app.config.clear_api_key();
+                app.config_manager.save(&app.config)?;
+                let saved_message = match mode {
+                    OAuthLoginMode::Browser => {
+                        format!(
+                            "Saved Google OAuth credential for {} to ~/.rara/auth/google_oauth.json.",
+                            credential.email
+                        )
+                    }
+                    OAuthLoginMode::DeviceCode => {
+                        format!(
+                            "Saved Google device-code credential for {} to ~/.rara/auth/google_oauth.json.",
+                            credential.email
+                        )
+                    }
+                };
+                let msg = saved_message.clone();
+                app.setup_status = Some(saved_message.into());
+                app.notice = app.setup_status.clone();
+                app.set_runtime_phase(
+                    RuntimePhase::OAuthSaved,
+                    Some("google oauth token saved".into()),
+                );
+                app.overlay = None;
+                app.push_entry("Runtime", msg);
+                start_rebuild_task(app);
+            }
+            Err(err) => {
+                app.set_runtime_phase(RuntimePhase::Failed, Some("google oauth failed".into()));
+                let message = format!("Google OAuth failed:\n{}", format_error_chain(&err));
                 app.push_entry("System", message.clone());
                 app.push_notice(message);
             }

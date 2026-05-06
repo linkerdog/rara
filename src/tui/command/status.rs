@@ -881,6 +881,7 @@ pub fn model_help_text(app: &TuiApp) -> String {
                             ProviderFamily::Codex
                             | ProviderFamily::DeepSeek
                             | ProviderFamily::OpenAiCompatible
+                            | ProviderFamily::Gemini
                             | ProviderFamily::CandleLocal
                             | ProviderFamily::Bedrock => (idx + 1).to_string(),
                             ProviderFamily::Ollama => model.to_string(),

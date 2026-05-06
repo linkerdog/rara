@@ -48,6 +48,7 @@ pub fn selected_provider_family_idx_for_config(config: &RaraConfig) -> usize {
             }
         }
         "kimi" | "openrouter" => ProviderFamily::OpenAiCompatible,
+        "gemini" | "gemini-code-assist" => ProviderFamily::Gemini,
         "ollama" | "ollama-native" | "ollama-openai" => ProviderFamily::Ollama,
         "bedrock" => ProviderFamily::Bedrock,
         "gemma4" | "qwn3" | "qwen3" => ProviderFamily::CandleLocal,
@@ -70,6 +71,7 @@ pub fn current_model_presets(
         ProviderFamily::Codex => &CODEX_MODEL_PRESETS,
         ProviderFamily::DeepSeek => &[],
         ProviderFamily::OpenAiCompatible => &OPENAI_COMPATIBLE_MODEL_PRESETS,
+        ProviderFamily::Gemini => &[],
         ProviderFamily::CandleLocal => &LOCAL_MODEL_PRESETS,
         ProviderFamily::Ollama => &OLLAMA_MODEL_PRESETS,
         ProviderFamily::Bedrock => &BEDROCK_MODEL_PRESETS,
@@ -149,10 +151,10 @@ mod tests {
             ..RaraConfig::default()
         };
 
-        assert_eq!(selected_provider_family_idx_for_config(&local), 3);
-        assert_eq!(selected_provider_family_idx_for_config(&ollama), 4);
-        assert_eq!(selected_provider_family_idx_for_config(&ollama_native), 4);
-        assert_eq!(selected_provider_family_idx_for_config(&ollama_openai), 4);
+        assert_eq!(selected_provider_family_idx_for_config(&local), 4);
+        assert_eq!(selected_provider_family_idx_for_config(&ollama), 5);
+        assert_eq!(selected_provider_family_idx_for_config(&ollama_native), 5);
+        assert_eq!(selected_provider_family_idx_for_config(&ollama_openai), 5);
     }
 
     #[test]

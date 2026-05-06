@@ -4,7 +4,8 @@ use secrecy::{ExposeSecret, SecretString};
 use super::state::{ListPickerKind, Overlay, ProviderFamily, TuiApp};
 use crate::agent::Agent;
 use crate::codex_model_catalog::load_codex_model_catalog;
-use crate::config::OpenAiEndpointKind;
+use crate::config::{OpenAiEndpointKind, ensure_rara_home_dir};
+use crate::google_oauth::GoogleOAuthManager;
 use crate::oauth::OAuthManager;
 
 pub(super) fn sync_codex_credential_from_auth_store(
@@ -159,6 +160,17 @@ pub(super) async fn open_provider_family_overlay(
             app.open_overlay(Overlay::ApiKeyEditor);
         } else {
             app.open_overlay(Overlay::ListPicker(ListPickerKind::Model));
+        }
+        return Ok(());
+    }
+    if matches!(app.selected_provider_family(), ProviderFamily::Gemini) {
+        let home = ensure_rara_home_dir()?;
+        let google_oauth = GoogleOAuthManager::new(home)?;
+        if google_oauth.has_saved_auth() {
+            app.open_overlay(Overlay::ModelPicker);
+        } else {
+            app.config.set_provider("gemini-code-assist");
+            app.open_overlay(Overlay::AuthModePicker);
         }
         return Ok(());
     }
