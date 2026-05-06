@@ -1,27 +1,26 @@
 ---
 source: src/tui/render/tests.rs
+assertion_line: 798
 expression: rendered
 ---
-┌ Provider Menu ───────────────────────────────────────────────────────────────────────────────────┐
-│Choose a provider family first, then continue into model selection or setup.                      │
-└──────────────────────────────────────────────────────────────────────────────────────────────────┘
-│[1] Codex                                                                                         │
-│  Use Codex with browser login, device-code login, or a Codex API key.                            │
-│[2] DeepSeek                                                                                      │
-│  Use DeepSeek with an API key and model list from api.deepseek.com.                              │
-│[3] OpenAI-compatible                                                                             │
-│  Use OpenAI-compatible endpoint profiles such as Custom, Kimi, or OpenRouter.                    │
-│[4] Gemini                                                                                        │
-│  Use Google Gemini via AI Studio (API key) or Code Assist (OAuth).                               │
-│[5] Candle Local                                                                                  │
-│  Run local Candle models directly in-process.                                                    │
-│[6] Ollama                                                                                        │
-│  Use an external Ollama server and choose a local tag.                                           │
-│[7] Bedrock                                                                                       │
-│  Use AWS Bedrock with the Converse API. Credentials from the default AWS chain.                  │
-│                                                                                                  │
-│                                                                                                  │
-│                                                                                                  │
-│                                                                                                  │
-│                                                                                                  │
-                         number jump  up/down move  enter choose  esc close
+╭──────────────────────────────────────────────────────────╮
+│ >_ RARA                                                  │
+│                                                          │
+│ model:     -                            /model to change │
+│ directory: ~┌ Provider ────────────────────────────────────────────────────────────┐
+╰─────────────│Select a provider family.                                             │
+Ready.        └──────────────────────────────────────────────────────────────────────┘
+Use the input │[1] Codex (current)                                                   │
+              │[2] DeepSeek                                                          │
+Start with:   │[3] OpenAI-compatible                                                 │
+  /help    bro│[4] Gemini                                                            │
+  /model   cho│[5] Candle Local                                                      │
+  /status  ins│[6] Ollama                                                            │
+  /quit    lea│[7] Bedrock                                                           │
+              │                                                                      │
+Prompt ideas: │                                                                      │
+  Explain this│                                                                      │
+  Find the mai│                                                                      │
+                          1-9 jump  Up/Down/jk move  Enter apply  Esc back
+Ready  waiting
+› Ask about the repo, request a code change, or type /help to browse commands.
