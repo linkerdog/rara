@@ -10,11 +10,8 @@ use ratatui::{
 };
 
 use self::overlay_setup::{
-    render_api_key_editor_modal, render_auth_mode_picker_modal, render_base_url_editor_modal,
-    render_model_name_editor_modal, render_model_picker_modal,
-    render_openai_endpoint_kind_picker_modal, render_openai_profile_label_editor_modal,
-    render_openai_profile_picker_modal, render_permission_picker_modal,
-    render_provider_picker_modal, render_reasoning_effort_picker_modal, render_resume_picker_modal,
+    render_api_key_editor_modal, render_base_url_editor_modal, render_model_name_editor_modal,
+    render_openai_profile_label_editor_modal, render_permission_picker_modal,
     render_skills_picker_modal,
 };
 use super::super::command::{
@@ -23,7 +20,7 @@ use super::super::command::{
     status_runtime_text, status_workspace_text,
 };
 use super::super::custom_terminal::Frame;
-use super::super::state::{CommandSpec, HelpTab, ListPickerKind, Overlay, StatusTab, TuiApp};
+use super::super::state::{CommandSpec, HelpTab, Overlay, StatusTab, TuiApp};
 use crate::tui::context_display::render_context_lines;
 use crate::tui::status_display::render_status_lines;
 
@@ -58,68 +55,10 @@ pub(super) fn render_overlay(
             render_context_modal(f, app, popup);
             None
         }
-        Overlay::ProviderPicker | Overlay::ListPicker(ListPickerKind::Provider) => {
-            let popup = setup_flow_rect(f.area());
-            f.render_widget(Clear, popup);
-            render_provider_picker_modal(f, app, popup);
-            None
-        }
-        Overlay::ResumePicker | Overlay::ListPicker(ListPickerKind::Resume) => {
-            let popup = setup_flow_rect(f.area());
-            f.render_widget(Clear, popup);
-            render_resume_picker_modal(f, app, popup);
-            None
-        }
-        Overlay::ModelPicker | Overlay::ListPicker(ListPickerKind::Model) => {
-            let popup = setup_flow_rect(f.area());
-            f.render_widget(Clear, popup);
-            render_model_picker_modal(f, app, popup);
-            None
-        }
-        Overlay::OpenAiEndpointKindPicker
-        | Overlay::ListPicker(ListPickerKind::OpenAiEndpointKind) => {
-            let popup = setup_flow_rect(f.area());
-            f.render_widget(Clear, popup);
-            render_openai_endpoint_kind_picker_modal(f, app, popup);
-            None
-        }
-        Overlay::OpenAiProfilePicker | Overlay::ListPicker(ListPickerKind::OpenAiProfile) => {
-            let popup = setup_flow_rect(f.area());
-            f.render_widget(Clear, popup);
-            render_openai_profile_picker_modal(f, app, popup);
-            None
-        }
-        Overlay::ReasoningEffortPicker | Overlay::ListPicker(ListPickerKind::ReasoningEffort) => {
-            let popup = centered_rect(78, 70, f.area());
-            f.render_widget(Clear, popup);
-            render_reasoning_effort_picker_modal(f, app, popup);
-            None
-        }
         Overlay::ListPicker(kind) => {
-            // Delegate to existing render functions while migration is in progress.
-            match kind {
-                super::super::state::ListPickerKind::Provider => {
-                    let popup = setup_flow_rect(f.area());
-                    f.render_widget(Clear, popup);
-                    render_provider_picker_modal(f, app, popup);
-                }
-                super::super::state::ListPickerKind::Model => {
-                    let popup = setup_flow_rect(f.area());
-                    f.render_widget(Clear, popup);
-                    render_model_picker_modal(f, app, popup);
-                }
-                super::super::state::ListPickerKind::Resume => {
-                    let popup = setup_flow_rect(f.area());
-                    f.render_widget(Clear, popup);
-                    render_resume_picker_modal(f, app, popup);
-                }
-                _ => {
-                    // Everything else uses the generic render path.
-                    let popup = centered_rect(72, 70, f.area());
-                    f.render_widget(Clear, popup);
-                    super::super::list_picker::render_list_picker(f, app, kind, popup);
-                }
-            }
+            let popup = centered_rect(72, 70, f.area());
+            f.render_widget(Clear, popup);
+            super::super::list_picker::render_list_picker(f, app, kind, popup);
             None
         }
         Overlay::PermissionPicker => {
@@ -132,12 +71,6 @@ pub(super) fn render_overlay(
             let popup = setup_flow_rect(f.area());
             f.render_widget(Clear, popup);
             render_base_url_editor_modal(f, app, popup)
-        }
-        Overlay::AuthModePicker | Overlay::ListPicker(ListPickerKind::AuthMode) => {
-            let popup = setup_flow_rect(f.area());
-            f.render_widget(Clear, popup);
-            render_auth_mode_picker_modal(f, app, popup);
-            None
         }
         Overlay::ApiKeyEditor => {
             let popup = setup_flow_rect(f.area());

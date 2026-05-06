@@ -1,7 +1,7 @@
 use tempfile::tempdir;
 
 use super::{
-    ActivePendingInteractionKind, InteractionKind, Overlay, PROVIDER_FAMILIES,
+    ActivePendingInteractionKind, InteractionKind, ListPickerKind, Overlay, PROVIDER_FAMILIES,
     PendingInteractionSnapshot, ProviderFamily, RuntimeSnapshot, TranscriptEntry, TranscriptTurn,
     TuiApp, input_requests_command_palette, parse_repo_slug, state_db_status_error,
 };
@@ -470,7 +470,7 @@ fn opening_openai_compatible_model_picker_restores_provider_scoped_state() {
     app.config.set_model(Some("codex".to_string()));
 
     app.provider_picker_idx = provider_family_idx(ProviderFamily::OpenAiCompatible);
-    app.open_overlay(Overlay::ModelPicker);
+    app.open_overlay(Overlay::ListPicker(ListPickerKind::Model));
 
     assert_eq!(app.config.provider, "openai-compatible");
     assert_eq!(
@@ -493,7 +493,7 @@ fn opening_openai_compatible_model_picker_excludes_deepseek_profile_kind() {
     app.config.set_model(Some("deepseek-reasoner".to_string()));
     app.provider_picker_idx = provider_family_idx(ProviderFamily::OpenAiCompatible);
 
-    app.open_overlay(Overlay::ModelPicker);
+    app.open_overlay(Overlay::ListPicker(ListPickerKind::Model));
 
     assert_eq!(
         app.config.active_openai_profile_kind(),
@@ -511,7 +511,7 @@ fn openai_compatible_model_picker_selects_profile_rows() {
     let mut app = TuiApp::new(cm).expect("app");
 
     app.provider_picker_idx = provider_family_idx(ProviderFamily::OpenAiCompatible);
-    app.open_overlay(Overlay::ModelPicker);
+    app.open_overlay(Overlay::ListPicker(ListPickerKind::Model));
 
     assert_eq!(app.current_model_picker_len(), 1);
     assert_eq!(app.model_picker_idx, 0);
@@ -526,7 +526,7 @@ fn openai_compatible_model_picker_selects_profile_rows() {
         "OpenRouter",
         OpenAiEndpointKind::Openrouter,
     );
-    app.open_overlay(Overlay::ModelPicker);
+    app.open_overlay(Overlay::ListPicker(ListPickerKind::Model));
     assert_eq!(app.current_model_picker_len(), 2);
 
     app.model_picker_idx = 1;
@@ -555,7 +555,7 @@ fn openai_compatible_model_picker_deletes_active_profile_and_keeps_next() {
         "OpenRouter",
         OpenAiEndpointKind::Openrouter,
     );
-    app.open_overlay(Overlay::ModelPicker);
+    app.open_overlay(Overlay::ListPicker(ListPickerKind::Model));
 
     assert_eq!(
         app.config.active_openai_profile_id(),
@@ -596,17 +596,17 @@ fn openai_profile_active_state_survives_switching_to_codex_and_ollama() {
     );
 
     app.provider_picker_idx = 0;
-    app.open_overlay(Overlay::ModelPicker);
+    app.open_overlay(Overlay::ListPicker(ListPickerKind::Model));
     app.select_local_model(0);
     assert_eq!(app.config.provider, "codex");
 
     app.provider_picker_idx = provider_family_idx(ProviderFamily::Ollama);
-    app.open_overlay(Overlay::ModelPicker);
+    app.open_overlay(Overlay::ListPicker(ListPickerKind::Model));
     app.select_local_model(0);
     assert_eq!(app.config.provider, "ollama");
 
     app.provider_picker_idx = provider_family_idx(ProviderFamily::OpenAiCompatible);
-    app.open_overlay(Overlay::ModelPicker);
+    app.open_overlay(Overlay::ListPicker(ListPickerKind::Model));
 
     assert_eq!(
         app.config.active_openai_profile_id(),
@@ -635,7 +635,7 @@ fn opening_openai_profile_picker_prefers_active_profile_of_selected_kind() {
     app.provider_picker_idx = provider_family_idx(ProviderFamily::OpenAiCompatible);
     app.model_picker_idx = 3;
 
-    app.open_overlay(Overlay::OpenAiProfilePicker);
+    app.open_overlay(Overlay::ListPicker(ListPickerKind::OpenAiProfile));
 
     assert_eq!(
         app.selected_openai_profile_kind(),
@@ -684,7 +684,7 @@ fn model_name_editor_seeds_from_selected_provider_state() {
     app.config.set_provider("codex");
     app.provider_picker_idx = provider_family_idx(ProviderFamily::OpenAiCompatible);
 
-    app.open_overlay(Overlay::ModelPicker);
+    app.open_overlay(Overlay::ListPicker(ListPickerKind::Model));
     app.open_overlay(Overlay::ModelNameEditor);
 
     assert_eq!(app.model_name_input, "custom-model");
@@ -701,7 +701,7 @@ fn model_name_editor_does_not_panic_when_provider_has_no_presets() {
     // DeepSeek has empty presets (&[])
     app.provider_picker_idx = provider_family_idx(ProviderFamily::DeepSeek);
 
-    app.open_overlay(Overlay::ModelPicker);
+    app.open_overlay(Overlay::ListPicker(ListPickerKind::Model));
     app.open_overlay(Overlay::ModelNameEditor);
 
     // Should not panic, and model_name_input stays empty since
@@ -717,10 +717,13 @@ fn closing_auth_mode_picker_without_codex_catalog_returns_to_provider_picker() {
     };
     let mut app = TuiApp::new(cm).expect("app");
 
-    app.open_overlay(Overlay::AuthModePicker);
+    app.open_overlay(Overlay::ListPicker(ListPickerKind::AuthMode));
     app.close_overlay();
 
-    assert!(matches!(app.overlay, Some(Overlay::ProviderPicker)));
+    assert!(matches!(
+        app.overlay,
+        Some(Overlay::ListPicker(ListPickerKind::Provider))
+    ));
 }
 
 #[test]
@@ -755,7 +758,7 @@ fn resume_picker_refreshes_recent_threads_on_open() {
         )
         .expect("upsert thread");
 
-    app.open_overlay(Overlay::ResumePicker);
+    app.open_overlay(Overlay::ListPicker(ListPickerKind::Resume));
 
     assert_eq!(app.recent_threads.len(), 1);
     assert_eq!(app.recent_threads[0].metadata.session_id, "thread-1");
