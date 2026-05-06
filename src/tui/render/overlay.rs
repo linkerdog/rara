@@ -215,87 +215,39 @@ fn render_help_modal(f: &mut Frame, app: &TuiApp, area: Rect, tab: HelpTab) {
 
 fn render_command_palette(f: &mut Frame, app: &TuiApp, area: Rect) {
     let query = app.command_query();
-    let items: Vec<&CommandSpec> = if query.is_empty() {
-        palette_commands(app, "")
+    let items = if query.is_empty() {
+        palette_items_for_empty_query(app)
     } else {
-        matching_commands(query)
+        palette_items_for_matches(app, query)
     };
-    let is_filtering = !query.is_empty();
-
-    let chunks = Layout::default()
-        .direction(Direction::Vertical)
-        .constraints([
-            Constraint::Length(2),
-            Constraint::Length(1),
-            Constraint::Min(1),
-            Constraint::Length(1),
-        ])
-        .split(area);
-
-    // Header border
-    let header_block = Block::default()
-        .borders(Borders::TOP | Borders::LEFT | Borders::RIGHT)
-        .title_top(Line::from(vec![
-            Span::styled("Commands", Style::default().add_modifier(Modifier::BOLD)),
-            if is_filtering {
-                Span::styled(
-                    format!("  matching \"{}\"", query),
-                    Style::default().fg(TEXT_MUTED),
-                )
-            } else {
-                Span::raw("")
-            },
-        ]));
-    f.render_widget(header_block, chunks[0]);
-
-    // Separator line
-    let sep = Block::default().borders(Borders::LEFT | Borders::RIGHT);
-    f.render_widget(sep, chunks[1]);
-
-    // List area
-    let list_items: Vec<ListItem> = items
-        .iter()
-        .map(|spec| command_palette_item(spec))
-        .collect();
-    let list_block = Block::default().borders(Borders::LEFT | Borders::RIGHT);
-    let inner_area = list_block.inner(chunks[2]);
-    f.render_widget(list_block, chunks[2]);
     let mut state = command_palette_list_state(app.command_palette_idx);
     f.render_stateful_widget(
-        List::new(list_items)
+        List::new(items)
             .highlight_style(command_list_highlight_style())
             .highlight_symbol("› "),
-        inner_area,
+        area,
         &mut state,
     );
-
-    // Footer with hint
-    let footer_block = Block::default().borders(Borders::BOTTOM | Borders::LEFT | Borders::RIGHT);
-    let footer_inner = footer_block.inner(chunks[3]);
-    f.render_widget(footer_block, chunks[3]);
-    let hint = if is_filtering {
-        Line::from(Span::styled(
-            "Esc to clear filter",
-            Style::default().fg(TEXT_MUTED),
-        ))
-    } else {
-        Line::from(vec![
-            Span::styled("Type to filter", Style::default().fg(TEXT_MUTED)),
-            Span::raw("  ·  "),
-            Span::styled("↑↓ to move", Style::default().fg(TEXT_MUTED)),
-            Span::raw("  ·  "),
-            Span::styled("Enter to select", Style::default().fg(TEXT_MUTED)),
-            Span::raw("  ·  "),
-            Span::styled("Esc to close", Style::default().fg(TEXT_MUTED)),
-        ])
-    };
-    f.render_widget(Paragraph::new(hint).centered(), footer_inner);
 }
 
 fn command_palette_list_state(selected_index: usize) -> ListState {
     let mut state = ListState::default();
     state.select(Some(selected_index));
     state
+}
+
+fn palette_items_for_empty_query(app: &TuiApp) -> Vec<ListItem<'static>> {
+    palette_commands(app, "")
+        .into_iter()
+        .map(command_palette_item)
+        .collect()
+}
+
+fn palette_items_for_matches(_app: &TuiApp, query: &str) -> Vec<ListItem<'static>> {
+    matching_commands(query)
+        .into_iter()
+        .map(command_palette_item)
+        .collect()
 }
 
 fn help_command_items(query: &str) -> Vec<&'static CommandSpec> {
@@ -308,15 +260,11 @@ fn command_palette_item(spec: &CommandSpec) -> ListItem<'static> {
 
 fn command_palette_line(spec: &CommandSpec) -> Line<'static> {
     let name_span = Span::styled(
-        format!("{:<12}", spec.usage),
+        format!("{:<11}", spec.usage),
         Style::default().add_modifier(Modifier::BOLD),
     );
-    let sep_span = Span::styled("│", Style::default().fg(TEXT_MUTED));
-    let summary_span = Span::styled(
-        format!(" {}", spec.summary),
-        Style::default().fg(TEXT_SECONDARY),
-    );
-    Line::from(vec![name_span, sep_span, summary_span])
+    let summary_span = Span::styled(spec.summary, Style::default().fg(TEXT_MUTED));
+    Line::from(vec![name_span, summary_span])
 }
 
 fn panel_text(title: &str, body: &str) -> String {
@@ -362,13 +310,12 @@ mod tests {
     }
 
     #[test]
-    fn command_palette_line_has_name_and_summary_separated() {
+    fn command_palette_line_is_compact_single_row() {
         let spec = &COMMAND_SPECS[0];
         let line = command_palette_line(spec).to_string();
 
         assert!(line.contains(spec.usage));
         assert!(line.contains(spec.summary));
-        assert!(line.contains('│'), "should contain separator character");
         assert!(!line.contains('\n'));
     }
 
@@ -404,11 +351,6 @@ mod tests {
         let popup = command_palette_rect(area, bottom_pane, &app);
 
         assert!(popup.bottom() <= bottom_pane.y);
-        assert!(popup.x > 0, "palette should be centered, not at x=0");
-        assert!(
-            popup.width < area.width,
-            "palette should be narrower than full width"
-        );
     }
 
     #[test]
@@ -428,10 +370,6 @@ mod tests {
         assert!(
             popup.width <= area.width,
             "palette should not exceed screen width"
-        );
-        assert!(
-            popup.x > 0 || area.width <= 62,
-            "should be centered when screen is wider than max palette width"
         );
     }
 
@@ -563,11 +501,11 @@ fn command_palette_rect(area: Rect, bottom_pane_area: Rect, app: &TuiApp) -> Rec
     } else {
         matching_commands(query).len()
     };
-    let max_visible_rows = area.height.saturating_sub(8).clamp(4, 16) as usize;
-    let visible_rows = item_count.max(1).min(max_visible_rows) as u16;
-    let height = (visible_rows + 4).min(area.height.saturating_sub(2).max(6));
-    let width = area.width.min(62).max(40);
-    let x = area.x.saturating_add(area.width.saturating_sub(width) / 2);
+    let max_visible_rows = area.height.saturating_sub(6).clamp(6, 14) as usize;
+    let visible_rows = item_count.clamp(1, max_visible_rows) as u16;
+    let height = visible_rows.min(area.height.saturating_sub(2).max(4));
+    let width = area.width;
+    let x = area.x;
     let max_y = bottom_pane_area.y.saturating_sub(1);
     let y = max_y.saturating_sub(height).max(area.y);
 
