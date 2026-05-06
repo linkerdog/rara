@@ -1,0 +1,317 @@
+name: release
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag to stage, for example v0.1.0"
+        required: true
+        type: string
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_INCREMENTAL: "0"
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: "1"
+
+jobs:
+  tag-check:
+    name: tag-check
+    runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.version.outputs.tag }}
+      version: ${{ steps.version.outputs.version }}
+      prerelease: ${{ steps.version.outputs.prerelease }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Validate tag and extract version
+        id: version
+        shell: bash
+        env:
+          DISPATCH_TAG: ${{ inputs.tag }}
+        run: |
+          set -euo pipefail
+
+          if [[ "${GITHUB_EVENT_NAME}" == "workflow_dispatch" ]]; then
+            tag="${DISPATCH_TAG}"
+          else
+            [[ "${GITHUB_REF_TYPE}" == "tag" ]] || {
+              echo "Release workflow must run from a tag push or workflow_dispatch." >&2
+              exit 1
+            }
+            tag="${GITHUB_REF_NAME}"
+          fi
+
+          [[ "${tag}" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-(alpha|beta)(\.[0-9]+)?)?$ ]] || {
+            echo "Tag '${tag}' must match vX.Y.Z, vX.Y.Z-alpha(.N), or vX.Y.Z-beta(.N)." >&2
+            exit 1
+          }
+
+          version="${tag#v}"
+          prerelease=false
+          if [[ "${version}" == *-* ]]; then
+            prerelease=true
+          fi
+
+          git rev-parse --verify --quiet "refs/tags/${tag}^{commit}" >/dev/null || {
+            echo "Tag '${tag}' does not exist in this repository." >&2
+            exit 1
+          }
+          git checkout --detach "${tag}"
+
+          echo "tag=${tag}" >> "$GITHUB_OUTPUT"
+          echo "version=${version}" >> "$GITHUB_OUTPUT"
+          echo "prerelease=${prerelease}" >> "$GITHUB_OUTPUT"
+
+      - name: Read pinned Rust toolchain
+        id: rust-toolchain
+        shell: bash
+        run: |
+          set -euo pipefail
+          channel="$(awk -F'"' '/^[[:space:]]*channel[[:space:]]*=/{print $2; exit}' rust-toolchain.toml)"
+          [[ -n "${channel}" ]] || {
+            echo "Failed to read Rust toolchain channel from rust-toolchain.toml." >&2
+            exit 1
+          }
+          echo "channel=${channel}" >> "$GITHUB_OUTPUT"
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ steps.rust-toolchain.outputs.channel }}
+
+      - name: Validate Cargo package version
+        shell: bash
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          set -euo pipefail
+          cargo_version="$(cargo metadata --no-deps --format-version 1 \
+            | python3 -c 'import json,sys; print(json.load(sys.stdin)["packages"][0]["version"])')"
+          [[ "${cargo_version}" == "${VERSION}" ]] || {
+            echo "Tag version ${VERSION} does not match Cargo package version ${cargo_version}." >&2
+            exit 1
+          }
+
+  build:
+    needs: tag-check
+    name: build-${{ matrix.target }}
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 90
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-14
+            target: aarch64-apple-darwin
+            archive: tar.gz
+            smoke: true
+          - runner: macos-13
+            target: x86_64-apple-darwin
+            archive: tar.gz
+            smoke: true
+          - runner: ubuntu-latest
+            target: x86_64-unknown-linux-musl
+            archive: tar.gz
+            smoke: true
+          - runner: ubuntu-latest
+            target: aarch64-unknown-linux-musl
+            archive: tar.gz
+            build_with: cross
+            smoke: false
+          - runner: windows-latest
+            target: x86_64-pc-windows-msvc
+            archive: zip
+            smoke: true
+          - runner: windows-latest
+            target: aarch64-pc-windows-msvc
+            archive: zip
+            smoke: false
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ needs.tag-check.outputs.tag }}
+
+      - name: Read pinned Rust toolchain
+        id: rust-toolchain
+        shell: bash
+        run: |
+          set -euo pipefail
+          channel="$(awk -F'"' '/^[[:space:]]*channel[[:space:]]*=/{print $2; exit}' rust-toolchain.toml)"
+          [[ -n "${channel}" ]] || {
+            echo "Failed to read Rust toolchain channel from rust-toolchain.toml." >&2
+            exit 1
+          }
+          echo "channel=${channel}" >> "$GITHUB_OUTPUT"
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ steps.rust-toolchain.outputs.channel }}
+          targets: ${{ matrix.target }}
+
+      - name: Install protoc
+        uses: arduino/setup-protoc@v3
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
+        with:
+          cache-on-failure: true
+
+      - name: Install musl tools
+        if: ${{ runner.os == 'Linux' && contains(matrix.target, 'musl') && matrix.build_with != 'cross' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update -y
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y musl-tools
+
+      - name: Install cross
+        if: ${{ matrix.build_with == 'cross' }}
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cross
+
+      - name: Build
+        if: ${{ matrix.build_with != 'cross' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo build --locked --release --target "${{ matrix.target }}" --bin rara
+
+      - name: Cross build
+        if: ${{ matrix.build_with == 'cross' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          cross build --locked --release --target "${{ matrix.target }}" --bin rara
+
+      - name: Package unix archive
+        if: ${{ runner.os != 'Windows' }}
+        shell: bash
+        env:
+          VERSION: ${{ needs.tag-check.outputs.version }}
+          TARGET: ${{ matrix.target }}
+        run: |
+          set -euo pipefail
+          dist_dir="dist/${TARGET}"
+          mkdir -p "${dist_dir}"
+          cp "target/${TARGET}/release/rara" "${dist_dir}/rara"
+          chmod +x "${dist_dir}/rara"
+          tar -C "${dist_dir}" -czf "dist/rara-${VERSION}-${TARGET}.tar.gz" rara
+
+      - name: Package windows archive
+        if: ${{ runner.os == 'Windows' }}
+        shell: pwsh
+        env:
+          VERSION: ${{ needs.tag-check.outputs.version }}
+          TARGET: ${{ matrix.target }}
+        run: |
+          $distDir = "dist/$env:TARGET"
+          New-Item -ItemType Directory -Force -Path $distDir | Out-Null
+          Copy-Item "target/$env:TARGET/release/rara.exe" "$distDir/rara.exe"
+          Compress-Archive -Path "$distDir/rara.exe" -DestinationPath "dist/rara-$env:VERSION-$env:TARGET.zip" -Force
+
+      - name: Smoke test unix archive
+        if: ${{ runner.os != 'Windows' && matrix.smoke }}
+        shell: bash
+        env:
+          VERSION: ${{ needs.tag-check.outputs.version }}
+          TARGET: ${{ matrix.target }}
+        run: |
+          set -euo pipefail
+          smoke_dir="dist/smoke-${TARGET}"
+          mkdir -p "${smoke_dir}"
+          tar -C "${smoke_dir}" -xzf "dist/rara-${VERSION}-${TARGET}.tar.gz"
+          "${smoke_dir}/rara" --version
+
+      - name: Smoke test windows archive
+        if: ${{ runner.os == 'Windows' && matrix.smoke }}
+        shell: pwsh
+        env:
+          VERSION: ${{ needs.tag-check.outputs.version }}
+          TARGET: ${{ matrix.target }}
+        run: |
+          $smokeDir = "dist/smoke-$env:TARGET"
+          New-Item -ItemType Directory -Force -Path $smokeDir | Out-Null
+          Expand-Archive -Path "dist/rara-$env:VERSION-$env:TARGET.zip" -DestinationPath $smokeDir -Force
+          & "$smokeDir/rara.exe" --version
+
+      - name: Upload release archive
+        uses: actions/upload-artifact@v4
+        with:
+          name: rara-${{ matrix.target }}
+          path: dist/rara-${{ needs.tag-check.outputs.version }}-${{ matrix.target }}.${{ matrix.archive }}
+          if-no-files-found: error
+
+  release:
+    needs:
+      - tag-check
+      - build
+    name: github-release
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      actions: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ needs.tag-check.outputs.tag }}
+
+      - name: Download release archives
+        uses: actions/download-artifact@v4
+        with:
+          path: dist/artifacts
+
+      - name: Stage checksums
+        shell: bash
+        env:
+          VERSION: ${{ needs.tag-check.outputs.version }}
+        run: |
+          set -euo pipefail
+          mkdir -p dist/release
+          find dist/artifacts -type f \( -name "*.tar.gz" -o -name "*.zip" \) -print0 \
+            | xargs -0 -I{} cp "{}" dist/release/
+
+          expected=6
+          actual="$(find dist/release -type f \( -name "*.tar.gz" -o -name "*.zip" \) | wc -l | tr -d ' ')"
+          [[ "${actual}" == "${expected}" ]] || {
+            echo "Expected ${expected} release archives, found ${actual}." >&2
+            find dist/release -maxdepth 1 -type f -print >&2
+            exit 1
+          }
+
+          (
+            cd dist/release
+            shasum -a 256 rara-"${VERSION}"-* > checksums.txt
+            while read -r checksum filename; do
+              printf "%s  %s\n" "${checksum}" "${filename}" > "${filename}.sha256"
+            done < checksums.txt
+          )
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: ${{ needs.tag-check.outputs.version }}
+          tag_name: ${{ needs.tag-check.outputs.tag }}
+          generate_release_notes: true
+          prerelease: ${{ needs.tag-check.outputs.prerelease }}
+          files: |
+            dist/release/rara-${{ needs.tag-check.outputs.version }}-*.tar.gz
+            dist/release/rara-${{ needs.tag-check.outputs.version }}-*.zip
+            dist/release/rara-${{ needs.tag-check.outputs.version }}-*.sha256
+            dist/release/checksums.txt

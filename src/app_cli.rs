@@ -15,7 +15,7 @@ use crate::tui::StartupResumeTarget;
 
 #[derive(Parser)]
 #[command(name = "rara")]
-#[command(about = "RARA: RARA Automates Rust Agents", long_about = None)]
+#[command(version, about = "RARA: RARA Automates Rust Agents", long_about = None)]
 pub(crate) struct Cli {
     #[command(subcommand)]
     command: Option<Commands>,
@@ -411,6 +411,16 @@ mod tests {
             }
             other => panic!("unexpected command: {other:?}"),
         }
+    }
+
+    #[test]
+    fn clap_supports_version_flag_for_release_smoke_tests() {
+        let err = match Cli::try_parse_from(["rara", "--version"]) {
+            Ok(_) => panic!("version should exit early"),
+            Err(err) => err,
+        };
+        assert_eq!(err.kind(), clap::error::ErrorKind::DisplayVersion);
+        assert!(err.to_string().starts_with("rara "));
     }
 
     #[test]
