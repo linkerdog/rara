@@ -170,6 +170,9 @@ impl ActiveCell for ActiveTurnCell<'_> {
                             compact_summary_lines(items.as_slice(), 4, "more exploration step(s)");
                         cells.push(Box::new(ExploringCell::new(summary, turn_live)));
                     }
+                    OrderedActiveSegment::Progress(role, messages) => {
+                        push_progress_group(&mut cells, *role, messages.clone(), turn_live);
+                    }
                     OrderedActiveSegment::Agent(message) => {
                         cells.push(Box::new(MessageCell::new(
                             "Agent",
@@ -203,9 +206,11 @@ impl ActiveCell for ActiveTurnCell<'_> {
             );
         }
 
-        let explicit_progress_groups =
-            (!has_live_events && !has_live_thinking && !has_active_pending_interaction)
-                .then(|| explicit_progress_entry_groups(current_turn.iter().copied()));
+        let explicit_progress_groups = (!uses_ordered_exploration_agent_segments
+            && !has_live_events
+            && !has_live_thinking
+            && !has_active_pending_interaction)
+            .then(|| explicit_progress_entry_groups(current_turn.iter().copied()));
         if let Some(groups) = explicit_progress_groups.as_ref() {
             for (role, messages) in groups {
                 push_progress_group(&mut cells, *role, messages.clone(), turn_live);
@@ -256,7 +261,10 @@ impl ActiveCell for ActiveTurnCell<'_> {
             .find(|entry| entry.role == "Planning")
             .map(|entry| entry.message.clone());
 
-        let planning_summary = if has_live_events || has_explicit_progress_groups {
+        let planning_summary = if has_live_events
+            || has_explicit_progress_groups
+            || uses_ordered_exploration_agent_segments
+        {
             None
         } else if has_live_planning {
             Some(compact_progress_summary_lines(
@@ -279,7 +287,10 @@ impl ActiveCell for ActiveTurnCell<'_> {
             .find(|entry| entry.role == "Running")
             .map(|entry| entry.message.clone());
 
-        let running_summary = if has_live_events || has_explicit_progress_groups {
+        let running_summary = if has_live_events
+            || has_explicit_progress_groups
+            || uses_ordered_exploration_agent_segments
+        {
             None
         } else if has_live_running {
             Some(compact_recent_first_summary_lines(

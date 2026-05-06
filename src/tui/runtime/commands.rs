@@ -39,6 +39,10 @@ pub(super) async fn execute_local_command(
     });
     match command.kind {
         LocalCommandKind::Approval => {
+            if app.is_busy() {
+                app.push_notice("A task is already running. Wait for it to finish.");
+                return Ok(false);
+            }
             let next_mode = match app.bash_approval_mode {
                 BashApprovalMode::Suggestion => BashApprovalMode::Always,
                 BashApprovalMode::Once => BashApprovalMode::Suggestion,
@@ -48,6 +52,7 @@ pub(super) async fn execute_local_command(
             app.permission_mode = PermissionMode::Custom;
             if let Some(agent) = agent_slot.as_mut() {
                 agent.set_bash_approval_mode(next_mode);
+                agent.set_full_access_mode(false);
             }
             let notice = match next_mode {
                 BashApprovalMode::Always => "Bash approval set to always.",
@@ -110,6 +115,10 @@ pub(super) async fn execute_local_command(
         LocalCommandKind::Model => handle_model_command(command.arg.as_deref(), app)?,
         LocalCommandKind::Mcp => handle_mcp_command(app),
         LocalCommandKind::Plan => {
+            if app.is_busy() {
+                app.push_notice("A task is already running. Wait for it to finish.");
+                return Ok(false);
+            }
             app.set_runtime_phase(
                 RuntimePhase::LocalCommand,
                 Some("entering planning mode".into()),
@@ -119,6 +128,7 @@ pub(super) async fn execute_local_command(
             app.set_agent_execution_mode(AgentExecutionMode::Plan);
             if let Some(agent) = agent_slot.as_mut() {
                 agent.set_execution_mode(AgentExecutionMode::Plan);
+                agent.set_full_access_mode(false);
             }
             app.push_notice("Planning mode enabled. Read-only planning; approve to execute.");
         }
@@ -149,6 +159,10 @@ pub(super) async fn execute_local_command(
             }
         }
         LocalCommandKind::Permissions => {
+            if app.is_busy() {
+                app.push_notice("A task is already running. Wait for it to finish.");
+                return Ok(false);
+            }
             // Sync picker index to current mode before opening.
             let current_idx = match app.permission_mode {
                 PermissionMode::Auto => 0,
@@ -426,19 +440,31 @@ pub(crate) fn apply_permission_mode(
 ) {
     use std::sync::atomic::Ordering;
 
-    let (execution, approval, allow_net) = match mode {
-        PermissionMode::Auto => (AgentExecutionMode::Execute, BashApprovalMode::Always, false),
+    let (execution, approval, allow_net, full_access) = match mode {
+        PermissionMode::Auto => (
+            AgentExecutionMode::Execute,
+            BashApprovalMode::Always,
+            false,
+            false,
+        ),
         PermissionMode::AcceptEdits => (
             AgentExecutionMode::Execute,
             BashApprovalMode::Suggestion,
+            false,
             false,
         ),
         PermissionMode::ReadOnly => (
             AgentExecutionMode::Plan,
             BashApprovalMode::Suggestion,
             false,
+            false,
         ),
-        PermissionMode::FullAccess => (AgentExecutionMode::Execute, BashApprovalMode::Always, true),
+        PermissionMode::FullAccess => (
+            AgentExecutionMode::Execute,
+            BashApprovalMode::Always,
+            true,
+            true,
+        ),
         PermissionMode::Custom => return,
     };
 
@@ -450,6 +476,7 @@ pub(crate) fn apply_permission_mode(
     if let Some(agent) = agent_slot.as_mut() {
         agent.set_execution_mode(execution);
         agent.set_bash_approval_mode(approval);
+        agent.set_full_access_mode(full_access);
     }
 
     app.set_runtime_phase(
@@ -463,12 +490,32 @@ pub(crate) fn apply_permission_mode(
 mod tests {
     use std::fs;
     use std::sync::Arc;
+    use std::time::Instant;
 
-    use super::{handle_mcp_command, mcp_project_root_from_cwd};
+    use tokio::sync::mpsc;
+
+    use super::{execute_local_command, handle_mcp_command, mcp_project_root_from_cwd};
     use crate::agent::AgentEvent;
     use crate::config::ConfigManager;
+    use crate::oauth::OAuthManager;
     use crate::runtime_event_bus::RuntimeEventBus;
-    use crate::tui::state::TuiApp;
+    use crate::tui::state::{
+        LocalCommand, LocalCommandKind, Overlay, PermissionMode, RunningTask, TaskCompletion,
+        TaskKind, TuiApp,
+    };
+
+    fn mark_app_busy(app: &mut TuiApp) {
+        let (_sender, receiver) = mpsc::unbounded_channel();
+        app.running_task = Some(RunningTask {
+            kind: TaskKind::DeepSeekModels,
+            receiver,
+            handle: tokio::spawn(async { TaskCompletion::DeepSeekModels { result: Ok(vec![]) } }),
+            started_at: Instant::now(),
+            next_heartbeat_after_secs: 2,
+            cancellation_token: None,
+            cancellation_requested: false,
+        });
+    }
 
     #[test]
     fn mcp_project_root_walks_up_to_project_config() {
@@ -546,5 +593,64 @@ command = "docs-server"
             panic!("expected mcp load failure event");
         };
         assert!(message.contains("config.toml"));
+    }
+
+    #[tokio::test]
+    async fn mode_changing_commands_are_rejected_while_busy() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let mut app = TuiApp::new(ConfigManager {
+            path: dir.path().join("config.json"),
+        })
+        .expect("app");
+        let oauth_manager = Arc::new(
+            OAuthManager::new_for_config_dir(dir.path().join("oauth")).expect("oauth manager"),
+        );
+        let mut agent_slot = None;
+
+        mark_app_busy(&mut app);
+        execute_local_command(
+            LocalCommand {
+                kind: LocalCommandKind::Approval,
+                arg: None,
+            },
+            &mut app,
+            &mut agent_slot,
+            &oauth_manager,
+        )
+        .await
+        .expect("approval command should be handled");
+        assert_eq!(app.bash_approval_mode_label(), "suggestion");
+        assert_eq!(app.permission_mode, PermissionMode::Auto);
+        assert_eq!(
+            app.notice.as_deref(),
+            Some("A task is already running. Wait for it to finish.")
+        );
+
+        execute_local_command(
+            LocalCommand {
+                kind: LocalCommandKind::Plan,
+                arg: None,
+            },
+            &mut app,
+            &mut agent_slot,
+            &oauth_manager,
+        )
+        .await
+        .expect("plan command should be handled");
+        assert_eq!(app.agent_execution_mode_label(), "execute");
+
+        execute_local_command(
+            LocalCommand {
+                kind: LocalCommandKind::Permissions,
+                arg: None,
+            },
+            &mut app,
+            &mut agent_slot,
+            &oauth_manager,
+        )
+        .await
+        .expect("permissions command should be handled");
+        assert!(app.overlay.is_none());
+        assert_ne!(app.overlay, Some(Overlay::PermissionPicker));
     }
 }

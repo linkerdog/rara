@@ -26,8 +26,9 @@ pub(crate) trait ActiveCell {
     fn display_lines(&self, width: u16) -> Vec<Line<'static>>;
 }
 
-pub(super) enum OrderedActiveSegment<'a> {
+enum OrderedActiveSegment<'a> {
     Exploration(Vec<String>),
+    Progress(ProgressRole, Vec<String>),
     Agent(&'a str),
 }
 
@@ -101,6 +102,25 @@ fn ordered_exploration_agent_segments<'a>(
                     exploration_items.push(item);
                 }
             }
+            role if let Some(progress_role) = ProgressRole::from_entry_role(role) => {
+                let messages =
+                    progress::progress_entry_message_lines(progress_role, &entry.message);
+                if messages.is_empty() {
+                    continue;
+                }
+                if !exploration_items.is_empty() || !segments.is_empty() {
+                    saw_interleaving = true;
+                }
+                flush_exploration(&mut segments, &mut exploration_items);
+                if let Some(OrderedActiveSegment::Progress(last_role, last_messages)) =
+                    segments.last_mut()
+                    && *last_role == progress_role
+                {
+                    last_messages.extend(messages);
+                } else {
+                    segments.push(OrderedActiveSegment::Progress(progress_role, messages));
+                }
+            }
             "Agent" => {
                 if !exploration_items.is_empty() {
                     saw_interleaving = true;
@@ -108,12 +128,7 @@ fn ordered_exploration_agent_segments<'a>(
                 }
                 segments.push(OrderedActiveSegment::Agent(entry.message.as_str()));
             }
-            role if ProgressRole::from_entry_role(role).is_some()
-                || matches!(
-                    role,
-                    "Tool Result" | "Tool Error" | "Tool Progress" | "System"
-                ) =>
-            {
+            "Tool Result" | "Tool Error" | "Tool Progress" | "System" => {
                 if !exploration_items.is_empty() {
                     saw_interleaving = true;
                     flush_exploration(&mut segments, &mut exploration_items);

@@ -36,7 +36,7 @@ pub(super) fn apply_tui_event(app: &mut TuiApp, event: TuiEvent) {
                 app.append_agent_thinking_delta(&message);
                 return;
             } else if role == "Tool" || role == "Tool Result" || role == "Tool Error" {
-                app.flush_agent_thinking_stream_to_live_event();
+                app.finalize_agent_stream(None);
                 if role == "Tool" {
                     if let Some(action) = exploration_action_label(&message) {
                         app.record_exploration_action(action);
@@ -211,7 +211,7 @@ pub(super) fn apply_tui_event(app: &mut TuiApp, event: TuiEvent) {
             );
         }
         TuiEvent::Terminal(event) => {
-            app.flush_agent_thinking_stream_to_live_event();
+            app.finalize_agent_stream(None);
             let role = event.transcript_role();
             let message = event.to_transcript_message();
             if role == "Tool" {

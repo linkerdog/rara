@@ -946,6 +946,75 @@ fn active_turn_cell_preserves_agent_then_exploration_order() {
 }
 
 #[test]
+fn active_turn_cell_preserves_interleaved_agent_and_progress_output() {
+    let temp = tempdir().unwrap();
+    let mut app = TuiApp::new(ConfigManager {
+        path: temp.path().join("config.json"),
+    })
+    .expect("build tui app");
+    app.runtime_phase = RuntimePhase::RunningTool;
+    app.active_turn = TranscriptTurn {
+        entries: vec![
+            TranscriptEntry {
+                role: "You".into(),
+                message: "Continue the migration".into(),
+                payload: None,
+            },
+            TranscriptEntry {
+                role: "Agent".into(),
+                message: "First I will sync the branch.".into(),
+                payload: None,
+            },
+            TranscriptEntry {
+                role: "Running".into(),
+                message: "Run git rebase main".into(),
+                payload: None,
+            },
+            TranscriptEntry {
+                role: "Agent".into(),
+                message: "The first conflict is in keymap.rs.".into(),
+                payload: None,
+            },
+            TranscriptEntry {
+                role: "Running".into(),
+                message: "Run cargo test tui::keymap".into(),
+                payload: None,
+            },
+        ],
+    };
+
+    let rendered = ActiveTurnCell::new(&app, Some(Path::new(".")))
+        .display_lines(100)
+        .into_iter()
+        .map(|line| line.to_string())
+        .collect::<Vec<_>>()
+        .join("\n");
+
+    let first_agent = rendered.find("First I will sync the branch.").unwrap();
+    let first_running = rendered.find("Run git rebase main").unwrap();
+    let second_agent = rendered
+        .find("The first conflict is in keymap.rs.")
+        .unwrap();
+    let second_running = rendered.find("Run cargo test tui::keymap").unwrap();
+
+    assert!(first_agent < first_running);
+    assert!(first_running < second_agent);
+    assert!(second_agent < second_running);
+    assert_eq!(
+        rendered.matches("• First I will sync the branch.").count(),
+        1
+    );
+    assert_eq!(
+        rendered
+            .matches("• The first conflict is in keymap.rs.")
+            .count(),
+        1
+    );
+    assert_eq!(rendered.matches("Run git rebase main").count(), 1);
+    assert_eq!(rendered.matches("Run cargo test tui::keymap").count(), 1);
+}
+
+#[test]
 fn active_turn_cell_uses_lightweight_busy_response_when_not_streaming() {
     let temp = tempdir().unwrap();
     let mut app = TuiApp::new(ConfigManager {
