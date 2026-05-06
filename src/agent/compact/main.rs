@@ -1,7 +1,7 @@
 use std::sync::OnceLock;
 use std::time::Duration;
 
-use super::*;
+use crate::agent::*;
 use crate::context::RetrievedMemoryCandidate;
 use crate::llm::{ContextBudget, is_context_window_error};
 use crate::session::PersistedCompactionEvent;
