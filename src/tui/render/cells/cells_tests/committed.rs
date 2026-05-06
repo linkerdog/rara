@@ -190,6 +190,67 @@ fn committed_turn_cell_keeps_progress_segments_and_terminal_output() {
 }
 
 #[test]
+fn committed_turn_cell_preserves_interleaved_agent_and_progress_output() {
+    let entries = vec![
+        TranscriptEntry {
+            role: "You".into(),
+            message: "Sync the branch".into(),
+            payload: None,
+        },
+        TranscriptEntry {
+            role: "Agent".into(),
+            message: "First I will sync the branch.".into(),
+            payload: None,
+        },
+        TranscriptEntry {
+            role: "Running".into(),
+            message: "Run git rebase main".into(),
+            payload: None,
+        },
+        TranscriptEntry {
+            role: "Agent".into(),
+            message: "The first conflict is in keymap.rs.".into(),
+            payload: None,
+        },
+        TranscriptEntry {
+            role: "Running".into(),
+            message: "Run cargo test tui::keymap".into(),
+            payload: None,
+        },
+    ];
+
+    let rendered = CommittedTurnCell::new(entries.as_slice(), Some(Path::new(".")))
+        .display_lines(100)
+        .into_iter()
+        .map(|line| line.to_string())
+        .collect::<Vec<_>>()
+        .join("\n");
+
+    let first_agent = rendered.find("• First I will sync the branch.").unwrap();
+    let first_running = rendered.find("Run git rebase main").unwrap();
+    let second_agent = rendered
+        .find("• The first conflict is in keymap.rs.")
+        .unwrap();
+    let second_running = rendered.find("Run cargo test tui::keymap").unwrap();
+
+    assert_eq!(
+        rendered.matches("• First I will sync the branch.").count(),
+        1
+    );
+    assert_eq!(
+        rendered
+            .matches("• The first conflict is in keymap.rs.")
+            .count(),
+        1
+    );
+    assert_eq!(rendered.matches("Run git rebase main").count(), 1);
+    assert_eq!(rendered.matches("Run cargo test tui::keymap").count(), 1);
+    assert!(first_agent < first_running);
+    assert!(first_running < second_agent);
+    assert!(second_agent < second_running);
+}
+
+#[test]
 fn committed_turn_cell_appends_adjacent_progress_entries() {
     let entries = vec![
         TranscriptEntry {

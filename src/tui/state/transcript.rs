@@ -31,18 +31,42 @@ fn legacy_active_live_sections(live: &ActiveLiveSections) -> Vec<(&'static str, 
     ]
 }
 
+fn is_agent_segment_boundary(entry: &TranscriptEntry) -> bool {
+    matches!(
+        entry.role.as_str(),
+        "Tool"
+            | "Tool Result"
+            | "Tool Error"
+            | "Tool Progress"
+            | "Thinking"
+            | "Exploring"
+            | "Planning"
+            | "Running"
+    ) || matches!(
+        entry.payload,
+        Some(crate::tui::state::TranscriptEntryPayload::Terminal(_))
+    )
+}
+
 impl TuiApp {
-    fn replace_turn_agent_message(turn: &mut TranscriptTurn, message: String) -> bool {
-        let Some(last_agent_idx) = turn.entries.iter().rposition(|entry| entry.role == "Agent")
+    fn replace_current_agent_segment_message(turn: &mut TranscriptTurn, message: String) -> bool {
+        let segment_start = turn
+            .entries
+            .iter()
+            .rposition(|entry| is_agent_segment_boundary(entry))
+            .map_or(0, |idx| idx + 1);
+        let Some(last_agent_idx) = turn.entries[segment_start..]
+            .iter()
+            .rposition(|entry| entry.role == "Agent")
+            .map(|idx| segment_start + idx)
         else {
             return false;
         };
 
         turn.entries[last_agent_idx].message = message;
-
         let mut retained = Vec::with_capacity(turn.entries.len());
         for (idx, entry) in turn.entries.drain(..).enumerate() {
-            if entry.role == "Agent" && idx != last_agent_idx {
+            if idx >= segment_start && idx != last_agent_idx && entry.role == "Agent" {
                 continue;
             }
             retained.push(entry);
@@ -168,13 +192,13 @@ impl TuiApp {
             return;
         }
 
-        if Self::replace_turn_agent_message(&mut self.active_turn, message.clone()) {
+        if Self::replace_current_agent_segment_message(&mut self.active_turn, message.clone()) {
             self.reset_transcript_scroll_if_following_tail();
             return;
         }
         if self.active_turn.entries.is_empty() {
             if let Some(turn) = self.committed_turns.last_mut() {
-                if Self::replace_turn_agent_message(turn, message.clone()) {
+                if Self::replace_current_agent_segment_message(turn, message.clone()) {
                     self.invalidate_committed_render_cache();
                     self.reset_transcript_scroll_if_following_tail();
                     return;
