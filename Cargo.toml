@@ -3,6 +3,7 @@ members = [
     ".",
     "crates/bedrock",
     "crates/config",
+    "crates/file-search",
     "crates/instructions",
     "crates/provider-catalog",
     "crates/sandbox",
@@ -25,6 +26,8 @@ serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 toml = "1.1.2"
 tempfile = "3.17"
+ignore = "0.4.23"
+nucleo = { git = "https://github.com/helix-editor/nucleo.git", rev = "4253de9faabb4e5c6d81d946a5e35a90f87347ee" }
 codex-execpolicy = { git = "https://github.com/openai/codex", package = "codex-execpolicy", rev = "637f7dd6d737f3961e6bf32fbb3861c4953269c5" }
 
 [package]
@@ -56,6 +59,7 @@ sha2 = "0.11"
 secrecy = { version = "0.10", features = ["serde"] }
 rara-config = { path = "crates/config" }
 rara-bedrock = { path = "crates/bedrock" }
+rara-file-search = { path = "crates/file-search" }
 rara-instructions = { path = "crates/instructions" }
 rara-provider-catalog = { path = "crates/provider-catalog" }
 rara-sandbox = { path = "crates/sandbox" }

@@ -1,15 +1,16 @@
 use std::collections::HashMap;
 use std::fs;
 use std::io::{BufRead, BufReader};
+use std::num::NonZero;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use std::time::SystemTime;
 
 use async_trait::async_trait;
+use rara_file_search::{FileSearchOptions, list_files};
 use rara_tool_macros::tool_spec;
 use serde_json::{Value, json};
 use tokio::io::{AsyncBufRead, AsyncBufReadExt, BufReader as AsyncBufReader};
-use walkdir::WalkDir;
 
 use crate::tool::{Tool, ToolError};
 
@@ -756,7 +757,8 @@ pub struct ListFilesTool;
         "type": "object",
         "properties": {
             "path": { "type": "string" },
-            "include_ignored": { "type": "boolean" }
+            "include_ignored": { "type": "boolean" },
+            "limit": { "type": "integer", "minimum": 1, "default": 200 }
         },
         "required": ["path"]
     }
@@ -771,33 +773,52 @@ impl Tool for ListFilesTool {
             .get("include_ignored")
             .and_then(Value::as_bool)
             .unwrap_or(false);
-        let files: Vec<String> = WalkDir::new(p)
-            .into_iter()
-            .filter_entry(|entry| include_ignored || !is_ignored_path(entry.path()))
-            .filter_map(|e| e.ok())
-            .map(|e| e.path().display().to_string())
-            .collect();
-        Ok(json!({ "files": files }))
+        let limit = optional_positive_usize(&i, "limit")?.unwrap_or(200);
+        let limit = NonZero::new(limit)
+            .ok_or_else(|| ToolError::InvalidInput("limit must be >= 1".into()))?;
+        let result = list_files(
+            p,
+            FileSearchOptions {
+                limit,
+                exclude: if include_ignored {
+                    Vec::new()
+                } else {
+                    default_list_files_excludes()
+                },
+                respect_gitignore: !include_ignored,
+                ..FileSearchOptions::default()
+            },
+        )
+        .map_err(|err| ToolError::ExecutionFailed(err.to_string()))?;
+        let files = result
+            .entries
+            .iter()
+            .map(|entry| entry.full_path().display().to_string())
+            .collect::<Vec<_>>();
+        Ok(json!({
+            "files": files,
+            "total_count": result.total_entry_count,
+            "truncated": result.truncated,
+        }))
     }
 }
 
-fn is_ignored_path(path: &Path) -> bool {
-    path.components().any(|component| {
-        let name = component.as_os_str().to_string_lossy();
-        matches!(
-            name.as_ref(),
-            ".git"
-                | "target"
-                | "node_modules"
-                | "dist"
-                | "build"
-                | ".next"
-                | ".cache"
-                | "__pycache__"
-                | ".venv"
-                | "venv"
-        )
-    })
+fn default_list_files_excludes() -> Vec<String> {
+    [
+        ".git/**",
+        "target/**",
+        "node_modules/**",
+        "dist/**",
+        "build/**",
+        ".next/**",
+        ".cache/**",
+        "__pycache__/**",
+        ".venv/**",
+        "venv/**",
+    ]
+    .into_iter()
+    .map(str::to_string)
+    .collect()
 }
 
 fn preview_snippet(value: &str) -> String {

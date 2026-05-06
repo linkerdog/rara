@@ -44,6 +44,7 @@ Active backlog only. Keep this file small and current.
 
 ## Workspace / Skills / Prompt Sources
 
+- [ ] Add session-style incremental file search for TUI file pickers and context file routing on top of `crates/file-search`.
 - [ ] Tests for workspace prompt-source discovery and cache invalidation (cwd changes, git branches, nested workspaces).
 - [ ] Define `WorkspaceMemory` cache invalidation rules for prompt files and environment info.
 - [ ] Unify `discover_prompt_sources()` and TUI `/status` source reporting.
