@@ -171,40 +171,93 @@ pub(crate) async fn dispatch_event(
             app.cycle_local_model();
         }
         AppEvent::SaveBaseUrlInput => {
-            let value = app.base_url_input.trim();
-            app.config
-                .set_base_url((!value.is_empty()).then(|| value.to_string()));
-            app.config_manager.save(&app.config)?;
-            app.notice = Some(format!(
-                "Saved base URL: {}",
-                app.config.base_url.as_deref().unwrap_or("unset")
-            ));
-            app.close_overlay();
+            if app.is_busy() {
+                app.push_notice("Wait for the current task before saving the base URL.");
+            } else {
+                let value = app.base_url_input.trim();
+                app.config
+                    .set_base_url((!value.is_empty()).then(|| value.to_string()));
+                app.config_manager.save(&app.config)?;
+                app.notice = Some(format!(
+                    "Saved base URL: {}",
+                    app.config.base_url.as_deref().unwrap_or("unset")
+                ));
+                if app.openai_setup_steps.is_empty() {
+                    app.close_overlay();
+                } else {
+                    app.advance_openai_profile_setup();
+                }
+            }
         }
         AppEvent::SaveApiKeyInput => {
             let value = app.api_key_input.trim();
-            if value.is_empty() {
-                app.notice = Some("API key unchanged.".into());
-            } else {
-                app.config.set_api_key(value);
+            if app.is_busy() {
+                app.push_notice("Wait for the current task before saving the API key.");
+            } else if value.is_empty() && app.config.provider == "codex" {
+                app.push_notice("Enter a Codex API key or press Esc to go back.");
+            } else if value.is_empty() && app.selected_provider_family() == ProviderFamily::DeepSeek
+            {
+                app.push_notice("Enter a DeepSeek API key or press Esc to go back.");
+            } else if value.is_empty() && app.openai_setup_keep_empty_api_key {
+                app.notice = Some("Kept existing API key for the current profile.".into());
+                app.advance_openai_profile_setup();
+            } else if value.is_empty() {
+                app.config.clear_api_key();
+                if app.config.provider == "codex" {
+                    app.codex_auth_mode = None;
+                }
                 app.config_manager.save(&app.config)?;
-                app.notice = Some("Saved API key.".into());
-            }
-            app.close_overlay();
-            if app.config.provider == "codex" {
-                start_rebuild_task(app);
+                app.notice = Some("Cleared API key for the current provider.".into());
+                if app.openai_setup_steps.is_empty() {
+                    app.close_overlay();
+                } else {
+                    app.advance_openai_profile_setup();
+                }
+            } else {
+                let was_deepseek = app.selected_provider_family() == ProviderFamily::DeepSeek;
+                app.config.set_api_key(value.to_string());
+                if app.config.provider == "codex" {
+                    app.codex_auth_mode = Some(SavedCodexAuthMode::ApiKey);
+                    app.config
+                        .apply_codex_defaults_for_base_url(DEFAULT_CODEX_BASE_URL);
+                }
+                app.config_manager.save(&app.config)?;
+                if app.config.provider == "codex" {
+                    app.notice = Some("Saved Codex API key. Rebuilding backend.".into());
+                    app.overlay = None;
+                    start_rebuild_task(app);
+                } else if was_deepseek {
+                    app.notice = Some("Saved DeepSeek API key. Loading models.".into());
+                    app.overlay = None;
+                    start_deepseek_model_list_task(app);
+                } else {
+                    app.notice = Some("Saved API key for the current provider.".into());
+                    if app.openai_setup_steps.is_empty() {
+                        app.close_overlay();
+                    } else {
+                        app.advance_openai_profile_setup();
+                    }
+                }
             }
         }
         AppEvent::SaveModelNameInput => {
-            let value = app.model_name_input.trim();
-            app.config
-                .set_model((!value.is_empty()).then(|| value.to_string()));
-            app.config_manager.save(&app.config)?;
-            app.notice = Some(format!(
-                "Saved model name: {}",
-                app.config.model.as_deref().unwrap_or("unset")
-            ));
-            app.close_overlay();
+            if app.is_busy() {
+                app.push_notice("Wait for the current task before saving the model name.");
+            } else {
+                let value = app.model_name_input.trim();
+                app.config
+                    .set_model((!value.is_empty()).then(|| value.to_string()));
+                app.config_manager.save(&app.config)?;
+                app.notice = Some(format!(
+                    "Saved model name: {}",
+                    app.config.model.as_deref().unwrap_or("unset")
+                ));
+                if app.openai_setup_steps.is_empty() {
+                    app.close_overlay();
+                } else {
+                    app.advance_openai_profile_setup();
+                }
+            }
         }
         AppEvent::SaveOpenAiProfileLabelInput => {
             if app.is_busy() {
