@@ -791,7 +791,7 @@ fn provider_picker_renders_as_full_overlay_on_standard_terminal() {
         path: temp.path().join("config.json"),
     })
     .expect("build tui app");
-    app.open_overlay(Overlay::ProviderPicker);
+    app.open_overlay(Overlay::ListPicker(ListPickerKind::Provider));
 
     let rendered = render_screen_text(&app, 100, 24);
     assert_snapshot!("provider_picker_standard_terminal", rendered);
@@ -813,7 +813,7 @@ fn openai_model_picker_renders_profile_manager_not_endpoint_presets() {
     app.config
         .set_model(Some("anthropic/claude-3.7-sonnet".to_string()));
     app.config.set_api_key("sk-openrouter");
-    app.open_overlay(Overlay::ModelPicker);
+    app.open_overlay(Overlay::ListPicker(ListPickerKind::Model));
 
     let rendered = render_screen_text(&app, 100, 24);
     assert!(rendered.contains("OpenAI-compatible profiles"));
@@ -842,7 +842,7 @@ fn deepseek_model_picker_renders_catalog_models_and_refresh_hint() {
         "deepseek-chat".to_string(),
         "deepseek-reasoner".to_string(),
     ]);
-    app.open_overlay(Overlay::ModelPicker);
+    app.open_overlay(Overlay::ListPicker(ListPickerKind::Model));
 
     let rendered = render_screen_text(&app, 100, 24);
     assert!(rendered.contains("Provider: DeepSeek"));
@@ -874,7 +874,7 @@ fn openai_model_picker_renders_profile_defaults_when_fields_are_empty() {
         .expect("custom profile present");
     profile.model = None;
     profile.base_url = None;
-    app.open_overlay(Overlay::ModelPicker);
+    app.open_overlay(Overlay::ListPicker(ListPickerKind::Model));
 
     let rendered = render_screen_text(&app, 100, 24);
     assert!(rendered.contains("Custom Defaults"));

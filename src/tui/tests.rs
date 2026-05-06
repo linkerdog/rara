@@ -404,13 +404,13 @@ fn provider_picker_number_keys_cover_current_provider_families() {
         path: temp.path().join("config.json"),
     })
     .expect("app");
-    app.open_overlay(Overlay::ProviderPicker);
+    app.open_overlay(Overlay::ListPicker(ListPickerKind::Provider));
 
     let key_char =
         char::from_digit(super::state::PROVIDER_FAMILIES.len() as u32, 10).expect("digit key");
     assert!(matches!(
         map_key_to_event(key(KeyCode::Char(key_char)), &app),
-        AppEvent::SetProviderSelection(idx)
+        AppEvent::SetListPickerSelection(idx)
             if idx == super::state::PROVIDER_FAMILIES.len() - 1
     ));
 }
@@ -422,11 +422,11 @@ fn auth_mode_picker_prefers_selection_navigation() {
         path: temp.path().join("config.json"),
     })
     .expect("app");
-    app.open_overlay(Overlay::AuthModePicker);
+    app.open_overlay(Overlay::ListPicker(ListPickerKind::AuthMode));
 
     assert!(matches!(
         map_key_to_event(key(KeyCode::Down), &app),
-        AppEvent::MoveAuthModeSelection(1)
+        AppEvent::MoveListPickerSelection(1)
     ));
     assert!(matches!(
         map_key_to_event(key(KeyCode::Enter), &app),
@@ -434,7 +434,7 @@ fn auth_mode_picker_prefers_selection_navigation() {
     ));
     assert!(matches!(
         map_key_to_event(key(KeyCode::Char('3')), &app),
-        AppEvent::SetAuthModeSelection(2)
+        AppEvent::SetListPickerSelection(2)
     ));
 }
 
@@ -925,7 +925,7 @@ fn openai_compatible_model_picker_exposes_profile_table_shortcuts() {
     .expect("app");
 
     app.provider_picker_idx = provider_family_idx(ProviderFamily::OpenAiCompatible);
-    app.open_overlay(Overlay::ModelPicker);
+    app.open_overlay(Overlay::ListPicker(ListPickerKind::Model));
 
     assert!(matches!(
         map_key_to_event(key(KeyCode::Char('c')), &app),
@@ -964,7 +964,7 @@ async fn openai_model_picker_delete_row_removes_active_profile() {
         "OpenRouter",
         OpenAiEndpointKind::Openrouter,
     );
-    app.open_overlay(Overlay::ModelPicker);
+    app.open_overlay(Overlay::ListPicker(ListPickerKind::Model));
 
     let oauth_manager = Arc::new(
         crate::oauth::OAuthManager::new_for_config_dir(temp.path().join(".rara"))
@@ -985,7 +985,10 @@ async fn openai_model_picker_delete_row_removes_active_profile() {
         app.config.active_openai_profile_id(),
         Some("custom-default")
     );
-    assert!(matches!(app.overlay, Some(Overlay::ModelPicker)));
+    assert!(matches!(
+        app.overlay,
+        Some(Overlay::ListPicker(ListPickerKind::Model))
+    ));
     assert!(matches!(
         app.running_task.as_ref(),
         Some(task) if matches!(task.kind, TaskKind::Rebuild)
@@ -1003,7 +1006,7 @@ async fn openai_model_picker_space_activates_selected_profile_and_starts_setup_w
     })
     .expect("app");
     app.provider_picker_idx = provider_family_idx(ProviderFamily::OpenAiCompatible);
-    app.open_overlay(Overlay::ModelPicker);
+    app.open_overlay(Overlay::ListPicker(ListPickerKind::Model));
 
     let oauth_manager = Arc::new(
         crate::oauth::OAuthManager::new_for_config_dir(temp.path().join(".rara"))
@@ -1012,7 +1015,7 @@ async fn openai_model_picker_space_activates_selected_profile_and_starts_setup_w
     let mut agent_slot = None;
 
     dispatch_event(
-        AppEvent::SetModelSelection(0),
+        AppEvent::SetListPickerSelection(0),
         &mut app,
         &mut agent_slot,
         &oauth_manager,
@@ -1020,7 +1023,10 @@ async fn openai_model_picker_space_activates_selected_profile_and_starts_setup_w
     .await
     .expect("set model selection");
 
-    assert!(matches!(app.overlay, Some(Overlay::ModelPicker)));
+    assert!(matches!(
+        app.overlay,
+        Some(Overlay::ListPicker(ListPickerKind::Model))
+    ));
 
     dispatch_event(
         AppEvent::ApplyOverlaySelection,
@@ -1105,7 +1111,7 @@ async fn deepseek_model_picker_enter_without_api_key_opens_api_key_editor() {
     app.config
         .select_openai_profile("deepseek-default", "DeepSeek", OpenAiEndpointKind::Deepseek);
     app.config.clear_api_key();
-    app.open_overlay(Overlay::ModelPicker);
+    app.open_overlay(Overlay::ListPicker(ListPickerKind::Model));
 
     let oauth_manager = Arc::new(
         crate::oauth::OAuthManager::new_for_config_dir(temp.path().join(".rara"))
@@ -1139,7 +1145,7 @@ async fn deepseek_model_picker_api_key_action_opens_editor_even_when_key_exists(
     app.config.set_api_key("sk-deepseek-test");
     app.set_deepseek_model_options(vec!["deepseek-chat".to_string()]);
     app.model_picker_idx = app.deepseek_api_key_action_idx();
-    app.open_overlay(Overlay::ModelPicker);
+    app.open_overlay(Overlay::ListPicker(ListPickerKind::Model));
 
     let oauth_manager = Arc::new(
         crate::oauth::OAuthManager::new_for_config_dir(temp.path().join(".rara"))
@@ -1168,7 +1174,7 @@ fn deepseek_model_picker_accepts_uppercase_api_key_and_refresh_shortcuts() {
     })
     .expect("app");
     app.provider_picker_idx = provider_family_idx(ProviderFamily::DeepSeek);
-    app.open_overlay(Overlay::ModelPicker);
+    app.open_overlay(Overlay::ListPicker(ListPickerKind::Model));
 
     assert!(matches!(
         map_key_to_event(key(KeyCode::Char('A')), &app),
@@ -1198,7 +1204,7 @@ async fn openai_model_picker_edit_shortcut_starts_wizard_for_selected_profile() 
         "OpenRouter",
         OpenAiEndpointKind::Openrouter,
     );
-    app.open_overlay(Overlay::ModelPicker);
+    app.open_overlay(Overlay::ListPicker(ListPickerKind::Model));
     app.model_picker_idx = 1;
 
     let oauth_manager = Arc::new(
@@ -1241,7 +1247,7 @@ async fn openai_profile_edit_wizard_keeps_existing_api_key_when_blank() {
         OpenAiEndpointKind::Openrouter,
     );
     app.config.set_api_key("sk-openrouter");
-    app.open_overlay(Overlay::ModelPicker);
+    app.open_overlay(Overlay::ListPicker(ListPickerKind::Model));
 
     let oauth_manager = Arc::new(
         crate::oauth::OAuthManager::new_for_config_dir(temp.path().join(".rara"))
@@ -1291,7 +1297,7 @@ async fn openai_model_picker_create_shortcut_opens_endpoint_kind_picker() {
     })
     .expect("app");
     app.provider_picker_idx = provider_family_idx(ProviderFamily::OpenAiCompatible);
-    app.open_overlay(Overlay::ModelPicker);
+    app.open_overlay(Overlay::ListPicker(ListPickerKind::Model));
 
     let oauth_manager = Arc::new(
         crate::oauth::OAuthManager::new_for_config_dir(temp.path().join(".rara"))
@@ -1320,7 +1326,7 @@ async fn selecting_custom_endpoint_kind_prompts_for_profile_label() {
     })
     .expect("app");
     app.provider_picker_idx = provider_family_idx(ProviderFamily::OpenAiCompatible);
-    app.overlay = Some(Overlay::OpenAiEndpointKindPicker);
+    app.overlay = Some(Overlay::ListPicker(ListPickerKind::OpenAiEndpointKind));
     app.openai_endpoint_kind_picker_idx = 0;
 
     let oauth_manager = Arc::new(
@@ -1367,7 +1373,7 @@ async fn selecting_openai_profile_from_picker_switches_active_profile() {
         OpenAiEndpointKind::Openrouter,
     );
     app.model_picker_idx = 3;
-    app.open_overlay(Overlay::OpenAiProfilePicker);
+    app.open_overlay(Overlay::ListPicker(ListPickerKind::OpenAiProfile));
     app.openai_profile_picker_idx = 2;
 
     let oauth_manager = Arc::new(
@@ -1389,7 +1395,10 @@ async fn selecting_openai_profile_from_picker_switches_active_profile() {
         app.config.active_openai_profile_id(),
         Some("openrouter-main")
     );
-    assert!(matches!(app.overlay, Some(Overlay::ModelPicker)));
+    assert!(matches!(
+        app.overlay,
+        Some(Overlay::ListPicker(ListPickerKind::Model))
+    ));
 }
 
 #[tokio::test]
@@ -1405,7 +1414,7 @@ async fn saving_openai_profile_label_creates_new_openrouter_profile() {
         "OpenRouter",
         OpenAiEndpointKind::Openrouter,
     );
-    app.open_overlay(Overlay::OpenAiProfilePicker);
+    app.open_overlay(Overlay::ListPicker(ListPickerKind::OpenAiProfile));
     app.openai_profile_picker_idx = 0;
 
     let oauth_manager = Arc::new(
@@ -1590,7 +1599,7 @@ async fn codex_model_picker_opens_reasoning_level_overlay_before_rebuild() {
     open_provider_family_overlay(&mut app, &oauth_manager)
         .await
         .expect("open overlay");
-    app.overlay = Some(Overlay::ModelPicker);
+    app.overlay = Some(Overlay::ListPicker(ListPickerKind::Model));
 
     let mut agent_slot = None;
     dispatch_event(
@@ -1602,7 +1611,10 @@ async fn codex_model_picker_opens_reasoning_level_overlay_before_rebuild() {
     .await
     .expect("apply model selection");
 
-    assert!(matches!(app.overlay, Some(Overlay::ReasoningEffortPicker)));
+    assert!(matches!(
+        app.overlay,
+        Some(Overlay::ListPicker(ListPickerKind::ReasoningEffort))
+    ));
 }
 
 #[tokio::test]
@@ -1628,7 +1640,7 @@ async fn codex_model_picker_applies_single_reasoning_level_without_overlay() {
         }],
         is_default: true,
     }]);
-    app.overlay = Some(Overlay::ModelPicker);
+    app.overlay = Some(Overlay::ListPicker(ListPickerKind::Model));
 
     let oauth_manager = Arc::new(
         crate::oauth::OAuthManager::new_for_config_dir(temp.path().join(".rara"))
