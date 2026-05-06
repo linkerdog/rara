@@ -1,6 +1,7 @@
 [workspace]
 members = [
     ".",
+    "crates/bedrock",
     "crates/config",
     "crates/instructions",
     "crates/provider-catalog",
@@ -37,10 +38,7 @@ clap = { version = "4.0", features = ["derive", "env"] }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 reqwest = { version = "0.13", features = ["json", "stream"] }
-aws-config = { version = "1.1.7", features = ["behavior-version-latest"] }
-aws-sdk-bedrockruntime = { version = "1.130", features = ["behavior-version-latest"] }
 async-trait = "0.1"
-aws-smithy-types = "1.4"
 anyhow = "1.0"
 thiserror = "2.0"
 time = { version = "0.3", features = ["formatting"] }
@@ -57,6 +55,7 @@ base64 = "0.22"
 sha2 = "0.11"
 secrecy = { version = "0.10", features = ["serde"] }
 rara-config = { path = "crates/config" }
+rara-bedrock = { path = "crates/bedrock" }
 rara-instructions = { path = "crates/instructions" }
 rara-provider-catalog = { path = "crates/provider-catalog" }
 rara-sandbox = { path = "crates/sandbox" }

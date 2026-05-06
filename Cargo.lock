@@ -9174,9 +9174,6 @@ dependencies = [
  "arrow-array",
  "arrow-schema",
  "async-trait",
- "aws-config",
- "aws-sdk-bedrockruntime",
- "aws-smithy-types",
  "backon",
  "base64 0.22.1",
  "candle-core",
@@ -9205,6 +9202,7 @@ dependencies = [
  "portable-pty",
  "pulldown-cmark",
  "rand 0.10.1",
+ "rara-bedrock",
  "rara-config",
  "rara-instructions",
  "rara-provider-catalog",
@@ -9235,6 +9233,17 @@ dependencies = [
  "urlencoding",
  "uuid",
  "walkdir",
+]
+
+[[package]]
+name = "rara-bedrock"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "aws-config",
+ "aws-sdk-bedrockruntime",
+ "aws-smithy-types",
+ "serde_json",
 ]
 
 [[package]]

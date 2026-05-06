@@ -43,6 +43,8 @@ future appserver integrations can use.
 
 - `mcp-runtime.md`: source-aware MCP configuration, registry, status, refresh,
   reconnect, resource, and Tool Search contracts.
+- `bedrock-backend.md`: Bedrock SDK backend crate boundary and RARA adapter
+  contract.
 
 ## Release Specs
 
