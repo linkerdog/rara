@@ -337,8 +337,29 @@ pub(super) fn format_tool_use(name: &str, input: &serde_json::Value) -> String {
             format_session_tool_use(name, input, "task_id")
         }
         "background_task_list" | "pty_list" => name.to_string(),
-        _ => format!("{name} {input}"),
+        _ => smart_tool_use_fallback(name, input),
     }
+}
+
+fn smart_tool_use_fallback(name: &str, input: &serde_json::Value) -> String {
+    for key in &["path", "file_path"] {
+        if let Some(path) = input.get(*key).and_then(serde_json::Value::as_str) {
+            return format!("{name} {path}");
+        }
+    }
+    if let Some(instruction) = input.get("instruction").and_then(serde_json::Value::as_str) {
+        return format!("{name} {}", compact_instruction(instruction));
+    }
+    if let Some(query) = input.get("query").and_then(serde_json::Value::as_str) {
+        return format!("{name} \"{}\"", compact_instruction(query));
+    }
+    if let Some(command) = input.get("command").and_then(serde_json::Value::as_str) {
+        return format!("{name} {}", compact_instruction(command));
+    }
+    if let Some(experience) = input.get("experience").and_then(serde_json::Value::as_str) {
+        return format!("{name} {}", compact_instruction(experience));
+    }
+    format!("{name}")
 }
 
 fn format_session_tool_use(name: &str, input: &serde_json::Value, id_key: &str) -> String {
