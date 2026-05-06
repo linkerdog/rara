@@ -6,7 +6,7 @@ use rara_tool_macros::tool_spec;
 use serde_json::{Value, json};
 
 use crate::tool::{Tool, ToolError};
-use crate::tools::file::{FileReadState, SharedFileReadState};
+use crate::tools::file::{FileReadState, SharedFileReadState, read_file_content};
 
 #[derive(Default)]
 pub struct ApplyPatchTool {
@@ -176,7 +176,7 @@ impl Tool for ApplyPatchTool {
                     move_to,
                     chunks,
                 } => {
-                    let original = fs::read_to_string(&path)?;
+                    let original = read_file_content(&path)?;
                     let updated = apply_update_chunks(&path, &original, &chunks, &mut stats)?;
                     stats.files_changed += 1;
                     stats.updated_files.push(path.clone());
@@ -564,12 +564,12 @@ fn preserve_file_quote_style(actual: &[String], new_lines: &[String]) -> Vec<Str
     // Determine which curly quote types appear in the file slice.  When the
     // file uses typographic quotes for both single and double, we preserve
     // both; when it only uses one, we only convert that one.
-    let has_curly_double = actual.iter().any(|line| {
-        line.contains('\u{201C}') || line.contains('\u{201D}')
-    });
-    let has_curly_single = actual.iter().any(|line| {
-        line.contains('\u{2018}') || line.contains('\u{2019}')
-    });
+    let has_curly_double = actual
+        .iter()
+        .any(|line| line.contains('\u{201C}') || line.contains('\u{201D}'));
+    let has_curly_single = actual
+        .iter()
+        .any(|line| line.contains('\u{2018}') || line.contains('\u{2019}'));
     if !has_curly_double && !has_curly_single {
         return new_lines.to_vec();
     }
@@ -588,10 +588,8 @@ fn preserve_file_quote_style(actual: &[String], new_lines: &[String]) -> Vec<Str
                     });
                 } else if has_curly_single && (ch == '\'') {
                     // Skip apostrophes in contractions (e.g. "don't", "it's").
-                    let prev_is_letter =
-                        i > 0 && chars[i - 1].is_alphabetic();
-                    let next_is_letter =
-                        i + 1 < chars.len() && chars[i + 1].is_alphabetic();
+                    let prev_is_letter = i > 0 && chars[i - 1].is_alphabetic();
+                    let next_is_letter = i + 1 < chars.len() && chars[i + 1].is_alphabetic();
                     if prev_is_letter && next_is_letter {
                         result.push('\u{2019}'); // RIGHT SINGLE (apostrophe)
                     } else {
@@ -617,7 +615,10 @@ fn is_opening_context(chars: &[char], pos: usize) -> bool {
         return true;
     }
     let prev = chars[pos - 1];
-    matches!(prev, ' ' | '\t' | '\n' | '(' | '[' | '{' | '\u{2014}' | '\u{2013}')
+    matches!(
+        prev,
+        ' ' | '\t' | '\n' | '(' | '[' | '{' | '\u{2014}' | '\u{2013}'
+    )
 }
 
 fn find_subsequence(haystack: &[String], needle: &[String]) -> Option<usize> {
@@ -633,7 +634,7 @@ fn write_text_file(path: &str, content: &str) -> Result<(), ToolError> {
 }
 
 fn read_lines(path: &str) -> Result<Vec<String>, ToolError> {
-    Ok(split_lines(&fs::read_to_string(path)?))
+    Ok(split_lines(&read_file_content(path)?))
 }
 
 #[cfg(test)]
@@ -927,5 +928,125 @@ mod tests {
         assert_eq!(result["files_changed"], 1);
         assert_eq!(result["deleted_files"][0], file.display().to_string());
         assert!(!file.exists());
+    }
+}
+
+#[cfg(test)]
+mod seek_sequence_tests {
+    use std::string::ToString;
+
+    use super::{normalise_unicode, seek_sequence};
+
+    fn to_vec(strings: &[&str]) -> Vec<String> {
+        strings.iter().map(ToString::to_string).collect()
+    }
+
+    #[test]
+    fn exact_match_finds_sequence() {
+        let lines = to_vec(&["foo", "bar", "baz"]);
+        let pattern = to_vec(&["bar", "baz"]);
+        assert_eq!(seek_sequence(&lines, &pattern, 0, false), Some(1));
+    }
+
+    #[test]
+    fn exact_match_respects_start() {
+        let lines = to_vec(&["foo", "bar", "baz", "qux"]);
+        let pattern = to_vec(&["baz", "qux"]);
+        assert_eq!(seek_sequence(&lines, &pattern, 2, false), Some(2));
+        // Same pattern but start after it — should not match.
+        assert_eq!(seek_sequence(&lines, &pattern, 3, false), None);
+    }
+
+    #[test]
+    fn rstrip_match_ignores_trailing_whitespace() {
+        let lines = to_vec(&["foo ", "bar\t\t"]);
+        let pattern = to_vec(&["foo", "bar"]);
+        assert_eq!(seek_sequence(&lines, &pattern, 0, false), Some(0));
+    }
+
+    #[test]
+    fn trim_match_ignores_leading_whitespace() {
+        let lines = to_vec(&["  foo", "\tbar"]);
+        let pattern = to_vec(&["foo", "bar"]);
+        assert_eq!(seek_sequence(&lines, &pattern, 0, false), Some(0));
+    }
+
+    #[test]
+    fn unicode_normalised_match_curly_double_quotes() {
+        let lines = to_vec(&["\u{201C}hello\u{201D}"]);
+        let pattern = to_vec(&["\"hello\""]);
+        assert_eq!(seek_sequence(&lines, &pattern, 0, false), Some(0));
+    }
+
+    #[test]
+    fn unicode_normalised_match_curly_single_quotes() {
+        let lines = to_vec(&["\u{2018}world\u{2019}"]);
+        let pattern = to_vec(&["'world'"]);
+        assert_eq!(seek_sequence(&lines, &pattern, 0, false), Some(0));
+    }
+
+    #[test]
+    fn unicode_normalised_match_em_dash() {
+        let lines = to_vec(&["before\u{2014}after"]);
+        let pattern = to_vec(&["before-after"]);
+        assert_eq!(seek_sequence(&lines, &pattern, 0, false), Some(0));
+    }
+
+    #[test]
+    fn unicode_normalised_match_nbsp() {
+        let lines = to_vec(&["hello\u{00A0}world"]);
+        let pattern = to_vec(&["hello world"]);
+        assert_eq!(seek_sequence(&lines, &pattern, 0, false), Some(0));
+    }
+
+    #[test]
+    fn empty_pattern_returns_start() {
+        let lines = to_vec(&["a", "b"]);
+        assert_eq!(seek_sequence(&lines, &[], 0, false), Some(0));
+        assert_eq!(seek_sequence(&lines, &[], 1, false), Some(1));
+    }
+
+    #[test]
+    fn pattern_longer_than_lines_returns_none() {
+        let lines = to_vec(&["a"]);
+        let pattern = to_vec(&["a", "b"]);
+        assert_eq!(seek_sequence(&lines, &pattern, 0, false), None);
+    }
+
+    #[test]
+    fn not_found_returns_none() {
+        let lines = to_vec(&["foo", "bar"]);
+        let pattern = to_vec(&["baz"]);
+        assert_eq!(seek_sequence(&lines, &pattern, 0, false), None);
+    }
+
+    #[test]
+    fn eof_flag_starts_at_end() {
+        let lines = to_vec(&["a", "b", "c", "b", "c"]);
+        let pattern = to_vec(&["b", "c"]);
+        // Without eof, finds first occurrence at 1.
+        assert_eq!(seek_sequence(&lines, &pattern, 0, false), Some(1));
+        // With eof, finds last occurrence at 3.
+        assert_eq!(seek_sequence(&lines, &pattern, 0, true), Some(3));
+    }
+
+    #[test]
+    fn normalise_unicode_handles_en_dash() {
+        assert_eq!(normalise_unicode("\u{2013}"), "-");
+    }
+
+    #[test]
+    fn normalise_unicode_handles_figure_dash() {
+        assert_eq!(normalise_unicode("\u{2012}"), "-");
+    }
+
+    #[test]
+    fn normalise_unicode_handles_minus_sign() {
+        assert_eq!(normalise_unicode("\u{2212}"), "-");
+    }
+
+    #[test]
+    fn normalise_unicode_handles_thin_space() {
+        assert_eq!(normalise_unicode("\u{2009}"), "");
     }
 }
