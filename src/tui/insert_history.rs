@@ -49,7 +49,8 @@ impl InsertHistoryMode {
 
 /// Insert `lines` above the viewport using the terminal's backend writer
 /// (avoids direct stdout references).
-pub fn insert_history_lines<B>(
+#[cfg(test)]
+fn insert_history_lines<B>(
     terminal: &mut super::custom_terminal::Terminal<B>,
     lines: Vec<Line>,
 ) -> io::Result<()>
@@ -409,7 +410,6 @@ mod tests {
     use ratatui::{
         backend::{Backend, ClearType, WindowSize},
         layout::{Position, Rect, Size},
-        style::Style,
         text::{Line, Span},
     };
 

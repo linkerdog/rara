@@ -10,7 +10,7 @@ use crossterm::{
 use ratatui::{backend::CrosstermBackend, layout::Rect, text::Line};
 
 use super::custom_terminal::Terminal;
-use super::insert_history::insert_history_lines;
+use super::insert_history::{InsertHistoryMode, insert_history_lines_with_mode};
 use super::render::committed_turn_lines;
 use super::state::TuiApp;
 
@@ -77,11 +77,15 @@ pub(super) fn flush_committed_history(
             lines.insert(0, Line::from(""));
         }
         if !lines.is_empty() {
-            insert_history_lines(terminal, lines)?;
+            insert_history_lines_with_mode(terminal, lines, history_insert_mode())?;
         }
         app.inserted_turns += 1;
     }
     Ok(())
+}
+
+fn history_insert_mode() -> InsertHistoryMode {
+    InsertHistoryMode::new(rara_terminal_detection::terminal_info().is_zellij())
 }
 
 fn viewport_area(width: u16, height: u16, viewport_height: u16) -> Rect {
@@ -95,7 +99,7 @@ fn viewport_area(width: u16, height: u16, viewport_height: u16) -> Rect {
 }
 
 pub(crate) fn is_ssh_session() -> bool {
-    std::env::var_os("SSH_CONNECTION").is_some() || std::env::var_os("SSH_TTY").is_some()
+    rara_terminal_detection::is_remote_session()
 }
 
 #[cfg(test)]
