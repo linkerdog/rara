@@ -1,333 +1,116 @@
-// AWS Bedrock backend using the Converse API.
-//
-// Bedrock Converse provides a unified messages API across Bedrock models
-// (Claude, Llama, Nova, etc.) similar to the OpenAI chat completions API.
-// Tool use / function calling is supported natively.
-
 use anyhow::{Result, anyhow};
 use async_trait::async_trait;
-use aws_sdk_bedrockruntime::Client as BedrockClient;
-use aws_sdk_bedrockruntime::types::{
-    ContentBlock as BedrockContentBlock, ConversationRole, InferenceConfiguration,
-    Message as BedrockMessage, StopReason, Tool, ToolConfiguration, ToolInputSchema,
-    ToolResultBlock, ToolResultContentBlock, ToolResultStatus, ToolSpecification, ToolUseBlock,
+use rara_bedrock::{
+    BedrockChatContent, BedrockChatMessage, BedrockChatRole, BedrockConverseClient,
+    BedrockResponseContent, BedrockToolSpec, model_context_window,
 };
-use aws_smithy_types::{Document, Number};
 use serde_json::{Value, json};
 
 use super::shared::{ContextBudget, LlmBackend};
 use crate::agent::Message;
 use crate::llm::{ContentBlock, LlmResponse, TokenUsage};
 
-const DEFAULT_CONTEXT_WINDOW: usize = 200_000;
-const DEFAULT_OUTPUT_TOKENS: i32 = 8_192;
-
-fn model_context_window(model_id: &str) -> Option<(usize, usize)> {
-    let lower = model_id.to_lowercase();
-    if lower.contains("claude-sonnet-4") || lower.contains("claude-3-5-sonnet") {
-        Some((200_000, 8_192))
-    } else if lower.contains("claude-3-opus") {
-        Some((200_000, 4_096))
-    } else if lower.contains("claude-3-haiku") {
-        Some((200_000, 4_096))
-    } else if lower.contains("claude-3") {
-        Some((200_000, 4_096))
-    } else if lower.contains("claude") {
-        Some((200_000, 4_096))
-    } else if lower.contains("llama") {
-        Some((128_000, 2_048))
-    } else if lower.contains("nova-pro") {
-        Some((300_000, 5_000))
-    } else if lower.contains("nova-lite") {
-        Some((300_000, 5_000))
-    } else if lower.contains("nova") {
-        Some((300_000, 5_000))
-    } else if lower.contains("command") {
-        Some((128_000, 4_096))
-    } else if lower.contains("mistral") {
-        Some((128_000, 4_096))
-    } else {
-        None
-    }
-}
-
 pub struct BedrockBackend {
-    client: BedrockClient,
-    model_id: String,
-    region: String,
+    client: BedrockConverseClient,
 }
 
 impl BedrockBackend {
     pub async fn new(region: Option<String>, model_id: String) -> Result<Self> {
-        let mut config_loader = aws_config::from_env();
-        if let Some(r) = region.as_deref() {
-            config_loader = config_loader.region(aws_config::Region::new(r.to_string()));
-        }
-        let sdk_config = config_loader.load().await;
-        let client = BedrockClient::new(&sdk_config);
-
         Ok(Self {
-            client,
-            model_id,
-            region: region.unwrap_or_else(|| "default".to_string()),
+            client: BedrockConverseClient::new(region, model_id).await?,
         })
     }
 }
 
-// ── serde_json::Value ↔ aws_smithy_types::Document ──
-
-fn value_to_document(value: &Value) -> Document {
-    match value {
-        Value::Null => Document::Null,
-        Value::Bool(b) => Document::Bool(*b),
-        Value::Number(n) => {
-            if let Some(i) = n.as_i64() {
-                Document::Number(Number::NegInt(i))
-            } else if let Some(u) = n.as_u64() {
-                Document::Number(Number::PosInt(u))
-            } else if let Some(f) = n.as_f64() {
-                Document::Number(Number::Float(f))
-            } else {
-                Document::Null
-            }
-        }
-        Value::String(s) => Document::String(s.clone()),
-        Value::Array(arr) => Document::Array(arr.iter().map(value_to_document).collect()),
-        Value::Object(obj) => {
-            let map: std::collections::HashMap<String, Document> = obj
-                .iter()
-                .map(|(k, v)| (k.clone(), value_to_document(v)))
-                .collect();
-            Document::Object(map)
-        }
-    }
-}
-
-fn document_to_value(doc: &Document) -> Value {
-    match doc {
-        Document::Object(map) => {
-            let mut obj = serde_json::Map::new();
-            for (k, v) in map {
-                obj.insert(k.clone(), document_to_value(v));
-            }
-            Value::Object(obj)
-        }
-        Document::Array(arr) => Value::Array(arr.iter().map(document_to_value).collect()),
-        Document::String(s) => Value::String(s.clone()),
-        Document::Number(n) => match n {
-            Number::PosInt(u) => Value::Number(serde_json::Number::from(*u)),
-            Number::NegInt(i) => Value::Number(serde_json::Number::from(*i)),
-            Number::Float(f) => serde_json::Number::from_f64(*f)
-                .map(Value::Number)
-                .unwrap_or(Value::Null),
-        },
-        Document::Bool(b) => Value::Bool(*b),
-        Document::Null => Value::Null,
-    }
-}
-
-// ── Message conversion ──
-
-fn to_bedrock_messages(messages: &[Message]) -> Result<Vec<BedrockMessage>> {
+fn to_bedrock_messages(messages: &[Message]) -> Vec<BedrockChatMessage> {
     messages
         .iter()
-        .filter_map(|msg| {
-            let role = match msg.role.as_str() {
-                "user" => ConversationRole::User,
-                "assistant" => ConversationRole::Assistant,
+        .filter_map(|message| {
+            let role = match message.role.as_str() {
+                "user" => BedrockChatRole::User,
+                "assistant" => BedrockChatRole::Assistant,
                 _ => return None,
             };
-            let content = convert_content_to_bedrock(&msg.content);
-            match BedrockMessage::builder()
-                .role(role)
-                .set_content(if content.is_empty() {
-                    None
-                } else {
-                    Some(content)
-                })
-                .build()
-            {
-                Ok(message) => Some(Ok(message)),
-                Err(e) => Some(Err(anyhow!("failed to build Bedrock message: {e}"))),
-            }
+            Some(BedrockChatMessage {
+                role,
+                content: convert_content_to_bedrock(&message.content),
+            })
         })
         .collect()
 }
 
-fn convert_content_to_bedrock(content: &Value) -> Vec<BedrockContentBlock> {
-    let mut blocks = Vec::new();
-
+fn convert_content_to_bedrock(content: &Value) -> Vec<BedrockChatContent> {
     if let Some(text) = content.as_str() {
-        if !text.trim().is_empty() {
-            blocks.push(BedrockContentBlock::Text(text.to_string()));
-        }
-        return blocks;
+        return vec![BedrockChatContent::Text(text.to_string())];
     }
 
     let Some(items) = content.as_array() else {
-        return blocks;
+        return Vec::new();
     };
 
-    for item in items {
-        match item.get("type").and_then(Value::as_str) {
-            Some("text") => {
-                if let Some(text) = item.get("text").and_then(Value::as_str) {
-                    if !text.trim().is_empty() {
-                        blocks.push(BedrockContentBlock::Text(text.to_string()));
-                    }
-                }
-            }
-            Some("tool_use") => {
-                let id = item["id"].as_str().unwrap_or_default().to_string();
-                let name = item["name"].as_str().unwrap_or_default().to_string();
-                let input = item
-                    .get("input")
-                    .map(value_to_document)
-                    .unwrap_or(Document::Null);
-                if let Ok(tool_use) = ToolUseBlock::builder()
-                    .tool_use_id(id)
-                    .name(name)
-                    .input(input)
-                    .build()
-                {
-                    blocks.push(BedrockContentBlock::ToolUse(tool_use));
-                }
-            }
-            Some("tool_result") => {
-                let tool_use_id = item["tool_use_id"].as_str().unwrap_or_default().to_string();
-                let result_content = item["content"].as_str().unwrap_or("");
-                let is_error = item["is_error"].as_bool().unwrap_or(false);
-                if let Ok(tr) = ToolResultBlock::builder()
-                    .tool_use_id(tool_use_id)
-                    .set_content(Some(vec![ToolResultContentBlock::Text(
-                        result_content.to_string(),
-                    )]))
-                    .set_status(if is_error {
-                        Some(ToolResultStatus::Error)
-                    } else {
-                        Some(ToolResultStatus::Success)
-                    })
-                    .build()
-                {
-                    blocks.push(BedrockContentBlock::ToolResult(tr));
-                }
-            }
-            _ => {}
-        }
-    }
-
-    blocks
-}
-
-// ── Tool conversion ──
-
-fn to_bedrock_tools(tools: &[Value]) -> Vec<Tool> {
-    tools
+    items
         .iter()
-        .map(|tool| {
-            let name = tool["name"].as_str().unwrap_or("unknown").to_string();
-            let description = tool["description"].as_str().unwrap_or("").to_string();
-            let schema = value_to_document(&tool["input_schema"]);
-            let tool_name = name.clone();
-            Tool::ToolSpec(
-                ToolSpecification::builder()
-                    .name(name)
-                    .description(description)
-                    .input_schema(ToolInputSchema::Json(schema))
-                    .build()
-                    .unwrap_or_else(|_| panic!("invalid tool spec: {tool_name}")),
-            )
+        .filter_map(|item| match item.get("type").and_then(Value::as_str) {
+            Some("text") => item
+                .get("text")
+                .and_then(Value::as_str)
+                .map(|text| BedrockChatContent::Text(text.to_string())),
+            Some("tool_use") => Some(BedrockChatContent::ToolUse {
+                id: item["id"].as_str().unwrap_or_default().to_string(),
+                name: item["name"].as_str().unwrap_or_default().to_string(),
+                input: item.get("input").cloned().unwrap_or(Value::Null),
+            }),
+            Some("tool_result") => Some(BedrockChatContent::ToolResult {
+                tool_use_id: item["tool_use_id"].as_str().unwrap_or_default().to_string(),
+                content: item["content"].as_str().unwrap_or("").to_string(),
+                is_error: item["is_error"].as_bool().unwrap_or(false),
+            }),
+            _ => None,
         })
         .collect()
 }
 
-// ── Response conversion ──
-
-fn from_bedrock_response(
-    output: Option<aws_sdk_bedrockruntime::types::ConverseOutput>,
-    stop_reason: StopReason,
-    usage: Option<aws_sdk_bedrockruntime::types::TokenUsage>,
-) -> Result<LlmResponse> {
-    let message = match output {
-        Some(aws_sdk_bedrockruntime::types::ConverseOutput::Message(msg)) => msg,
-        _ => return Err(anyhow!("no message in Bedrock ConverseOutput")),
-    };
-
-    let mut content = Vec::new();
-
-    for block in message.content {
-        match block {
-            BedrockContentBlock::Text(text) => {
-                if !text.trim().is_empty() {
-                    content.push(ContentBlock::Text { text });
-                }
-            }
-            BedrockContentBlock::ToolUse(tool_use) => {
-                let input = document_to_value(&tool_use.input);
-                content.push(ContentBlock::ToolUse {
-                    id: tool_use.tool_use_id,
-                    name: tool_use.name,
-                    input,
-                });
-            }
-            _ => {}
-        }
-    }
-
-    let reason_str = format!("{:?}", stop_reason);
-
-    let usage = usage.map(|u| TokenUsage {
-        input_tokens: u.input_tokens as u32,
-        output_tokens: u.output_tokens as u32,
-        cache_hit_tokens: 0,
-        cache_miss_tokens: 0,
-    });
-
-    Ok(LlmResponse {
-        content,
-        stop_reason: Some(reason_str),
-        usage,
-    })
+fn to_bedrock_tools(tools: &[Value]) -> Vec<BedrockToolSpec> {
+    tools
+        .iter()
+        .map(|tool| BedrockToolSpec {
+            name: tool["name"].as_str().unwrap_or("unknown").to_string(),
+            description: tool["description"].as_str().unwrap_or("").to_string(),
+            input_schema: tool["input_schema"].clone(),
+        })
+        .collect()
 }
-
-// ── LlmBackend impl ──
 
 #[async_trait]
 impl LlmBackend for BedrockBackend {
     async fn ask(&self, messages: &[Message], tools: &[Value]) -> Result<LlmResponse> {
-        let bedrock_messages = to_bedrock_messages(messages)?;
-
-        let mut builder = self
+        let response = self
             .client
-            .converse()
-            .model_id(&self.model_id)
-            .set_messages(Some(bedrock_messages));
+            .ask(&to_bedrock_messages(messages), &to_bedrock_tools(tools))
+            .await?;
 
-        if !tools.is_empty() {
-            if let Ok(tool_config) = ToolConfiguration::builder()
-                .set_tools(Some(to_bedrock_tools(tools)))
-                .build()
-            {
-                builder = builder.tool_config(tool_config);
+        let mut content = Vec::new();
+        for block in response.content {
+            match block {
+                BedrockResponseContent::Text(text) => {
+                    content.push(ContentBlock::Text { text });
+                }
+                BedrockResponseContent::ToolUse { id, name, input } => {
+                    content.push(ContentBlock::ToolUse { id, name, input });
+                }
             }
         }
 
-        builder = builder.inference_config(
-            InferenceConfiguration::builder()
-                .temperature(0.7)
-                .max_tokens(DEFAULT_OUTPUT_TOKENS)
-                .build(),
-        );
-
-        let output = builder.send().await.map_err(|err| {
-            anyhow!(
-                "Bedrock API error (region={}, model={}): {err}",
-                self.region,
-                self.model_id
-            )
-        })?;
-
-        from_bedrock_response(output.output, output.stop_reason, output.usage)
+        Ok(LlmResponse {
+            content,
+            stop_reason: response.stop_reason,
+            usage: response.usage.map(|usage| TokenUsage {
+                input_tokens: usage.input_tokens,
+                output_tokens: usage.output_tokens,
+                cache_hit_tokens: 0,
+                cache_miss_tokens: 0,
+            }),
+        })
     }
 
     async fn embed(&self, _text: &str) -> Result<Vec<f32>> {
@@ -352,12 +135,67 @@ impl LlmBackend for BedrockBackend {
     }
 
     fn context_budget(&self, _messages: &[Message], _tools: &[Value]) -> Option<ContextBudget> {
-        let (window, max_output) = model_context_window(&self.model_id)
-            .unwrap_or((DEFAULT_CONTEXT_WINDOW, DEFAULT_OUTPUT_TOKENS as usize));
+        let (window, max_output) = model_context_window(self.client.model_id());
         Some(ContextBudget {
             context_window_tokens: window,
             reserved_output_tokens: max_output,
             compact_threshold_tokens: window.saturating_sub(max_output),
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use serde_json::json;
+
+    use super::*;
+
+    #[test]
+    fn converts_rara_messages_to_bedrock_messages() {
+        let messages = vec![
+            Message {
+                role: "system".to_string(),
+                content: json!("ignored"),
+            },
+            Message {
+                role: "user".to_string(),
+                content: json!([
+                    {"type": "text", "text": "hello"},
+                    {"type": "tool_result", "tool_use_id": "call-1", "content": "ok", "is_error": false}
+                ]),
+            },
+        ];
+
+        let converted = to_bedrock_messages(&messages);
+
+        assert_eq!(converted.len(), 1);
+        assert_eq!(converted[0].role, BedrockChatRole::User);
+        assert_eq!(
+            converted[0].content,
+            vec![
+                BedrockChatContent::Text("hello".to_string()),
+                BedrockChatContent::ToolResult {
+                    tool_use_id: "call-1".to_string(),
+                    content: "ok".to_string(),
+                    is_error: false,
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn converts_rara_tool_schemas_to_bedrock_tool_specs() {
+        let tools = vec![json!({
+            "name": "read_file",
+            "description": "Read a file",
+            "input_schema": {"type": "object"}
+        })];
+
+        let converted = to_bedrock_tools(&tools);
+
+        assert_eq!(converted.len(), 1);
+        assert_eq!(converted[0].name, "read_file");
+        assert_eq!(converted[0].description, "Read a file");
+        assert_eq!(converted[0].input_schema, json!({"type": "object"}));
     }
 }
