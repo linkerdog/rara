@@ -370,14 +370,19 @@ fn apply_update_chunks(
     stats: &mut PatchStats,
 ) -> Result<String, ToolError> {
     let original_lines = split_lines(original);
-    let mut output = Vec::new();
+
+    // Phase 1: resolve every hunk to a concrete replacement position.
+    // Hunks must appear in file order; each search starts after the
+    // previous match so that the same context line is not claimed twice.
+    let mut replacements: Vec<(usize, usize, Vec<String>)> = Vec::new();
     let mut cursor = 0usize;
 
     for chunk in chunks {
         let mut old_lines = Vec::new();
-        let mut new_lines = Vec::new();
         let mut added_in_chunk = 0usize;
         let mut removed_in_chunk = 0usize;
+
+        let mut new_lines: Vec<String> = Vec::new();
         for line in &chunk.lines {
             match line.kind {
                 DiffLineKind::Context => {
@@ -395,21 +400,32 @@ fn apply_update_chunks(
             }
         }
 
-        let Some(relative_start) = find_subsequence(&original_lines[cursor..], &old_lines) else {
+        let Some(pos) = seek_sequence(&original_lines, &old_lines, cursor, false) else {
             return Err(ToolError::ExecutionFailed(format!(
                 "Patch hunk did not match file {path}"
             )));
         };
-        let start = cursor + relative_start;
-        output.extend_from_slice(&original_lines[cursor..start]);
-        output.extend(new_lines.clone());
-        cursor = start + old_lines.len();
+        replacements.push((pos, old_lines.len(), new_lines));
+        cursor = pos + old_lines.len();
         stats.hunks_applied += 1;
         stats.added_lines += added_in_chunk;
         stats.removed_lines += removed_in_chunk;
     }
 
-    output.extend_from_slice(&original_lines[cursor..]);
+    // Phase 2: apply from tail to head so earlier positions stay valid.
+    let mut output = original_lines;
+    // Sort ascending by position, then iterate in reverse.
+    replacements.sort_by_key(|(pos, _, _)| *pos);
+    for (pos, old_len, new_lines) in replacements.into_iter().rev() {
+        let end = pos + old_len;
+        // Re-verify that the target slice still matches (defense against
+        // overlapping hunks or model errors).
+        let replaced: Vec<String> = output[pos..end].to_vec();
+        output.splice(pos..end, new_lines.iter().cloned());
+        // Best-effort: drop replaced lines to free memory.
+        drop(replaced);
+    }
+
     Ok(join_lines(&output))
 }
 
@@ -425,13 +441,98 @@ fn join_lines(lines: &[String]) -> String {
     }
 }
 
-fn find_subsequence(haystack: &[String], needle: &[String]) -> Option<usize> {
-    if needle.is_empty() {
-        return Some(0);
+/// Attempt to locate `pattern` within `lines` starting at or after `start`.
+///
+/// Matches are attempted with decreasing strictness, following the Codex
+/// `seek_sequence` contract:
+///   1. Exact match
+///   2. Trailing-whitespace-insensitive (rstrip)
+///   3. Leading-and-trailing-whitespace-insensitive (trim)
+///   4. Unicode-normalised (fancy quotes / dashes / spaces → ASCII)
+///
+/// When `eof` is true the search starts from the end-of-file so that
+/// patterns intended to match file endings are applied there first.
+fn seek_sequence(lines: &[String], pattern: &[String], start: usize, eof: bool) -> Option<usize> {
+    if pattern.is_empty() {
+        return Some(start);
     }
-    haystack
-        .windows(needle.len())
-        .position(|window| window == needle)
+    if pattern.len() > lines.len() {
+        return None;
+    }
+    let search_start = if eof && lines.len() >= pattern.len() {
+        lines.len() - pattern.len()
+    } else {
+        start
+    };
+
+    // 1. Exact match
+    for i in search_start..=lines.len().saturating_sub(pattern.len()) {
+        if lines[i..i + pattern.len()] == *pattern {
+            return Some(i);
+        }
+    }
+
+    // 2. Trailing-whitespace-insensitive
+    for i in search_start..=lines.len().saturating_sub(pattern.len()) {
+        if lines[i..i + pattern.len()]
+            .iter()
+            .zip(pattern)
+            .all(|(a, b)| a.trim_end() == b.trim_end())
+        {
+            return Some(i);
+        }
+    }
+
+    // 3. Full-trim
+    for i in search_start..=lines.len().saturating_sub(pattern.len()) {
+        if lines[i..i + pattern.len()]
+            .iter()
+            .zip(pattern)
+            .all(|(a, b)| a.trim() == b.trim())
+        {
+            return Some(i);
+        }
+    }
+
+    // 4. Unicode-normalised (fancy punctuation → ASCII, mirroring git apply)
+    for i in search_start..=lines.len().saturating_sub(pattern.len()) {
+        if lines[i..i + pattern.len()]
+            .iter()
+            .zip(pattern)
+            .all(|(a, b)| normalise_unicode(a) == normalise_unicode(b))
+        {
+            return Some(i);
+        }
+    }
+
+    None
+}
+
+/// Normalise common Unicode punctuation to ASCII equivalents so that diffs
+/// authored with plain ASCII characters can still be applied to source files
+/// that contain typographic dashes, quotes, and spaces.
+fn normalise_unicode(s: &str) -> String {
+    s.trim()
+        .chars()
+        .map(|c| match c {
+            // Various dash / hyphen code-points → ASCII '-'
+            '\u{2010}' | '\u{2011}' | '\u{2012}' | '\u{2013}' | '\u{2014}' | '\u{2015}'
+            | '\u{2212}' => '-',
+            // Fancy single quotes → '\''
+            '\u{2018}' | '\u{2019}' | '\u{201A}' | '\u{201B}' => '\'',
+            // Fancy double quotes → '"'
+            '\u{201C}' | '\u{201D}' | '\u{201E}' | '\u{201F}' => '"',
+            // Non-breaking / odd spaces → normal space
+            '\u{00A0}' | '\u{2002}' | '\u{2003}' | '\u{2004}' | '\u{2005}' | '\u{2006}'
+            | '\u{2007}' | '\u{2008}' | '\u{2009}' | '\u{200A}' | '\u{202F}' | '\u{205F}'
+            | '\u{3000}' => ' ',
+            other => other,
+        })
+        .collect()
+}
+
+fn find_subsequence(haystack: &[String], needle: &[String]) -> Option<usize> {
+    seek_sequence(haystack, needle, 0, false)
 }
 
 fn write_text_file(path: &str, content: &str) -> Result<(), ToolError> {
@@ -608,6 +709,52 @@ mod tests {
         assert!(error.to_string().contains("must include at least one hunk"));
         assert!(file.exists());
         assert!(!moved.exists());
+    }
+
+    #[tokio::test]
+    async fn update_patch_tolerates_trailing_whitespace() {
+        // Model outputs often trim trailing whitespace, but the file may
+        // have spaces at end-of-line. seek_sequence level 2 handles this.
+        let dir = tempfile::tempdir().expect("tempdir");
+        let file = dir.path().join("sample.txt");
+        std::fs::write(&file, "hello  \nworld\n").expect("write");
+
+        let tool = ApplyPatchTool::default();
+        let result = tool
+            .call(json!({
+                "patch": format!(
+                    "*** Begin Patch\n*** Update File: {}\n@@\n-hello\n+hi\n world\n*** End Patch",
+                    file.display()
+                )
+            }))
+            .await
+            .expect("apply patch with trailing space");
+
+        assert_eq!(std::fs::read_to_string(&file).expect("read"), "hi\nworld\n");
+        assert_eq!(result["status"], "applied");
+    }
+
+    #[tokio::test]
+    async fn update_patch_tolerates_unicode_fancy_quotes() {
+        // Model outputs often use plain ASCII quotes, but the file may
+        // contain typographic quotes. seek_sequence level 4 handles this.
+        let dir = tempfile::tempdir().expect("tempdir");
+        let file = dir.path().join("sample.txt");
+        std::fs::write(&file, "\u{201C}hello\u{201D}\nworld\n").expect("write");
+
+        let tool = ApplyPatchTool::default();
+        let result = tool
+            .call(json!({
+                "patch": format!(
+                    "*** Begin Patch\n*** Update File: {}\n@@\n-\"hello\"\n+hi\n world\n*** End Patch",
+                    file.display()
+                )
+            }))
+            .await
+            .expect("apply patch with fancy quotes");
+
+        assert_eq!(std::fs::read_to_string(&file).expect("read"), "hi\nworld\n");
+        assert_eq!(result["status"], "applied");
     }
 
     #[tokio::test]
