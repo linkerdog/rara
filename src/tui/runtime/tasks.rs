@@ -18,8 +18,8 @@ use secrecy::ExposeSecret;
 use tokio::sync::mpsc;
 
 use super::super::state::{
-    GoalStatus, ListPickerKind, OAuthLoginMode, RunningTask, RuntimePhase, TaskCompletion,
-    TaskKind, TuiApp, TuiEvent,
+    GoalStatus, ListPickerKind, OAuthLoginMode, PermissionMode, RunningTask, RuntimePhase,
+    TaskCompletion, TaskKind, TuiApp, TuiEvent,
 };
 use super::events::{apply_tui_event, convert_agent_event, format_error_chain};
 use crate::agent::{Agent, AgentOutputMode, BashApprovalDecision};
