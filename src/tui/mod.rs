@@ -4,6 +4,7 @@ mod command;
 mod constants;
 mod context_display;
 mod custom_terminal;
+mod display_sanitize;
 mod event_dispatch;
 mod event_loop;
 mod event_stream;

@@ -441,46 +441,7 @@ pub(crate) fn output_tail_preview(output: &str) -> Option<Vec<String>> {
 }
 
 pub(crate) fn sanitize_terminal_output_line(line: &str) -> String {
-    strip_ansi_control_sequences(line).trim_end().to_string()
-}
-
-fn strip_ansi_control_sequences(input: &str) -> String {
-    let mut output = String::with_capacity(input.len());
-    let mut chars = input.chars().peekable();
-    while let Some(ch) = chars.next() {
-        if ch != '\u{1b}' {
-            if ch == '\t' || !ch.is_control() {
-                output.push(ch);
-            }
-            continue;
-        }
-
-        match chars.peek().copied() {
-            Some('[') => {
-                chars.next();
-                for next in chars.by_ref() {
-                    if ('@'..='~').contains(&next) {
-                        break;
-                    }
-                }
-            }
-            Some(']') => {
-                chars.next();
-                let mut previous_escape = false;
-                for next in chars.by_ref() {
-                    if next == '\u{7}' || (previous_escape && next == '\\') {
-                        break;
-                    }
-                    previous_escape = next == '\u{1b}';
-                }
-            }
-            Some(_) => {
-                chars.next();
-            }
-            None => {}
-        }
-    }
-    output
+    crate::tui::display_sanitize::sanitize_display_line(line)
 }
 
 #[cfg(test)]
@@ -539,7 +500,7 @@ mod tests {
             sanitize_terminal_output_line(
                 "\u{1b}[4munder\u{1b}[0m\u{8}line\u{7}\u{1b}]0;title\u{7}\tend\r"
             ),
-            "underline\tend"
+            "underline    end"
         );
     }
 

@@ -1036,6 +1036,26 @@ fn formatted_agent_markdown_keeps_first_and_latest_lines() {
 }
 
 #[test]
+fn formatted_agent_markdown_sanitizes_terminal_controls() {
+    let rendered = formatted_message_lines(
+        "Agent",
+        "Again\rcommit-to-main\u{1b}[31m red\u{1b}[0m\u{8}!",
+        10,
+        Some(Path::new(".")),
+    )
+    .into_iter()
+    .map(|line| line.to_string())
+    .collect::<Vec<_>>()
+    .join("\n");
+
+    assert!(rendered.contains("Again"));
+    assert!(rendered.contains("commit-to-main red!"));
+    assert!(!rendered.contains('\r'));
+    assert!(!rendered.contains('\u{1b}'));
+    assert!(!rendered.contains('\u{8}'));
+}
+
+#[test]
 fn context_overlay_snapshot_with_typical_budget() {
     use crate::context::ContextAssemblyEntry;
     use crate::tui::context_display::render_context_lines;

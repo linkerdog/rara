@@ -23,6 +23,7 @@ use crate::state_db::StateDb;
 use crate::thread_store::ThreadSummary;
 use crate::tool::ToolOutputStream;
 use crate::tools::bash::BashCommandInput;
+use crate::tui::display_sanitize::sanitize_display_text;
 use crate::tui::terminal_event::TerminalEvent;
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -450,14 +451,17 @@ impl AgentMarkdownStreamState {
     pub(crate) fn push_delta(&mut self, delta: &str) {
         if self.incremental_passthrough && !delta.contains('<') {
             self.raw_text.push_str(delta);
-            self.last_visible_text.push_str(delta);
-            self.collector.push_delta(delta);
-            self.refresh_display_lines();
+            let visible_delta = sanitize_display_text(delta);
+            self.last_visible_text.push_str(&visible_delta);
+            if !visible_delta.is_empty() {
+                self.collector.push_delta(&visible_delta);
+                self.refresh_display_lines();
+            }
             return;
         }
 
         self.raw_text.push_str(delta);
-        let visible_text = scrub_internal_control_tokens(&self.raw_text);
+        let visible_text = sanitize_display_text(&scrub_internal_control_tokens(&self.raw_text));
         if let Some(new_visible_delta) = visible_text.strip_prefix(&self.last_visible_text) {
             if !new_visible_delta.is_empty() {
                 self.collector.push_delta(new_visible_delta);
@@ -471,7 +475,7 @@ impl AgentMarkdownStreamState {
     }
 
     pub(crate) fn sanitized_raw_text(&self) -> String {
-        scrub_internal_control_tokens(&self.raw_text)
+        sanitize_display_text(&scrub_internal_control_tokens(&self.raw_text))
     }
 
     fn replace_display_text(&mut self, text: &str) {

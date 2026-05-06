@@ -195,7 +195,9 @@ where
 /// set foreground/background colors, and write styled spans. Caller is responsible
 /// for cursor positioning and any leading `\r\n`.
 fn write_history_line<W: Write>(writer: &mut W, line: &Line, wrap_width: usize) -> io::Result<()> {
-    let physical_rows = crate::tui::layout_utils::line_visual_rows(line, wrap_width) as u16;
+    let sanitized_line = crate::tui::display_sanitize::sanitize_display_line_segments(line);
+    let physical_rows =
+        crate::tui::layout_utils::line_visual_rows(&sanitized_line, wrap_width) as u16;
     if physical_rows > 1 {
         queue!(writer, SavePosition)?;
         for _ in 1..physical_rows {
@@ -214,11 +216,11 @@ fn write_history_line<W: Write>(writer: &mut W, line: &Line, wrap_width: usize) 
     queue!(writer, Clear(ClearType::UntilNewLine))?;
     // Merge line-level style into each span so that ANSI colors reflect
     // line styles (e.g., blockquotes with green fg).
-    let merged_spans: Vec<Span> = line
+    let merged_spans: Vec<Span> = sanitized_line
         .spans
         .iter()
         .map(|s| Span {
-            style: s.style.patch(line.style),
+            style: s.style.patch(sanitized_line.style),
             content: s.content.clone(),
         })
         .collect();
