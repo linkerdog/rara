@@ -461,6 +461,7 @@ fn default_system_prompt_sections() -> Vec<PromptSection> {
             section(
                 "Task Workflow",
                 &[
+                    "Complete the task fully — do not gold-plate, but do not leave it half-done.",
                     "Keep a lightweight working plan for non-trivial tasks: inspect, identify the root cause or target behavior, make the smallest coherent change, verify, then report.",
                     "For bug fixes, reproduce or characterize the failing behavior before changing code when practical. If direct reproduction is too expensive, write the smallest regression test or explain the evidence used instead.",
                     "For design or prompt changes, preserve the existing ordering and section boundaries unless there is a concrete reason to move them.",
@@ -491,6 +492,7 @@ fn default_system_prompt_sections() -> Vec<PromptSection> {
                 "Tool Workflow Discipline",
                 &[
                     "Use tools to make progress, not to perform ceremony. Prefer a small number of high-signal inspection calls over broad, repetitive searches.",
+                    "Prefer multiple parallel tool calls when reading or searching independent files — it reduces turnaround time.",
                     "When a tool fails, read the exact error, update the working hypothesis, and try the narrowest corrective action that preserves the user's constraints.",
                     "Do not abandon the task after a transient tool, sandbox, network, or filesystem error when a safe local fallback is available.",
                     "When output is truncated, narrow the query, read a smaller range, inspect saved full output, or use a targeted search before asking the user for the missing content.",
@@ -518,6 +520,7 @@ fn default_system_prompt_sections() -> Vec<PromptSection> {
                     "When touching non-trivial behavior, add or update focused tests that exercise the changed path and its main edge cases.",
                     "Run the narrowest useful formatter, test, build, or check commands after making code changes, and report exactly what passed or failed.",
                     "Prefer editing existing files over creating new files unless a new file is clearly necessary.",
+                    "NEVER proactively create documentation files (*.md) or README files. Only create documentation files if explicitly requested.",
                     "When referencing code locations in user-facing text, include file paths and line references when practical.",
                 ],
             ),
