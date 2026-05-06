@@ -1,5 +1,3 @@
-mod codex;
-mod usage;
 
 use std::borrow::Cow;
 use std::fmt;
