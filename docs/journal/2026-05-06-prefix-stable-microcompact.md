@@ -32,6 +32,8 @@ Added the first provider-neutral microcompact slice as a request projection:
 
 - Add `/context` observability after the runtime context event model can carry
   per-request compression reports.
+- Keep the same projection report reusable for future OTEL exporters, so local
+  `/context` output and remote telemetry share one accounting source.
 - Add provider-specific cache-edit microcompact only after a backend declares
   `cache_edit = true`.
 - Add configurable per-tool projection budgets once tool result size policies

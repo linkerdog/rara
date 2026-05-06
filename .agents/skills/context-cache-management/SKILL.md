@@ -89,6 +89,8 @@ For observability changes:
 - Prefer structured projection reports over scraping status text.
 - Keep transient status events short; put detailed per-request accounting in
   `/context` or another structured context surface.
+- Keep the same report shape OTEL-ready. Local `/context` output and future
+  telemetry exporters should read from the same data model.
 
 ## Common Mistakes
 

@@ -178,6 +178,12 @@ old tool results are projected out of a model request. Durable observability
 belongs in `/context`, backed by structured per-request projection reports
 rather than display text scraping.
 
+The same structured projection report should be reusable by future OpenTelemetry
+exporters. `/context` remains the local debugging surface, while OTEL should
+export session-scoped events, counters, histograms, and trace context from the
+same runtime data model. Context compression must not introduce a separate
+display-only accounting path that would drift from exported telemetry.
+
 Provider-specific cache-edit microcompaction is a future optional branch. It
 must be gated by a declared provider capability and must not be inferred from
 OpenAI-compatible request shape alone.
