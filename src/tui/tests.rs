@@ -613,6 +613,42 @@ async fn full_access_permission_picker_resumes_pending_shell_approval_in_local_a
 }
 
 #[tokio::test]
+async fn always_shell_approval_promotes_full_access_for_follow_up_commands() {
+    let temp = tempdir().expect("tempdir");
+    let mut app = TuiApp::new(ConfigManager {
+        path: temp.path().join("config.json"),
+    })
+    .expect("app");
+    add_pending_shell_approval(&mut app);
+
+    let oauth_manager = Arc::new(
+        crate::oauth::OAuthManager::new_for_config_dir(temp.path().join(".rara"))
+            .expect("oauth manager"),
+    );
+    let mut agent_slot = Some(test_agent_for_pending_approval(&temp));
+
+    dispatch_event(
+        AppEvent::SelectPendingOption(2),
+        &mut app,
+        &mut agent_slot,
+        &oauth_manager,
+    )
+    .await
+    .expect("approve for session");
+
+    assert_eq!(app.permission_mode, PermissionMode::FullAccess);
+    assert_eq!(app.bash_approval_mode_label(), "always");
+    assert!(
+        app.sandbox_network_access
+            .load(std::sync::atomic::Ordering::Relaxed)
+    );
+    assert!(app.pending_command_approval().is_none());
+    assert!(agent_slot.is_none());
+    assert!(app.running_task.is_some());
+    abort_running_task(&mut app);
+}
+
+#[tokio::test]
 async fn full_access_mode_resumes_stale_pending_shell_approval_from_shortcuts() {
     for event in [AppEvent::SelectPendingOption(3), AppEvent::SubmitComposer] {
         let temp = tempdir().expect("tempdir");
