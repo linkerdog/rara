@@ -148,15 +148,27 @@ pub(crate) async fn dispatch_event(
                             start_pending_approval_task(app, selection, agent);
                         }
                     }
+                    ActivePendingInteractionKind::PlanningQuestion
+                    | ActivePendingInteractionKind::ExplorationQuestion
+                    | ActivePendingInteractionKind::SubAgentQuestion
+                    | ActivePendingInteractionKind::RequestInput => {
+                        if let Some(label) = app.pending_question_option_label(idx) {
+                            if let Some(agent) = agent_slot.as_mut() {
+                                agent.consume_pending_user_input(&label);
+                                app.sync_snapshot(agent);
+                            }
+                            app.set_input(label);
+                            if handle_submit(app, agent_slot, oauth_manager).await? {
+                                return Ok(true);
+                            }
+                        }
+                    }
                     _ => {}
                 }
             }
         }
         AppEvent::CycleModelSelection => {
-            let len = app.current_model_picker_len();
-            if len > 0 {
-                app.model_picker_idx = (app.model_picker_idx + 1) % len;
-            }
+            app.cycle_local_model();
         }
         AppEvent::SaveBaseUrlInput => {
             let value = app.base_url_input.trim();
