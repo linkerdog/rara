@@ -33,8 +33,8 @@ fn mouse_scroll(kind: MouseEventKind) -> Event {
     })
 }
 use super::state::{
-    InteractionKind, Overlay, PendingApprovalSnapshot, PendingInteractionSnapshot, ProviderFamily,
-    RunningTask, StatusTab, TaskKind, TuiApp,
+    InteractionKind, ListPickerKind, Overlay, PendingApprovalSnapshot, PendingInteractionSnapshot,
+    ProviderFamily, RunningTask, StatusTab, TaskKind, TuiApp,
 };
 use super::{dispatch_event, map_key_to_event};
 

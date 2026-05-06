@@ -19,7 +19,8 @@ use super::{
 use crate::config::{ConfigManager, OpenAiEndpointKind, RaraConfig};
 use crate::tui::custom_terminal::Frame;
 use crate::tui::state::{
-    Overlay, ProviderFamily, RuntimeSnapshot, StatusTab, TranscriptEntry, TranscriptTurn, TuiApp,
+    ListPickerKind, Overlay, ProviderFamily, RuntimeSnapshot, StatusTab, TranscriptEntry,
+    TranscriptTurn, TuiApp,
 };
 
 fn provider_family_idx(family: ProviderFamily) -> usize {

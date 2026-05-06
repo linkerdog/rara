@@ -1,7 +1,7 @@
 use tempfile::tempdir;
 
 use super::{
-    ActivePendingInteractionKind, InteractionKind, Overlay, PROVIDER_FAMILIES,
+    ActivePendingInteractionKind, InteractionKind, ListPickerKind, Overlay, PROVIDER_FAMILIES,
     PendingInteractionSnapshot, ProviderFamily, RuntimeSnapshot, TranscriptEntry, TranscriptTurn,
     TuiApp, input_requests_command_palette, parse_repo_slug, state_db_status_error,
 };
