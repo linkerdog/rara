@@ -44,6 +44,22 @@ For long coding sessions, this increases the risk of losing:
   compact threshold, while still retaining at least the newest API-round group.
 - Raw item-count heuristics such as "summarize the oldest 80%" are fallback-quality behavior and
   should not be used as the normal planning strategy.
+- Runtime partial compaction accepts explicit `from` / `up_to` message indexes only when both
+  indexes align with API-round group boundaries. It replaces just that selected range with compact
+  boundary metadata, structured summary, and source-aware carry-over, then preserves the unchanged
+  prefix and suffix.
+- If the summary model returns a structured context-window error while building a compaction
+  summary, the runtime retries by dropping the oldest API-round group from the summary input. It
+  keeps doing this only for context-window failures; authentication, rate-limit, network, and other
+  provider errors keep the normal failure path.
+- Post-compact carry-over sources expose stable descriptors such as
+  `history.compaction.summary`, `history.compaction.boundary`, and
+  `history.compaction.recent_files`. The actual compacted history stores each
+  carry-over block as model-readable text plus a typed source item, so normal
+  model calls keep a readable prompt while `/context` and future protocol
+  subscribers can consume stable descriptors from the same runtime artifact.
+  `/resume` shows the latest compaction boundary/range/token metadata in the
+  thread picker.
 
 ### 2) Structured Compact Prompt
 
@@ -85,9 +101,39 @@ Post-compact history is assembled in ordered stages:
 4. retained recent API-round suffix.
 
 Future memory, hook, skill, MCP, and runtime-state reinjection should plug into the source-aware
-carry-over stage instead of being special-cased inside the split planner. This mirrors Claude Code's
-separation between the summary replacement and the post-compact attachments that restore current
-working context.
+carry-over stage by adding typed source items with deterministic source descriptors. They must not
+be special-cased inside the split planner. This mirrors Claude Code's separation between the summary
+replacement and the post-compact attachments that restore current working context.
+
+The generic source item shape is:
+
+```json
+{
+  "type": "compaction_carry_over",
+  "kind": "compacted_memory",
+  "label": "Memory Carry-over",
+  "source_descriptor": "history.compaction.memory",
+  "detail": "Short context shown in /context and MemorySelection",
+  "inclusion_reason": "Why this item was carried forward"
+}
+```
+
+`source_descriptor` must stay under the `history.compaction.*` namespace. The
+same typed item can be used for memory, hook, skill, MCP, and runtime-state
+carry-over classes as those producers are added.
+
+The current implementation emits:
+
+- `history.compaction.memory` for retrieved memory candidates that were
+  available before compaction;
+- `history.compaction.skills` for skills invoked before compaction;
+- `history.compaction.hooks` for hook retain hints from compacted history;
+- `history.compaction.mcp` for MCP retain hints from compacted history.
+
+Hook and MCP retain hints use `type = "compaction_retain_hint"` in the
+pre-compact history and must provide a stable source descriptor under `hook.*`
+or `mcp.*`. Runtime-state producers should use the same generic item shape and
+deterministic descriptor namespace.
 
 ### 6) Prefix Stability
 
@@ -193,6 +239,8 @@ This is similar in spirit to sub-agent isolation, but its storage model is diffe
 - Token accounting still relies on full-history re-estimation at some boundaries.
 - Session restore mirrors compact boundary metadata, but it does not yet persist the full recent-file
   excerpt payload separately from history.
+- Partial compaction currently exists as a runtime entrypoint. TUI, ACP, and Wire command surfaces
+  still need to expose the range-selection workflow.
 
 ## Source Journals
 

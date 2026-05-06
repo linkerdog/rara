@@ -146,11 +146,7 @@ pub(super) fn render_resume_picker_modal(f: &mut Frame, app: &TuiApp, area: Rect
                     .and_then(|name| name.to_str())
                     .filter(|name| !name.is_empty())
                     .unwrap_or("-");
-                let compaction = if session.compaction.compaction_count > 0 {
-                    format!("compact={}", session.compaction.compaction_count)
-                } else {
-                    "compact=0".to_string()
-                };
+                let compaction = resume_compaction_label(&session.compaction);
                 ListItem::new(vec![
                     Line::from(format!(
                         "{}  {} / {}  branch={}",
@@ -177,6 +173,46 @@ pub(super) fn render_resume_picker_modal(f: &mut Frame, app: &TuiApp, area: Rect
         Paragraph::new("Esc close  Up/Down move  Enter restore").alignment(Alignment::Center),
         chunks[2],
     );
+}
+
+fn resume_compaction_label(compaction: &crate::thread_store::CompactionRecord) -> String {
+    if compaction.compaction_count == 0 {
+        return "compact=0".to_string();
+    }
+    let mut parts = vec![format!("compact={}", compaction.compaction_count)];
+    if let Some(version) = compaction.boundary_version {
+        parts.push(format!("boundary=v{version}"));
+    }
+    if let (Some(start), Some(end)) = (compaction.replaced_start, compaction.replaced_end) {
+        parts.push(format!("range={start}..{end}"));
+    }
+    if let (Some(before), Some(after)) = (compaction.before_tokens, compaction.after_tokens) {
+        parts.push(format!("tokens={before}->{after}"));
+    }
+    parts.join(" ")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn resume_compaction_label_includes_boundary_range_and_tokens() {
+        let label = resume_compaction_label(&crate::thread_store::CompactionRecord {
+            compaction_count: 2,
+            before_tokens: Some(12_000),
+            after_tokens: Some(4_000),
+            recent_file_count: Some(3),
+            boundary_version: Some(1),
+            replaced_start: Some(0),
+            replaced_end: Some(8),
+            metadata_owner: Some("runtime.compaction".to_string()),
+            recent_files: vec![],
+            summary: Some("summary".to_string()),
+        });
+
+        assert_eq!(label, "compact=2 boundary=v1 range=0..8 tokens=12000->4000");
+    }
 }
 
 pub(super) fn render_model_picker_modal(f: &mut Frame, app: &TuiApp, area: Rect) {

@@ -228,6 +228,7 @@ pub struct CompactionSourceContextEntry {
     pub order: usize,
     pub kind: String,
     pub label: String,
+    pub source_descriptor: String,
     pub detail: String,
     pub inclusion_reason: String,
 }

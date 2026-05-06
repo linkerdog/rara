@@ -201,8 +201,16 @@ fn shared_runtime_context_collects_prompt_plan_and_compaction_state() {
         "compact_boundary"
     );
     assert_eq!(
+        runtime.compaction.source_entries[0].source_descriptor,
+        "history.compaction.boundary"
+    );
+    assert_eq!(
         runtime.compaction.source_entries[1].kind,
         "compacted_summary"
+    );
+    assert_eq!(
+        runtime.compaction.source_entries[1].source_descriptor,
+        "history.compaction.summary"
     );
     assert_eq!(runtime.compaction.source_entries[2].kind, "recent_files");
     assert_eq!(
@@ -323,7 +331,9 @@ fn shared_runtime_context_collects_prompt_plan_and_compaction_state() {
             .assembly
             .entries
             .iter()
-            .any(|entry| entry.layer == "compacted_history" && entry.injected)
+            .any(|entry| entry.layer == "compacted_history"
+                && entry.injected
+                && entry.source_path.as_deref() == Some("history.compaction.summary"))
     );
     assert!(
         runtime

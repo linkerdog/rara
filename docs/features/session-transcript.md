@@ -30,7 +30,8 @@ It covers:
 
 ## Non-Goals
 
-- Replacing `history.json` in the first implementation slice.
+- Replacing all snapshot writes with append-only transcript checkpoints in the
+  first implementation slice.
 - Replacing `StateDb`; SQLite remains the listing/index surface.
 - Storing full sub-agent output inline in the parent session transcript.
 - Persisting TUI rendering cells as model-visible messages.
@@ -44,21 +45,36 @@ events:
 ```text
 rollouts/<session_id>/
   history.json              # compatibility snapshot, not the long-term source
+  thread.json               # canonical thread metadata
   transcript.jsonl          # typed main-session transcript
+  turns.jsonl               # committed TUI turn summaries and entries
+  context.jsonl             # per-session context-retrieval shard
   events.jsonl              # non-turn runtime events
   000000.json               # TUI turn artifact snapshots
   subagents/
     agent-<agent_id>.jsonl  # typed sidechain transcript
 ```
 
-The first implementation keeps `history.json` as the resume source and writes
-`transcript.jsonl` as a typed compatibility mirror. Foreground sub-agent tools
-also write parent-scoped sidechain transcripts after each completed invocation.
-They also append a parent-session `SpawnAgent` rollout event that records the
-generated `agent_id`, child `session_id`, optional display name, status, and summary
-without inlining the child transcript. This is intentionally additive: existing
-session restore behavior stays unchanged while tests start locking down the
-model-visible transcript boundary.
+The current implementation reads `transcript.jsonl` first when restoring
+model-visible history. `history.json` remains as a compatibility snapshot and
+fallback source. Runtime checkpoints enter through `ThreadRecorder`, write that
+typed transcript through `ThreadTranscriptRecorder`, then write per-session
+thread metadata and the compatibility snapshot separately. `ThreadStore`
+materialization reads the rollout root directly for metadata, transcript,
+snapshot, legacy-history, and compaction migration sources; `SessionManager`
+remains a compatibility entry point for older callers. The recorder appends new
+message entries when the existing
+transcript is a prefix of the new history, exposes flush/shutdown boundaries,
+and falls back to an atomic transcript rewrite when history was replaced by
+repair or compaction. If a transcript has parse errors and a snapshot exists,
+restore falls back to the snapshot and rewrites a clean transcript projection.
+Empty transcripts and shorter transcript prefixes also fall back to the
+snapshot when one exists, which preserves crash recovery after partial
+checkpoint writes. Foreground sub-agent tools also write parent-scoped
+sidechain transcripts after each completed invocation. They also append a
+parent-session `SpawnAgent` rollout event that records the generated `agent_id`,
+child `session_id`, optional display name, status, and summary without inlining
+the child transcript.
 
 Parent-scoped sub-agent calls also register a child `StateDb` session row with
 `origin_kind = subagent` and `forked_from_thread_id = <parent_session_id>`.
@@ -76,6 +92,7 @@ The long-term target is:
 - `transcript.jsonl` becomes the canonical model-history stream;
 - `history.json` becomes an optional acceleration snapshot or disappears;
 - `StateDb` indexes sessions, turns, plan state, and parent/child edges;
+- `thread.json` is the canonical thread metadata source for materialization;
 - sidechain transcripts remain separate files and are never replayed into the
   parent model context unless an explicit fork/context operation selects a
   filtered subset.
@@ -167,6 +184,8 @@ This mirrors Codex's fork filtering while keeping Claude-style sidechain files.
 | Case | Expected behavior |
 | ---- | ----------------- |
 | Save ordinary session history | `history.json` and `transcript.jsonl` both exist. |
+| Append ordinary checkpoint | New model-visible messages append to `transcript.jsonl` when the existing transcript is a prefix. |
+| Append committed turn | New TUI turn entries append to `turns.jsonl`; `StateDb` turn rows remain compatibility/index data. |
 | Load transcript with malformed line | Valid lines load; parse error count increments. |
 | Project model-visible messages | Only non-sidechain `Message` entries are returned. |
 | Write sub-agent sidechain | File is under `subagents/`; entries carry `is_sidechain = true`. |
@@ -175,13 +194,16 @@ This mirrors Codex's fork filtering while keeping Claude-style sidechain files.
 | Resume background sub-agent | `subagent_resume` returns the live status or final summary without loading the sidechain into parent context. |
 | Stop background sub-agent | `subagent_stop` marks an in-process running sub-agent as `cancelled` and requests model cancellation. |
 | Legacy history backfill | `history.json` and `transcript.jsonl` are both backfilled. |
-| Future resume migration | Resume can switch from `history.json` to transcript projection without reading TUI artifacts. |
+| Transcript-first restore | `transcript.jsonl` wins over a stale `history.json` snapshot. |
+| Damaged transcript fallback | Transcript parse errors fall back to `history.json` when available and rewrite a clean transcript. |
+| Empty or short transcript fallback | Empty transcripts or shorter transcript prefixes fall back to `history.json` and repair the transcript. |
+| Turn materialization | `ThreadStore` prefers `turns.jsonl` over stale `StateDb` turn rows. |
 
 ## Open Risks
 
-- The first implementation rewrites the transcript mirror from `history.json`.
-  The canonical target is append-only, but the compatibility bridge must stay
-  consistent with the existing snapshot source until resume migrates.
+- `SessionManager::save_session` remains as a compatibility wrapper. Runtime
+  checkpoints use `ThreadRecorder`, but older direct callers can still enter
+  through `SessionManager`.
 - Existing foreground sub-agent tools write sidechain transcripts only when
   invoked with parent session context. Direct test calls without parent context
   still return structured results without writing detached sidechain files.

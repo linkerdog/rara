@@ -75,21 +75,25 @@ Active backlog only. Keep this file small and current.
 - [x] Add pinned/retention policy so pinned, user-created, and high-importance memories are excluded from automatic cleanup.
 - [x] Add memory update/delete/list-label control-plane scaffolding for ACP/Wire without exposing LanceDB APIs.
 - [ ] Upgrade thread distillation from summary capture to LLM-assisted 2-8 record extraction with deduplication.
-- [ ] Move raw session checkpoints into per-session append shards instead of the global LanceDB `conversations` table.
-- [ ] Promote `rollouts/<session_id>/transcript.jsonl` from compatibility mirror to canonical model-history source.
+- [x] Move raw session checkpoints into per-session append shards instead of the global LanceDB `conversations` table.
+- [x] Promote `rollouts/<session_id>/transcript.jsonl` from compatibility mirror to canonical model-history source.
 - [x] Wire foreground sub-agent tools to write parent-scoped sidechain transcripts under `rollouts/<parent_session_id>/subagents/`.
 - [x] Add append-only parent/child spawn-edge rollout metadata for foreground sub-agent calls.
 - [x] Index parent/child spawn-edge metadata in `StateDb` for resume/listing queries.
 - [x] Add in-process background sub-agent resume/stop over the sidechain transcript contract.
 - [ ] Add periodic promotion from session shards into global `MemoryRecord`s.
-- [ ] Durable in-turn checkpoints: persist after each message/tool-result batch, atomic writes, crash-tolerant `SessionManager`.
+- [x] Durable in-turn checkpoints: persist after each message/tool-result batch, atomic writes, crash-tolerant `SessionManager`.
 - [ ] Define cross-process background sub-agent restart/reattach semantics.
-- [ ] Compaction as first-class lifecycle event: persist summaries, token counters, metadata ownership.
-- [ ] Add prompt-too-long retry for compaction by dropping oldest API-round groups.
-- [ ] Add partial compact support around a selected message boundary (`from` / `up_to`).
-- [ ] Add post-compact memory/hook/skill carry-over stages once source descriptors are stable.
+- [x] Compaction as first-class lifecycle event: persist summaries, token counters, metadata ownership.
+- [x] Add prompt-too-long retry for compaction by dropping oldest API-round groups.
+- [x] Add partial compact support around a selected message boundary (`from` / `up_to`).
+- [x] Add post-compact source descriptors and surface them in `/context` and `/resume`.
+- [x] Add generic memory/hook/skill/MCP carry-over consumer shape that validates stable compaction source descriptors.
+- [x] Add concrete retrieved-memory carry-over producer.
+- [x] Add concrete invoked-skill carry-over producer.
+- [x] Add concrete hook/MCP carry-over producers.
 - [ ] Surface main model vs auxiliary model routing in `/status` and `/context`.
-- [ ] `ThreadStore` / `ThreadRecorder`: from façade over `SessionManager`+`StateDb` to true structured thread store.
+- [x] `ThreadStore` / `ThreadRecorder`: from façade over `SessionManager`+`StateDb` to true structured thread store.
 - [ ] Thread-scoped and workspace-scoped `MemoryRecord` storage with promotion rules.
 - [ ] Retrieval orchestration layer from `docs/features/context-architecture.md`.
 - [x] Initialize LanceDB and wire FTS/vector/hybrid search paths behind the existing memory index façade.

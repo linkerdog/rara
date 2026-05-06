@@ -7,11 +7,9 @@ use serde_json::{Value, json};
 use crate::llm::LlmBackend;
 use crate::session::SessionManager;
 use crate::tool::{Tool, ToolError};
-use crate::vectordb::VectorDB;
 
 pub struct RetrieveSessionContextTool {
     pub backend: Arc<dyn LlmBackend>,
-    pub vdb: Arc<VectorDB>,
     pub session_manager: Arc<SessionManager>,
 }
 #[tool_spec(
@@ -33,11 +31,14 @@ impl Tool for RetrieveSessionContextTool {
             .embed(query)
             .await
             .map_err(|err| ToolError::ExecutionFailed(err.to_string()))?;
-        let hits = self
-            .vdb
-            .hybrid_search_with_metadata("conversations", query, vector, 8)
-            .await
-            .map_err(|err| ToolError::ExecutionFailed(err.to_string()))?;
+        let session_manager = self.session_manager.clone();
+        let query = query.to_string();
+        let hits = tokio::task::spawn_blocking(move || {
+            session_manager.search_session_context(&query, &vector, 8)
+        })
+        .await
+        .map_err(|err| ToolError::ExecutionFailed(err.to_string()))?
+        .map_err(|err| ToolError::ExecutionFailed(err.to_string()))?;
         if hits.is_empty() {
             return Ok(json!({ "status": "no_context_found", "matches": [] }));
         }
@@ -45,12 +46,12 @@ impl Tool for RetrieveSessionContextTool {
             .into_iter()
             .map(|hit| {
                 json!({
-                    "session_id": hit.metadata.session_id,
-                    "turn_index": hit.metadata.turn_index,
-                    "text": hit.metadata.text,
+                    "session_id": hit.checkpoint.session_id,
+                    "turn_index": hit.checkpoint.turn_index,
+                    "text": hit.checkpoint.text,
                     "score": hit.score,
-                    "vector_distance": hit.vector_distance,
-                    "fts_score": hit.fts_score,
+                    "vector_score": hit.vector_score,
+                    "keyword_score": hit.keyword_score,
                 })
             })
             .collect::<Vec<_>>();
@@ -65,32 +66,24 @@ impl Tool for RetrieveSessionContextTool {
 mod tests {
     use super::*;
     use crate::llm::MockLlm;
-    use crate::vectordb::MemoryMetadata;
 
     #[tokio::test]
-    async fn retrieve_session_context_searches_conversation_index() {
+    async fn retrieve_session_context_searches_session_context_shards() {
         let temp = tempfile::tempdir().expect("tempdir");
-        let vdb = Arc::new(VectorDB::new(temp.path().to_str().expect("utf8 path")));
-        vdb.upsert_turn(
-            "conversations",
-            MemoryMetadata {
-                id: None,
-                session_id: "session-a".to_string(),
-                turn_index: 3,
-                text: "The approval denial should be recorded as an errored tool result."
-                    .to_string(),
-            },
-            vec![1.0; 128],
-        )
-        .await
-        .expect("upsert conversation memory");
+        let session_manager = Arc::new(
+            SessionManager::new_for_rara_dir(temp.path().join(".rara")).expect("session manager"),
+        );
+        session_manager
+            .save_session_context_checkpoint(
+                "session-a",
+                3,
+                "The approval denial should be recorded as an errored tool result.".to_string(),
+                vec![1.0; 128],
+            )
+            .expect("save session context checkpoint");
         let tool = RetrieveSessionContextTool {
             backend: Arc::new(MockLlm),
-            vdb,
-            session_manager: Arc::new(
-                SessionManager::new_for_rara_dir(temp.path().join(".rara"))
-                    .expect("session manager"),
-            ),
+            session_manager,
         };
 
         let result = tool

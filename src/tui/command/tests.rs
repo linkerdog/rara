@@ -376,6 +376,7 @@ fn status_context_text_includes_prompt_sources_and_plan_state() {
             order: 1,
             kind: "compacted_summary".into(),
             label: "Compacted Thread Summary".into(),
+            source_descriptor: "history.compaction.summary".into(),
             detail: "User Intent".into(),
             inclusion_reason:
                 "included because older thread history was compacted into a structured summary instead of being replayed verbatim".into(),
@@ -437,7 +438,7 @@ fn status_context_text_includes_prompt_sources_and_plan_state() {
                 layer: "compacted_history".into(),
                 kind: "compacted_summary".into(),
                 label: "Compacted Thread Summary".into(),
-                source_path: None,
+                source_path: Some("history.compaction.summary".into()),
                 injected: true,
                 inclusion_reason:
                     "included because older thread history was compacted into a structured summary instead of being replayed verbatim".into(),
@@ -516,6 +517,7 @@ fn status_context_text_includes_prompt_sources_and_plan_state() {
     assert!(rendered.contains("Active Memory Inputs"));
     assert!(rendered.contains("Memory Selection"));
     assert!(rendered.contains("Compacted History"));
+    assert!(rendered.contains("path: history.compaction.summary"));
     assert!(rendered.contains("Active Turn State"));
     assert!(rendered.contains("Retrieval-ready"));
     assert!(rendered.contains("Plan"));
@@ -590,6 +592,7 @@ fn status_resources_text_includes_token_and_cache_summary() {
         order: 1,
         kind: "compacted_summary".into(),
         label: "Compacted Thread Summary".into(),
+        source_descriptor: "history.compaction.summary".into(),
         detail: "User Intent".into(),
         inclusion_reason: "compacted older history".into(),
     }];
