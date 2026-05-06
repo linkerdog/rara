@@ -30,8 +30,8 @@ Added the first provider-neutral microcompact slice as a request projection:
 
 ## Follow-Up
 
-- Surface projection stats in `/context` after the runtime context event model
-  can carry per-request compression reports.
+- Add `/context` observability after the runtime context event model can carry
+  per-request compression reports.
 - Add provider-specific cache-edit microcompact only after a backend declares
   `cache_edit = true`.
 - Add configurable per-tool projection budgets once tool result size policies

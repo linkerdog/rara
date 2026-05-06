@@ -84,6 +84,12 @@ For provider cache capability changes:
 - Add a focused backend test for the declared `ProviderCacheProfile`.
 - Add usage parsing tests when the provider reports cache hit/miss tokens.
 
+For observability changes:
+
+- Prefer structured projection reports over scraping status text.
+- Keep transient status events short; put detailed per-request accounting in
+  `/context` or another structured context surface.
+
 ## Common Mistakes
 
 - Replacing old tool results inside the persisted transcript during a normal

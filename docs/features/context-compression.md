@@ -173,6 +173,11 @@ have automatic prefix caching but no cache-edit API. It reduces volatile
 history size while preserving the full local transcript for restore,
 distillation, and debugging.
 
+The first runtime slice exposes projection only as a transient status event when
+old tool results are projected out of a model request. Durable observability
+belongs in `/context`, backed by structured per-request projection reports
+rather than display text scraping.
+
 Provider-specific cache-edit microcompaction is a future optional branch. It
 must be gated by a declared provider capability and must not be inferred from
 OpenAI-compatible request shape alone.
