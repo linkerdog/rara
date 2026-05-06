@@ -522,7 +522,7 @@ fn user_message_lines(message: &str, max_lines: usize) -> Vec<Line<'static>> {
     let message = message.as_str();
     let body_max = max_lines.saturating_sub(1);
     let header = Line::from(vec![
-        Span::styled("▌", Style::default().fg(ROLE_USER)),
+        Span::styled(" ", Style::default().bg(ROLE_USER)),
         Span::styled(
             " You",
             Style::default().fg(ROLE_USER).add_modifier(Modifier::BOLD),
@@ -553,7 +553,7 @@ fn agent_message_lines(message: &str, max_lines: usize) -> Vec<Line<'static>> {
     let message = message.as_str();
     let body_max = max_lines.saturating_sub(1);
     let mut lines = vec![Line::from(vec![
-        Span::styled("▌", Style::default().fg(ROLE_AGENT)),
+        Span::styled(" ", Style::default().bg(ROLE_AGENT)),
         Span::styled(
             " Agent",
             Style::default().fg(ROLE_AGENT).add_modifier(Modifier::BOLD),
@@ -585,7 +585,7 @@ fn system_message_lines(message: &str, max_lines: usize) -> Vec<Line<'static>> {
     let message = message.as_str();
     let body_max = max_lines.saturating_sub(1);
     let mut lines = vec![Line::from(vec![
-        Span::styled("▌", Style::default().fg(ROLE_SYSTEM)),
+        Span::styled(" ", Style::default().bg(ROLE_SYSTEM)),
         Span::styled(
             " System",
             Style::default()
@@ -625,7 +625,7 @@ pub(crate) fn formatted_message_lines(
     let role_kind = MessageRole::try_from_str(role);
     if role_kind == Some(MessageRole::Agent) {
         let mut lines = vec![Line::from(vec![
-            Span::styled("▌", Style::default().fg(ROLE_AGENT)),
+            Span::styled(" ", Style::default().bg(ROLE_AGENT)),
             Span::styled(
                 " Agent",
                 Style::default().fg(ROLE_AGENT).add_modifier(Modifier::BOLD),
@@ -637,7 +637,7 @@ pub(crate) fn formatted_message_lines(
     }
     if role_kind == Some(MessageRole::System) {
         let mut lines = vec![Line::from(vec![
-            Span::styled("▌", Style::default().fg(ROLE_SYSTEM)),
+            Span::styled(" ", Style::default().bg(ROLE_SYSTEM)),
             Span::styled(
                 " System",
                 Style::default()

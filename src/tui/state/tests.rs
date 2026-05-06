@@ -1022,3 +1022,35 @@ fn finalize_agent_stream_replaces_earlier_agent_entries_in_active_turn() {
     assert_eq!(agent_entries.len(), 1);
     assert_eq!(agent_entries[0].message, "你好！有什么我可以帮你的？");
 }
+
+#[test]
+fn restore_committed_turns_sets_inserted_counter_to_match() {
+    let dir = tempdir().unwrap();
+    let cm = ConfigManager {
+        path: dir.path().join("config.json"),
+    };
+    let mut app = TuiApp::new(cm).expect("app");
+
+    // Simulate session resume: restore N turns that were already on screen.
+    let turns = vec![
+        TranscriptTurn {
+            entries: vec![TranscriptEntry::new("You", "hello")],
+        },
+        TranscriptTurn {
+            entries: vec![TranscriptEntry::new("Agent", "hi there")],
+        },
+        TranscriptTurn {
+            entries: vec![TranscriptEntry::new("You", "bye")],
+        },
+    ];
+    let n = turns.len();
+    app.restore_committed_turns(turns);
+
+    assert_eq!(app.committed_turns.len(), n);
+    // Critical: flush_committed_history must skip already-written turns.
+    assert_eq!(
+        app.inserted_turns, n,
+        "restore_committed_turns must set inserted_turns to committed_turns.len() so flush_committed_history does not re-insert all turns on resume"
+    );
+    assert_eq!(app.active_turn.entries.len(), 0);
+}
