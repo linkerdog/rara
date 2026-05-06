@@ -2,12 +2,18 @@ use std::sync::OnceLock;
 use std::time::Duration;
 
 use super::*;
-use crate::llm::ContextBudget;
+use crate::context::RetrievedMemoryCandidate;
+use crate::llm::{ContextBudget, is_context_window_error};
 use crate::session::PersistedCompactionEvent;
 
 const RECENT_FILE_CARRY_OVER_LIMIT: usize = 5;
 const RECENT_FILE_EXCERPT_LIMIT: usize = 3;
 const RECENT_FILE_EXCERPT_CHAR_LIMIT: usize = 600;
+const MEMORY_CARRY_OVER_LIMIT: usize = 3;
+const SKILL_CARRY_OVER_LIMIT: usize = 3;
+const SKILL_INSTRUCTION_PREVIEW_CHAR_LIMIT: usize = 600;
+const HOOK_CARRY_OVER_LIMIT: usize = 3;
+const MCP_CARRY_OVER_LIMIT: usize = 3;
 const RETAINED_HISTORY_BUDGET_FRACTION: usize = 2;
 const COMPACT_BOUNDARY_KIND: &str = "compact_boundary";
 const COMPACT_BOUNDARY_VERSION: u32 = 1;
@@ -53,7 +59,44 @@ struct CompactCarryOver {
     summary: String,
     recent_files: Vec<String>,
     recent_file_excerpts: Vec<RecentFileExcerpt>,
+    retrieved_memory: Vec<RetrievedMemoryCandidate>,
+    invoked_skills: Vec<InvokedSkillCarryOver>,
+    retained_hooks: Vec<RetainedContextCarryOver>,
+    retained_mcp: Vec<RetainedContextCarryOver>,
 }
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct InvokedSkillCarryOver {
+    name: String,
+    title: Option<String>,
+    scope: Option<String>,
+    display_path: Option<String>,
+    args: Option<String>,
+    instruction_preview: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct RetainedContextCarryOver {
+    label: String,
+    source_descriptor: String,
+    detail: String,
+    inclusion_reason: Option<String>,
+}
+
+#[derive(Debug)]
+struct CompactionSummaryTimeout;
+
+impl std::fmt::Display for CompactionSummaryTimeout {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "history compaction timed out after {} seconds",
+            compaction_summary_timeout().as_secs()
+        )
+    }
+}
+
+impl std::error::Error for CompactionSummaryTimeout {}
 
 #[derive(Debug, Clone, Default)]
 pub struct CompactState {
@@ -89,6 +132,92 @@ impl Agent {
         self.compact_history_with_reporter(true, &mut report)
             .await?;
         Ok(self.compact_state.last_compaction_before_tokens.is_some())
+    }
+
+    #[allow(dead_code)]
+    pub async fn compact_range_now_with_reporter<F>(
+        &mut self,
+        from: usize,
+        up_to: usize,
+        mut report: F,
+    ) -> Result<bool>
+    where
+        F: FnMut(AgentEvent) + Send,
+    {
+        if from >= up_to {
+            return Ok(false);
+        }
+        if up_to > self.history.len() {
+            return Err(anyhow::anyhow!(
+                "partial compaction range exceeds history length"
+            ));
+        }
+        ensure_api_round_boundary_range(&self.history, from, up_to)?;
+
+        let current_tokens = estimate_history_tokens(&self.history).unwrap_or_default();
+        self.compact_state.estimated_history_tokens = current_tokens;
+        self.compact_state.last_compaction_before_tokens = None;
+        self.compact_state.last_compaction_after_tokens = None;
+        self.compact_state.last_compaction_recent_files.clear();
+        self.compact_state.last_compaction_boundary = None;
+
+        report(AgentEvent::Status(
+            "Compacting selected conversation history range.".to_string(),
+        ));
+
+        let compacted_slice = self.history[from..up_to].to_vec();
+        let compact_instruction = self.context_assembler().compact_instruction();
+        let summary = self
+            .summarize_compaction_input_with_retry(
+                compacted_slice.as_slice(),
+                &compact_instruction,
+                &mut report,
+            )
+            .await
+            .map_err(|err| {
+                if err.is::<CompactionSummaryTimeout>() {
+                    anyhow::anyhow!("{err}")
+                } else {
+                    err
+                }
+            })?;
+        let carry_over = build_compact_carry_over(
+            summary.clone(),
+            compacted_slice.as_slice(),
+            self.retrieved_memory_candidates.as_slice(),
+        );
+        let replacement = build_post_compact_history(current_tokens, &carry_over, &[]);
+        let mut new_history = Vec::new();
+        new_history.extend_from_slice(&self.history[..from]);
+        new_history.extend(replacement);
+        new_history.extend_from_slice(&self.history[up_to..]);
+        self.replace_history(new_history);
+        self.checkpoint_session()?;
+
+        let compacted_tokens = self.compact_state.estimated_history_tokens;
+        self.compact_state.compaction_count += 1;
+        self.compact_state.last_compaction_before_tokens = Some(current_tokens);
+        self.compact_state.last_compaction_after_tokens = Some(compacted_tokens);
+        self.compact_state.last_compaction_recent_files = carry_over.recent_files;
+        self.compact_state.last_compaction_boundary = Some(CompactBoundaryMetadata {
+            version: COMPACT_BOUNDARY_VERSION,
+            before_tokens: current_tokens,
+            recent_file_count: self.compact_state.last_compaction_recent_files.len(),
+        });
+        self.compact_state.consecutive_auto_compaction_failures = 0;
+        self.compact_state.auto_compaction_retry_after_tokens = None;
+        self.persist_compaction_event(&PersistedCompactionEvent {
+            event_index: self.compact_state.compaction_count,
+            before_tokens: current_tokens,
+            after_tokens: compacted_tokens,
+            boundary_version: COMPACT_BOUNDARY_VERSION,
+            replaced_start: Some(from),
+            replaced_end: Some(up_to),
+            metadata_owner: Some("runtime.compaction".to_string()),
+            recent_files: self.compact_state.last_compaction_recent_files.clone(),
+            summary,
+        })?;
+        Ok(true)
     }
 
     async fn compact_history_with_reporter<F>(&mut self, force: bool, report: &mut F) -> Result<()>
@@ -146,51 +275,50 @@ impl Agent {
         let Some(plan) = build_compact_plan(&self.history, threshold, force)? else {
             return Ok(());
         };
-        let summary_result = tokio::time::timeout(
-            compaction_summary_timeout(),
-            self.llm_backend.summarize(
+        let compact_instruction = self.context_assembler().compact_instruction();
+        let summary = match self
+            .summarize_compaction_input_with_retry(
                 &self.history[..plan.summarize_end],
-                &self.context_assembler().compact_instruction(),
-            ),
-        )
-        .await;
-        let summary = match summary_result {
-            Ok(summary) => match summary {
-                Ok(summary) => summary,
-                Err(err) if !force => {
+                &compact_instruction,
+                report,
+            )
+            .await
+        {
+            Ok(summary) => summary,
+            Err(err) if err.is::<CompactionSummaryTimeout>() => {
+                if !force {
+                    self.record_auto_compaction_failure(current_tokens);
+                    report(AgentEvent::Status(
+                        "Automatic history compaction timed out; continuing without compaction."
+                            .to_string(),
+                    ));
+                    return Ok(());
+                }
+                return Err(anyhow::anyhow!("{err}"));
+            }
+            Err(err) => {
+                if !force {
                     self.record_auto_compaction_failure(current_tokens);
                     report(AgentEvent::Status(format!(
                         "Automatic history compaction failed; continuing without compaction. {err}"
                     )));
                     return Ok(());
                 }
-                Err(err) => return Err(err),
-            },
-            Err(_) if !force => {
-                self.record_auto_compaction_failure(current_tokens);
-                report(AgentEvent::Status(
-                    "Automatic history compaction timed out; continuing without compaction."
-                        .to_string(),
-                ));
-                return Ok(());
-            }
-            Err(_) => {
-                return Err(anyhow::anyhow!(
-                    "history compaction timed out after {} seconds",
-                    compaction_summary_timeout().as_secs()
-                ));
+                return Err(err);
             }
         };
-        let carry_over =
-            build_compact_carry_over(summary.clone(), &self.history[..plan.summarize_end]);
+        let carry_over = build_compact_carry_over(
+            summary.clone(),
+            &self.history[..plan.summarize_end],
+            self.retrieved_memory_candidates.as_slice(),
+        );
         let new_history = build_post_compact_history(
             current_tokens,
             &carry_over,
             &self.history[plan.retained_start..],
         );
         self.replace_history(new_history);
-        self.session_manager
-            .save_session(&self.session_id, &self.history)?;
+        self.checkpoint_session()?;
 
         let compacted_tokens = self.compact_state.estimated_history_tokens;
         self.compact_state.compaction_count += 1;
@@ -204,24 +332,69 @@ impl Agent {
         });
         self.compact_state.consecutive_auto_compaction_failures = 0;
         self.compact_state.auto_compaction_retry_after_tokens = None;
-        self.session_manager.save_compaction_event(
-            &self.session_id,
-            &PersistedCompactionEvent {
-                event_index: self.compact_state.compaction_count,
-                before_tokens: current_tokens,
-                after_tokens: compacted_tokens,
-                boundary_version: COMPACT_BOUNDARY_VERSION,
-                recent_files: self.compact_state.last_compaction_recent_files.clone(),
-                summary,
-            },
-        )?;
+        self.persist_compaction_event(&PersistedCompactionEvent {
+            event_index: self.compact_state.compaction_count,
+            before_tokens: current_tokens,
+            after_tokens: compacted_tokens,
+            boundary_version: COMPACT_BOUNDARY_VERSION,
+            replaced_start: Some(0),
+            replaced_end: Some(plan.retained_start),
+            metadata_owner: Some("runtime.compaction".to_string()),
+            recent_files: self.compact_state.last_compaction_recent_files.clone(),
+            summary,
+        })?;
         Ok(())
+    }
+
+    fn persist_compaction_event(&self, event: &PersistedCompactionEvent) -> Result<()> {
+        if let Some(state_db) = self.state_db.as_deref() {
+            let recorder = ThreadRecorder::new(state_db);
+            return recorder.persist_compaction_event(&self.session_id, event);
+        }
+        self.session_manager
+            .save_compaction_event(&self.session_id, event)
     }
 
     fn record_auto_compaction_failure(&mut self, current_tokens: usize) {
         self.compact_state.consecutive_auto_compaction_failures += 1;
         self.compact_state.auto_compaction_retry_after_tokens =
             Some(current_tokens.saturating_add(AUTO_COMPACTION_RETRY_HYSTERESIS_TOKENS));
+    }
+
+    async fn summarize_compaction_input_with_retry<F>(
+        &self,
+        messages: &[Message],
+        instruction: &str,
+        report: &mut F,
+    ) -> Result<String>
+    where
+        F: FnMut(AgentEvent) + Send,
+    {
+        let mut input_start = 0usize;
+        loop {
+            let input = &messages[input_start..];
+            let summary_result = tokio::time::timeout(
+                compaction_summary_timeout(),
+                self.llm_backend.summarize(input, instruction),
+            )
+            .await;
+            match summary_result {
+                Ok(Ok(summary)) => return Ok(summary),
+                Ok(Err(err)) if is_context_window_error(&err) => {
+                    let groups = group_history_by_api_round(input)?;
+                    let Some(next_start) = groups.get(1).map(|group| group.start) else {
+                        return Err(err);
+                    };
+                    input_start = input_start.saturating_add(next_start);
+                    report(AgentEvent::Status(
+                        "Compaction summary prompt exceeded the context window; retrying without the oldest API round."
+                            .to_string(),
+                    ));
+                }
+                Ok(Err(err)) => return Err(err),
+                Err(_) => return Err(anyhow::Error::new(CompactionSummaryTimeout)),
+            }
+        }
     }
 
     pub(super) fn current_compact_budget(&self) -> Option<ContextBudget> {
@@ -331,6 +504,23 @@ fn retained_history_budget(threshold: usize, force: bool) -> usize {
         .max(1)
 }
 
+#[allow(dead_code)]
+fn ensure_api_round_boundary_range(history: &[Message], from: usize, up_to: usize) -> Result<()> {
+    let groups = group_history_by_api_round(history)?;
+    let is_boundary = |idx: usize| {
+        idx == history.len()
+            || groups
+                .iter()
+                .any(|group| group.start == idx || group.end == idx)
+    };
+    if !is_boundary(from) || !is_boundary(up_to) {
+        return Err(anyhow::anyhow!(
+            "partial compaction range must align with API-round boundaries"
+        ));
+    }
+    Ok(())
+}
+
 fn group_history_by_api_round(history: &[Message]) -> Result<Vec<ApiRoundGroup>> {
     let bpe = tokenizer()?;
     let mut groups = Vec::new();
@@ -365,7 +555,11 @@ fn group_history_by_api_round(history: &[Message]) -> Result<Vec<ApiRoundGroup>>
     Ok(groups)
 }
 
-fn build_compact_carry_over(summary: String, compacted_history: &[Message]) -> CompactCarryOver {
+fn build_compact_carry_over(
+    summary: String,
+    compacted_history: &[Message],
+    retrieved_memory_candidates: &[RetrievedMemoryCandidate],
+) -> CompactCarryOver {
     CompactCarryOver {
         summary,
         recent_files: collect_recent_files(compacted_history, RECENT_FILE_CARRY_OVER_LIMIT),
@@ -373,6 +567,25 @@ fn build_compact_carry_over(summary: String, compacted_history: &[Message]) -> C
             compacted_history,
             RECENT_FILE_EXCERPT_LIMIT,
             RECENT_FILE_EXCERPT_CHAR_LIMIT,
+        ),
+        retrieved_memory: collect_retrieved_memory_carry_over(
+            retrieved_memory_candidates,
+            MEMORY_CARRY_OVER_LIMIT,
+        ),
+        invoked_skills: collect_invoked_skill_carry_over(
+            compacted_history,
+            SKILL_CARRY_OVER_LIMIT,
+            SKILL_INSTRUCTION_PREVIEW_CHAR_LIMIT,
+        ),
+        retained_hooks: collect_retained_context_carry_over(
+            compacted_history,
+            RetainedContextClass::Hooks,
+            HOOK_CARRY_OVER_LIMIT,
+        ),
+        retained_mcp: collect_retained_context_carry_over(
+            compacted_history,
+            RetainedContextClass::Mcp,
+            MCP_CARRY_OVER_LIMIT,
         ),
     }
 }
@@ -386,10 +599,16 @@ fn build_post_compact_history(
         build_compact_boundary_message(before_tokens, carry_over.recent_files.len()),
         Message {
             role: "system".to_string(),
-            content: json!(format!(
-                "STRUCTURED SUMMARY OF PREVIOUS CONVERSATION:\n{}",
-                carry_over.summary
-            )),
+            content: compact_source_content(
+                format!(
+                    "STRUCTURED SUMMARY OF PREVIOUS CONVERSATION:\n{}",
+                    carry_over.summary
+                ),
+                json!({
+                    "type": "compacted_summary",
+                    "text": carry_over.summary,
+                }),
+            ),
         },
     ];
 
@@ -408,10 +627,16 @@ fn append_post_compact_carry_over(history: &mut Vec<Message>, carry_over: &Compa
             .join("\n");
         history.push(Message {
             role: "system".to_string(),
-            content: json!(format!(
-                "RECENT FILES FROM COMPACTED HISTORY:\n{}",
-                recent_files_block
-            )),
+            content: compact_source_content(
+                format!(
+                    "RECENT FILES FROM COMPACTED HISTORY:\n{}",
+                    recent_files_block
+                ),
+                json!({
+                    "type": "recent_files",
+                    "files": carry_over.recent_files.clone(),
+                }),
+            ),
         });
     }
 
@@ -424,12 +649,104 @@ fn append_post_compact_carry_over(history: &mut Vec<Message>, carry_over: &Compa
             .join("\n\n");
         history.push(Message {
             role: "system".to_string(),
-            content: json!(format!(
-                "RECENT FILE EXCERPTS FROM COMPACTED HISTORY:\n{}",
-                excerpt_block
-            )),
+            content: compact_source_content(
+                format!(
+                    "RECENT FILE EXCERPTS FROM COMPACTED HISTORY:\n{}",
+                    excerpt_block
+                ),
+                json!({
+                    "type": "recent_file_excerpts",
+                    "files": carry_over
+                        .recent_file_excerpts
+                        .iter()
+                        .map(recent_file_excerpt_source_item)
+                        .collect::<Vec<_>>(),
+                }),
+            ),
         });
     }
+
+    if !carry_over.retrieved_memory.is_empty() {
+        let memory_block = render_retrieved_memory_carry_over(&carry_over.retrieved_memory);
+        history.push(Message {
+            role: "system".to_string(),
+            content: compact_source_content(
+                format!("MEMORY CARRY-OVER FROM COMPACTED HISTORY:\n{}", memory_block),
+                json!({
+                    "type": "compaction_carry_over",
+                    "kind": "compacted_memory",
+                    "label": "Memory Carry-over",
+                    "source_descriptor": "history.compaction.memory",
+                    "detail": memory_block,
+                    "inclusion_reason": "carried forward because retrieved memory was available before compaction and should remain available after history replacement",
+                }),
+            ),
+        });
+    }
+
+    if !carry_over.invoked_skills.is_empty() {
+        let skill_block = render_invoked_skill_carry_over(&carry_over.invoked_skills);
+        history.push(Message {
+            role: "system".to_string(),
+            content: compact_source_content(
+                format!("SKILL CARRY-OVER FROM COMPACTED HISTORY:\n{}", skill_block),
+                json!({
+                    "type": "compaction_carry_over",
+                    "kind": "compacted_skills",
+                    "label": "Skill Carry-over",
+                    "source_descriptor": "history.compaction.skills",
+                    "detail": skill_block,
+                    "inclusion_reason": "carried forward because these skills were invoked before compaction and may still define the current workflow",
+                }),
+            ),
+        });
+    }
+
+    if !carry_over.retained_hooks.is_empty() {
+        let hook_block = render_retained_context_carry_over(&carry_over.retained_hooks);
+        history.push(Message {
+            role: "system".to_string(),
+            content: compact_source_content(
+                format!("HOOK CARRY-OVER FROM COMPACTED HISTORY:\n{}", hook_block),
+                json!({
+                    "type": "compaction_carry_over",
+                    "kind": "compacted_hooks",
+                    "label": "Hook Carry-over",
+                    "source_descriptor": "history.compaction.hooks",
+                    "detail": hook_block,
+                    "inclusion_reason": "carried forward because hook-provided context requested retention before compaction",
+                }),
+            ),
+        });
+    }
+
+    if !carry_over.retained_mcp.is_empty() {
+        let mcp_block = render_retained_context_carry_over(&carry_over.retained_mcp);
+        history.push(Message {
+            role: "system".to_string(),
+            content: compact_source_content(
+                format!("MCP CARRY-OVER FROM COMPACTED HISTORY:\n{}", mcp_block),
+                json!({
+                    "type": "compaction_carry_over",
+                    "kind": "compacted_mcp",
+                    "label": "MCP Carry-over",
+                    "source_descriptor": "history.compaction.mcp",
+                    "detail": mcp_block,
+                    "inclusion_reason": "carried forward because MCP-provided context requested retention before compaction",
+                }),
+            ),
+        });
+    }
+}
+
+fn compact_source_content(text: String, source_item: Value) -> Value {
+    json!([
+        {
+            "type": "text",
+            "text": text,
+        },
+        source_item,
+    ])
 }
 
 fn compaction_summary_timeout() -> Duration {
@@ -516,6 +833,313 @@ fn collect_recent_files(history: &[Message], limit: usize) -> Vec<String> {
         }
     }
     collected
+}
+
+fn collect_retrieved_memory_carry_over(
+    candidates: &[RetrievedMemoryCandidate],
+    limit: usize,
+) -> Vec<RetrievedMemoryCandidate> {
+    let mut candidates = candidates
+        .iter()
+        .filter(|candidate| !candidate.detail.trim().is_empty())
+        .cloned()
+        .collect::<Vec<_>>();
+    candidates.sort_by_key(|candidate| candidate.rank);
+    candidates.truncate(limit);
+    candidates
+}
+
+fn render_retrieved_memory_carry_over(candidates: &[RetrievedMemoryCandidate]) -> String {
+    candidates
+        .iter()
+        .map(|candidate| {
+            format!(
+                "- [{}] {}: {}",
+                candidate.kind,
+                candidate.label.trim(),
+                candidate.detail.trim()
+            )
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+fn collect_invoked_skill_carry_over(
+    history: &[Message],
+    limit: usize,
+    instruction_preview_char_limit: usize,
+) -> Vec<InvokedSkillCarryOver> {
+    use std::collections::HashMap;
+
+    let mut pending_invocations = HashMap::<String, SkillInvocationInput>::new();
+    let mut invoked = Vec::<InvokedSkillCarryOver>::new();
+
+    for message in history {
+        match message.role.as_str() {
+            "assistant" => {
+                let Some(items) = message.content.as_array() else {
+                    continue;
+                };
+                for item in items {
+                    if item.get("type").and_then(Value::as_str) != Some("tool_use") {
+                        continue;
+                    }
+                    if item.get("name").and_then(Value::as_str) != Some("skill") {
+                        continue;
+                    }
+                    let Some(tool_use_id) = item.get("id").and_then(Value::as_str) else {
+                        continue;
+                    };
+                    let Some(input) = item.get("input").and_then(Value::as_object) else {
+                        continue;
+                    };
+                    if input.get("action").and_then(Value::as_str) != Some("invoke") {
+                        continue;
+                    }
+                    let Some(skill_name) = input.get("skill_name").and_then(Value::as_str) else {
+                        continue;
+                    };
+                    pending_invocations.insert(
+                        tool_use_id.to_string(),
+                        SkillInvocationInput {
+                            name: skill_name.trim().to_string(),
+                            args: input
+                                .get("args")
+                                .and_then(Value::as_str)
+                                .map(str::trim)
+                                .filter(|value| !value.is_empty())
+                                .map(ToString::to_string),
+                        },
+                    );
+                }
+            }
+            "user" => {
+                let Some(items) = message.content.as_array() else {
+                    continue;
+                };
+                for item in items {
+                    if item.get("type").and_then(Value::as_str) != Some("tool_result") {
+                        continue;
+                    }
+                    if item
+                        .get("is_error")
+                        .and_then(Value::as_bool)
+                        .unwrap_or(false)
+                    {
+                        continue;
+                    }
+                    let Some(tool_use_id) = item.get("tool_use_id").and_then(Value::as_str) else {
+                        continue;
+                    };
+                    let Some(invocation) = pending_invocations.remove(tool_use_id) else {
+                        continue;
+                    };
+                    let result = item
+                        .get("content")
+                        .and_then(Value::as_str)
+                        .and_then(|content| serde_json::from_str::<Value>(content).ok());
+                    invoked.retain(|existing| existing.name != invocation.name);
+                    invoked.push(skill_carry_over_from_result(
+                        invocation,
+                        result.as_ref(),
+                        instruction_preview_char_limit,
+                    ));
+                }
+            }
+            _ => {}
+        }
+    }
+
+    if invoked.len() > limit {
+        invoked = invoked[invoked.len() - limit..].to_vec();
+    }
+    invoked.reverse();
+    invoked
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct SkillInvocationInput {
+    name: String,
+    args: Option<String>,
+}
+
+fn skill_carry_over_from_result(
+    invocation: SkillInvocationInput,
+    result: Option<&Value>,
+    instruction_preview_char_limit: usize,
+) -> InvokedSkillCarryOver {
+    let field = |name: &str| {
+        result
+            .and_then(|value| value.get(name))
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(ToString::to_string)
+    };
+
+    InvokedSkillCarryOver {
+        name: field("name").unwrap_or(invocation.name),
+        title: field("title"),
+        scope: field("scope"),
+        display_path: field("display_path"),
+        args: field("args").or(invocation.args),
+        instruction_preview: field("instructions").map(|instructions| {
+            truncate_excerpt(instructions.as_str(), instruction_preview_char_limit)
+                .trim()
+                .to_string()
+        }),
+    }
+}
+
+fn render_invoked_skill_carry_over(skills: &[InvokedSkillCarryOver]) -> String {
+    skills
+        .iter()
+        .map(|skill| {
+            let mut parts = vec![format!("- {}", skill.name.trim())];
+            if let Some(title) = skill.title.as_deref().filter(|value| !value.is_empty()) {
+                parts.push(format!("  title: {}", title.trim()));
+            }
+            if let Some(scope) = skill.scope.as_deref().filter(|value| !value.is_empty()) {
+                parts.push(format!("  scope: {}", scope.trim()));
+            }
+            if let Some(path) = skill
+                .display_path
+                .as_deref()
+                .filter(|value| !value.is_empty())
+            {
+                parts.push(format!("  path: {}", path.trim()));
+            }
+            if let Some(args) = skill.args.as_deref().filter(|value| !value.is_empty()) {
+                parts.push(format!("  args: {}", args.trim()));
+            }
+            if let Some(preview) = skill
+                .instruction_preview
+                .as_deref()
+                .filter(|value| !value.is_empty())
+            {
+                parts.push(format!("  instructions: {}", preview.trim()));
+            }
+            parts.join("\n")
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum RetainedContextClass {
+    Hooks,
+    Mcp,
+}
+
+fn collect_retained_context_carry_over(
+    history: &[Message],
+    class: RetainedContextClass,
+    limit: usize,
+) -> Vec<RetainedContextCarryOver> {
+    let mut retained = Vec::<RetainedContextCarryOver>::new();
+
+    for message in history {
+        for item in message_content_items(&message.content) {
+            let Some(entry) = retained_context_carry_over_from_item(item, class) else {
+                continue;
+            };
+            retained.retain(|existing| existing.source_descriptor != entry.source_descriptor);
+            retained.push(entry);
+        }
+    }
+
+    if retained.len() > limit {
+        retained = retained[retained.len() - limit..].to_vec();
+    }
+    retained.reverse();
+    retained
+}
+
+fn message_content_items(content: &Value) -> Vec<&Value> {
+    if let Some(items) = content.as_array() {
+        return items.iter().collect();
+    }
+    content
+        .as_object()
+        .map(|_| vec![content])
+        .unwrap_or_default()
+}
+
+fn retained_context_carry_over_from_item(
+    item: &Value,
+    class: RetainedContextClass,
+) -> Option<RetainedContextCarryOver> {
+    if item.get("type").and_then(Value::as_str) != Some("compaction_retain_hint") {
+        return None;
+    }
+
+    let source_descriptor = item
+        .get("source_descriptor")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())?;
+    if !retained_context_descriptor_matches(source_descriptor, class) {
+        return None;
+    }
+
+    let detail = item
+        .get("detail")
+        .or_else(|| item.get("text"))
+        .or_else(|| item.get("content"))
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())?;
+    let label = item
+        .get("label")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .unwrap_or(source_descriptor);
+    let inclusion_reason = item
+        .get("inclusion_reason")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(ToString::to_string);
+
+    Some(RetainedContextCarryOver {
+        label: label.to_string(),
+        source_descriptor: source_descriptor.to_string(),
+        detail: detail.to_string(),
+        inclusion_reason,
+    })
+}
+
+fn retained_context_descriptor_matches(
+    source_descriptor: &str,
+    class: RetainedContextClass,
+) -> bool {
+    match class {
+        RetainedContextClass::Hooks => source_descriptor.starts_with("hook."),
+        RetainedContextClass::Mcp => source_descriptor.starts_with("mcp."),
+    }
+}
+
+fn render_retained_context_carry_over(entries: &[RetainedContextCarryOver]) -> String {
+    entries
+        .iter()
+        .map(|entry| {
+            let mut parts = vec![
+                format!("- {}", entry.label.trim()),
+                format!("  source: {}", entry.source_descriptor.trim()),
+                format!("  detail: {}", entry.detail.trim()),
+            ];
+            if let Some(reason) = entry
+                .inclusion_reason
+                .as_deref()
+                .filter(|value| !value.is_empty())
+            {
+                parts.push(format!("  reason: {}", reason.trim()));
+            }
+            parts.join("\n")
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
 }
 
 fn collect_recent_file_excerpts(
@@ -653,24 +1277,39 @@ fn truncate_excerpt(text: &str, max_chars: usize) -> String {
     format!("{truncated}\n... truncated.")
 }
 
+fn recent_file_excerpt_source_item(excerpt: &RecentFileExcerpt) -> Value {
+    let mut item = json!({
+        "path": excerpt.path.clone(),
+        "snippet": excerpt.snippet.clone(),
+    });
+    if let Some((line_start, line_end)) = excerpt.line_range {
+        item["line_start"] = json!(line_start);
+        item["line_end"] = json!(line_end);
+    }
+    item
+}
+
 fn build_compact_boundary_message(before_tokens: usize, recent_file_count: usize) -> Message {
     Message {
         role: "system".to_string(),
-        content: json!({
-            "type": COMPACT_BOUNDARY_KIND,
-            "version": COMPACT_BOUNDARY_VERSION,
-            "before_tokens": before_tokens,
-            "recent_file_count": recent_file_count,
-        }),
+        content: compact_source_content(
+            format!(
+                "COMPACTION BOUNDARY: version={} before_tokens={} recent_file_count={}",
+                COMPACT_BOUNDARY_VERSION, before_tokens, recent_file_count
+            ),
+            json!({
+                "type": COMPACT_BOUNDARY_KIND,
+                "version": COMPACT_BOUNDARY_VERSION,
+                "before_tokens": before_tokens,
+                "recent_file_count": recent_file_count,
+            }),
+        ),
     }
 }
 
 pub fn latest_compact_boundary_metadata(history: &[Message]) -> Option<CompactBoundaryMetadata> {
     history.iter().rev().find_map(|message| {
-        let content = message.content.as_object()?;
-        if content.get("type").and_then(Value::as_str) != Some(COMPACT_BOUNDARY_KIND) {
-            return None;
-        }
+        let content = compact_boundary_item(&message.content)?;
         Some(CompactBoundaryMetadata {
             version: content
                 .get("version")
@@ -685,6 +1324,20 @@ pub fn latest_compact_boundary_metadata(history: &[Message]) -> Option<CompactBo
                 .and_then(Value::as_u64)
                 .unwrap_or_default() as usize,
         })
+    })
+}
+
+pub(crate) fn compact_boundary_item(content: &Value) -> Option<&serde_json::Map<String, Value>> {
+    if let Some(object) = content.as_object() {
+        if content.get("type").and_then(Value::as_str) != Some(COMPACT_BOUNDARY_KIND) {
+            return None;
+        }
+        return Some(object);
+    }
+    content.as_array()?.iter().find_map(|item| {
+        let object = item.as_object()?;
+        (object.get("type").and_then(Value::as_str) == Some(COMPACT_BOUNDARY_KIND))
+            .then_some(object)
     })
 }
 

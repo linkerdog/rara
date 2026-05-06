@@ -75,17 +75,42 @@ Storage: `~/.rara/threads/`.
 Current backend slice:
 
 - `load_thread(session_id) -> ThreadSnapshot` materializes canonical history,
-  state-db metadata, plan state, interactions, turns, and compaction events.
+  structured thread metadata, plan state, interactions, turns, and compaction events.
+- `ThreadStore` can be constructed from explicit rollout and legacy-session
+  roots; the materialization path reads `transcript.jsonl`, `history.json`,
+  legacy history, and compaction migrations directly instead of delegating those
+  reads back through `SessionManager`.
+- History checkpoints enter through `ThreadRecorder`, update the canonical
+  `transcript.jsonl` before writing the compatibility `history.json` snapshot,
+  and therefore keep resume from observing a newer snapshot ahead of the typed
+  transcript.
 - `fork_thread(session_id) -> String` copies the materialized state into a new
   session id and records lineage.
+- `ThreadRecorder` owns append/flush/shutdown operations for structured rollout
+  items and routes compaction events through the same append-only recorder path.
+- Runtime rollout snapshots are normalized by `ThreadRecorder` into one
+  canonical `runtime_state` event before appending to `events.jsonl`; `StateDb`
+  side tables remain compatibility/index surfaces.
+- Runtime metadata is written to per-session `thread.json` before updating the
+  `StateDb` listing/index row. `ThreadStore` prefers `thread.json` and only
+  falls back to `StateDb` metadata for older sessions.
+- `ThreadStore` treats `runtime_state` entries as snapshots and materializes
+  only the latest snapshot into current plan/interactions, avoiding duplicate
+  rollout items from stale snapshots.
+- Committed TUI turns are appended to per-session `turns.jsonl` through
+  `ThreadRecorder`; `ThreadStore` prefers that log and only falls back to
+  `StateDb` turn rows for older sessions.
+- Runtime compaction writes also go through `ThreadRecorder`, so manual/auto
+  compaction and fork replay share the same structured rollout event boundary.
 - `export_thread_markdown(session_id) -> String` renders a portable markdown
   transcript with frontmatter, summary, and message sections.
 - `distill_thread_summary(memory_store, session_id) -> Option<MemoryRecord>`
   persists one summary-style `MemoryRecord` linked to the source session/thread.
 
-The current implementation still stores thread metadata in `StateDb` and
-history/rollout artifacts through `SessionManager`; it is a structured backend
-contract, not yet a dedicated LanceDB thread table.
+The current implementation still keeps `history.json` as a compatibility
+snapshot beside the canonical transcript and keeps `StateDb` as the listing and
+legacy side-table fallback. The structured thread source lives under the
+per-session rollout directory rather than a dedicated LanceDB thread table.
 
 ## Conversation Markdown Format
 

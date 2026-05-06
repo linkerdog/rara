@@ -1,6 +1,8 @@
 use std::fs;
 use std::io::{BufRead, BufReader, BufWriter, ErrorKind, Write};
 use std::path::{Path, PathBuf};
+use std::sync::{Mutex, OnceLock};
+use std::time::SystemTime;
 
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
@@ -11,6 +13,32 @@ use crate::atomic_file;
 
 const TRANSCRIPT_FILE_NAME: &str = "transcript.jsonl";
 const TRANSCRIPT_SCHEMA_VERSION: u32 = 1;
+const TRANSCRIPT_CACHE_MAX_ENTRIES: usize = 256;
+
+#[derive(Clone)]
+struct TranscriptCacheEntry {
+    modified: Option<SystemTime>,
+    len: u64,
+    load: SessionTranscriptLoad,
+}
+
+fn transcript_cache() -> &'static Mutex<std::collections::HashMap<PathBuf, TranscriptCacheEntry>> {
+    static CACHE: OnceLock<Mutex<std::collections::HashMap<PathBuf, TranscriptCacheEntry>>> =
+        OnceLock::new();
+    CACHE.get_or_init(|| Mutex::new(std::collections::HashMap::new()))
+}
+
+fn prune_transcript_cache(
+    cache: &mut std::collections::HashMap<PathBuf, TranscriptCacheEntry>,
+    preserve: &Path,
+) {
+    while cache.len() >= TRANSCRIPT_CACHE_MAX_ENTRIES {
+        let Some(key) = cache.keys().find(|key| key.as_path() != preserve).cloned() else {
+            break;
+        };
+        cache.remove(&key);
+    }
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(tag = "type", rename_all = "snake_case")]
@@ -95,6 +123,82 @@ pub fn subagent_transcript_path(
         .join(format!("agent-{}.jsonl", sanitize_path_component(agent_id)))
 }
 
+pub struct ThreadTranscriptRecorder {
+    path: PathBuf,
+    scope: TranscriptScope,
+}
+
+impl ThreadTranscriptRecorder {
+    pub fn main(root_dir: &Path, session_id: impl Into<String>) -> Self {
+        let scope = TranscriptScope::main(session_id);
+        let path = main_transcript_path(root_dir, &scope.session_id);
+        Self { path, scope }
+    }
+
+    pub fn append_entry(&self, entry: &SessionTranscriptEntry) -> Result<()> {
+        append_entry(&self.path, entry)
+    }
+
+    pub fn sync_history_checkpoint(&self, history: &[Message]) -> Result<()> {
+        if self.path.exists() {
+            let mut load = load_transcript_cached(&self.path)?;
+            let visible_history = model_visible_messages(&load.entries);
+            if load.parse_errors == 0
+                && visible_history.len() <= history.len()
+                && visible_history == history[..visible_history.len()]
+            {
+                if load.entries.is_empty() {
+                    let entry = session_meta_entry(&self.scope);
+                    self.append_entry(&entry)?;
+                    load.entries.push(entry);
+                }
+                let appended = self.append_history_from(history, visible_history.len())?;
+                load.entries.extend(appended);
+                cache_transcript_load_if_present(
+                    &self.path,
+                    SessionTranscriptLoad {
+                        entries: load.entries,
+                        parse_errors: 0,
+                    },
+                );
+                return Ok(());
+            }
+        }
+        self.rewrite_history(history)
+    }
+
+    pub fn append_history_from(
+        &self,
+        history: &[Message],
+        start_idx: usize,
+    ) -> Result<Vec<SessionTranscriptEntry>> {
+        let mut appended = Vec::new();
+        for idx in start_idx..history.len() {
+            let entry = message_entry(&self.scope, idx, &history[idx]);
+            self.append_entry(&entry)?;
+            appended.push(entry);
+        }
+        Ok(appended)
+    }
+
+    pub fn rewrite_history(&self, history: &[Message]) -> Result<()> {
+        write_message_snapshot(&self.path, &self.scope, history)
+    }
+
+    pub fn flush(&self) -> Result<()> {
+        if let Some(parent) = self.path.parent()
+            && parent.exists()
+        {
+            sync_parent_dir_best_effort(parent);
+        }
+        Ok(())
+    }
+
+    pub fn shutdown(self) -> Result<()> {
+        self.flush()
+    }
+}
+
 pub fn write_history_snapshot(
     root_dir: &Path,
     session_id: &str,
@@ -102,6 +206,16 @@ pub fn write_history_snapshot(
 ) -> Result<()> {
     let scope = TranscriptScope::main(session_id);
     write_message_snapshot(&main_transcript_path(root_dir, session_id), &scope, history)
+}
+
+pub fn sync_history_checkpoint(
+    root_dir: &Path,
+    session_id: &str,
+    history: &[Message],
+) -> Result<()> {
+    let recorder = ThreadTranscriptRecorder::main(root_dir, session_id);
+    recorder.sync_history_checkpoint(history)?;
+    recorder.shutdown()
 }
 
 pub fn write_message_snapshot(
@@ -126,6 +240,10 @@ pub fn append_entry(path: &Path, entry: &SessionTranscriptEntry) -> Result<()> {
     writer.write_all(b"\n")?;
     writer.flush()?;
     writer.into_inner()?.sync_all()?;
+    transcript_cache()
+        .lock()
+        .expect("session transcript cache mutex poisoned")
+        .remove(path);
     Ok(())
 }
 
@@ -168,6 +286,40 @@ pub fn load_transcript(path: &Path) -> Result<SessionTranscriptLoad> {
     })
 }
 
+fn load_transcript_cached(path: &Path) -> Result<SessionTranscriptLoad> {
+    if !path.exists() {
+        return Ok(SessionTranscriptLoad::default());
+    }
+    let metadata = fs::metadata(path)?;
+    let modified = metadata.modified().ok();
+    let len = metadata.len();
+    {
+        let cache = transcript_cache()
+            .lock()
+            .expect("session transcript cache mutex poisoned");
+        if let Some(entry) = cache.get(path)
+            && entry.modified == modified
+            && entry.len == len
+        {
+            return Ok(entry.load.clone());
+        }
+    }
+    let load = load_transcript(path)?;
+    let mut cache = transcript_cache()
+        .lock()
+        .expect("session transcript cache mutex poisoned");
+    prune_transcript_cache(&mut cache, path);
+    cache.insert(
+        path.to_path_buf(),
+        TranscriptCacheEntry {
+            modified,
+            len,
+            load: load.clone(),
+        },
+    );
+    Ok(load)
+}
+
 pub fn model_visible_messages(entries: &[SessionTranscriptEntry]) -> Vec<Message> {
     entries
         .iter()
@@ -191,25 +343,33 @@ fn entries_for_messages(
     messages: &[Message],
 ) -> Vec<SessionTranscriptEntry> {
     let mut entries = Vec::with_capacity(messages.len().saturating_add(1));
-    entries.push(SessionTranscriptEntry::SessionMeta {
+    entries.push(session_meta_entry(scope));
+    for (idx, message) in messages.iter().enumerate() {
+        entries.push(message_entry(scope, idx, message));
+    }
+    entries
+}
+
+fn session_meta_entry(scope: &TranscriptScope) -> SessionTranscriptEntry {
+    SessionTranscriptEntry::SessionMeta {
         schema_version: TRANSCRIPT_SCHEMA_VERSION,
         session_id: scope.session_id.clone(),
         parent_session_id: scope.parent_session_id.clone(),
         agent_id: scope.agent_id.clone(),
         is_sidechain: scope.is_sidechain,
-    });
-    for (idx, message) in messages.iter().enumerate() {
-        entries.push(SessionTranscriptEntry::Message {
-            message_id: message_id(idx),
-            parent_message_id: idx.checked_sub(1).map(message_id),
-            session_id: scope.session_id.clone(),
-            agent_id: scope.agent_id.clone(),
-            is_sidechain: scope.is_sidechain,
-            role: message.role.clone(),
-            content: message.content.clone(),
-        });
     }
-    entries
+}
+
+fn message_entry(scope: &TranscriptScope, idx: usize, message: &Message) -> SessionTranscriptEntry {
+    SessionTranscriptEntry::Message {
+        message_id: message_id(idx),
+        parent_message_id: idx.checked_sub(1).map(message_id),
+        session_id: scope.session_id.clone(),
+        agent_id: scope.agent_id.clone(),
+        is_sidechain: scope.is_sidechain,
+        role: message.role.clone(),
+        content: message.content.clone(),
+    }
 }
 
 fn write_entries_atomic(path: &Path, entries: &[SessionTranscriptEntry]) -> Result<()> {
@@ -227,6 +387,13 @@ fn write_entries_atomic(path: &Path, entries: &[SessionTranscriptEntry]) -> Resu
         writer.flush()?;
         writer.into_inner()?.sync_all()?;
         atomic_file::replace_file(&tmp_path, path)?;
+        cache_transcript_load_if_present(
+            path,
+            SessionTranscriptLoad {
+                entries: entries.to_vec(),
+                parse_errors: 0,
+            },
+        );
         Ok(())
     })();
     if let Err(err) = result {
@@ -235,6 +402,34 @@ fn write_entries_atomic(path: &Path, entries: &[SessionTranscriptEntry]) -> Resu
     }
     Ok(())
 }
+
+fn cache_transcript_load_if_present(path: &Path, load: SessionTranscriptLoad) {
+    let Ok(metadata) = fs::metadata(path) else {
+        return;
+    };
+    let mut cache = transcript_cache()
+        .lock()
+        .expect("session transcript cache mutex poisoned");
+    prune_transcript_cache(&mut cache, path);
+    cache.insert(
+        path.to_path_buf(),
+        TranscriptCacheEntry {
+            modified: metadata.modified().ok(),
+            len: metadata.len(),
+            load,
+        },
+    );
+}
+
+#[cfg(unix)]
+fn sync_parent_dir_best_effort(parent: &Path) {
+    if let Ok(dir) = fs::File::open(parent) {
+        let _ = dir.sync_all();
+    }
+}
+
+#[cfg(not(unix))]
+fn sync_parent_dir_best_effort(_parent: &Path) {}
 
 fn message_id(idx: usize) -> String {
     format!("msg-{idx:06}")
@@ -250,6 +445,7 @@ fn sanitize_path_component(value: &str) -> String {
 
 #[cfg(test)]
 mod tests {
+    use std::fs;
     use std::io::Write;
 
     use anyhow::Result;
@@ -257,8 +453,9 @@ mod tests {
     use tempfile::tempdir;
 
     use super::{
-        SessionTranscriptEntry, TranscriptScope, append_entry, load_transcript,
-        main_transcript_path, model_visible_messages, subagent_transcript_path,
+        SessionTranscriptEntry, TRANSCRIPT_CACHE_MAX_ENTRIES, TranscriptScope, append_entry,
+        load_transcript, load_transcript_cached, main_transcript_path, model_visible_messages,
+        subagent_transcript_path, sync_history_checkpoint, transcript_cache,
         write_history_snapshot, write_message_snapshot,
     };
     use crate::agent::Message;
@@ -309,6 +506,94 @@ mod tests {
             } if message_id == "msg-000001" && parent == "msg-000000" && role == "assistant"
         ));
         assert_eq!(model_visible_messages(&load.entries), history);
+        Ok(())
+    }
+
+    #[test]
+    fn sync_history_checkpoint_appends_when_existing_transcript_is_prefix() -> Result<()> {
+        let temp = tempdir()?;
+        let first = vec![Message {
+            role: "user".to_string(),
+            content: json!("first"),
+        }];
+        let full = vec![
+            Message {
+                role: "user".to_string(),
+                content: json!("first"),
+            },
+            Message {
+                role: "assistant".to_string(),
+                content: json!("second"),
+            },
+        ];
+        sync_history_checkpoint(temp.path(), "session-append", &first)?;
+        sync_history_checkpoint(temp.path(), "session-append", &full)?;
+
+        let path = main_transcript_path(temp.path(), "session-append");
+        let raw = fs::read_to_string(&path)?;
+        assert_eq!(raw.lines().count(), 3);
+        let load = load_transcript(&path)?;
+        assert_eq!(load.parse_errors, 0);
+        assert_eq!(model_visible_messages(&load.entries), full);
+        assert!(matches!(
+            &load.entries[2],
+            SessionTranscriptEntry::Message {
+                message_id,
+                parent_message_id,
+                ..
+            } if message_id == "msg-000001" && parent_message_id.as_deref() == Some("msg-000000")
+        ));
+        Ok(())
+    }
+
+    #[test]
+    fn sync_history_checkpoint_rewrites_when_existing_transcript_is_not_prefix() -> Result<()> {
+        let temp = tempdir()?;
+        let original = vec![Message {
+            role: "user".to_string(),
+            content: json!("original"),
+        }];
+        let replacement = vec![Message {
+            role: "user".to_string(),
+            content: json!("replacement"),
+        }];
+        sync_history_checkpoint(temp.path(), "session-rewrite", &original)?;
+        sync_history_checkpoint(temp.path(), "session-rewrite", &replacement)?;
+
+        let path = main_transcript_path(temp.path(), "session-rewrite");
+        let raw = fs::read_to_string(&path)?;
+        assert_eq!(raw.lines().count(), 2);
+        let load = load_transcript(&path)?;
+        assert_eq!(load.parse_errors, 0);
+        assert_eq!(model_visible_messages(&load.entries), replacement);
+        Ok(())
+    }
+
+    #[test]
+    fn thread_transcript_recorder_exposes_append_flush_and_shutdown() -> Result<()> {
+        let temp = tempdir()?;
+        let recorder = super::ThreadTranscriptRecorder::main(temp.path(), "session-recorder");
+        recorder.append_entry(&SessionTranscriptEntry::SessionMeta {
+            schema_version: 1,
+            session_id: "session-recorder".to_string(),
+            parent_session_id: None,
+            agent_id: None,
+            is_sidechain: false,
+        })?;
+        recorder.append_history_from(
+            &[Message {
+                role: "user".to_string(),
+                content: json!("hello"),
+            }],
+            0,
+        )?;
+        recorder.flush()?;
+        recorder.shutdown()?;
+
+        let path = main_transcript_path(temp.path(), "session-recorder");
+        let load = load_transcript(&path)?;
+        assert_eq!(load.parse_errors, 0);
+        assert_eq!(model_visible_messages(&load.entries).len(), 1);
         Ok(())
     }
 
@@ -427,5 +712,39 @@ mod tests {
         assert_ne!(slash_path, colon_path);
         assert!(slash_path.ends_with("subagents/agent-review%2Fworker.jsonl"));
         assert!(colon_path.ends_with("subagents/agent-review%3Aworker.jsonl"));
+    }
+
+    #[test]
+    fn transcript_cache_is_bounded() -> Result<()> {
+        transcript_cache()
+            .lock()
+            .expect("session transcript cache mutex poisoned")
+            .clear();
+        let temp = tempdir()?;
+
+        for index in 0..=TRANSCRIPT_CACHE_MAX_ENTRIES {
+            let session_id = format!("session-{index}");
+            let path = main_transcript_path(temp.path(), &session_id);
+            append_entry(
+                &path,
+                &SessionTranscriptEntry::Message {
+                    message_id: format!("message-{index}"),
+                    parent_message_id: None,
+                    session_id,
+                    agent_id: None,
+                    is_sidechain: false,
+                    role: "user".to_string(),
+                    content: json!(format!("hello {index}")),
+                },
+            )?;
+            let load = load_transcript_cached(&path)?;
+            assert_eq!(load.entries.len(), 1);
+        }
+
+        let cache = transcript_cache()
+            .lock()
+            .expect("session transcript cache mutex poisoned");
+        assert!(cache.len() <= TRANSCRIPT_CACHE_MAX_ENTRIES);
+        Ok(())
     }
 }

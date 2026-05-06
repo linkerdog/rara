@@ -1,15 +1,22 @@
-use anyhow::Result;
+use std::collections::BTreeMap;
+use std::fs;
+use std::io::Write;
+use std::path::{Path, PathBuf};
+
+use anyhow::{Context, Result, anyhow};
 use uuid::Uuid;
 
 use crate::agent::Message;
+use crate::atomic_file;
 use crate::memory_store::{
     MemoryLabel, MemoryRecord, MemoryScope, MemorySource, MemorySourceSpan, MemoryStore,
     NewMemoryRecord,
 };
 use crate::session::{
-    PersistedCompactionEvent, PersistedCompactionEventsSource, PersistedThreadHistorySource,
-    SessionManager,
+    PersistedCompactionEvent, PersistedCompactionEventsMigration, PersistedCompactionEventsSource,
+    PersistedThreadHistoryMigration, PersistedThreadHistorySource, SessionManager,
 };
+use crate::session_transcript::{self, ThreadTranscriptRecorder};
 use crate::state_db::{
     PersistedCompactState, PersistedInteraction, PersistedLegacyRolloutMigration,
     PersistedLegacyRolloutSource, PersistedPlanStep, PersistedPromptRuntimeState,
@@ -17,6 +24,9 @@ use crate::state_db::{
     PersistedThreadLineage, PersistedThreadRecord, PersistedTurnEntry, PersistedTurnSummary,
     StateDb,
 };
+use crate::thread_metadata;
+use crate::thread_rollout_log::{self, RolloutEventRecorder};
+use crate::thread_turn_log;
 
 #[cfg(test)]
 mod tests;
@@ -28,6 +38,9 @@ pub struct CompactionRecord {
     pub after_tokens: Option<usize>,
     pub recent_file_count: Option<usize>,
     pub boundary_version: Option<u32>,
+    pub replaced_start: Option<usize>,
+    pub replaced_end: Option<usize>,
+    pub metadata_owner: Option<String>,
     pub recent_files: Vec<String>,
     pub summary: Option<String>,
 }
@@ -40,6 +53,9 @@ impl From<PersistedCompactState> for CompactionRecord {
             after_tokens: value.last_compaction_after_tokens,
             recent_file_count: value.last_compaction_recent_file_count,
             boundary_version: value.last_compaction_boundary_version,
+            replaced_start: None,
+            replaced_end: None,
+            metadata_owner: None,
             recent_files: Vec::new(),
             summary: None,
         }
@@ -54,6 +70,9 @@ impl From<PersistedCompactionEvent> for CompactionRecord {
             after_tokens: Some(value.after_tokens),
             recent_file_count: Some(value.recent_files.len()),
             boundary_version: Some(value.boundary_version),
+            replaced_start: value.replaced_start,
+            replaced_end: value.replaced_end,
+            metadata_owner: value.metadata_owner,
             recent_files: value.recent_files,
             summary: Some(value.summary),
         }
@@ -87,12 +106,14 @@ pub struct ThreadSummary {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ThreadMetadataSource {
+    StructuredMetadata,
     StateDb,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ThreadHistorySource {
     CanonicalHistory,
+    HistorySnapshotBackfilled,
     LegacyHistoryBackfilled,
     Missing,
 }
@@ -117,10 +138,12 @@ impl ThreadMaterializationProvenance {
     /// was sourced from, making the legacy-fallback hierarchy explicit.
     pub fn describe(&self) -> String {
         let metadata = match self.metadata_source {
-            ThreadMetadataSource::StateDb => "StateDb (canonical)",
+            ThreadMetadataSource::StructuredMetadata => "structured thread metadata",
+            ThreadMetadataSource::StateDb => "StateDb fallback",
         };
         let history = match self.history_source {
-            ThreadHistorySource::CanonicalHistory => "canonical history.json",
+            ThreadHistorySource::CanonicalHistory => "canonical transcript.jsonl",
+            ThreadHistorySource::HistorySnapshotBackfilled => "history.json snapshot (backfilled)",
             ThreadHistorySource::LegacyHistoryBackfilled => "legacy session JSON (backfilled)",
             ThreadHistorySource::Missing => "missing",
         };
@@ -197,6 +220,9 @@ impl From<PersistedRecentThreadRecord> for ThreadSummary {
                 after_tokens: value.last_compaction_after_tokens,
                 recent_file_count: value.last_compaction_recent_file_count,
                 boundary_version: value.last_compaction_boundary_version,
+                replaced_start: None,
+                replaced_end: None,
+                metadata_owner: None,
                 recent_files: Vec::new(),
                 summary: None,
             },
@@ -279,7 +305,8 @@ struct LegacyNonTurnRolloutMigration {
 }
 
 pub struct ThreadStore<'a> {
-    session_manager: &'a SessionManager,
+    rollout_root: PathBuf,
+    legacy_session_root: PathBuf,
     state_db: &'a StateDb,
 }
 
@@ -294,8 +321,21 @@ impl<'a> ThreadStore<'a> {
     }
 
     pub fn new(session_manager: &'a SessionManager, state_db: &'a StateDb) -> Self {
+        Self::new_for_roots(
+            session_manager.storage_dir.clone(),
+            session_manager.legacy_storage_dir.clone(),
+            state_db,
+        )
+    }
+
+    pub fn new_for_roots(
+        rollout_root: PathBuf,
+        legacy_session_root: PathBuf,
+        state_db: &'a StateDb,
+    ) -> Self {
         Self {
-            session_manager,
+            rollout_root,
+            legacy_session_root,
             state_db,
         }
     }
@@ -357,9 +397,8 @@ impl<'a> ThreadStore<'a> {
             forked_from_thread_id: Some(source_thread_id.to_string()),
         };
 
-        self.session_manager
-            .save_session(&forked_thread_id, &materialized.history)?;
         let recorder = ThreadRecorder::new(self.state_db);
+        recorder.persist_history_checkpoint(&forked_thread_id, &materialized.history)?;
         recorder.persist_runtime_state_with_lineage(
             &ThreadRuntimeState {
                 session_id: &forked_thread_id,
@@ -384,19 +423,8 @@ impl<'a> ThreadStore<'a> {
         recorder.replace_plan_steps(&forked_thread_id, &materialized.plan_steps)?;
         recorder.replace_interactions(&forked_thread_id, &materialized.interactions)?;
 
-        for compaction in self
-            .session_manager
-            .load_compaction_events(source_thread_id)?
-        {
-            self.state_db.append_compaction_rollout_event(
-                &forked_thread_id,
-                compaction.event_index,
-                compaction.before_tokens,
-                compaction.after_tokens,
-                compaction.boundary_version,
-                &compaction.recent_files,
-                &compaction.summary,
-            )?;
+        for compaction in self.load_compaction_events(source_thread_id)? {
+            recorder.persist_compaction_event(&forked_thread_id, &compaction)?;
         }
 
         recorder.replace_runtime_rollout_events(
@@ -409,26 +437,23 @@ impl<'a> ThreadStore<'a> {
             }],
         )?;
 
-        for summary in self.state_db.load_turn_summaries(source_thread_id)? {
-            let entries = self
-                .state_db
-                .load_turn_entries(source_thread_id, summary.ordinal)?;
-            recorder.persist_turn(&forked_thread_id, summary.ordinal, &entries)?;
+        for item in self.load_turn_items(source_thread_id)? {
+            recorder.persist_turn(&forked_thread_id, item.summary.ordinal, &item.entries)?;
         }
 
         Ok(forked_thread_id)
     }
 
     fn materialize_thread_state(&self, session_id: &str) -> Result<ThreadMaterializedState> {
-        let (history, history_source) = match self
-            .session_manager
-            .load_thread_history_migration(session_id)
-        {
+        let (history, history_source) = match self.load_thread_history_migration(session_id) {
             Ok(migration) => (
                 migration.history,
                 match migration.source {
-                    PersistedThreadHistorySource::Canonical => {
+                    PersistedThreadHistorySource::Transcript => {
                         ThreadHistorySource::CanonicalHistory
+                    }
+                    PersistedThreadHistorySource::SnapshotBackfilled => {
+                        ThreadHistorySource::HistorySnapshotBackfilled
                     }
                     PersistedThreadHistorySource::LegacyBackfilled => {
                         ThreadHistorySource::LegacyHistoryBackfilled
@@ -440,14 +465,13 @@ impl<'a> ThreadStore<'a> {
             }
             Err(err) => return Err(err),
         };
-        let metadata_record = self.state_db.load_thread_record(session_id)?;
+        let (metadata_record, metadata_source) = self.load_thread_metadata(session_id)?;
         if metadata_record.is_none() {
-            anyhow::bail!("Thread {session_id} not found in state db");
+            anyhow::bail!("Thread {session_id} not found in thread metadata");
         }
-        let metadata_source = ThreadMetadataSource::StateDb;
-        let metadata = metadata_record
-            .map(ThreadMetadata::from)
-            .expect("metadata record checked above");
+        let metadata_record = metadata_record.expect("metadata record checked above");
+        let mut plan_explanation = metadata_record.plan_explanation.clone();
+        let metadata = ThreadMetadata::from(metadata_record);
         let LegacyNonTurnRolloutMigration {
             structured_events,
             runtime_rollout: migration_runtime_rollout,
@@ -469,20 +493,9 @@ impl<'a> ThreadStore<'a> {
                     .map(CompactionRecord::from)
                     .unwrap_or_default()
             });
-        let mut plan_explanation = self.state_db.load_session_plan_explanation(session_id)?;
         let mut plan_steps = self.state_db.load_plan_steps(session_id)?;
         let mut interactions = self.state_db.load_interactions(session_id)?;
-        let turn_items = self
-            .state_db
-            .load_turn_summaries(session_id)?
-            .into_iter()
-            .map(|summary| {
-                let entries = self
-                    .state_db
-                    .load_turn_entries(session_id, summary.ordinal)?;
-                Ok(RolloutItem::Turn(RolloutTurnItem { summary, entries }))
-            })
-            .collect::<Result<Vec<_>>>()?;
+        let turn_items = self.load_turn_items(session_id)?;
         let mut rollout_items = Vec::new();
         let mut ordered_rollout_items = Vec::new();
         let mut rollout_order = 0usize;
@@ -500,6 +513,7 @@ impl<'a> ThreadStore<'a> {
         let mut structured_plan_explanation = None;
         let mut structured_plan_steps = Vec::new();
         let mut structured_interactions = Vec::new();
+        let mut latest_runtime_state = None;
         for item in structured_events {
             match item {
                 PersistedStructuredRolloutEvent::Compaction {
@@ -508,6 +522,9 @@ impl<'a> ThreadStore<'a> {
                     before_tokens,
                     after_tokens,
                     boundary_version,
+                    replaced_start,
+                    replaced_end,
+                    metadata_owner,
                     recent_files,
                     summary,
                 } => push_rollout_item(
@@ -520,6 +537,9 @@ impl<'a> ThreadStore<'a> {
                         after_tokens: Some(after_tokens),
                         recent_file_count: Some(recent_files.len()),
                         boundary_version: Some(boundary_version),
+                        replaced_start,
+                        replaced_end,
+                        metadata_owner,
                         recent_files,
                         summary: Some(summary),
                     }),
@@ -536,22 +556,17 @@ impl<'a> ThreadStore<'a> {
                     plan_explanation = explanation.clone();
                     plan_steps = steps.clone();
                     interactions = runtime_interactions.clone();
-                    if !steps.is_empty() || explanation.is_some() {
-                        push_rollout_item(
-                            &mut ordered_rollout_items,
-                            &mut rollout_order,
-                            recorded_at.unwrap_or(0),
-                            RolloutItem::PlanState { explanation, steps },
-                        );
-                    }
-                    for interaction in runtime_interactions {
-                        push_rollout_item(
-                            &mut ordered_rollout_items,
-                            &mut rollout_order,
-                            recorded_at.unwrap_or(0),
-                            RolloutItem::Interaction(interaction),
-                        );
-                    }
+                    let base_order = rollout_order;
+                    let reserved_items = usize::from(!steps.is_empty() || explanation.is_some())
+                        + runtime_interactions.len();
+                    rollout_order += reserved_items.max(1);
+                    latest_runtime_state = Some((
+                        recorded_at.unwrap_or(0),
+                        base_order,
+                        explanation,
+                        steps,
+                        runtime_interactions,
+                    ));
                 }
                 PersistedStructuredRolloutEvent::PlanState {
                     recorded_at,
@@ -604,6 +619,28 @@ impl<'a> ThreadStore<'a> {
                         },
                     );
                 }
+            }
+        }
+
+        if let Some((recorded_at, base_order, explanation, steps, runtime_interactions)) =
+            latest_runtime_state
+        {
+            let mut item_order = base_order;
+            if !steps.is_empty() || explanation.is_some() {
+                ordered_rollout_items.push((
+                    recorded_at,
+                    item_order,
+                    RolloutItem::PlanState { explanation, steps },
+                ));
+                item_order += 1;
+            }
+            for interaction in runtime_interactions {
+                ordered_rollout_items.push((
+                    recorded_at,
+                    item_order,
+                    RolloutItem::Interaction(interaction),
+                ));
+                item_order += 1;
             }
         }
 
@@ -741,18 +778,12 @@ impl<'a> ThreadStore<'a> {
             }
         }
         for item in turn_items {
-            let timestamp = match &item {
-                RolloutItem::Turn(turn) => turn.summary.updated_at,
-                RolloutItem::Compaction(_)
-                | RolloutItem::PlanState { .. }
-                | RolloutItem::Interaction(_)
-                | RolloutItem::SpawnAgent { .. } => 0,
-            };
+            let timestamp = item.summary.updated_at;
             push_rollout_item(
                 &mut ordered_rollout_items,
                 &mut rollout_order,
                 timestamp,
-                item,
+                RolloutItem::Turn(item),
             );
         }
         ordered_rollout_items.sort_by_key(|(timestamp, order, _)| (*timestamp, *order));
@@ -811,9 +842,7 @@ impl<'a> ThreadStore<'a> {
             runtime_rollout,
             source,
         } = self.state_db.load_legacy_rollout_migration(session_id)?;
-        let compaction_events = self
-            .session_manager
-            .load_compaction_events_migration(session_id)?;
+        let compaction_events = self.load_compaction_events_migration(session_id)?;
         Ok(LegacyNonTurnRolloutMigration {
             structured_events,
             runtime_rollout,
@@ -821,6 +850,251 @@ impl<'a> ThreadStore<'a> {
             rollout_source: source,
             compaction_source: compaction_events.source,
         })
+    }
+
+    fn load_turn_items(&self, session_id: &str) -> Result<Vec<RolloutTurnItem>> {
+        let turn_records = thread_turn_log::load_turn_records(&self.rollout_root, session_id)?;
+        let mut by_ordinal = BTreeMap::new();
+        for summary in self.state_db.load_turn_summaries(session_id)? {
+            let entries = self
+                .state_db
+                .load_turn_entries(session_id, summary.ordinal)?;
+            by_ordinal.insert(summary.ordinal, RolloutTurnItem { summary, entries });
+        }
+        for record in turn_records {
+            by_ordinal.insert(
+                record.summary.ordinal,
+                RolloutTurnItem {
+                    summary: record.summary,
+                    entries: record.entries,
+                },
+            );
+        }
+        Ok(by_ordinal.into_values().collect())
+    }
+
+    fn load_thread_history_migration(
+        &self,
+        thread_id: &str,
+    ) -> Result<PersistedThreadHistoryMigration> {
+        let transcript_path =
+            session_transcript::main_transcript_path(&self.rollout_root, thread_id);
+        if transcript_path.exists() {
+            match session_transcript::load_transcript(&transcript_path) {
+                Ok(load) => {
+                    let history = session_transcript::model_visible_messages(&load.entries);
+                    let has_snapshot_fallback = self.session_history_path(thread_id).exists()
+                        || self.legacy_session_history_path(thread_id).exists();
+                    let should_use_fallback = has_snapshot_fallback
+                        && (history.is_empty()
+                            || load.parse_errors > 0
+                            || self
+                                .transcript_is_shorter_than_snapshot_prefix(thread_id, &history)
+                                .unwrap_or(false));
+                    if !should_use_fallback && (load.parse_errors == 0 || !has_snapshot_fallback) {
+                        return Ok(PersistedThreadHistoryMigration {
+                            history,
+                            source: PersistedThreadHistorySource::Transcript,
+                        });
+                    }
+                }
+                Err(err)
+                    if !self.session_history_path(thread_id).exists()
+                        && !self.legacy_session_history_path(thread_id).exists() =>
+                {
+                    return Err(err).context("load canonical session transcript");
+                }
+                Err(err) => {
+                    eprintln!(
+                        "Warning: could not load canonical session transcript for {thread_id}: {err}"
+                    );
+                }
+            }
+        }
+
+        let path = self.session_history_path(thread_id);
+        let (history, source) = if path.exists() {
+            let content = fs::read_to_string(path)?;
+            let history: Vec<Message> = serde_json::from_str(&content)?;
+            let _ =
+                session_transcript::write_history_snapshot(&self.rollout_root, thread_id, &history);
+            (history, PersistedThreadHistorySource::SnapshotBackfilled)
+        } else {
+            let legacy = self.legacy_session_history_path(thread_id);
+            if !legacy.exists() {
+                return Err(anyhow!("Thread not found locally"));
+            }
+            let content = fs::read_to_string(&legacy)?;
+            let history: Vec<Message> = serde_json::from_str(&content)?;
+            self.backfill_legacy_thread_history(thread_id, &history)?;
+            (history, PersistedThreadHistorySource::LegacyBackfilled)
+        };
+        Ok(PersistedThreadHistoryMigration { history, source })
+    }
+
+    fn load_compaction_events(&self, session_id: &str) -> Result<Vec<PersistedCompactionEvent>> {
+        Ok(self.load_compaction_events_migration(session_id)?.events)
+    }
+
+    fn load_compaction_events_migration(
+        &self,
+        session_id: &str,
+    ) -> Result<PersistedCompactionEventsMigration> {
+        let events = self.load_structured_rollout_events(session_id)?;
+        let structured_compactions = events
+            .into_iter()
+            .filter_map(|event| match event {
+                PersistedStructuredRolloutEvent::Compaction {
+                    recorded_at: _,
+                    event_index,
+                    before_tokens,
+                    after_tokens,
+                    boundary_version,
+                    replaced_start,
+                    replaced_end,
+                    metadata_owner,
+                    recent_files,
+                    summary,
+                } => Some(PersistedCompactionEvent {
+                    event_index,
+                    before_tokens,
+                    after_tokens,
+                    boundary_version,
+                    replaced_start,
+                    replaced_end,
+                    metadata_owner,
+                    recent_files,
+                    summary,
+                }),
+                PersistedStructuredRolloutEvent::RuntimeState { .. }
+                | PersistedStructuredRolloutEvent::PlanState { .. }
+                | PersistedStructuredRolloutEvent::Interaction { .. }
+                | PersistedStructuredRolloutEvent::SpawnAgent { .. } => None,
+            })
+            .collect::<Vec<_>>();
+        if !structured_compactions.is_empty() {
+            return Ok(PersistedCompactionEventsMigration {
+                events: structured_compactions,
+                source: PersistedCompactionEventsSource::StructuredLog,
+            });
+        }
+        let path = self.session_compaction_events_path(session_id);
+        if !path.exists() {
+            return Ok(PersistedCompactionEventsMigration {
+                events: Vec::new(),
+                source: PersistedCompactionEventsSource::Empty,
+            });
+        }
+        let content = fs::read_to_string(path)?;
+        let compactions: Vec<PersistedCompactionEvent> = serde_json::from_str(&content)?;
+        self.backfill_legacy_compaction_events(session_id, &compactions)?;
+        Ok(PersistedCompactionEventsMigration {
+            events: compactions,
+            source: PersistedCompactionEventsSource::LegacyBackfilled,
+        })
+    }
+
+    fn load_structured_rollout_events(
+        &self,
+        session_id: &str,
+    ) -> Result<Vec<PersistedStructuredRolloutEvent>> {
+        thread_rollout_log::load_rollout_events(&self.rollout_root, session_id)
+    }
+
+    fn session_history_path(&self, session_id: &str) -> PathBuf {
+        self.rollout_root.join(session_id).join("history.json")
+    }
+
+    fn legacy_session_history_path(&self, session_id: &str) -> PathBuf {
+        self.legacy_session_root.join(format!("{session_id}.json"))
+    }
+
+    fn session_compaction_events_path(&self, session_id: &str) -> PathBuf {
+        self.rollout_root.join(session_id).join("compactions.json")
+    }
+
+    fn backfill_legacy_thread_history(&self, thread_id: &str, history: &[Message]) -> Result<()> {
+        if history.is_empty() {
+            return Ok(());
+        }
+        let path = self.session_history_path(thread_id);
+        if path.exists() {
+            return Ok(());
+        }
+        write_history_snapshot(&self.rollout_root, thread_id, history)?;
+        let _ = session_transcript::write_history_snapshot(&self.rollout_root, thread_id, history);
+        Ok(())
+    }
+
+    fn backfill_legacy_compaction_events(
+        &self,
+        session_id: &str,
+        compactions: &[PersistedCompactionEvent],
+    ) -> Result<()> {
+        if compactions.is_empty() {
+            return Ok(());
+        }
+        let rollout_path =
+            thread_rollout_log::rollout_events_log_path(&self.rollout_root, session_id);
+        let existing_compaction_count = if rollout_path.exists() {
+            self.load_structured_rollout_events(session_id)?
+                .into_iter()
+                .filter(|event| matches!(event, PersistedStructuredRolloutEvent::Compaction { .. }))
+                .count()
+        } else {
+            0
+        };
+        if existing_compaction_count >= compactions.len() {
+            return Ok(());
+        }
+
+        for compaction in compactions.iter().skip(existing_compaction_count) {
+            thread_rollout_log::append_rollout_event_line(
+                &self.rollout_root,
+                session_id,
+                &PersistedStructuredRolloutEvent::Compaction {
+                    recorded_at: None,
+                    event_index: compaction.event_index,
+                    before_tokens: compaction.before_tokens,
+                    after_tokens: compaction.after_tokens,
+                    boundary_version: compaction.boundary_version,
+                    replaced_start: compaction.replaced_start,
+                    replaced_end: compaction.replaced_end,
+                    metadata_owner: compaction.metadata_owner.clone(),
+                    recent_files: compaction.recent_files.clone(),
+                    summary: compaction.summary.clone(),
+                },
+            )?;
+        }
+        Ok(())
+    }
+
+    fn transcript_is_shorter_than_snapshot_prefix(
+        &self,
+        thread_id: &str,
+        transcript_history: &[Message],
+    ) -> Result<bool> {
+        let snapshot_path = self.session_history_path(thread_id);
+        if !snapshot_path.exists() {
+            return Ok(false);
+        }
+        let content = fs::read_to_string(snapshot_path)?;
+        let snapshot_history: Vec<Message> = serde_json::from_str(&content)?;
+        Ok(transcript_history.len() < snapshot_history.len()
+            && snapshot_history.starts_with(transcript_history))
+    }
+
+    fn load_thread_metadata(
+        &self,
+        session_id: &str,
+    ) -> Result<(Option<PersistedThreadRecord>, ThreadMetadataSource)> {
+        if let Some(record) = thread_metadata::load_thread_record(&self.rollout_root, session_id)? {
+            return Ok((Some(record), ThreadMetadataSource::StructuredMetadata));
+        }
+        Ok((
+            self.state_db.load_thread_record(session_id)?,
+            ThreadMetadataSource::StateDb,
+        ))
     }
 }
 
@@ -854,6 +1128,57 @@ impl<'a> ThreadRecorder<'a> {
         Self { state_db }
     }
 
+    pub fn persist_history_checkpoint(&self, session_id: &str, history: &[Message]) -> Result<()> {
+        let rollout_root = self.state_db.rollout_root();
+        let recorder = ThreadTranscriptRecorder::main(&rollout_root, session_id);
+        recorder.sync_history_checkpoint(history)?;
+        recorder.shutdown()?;
+        write_history_snapshot(&rollout_root, session_id, history)
+    }
+
+    pub fn persist_compaction_event(
+        &self,
+        session_id: &str,
+        event: &PersistedCompactionEvent,
+    ) -> Result<()> {
+        self.append_rollout_item(
+            session_id,
+            &PersistedStructuredRolloutEvent::Compaction {
+                recorded_at: Some(epoch_seconds()),
+                event_index: event.event_index,
+                before_tokens: event.before_tokens,
+                after_tokens: event.after_tokens,
+                boundary_version: event.boundary_version,
+                replaced_start: event.replaced_start,
+                replaced_end: event.replaced_end,
+                metadata_owner: event.metadata_owner.clone(),
+                recent_files: event.recent_files.clone(),
+                summary: event.summary.clone(),
+            },
+        )?;
+        self.shutdown(session_id)
+    }
+
+    pub fn append_rollout_item(
+        &self,
+        session_id: &str,
+        item: &PersistedStructuredRolloutEvent,
+    ) -> Result<()> {
+        self.rollout_recorder(session_id).append_event(item)
+    }
+
+    pub fn flush(&self, session_id: &str) -> Result<()> {
+        self.rollout_recorder(session_id).flush()
+    }
+
+    pub fn shutdown(&self, session_id: &str) -> Result<()> {
+        self.rollout_recorder(session_id).shutdown()
+    }
+
+    fn rollout_recorder(&self, session_id: &str) -> RolloutEventRecorder {
+        RolloutEventRecorder::new(&self.state_db.rollout_root(), session_id)
+    }
+
     pub fn persist_runtime_state(&self, state: &ThreadRuntimeState<'_>) -> Result<()> {
         let lineage = self.current_lineage(state.session_id)?;
         self.persist_runtime_state_with_lineage(state, &lineage)
@@ -864,6 +1189,38 @@ impl<'a> ThreadRecorder<'a> {
         state: &ThreadRuntimeState<'_>,
         lineage: &ThreadRuntimeLineage,
     ) -> Result<()> {
+        let now = epoch_seconds();
+        let existing_metadata = match thread_metadata::load_thread_record(
+            &self.state_db.rollout_root(),
+            state.session_id,
+        )? {
+            Some(record) => Some(record),
+            None => self.state_db.load_thread_record(state.session_id)?,
+        };
+        let created_at = existing_metadata
+            .as_ref()
+            .map(|record| record.created_at)
+            .unwrap_or(now);
+        let record = PersistedThreadRecord {
+            session_id: state.session_id.to_string(),
+            cwd: state.cwd.to_string(),
+            branch: state.branch.to_string(),
+            provider: state.provider.to_string(),
+            model: state.model.to_string(),
+            base_url: state.base_url.map(str::to_string),
+            agent_mode: state.agent_mode.to_string(),
+            bash_approval: state.bash_approval.to_string(),
+            created_at,
+            lineage: PersistedThreadLineage {
+                origin_kind: lineage.origin_kind.clone(),
+                forked_from_thread_id: lineage.forked_from_thread_id.clone(),
+            },
+            plan_explanation: state.plan_explanation.map(str::to_string),
+            history_len: state.history_len,
+            transcript_len: state.transcript_len,
+            updated_at: now,
+        };
+        thread_metadata::write_thread_record(&self.state_db.rollout_root(), &record)?;
         self.state_db.upsert_session_with_lineage(
             state.session_id,
             state.cwd,
@@ -917,8 +1274,14 @@ impl<'a> ThreadRecorder<'a> {
         session_id: &str,
         items: &[PersistedStructuredRolloutEvent],
     ) -> Result<()> {
-        self.state_db
-            .replace_runtime_rollout_events(session_id, items)
+        self.append_rollout_item(
+            session_id,
+            &PersistedStructuredRolloutEvent::runtime_state_from_items(
+                items,
+                Some(epoch_seconds()),
+            ),
+        )?;
+        self.shutdown(session_id)
     }
 
     pub fn persist_turn(
@@ -927,7 +1290,18 @@ impl<'a> ThreadRecorder<'a> {
         ordinal: usize,
         entries: &[PersistedTurnEntry],
     ) -> Result<PersistedTurnSummary> {
-        self.state_db.persist_turn(session_id, ordinal, entries)
+        let summary = thread_turn_log::append_turn_record(
+            &self.state_db.rollout_root(),
+            session_id,
+            ordinal,
+            entries,
+        )?;
+        if let Err(err) = self.state_db.persist_turn(session_id, ordinal, entries) {
+            eprintln!(
+                "Warning: canonical turn log advanced for {session_id}, but StateDb turn index update failed: {err}"
+            );
+        }
+        Ok(summary)
     }
 }
 
@@ -1111,6 +1485,47 @@ fn compact_state_from_record(record: &CompactionRecord) -> PersistedCompactState
             .or(Some(record.recent_files.len()).filter(|value| *value > 0)),
         last_compaction_boundary_version: record.boundary_version,
     }
+}
+
+fn write_history_snapshot(root_dir: &Path, session_id: &str, history: &[Message]) -> Result<()> {
+    let path = root_dir.join(session_id).join("history.json");
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent)?;
+    }
+    let content = serde_json::to_string(history)?;
+    let tmp_path = path.with_extension(format!("json.tmp-{}", Uuid::new_v4()));
+    {
+        let mut file = fs::File::create(&tmp_path)?;
+        file.write_all(content.as_bytes())?;
+        file.sync_all()?;
+    }
+    if let Err(err) = atomic_file::replace_file(&tmp_path, &path) {
+        let _ = fs::remove_file(&tmp_path);
+        return Err(err);
+    }
+    if let Some(parent) = path.parent() {
+        sync_parent_dir_best_effort(parent);
+    }
+    Ok(())
+}
+
+#[cfg(unix)]
+fn sync_parent_dir_best_effort(parent: &Path) {
+    if let Ok(dir) = fs::File::open(parent) {
+        let _ = dir.sync_all();
+    }
+}
+
+#[cfg(not(unix))]
+fn sync_parent_dir_best_effort(_parent: &Path) {}
+
+fn epoch_seconds() -> i64 {
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs() as i64
 }
 
 fn push_rollout_item(

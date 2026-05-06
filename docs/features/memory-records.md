@@ -158,8 +158,9 @@ not be written to the global memory index by default. Promotion into global
 memory should be scheduled or batched so cross-session recall stays useful
 without turning every active turn into a global write.
 
-The current `conversations` LanceDB table is an interim checkpoint path. It is
-not the final session-storage contract.
+The former `conversations` LanceDB table was an interim checkpoint path. Raw
+session-context checkpoints now write to per-session append shards under the
+rollout directory instead of the global memory index.
 
 ## MemoryStore API
 
@@ -243,13 +244,14 @@ Current implementation checkpoint:
 - `remember_experience` writes through `MemoryStore::insert`.
 - `retrieve_experience` searches through `MemoryStore::search` and returns both
   `relevant_experiences` and memory diagnostics.
-- `retrieve_session_context` searches the `conversations` LanceDB table instead
-  of returning a stub response.
+- `retrieve_session_context` searches per-session context shards instead of
+  returning a stub response.
 - `ThreadStore::distill_thread_summary` can promote a loaded thread summary into
   a thread-linked `MemoryRecord` with `session_id`, `thread_id`, and source span.
-- Agent turn checkpoints continue writing to the `conversations` table.
+- Agent turn checkpoints write to per-session `context.jsonl` shards under
+  `rollouts/<session_id>/`.
 - `MemoryRetrievalOrchestrator` promotes LanceDB-backed workspace memories and
-  session-context hits into direct ranked `MemorySelection` candidates.
+  per-session context hits into direct ranked `MemorySelection` candidates.
 - Selected retrieval candidates are rendered as a per-turn internal context
   block prepended to the current user request. They are not persisted into
   thread history and do not change the stable system prompt prefix.
@@ -273,7 +275,7 @@ Current implementation checkpoint:
 10. Add thread distillation into `MemoryRecord`. Partial: summary distillation is
    implemented; multi-record LLM extraction and deduplication remain open.
 11. Move raw session checkpoints out of the global `conversations` LanceDB table
-   into per-session append shards.
+   into per-session append shards. Done.
 12. Add periodic promotion from session shards into global `MemoryRecord`s.
 13. Deprecate `VectorDB`.
 14. Remove `VectorDB`.

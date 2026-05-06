@@ -42,7 +42,7 @@ pub struct PersistedInteraction {
     pub payload: Option<Value>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PersistedTurnSummary {
     pub ordinal: usize,
     pub event_count: usize,
@@ -71,6 +71,12 @@ pub enum PersistedStructuredRolloutEvent {
         before_tokens: usize,
         after_tokens: usize,
         boundary_version: u32,
+        #[serde(default)]
+        replaced_start: Option<usize>,
+        #[serde(default)]
+        replaced_end: Option<usize>,
+        #[serde(default)]
+        metadata_owner: Option<String>,
         recent_files: Vec<String>,
         summary: String,
     },
@@ -105,6 +111,54 @@ pub enum PersistedStructuredRolloutEvent {
     },
 }
 
+impl PersistedStructuredRolloutEvent {
+    pub fn runtime_state_from_items(
+        items: &[PersistedStructuredRolloutEvent],
+        recorded_at: Option<i64>,
+    ) -> Self {
+        let mut explanation = None;
+        let mut steps = Vec::new();
+        let mut interactions = Vec::new();
+        for item in items {
+            match item {
+                PersistedStructuredRolloutEvent::RuntimeState {
+                    recorded_at: _,
+                    explanation: item_explanation,
+                    steps: item_steps,
+                    interactions: item_interactions,
+                } => {
+                    explanation = item_explanation.clone();
+                    steps = item_steps.clone();
+                    interactions = item_interactions.clone();
+                }
+                PersistedStructuredRolloutEvent::PlanState {
+                    recorded_at: _,
+                    explanation: item_explanation,
+                    steps: item_steps,
+                } => {
+                    explanation = item_explanation.clone();
+                    steps = item_steps.clone();
+                }
+                PersistedStructuredRolloutEvent::Interaction {
+                    recorded_at: _,
+                    interaction,
+                } => {
+                    interactions.push(interaction.clone());
+                }
+                PersistedStructuredRolloutEvent::Compaction { .. }
+                | PersistedStructuredRolloutEvent::SpawnAgent { .. } => {}
+            }
+        }
+
+        PersistedStructuredRolloutEvent::RuntimeState {
+            recorded_at,
+            explanation,
+            steps,
+            interactions,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Default)]
 pub struct PersistedLegacyRolloutMigration {
     pub structured_events: Vec<PersistedStructuredRolloutEvent>,
@@ -120,7 +174,7 @@ pub enum PersistedLegacyRolloutSource {
     Empty,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PersistedThreadLineage {
     pub origin_kind: String,
     pub forked_from_thread_id: Option<String>,
@@ -173,7 +227,7 @@ pub struct PersistedRecentThreadRecord {
     pub last_compaction_boundary_version: Option<u32>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PersistedThreadRecord {
     pub session_id: String,
     pub cwd: String,
@@ -613,6 +667,33 @@ impl StateDb {
         recent_files: &[String],
         summary: &str,
     ) -> Result<()> {
+        self.append_compaction_rollout_event_with_metadata(
+            session_id,
+            event_index,
+            before_tokens,
+            after_tokens,
+            boundary_version,
+            None,
+            None,
+            None,
+            recent_files,
+            summary,
+        )
+    }
+
+    pub fn append_compaction_rollout_event_with_metadata(
+        &self,
+        session_id: &str,
+        event_index: usize,
+        before_tokens: usize,
+        after_tokens: usize,
+        boundary_version: u32,
+        replaced_start: Option<usize>,
+        replaced_end: Option<usize>,
+        metadata_owner: Option<&str>,
+        recent_files: &[String],
+        summary: &str,
+    ) -> Result<()> {
         self.append_rollout_event_line(
             session_id,
             &PersistedStructuredRolloutEvent::Compaction {
@@ -621,6 +702,9 @@ impl StateDb {
                 before_tokens,
                 after_tokens,
                 boundary_version,
+                replaced_start,
+                replaced_end,
+                metadata_owner: metadata_owner.map(str::to_string),
                 recent_files: recent_files.to_vec(),
                 summary: summary.to_string(),
             },
@@ -632,48 +716,12 @@ impl StateDb {
         session_id: &str,
         items: &[PersistedStructuredRolloutEvent],
     ) -> Result<()> {
-        let mut explanation = None;
-        let mut steps = Vec::new();
-        let mut interactions = Vec::new();
-        for item in items {
-            match item {
-                PersistedStructuredRolloutEvent::RuntimeState {
-                    recorded_at: _,
-                    explanation: item_explanation,
-                    steps: item_steps,
-                    interactions: item_interactions,
-                } => {
-                    explanation = item_explanation.clone();
-                    steps = item_steps.clone();
-                    interactions = item_interactions.clone();
-                }
-                PersistedStructuredRolloutEvent::PlanState {
-                    recorded_at: _,
-                    explanation: item_explanation,
-                    steps: item_steps,
-                } => {
-                    explanation = item_explanation.clone();
-                    steps = item_steps.clone();
-                }
-                PersistedStructuredRolloutEvent::Interaction {
-                    recorded_at: _,
-                    interaction,
-                } => {
-                    interactions.push(interaction.clone());
-                }
-                PersistedStructuredRolloutEvent::Compaction { .. }
-                | PersistedStructuredRolloutEvent::SpawnAgent { .. } => {}
-            }
-        }
-
         self.append_rollout_event_line(
             session_id,
-            &PersistedStructuredRolloutEvent::RuntimeState {
-                recorded_at: Some(epoch_seconds()),
-                explanation,
-                steps,
-                interactions,
-            },
+            &PersistedStructuredRolloutEvent::runtime_state_from_items(
+                items,
+                Some(epoch_seconds()),
+            ),
         )
     }
 
@@ -1328,7 +1376,7 @@ fn spawn_agent_edges_from_events(
     edges
 }
 
-fn turn_preview(entries: &[PersistedTurnEntry]) -> String {
+pub(crate) fn turn_preview(entries: &[PersistedTurnEntry]) -> String {
     entries
         .iter()
         .find_map(|entry| {
