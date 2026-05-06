@@ -1,7 +1,10 @@
 use std::fs;
+use std::sync::Arc;
 use std::time::Duration;
 
 use anyhow::Result;
+use async_trait::async_trait;
+use serde_json::Value;
 use tempfile::tempdir;
 
 use super::{
@@ -9,8 +12,8 @@ use super::{
     ThreadRecorder, ThreadRuntimeLineage, ThreadRuntimeState, ThreadStore,
 };
 use crate::agent::Message;
-use crate::llm::MockLlm;
-use crate::memory_store::{MemoryScope, MemorySource, MemoryStore};
+use crate::llm::{ContentBlock, LlmBackend, LlmResponse, MockLlm, TokenUsage};
+use crate::memory_store::{MemoryLabel, MemoryScope, MemorySource, MemoryStore};
 use crate::session::{PersistedCompactionEvent, SessionManager};
 use crate::state_db::{
     PersistedCompactState, PersistedInteraction, PersistedPlanStep, PersistedPromptRuntimeState,
@@ -1556,6 +1559,126 @@ async fn distill_thread_summary_persists_thread_linked_memory_record() -> Result
         .expect("persisted memory record");
     assert_eq!(reloaded.thread_id.as_deref(), Some("thread-distill"));
     Ok(())
+}
+
+#[tokio::test]
+async fn distill_thread_memories_persists_multiple_deduped_records() -> Result<()> {
+    let temp = tempdir()?;
+    let rara_dir = temp.path().join(".rara");
+    let session_manager = SessionManager::new_for_rara_dir(rara_dir.clone())?;
+    let state_db = StateDb::new_for_root_dir(rara_dir.clone())?;
+    session_manager.save_session(
+        "thread-distill-many",
+        &[
+            Message {
+                role: "user".to_string(),
+                content: serde_json::json!("How should memory promotion work?"),
+            },
+            Message {
+                role: "assistant".to_string(),
+                content: serde_json::json!(
+                    "Use session shards first, then distill durable takeaways into MemoryRecords."
+                ),
+            },
+        ],
+    )?;
+    state_db.upsert_session(
+        "thread-distill-many",
+        "/tmp/workspace",
+        "main",
+        "codex",
+        "gpt-5",
+        None,
+        "execute",
+        "always",
+        None,
+        &PersistedPromptRuntimeState::default(),
+        2,
+        2,
+        &PersistedCompactState::default(),
+    )?;
+    let memory_store = MemoryStore::new(
+        Arc::new(DistillMockLlm),
+        Arc::new(VectorDB::new(
+            rara_dir.join("lancedb").to_str().expect("utf8 path"),
+        )),
+    );
+    let store = ThreadStore::new(&session_manager, &state_db);
+
+    let memories = store
+        .distill_thread_memories(&memory_store, "thread-distill-many")
+        .await?;
+
+    assert_eq!(memories.len(), 2);
+    assert_eq!(memories[0].source, MemorySource::ThreadDistill);
+    assert_eq!(memories[0].scope, MemoryScope::Thread);
+    assert_eq!(
+        memories[0].session_id.as_deref(),
+        Some("thread-distill-many")
+    );
+    assert_eq!(memories[0].labels, vec![MemoryLabel::Decision]);
+    assert!(
+        memories
+            .iter()
+            .any(|memory| memory.title == "Session shards before global memory")
+    );
+    assert!(
+        memories
+            .iter()
+            .any(|memory| memory.title == "Promotion records keep provenance")
+    );
+    let labels = memory_store.list_labels(Some(MemoryScope::Thread)).await?;
+    assert!(
+        labels
+            .iter()
+            .any(|label| label.label == MemoryLabel::Decision)
+    );
+    Ok(())
+}
+
+struct DistillMockLlm;
+
+#[async_trait]
+impl LlmBackend for DistillMockLlm {
+    async fn ask(&self, _messages: &[Message], _tools: &[Value]) -> Result<LlmResponse> {
+        Ok(LlmResponse {
+            content: vec![ContentBlock::Text {
+                text: serde_json::json!({
+                    "memories": [
+                        {
+                            "title": "Session shards before global memory",
+                            "content": "Use per-session append shards for raw checkpoints before promoting durable takeaways into global MemoryRecords.",
+                            "labels": ["decision"],
+                            "importance": 0.8
+                        },
+                        {
+                            "title": "Session shards before global memory",
+                            "content": "Use per-session append shards for raw checkpoints before promoting durable takeaways into global MemoryRecords.",
+                            "labels": ["decision"],
+                            "importance": 0.8
+                        },
+                        {
+                            "title": "Promotion records keep provenance",
+                            "content": "Thread distillation should preserve session_id, thread_id, and source span on generated MemoryRecords.",
+                            "labels": ["procedure"],
+                            "importance": 0.7
+                        }
+                    ]
+                })
+                .to_string(),
+            }],
+            stop_reason: Some("end_turn".to_string()),
+            usage: Some(TokenUsage::default()),
+        })
+    }
+
+    async fn embed(&self, _text: &str) -> Result<Vec<f32>> {
+        Ok(vec![0.1; 128])
+    }
+
+    async fn summarize(&self, _messages: &[Message], _instruction: &str) -> Result<String> {
+        Ok("summary".to_string())
+    }
 }
 
 #[test]

@@ -2,6 +2,7 @@ use std::path::Path;
 
 use anyhow::Result;
 
+use crate::memory_store::{MemoryLabel, MemoryRecord};
 use crate::session::SessionManager;
 use crate::state_db::StateDb;
 use crate::thread_store::{ThreadSnapshot, ThreadStore, ThreadSummary};
@@ -33,6 +34,42 @@ pub(crate) fn run_fork_command(thread_id: &str) -> Result<()> {
         "Forked thread {thread_id} -> {forked_thread_id}\nUse `rara resume {forked_thread_id}` to continue the forked thread.\n"
     );
     Ok(())
+}
+
+pub(crate) fn format_distilled_memories(thread_id: &str, memories: &[MemoryRecord]) -> String {
+    if memories.is_empty() {
+        return format!("No durable memories distilled from thread {thread_id}.\n");
+    }
+
+    let mut lines = vec![format!(
+        "Distilled {} memories from thread {thread_id}:",
+        memories.len()
+    )];
+    for memory in memories {
+        lines.push(format!(
+            "- {}  importance={:.1}  labels={}  id={}",
+            memory.title,
+            memory.importance,
+            memory
+                .labels
+                .iter()
+                .map(memory_label_name)
+                .collect::<Vec<_>>()
+                .join(","),
+            memory.id
+        ));
+    }
+    format!("{}\n", lines.join("\n"))
+}
+
+fn memory_label_name(label: &MemoryLabel) -> &'static str {
+    match label {
+        MemoryLabel::Insight => "insight",
+        MemoryLabel::Decision => "decision",
+        MemoryLabel::Fact => "fact",
+        MemoryLabel::Procedure => "procedure",
+        MemoryLabel::Experience => "experience",
+    }
 }
 
 fn format_recent_threads(threads: &[ThreadSummary], limit: usize) -> String {
@@ -173,7 +210,8 @@ fn workspace_label(cwd: &str) -> &str {
 
 #[cfg(test)]
 mod tests {
-    use super::{format_recent_threads, format_thread_snapshot};
+    use super::{format_distilled_memories, format_recent_threads, format_thread_snapshot};
+    use crate::memory_store::{MemoryLabel, MemoryRecord, MemoryScope, MemorySource};
     use crate::state_db::PersistedInteraction;
     use crate::thread_store::{
         CompactionRecord, RolloutItem, ThreadHistorySource, ThreadMaterializationProvenance,
@@ -268,5 +306,32 @@ mod tests {
         assert!(output.contains("interactions=1"));
         assert!(output.contains("compactions=3"));
         assert!(output.contains("compaction_recent_files=src/main.rs, src/thread_store.rs"));
+    }
+
+    #[test]
+    fn distilled_memories_output_lists_titles_labels_and_ids() {
+        let output = format_distilled_memories(
+            "thread-123",
+            &[MemoryRecord {
+                id: "mem-1".to_string(),
+                title: "Use thread distillation".to_string(),
+                content: "Distill durable thread decisions into memory records.".to_string(),
+                labels: vec![MemoryLabel::Decision, MemoryLabel::Procedure],
+                importance: 0.8,
+                pinned: false,
+                source: MemorySource::ThreadDistill,
+                scope: MemoryScope::Thread,
+                session_id: Some("thread-123".to_string()),
+                thread_id: Some("thread-123".to_string()),
+                source_span: None,
+                created_at_unix_seconds: 1,
+                updated_at_unix_seconds: 1,
+            }],
+        );
+
+        assert!(output.contains("Distilled 1 memories from thread thread-123:"));
+        assert!(output.contains(
+            "- Use thread distillation  importance=0.8  labels=decision,procedure  id=mem-1"
+        ));
     }
 }

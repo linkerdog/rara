@@ -13,6 +13,7 @@ mod hooks;
 mod llm;
 mod local_backend;
 mod mcp_status;
+mod memory_distiller;
 mod memory_store;
 mod oauth;
 mod prompt;

@@ -46,6 +46,10 @@ enum Commands {
         #[arg(value_name = "THREAD_ID")]
         thread_id: String,
     },
+    Distill {
+        #[arg(value_name = "THREAD_ID")]
+        thread_id: String,
+    },
     Thread {
         #[arg(value_name = "THREAD_ID")]
         thread_id: String,
@@ -83,6 +87,7 @@ pub(crate) async fn run_cli() -> Result<()> {
         Commands::Acp => run_acp_command(&config).await?,
         Commands::Ask { prompt } => run_ask_command(&config, prompt).await?,
         Commands::Fork { thread_id } => thread_cli::run_fork_command(&thread_id)?,
+        Commands::Distill { thread_id } => run_distill_command(&config, &thread_id).await?,
         Commands::Thread { thread_id } => thread_cli::run_thread_command(&thread_id)?,
         Commands::Threads { limit } => thread_cli::run_threads_command(limit)?,
         Commands::Resume { thread_id, last } => {
@@ -160,6 +165,23 @@ async fn run_ask_command(config: &RaraConfig, prompt: String) -> Result<()> {
     agent.query(prompt).await
 }
 
+async fn run_distill_command(config: &RaraConfig, thread_id: &str) -> Result<()> {
+    let bootstrap = runtime_context::initialize_rara_context(config, None).await?;
+    emit_bootstrap_warnings(&bootstrap.warnings);
+    let state_db = crate::state_db::StateDb::new()?;
+    let memory_store =
+        crate::memory_store::MemoryStore::new(bootstrap.backend.clone(), bootstrap.vdb.clone());
+    let thread_store = crate::thread_store::ThreadStore::new(&bootstrap.session_manager, &state_db);
+    let memories = thread_store
+        .distill_thread_memories(&memory_store, thread_id)
+        .await?;
+    print!(
+        "{}",
+        thread_cli::format_distilled_memories(thread_id, &memories)
+    );
+    Ok(())
+}
+
 async fn run_tui_command(
     config: &RaraConfig,
     oauth_manager: OAuthManager,
@@ -202,6 +224,7 @@ fn startup_resume_target_for_command(command: &Commands) -> Option<StartupResume
         Commands::Tui => Some(StartupResumeTarget::Fresh),
         Commands::Acp
         | Commands::Ask { .. }
+        | Commands::Distill { .. }
         | Commands::Fork { .. }
         | Commands::Thread { .. }
         | Commands::Threads { .. }
@@ -373,6 +396,17 @@ mod tests {
         let cli = Cli::try_parse_from(["rara", "fork", "thread-123"]).expect("parse fork");
         match cli.command.expect("command") {
             Commands::Fork { thread_id } => {
+                assert_eq!(thread_id, "thread-123");
+            }
+            other => panic!("unexpected command: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn clap_parses_distill_command() {
+        let cli = Cli::try_parse_from(["rara", "distill", "thread-123"]).expect("parse distill");
+        match cli.command.expect("command") {
+            Commands::Distill { thread_id } => {
                 assert_eq!(thread_id, "thread-123");
             }
             other => panic!("unexpected command: {other:?}"),

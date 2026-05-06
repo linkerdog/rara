@@ -150,6 +150,12 @@ Optional YAML frontmatter with `title`, `source`, `date`.
 - Identify independently meaningful units.
 - Auto-generate title, labels, importance.
 - For >50 messages: chunked Smart Background Distillation.
+- Treat older memories and earlier conclusions as historical context, not
+  current truth. If the thread proves that a prior memory is stale, incomplete,
+  or tied to a poor current design, distillation should capture the corrected
+  durable fact or procedure.
+- It is valid to distill a durable tooling need when a thread establishes that
+  reliable future work needs a small purpose-built tool or runtime hook.
 
 Distillation rules:
 
@@ -165,8 +171,11 @@ Runtime status:
 
 - Implemented: summary distillation for a loaded thread into one
   `ThreadDistill` memory record with `session_id`, `thread_id`, and source span.
-- Open: LLM-assisted extraction of 2-8 independently useful records,
-  duplicate detection against existing memories, and long-thread chunking.
+- Implemented: LLM-assisted extraction of 2-8 independently useful records
+  through `ThreadStore::distill_thread_memories`, with duplicate detection
+  against same-batch drafts and existing memory search hits.
+- Open: long-thread chunking, finer per-memory source spans, and background
+  promotion scheduling.
 
 ## Source Journals
 

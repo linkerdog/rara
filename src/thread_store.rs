@@ -8,6 +8,9 @@ use uuid::Uuid;
 
 use crate::agent::Message;
 use crate::atomic_file;
+use crate::memory_distiller::{
+    MemoryDistiller, dedupe_memory_drafts, new_memory_record_from_draft,
+};
 use crate::memory_store::{
     MemoryLabel, MemoryRecord, MemoryScope, MemorySource, MemorySourceSpan, MemoryStore,
     NewMemoryRecord,
@@ -382,6 +385,36 @@ impl<'a> ThreadStore<'a> {
             return Ok(None);
         };
         Ok(Some(memory_store.insert(input).await?))
+    }
+
+    pub async fn distill_thread_memories(
+        &self,
+        memory_store: &MemoryStore,
+        session_id: &str,
+    ) -> Result<Vec<MemoryRecord>> {
+        let snapshot = self.load_thread(session_id)?;
+        let markdown = format_thread_markdown(&snapshot);
+        let distiller = MemoryDistiller::new(memory_store.backend());
+        let drafts = distiller.distill_thread_markdown(&markdown).await?;
+        if drafts.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        let mut existing_hits = Vec::with_capacity(drafts.len());
+        for draft in &drafts {
+            existing_hits.push(memory_store.search(&draft.content, 5).await?);
+        }
+
+        let base = thread_distilled_memory_base(&snapshot);
+        let mut records = Vec::new();
+        for draft in dedupe_memory_drafts(drafts, &existing_hits) {
+            records.push(
+                memory_store
+                    .insert(new_memory_record_from_draft(draft, base.clone()))
+                    .await?,
+            );
+        }
+        Ok(records)
     }
 
     pub fn fork_thread(&self, source_thread_id: &str) -> Result<String> {
@@ -1353,27 +1386,34 @@ fn thread_summary_memory_record(thread: &ThreadSnapshot) -> Option<NewMemoryReco
         .or_else(|| first_user_message(thread));
     let summary = summary?;
     let title = thread_title(thread);
-    let end_turn_index = thread.history.len().saturating_sub(1) as u32;
-    Some(NewMemoryRecord {
-        title: Some(title),
-        content: format!(
-            concat!(
-                "## Summary\n",
-                "{summary}\n\n",
-                "## Provenance\n",
-                "- session_id: {session_id}\n",
-                "- thread_id: {thread_id}\n",
-                "- workspace: {workspace}\n",
-                "- provider: {provider}\n",
-                "- model: {model}\n"
-            ),
-            summary = summary.as_str(),
-            session_id = thread.metadata.session_id.as_str(),
-            thread_id = thread.metadata.session_id.as_str(),
-            workspace = thread.metadata.cwd.as_str(),
-            provider = thread.metadata.provider.as_str(),
-            model = thread.metadata.model.as_str(),
+    let mut record = thread_distilled_memory_base(thread);
+    record.title = Some(title);
+    record.content = format!(
+        concat!(
+            "## Summary\n",
+            "{summary}\n\n",
+            "## Provenance\n",
+            "- session_id: {session_id}\n",
+            "- thread_id: {thread_id}\n",
+            "- workspace: {workspace}\n",
+            "- provider: {provider}\n",
+            "- model: {model}\n"
         ),
+        summary = summary.as_str(),
+        session_id = thread.metadata.session_id.as_str(),
+        thread_id = thread.metadata.session_id.as_str(),
+        workspace = thread.metadata.cwd.as_str(),
+        provider = thread.metadata.provider.as_str(),
+        model = thread.metadata.model.as_str(),
+    );
+    Some(record)
+}
+
+fn thread_distilled_memory_base(thread: &ThreadSnapshot) -> NewMemoryRecord {
+    let end_turn_index = thread.history.len().saturating_sub(1) as u32;
+    NewMemoryRecord {
+        title: None,
+        content: String::new(),
         labels: vec![MemoryLabel::Experience],
         importance: 0.6,
         pinned: false,
@@ -1385,7 +1425,7 @@ fn thread_summary_memory_record(thread: &ThreadSnapshot) -> Option<NewMemoryReco
             start_turn_index: 0,
             end_turn_index,
         }),
-    })
+    }
 }
 
 fn thread_title(thread: &ThreadSnapshot) -> String {
