@@ -151,7 +151,7 @@ mod tests {
             ..RaraConfig::default()
         };
 
-        assert_eq!(selected_provider_family_idx_for_config(&local), 4);
+        assert_eq!(selected_provider_family_idx_for_config(&local), 1);
         assert_eq!(selected_provider_family_idx_for_config(&ollama), 5);
         assert_eq!(selected_provider_family_idx_for_config(&ollama_native), 5);
         assert_eq!(selected_provider_family_idx_for_config(&ollama_openai), 5);
@@ -164,7 +164,7 @@ mod tests {
                 provider: provider.to_string(),
                 ..RaraConfig::default()
             };
-            assert_eq!(selected_provider_family_idx_for_config(&config), 2);
+            assert_eq!(selected_provider_family_idx_for_config(&config), 6);
         }
     }
 
@@ -175,7 +175,7 @@ mod tests {
             ..RaraConfig::default()
         };
 
-        assert_eq!(selected_provider_family_idx_for_config(&config), 1);
+        assert_eq!(selected_provider_family_idx_for_config(&config), 3);
     }
 
     #[test]

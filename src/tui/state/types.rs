@@ -353,6 +353,16 @@ pub struct RunningTask {
 
 pub const PROVIDER_FAMILIES: [(ProviderFamily, &str, &str); 7] = [
     (
+        ProviderFamily::Bedrock,
+        "Bedrock",
+        "Use AWS Bedrock with the Converse API. Credentials from the default AWS chain.",
+    ),
+    (
+        ProviderFamily::CandleLocal,
+        "Candle Local",
+        "Run local Candle models directly in-process.",
+    ),
+    (
         ProviderFamily::Codex,
         "Codex",
         "Use Codex with browser login, device-code login, or a Codex API key.",
@@ -363,19 +373,9 @@ pub const PROVIDER_FAMILIES: [(ProviderFamily, &str, &str); 7] = [
         "Use DeepSeek with an API key and model list from api.deepseek.com.",
     ),
     (
-        ProviderFamily::OpenAiCompatible,
-        "OpenAI-compatible",
-        "Use OpenAI-compatible endpoint profiles such as Custom, Kimi, or OpenRouter.",
-    ),
-    (
         ProviderFamily::Gemini,
         "Gemini",
         "Use Google Gemini via AI Studio (API key) or Code Assist (OAuth).",
-    ),
-    (
-        ProviderFamily::CandleLocal,
-        "Candle Local",
-        "Run local Candle models directly in-process.",
     ),
     (
         ProviderFamily::Ollama,
@@ -383,9 +383,9 @@ pub const PROVIDER_FAMILIES: [(ProviderFamily, &str, &str); 7] = [
         "Use an external Ollama server and choose a local tag.",
     ),
     (
-        ProviderFamily::Bedrock,
-        "Bedrock",
-        "Use AWS Bedrock with the Converse API. Credentials from the default AWS chain.",
+        ProviderFamily::OpenAiCompatible,
+        "OpenAI-compatible",
+        "Use OpenAI-compatible endpoint profiles such as Custom, Kimi, or OpenRouter.",
     ),
 ];
 

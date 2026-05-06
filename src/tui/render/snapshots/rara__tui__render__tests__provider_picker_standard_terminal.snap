@@ -5,20 +5,20 @@ expression: rendered
 ┌ Provider Menu ───────────────────────────────────────────────────────────────────────────────────┐
 │Choose a provider family first, then continue into model selection or setup.                      │
 └──────────────────────────────────────────────────────────────────────────────────────────────────┘
-│[1] Codex                                                                                         │
-│  Use Codex with browser login, device-code login, or a Codex API key.                            │
-│[2] DeepSeek                                                                                      │
-│  Use DeepSeek with an API key and model list from api.deepseek.com.                              │
-│[3] OpenAI-compatible                                                                             │
-│  Use OpenAI-compatible endpoint profiles such as Custom, Kimi, or OpenRouter.                    │
-│[4] Gemini                                                                                        │
-│  Use Google Gemini via AI Studio (API key) or Code Assist (OAuth).                               │
-│[5] Candle Local                                                                                  │
+│[1] Bedrock                                                                                       │
+│  Use AWS Bedrock with the Converse API. Credentials from the default AWS chain.                  │
+│[2] Candle Local                                                                                  │
 │  Run local Candle models directly in-process.                                                    │
+│[3] Codex                                                                                         │
+│  Use Codex with browser login, device-code login, or a Codex API key.                            │
+│[4] DeepSeek                                                                                      │
+│  Use DeepSeek with an API key and model list from api.deepseek.com.                              │
+│[5] Gemini                                                                                        │
+│  Use Google Gemini via AI Studio (API key) or Code Assist (OAuth).                               │
 │[6] Ollama                                                                                        │
 │  Use an external Ollama server and choose a local tag.                                           │
-│[7] Bedrock                                                                                       │
-│  Use AWS Bedrock with the Converse API. Credentials from the default AWS chain.                  │
+│[7] OpenAI-compatible                                                                             │
+│  Use OpenAI-compatible endpoint profiles such as Custom, Kimi, or OpenRouter.                    │
 │                                                                                                  │
 │                                                                                                  │
 │                                                                                                  │
