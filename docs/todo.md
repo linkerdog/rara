@@ -103,12 +103,12 @@ Active backlog only. Keep this file small and current.
 
 - [ ] Decouple overlays from transcript layout (pure top layer, no viewport perturbation).
 - [ ] Post-exit resume hint (e.g. `rara resume --last`).
-- [ ] Claude-style repo context hints beneath input area (GitHub PR link).
-- [ ] Codex/Claude-style transcript role cards (`You` / `Agent` / `System`).
+- [x] Claude-style repo context hints beneath input area (GitHub PR link).
+- [x] Codex/Claude-style transcript role cards (`You` / `Agent` / `System`).
 - [ ] Stabilize active response blocks while streaming, avoid generic transcript fallback.
 - [ ] Rework built-in command TUI (`/help`, `/model`, `/status`, command palette, overlays) to match Codex/Claude.
 - [ ] Refine `/status`: provider/model state, reasoning, sandbox/network, context injection, tool availability.
-- [ ] Tool-action summaries more source-aware and file-aware.
+- [x] Tool-action summaries more source-aware and file-aware.
 - [ ] Live `bash` transcript: lifecycle framing, streamed stdout/stderr, long-output folding.
 - [ ] High-fidelity render pass for `write/update`, inline diffs, approval cards, message-card hierarchy.
 - [ ] Expand TUI snapshot coverage.
