@@ -11,14 +11,14 @@ expression: rendered
 │  Use DeepSeek with an API key and model list from api.deepseek.com.                              │
 │[3] OpenAI-compatible                                                                             │
 │  Use OpenAI-compatible endpoint profiles such as Custom, Kimi, or OpenRouter.                    │
-│[4] Candle Local                                                                                  │
+│[4] Gemini                                                                                        │
+│  Use Google Gemini via AI Studio (API key) or Code Assist (OAuth).                               │
+│[5] Candle Local                                                                                  │
 │  Run local Candle models directly in-process.                                                    │
-│[5] Ollama                                                                                        │
+│[6] Ollama                                                                                        │
 │  Use an external Ollama server and choose a local tag.                                           │
-│[6] Bedrock                                                                                       │
+│[7] Bedrock                                                                                       │
 │  Use AWS Bedrock with the Converse API. Credentials from the default AWS chain.                  │
-│                                                                                                  │
-│                                                                                                  │
 │                                                                                                  │
 │                                                                                                  │
 │                                                                                                  │

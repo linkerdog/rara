@@ -11,8 +11,8 @@ use super::provider_flow::{
 };
 use super::runtime::apply_permission_mode;
 use super::runtime::{
-    request_running_task_cancellation, start_deepseek_model_list_task, start_oauth_task,
-    start_pending_approval_task, start_rebuild_task,
+    request_running_task_cancellation, start_deepseek_model_list_task, start_google_oauth_task,
+    start_oauth_task, start_pending_approval_task, start_rebuild_task,
 };
 use super::session_restore::restore_thread_by_id;
 use super::state::{
@@ -22,7 +22,10 @@ use super::state::{
 use super::submit::{apply_openai_model_picker_action, handle_submit};
 use super::terminal_ui::is_ssh_session;
 use crate::agent::{Agent, BashApprovalDecision};
-use crate::config::DEFAULT_CODEX_BASE_URL;
+use crate::config::{
+    DEFAULT_CODEX_BASE_URL, DEFAULT_GEMINI_BASE_URL, DEFAULT_GEMINI_MODEL, ensure_rara_home_dir,
+};
+use crate::google_oauth::GoogleOAuthManager;
 use crate::oauth::{OAuthManager, SavedCodexAuthMode};
 
 pub(crate) async fn dispatch_event(
@@ -523,54 +526,100 @@ pub(crate) async fn dispatch_event(
                     start_rebuild_task(app);
                 }
             }
-            Some(Overlay::AuthModePicker) => match app.auth_mode_idx {
-                0 => {
-                    if app.is_busy() {
-                        app.push_notice("A task is already running. Wait for it to finish.");
-                    } else if is_ssh_session() {
-                        app.push_notice("Browser login is unavailable in SSH/headless sessions. Choose device code or API key instead.");
-                    } else {
-                        app.close_overlay();
-                        start_oauth_task(
-                            app,
-                            Arc::clone(oauth_manager),
-                            super::state::OAuthLoginMode::Browser,
-                        );
-                    }
-                }
-                1 => {
-                    if app.is_busy() {
-                        app.push_notice("A task is already running. Wait for it to finish.");
-                    } else {
-                        app.close_overlay();
-                        start_oauth_task(
-                            app,
-                            Arc::clone(oauth_manager),
-                            super::state::OAuthLoginMode::DeviceCode,
-                        );
-                    }
-                }
-                2 => app.open_overlay(Overlay::ApiKeyEditor),
-                3 => {
-                    if app.is_busy() {
-                        app.push_notice("A task is already running. Wait for it to finish.");
-                    } else {
-                        let removed = oauth_manager.clear_saved_auth()?;
-                        app.config.clear_provider_api_key("codex");
-                        app.codex_auth_mode = None;
-                        app.config_manager.save(&app.config)?;
-                        app.notice = Some(if removed {
-                            "Cleared the saved provider credential.".into()
+            Some(Overlay::AuthModePicker) => {
+                let is_gemini = app.selected_provider_family() == ProviderFamily::Gemini;
+                match app.auth_mode_idx {
+                    0 => {
+                        if app.is_busy() {
+                            app.push_notice("A task is already running. Wait for it to finish.");
+                        } else if is_ssh_session() {
+                            app.push_notice("Browser login is unavailable in SSH/headless sessions. Choose device code or API key instead.");
                         } else {
-                            "No saved provider credential was present.".into()
-                        });
-                        if app.config.provider == "codex" {
-                            start_rebuild_task(app);
+                            app.close_overlay();
+                            if is_gemini {
+                                let home = ensure_rara_home_dir()?;
+                                let google_oauth = GoogleOAuthManager::new(home)?;
+                                start_google_oauth_task(
+                                    app,
+                                    Arc::new(google_oauth),
+                                    super::state::OAuthLoginMode::Browser,
+                                );
+                            } else {
+                                start_oauth_task(
+                                    app,
+                                    Arc::clone(oauth_manager),
+                                    super::state::OAuthLoginMode::Browser,
+                                );
+                            }
                         }
                     }
+                    1 => {
+                        if app.is_busy() {
+                            app.push_notice("A task is already running. Wait for it to finish.");
+                        } else {
+                            app.close_overlay();
+                            if is_gemini {
+                                let home = ensure_rara_home_dir()?;
+                                let google_oauth = GoogleOAuthManager::new(home)?;
+                                start_google_oauth_task(
+                                    app,
+                                    Arc::new(google_oauth),
+                                    super::state::OAuthLoginMode::DeviceCode,
+                                );
+                            } else {
+                                start_oauth_task(
+                                    app,
+                                    Arc::clone(oauth_manager),
+                                    super::state::OAuthLoginMode::DeviceCode,
+                                );
+                            }
+                        }
+                    }
+                    2 => {
+                        if is_gemini {
+                            // Gemini slot 2 is informational, no action.
+                            app.push_notice(
+                                "For API key access, go back and select the standard Gemini (AI Studio) provider.",
+                            );
+                        } else {
+                            app.open_overlay(Overlay::ApiKeyEditor);
+                        }
+                    }
+                    3 => {
+                        if app.is_busy() {
+                            app.push_notice("A task is already running. Wait for it to finish.");
+                        } else if is_gemini {
+                            let home = ensure_rara_home_dir()?;
+                            let google_oauth = GoogleOAuthManager::new(home)?;
+                            let removed = google_oauth.clear_saved_auth()?;
+                            app.config.clear_provider_api_key("gemini-code-assist");
+                            app.config_manager.save(&app.config)?;
+                            app.notice = Some(if removed {
+                                "Cleared the saved Google OAuth credential.".into()
+                            } else {
+                                "No saved Google OAuth credential was present.".into()
+                            });
+                            if app.config.provider == "gemini-code-assist" {
+                                start_rebuild_task(app);
+                            }
+                        } else {
+                            let removed = oauth_manager.clear_saved_auth()?;
+                            app.config.clear_provider_api_key("codex");
+                            app.codex_auth_mode = None;
+                            app.config_manager.save(&app.config)?;
+                            app.notice = Some(if removed {
+                                "Cleared the saved provider credential.".into()
+                            } else {
+                                "No saved provider credential was present.".into()
+                            });
+                            if app.config.provider == "codex" {
+                                start_rebuild_task(app);
+                            }
+                        }
+                    }
+                    _ => {}
                 }
-                _ => {}
-            },
+            }
             Some(Overlay::PermissionPicker) => {
                 if app.is_busy() {
                     app.push_notice("A task is already running. Wait for it to finish.");
@@ -635,59 +684,6 @@ pub(crate) async fn dispatch_event(
                                 start_rebuild_task(app);
                             }
                         }
-                        ListPickerKind::AuthMode => match app.auth_mode_idx {
-                            0 if !is_ssh_session() => {
-                                app.close_overlay();
-                                start_oauth_task(
-                                    app,
-                                    Arc::clone(oauth_manager),
-                                    super::state::OAuthLoginMode::Browser,
-                                );
-                            }
-                            0 => app.push_notice("Browser login unavailable in SSH/headless."),
-                            1 => {
-                                app.close_overlay();
-                                start_oauth_task(
-                                    app,
-                                    Arc::clone(oauth_manager),
-                                    super::state::OAuthLoginMode::DeviceCode,
-                                );
-                            }
-                            2 => app.open_overlay(Overlay::ApiKeyEditor),
-                            3 => {
-                                let removed = oauth_manager.clear_saved_auth()?;
-                                app.config.clear_provider_api_key("codex");
-                                app.codex_auth_mode = None;
-                                app.config_manager.save(&app.config)?;
-                                app.notice = Some(
-                                    if removed {
-                                        "Cleared saved credential."
-                                    } else {
-                                        "No saved credential present."
-                                    }
-                                    .into(),
-                                );
-                                if app.config.provider == "codex" {
-                                    start_rebuild_task(app);
-                                }
-                            }
-                            _ => {}
-                        },
-                        ListPickerKind::ReasoningEffort => {
-                            app.select_local_model(app.model_picker_idx);
-                            app.apply_selected_codex_reasoning_effort();
-                            start_rebuild_task(app);
-                        }
-                        ListPickerKind::Resume => {
-                            if let Some(thread_id) = app
-                                .recent_threads
-                                .get(app.resume_picker_idx)
-                                .map(|session| session.metadata.session_id.clone())
-                            {
-                                restore_thread_by_id(thread_id.as_str(), app, agent_slot)?;
-                                app.close_overlay();
-                            }
-                        }
                         ListPickerKind::OpenAiEndpointKind => {
                             let kind = app.selected_openai_setup_kind();
                             app.set_openai_setup_kind(kind);
@@ -715,6 +711,7 @@ pub(crate) async fn dispatch_event(
                                 }
                             }
                         }
+                        _ => {}
                     }
                 }
             }
