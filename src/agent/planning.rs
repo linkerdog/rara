@@ -166,6 +166,10 @@ impl Agent {
         self.bash_approval_mode = mode;
     }
 
+    pub fn set_full_access_mode(&mut self, full_access: bool) {
+        self.full_access_mode = full_access;
+    }
+
     pub fn is_bash_prefix_approved(&self, request: &BashCommandInput) -> bool {
         request.is_allowed_by_approval_prefixes(&self.approved_bash_prefixes)
     }

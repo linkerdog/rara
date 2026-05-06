@@ -18,8 +18,8 @@ use secrecy::ExposeSecret;
 use tokio::sync::mpsc;
 
 use super::super::state::{
-    GoalStatus, OAuthLoginMode, RunningTask, RuntimePhase, TaskCompletion, TaskKind, TuiApp,
-    TuiEvent,
+    GoalStatus, OAuthLoginMode, PermissionMode, RunningTask, RuntimePhase, TaskCompletion,
+    TaskKind, TuiApp, TuiEvent,
 };
 use super::events::{apply_tui_event, convert_agent_event, format_error_chain};
 use crate::agent::{Agent, AgentOutputMode, BashApprovalDecision};
@@ -45,6 +45,12 @@ fn forward_event_to_bus(
     }
 }
 
+fn sync_agent_permission_state(app: &TuiApp, agent: &mut Agent) {
+    agent.set_execution_mode(app.agent_execution_mode);
+    agent.set_bash_approval_mode(app.bash_approval_mode);
+    agent.set_full_access_mode(app.permission_mode == PermissionMode::FullAccess);
+}
+
 fn merge_rebuilt_agent(mut rebuilt: Agent, previous: Agent) -> Agent {
     let previous_prompt_config = previous.prompt_config().clone();
     rebuilt.session_id = previous.session_id;
@@ -56,6 +62,7 @@ fn merge_rebuilt_agent(mut rebuilt: Agent, previous: Agent) -> Agent {
     rebuilt.tool_result_store = previous.tool_result_store;
     rebuilt.execution_mode = previous.execution_mode;
     rebuilt.bash_approval_mode = previous.bash_approval_mode;
+    rebuilt.full_access_mode = previous.full_access_mode;
     rebuilt.approved_bash_prefixes = previous.approved_bash_prefixes;
     rebuilt.current_plan = previous.current_plan;
     rebuilt.plan_explanation = previous.plan_explanation;
@@ -136,8 +143,7 @@ pub(super) fn start_query_task(app: &mut TuiApp, prompt: String, mut agent: Agen
     app.clear_pending_planning_suggestion();
     app.clear_active_live_sections();
     app.begin_running_turn();
-    agent.set_execution_mode(app.agent_execution_mode);
-    agent.set_bash_approval_mode(app.bash_approval_mode);
+    sync_agent_permission_state(app, &mut agent);
     sync_bash_prefixes_from_config(app, &mut agent);
     app.notice = Some("Running prompt.".into());
     app.set_runtime_phase(RuntimePhase::SendingPrompt, Some("sending prompt".into()));
@@ -172,8 +178,7 @@ pub(super) fn start_compact_task(app: &mut TuiApp, mut agent: Agent) {
     let (sender, receiver) = mpsc::unbounded_channel();
     let bus = app.event_bus.clone();
     let event_provenance = local_tui_event_provenance(&agent.session_id);
-    agent.set_execution_mode(app.agent_execution_mode);
-    agent.set_bash_approval_mode(app.bash_approval_mode);
+    sync_agent_permission_state(app, &mut agent);
     app.notice = Some("Compacting conversation history.".into());
     app.set_runtime_phase(
         RuntimePhase::ProcessingResponse,
@@ -212,6 +217,7 @@ pub(super) fn start_review_task(app: &mut TuiApp, prompt: String, mut agent: Age
     let event_provenance = local_tui_event_provenance(&agent.session_id);
     agent.set_execution_mode(AgentExecutionMode::Review);
     agent.set_bash_approval_mode(BashApprovalMode::Always);
+    agent.set_full_access_mode(false);
     app.notice = Some("Running code review.".into());
     app.set_runtime_phase(
         RuntimePhase::ProcessingResponse,
@@ -265,6 +271,7 @@ pub(super) fn start_pending_approval_task(
         Some("resuming after approval".into()),
     );
     sync_bash_prefixes_from_config(app, &mut agent);
+    agent.set_full_access_mode(app.permission_mode == PermissionMode::FullAccess);
     agent.set_cancellation_token(Some(cancellation_token.clone()));
 
     let handle = tokio::spawn(async move {
@@ -341,6 +348,7 @@ fn start_plan_resume_task(
     } else {
         crate::agent::AgentExecutionMode::Execute
     });
+    agent.set_full_access_mode(app.permission_mode == PermissionMode::FullAccess);
     app.set_agent_execution_mode(agent.execution_mode);
     agent.set_cancellation_token(Some(cancellation_token.clone()));
 
@@ -774,8 +782,7 @@ pub(super) async fn finish_running_task_if_ready(
                 if let Some(previous) = agent_slot.take() {
                     agent = merge_rebuilt_agent(agent, previous);
                 }
-                agent.set_execution_mode(app.agent_execution_mode);
-                agent.set_bash_approval_mode(app.bash_approval_mode);
+                sync_agent_permission_state(app, &mut agent);
                 // Preserve any runtime /permissions override across rebuilds.
                 rebuilt.sandbox_network_access.store(
                     app.sandbox_network_access
