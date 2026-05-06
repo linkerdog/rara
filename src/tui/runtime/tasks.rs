@@ -252,6 +252,16 @@ pub(super) fn start_pending_approval_task(
     selection: BashApprovalDecision,
     mut agent: Agent,
 ) {
+    if selection == BashApprovalDecision::Always {
+        app.permission_mode = PermissionMode::FullAccess;
+        app.sandbox_network_access
+            .store(true, std::sync::atomic::Ordering::Relaxed);
+        app.set_agent_execution_mode(crate::agent::AgentExecutionMode::Execute);
+        app.bash_approval_mode = crate::agent::BashApprovalMode::Always;
+        agent.set_execution_mode(crate::agent::AgentExecutionMode::Execute);
+        agent.set_bash_approval_mode(crate::agent::BashApprovalMode::Always);
+        agent.set_full_access_mode(true);
+    }
     let (sender, receiver) = mpsc::unbounded_channel();
     let cancellation_token = Arc::new(AtomicBool::new(false));
     let bus = app.event_bus.clone();

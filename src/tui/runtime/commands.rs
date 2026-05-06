@@ -48,6 +48,11 @@ pub(super) async fn execute_local_command(
                 BashApprovalMode::Once => BashApprovalMode::Suggestion,
                 BashApprovalMode::Always => BashApprovalMode::Suggestion,
             };
+            if next_mode == BashApprovalMode::Always {
+                apply_permission_mode(app, agent_slot, PermissionMode::FullAccess);
+                app.push_notice("Permission mode: full-access.");
+                return Ok(false);
+            }
             app.bash_approval_mode = next_mode;
             app.permission_mode = PermissionMode::Custom;
             if let Some(agent) = agent_slot.as_mut() {
@@ -468,6 +473,7 @@ pub(crate) fn apply_permission_mode(
         PermissionMode::Custom => return,
     };
 
+    app.permission_mode = mode;
     app.set_agent_execution_mode(execution);
     app.bash_approval_mode = approval;
     app.sandbox_network_access
@@ -495,7 +501,7 @@ mod tests {
     use tokio::sync::mpsc;
 
     use super::{execute_local_command, handle_mcp_command, mcp_project_root_from_cwd};
-    use crate::agent::AgentEvent;
+    use crate::agent::{AgentEvent, BashApprovalMode};
     use crate::config::ConfigManager;
     use crate::oauth::OAuthManager;
     use crate::runtime_event_bus::RuntimeEventBus;
@@ -602,6 +608,7 @@ command = "docs-server"
             path: dir.path().join("config.json"),
         })
         .expect("app");
+        app.bash_approval_mode = BashApprovalMode::Suggestion;
         let oauth_manager = Arc::new(
             OAuthManager::new_for_config_dir(dir.path().join("oauth")).expect("oauth manager"),
         );
@@ -652,5 +659,38 @@ command = "docs-server"
         .expect("permissions command should be handled");
         assert!(app.overlay.is_none());
         assert_ne!(app.overlay, Some(Overlay::PermissionPicker));
+    }
+
+    #[tokio::test]
+    async fn approval_command_switches_always_to_full_access() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let mut app = TuiApp::new(ConfigManager {
+            path: dir.path().join("config.json"),
+        })
+        .expect("app");
+        let oauth_manager = Arc::new(
+            OAuthManager::new_for_config_dir(dir.path().join("oauth")).expect("oauth manager"),
+        );
+        let mut agent_slot = None;
+
+        execute_local_command(
+            LocalCommand {
+                kind: LocalCommandKind::Approval,
+                arg: None,
+            },
+            &mut app,
+            &mut agent_slot,
+            &oauth_manager,
+        )
+        .await
+        .expect("approval command should be handled");
+
+        assert_eq!(app.permission_mode, PermissionMode::FullAccess);
+        assert_eq!(app.bash_approval_mode_label(), "always");
+        assert!(
+            app.sandbox_network_access
+                .load(std::sync::atomic::Ordering::Relaxed)
+        );
+        assert_eq!(app.notice.as_deref(), Some("Permission mode: full-access."));
     }
 }
