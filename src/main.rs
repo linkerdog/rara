@@ -28,7 +28,6 @@ mod session_transcript;
 mod shell_env;
 mod skill;
 mod state_db;
-mod terminal_environment;
 mod thread_cli;
 mod thread_metadata;
 mod thread_rollout_log;

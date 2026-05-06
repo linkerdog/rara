@@ -410,7 +410,6 @@ mod tests {
     use ratatui::{
         backend::{Backend, ClearType, WindowSize},
         layout::{Position, Rect, Size},
-        style::Style,
         text::{Line, Span},
     };
 

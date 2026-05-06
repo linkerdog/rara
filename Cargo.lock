@@ -9210,6 +9210,7 @@ dependencies = [
  "rara-provider-catalog",
  "rara-sandbox",
  "rara-skills",
+ "rara-terminal-detection",
  "rara-tool-macros",
  "ratatui",
  "regex",
@@ -9292,6 +9293,10 @@ dependencies = [
  "serde",
  "tempfile",
 ]
+
+[[package]]
+name = "rara-terminal-detection"
+version = "0.1.0"
 
 [[package]]
 name = "rara-tool-macros"

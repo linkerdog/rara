@@ -8,9 +8,9 @@ ad hoc SSH checks inside the TUI layer.
 
 ## Implementation Checkpoint
 
-- Added `src/terminal_environment.rs` with typed terminal, multiplexer, and
+- Added `crates/terminal-detection` with typed terminal, multiplexer, and
   remote-session metadata.
-- Preserved SSH behavior through `terminal_environment::is_remote_session()`.
+- Preserved SSH behavior through `rara_terminal_detection::is_remote_session()`.
 - Connected Zellij detection to committed-history insertion mode in the TUI
   terminal layer.
 - Added focused unit tests for terminal families, mux markers, SSH markers,

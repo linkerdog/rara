@@ -85,7 +85,7 @@ pub(super) fn flush_committed_history(
 }
 
 fn history_insert_mode() -> InsertHistoryMode {
-    InsertHistoryMode::new(crate::terminal_environment::terminal_info().is_zellij())
+    InsertHistoryMode::new(rara_terminal_detection::terminal_info().is_zellij())
 }
 
 fn viewport_area(width: u16, height: u16, viewport_height: u16) -> Rect {
@@ -99,7 +99,7 @@ fn viewport_area(width: u16, height: u16, viewport_height: u16) -> Rect {
 }
 
 pub(crate) fn is_ssh_session() -> bool {
-    crate::terminal_environment::is_remote_session()
+    rara_terminal_detection::is_remote_session()
 }
 
 #[cfg(test)]

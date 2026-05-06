@@ -7,8 +7,9 @@ scattered across TUI code. That makes it harder to reason about rendering
 workarounds, remote-session behavior, diagnostics, and future OTEL attributes.
 
 Codex keeps terminal detection as a separate boundary. RARA follows the same
-shape: detect terminal metadata once, expose structured facts, and let TUI,
-telemetry, and diagnostics consume those facts.
+shape with the `rara-terminal-detection` crate: detect terminal metadata once,
+expose structured facts, and let TUI, telemetry, and diagnostics consume those
+facts.
 
 ## Goals
 
@@ -20,7 +21,7 @@ telemetry, and diagnostics consume those facts.
 
 ## Runtime Contract
 
-Terminal detection exposes:
+The `rara-terminal-detection` crate exposes:
 
 ```rust
 pub struct TerminalInfo {
