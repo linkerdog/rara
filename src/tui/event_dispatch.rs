@@ -22,9 +22,7 @@ use super::state::{
 use super::submit::{apply_openai_model_picker_action, handle_submit};
 use super::terminal_ui::is_ssh_session;
 use crate::agent::{Agent, BashApprovalDecision};
-use crate::config::{
-    DEFAULT_CODEX_BASE_URL, DEFAULT_GEMINI_BASE_URL, DEFAULT_GEMINI_MODEL, ensure_rara_home_dir,
-};
+use crate::config::{DEFAULT_CODEX_BASE_URL, ensure_rara_home_dir};
 use crate::google_oauth::GoogleOAuthManager;
 use crate::oauth::{OAuthManager, SavedCodexAuthMode};
 
@@ -634,8 +632,20 @@ pub(crate) async fn dispatch_event(
                     apply_permission_mode(app, agent_slot, mode);
                     app.permission_mode = mode;
                     let label = mode.label();
-                    app.push_notice(format!("Permission mode: {label}."));
                     app.close_overlay();
+                    if mode == PermissionMode::FullAccess
+                        && app.pending_command_approval().is_some()
+                    {
+                        if let Some(agent) = agent_slot.take() {
+                            start_pending_approval_task(app, BashApprovalDecision::Once, agent);
+                        } else {
+                            app.push_notice(
+                                "Permission mode: full-access. Approval is still preparing.",
+                            );
+                        }
+                    } else {
+                        app.push_notice(format!("Permission mode: {label}."));
+                    }
                 }
             }
             Some(Overlay::ListPicker(kind)) => {

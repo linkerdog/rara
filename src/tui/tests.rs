@@ -11,10 +11,17 @@ use super::event_stream::{UiEvent, translate_event};
 use super::provider_flow::{
     codex_auth_is_available, open_provider_family_overlay, sync_codex_credential_from_auth_store,
 };
+use crate::agent::{Agent, PendingApproval};
 use crate::codex_model_catalog::{CodexModelOption, CodexReasoningOption};
 use crate::config::{ConfigManager, OpenAiEndpointKind};
 use crate::config::{DEFAULT_CODEX_BASE_URL, DEFAULT_CODEX_CHATGPT_BASE_URL, DEFAULT_CODEX_MODEL};
+use crate::llm::MockLlm;
+use crate::session::SessionManager;
+use crate::tool::ToolManager;
+use crate::tools::bash::BashCommandInput;
 use crate::tui::command::palette_commands;
+use crate::vectordb::VectorDB;
+use crate::workspace::WorkspaceMemory;
 
 fn key(code: KeyCode) -> KeyEvent {
     KeyEvent::new(code, KeyModifiers::NONE)
@@ -33,8 +40,8 @@ fn mouse_scroll(kind: MouseEventKind) -> Event {
     })
 }
 use super::state::{
-    InteractionKind, Overlay, PendingApprovalSnapshot, PendingInteractionSnapshot, ProviderFamily,
-    RunningTask, StatusTab, TaskKind, TuiApp,
+    InteractionKind, Overlay, PendingApprovalSnapshot, PendingInteractionSnapshot, PermissionMode,
+    ProviderFamily, RunningTask, StatusTab, TaskKind, TuiApp,
 };
 use super::{dispatch_event, map_key_to_event};
 
@@ -457,6 +464,37 @@ fn add_pending_shell_approval(app: &mut TuiApp) {
         });
 }
 
+fn test_agent_for_pending_approval(temp: &tempfile::TempDir) -> Agent {
+    let rara_dir = temp.path().join(".rara");
+    std::fs::create_dir_all(rara_dir.join("rollouts")).expect("rollouts");
+    std::fs::create_dir_all(rara_dir.join("sessions")).expect("sessions");
+    std::fs::create_dir_all(rara_dir.join("tool-results")).expect("tool results");
+
+    let mut agent = Agent::new(
+        ToolManager::new(),
+        Arc::new(MockLlm),
+        Arc::new(VectorDB::new(
+            &rara_dir.join("lancedb").display().to_string(),
+        )),
+        Arc::new(SessionManager {
+            storage_dir: rara_dir.join("rollouts"),
+            legacy_storage_dir: rara_dir.join("sessions"),
+        }),
+        Arc::new(WorkspaceMemory::from_paths(
+            temp.path().join("repo"),
+            rara_dir,
+        )),
+    );
+    agent.pending_approval = Some(PendingApproval {
+        tool_use_id: "tool-1".to_string(),
+        request: BashCommandInput {
+            command: Some("git rebase --continue".to_string()),
+            ..Default::default()
+        },
+    });
+    agent
+}
+
 fn add_pending_request_input(app: &mut TuiApp, option_count: usize) {
     app.snapshot
         .pending_interactions
@@ -509,6 +547,41 @@ fn pending_shell_approval_does_not_render_as_request_input() {
         Some(super::state::ActivePendingInteractionKind::ShellApproval)
     );
     assert_eq!(app.active_pending_option_count(), 4);
+}
+
+#[tokio::test]
+async fn full_access_permission_selection_resumes_pending_shell_approval_once() {
+    let temp = tempdir().expect("tempdir");
+    let mut app = TuiApp::new(ConfigManager {
+        path: temp.path().join("config.json"),
+    })
+    .expect("app");
+    add_pending_shell_approval(&mut app);
+    app.open_overlay(Overlay::PermissionPicker);
+    app.permission_picker_idx = 3;
+
+    let oauth_manager = Arc::new(
+        crate::oauth::OAuthManager::new_for_config_dir(temp.path().join(".rara"))
+            .expect("oauth manager"),
+    );
+    let mut agent_slot = Some(test_agent_for_pending_approval(&temp));
+
+    dispatch_event(
+        AppEvent::ApplyOverlaySelection,
+        &mut app,
+        &mut agent_slot,
+        &oauth_manager,
+    )
+    .await
+    .expect("apply full access permission selection");
+
+    assert_eq!(app.permission_mode, PermissionMode::FullAccess);
+    assert!(app.pending_command_approval().is_none());
+    assert!(agent_slot.is_none());
+    assert!(app.running_task.is_some());
+    if let Some(task) = app.running_task.take() {
+        task.handle.abort();
+    }
 }
 
 #[test]
