@@ -160,6 +160,6 @@ Active backlog only. Keep this file small and current.
 
 ## Code Organization / Docs
 
-- [ ] Add `TuiMaintainer` to event loop (follow-up to #276). See `docs/features/app-server-architecture.md`.
-- [ ] Split monolithic binary into domain crates per `docs/features/crate-split.md`: `rara-state`, `rara-memory`, `rara-tools`, `rara-agent`, `rara-tui`, `rara-oauth`, `rara-control-plane`, `rara-app`.
-- [ ] Continue splitting remaining oversized runtime/TUI files.
+- [x] Add `TuiMaintainer` to event loop (merged #276).
+- [x] `rara-persistence` crate: `atomic_file`, `redaction`, `thread_data`, `thread_metadata` (merged #279, #282, #283).
+- [ ] Continue splitting remaining modules into crates (`thread_rollout_log`, `thread_turn_log`, `file_lock`).
