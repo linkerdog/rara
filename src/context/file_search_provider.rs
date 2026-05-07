@@ -45,18 +45,17 @@ impl FileSearchCandidateProvider {
     /// Capped at `max_results`.
     pub fn search(&self, query: &str, max_results: usize) -> Vec<FileSearchCandidate> {
         let options = FileSearchOptions {
-            limit: std::num::NonZero::new(max_results.max(1)).context("limit must be nonzero").unwrap(),
+            limit: std::num::NonZero::new(max_results.max(1))
+                .context("limit must be nonzero")
+                .unwrap(),
             respect_gitignore: self.respect_gitignore,
             ..Default::default()
         };
 
-        let results = rara_file_search::search_files(
-            query,
-            vec![self.workspace_root.clone()],
-            options,
-        )
-        .ok()
-        .map_or(Vec::new(), |r| r.matches);
+        let results =
+            rara_file_search::search_files(query, vec![self.workspace_root.clone()], options)
+                .ok()
+                .map_or(Vec::new(), |r| r.matches);
 
         results
             .into_iter()
@@ -97,10 +96,7 @@ impl FileSearchCandidateProvider {
                 kind: "file_search".to_string(),
                 label: c.path,
                 detail: c.provenance,
-                selection_reason: format!(
-                    "candidate from file search (score {:.3})",
-                    c.score
-                ),
+                selection_reason: format!("candidate from file search (score {:.3})", c.score),
                 budget_impact_tokens: Some(c.token_budget),
                 dropped_reason: None,
             })
@@ -118,10 +114,7 @@ fn display_path(root: &Path, full: &Path) -> String {
 
 /// Build a provenance label for a file match.
 fn provenance_label(score: f64) -> String {
-    format!(
-        "file_search(name_match, score={:.3})",
-        score
-    )
+    format!("file_search(name_match, score={:.3})", score)
 }
 
 /// Heuristic token estimate: read up to 8 KiB of the file, count chars / 4.
@@ -185,8 +178,7 @@ mod tests {
         std::fs::write(dir.path().join("a.rs"), "a").unwrap();
         std::fs::write(dir.path().join("b.rs"), "b").unwrap();
 
-        let provider =
-            FileSearchCandidateProvider::new(dir.path().to_path_buf(), false);
+        let provider = FileSearchCandidateProvider::new(dir.path().to_path_buf(), false);
         let entries = provider.context_candidates(".rs", 10);
         // Both .rs files match; stable ordering by score then path
         assert_eq!(entries.len(), 2);

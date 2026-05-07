@@ -232,10 +232,7 @@ impl Agent {
             compact_state: CompactState::default(),
             retrieved_memory_candidates: Vec::new(),
             file_search_candidates: Vec::new(),
-            file_search_provider: FileSearchCandidateProvider::new(
-                root,
-                true,
-            ),
+            file_search_provider: FileSearchCandidateProvider::new(root, true),
             inspection_progress: InspectionProgress::default(),
             last_query_plan_updated: false,
             last_turn_had_tool_calls: false,

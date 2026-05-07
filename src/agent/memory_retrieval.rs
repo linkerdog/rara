@@ -125,7 +125,11 @@ fn extract_text(msg: &Message) -> Option<String> {
                 .filter_map(|item| item.get("text").and_then(Value::as_str))
                 .collect::<Vec<_>>()
                 .join("\n");
-            if joined.is_empty() { None } else { Some(joined) }
+            if joined.is_empty() {
+                None
+            } else {
+                Some(joined)
+            }
         })
     })
 }
