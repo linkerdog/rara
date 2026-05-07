@@ -4,10 +4,10 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result, anyhow};
+use rara_persistence::atomic_file;
 use uuid::Uuid;
 
 use crate::agent::Message;
-use crate::atomic_file;
 use crate::memory_distiller::{
     MemoryDistiller, dedupe_memory_drafts, new_memory_record_from_draft,
 };

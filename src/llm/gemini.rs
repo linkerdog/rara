@@ -4,6 +4,7 @@ use anyhow::{Context, Result, anyhow, bail};
 use async_trait::async_trait;
 use backon::{ExponentialBuilder, Retryable};
 use eventsource_stream::Eventsource;
+use rara_persistence::redaction::sanitize_url_for_display;
 use serde_json::{Value, json};
 use uuid::Uuid;
 
@@ -15,7 +16,6 @@ use super::shared::{
 use crate::agent::Message;
 use crate::google_oauth::GoogleOAuthManager;
 use crate::llm::{ContentBlock, LlmResponse, TokenUsage};
-use crate::redaction::sanitize_url_for_display;
 
 /// Code Assist production endpoint.
 const CODE_ASSIST_ENDPOINT: &str = "https://cloudcode-pa.googleapis.com";

@@ -9,6 +9,7 @@ mod tests;
 use std::sync::{Arc, atomic::AtomicBool};
 
 use anyhow::{Context, Result};
+use rara_persistence::redaction::redact_secrets;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use uuid::Uuid;
@@ -19,7 +20,6 @@ use crate::llm::{ContentBlock, LlmBackend, LlmStreamEvent, LlmTurnMetadata};
 use crate::mcp_status::McpStatusSnapshot;
 use crate::memory_store::MemoryStore;
 use crate::prompt::{self, PromptMode, PromptRuntimeConfig};
-use crate::redaction::redact_secrets;
 use crate::session::SessionManager;
 use crate::state_db::StateDb;
 use crate::thread_store::ThreadRecorder;

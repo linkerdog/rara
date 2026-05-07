@@ -1,12 +1,12 @@
 use std::collections::BTreeMap;
 use std::path::PathBuf;
 
+use rara_persistence::redaction::{redact_secrets, sanitize_url_for_display};
 use serde::{Deserialize, Serialize};
 
 use crate::config::{
     McpRegistry, McpServerConfig, McpServerScope, McpServerTransport, SourcedMcpServerConfig,
 };
-use crate::redaction::{redact_secrets, sanitize_url_for_display};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]

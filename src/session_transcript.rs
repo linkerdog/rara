@@ -5,11 +5,11 @@ use std::sync::{Mutex, OnceLock};
 use std::time::SystemTime;
 
 use anyhow::Result;
+use rara_persistence::atomic_file;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 use crate::agent::Message;
-use crate::atomic_file;
 
 const TRANSCRIPT_FILE_NAME: &str = "transcript.jsonl";
 const TRANSCRIPT_SCHEMA_VERSION: u32 = 1;

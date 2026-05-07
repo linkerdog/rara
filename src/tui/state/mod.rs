@@ -37,13 +37,13 @@ pub fn openai_profile_setup_kinds() -> &'static [OpenAiEndpointKind] {
     &OPENAI_PROFILE_SETUP_KINDS
 }
 
+use rara_persistence::redaction::redact_secrets;
 use rara_provider_catalog::{ModelCatalogProvider, fallback_models};
 
 use super::queued_input::PendingFollowUpMessage;
 use crate::agent::{Agent, AgentExecutionMode, BashApprovalMode};
 use crate::codex_model_catalog::{CodexModelOption, CodexReasoningOption};
 use crate::config::{ConfigManager, DEFAULT_CODEX_BASE_URL, OpenAiEndpointKind};
-use crate::redaction::redact_secrets;
 use crate::state_db::StateDb;
 use crate::tui::is_ssh_session;
 

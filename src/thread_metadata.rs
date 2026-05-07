@@ -3,9 +3,9 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
+use rara_persistence::atomic_file;
 use uuid::Uuid;
 
-use crate::atomic_file;
 use crate::state_db::PersistedThreadRecord;
 
 const THREAD_METADATA_FILE: &str = "thread.json";
