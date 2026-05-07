@@ -6,7 +6,9 @@ use std::sync::{
 use tokio::sync::broadcast;
 
 use crate::agent::AgentEvent;
-use crate::runtime_control::{RuntimeControlEvent, RuntimeEvent, RuntimeProvenance, wrap_agent_event};
+use crate::runtime_control::{
+    RuntimeControlEvent, RuntimeEvent, RuntimeProvenance, wrap_agent_event,
+};
 
 /// Shared runtime event bus for raw agent events and structured protocol
 /// subscribers. The TUI continues to receive events through the separate

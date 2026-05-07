@@ -11,9 +11,7 @@
 
 use crate::mcp_connection_manager::McpConnectionManager;
 use crate::protocol_sources::{MemoryControlHandler, PromptSourceRegistry, SkillSourceRegistry};
-use crate::runtime_control::{
-    RuntimeControlEnvelope, RuntimeControlEvent, RuntimeControlRequest,
-};
+use crate::runtime_control::{RuntimeControlEnvelope, RuntimeControlEvent, RuntimeControlRequest};
 
 /// Dispatch a structured control-plane request and stream resulting events
 /// to the provided callback.

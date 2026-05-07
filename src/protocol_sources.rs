@@ -20,8 +20,8 @@ use std::sync::Arc;
 use tokio::sync::RwLock;
 
 use crate::runtime_control::{
-    MemoryControlRequest, PromptSourceControlRequest, PromptSourceEvent,
-    PromptSourceLifetime, PromptSourceRegistration, RuntimeEvent, SkillSourceControlRequest,
+    MemoryControlRequest, PromptSourceControlRequest, PromptSourceEvent, PromptSourceLifetime,
+    PromptSourceRegistration, RuntimeEvent, SkillSourceControlRequest,
 };
 use crate::runtime_event_bus::RuntimeEventBus;
 
@@ -191,7 +191,10 @@ impl SkillSourceRegistry {
                     },
                 );
             }
-            SkillSourceControlRequest::DisableSkill { name, source_id: _source_id } => {
+            SkillSourceControlRequest::DisableSkill {
+                name,
+                source_id: _source_id,
+            } => {
                 self.disabled.write().await.push(name.clone());
             }
             SkillSourceControlRequest::QuerySkills => {

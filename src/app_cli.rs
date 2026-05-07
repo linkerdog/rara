@@ -154,7 +154,10 @@ async fn run_acp_command(config: &RaraConfig) -> Result<()> {
         tool_manager: Arc::new(bootstrap.tool_manager),
         event_bus: bootstrap.event_bus.clone(),
     };
-    acp_agent.run_acp_stdio().await.map_err(|e| anyhow::anyhow!("{e}"))
+    acp_agent
+        .run_acp_stdio()
+        .await
+        .map_err(|e| anyhow::anyhow!("{e}"))
 }
 
 async fn run_ask_command(config: &RaraConfig, prompt: String) -> Result<()> {

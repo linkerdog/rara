@@ -10,6 +10,7 @@
 
 use std::collections::HashMap;
 use std::sync::Arc;
+
 use tokio::sync::RwLock;
 
 use crate::runtime_control::{HookControlRequest, HookEvent, HookLifecycle, RuntimeEvent};
@@ -54,24 +55,24 @@ impl HookRegistry {
                     description: description.clone(),
                 };
                 self.hooks.write().await.insert(hook_id.clone(), entry);
-                let _ = self.event_bus.publish_control(RuntimeEvent::Hook(
-                    HookEvent::Declared {
+                let _ = self
+                    .event_bus
+                    .publish_control(RuntimeEvent::Hook(HookEvent::Declared {
                         hook_id: hook_id.clone(),
                         lifecycle: lifecycle.clone(),
-                    },
-                ));
+                    }));
             }
             HookControlRequest::QueryHooks => {
                 let hooks = self.hooks.read().await;
                 for (hook_id, _entry) in hooks.iter() {
                     // Emit a Declared event per hook so clients can reconstruct
                     // the full list. There is no bulk-list variant in HookEvent.
-                    let _ = self.event_bus.publish_control(RuntimeEvent::Hook(
-                        HookEvent::Declared {
-                            hook_id: hook_id.clone(),
-                            lifecycle: HookLifecycle::SessionStart,
-                        },
-                    ));
+                    let _ =
+                        self.event_bus
+                            .publish_control(RuntimeEvent::Hook(HookEvent::Declared {
+                                hook_id: hook_id.clone(),
+                                lifecycle: HookLifecycle::SessionStart,
+                            }));
                 }
             }
         }

@@ -118,13 +118,13 @@ impl McpConnectionManager {
 
         entry.state = McpConnectionState::Reconnecting;
 
-        let _ = self.event_bus.publish_control(RuntimeEvent::Mcp(
-            McpEvent::ServerReconnecting {
+        let _ = self
+            .event_bus
+            .publish_control(RuntimeEvent::Mcp(McpEvent::ServerReconnecting {
                 server_name: server_name.into(),
                 attempt: entry.consecutive_failures + 1,
                 backoff_ms: backoff.as_millis() as u64,
-            },
-        ));
+            }));
 
         self.emit_state_change(server_name, McpConnectionState::Reconnecting);
     }
@@ -134,9 +134,9 @@ impl McpConnectionManager {
         match request {
             McpControlRequest::QueryStatus => {
                 let snapshot = crate::mcp_status::McpStatusSnapshot::from_registry(&self.registry);
-                let _ = self.event_bus.publish_control(RuntimeEvent::Mcp(
-                    McpEvent::StatusUpdated { snapshot },
-                ));
+                let _ = self
+                    .event_bus
+                    .publish_control(RuntimeEvent::Mcp(McpEvent::StatusUpdated { snapshot }));
                 for (name, entry) in self.entries.read().await.iter() {
                     self.emit_state_change(name, entry.state);
                 }
@@ -147,9 +147,9 @@ impl McpConnectionManager {
                 } else {
                     self.refresh().await;
                 }
-                let _ = self.event_bus.publish_control(RuntimeEvent::Mcp(
-                    McpEvent::ConfigurationRefreshed,
-                ));
+                let _ = self
+                    .event_bus
+                    .publish_control(RuntimeEvent::Mcp(McpEvent::ConfigurationRefreshed));
             }
             McpControlRequest::Reconnect { server_name } => {
                 self.reconnect(server_name).await;
@@ -158,11 +158,11 @@ impl McpConnectionManager {
     }
 
     fn emit_state_change(&self, server_name: &str, state: McpConnectionState) {
-        let _ = self.event_bus.publish_control(RuntimeEvent::Mcp(
-            McpEvent::ServerStateChanged {
+        let _ = self
+            .event_bus
+            .publish_control(RuntimeEvent::Mcp(McpEvent::ServerStateChanged {
                 server_name: server_name.into(),
                 state,
-            },
-        ));
+            }));
     }
 }

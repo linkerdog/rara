@@ -476,8 +476,12 @@ pub enum SkillEvent {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "type", content = "payload", rename_all = "snake_case")]
 pub enum McpEvent {
-    StatusUpdated { snapshot: McpStatusSnapshot },
-    StatusLoadFailed { message: String },
+    StatusUpdated {
+        snapshot: McpStatusSnapshot,
+    },
+    StatusLoadFailed {
+        message: String,
+    },
     ServerStateChanged {
         server_name: String,
         state: McpConnectionState,

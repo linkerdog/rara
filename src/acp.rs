@@ -6,13 +6,13 @@
 use std::sync::Arc;
 
 use agent_client_protocol::{
-    schema::{
-        AgentCapabilities, AuthenticateRequest, AuthenticateResponse,
-        CancelNotification, ContentChunk, InitializeRequest, InitializeResponse,
-        NewSessionRequest, NewSessionResponse, PromptRequest, PromptResponse,
-        SessionId, SessionNotification, SessionUpdate, StopReason, TextContent,
-    },
     Agent, Client, ConnectionTo, Dispatch, Responder, Result as AcpResult,
+    schema::{
+        AgentCapabilities, AuthenticateRequest, AuthenticateResponse, CancelNotification,
+        ContentChunk, InitializeRequest, InitializeResponse, NewSessionRequest, NewSessionResponse,
+        PromptRequest, PromptResponse, SessionId, SessionNotification, SessionUpdate, StopReason,
+        TextContent,
+    },
 };
 use tokio::io::{stdin, stdout};
 use tokio_util::compat::{TokioAsyncReadCompatExt, TokioAsyncWriteCompatExt};
@@ -48,10 +48,8 @@ impl RaraAcpAgent {
         let _tools = self.tool_manager.clone();
         let _bus = self.event_bus.clone();
 
-        let transport = agent_client_protocol::ByteStreams::new(
-            stdout().compat_write(),
-            stdin().compat(),
-        );
+        let transport =
+            agent_client_protocol::ByteStreams::new(stdout().compat_write(), stdin().compat());
 
         Agent
             .builder()
@@ -148,9 +146,9 @@ async fn handle_prompt(
         let session_id = session_id.clone();
         move |event: LlmStreamEvent| {
             if let LlmStreamEvent::TextDelta(text) = event {
-                let chunk = ContentChunk::new(
-                    agent_client_protocol::schema::ContentBlock::Text(TextContent::new(text)),
-                );
+                let chunk = ContentChunk::new(agent_client_protocol::schema::ContentBlock::Text(
+                    TextContent::new(text),
+                ));
                 let _ = cx_for_callback.send_notification(SessionNotification::new(
                     session_id.clone(),
                     SessionUpdate::AgentMessageChunk(chunk),
@@ -165,9 +163,9 @@ async fn handle_prompt(
         }
         Err(e) => {
             eprintln!("[acp] LLM streaming error: {e:?}");
-            let chunk = ContentChunk::new(
-                agent_client_protocol::schema::ContentBlock::Text(TextContent::new(format!("LLM error: {e}"))),
-            );
+            let chunk = ContentChunk::new(agent_client_protocol::schema::ContentBlock::Text(
+                TextContent::new(format!("LLM error: {e}")),
+            ));
             let _ = cx.send_notification(SessionNotification::new(
                 session_id.clone(),
                 SessionUpdate::AgentMessageChunk(chunk),
