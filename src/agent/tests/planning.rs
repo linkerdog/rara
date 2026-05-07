@@ -750,7 +750,7 @@ async fn plan_mode_consecutive_reasoning_only_turns_stop_after_three_continuatio
             })
         })
         .expect("continuation message should be present");
-    assert!(continuation_text.contains("\"phase\":\"ReasoningOnlyContinuationRequired\""));
+    assert!(continuation_text.contains("\"phase\": \"ReasoningOnlyContinuationRequired\""));
     assert!(agent.history.iter().any(|message| {
         message
             .content
@@ -820,7 +820,7 @@ async fn execute_mode_consecutive_reasoning_only_turns_stop_after_three_continua
             })
         })
         .expect("continuation message should be present");
-    assert!(continuation_text.contains("\"phase\":\"ReasoningOnlyContinuationRequired\""));
+    assert!(continuation_text.contains("\"phase\": \"ReasoningOnlyContinuationRequired\""));
     assert!(agent.history.iter().any(|message| {
         message
             .content
