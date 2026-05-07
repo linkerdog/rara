@@ -3,6 +3,7 @@ use std::collections::HashMap;
 use anyhow::{Result, anyhow};
 use async_trait::async_trait;
 use futures::StreamExt;
+use rara_persistence::redaction::{redact_secrets, sanitize_url_for_display};
 use serde_json::{Value, json};
 
 use super::shared::{
@@ -12,7 +13,6 @@ use super::shared::{
 };
 use crate::agent::Message;
 use crate::llm::{ContentBlock, LlmResponse, TokenUsage};
-use crate::redaction::{redact_secrets, sanitize_url_for_display};
 
 pub struct OllamaBackend {
     pub client: reqwest::Client,

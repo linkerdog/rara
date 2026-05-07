@@ -6,8 +6,8 @@ use std::sync::{Arc, Mutex};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use anyhow::{Context, Result, bail};
+use rara_persistence::atomic_file;
 
-use crate::atomic_file;
 use crate::file_lock::AdvisoryFileLock;
 use crate::llm::LlmBackend;
 use crate::vectordb::{MemoryMetadata, VectorDB};

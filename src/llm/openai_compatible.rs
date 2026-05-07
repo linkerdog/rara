@@ -9,6 +9,7 @@ use anyhow::{Result, anyhow};
 use async_trait::async_trait;
 use backon::{ExponentialBuilder, Retryable};
 use eventsource_stream::Eventsource;
+use rara_persistence::redaction::{redact_secrets, sanitize_url_for_display};
 use reqwest::{Response, StatusCode};
 use secrecy::{ExposeSecret, SecretString};
 use serde_json::{Value, json};
@@ -26,7 +27,6 @@ use crate::agent::Message;
 use crate::config::OpenAiEndpointKind;
 use crate::control_tokens::{has_deepseek_control_evidence, scrub_deepseek_visible_text};
 use crate::llm::{ContentBlock, LlmResponse};
-use crate::redaction::{redact_secrets, sanitize_url_for_display};
 
 const STREAM_IDLE_RETRY_ATTEMPTS: usize = 1;
 const STREAM_IDLE_ERROR_FRAGMENT: &str = "stream produced no events";

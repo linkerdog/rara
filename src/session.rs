@@ -4,10 +4,10 @@ use std::path::PathBuf;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use anyhow::{Context, Result, anyhow};
+use rara_persistence::atomic_file;
 use serde::{Deserialize, Serialize};
 
 use crate::agent::Message;
-use crate::atomic_file;
 use crate::session_context::{self, SessionContextSearchHit};
 use crate::session_transcript;
 use crate::state_db::PersistedStructuredRolloutEvent;

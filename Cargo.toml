@@ -10,6 +10,7 @@ members = [
     "crates/skills",
     "crates/terminal-detection",
     "crates/tool-macros",
+    "crates/rara-persistence",
 ]
 resolver = "2"
 
@@ -36,6 +37,7 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+rara-persistence = { path = "crates/rara-persistence" }
 tokio = { version = "1.0", features = ["full"] }
 tokio-util = { version = "0.7", features = ["compat"] }
 clap = { version = "4.0", features = ["derive", "env"] }

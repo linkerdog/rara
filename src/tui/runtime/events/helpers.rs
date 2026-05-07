@@ -991,7 +991,7 @@ fn first_non_empty_line(text: &str) -> &str {
 }
 
 pub(super) fn format_error_chain(err: &anyhow::Error) -> String {
-    use crate::redaction::redact_secrets;
+    use rara_persistence::redaction::redact_secrets;
 
     let mut lines = Vec::new();
     for (idx, cause) in err.chain().enumerate() {

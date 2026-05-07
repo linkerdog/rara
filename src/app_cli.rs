@@ -2,6 +2,7 @@ use std::sync::Arc;
 
 use anyhow::{Result, bail};
 use clap::{Parser, Subcommand};
+use rara_persistence::redaction::redact_secrets;
 use secrecy::ExposeSecret;
 
 use crate::acp::RaraAcpAgent;
@@ -9,7 +10,6 @@ use crate::config::{
     ConfigManager, DEFAULT_CODEX_BASE_URL, DEFAULT_CODEX_CHATGPT_BASE_URL, RaraConfig,
 };
 use crate::oauth::{OAuthManager, SavedCodexAuthMode};
-use crate::redaction::redact_secrets;
 use crate::runtime_context;
 use crate::thread_cli;
 use crate::tui::StartupResumeTarget;

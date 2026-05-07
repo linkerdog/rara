@@ -8,12 +8,11 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use anyhow::{Context, Result, bail};
 use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
+use rara_persistence::atomic_file;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use tokio::sync::Mutex;
 use url::Url;
-
-use crate::atomic_file;
 
 // ── Constants ─────────────────────────────────────────────────
 

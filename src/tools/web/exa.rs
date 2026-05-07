@@ -1,11 +1,11 @@
 use std::time::Duration;
 
 use backon::{ExponentialBuilder, Retryable};
+use rara_persistence::redaction::redact_secrets;
 use serde::Serialize;
 use serde_json::{Value, json};
 
 use crate::llm::is_retryable_http_error;
-use crate::redaction::redact_secrets;
 use crate::tool::ToolError;
 
 const EXA_MCP_URL: &str = "https://mcp.exa.ai/mcp";

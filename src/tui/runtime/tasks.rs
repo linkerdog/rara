@@ -11,6 +11,7 @@ use std::sync::{
 use std::time::Instant;
 
 use builder::rebuild_agent_with_progress;
+use rara_persistence::redaction::sanitize_url_for_display;
 use rara_provider_catalog::{
     ModelCatalogProvider, ModelCatalogRequest, fallback_models, load_model_catalog,
 };
@@ -23,7 +24,6 @@ use super::super::state::{
 };
 use super::events::{apply_tui_event, convert_agent_event, format_error_chain};
 use crate::agent::{Agent, AgentOutputMode, BashApprovalDecision};
-use crate::redaction::sanitize_url_for_display;
 use crate::runtime_control::RuntimeProvenance;
 use crate::runtime_event_bus::RuntimeEventBus;
 

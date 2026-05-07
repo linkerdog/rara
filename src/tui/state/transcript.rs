@@ -1,12 +1,12 @@
 use std::path::PathBuf;
 
+use rara_persistence::redaction::redact_secrets;
 use ratatui::text::Line;
 
 use super::{
     ActiveLiveEvent, ActiveLiveSections, PendingFollowUpMessage, RuntimePhase, TranscriptEntry,
     TranscriptTurn, TuiApp,
 };
-use crate::redaction::redact_secrets;
 use crate::tui::terminal_event::TerminalEvent;
 
 fn legacy_active_live_sections(live: &ActiveLiveSections) -> Vec<(&'static str, Vec<String>)> {

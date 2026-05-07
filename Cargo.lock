@@ -9241,6 +9241,7 @@ dependencies = [
  "rara-config",
  "rara-file-search",
  "rara-instructions",
+ "rara-persistence",
  "rara-provider-catalog",
  "rara-sandbox",
  "rara-skills",
@@ -9315,6 +9316,16 @@ dependencies = [
  "anyhow",
  "rara-config",
  "tempfile",
+]
+
+[[package]]
+name = "rara-persistence"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "regex",
+ "tempfile",
+ "url",
 ]
 
 [[package]]

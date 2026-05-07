@@ -2,7 +2,6 @@ mod acp;
 mod agent;
 mod agents_ext;
 mod app_cli;
-mod atomic_file;
 mod codex_model_catalog;
 mod config;
 mod context;
@@ -21,7 +20,6 @@ mod memory_store;
 mod oauth;
 mod prompt;
 mod protocol_sources;
-mod redaction;
 mod runtime_context;
 mod runtime_control;
 mod runtime_event_bus;
@@ -46,8 +44,7 @@ mod vectordb;
 mod workspace;
 
 use anyhow::Result;
-
-use crate::redaction::redact_secrets;
+use rara_persistence::redaction::redact_secrets;
 
 #[tokio::main]
 async fn main() {

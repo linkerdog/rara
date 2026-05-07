@@ -3,6 +3,7 @@ use async_trait::async_trait;
 use backon::{ExponentialBuilder, Retryable};
 use codex_login::default_client::default_headers as codex_default_headers;
 use eventsource_stream::Eventsource;
+use rara_persistence::redaction::sanitize_url_for_display;
 use secrecy::{ExposeSecret, SecretString};
 use serde_json::{Value, json};
 
@@ -22,7 +23,6 @@ use super::{
 };
 use crate::agent::Message;
 use crate::llm::{ContentBlock, LlmResponse};
-use crate::redaction::sanitize_url_for_display;
 
 impl CodexBackend {
     pub fn new(
