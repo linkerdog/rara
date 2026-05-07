@@ -746,7 +746,13 @@ async fn plan_mode_consecutive_reasoning_only_turns_stop_after_three_continuatio
                     .get(0)?
                     .get("text")?
                     .as_str()
-                    .map(str::to_string)
+                    .and_then(|s| {
+                        if s.contains("agent_runtime") {
+                            Some(s.to_string())
+                        } else {
+                            None
+                        }
+                    })
             })
         })
         .expect("continuation message should be present");
@@ -815,7 +821,13 @@ async fn execute_mode_consecutive_reasoning_only_turns_stop_after_three_continua
                     .get(0)?
                     .get("text")?
                     .as_str()
-                    .map(str::to_string)
+                    .and_then(|s| {
+                        if s.contains("agent_runtime") {
+                            Some(s.to_string())
+                        } else {
+                            None
+                        }
+                    })
             })
         })
         .expect("continuation message should be present");
