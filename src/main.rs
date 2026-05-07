@@ -41,6 +41,7 @@ mod tool_result;
 mod tools;
 mod tui;
 mod vectordb;
+mod wire_consumer;
 mod workspace;
 
 use anyhow::Result;

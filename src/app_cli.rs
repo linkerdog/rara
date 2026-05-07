@@ -14,6 +14,7 @@ use crate::print_consumer::PrintConsumer;
 use crate::runtime_context;
 use crate::thread_cli;
 use crate::tui::StartupResumeTarget;
+use crate::wire_consumer::WireConsumer;
 
 #[derive(Parser)]
 #[command(name = "rara")]
@@ -77,6 +78,10 @@ enum Commands {
         /// The prompt to send to the agent.
         prompt: String,
     },
+    Wire {
+        /// The prompt to send to the agent.
+        prompt: String,
+    },
     Tui,
 }
 
@@ -120,6 +125,7 @@ pub(crate) async fn run_cli() -> Result<()> {
         }
         Commands::Logout => run_logout_command(&mut config, &config_manager, &oauth_manager)?,
         Commands::Print { prompt } => run_print_command(&config, prompt).await?,
+        Commands::Wire { prompt } => run_wire_command(&config, prompt).await?,
         Commands::Tui => {
             run_tui_command(
                 &config,
@@ -179,6 +185,15 @@ async fn run_print_command(config: &RaraConfig, prompt: String) -> Result<()> {
     let event_bus = bootstrap.event_bus.clone();
     let agent = bootstrap.into_agent();
     let consumer = PrintConsumer::new(agent, event_bus, prompt);
+    consumer.run().await
+}
+
+async fn run_wire_command(config: &RaraConfig, prompt: String) -> Result<()> {
+    let bootstrap = runtime_context::initialize_rara_context(config, None).await?;
+    emit_bootstrap_warnings(&bootstrap.warnings);
+    let event_bus = bootstrap.event_bus.clone();
+    let agent = bootstrap.into_agent();
+    let consumer = WireConsumer::new(agent, event_bus, prompt);
     consumer.run().await
 }
 
@@ -247,7 +262,8 @@ fn startup_resume_target_for_command(command: &Commands) -> Option<StartupResume
         | Commands::Threads { .. }
         | Commands::Login { .. }
         | Commands::Logout
-        | Commands::Print { .. } => None,
+        | Commands::Print { .. }
+        | Commands::Wire { .. } => None,
     }
 }
 
