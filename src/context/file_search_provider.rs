@@ -59,11 +59,14 @@ impl FileSearchCandidateProvider {
 
         results
             .into_iter()
-            .map(|m| FileSearchCandidate {
-                path: display_path(&self.workspace_root, &m.path),
-                score: m.score as f64,
-                token_budget: estimate_file_token_budget(&m.path),
-                provenance: provenance_label(m.score as f64),
+            .map(|m| {
+                let full_path = self.workspace_root.join(&m.path);
+                FileSearchCandidate {
+                    path: display_path(&self.workspace_root, &m.path),
+                    score: m.score as f64,
+                    token_budget: estimate_file_token_budget(&full_path),
+                    provenance: provenance_label(m.score as f64),
+                }
             })
             .collect()
     }
