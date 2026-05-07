@@ -6,7 +6,9 @@ use std::sync::{
 use tokio::sync::broadcast;
 
 use crate::agent::AgentEvent;
-use crate::runtime_control::{RuntimeControlEvent, RuntimeProvenance, wrap_agent_event};
+use crate::runtime_control::{
+    RuntimeControlEvent, RuntimeEvent, RuntimeProvenance, wrap_agent_event,
+};
 
 /// Shared runtime event bus for raw agent events and structured protocol
 /// subscribers. The TUI continues to receive events through the separate
@@ -85,6 +87,24 @@ impl RuntimeEventBus {
     /// Return the number of active subscribers.
     pub fn receiver_count(&self) -> usize {
         self.raw_sender.receiver_count() + self.control_sender.receiver_count()
+    }
+
+    /// Publish a structured `RuntimeEvent` on the control bus without wrapping
+    /// an `AgentEvent`. Used for protocol-native events (MCP, hooks, etc.) that
+    /// originate from the runtime itself rather than from agent execution.
+    pub fn publish_control(&self, event: RuntimeEvent) -> usize {
+        if self.control_sender.receiver_count() == 0 {
+            return 0;
+        }
+        let sequence = self.next_sequence.fetch_add(1, Ordering::SeqCst) + 1;
+        let event_id = format!("ctl-{sequence:016x}");
+        let control_event = RuntimeControlEvent {
+            event_id,
+            provenance: RuntimeProvenance::runtime(None),
+            sequence,
+            event,
+        };
+        self.control_sender.send(control_event).unwrap_or(0)
     }
 }
 

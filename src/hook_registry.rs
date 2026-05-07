@@ -1,0 +1,86 @@
+//! Hook declaration registry (control-plane facing).
+//!
+//! Stores hook declarations registered by protocol adapters through the
+//! control plane. This is declaration-only scaffolding — hooks are recorded
+//! and query-able but not yet executed. Execution will be enabled once the
+//! permission/authorization model is defined.
+//!
+//! This module complements `hooks.rs` (file-system discovery) by providing
+//! the protocol-driven registration path via `HookControlRequest`.
+
+use std::collections::HashMap;
+use std::sync::Arc;
+
+use tokio::sync::RwLock;
+
+use crate::runtime_control::{HookControlRequest, HookEvent, HookLifecycle, RuntimeEvent};
+use crate::runtime_event_bus::RuntimeEventBus;
+
+/// A stored hook declaration.
+#[derive(Clone, Debug)]
+pub struct HookEntry {
+    pub id: String,
+    pub lifecycle: HookLifecycle,
+    pub description: String,
+}
+
+/// Registry of control-plane-declared hooks.
+///
+/// Declarations are received via the control plane and persisted only in
+/// memory (cleared on restart). Execution is not wired yet.
+pub struct HookRegistry {
+    hooks: RwLock<HashMap<String, HookEntry>>,
+    event_bus: Arc<RuntimeEventBus>,
+}
+
+impl HookRegistry {
+    pub fn new(event_bus: Arc<RuntimeEventBus>) -> Self {
+        Self {
+            hooks: RwLock::new(HashMap::new()),
+            event_bus,
+        }
+    }
+
+    /// Handle a control-plane hook request.
+    pub async fn handle_control(&self, request: &HookControlRequest) {
+        match request {
+            HookControlRequest::Declare {
+                hook_id,
+                lifecycle,
+                description,
+            } => {
+                let entry = HookEntry {
+                    id: hook_id.clone(),
+                    lifecycle: lifecycle.clone(),
+                    description: description.clone(),
+                };
+                self.hooks.write().await.insert(hook_id.clone(), entry);
+                let _ = self
+                    .event_bus
+                    .publish_control(RuntimeEvent::Hook(HookEvent::Declared {
+                        hook_id: hook_id.clone(),
+                        lifecycle: lifecycle.clone(),
+                    }));
+            }
+            HookControlRequest::QueryHooks => {
+                let hooks = self.hooks.read().await;
+                for (hook_id, _entry) in hooks.iter() {
+                    // Emit a Declared event per hook so clients can reconstruct
+                    // the full list. There is no bulk-list variant in HookEvent.
+                    let _ =
+                        self.event_bus
+                            .publish_control(RuntimeEvent::Hook(HookEvent::Declared {
+                                hook_id: hook_id.clone(),
+                                lifecycle: HookLifecycle::SessionStart,
+                            }));
+                }
+            }
+        }
+    }
+
+    /// Return a snapshot of all registered hooks.
+    #[allow(dead_code)]
+    pub async fn all_hooks(&self) -> Vec<HookEntry> {
+        self.hooks.read().await.values().cloned().collect()
+    }
+}
