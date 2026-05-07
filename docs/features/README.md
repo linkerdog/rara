@@ -48,6 +48,19 @@ future appserver integrations can use.
 - `file-search.md`: shared gitignore-aware file discovery and fuzzy path
   ranking crate for tools, TUI pickers, and context routing.
 
+## App Server Architecture
+
+- `app-server-architecture.md`: agent output as typed objects over a lightweight
+  event bus; TUI, ACP, Wire as peer consumers. Internal = objects, external =
+  protocol.
+
+## Crate Split
+
+- `crate-split.md`: dependency-ordered split of the monolithic binary crate
+  into `rara-app`, `rara-agent`, `rara-tui`, `rara-memory`, `rara-tools`,
+  `rara-control-plane`, `rara-oauth`, and `rara-state`. Each PR green on
+  `cargo test`.
+
 ## Release Specs
 
 - `release-distribution.md`: tag-driven binary release, GitHub Release assets,

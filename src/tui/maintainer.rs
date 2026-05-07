@@ -7,8 +7,8 @@
 //! This is an incremental extraction of the apply logic already present in
 //! `finish_running_task_if_ready` / `apply_tui_event`; no behavior change.
 
-use crate::agent::Agent;
 use super::state::TuiApp;
+use crate::agent::Agent;
 
 /// Owns all TUI render state and applies agent-output events to it.
 pub(super) struct TuiMaintainer {
@@ -20,7 +20,11 @@ pub(super) struct TuiMaintainer {
 
 impl TuiMaintainer {
     pub(super) fn new(app: TuiApp, agent: Option<Agent>) -> Self {
-        Self { app, agent, needs_redraw: true }
+        Self {
+            app,
+            agent,
+            needs_redraw: true,
+        }
     }
 
     pub(super) fn app(&self) -> &TuiApp {
@@ -43,11 +47,7 @@ impl TuiMaintainer {
     /// finalize the task if it has completed.
     pub(super) async fn poll_agent_task(&mut self) -> anyhow::Result<()> {
         // Delegate to the existing logic; move it to TuiMaintainer in the next commit.
-        super::runtime::tasks::finish_running_task_if_ready(
-            &mut self.app,
-            &mut self.agent,
-        )
-        .await?;
+        super::runtime::tasks::finish_running_task_if_ready(&mut self.app, &mut self.agent).await?;
         self.needs_redraw = true;
         Ok(())
     }
