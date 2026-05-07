@@ -23,7 +23,7 @@ impl Agent {
             self.file_search_candidates = Vec::new();
             return;
         }
-        self.file_search_candidates = self.file_search_provider.context_candidates(&query, 64);
+        self.file_search_candidates = self.file_search_provider.retrieval_candidates(&query, 64);
     }
 
     pub(super) fn selected_memory_context_text(

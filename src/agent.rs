@@ -13,9 +13,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use uuid::Uuid;
 
-use crate::context::{
-    FileSearchCandidateProvider, MemorySelectionItemContextEntry, RetrievedMemoryCandidate,
-};
+use crate::context::{FileSearchCandidateProvider, RetrievalCandidate, RetrievedMemoryCandidate};
 use crate::control_tokens::scrub_internal_control_tokens;
 use crate::llm::{ContentBlock, LlmBackend, LlmStreamEvent, LlmTurnMetadata};
 use crate::mcp_status::McpStatusSnapshot;
@@ -155,7 +153,7 @@ pub struct Agent {
     pub approved_bash_prefixes: Vec<String>,
     pub compact_state: CompactState,
     pub retrieved_memory_candidates: Vec<RetrievedMemoryCandidate>,
-    pub file_search_candidates: Vec<MemorySelectionItemContextEntry>,
+    pub file_search_candidates: Vec<RetrievalCandidate>,
     file_search_provider: FileSearchCandidateProvider,
     inspection_progress: InspectionProgress,
     last_query_plan_updated: bool,

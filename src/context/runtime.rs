@@ -330,6 +330,8 @@ pub struct RetrievalCandidate {
     pub budget_impact_tokens: Option<usize>,
     pub selection_reason: String,
     pub availability_reason: String,
+    pub not_selected_reason: String,
+    pub selectable: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Default, serde::Serialize, serde::Deserialize)]

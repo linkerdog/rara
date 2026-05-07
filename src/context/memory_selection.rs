@@ -1,6 +1,4 @@
-use std::collections::{BTreeMap, HashMap};
-
-use serde_json::Value;
+use std::collections::BTreeMap;
 
 use crate::agent::{Message, PlanStepStatus};
 use crate::context::assembler::{
@@ -8,10 +6,8 @@ use crate::context::assembler::{
 };
 use crate::context::{
     CompactionSourceContextEntry, DropReason, MemorySelectionContextView,
-    MemorySelectionItemContextEntry, RETRIEVED_THREAD_CONTEXT_KIND,
-    RETRIEVED_WORKSPACE_MEMORY_KIND, RetrievalCandidate, RetrievalSourceRef,
-    RetrievedMemoryCandidate, RetrievedMemoryRenderItem, is_retrieved_memory_kind,
-    render_retrieved_memory_context, render_retrieved_memory_context_item,
+    MemorySelectionItemContextEntry, RetrievalCandidate, RetrievedMemoryRenderItem,
+    is_retrieved_memory_kind, render_retrieved_memory_context,
 };
 use crate::prompt::PromptSource;
 
@@ -22,10 +18,7 @@ pub(crate) fn memory_selection(
     pending_interactions: &[RuntimeInteractionInput],
     compacted_history: &[CompactionSourceContextEntry],
     history: &[Message],
-    session_id: &str,
-    vdb_uri: &str,
-    retrieved_memory_candidates: &[RetrievedMemoryCandidate],
-    file_search_candidates: &[MemorySelectionItemContextEntry],
+    retrieval_candidates: &[RetrievalCandidate],
     selection_budget_tokens: Option<usize>,
 ) -> MemorySelectionContextView {
     let mut selected_items = fixed_memory_selection_items(
@@ -41,10 +34,11 @@ pub(crate) fn memory_selection(
         .map(|item| item.kind.clone())
         .collect::<Vec<_>>();
     let mut discretionary = select_memory_candidates(
-        merge_file_search_candidates(
-            retrieval_memory_candidates(history, session_id, vdb_uri, retrieved_memory_candidates),
-            file_search_candidates,
-        ),
+        retrieval_candidates
+            .iter()
+            .cloned()
+            .map(memory_selection_candidate_from_retrieval_candidate)
+            .collect(),
         selection_budget_tokens,
         fixed_kinds.as_slice(),
     );
@@ -247,86 +241,6 @@ fn compacted_history_selected_items(
         .collect()
 }
 
-fn retrieval_memory_candidates(
-    history: &[Message],
-    session_id: &str,
-    vdb_uri: &str,
-    retrieved_memory_candidates: &[RetrievedMemoryCandidate],
-) -> Vec<MemorySelectionCandidate> {
-    let mut candidates = direct_retrieved_memory_candidates(retrieved_memory_candidates);
-    candidates.extend(retrieval_tool_candidates(history));
-    candidates.push(thread_history_candidate(history, session_id));
-    candidates.push(vector_memory_candidate(vdb_uri));
-    candidates
-}
-
-fn direct_retrieved_memory_candidates(
-    retrieved_memory_candidates: &[RetrievedMemoryCandidate],
-) -> Vec<MemorySelectionCandidate> {
-    retrieved_memory_candidates
-        .iter()
-        .map(retrieval_candidate_from_retrieved_memory)
-        .map(memory_selection_candidate_from_retrieval_candidate)
-        .collect()
-}
-
-fn retrieval_candidate_from_retrieved_memory(
-    candidate: &RetrievedMemoryCandidate,
-) -> RetrievalCandidate {
-    let source_type = match candidate.kind.as_str() {
-        RETRIEVED_THREAD_CONTEXT_KIND => "session_context",
-        RETRIEVED_WORKSPACE_MEMORY_KIND => "memory_record",
-        _ => "retrieved_memory",
-    };
-    let scope = match candidate.kind.as_str() {
-        RETRIEVED_THREAD_CONTEXT_KIND => "thread",
-        RETRIEVED_WORKSPACE_MEMORY_KIND => "workspace",
-        _ => "unknown",
-    };
-    let priority = match candidate.kind.as_str() {
-        RETRIEVED_THREAD_CONTEXT_KIND => 10,
-        RETRIEVED_WORKSPACE_MEMORY_KIND => 20,
-        _ => 25,
-    } + candidate.rank;
-    let dedupe_key = format!(
-        "{}:{}:{}",
-        source_type,
-        candidate.kind,
-        stable_retrieval_text_id(candidate.detail.as_str())
-    );
-    RetrievalCandidate {
-        id: format!(
-            "{}:{}:{}",
-            source_type,
-            candidate.rank,
-            stable_retrieval_text_id(candidate.label.as_str())
-        ),
-        source: RetrievalSourceRef {
-            source_type: source_type.to_string(),
-            source_id: None,
-            source_path: None,
-            source_uri: None,
-            session_id: None,
-            thread_id: None,
-            workspace_id: None,
-        },
-        kind: candidate.kind.clone(),
-        scope: scope.to_string(),
-        label: candidate.label.clone(),
-        detail: candidate.detail.clone(),
-        summary: None,
-        rank: candidate.rank,
-        score: None,
-        priority,
-        dedupe_key: Some(dedupe_key),
-        budget_impact_tokens: Some(direct_retrieval_candidate_budget_impact(candidate)),
-        selection_reason: candidate.selection_reason.clone(),
-        availability_reason:
-            "available because a retrieval provider returned this candidate for the current turn"
-                .to_string(),
-    }
-}
-
 fn memory_selection_candidate_from_retrieval_candidate(
     candidate: RetrievalCandidate,
 ) -> MemorySelectionCandidate {
@@ -338,147 +252,11 @@ fn memory_selection_candidate_from_retrieval_candidate(
         budget_impact_tokens: candidate.budget_impact_tokens,
         priority: candidate.priority,
         dedupe_key: candidate.dedupe_key,
-        selectable: true,
+        selectable: candidate.selectable,
         dropped_reason: DropReason::NotSelected {
-            reason:
-                "not selected after ranking the retrieved memory candidate against the current memory-selection budget"
-                    .to_string(),
+            reason: candidate.not_selected_reason,
         },
     }
-}
-
-fn direct_retrieval_candidate_budget_impact(candidate: &RetrievedMemoryCandidate) -> usize {
-    let item = RetrievedMemoryRenderItem {
-        label: candidate.label.as_str(),
-        detail: candidate.detail.as_str(),
-    };
-    estimate_text_tokens(&render_retrieved_memory_context_item(item))
-}
-
-fn stable_retrieval_text_id(value: &str) -> String {
-    value
-        .chars()
-        .map(|ch| {
-            if ch.is_ascii_alphanumeric() {
-                ch.to_ascii_lowercase()
-            } else {
-                '-'
-            }
-        })
-        .collect::<String>()
-        .split('-')
-        .filter(|part| !part.is_empty())
-        .take(8)
-        .collect::<Vec<_>>()
-        .join("-")
-}
-
-fn retrieval_tool_candidates(history: &[Message]) -> Vec<MemorySelectionCandidate> {
-    let mut pending = HashMap::new();
-    let mut items = Vec::new();
-
-    for message in history {
-        match message.role.as_str() {
-            "assistant" => collect_pending_retrieval_tool_uses(&mut pending, message),
-            "user" => collect_retrieval_tool_results(&mut pending, &mut items, message),
-            _ => {}
-        }
-    }
-
-    items
-}
-
-fn collect_pending_retrieval_tool_uses(
-    pending: &mut HashMap<String, (String, Option<String>)>,
-    message: &Message,
-) {
-    let Some(items) = message.content.as_array() else {
-        return;
-    };
-    for item in items {
-        let Some(item_type) = item.get("type").and_then(Value::as_str) else {
-            continue;
-        };
-        if item_type != "tool_use" {
-            continue;
-        }
-        let Some(name) = item.get("name").and_then(Value::as_str) else {
-            continue;
-        };
-        if !matches!(name, "retrieve_experience" | "retrieve_session_context") {
-            continue;
-        }
-        let Some(tool_use_id) = item.get("id").and_then(Value::as_str) else {
-            continue;
-        };
-        let query = item
-            .get("input")
-            .and_then(Value::as_object)
-            .and_then(|input| input.get("query"))
-            .and_then(Value::as_str)
-            .map(str::to_string);
-        pending.insert(tool_use_id.to_string(), (name.to_string(), query));
-    }
-}
-
-fn collect_retrieval_tool_results(
-    pending: &mut HashMap<String, (String, Option<String>)>,
-    items: &mut Vec<MemorySelectionCandidate>,
-    message: &Message,
-) {
-    let Some(blocks) = message.content.as_array() else {
-        return;
-    };
-    for block in blocks {
-        let Some(item_type) = block.get("type").and_then(Value::as_str) else {
-            continue;
-        };
-        if item_type != "tool_result" {
-            continue;
-        }
-        let Some(tool_use_id) = block.get("tool_use_id").and_then(Value::as_str) else {
-            continue;
-        };
-        let Some((name, query)) = pending.remove(tool_use_id) else {
-            continue;
-        };
-        let content = block
-            .get("content")
-            .and_then(Value::as_str)
-            .unwrap_or_default();
-        items.push(retrieval_tool_candidate(
-            name.as_str(),
-            query.as_deref(),
-            content,
-        ));
-    }
-}
-
-/// Merge file-search candidates into the memory-selection candidate pool.
-/// Each entry is converted to a `MemorySelectionCandidate` with priority
-/// derived from its sort order (lower order = higher priority).
-fn merge_file_search_candidates(
-    mut candidates: Vec<MemorySelectionCandidate>,
-    file_search: &[MemorySelectionItemContextEntry],
-) -> Vec<MemorySelectionCandidate> {
-    for entry in file_search {
-        candidates.push(MemorySelectionCandidate {
-            kind: entry.kind.clone(),
-            label: entry.label.clone(),
-            detail: entry.detail.clone(),
-            selection_reason: entry.selection_reason.clone(),
-            budget_impact_tokens: entry.budget_impact_tokens,
-            priority: 30 + entry.order,
-            dedupe_key: None,
-            selectable: true,
-            dropped_reason: DropReason::NotSelected {
-                reason:
-                    "not selected after ranking the file-search candidate against the current memory-selection budget"
-                        .to_string(),
-            },
-        });
-    }
-    candidates
 }
 
 fn select_memory_candidates(
@@ -657,112 +435,6 @@ fn workspace_memory_available_item(
     }
 }
 
-fn thread_history_candidate(history: &[Message], session_id: &str) -> MemorySelectionCandidate {
-    MemorySelectionCandidate {
-        kind: "thread_history".to_string(),
-        label: "Thread History".to_string(),
-        detail: format!("session={session_id} messages={}", history.len()),
-        selection_reason: "thread history remains available as a recall source even when only active-turn state is currently injected".to_string(),
-        budget_impact_tokens: Some(estimate_text_tokens(
-            format!("session={session_id} messages={}", history.len()).as_str(),
-        )),
-        priority: 30,
-        dedupe_key: None,
-        selectable: !history.is_empty(),
-        dropped_reason: DropReason::NotSelected { reason: if history.is_empty() {
-            "no thread history is available for selection".to_string()
-        } else {
-            "raw thread history was not selected directly because the current turn already has sufficient active-turn and compacted-history context".to_string()
-        }},
-    }
-}
-
-fn vector_memory_candidate(vdb_uri: &str) -> MemorySelectionCandidate {
-    MemorySelectionCandidate {
-        kind: "vector_memory".to_string(),
-        label: "Vector Memory Store".to_string(),
-        detail: if vdb_uri.is_empty() {
-            "-".to_string()
-        } else {
-            vdb_uri.to_string()
-        },
-        selection_reason: "the vector-backed memory slot is part of the selection contract even before full ranked retrieval is implemented".to_string(),
-        budget_impact_tokens: None,
-        priority: 40,
-        dedupe_key: None,
-        selectable: false,
-        dropped_reason: DropReason::NotSelected { reason: if vdb_uri.is_empty() {
-            "no vector-backed memory store is configured".to_string()
-        } else {
-            "not selected because vector-backed candidate ranking is not implemented yet".to_string()
-        }},
-    }
-}
-
-fn retrieval_tool_candidate(
-    tool_name: &str,
-    query: Option<&str>,
-    content: &str,
-) -> MemorySelectionCandidate {
-    match tool_name {
-        "retrieve_experience" => {
-            let experiences = extract_json_array_strings(content, "relevant_experiences");
-            let preview = if experiences.is_empty() {
-                "no recalled experiences".to_string()
-            } else {
-                format!(
-                    "recalled={} item(s); preview: {}",
-                    experiences.len(),
-                    experiences.join(" | ")
-                )
-            };
-            let query = query.unwrap_or("query unavailable");
-            let detail = format!("query={query}; {preview}");
-            MemorySelectionCandidate {
-                kind: "retrieved_workspace_memory".to_string(),
-                label: "Retrieved Experience".to_string(),
-                budget_impact_tokens: Some(estimate_text_tokens(detail.as_str())),
-                detail,
-                selection_reason: "selected because the retrieval tool returned relevant durable memory candidates for the current task".to_string(),
-                priority: 10,
-                dedupe_key: None,
-                selectable: true,
-                dropped_reason: DropReason::NotSelected { reason: "not selected after ranking the retrieved workspace-memory candidates against the current memory-selection budget".to_string() },
-            }
-        }
-        "retrieve_session_context" => {
-            let summary = extract_json_string_field(content, "summary")
-                .unwrap_or_else(|| "no session-context summary".to_string());
-            let query = query.unwrap_or("query unavailable");
-            let detail = format!("query={query}; summary: {summary}");
-            MemorySelectionCandidate {
-                kind: "retrieved_thread_context".to_string(),
-                label: "Retrieved Session Context".to_string(),
-                budget_impact_tokens: Some(estimate_text_tokens(detail.as_str())),
-                detail,
-                selection_reason: "selected because the retrieval tool returned focused thread-context material for the current task".to_string(),
-                priority: 20,
-                dedupe_key: None,
-                selectable: true,
-                dropped_reason: DropReason::NotSelected { reason: "not selected after ranking the retrieved thread-context candidate against the current memory-selection budget".to_string() },
-            }
-        }
-        other => MemorySelectionCandidate {
-            kind: other.to_string(),
-            label: other.to_string(),
-            detail: query
-                .map(|query| format!("query={query}"))
-                .unwrap_or_else(|| "query unavailable".to_string()),
-            selection_reason: "selected because a retrieval tool result was returned in the current thread history".to_string(),
-            budget_impact_tokens: Some(estimate_text_tokens(content)),
-            priority: 50,
-            dedupe_key: None,
-            selectable: true,
-            dropped_reason: DropReason::NotSelected { reason: "not selected after ranking the retrieval candidate against the current memory-selection budget".to_string() },
-        },
-    }
-}
-
 fn summarize_workspace_memory_source(content: &str) -> String {
     let line_count = content
         .lines()
@@ -775,56 +447,53 @@ fn summarize_workspace_memory_source(content: &str) -> String {
     }
 }
 
-fn extract_json_array_strings(content: &str, key: &str) -> Vec<String> {
-    extract_tool_result_payload(content)
-        .and_then(|payload| payload.get(key).and_then(Value::as_array).cloned())
-        .into_iter()
-        .flatten()
-        .filter_map(|item| item.as_str().map(str::trim).map(str::to_string))
-        .filter(|value| !value.is_empty())
-        .collect()
-}
-
-fn extract_json_string_field(content: &str, key: &str) -> Option<String> {
-    extract_tool_result_payload(content)
-        .and_then(|payload| payload.get(key).and_then(Value::as_str).map(str::to_string))
-        .map(|value| value.trim().to_string())
-        .filter(|value| !value.is_empty())
-}
-
-pub(crate) fn extract_tool_result_payload(content: &str) -> Option<Value> {
-    let payload = content
-        .split_once("Payload:\n")
-        .map(|(_, payload)| payload)
-        .unwrap_or(content)
-        .trim();
-    serde_json::from_str(payload).ok()
-}
-
 #[cfg(test)]
 mod tests {
     use serde_json::json;
 
     use super::*;
+    use crate::context::retrieval_provider::retrieval_candidate_from_retrieved_memory;
+    use crate::context::{
+        RETRIEVED_THREAD_CONTEXT_KIND, RETRIEVED_WORKSPACE_MEMORY_KIND, RetrievalRequest,
+        RetrievedMemoryCandidate, retrieval_candidates,
+    };
 
-    #[test]
-    fn extract_tool_result_payload_falls_back_to_plain_json_content() {
-        let payload = extract_tool_result_payload(
-            r#"{
-                "status": "ok",
-                "summary": "plain json payload without wrapper"
-            }"#,
+    #[allow(clippy::too_many_arguments)]
+    fn memory_selection_for_test(
+        prompt_sources: &[PromptSource],
+        plan_explanation: Option<&str>,
+        plan_steps: &[(PlanStepStatus, String)],
+        pending_interactions: &[RuntimeInteractionInput],
+        compacted_history: &[CompactionSourceContextEntry],
+        history: &[Message],
+        session_id: &str,
+        vdb_uri: &str,
+        retrieved_memory_candidates: &[RetrievedMemoryCandidate],
+        file_search_candidates: &[RetrievalCandidate],
+        selection_budget_tokens: Option<usize>,
+    ) -> MemorySelectionContextView {
+        let query = latest_user_request(history).unwrap_or_default();
+        let request = RetrievalRequest {
+            query: query.as_str(),
+            session_id,
+            history,
+            vdb_uri,
+        };
+        let candidates = retrieval_candidates(
+            &request,
+            retrieved_memory_candidates,
+            file_search_candidates,
+        );
+        memory_selection(
+            prompt_sources,
+            plan_explanation,
+            plan_steps,
+            pending_interactions,
+            compacted_history,
+            history,
+            candidates.as_slice(),
+            selection_budget_tokens,
         )
-        .expect("payload should parse from raw json");
-
-        assert_eq!(
-            payload.get("status").and_then(serde_json::Value::as_str),
-            Some("ok")
-        );
-        assert_eq!(
-            payload.get("summary").and_then(serde_json::Value::as_str),
-            Some("plain json payload without wrapper")
-        );
     }
 
     // ── Non-vector selection path ──────────────────────────────────────────
@@ -841,7 +510,7 @@ mod tests {
                 content: json!("hi there"),
             },
         ];
-        let result = memory_selection(
+        let result = memory_selection_for_test(
             &[],
             None,
             &[],
@@ -885,7 +554,7 @@ mod tests {
             detail: "previous work".to_string(),
             inclusion_reason: "carried forward".to_string(),
         }];
-        let result = memory_selection(
+        let result = memory_selection_for_test(
             &[],
             None,
             &[],
@@ -933,7 +602,7 @@ mod tests {
             detail: "stable transcript path".to_string(),
             inclusion_reason: "carried forward".to_string(),
         }];
-        let result = memory_selection(
+        let result = memory_selection_for_test(
             &[],
             None,
             &[],
@@ -969,7 +638,7 @@ mod tests {
     #[test]
     fn vector_memory_is_available_but_not_selectable() {
         let history: Vec<Message> = vec![];
-        let result = memory_selection(
+        let result = memory_selection_for_test(
             &[],
             None,
             &[],
@@ -1033,7 +702,7 @@ mod tests {
         ];
         // Budget of 1 token forces the retrieval candidate to be dropped,
         // proving it was captured as a candidate.
-        let result = memory_selection(
+        let result = memory_selection_for_test(
             &[],
             None,
             &[],
@@ -1100,7 +769,7 @@ mod tests {
                 ]),
             },
         ];
-        let result = memory_selection(
+        let result = memory_selection_for_test(
             &[],
             None,
             &[],
@@ -1140,7 +809,7 @@ mod tests {
             rank: 1,
         }];
 
-        let result = memory_selection(
+        let result = memory_selection_for_test(
             &[],
             None,
             &[],
@@ -1222,7 +891,7 @@ mod tests {
             },
         ];
 
-        let result = memory_selection(
+        let result = memory_selection_for_test(
             &[],
             None,
             &[],
@@ -1284,7 +953,7 @@ mod tests {
             },
         ];
 
-        let result = memory_selection(
+        let result = memory_selection_for_test(
             &[],
             None,
             &[],
@@ -1361,7 +1030,7 @@ mod tests {
         .expect("retrieved memory context should render");
         let exact_budget = estimate_text_tokens(&rendered);
 
-        let result = memory_selection(
+        let result = memory_selection_for_test(
             &[],
             None,
             &[],
@@ -1410,7 +1079,7 @@ mod tests {
             rank: 1,
         }];
 
-        let result = memory_selection(
+        let result = memory_selection_for_test(
             &[],
             None,
             &[],
@@ -1445,7 +1114,7 @@ mod tests {
             role: "user".to_string(),
             content: json!("hello"),
         }];
-        let result = memory_selection(
+        let result = memory_selection_for_test(
             &[],
             None,
             &[],
