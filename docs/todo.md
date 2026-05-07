@@ -160,4 +160,6 @@ Active backlog only. Keep this file small and current.
 
 ## Code Organization / Docs
 
-- [ ] Continue splitting remaining oversized runtime/TUI files, especially `src/tui/render/cells.rs`, `src/tui/render.rs`, `src/tui/command.rs`, and `src/agent/planning.rs`.
+- [ ] Add `TuiMaintainer` to event loop (follow-up to #276). See `docs/features/app-server-architecture.md`.
+- [ ] Split monolithic binary into domain crates per `docs/features/crate-split.md`: `rara-state`, `rara-memory`, `rara-tools`, `rara-agent`, `rara-tui`, `rara-oauth`, `rara-control-plane`, `rara-app`.
+- [ ] Continue splitting remaining oversized runtime/TUI files.

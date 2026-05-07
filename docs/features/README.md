@@ -50,6 +50,19 @@ future appserver integrations can use.
 - `retrieval-orchestration.md`: unified candidate-provider, ranking, dedupe,
   budget, and `/context` contract for memory/context retrieval.
 
+## App Server Architecture
+
+- `app-server-architecture.md`: agent output as typed objects over a lightweight
+  event bus; TUI, ACP, Wire as peer consumers. Internal = objects, external =
+  protocol.
+
+## Crate Split
+
+- `crate-split.md`: dependency-ordered split of the monolithic binary crate
+  into `rara-app`, `rara-agent`, `rara-tui`, `rara-memory`, `rara-tools`,
+  `rara-control-plane`, `rara-oauth`, and `rara-state`. Each PR green on
+  `cargo test`.
+
 ## Release Specs
 
 - `release-distribution.md`: tag-driven binary release, GitHub Release assets,
