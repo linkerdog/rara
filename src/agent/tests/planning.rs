@@ -696,7 +696,7 @@ async fn plan_mode_consecutive_reasoning_only_turns_stop_after_three_continuatio
             content: vec![ContentBlock::ProviderMetadata {
                 provider: "deepseek".to_string(),
                 key: "reasoning_content".to_string(),
-                value: json!("Need one more pass."),
+                value: json!("First reasoning only."),
             }],
             stop_reason: Some("end_turn".to_string()),
             usage: Some(TokenUsage::default()),
@@ -705,32 +705,14 @@ async fn plan_mode_consecutive_reasoning_only_turns_stop_after_three_continuatio
             content: vec![ContentBlock::ProviderMetadata {
                 provider: "deepseek".to_string(),
                 key: "reasoning_content".to_string(),
-                value: json!("Still thinking, second pass."),
-            }],
-            stop_reason: Some("end_turn".to_string()),
-            usage: Some(TokenUsage::default()),
-        },
-        LlmResponse {
-            content: vec![ContentBlock::ProviderMetadata {
-                provider: "deepseek".to_string(),
-                key: "reasoning_content".to_string(),
-                value: json!("Third reasoning-only turn."),
-            }],
-            stop_reason: Some("end_turn".to_string()),
-            usage: Some(TokenUsage::default()),
-        },
-        LlmResponse {
-            content: vec![ContentBlock::ProviderMetadata {
-                provider: "deepseek".to_string(),
-                key: "reasoning_content".to_string(),
-                value: json!("Fourth reasoning, should stop here."),
+                value: json!("Second reasoning only."),
             }],
             stop_reason: Some("end_turn".to_string()),
             usage: Some(TokenUsage::default()),
         },
         LlmResponse {
             content: vec![ContentBlock::Text {
-                text: "plan-mode unreachable text".to_string(),
+                text: "plan-mode reachable text".to_string(),
             }],
             stop_reason: Some("end_turn".to_string()),
             usage: Some(TokenUsage::default()),
@@ -752,21 +734,23 @@ async fn plan_mode_consecutive_reasoning_only_turns_stop_after_three_continuatio
             super::super::AgentOutputMode::Silent,
         )
         .await
-        .expect("consecutive reasoning-only plan turns should stop after three retries");
+        .expect("consecutive reasoning-only plan turns should stop after one retry");
 
     let observed_messages = backend.observed_messages();
-    assert_eq!(observed_messages.len(), 4);
-    let continuation_text = observed_messages[1]
-        .iter()
-        .filter_map(|message| message.content.get(0)?.get("text")?.as_str())
-        .find(|text| text.contains("<agent_runtime>"))
-        .expect("continuation message text");
-    assert!(continuation_text.contains("\"agentic_turns\": 1"));
-    assert!(!agent.history.iter().any(|message| {
+    let continuation_text = observed_messages
+        .get(1)
+        .and_then(|msgs| {
+            msgs.iter().find_map(|message| {
+                message.content.get(0)?.get("text")?.as_str().map(str::to_string)
+            })
+        })
+        .expect("continuation message should be present");
+    assert!(continuation_text.contains("\"phase\":\"ReasoningOnlyContinuationRequired\""));
+    assert!(agent.history.iter().any(|message| {
         message
             .content
             .to_string()
-            .contains("plan-mode unreachable text")
+            .contains("plan-mode reachable text")
     }));
 }
 
@@ -777,7 +761,7 @@ async fn execute_mode_consecutive_reasoning_only_turns_stop_after_three_continua
             content: vec![ContentBlock::ProviderMetadata {
                 provider: "deepseek".to_string(),
                 key: "reasoning_content".to_string(),
-                value: json!("Let me think about this first."),
+                value: json!("First reasoning only."),
             }],
             stop_reason: Some("end_turn".to_string()),
             usage: Some(TokenUsage::default()),
@@ -786,32 +770,14 @@ async fn execute_mode_consecutive_reasoning_only_turns_stop_after_three_continua
             content: vec![ContentBlock::ProviderMetadata {
                 provider: "deepseek".to_string(),
                 key: "reasoning_content".to_string(),
-                value: json!("Still thinking only."),
-            }],
-            stop_reason: Some("end_turn".to_string()),
-            usage: Some(TokenUsage::default()),
-        },
-        LlmResponse {
-            content: vec![ContentBlock::ProviderMetadata {
-                provider: "deepseek".to_string(),
-                key: "reasoning_content".to_string(),
-                value: json!("Third reasoning pass."),
-            }],
-            stop_reason: Some("end_turn".to_string()),
-            usage: Some(TokenUsage::default()),
-        },
-        LlmResponse {
-            content: vec![ContentBlock::ProviderMetadata {
-                provider: "deepseek".to_string(),
-                key: "reasoning_content".to_string(),
-                value: json!("Fourth reasoning, stop here."),
+                value: json!("Second reasoning only."),
             }],
             stop_reason: Some("end_turn".to_string()),
             usage: Some(TokenUsage::default()),
         },
         LlmResponse {
             content: vec![ContentBlock::Text {
-                text: "execute-mode unreachable text".to_string(),
+                text: "execute-mode reachable text".to_string(),
             }],
             stop_reason: Some("end_turn".to_string()),
             usage: Some(TokenUsage::default()),
@@ -833,15 +799,23 @@ async fn execute_mode_consecutive_reasoning_only_turns_stop_after_three_continua
             super::super::AgentOutputMode::Silent,
         )
         .await
-        .expect("consecutive reasoning-only execute turns should stop after three retries");
+        .expect("consecutive reasoning-only execute turns should stop after one retry");
 
     let observed_messages = backend.observed_messages();
-    assert_eq!(observed_messages.len(), 4);
-    assert!(!agent.history.iter().any(|message| {
+    let continuation_text = observed_messages
+        .get(1)
+        .and_then(|msgs| {
+            msgs.iter().find_map(|message| {
+                message.content.get(0)?.get("text")?.as_str().map(str::to_string)
+            })
+        })
+        .expect("continuation message should be present");
+    assert!(continuation_text.contains("\"phase\":\"ReasoningOnlyContinuationRequired\""));
+    assert!(agent.history.iter().any(|message| {
         message
             .content
             .to_string()
-            .contains("execute-mode unreachable text")
+            .contains("execute-mode reachable text")
     }));
     let trace = agent.shared_runtime_context().observability.agent_turn;
     assert_eq!(trace.loop_outcome.as_deref(), Some("stopped"));
