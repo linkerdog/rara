@@ -6,8 +6,9 @@ use crate::context::compaction_view::compaction_source_entries;
 use crate::context::memory_selection::memory_selection;
 use crate::context::retrieval_view::retrieval_source_entries;
 use crate::context::{
-    CompactionContextView, ContextBudgetView, PlanContextView, PromptContextView,
-    RetrievalContextView, RetrievedMemoryCandidate, SharedRuntimeContext, TodoContextView,
+    CompactionContextView, ContextBudgetView, MemorySelectionItemContextEntry, PlanContextView,
+    PromptContextView, RetrievalContextView, RetrievedMemoryCandidate, SharedRuntimeContext,
+    TodoContextView,
 };
 use crate::llm::{ContextBudget, LlmBackend};
 use crate::prompt::{self, EffectivePrompt, PromptMode, PromptRuntimeConfig};
@@ -46,6 +47,7 @@ pub struct RuntimeContextInputs<'a> {
     pub pending_interactions: Vec<RuntimeInteractionInput>,
     pub skill_listing: Option<String>,
     pub retrieved_memory_candidates: Vec<RetrievedMemoryCandidate>,
+    pub file_search_candidates: Vec<MemorySelectionItemContextEntry>,
 }
 
 #[derive(Debug, Clone)]
@@ -164,6 +166,7 @@ impl<'a> ContextAssembler<'a> {
                 inputs.session_id.as_str(),
                 inputs.vdb_uri,
                 inputs.retrieved_memory_candidates.as_slice(),
+                inputs.file_search_candidates.as_slice(),
                 selection_budget,
             ),
         };
@@ -439,6 +442,7 @@ mod tests {
                 pending_interactions: Vec::new(),
                 skill_listing: None,
                 retrieved_memory_candidates: Vec::new(),
+                file_search_candidates: vec![],
             },
         );
 
@@ -499,6 +503,7 @@ mod tests {
                 pending_interactions: Vec::new(),
                 skill_listing: None,
                 retrieved_memory_candidates: Vec::new(),
+                file_search_candidates: vec![],
             },
         );
 
@@ -581,6 +586,7 @@ mod tests {
                 pending_interactions: Vec::new(),
                 skill_listing: None,
                 retrieved_memory_candidates: Vec::new(),
+                file_search_candidates: vec![],
             },
         );
 
@@ -663,6 +669,7 @@ mod tests {
                         .to_string(),
                     rank: 1,
                 }],
+                file_search_candidates: vec![],
             },
         );
 
@@ -733,6 +740,7 @@ mod tests {
                 }],
                 skill_listing: None,
                 retrieved_memory_candidates: Vec::new(),
+                file_search_candidates: vec![],
             },
         );
 

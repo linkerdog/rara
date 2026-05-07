@@ -25,6 +25,7 @@ pub(crate) fn memory_selection(
     session_id: &str,
     vdb_uri: &str,
     retrieved_memory_candidates: &[RetrievedMemoryCandidate],
+    file_search_candidates: &[MemorySelectionItemContextEntry],
     selection_budget_tokens: Option<usize>,
 ) -> MemorySelectionContextView {
     let mut selected_items = fixed_memory_selection_items(
@@ -40,7 +41,10 @@ pub(crate) fn memory_selection(
         .map(|item| item.kind.clone())
         .collect::<Vec<_>>();
     let mut discretionary = select_memory_candidates(
-        retrieval_memory_candidates(history, session_id, vdb_uri, retrieved_memory_candidates),
+        merge_file_search_candidates(
+            retrieval_memory_candidates(history, session_id, vdb_uri, retrieved_memory_candidates),
+            file_search_candidates,
+        ),
         selection_budget_tokens,
         fixed_kinds.as_slice(),
     );
@@ -371,6 +375,32 @@ fn collect_retrieval_tool_results(
             content,
         ));
     }
+}
+
+/// Merge file-search candidates into the memory-selection candidate pool.
+/// Each entry is converted to a `MemorySelectionCandidate` with priority
+/// derived from its sort order (lower order = higher priority).
+fn merge_file_search_candidates(
+    mut candidates: Vec<MemorySelectionCandidate>,
+    file_search: &[MemorySelectionItemContextEntry],
+) -> Vec<MemorySelectionCandidate> {
+    for entry in file_search {
+        candidates.push(MemorySelectionCandidate {
+            kind: entry.kind.clone(),
+            label: entry.label.clone(),
+            detail: entry.detail.clone(),
+            selection_reason: entry.selection_reason.clone(),
+            budget_impact_tokens: entry.budget_impact_tokens,
+            priority: 30 + entry.order,
+            selectable: true,
+            dropped_reason: DropReason::NotSelected {
+                reason:
+                    "not selected after ranking the file-search candidate against the current memory-selection budget"
+                        .to_string(),
+            },
+        });
+    }
+    candidates
 }
 
 fn select_memory_candidates(
@@ -717,6 +747,7 @@ mod tests {
             "session-1",
             "",
             &[],
+            &[],
             Some(10_000),
         );
 
@@ -759,6 +790,7 @@ mod tests {
             &history,
             "session-1",
             "",
+            &[],
             &[],
             Some(10_000),
         );
@@ -807,6 +839,7 @@ mod tests {
             "session-1",
             "",
             &[],
+            &[],
             Some(10_000),
         );
 
@@ -841,6 +874,7 @@ mod tests {
             &history,
             "session-1",
             "memory://vdb",
+            &[],
             &[],
             Some(10_000),
         );
@@ -904,6 +938,7 @@ mod tests {
             &history,
             "session-1",
             "",
+            &[],
             &[],
             Some(1),
         );
@@ -971,6 +1006,7 @@ mod tests {
             "session-1",
             "",
             &[],
+            &[],
             Some(10_000),
         );
 
@@ -1010,6 +1046,7 @@ mod tests {
             "session-1",
             "memory://vdb",
             &retrieved,
+            &[],
             Some(10_000),
         );
 
@@ -1078,6 +1115,7 @@ mod tests {
             "session-1",
             "memory://vdb",
             &retrieved,
+            &[],
             Some(exact_budget),
         );
 
@@ -1126,6 +1164,7 @@ mod tests {
             "session-1",
             "memory://vdb",
             &retrieved,
+            &[],
             Some(1),
         );
 
@@ -1159,6 +1198,7 @@ mod tests {
             &history,
             "session-1",
             "memory://vdb",
+            &[],
             &[],
             Some(10_000),
         );

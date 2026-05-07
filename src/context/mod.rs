@@ -6,6 +6,7 @@
 mod assembler;
 mod assembly_view;
 mod compaction_view;
+mod file_search_provider;
 mod memory_selection;
 mod retrieval_view;
 mod retrieved_memory_render;
@@ -16,6 +17,7 @@ pub use self::assembler::{
     AssembledContext, AssembledTurnContext, ContextAssembler, RuntimeContextInputs,
     RuntimeInteractionInput,
 };
+pub(crate) use self::file_search_provider::{FileSearchCandidate, FileSearchCandidateProvider};
 pub(crate) use self::retrieved_memory_render::{
     RetrievedMemoryRenderItem, render_retrieved_memory_context,
     render_retrieved_memory_context_item,
