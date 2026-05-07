@@ -95,8 +95,7 @@ pub async fn run_tui(
         app.terminal_width = size.0;
         let desired_height = desired_viewport_height(&app, size.0, size.1);
         match update_terminal_viewport(&mut terminal, desired_height, &mut app) {
-            Ok(()) => {
-            }
+            Ok(()) => {}
             Err(err) => app.push_notice(format!("Skipped viewport update: {err}")),
         }
 
