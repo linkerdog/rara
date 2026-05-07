@@ -17,9 +17,7 @@ pub use self::assembler::{
     AssembledContext, AssembledTurnContext, ContextAssembler, RuntimeContextInputs,
     RuntimeInteractionInput,
 };
-pub(crate) use self::file_search_provider::{
-    FileSearchCandidate, FileSearchCandidateProvider,
-};
+pub(crate) use self::file_search_provider::{FileSearchCandidate, FileSearchCandidateProvider};
 pub(crate) use self::retrieved_memory_render::{
     RetrievedMemoryRenderItem, render_retrieved_memory_context,
     render_retrieved_memory_context_item,

@@ -747,6 +747,7 @@ mod tests {
             "session-1",
             "",
             &[],
+            &[],
             Some(10_000),
         );
 
@@ -789,6 +790,7 @@ mod tests {
             &history,
             "session-1",
             "",
+            &[],
             &[],
             Some(10_000),
         );
@@ -836,6 +838,7 @@ mod tests {
             &history,
             "session-1",
             "",
+            &[],
             &[],
             Some(10_000),
         );
@@ -935,6 +938,7 @@ mod tests {
             "session-1",
             "",
             &[],
+            &[],
             Some(1),
         );
 
@@ -1001,6 +1005,7 @@ mod tests {
             "session-1",
             "",
             &[],
+            &[],
             Some(10_000),
         );
 
@@ -1040,6 +1045,7 @@ mod tests {
             "session-1",
             "memory://vdb",
             &retrieved,
+            &[],
             Some(10_000),
         );
 
@@ -1108,6 +1114,7 @@ mod tests {
             "session-1",
             "memory://vdb",
             &retrieved,
+            &[],
             Some(exact_budget),
         );
 
@@ -1156,6 +1163,7 @@ mod tests {
             "session-1",
             "memory://vdb",
             &retrieved,
+            &[],
             Some(1),
         );
 
@@ -1189,6 +1197,7 @@ mod tests {
             &history,
             "session-1",
             "memory://vdb",
+            &[],
             &[],
             Some(10_000),
         );

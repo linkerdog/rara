@@ -170,8 +170,7 @@ mod tests {
         let file = dir.path().join("hello.rs");
         std::fs::write(&file, "fn main() {}").unwrap();
 
-        let provider =
-            FileSearchCandidateProvider::new(dir.path().to_path_buf(), false);
+        let provider = FileSearchCandidateProvider::new(dir.path().to_path_buf(), false);
         let candidates = provider.search("hello", 10);
         assert!(!candidates.is_empty());
         assert_eq!(candidates[0].path, "hello.rs");
