@@ -741,7 +741,12 @@ async fn plan_mode_consecutive_reasoning_only_turns_stop_after_three_continuatio
         .get(1)
         .and_then(|msgs| {
             msgs.iter().find_map(|message| {
-                message.content.get(0)?.get("text")?.as_str().map(str::to_string)
+                message
+                    .content
+                    .get(0)?
+                    .get("text")?
+                    .as_str()
+                    .map(str::to_string)
             })
         })
         .expect("continuation message should be present");
@@ -806,7 +811,12 @@ async fn execute_mode_consecutive_reasoning_only_turns_stop_after_three_continua
         .get(1)
         .and_then(|msgs| {
             msgs.iter().find_map(|message| {
-                message.content.get(0)?.get("text")?.as_str().map(str::to_string)
+                message
+                    .content
+                    .get(0)?
+                    .get("text")?
+                    .as_str()
+                    .map(str::to_string)
             })
         })
         .expect("continuation message should be present");
