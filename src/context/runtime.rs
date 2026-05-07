@@ -1,6 +1,7 @@
 use crate::agent::{CompactState, PlanStepStatus};
 use crate::prompt::{EffectivePrompt, PromptSource};
 use crate::todo::{TodoState, TodoSummary};
+use crate::tool_result::{ToolResultProjectionPolicy, ToolResultProjectionReport};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CacheStatus {
@@ -275,6 +276,121 @@ pub struct SharedRuntimeContext {
     pub todo: TodoContextView,
     pub compaction: CompactionContextView,
     pub retrieval: RetrievalContextView,
+    pub observability: ContextObservabilityView,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Default, serde::Serialize, serde::Deserialize)]
+pub struct ContextObservabilityView {
+    pub cache: ContextCacheObservationView,
+    pub compaction: ContextCompactionObservationView,
+    pub microcompact: MicrocompactProjectionContextView,
+    pub retrieval: RetrievalObservationView,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Default, serde::Serialize, serde::Deserialize)]
+pub struct ContextCacheObservationView {
+    pub hit_tokens: u32,
+    pub miss_tokens: u32,
+    pub hit_rate_basis_points: Option<u32>,
+}
+
+impl ContextCacheObservationView {
+    pub fn from_usage(hit_tokens: u32, miss_tokens: u32) -> Self {
+        let total = hit_tokens.saturating_add(miss_tokens);
+        let hit_rate_basis_points = (total > 0)
+            .then(|| ((u64::from(hit_tokens) * 10_000) / u64::from(total)).min(10_000) as u32);
+        Self {
+            hit_tokens,
+            miss_tokens,
+            hit_rate_basis_points,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Default, serde::Serialize, serde::Deserialize)]
+pub struct ContextCompactionObservationView {
+    pub estimated_history_tokens: usize,
+    pub compact_threshold_tokens: usize,
+    pub compaction_count: usize,
+    pub last_before_tokens: Option<usize>,
+    pub last_after_tokens: Option<usize>,
+    pub last_saved_tokens: Option<usize>,
+}
+
+impl ContextCompactionObservationView {
+    pub fn from_compaction(compaction: &CompactionContextView) -> Self {
+        let last_saved_tokens = compaction
+            .last_compaction_before_tokens
+            .zip(compaction.last_compaction_after_tokens)
+            .map(|(before, after)| before.saturating_sub(after));
+        Self {
+            estimated_history_tokens: compaction.estimated_history_tokens,
+            compact_threshold_tokens: compaction.compact_threshold_tokens,
+            compaction_count: compaction.compaction_count,
+            last_before_tokens: compaction.last_compaction_before_tokens,
+            last_after_tokens: compaction.last_compaction_after_tokens,
+            last_saved_tokens,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Default, serde::Serialize, serde::Deserialize)]
+pub struct MicrocompactProjectionContextView {
+    pub enabled: bool,
+    pub budget_chars: usize,
+    pub keep_recent: usize,
+    pub original_chars: usize,
+    pub projected_chars: usize,
+    pub saved_chars: usize,
+    pub cleared_results: usize,
+    pub kept_results: usize,
+}
+
+impl MicrocompactProjectionContextView {
+    pub fn from_report(
+        policy: &ToolResultProjectionPolicy,
+        report: &ToolResultProjectionReport,
+    ) -> Self {
+        Self {
+            enabled: policy.enabled,
+            budget_chars: policy.budget_chars,
+            keep_recent: policy.keep_recent,
+            original_chars: report.original_chars,
+            projected_chars: report.projected_chars,
+            saved_chars: report.original_chars.saturating_sub(report.projected_chars),
+            cleared_results: report.cleared_results,
+            kept_results: report.kept_results,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Default, serde::Serialize, serde::Deserialize)]
+pub struct RetrievalObservationView {
+    pub request_id: String,
+    pub provider_count: usize,
+    pub candidate_count: usize,
+    pub selected_count: usize,
+    pub available_count: usize,
+    pub dropped_count: usize,
+    pub selected_tokens: usize,
+    pub available_tokens: usize,
+    pub dropped_tokens: usize,
+}
+
+impl RetrievalObservationView {
+    pub fn from_orchestration(orchestration: &RetrievalOrchestrationView) -> Self {
+        Self {
+            request_id: orchestration.request_id.clone(),
+            provider_count: orchestration.providers.len(),
+            candidate_count: orchestration.candidates.len(),
+            selected_count: orchestration.selected.len(),
+            available_count: orchestration.available.len(),
+            dropped_count: orchestration.dropped.len(),
+            selected_tokens: orchestration.budget.selected_tokens,
+            available_tokens: orchestration.budget.available_tokens,
+            dropped_tokens: orchestration.budget.dropped_tokens,
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

@@ -6,13 +6,16 @@ use crate::context::compaction_view::compaction_source_entries;
 use crate::context::memory_selection::memory_selection;
 use crate::context::retrieval_view::{retrieval_orchestration_view, retrieval_source_entries};
 use crate::context::{
-    CompactionContextView, ContextBudgetView, PlanContextView, PromptContextView,
-    RetrievalCandidate, RetrievalContextView, RetrievalRequest, RetrievedMemoryCandidate,
-    SharedRuntimeContext, TodoContextView, retrieval_candidates,
+    CompactionContextView, ContextBudgetView, ContextCacheObservationView,
+    ContextCompactionObservationView, ContextObservabilityView, MicrocompactProjectionContextView,
+    PlanContextView, PromptContextView, RetrievalCandidate, RetrievalContextView,
+    RetrievalObservationView, RetrievalRequest, RetrievedMemoryCandidate, SharedRuntimeContext,
+    TodoContextView, retrieval_candidates,
 };
 use crate::llm::{ContextBudget, LlmBackend};
 use crate::prompt::{self, EffectivePrompt, PromptMode, PromptRuntimeConfig};
 use crate::todo::TodoState;
+use crate::tool_result::{ToolResultProjectionPolicy, ToolResultProjectionReport};
 use crate::workspace::WorkspaceMemory;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -48,6 +51,8 @@ pub struct RuntimeContextInputs<'a> {
     pub skill_listing: Option<String>,
     pub retrieved_memory_candidates: Vec<RetrievedMemoryCandidate>,
     pub file_search_candidates: Vec<RetrievalCandidate>,
+    pub tool_result_projection_policy: ToolResultProjectionPolicy,
+    pub tool_result_projection_report: ToolResultProjectionReport,
 }
 
 #[derive(Debug, Clone)]
@@ -186,6 +191,18 @@ impl<'a> ContextAssembler<'a> {
             entries: retrieval_entries,
             memory_selection,
         };
+        let observability = ContextObservabilityView {
+            cache: ContextCacheObservationView::from_usage(
+                inputs.total_cache_hit_tokens,
+                inputs.total_cache_miss_tokens,
+            ),
+            compaction: ContextCompactionObservationView::from_compaction(&compaction),
+            microcompact: MicrocompactProjectionContextView::from_report(
+                &inputs.tool_result_projection_policy,
+                &inputs.tool_result_projection_report,
+            ),
+            retrieval: RetrievalObservationView::from_orchestration(&retrieval.orchestration),
+        };
         let retrieved_memory_budget = retrieval
             .memory_selection
             .selected_items
@@ -238,6 +255,7 @@ impl<'a> ContextAssembler<'a> {
             todo: TodoContextView::from_state(inputs.todo_state),
             compaction,
             retrieval,
+            observability,
         }
     }
 
@@ -440,8 +458,8 @@ mod tests {
                 history_len: 3,
                 total_input_tokens: 11,
                 total_output_tokens: 7,
-                total_cache_hit_tokens: 0,
-                total_cache_miss_tokens: 0,
+                total_cache_hit_tokens: 8,
+                total_cache_miss_tokens: 2,
                 execution_mode: "plan".to_string(),
                 plan_steps: vec![(PlanStepStatus::Pending, "inspect bootstrap".to_string())],
                 plan_explanation: Some("Keep one assembly path.".to_string()),
@@ -459,6 +477,13 @@ mod tests {
                 skill_listing: None,
                 retrieved_memory_candidates: Vec::new(),
                 file_search_candidates: vec![],
+                tool_result_projection_policy: ToolResultProjectionPolicy::default(),
+                tool_result_projection_report: ToolResultProjectionReport {
+                    original_chars: 60_000,
+                    projected_chars: 40_000,
+                    cleared_results: 2,
+                    kept_results: 6,
+                },
             },
         );
 
@@ -477,6 +502,22 @@ mod tests {
         );
         assert_eq!(runtime_context.retrieval.entries.len(), 3);
         assert_eq!(runtime_context.compaction.source_entries.len(), 1);
+        assert_eq!(
+            runtime_context.observability.cache.hit_rate_basis_points,
+            Some(8_000)
+        );
+        assert_eq!(
+            runtime_context.observability.microcompact.saved_chars,
+            20_000
+        );
+        assert_eq!(
+            runtime_context.observability.microcompact.cleared_results,
+            2
+        );
+        assert_eq!(
+            runtime_context.observability.retrieval.provider_count,
+            runtime_context.retrieval.entries.len()
+        );
     }
 
     #[test]
@@ -520,6 +561,8 @@ mod tests {
                 skill_listing: None,
                 retrieved_memory_candidates: Vec::new(),
                 file_search_candidates: vec![],
+                tool_result_projection_policy: ToolResultProjectionPolicy::default(),
+                tool_result_projection_report: ToolResultProjectionReport::default(),
             },
         );
 
@@ -603,6 +646,8 @@ mod tests {
                 skill_listing: None,
                 retrieved_memory_candidates: Vec::new(),
                 file_search_candidates: vec![],
+                tool_result_projection_policy: ToolResultProjectionPolicy::default(),
+                tool_result_projection_report: ToolResultProjectionReport::default(),
             },
         );
 
@@ -686,6 +731,8 @@ mod tests {
                     rank: 1,
                 }],
                 file_search_candidates: vec![],
+                tool_result_projection_policy: ToolResultProjectionPolicy::default(),
+                tool_result_projection_report: ToolResultProjectionReport::default(),
             },
         );
 
@@ -757,6 +804,8 @@ mod tests {
                 skill_listing: None,
                 retrieved_memory_candidates: Vec::new(),
                 file_search_candidates: vec![],
+                tool_result_projection_policy: ToolResultProjectionPolicy::default(),
+                tool_result_projection_report: ToolResultProjectionReport::default(),
             },
         );
 

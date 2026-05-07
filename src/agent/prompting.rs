@@ -3,6 +3,7 @@ use crate::context::{
     AssembledContext, AssembledTurnContext, ContextAssembler, RuntimeContextInputs,
     RuntimeInteractionInput,
 };
+use crate::tool_result::ToolResultProjectionPolicy;
 
 impl Agent {
     pub fn assemble_context(&self) -> AssembledContext {
@@ -65,6 +66,8 @@ impl Agent {
             skill_listing: prompt::render_skill_listing(&self.prompt_config.available_skills),
             retrieved_memory_candidates: self.retrieved_memory_candidates.clone(),
             file_search_candidates: self.file_search_candidates.clone(),
+            tool_result_projection_policy: ToolResultProjectionPolicy::default(),
+            tool_result_projection_report: self.last_tool_result_projection_report.clone(),
         }
     }
 

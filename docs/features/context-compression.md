@@ -173,16 +173,22 @@ have automatic prefix caching but no cache-edit API. It reduces volatile
 history size while preserving the full local transcript for restore,
 distillation, and debugging.
 
-The first runtime slice exposes projection only as a transient status event when
-old tool results are projected out of a model request. Durable observability
-belongs in `/context`, backed by structured per-request projection reports
-rather than display text scraping.
+The runtime exposes projection as a transient status event when old tool
+results are projected out of a model request and as a structured context
+observability view after the request. The view records the policy, original
+chars, projected chars, saved chars, cleared result count, and retained result
+count. It is read-only accounting over the request projection and must not be
+used to rewrite persisted transcript history.
 
 The same structured projection report should be reusable by future OpenTelemetry
 exporters. `/context` remains the local debugging surface, while OTEL should
 export session-scoped events, counters, histograms, and trace context from the
 same runtime data model. Context compression must not introduce a separate
 display-only accounting path that would drift from exported telemetry.
+
+The context observability model also carries cache usage, compaction summary
+counters, and retrieval accounting so `/context`, ACP/Wire, and future OTEL
+exporters can share the same event shape instead of parsing TUI strings.
 
 Provider-specific cache-edit microcompaction is a future optional branch. It
 must be gated by a declared provider capability and must not be inferred from

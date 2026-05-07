@@ -27,8 +27,9 @@ use crate::todo::TodoState;
 use crate::tool::ToolOutputStream;
 use crate::tool::{ToolCallContext, ToolManager, ToolProgressEvent};
 use crate::tool_result::{
-    ToolResultProjectionPolicy, ToolResultStore, default_tool_result_store_dir,
-    enforce_tool_result_batch_budget, project_tool_results_for_context, repair_tool_result_history,
+    ToolResultProjectionPolicy, ToolResultProjectionReport, ToolResultStore,
+    default_tool_result_store_dir, enforce_tool_result_batch_budget,
+    project_tool_results_for_context, repair_tool_result_history,
 };
 use crate::tools::bash::BashCommandInput;
 use crate::tools::planning::{ENTER_PLAN_MODE_TOOL_NAME, EXIT_PLAN_MODE_TOOL_NAME};
@@ -154,6 +155,7 @@ pub struct Agent {
     pub compact_state: CompactState,
     pub retrieved_memory_candidates: Vec<RetrievedMemoryCandidate>,
     pub file_search_candidates: Vec<RetrievalCandidate>,
+    pub last_tool_result_projection_report: ToolResultProjectionReport,
     file_search_provider: FileSearchCandidateProvider,
     inspection_progress: InspectionProgress,
     last_query_plan_updated: bool,
@@ -230,6 +232,7 @@ impl Agent {
             compact_state: CompactState::default(),
             retrieved_memory_candidates: Vec::new(),
             file_search_candidates: Vec::new(),
+            last_tool_result_projection_report: ToolResultProjectionReport::default(),
             file_search_provider: FileSearchCandidateProvider::new(root, true),
             inspection_progress: InspectionProgress::default(),
             last_query_plan_updated: false,
@@ -380,6 +383,7 @@ impl Agent {
             &history_for_query,
             &ToolResultProjectionPolicy::default(),
         );
+        self.last_tool_result_projection_report = projection_report.clone();
         if projection_report.cleared_results > 0 {
             report(AgentEvent::Status(format!(
                 "Projected {} old tool result(s) out of this model request.",
