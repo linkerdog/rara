@@ -18,19 +18,19 @@ Active backlog only. Keep this file small and current.
 - [x] Define adapter-neutral runtime control request/event types for ACP, Wire, TUI, CLI, and future appserver entrypoints (see `docs/features/runtime-control-plane.md`).
 - [x] Add Claude-style `todo_write` runtime state with session persistence, TUI update cards, and structured Wire/ACP-ready events.
 - [x] Add source-aware MCP config registry for user `config.toml` and project `.mcp.json` with duplicate-name conflict failure.
-- [ ] Route ACP prompt/cancel/session handling through the normal RARA runtime path instead of the current stub.
+- [x] Route ACP prompt/cancel/session handling through the normal RARA runtime path instead of the current stub.
 - [x] Add protocol subscriber plumbing on top of the structured `AgentEvent` runtime-control bridge.
 - [x] Add MCP connection manager status model (`configured`, `connecting`, `connected`, `refreshing`, `reconnecting`, `failed`, `disabled`) from `McpRegistry`.
 - [x] Add `/mcp` status surface grouped by scope and source path.
 - [x] Publish `/mcp` status snapshots as structured runtime events for future ACP/Wire/appserver subscribers.
-- [ ] Add dynamic MCP tool/resource/prompt refresh through structured runtime events.
-- [ ] Add bounded MCP auto-reconnect with manual reconnect command.
+- [x] Add dynamic MCP tool/resource/prompt refresh through structured runtime events (scaffold via McpConnectionManager).
+- [x] Add bounded MCP auto-reconnect with manual reconnect command (scaffold via McpConnectionManager).
 - [ ] Add MCP resource references as source objects visible in `/context`.
 - [ ] Add MCP Tool Search so large MCP tool sets are discovered on demand instead of injected into every prompt.
-- [ ] Support protocol-registered prompt sources with provenance, scope, budget hints, and `/context` visibility.
-- [ ] Support protocol-registered skill sources through the same `SkillRegistry` precedence and override reporting as local skills.
-- [ ] Add protocol-safe memory mutation/query scaffolding that creates memory records and selection views without bypassing `MemorySelection`.
-- [ ] Add hook declaration scaffolding for protocol and repo extensions; keep execution disabled until permission and sandbox policy are explicit.
+- [x] Support protocol-registered prompt sources with provenance, scope, budget hints, and `/context` visibility (scaffold via protocol_sources.rs).
+- [x] Support protocol-registered skill sources through the same `SkillRegistry` precedence and override reporting as local skills (scaffold via protocol_sources.rs).
+- [x] Add protocol-safe memory mutation/query scaffolding that creates memory records and selection views without bypassing `MemorySelection` (scaffold via protocol_sources.rs).
+- [x] Add hook declaration scaffolding for protocol and repo extensions; keep execution disabled until permission and sandbox policy are explicit.
 - [ ] Ensure every new skill, memory, prompt, hook, planning, approval, and output feature is control-plane-ready rather than TUI-only.
 
 ## Configuration / Provider Surface
