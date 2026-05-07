@@ -4,6 +4,7 @@ use std::sync::Mutex;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use anyhow::Result;
+pub use rara_persistence::thread_data::{PersistedThreadLineage, PersistedThreadRecord};
 use rusqlite::{Connection, params};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -174,21 +175,6 @@ pub enum PersistedLegacyRolloutSource {
     Empty,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct PersistedThreadLineage {
-    pub origin_kind: String,
-    pub forked_from_thread_id: Option<String>,
-}
-
-impl Default for PersistedThreadLineage {
-    fn default() -> Self {
-        Self {
-            origin_kind: "fresh".to_string(),
-            forked_from_thread_id: None,
-        }
-    }
-}
-
 #[derive(Debug, Clone)]
 pub struct PersistedRecentThreadSummary {
     pub session_id: String,
@@ -226,25 +212,6 @@ pub struct PersistedRecentThreadRecord {
     pub last_compaction_recent_file_count: Option<usize>,
     pub last_compaction_boundary_version: Option<u32>,
 }
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct PersistedThreadRecord {
-    pub session_id: String,
-    pub cwd: String,
-    pub branch: String,
-    pub provider: String,
-    pub model: String,
-    pub base_url: Option<String>,
-    pub agent_mode: String,
-    pub bash_approval: String,
-    pub created_at: i64,
-    pub lineage: PersistedThreadLineage,
-    pub plan_explanation: Option<String>,
-    pub history_len: usize,
-    pub transcript_len: usize,
-    pub updated_at: i64,
-}
-
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PersistedSpawnAgentEdge {
     pub parent_session_id: String,

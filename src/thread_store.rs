@@ -5,6 +5,7 @@ use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result, anyhow};
 use rara_persistence::atomic_file;
+use rara_persistence::thread_metadata;
 use uuid::Uuid;
 
 use crate::agent::Message;
@@ -27,7 +28,6 @@ use crate::state_db::{
     PersistedThreadLineage, PersistedThreadRecord, PersistedTurnEntry, PersistedTurnSummary,
     StateDb,
 };
-use crate::thread_metadata;
 use crate::thread_rollout_log::{self, RolloutEventRecorder};
 use crate::thread_turn_log;
 
