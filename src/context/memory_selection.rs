@@ -875,6 +875,7 @@ mod tests {
             "session-1",
             "memory://vdb",
             &[],
+            &[],
             Some(10_000),
         );
 
