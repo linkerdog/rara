@@ -17,6 +17,7 @@ mod mcp_status;
 mod memory_distiller;
 mod memory_store;
 mod oauth;
+mod print_consumer;
 mod prompt;
 mod protocol_sources;
 mod runtime_context;
