@@ -17,6 +17,16 @@ impl Agent {
         .await;
     }
 
+    pub(super) fn refresh_file_search_candidates(&mut self) {
+        let query = latest_user_text(&self.history);
+        if query.is_empty() {
+            self.file_search_candidates = Vec::new();
+            return;
+        }
+        self.file_search_candidates =
+            self.file_search_provider.context_candidates(&query, 64);
+    }
+
     pub(super) fn selected_memory_context_text(
         runtime_context: &SharedRuntimeContext,
     ) -> Option<String> {
@@ -95,4 +105,28 @@ fn render_selected_memory_context(items: &[&MemorySelectionItemContextEntry]) ->
         })
         .collect::<Vec<_>>();
     render_retrieved_memory_context(render_items.as_slice())
+}
+
+/// Extract the latest user message text from the conversation history.
+fn latest_user_text(history: &[Message]) -> String {
+    let raw = history
+        .iter()
+        .rev()
+        .find(|msg| msg.role == "user")
+        .and_then(|msg| extract_text(msg));
+    raw.unwrap_or_default()
+}
+
+fn extract_text(msg: &Message) -> Option<String> {
+    msg.content.as_str().map(|s| s.to_string()).or_else(|| {
+        msg.content.as_array().and_then(|items| {
+            let joined: String = items
+                .iter()
+                .filter(|item| item.get("type").and_then(Value::as_str) == Some("text"))
+                .filter_map(|item| item.get("text").and_then(Value::as_str))
+                .collect::<Vec<_>>()
+                .join("\n");
+            if joined.is_empty() { None } else { Some(joined) }
+        })
+    })
 }

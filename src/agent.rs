@@ -13,7 +13,9 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use uuid::Uuid;
 
-use crate::context::RetrievedMemoryCandidate;
+use crate::context::{
+    FileSearchCandidateProvider, MemorySelectionItemContextEntry, RetrievedMemoryCandidate,
+};
 use crate::control_tokens::scrub_internal_control_tokens;
 use crate::llm::{ContentBlock, LlmBackend, LlmStreamEvent, LlmTurnMetadata};
 use crate::mcp_status::McpStatusSnapshot;
@@ -153,6 +155,8 @@ pub struct Agent {
     pub approved_bash_prefixes: Vec<String>,
     pub compact_state: CompactState,
     pub retrieved_memory_candidates: Vec<RetrievedMemoryCandidate>,
+    pub file_search_candidates: Vec<MemorySelectionItemContextEntry>,
+    file_search_provider: FileSearchCandidateProvider,
     inspection_progress: InspectionProgress,
     last_query_plan_updated: bool,
     last_turn_had_tool_calls: bool,
@@ -170,6 +174,7 @@ impl Agent {
         session_manager: Arc<SessionManager>,
         workspace: Arc<WorkspaceMemory>,
     ) -> Self {
+        let root = workspace.root.clone();
         let memory_store = Arc::new(MemoryStore::new(llm_backend.clone(), vdb.clone()));
         let state_db =
             session_manager.storage_dir.parent().and_then(
@@ -226,6 +231,11 @@ impl Agent {
             approved_bash_prefixes: Vec::new(),
             compact_state: CompactState::default(),
             retrieved_memory_candidates: Vec::new(),
+            file_search_candidates: Vec::new(),
+            file_search_provider: FileSearchCandidateProvider::new(
+                root,
+                true,
+            ),
             inspection_progress: InspectionProgress::default(),
             last_query_plan_updated: false,
             last_turn_had_tool_calls: false,
@@ -279,6 +289,7 @@ impl Agent {
         });
         self.checkpoint_session()?;
         self.refresh_memory_retrieval_candidates().await;
+        self.refresh_file_search_candidates();
 
         match self
             .run_agent_loop_with_limit(output_mode, &mut report, &mut agentic_turns)
