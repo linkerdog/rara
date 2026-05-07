@@ -31,7 +31,6 @@ mod shell_env;
 mod skill;
 mod state_db;
 mod thread_cli;
-mod thread_metadata;
 mod thread_rollout_log;
 mod thread_store;
 mod thread_turn_log;

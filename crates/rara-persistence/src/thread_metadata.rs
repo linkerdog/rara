@@ -3,10 +3,10 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
-use rara_persistence::atomic_file;
 use uuid::Uuid;
 
-use crate::state_db::PersistedThreadRecord;
+use crate::atomic_file;
+use crate::thread_data::PersistedThreadRecord;
 
 const THREAD_METADATA_FILE: &str = "thread.json";
 
@@ -14,7 +14,7 @@ pub(crate) fn thread_metadata_path(root_dir: &Path, session_id: &str) -> PathBuf
     root_dir.join(session_id).join(THREAD_METADATA_FILE)
 }
 
-pub(crate) fn load_thread_record(
+pub fn load_thread_record(
     root_dir: &Path,
     session_id: &str,
 ) -> Result<Option<PersistedThreadRecord>> {
@@ -28,7 +28,7 @@ pub(crate) fn load_thread_record(
     Ok(Some(record))
 }
 
-pub(crate) fn write_thread_record(root_dir: &Path, record: &PersistedThreadRecord) -> Result<()> {
+pub fn write_thread_record(root_dir: &Path, record: &PersistedThreadRecord) -> Result<()> {
     let path = thread_metadata_path(root_dir, &record.session_id);
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent)?;

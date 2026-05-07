@@ -4,6 +4,7 @@ use std::time::Duration;
 
 use anyhow::Result;
 use async_trait::async_trait;
+use rara_persistence::thread_metadata;
 use serde_json::Value;
 use tempfile::tempdir;
 
@@ -20,7 +21,6 @@ use crate::state_db::{
     PersistedRuntimeRolloutItem, PersistedStructuredRolloutEvent, PersistedThreadLineage,
     PersistedThreadRecord, PersistedTurnEntry, StateDb,
 };
-use crate::thread_metadata;
 use crate::thread_rollout_log;
 use crate::thread_turn_log;
 use crate::vectordb::VectorDB;
