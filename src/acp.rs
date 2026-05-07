@@ -46,7 +46,8 @@ impl RaraAcpAgent {
     pub async fn run_acp_stdio(self) -> AcpResult<()> {
         let llm = self.llm_backend.clone();
         let _tools = self.tool_manager.clone();
-        let _bus = self.event_bus.clone();
+        let bus = self.event_bus.clone();
+        let bus_for_prompt = bus.clone();
 
         let transport =
             agent_client_protocol::ByteStreams::new(stdout().compat_write(), stdin().compat());
@@ -80,7 +81,7 @@ impl RaraAcpAgent {
                 {
                     let llm = llm.clone();
                     async move |req: PromptRequest, responder, cx: ConnectionTo<Client>| {
-                        handle_prompt(req, responder, cx, &*llm).await
+                        handle_prompt(req, responder, cx, &*llm, bus_for_prompt.clone()).await
                     }
                 },
                 agent_client_protocol::on_receive_request!(),
@@ -127,6 +128,7 @@ async fn handle_prompt(
     responder: Responder<PromptResponse>,
     cx: ConnectionTo<Client>,
     llm: &dyn LlmBackend,
+    event_bus: Arc<RuntimeEventBus>,
 ) -> AcpResult<()> {
     let session_id = req.session_id.clone();
     let prompt_text = extract_prompt_text(&req.prompt);
@@ -142,17 +144,29 @@ async fn handle_prompt(
     }];
 
     let cx_for_callback = cx.clone();
+    let bus = event_bus.clone();
     let mut on_event = {
         let session_id = session_id.clone();
         move |event: LlmStreamEvent| {
             if let LlmStreamEvent::TextDelta(text) = event {
                 let chunk = ContentChunk::new(agent_client_protocol::schema::ContentBlock::Text(
-                    TextContent::new(text),
+                    TextContent::new(text.clone()),
                 ));
                 let _ = cx_for_callback.send_notification(SessionNotification::new(
                     session_id.clone(),
                     SessionUpdate::AgentMessageChunk(chunk),
                 ));
+                let _ = bus.send_with_provenance(
+                    crate::agent::AgentEvent::AssistantDelta(text),
+                    crate::runtime_control::RuntimeProvenance {
+                        controller: crate::runtime_control::RuntimeControllerKind::Acp,
+                        adapter: None,
+                        session_id: Some(session_id.to_string()),
+                        source_id: None,
+                        trust: crate::runtime_control::RuntimeSourceTrust::Trusted,
+                        authorship: crate::runtime_control::RuntimeSourceAuthorship::Generated,
+                    },
+                );
             }
         }
     };
