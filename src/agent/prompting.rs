@@ -68,6 +68,7 @@ impl Agent {
             file_search_candidates: self.file_search_candidates.clone(),
             tool_result_projection_policy: ToolResultProjectionPolicy::default(),
             tool_result_projection_report: self.last_tool_result_projection_report.clone(),
+            agent_turn_trace: self.last_agent_turn_trace.clone(),
         }
     }
 

@@ -190,6 +190,15 @@ The context observability model also carries cache usage, compaction summary
 counters, and retrieval accounting so `/context`, ACP/Wire, and future OTEL
 exporters can share the same event shape instead of parsing TUI strings.
 
+Agent turn trace is part of the same observability model. Each latest turn
+records whether the model produced visible text, reasoning, stream deltas, tool
+calls, a persisted assistant message, and the loop outcome or continuation
+phase chosen by the runtime. This is the debugging surface for "thinking-only"
+stalls: a trace with `reasoning_only = true`, `tool_call_count = 0`, and no
+continuation phase points to a runtime decision bug; a trace with missing tool
+calls after DSML text points to provider parsing; a trace with a continuation
+phase but no later response points to the next model request or transport path.
+
 Provider-specific cache-edit microcompaction is a future optional branch. It
 must be gated by a declared provider capability and must not be inferred from
 OpenAI-compatible request shape alone.

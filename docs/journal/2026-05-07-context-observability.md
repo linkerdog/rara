@@ -17,6 +17,9 @@ The view is attached to `SharedRuntimeContext` and contains:
   original/projected/saved chars, cleared result count, and kept result count;
 - retrieval: request id, provider/candidate counts, selected/available/dropped
   counts, and budget token totals.
+- agent turn trace: execution mode, model stop reason, loop outcome,
+  continuation phase, text/reasoning/tool-call booleans, assistant-history
+  recording, and consecutive reasoning-only count.
 
 The model is also exposed through a `ContextEvent::ObservabilityUpdated` wire
 shape so downstream control planes can consume the same structure without
@@ -36,3 +39,6 @@ Focused tests cover:
 - runtime assembly of cache, microcompact, and retrieval observability fields;
 - structured runtime-control serialization for context observability events;
 - agent-level microcompact projection accounting without mutating history.
+- reasoning-only continuation traces so "thinking-only then stop" can be
+  separated into model output, parser, runtime decision, or follow-up request
+  failures.

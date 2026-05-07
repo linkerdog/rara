@@ -26,8 +26,8 @@ pub(crate) use self::retrieved_memory_render::{
 };
 pub(crate) use self::retriever::MemoryRetrievalOrchestrator;
 pub use self::runtime::{
-    CacheStatus, CompactionContextView, CompactionSourceContextEntry, ContextAssemblyEntry,
-    ContextAssemblyView, ContextBudgetView, ContextCacheObservationView,
+    AgentTurnTraceView, CacheStatus, CompactionContextView, CompactionSourceContextEntry,
+    ContextAssemblyEntry, ContextAssemblyView, ContextBudgetView, ContextCacheObservationView,
     ContextCompactionObservationView, ContextObservabilityView, DropReason,
     MemorySelectionContextView, MemorySelectionItemContextEntry, MicrocompactProjectionContextView,
     PlanContextView, PromptContextView, PromptSourceContextEntry, RETRIEVED_THREAD_CONTEXT_KIND,

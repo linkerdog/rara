@@ -6,7 +6,7 @@ use crate::context::compaction_view::compaction_source_entries;
 use crate::context::memory_selection::memory_selection;
 use crate::context::retrieval_view::{retrieval_orchestration_view, retrieval_source_entries};
 use crate::context::{
-    CompactionContextView, ContextBudgetView, ContextCacheObservationView,
+    AgentTurnTraceView, CompactionContextView, ContextBudgetView, ContextCacheObservationView,
     ContextCompactionObservationView, ContextObservabilityView, MicrocompactProjectionContextView,
     PlanContextView, PromptContextView, RetrievalCandidate, RetrievalContextView,
     RetrievalObservationView, RetrievalRequest, RetrievedMemoryCandidate, SharedRuntimeContext,
@@ -53,6 +53,7 @@ pub struct RuntimeContextInputs<'a> {
     pub file_search_candidates: Vec<RetrievalCandidate>,
     pub tool_result_projection_policy: ToolResultProjectionPolicy,
     pub tool_result_projection_report: ToolResultProjectionReport,
+    pub agent_turn_trace: AgentTurnTraceView,
 }
 
 #[derive(Debug, Clone)]
@@ -202,6 +203,7 @@ impl<'a> ContextAssembler<'a> {
                 &inputs.tool_result_projection_report,
             ),
             retrieval: RetrievalObservationView::from_orchestration(&retrieval.orchestration),
+            agent_turn: inputs.agent_turn_trace,
         };
         let retrieved_memory_budget = retrieval
             .memory_selection
@@ -484,6 +486,7 @@ mod tests {
                     cleared_results: 2,
                     kept_results: 6,
                 },
+                agent_turn_trace: AgentTurnTraceView::default(),
             },
         );
 
@@ -563,6 +566,7 @@ mod tests {
                 file_search_candidates: vec![],
                 tool_result_projection_policy: ToolResultProjectionPolicy::default(),
                 tool_result_projection_report: ToolResultProjectionReport::default(),
+                agent_turn_trace: AgentTurnTraceView::default(),
             },
         );
 
@@ -648,6 +652,7 @@ mod tests {
                 file_search_candidates: vec![],
                 tool_result_projection_policy: ToolResultProjectionPolicy::default(),
                 tool_result_projection_report: ToolResultProjectionReport::default(),
+                agent_turn_trace: AgentTurnTraceView::default(),
             },
         );
 
@@ -733,6 +738,7 @@ mod tests {
                 file_search_candidates: vec![],
                 tool_result_projection_policy: ToolResultProjectionPolicy::default(),
                 tool_result_projection_report: ToolResultProjectionReport::default(),
+                agent_turn_trace: AgentTurnTraceView::default(),
             },
         );
 
@@ -806,6 +812,7 @@ mod tests {
                 file_search_candidates: vec![],
                 tool_result_projection_policy: ToolResultProjectionPolicy::default(),
                 tool_result_projection_report: ToolResultProjectionReport::default(),
+                agent_turn_trace: AgentTurnTraceView::default(),
             },
         );
 

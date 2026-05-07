@@ -285,6 +285,7 @@ pub struct ContextObservabilityView {
     pub compaction: ContextCompactionObservationView,
     pub microcompact: MicrocompactProjectionContextView,
     pub retrieval: RetrievalObservationView,
+    pub agent_turn: AgentTurnTraceView,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Default, serde::Serialize, serde::Deserialize)]
@@ -375,6 +376,26 @@ pub struct RetrievalObservationView {
     pub selected_tokens: usize,
     pub available_tokens: usize,
     pub dropped_tokens: usize,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Default, serde::Serialize, serde::Deserialize)]
+pub struct AgentTurnTraceView {
+    pub agentic_turn_index: usize,
+    pub execution_mode: String,
+    pub model_stop_reason: Option<String>,
+    pub loop_outcome: Option<String>,
+    pub continuation_phase: Option<String>,
+    pub had_text_response: bool,
+    pub had_reasoning_response: bool,
+    pub reasoning_only: bool,
+    pub streamed_text_delta: bool,
+    pub streamed_reasoning_delta: bool,
+    pub assistant_message_recorded: bool,
+    pub tool_call_count: usize,
+    pub plan_updated: bool,
+    pub continue_inspection: bool,
+    pub malformed_proposed_plan: bool,
+    pub consecutive_reasoning_only_turns: usize,
 }
 
 impl RetrievalObservationView {

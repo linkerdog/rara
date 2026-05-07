@@ -992,6 +992,24 @@ mod tests {
                     available_tokens: 300,
                     dropped_tokens: 200,
                 },
+                agent_turn: crate::context::AgentTurnTraceView {
+                    agentic_turn_index: 1,
+                    execution_mode: "execute".to_string(),
+                    model_stop_reason: Some("end_turn".to_string()),
+                    loop_outcome: Some("continued".to_string()),
+                    continuation_phase: Some("reasoning_only_continuation_required".to_string()),
+                    had_text_response: false,
+                    had_reasoning_response: true,
+                    reasoning_only: true,
+                    streamed_text_delta: false,
+                    streamed_reasoning_delta: true,
+                    assistant_message_recorded: false,
+                    tool_call_count: 0,
+                    plan_updated: false,
+                    continue_inspection: false,
+                    malformed_proposed_plan: false,
+                    consecutive_reasoning_only_turns: 1,
+                },
             },
         });
 
@@ -1036,6 +1054,24 @@ mod tests {
                                 "selected_tokens": 500,
                                 "available_tokens": 300,
                                 "dropped_tokens": 200
+                            },
+                            "agent_turn": {
+                                "agentic_turn_index": 1,
+                                "execution_mode": "execute",
+                                "model_stop_reason": "end_turn",
+                                "loop_outcome": "continued",
+                                "continuation_phase": "reasoning_only_continuation_required",
+                                "had_text_response": false,
+                                "had_reasoning_response": true,
+                                "reasoning_only": true,
+                                "streamed_text_delta": false,
+                                "streamed_reasoning_delta": true,
+                                "assistant_message_recorded": false,
+                                "tool_call_count": 0,
+                                "plan_updated": false,
+                                "continue_inspection": false,
+                                "malformed_proposed_plan": false,
+                                "consecutive_reasoning_only_turns": 1
                             }
                         }
                     }
