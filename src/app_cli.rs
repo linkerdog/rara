@@ -10,6 +10,7 @@ use crate::config::{
     ConfigManager, DEFAULT_CODEX_BASE_URL, DEFAULT_CODEX_CHATGPT_BASE_URL, RaraConfig,
 };
 use crate::oauth::{OAuthManager, SavedCodexAuthMode};
+use crate::print_consumer::PrintConsumer;
 use crate::runtime_context;
 use crate::thread_cli;
 use crate::tui::StartupResumeTarget;
@@ -72,6 +73,10 @@ enum Commands {
         with_api_key: bool,
     },
     Logout,
+    Print {
+        /// The prompt to send to the agent.
+        prompt: String,
+    },
     Tui,
 }
 
@@ -114,6 +119,7 @@ pub(crate) async fn run_cli() -> Result<()> {
             .await?
         }
         Commands::Logout => run_logout_command(&mut config, &config_manager, &oauth_manager)?,
+        Commands::Print { prompt } => run_print_command(&config, prompt).await?,
         Commands::Tui => {
             run_tui_command(
                 &config,
@@ -165,6 +171,15 @@ async fn run_ask_command(config: &RaraConfig, prompt: String) -> Result<()> {
     emit_bootstrap_warnings(&bootstrap.warnings);
     let mut agent = bootstrap.into_agent();
     agent.query(prompt).await
+}
+
+async fn run_print_command(config: &RaraConfig, prompt: String) -> Result<()> {
+    let bootstrap = runtime_context::initialize_rara_context(config, None).await?;
+    emit_bootstrap_warnings(&bootstrap.warnings);
+    let event_bus = bootstrap.event_bus.clone();
+    let agent = bootstrap.into_agent();
+    let consumer = PrintConsumer::new(agent, event_bus, prompt);
+    consumer.run().await
 }
 
 async fn run_distill_command(config: &RaraConfig, thread_id: &str) -> Result<()> {
@@ -231,7 +246,8 @@ fn startup_resume_target_for_command(command: &Commands) -> Option<StartupResume
         | Commands::Thread { .. }
         | Commands::Threads { .. }
         | Commands::Login { .. }
-        | Commands::Logout => None,
+        | Commands::Logout
+        | Commands::Print { .. } => None,
     }
 }
 
