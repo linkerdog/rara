@@ -499,7 +499,7 @@ pub(super) fn request_running_task_cancellation(app: &mut TuiApp) {
     }
 }
 
-pub(super) async fn finish_running_task_if_ready(
+pub(crate) async fn finish_running_task_if_ready(
     app: &mut TuiApp,
     agent_slot: &mut Option<Agent>,
 ) -> anyhow::Result<()> {

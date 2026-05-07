@@ -1,7 +1,7 @@
 mod commands;
 pub(crate) use commands::apply_permission_mode;
 mod events;
-mod tasks;
+pub(super) mod tasks;
 
 use std::sync::Arc;
 
