@@ -613,6 +613,14 @@ async fn reasoning_only_turn_is_not_persisted_as_empty_assistant_message() {
             .to_string()
             .contains("reasoning_only_continuation_required")
     }));
+    let trace = agent.shared_runtime_context().observability.agent_turn;
+    assert_eq!(trace.loop_outcome.as_deref(), Some("stopped"));
+    assert_eq!(
+        trace.continuation_phase.as_deref(),
+        Some("final_no_tool_response")
+    );
+    assert!(trace.had_text_response);
+    assert!(!trace.reasoning_only);
     let assistant_messages = agent
         .history
         .iter()
@@ -799,6 +807,14 @@ async fn execute_mode_consecutive_reasoning_only_turns_stop_after_one_continuati
             .to_string()
             .contains("execute-mode unreachable text")
     }));
+    let trace = agent.shared_runtime_context().observability.agent_turn;
+    assert_eq!(trace.loop_outcome.as_deref(), Some("stopped"));
+    assert_eq!(
+        trace.continuation_phase.as_deref(),
+        Some("reasoning_only_limit")
+    );
+    assert!(trace.reasoning_only);
+    assert_eq!(trace.consecutive_reasoning_only_turns, 2);
 }
 
 #[tokio::test]

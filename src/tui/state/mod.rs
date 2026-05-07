@@ -1044,6 +1044,7 @@ impl TuiApp {
             retrieval_source_entries: runtime_context.retrieval.entries,
             retrieval_orchestration: runtime_context.retrieval.orchestration,
             memory_selection: runtime_context.retrieval.memory_selection,
+            context_observability: runtime_context.observability,
             assembly_entries: runtime_context.assembly.entries,
             // ── Extensions ──────────────────────────────────────
             // ── Extensions ──────────────────────────────────────

@@ -14,7 +14,9 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use uuid::Uuid;
 
-use crate::context::{FileSearchCandidateProvider, RetrievalCandidate, RetrievedMemoryCandidate};
+use crate::context::{
+    AgentTurnTraceView, FileSearchCandidateProvider, RetrievalCandidate, RetrievedMemoryCandidate,
+};
 use crate::control_tokens::scrub_internal_control_tokens;
 use crate::llm::{ContentBlock, LlmBackend, LlmStreamEvent, LlmTurnMetadata};
 use crate::mcp_status::McpStatusSnapshot;
@@ -27,8 +29,9 @@ use crate::todo::TodoState;
 use crate::tool::ToolOutputStream;
 use crate::tool::{ToolCallContext, ToolManager, ToolProgressEvent};
 use crate::tool_result::{
-    ToolResultProjectionPolicy, ToolResultStore, default_tool_result_store_dir,
-    enforce_tool_result_batch_budget, project_tool_results_for_context, repair_tool_result_history,
+    ToolResultProjectionPolicy, ToolResultProjectionReport, ToolResultStore,
+    default_tool_result_store_dir, enforce_tool_result_batch_budget,
+    project_tool_results_for_context, repair_tool_result_history,
 };
 use crate::tools::bash::BashCommandInput;
 use crate::tools::planning::{ENTER_PLAN_MODE_TOOL_NAME, EXIT_PLAN_MODE_TOOL_NAME};
@@ -123,6 +126,9 @@ struct TurnOutput {
     continue_inspection: bool,
     had_text_response: bool,
     had_reasoning_response: bool,
+    streamed_text_delta: bool,
+    streamed_reasoning_delta: bool,
+    model_stop_reason: Option<String>,
 }
 
 pub struct Agent {
@@ -154,6 +160,8 @@ pub struct Agent {
     pub compact_state: CompactState,
     pub retrieved_memory_candidates: Vec<RetrievedMemoryCandidate>,
     pub file_search_candidates: Vec<RetrievalCandidate>,
+    pub last_tool_result_projection_report: ToolResultProjectionReport,
+    pub last_agent_turn_trace: AgentTurnTraceView,
     file_search_provider: FileSearchCandidateProvider,
     inspection_progress: InspectionProgress,
     last_query_plan_updated: bool,
@@ -230,6 +238,8 @@ impl Agent {
             compact_state: CompactState::default(),
             retrieved_memory_candidates: Vec::new(),
             file_search_candidates: Vec::new(),
+            last_tool_result_projection_report: ToolResultProjectionReport::default(),
+            last_agent_turn_trace: AgentTurnTraceView::default(),
             file_search_provider: FileSearchCandidateProvider::new(root, true),
             inspection_progress: InspectionProgress::default(),
             last_query_plan_updated: false,
@@ -380,6 +390,7 @@ impl Agent {
             &history_for_query,
             &ToolResultProjectionPolicy::default(),
         );
+        self.last_tool_result_projection_report = projection_report.clone();
         if projection_report.cleared_results > 0 {
             report(AgentEvent::Status(format!(
                 "Projected {} old tool result(s) out of this model request.",
@@ -512,6 +523,9 @@ impl Agent {
             continue_inspection,
             had_text_response,
             had_reasoning_response,
+            streamed_text_delta: streamed_any_text_delta,
+            streamed_reasoning_delta: streamed_any_reasoning_delta,
+            model_stop_reason: response.stop_reason,
         })
     }
 
@@ -553,6 +567,7 @@ impl Agent {
         loop {
             self.ensure_active_plan_step();
             let mut turn_output = self.run_model_turn(output_mode, report).await?;
+            self.record_agent_turn_trace(&turn_output, *agentic_turns, None, None, false);
             self.last_query_plan_updated = turn_output.plan_updated;
             self.last_turn_had_tool_calls = !turn_output.tool_calls.is_empty();
             if turn_output
@@ -574,6 +589,13 @@ impl Agent {
                 if plan_exit_repair_attempts < MAX_PLAN_EXIT_REPAIR_ATTEMPTS {
                     plan_exit_repair_attempts += 1;
                     *agentic_turns += 1;
+                    self.record_agent_turn_trace(
+                        &turn_output,
+                        *agentic_turns,
+                        Some("continued"),
+                        Some(RuntimeContinuationPhase::PlanExitRepairRequired.label()),
+                        false,
+                    );
                     report(AgentEvent::Status(
                         "Plan exit was missing a structured proposed plan. Asking the model to repair the submission."
                             .to_string(),
@@ -585,13 +607,28 @@ impl Agent {
                     self.checkpoint_session()?;
                     continue;
                 }
+                self.record_agent_turn_trace(
+                    &turn_output,
+                    *agentic_turns,
+                    Some("stopped"),
+                    Some("plan_exit_repair_exhausted"),
+                    false,
+                );
                 self.checkpoint_session()?;
                 break;
             }
+            let assistant_message_recorded = turn_output.assistant_message.is_some();
             if let Some(message) = turn_output.assistant_message.take() {
                 self.push_history_message(message);
                 self.checkpoint_session()?;
             }
+            self.record_agent_turn_trace(
+                &turn_output,
+                *agentic_turns,
+                None,
+                None,
+                assistant_message_recorded,
+            );
 
             if turn_output.tool_calls.is_empty() {
                 // Reset consecutive reasoning-only counter when the model
@@ -607,6 +644,13 @@ impl Agent {
                     self.consecutive_reasoning_only_turns += 1;
                     if self.consecutive_reasoning_only_turns > MAX_CONSECUTIVE_REASONING_ONLY_TURNS
                     {
+                        self.record_agent_turn_trace(
+                            &turn_output,
+                            *agentic_turns,
+                            Some("stopped"),
+                            Some("reasoning_only_limit"),
+                            assistant_message_recorded,
+                        );
                         report(AgentEvent::Status(
                             "Model produced reasoning-only for too many consecutive turns. Stopping."
                                 .to_string(),
@@ -631,6 +675,13 @@ impl Agent {
                     } else {
                         RuntimeContinuationPhase::PlanContinuationRequired
                     };
+                    self.record_agent_turn_trace(
+                        &turn_output,
+                        *agentic_turns,
+                        Some("continued"),
+                        Some(phase.label()),
+                        assistant_message_recorded,
+                    );
                     self.push_history_message(
                         self.runtime_continuation_message(phase, *agentic_turns),
                     );
@@ -656,12 +707,26 @@ impl Agent {
                         RuntimeContinuationPhase::ExecutionContinuationRequired
                     };
                     *agentic_turns += 1;
+                    self.record_agent_turn_trace(
+                        &turn_output,
+                        *agentic_turns,
+                        Some("continued"),
+                        Some(phase.label()),
+                        assistant_message_recorded,
+                    );
                     self.push_history_message(
                         self.runtime_continuation_message(phase, *agentic_turns),
                     );
                     self.checkpoint_session()?;
                     continue;
                 }
+                self.record_agent_turn_trace(
+                    &turn_output,
+                    *agentic_turns,
+                    Some("stopped"),
+                    Some("final_no_tool_response"),
+                    assistant_message_recorded,
+                );
                 self.complete_active_plan_step();
                 break;
             }
@@ -669,6 +734,13 @@ impl Agent {
             // produces tool calls.
             self.consecutive_reasoning_only_turns = 0;
             *agentic_turns += 1;
+            self.record_agent_turn_trace(
+                &turn_output,
+                *agentic_turns,
+                Some("running_tools"),
+                Some("tool_calls_available"),
+                assistant_message_recorded,
+            );
 
             let tool_results = self
                 .execute_tool_calls(turn_output.tool_calls, report)
@@ -681,6 +753,38 @@ impl Agent {
             self.extend_history_for_next_turn(tool_results, report, *agentic_turns)?;
         }
         Ok(())
+    }
+
+    fn record_agent_turn_trace(
+        &mut self,
+        turn_output: &TurnOutput,
+        agentic_turn_index: usize,
+        loop_outcome: Option<&str>,
+        continuation_phase: Option<&str>,
+        assistant_message_recorded: bool,
+    ) {
+        let reasoning_only = Self::is_reasoning_only_turn(
+            turn_output.had_text_response,
+            turn_output.had_reasoning_response,
+        );
+        self.last_agent_turn_trace = AgentTurnTraceView {
+            agentic_turn_index,
+            execution_mode: self.execution_mode_label().to_string(),
+            model_stop_reason: turn_output.model_stop_reason.clone(),
+            loop_outcome: loop_outcome.map(ToString::to_string),
+            continuation_phase: continuation_phase.map(ToString::to_string),
+            had_text_response: turn_output.had_text_response,
+            had_reasoning_response: turn_output.had_reasoning_response,
+            reasoning_only,
+            streamed_text_delta: turn_output.streamed_text_delta,
+            streamed_reasoning_delta: turn_output.streamed_reasoning_delta,
+            assistant_message_recorded,
+            tool_call_count: turn_output.tool_calls.len(),
+            plan_updated: turn_output.plan_updated,
+            continue_inspection: turn_output.continue_inspection,
+            malformed_proposed_plan: turn_output.malformed_proposed_plan,
+            consecutive_reasoning_only_turns: self.consecutive_reasoning_only_turns,
+        };
     }
 
     async fn try_continue_after_recoverable_runtime_error<F>(

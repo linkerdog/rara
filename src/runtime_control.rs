@@ -2,7 +2,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 use crate::agent::{AgentEvent, BashApprovalDecision};
-use crate::context::RetrievalOrchestrationView;
+use crate::context::{ContextObservabilityView, RetrievalOrchestrationView};
 use crate::mcp_status::{McpConnectionState, McpStatusSnapshot};
 use crate::todo::TodoState;
 use crate::tool::ToolOutputStream;
@@ -525,6 +525,7 @@ pub enum HookEvent {
 pub enum ContextEvent {
     SnapshotUpdated,
     RetrievalOrchestrationUpdated { view: RetrievalOrchestrationView },
+    ObservabilityUpdated { view: ContextObservabilityView },
 }
 
 #[allow(dead_code)]
@@ -945,6 +946,132 @@ mod tests {
                                 "selected_tokens": 11,
                                 "available_tokens": 0,
                                 "dropped_tokens": 0
+                            }
+                        }
+                    }
+                }
+            })
+        );
+    }
+
+    #[test]
+    fn context_observability_event_uses_structured_wire_shape() {
+        let event = RuntimeEvent::Context(ContextEvent::ObservabilityUpdated {
+            view: ContextObservabilityView {
+                cache: crate::context::ContextCacheObservationView {
+                    hit_tokens: 90,
+                    miss_tokens: 10,
+                    hit_rate_basis_points: Some(9000),
+                },
+                compaction: crate::context::ContextCompactionObservationView {
+                    estimated_history_tokens: 12_000,
+                    compact_threshold_tokens: 10_000,
+                    compaction_count: 2,
+                    last_before_tokens: Some(9_000),
+                    last_after_tokens: Some(3_000),
+                    last_saved_tokens: Some(6_000),
+                },
+                microcompact: crate::context::MicrocompactProjectionContextView {
+                    enabled: true,
+                    budget_chars: 48_000,
+                    keep_recent: 6,
+                    original_chars: 60_000,
+                    projected_chars: 30_000,
+                    saved_chars: 30_000,
+                    cleared_results: 4,
+                    kept_results: 6,
+                },
+                retrieval: crate::context::RetrievalObservationView {
+                    request_id: "session-1".to_string(),
+                    provider_count: 3,
+                    candidate_count: 5,
+                    selected_count: 2,
+                    available_count: 2,
+                    dropped_count: 1,
+                    selected_tokens: 500,
+                    available_tokens: 300,
+                    dropped_tokens: 200,
+                },
+                agent_turn: crate::context::AgentTurnTraceView {
+                    agentic_turn_index: 1,
+                    execution_mode: "execute".to_string(),
+                    model_stop_reason: Some("end_turn".to_string()),
+                    loop_outcome: Some("continued".to_string()),
+                    continuation_phase: Some("reasoning_only_continuation_required".to_string()),
+                    had_text_response: false,
+                    had_reasoning_response: true,
+                    reasoning_only: true,
+                    streamed_text_delta: false,
+                    streamed_reasoning_delta: true,
+                    assistant_message_recorded: false,
+                    tool_call_count: 0,
+                    plan_updated: false,
+                    continue_inspection: false,
+                    malformed_proposed_plan: false,
+                    consecutive_reasoning_only_turns: 1,
+                },
+            },
+        });
+
+        assert_eq!(
+            serde_json::to_value(event).unwrap(),
+            json!({
+                "type": "context",
+                "payload": {
+                    "type": "observability_updated",
+                    "payload": {
+                        "view": {
+                            "cache": {
+                                "hit_tokens": 90,
+                                "miss_tokens": 10,
+                                "hit_rate_basis_points": 9000
+                            },
+                            "compaction": {
+                                "estimated_history_tokens": 12000,
+                                "compact_threshold_tokens": 10000,
+                                "compaction_count": 2,
+                                "last_before_tokens": 9000,
+                                "last_after_tokens": 3000,
+                                "last_saved_tokens": 6000
+                            },
+                            "microcompact": {
+                                "enabled": true,
+                                "budget_chars": 48000,
+                                "keep_recent": 6,
+                                "original_chars": 60000,
+                                "projected_chars": 30000,
+                                "saved_chars": 30000,
+                                "cleared_results": 4,
+                                "kept_results": 6
+                            },
+                            "retrieval": {
+                                "request_id": "session-1",
+                                "provider_count": 3,
+                                "candidate_count": 5,
+                                "selected_count": 2,
+                                "available_count": 2,
+                                "dropped_count": 1,
+                                "selected_tokens": 500,
+                                "available_tokens": 300,
+                                "dropped_tokens": 200
+                            },
+                            "agent_turn": {
+                                "agentic_turn_index": 1,
+                                "execution_mode": "execute",
+                                "model_stop_reason": "end_turn",
+                                "loop_outcome": "continued",
+                                "continuation_phase": "reasoning_only_continuation_required",
+                                "had_text_response": false,
+                                "had_reasoning_response": true,
+                                "reasoning_only": true,
+                                "streamed_text_delta": false,
+                                "streamed_reasoning_delta": true,
+                                "assistant_message_recorded": false,
+                                "tool_call_count": 0,
+                                "plan_updated": false,
+                                "continue_inspection": false,
+                                "malformed_proposed_plan": false,
+                                "consecutive_reasoning_only_turns": 1
                             }
                         }
                     }

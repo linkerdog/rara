@@ -95,8 +95,8 @@ Active backlog only. Keep this file small and current.
 - [x] Add concrete invoked-skill carry-over producer.
 - [x] Add concrete hook/MCP carry-over producers.
 - [x] Add prefix-stable tool-result projection before model requests.
-- [ ] Add per-request microcompact observability to `/context`.
-- [ ] Add an OTEL-ready context observability event model for compaction, microcompact projection, cache usage, and memory retrieval.
+- [x] Add per-request microcompact observability to `/context`.
+- [x] Add an OTEL-ready context observability event model for compaction, microcompact projection, cache usage, and memory retrieval.
 - [x] Add terminal environment detection for TUI compatibility, diagnostics, and future OTEL attributes.
 - [ ] Surface terminal metadata in `/status` diagnostics and future OTEL attributes.
 - [ ] Add provider-gated cache-edit microcompact only for backends that explicitly declare cache-edit support.

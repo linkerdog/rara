@@ -218,6 +218,7 @@ pub struct RuntimeSnapshot {
     pub retrieval_source_entries: Vec<RetrievalSourceContextEntry>,
     pub retrieval_orchestration: crate::context::RetrievalOrchestrationView,
     pub memory_selection: crate::context::MemorySelectionContextView,
+    pub context_observability: crate::context::ContextObservabilityView,
     pub assembly_entries: Vec<ContextAssemblyEntry>,
     // ── Extensions ──────────────────────────────────────
     pub extension_skill_count: usize,

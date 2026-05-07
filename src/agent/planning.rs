@@ -996,7 +996,7 @@ pub(super) fn parse_request_user_input_block(text: &str) -> Option<PendingUserIn
 }
 
 impl RuntimeContinuationPhase {
-    fn label(self) -> &'static str {
+    pub(super) fn label(self) -> &'static str {
         match self {
             Self::ToolResultsAvailable => "tool_results_available",
             Self::PlanContinuationRequired => "plan_continuation_required",

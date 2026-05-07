@@ -239,6 +239,13 @@ complete enough to show provider status, candidate status, budget usage, drop
 reasons, and injected summary provenance in `/context` and the future OTEL
 event stream.
 
+The first observability boundary is now shared with context compression:
+`ContextObservabilityView` summarizes retrieval provider count, candidate
+count, selected/available/dropped counts, and budget token totals. Detailed
+candidate explanations remain in `RetrievalOrchestrationView`; the
+observability view is the stable summary shape for `/context`, ACP/Wire, and
+future OTEL export.
+
 Rules:
 
 - keep compression behind an explicit provider capability and feature gate;

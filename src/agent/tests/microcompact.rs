@@ -62,6 +62,13 @@ async fn model_request_projects_old_tool_results_without_mutating_history() {
     assert!(request_text.contains("Old tool result content cleared"));
     assert!(!request_text.contains("old-result-0"));
     assert!(request_text.contains("old-result-7"));
+    let runtime_context = agent.shared_runtime_context();
+    assert!(runtime_context.observability.microcompact.cleared_results > 0);
+    assert!(runtime_context.observability.microcompact.saved_chars > 0);
+    assert_eq!(
+        runtime_context.observability.microcompact.budget_chars,
+        48_000
+    );
 
     let persisted_history = serde_json::to_string(&agent.history).expect("history json");
     assert!(persisted_history.contains("old-result-0"));

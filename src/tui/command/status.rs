@@ -273,6 +273,51 @@ fn render_context_usage_summary(app: &TuiApp) -> String {
     lines.join("\n")
 }
 
+fn format_basis_points(value: Option<u32>) -> String {
+    value
+        .map(|basis_points| format!("{:.1}%", basis_points as f64 / 100.0))
+        .unwrap_or_else(|| "-".to_string())
+}
+
+fn format_char_count(chars: usize) -> String {
+    format!("{chars} chars")
+}
+
+fn render_context_observability(app: &TuiApp) -> String {
+    let view = &app.snapshot.context_observability;
+    format!(
+        "Observability\n  cache: hit={} miss={} hit_rate={}\n  microcompact: enabled={} cleared={} kept={} saved={} budget={} keep_recent={}\n  retrieval: providers={} candidates={} selected={} available={} dropped={} selected_budget={}\n  agent_turn: idx={} mode={} stop={} outcome={} phase={} text={} reasoning={} reasoning_only={} streamed_text={} streamed_reasoning={} assistant_recorded={} tools={} consecutive_reasoning_only={}",
+        format_token_count(view.cache.hit_tokens as usize),
+        format_token_count(view.cache.miss_tokens as usize),
+        format_basis_points(view.cache.hit_rate_basis_points),
+        view.microcompact.enabled,
+        view.microcompact.cleared_results,
+        view.microcompact.kept_results,
+        format_char_count(view.microcompact.saved_chars),
+        format_char_count(view.microcompact.budget_chars),
+        view.microcompact.keep_recent,
+        view.retrieval.provider_count,
+        view.retrieval.candidate_count,
+        view.retrieval.selected_count,
+        view.retrieval.available_count,
+        view.retrieval.dropped_count,
+        format_token_count(view.retrieval.selected_tokens),
+        view.agent_turn.agentic_turn_index,
+        view.agent_turn.execution_mode,
+        view.agent_turn.model_stop_reason.as_deref().unwrap_or("-"),
+        view.agent_turn.loop_outcome.as_deref().unwrap_or("-"),
+        view.agent_turn.continuation_phase.as_deref().unwrap_or("-"),
+        view.agent_turn.had_text_response,
+        view.agent_turn.had_reasoning_response,
+        view.agent_turn.reasoning_only,
+        view.agent_turn.streamed_text_delta,
+        view.agent_turn.streamed_reasoning_delta,
+        view.agent_turn.assistant_message_recorded,
+        view.agent_turn.tool_call_count,
+        view.agent_turn.consecutive_reasoning_only_turns,
+    )
+}
+
 fn todo_summary_line(app: &TuiApp) -> String {
     let summary = &app.snapshot.todo.summary;
     if summary.total == 0 {
@@ -446,6 +491,7 @@ pub fn status_context_text(app: &TuiApp) -> String {
                 .unwrap_or_else(|| "-".to_string()),
             last_boundary
         ),
+        render_context_observability(app),
         format!(
             "Plan\n  mode: {}  explanation: {}\n{}",
             app.agent_execution_mode_label(),
