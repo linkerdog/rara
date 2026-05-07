@@ -9323,6 +9323,7 @@ name = "rara-persistence"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "fs2",
  "regex",
  "serde",
  "serde_json",

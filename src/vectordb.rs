@@ -16,9 +16,8 @@ use lancedb::index::Index;
 use lancedb::index::scalar::FtsIndexBuilder;
 use lancedb::query::{ExecutableQuery, QueryBase};
 use lancedb::{Connection, Error as LanceDbError, Table, connect};
+use rara_persistence::file_lock::AdvisoryFileLock;
 use tokio::sync::{Mutex, OnceCell};
-
-use crate::file_lock::AdvisoryFileLock;
 
 const MEMORY_ID_COLUMN: &str = "id";
 const SESSION_ID_COLUMN: &str = "session_id";

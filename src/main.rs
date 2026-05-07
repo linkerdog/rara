@@ -7,7 +7,6 @@ mod config;
 mod context;
 mod control_plane;
 mod control_tokens;
-mod file_lock;
 mod google_oauth;
 mod hook_registry;
 mod hooks;

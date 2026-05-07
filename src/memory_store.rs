@@ -7,8 +7,8 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use anyhow::{Context, Result, bail};
 use rara_persistence::atomic_file;
+use rara_persistence::file_lock::AdvisoryFileLock;
 
-use crate::file_lock::AdvisoryFileLock;
 use crate::llm::LlmBackend;
 use crate::vectordb::{MemoryMetadata, VectorDB};
 

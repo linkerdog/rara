@@ -4,9 +4,9 @@ use std::io::{BufRead, BufReader, Write};
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
+use rara_persistence::file_lock::AdvisoryFileLock;
 use serde::{Deserialize, Serialize};
 
-use crate::file_lock::AdvisoryFileLock;
 use crate::state_db::{PersistedTurnEntry, PersistedTurnSummary, turn_preview};
 
 const TURN_LOG_FILE: &str = "turns.jsonl";

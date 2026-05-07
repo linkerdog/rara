@@ -6,9 +6,8 @@ use std::sync::{Mutex, OnceLock};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use anyhow::{Context, Result};
+use rara_persistence::file_lock::AdvisoryFileLock;
 use serde::{Deserialize, Serialize};
-
-use crate::file_lock::AdvisoryFileLock;
 
 const CONTEXT_SHARD_FILE: &str = "context.jsonl";
 const CONTEXT_SHARD_CACHE_MAX_ENTRIES: usize = 256;
