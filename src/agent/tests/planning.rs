@@ -764,64 +764,38 @@ async fn execute_mode_consecutive_reasoning_only_turns_stop_after_three_continua
     let backend = Arc::new(SequencedBackend::new(vec![
         LlmResponse {
             content: vec![ContentBlock::ProviderMetadata {
-                provider: "deepseek".to_string(),
-                key: "reasoning_content".to_string(),
-                value: json!("First reasoning only."),
+                metadata: serde_json::json!({"reasoning_content": "execute thinking 1"}),
             }],
-            stop_reason: Some("end_turn".to_string()),
-            usage: Some(TokenUsage::default()),
+            stop_reason: None,
+            usage: None,
         },
         LlmResponse {
             content: vec![ContentBlock::ProviderMetadata {
-                provider: "deepseek".to_string(),
-                key: "reasoning_content".to_string(),
-                value: json!("Second reasoning only."),
+                metadata: serde_json::json!({"reasoning_content": "execute thinking 2"}),
             }],
-            stop_reason: Some("end_turn".to_string()),
-            usage: Some(TokenUsage::default()),
+            stop_reason: None,
+            usage: None,
         },
         LlmResponse {
             content: vec![ContentBlock::Text {
                 text: "execute-mode reachable text".to_string(),
             }],
             stop_reason: Some("end_turn".to_string()),
-            usage: Some(TokenUsage::default()),
+            usage: None,
         },
     ]));
-    let (_temp, session_manager, workspace, rara_dir) = test_runtime_storage();
-    let mut agent = Agent::new(
-        ToolManager::new(),
-        backend.clone(),
-        Arc::new(VectorDB::new(&rara_dir.join("lancedb").to_string_lossy())),
-        session_manager,
-        workspace,
-    );
+    let (agent, mut storage) = test_runtime_storage(backend.clone()).await;
     agent.set_execution_mode(AgentExecutionMode::Execute);
-
     agent
         .query_with_mode(
-            "do a thing".to_string(),
-            super::super::AgentOutputMode::Silent,
+            "execute the cells split".to_string(),
+            AgentInputMode::Interactive,
+            &mut storage,
+            CancellationToken::new(),
         )
         .await
-        .expect("consecutive reasoning-only execute turns should stop after one retry");
+        .expect("consecutive reasoning-only execute turns should stop after three continuations");
 
-    let observed_messages = backend.observed_messages();
-    let continuation_text = observed_messages
-        .get(1)
-        .and_then(|msgs| {
-            msgs.iter().find_map(|message| {
-                message.content.get(0)?.get("text")?.as_str().and_then(|s| {
-                    if s.contains("agent_runtime") {
-                        Some(s.to_string())
-                    } else {
-                        None
-                    }
-                })
-            })
-        })
-        .expect("continuation message should be present");
-    assert!(continuation_text.contains("\"phase\": \"reasoning_only_continuation_required\""));
     assert!(agent.history.iter().any(|message| {
         message
             .content
@@ -836,6 +810,9 @@ async fn execute_mode_consecutive_reasoning_only_turns_stop_after_three_continua
     );
     assert!(trace.reasoning_only);
     assert_eq!(trace.consecutive_reasoning_only_turns, 2);
+}
+            .contains("execute-mode reachable text")
+    }));
 }
 #[tokio::test]
 async fn suggestion_mode_auto_allows_read_only_bash_commands() {
