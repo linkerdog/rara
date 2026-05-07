@@ -43,6 +43,13 @@ impl TuiMaintainer {
         &mut self.agent
     }
 
+    /// Split borrow so callers that need independent `&mut TuiApp` and
+    /// `&mut Option<Agent>` can still use them while the maintainer
+    /// owns both.
+    pub(super) fn split_mut(&mut self) -> (&mut TuiApp, &mut Option<Agent>) {
+        (&mut self.app, &mut self.agent)
+    }
+
     /// Drain pending agent events from the running task, apply them, and
     /// finalize the task if it has completed.
     pub(super) async fn poll_agent_task(&mut self) -> anyhow::Result<()> {

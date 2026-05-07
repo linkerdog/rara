@@ -7,8 +7,8 @@ use tokio::time::{Duration, MissedTickBehavior, interval};
 
 use super::event_dispatch::dispatch_event;
 use super::event_stream::{UiEvent, translate_event};
+use super::maintainer::TuiMaintainer;
 use super::render::{desired_viewport_height, render};
-use super::runtime::finish_running_task_if_ready;
 use super::session_restore::{restore_latest_thread, restore_thread_by_id};
 use super::state::GoalHandle;
 use super::state::ListPickerKind;
@@ -46,116 +46,131 @@ pub async fn run_tui(
     app.goal = app.goal_handle.read().unwrap().clone();
     app.sandbox_network_access = sandbox_network_access;
     app.event_bus = Some(event_bus);
-    // Sync the AtomicBool to match the default Auto preset (network off).
     app.sandbox_network_access
         .store(false, std::sync::atomic::Ordering::Relaxed);
     app.terminal_width = initial_size.0;
     let viewport_height = desired_viewport_height(&app, initial_size.0, initial_size.1);
     let mut terminal = build_terminal(viewport_height)?;
-    let mut agent_slot = Some(agent);
+    let mut maintainer = TuiMaintainer::new(app, Some(agent));
     match StateDb::new() {
         Ok(state_db) => {
             let state_db = Arc::new(state_db);
+            let (app, agent_slot) = maintainer.split_mut();
             app.attach_state_db(state_db);
             match &startup_resume {
-                StartupResumeTarget::Fresh => {}
+                StartupResumeTarget::Fresh => {
+                    drop(agent_slot);
+                }
                 StartupResumeTarget::Latest => {
                     if let Some(state_db) = app.state_db.as_ref().cloned() {
-                        restore_latest_thread(&state_db, &mut app, &mut agent_slot)?;
+                        restore_latest_thread(&state_db, app, agent_slot)?;
                     }
                 }
                 StartupResumeTarget::ThreadId(thread_id) => {
-                    restore_thread_by_id(thread_id.as_str(), &mut app, &mut agent_slot)?;
+                    restore_thread_by_id(thread_id.as_str(), app, agent_slot)?;
                 }
                 StartupResumeTarget::Picker => {
                     app.open_overlay(Overlay::ListPicker(ListPickerKind::Resume));
                 }
             }
         }
-        Err(err) => app.set_state_db_error(err.to_string()),
+        Err(err) => maintainer.app_mut().set_state_db_error(err.to_string()),
     }
     let oauth_manager = Arc::new(oauth_manager);
-    app.codex_auth_mode = oauth_manager.saved_auth_mode().ok().flatten();
+    maintainer.app_mut().codex_auth_mode = oauth_manager.saved_auth_mode().ok().flatten();
     let mut events = EventStream::new();
     let mut tick = interval(Duration::from_millis(166));
     tick.set_missed_tick_behavior(MissedTickBehavior::Delay);
 
-    let mut dirty = true;
-    if let Some(agent_ref) = agent_slot.as_ref() {
-        app.sync_snapshot(agent_ref);
-    }
-    app.start_repo_context_detection();
+    maintainer.sync_snapshot();
+    maintainer.start_repo_context_detection();
 
     let result: anyhow::Result<()> = loop {
-        app.finish_repo_context_task_if_ready().await;
-        finish_running_task_if_ready(&mut app, &mut agent_slot).await?;
-        clamp_command_palette_selection(&mut app);
+        maintainer.poll_repo_context().await;
+        maintainer.poll_agent_task().await?;
+
+        let needs_redraw = maintainer.needs_redraw;
+        let (app, agent_slot) = maintainer.split_mut();
+        let mut needs_redraw = needs_redraw;
+        clamp_command_palette_selection(app);
         let size = terminal_size()?;
         app.terminal_width = size.0;
-        let desired_height = desired_viewport_height(&app, size.0, size.1);
-        match update_terminal_viewport(&mut terminal, desired_height, &mut app) {
+        let desired_height = desired_viewport_height(app, size.0, size.1);
+        match update_terminal_viewport(&mut terminal, desired_height, app) {
             Ok(()) => {}
             Err(err) => app.push_notice(format!("Skipped viewport update: {err}")),
         }
 
-        if dirty {
-            terminal.draw(|f| render(f, &app))?;
-            dirty = false;
+        if needs_redraw {
+            terminal.draw(|f| render(f, app))?;
+            needs_redraw = false;
         }
 
         tokio::select! {
             _ = tick.tick() => {
-                dirty = true;
+                needs_redraw = true;
             }
             maybe_event = events.next() => {
                 match maybe_event {
-                    Some(Ok(event)) => match translate_event(event, &app) {
+                    Some(Ok(event)) => match translate_event(event, app) {
                         Some(UiEvent::App(event)) => {
-                            if dispatch_event(event, &mut app, &mut agent_slot, &oauth_manager).await? {
+                            if dispatch_event(event, app, agent_slot, &oauth_manager).await? {
                                 if let Some(task) = app.running_task.take() {
                                     task.handle.abort();
                                 }
-                                dirty = true;
+                                needs_redraw = true;
                                 break Ok(());
                             }
-                            dirty = true;
+                            needs_redraw = true;
                         }
                         Some(UiEvent::Draw) => {
                             let size = terminal_size()?;
-                            let desired_height = desired_viewport_height(&app, size.0, size.1);
-                            match update_terminal_viewport(&mut terminal, desired_height, &mut app) {
+                            let desired_height = desired_viewport_height(app, size.0, size.1);
+                            match update_terminal_viewport(&mut terminal, desired_height, app) {
                                 Ok(()) => {}
-                                Err(err) => app.push_notice(format!("Skipped viewport redraw update: {err}")),
+                                Err(err) => app.push_notice(format!(
+                                    "Skipped viewport redraw update: {err}"
+                                )),
                             }
-                            dirty = true;
+                            app.terminal_width = size.0;
+                            let _ = terminal.clear_visible_screen();
+                            needs_redraw = true;
                         }
                         Some(UiEvent::Paste(text)) => {
-                            handle_paste(text, &mut app);
-                            dirty = true;
+                            handle_paste(text, app);
+                            needs_redraw = true;
                         }
-                        Some(UiEvent::FocusChanged(focused)) => {
-                            app.terminal_focused = focused;
-                            dirty = true;
+                        Some(UiEvent::FocusChanged(_focused)) => {
+                            if let Some(agent_ref) = agent_slot.as_ref() {
+                                app.sync_snapshot(agent_ref);
+                            }
+                            needs_redraw = true;
                         }
                         None => {}
                     },
-                    Some(Err(err)) => break Err(err.into()),
+                    Some(Err(err)) => {
+                        app.push_notice(format!("Terminal event error: {err}"));
+                    }
                     None => break Ok(()),
                 }
             }
         }
+        drop(agent_slot);
+        drop(app);
+        maintainer.needs_redraw = needs_redraw;
     };
-
-    if let Some(handle) = app.repo_context_task.take() {
+    if let Some(handle) = maintainer.app_mut().repo_context_task.take() {
         handle.abort();
     }
     teardown_terminal(terminal)?;
-    result?;
-
-    let session_id = agent_slot
-        .as_ref()
-        .map(|agent| agent.session_id.clone())
-        .filter(|session_id| !session_id.is_empty())
-        .or_else(|| (!app.snapshot.session_id.is_empty()).then(|| app.snapshot.session_id.clone()));
+    let _ = result?;
+    let session_id = maintainer
+        .agent()
+        .map(|a| a.session_id.clone())
+        .filter(|id| !id.is_empty())
+        .or_else(|| {
+            (!maintainer.app().snapshot.session_id.is_empty())
+                .then(|| maintainer.app().snapshot.session_id.clone())
+        });
     Ok(session_id)
 }
