@@ -251,7 +251,7 @@ jobs:
           & "$smokeDir/rara.exe" --version
 
       - name: Upload release archive
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: rara-${{ matrix.target }}
           path: dist/rara-${{ needs.tag-check.outputs.version }}-${{ matrix.target }}.${{ matrix.archive }}
@@ -273,7 +273,7 @@ jobs:
           ref: ${{ needs.tag-check.outputs.tag }}
 
       - name: Download release archives
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           path: dist/artifacts
 
@@ -304,7 +304,7 @@ jobs:
           )
 
       - name: Create GitHub Release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           name: ${{ needs.tag-check.outputs.version }}
           tag_name: ${{ needs.tag-check.outputs.tag }}
