@@ -750,7 +750,7 @@ async fn plan_mode_consecutive_reasoning_only_turns_stop_after_three_continuatio
             })
         })
         .expect("continuation message should be present");
-    assert!(continuation_text.contains("\"phase\": \"ReasoningOnlyContinuationRequired\""));
+    assert!(continuation_text.contains("\"phase\": \"reasoning_only_continuation_required\""));
     assert!(agent.history.iter().any(|message| {
         message
             .content
@@ -758,7 +758,6 @@ async fn plan_mode_consecutive_reasoning_only_turns_stop_after_three_continuatio
             .contains("plan-mode reachable text")
     }));
 }
-    assert!(continuation_text.contains("\"phase\": \"reasoning_only_continuation_required\""));
 #[tokio::test]
 async fn execute_mode_consecutive_reasoning_only_turns_stop_after_three_continuations() {
     let backend = Arc::new(SequencedBackend::new(vec![
@@ -820,7 +819,7 @@ async fn execute_mode_consecutive_reasoning_only_turns_stop_after_three_continua
             })
         })
         .expect("continuation message should be present");
-    assert!(continuation_text.contains("\"phase\": \"ReasoningOnlyContinuationRequired\""));
+    assert!(continuation_text.contains("\"phase\": \"reasoning_only_continuation_required\""));
     assert!(agent.history.iter().any(|message| {
         message
             .content
@@ -836,7 +835,6 @@ async fn execute_mode_consecutive_reasoning_only_turns_stop_after_three_continua
     assert!(trace.reasoning_only);
     assert_eq!(trace.consecutive_reasoning_only_turns, 2);
 }
-    assert!(continuation_text.contains("\"phase\": \"reasoning_only_continuation_required\""));
 #[tokio::test]
 async fn suggestion_mode_auto_allows_read_only_bash_commands() {
     let backend = Arc::new(SequencedBackend::new(vec![
