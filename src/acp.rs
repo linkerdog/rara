@@ -46,8 +46,7 @@ impl RaraAcpAgent {
     pub async fn run_acp_stdio(self) -> AcpResult<()> {
         let llm = self.llm_backend.clone();
         let _tools = self.tool_manager.clone();
-        let bus = self.event_bus.clone();
-        let bus_for_prompt = bus.clone();
+        let this = Arc::new(self);
 
         let transport =
             agent_client_protocol::ByteStreams::new(stdout().compat_write(), stdin().compat());
@@ -80,8 +79,9 @@ impl RaraAcpAgent {
             .on_receive_request(
                 {
                     let llm = llm.clone();
+                    let this = this.clone();
                     async move |req: PromptRequest, responder, cx: ConnectionTo<Client>| {
-                        handle_prompt(req, responder, cx, &*llm, bus_for_prompt.clone()).await
+                        this.handle_prompt(req, responder, cx, &*llm).await
                     }
                 },
                 agent_client_protocol::on_receive_request!(),
@@ -122,71 +122,76 @@ fn extract_prompt_text(blocks: &[agent_client_protocol::schema::ContentBlock]) -
 }
 
 /// Handle a PromptRequest: stream LLM output as ACP SessionNotifications,
-/// then respond with a PromptResponse.
-async fn handle_prompt(
-    req: PromptRequest,
-    responder: Responder<PromptResponse>,
-    cx: ConnectionTo<Client>,
-    llm: &dyn LlmBackend,
-    event_bus: Arc<RuntimeEventBus>,
-) -> AcpResult<()> {
-    let session_id = req.session_id.clone();
-    let prompt_text = extract_prompt_text(&req.prompt);
+impl RaraAcpAgent {
+    /// Handle a PromptRequest: stream LLM output as ACP SessionNotifications,
+    /// then respond with a PromptResponse. Event bus publish is injected via
+    /// `self.event_bus` — no parameter threading needed.
+    async fn handle_prompt(
+        &self,
+        req: PromptRequest,
+        responder: Responder<PromptResponse>,
+        cx: ConnectionTo<Client>,
+        llm: &dyn LlmBackend,
+    ) -> AcpResult<()> {
+        let session_id = req.session_id.clone();
+        let prompt_text = extract_prompt_text(&req.prompt);
 
-    if prompt_text.trim().is_empty() {
-        responder.respond(PromptResponse::new(StopReason::EndTurn))?;
-        return Ok(());
-    }
+        if prompt_text.trim().is_empty() {
+            responder.respond(PromptResponse::new(StopReason::EndTurn))?;
+            return Ok(());
+        }
 
-    let messages = vec![crate::agent::Message {
-        role: "user".to_string(),
-        content: serde_json::Value::String(prompt_text),
-    }];
+        let messages = vec![crate::agent::Message {
+            role: "user".to_string(),
+            content: serde_json::Value::String(prompt_text),
+        }];
 
-    let cx_for_callback = cx.clone();
-    let bus = event_bus.clone();
-    let mut on_event = {
-        let session_id = session_id.clone();
-        move |event: LlmStreamEvent| {
-            if let LlmStreamEvent::TextDelta(text) = event {
+        let cx_for_callback = cx.clone();
+        let bus = self.event_bus.clone();
+        let mut on_event = {
+            let session_id = session_id.clone();
+            move |event: LlmStreamEvent| {
+                if let LlmStreamEvent::TextDelta(text) = event {
+                    let chunk =
+                        ContentChunk::new(agent_client_protocol::schema::ContentBlock::Text(
+                            TextContent::new(text.clone()),
+                        ));
+                    let _ = cx_for_callback.send_notification(SessionNotification::new(
+                        session_id.clone(),
+                        SessionUpdate::AgentMessageChunk(chunk),
+                    ));
+                    let _ = bus.send_with_provenance(
+                        crate::agent::AgentEvent::AssistantDelta(text),
+                        crate::runtime_control::RuntimeProvenance {
+                            controller: crate::runtime_control::RuntimeControllerKind::Acp,
+                            adapter: None,
+                            session_id: Some(session_id.to_string()),
+                            source_id: None,
+                            trust: crate::runtime_control::RuntimeSourceTrust::Trusted,
+                            authorship: crate::runtime_control::RuntimeSourceAuthorship::Generated,
+                        },
+                    );
+                }
+            }
+        };
+
+        match llm.ask_streaming(&messages, &[], &mut on_event).await {
+            Ok(_response) => {
+                responder.respond(PromptResponse::new(StopReason::EndTurn))?;
+            }
+            Err(e) => {
+                eprintln!("[acp] LLM streaming error: {e:?}");
                 let chunk = ContentChunk::new(agent_client_protocol::schema::ContentBlock::Text(
-                    TextContent::new(text.clone()),
+                    TextContent::new(format!("LLM error: {e}")),
                 ));
-                let _ = cx_for_callback.send_notification(SessionNotification::new(
+                let _ = cx.send_notification(SessionNotification::new(
                     session_id.clone(),
                     SessionUpdate::AgentMessageChunk(chunk),
                 ));
-                let _ = bus.send_with_provenance(
-                    crate::agent::AgentEvent::AssistantDelta(text),
-                    crate::runtime_control::RuntimeProvenance {
-                        controller: crate::runtime_control::RuntimeControllerKind::Acp,
-                        adapter: None,
-                        session_id: Some(session_id.to_string()),
-                        source_id: None,
-                        trust: crate::runtime_control::RuntimeSourceTrust::Trusted,
-                        authorship: crate::runtime_control::RuntimeSourceAuthorship::Generated,
-                    },
-                );
+                responder.respond(PromptResponse::new(StopReason::EndTurn))?;
             }
         }
-    };
 
-    match llm.ask_streaming(&messages, &[], &mut on_event).await {
-        Ok(_response) => {
-            responder.respond(PromptResponse::new(StopReason::EndTurn))?;
-        }
-        Err(e) => {
-            eprintln!("[acp] LLM streaming error: {e:?}");
-            let chunk = ContentChunk::new(agent_client_protocol::schema::ContentBlock::Text(
-                TextContent::new(format!("LLM error: {e}")),
-            ));
-            let _ = cx.send_notification(SessionNotification::new(
-                session_id.clone(),
-                SessionUpdate::AgentMessageChunk(chunk),
-            ));
-            responder.respond(PromptResponse::new(StopReason::EndTurn))?;
-        }
+        Ok(())
     }
-
-    Ok(())
 }
