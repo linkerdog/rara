@@ -34,7 +34,7 @@ crates/
   rara-control-plane/ runtime_control types, ACP, MCP connection manager
   rara-oauth/        OAuth flows (Google, Codex)
   rara-app-server/   AppServer fan-out bus (future — after agent/render decoupling)
-  rara-state/        state_db, thread_store, session persistence
+  rara-persistence/  atomic_file, thread_metadata, thread_rollout_log, thread_turn_log
   instructions/      (existing) agent prompt construction
   config/            (existing) configuration model
   provider-catalog/  (existing) LLM provider discovery
@@ -76,8 +76,11 @@ crates/
 Split in dependency order: leaf crates first, then interior, then the thin binary.
 Each split is an independent PR, each green on `cargo test`. No behavior change.
 
-1. **`rara-state`** — `state_db.rs` + `thread_store.rs` (+2,985 lines). Zero
-   internal deps except `config`. Pure data layer.
+1. **`rara-persistence`** — `atomic_file.rs`, `thread_metadata.rs`,
+   `thread_rollout_log.rs`, `thread_turn_log.rs`, `redaction.rs` (~900 lines).
+   True leaf modules, zero internal deps. After this lands, `state_db.rs` and
+   `thread_store.rs` can be moved incrementally as their `agent::Message`,
+   `memory_store`, `session` dependencies are lifted into separate crates.
 
 2. **`rara-memory`** — `memory_store.rs`, `vectordb.rs`, `memory_distiller.rs`
    (+2,219 lines). Depends on `rara-state`, `config`. Embedding + retrieval.

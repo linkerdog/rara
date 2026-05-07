@@ -24,6 +24,10 @@ server), never internally.
 
 ```
 agent task (tokio::spawn)
+  │  TuiEvent (already exists: mpsc::unbounded_channel)
+  │    ├── Transcript { role, message }
+  │    ├── Terminal(TerminalEvent)
+  │    └── ToolProgress { name, stream, chunk }
   │
   │  typed objects (not JSON): TuringCompleteOutputEvent
   ▼
@@ -141,14 +145,14 @@ cost, no TUI dependency.
 
 ## Migration Plan
 
-The migration is incremental: each step is independently mergeable and
-green on tests.
+The migration is incremental. Each step is independently mergeable and green on
+tests. Steps 1–2 are done; steps 3–6 are planned.
 
 | # | PR | Change |
 |---|----|--------|
-| 1 | #276 (merged) | Add `TuiMaintainer` struct, owning `TuiApp` |
-| 2 | this PR | Wire `TuiMaintainer` into `event_loop.rs`, remove raw `app`/`agent_slot` variables |
-| 3 | follow-up | Extract `AgentOutputEvent` type from existing `TuiEvent`, add mpsc channel between agent task and `AppServer` |
+| 1 | #276 | Add `TuiMaintainer` struct |
+| 2 | #276 | Wire `TuiMaintainer` into `event_loop.rs` via `split_mut()` |
+| 3 | follow-up | Publish `TuiEvent` (already the agent output stream) on `RuntimeEventBus` so non-TUI consumers can subscribe. The mpsc channel already exists between agent and TUI; add a `publish` call in `apply_tui_event` / `forward_event_to_bus`. |
 | 4 | follow-up | Add `AppServer` with subscribe/publish, move `TuiMaintainer` to consume from it |
 | 5 | follow-up | Add `AcpServer` as peer consumer — same subscription, zero TUI code touched |
 | 6 | follow-up | Add `WireServer` for external program integration, `--wire` and `--print` CLI flags |
