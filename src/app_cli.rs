@@ -1,12 +1,13 @@
+use std::sync::Arc;
+
 use anyhow::{Result, bail};
 use clap::{Parser, Subcommand};
 use secrecy::ExposeSecret;
 
-use crate::acp::{RaraAcpAgent, run_acp_stdio};
+use crate::acp::RaraAcpAgent;
 use crate::config::{
     ConfigManager, DEFAULT_CODEX_BASE_URL, DEFAULT_CODEX_CHATGPT_BASE_URL, RaraConfig,
 };
-use crate::llm::{LlmBackend, MockLlm};
 use crate::oauth::{OAuthManager, SavedCodexAuthMode};
 use crate::redaction::redact_secrets;
 use crate::runtime_context;
@@ -148,14 +149,12 @@ fn apply_cli_overrides(config: &mut RaraConfig, cli: Cli) -> Option<Commands> {
 async fn run_acp_command(config: &RaraConfig) -> Result<()> {
     let bootstrap = runtime_context::initialize_rara_context(config, None).await?;
     emit_bootstrap_warnings(&bootstrap.warnings);
-    let event_bus = bootstrap.event_bus.clone();
-    let backend_builder = Box::new(move || Box::new(MockLlm) as Box<dyn LlmBackend>);
     let acp_agent = RaraAcpAgent {
-        tool_manager: bootstrap.tool_manager,
-        backend_builder,
-        event_bus,
+        llm_backend: bootstrap.backend.clone(),
+        tool_manager: Arc::new(bootstrap.tool_manager),
+        event_bus: bootstrap.event_bus.clone(),
     };
-    run_acp_stdio(acp_agent).await
+    acp_agent.run_acp_stdio().await.map_err(|e| anyhow::anyhow!("{e}"))
 }
 
 async fn run_ask_command(config: &RaraConfig, prompt: String) -> Result<()> {

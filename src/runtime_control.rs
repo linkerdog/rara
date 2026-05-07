@@ -2,7 +2,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 use crate::agent::{AgentEvent, BashApprovalDecision};
-use crate::mcp_status::McpStatusSnapshot;
+use crate::mcp_status::{McpConnectionState, McpStatusSnapshot};
 use crate::todo::TodoState;
 use crate::tool::ToolOutputStream;
 
@@ -478,6 +478,16 @@ pub enum SkillEvent {
 pub enum McpEvent {
     StatusUpdated { snapshot: McpStatusSnapshot },
     StatusLoadFailed { message: String },
+    ServerStateChanged {
+        server_name: String,
+        state: McpConnectionState,
+    },
+    ServerReconnecting {
+        server_name: String,
+        attempt: u32,
+        backoff_ms: u64,
+    },
+    ConfigurationRefreshed,
 }
 
 #[allow(dead_code)]
