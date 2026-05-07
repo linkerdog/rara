@@ -1,4 +1,5 @@
 mod acp;
+mod acp_consumer;
 mod agent;
 mod agents_ext;
 mod app_cli;
