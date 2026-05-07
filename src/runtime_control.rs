@@ -2,6 +2,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 use crate::agent::{AgentEvent, BashApprovalDecision};
+use crate::context::RetrievalOrchestrationView;
 use crate::mcp_status::{McpConnectionState, McpStatusSnapshot};
 use crate::todo::TodoState;
 use crate::tool::ToolOutputStream;
@@ -523,6 +524,7 @@ pub enum HookEvent {
 #[serde(tag = "type", content = "payload", rename_all = "snake_case")]
 pub enum ContextEvent {
     SnapshotUpdated,
+    RetrievalOrchestrationUpdated { view: RetrievalOrchestrationView },
 }
 
 #[allow(dead_code)]
@@ -847,6 +849,104 @@ mod tests {
                     "type": "reconnect",
                     "payload": {
                         "server_name": "docs"
+                    }
+                }
+            })
+        );
+    }
+
+    #[test]
+    fn retrieval_orchestration_event_uses_structured_wire_shape() {
+        let event = RuntimeEvent::Context(ContextEvent::RetrievalOrchestrationUpdated {
+            view: RetrievalOrchestrationView {
+                request_id: "session-1".to_string(),
+                query: "where is the reference project?".to_string(),
+                providers: vec![crate::context::RetrievalProviderStatus {
+                    order: 1,
+                    kind: "vector_memory".to_string(),
+                    label: "Vector Memory Store".to_string(),
+                    status: "available".to_string(),
+                    detail: "memory://vdb".to_string(),
+                    inclusion_reason: "configured as durable memory".to_string(),
+                }],
+                candidates: vec![crate::context::RetrievalCandidateContextEntry {
+                    order: 1,
+                    kind: "retrieved_workspace_memory".to_string(),
+                    label: "Memory: reference project".to_string(),
+                    detail: "content: reference project path".to_string(),
+                    status: "selected".to_string(),
+                    source_kind: "memory_record".to_string(),
+                    budget_impact_tokens: Some(11),
+                    reason: "selected for current turn".to_string(),
+                }],
+                selected: vec![crate::context::RetrievalCandidateContextEntry {
+                    order: 1,
+                    kind: "retrieved_workspace_memory".to_string(),
+                    label: "Memory: reference project".to_string(),
+                    detail: "content: reference project path".to_string(),
+                    status: "selected".to_string(),
+                    source_kind: "memory_record".to_string(),
+                    budget_impact_tokens: Some(11),
+                    reason: "selected for current turn".to_string(),
+                }],
+                available: Vec::new(),
+                dropped: Vec::new(),
+                budget: crate::context::RetrievalBudgetContextView {
+                    selection_budget_tokens: Some(100),
+                    selected_tokens: 11,
+                    available_tokens: 0,
+                    dropped_tokens: 0,
+                },
+            },
+        });
+
+        assert_eq!(
+            serde_json::to_value(event).unwrap(),
+            json!({
+                "type": "context",
+                "payload": {
+                    "type": "retrieval_orchestration_updated",
+                    "payload": {
+                        "view": {
+                            "request_id": "session-1",
+                            "query": "where is the reference project?",
+                            "providers": [{
+                                "order": 1,
+                                "kind": "vector_memory",
+                                "label": "Vector Memory Store",
+                                "status": "available",
+                                "detail": "memory://vdb",
+                                "inclusion_reason": "configured as durable memory"
+                            }],
+                            "candidates": [{
+                                "order": 1,
+                                "kind": "retrieved_workspace_memory",
+                                "label": "Memory: reference project",
+                                "detail": "content: reference project path",
+                                "status": "selected",
+                                "source_kind": "memory_record",
+                                "budget_impact_tokens": 11,
+                                "reason": "selected for current turn"
+                            }],
+                            "selected": [{
+                                "order": 1,
+                                "kind": "retrieved_workspace_memory",
+                                "label": "Memory: reference project",
+                                "detail": "content: reference project path",
+                                "status": "selected",
+                                "source_kind": "memory_record",
+                                "budget_impact_tokens": 11,
+                                "reason": "selected for current turn"
+                            }],
+                            "available": [],
+                            "dropped": [],
+                            "budget": {
+                                "selection_budget_tokens": 100,
+                                "selected_tokens": 11,
+                                "available_tokens": 0,
+                                "dropped_tokens": 0
+                            }
+                        }
                     }
                 }
             })

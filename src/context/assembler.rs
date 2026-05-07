@@ -4,7 +4,7 @@ use crate::agent::{CompactState, Message, PlanStepStatus};
 use crate::context::assembly_view::assemble_context_view;
 use crate::context::compaction_view::compaction_source_entries;
 use crate::context::memory_selection::memory_selection;
-use crate::context::retrieval_view::retrieval_source_entries;
+use crate::context::retrieval_view::{retrieval_orchestration_view, retrieval_source_entries};
 use crate::context::{
     CompactionContextView, ContextBudgetView, MemorySelectionItemContextEntry, PlanContextView,
     PromptContextView, RetrievalContextView, RetrievedMemoryCandidate, SharedRuntimeContext,
@@ -154,21 +154,30 @@ impl<'a> ContextAssembler<'a> {
                 .saturating_sub(active_turn_budget)
                 .saturating_sub(compacted_history_budget)
         });
+        let memory_selection = memory_selection(
+            effective_prompt.sources.as_slice(),
+            inputs.plan_explanation.as_deref(),
+            inputs.plan_steps.as_slice(),
+            inputs.pending_interactions.as_slice(),
+            compaction.source_entries.as_slice(),
+            inputs.history,
+            inputs.session_id.as_str(),
+            inputs.vdb_uri,
+            inputs.retrieved_memory_candidates.as_slice(),
+            inputs.file_search_candidates.as_slice(),
+            selection_budget,
+        );
         let retrieval = RetrievalContextView {
-            entries: retrieval_entries,
-            memory_selection: memory_selection(
-                effective_prompt.sources.as_slice(),
-                inputs.plan_explanation.as_deref(),
-                inputs.plan_steps.as_slice(),
-                inputs.pending_interactions.as_slice(),
-                compaction.source_entries.as_slice(),
-                inputs.history,
+            orchestration: retrieval_orchestration_view(
                 inputs.session_id.as_str(),
-                inputs.vdb_uri,
-                inputs.retrieved_memory_candidates.as_slice(),
-                inputs.file_search_candidates.as_slice(),
-                selection_budget,
+                latest_user_request(inputs.history)
+                    .as_deref()
+                    .unwrap_or_default(),
+                retrieval_entries.as_slice(),
+                &memory_selection,
             ),
+            entries: retrieval_entries,
+            memory_selection,
         };
         let retrieved_memory_budget = retrieval
             .memory_selection

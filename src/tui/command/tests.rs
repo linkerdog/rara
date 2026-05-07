@@ -392,6 +392,72 @@ fn status_context_text_includes_prompt_sources_and_plan_state() {
                     "included now because the local workspace memory file was discovered as an explicit prompt source".into(),
             },
         ],
+        retrieval_orchestration: crate::context::RetrievalOrchestrationView {
+            request_id: "session-123".into(),
+            query: "continue context work".into(),
+            providers: vec![crate::context::RetrievalProviderStatus {
+                order: 1,
+                kind: "workspace_memory".into(),
+                label: "Workspace Memory".into(),
+                status: "active".into(),
+                detail: "/workspace/rara/.rara/memory.md".into(),
+                inclusion_reason:
+                    "included now because the local workspace memory file was discovered as an explicit prompt source".into(),
+            }],
+            selected: vec![crate::context::RetrievalCandidateContextEntry {
+                order: 1,
+                kind: "retrieved_workspace_memory".into(),
+                label: "Retrieved Experience".into(),
+                detail: "content: prior implementation detail".into(),
+                status: "selected".into(),
+                source_kind: "memory_record".into(),
+                budget_impact_tokens: Some(32),
+                reason:
+                    "selected because the retrieval tool returned relevant durable memory candidates for the current task".into(),
+            }],
+            available: vec![crate::context::RetrievalCandidateContextEntry {
+                order: 1,
+                kind: "thread_history".into(),
+                label: "Thread History".into(),
+                detail: "session=session-123 messages=10".into(),
+                status: "available".into(),
+                source_kind: "thread_history".into(),
+                budget_impact_tokens: None,
+                reason:
+                    "available for recall, but not selected into the current assembled context".into(),
+            }],
+            dropped: Vec::new(),
+            candidates: vec![
+                crate::context::RetrievalCandidateContextEntry {
+                    order: 1,
+                    kind: "retrieved_workspace_memory".into(),
+                    label: "Retrieved Experience".into(),
+                    detail: "content: prior implementation detail".into(),
+                    status: "selected".into(),
+                    source_kind: "memory_record".into(),
+                    budget_impact_tokens: Some(32),
+                    reason:
+                        "selected because the retrieval tool returned relevant durable memory candidates for the current task".into(),
+                },
+                crate::context::RetrievalCandidateContextEntry {
+                    order: 2,
+                    kind: "thread_history".into(),
+                    label: "Thread History".into(),
+                    detail: "session=session-123 messages=10".into(),
+                    status: "available".into(),
+                    source_kind: "thread_history".into(),
+                    budget_impact_tokens: None,
+                    reason:
+                        "available for recall, but not selected into the current assembled context".into(),
+                },
+            ],
+            budget: crate::context::RetrievalBudgetContextView {
+                selection_budget_tokens: Some(189_772),
+                selected_tokens: 32,
+                available_tokens: 0,
+                dropped_tokens: 0,
+            },
+        },
         assembly_entries: vec![
             crate::context::ContextAssemblyEntry {
                 cache_status: None,
@@ -515,7 +581,10 @@ fn status_context_text_includes_prompt_sources_and_plan_state() {
     assert!(rendered.contains("Stable Instructions"));
     assert!(rendered.contains("Workspace Prompt Sources"));
     assert!(rendered.contains("Active Memory Inputs"));
-    assert!(rendered.contains("Memory Selection"));
+    assert!(rendered.contains("Retrieval Orchestration"));
+    assert!(rendered.contains("query: continue context work"));
+    assert!(rendered.contains("[workspace_memory] Workspace Memory status=active"));
+    assert!(rendered.contains("[memory_record/retrieved_workspace_memory] Retrieved Experience"));
     assert!(rendered.contains("Compacted History"));
     assert!(rendered.contains("path: history.compaction.summary"));
     assert!(rendered.contains("Active Turn State"));

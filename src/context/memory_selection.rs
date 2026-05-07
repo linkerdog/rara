@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 
 use serde_json::Value;
 
@@ -9,9 +9,9 @@ use crate::context::assembler::{
 use crate::context::{
     CompactionSourceContextEntry, DropReason, MemorySelectionContextView,
     MemorySelectionItemContextEntry, RETRIEVED_THREAD_CONTEXT_KIND,
-    RETRIEVED_WORKSPACE_MEMORY_KIND, RetrievedMemoryCandidate, RetrievedMemoryRenderItem,
-    is_retrieved_memory_kind, render_retrieved_memory_context,
-    render_retrieved_memory_context_item,
+    RETRIEVED_WORKSPACE_MEMORY_KIND, RetrievalCandidate, RetrievalSourceRef,
+    RetrievedMemoryCandidate, RetrievedMemoryRenderItem, is_retrieved_memory_kind,
+    render_retrieved_memory_context, render_retrieved_memory_context_item,
 };
 use crate::prompt::PromptSource;
 
@@ -85,6 +85,7 @@ struct MemorySelectionCandidate {
     selection_reason: String,
     budget_impact_tokens: Option<usize>,
     priority: usize,
+    dedupe_key: Option<String>,
     selectable: bool,
     dropped_reason: DropReason,
 }
@@ -264,36 +265,112 @@ fn direct_retrieved_memory_candidates(
 ) -> Vec<MemorySelectionCandidate> {
     retrieved_memory_candidates
         .iter()
-        .map(|candidate| {
-            let base_priority = match candidate.kind.as_str() {
-                RETRIEVED_THREAD_CONTEXT_KIND => 10,
-                RETRIEVED_WORKSPACE_MEMORY_KIND => 20,
-                _ => 25,
-            };
-            MemorySelectionCandidate {
-                kind: candidate.kind.clone(),
-                label: candidate.label.clone(),
-                detail: candidate.detail.clone(),
-                selection_reason: candidate.selection_reason.clone(),
-                budget_impact_tokens: Some(direct_retrieved_memory_budget_impact(candidate)),
-                priority: base_priority + candidate.rank,
-                selectable: true,
-                dropped_reason: DropReason::NotSelected {
-                    reason:
-                        "not selected after ranking the retrieved memory candidate against the current memory-selection budget"
-                            .to_string(),
-                },
-            }
-        })
+        .map(retrieval_candidate_from_retrieved_memory)
+        .map(memory_selection_candidate_from_retrieval_candidate)
         .collect()
 }
 
-fn direct_retrieved_memory_budget_impact(candidate: &RetrievedMemoryCandidate) -> usize {
+fn retrieval_candidate_from_retrieved_memory(
+    candidate: &RetrievedMemoryCandidate,
+) -> RetrievalCandidate {
+    let source_type = match candidate.kind.as_str() {
+        RETRIEVED_THREAD_CONTEXT_KIND => "session_context",
+        RETRIEVED_WORKSPACE_MEMORY_KIND => "memory_record",
+        _ => "retrieved_memory",
+    };
+    let scope = match candidate.kind.as_str() {
+        RETRIEVED_THREAD_CONTEXT_KIND => "thread",
+        RETRIEVED_WORKSPACE_MEMORY_KIND => "workspace",
+        _ => "unknown",
+    };
+    let priority = match candidate.kind.as_str() {
+        RETRIEVED_THREAD_CONTEXT_KIND => 10,
+        RETRIEVED_WORKSPACE_MEMORY_KIND => 20,
+        _ => 25,
+    } + candidate.rank;
+    let dedupe_key = format!(
+        "{}:{}:{}",
+        source_type,
+        candidate.kind,
+        stable_retrieval_text_id(candidate.detail.as_str())
+    );
+    RetrievalCandidate {
+        id: format!(
+            "{}:{}:{}",
+            source_type,
+            candidate.rank,
+            stable_retrieval_text_id(candidate.label.as_str())
+        ),
+        source: RetrievalSourceRef {
+            source_type: source_type.to_string(),
+            source_id: None,
+            source_path: None,
+            source_uri: None,
+            session_id: None,
+            thread_id: None,
+            workspace_id: None,
+        },
+        kind: candidate.kind.clone(),
+        scope: scope.to_string(),
+        label: candidate.label.clone(),
+        detail: candidate.detail.clone(),
+        summary: None,
+        rank: candidate.rank,
+        score: None,
+        priority,
+        dedupe_key: Some(dedupe_key),
+        budget_impact_tokens: Some(direct_retrieval_candidate_budget_impact(candidate)),
+        selection_reason: candidate.selection_reason.clone(),
+        availability_reason:
+            "available because a retrieval provider returned this candidate for the current turn"
+                .to_string(),
+    }
+}
+
+fn memory_selection_candidate_from_retrieval_candidate(
+    candidate: RetrievalCandidate,
+) -> MemorySelectionCandidate {
+    MemorySelectionCandidate {
+        kind: candidate.kind,
+        label: candidate.label,
+        detail: candidate.detail,
+        selection_reason: candidate.selection_reason,
+        budget_impact_tokens: candidate.budget_impact_tokens,
+        priority: candidate.priority,
+        dedupe_key: candidate.dedupe_key,
+        selectable: true,
+        dropped_reason: DropReason::NotSelected {
+            reason:
+                "not selected after ranking the retrieved memory candidate against the current memory-selection budget"
+                    .to_string(),
+        },
+    }
+}
+
+fn direct_retrieval_candidate_budget_impact(candidate: &RetrievedMemoryCandidate) -> usize {
     let item = RetrievedMemoryRenderItem {
         label: candidate.label.as_str(),
         detail: candidate.detail.as_str(),
     };
     estimate_text_tokens(&render_retrieved_memory_context_item(item))
+}
+
+fn stable_retrieval_text_id(value: &str) -> String {
+    value
+        .chars()
+        .map(|ch| {
+            if ch.is_ascii_alphanumeric() {
+                ch.to_ascii_lowercase()
+            } else {
+                '-'
+            }
+        })
+        .collect::<String>()
+        .split('-')
+        .filter(|part| !part.is_empty())
+        .take(8)
+        .collect::<Vec<_>>()
+        .join("-")
 }
 
 fn retrieval_tool_candidates(history: &[Message]) -> Vec<MemorySelectionCandidate> {
@@ -392,6 +469,7 @@ fn merge_file_search_candidates(
             selection_reason: entry.selection_reason.clone(),
             budget_impact_tokens: entry.budget_impact_tokens,
             priority: 30 + entry.order,
+            dedupe_key: None,
             selectable: true,
             dropped_reason: DropReason::NotSelected {
                 reason:
@@ -408,7 +486,14 @@ fn select_memory_candidates(
     selection_budget_tokens: Option<usize>,
     fixed_selected_kinds: &[String],
 ) -> MemorySelectionDecision {
-    candidates.sort_by_key(|candidate| candidate.priority);
+    candidates.sort_by(|left, right| {
+        left.priority
+            .cmp(&right.priority)
+            .then_with(|| left.dedupe_key.cmp(&right.dedupe_key))
+            .then_with(|| left.kind.cmp(&right.kind))
+            .then_with(|| left.label.cmp(&right.label))
+            .then_with(|| left.detail.cmp(&right.detail))
+    });
     let mut remaining_budget = selection_budget_tokens;
     let has_compacted_history = fixed_selected_kinds
         .iter()
@@ -416,6 +501,7 @@ fn select_memory_candidates(
     let mut decision = MemorySelectionDecision::default();
     let mut selected_kinds = fixed_selected_kinds.to_vec();
     let mut selected_retrieved_items: Vec<(String, String)> = Vec::new();
+    let mut selected_dedupe_keys = BTreeMap::<String, String>::new();
 
     for candidate in candidates {
         let candidate_budget_impact =
@@ -425,6 +511,16 @@ fn select_memory_candidates(
             is_retrieved_memory.then(|| (candidate.label.clone(), candidate.detail.clone()));
         let should_drop: Option<DropReason> = if !candidate.selectable {
             Some(candidate.dropped_reason.clone())
+        } else if let Some((dedupe_key, winning_label)) = candidate
+            .dedupe_key
+            .as_ref()
+            .and_then(|key| selected_dedupe_keys.get_key_value(key))
+        {
+            Some(DropReason::NotSelected {
+                reason: format!(
+                    "deduped_by={winning_label} because candidate dedupe_key={dedupe_key} already won selection"
+                ),
+            })
         } else if candidate.kind == "thread_history" && has_compacted_history {
             Some(DropReason::NotSelected {
                 reason: "not selected because compacted thread history already provides a more focused carried-over thread view".to_string(),
@@ -472,6 +568,9 @@ fn select_memory_candidates(
         }
         if let Some(item) = selected_retrieved_item {
             selected_retrieved_items.push(item);
+        }
+        if let Some(dedupe_key) = candidate.dedupe_key.as_ref() {
+            selected_dedupe_keys.insert(dedupe_key.clone(), candidate.label.clone());
         }
         selected_kinds.push(candidate.kind.clone());
         decision
@@ -568,6 +667,7 @@ fn thread_history_candidate(history: &[Message], session_id: &str) -> MemorySele
             format!("session={session_id} messages={}", history.len()).as_str(),
         )),
         priority: 30,
+        dedupe_key: None,
         selectable: !history.is_empty(),
         dropped_reason: DropReason::NotSelected { reason: if history.is_empty() {
             "no thread history is available for selection".to_string()
@@ -589,6 +689,7 @@ fn vector_memory_candidate(vdb_uri: &str) -> MemorySelectionCandidate {
         selection_reason: "the vector-backed memory slot is part of the selection contract even before full ranked retrieval is implemented".to_string(),
         budget_impact_tokens: None,
         priority: 40,
+        dedupe_key: None,
         selectable: false,
         dropped_reason: DropReason::NotSelected { reason: if vdb_uri.is_empty() {
             "no vector-backed memory store is configured".to_string()
@@ -624,6 +725,7 @@ fn retrieval_tool_candidate(
                 detail,
                 selection_reason: "selected because the retrieval tool returned relevant durable memory candidates for the current task".to_string(),
                 priority: 10,
+                dedupe_key: None,
                 selectable: true,
                 dropped_reason: DropReason::NotSelected { reason: "not selected after ranking the retrieved workspace-memory candidates against the current memory-selection budget".to_string() },
             }
@@ -640,6 +742,7 @@ fn retrieval_tool_candidate(
                 detail,
                 selection_reason: "selected because the retrieval tool returned focused thread-context material for the current task".to_string(),
                 priority: 20,
+                dedupe_key: None,
                 selectable: true,
                 dropped_reason: DropReason::NotSelected { reason: "not selected after ranking the retrieved thread-context candidate against the current memory-selection budget".to_string() },
             }
@@ -653,6 +756,7 @@ fn retrieval_tool_candidate(
             selection_reason: "selected because a retrieval tool result was returned in the current thread history".to_string(),
             budget_impact_tokens: Some(estimate_text_tokens(content)),
             priority: 50,
+            dedupe_key: None,
             selectable: true,
             dropped_reason: DropReason::NotSelected { reason: "not selected after ranking the retrieval candidate against the current memory-selection budget".to_string() },
         },
@@ -1065,6 +1169,158 @@ mod tests {
         assert_eq!(
             selected.budget_impact_tokens,
             Some(estimate_text_tokens(&expected_rendered))
+        );
+    }
+
+    #[test]
+    fn retrieved_memory_adapter_builds_typed_candidate_boundary() {
+        let candidate = RetrievedMemoryCandidate {
+            kind: RETRIEVED_WORKSPACE_MEMORY_KIND.to_string(),
+            label: "Memory: Reference Project Path".to_string(),
+            detail: "content: Reference project source lives at /Users/example/reference-project."
+                .to_string(),
+            selection_reason: "retrieved as a candidate for the current turn query".to_string(),
+            rank: 3,
+        };
+
+        let typed = retrieval_candidate_from_retrieved_memory(&candidate);
+
+        assert_eq!(typed.source.source_type, "memory_record");
+        assert_eq!(typed.scope, "workspace");
+        assert_eq!(typed.priority, 23);
+        assert_eq!(typed.rank, 3);
+        assert_eq!(
+            typed.dedupe_key.as_deref(),
+            Some(
+                "memory_record:retrieved_workspace_memory:content-reference-project-source-lives-at-users-example"
+            )
+        );
+        assert!(typed.budget_impact_tokens.is_some());
+        assert!(typed.availability_reason.contains("retrieval provider"));
+    }
+
+    #[test]
+    fn typed_retrieval_candidate_priority_drives_selection_order() {
+        let history = vec![Message {
+            role: "user".to_string(),
+            content: json!([{"type":"text","text":"What happened in the prior session?"}]),
+        }];
+        let retrieved = vec![
+            RetrievedMemoryCandidate {
+                kind: RETRIEVED_WORKSPACE_MEMORY_KIND.to_string(),
+                label: "Memory: workspace fact".to_string(),
+                detail: "content: workspace fact".to_string(),
+                selection_reason: "retrieved workspace memory".to_string(),
+                rank: 1,
+            },
+            RetrievedMemoryCandidate {
+                kind: RETRIEVED_THREAD_CONTEXT_KIND.to_string(),
+                label: "Session Context session-1#2".to_string(),
+                detail: "content: focused session context".to_string(),
+                selection_reason: "retrieved session context".to_string(),
+                rank: 1,
+            },
+        ];
+
+        let result = memory_selection(
+            &[],
+            None,
+            &[],
+            &[],
+            &[],
+            &history,
+            "session-1",
+            "memory://vdb",
+            &retrieved,
+            &[],
+            Some(10_000),
+        );
+
+        let selected_retrieval = result
+            .selected_items
+            .iter()
+            .filter(|item| {
+                matches!(
+                    item.kind.as_str(),
+                    RETRIEVED_THREAD_CONTEXT_KIND | RETRIEVED_WORKSPACE_MEMORY_KIND
+                )
+            })
+            .map(|item| item.kind.as_str())
+            .collect::<Vec<_>>();
+        assert_eq!(
+            selected_retrieval,
+            vec![
+                RETRIEVED_THREAD_CONTEXT_KIND,
+                RETRIEVED_WORKSPACE_MEMORY_KIND
+            ],
+            "typed priorities should preserve focused thread context before workspace memory"
+        );
+    }
+
+    #[test]
+    fn retrieved_memory_dedupe_key_keeps_first_winner_and_reports_loser() {
+        let history = vec![Message {
+            role: "user".to_string(),
+            content: json!([{"type":"text","text":"Where is the reference project?"}]),
+        }];
+        let retrieved = vec![
+            RetrievedMemoryCandidate {
+                kind: RETRIEVED_WORKSPACE_MEMORY_KIND.to_string(),
+                label: "Memory: reference project path".to_string(),
+                detail:
+                    "content: Reference project source lives at /Users/example/reference-project."
+                        .to_string(),
+                selection_reason: "retrieved as a candidate for the current turn query".to_string(),
+                rank: 1,
+            },
+            RetrievedMemoryCandidate {
+                kind: RETRIEVED_WORKSPACE_MEMORY_KIND.to_string(),
+                label: "Memory: duplicate reference project path".to_string(),
+                detail:
+                    "content: Reference project source lives at /Users/example/reference-project."
+                        .to_string(),
+                selection_reason: "retrieved as a candidate for the current turn query".to_string(),
+                rank: 2,
+            },
+        ];
+
+        let result = memory_selection(
+            &[],
+            None,
+            &[],
+            &[],
+            &[],
+            &history,
+            "session-1",
+            "memory://vdb",
+            &retrieved,
+            &[],
+            Some(10_000),
+        );
+
+        let selected_retrieved = result
+            .selected_items
+            .iter()
+            .filter(|item| item.kind == RETRIEVED_WORKSPACE_MEMORY_KIND)
+            .collect::<Vec<_>>();
+        assert_eq!(selected_retrieved.len(), 1);
+        assert_eq!(
+            selected_retrieved[0].label,
+            "Memory: reference project path"
+        );
+
+        let duplicate = result
+            .available_items
+            .iter()
+            .find(|item| item.label == "Memory: duplicate reference project path")
+            .expect("duplicate should remain observable as available");
+        assert!(
+            duplicate
+                .dropped_reason
+                .as_ref()
+                .expect("dedupe reason")
+                .reason()
+                .contains("deduped_by=Memory: reference project path")
         );
     }
 

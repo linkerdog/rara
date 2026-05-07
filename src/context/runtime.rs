@@ -280,6 +280,7 @@ pub struct SharedRuntimeContext {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RetrievalContextView {
     pub entries: Vec<RetrievalSourceContextEntry>,
+    pub orchestration: RetrievalOrchestrationView,
     pub memory_selection: MemorySelectionContextView,
 }
 
@@ -300,6 +301,77 @@ pub struct RetrievedMemoryCandidate {
     pub detail: String,
     pub selection_reason: String,
     pub rank: usize,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RetrievalSourceRef {
+    pub source_type: String,
+    pub source_id: Option<String>,
+    pub source_path: Option<String>,
+    pub source_uri: Option<String>,
+    pub session_id: Option<String>,
+    pub thread_id: Option<String>,
+    pub workspace_id: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct RetrievalCandidate {
+    pub id: String,
+    pub source: RetrievalSourceRef,
+    pub kind: String,
+    pub scope: String,
+    pub label: String,
+    pub detail: String,
+    pub summary: Option<String>,
+    pub rank: usize,
+    pub score: Option<f32>,
+    pub priority: usize,
+    pub dedupe_key: Option<String>,
+    pub budget_impact_tokens: Option<usize>,
+    pub selection_reason: String,
+    pub availability_reason: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Default, serde::Serialize, serde::Deserialize)]
+pub struct RetrievalOrchestrationView {
+    pub request_id: String,
+    pub query: String,
+    pub providers: Vec<RetrievalProviderStatus>,
+    pub candidates: Vec<RetrievalCandidateContextEntry>,
+    pub selected: Vec<RetrievalCandidateContextEntry>,
+    pub available: Vec<RetrievalCandidateContextEntry>,
+    pub dropped: Vec<RetrievalCandidateContextEntry>,
+    pub budget: RetrievalBudgetContextView,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct RetrievalProviderStatus {
+    pub order: usize,
+    pub kind: String,
+    pub label: String,
+    pub status: String,
+    pub detail: String,
+    pub inclusion_reason: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct RetrievalCandidateContextEntry {
+    pub order: usize,
+    pub kind: String,
+    pub label: String,
+    pub detail: String,
+    pub status: String,
+    pub source_kind: String,
+    pub budget_impact_tokens: Option<usize>,
+    pub reason: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Default, serde::Serialize, serde::Deserialize)]
+pub struct RetrievalBudgetContextView {
+    pub selection_budget_tokens: Option<usize>,
+    pub selected_tokens: usize,
+    pub available_tokens: usize,
+    pub dropped_tokens: usize,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Default)]

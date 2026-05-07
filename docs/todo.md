@@ -101,9 +101,11 @@ Active backlog only. Keep this file small and current.
 - [ ] Surface terminal metadata in `/status` diagnostics and future OTEL attributes.
 - [ ] Add provider-gated cache-edit microcompact only for backends that explicitly declare cache-edit support.
 - [ ] Surface main model vs auxiliary model routing in `/status` and `/context`.
+- [ ] After context observability is complete, add an auxiliary-model compression hook for retrieval candidates without changing durable memory records.
 - [x] `ThreadStore` / `ThreadRecorder`: from façade over `SessionManager`+`StateDb` to true structured thread store.
 - [ ] Thread-scoped and workspace-scoped `MemoryRecord` storage with promotion rules.
-- [ ] Retrieval orchestration layer from `docs/features/context-architecture.md`.
+- [x] Initial retrieval orchestration layer from `docs/features/retrieval-orchestration.md`: typed candidates, orchestration view, richer `/context`, deterministic dedupe, and ACP/Wire event exposure.
+- [ ] Add `RetrievalSourceProvider` trait implementations for file/MCP/hook/graph sources after the current memory/session path is stable.
 - [x] Initialize LanceDB and wire FTS/vector/hybrid search paths behind the existing memory index façade.
 - [ ] Make memory mutation/query control-plane-ready so ACP/Wire can inspect and add memory without directly editing prompt text.
 

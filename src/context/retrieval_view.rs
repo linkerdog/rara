@@ -1,5 +1,9 @@
 use crate::agent::Message;
-use crate::context::RetrievalSourceContextEntry;
+use crate::context::{
+    DropReason, MemorySelectionContextView, MemorySelectionItemContextEntry,
+    RetrievalBudgetContextView, RetrievalCandidateContextEntry, RetrievalOrchestrationView,
+    RetrievalProviderStatus, RetrievalSourceContextEntry,
+};
 use crate::prompt::PromptSource;
 use crate::workspace::WorkspaceMemory;
 
@@ -71,4 +75,202 @@ pub(crate) fn retrieval_source_entries(
             },
         },
     ]
+}
+
+pub(crate) fn retrieval_orchestration_view(
+    request_id: &str,
+    query: &str,
+    providers: &[RetrievalSourceContextEntry],
+    memory_selection: &MemorySelectionContextView,
+) -> RetrievalOrchestrationView {
+    let selected = candidate_entries_from_memory_selection(
+        "selected",
+        &memory_selection.selected_items,
+        MemorySelectionReasonSource::SelectionReason,
+    );
+    let available = candidate_entries_from_memory_selection(
+        "available",
+        &memory_selection.available_items,
+        MemorySelectionReasonSource::DropReason,
+    );
+    let dropped = candidate_entries_from_memory_selection(
+        "dropped",
+        &memory_selection.dropped_items,
+        MemorySelectionReasonSource::DropReason,
+    );
+    let mut candidates = Vec::new();
+    candidates.extend(selected.clone());
+    candidates.extend(available.clone());
+    candidates.extend(dropped.clone());
+    for (idx, candidate) in candidates.iter_mut().enumerate() {
+        candidate.order = idx + 1;
+    }
+
+    RetrievalOrchestrationView {
+        request_id: request_id.to_string(),
+        query: query.to_string(),
+        providers: providers.iter().map(provider_status_from_source).collect(),
+        budget: RetrievalBudgetContextView {
+            selection_budget_tokens: memory_selection.selection_budget_tokens,
+            selected_tokens: sum_candidate_tokens(&selected),
+            available_tokens: sum_candidate_tokens(&available),
+            dropped_tokens: sum_candidate_tokens(&dropped),
+        },
+        candidates,
+        selected,
+        available,
+        dropped,
+    }
+}
+
+#[derive(Clone, Copy)]
+enum MemorySelectionReasonSource {
+    SelectionReason,
+    DropReason,
+}
+
+fn candidate_entries_from_memory_selection(
+    status: &str,
+    items: &[MemorySelectionItemContextEntry],
+    reason_source: MemorySelectionReasonSource,
+) -> Vec<RetrievalCandidateContextEntry> {
+    items
+        .iter()
+        .enumerate()
+        .map(|(idx, item)| RetrievalCandidateContextEntry {
+            order: idx + 1,
+            kind: item.kind.clone(),
+            label: item.label.clone(),
+            detail: item.detail.clone(),
+            status: status.to_string(),
+            source_kind: source_kind_for_memory_selection_item(item.kind.as_str()).to_string(),
+            budget_impact_tokens: item.budget_impact_tokens,
+            reason: memory_selection_reason(item, reason_source),
+        })
+        .collect()
+}
+
+fn provider_status_from_source(source: &RetrievalSourceContextEntry) -> RetrievalProviderStatus {
+    RetrievalProviderStatus {
+        order: source.order,
+        kind: source.kind.clone(),
+        label: source.label.clone(),
+        status: source.status.clone(),
+        detail: source.detail.clone(),
+        inclusion_reason: source.inclusion_reason.clone(),
+    }
+}
+
+fn memory_selection_reason(
+    item: &MemorySelectionItemContextEntry,
+    reason_source: MemorySelectionReasonSource,
+) -> String {
+    match reason_source {
+        MemorySelectionReasonSource::SelectionReason => item.selection_reason.clone(),
+        MemorySelectionReasonSource::DropReason => item
+            .dropped_reason
+            .as_ref()
+            .map(drop_reason_text)
+            .unwrap_or_else(|| item.selection_reason.clone()),
+    }
+}
+
+fn drop_reason_text(reason: &DropReason) -> String {
+    reason.reason().to_string()
+}
+
+fn source_kind_for_memory_selection_item(kind: &str) -> &'static str {
+    match kind {
+        "retrieved_thread_context" => "session_context",
+        "retrieved_workspace_memory" => "memory_record",
+        "thread_history" => "thread_history",
+        "vector_memory" => "vector_memory",
+        "workspace_memory" => "workspace_memory",
+        "tool_retrieval_result" => "tool_result",
+        _ => "runtime_context",
+    }
+}
+
+fn sum_candidate_tokens(candidates: &[RetrievalCandidateContextEntry]) -> usize {
+    candidates
+        .iter()
+        .map(|candidate| candidate.budget_impact_tokens.unwrap_or_default())
+        .sum()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn orchestration_view_projects_provider_status_and_candidate_sets() {
+        let providers = vec![RetrievalSourceContextEntry {
+            order: 1,
+            kind: "vector_memory".to_string(),
+            label: "Vector Memory Store".to_string(),
+            status: "available".to_string(),
+            detail: "memory://vdb".to_string(),
+            inclusion_reason: "configured as durable memory".to_string(),
+        }];
+        let memory_selection = MemorySelectionContextView {
+            selection_budget_tokens: Some(100),
+            selected_items: vec![MemorySelectionItemContextEntry {
+                order: 1,
+                kind: "retrieved_workspace_memory".to_string(),
+                label: "Memory: path".to_string(),
+                detail: "content: path fact".to_string(),
+                selection_reason: "retrieved for the current turn".to_string(),
+                budget_impact_tokens: Some(11),
+                dropped_reason: None,
+            }],
+            available_items: vec![MemorySelectionItemContextEntry {
+                order: 1,
+                kind: "thread_history".to_string(),
+                label: "Thread History".to_string(),
+                detail: "session=s1 messages=2".to_string(),
+                selection_reason: "available for recall".to_string(),
+                budget_impact_tokens: Some(7),
+                dropped_reason: Some(DropReason::NotSelected {
+                    reason: "compacted history already covers it".to_string(),
+                }),
+            }],
+            dropped_items: vec![MemorySelectionItemContextEntry {
+                order: 1,
+                kind: "retrieved_thread_context".to_string(),
+                label: "Session Context s1#1".to_string(),
+                detail: "content: old context".to_string(),
+                selection_reason: "retrieved session context".to_string(),
+                budget_impact_tokens: Some(13),
+                dropped_reason: Some(DropReason::BudgetExceeded {
+                    reason: "budget_exceeded".to_string(),
+                }),
+            }],
+        };
+
+        let view = retrieval_orchestration_view(
+            "s1",
+            "where is the reference project?",
+            providers.as_slice(),
+            &memory_selection,
+        );
+
+        assert_eq!(view.request_id, "s1");
+        assert_eq!(view.query, "where is the reference project?");
+        assert_eq!(view.providers[0].kind, "vector_memory");
+        assert_eq!(view.selected[0].source_kind, "memory_record");
+        assert_eq!(view.available[0].source_kind, "thread_history");
+        assert_eq!(
+            view.available[0].reason,
+            "compacted history already covers it"
+        );
+        assert_eq!(view.dropped[0].source_kind, "session_context");
+        assert_eq!(view.dropped[0].reason, "budget_exceeded");
+        assert_eq!(view.budget.selected_tokens, 11);
+        assert_eq!(view.budget.available_tokens, 7);
+        assert_eq!(view.budget.dropped_tokens, 13);
+        assert_eq!(view.candidates.len(), 3);
+        assert_eq!(view.candidates[0].status, "selected");
+        assert_eq!(view.candidates[1].status, "available");
+        assert_eq!(view.candidates[2].status, "dropped");
+    }
 }

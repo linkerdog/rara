@@ -1042,6 +1042,7 @@ impl TuiApp {
             prompt_append_system_prompt: runtime_context.prompt.append_system_prompt,
             prompt_warnings: runtime_context.prompt.warnings,
             retrieval_source_entries: runtime_context.retrieval.entries,
+            retrieval_orchestration: runtime_context.retrieval.orchestration,
             memory_selection: runtime_context.retrieval.memory_selection,
             assembly_entries: runtime_context.assembly.entries,
             // ── Extensions ──────────────────────────────────────
