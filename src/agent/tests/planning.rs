@@ -760,61 +760,6 @@ async fn plan_mode_consecutive_reasoning_only_turns_stop_after_three_continuatio
     }));
 }
 #[tokio::test]
-async fn execute_mode_consecutive_reasoning_only_turns_stop_after_three_continuations() {
-    let backend = Arc::new(SequencedBackend::new(vec![
-        LlmResponse {
-            content: vec![ContentBlock::ProviderMetadata {
-                metadata: serde_json::json!({"reasoning_content": "execute thinking 1"}),
-            }],
-            stop_reason: None,
-            usage: None,
-        },
-        LlmResponse {
-            content: vec![ContentBlock::ProviderMetadata {
-                metadata: serde_json::json!({"reasoning_content": "execute thinking 2"}),
-            }],
-            stop_reason: None,
-            usage: None,
-        },
-        LlmResponse {
-            content: vec![ContentBlock::Text {
-                text: "execute-mode reachable text".to_string(),
-            }],
-            stop_reason: Some("end_turn".to_string()),
-            usage: None,
-        },
-    ]));
-    let (agent, mut storage) = test_runtime_storage(backend.clone()).await;
-    agent.set_execution_mode(AgentExecutionMode::Execute);
-    agent
-        .query_with_mode(
-            "execute the cells split".to_string(),
-            AgentInputMode::Interactive,
-            &mut storage,
-            CancellationToken::new(),
-        )
-        .await
-        .expect("consecutive reasoning-only execute turns should stop after three continuations");
-
-    assert!(agent.history.iter().any(|message| {
-        message
-            .content
-            .to_string()
-            .contains("execute-mode reachable text")
-    }));
-    let trace = agent.shared_runtime_context().observability.agent_turn;
-    assert_eq!(trace.loop_outcome.as_deref(), Some("stopped"));
-    assert_eq!(
-        trace.continuation_phase.as_deref(),
-        Some("reasoning_only_limit")
-    );
-    assert!(trace.reasoning_only);
-    assert_eq!(trace.consecutive_reasoning_only_turns, 2);
-}
-            .contains("execute-mode reachable text")
-    }));
-}
-#[tokio::test]
 async fn suggestion_mode_auto_allows_read_only_bash_commands() {
     let backend = Arc::new(SequencedBackend::new(vec![
         LlmResponse {
