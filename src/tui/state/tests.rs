@@ -1047,10 +1047,5 @@ fn restore_committed_turns_sets_inserted_counter_to_match() {
     app.restore_committed_turns(turns);
 
     assert_eq!(app.committed_turns.len(), n);
-    // Critical: flush_committed_history must skip already-written turns.
-    assert_eq!(
-        app.inserted_turns, n,
-        "restore_committed_turns must set inserted_turns to committed_turns.len() so flush_committed_history does not re-insert all turns on resume"
-    );
     assert_eq!(app.active_turn.entries.len(), 0);
 }

@@ -448,28 +448,7 @@ where
         self.previous_buffer_mut().reset();
     }
 
-    /// Force a full redraw of the viewport area by clearing the area on the
-    /// terminal and resetting the diff buffer. Called after flush\_committed\_history
-    /// in the draw handler to prevent stale crossterm-written content from
-    /// bleeding through ratatui's diff-based rendering.
-    pub(super) fn clear_and_invalidate_viewport(&mut self) -> io::Result<()> {
-        if self.viewport_area.is_empty() {
-            return Ok(());
-        }
-        // Clear the viewport area on the terminal
-        for row in 0..self.viewport_area.height {
-            queue!(
-                self.backend,
-                MoveTo(
-                    self.viewport_area.x,
-                    self.viewport_area.y.saturating_add(row)
-                ),
-                Clear(crossterm::terminal::ClearType::CurrentLine),
-            )?;
-        }
-        self.previous_buffer_mut().reset();
-        Ok(())
-    }
+    // ---- helpers (pub(super)) ------------------------------------------------
 
     /// Clear terminal scrollback (if supported) and force a full redraw.
     pub fn clear_scrollback(&mut self) -> io::Result<()> {

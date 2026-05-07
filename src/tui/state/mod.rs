@@ -193,7 +193,6 @@ impl TuiApp {
             input_history_draft: None,
             committed_turns: Vec::new(),
             active_turn: TranscriptTurn::default(),
-            inserted_turns: 0,
             overlay,
             config: cfg,
             config_manager: cm,
@@ -255,7 +254,6 @@ impl TuiApp {
             goal: None,
             goal_handle: Arc::new(std::sync::RwLock::new(None)),
             event_bus: None,
-            viewport_was_cleared: false,
         })
     }
 
