@@ -1,7 +1,7 @@
 use time::{OffsetDateTime, format_description};
 
 use crate::config::RaraConfig;
-use crate::context::{CacheStatus, DropReason};
+use crate::context::{CacheStatus, RetrievalCandidateContextEntry, RetrievalProviderStatus};
 use crate::tui::format::cache_hit_rate_label;
 use crate::tui::session_restore::provider_requires_api_key;
 use crate::tui::state::{
@@ -83,58 +83,87 @@ fn render_context_assembly_entries(app: &TuiApp, layer: &str, title: &str) -> St
     format!("{title}\n{body}")
 }
 
-fn render_memory_selection(app: &TuiApp) -> String {
-    let budget = app
-        .snapshot
-        .memory_selection
+fn render_retrieval_orchestration(app: &TuiApp) -> String {
+    let view = &app.snapshot.retrieval_orchestration;
+    let budget = view
+        .budget
         .selection_budget_tokens
         .map(format_token_count)
         .unwrap_or_else(|| "unlimited".to_string());
-
-    let render_items = |items: &[crate::context::MemorySelectionItemContextEntry]| -> String {
-        if items.is_empty() {
-            return "    (none)".to_string();
-        }
-        items
-            .iter()
-            .enumerate()
-            .map(|(idx, item)| {
-                let (connector, vertical) = if idx + 1 == items.len() {
-                    ("└──", " ")
-                } else {
-                    ("├──", "│")
-                };
-                let budget = item
-                    .budget_impact_tokens
-                    .map(|v| format!(" {}", format_token_count(v)))
-                    .unwrap_or_default();
-                let detail_preview = truncate_preview(&item.detail, 60);
-                let selection_reason = truncate_preview(&item.selection_reason, 70);
-                let drop_note = match &item.dropped_reason {
-                    Some(DropReason::NotSelected { reason }) if !reason.is_empty() => {
-                        format!(" ── reason: {reason}")
-                    }
-                    Some(DropReason::BudgetExceeded { reason }) => {
-                        format!(" ── reason: {reason}")
-                    }
-                    _ => String::new(),
-                };
-                format!(
-                    "    {connector} [{kind}] {label}{budget}\n    {vertical}   detail: {detail_preview}{drop_note}\n    {vertical}   reason: {selection_reason}",
-                    kind = item.kind,
-                    label = item.label,
-                )
-            })
-            .collect::<Vec<_>>()
-            .join("\n")
-    };
+    let providers = render_retrieval_providers(view.providers.as_slice());
+    let selected = render_retrieval_candidates(view.selected.as_slice());
+    let available = render_retrieval_candidates(view.available.as_slice());
+    let dropped = render_retrieval_candidates(view.dropped.as_slice());
 
     format!(
-        "Memory Selection  (budget: {budget})\n  ├── selected:\n{}\n  ├── available:\n{}\n  └── dropped:\n{}",
-        render_items(&app.snapshot.memory_selection.selected_items),
-        render_items(&app.snapshot.memory_selection.available_items),
-        render_items(&app.snapshot.memory_selection.dropped_items),
+        "Retrieval Orchestration  (budget: {budget}; selected: {selected_tokens}; available: {available_tokens}; dropped: {dropped_tokens})\n  query: {query}\n  providers:\n{providers}\n  candidates:\n    selected:\n{selected}\n    available:\n{available}\n    dropped:\n{dropped}",
+        selected_tokens = format_token_count(view.budget.selected_tokens),
+        available_tokens = format_token_count(view.budget.available_tokens),
+        dropped_tokens = format_token_count(view.budget.dropped_tokens),
+        query = if view.query.trim().is_empty() {
+            "-"
+        } else {
+            view.query.as_str()
+        },
     )
+}
+
+fn render_retrieval_providers(providers: &[RetrievalProviderStatus]) -> String {
+    if providers.is_empty() {
+        return "    (none)".to_string();
+    }
+
+    providers
+        .iter()
+        .enumerate()
+        .map(|(idx, provider)| {
+            let (connector, vertical) = if idx + 1 == providers.len() {
+                ("└──", " ")
+            } else {
+                ("├──", "│")
+            };
+            let detail = truncate_preview(provider.detail.as_str(), 70);
+            let reason = truncate_preview(provider.inclusion_reason.as_str(), 80);
+            format!(
+                "    {connector} [{kind}] {label} status={status}\n    {vertical}   detail: {detail}\n    {vertical}   reason: {reason}",
+                kind = provider.kind,
+                label = provider.label,
+                status = provider.status,
+            )
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+fn render_retrieval_candidates(candidates: &[RetrievalCandidateContextEntry]) -> String {
+    if candidates.is_empty() {
+        return "      (none)".to_string();
+    }
+
+    candidates
+        .iter()
+        .enumerate()
+        .map(|(idx, candidate)| {
+            let (connector, vertical) = if idx + 1 == candidates.len() {
+                ("└──", " ")
+            } else {
+                ("├──", "│")
+            };
+            let budget = candidate
+                .budget_impact_tokens
+                .map(|v| format!(" {}", format_token_count(v)))
+                .unwrap_or_default();
+            let detail = truncate_preview(candidate.detail.as_str(), 60);
+            let reason = truncate_preview(candidate.reason.as_str(), 80);
+            format!(
+                "      {connector} [{source_kind}/{kind}] {label}{budget}\n      {vertical}   detail: {detail}\n      {vertical}   reason: {reason}",
+                source_kind = candidate.source_kind,
+                kind = candidate.kind,
+                label = candidate.label,
+            )
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
 }
 
 pub(crate) fn truncate_preview(text: &str, max_len: usize) -> String {
@@ -432,7 +461,7 @@ pub fn status_context_text(app: &TuiApp) -> String {
             "Workspace Prompt Sources",
         ),
         render_context_assembly_entries(app, "active_memory_inputs", "Active Memory Inputs"),
-        render_memory_selection(app),
+        render_retrieval_orchestration(app),
         render_context_assembly_entries(app, "compacted_history", "Compacted History"),
         render_context_assembly_entries(app, "active_turn_state", "Active Turn State"),
         render_context_assembly_entries(app, "retrieval_ready", "Retrieval-ready"),

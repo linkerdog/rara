@@ -47,6 +47,8 @@ future appserver integrations can use.
   contract.
 - `file-search.md`: shared gitignore-aware file discovery and fuzzy path
   ranking crate for tools, TUI pickers, and context routing.
+- `retrieval-orchestration.md`: unified candidate-provider, ranking, dedupe,
+  budget, and `/context` contract for memory/context retrieval.
 
 ## Release Specs
 

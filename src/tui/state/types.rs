@@ -216,6 +216,7 @@ pub struct RuntimeSnapshot {
     pub prompt_append_system_prompt: Option<String>,
     pub prompt_warnings: Vec<String>,
     pub retrieval_source_entries: Vec<RetrievalSourceContextEntry>,
+    pub retrieval_orchestration: crate::context::RetrievalOrchestrationView,
     pub memory_selection: crate::context::MemorySelectionContextView,
     pub assembly_entries: Vec<ContextAssemblyEntry>,
     // ── Extensions ──────────────────────────────────────

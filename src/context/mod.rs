@@ -27,7 +27,9 @@ pub use self::runtime::{
     CacheStatus, CompactionContextView, CompactionSourceContextEntry, ContextAssemblyEntry,
     ContextAssemblyView, ContextBudgetView, DropReason, MemorySelectionContextView,
     MemorySelectionItemContextEntry, PlanContextView, PromptContextView, PromptSourceContextEntry,
-    RETRIEVED_THREAD_CONTEXT_KIND, RETRIEVED_WORKSPACE_MEMORY_KIND, RetrievalContextView,
-    RetrievalSourceContextEntry, RetrievedMemoryCandidate, SharedRuntimeContext, TodoContextView,
+    RETRIEVED_THREAD_CONTEXT_KIND, RETRIEVED_WORKSPACE_MEMORY_KIND, RetrievalBudgetContextView,
+    RetrievalCandidate, RetrievalCandidateContextEntry, RetrievalContextView,
+    RetrievalOrchestrationView, RetrievalProviderStatus, RetrievalSourceContextEntry,
+    RetrievalSourceRef, RetrievedMemoryCandidate, SharedRuntimeContext, TodoContextView,
     is_retrieved_memory_kind,
 };

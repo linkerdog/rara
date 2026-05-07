@@ -43,6 +43,7 @@ runtime sources for the turn are known.
 - a replacement for `ThreadStore`;
 - the compaction algorithm;
 - a vector or graph retrieval backend;
+- the cross-source retrieval orchestrator;
 - a transcript renderer.
 
 It may reference outputs from these systems, but it does not own their storage
@@ -75,11 +76,12 @@ memory-like sources and recall candidates.
 The relationship is:
 
 1. runtime state and prompt sources are collected;
-2. `MemorySelection` classifies memory-like inputs into selected, available, and
+2. retrieval orchestration normalizes source hits into ranked candidates;
+3. `MemorySelection` classifies memory-like inputs into selected, available, and
    dropped groups;
-3. `ContextAssembler` uses selected memory items together with non-memory
+4. `ContextAssembler` uses selected memory items together with non-memory
    context layers;
-4. backend-specific rendering serializes the final context for the model.
+5. backend-specific rendering serializes the final context for the model.
 
 This separation keeps instruction ordering and prompt-source precedence stable
 while still making recall decisions inspectable.
@@ -350,3 +352,4 @@ answer to:
 
 - `docs/journal/2026-04-25-context-assembly-stage1.md`
 - `docs/journal/2026-05-01-memory-selection-spec.md`
+- `docs/features/retrieval-orchestration.md`

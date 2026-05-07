@@ -541,6 +541,10 @@ RARA should therefore model:
 - `Retriever`
   - produces candidate memory/context items from one or more retrieval
     backends.
+- `RetrievalOrchestrator`
+  - normalizes candidates from multiple source providers, applies cross-source
+    ranking/dedupe inputs, and emits the structured provider/candidate view
+    consumed by `/context`, ACP/Wire, and `MemorySelection`.
 
 ### Required Backend Classes
 
@@ -638,6 +642,12 @@ The runtime should converge on interfaces similar to:
   - relationship traversal and neighborhood expansion;
 - `Retriever`
   - orchestrates vector + graph + metadata ranking;
+- `RetrievalSourceProvider`
+  - produces typed candidates from one source family without deciding prompt
+    injection;
+- `RetrievalOrchestrator`
+  - merges providers, preserves provenance, attaches drop reasons, and forwards
+    normalized candidates to `MemorySelection`;
 - `MemorySelection`
   - final selected records for the current turn.
 
