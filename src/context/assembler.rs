@@ -6,9 +6,9 @@ use crate::context::compaction_view::compaction_source_entries;
 use crate::context::memory_selection::memory_selection;
 use crate::context::retrieval_view::{retrieval_orchestration_view, retrieval_source_entries};
 use crate::context::{
-    CompactionContextView, ContextBudgetView, MemorySelectionItemContextEntry, PlanContextView,
-    PromptContextView, RetrievalContextView, RetrievedMemoryCandidate, SharedRuntimeContext,
-    TodoContextView,
+    CompactionContextView, ContextBudgetView, PlanContextView, PromptContextView,
+    RetrievalCandidate, RetrievalContextView, RetrievalRequest, RetrievedMemoryCandidate,
+    SharedRuntimeContext, TodoContextView, retrieval_candidates,
 };
 use crate::llm::{ContextBudget, LlmBackend};
 use crate::prompt::{self, EffectivePrompt, PromptMode, PromptRuntimeConfig};
@@ -47,7 +47,7 @@ pub struct RuntimeContextInputs<'a> {
     pub pending_interactions: Vec<RuntimeInteractionInput>,
     pub skill_listing: Option<String>,
     pub retrieved_memory_candidates: Vec<RetrievedMemoryCandidate>,
-    pub file_search_candidates: Vec<MemorySelectionItemContextEntry>,
+    pub file_search_candidates: Vec<RetrievalCandidate>,
 }
 
 #[derive(Debug, Clone)]
@@ -154,6 +154,18 @@ impl<'a> ContextAssembler<'a> {
                 .saturating_sub(active_turn_budget)
                 .saturating_sub(compacted_history_budget)
         });
+        let retrieval_query = latest_user_request(inputs.history).unwrap_or_default();
+        let retrieval_request = RetrievalRequest {
+            query: retrieval_query.as_str(),
+            session_id: inputs.session_id.as_str(),
+            history: inputs.history,
+            vdb_uri: inputs.vdb_uri,
+        };
+        let retrieval_candidates = retrieval_candidates(
+            &retrieval_request,
+            inputs.retrieved_memory_candidates.as_slice(),
+            inputs.file_search_candidates.as_slice(),
+        );
         let memory_selection = memory_selection(
             effective_prompt.sources.as_slice(),
             inputs.plan_explanation.as_deref(),
@@ -161,18 +173,13 @@ impl<'a> ContextAssembler<'a> {
             inputs.pending_interactions.as_slice(),
             compaction.source_entries.as_slice(),
             inputs.history,
-            inputs.session_id.as_str(),
-            inputs.vdb_uri,
-            inputs.retrieved_memory_candidates.as_slice(),
-            inputs.file_search_candidates.as_slice(),
+            retrieval_candidates.as_slice(),
             selection_budget,
         );
         let retrieval = RetrievalContextView {
             orchestration: retrieval_orchestration_view(
                 inputs.session_id.as_str(),
-                latest_user_request(inputs.history)
-                    .as_deref()
-                    .unwrap_or_default(),
+                retrieval_query.as_str(),
                 retrieval_entries.as_slice(),
                 &memory_selection,
             ),

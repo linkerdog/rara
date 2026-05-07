@@ -298,9 +298,15 @@ The display should keep details compact and path/URI-like fields visible.
 
 ### Phase 1: Shape The Candidate Boundary
 
-- Status: implemented for current direct memory/session retrieval candidates.
+- Status: implemented for current direct memory/session retrieval candidates
+  and the first provider boundary.
 - `RetrievedMemoryCandidate` now adapts through `RetrievalCandidate` before it
   becomes a `MemorySelectionCandidate`.
+- `RetrievalRequest` and `RetrievalSourceProvider` are now the source-provider
+  boundary for current in-process retrieval sources.
+- Current direct memory retrieval, retrieval tool results, thread history,
+  vector-store slot, and file-search candidates all normalize into
+  `RetrievalCandidate` before discretionary `MemorySelection`.
 - Existing memory/session retrieval behavior remains unchanged.
 - Unit tests cover typed boundary fields and deterministic selection order.
 
@@ -314,6 +320,7 @@ The display should keep details compact and path/URI-like fields visible.
 
 ### Phase 3: File Candidate Provider
 
+- Status: first candidate adapter implemented.
 - Add `FileSearchProvider` using `crates/file-search`.
 - Return file manifest candidates only.
 - Do not inject file contents until a later excerpt-selection step exists.
@@ -331,6 +338,8 @@ The display should keep details compact and path/URI-like fields visible.
 - Add MCP resource candidates.
 - Add hook output candidates.
 - Add graph candidates once graph index confidence is sufficient.
+- Reuse the same `RetrievalSourceProvider` and `RetrievalCandidate` contract;
+  do not add source-specific inputs to `MemorySelection`.
 
 ## Validation Matrix
 

@@ -12,7 +12,10 @@ use std::path::{Path, PathBuf};
 use anyhow::Context;
 use rara_file_search::FileSearchOptions;
 
-use crate::context::runtime::MemorySelectionItemContextEntry;
+use crate::context::retrieval_provider::stable_retrieval_text_id;
+use crate::context::runtime::{
+    MemorySelectionItemContextEntry, RetrievalCandidate, RetrievalSourceRef,
+};
 
 /// A file match from the file-search engine, ready for context routing.
 #[derive(Debug, Clone)]
@@ -76,11 +79,27 @@ impl FileSearchCandidateProvider {
     ///
     /// Each candidate carries provenance, budget, and a stable order
     /// (score descending, path ascending).
+    #[allow(dead_code)]
     pub fn context_candidates(
         &self,
         query: &str,
         max_results: usize,
     ) -> Vec<MemorySelectionItemContextEntry> {
+        self.retrieval_candidates(query, max_results)
+            .into_iter()
+            .map(|candidate| MemorySelectionItemContextEntry {
+                order: candidate.rank,
+                kind: candidate.kind,
+                label: candidate.label,
+                detail: candidate.detail,
+                selection_reason: candidate.selection_reason,
+                budget_impact_tokens: candidate.budget_impact_tokens,
+                dropped_reason: None,
+            })
+            .collect()
+    }
+
+    pub fn retrieval_candidates(&self, query: &str, max_results: usize) -> Vec<RetrievalCandidate> {
         let mut candidates = self.search(query, max_results);
 
         // Stable ordering: score descending, path ascending
@@ -94,14 +113,37 @@ impl FileSearchCandidateProvider {
         candidates
             .into_iter()
             .enumerate()
-            .map(|(idx, c)| MemorySelectionItemContextEntry {
-                order: idx + 1,
-                kind: "file_search".to_string(),
-                label: c.path,
-                detail: c.provenance,
-                selection_reason: format!("candidate from file search (score {:.3})", c.score),
-                budget_impact_tokens: Some(c.token_budget),
-                dropped_reason: None,
+            .map(|(idx, c)| {
+                let rank = idx + 1;
+                RetrievalCandidate {
+                    id: format!("file_search:{rank}:{}", stable_retrieval_text_id(&c.path)),
+                    source: RetrievalSourceRef {
+                        source_type: "file_search".to_string(),
+                        source_id: None,
+                        source_path: Some(c.path.clone()),
+                        source_uri: None,
+                        session_id: None,
+                        thread_id: None,
+                        workspace_id: None,
+                    },
+                    kind: "file_search".to_string(),
+                    scope: "workspace".to_string(),
+                    label: c.path,
+                    detail: c.provenance,
+                    summary: None,
+                    rank,
+                    score: Some(c.score as f32),
+                    priority: 30 + rank,
+                    dedupe_key: None,
+                    budget_impact_tokens: Some(c.token_budget),
+                    selection_reason: format!("candidate from file search (score {:.3})", c.score),
+                    availability_reason:
+                        "available because file search matched the current turn query".to_string(),
+                    not_selected_reason:
+                        "not selected after ranking the file-search candidate against the current memory-selection budget"
+                            .to_string(),
+                    selectable: true,
+                }
             })
             .collect()
     }
