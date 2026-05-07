@@ -690,7 +690,7 @@ async fn plan_mode_reasoning_only_initial_turn_continues_to_next_model_turn() {
 }
 
 #[tokio::test]
-async fn plan_mode_consecutive_reasoning_only_turns_stop_after_one_continuation() {
+async fn plan_mode_consecutive_reasoning_only_turns_stop_after_three_continuations() {
     let backend = Arc::new(SequencedBackend::new(vec![
         LlmResponse {
             content: vec![ContentBlock::ProviderMetadata {
@@ -705,7 +705,25 @@ async fn plan_mode_consecutive_reasoning_only_turns_stop_after_one_continuation(
             content: vec![ContentBlock::ProviderMetadata {
                 provider: "deepseek".to_string(),
                 key: "reasoning_content".to_string(),
-                value: json!("Still thinking only."),
+                value: json!("Still thinking, second pass."),
+            }],
+            stop_reason: Some("end_turn".to_string()),
+            usage: Some(TokenUsage::default()),
+        },
+        LlmResponse {
+            content: vec![ContentBlock::ProviderMetadata {
+                provider: "deepseek".to_string(),
+                key: "reasoning_content".to_string(),
+                value: json!("Third reasoning-only turn."),
+            }],
+            stop_reason: Some("end_turn".to_string()),
+            usage: Some(TokenUsage::default()),
+        },
+        LlmResponse {
+            content: vec![ContentBlock::ProviderMetadata {
+                provider: "deepseek".to_string(),
+                key: "reasoning_content".to_string(),
+                value: json!("Fourth reasoning, should stop here."),
             }],
             stop_reason: Some("end_turn".to_string()),
             usage: Some(TokenUsage::default()),
@@ -734,10 +752,10 @@ async fn plan_mode_consecutive_reasoning_only_turns_stop_after_one_continuation(
             super::super::AgentOutputMode::Silent,
         )
         .await
-        .expect("consecutive reasoning-only plan turns should stop after one retry");
+        .expect("consecutive reasoning-only plan turns should stop after three retries");
 
     let observed_messages = backend.observed_messages();
-    assert_eq!(observed_messages.len(), 2);
+    assert_eq!(observed_messages.len(), 4);
     let continuation_text = observed_messages[1]
         .iter()
         .filter_map(|message| message.content.get(0)?.get("text")?.as_str())
@@ -753,7 +771,7 @@ async fn plan_mode_consecutive_reasoning_only_turns_stop_after_one_continuation(
 }
 
 #[tokio::test]
-async fn execute_mode_consecutive_reasoning_only_turns_stop_after_one_continuation() {
+async fn execute_mode_consecutive_reasoning_only_turns_stop_after_three_continuations() {
     let backend = Arc::new(SequencedBackend::new(vec![
         LlmResponse {
             content: vec![ContentBlock::ProviderMetadata {
@@ -769,6 +787,24 @@ async fn execute_mode_consecutive_reasoning_only_turns_stop_after_one_continuati
                 provider: "deepseek".to_string(),
                 key: "reasoning_content".to_string(),
                 value: json!("Still thinking only."),
+            }],
+            stop_reason: Some("end_turn".to_string()),
+            usage: Some(TokenUsage::default()),
+        },
+        LlmResponse {
+            content: vec![ContentBlock::ProviderMetadata {
+                provider: "deepseek".to_string(),
+                key: "reasoning_content".to_string(),
+                value: json!("Third reasoning pass."),
+            }],
+            stop_reason: Some("end_turn".to_string()),
+            usage: Some(TokenUsage::default()),
+        },
+        LlmResponse {
+            content: vec![ContentBlock::ProviderMetadata {
+                provider: "deepseek".to_string(),
+                key: "reasoning_content".to_string(),
+                value: json!("Fourth reasoning, stop here."),
             }],
             stop_reason: Some("end_turn".to_string()),
             usage: Some(TokenUsage::default()),
@@ -797,10 +833,10 @@ async fn execute_mode_consecutive_reasoning_only_turns_stop_after_one_continuati
             super::super::AgentOutputMode::Silent,
         )
         .await
-        .expect("consecutive reasoning-only execute turns should stop after one retry");
+        .expect("consecutive reasoning-only execute turns should stop after three retries");
 
     let observed_messages = backend.observed_messages();
-    assert_eq!(observed_messages.len(), 2);
+    assert_eq!(observed_messages.len(), 4);
     assert!(!agent.history.iter().any(|message| {
         message
             .content
