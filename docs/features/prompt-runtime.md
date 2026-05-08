@@ -88,11 +88,19 @@ Large-write guidance follows the same edit-tool boundary:
 
 - use diff-shaped edit tools or `apply_patch` for modifications to existing files;
 - reserve `write_file` for new files or intentional complete rewrites after reading an existing file;
+- use `replace` for one exact unique replacement, `replace_lines` for verified line-range edits,
+  and `multi_edit` for several related exact replacements in one file;
 - treat failed, truncated, or apparently non-persistent large writes as tool-result failures to
   diagnose, not as a reason to fall back to shell heredocs, redirection, or PTY writes;
 - preserve the Codex distinction that heredoc can be a transport for `apply_patch`, while Claude's
   Bash/PowerShell guidance routes ordinary file writes through Write rather than `cat <<EOF`,
   `echo >`, `Set-Content`, or `Out-File`.
+
+Tool-schema edit guidance is part of the runtime contract, not only prose in the
+base prompt. `bash` should explicitly route file modifications to direct edit
+tools. `replace`, `replace_lines`, `multi_edit`, and `apply_patch` should each
+state the safe edit boundary they own so the model sees the instruction at the
+call site where it chooses a tool.
 
 External-source guidance is evidence routing, not a requirement to browse for every question. For
 repository, branch, PR, CI, local-tool, and local-configuration claims, the model should prefer the

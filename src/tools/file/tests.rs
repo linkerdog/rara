@@ -3,8 +3,8 @@ use std::sync::Arc;
 use serde_json::{Value, json};
 
 use super::{
-    FileReadState, ListFilesTool, MAX_READ_LINE_BYTES, MAX_READ_LINE_CHARS, ReadFileTool,
-    ReplaceLinesTool, ReplaceTool, WriteFileTool,
+    FileReadState, ListFilesTool, MAX_READ_LINE_BYTES, MAX_READ_LINE_CHARS, MultiEditTool,
+    ReadFileTool, ReplaceLinesTool, ReplaceTool, WriteFileTool,
 };
 use crate::tool::Tool;
 
@@ -500,11 +500,131 @@ async fn replace_lines_replaces_inclusive_range_without_old_string() {
     assert_eq!(result["line_delta"], -1);
 }
 
+#[tokio::test]
+async fn multi_edit_applies_ordered_unique_replacements() {
+    let tempdir = tempfile::tempdir().expect("tempdir");
+    let path = tempdir.path().join("sample.txt");
+    std::fs::write(&path, "alpha\nbeta\ngamma\n").expect("write sample");
+
+    let tool = MultiEditTool::default();
+    let result = tool
+        .call(json!({
+            "path": path.display().to_string(),
+            "edits": [
+                {
+                    "old_string": "alpha",
+                    "new_string": "one"
+                },
+                {
+                    "old_string": "gamma",
+                    "new_string": "three\nfour"
+                }
+            ]
+        }))
+        .await
+        .expect("multi edit");
+
+    assert_eq!(
+        std::fs::read_to_string(&path).expect("read updated"),
+        "one\nbeta\nthree\nfour\n"
+    );
+    assert_eq!(result["edits_applied"], 2);
+    assert_eq!(result["line_delta"], 1);
+    assert_eq!(result["edits"][0]["old_preview"], "alpha");
+    assert_eq!(result["edits"][1]["new_preview"], "three\\nfour");
+}
+
+#[tokio::test]
+async fn multi_edit_requires_prior_full_read_when_state_is_enabled() {
+    let tempdir = tempfile::tempdir().expect("tempdir");
+    let path = tempdir.path().join("sample.txt");
+    std::fs::write(&path, "one\ntwo\nthree\n").expect("write sample");
+    let read_state = Arc::new(FileReadState::default());
+    let read_tool = ReadFileTool::new(read_state.clone());
+    let multi_edit_tool = MultiEditTool::new(read_state);
+
+    read_tool
+        .call(json!({
+            "path": path.display().to_string(),
+            "offset": 1,
+            "limit": 1
+        }))
+        .await
+        .expect("partial read");
+
+    let error = multi_edit_tool
+        .call(json!({
+            "path": path.display().to_string(),
+            "edits": [
+                {
+                    "old_string": "two",
+                    "new_string": "TWO"
+                }
+            ]
+        }))
+        .await
+        .expect_err("multi_edit should require full read");
+    assert!(error.to_string().contains("File was not fully read"));
+
+    read_tool
+        .call(json!({ "path": path.display().to_string() }))
+        .await
+        .expect("full read");
+    multi_edit_tool
+        .call(json!({
+            "path": path.display().to_string(),
+            "edits": [
+                {
+                    "old_string": "two",
+                    "new_string": "TWO"
+                }
+            ]
+        }))
+        .await
+        .expect("multi_edit after full read");
+    assert_eq!(
+        std::fs::read_to_string(&path).expect("read updated"),
+        "one\nTWO\nthree\n"
+    );
+}
+
+#[tokio::test]
+async fn multi_edit_rejects_ambiguous_sequential_replacements() {
+    let tempdir = tempfile::tempdir().expect("tempdir");
+    let path = tempdir.path().join("sample.txt");
+    std::fs::write(&path, "foo\nbar\n").expect("write sample");
+
+    let tool = MultiEditTool::default();
+    let error = tool
+        .call(json!({
+            "path": path.display().to_string(),
+            "edits": [
+                {
+                    "old_string": "foo",
+                    "new_string": "bar"
+                },
+                {
+                    "old_string": "bar",
+                    "new_string": "baz"
+                }
+            ]
+        }))
+        .await
+        .expect_err("ambiguous sequential replacement should fail");
+
+    assert!(error.to_string().contains("previous new_string"));
+    assert_eq!(
+        std::fs::read_to_string(&path).expect("read unchanged"),
+        "foo\nbar\n"
+    );
+}
+
 #[test]
 fn file_tool_descriptions_encode_safe_edit_contract() {
     let write_tool = WriteFileTool::default();
     let replace_tool = ReplaceTool::default();
     let replace_lines_tool = ReplaceLinesTool::default();
+    let multi_edit_tool = MultiEditTool::default();
 
     assert!(write_tool.description().contains("Create a new file"));
     assert!(
@@ -521,14 +641,46 @@ fn file_tool_descriptions_encode_safe_edit_contract() {
             .contains("shell heredoc fallbacks")
     );
     assert!(replace_tool.description().contains("exact, unique string"));
+    assert!(replace_tool.description().contains("instead of shell sed"));
+    assert!(
+        replace_tool
+            .description()
+            .contains("copy old_string exactly")
+    );
     assert!(
         replace_tool
             .description()
             .contains("Read the relevant file content first")
     );
     assert!(
+        replace_tool
+            .description()
+            .contains("related edits across multiple locations")
+    );
+    assert!(
         replace_lines_tool
             .description()
-            .contains("verifying the current line numbers")
+            .contains("verify the current line numbers first")
     );
+    assert!(
+        replace_lines_tool
+            .description()
+            .contains("safe edit boundary is a verified line range")
+    );
+    assert!(
+        replace_lines_tool
+            .description()
+            .contains("old_string unwieldy")
+    );
+    assert!(
+        multi_edit_tool
+            .description()
+            .contains("multiple exact string replacements")
+    );
+    assert!(
+        multi_edit_tool
+            .description()
+            .contains("Read the full file first")
+    );
+    assert!(multi_edit_tool.description().contains("shell sed"));
 }

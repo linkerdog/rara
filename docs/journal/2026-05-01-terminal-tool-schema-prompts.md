@@ -22,6 +22,17 @@ shell execution.
 - Strengthened the `bash` tool description and input schema with command
   discipline for dedicated tools, `cwd`, sandbox escalation, background tasks,
   and shell-edit avoidance.
+- Added `multi_edit` for ordered exact replacements within one file. It follows
+  the Claude Code `MultiEdit` shape: the file must be read fully first, each
+  `old_string` is applied in order against the current file state, and ambiguous
+  sequential replacements are rejected.
+- Strengthened `replace`, `replace_lines`, `multi_edit`, `apply_patch`, and
+  `bash` descriptions so edit intent is visible in the tool schema itself:
+  shell `sed`, `awk`, `perl`, heredocs, redirection, and ad-hoc scripts are not
+  the preferred path when a direct edit tool can express the change.
+- Normalized `rg`-based bash exploration labels so TUI progress shows semantic
+  `Find files ...` / `Search ...` actions instead of raw shell command text, and
+  so those actions are not duplicated as running commands.
 - Added a Codex-style foreground Bash result contract: raw results now include
   `aggregated_output` and `duration_ms`, and model-facing compaction renders a
   stable exit-code, duration, and output block from the captured result.
@@ -38,4 +49,10 @@ shell execution.
 - `cargo test pty_tool_schema_guides_interactive_command_discipline -- --nocapture`
 - `cargo test streaming_call_reports_stdout_and_stderr_chunks -- --nocapture`
 - `cargo test compacts_bash_results_with_exit_code_duration_and_aggregated_output -- --nocapture`
+- `cargo test tools::file::tests::multi_edit -- --nocapture`
+- `cargo test tools::file::tests::file_tool_descriptions_encode_safe_edit_contract -- --nocapture`
+- `cargo test tools::patch::tests::apply_patch_description_encodes_safe_edit_contract -- --nocapture`
+- `cargo test tui::render::tests::exploration_summary_uses_codex_style_search_labels -- --nocapture`
+- `cargo test tui::render::tests::rg_bash_search_is_not_duplicated_as_running_tool -- --nocapture`
+- `cargo test tui::runtime::events::tests::bash_rg_tool_use_is_shown_as_exploration -- --nocapture`
 - `cargo check`

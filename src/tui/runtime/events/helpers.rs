@@ -5,7 +5,9 @@ use crate::tui::state::TuiApp;
 use crate::tui::terminal_event::{
     TerminalEvent, output_tail_preview as terminal_output_tail_preview,
 };
-use crate::tui::tool_text::{compact_delegate_rest, compact_instruction};
+use crate::tui::tool_text::{
+    bash_rg_exploration_action_label, compact_delegate_rest, compact_instruction,
+};
 
 pub(super) fn is_oauth_prompt_message(message: &str) -> bool {
     let lower = message.to_ascii_lowercase();
@@ -60,26 +62,6 @@ pub(super) fn exploration_action_label(message: &str) -> Option<String> {
     }
 }
 
-fn bash_rg_exploration_action_label(command: &str) -> Option<String> {
-    let command = command.trim();
-    if command.is_empty() || !contains_rg_invocation(command) {
-        return None;
-    }
-
-    if command.split_whitespace().any(|part| part == "--files") {
-        Some(format!("Find files {command}"))
-    } else {
-        Some(format!("Search {command}"))
-    }
-}
-
-fn contains_rg_invocation(command: &str) -> bool {
-    command
-        .split([';', '|', '&'])
-        .map(str::trim)
-        .any(|segment| segment == "rg" || segment.starts_with("rg ") || segment.starts_with("rg\t"))
-}
-
 pub(super) fn planning_action_label(message: &str) -> Option<String> {
     let mut parts = message.split_whitespace();
     let name = parts.next()?;
@@ -127,6 +109,14 @@ pub(super) fn tool_action_label(message: &str) -> Option<String> {
             }
         )),
         "replace" => Some(format!(
+            "Edit {}",
+            if rest.is_empty() {
+                "file"
+            } else {
+                rest.as_str()
+            }
+        )),
+        "multi_edit" => Some(format!(
             "Edit {}",
             if rest.is_empty() {
                 "file"
@@ -282,6 +272,11 @@ pub(super) fn format_tool_use(name: &str, input: &serde_json::Value) -> String {
             .get("path")
             .and_then(serde_json::Value::as_str)
             .map(|path| format!("replace {path}"))
+            .unwrap_or_else(|| format!("{name} {input}")),
+        "multi_edit" => input
+            .get("path")
+            .and_then(serde_json::Value::as_str)
+            .map(|path| format!("multi_edit {path}"))
             .unwrap_or_else(|| format!("{name} {input}")),
         "replace_lines" => format_replace_lines_use(input),
         "list_files" => input

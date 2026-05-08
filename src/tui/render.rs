@@ -27,7 +27,9 @@ use self::viewport::TranscriptViewport;
 use super::custom_terminal::Frame;
 use super::line_utils::prefix_lines;
 use super::state::{TranscriptEntry, TuiApp};
-use super::tool_text::{compact_delegate_rest, compact_instruction};
+use super::tool_text::{
+    bash_rg_exploration_action_label, compact_delegate_rest, compact_instruction,
+};
 use crate::tui::sub_agent_display::SubAgentKind;
 use crate::tui::theme::*;
 
@@ -787,6 +789,10 @@ fn exploration_action_label(message: &str) -> Option<String> {
     let name = parts.next()?;
     let rest = parts.collect::<Vec<_>>().join(" ");
     match name {
+        "list_files" => Some(format!(
+            "List {}",
+            if rest.is_empty() { "." } else { rest.as_str() }
+        )),
         "read_file" => Some(format!(
             "Read {}",
             if rest.is_empty() {
@@ -795,6 +801,23 @@ fn exploration_action_label(message: &str) -> Option<String> {
                 rest.as_str()
             }
         )),
+        "glob" => Some(format!(
+            "Find files {}",
+            if rest.is_empty() {
+                "workspace"
+            } else {
+                rest.as_str()
+            }
+        )),
+        "grep" => Some(format!(
+            "Search {}",
+            if rest.is_empty() {
+                "workspace"
+            } else {
+                rest.as_str()
+            }
+        )),
+        "bash" => bash_rg_exploration_action_label(&rest),
         _ => None,
     }
 }
@@ -802,7 +825,7 @@ fn exploration_action_label(message: &str) -> Option<String> {
 fn tool_action_label(message: &str) -> Option<String> {
     let mut parts = message.split_whitespace();
     let name = parts.next()?;
-    if is_exploration_tool(name) {
+    if is_exploration_tool(name) || exploration_action_label(message).is_some() {
         return None;
     }
 
@@ -833,6 +856,14 @@ fn tool_action_label(message: &str) -> Option<String> {
             }
         )),
         "replace" => Some(format!(
+            "Edit {}",
+            if rest.is_empty() {
+                "file"
+            } else {
+                rest.as_str()
+            }
+        )),
+        "multi_edit" => Some(format!(
             "Edit {}",
             if rest.is_empty() {
                 "file"

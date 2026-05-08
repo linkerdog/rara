@@ -924,13 +924,13 @@ fn command_env_for_wrapped(
 
 #[tool_spec(
     name = "bash",
-    description = "Run a shell command in the sandbox for commands that need process execution. Prefer dedicated RARA tools for file search, file reads, and file edits; do not use shell redirection, sed, awk, perl, or ad-hoc scripts to edit files when apply_patch or direct file tools can do the job. Use the cwd field instead of prepending cd. Avoid newline-separated command chaining. If commands are independent and can run in parallel, make multiple bash tool calls in one assistant turn instead of joining them with &&, ;, or pipelines. Do not add 2>&1, head, tail, or grep only to reduce displayed output; RARA preserves stdout/stderr and provides bounded model-facing previews. Commands must be non-interactive: do not start editors, pagers, REPLs, prompts, or TUI programs from bash. For git commits, always supply the message with git commit -m or git commit -F; never run bare git commit and wait for an editor. Keep commands sandboxed unless require_escalated is justified by user request or clear sandbox failure evidence. Use run_in_background for long-running non-interactive commands, then inspect or stop them with background_task_status, background_task_list, and background_task_stop.",
+    description = "Run a shell command in the sandbox for commands that need process execution. Prefer dedicated RARA tools for file search, file reads, and file edits. Edit files with apply_patch, replace, replace_lines, or write_file; do not use shell redirection, sed -i, awk, perl, heredocs, or ad-hoc scripts to edit files when direct edit tools can do the job. Use the cwd field instead of prepending cd. Avoid newline-separated command chaining. If commands are independent and can run in parallel, make multiple bash tool calls in one assistant turn instead of joining them with &&, ;, or pipelines. Do not add 2>&1, head, tail, or grep only to reduce displayed output; RARA preserves stdout/stderr and provides bounded model-facing previews. Commands must be non-interactive: do not start editors, pagers, REPLs, prompts, or TUI programs from bash. For git commits, always supply the message with git commit -m or git commit -F; never run bare git commit and wait for an editor. Keep commands sandboxed unless require_escalated is justified by user request or clear sandbox failure evidence. Use run_in_background for long-running non-interactive commands, then inspect or stop them with background_task_status, background_task_list, and background_task_stop.",
     input_schema = {
         "type": "object",
         "properties": {
             "command": {
                 "type": "string",
-                "description": "Legacy shell command string. Prefer program+args for new calls. Avoid newline-separated command chaining. Do not join independent validation commands with &&, ;, or pipelines just to run them together; make multiple bash tool calls instead. Do not add 2>&1, head, tail, or grep only to trim output for the model. Do not run interactive editors, pagers, REPLs, prompts, or TUI programs from bash. For git commits, use git commit -m or git commit -F, never bare git commit. Do not use this field for file edits when apply_patch or direct file tools can do the job."
+                "description": "Legacy shell command string. Prefer program+args for new calls. Avoid newline-separated command chaining. Do not join independent validation commands with &&, ;, or pipelines just to run them together; make multiple bash tool calls instead. Do not add 2>&1, head, tail, or grep only to trim output for the model. Do not run interactive editors, pagers, REPLs, prompts, or TUI programs from bash. For git commits, use git commit -m or git commit -F, never bare git commit. Do not use this field for file edits when apply_patch, replace, replace_lines, or write_file can do the job; avoid sed -i, awk, perl, shell redirection, and heredocs for edits."
             },
             "program": {
                 "type": "string",
@@ -1722,6 +1722,9 @@ mod tests {
 
         let description = tool.description();
         assert!(description.contains("Prefer dedicated RARA tools"));
+        assert!(description.contains("Edit files with apply_patch"));
+        assert!(description.contains("replace_lines"));
+        assert!(description.contains("sed -i"));
         assert!(description.contains("apply_patch"));
         assert!(description.contains("cwd field"));
         assert!(description.contains("newline-separated command chaining"));
@@ -1732,7 +1735,7 @@ mod tests {
 
         let schema = tool.input_schema().to_string();
         assert!(schema.contains("Prefer program+args"));
-        assert!(schema.contains("direct file tools"));
+        assert!(schema.contains("apply_patch, replace, replace_lines"));
         assert!(schema.contains("never bare git commit"));
         assert!(schema.contains("prefer this over prepending cd"));
         assert!(schema.contains("sandbox failure evidence"));

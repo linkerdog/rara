@@ -54,12 +54,14 @@ fn committed_turn_cell_keeps_user_summary_and_agent_sections_in_order() {
         .join("\n");
 
     let you_idx = rendered.find("Review this repo").unwrap();
+    let explored_idx = rendered.find(" Explored ").unwrap();
     let ran_idx = rendered.find(" Ran ").unwrap();
     let agent_idx = rendered.find("• Final recommendation").unwrap();
 
-    assert!(!rendered.contains(" Explored "));
+    assert!(rendered.contains("List ."));
+    assert!(you_idx < explored_idx);
+    assert!(explored_idx < ran_idx);
     assert!(ran_idx < agent_idx);
-    assert!(you_idx < ran_idx);
 }
 
 #[test]

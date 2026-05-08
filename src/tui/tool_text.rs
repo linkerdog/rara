@@ -35,3 +35,71 @@ pub(crate) fn compact_instruction(instruction: &str) -> String {
     truncated.push('…');
     truncated
 }
+
+pub(crate) fn bash_rg_exploration_action_label(command: &str) -> Option<String> {
+    let command = command.trim();
+    if command.is_empty() || !contains_rg_invocation(command) {
+        return None;
+    }
+
+    let tokens = command.split_whitespace().collect::<Vec<_>>();
+    let rg_index = tokens.iter().position(|part| *part == "rg")?;
+    let cwd = command_prefix_cwd(tokens.as_slice(), rg_index);
+    let args = &tokens[rg_index + 1..];
+
+    if args.iter().any(|part| *part == "--files") {
+        let target = args
+            .iter()
+            .filter(|part| !part.starts_with('-'))
+            .next_back()
+            .copied()
+            .unwrap_or("workspace");
+        Some(format!("Find files {}", display_path_in_cwd(cwd, target)))
+    } else {
+        let terms = args
+            .iter()
+            .filter(|part| !part.starts_with('-'))
+            .map(|part| part.trim_matches('"').trim_matches('\''))
+            .filter(|part| !part.is_empty())
+            .collect::<Vec<_>>();
+        match terms.as_slice() {
+            [] => Some("Search workspace".to_string()),
+            [query] => Some(format!("Search {query}")),
+            [query, target, ..] => Some(format!(
+                "Search {query} {}",
+                display_path_in_cwd(cwd, target)
+            )),
+        }
+    }
+}
+
+fn contains_rg_invocation(command: &str) -> bool {
+    command
+        .split([';', '|', '&'])
+        .map(str::trim)
+        .any(|segment| segment == "rg" || segment.starts_with("rg ") || segment.starts_with("rg\t"))
+}
+
+fn command_prefix_cwd<'a>(tokens: &'a [&str], rg_index: usize) -> Option<&'a str> {
+    if rg_index >= 3 && tokens.first() == Some(&"cd") && tokens.get(2) == Some(&"&&") {
+        tokens.get(1).copied()
+    } else {
+        None
+    }
+}
+
+fn display_path_in_cwd(cwd: Option<&str>, target: &str) -> String {
+    let target = target.trim_matches('"').trim_matches('\'');
+    match cwd {
+        Some(cwd)
+            if target != "workspace"
+                && !target.starts_with('/')
+                && target != "."
+                && !target.starts_with("./") =>
+        {
+            format!("{}/{}", cwd.trim_end_matches('/'), target)
+        }
+        Some(cwd) if target == "." => cwd.to_string(),
+        _ => target.to_string(),
+    }
+}
