@@ -44,11 +44,19 @@ pub(crate) struct RuntimeBootstrap {
 
 impl RuntimeBootstrap {
     pub(crate) fn into_agent(self) -> Agent {
-        let (agent, _, _, _) = self.into_parts();
+        let (agent, _, _, _, _) = self.into_parts();
         agent
     }
 
-    pub(crate) fn into_parts(self) -> (Agent, Vec<String>, Arc<AtomicBool>, GoalHandle) {
+    pub(crate) fn into_parts(
+        self,
+    ) -> (
+        Agent,
+        Vec<String>,
+        Arc<AtomicBool>,
+        GoalHandle,
+        McpToolCache,
+    ) {
         let mut agent = Agent::new(
             self.tool_manager,
             self.backend,
@@ -62,6 +70,7 @@ impl RuntimeBootstrap {
             self.warnings,
             self.sandbox_network_access,
             self.goal_handle,
+            self.mcp_tool_cache,
         )
     }
 }
