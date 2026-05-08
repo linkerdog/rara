@@ -641,7 +641,7 @@ fn transcript_viewport_visible_window_slices_to_visible_rows() {
 }
 
 #[test]
-fn exploration_summary_only_keeps_read_actions() {
+fn exploration_summary_uses_codex_style_search_labels() {
     let entries = vec![
         TranscriptEntry {
             role: "Tool".into(),
@@ -664,6 +664,16 @@ fn exploration_summary_only_keeps_read_actions() {
             payload: None,
         },
         TranscriptEntry {
+            role: "Tool".into(),
+            message: "bash rg --files src/tui".into(),
+            payload: None,
+        },
+        TranscriptEntry {
+            role: "Tool".into(),
+            message: "bash cd src && rg -n \"render\" tui".into(),
+            payload: None,
+        },
+        TranscriptEntry {
             role: "Agent".into(),
             message: "I will start by listing files and then inspect the main entrypoint.".into(),
             payload: None,
@@ -673,11 +683,23 @@ fn exploration_summary_only_keeps_read_actions() {
 
     let rendered = current_turn_exploration_summary_from_entries(refs.as_slice(), false, None)
         .expect("exploration summary");
+    assert!(rendered.contains("Find files src/tui"));
+    assert!(rendered.contains("Search planning mode src"));
     assert!(rendered.contains("Read src/main.rs"));
-    assert!(!rendered.contains("List ."));
+    assert!(rendered.contains("Search render src/tui"));
+    assert!(rendered.contains("more file(s) inspected"));
     assert!(!rendered.contains("Glob src/**/*.rs"));
-    assert!(!rendered.contains("Search planning mode src"));
     assert!(!rendered.contains("listing files"));
+}
+
+#[test]
+fn rg_bash_search_is_not_duplicated_as_running_tool() {
+    assert!(tool_action_label("bash rg --files src/tui").is_none());
+    assert!(tool_action_label("bash cd src && rg -n \"render\" tui").is_none());
+    assert_eq!(
+        tool_action_label("bash cargo check"),
+        Some("Run cargo check".to_string())
+    );
 }
 
 #[test]

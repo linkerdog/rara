@@ -51,12 +51,14 @@ fn active_turn_cell_keeps_sections_in_stable_order() {
         .join("\n");
 
     let you_idx = rendered.find("Inspect the codebase").unwrap();
+    let exploring_idx = rendered.find(" Exploring ").unwrap();
     let running_idx = rendered.find(" Running ").unwrap();
     let plan_idx = rendered.find("Updated Plan").unwrap();
     let approval_idx = rendered.find(" Request Input ").unwrap();
 
-    assert!(!rendered.contains(" Exploring "));
+    assert!(rendered.contains("List src"));
     assert!(you_idx < running_idx);
+    assert!(exploring_idx < running_idx);
     assert!(running_idx < plan_idx);
     assert!(plan_idx < approval_idx);
 }

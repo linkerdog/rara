@@ -82,7 +82,7 @@ struct PatchStats {
 
 #[tool_spec(
     name = "apply_patch",
-    description = "Apply structured file edits using Begin Patch syntax. Prefer this for editing existing files. Update operations verify hunks against current file contents.",
+    description = "Apply structured file edits using Begin Patch syntax. Prefer this for editing existing files and for related edits across multiple locations. Use this instead of shell sed, awk, perl, redirection, heredocs, or ad-hoc scripts for reviewable file edits. Update operations verify hunks against current file contents.",
     input_schema = {
         "type": "object",
         "properties": {
@@ -646,6 +646,17 @@ mod tests {
     use super::ApplyPatchTool;
     use crate::tool::Tool;
     use crate::tools::file::{FileReadState, ReadFileTool};
+
+    #[test]
+    fn apply_patch_description_encodes_safe_edit_contract() {
+        let tool = ApplyPatchTool::default();
+        let description = tool.description();
+
+        assert!(description.contains("structured file edits"));
+        assert!(description.contains("related edits across multiple locations"));
+        assert!(description.contains("instead of shell sed"));
+        assert!(description.contains("heredocs"));
+    }
 
     #[tokio::test]
     async fn applies_update_patch() {

@@ -520,8 +520,8 @@ fn bash_rg_tool_use_is_shown_as_exploration() {
     assert_eq!(
         app.active_live.exploration_actions,
         vec![
-            "Find files rg --files src/tui".to_string(),
-            "Search cd src && rg -n \"render\" tui".to_string()
+            "Find files src/tui".to_string(),
+            "Search render src/tui".to_string()
         ]
     );
     assert!(app.active_live.running_actions.is_empty());

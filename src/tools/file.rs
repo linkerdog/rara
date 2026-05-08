@@ -149,6 +149,23 @@ impl FileReadState {
         Ok(())
     }
 
+    pub(crate) fn validate_full_content_edit(&self, path: &str) -> Result<(), ToolError> {
+        let key = canonical_existing_path(path)?;
+        let files = self.files.lock().expect("file read state lock");
+        let Some(entry) = files.get(&key) else {
+            return Err(ToolError::ExecutionFailed(
+                "File has not been read yet. Read it first before writing to it.".into(),
+            ));
+        };
+        if entry.is_partial || entry.content.is_none() {
+            return Err(ToolError::ExecutionFailed(
+                "File was not fully read. Read the full file before using multi_edit.".into(),
+            ));
+        }
+        drop(files);
+        self.validate_existing_edit(path)
+    }
+
     pub(crate) fn validate_exact_replace_edit(&self, path: &str) -> Result<(), ToolError> {
         let key = canonical_existing_path(path)?;
         let files = self.files.lock().expect("file read state lock");
@@ -585,7 +602,7 @@ impl Default for ReplaceTool {
 
 #[tool_spec(
     name = "replace",
-    description = "Replace one exact, unique string in a file. Read the relevant file content first and prefer apply_patch for structured multi-line edits.",
+    description = "Replace one exact, unique string in a file. Use this instead of shell sed, awk, perl, redirection, or ad-hoc scripts for simple text edits. Read the relevant file content first, copy old_string exactly including whitespace and indentation, and provide enough surrounding context so old_string appears exactly once. Prefer apply_patch for structured multi-line edits or related edits across multiple locations.",
     input_schema = {
         "type": "object",
         "properties": {
@@ -653,7 +670,7 @@ impl Default for ReplaceLinesTool {
 
 #[tool_spec(
     name = "replace_lines",
-    description = "Replace an inclusive line range in a file. Use after reading the relevant portion of the file and verifying the current line numbers. A sub-range read via offset/limit is sufficient as long as the targeted lines have been seen.",
+    description = "Replace an inclusive line range in a file. Use this instead of shell sed, awk, perl, redirection, or ad-hoc scripts when the safe edit boundary is a verified line range, especially for large deletions or replacements that would make old_string unwieldy. Read the relevant portion of the file and verify the current line numbers first. A sub-range read via offset/limit is sufficient as long as the targeted lines have been seen.",
     input_schema = {
         "type": "object",
         "properties": {
@@ -745,6 +762,137 @@ impl Tool for ReplaceLinesTool {
             "removed_string": removed_string,
             "inserted_lines": replacement_lines.len(),
             "line_delta": replacement_lines.len() as i64 - removed_line_count as i64,
+        }))
+    }
+}
+
+pub struct MultiEditTool {
+    read_state: Option<SharedFileReadState>,
+}
+
+impl MultiEditTool {
+    pub fn new(read_state: SharedFileReadState) -> Self {
+        Self {
+            read_state: Some(read_state),
+        }
+    }
+}
+
+impl Default for MultiEditTool {
+    fn default() -> Self {
+        Self { read_state: None }
+    }
+}
+
+#[tool_spec(
+    name = "multi_edit",
+    description = "Apply multiple exact string replacements to one file in order. Use this instead of shell sed, awk, perl, redirection, or ad-hoc scripts when several related small edits belong in the same file. Read the full file first, copy each old_string exactly including whitespace and indentation, and ensure every old_string is unique in the current file state before its replacement is applied. Prefer apply_patch for larger structured edits or edits across multiple files.",
+    input_schema = {
+        "type": "object",
+        "properties": {
+            "path": { "type": "string", "description": "Path to edit." },
+            "edits": {
+                "type": "array",
+                "minItems": 1,
+                "description": "Ordered exact replacements to apply to the same file.",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "old_string": { "type": "string", "description": "Exact text to replace. It must appear exactly once at the time this edit is applied." },
+                        "new_string": { "type": "string", "description": "Replacement text." }
+                    },
+                    "required": ["old_string", "new_string"]
+                }
+            }
+        },
+        "required": ["path", "edits"]
+    }
+)]
+#[async_trait]
+impl Tool for MultiEditTool {
+    async fn call(&self, input: Value) -> Result<Value, ToolError> {
+        let path = input["path"]
+            .as_str()
+            .ok_or(ToolError::InvalidInput("path".into()))?;
+        let edits = input["edits"]
+            .as_array()
+            .ok_or(ToolError::InvalidInput("edits".into()))?;
+        if edits.is_empty() {
+            return Err(ToolError::InvalidInput(
+                "edits must contain at least one replacement".into(),
+            ));
+        }
+        if let Some(read_state) = &self.read_state {
+            read_state.validate_full_content_edit(path)?;
+        }
+
+        let original = read_file_content(path)?;
+        let mut updated = original.clone();
+        let mut applied = Vec::with_capacity(edits.len());
+        let mut previous_new_strings: Vec<String> = Vec::with_capacity(edits.len());
+
+        for (index, edit) in edits.iter().enumerate() {
+            let edit_number = index + 1;
+            let old_string = edit
+                .get("old_string")
+                .and_then(Value::as_str)
+                .ok_or_else(|| {
+                    ToolError::InvalidInput(format!("edits[{index}].old_string is required"))
+                })?;
+            let new_string = edit
+                .get("new_string")
+                .and_then(Value::as_str)
+                .ok_or_else(|| {
+                    ToolError::InvalidInput(format!("edits[{index}].new_string is required"))
+                })?;
+            if old_string.is_empty() {
+                return Err(ToolError::InvalidInput(format!(
+                    "edits[{index}].old_string must not be empty; use write_file for file creation or full rewrites"
+                )));
+            }
+            if old_string == new_string {
+                return Err(ToolError::InvalidInput(format!(
+                    "edits[{index}] has identical old_string and new_string"
+                )));
+            }
+            if previous_new_strings
+                .iter()
+                .any(|previous| previous.contains(old_string))
+            {
+                return Err(ToolError::ExecutionFailed(format!(
+                    "edits[{index}].old_string is contained in a previous new_string; split the edit or use apply_patch to avoid ambiguous sequential replacements"
+                )));
+            }
+
+            let matches = updated.matches(old_string).count();
+            if matches != 1 {
+                return Err(ToolError::ExecutionFailed(format!(
+                    "Edit {edit_number} expected old_string to appear exactly once, found {matches}"
+                )));
+            }
+
+            updated = updated.replacen(old_string, new_string, 1);
+            applied.push(json!({
+                "index": edit_number,
+                "old_preview": preview_snippet(old_string),
+                "new_preview": preview_snippet(new_string),
+                "old_bytes": old_string.len(),
+                "new_bytes": new_string.len(),
+            }));
+            previous_new_strings.push(new_string.to_string());
+        }
+
+        fs::write(path, &updated)?;
+        if let Some(read_state) = &self.read_state {
+            record_write_best_effort(read_state, path, &updated);
+        }
+
+        Ok(json!({
+            "status": "ok",
+            "path": path,
+            "edits_applied": applied.len(),
+            "edits": applied,
+            "line_delta": updated.lines().count() as i64 - original.lines().count() as i64,
         }))
     }
 }

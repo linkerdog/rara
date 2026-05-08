@@ -17,7 +17,8 @@ use crate::tools::bash::{
 };
 use crate::tools::context::RetrieveSessionContextTool;
 use crate::tools::file::{
-    FileReadState, ListFilesTool, ReadFileTool, ReplaceLinesTool, ReplaceTool, WriteFileTool,
+    FileReadState, ListFilesTool, MultiEditTool, ReadFileTool, ReplaceLinesTool, ReplaceTool,
+    WriteFileTool,
 };
 use crate::tools::goal::{CreateGoalTool, GetGoalTool, UpdateGoalTool};
 use crate::tools::patch::ApplyPatchTool;
@@ -106,7 +107,8 @@ pub(super) fn create_full_tool_manager(
     tm.register(Box::new(WriteFileTool::new(file_read_state.clone())));
     tm.register(Box::new(ListFilesTool));
     tm.register(Box::new(ReplaceTool::new(file_read_state.clone())));
-    tm.register(Box::new(ReplaceLinesTool::new(file_read_state)));
+    tm.register(Box::new(ReplaceLinesTool::new(file_read_state.clone())));
+    tm.register(Box::new(MultiEditTool::new(file_read_state)));
     tm.register(Box::new(WebFetchTool));
     tm.register(Box::new(WebSearchTool::from_env()));
     tm.register(Box::new(GlobTool));
