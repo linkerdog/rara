@@ -314,11 +314,11 @@ fn renderable_transcript_lines_insert_turn_dividers_between_rounds() {
         .map(|line| line.to_string())
         .collect::<Vec<_>>();
 
-    let divider = "─".repeat(24);
+    let divider = format!(" {}", "─".repeat(22));
     assert_eq!(
         rendered
             .iter()
-            .filter(|line| line.as_str() == divider)
+            .filter(|line| line.as_str() == divider.as_str())
             .count(),
         2
     );
@@ -333,14 +333,14 @@ fn startup_header_renders_but_does_not_enter_transcript_lines() {
     .expect("build tui app");
 
     let rendered = render_screen_text(&app, 100, 24);
-    assert!(rendered.contains(">_ RARA"));
+    assert!(rendered.contains("── RARA"));
 
     let transcript = renderable_transcript_lines(&app, 100)
         .into_iter()
         .map(|line| line.to_string())
         .collect::<Vec<_>>()
         .join("\n");
-    assert!(!transcript.contains(">_ RARA"));
+    assert!(!transcript.contains("── RARA"));
     assert!(!transcript.contains("directory:"));
 }
 

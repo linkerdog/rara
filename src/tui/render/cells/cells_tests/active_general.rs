@@ -51,8 +51,8 @@ fn active_turn_cell_keeps_sections_in_stable_order() {
         .join("\n");
 
     let you_idx = rendered.find("Inspect the codebase").unwrap();
-    let exploring_idx = rendered.find(" Exploring ").unwrap();
-    let running_idx = rendered.find(" Running ").unwrap();
+    let exploring_idx = rendered.find("# Exploring").unwrap();
+    let running_idx = rendered.find("# Running").unwrap();
     let plan_idx = rendered.find("Updated Plan").unwrap();
     let approval_idx = rendered.find(" Request Input ").unwrap();
 
@@ -96,7 +96,7 @@ fn active_turn_cell_renders_pending_approval_without_transcript_entries() {
         .collect::<Vec<_>>()
         .join("\n");
 
-    assert!(rendered.contains(" Shell Approval "));
+    assert!(rendered.contains("# Shell Approval"));
     assert!(rendered.contains("git diff origin/main -- src/context/assembler.rs"));
     assert!(!rendered.contains("resuming after approval"));
 }
@@ -133,15 +133,15 @@ fn active_turn_cell_renders_progress_sections_as_compact_stack() {
         .unwrap();
     let exploring_idx = rendered_lines
         .iter()
-        .position(|line| line.contains(" Exploring "))
+        .position(|line| line.contains("# Exploring"))
         .unwrap();
     let planning_idx = rendered_lines
         .iter()
-        .position(|line| line.contains(" Planning "))
+        .position(|line| line.contains("# Planning"))
         .unwrap();
     let running_idx = rendered_lines
         .iter()
-        .position(|line| line.contains(" Running "))
+        .position(|line| line.contains("# Running"))
         .unwrap();
 
     assert_eq!(exploring_idx, plan_mode_idx + 1);
@@ -363,7 +363,7 @@ fn active_turn_cell_keeps_exploration_notes_inside_exploring_block() {
         .join("\n");
 
     assert!(
-        rendered.contains(" Exploring "),
+        rendered.contains("# Exploring"),
         "rendered_exploration_notes=\n{rendered}"
     );
     assert!(rendered.contains("Read src/main.rs"));
@@ -400,7 +400,7 @@ fn active_turn_cell_uses_stateful_live_exploration_sections() {
         .join("\n");
 
     assert!(
-        rendered.contains(" Exploring "),
+        rendered.contains("# Exploring"),
         "rendered_stateful_exploration=\n{rendered}"
     );
     assert!(rendered.contains("Read src/tools/vector.rs"));
@@ -433,11 +433,11 @@ fn active_turn_cell_compacts_live_response_when_process_sections_exist() {
         .collect::<Vec<_>>()
         .join("\n");
 
-    assert!(rendered.contains(" Exploring "));
+    assert!(rendered.contains("# Exploring"));
     assert!(rendered.contains("Read src/runtime_context.rs"));
     assert!(rendered.contains("• I have inspected the repository structure."));
     assert!(rendered.contains("• Next I will inspect the persistence layer."));
-    assert!(!rendered.contains(" Responding "));
+    assert!(!rendered.contains("# Responding"));
     assert!(!rendered.contains("Then I will verify the restore contract."));
 }
 
@@ -468,7 +468,7 @@ fn active_turn_cell_appends_long_live_exploration_events() {
         .collect::<Vec<_>>()
         .join("\n");
 
-    assert!(rendered.contains(" Exploring "));
+    assert!(rendered.contains("# Exploring"));
     assert!(rendered.contains("Cross-check the auth entrypoint."));
     assert!(rendered.contains("1 more exploration step(s)"));
     assert!(!rendered.contains("module_1.rs"));
@@ -476,7 +476,7 @@ fn active_turn_cell_appends_long_live_exploration_events() {
     assert!(rendered.contains("module_3.rs"));
     assert!(rendered.contains("module_4.rs"));
     assert!(rendered.contains("module_5.rs"));
-    assert_eq!(rendered.matches(" Exploring ").count(), 1);
+    assert_eq!(rendered.matches("# Exploring").count(), 1);
     assert!(rendered.find("module_2.rs") < rendered.find("module_5.rs"));
 }
 
@@ -507,7 +507,7 @@ fn active_turn_cell_appends_long_live_planning_events() {
         .collect::<Vec<_>>()
         .join("\n");
 
-    assert!(rendered.contains(" Planning "));
+    assert!(rendered.contains("# Planning"));
     assert!(rendered.contains("Reuse the shared auth bridge."));
     assert!(rendered.contains("1 more planning step(s)"));
     assert!(!rendered.contains("planning module 1"));
@@ -515,7 +515,7 @@ fn active_turn_cell_appends_long_live_planning_events() {
     assert!(rendered.contains("planning module 3"));
     assert!(rendered.contains("planning module 4"));
     assert!(rendered.contains("planning module 5"));
-    assert_eq!(rendered.matches(" Planning ").count(), 1);
+    assert_eq!(rendered.matches("# Planning").count(), 1);
     assert!(rendered.find("planning module 2") < rendered.find("planning module 5"));
 }
 
@@ -545,13 +545,13 @@ fn active_turn_cell_appends_long_live_running_events() {
         .collect::<Vec<_>>()
         .join("\n");
 
-    assert!(rendered.contains(" Running "));
+    assert!(rendered.contains("# Running"));
     assert!(!rendered.contains("Run task 1"));
     assert!(!rendered.contains("Run task 2"));
     assert!(rendered.contains("Run task 3"));
     assert!(rendered.contains("Run task 6"));
     assert!(rendered.contains("more running step(s)"));
-    assert_eq!(rendered.matches(" Running ").count(), 1);
+    assert_eq!(rendered.matches("# Running").count(), 1);
     assert!(rendered.find("Run task 6") < rendered.find("Run task 3"));
 }
 
@@ -703,7 +703,7 @@ fn active_turn_cell_suppresses_planning_chatter_when_exploring() {
         .join("\n");
 
     assert!(rendered.contains(" Plan Mode "));
-    assert!(rendered.contains(" Exploring "));
+    assert!(rendered.contains("# Exploring"));
     assert!(!rendered.contains("Responding"));
     assert!(!rendered.contains("I will now read crates/instructions/src/prompt.rs"));
 }
@@ -739,7 +739,7 @@ fn active_turn_cell_uses_planning_sidecar_for_non_structured_plan_output() {
         .collect::<Vec<_>>()
         .join("\n");
 
-    assert!(rendered.contains(" Planning "));
+    assert!(rendered.contains("# Planning"));
     assert!(rendered.contains("The current discovery is hardcoded"));
     assert!(!rendered.contains("Responding"));
 }
@@ -784,9 +784,9 @@ fn active_turn_cell_uses_explicit_sidecar_entries_when_live_state_is_empty() {
         .collect::<Vec<_>>()
         .join("\n");
 
-    assert!(rendered.contains(" Exploring "));
-    assert!(rendered.contains(" Planning "));
-    assert!(rendered.contains(" Running "));
+    assert!(rendered.contains("# Exploring"));
+    assert!(rendered.contains("# Planning"));
+    assert!(rendered.contains("# Running"));
     assert!(rendered.contains("Read crates/instructions/src/workspace.rs"));
     assert!(rendered.contains("root-name based"));
     assert!(rendered.contains("waiting for model response"));
@@ -833,12 +833,12 @@ fn active_turn_cell_preserves_exploration_agent_exploration_order() {
         .collect::<Vec<_>>()
         .join("\n");
 
-    let first_exploring = rendered.find(" Exploring ").unwrap();
+    let first_exploring = rendered.find("# Exploring").unwrap();
     let agent = rendered
         .find("• The main entrypoint is thin; I will inspect the runtime bootstrap next.")
         .unwrap();
     let second_exploring = rendered[first_exploring + 1..]
-        .find(" Exploring ")
+        .find("# Exploring")
         .map(|idx| first_exploring + 1 + idx)
         .unwrap();
 
@@ -900,7 +900,7 @@ fn active_turn_cell_preserves_duplicate_restored_exploration_segments() {
 
     assert_eq!(rendered.matches("Read src/main.rs").count(), 2);
     assert_eq!(rendered.matches("Read src/runtime_context.rs").count(), 2);
-    assert_eq!(rendered.matches(" Exploring ").count(), 2);
+    assert_eq!(rendered.matches("# Exploring").count(), 2);
 }
 
 #[test]
@@ -941,7 +941,7 @@ fn active_turn_cell_preserves_agent_then_exploration_order() {
     let agent = rendered
         .find("• I have narrowed this down to the runtime bootstrap path.")
         .unwrap();
-    let exploring = rendered.find(" Exploring ").unwrap();
+    let exploring = rendered.find("# Exploring").unwrap();
 
     assert!(rendered.contains("Read src/runtime_context.rs"));
     assert!(agent < exploring);
@@ -1080,7 +1080,7 @@ fn active_turn_cell_shows_live_thinking_stream() {
         .collect::<Vec<_>>()
         .join("\n");
 
-    assert!(rendered.contains(" Thinking "));
+    assert!(rendered.contains("# Thinking"));
     assert!(rendered.contains("checking runtime events"));
 }
 
@@ -1122,8 +1122,8 @@ fn active_turn_cell_flattens_thinking_and_running_events_in_order() {
     assert!(first_thinking < first_running);
     assert!(first_running < second_thinking);
     assert!(second_thinking < second_running);
-    assert_eq!(rendered.matches(" Thinking ").count(), 2);
-    assert_eq!(rendered.matches(" Running ").count(), 2);
+    assert_eq!(rendered.matches("# Thinking").count(), 2);
+    assert_eq!(rendered.matches("# Running").count(), 2);
 }
 
 #[test]
@@ -1160,8 +1160,8 @@ fn active_turn_cell_places_streaming_thinking_after_latest_progress_event() {
 
     assert!(first_thinking < running);
     assert!(running < second_thinking);
-    assert_eq!(rendered.matches(" Thinking ").count(), 2);
-    assert_eq!(rendered.matches(" Running ").count(), 1);
+    assert_eq!(rendered.matches("# Thinking").count(), 2);
+    assert_eq!(rendered.matches("# Running").count(), 1);
 }
 
 #[test]
@@ -1198,8 +1198,8 @@ fn active_turn_cell_places_streaming_thinking_after_latest_exploration_event() {
 
     assert!(first_thinking < exploring);
     assert!(exploring < second_thinking);
-    assert_eq!(rendered.matches(" Thinking ").count(), 2);
-    assert_eq!(rendered.matches(" Exploring ").count(), 1);
+    assert_eq!(rendered.matches("# Thinking").count(), 2);
+    assert_eq!(rendered.matches("# Exploring").count(), 1);
 }
 
 #[test]
@@ -1233,7 +1233,7 @@ fn active_turn_cell_groups_consecutive_thinking_events_with_stream() {
     let second_thinking = rendered.find("second reasoning block").unwrap();
 
     assert!(first_thinking < second_thinking);
-    assert_eq!(rendered.matches(" Thinking ").count(), 1);
+    assert_eq!(rendered.matches("# Thinking").count(), 1);
 }
 
 #[test]
@@ -1330,15 +1330,15 @@ fn active_turn_cell_groups_consecutive_exploration_events_only() {
         .collect::<Vec<_>>()
         .join("\n");
 
-    assert_eq!(rendered.matches(" Exploring ").count(), 2);
+    assert_eq!(rendered.matches("# Exploring").count(), 2);
 
-    let first_exploring_idx = rendered.find(" Exploring ").unwrap();
+    let first_exploring_idx = rendered.find("# Exploring").unwrap();
     let first_read_idx = rendered.find("Read src/tui/render/cells.rs").unwrap();
     let second_read_idx = rendered
         .find("Read src/tui/render/cells_tests/active_general.rs")
         .unwrap();
-    let running_idx = rendered.find(" Running ").unwrap();
-    let second_exploring_idx = rendered.rfind(" Exploring ").unwrap();
+    let running_idx = rendered.find("# Running").unwrap();
+    let second_exploring_idx = rendered.rfind("# Exploring").unwrap();
     let third_read_idx = rendered
         .find("Read src/tui/render/cells_components.rs")
         .unwrap();
@@ -1380,8 +1380,8 @@ fn active_turn_cell_preserves_consecutive_duplicate_progress_events() {
 
     assert_eq!(rendered.matches("Read src/tui/render/cells.rs").count(), 2);
     assert_eq!(rendered.matches("Run cargo check").count(), 2);
-    assert_eq!(rendered.matches(" Exploring ").count(), 1);
-    assert_eq!(rendered.matches(" Running ").count(), 1);
+    assert_eq!(rendered.matches("# Exploring").count(), 1);
+    assert_eq!(rendered.matches("# Running").count(), 1);
 }
 
 #[test]
@@ -1408,7 +1408,7 @@ fn active_turn_cell_shows_live_thinking_tail_without_cloning_full_body() {
         .collect::<Vec<_>>()
         .join("\n");
 
-    assert!(rendered.contains(" Thinking "));
+    assert!(rendered.contains("# Thinking"));
     assert!(rendered.contains("... 1 more line(s)"));
     assert!(!rendered.contains("line 1"));
     assert!(rendered.contains("line 2"));
@@ -1550,7 +1550,7 @@ fn active_turn_cell_shows_planning_section_for_plan_agent() {
         .collect::<Vec<_>>()
         .join("\n");
 
-    assert!(rendered.contains(" Planning "));
+    assert!(rendered.contains("# Planning"));
     assert!(rendered.contains("Delegate plan refinement: refine the plan"));
     assert!(rendered.contains("Sub-agent summary: reuse the workspace traversal helper"));
 }

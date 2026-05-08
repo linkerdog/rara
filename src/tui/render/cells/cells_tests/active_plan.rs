@@ -34,7 +34,7 @@ fn active_turn_cell_renders_plan_approval_as_interaction_card() {
         .join("\n");
 
     assert_snapshot!("active_turn_cell_plan_approval", rendered);
-    assert!(rendered.contains(" Awaiting Approval "));
+    assert!(rendered.contains("# Awaiting Approval"));
     assert!(rendered.contains("Updated Plan"));
     assert!(rendered.contains("1. Start implementation now"));
     assert!(rendered.contains("2. Continue planning and refine the plan"));
@@ -142,7 +142,7 @@ fn active_turn_cell_hides_stale_exploring_after_live_phase_finishes() {
         .collect::<Vec<_>>()
         .join("\n");
 
-    assert!(!rendered.contains(" Exploring "));
+    assert!(!rendered.contains("# Exploring"));
     assert!(rendered.contains("Inspect the repository"));
 }
 
@@ -200,7 +200,7 @@ fn active_turn_cell_renders_shell_approval_as_interaction_card() {
         .collect::<Vec<_>>()
         .join("\n");
 
-    assert!(rendered.contains(" Shell Approval "));
+    assert!(rendered.contains("# Shell Approval"));
     assert!(rendered.contains("Review this shell command before RARA runs it."));
     assert!(rendered.contains("Command:"));
     assert!(rendered.contains("Working directory:"));
@@ -249,9 +249,9 @@ fn active_turn_cell_renders_queued_follow_up_without_hiding_shell_approval() {
         .collect::<Vec<_>>()
         .join("\n");
 
-    assert!(rendered.contains(" Shell Approval "));
+    assert!(rendered.contains("# Shell Approval"));
     assert!(rendered.contains("1. Allow once"));
-    assert!(rendered.contains(" Queued "));
+    assert!(rendered.contains("# Queued"));
     assert!(rendered.contains("after turn"));
     assert!(!rendered.contains("Queued follow-up messages"));
     assert!(rendered.contains("then review the diff"));
@@ -328,9 +328,9 @@ fn active_turn_cell_does_not_render_completed_shell_approval_while_live() {
         .collect::<Vec<_>>()
         .join("\n");
 
-    assert!(!rendered.contains(" Shell Approval Completed "));
+    assert!(!rendered.contains("# Shell Approval Completed"));
     assert!(!rendered.contains("Approved once for command"));
-    assert!(rendered.contains(" Running "));
+    assert!(rendered.contains("# Running"));
     assert!(rendered.contains("bash ./scripts/migrate.sh"));
 }
 
@@ -379,7 +379,7 @@ fn active_turn_cell_falls_back_to_previous_completion_when_shell_approval_is_liv
 
     assert!(rendered.contains(" Question Answered "));
     assert!(rendered.contains("User answered: yes"));
-    assert!(!rendered.contains(" Shell Approval Completed "));
+    assert!(!rendered.contains("# Shell Approval Completed"));
     assert!(!rendered.contains("Approved once for command"));
 }
 

@@ -1,6 +1,6 @@
 use std::time::Instant;
 
-use ratatui::{layout::Rect, style::Color};
+use ratatui::{layout::Rect, style::Color, text::Line};
 use tempfile::tempdir;
 use tokio::sync::mpsc;
 
@@ -121,7 +121,7 @@ fn pending_interaction_hint_takes_priority_over_queued_follow_up() {
             source: None,
         });
 
-    let hint = composer_hint(&app);
+    let hint = composer_hint(&app).to_string();
     assert!(hint.contains("1 allow once"));
     assert!(!hint.contains("queued follow-up"));
 }
@@ -155,7 +155,7 @@ fn queued_follow_up_hint_stays_compact_while_busy() {
     app.begin_running_turn();
     app.queue_follow_up_message_after_next_tool_boundary("follow-up");
 
-    assert_eq!(composer_hint(&app), "queued: after tool");
+    assert_eq!(composer_hint(&app).to_string(), "queued: after tool");
 }
 
 #[tokio::test]
@@ -177,7 +177,10 @@ async fn busy_composer_hint_keeps_only_action_keys() {
         cancellation_requested: false,
     });
 
-    assert_eq!(composer_hint(&app), "Enter queue  Esc/Ctrl+C cancel");
+    assert_eq!(
+        composer_hint(&app).to_string(),
+        "Enter queue  Esc/Ctrl+C cancel"
+    );
 
     if let Some(task) = app.running_task.take() {
         task.handle.abort();
@@ -203,7 +206,7 @@ async fn busy_composer_hint_hides_cancel_for_non_query_tasks() {
         cancellation_requested: false,
     });
 
-    assert_eq!(composer_hint(&app), "Enter queue");
+    assert_eq!(composer_hint(&app).to_string(), "Enter queue");
 
     if let Some(task) = app.running_task.take() {
         task.handle.abort();
@@ -382,7 +385,7 @@ fn composer_hint_shows_compact_queued_follow_up_when_idle() {
     app.queue_follow_up_message("second hint");
 
     assert_eq!(app.queued_follow_up_count(), 2);
-    assert_eq!(composer_hint(&app), "queued: after turn");
+    assert_eq!(composer_hint(&app).to_string(), "queued: after turn");
 }
 
 #[test]
