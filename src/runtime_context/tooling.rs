@@ -2,6 +2,7 @@ use std::collections::HashMap;
 use std::sync::{Arc, OnceLock, atomic::AtomicBool};
 
 use crate::llm::LlmBackend;
+use crate::mcp_tool_cache::McpToolCache;
 use crate::prompt::PromptRuntimeConfig;
 use crate::sandbox::SandboxManager;
 use crate::session::SessionManager;
@@ -21,6 +22,7 @@ use crate::tools::file::{
     WriteFileTool,
 };
 use crate::tools::goal::{CreateGoalTool, GetGoalTool, UpdateGoalTool};
+use crate::tools::mcp_tool_search::McpToolSearch;
 use crate::tools::patch::ApplyPatchTool;
 use crate::tools::planning::{EnterPlanModeTool, ExitPlanModeTool};
 use crate::tools::pty::{
@@ -50,6 +52,7 @@ pub(super) fn create_full_tool_manager(
     shell_env: Arc<HashMap<String, String>>,
     sandbox_network_access: Arc<AtomicBool>,
     goal_handle: GoalHandle,
+    mcp_tool_cache: McpToolCache,
 ) -> ToolManager {
     let mut tm = ToolManager::new();
     let vector_db_uri = vector_db_uri_for_workspace(&workspace);
@@ -113,6 +116,7 @@ pub(super) fn create_full_tool_manager(
     tm.register(Box::new(WebSearchTool::from_env()));
     tm.register(Box::new(GlobTool));
     tm.register(Box::new(GrepTool));
+    tm.register(Box::new(McpToolSearch::new(mcp_tool_cache)));
     tm.register(Box::new(EnterPlanModeTool));
     tm.register(Box::new(ExitPlanModeTool));
     tm.register(Box::new(TodoWriteTool));
