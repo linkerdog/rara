@@ -146,9 +146,9 @@ mod tests {
 
         assert!(rendered.contains("Updated Plan"));
         assert!(rendered.contains("note: Keep the explanation short and decision-complete."));
-        assert!(rendered.contains("✔ Inspect the current workflow"));
-        assert!(rendered.contains("□ Generalize instruction discovery"));
-        assert!(rendered.contains("□ Validate restore behavior"));
+        assert!(rendered.contains("✓ Inspect the current workflow"));
+        assert!(rendered.contains("» Generalize instruction discovery"));
+        assert!(rendered.contains("· Validate restore behavior"));
     }
 
     #[test]
@@ -167,7 +167,7 @@ mod tests {
 
         assert!(rendered.contains("Updated Plan"));
         assert!(rendered.contains("Do not claim execution in planning mode."));
-        assert!(rendered.contains("□ Capture the next implementation step"));
+        assert!(rendered.contains("· Capture the next implementation step"));
     }
 
     #[test]
