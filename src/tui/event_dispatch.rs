@@ -2,6 +2,7 @@ use std::sync::Arc;
 
 use super::app_event::AppEvent;
 use super::command::{palette_command_by_index, palette_commands};
+use super::input_control;
 #[allow(unused_imports)]
 use super::list_picker;
 use super::provider_flow::{
@@ -9,10 +10,7 @@ use super::provider_flow::{
     sync_codex_credential_from_auth_store,
 };
 use super::runtime::apply_permission_mode;
-use super::runtime::{
-    request_running_task_cancellation, start_deepseek_model_list_task, start_oauth_task,
-    start_pending_approval_task, start_rebuild_task,
-};
+use super::runtime::{start_deepseek_model_list_task, start_oauth_task, start_rebuild_task};
 use super::session_restore::restore_thread_by_id;
 use super::state::{
     ActivePendingInteractionKind, ListPickerKind, OpenAiModelPickerAction, Overlay, PermissionMode,
@@ -20,9 +18,10 @@ use super::state::{
 };
 use super::submit::{apply_openai_model_picker_action, handle_submit};
 use super::terminal_ui::is_ssh_session;
-use crate::agent::{Agent, BashApprovalDecision};
+use crate::agent::Agent;
 use crate::config::DEFAULT_CODEX_BASE_URL;
 use crate::oauth::{OAuthManager, SavedCodexAuthMode};
+use crate::runtime_control::{SessionControlRequest, ShellApprovalDecision};
 
 pub(crate) async fn dispatch_event(
     event: AppEvent,
@@ -34,7 +33,9 @@ pub(crate) async fn dispatch_event(
         AppEvent::Noop => {}
         AppEvent::OpenOverlay(overlay) => app.open_overlay(overlay),
         AppEvent::CloseOverlay => app.close_overlay(),
-        AppEvent::CancelRunningTask => request_running_task_cancellation(app),
+        AppEvent::CancelRunningTask => {
+            input_control::handle_session_control(app, SessionControlRequest::CancelCurrentTurn);
+        }
         AppEvent::ClearComposer => {
             app.input.clear();
             app.input_cursor_offset = None;
@@ -132,39 +133,29 @@ pub(crate) async fn dispatch_event(
                 match interaction.kind {
                     ActivePendingInteractionKind::PlanApproval => {
                         if let 0 | 1 = idx {
-                            if let Some(agent) = agent_slot.take() {
-                                let continue_planning = idx == 1;
-                                super::runtime::start_plan_approval_resume_task(
-                                    app,
-                                    continue_planning,
-                                    agent,
-                                );
-                            }
+                            input_control::answer_plan_approval(app, agent_slot, idx == 0);
                         }
                     }
                     ActivePendingInteractionKind::ShellApproval => {
-                        if let Some(agent) = agent_slot.take() {
-                            let selection = match idx {
-                                0 => BashApprovalDecision::Once,
-                                1 => BashApprovalDecision::Prefix,
-                                2 => BashApprovalDecision::Always,
-                                _ => BashApprovalDecision::Suggestion,
-                            };
-                            start_pending_approval_task(app, selection, agent);
-                        }
+                        let selection = match idx {
+                            0 => ShellApprovalDecision::Once,
+                            1 => ShellApprovalDecision::Prefix,
+                            2 => ShellApprovalDecision::Always,
+                            _ => ShellApprovalDecision::Suggestion,
+                        };
+                        input_control::answer_shell_approval(app, agent_slot, selection);
                     }
                     ActivePendingInteractionKind::PlanningQuestion
                     | ActivePendingInteractionKind::ExplorationQuestion
                     | ActivePendingInteractionKind::SubAgentQuestion
                     | ActivePendingInteractionKind::RequestInput => {
                         if let Some(label) = app.pending_question_option_label(idx) {
-                            if let Some(agent) = agent_slot.as_mut() {
-                                agent.consume_pending_user_input(&label);
-                                app.sync_snapshot(agent);
-                            }
-                            app.set_input(label);
-                            if handle_submit(app, agent_slot, oauth_manager).await? {
-                                return Ok(true);
+                            if let Some(agent) = agent_slot.take() {
+                                input_control::answer_pending_input(app, agent_slot, agent, label);
+                            } else {
+                                app.push_notice(
+                                    "Request input is still preparing. Try the shortcut again.",
+                                );
                             }
                         }
                     }
@@ -516,8 +507,8 @@ fn resume_pending_shell_approval_after_full_access(
         return false;
     }
 
-    if let Some(agent) = agent_slot.take() {
-        start_pending_approval_task(app, BashApprovalDecision::Once, agent);
+    if agent_slot.is_some() {
+        input_control::answer_shell_approval(app, agent_slot, ShellApprovalDecision::Once);
     } else {
         app.push_notice("Permission mode: full-access. Approval is still preparing.");
     }

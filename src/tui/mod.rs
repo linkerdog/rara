@@ -10,6 +10,7 @@ mod event_loop;
 mod event_stream;
 mod format;
 mod highlight;
+mod input_control;
 mod interaction_text;
 mod keymap;
 mod layout_utils;

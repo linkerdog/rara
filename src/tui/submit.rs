@@ -1,8 +1,9 @@
 use std::sync::Arc;
 
 use super::command::{palette_command_by_index, parse_local_command};
-use super::runtime::{execute_local_command, start_query_task};
-use super::state::{LocalCommandKind, OpenAiModelPickerAction, Overlay, TaskKind, TuiApp};
+use super::input_control;
+use super::runtime::execute_local_command;
+use super::state::{LocalCommandKind, OpenAiModelPickerAction, Overlay, TuiApp};
 use crate::agent::Agent;
 
 mod pending;
@@ -52,28 +53,7 @@ pub(crate) async fn handle_submit(
                 "A task is already running. Wait for it to finish before running a slash command.",
             );
         } else {
-            let pending_for_tool_boundary = app
-                .running_task
-                .as_ref()
-                .is_some_and(|task| matches!(&task.kind, TaskKind::Query));
-            let queued = if pending_for_tool_boundary {
-                app.queue_follow_up_message_after_next_tool_boundary(trimmed.clone())
-            } else {
-                app.queue_follow_up_message(trimmed.clone())
-            };
-            let suffix = if queued > 1 {
-                format!(" {queued} follow-up messages are queued.")
-            } else {
-                " 1 follow-up message is queued.".to_string()
-            };
-            app.notice = Some(format!(
-                "{}{suffix}",
-                if pending_for_tool_boundary {
-                    "Queued for after the next tool call boundary."
-                } else {
-                    "Queued for after the current task finishes."
-                }
-            ));
+            input_control::submit_user_prompt(app, agent_slot, trimmed);
         }
         return Ok(false);
     }
@@ -93,25 +73,8 @@ pub(crate) async fn handle_submit(
         app.push_notice(format!("Unknown command '{}'. Use /help.", trimmed));
     } else if pending::handle_pending_option_submit(app, agent_slot, &trimmed) {
         return Ok(false);
-    } else if app.active_pending_interaction().is_some() && app.pending_request_input().is_none() {
-        let queued = app.queue_follow_up_message(trimmed.clone());
-        let suffix = if queued > 1 {
-            format!(" {queued} follow-up messages are queued.")
-        } else {
-            " 1 follow-up message is queued.".to_string()
-        };
-        app.notice = Some(format!(
-            "Queued until the pending interaction is answered.{suffix}"
-        ));
-        return Ok(false);
-    } else if let Some(agent) = agent_slot.take() {
-        if app.pending_request_input().is_some() {
-            pending::handle_request_input_answer(app, agent_slot, agent, trimmed);
-            return Ok(false);
-        }
-        let prompt = trimmed;
-        app.clear_pending_planning_suggestion();
-        start_query_task(app, prompt, agent);
+    } else {
+        input_control::submit_user_prompt(app, agent_slot, trimmed);
     }
     Ok(false)
 }

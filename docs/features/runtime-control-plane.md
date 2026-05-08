@@ -174,6 +174,15 @@ editing are UI state, not agent input. If an appserver later needs remote UI
 control, it should use a separate UI-control request family such as
 `CloseOverlay` instead of overloading input control.
 
+When queued input is blocked behind a long-running turn, protocol adapters may
+request explicit preemption through `SessionControlRequest::InterruptCurrentTurn`
+or `SessionControlRequest::CancelCurrentTurn`. This is the protocol equivalent
+of the local busy-turn `Esc` behavior, but it remains a semantic runtime intent:
+the runtime decides whether the active task can be interrupted, records the
+state transition, and only then accepts or rejects later input. Adapters must
+not simulate terminal key presses or silently reorder queued input to force a
+pause.
+
 The runtime needs a single input-control handler that can be called by the local
 TUI and protocol adapters. It should reuse the same pending-interaction state,
 queue policy, approval policy, and cancellation path that the TUI uses today.
@@ -182,6 +191,15 @@ runtime accepts or applies the semantic action. For example, a queued follow-up
 event is emitted when the follow-up is actually queued, and a pending-input
 answered event is emitted when the answer is applied to the active pending
 interaction.
+
+The first runtime slice introduces the local semantic handler in the TUI path:
+composer submit, queued follow-up, pending-input answers, plan approval, shell
+approval, and cancel requests are routed through input-control helpers before
+mutating `TuiApp`. This keeps local behavior intact while creating the seam that
+future appserver, ACP, and Wire adapters should call. The next slice should move
+the handler behind a protocol-neutral runtime handle so
+`control_plane::dispatch` can process `RuntimeControlRequest::Input` and
+`SessionControlRequest::CancelCurrentTurn` without depending on TUI internals.
 
 ### Output Subscription
 
@@ -423,6 +441,22 @@ runtime must still decide when the input is safely consumed. The Wire adapter
 should emit the corresponding consumed-input event only after the follow-up has
 actually been appended to the next model step, not when the client request is
 merely accepted.
+
+RARA should also ship a `support-acp` integration skill for IDE and third-party
+application authors. This skill is documentation and workflow guidance, not a
+runtime shortcut. It should explain how to:
+
+- start or attach to RARA's ACP surface;
+- submit prompts, follow-ups, pending-input answers, approval decisions, and
+  cancellation/preemption through semantic runtime-control requests;
+- subscribe to structured output events instead of scraping TUI text;
+- register prompt, memory, skill, hook, or MCP context sources without breaking
+  stable prompt-prefix ordering;
+- handle queue backpressure, turn interruption, and approval prompts safely;
+- test adapter behavior with replayable fixtures.
+
+The skill should be updated alongside ACP/control-plane behavior changes so IDE
+integrations do not infer behavior from internal TUI implementation details.
 
 ## Observability
 
