@@ -110,7 +110,7 @@ Active backlog only. Keep this file small and current.
 - [x] Add the first `RetrievalSourceProvider` boundary for current memory, session, thread-history, vector-slot, tool-result, and file-search candidates.
 - [ ] Add `RetrievalSourceProvider` implementations for MCP resource, hook, and graph sources after the current memory/session/file path is stable.
 - [x] Initialize LanceDB and wire FTS/vector/hybrid search paths behind the existing memory index façade.
-- [ ] Make memory mutation/query control-plane-ready so ACP/Wire can inspect and add memory without directly editing prompt text.
+- [x] Make memory mutation/query control-plane-ready so ACP/Wire can inspect and add memory without directly editing prompt text.
 
 ## TUI / Transcript
 
