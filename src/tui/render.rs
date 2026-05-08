@@ -181,8 +181,8 @@ fn transcript_visual_row_count(lines: &[Line<'static>], width: u16) -> usize {
 fn turn_divider_line(width: u16) -> Line<'static> {
     let divider_width = usize::from(width.max(8));
     Line::from(Span::styled(
-        "─".repeat(divider_width),
-        Style::default().fg(Color::DarkGray),
+        format!(" {}", "─".repeat(divider_width.saturating_sub(2))),
+        Style::default().fg(TEXT_MUTED),
     ))
 }
 

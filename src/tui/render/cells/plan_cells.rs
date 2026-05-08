@@ -19,7 +19,7 @@ use crate::tui::queued_input::{
 use crate::tui::render::diff::render_patch_preview;
 use crate::tui::render::{
     display_width, formatted_message_lines, prefixed_message_lines, rendered_markdown_lines,
-    section_span, startup_card_inner_width, truncate_for_startup_card, truncate_path_middle,
+    section_label, startup_card_inner_width, truncate_for_startup_card, truncate_path_middle,
     with_border,
 };
 use crate::tui::state::{ActivePendingInteractionKind, TuiApp};
@@ -55,7 +55,7 @@ impl PlanningSuggestionCell {
 
 impl HistoryCell for PlanningSuggestionCell {
     fn display_lines(&self, _width: u16) -> Vec<Line<'static>> {
-        let mut lines = vec![Line::from(section_span(
+        let mut lines = vec![Line::from(section_label(
             "Planning Suggested",
             PHASE_PLANNING,
         ))];
@@ -72,7 +72,7 @@ pub(crate) struct PlanModeCell;
 
 impl HistoryCell for PlanModeCell {
     fn display_lines(&self, _width: u16) -> Vec<Line<'static>> {
-        vec![Line::from(section_span("Plan Mode", PHASE_PLANNING))]
+        vec![Line::from(section_label("Plan Mode", PHASE_PLANNING))]
     }
 }
 

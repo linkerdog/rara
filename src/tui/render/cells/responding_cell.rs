@@ -19,7 +19,7 @@ use crate::tui::queued_input::{
 use crate::tui::render::diff::render_patch_preview;
 use crate::tui::render::{
     display_width, formatted_message_lines, prefixed_message_lines, rendered_markdown_lines,
-    section_span, startup_card_inner_width, truncate_for_startup_card, truncate_path_middle,
+    section_label, startup_card_inner_width, truncate_for_startup_card, truncate_path_middle,
     with_border,
 };
 use crate::tui::state::{ActivePendingInteractionKind, TuiApp};
@@ -227,7 +227,7 @@ fn responding_card_lines(
         .unwrap_or(1)
         .clamp(1, available_inner_width.max(1));
 
-    let mut lines = vec![Line::from(section_span(title, PHASE_PLANNING))];
+    let mut lines = vec![Line::from(section_label(title, PHASE_PLANNING))];
     lines.extend(with_border(body_lines, inner_width));
     lines
 }

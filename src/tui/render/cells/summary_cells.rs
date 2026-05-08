@@ -19,7 +19,7 @@ use crate::tui::queued_input::{
 use crate::tui::render::diff::render_patch_preview;
 use crate::tui::render::{
     display_width, formatted_message_lines, prefixed_message_lines, rendered_markdown_lines,
-    section_span, startup_card_inner_width, truncate_for_startup_card, truncate_path_middle,
+    section_label, startup_card_inner_width, truncate_for_startup_card, truncate_path_middle,
     with_border,
 };
 use crate::tui::state::{ActivePendingInteractionKind, TuiApp};
@@ -44,7 +44,7 @@ impl SummaryCell {
 
 impl HistoryCell for SummaryCell {
     fn display_lines(&self, width: u16) -> Vec<Line<'static>> {
-        let mut lines = vec![Line::from(section_span(self.title, self.color))];
+        let mut lines = vec![Line::from(section_label(self.title, self.color))];
         let mut summary_lines = self.summary.lines();
         while let Some(line) = summary_lines.next() {
             if line.trim_start() == "diff:" {

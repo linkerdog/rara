@@ -19,7 +19,7 @@ use crate::tui::queued_input::{
 use crate::tui::render::diff::render_patch_preview;
 use crate::tui::render::{
     display_width, formatted_message_lines, prefixed_message_lines, rendered_markdown_lines,
-    section_span, startup_card_inner_width, truncate_for_startup_card, truncate_path_middle,
+    section_label, startup_card_inner_width, truncate_for_startup_card, truncate_path_middle,
     with_border,
 };
 use crate::tui::state::{ActivePendingInteractionKind, TuiApp};
@@ -244,7 +244,7 @@ impl ApprovalCell {
 
 impl HistoryCell for ApprovalCell {
     fn display_lines(&self, _width: u16) -> Vec<Line<'static>> {
-        let mut lines = vec![Line::from(section_span(self.title, self.color))];
+        let mut lines = vec![Line::from(section_label(self.title, self.color))];
         lines.extend(
             self.lines
                 .iter()
@@ -292,7 +292,7 @@ impl PlanningSuggestionCell {
 
 impl HistoryCell for PlanningSuggestionCell {
     fn display_lines(&self, _width: u16) -> Vec<Line<'static>> {
-        let mut lines = vec![Line::from(section_span(
+        let mut lines = vec![Line::from(section_label(
             "Planning Suggested",
             PHASE_PLANNING,
         ))];
@@ -333,7 +333,7 @@ impl HistoryCell for QueuedFollowUpCell {
                     String::new()
                 };
                 Line::from(vec![
-                    section_span("Queued", PHASE_PLANNING),
+                    section_label("Queued", PHASE_PLANNING),
                     Span::raw(format!(" · {phase} · {}{remaining}", section.preview)),
                 ])
             })

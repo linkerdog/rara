@@ -114,14 +114,9 @@ pub(crate) fn badge<'a>(label: &'a str, value: &'a str, color: Color) -> Span<'a
     )
 }
 
-pub(crate) fn section_span<'a>(title: &'a str, color: Color) -> Span<'a> {
-    Span::styled(
-        format!(" {} ", title),
-        Style::default()
-            .fg(Color::Black)
-            .bg(color)
-            .add_modifier(Modifier::BOLD),
-    )
+/// Lightweight section label — colored foreground, no heavy background badge.
+pub(crate) fn section_label(title: &str, color: Color) -> Span<'static> {
+    Span::styled(format!("# {title}"), Style::default().fg(color))
 }
 
 pub(crate) fn wrapped_history_line_count(lines: &[Line<'static>], width: u16) -> u16 {

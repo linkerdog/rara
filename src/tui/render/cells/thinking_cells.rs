@@ -6,7 +6,7 @@ use ratatui::{
 use super::HistoryCell;
 use super::responding_cell::markdown_body_lines;
 use crate::tui::markdown_render::render_markdown_text_with_width;
-use crate::tui::render::section_span;
+use crate::tui::render::section_label;
 use crate::tui::theme::*;
 
 pub(crate) struct ThinkingTextCell {
@@ -30,7 +30,7 @@ impl HistoryCell for ThinkingTextCell {
         let rendered_lines = rendered.lines;
         let start = rendered_lines.len().saturating_sub(self.max_lines);
         let body = markdown_body_lines(&rendered_lines[start..], self.max_lines);
-        let mut lines = vec![Line::from(section_span("Thinking", PHASE_THINKING))];
+        let mut lines = vec![Line::from(section_label("Thinking", PHASE_THINKING))];
         if start > 0 {
             lines.push(Line::from(Span::styled(
                 format!("  ... {start} more line(s)"),
@@ -79,7 +79,7 @@ impl HistoryCell for ThinkingGroupCell<'_> {
 
         let start = rendered_lines.len().saturating_sub(self.max_lines);
         let body = markdown_body_lines(&rendered_lines[start..], self.max_lines);
-        let mut lines = vec![Line::from(section_span("Thinking", PHASE_THINKING))];
+        let mut lines = vec![Line::from(section_label("Thinking", PHASE_THINKING))];
         if start > 0 {
             lines.push(Line::from(Span::styled(
                 format!("  ... {start} more line(s)"),

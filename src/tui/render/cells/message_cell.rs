@@ -19,7 +19,7 @@ use crate::tui::queued_input::{
 use crate::tui::render::diff::render_patch_preview;
 use crate::tui::render::{
     display_width, formatted_message_lines, prefixed_message_lines, rendered_markdown_lines,
-    section_span, startup_card_inner_width, truncate_for_startup_card, truncate_path_middle,
+    section_label, startup_card_inner_width, truncate_for_startup_card, truncate_path_middle,
     with_border,
 };
 use crate::tui::state::{ActivePendingInteractionKind, TuiApp};
