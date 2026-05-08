@@ -2,16 +2,21 @@ use std::path::Path;
 
 use ratatui::text::Line;
 
-use super::components::{
-    CommittedInteractionCell, ExploringCell, MessageCell, PendingInteractionCell, PlanModeCell,
-    PlanSummaryCell, PlanningCell, PlanningSuggestionCell, QueuedFollowUpCell, RespondingCell,
-    RunningCell, UserCell, planning_suggestion_text,
+use super::interaction_cells::{
+    CommittedInteractionCell, PendingInteractionCell, QueuedFollowUpCell,
 };
+use super::message_cell::MessageCell;
 use super::plan::{compact_live_response_message, parse_render_plan_block};
+use super::plan_cells::{
+    PlanModeCell, PlanSummaryCell, PlanningSuggestionCell, planning_suggestion_text,
+};
 use super::progress::{
     ProgressRole, explicit_progress_entry_groups, push_live_events, push_progress_group,
 };
+use super::responding_cell::RespondingCell;
+use super::summary_cells::{ExploringCell, PlanningCell, RunningCell};
 use super::terminal::terminal_cell_from_entries;
+use super::user_startup::UserCell;
 use super::{
     ActiveCell, HistoryCell, InteractionCompletionKind, OrderedActiveSegment, completion_role_kind,
     is_progress_stack_title, is_renderable_system_message, ordered_exploration_agent_segments,

@@ -6,12 +6,30 @@ use crate::tui::state::TranscriptEntry;
 mod active_turn;
 #[path = "committed_turn.rs"]
 mod committed_turn;
-#[path = "cells_components.rs"]
-mod components;
+mod interaction_cells;
+mod message_cell;
+mod plan_cells;
+mod responding_cell;
+mod summary_cells;
+mod thinking_cells;
 mod tool_progress;
+mod user_startup;
 
 pub(crate) use self::active_turn::ActiveTurnCell;
-pub(crate) use self::components::StartupCardCell;
+pub(crate) use self::committed_turn::CommittedTurnCell;
+pub(crate) use self::interaction_cells::{
+    CommittedInteractionCell, PendingInteractionCell, QueuedFollowUpCell, TerminalCell,
+};
+pub(crate) use self::message_cell::MessageCell;
+pub(crate) use self::plan_cells::{
+    PlanModeCell, PlanSummaryCell, PlanningSuggestionCell, planning_suggestion_text,
+};
+pub(crate) use self::responding_cell::RespondingCell;
+pub(crate) use self::summary_cells::{
+    ExploredCell, ExploringCell, PlanningCell, RanCell, RunningCell,
+};
+pub(crate) use self::thinking_cells::{ThinkingGroupCell, ThinkingTextCell};
+pub(crate) use self::user_startup::{StartupCardCell, UserCell};
 use super::wrapped_history_line_count;
 
 pub(crate) trait HistoryCell {
@@ -196,8 +214,6 @@ impl InteractionCompletionKind {
 pub(super) fn completion_role_kind(role: &str) -> Option<InteractionCompletionKind> {
     InteractionCompletionKind::from_role(role)
 }
-
-pub(crate) use self::committed_turn::CommittedTurnCell;
 
 #[cfg(test)]
 mod helper_tests {

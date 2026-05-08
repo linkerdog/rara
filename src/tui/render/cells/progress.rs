@@ -4,9 +4,8 @@ use super::super::{
     compact_progress_summary_lines, compact_recent_first_summary_lines, compact_summary_lines,
 };
 use super::HistoryCell;
-use super::components::{
-    ExploringCell, PlanningCell, RunningCell, ThinkingGroupCell, ThinkingTextCell,
-};
+use super::summary_cells::{ExploringCell, PlanningCell, RunningCell};
+use super::thinking_cells::{ThinkingGroupCell, ThinkingTextCell};
 use crate::tui::state::{ActiveLiveEvent, TranscriptEntry};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]

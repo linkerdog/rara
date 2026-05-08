@@ -83,19 +83,13 @@ fn render_transcript(f: &mut Frame, app: &TuiApp, area: Rect) {
     let viewport = transcript_viewport(app, area.width, area.height);
     if !app.has_any_transcript() && viewport.lines.is_empty() {
         let lines = vec![
-            Line::from(Span::styled(
-                "Ready.",
-                Style::default()
-                    .fg(Color::Cyan)
-                    .add_modifier(Modifier::BOLD),
-            )),
-            Line::from("Use the input bar below to start a task or run a local command."),
+            Line::from("Ready."),
+            Line::from(Span::styled("──", Style::default().fg(TEXT_SECONDARY))),
+            Line::from("Type a message to start a task or run a local command."),
             Line::from(""),
             Line::from(Span::styled(
                 "Start with:",
-                Style::default()
-                    .fg(Color::LightBlue)
-                    .add_modifier(Modifier::BOLD),
+                Style::default().fg(TEXT_ACCENT),
             )),
             Line::from("  /help    browse built-in commands and runtime hints"),
             Line::from("  /model   choose provider first, then switch models"),
@@ -104,12 +98,10 @@ fn render_transcript(f: &mut Frame, app: &TuiApp, area: Rect) {
             Line::from(""),
             Line::from(Span::styled(
                 "Prompt ideas:",
-                Style::default()
-                    .fg(Color::Yellow)
-                    .add_modifier(Modifier::BOLD),
+                Style::default().fg(ROLE_USER),
             )),
-            Line::from("  Explain this repository structure."),
-            Line::from("  Find the main agent loop and summarize it."),
+            Line::from("  · Explain this repository structure."),
+            Line::from("  · Find the main agent loop and summarize it."),
         ];
         f.render_widget(Paragraph::new(lines).wrap(Wrap { trim: false }), area);
         return;
