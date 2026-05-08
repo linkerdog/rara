@@ -8,15 +8,10 @@
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
-/// A single MCP tool available for search.
-#[derive(Debug, Clone)]
-pub struct McpToolRecord {
-    pub name: String,
-    pub server: String,
-    pub display_name: String,
-    pub description: String,
-    pub input_schema: serde_json::Value,
-}
+use rara_mcp_client::McpToolRecord;
+
+use crate::config::McpRegistry;
+use crate::config::McpServerTransport;
 
 /// In-memory cache of MCP tool records, keyed by server name.
 /// Wrapped in Arc<Mutex<...>> for shared access across tool handlers.
@@ -51,7 +46,7 @@ impl McpToolCache {
                 }
             }
         }
-        results.truncate(10); // cap at 10 results
+        results.truncate(10);
         results
     }
 
@@ -61,10 +56,43 @@ impl McpToolCache {
         map.clear();
     }
 
-    /// Return true if any tools are cached (used to decide prompt injection).
     pub fn is_empty(&self) -> bool {
         let map = self.tools.lock().unwrap();
         map.is_empty()
+    }
+
+    /// Connect to all configured MCP stdio servers and populate the cache.
+    /// Call once at startup; the registry tells us which servers to connect to.
+    pub async fn populate_from_registry(&self, registry: &McpRegistry) {
+        for (name, entry) in &registry.servers {
+            // Only handle stdio transport for now.
+            let (command, args, env, cwd) = match &entry.config.transport {
+                McpServerTransport::Stdio {
+                    command,
+                    args,
+                    env,
+                    cwd,
+                } => {
+                    let cmd = std::ffi::OsString::from(command);
+                    let argv: Vec<std::ffi::OsString> = args.iter().map(|a| a.into()).collect();
+                    let env_map: HashMap<String, String> = env
+                        .clone()
+                        .map(|m| m.into_iter().collect())
+                        .unwrap_or_default();
+                    (cmd, argv, env_map, cwd.clone())
+                }
+                _ => continue, // skip HTTP MCP servers for now
+            };
+
+            match rara_mcp_client::list_stdio_tools(command, args, env, cwd).await {
+                Ok(tools) => {
+                    self.insert_server_tools(name.clone(), tools);
+                }
+                Err(e) => {
+                    eprintln!("[mcp-tool-cache] Failed to list tools from {name}: {e}");
+                }
+            }
+        }
     }
 
     /// For testing: shared Arc clone.
