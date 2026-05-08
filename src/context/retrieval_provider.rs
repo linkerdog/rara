@@ -23,6 +23,7 @@ pub(crate) fn retrieval_candidates(
     request: &RetrievalRequest<'_>,
     retrieved_memory_candidates: &[RetrievedMemoryCandidate],
     file_search_candidates: &[RetrievalCandidate],
+    mcp_resource_candidates: &[RetrievalCandidate],
 ) -> Vec<RetrievalCandidate> {
     let _query = request.query;
     let mut candidates = Vec::new();
@@ -35,6 +36,9 @@ pub(crate) fn retrieval_candidates(
     let file_search = PrecomputedFileSearchProvider {
         candidates: file_search_candidates,
     };
+    let mcp_resources = PrecomputedMcpResourceProvider {
+        candidates: mcp_resource_candidates,
+    };
 
     let _source_order = [
         direct_memory.source_kind(),
@@ -42,12 +46,14 @@ pub(crate) fn retrieval_candidates(
         thread_history.source_kind(),
         vector_memory.source_kind(),
         file_search.source_kind(),
+        mcp_resources.source_kind(),
     ];
     candidates.extend(direct_memory.candidates(request));
     candidates.extend(retrieval_tools.candidates(request));
     candidates.extend(thread_history.candidates(request));
     candidates.extend(vector_memory.candidates(request));
     candidates.extend(file_search.candidates(request));
+    candidates.extend(mcp_resources.candidates(request));
     candidates
 }
 
@@ -79,6 +85,88 @@ impl RetrievalSourceProvider for PrecomputedFileSearchProvider<'_> {
 
     fn candidates(&self, _request: &RetrievalRequest<'_>) -> Vec<RetrievalCandidate> {
         self.candidates.to_vec()
+    }
+}
+
+pub(crate) struct PrecomputedMcpResourceProvider<'a> {
+    candidates: &'a [RetrievalCandidate],
+}
+
+impl RetrievalSourceProvider for PrecomputedMcpResourceProvider<'_> {
+    fn source_kind(&self) -> &'static str {
+        "mcp_resource"
+    }
+
+    fn candidates(&self, _request: &RetrievalRequest<'_>) -> Vec<RetrievalCandidate> {
+        self.candidates.to_vec()
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct McpResourceReference {
+    pub server_name: String,
+    pub uri: String,
+    pub title: Option<String>,
+    pub mime_type: Option<String>,
+    pub token_estimate: Option<usize>,
+    pub scope: Option<String>,
+    pub source_path: Option<String>,
+}
+
+pub(crate) fn mcp_resource_candidate(
+    reference: McpResourceReference,
+    rank: usize,
+) -> RetrievalCandidate {
+    let label = reference
+        .title
+        .clone()
+        .filter(|title| !title.trim().is_empty())
+        .unwrap_or_else(|| reference.uri.clone());
+    let mime = reference.mime_type.as_deref().unwrap_or("unknown");
+    let scope = reference.scope.unwrap_or_else(|| "workspace".to_string());
+    let source_path = reference.source_path.clone();
+    let detail = format!(
+        "server={} uri={} mime={} source={}",
+        reference.server_name,
+        reference.uri,
+        mime,
+        source_path.as_deref().unwrap_or("-")
+    );
+    RetrievalCandidate {
+        id: format!(
+            "mcp_resource:{}:{}",
+            reference.server_name,
+            stable_retrieval_text_id(&reference.uri)
+        ),
+        source: RetrievalSourceRef {
+            source_type: "mcp_resource".to_string(),
+            source_id: Some(reference.server_name.clone()),
+            source_path,
+            source_uri: Some(reference.uri.clone()),
+            session_id: None,
+            thread_id: None,
+            workspace_id: None,
+        },
+        kind: "mcp_resource".to_string(),
+        scope,
+        label,
+        detail,
+        summary: None,
+        rank,
+        score: None,
+        priority: 50 + rank,
+        dedupe_key: Some(format!("mcp_resource:{}", reference.uri)),
+        budget_impact_tokens: reference.token_estimate,
+        selection_reason:
+            "selected because an MCP resource reference was explicitly supplied for the current turn"
+                .to_string(),
+        availability_reason:
+            "available because an MCP resource reference was registered as a context source"
+                .to_string(),
+        not_selected_reason:
+            "not selected because MCP resource bodies are referenced through /context until an explicit resource content loader is available"
+                .to_string(),
+        selectable: false,
     }
 }
 
@@ -605,7 +693,20 @@ mod tests {
         assert_eq!(memory_provider.source_kind(), "retrieved_memory");
         assert_eq!(file_provider.source_kind(), "file_search");
 
-        let candidates = retrieval_candidates(&request, &retrieved, &file);
+        let resource = mcp_resource_candidate(
+            McpResourceReference {
+                server_name: "docs".to_string(),
+                uri: "mcp://docs/rara".to_string(),
+                title: Some("RARA Docs".to_string()),
+                mime_type: Some("text/markdown".to_string()),
+                token_estimate: Some(17),
+                scope: Some("project".to_string()),
+                source_path: Some("/workspace/.mcp.json".to_string()),
+            },
+            1,
+        );
+
+        let candidates = retrieval_candidates(&request, &retrieved, &file, &[resource]);
 
         assert_eq!(
             candidates
@@ -616,11 +717,18 @@ mod tests {
                 RETRIEVED_WORKSPACE_MEMORY_KIND,
                 "thread_history",
                 "vector_memory",
-                "file_search"
+                "file_search",
+                "mcp_resource"
             ]
         );
         assert_eq!(candidates[0].source.source_type, "memory_record");
         assert_eq!(candidates[3].source.source_type, "file_search");
+        assert_eq!(candidates[4].source.source_type, "mcp_resource");
+        assert_eq!(
+            candidates[4].source.source_uri.as_deref(),
+            Some("mcp://docs/rara")
+        );
+        assert!(!candidates[4].selectable);
     }
 
     #[test]
