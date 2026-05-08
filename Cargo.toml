@@ -11,6 +11,7 @@ members = [
     "crates/terminal-detection",
     "crates/tool-macros",
     "crates/rara-persistence",
+    "crates/rara-mcp-client",
 ]
 resolver = "2"
 
@@ -29,6 +30,7 @@ toml = "1.1.2"
 tempfile = "3.17"
 ignore = "0.4.23"
 nucleo = { git = "https://github.com/helix-editor/nucleo.git", rev = "4253de9faabb4e5c6d81d946a5e35a90f87347ee" }
+rmcp = { version = "1.6", features = ["client", "transport-child-process"] }
 codex-execpolicy = { git = "https://github.com/openai/codex", package = "codex-execpolicy", rev = "637f7dd6d737f3961e6bf32fbb3861c4953269c5" }
 
 [package]
@@ -38,6 +40,7 @@ edition = "2024"
 
 [dependencies]
 rara-persistence = { path = "crates/rara-persistence" }
+rara-mcp-client = { path = "crates/rara-mcp-client" }
 tokio = { version = "1.0", features = ["full"] }
 tokio-util = { version = "0.7", features = ["compat"] }
 clap = { version = "4.0", features = ["derive", "env"] }
