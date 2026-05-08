@@ -507,7 +507,9 @@ mod tests {
             runtime_context.prompt.append_system_prompt.as_deref(),
             Some("appendix")
         );
-        assert_eq!(runtime_context.retrieval.entries.len(), 3);
+        assert_eq!(runtime_context.retrieval.entries.len(), 4);
+        assert_eq!(runtime_context.retrieval.entries[3].kind, "mcp_resource");
+        assert_eq!(runtime_context.retrieval.entries[3].status, "missing");
         assert_eq!(runtime_context.compaction.source_entries.len(), 1);
         assert_eq!(
             runtime_context.observability.cache.hit_rate_basis_points,
