@@ -272,3 +272,7 @@ fn format_token_count(n: usize) -> String {
         n.to_string()
     }
 }
+
+#[cfg(test)]
+#[path = "sidebar_tests.rs"]
+mod tests;
