@@ -98,6 +98,8 @@ Daily and pull-request CI now includes:
 
 Windows tests are intentionally not part of the first daily CI slice. The
 release workflow still owns Windows archive packaging and native smoke tests.
+SQLite is built through `rusqlite`'s bundled feature so Windows builds do not
+depend on a runner-provided `sqlite3.lib`.
 
 `.github/workflows/release.yml` implements the first release slice:
 
