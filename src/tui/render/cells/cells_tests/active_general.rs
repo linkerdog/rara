@@ -54,7 +54,7 @@ fn active_turn_cell_keeps_sections_in_stable_order() {
     let exploring_idx = rendered.find("# Exploring").unwrap();
     let running_idx = rendered.find("# Running").unwrap();
     let plan_idx = rendered.find("Updated Plan").unwrap();
-    let approval_idx = rendered.find(" Request Input ").unwrap();
+    let approval_idx = rendered.find("# Request Input").unwrap();
 
     assert!(rendered.contains("List src"));
     assert!(you_idx < running_idx);
@@ -129,7 +129,7 @@ fn active_turn_cell_renders_progress_sections_as_compact_stack() {
 
     let plan_mode_idx = rendered_lines
         .iter()
-        .position(|line| line.contains(" Plan Mode "))
+        .position(|line| line.contains("# Plan Mode"))
         .unwrap();
     let exploring_idx = rendered_lines
         .iter()
@@ -144,9 +144,9 @@ fn active_turn_cell_renders_progress_sections_as_compact_stack() {
         .position(|line| line.contains("# Running"))
         .unwrap();
 
-    assert_eq!(exploring_idx, plan_mode_idx + 1);
-    assert_eq!(planning_idx, exploring_idx + 2);
-    assert_eq!(running_idx, planning_idx + 2);
+    assert_eq!(exploring_idx, plan_mode_idx + 2);
+    assert_eq!(planning_idx, exploring_idx + 3);
+    assert_eq!(running_idx, planning_idx + 3);
 }
 
 #[test]
@@ -307,7 +307,7 @@ fn active_turn_cell_renders_planning_suggestion_without_active_turn_entries() {
         .join("\n");
 
     assert!(rendered.contains("Review this repository and propose changes."));
-    assert!(rendered.contains(" Planning Suggested "));
+    assert!(rendered.contains("# Planning Suggested"));
     assert!(rendered.contains("Enter planning mode"));
     assert!(rendered.contains("Continue in execute mode"));
 }
@@ -702,7 +702,7 @@ fn active_turn_cell_suppresses_planning_chatter_when_exploring() {
         .collect::<Vec<_>>()
         .join("\n");
 
-    assert!(rendered.contains(" Plan Mode "));
+    assert!(rendered.contains("# Plan Mode"));
     assert!(rendered.contains("# Exploring"));
     assert!(!rendered.contains("Responding"));
     assert!(!rendered.contains("I will now read crates/instructions/src/prompt.rs"));

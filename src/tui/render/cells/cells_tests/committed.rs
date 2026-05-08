@@ -387,8 +387,8 @@ fn committed_turn_cell_orders_completion_records_by_interaction_kind() {
         .join("\n");
 
     let shell_idx = rendered.find("# Shell Approval Completed").unwrap();
-    let planning_question_idx = rendered.find(" Planning Question Answered ").unwrap();
-    let generic_question_idx = rendered.find(" Question Answered ").unwrap();
+    let planning_question_idx = rendered.find("# Planning Question Answered").unwrap();
+    let generic_question_idx = rendered.find("# Question Answered").unwrap();
     let agent_idx = rendered
         .find("• Here is the final narrative summary.")
         .unwrap();
@@ -396,7 +396,7 @@ fn committed_turn_cell_orders_completion_records_by_interaction_kind() {
     assert!(shell_idx < planning_question_idx);
     assert!(planning_question_idx < generic_question_idx);
     assert!(generic_question_idx < agent_idx);
-    assert!(!rendered.contains(" Plan Decision "));
+    assert!(!rendered.contains("# Plan Decision"));
 }
 
 #[test]

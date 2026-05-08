@@ -378,13 +378,7 @@ impl HistoryCell for CommittedInteractionCell {
 impl HistoryCell for CompletionCell {
     fn display_lines(&self, _width: u16) -> Vec<Line<'static>> {
         vec![
-            Line::from(Span::styled(
-                format!(" {} ", self.title),
-                Style::default()
-                    .fg(BADGE_FG_LIGHT)
-                    .bg(self.color)
-                    .add_modifier(Modifier::BOLD),
-            )),
+            Line::from(section_label(&self.title, self.color)),
             Line::from(format!("  {}", self.summary)),
         ]
     }
