@@ -90,13 +90,14 @@ jobs should not run unless the release assets exist.
 
 ## Current Pipeline
 
-Daily and pull-request CI now includes:
+Pull-request CI includes:
 
 - Linux build, fmt, clippy, and test jobs on `ubuntu-latest`;
-- a Windows build gate on `windows-latest` using the pinned Rust toolchain and
-  `cargo build --locked`.
 
-Windows tests are intentionally not part of the first daily CI slice. The
+Post-merge CI additionally includes a Windows build gate on `windows-latest`
+using the pinned Rust toolchain and `cargo build --locked`.
+
+Windows tests are intentionally not part of the first post-merge CI slice. The
 release workflow still owns Windows archive packaging and native smoke tests.
 SQLite is built through `rusqlite`'s bundled feature so Windows builds do not
 depend on a runner-provided `sqlite3.lib`.
