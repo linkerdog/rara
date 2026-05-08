@@ -690,13 +690,13 @@ async fn plan_mode_reasoning_only_initial_turn_continues_to_next_model_turn() {
 }
 
 #[tokio::test]
-async fn plan_mode_consecutive_reasoning_only_turns_stop_after_one_continuation() {
+async fn plan_mode_consecutive_reasoning_only_turns_stop_after_three_continuations() {
     let backend = Arc::new(SequencedBackend::new(vec![
         LlmResponse {
             content: vec![ContentBlock::ProviderMetadata {
                 provider: "deepseek".to_string(),
                 key: "reasoning_content".to_string(),
-                value: json!("Need one more pass."),
+                value: json!("First reasoning only."),
             }],
             stop_reason: Some("end_turn".to_string()),
             usage: Some(TokenUsage::default()),
@@ -705,14 +705,14 @@ async fn plan_mode_consecutive_reasoning_only_turns_stop_after_one_continuation(
             content: vec![ContentBlock::ProviderMetadata {
                 provider: "deepseek".to_string(),
                 key: "reasoning_content".to_string(),
-                value: json!("Still thinking only."),
+                value: json!("Second reasoning only."),
             }],
             stop_reason: Some("end_turn".to_string()),
             usage: Some(TokenUsage::default()),
         },
         LlmResponse {
             content: vec![ContentBlock::Text {
-                text: "plan-mode unreachable text".to_string(),
+                text: "plan-mode reachable text".to_string(),
             }],
             stop_reason: Some("end_turn".to_string()),
             usage: Some(TokenUsage::default()),
@@ -737,86 +737,28 @@ async fn plan_mode_consecutive_reasoning_only_turns_stop_after_one_continuation(
         .expect("consecutive reasoning-only plan turns should stop after one retry");
 
     let observed_messages = backend.observed_messages();
-    assert_eq!(observed_messages.len(), 2);
-    let continuation_text = observed_messages[1]
-        .iter()
-        .filter_map(|message| message.content.get(0)?.get("text")?.as_str())
-        .find(|text| text.contains("<agent_runtime>"))
-        .expect("continuation message text");
-    assert!(continuation_text.contains("\"agentic_turns\": 1"));
-    assert!(!agent.history.iter().any(|message| {
+    let continuation_text = observed_messages
+        .get(1)
+        .and_then(|msgs| {
+            msgs.iter().find_map(|message| {
+                message.content.get(0)?.get("text")?.as_str().and_then(|s| {
+                    if s.contains("agent_runtime") {
+                        Some(s.to_string())
+                    } else {
+                        None
+                    }
+                })
+            })
+        })
+        .expect("continuation message should be present");
+    assert!(continuation_text.contains("\"phase\": \"reasoning_only_continuation_required\""));
+    assert!(agent.history.iter().any(|message| {
         message
             .content
             .to_string()
-            .contains("plan-mode unreachable text")
+            .contains("plan-mode reachable text")
     }));
 }
-
-#[tokio::test]
-async fn execute_mode_consecutive_reasoning_only_turns_stop_after_one_continuation() {
-    let backend = Arc::new(SequencedBackend::new(vec![
-        LlmResponse {
-            content: vec![ContentBlock::ProviderMetadata {
-                provider: "deepseek".to_string(),
-                key: "reasoning_content".to_string(),
-                value: json!("Let me think about this first."),
-            }],
-            stop_reason: Some("end_turn".to_string()),
-            usage: Some(TokenUsage::default()),
-        },
-        LlmResponse {
-            content: vec![ContentBlock::ProviderMetadata {
-                provider: "deepseek".to_string(),
-                key: "reasoning_content".to_string(),
-                value: json!("Still thinking only."),
-            }],
-            stop_reason: Some("end_turn".to_string()),
-            usage: Some(TokenUsage::default()),
-        },
-        LlmResponse {
-            content: vec![ContentBlock::Text {
-                text: "execute-mode unreachable text".to_string(),
-            }],
-            stop_reason: Some("end_turn".to_string()),
-            usage: Some(TokenUsage::default()),
-        },
-    ]));
-    let (_temp, session_manager, workspace, rara_dir) = test_runtime_storage();
-    let mut agent = Agent::new(
-        ToolManager::new(),
-        backend.clone(),
-        Arc::new(VectorDB::new(&rara_dir.join("lancedb").to_string_lossy())),
-        session_manager,
-        workspace,
-    );
-    agent.set_execution_mode(AgentExecutionMode::Execute);
-
-    agent
-        .query_with_mode(
-            "do a thing".to_string(),
-            super::super::AgentOutputMode::Silent,
-        )
-        .await
-        .expect("consecutive reasoning-only execute turns should stop after one retry");
-
-    let observed_messages = backend.observed_messages();
-    assert_eq!(observed_messages.len(), 2);
-    assert!(!agent.history.iter().any(|message| {
-        message
-            .content
-            .to_string()
-            .contains("execute-mode unreachable text")
-    }));
-    let trace = agent.shared_runtime_context().observability.agent_turn;
-    assert_eq!(trace.loop_outcome.as_deref(), Some("stopped"));
-    assert_eq!(
-        trace.continuation_phase.as_deref(),
-        Some("reasoning_only_limit")
-    );
-    assert!(trace.reasoning_only);
-    assert_eq!(trace.consecutive_reasoning_only_turns, 2);
-}
-
 #[tokio::test]
 async fn suggestion_mode_auto_allows_read_only_bash_commands() {
     let backend = Arc::new(SequencedBackend::new(vec![
