@@ -342,7 +342,12 @@ The display should keep details compact and path/URI-like fields visible.
 
 ### Phase 5: Graph/MCP/Hook Sources
 
-- Add MCP resource candidates.
+- Status: partially implemented for MCP resource references.
+- MCP resource references now normalize into the shared `RetrievalCandidate`
+  boundary and appear in `/context` provider/candidate views.
+- Resource body loading and excerpt selection remain out of scope for this
+  slice; MCP resource references are visible but non-selectable until that
+  loader exists.
 - Add hook output candidates.
 - Add graph candidates once graph index confidence is sufficient.
 - Reuse the same `RetrievalSourceProvider` and `RetrievalCandidate` contract;

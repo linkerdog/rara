@@ -13,6 +13,7 @@ pub(crate) fn retrieval_source_entries(
     history: &[Message],
     session_id: &str,
     vdb_uri: &str,
+    mcp_resource_candidates: &[crate::context::RetrievalCandidate],
 ) -> Vec<RetrievalSourceContextEntry> {
     let workspace_memory_active = prompt_sources
         .iter()
@@ -32,6 +33,11 @@ pub(crate) fn retrieval_source_entries(
         "available"
     };
     let vector_memory_status = if vdb_uri.is_empty() {
+        "missing"
+    } else {
+        "available"
+    };
+    let mcp_resource_status = if mcp_resource_candidates.is_empty() {
         "missing"
     } else {
         "available"
@@ -72,6 +78,18 @@ pub(crate) fn retrieval_source_entries(
                 "configured as the durable vector-backed memory store for later retrieval, even though the current recall path is still limited".to_string()
             } else {
                 "no vector-backed memory store is configured for retrieval".to_string()
+            },
+        },
+        RetrievalSourceContextEntry {
+            order: 4,
+            kind: "mcp_resource".to_string(),
+            label: "MCP Resources".to_string(),
+            status: mcp_resource_status.to_string(),
+            detail: format!("references={}", mcp_resource_candidates.len()),
+            inclusion_reason: if mcp_resource_status == "available" {
+                "available as protocol or MCP-provided resource references; resource bodies are not injected until selected by the retrieval pipeline".to_string()
+            } else {
+                "no MCP resource references are available for context selection".to_string()
             },
         },
     ]
@@ -185,6 +203,7 @@ fn source_kind_for_memory_selection_item(kind: &str) -> &'static str {
         "retrieved_workspace_memory" => "memory_record",
         "thread_history" => "thread_history",
         "vector_memory" => "vector_memory",
+        "mcp_resource" => "mcp_resource",
         "workspace_memory" => "workspace_memory",
         "tool_retrieval_result" => "tool_result",
         _ => "runtime_context",
@@ -272,5 +291,39 @@ mod tests {
         assert_eq!(view.candidates[0].status, "selected");
         assert_eq!(view.candidates[1].status, "available");
         assert_eq!(view.candidates[2].status, "dropped");
+    }
+
+    #[test]
+    fn retrieval_sources_include_mcp_resource_references() {
+        let workspace = crate::workspace::WorkspaceMemory::new().expect("workspace memory");
+        let resources = vec![crate::context::mcp_resource_candidate(
+            crate::context::McpResourceReference {
+                server_name: "docs".to_string(),
+                uri: "mcp://docs/rara".to_string(),
+                title: Some("RARA Docs".to_string()),
+                mime_type: Some("text/markdown".to_string()),
+                token_estimate: Some(17),
+                scope: Some("project".to_string()),
+                source_path: Some("/workspace/rara/.mcp.json".to_string()),
+            },
+            1,
+        )];
+
+        let entries = retrieval_source_entries(
+            &workspace,
+            &[],
+            &[],
+            "session-1",
+            "memory://vdb",
+            &resources,
+        );
+
+        let mcp = entries
+            .iter()
+            .find(|entry| entry.kind == "mcp_resource")
+            .expect("mcp resource provider should be visible");
+        assert_eq!(mcp.status, "available");
+        assert_eq!(mcp.detail, "references=1");
+        assert!(mcp.inclusion_reason.contains("resource references"));
     }
 }

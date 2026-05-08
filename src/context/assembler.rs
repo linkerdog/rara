@@ -51,6 +51,7 @@ pub struct RuntimeContextInputs<'a> {
     pub skill_listing: Option<String>,
     pub retrieved_memory_candidates: Vec<RetrievedMemoryCandidate>,
     pub file_search_candidates: Vec<RetrievalCandidate>,
+    pub mcp_resource_candidates: Vec<RetrievalCandidate>,
     pub tool_result_projection_policy: ToolResultProjectionPolicy,
     pub tool_result_projection_report: ToolResultProjectionReport,
     pub agent_turn_trace: AgentTurnTraceView,
@@ -139,6 +140,7 @@ impl<'a> ContextAssembler<'a> {
             inputs.history,
             inputs.session_id.as_str(),
             inputs.vdb_uri,
+            inputs.mcp_resource_candidates.as_slice(),
         );
         let mut compaction = CompactionContextView::from_compact_state(&inputs.compact_state);
         compaction.source_entries = compaction_source_entries(inputs.history);
@@ -171,6 +173,7 @@ impl<'a> ContextAssembler<'a> {
             &retrieval_request,
             inputs.retrieved_memory_candidates.as_slice(),
             inputs.file_search_candidates.as_slice(),
+            inputs.mcp_resource_candidates.as_slice(),
         );
         let memory_selection = memory_selection(
             effective_prompt.sources.as_slice(),
@@ -479,6 +482,7 @@ mod tests {
                 skill_listing: None,
                 retrieved_memory_candidates: Vec::new(),
                 file_search_candidates: vec![],
+                mcp_resource_candidates: vec![],
                 tool_result_projection_policy: ToolResultProjectionPolicy::default(),
                 tool_result_projection_report: ToolResultProjectionReport {
                     original_chars: 60_000,
@@ -564,6 +568,7 @@ mod tests {
                 skill_listing: None,
                 retrieved_memory_candidates: Vec::new(),
                 file_search_candidates: vec![],
+                mcp_resource_candidates: vec![],
                 tool_result_projection_policy: ToolResultProjectionPolicy::default(),
                 tool_result_projection_report: ToolResultProjectionReport::default(),
                 agent_turn_trace: AgentTurnTraceView::default(),
@@ -650,6 +655,7 @@ mod tests {
                 skill_listing: None,
                 retrieved_memory_candidates: Vec::new(),
                 file_search_candidates: vec![],
+                mcp_resource_candidates: vec![],
                 tool_result_projection_policy: ToolResultProjectionPolicy::default(),
                 tool_result_projection_report: ToolResultProjectionReport::default(),
                 agent_turn_trace: AgentTurnTraceView::default(),
@@ -736,6 +742,7 @@ mod tests {
                     rank: 1,
                 }],
                 file_search_candidates: vec![],
+                mcp_resource_candidates: vec![],
                 tool_result_projection_policy: ToolResultProjectionPolicy::default(),
                 tool_result_projection_report: ToolResultProjectionReport::default(),
                 agent_turn_trace: AgentTurnTraceView::default(),
@@ -810,6 +817,7 @@ mod tests {
                 skill_listing: None,
                 retrieved_memory_candidates: Vec::new(),
                 file_search_candidates: vec![],
+                mcp_resource_candidates: vec![],
                 tool_result_projection_policy: ToolResultProjectionPolicy::default(),
                 tool_result_projection_report: ToolResultProjectionReport::default(),
                 agent_turn_trace: AgentTurnTraceView::default(),
