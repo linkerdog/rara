@@ -322,6 +322,7 @@ pub struct RebuildSuccess {
     pub sandbox_network_access: Arc<AtomicBool>,
     /// Shared goal handle for model-facing tools.
     pub goal_handle: crate::tui::state::GoalHandle,
+    pub mcp_tool_cache: crate::mcp_tool_cache::McpToolCache,
 }
 
 pub enum TuiEvent {
