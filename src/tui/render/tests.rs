@@ -12,9 +12,9 @@ use super::viewport::TranscriptViewport;
 use super::{
     committed_turn_cell, compact_progress_summary_lines, compact_recent_first_summary_lines,
     compact_summary_text, current_turn_exploration_summary_from_entries, current_turn_tool_summary,
-    desired_bottom_pane_height, desired_viewport_height, formatted_message_lines,
-    prefixed_message_lines, renderable_transcript_lines, tool_action_label,
-    transcript_scroll_offset, transcript_viewport, transcript_visual_row_count,
+    desired_bottom_pane_height, desired_viewport_height, display_directory_for_startup,
+    formatted_message_lines, prefixed_message_lines, renderable_transcript_lines,
+    tool_action_label, transcript_scroll_offset, transcript_viewport, transcript_visual_row_count,
 };
 use crate::config::{ConfigManager, OpenAiEndpointKind, RaraConfig};
 use crate::tui::custom_terminal::Frame;
@@ -817,6 +817,8 @@ fn provider_picker_renders_as_full_overlay_on_standard_terminal() {
     app.open_overlay(Overlay::ListPicker(ListPickerKind::Provider));
 
     let rendered = render_screen_text(&app, 100, 24);
+    let dir = display_directory_for_startup(&app);
+    let rendered = rendered.replace(&dir, "<CWD>");
     assert_snapshot!("provider_picker_standard_terminal", rendered);
 }
 

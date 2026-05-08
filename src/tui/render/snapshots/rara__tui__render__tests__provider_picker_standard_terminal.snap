@@ -5,7 +5,7 @@ expression: rendered
 ── RARA ──────────────────────────────────────────────────
 
 model · -                               /model to change
-dir   · ~/devel/opensource/rara
+dir   · <CWD>
 Ready.        ┌ Provider ────────────────────────────────────────────────────────────┐
 ──            │Select a provider family.                                             │
 Type a message└──────────────────────────────────────────────────────────────────────┘
