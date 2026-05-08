@@ -113,7 +113,7 @@ Active backlog only. Keep this file small and current.
 ## TUI / Transcript
 
 - [x] Remove crossterm history write path, unify all rendering through Ratatui (PR #272).
-- [ ] Decouple overlays from transcript layout (pure top layer, no viewport perturbation).
+- [x] Decouple overlays from transcript layout (pure top layer, no viewport perturbation).
 - [ ] Split the bottom pane into composable activity, composer, queued-preview, and footer modules.
 - [ ] Introduce a `BottomPaneModel` so bottom-pane rendering consumes structured view data instead of reading broad `TuiApp` state directly.
 - [ ] Move approval, request-input, command-palette, and picker flows toward a Codex-style bottom-pane view stack after the rendering split is stable.

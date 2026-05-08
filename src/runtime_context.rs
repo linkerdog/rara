@@ -16,6 +16,7 @@ use crate::llm::{
     OpenAiCompatibleBackend, fetch_model_context_window,
 };
 use crate::local_backend::{LocalLlmBackend, LocalProgressReporter};
+use crate::mcp_tool_cache::McpToolCache;
 use crate::prompt::{PromptRuntimeConfig, PromptSkillSummary};
 use crate::runtime_event_bus::RuntimeEventBus;
 use crate::sandbox::SandboxManager;
@@ -38,6 +39,7 @@ pub(crate) struct RuntimeBootstrap {
     pub sandbox_network_access: Arc<AtomicBool>,
     pub event_bus: Arc<RuntimeEventBus>,
     pub goal_handle: GoalHandle,
+    pub mcp_tool_cache: McpToolCache,
 }
 
 impl RuntimeBootstrap {
@@ -122,6 +124,8 @@ pub(crate) async fn initialize_rara_context(
         goal_handle.clone(),
     );
     let warnings = prompt_config.warnings.clone();
+    let mcp_tool_cache = McpToolCache::new();
+    mcp_tool_cache.clear();
 
     Ok(RuntimeBootstrap {
         backend,
@@ -134,6 +138,7 @@ pub(crate) async fn initialize_rara_context(
         sandbox_network_access,
         event_bus,
         goal_handle,
+        mcp_tool_cache,
     })
 }
 
