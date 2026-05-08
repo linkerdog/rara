@@ -311,8 +311,8 @@ fn render_composer(f: &mut Frame, app: &TuiApp, area: Rect) -> Option<(u16, u16)
     ))
 }
 
-fn composer_hint(app: &TuiApp) -> &'static str {
-    if matches!(
+fn composer_hint(app: &TuiApp) -> Line<'static> {
+    let text: &'static str = if matches!(
         app.overlay,
         Some(super::super::state::Overlay::CommandPalette)
     ) {
@@ -341,16 +341,43 @@ fn composer_hint(app: &TuiApp) -> &'static str {
         "planning mode  read-only planning; approve to execute"
     } else {
         ""
+    };
+
+    if text.is_empty() {
+        return Line::default();
     }
+    parse_hint_with_keys(text)
+}
+
+/// Split hint text on whitespace-delimited single-digit numbers like " 1 " and
+/// highlight the digits with a keycap-like accent.
+fn parse_hint_with_keys(text: &'static str) -> Line<'static> {
+    let mut spans: Vec<Span<'static>> = Vec::new();
+    let mut remaining = text;
+    while let Some(pos) = remaining.find(|c: char| c.is_ascii_digit()) {
+        if pos > 0 {
+            spans.push(Span::styled(
+                &remaining[..pos],
+                Style::default().fg(TEXT_MUTED),
+            ));
+        }
+        let digit_end = remaining[pos..]
+            .find(|c: char| !c.is_ascii_digit())
+            .map_or(remaining.len(), |d| pos + d);
+        spans.push(Span::styled(
+            &remaining[pos..digit_end],
+            Style::default().fg(TEXT_ACCENT),
+        ));
+        remaining = &remaining[digit_end..];
+    }
+    if !remaining.is_empty() {
+        spans.push(Span::styled(remaining, Style::default().fg(TEXT_MUTED)));
+    }
+    Line::from(spans)
 }
 
 fn composer_hint_line(app: &TuiApp) -> Line<'static> {
-    let hint = composer_hint(app);
-    let mut spans = Vec::new();
-    if !hint.is_empty() {
-        spans.push(Span::styled(hint, Style::default().fg(TEXT_MUTED)));
-    }
-    Line::from(spans)
+    composer_hint(app)
 }
 
 fn render_footer(f: &mut Frame, app: &TuiApp, area: Rect) {

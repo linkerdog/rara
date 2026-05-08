@@ -1,26 +1,25 @@
 ---
 source: src/tui/render/tests.rs
-assertion_line: 798
 expression: rendered
 ---
-╭──────────────────────────────────────────────────────────╮
-│ >_ RARA                                                  │
-│                                                          │
-│ model:     -                            /model to change │
-│ directory: ~┌ Provider ────────────────────────────────────────────────────────────┐
-╰─────────────│Select a provider family.                                             │
-Ready.        └──────────────────────────────────────────────────────────────────────┘
-Use the input │[1] Codex (current)                                                   │
-              │[2] DeepSeek                                                          │
-Start with:   │[3] OpenAI-compatible                                                 │
-  /help    bro│[4] Gemini                                                            │
-  /model   cho│[5] Candle Local                                                      │
-  /status  ins│[6] Ollama                                                            │
-  /quit    lea│[7] Bedrock                                                           │
-              │                                                                      │
+── RARA ──────────────────────────────────────────────────
+
+model · -                               /model to change
+dir   · <CWD>
+Ready.        ┌ Provider ────────────────────────────────────────────────────────────┐
+──            │Select a provider family.                                             │
+Type a message└──────────────────────────────────────────────────────────────────────┘
+              │[1] Codex (current)                                                   │
+Start with:   │[2] DeepSeek                                                          │
+  /help    bro│[3] OpenAI-compatible                                                 │
+  /model   cho│[4] Gemini                                                            │
+  /status  ins│[5] Candle Local                                                      │
+  /quit    lea│[6] Ollama                                                            │
+              │[7] Bedrock                                                           │
 Prompt ideas: │                                                                      │
-  Explain this│                                                                      │
-  Find the mai│                                                                      │
+  · Explain th│                                                                      │
+  · Find the m│                                                                      │
+              │                                                                      │
                           1-9 jump  Up/Down/jk move  Enter apply  Esc back
 Ready  waiting
 › Ask about the repo, request a code change, or type /help to browse commands.

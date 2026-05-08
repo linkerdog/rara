@@ -1,5 +1,5 @@
 use super::TerminalCellData;
-use super::components::TerminalCell;
+use super::interaction_cells::TerminalCell;
 use crate::tui::state::{TranscriptEntry, TranscriptEntryPayload};
 use crate::tui::terminal_event::{
     TerminalCollectionEvent, TerminalCommandEvent, TerminalEvent, TerminalTarget,

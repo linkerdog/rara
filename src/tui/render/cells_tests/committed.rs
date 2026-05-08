@@ -54,10 +54,10 @@ fn committed_turn_cell_keeps_user_summary_and_agent_sections_in_order() {
         .join("\n");
 
     let you_idx = rendered.find("› Review this repo").unwrap();
-    let ran_idx = rendered.find(" Ran ").unwrap();
+    let ran_idx = rendered.find("# Ran").unwrap();
     let agent_idx = rendered.find("• Final recommendation").unwrap();
 
-    assert!(!rendered.contains(" Explored "));
+    assert!(!rendered.contains("# Explored"));
     assert!(ran_idx < agent_idx);
     assert!(you_idx < ran_idx);
 }
@@ -123,7 +123,7 @@ fn committed_turn_cell_renders_materialized_sidecar_sections() {
         .join("\n");
 
     let you_idx = rendered.find("› Review the workspace logic").unwrap();
-    let explored_idx = rendered.find(" Explored ").unwrap();
+    let explored_idx = rendered.find("# Explored").unwrap();
     let planning_idx = rendered.find(" Planned ").unwrap();
     let agent_idx = rendered
         .find("• Here is the final recommendation.")
@@ -178,7 +178,7 @@ fn committed_turn_cell_keeps_progress_segments_and_terminal_output() {
         .collect::<Vec<_>>()
         .join("\n");
 
-    let thinking_idx = rendered.find(" Thinking ").unwrap();
+    let thinking_idx = rendered.find("# Thinking").unwrap();
     let progress_idx = rendered.find("Run cargo test active_turn_cell").unwrap();
     let terminal_idx = rendered.find("running 38 tests").unwrap();
     let agent_idx = rendered.find("• The focused tests passed.").unwrap();
@@ -243,8 +243,8 @@ fn committed_turn_cell_appends_adjacent_progress_entries() {
     let first_planned = rendered.find("Refine the follow-up plan").unwrap();
     let second_planned = rendered.find("Split the UI status work").unwrap();
 
-    assert_eq!(rendered.matches(" Explored ").count(), 1);
-    assert_eq!(rendered.matches(" Ran ").count(), 1);
+    assert_eq!(rendered.matches("# Explored").count(), 1);
+    assert_eq!(rendered.matches("# Ran").count(), 1);
     assert_eq!(rendered.matches(" Planned ").count(), 1);
     assert!(first_explored < second_explored);
     assert!(second_explored < first_ran);
@@ -276,8 +276,8 @@ fn committed_turn_cell_places_completion_records_before_final_agent_message() {
         .collect::<Vec<_>>()
         .join("\n");
 
-    let explored_idx = rendered.find(" Explored ").unwrap();
-    let approval_idx = rendered.find(" Shell Approval Completed ").unwrap();
+    let explored_idx = rendered.find("# Explored").unwrap();
+    let approval_idx = rendered.find("# Shell Approval Completed").unwrap();
     let agent_idx = rendered
         .find("• I approved the one-off shell step")
         .unwrap();
@@ -323,9 +323,9 @@ fn committed_turn_cell_orders_completion_records_by_interaction_kind() {
         .collect::<Vec<_>>()
         .join("\n");
 
-    let shell_idx = rendered.find(" Shell Approval Completed ").unwrap();
-    let planning_question_idx = rendered.find(" Planning Question Answered ").unwrap();
-    let generic_question_idx = rendered.find(" Question Answered ").unwrap();
+    let shell_idx = rendered.find("# Shell Approval Completed").unwrap();
+    let planning_question_idx = rendered.find("# Planning Question Answered").unwrap();
+    let generic_question_idx = rendered.find("# Question Answered").unwrap();
     let agent_idx = rendered
         .find("• Here is the final narrative summary.")
         .unwrap();
@@ -333,7 +333,7 @@ fn committed_turn_cell_orders_completion_records_by_interaction_kind() {
     assert!(shell_idx < planning_question_idx);
     assert!(planning_question_idx < generic_question_idx);
     assert!(generic_question_idx < agent_idx);
-    assert!(!rendered.contains(" Plan Decision "));
+    assert!(!rendered.contains("# Plan Decision"));
 }
 
 #[test]

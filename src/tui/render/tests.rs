@@ -12,9 +12,9 @@ use super::viewport::TranscriptViewport;
 use super::{
     committed_turn_cell, compact_progress_summary_lines, compact_recent_first_summary_lines,
     compact_summary_text, current_turn_exploration_summary_from_entries, current_turn_tool_summary,
-    desired_bottom_pane_height, desired_viewport_height, formatted_message_lines,
-    prefixed_message_lines, renderable_transcript_lines, tool_action_label,
-    transcript_scroll_offset, transcript_viewport, transcript_visual_row_count,
+    desired_bottom_pane_height, desired_viewport_height, display_directory_for_startup,
+    formatted_message_lines, prefixed_message_lines, renderable_transcript_lines,
+    tool_action_label, transcript_scroll_offset, transcript_viewport, transcript_visual_row_count,
 };
 use crate::config::{ConfigManager, OpenAiEndpointKind, RaraConfig};
 use crate::tui::custom_terminal::Frame;
@@ -314,11 +314,11 @@ fn renderable_transcript_lines_insert_turn_dividers_between_rounds() {
         .map(|line| line.to_string())
         .collect::<Vec<_>>();
 
-    let divider = "─".repeat(24);
+    let divider = format!(" {}", "─".repeat(22));
     assert_eq!(
         rendered
             .iter()
-            .filter(|line| line.as_str() == divider)
+            .filter(|line| line.as_str() == divider.as_str())
             .count(),
         2
     );
@@ -333,14 +333,14 @@ fn startup_header_renders_but_does_not_enter_transcript_lines() {
     .expect("build tui app");
 
     let rendered = render_screen_text(&app, 100, 24);
-    assert!(rendered.contains(">_ RARA"));
+    assert!(rendered.contains("── RARA"));
 
     let transcript = renderable_transcript_lines(&app, 100)
         .into_iter()
         .map(|line| line.to_string())
         .collect::<Vec<_>>()
         .join("\n");
-    assert!(!transcript.contains(">_ RARA"));
+    assert!(!transcript.contains("── RARA"));
     assert!(!transcript.contains("directory:"));
 }
 
@@ -817,6 +817,8 @@ fn provider_picker_renders_as_full_overlay_on_standard_terminal() {
     app.open_overlay(Overlay::ListPicker(ListPickerKind::Provider));
 
     let rendered = render_screen_text(&app, 100, 24);
+    let dir = display_directory_for_startup(&app);
+    let rendered = rendered.replace(&dir, "<CWD>");
     assert_snapshot!("provider_picker_standard_terminal", rendered);
 }
 

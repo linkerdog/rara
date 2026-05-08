@@ -2,15 +2,15 @@
 source: src/tui/render/cells/cells_tests/active_plan.rs
 expression: rendered
 ---
-  You
+# You
   Review the codebase and propose changes
 
 • Updated Plan
   └ The current discovery path is hardcoded and should be generalized.
-    □ Generalize instruction discovery
-    □ Preserve cache and path resolution behavior
+    · Generalize instruction discovery
+    · Preserve cache and path resolution behavior
 
- Awaiting Approval 
+# Awaiting Approval
   Plan ready for implementation.
   
   1. Start implementation now
