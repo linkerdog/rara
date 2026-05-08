@@ -158,9 +158,9 @@ pub const COMMAND_SPECS: [CommandSpec; 23] = [
     CommandSpec {
         category: "Session",
         name: "goal",
-        usage: "/goal [<N> <objective> | <objective> | pause | resume | clear]",
-        summary: "Set a long-running goal for autonomous cross-turn work.",
-        detail: "Set a persistent objective that the agent keeps working toward across turns.\n\n/goal                  show current goal status\n/goal <N> <objective>  start goal with token budget N\n/goal <objective>      start goal with no budget\n/goal pause            pause an active goal\n/goal resume           resume a paused goal\n/goal clear            clear the current goal",
+        usage: "/goal",
+        summary: "Manage the active thread goal.",
+        detail: "Set a persistent objective that the agent keeps working toward across turns.\n\n/goal                         show current goal status\n/goal --tokens <N> <objective> start goal with token budget N\n/goal <objective>             start goal with no budget\n/goal pause                   pause an active goal\n/goal resume                  resume a paused goal\n/goal clear                   clear the current goal",
     },
 ];
 

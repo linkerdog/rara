@@ -16,6 +16,8 @@ pub use self::state_presets::{
     selected_provider_family_idx_for_config,
 };
 use self::types::CommittedTranscriptRenderCache;
+#[cfg(test)]
+pub use self::types::current_unix_timestamp_secs;
 pub use self::types::{
     ActiveLiveEvent, ActiveLiveSections, ActivePendingInteraction, ActivePendingInteractionKind,
     AgentMarkdownStreamState, CommandSpec, CompletedInteractionSnapshot, GoalHandle, GoalStatus,

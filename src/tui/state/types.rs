@@ -636,9 +636,7 @@ pub enum GoalStatus {
     /// User paused the goal; can be resumed.
     Paused,
     /// Goal was completed successfully.
-    Achieved,
-    /// Goal could not be completed (e.g. blocked).
-    Unmet,
+    Complete,
     /// Goal exceeded its configured token budget; soft-stop.
     BudgetLimited,
 }
@@ -656,6 +654,37 @@ pub struct RalphGoal {
     pub tokens_used: u32,
     /// Number of autonomous turns completed toward this goal.
     pub turns_completed: u32,
+    /// Unix timestamp in seconds when the goal was created.
+    pub created_at_epoch_seconds: u64,
+}
+
+impl RalphGoal {
+    pub fn new(objective: String, token_budget: Option<u32>) -> Self {
+        Self {
+            objective,
+            status: GoalStatus::Pursuing,
+            token_budget,
+            tokens_used: 0,
+            turns_completed: 0,
+            created_at_epoch_seconds: current_unix_timestamp_secs(),
+        }
+    }
+
+    pub fn time_used_seconds(&self) -> u64 {
+        current_unix_timestamp_secs().saturating_sub(self.created_at_epoch_seconds)
+    }
+
+    pub fn remaining_tokens(&self) -> Option<u32> {
+        self.token_budget
+            .map(|budget| budget.saturating_sub(self.tokens_used))
+    }
+}
+
+pub fn current_unix_timestamp_secs() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|duration| duration.as_secs())
+        .unwrap_or(0)
 }
 
 /// Shared handle for model-facing goal tools and TUI to observe/update goal state.

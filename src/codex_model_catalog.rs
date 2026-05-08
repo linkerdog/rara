@@ -1,10 +1,8 @@
 use std::path::Path;
-use std::sync::Arc;
 
 use anyhow::Result;
 use codex_login::{AuthCredentialsStoreMode, AuthManager};
 use codex_models_manager::bundled_models_response;
-use codex_models_manager::collaboration_mode_presets::CollaborationModesConfig;
 use codex_models_manager::manager::{ModelsManager, RefreshStrategy, StaticModelsManager};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -30,17 +28,14 @@ pub async fn load_codex_model_catalog(
     codex_home: &Path,
     refresh_strategy: RefreshStrategy,
 ) -> Result<Vec<CodexModelOption>> {
-    let auth_manager = Arc::new(AuthManager::new(
+    let auth_manager = AuthManager::shared(
         codex_home.to_path_buf(),
         false,
         AuthCredentialsStoreMode::File,
         None,
-    ));
-    let manager = StaticModelsManager::new(
-        Some(auth_manager),
-        bundled_models_response()?,
-        CollaborationModesConfig::default(),
-    );
+    )
+    .await;
+    let manager = StaticModelsManager::new(Some(auth_manager), bundled_models_response()?);
     let mut models = manager.list_models(refresh_strategy).await;
     if models.iter().any(|model| model.show_in_picker) {
         models.retain(|model| model.show_in_picker);

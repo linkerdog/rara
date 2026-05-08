@@ -777,12 +777,9 @@ fn goal_command_spec_is_registered() {
         .iter()
         .find(|s| s.name == "goal")
         .expect("goal should be in COMMAND_SPECS");
-    assert_eq!(
-        spec.usage,
-        "/goal [<N> <objective> | <objective> | pause | resume | clear]"
-    );
-    assert!(spec.summary.contains("goal"));
-    assert!(spec.detail.contains("/goal <N>"));
+    assert_eq!(spec.usage, "/goal");
+    assert_eq!(spec.summary, "Manage the active thread goal.");
+    assert!(spec.detail.contains("/goal --tokens <N>"));
     assert!(spec.detail.contains("/goal <objective>"));
     assert!(spec.detail.contains("/goal pause"));
     assert!(spec.detail.contains("/goal resume"));

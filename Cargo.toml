@@ -31,7 +31,7 @@ tempfile = "3.17"
 ignore = "0.4.23"
 nucleo = { git = "https://github.com/helix-editor/nucleo.git", rev = "4253de9faabb4e5c6d81d946a5e35a90f87347ee" }
 rmcp = { version = "1.6", features = ["client", "transport-child-process"] }
-codex-execpolicy = { git = "https://github.com/openai/codex", package = "codex-execpolicy", rev = "637f7dd6d737f3961e6bf32fbb3861c4953269c5" }
+codex-execpolicy = { git = "https://github.com/openai/codex", package = "codex-execpolicy", rev = "2808a4deb181e5ca2b1293a1a5980938cb746861" }
 
 [package]
 name = "rara"
@@ -98,8 +98,8 @@ two-face = { version = "0.5", default-features = false, features = ["syntect-def
 agent-client-protocol = { version = "0.11", features = ["unstable"] }
 hf-hub = "0.5"
 tokenizers = { version = "0.23.1", default-features = false, features = ["onig"] }
-codex-login = { git = "https://github.com/openai/codex", package = "codex-login", rev = "637f7dd6d737f3961e6bf32fbb3861c4953269c5" }
-codex-models-manager = { git = "https://github.com/openai/codex", package = "codex-models-manager", rev = "637f7dd6d737f3961e6bf32fbb3861c4953269c5" }
+codex-login = { git = "https://github.com/openai/codex", package = "codex-login", rev = "2808a4deb181e5ca2b1293a1a5980938cb746861" }
+codex-models-manager = { git = "https://github.com/openai/codex", package = "codex-models-manager", rev = "2808a4deb181e5ca2b1293a1a5980938cb746861" }
 candle = { git = "https://github.com/huggingface/candle", rev = "34625ab6d1567a0bc132ac6bc8dc2cce0e16d86d", package = "candle-core" }
 candle-nn = { git = "https://github.com/huggingface/candle", rev = "34625ab6d1567a0bc132ac6bc8dc2cce0e16d86d", package = "candle-nn" }
 candle-transformers = { git = "https://github.com/huggingface/candle", rev = "34625ab6d1567a0bc132ac6bc8dc2cce0e16d86d", package = "candle-transformers" }

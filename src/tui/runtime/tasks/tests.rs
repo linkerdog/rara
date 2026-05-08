@@ -9,9 +9,9 @@ use tempfile::tempdir;
 use tokio::sync::{Mutex, mpsc};
 
 use super::{
-    emit_query_heartbeat, finish_running_task_if_ready, merge_rebuilt_agent,
-    request_running_task_cancellation, start_oauth_task, start_query_task,
-    try_start_queued_follow_up,
+    emit_query_heartbeat, finish_running_task_if_ready, goal_budget_limit_prompt,
+    goal_continuation_prompt, merge_rebuilt_agent, request_running_task_cancellation,
+    start_oauth_task, start_query_task, try_start_queued_follow_up,
 };
 use crate::agent::{
     Agent, AgentExecutionMode, BashApprovalMode, Message, PlanStep, PlanStepStatus,
@@ -24,12 +24,41 @@ use crate::session::SessionManager;
 use crate::tool::ToolManager;
 use crate::tools::planning::{EnterPlanModeTool, ExitPlanModeTool};
 use crate::tui::state::{
-    OAuthLoginMode, RunningTask, RuntimePhase, TaskCompletion, TaskKind, TuiApp,
+    OAuthLoginMode, RalphGoal, RunningTask, RuntimePhase, TaskCompletion, TaskKind, TuiApp,
 };
 use crate::vectordb::VectorDB;
 use crate::workspace::WorkspaceMemory;
 
 struct PlainAnswerBackend;
+
+#[test]
+fn goal_continuation_prompt_contains_budget_and_completion_audit() {
+    let mut goal = RalphGoal::new("ship Codex 0.129 goal parity".to_string(), Some(10_000));
+    goal.tokens_used = 2_500;
+    goal.turns_completed = 2;
+
+    let prompt = goal_continuation_prompt(&goal);
+
+    assert!(prompt.contains("<untrusted_objective>"));
+    assert!(prompt.contains("ship Codex 0.129 goal parity"));
+    assert!(prompt.contains("Tokens used: 2500"));
+    assert!(prompt.contains("Token budget: 10000"));
+    assert!(prompt.contains("Tokens remaining: 7500"));
+    assert!(prompt.contains("call update_goal with status \"complete\""));
+}
+
+#[test]
+fn goal_budget_limit_prompt_asks_for_wrap_up_without_new_work() {
+    let mut goal = RalphGoal::new("finish the migration".to_string(), Some(100));
+    goal.tokens_used = 100;
+
+    let prompt = goal_budget_limit_prompt(&goal);
+
+    assert!(prompt.contains("has reached its token budget"));
+    assert!(prompt.contains("Do not start new substantive work"));
+    assert!(prompt.contains("finish the migration"));
+    assert!(prompt.contains("Token budget: 100"));
+}
 
 #[async_trait::async_trait]
 impl LlmBackend for PlainAnswerBackend {

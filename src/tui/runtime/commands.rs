@@ -209,22 +209,22 @@ pub(super) async fn execute_local_command(
                     // /goal with no subcommand: show current goal status
                     if let Some(goal) = app.goal.as_ref() {
                         let status_str = match goal.status {
-                            GoalStatus::Pursuing => "pursuing",
+                            GoalStatus::Pursuing => "active",
                             GoalStatus::Paused => "paused",
-                            GoalStatus::Achieved => "achieved",
-                            GoalStatus::Unmet => "unmet",
+                            GoalStatus::Complete => "complete",
                             GoalStatus::BudgetLimited => "budget-limited",
                         };
-                        let mut notice = format!(
-                            "Goal: {} [{}] · turns={} · tokens={}",
-                            goal.objective, status_str, goal.turns_completed, goal.tokens_used
-                        );
-                        if let Some(budget) = goal.token_budget {
-                            notice.push_str(&format!("/{budget}"));
-                        }
+                        let usage = goal
+                            .token_budget
+                            .map(|budget| {
+                                format!(" · {} / {budget} tokens", goal.tokens_used.min(budget))
+                            })
+                            .unwrap_or_default();
+                        let notice =
+                            format!("Goal: {} [{status_str}]{usage}", goal.objective.as_str());
                         app.push_notice(notice);
                     } else {
-                        app.push_notice("No active goal. Set one with /goal <objective>.");
+                        app.push_notice("No active goal. Use /help for /goal details.");
                     }
                 }
                 "pause" => {
@@ -263,40 +263,23 @@ pub(super) async fn execute_local_command(
                     }
                 }
                 objective => {
-                    // /goal <objective> — start a new goal.
-                    // Optional numeric budget prefix: /goal 50000 fix the build.
-                    let mut budget: Option<u32> = None;
-                    let objective_clean = if let Some((first, rest)) = objective.split_once(' ') {
-                        // Only treat the first word as a budget if it is purely ASCII digits.
-                        if first.bytes().all(|b| b.is_ascii_digit()) {
-                            if let Ok(b) = first.parse::<u32>() {
-                                budget = Some(b);
-                                rest
-                            } else {
-                                objective
+                    if app.goal.is_some() {
+                        app.push_notice(
+                            "A goal already exists. Use /goal clear before setting a new goal.",
+                        );
+                        return Ok(false);
+                    }
+                    match parse_goal_objective_and_budget(objective) {
+                        Ok((objective_clean, budget)) => {
+                            app.goal = Some(RalphGoal::new(objective_clean.clone(), budget));
+                            *app.goal_handle.write().unwrap() = app.goal.clone();
+                            let mut notice = format!("Goal set: {}", objective_clean);
+                            if let Some(b) = budget {
+                                notice.push_str(&format!(" [budget: {b} tokens]"));
                             }
-                        } else {
-                            objective
+                            app.push_notice(notice);
                         }
-                    } else {
-                        objective
-                    };
-                    if objective_clean.is_empty() {
-                        app.push_notice("Goal objective cannot be empty.");
-                    } else {
-                        app.goal = Some(RalphGoal {
-                            objective: objective_clean.to_string(),
-                            status: GoalStatus::Pursuing,
-                            token_budget: budget,
-                            tokens_used: 0,
-                            turns_completed: 0,
-                        });
-                        *app.goal_handle.write().unwrap() = app.goal.clone();
-                        let mut notice = format!("Goal set: {}", objective_clean);
-                        if let Some(b) = budget {
-                            notice.push_str(&format!(" [budget: {b} tokens]"));
-                        }
-                        app.push_notice(notice);
+                        Err(message) => app.push_notice(message),
                     }
                 }
             }
@@ -313,6 +296,64 @@ pub(super) async fn execute_local_command(
         app.sync_snapshot(agent);
     }
     Ok(false)
+}
+
+fn parse_goal_objective_and_budget(input: &str) -> Result<(String, Option<u32>), String> {
+    let input = input.trim();
+    if input.is_empty() {
+        return Err("Goal objective cannot be empty.".into());
+    }
+
+    if let Some(rest) = input.strip_prefix("--tokens ") {
+        let (budget_raw, objective) = rest
+            .trim()
+            .split_once(char::is_whitespace)
+            .ok_or_else(|| "Usage: /goal --tokens <N> <objective>.".to_string())?;
+        let budget = parse_goal_token_budget(budget_raw)
+            .ok_or_else(|| format!("Invalid goal token budget: {budget_raw}."))?;
+        let objective = objective.trim();
+        if objective.is_empty() {
+            return Err("Goal objective cannot be empty.".into());
+        }
+        return Ok((objective.to_string(), Some(budget)));
+    }
+
+    if let Some((first, rest)) = input.split_once(char::is_whitespace) {
+        if first.bytes().all(|b| b.is_ascii_digit()) {
+            let budget = parse_goal_token_budget(first)
+                .ok_or_else(|| format!("Invalid goal token budget: {first}."))?;
+            let objective = rest.trim();
+            if objective.is_empty() {
+                return Err("Goal objective cannot be empty.".into());
+            }
+            return Ok((objective.to_string(), Some(budget)));
+        }
+    }
+
+    Ok((input.to_string(), None))
+}
+
+fn parse_goal_token_budget(input: &str) -> Option<u32> {
+    let trimmed = input.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+
+    let (number, multiplier) = match trimmed.as_bytes().last().copied() {
+        Some(b'k') | Some(b'K') => (&trimmed[..trimmed.len() - 1], 1_000.0),
+        Some(b'm') | Some(b'M') => (&trimmed[..trimmed.len() - 1], 1_000_000.0),
+        _ => (trimmed, 1.0),
+    };
+    if number.is_empty() || number.starts_with('-') {
+        return None;
+    }
+
+    let value = number.parse::<f64>().ok()? * multiplier;
+    if !value.is_finite() || value <= 0.0 || value > u32::MAX as f64 {
+        return None;
+    }
+
+    Some(value.round() as u32)
 }
 
 fn handle_model_command(arg: Option<&str>, app: &mut TuiApp) -> anyhow::Result<()> {
@@ -500,7 +541,10 @@ mod tests {
 
     use tokio::sync::mpsc;
 
-    use super::{execute_local_command, handle_mcp_command, mcp_project_root_from_cwd};
+    use super::{
+        execute_local_command, handle_mcp_command, mcp_project_root_from_cwd,
+        parse_goal_objective_and_budget, parse_goal_token_budget,
+    };
     use crate::agent::{AgentEvent, BashApprovalMode};
     use crate::config::ConfigManager;
     use crate::oauth::OAuthManager;
@@ -541,6 +585,31 @@ mod tests {
         fs::create_dir_all(&cwd).expect("cwd");
 
         assert_eq!(mcp_project_root_from_cwd(cwd.clone()), cwd);
+    }
+
+    #[test]
+    fn parses_goal_budget_tokens_like_codex_goal_command() {
+        assert_eq!(parse_goal_token_budget("98.5K"), Some(98_500));
+        assert_eq!(parse_goal_token_budget("2m"), Some(2_000_000));
+        assert_eq!(parse_goal_token_budget("0"), None);
+        assert_eq!(parse_goal_token_budget("-1"), None);
+    }
+
+    #[test]
+    fn parses_goal_objective_with_tokens_option() {
+        assert_eq!(
+            parse_goal_objective_and_budget("--tokens 98.5K improve benchmark coverage")
+                .expect("goal command"),
+            ("improve benchmark coverage".to_string(), Some(98_500))
+        );
+        assert_eq!(
+            parse_goal_objective_and_budget("50000 fix the build").expect("legacy budget"),
+            ("fix the build".to_string(), Some(50_000))
+        );
+        assert_eq!(
+            parse_goal_objective_and_budget("fix the build").expect("no budget"),
+            ("fix the build".to_string(), None)
+        );
     }
 
     #[test]
@@ -659,6 +728,148 @@ command = "docs-server"
         .expect("permissions command should be handled");
         assert!(app.overlay.is_none());
         assert_ne!(app.overlay, Some(Overlay::PermissionPicker));
+    }
+
+    #[tokio::test]
+    async fn goal_command_refuses_to_replace_existing_goal_without_clear() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let mut app = TuiApp::new(ConfigManager {
+            path: dir.path().join("config.json"),
+        })
+        .expect("app");
+        app.goal = Some(crate::tui::state::RalphGoal::new(
+            "existing goal".to_string(),
+            None,
+        ));
+        *app.goal_handle.write().unwrap() = app.goal.clone();
+        let oauth_manager = Arc::new(
+            OAuthManager::new_for_config_dir(dir.path().join("oauth")).expect("oauth manager"),
+        );
+        let mut agent_slot = None;
+
+        execute_local_command(
+            LocalCommand {
+                kind: LocalCommandKind::Goal,
+                arg: Some("new goal".to_string()),
+            },
+            &mut app,
+            &mut agent_slot,
+            &oauth_manager,
+        )
+        .await
+        .expect("goal command should be handled");
+
+        assert_eq!(
+            app.goal.as_ref().map(|goal| goal.objective.as_str()),
+            Some("existing goal")
+        );
+        assert_eq!(
+            app.notice.as_deref(),
+            Some("A goal already exists. Use /goal clear before setting a new goal.")
+        );
+    }
+
+    #[tokio::test]
+    async fn goal_command_accepts_tokens_option() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let mut app = TuiApp::new(ConfigManager {
+            path: dir.path().join("config.json"),
+        })
+        .expect("app");
+        let oauth_manager = Arc::new(
+            OAuthManager::new_for_config_dir(dir.path().join("oauth")).expect("oauth manager"),
+        );
+        let mut agent_slot = None;
+
+        execute_local_command(
+            LocalCommand {
+                kind: LocalCommandKind::Goal,
+                arg: Some("--tokens 98.5K improve benchmark coverage".to_string()),
+            },
+            &mut app,
+            &mut agent_slot,
+            &oauth_manager,
+        )
+        .await
+        .expect("goal command should be handled");
+
+        let goal = app.goal.as_ref().expect("goal");
+        assert_eq!(goal.objective, "improve benchmark coverage");
+        assert_eq!(goal.token_budget, Some(98_500));
+        assert_eq!(
+            app.goal_handle
+                .read()
+                .unwrap()
+                .as_ref()
+                .map(|goal| goal.objective.as_str()),
+            Some("improve benchmark coverage")
+        );
+    }
+
+    #[tokio::test]
+    async fn goal_command_status_notice_stays_compact() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let mut app = TuiApp::new(ConfigManager {
+            path: dir.path().join("config.json"),
+        })
+        .expect("app");
+        let mut goal =
+            crate::tui::state::RalphGoal::new("finish goal polish".to_string(), Some(500));
+        goal.tokens_used = 125;
+        goal.turns_completed = 3;
+        app.goal = Some(goal);
+        *app.goal_handle.write().unwrap() = app.goal.clone();
+        let oauth_manager = Arc::new(
+            OAuthManager::new_for_config_dir(dir.path().join("oauth")).expect("oauth manager"),
+        );
+        let mut agent_slot = None;
+
+        execute_local_command(
+            LocalCommand {
+                kind: LocalCommandKind::Goal,
+                arg: None,
+            },
+            &mut app,
+            &mut agent_slot,
+            &oauth_manager,
+        )
+        .await
+        .expect("goal command should be handled");
+
+        assert_eq!(
+            app.notice.as_deref(),
+            Some("Goal: finish goal polish [active] · 125 / 500 tokens")
+        );
+    }
+
+    #[tokio::test]
+    async fn goal_command_empty_state_points_to_help() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let mut app = TuiApp::new(ConfigManager {
+            path: dir.path().join("config.json"),
+        })
+        .expect("app");
+        let oauth_manager = Arc::new(
+            OAuthManager::new_for_config_dir(dir.path().join("oauth")).expect("oauth manager"),
+        );
+        let mut agent_slot = None;
+
+        execute_local_command(
+            LocalCommand {
+                kind: LocalCommandKind::Goal,
+                arg: None,
+            },
+            &mut app,
+            &mut agent_slot,
+            &oauth_manager,
+        )
+        .await
+        .expect("goal command should be handled");
+
+        assert_eq!(
+            app.notice.as_deref(),
+            Some("No active goal. Use /help for /goal details.")
+        );
     }
 
     #[tokio::test]

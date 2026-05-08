@@ -412,20 +412,14 @@ fn goal_is_none_by_default() {
 
 #[test]
 fn setting_goal_preserves_activity_status_label() {
-    use crate::tui::state::{GoalStatus, RalphGoal};
+    use crate::tui::state::RalphGoal;
 
     let temp = tempdir().unwrap();
     let mut app = TuiApp::new(ConfigManager {
         path: temp.path().join("config.json"),
     })
     .expect("build tui app");
-    app.goal = Some(RalphGoal {
-        objective: "fix the build".into(),
-        status: GoalStatus::Pursuing,
-        token_budget: None,
-        tokens_used: 0,
-        turns_completed: 0,
-    });
+    app.goal = Some(RalphGoal::new("fix the build".into(), None));
 
     // Goal rendering is in render_activity_bar (badge), not in activity_status_line.
     let (label, _, _) = activity_status_line(&app);
