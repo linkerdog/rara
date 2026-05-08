@@ -553,6 +553,9 @@ pub struct TuiApp {
     pub committed_turns: Vec<TranscriptTurn>,
     pub active_turn: TranscriptTurn,
     pub overlay: Option<Overlay>,
+    /// Dialog stack for back-navigation. The last element is always the
+    /// current overlay.  When empty, no overlay is shown.
+    pub overlay_stack: Vec<Overlay>,
     pub config: RaraConfig,
     pub config_manager: ConfigManager,
     pub setup_status: Option<String>,

@@ -219,11 +219,11 @@ pub(crate) async fn dispatch_event(
                 app.config_manager.save(&app.config)?;
                 if app.config.provider == "codex" {
                     app.notice = Some("Saved Codex API key. Rebuilding backend.".into());
-                    app.overlay = None;
+                    app.close_overlay();
                     start_rebuild_task(app);
                 } else if was_deepseek {
                     app.notice = Some("Saved DeepSeek API key. Loading models.".into());
-                    app.overlay = None;
+                    app.close_overlay();
                     start_deepseek_model_list_task(app);
                 } else {
                     app.notice = Some("Saved API key for the current provider.".into());
@@ -461,7 +461,7 @@ pub(crate) async fn dispatch_event(
                                     app.config_manager.save(&app.config)?;
                                     app.notice =
                                         Some(format!("Selected endpoint profile: {label}"));
-                                    app.overlay = Some(Overlay::ListPicker(ListPickerKind::Model));
+                                    app.open_overlay(Overlay::ListPicker(ListPickerKind::Model));
                                 }
                             }
                         }

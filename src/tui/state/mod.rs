@@ -196,6 +196,7 @@ impl TuiApp {
             committed_turns: Vec::new(),
             active_turn: TranscriptTurn::default(),
             overlay,
+            overlay_stack: Vec::new(),
             config: cfg,
             config_manager: cm,
             setup_status: None,
@@ -1192,6 +1193,7 @@ impl TuiApp {
         if matches!(overlay, Overlay::Context) {
             self.context_scroll = 0;
         }
+        self.overlay_stack.push(overlay);
         self.overlay = Some(overlay);
     }
 
@@ -1201,7 +1203,7 @@ impl TuiApp {
                 self.open_overlay(Overlay::CommandPalette);
             }
         } else if matches!(self.overlay, Some(Overlay::CommandPalette)) {
-            self.overlay = None;
+            self.close_overlay();
         }
     }
 
@@ -1406,34 +1408,10 @@ impl TuiApp {
         ) {
             self.cancel_openai_profile_setup();
         }
-        self.overlay = match self.overlay {
-            Some(Overlay::ListPicker(ListPickerKind::OpenAiEndpointKind)) => {
-                Some(Overlay::ListPicker(ListPickerKind::Model))
-            }
-            Some(Overlay::ListPicker(ListPickerKind::OpenAiProfile)) => {
-                Some(Overlay::ListPicker(ListPickerKind::Model))
-            }
-            Some(Overlay::BaseUrlEditor) => Some(Overlay::ListPicker(ListPickerKind::Model)),
-            Some(Overlay::ApiKeyEditor) => {
-                if self.config.provider == "codex" {
-                    Some(Overlay::ListPicker(ListPickerKind::AuthMode))
-                } else {
-                    Some(Overlay::ListPicker(ListPickerKind::Model))
-                }
-            }
-            Some(Overlay::ModelNameEditor) => Some(Overlay::ListPicker(ListPickerKind::Model)),
-            Some(Overlay::OpenAiProfileLabelEditor) => {
-                Some(Overlay::ListPicker(ListPickerKind::OpenAiProfile))
-            }
-            Some(Overlay::ListPicker(ListPickerKind::AuthMode)) => {
-                if self.codex_model_options.is_empty() {
-                    Some(Overlay::ListPicker(ListPickerKind::Provider))
-                } else {
-                    Some(Overlay::ListPicker(ListPickerKind::Model))
-                }
-            }
-            _ => None,
-        };
+
+        // Pop the current overlay from the stack and restore the previous one.
+        self.overlay_stack.pop();
+        self.overlay = self.overlay_stack.last().copied();
     }
 }
 

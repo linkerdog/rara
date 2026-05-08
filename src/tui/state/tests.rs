@@ -731,7 +731,7 @@ fn model_name_editor_does_not_panic_when_provider_has_no_presets() {
 }
 
 #[test]
-fn closing_auth_mode_picker_without_codex_catalog_returns_to_provider_picker() {
+fn closing_auth_mode_picker_with_empty_stack_returns_to_none() {
     let dir = tempdir().expect("tempdir");
     let cm = ConfigManager {
         path: dir.path().join("config.json"),
@@ -741,10 +741,8 @@ fn closing_auth_mode_picker_without_codex_catalog_returns_to_provider_picker() {
     app.open_overlay(Overlay::ListPicker(ListPickerKind::AuthMode));
     app.close_overlay();
 
-    assert!(matches!(
-        app.overlay,
-        Some(Overlay::ListPicker(ListPickerKind::Provider))
-    ));
+    // Stack-based back-navigation: closing the only overlay returns to None.
+    assert!(app.overlay.is_none());
 }
 
 #[test]

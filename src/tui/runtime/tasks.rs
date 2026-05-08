@@ -892,7 +892,7 @@ pub(crate) async fn finish_running_task_if_ready(
                 app.setup_status = Some(saved_message.into());
                 app.notice = app.setup_status.clone();
                 app.set_runtime_phase(RuntimePhase::OAuthSaved, Some("oauth token saved".into()));
-                app.overlay = None;
+                app.close_overlay();
                 app.push_entry("Runtime", saved_message);
                 start_rebuild_task(app);
             }
@@ -930,7 +930,7 @@ pub(crate) async fn finish_running_task_if_ready(
                     RuntimePhase::OAuthSaved,
                     Some("google oauth token saved".into()),
                 );
-                app.overlay = None;
+                app.close_overlay();
                 app.push_entry("Runtime", msg);
                 start_rebuild_task(app);
             }
