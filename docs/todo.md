@@ -33,6 +33,7 @@ Active backlog only. Keep this file small and current.
 - [x] Add protocol-safe memory mutation/query scaffolding that creates memory records and selection views without bypassing `MemorySelection` (scaffold via protocol_sources.rs).
 - [x] Add hook declaration scaffolding for protocol and repo extensions; keep execution disabled until permission and sandbox policy are explicit.
 - [ ] Ensure every new skill, memory, prompt, hook, planning, approval, and output feature is control-plane-ready rather than TUI-only.
+- [ ] Add a `support-acp` integration skill for IDE and third-party app authors, covering ACP startup, runtime-control input intents, output event subscription, cancellation/preemption, approvals, MCP/tool-search expectations, and safe context-source registration.
 
 ## Configuration / Provider Surface
 
