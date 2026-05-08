@@ -1,10 +1,11 @@
 use ratatui::{
-    style::{Color, Modifier, Style},
+    style::{Modifier, Style},
     text::{Line, Span},
 };
 
 use super::line_utils::prefix_lines;
 use super::state::TuiApp;
+use crate::tui::theme::*;
 
 #[derive(Clone, Copy)]
 enum PlanStepKind {
@@ -24,18 +25,17 @@ impl PlanStepKind {
 
     fn marker(self) -> &'static str {
         match self {
-            Self::Completed => "✔ ",
-            Self::InProgress | Self::Pending => "□ ",
+            Self::Completed => "✓ ",
+            Self::InProgress => "» ",
+            Self::Pending => "· ",
         }
     }
 
     fn style(self) -> Style {
         match self {
-            Self::Completed => Style::default().add_modifier(Modifier::CROSSED_OUT | Modifier::DIM),
-            Self::InProgress => Style::default()
-                .fg(Color::Cyan)
-                .add_modifier(Modifier::BOLD),
-            Self::Pending => Style::default().add_modifier(Modifier::DIM),
+            Self::Completed => Style::default().add_modifier(Modifier::DIM),
+            Self::InProgress => Style::default().fg(TEXT_ACCENT),
+            Self::Pending => Style::default().fg(TEXT_MUTED),
         }
     }
 }
@@ -146,9 +146,9 @@ mod tests {
 
         assert!(rendered.contains("Updated Plan"));
         assert!(rendered.contains("note: Keep the explanation short and decision-complete."));
-        assert!(rendered.contains("✔ Inspect the current workflow"));
-        assert!(rendered.contains("□ Generalize instruction discovery"));
-        assert!(rendered.contains("□ Validate restore behavior"));
+        assert!(rendered.contains("✓ Inspect the current workflow"));
+        assert!(rendered.contains("» Generalize instruction discovery"));
+        assert!(rendered.contains("· Validate restore behavior"));
     }
 
     #[test]
@@ -167,7 +167,7 @@ mod tests {
 
         assert!(rendered.contains("Updated Plan"));
         assert!(rendered.contains("Do not claim execution in planning mode."));
-        assert!(rendered.contains("□ Capture the next implementation step"));
+        assert!(rendered.contains("· Capture the next implementation step"));
     }
 
     #[test]

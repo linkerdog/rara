@@ -3,11 +3,14 @@ use std::path::Path;
 use ratatui::text::Line;
 
 use super::super::history_pipeline::{narrative_entries, ordered_completion_entries};
-use super::components::{CommittedInteractionCell, ExploredCell, MessageCell, RanCell, UserCell};
+use super::interaction_cells::CommittedInteractionCell;
+use super::message_cell::MessageCell;
 use super::progress::{
     ProgressRole, explicit_progress_entry_groups, progress_entry_message_lines, push_progress_group,
 };
+use super::summary_cells::{ExploredCell, RanCell};
 use super::terminal::terminal_cell_from_entries;
+use super::user_startup::UserCell;
 use super::{
     HistoryCell, InteractionCompletionKind, is_progress_stack_title, trim_trailing_empty_lines,
 };

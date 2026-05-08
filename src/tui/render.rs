@@ -83,19 +83,13 @@ fn render_transcript(f: &mut Frame, app: &TuiApp, area: Rect) {
     let viewport = transcript_viewport(app, area.width, area.height);
     if !app.has_any_transcript() && viewport.lines.is_empty() {
         let lines = vec![
-            Line::from(Span::styled(
-                "Ready.",
-                Style::default()
-                    .fg(Color::Cyan)
-                    .add_modifier(Modifier::BOLD),
-            )),
-            Line::from("Use the input bar below to start a task or run a local command."),
+            Line::from("Ready."),
+            Line::from(Span::styled("──", Style::default().fg(TEXT_SECONDARY))),
+            Line::from("Type a message to start a task or run a local command."),
             Line::from(""),
             Line::from(Span::styled(
                 "Start with:",
-                Style::default()
-                    .fg(Color::LightBlue)
-                    .add_modifier(Modifier::BOLD),
+                Style::default().fg(TEXT_ACCENT),
             )),
             Line::from("  /help    browse built-in commands and runtime hints"),
             Line::from("  /model   choose provider first, then switch models"),
@@ -104,12 +98,10 @@ fn render_transcript(f: &mut Frame, app: &TuiApp, area: Rect) {
             Line::from(""),
             Line::from(Span::styled(
                 "Prompt ideas:",
-                Style::default()
-                    .fg(Color::Yellow)
-                    .add_modifier(Modifier::BOLD),
+                Style::default().fg(ROLE_USER),
             )),
-            Line::from("  Explain this repository structure."),
-            Line::from("  Find the main agent loop and summarize it."),
+            Line::from("  · Explain this repository structure."),
+            Line::from("  · Find the main agent loop and summarize it."),
         ];
         f.render_widget(Paragraph::new(lines).wrap(Wrap { trim: false }), area);
         return;
@@ -189,8 +181,8 @@ fn transcript_visual_row_count(lines: &[Line<'static>], width: u16) -> usize {
 fn turn_divider_line(width: u16) -> Line<'static> {
     let divider_width = usize::from(width.max(8));
     Line::from(Span::styled(
-        "─".repeat(divider_width),
-        Style::default().fg(Color::DarkGray),
+        format!(" {}", "─".repeat(divider_width.saturating_sub(2))),
+        Style::default().fg(TEXT_MUTED),
     ))
 }
 
@@ -495,7 +487,7 @@ pub(crate) fn prefixed_message_lines(
     if message_lines.is_empty() {
         return vec![Line::from(vec![Span::styled(
             label,
-            Style::default().fg(color).add_modifier(Modifier::BOLD),
+            Style::default().fg(color),
         )])];
     }
 
@@ -503,10 +495,7 @@ pub(crate) fn prefixed_message_lines(
     let hidden_count = truncated_line_count(message_lines.len(), max_lines);
     let (head, tail) = head_tail_line_window(message_lines.as_slice(), max_lines);
     if let Some(first) = head.first() {
-        let mut spans = vec![Span::styled(
-            label,
-            Style::default().fg(color).add_modifier(Modifier::BOLD),
-        )];
+        let mut spans = vec![Span::styled(label, Style::default().fg(color))];
         spans.push(Span::raw(format!(" {first}")));
         lines.push(Line::from(spans));
     }
@@ -523,13 +512,7 @@ fn user_message_lines(message: &str, max_lines: usize) -> Vec<Line<'static>> {
     let message = crate::tui::display_sanitize::sanitize_display_text(message);
     let message = message.as_str();
     let body_max = max_lines.saturating_sub(1);
-    let header = Line::from(vec![
-        Span::styled(" ", Style::default().bg(ROLE_USER)),
-        Span::styled(
-            " You",
-            Style::default().fg(ROLE_USER).add_modifier(Modifier::BOLD),
-        ),
-    ]);
+    let header = Line::from(vec![Span::styled("# You", Style::default().fg(ROLE_USER))]);
     let message_lines = message.lines().collect::<Vec<_>>();
     if message_lines.is_empty() {
         return vec![header];
@@ -626,27 +609,19 @@ pub(crate) fn formatted_message_lines(
     let message = message.as_str();
     let role_kind = MessageRole::try_from_str(role);
     if role_kind == Some(MessageRole::Agent) {
-        let mut lines = vec![Line::from(vec![
-            Span::styled(" ", Style::default().bg(ROLE_AGENT)),
-            Span::styled(
-                " Agent",
-                Style::default().fg(ROLE_AGENT).add_modifier(Modifier::BOLD),
-            ),
-        ])];
+        let mut lines = vec![Line::from(vec![Span::styled(
+            "# Agent",
+            Style::default().fg(ROLE_AGENT),
+        )])];
         let body = bulleted_markdown_message_lines(message, max_lines, cwd);
         lines.extend(body);
         return lines;
     }
     if role_kind == Some(MessageRole::System) {
-        let mut lines = vec![Line::from(vec![
-            Span::styled(" ", Style::default().bg(ROLE_SYSTEM)),
-            Span::styled(
-                " System",
-                Style::default()
-                    .fg(ROLE_SYSTEM)
-                    .add_modifier(Modifier::BOLD),
-            ),
-        ])];
+        let mut lines = vec![Line::from(vec![Span::styled(
+            "# System",
+            Style::default().fg(ROLE_SYSTEM),
+        )])];
         let body_max = max_lines.saturating_sub(1);
         let mut rendered = Vec::new();
         super::markdown::append_markdown(message, None, cwd, &mut rendered);

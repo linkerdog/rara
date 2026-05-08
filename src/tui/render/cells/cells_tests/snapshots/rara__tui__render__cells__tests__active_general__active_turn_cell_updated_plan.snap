@@ -2,17 +2,19 @@
 source: src/tui/render/cells/cells_tests/active_general.rs
 expression: rendered
 ---
-  You
+# You
   Read the local codebase and propose the next refactor
 
- Plan Mode 
- Planning 
+# Plan Mode
+
+# Planning
   └ The auth flow should reuse codex_login instead of mirroring it.
- Exploring 
+
+# Exploring
   └ Read src/oauth.rs
 
 • Updated Plan
   └ Prefer direct Codex auth reuse before extending more TUI flows.
-    ✔ Inspect the current auth bridge
-    □ Replace the bespoke OAuth flow
-    □ Add snapshot tests for the auth picker
+    ✓ Inspect the current auth bridge
+    » Replace the bespoke OAuth flow
+    · Add snapshot tests for the auth picker
