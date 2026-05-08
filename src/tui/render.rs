@@ -4,6 +4,7 @@ pub(crate) mod diff;
 mod helpers;
 mod history_pipeline;
 mod overlay;
+mod sidebar;
 #[cfg(test)]
 mod tests;
 mod viewport;
@@ -35,6 +36,15 @@ use crate::tui::theme::*;
 
 pub fn render(f: &mut Frame, app: &TuiApp) {
     let bottom_pane_height = desired_bottom_pane_height(app, f.area().width, f.area().height);
+
+    if f.area().width > 120 {
+        render_wide(f, app, bottom_pane_height);
+    } else {
+        render_narrow(f, app, bottom_pane_height);
+    }
+}
+
+fn render_narrow(f: &mut Frame, app: &TuiApp, bottom_pane_height: u16) {
     let layout = Layout::default()
         .direction(Direction::Vertical)
         .constraints([Constraint::Fill(1), Constraint::Length(bottom_pane_height)])
@@ -43,6 +53,36 @@ pub fn render(f: &mut Frame, app: &TuiApp) {
     let transcript_area = render_startup_header(f, app, layout[0]);
     render_transcript(f, app, transcript_area);
     let mut cursor = render_bottom_pane(f, app, layout[1]);
+
+    if let Some(overlay) = app.overlay {
+        cursor = render_overlay(f, app, overlay).or(cursor);
+    }
+
+    if let Some((x, y)) = cursor {
+        f.set_cursor_position((x, y));
+    }
+}
+
+fn render_wide(f: &mut Frame, app: &TuiApp, bottom_pane_height: u16) {
+    let layout = Layout::default()
+        .direction(Direction::Horizontal)
+        .constraints([
+            Constraint::Length(sidebar::SIDEBAR_WIDTH),
+            Constraint::Fill(1),
+        ])
+        .split(f.area());
+
+    sidebar::render_sidebar(f, app, layout[0]);
+
+    // Main transcript panel — same vertical split as narrow mode.
+    let main = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([Constraint::Fill(1), Constraint::Length(bottom_pane_height)])
+        .split(layout[1]);
+
+    let transcript_area = render_startup_header(f, app, main[0]);
+    render_transcript(f, app, transcript_area);
+    let mut cursor = render_bottom_pane(f, app, main[1]);
 
     if let Some(overlay) = app.overlay {
         cursor = render_overlay(f, app, overlay).or(cursor);
