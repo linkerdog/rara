@@ -64,5 +64,6 @@ the consumer boundary (ACP/Wire).
 |---|----|--------|
 | done | #276 | `TuiMaintainer` owns `TuiApp`, event loop uses `split_mut()` |
 | done | #280, #281 | ACP publishes `AgentEvent` to `RuntimeEventBus`; injection via `Arc<Self>` |
-| done | #286 | `PrintConsumer` — renders `AgentEvent` as plain text, wired to `--print` CLI |
-| next | follow-up | Add `--wire` CLI mode: `WireServer::serve_stdio` subscribes to event bus, translates `AgentEvent` → Wire JSON-RPC. |
+| done | #286 | `PrintConsumer` — plain text, `--print` CLI |
+| done | #287 | `AcpConsumer` — subscribes to bus, translates AgentEvent → ACP SessionNotification |
+| done | #289 | `WireConsumer` — Wire JSON lines, `--wire` CLI |
