@@ -779,10 +779,10 @@ fn goal_command_spec_is_registered() {
         .expect("goal should be in COMMAND_SPECS");
     assert_eq!(
         spec.usage,
-        "/goal [<N> <objective> | <objective> | pause | resume | clear]"
+        "/goal [--tokens <N> <objective> | <objective> | pause | resume | clear]"
     );
     assert!(spec.summary.contains("goal"));
-    assert!(spec.detail.contains("/goal <N>"));
+    assert!(spec.detail.contains("/goal --tokens <N>"));
     assert!(spec.detail.contains("/goal <objective>"));
     assert!(spec.detail.contains("/goal pause"));
     assert!(spec.detail.contains("/goal resume"));

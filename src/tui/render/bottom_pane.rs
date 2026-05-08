@@ -89,18 +89,20 @@ fn render_activity_bar(f: &mut Frame, app: &TuiApp, area: Rect) {
         let (goal_label, goal_color) = match goal.status {
             GoalStatus::Pursuing => ("pursuing", STATUS_INFO),
             GoalStatus::Paused => ("paused", STATUS_WARNING),
-            GoalStatus::Achieved => ("done", STATUS_SUCCESS),
-            GoalStatus::Unmet => ("unmet", STATUS_ERROR),
+            GoalStatus::Complete => ("done", STATUS_SUCCESS),
             GoalStatus::BudgetLimited => ("budget", STATUS_WARNING),
         };
         spans.push(badge("goal", goal_label, goal_color));
         let goal_detail = if let Some(budget) = goal.token_budget {
             format!(
-                "t{} · {}/{}tk",
-                goal.turns_completed, goal.tokens_used, budget
+                "t{} · {}/{} tokens · {} left",
+                goal.turns_completed,
+                goal.tokens_used,
+                budget,
+                goal.remaining_tokens().unwrap_or(0)
             )
         } else {
-            format!("t{} · {}tk", goal.turns_completed, goal.tokens_used)
+            format!("t{} · {} tokens", goal.turns_completed, goal.tokens_used)
         };
         spans.push(Span::raw(" "));
         spans.push(Span::styled(goal_detail, Style::default().fg(TEXT_MUTED)));

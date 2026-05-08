@@ -49,6 +49,8 @@ future appserver integrations can use.
   ranking crate for tools, TUI pickers, and context routing.
 - `retrieval-orchestration.md`: unified candidate-provider, ranking, dedupe,
   budget, and `/context` contract for memory/context retrieval.
+- `thread-goals.md`: persistent `/goal` runtime, tool, continuation, budget,
+  and compact TUI contracts aligned with Codex 0.129.
 
 ## App Server Architecture
 
