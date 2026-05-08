@@ -7,6 +7,7 @@ use super::super::state::{
 };
 use super::tasks::{start_compact_task, start_rebuild_task, start_review_task};
 use crate::agent::{Agent, AgentEvent, AgentExecutionMode, BashApprovalMode};
+use crate::config::{McpRegistry, SourcedMcpServerConfig};
 use crate::mcp_status::{McpStatusSnapshot, format_mcp_status};
 use crate::mcp_tool_cache::McpToolCache;
 use crate::oauth::OAuthManager;
@@ -389,24 +390,8 @@ fn handle_mcp_command(app: &mut TuiApp) {
             publish_mcp_status_event(app, &snapshot);
             app.push_entry("System", format_mcp_status(&snapshot));
             app.notice = Some("MCP status updated.".into());
-            // Populate the MCP tool cache from the registry.
-            // Clone the registry data before spawning (registry refs aren't Send).
-            if let Some(ref _cache) = app.mcp_tool_cache {
-                let servers: Vec<_> = registry
-                    .servers
-                    .iter()
-                    .map(|(k, v)| (k.clone(), std::sync::Arc::new(v.clone())))
-                    .collect();
-                let tools = _cache.share();
-                tokio::spawn(async move {
-                    // Lock, clear, drop immediately so MutexGuard doesn't cross await.
-                    {
-                        let mut map = tools.lock().unwrap();
-                        map.clear();
-                    }
-                    let tmp = crate::mcp_tool_cache::McpToolCache::from_shared(tools);
-                    tmp.populate_from_registry_owned(servers).await;
-                });
+            if let Some(cache) = app.mcp_tool_cache.as_ref() {
+                spawn_mcp_tool_cache_population(cache, &registry);
             }
         }
         Err(err) => {
@@ -418,6 +403,26 @@ fn handle_mcp_command(app: &mut TuiApp) {
             app.notice = Some("MCP status failed.".into());
         }
     }
+}
+
+fn spawn_mcp_tool_cache_population(
+    cache: &McpToolCache,
+    registry: &McpRegistry,
+) -> tokio::task::JoinHandle<()> {
+    let servers: Vec<(String, std::sync::Arc<SourcedMcpServerConfig>)> = registry
+        .servers
+        .iter()
+        .map(|(name, entry)| (name.clone(), std::sync::Arc::new(entry.clone())))
+        .collect();
+    let tools = cache.share();
+    tokio::spawn(async move {
+        {
+            let mut map = tools.lock().unwrap();
+            map.clear();
+        }
+        let tmp = McpToolCache::from_shared(tools);
+        tmp.populate_from_registry_owned(servers).await;
+    })
 }
 
 fn publish_mcp_status_load_failed_event(app: &TuiApp, message: &str) {
@@ -563,10 +568,14 @@ mod tests {
 
     use super::{
         execute_local_command, handle_mcp_command, mcp_project_root_from_cwd,
-        parse_goal_objective_and_budget, parse_goal_token_budget,
+        parse_goal_objective_and_budget, parse_goal_token_budget, spawn_mcp_tool_cache_population,
     };
     use crate::agent::{AgentEvent, BashApprovalMode};
-    use crate::config::ConfigManager;
+    use crate::config::{
+        ConfigManager, McpRegistry, McpServerConfig, McpServerScope, McpServerSource,
+        McpServerTransport, SourcedMcpServerConfig,
+    };
+    use crate::mcp_tool_cache::McpToolCache;
     use crate::oauth::OAuthManager;
     use crate::runtime_event_bus::RuntimeEventBus;
     use crate::tui::state::{
@@ -688,6 +697,54 @@ command = "docs-server"
             panic!("expected mcp load failure event");
         };
         assert!(message.contains("config.toml"));
+    }
+
+    #[tokio::test]
+    async fn mcp_tool_cache_population_clears_existing_entries() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let cache = McpToolCache::new();
+        cache.insert_server_tools(
+            "stale".to_string(),
+            vec![rara_mcp_client::McpToolRecord {
+                name: "old_tool".to_string(),
+                display_name: "old_tool".to_string(),
+                description: "stale cached tool".to_string(),
+                input_schema: serde_json::json!({}),
+            }],
+        );
+        assert!(!cache.is_empty());
+
+        let mut registry = McpRegistry::empty();
+        registry.servers.insert(
+            "http-only".to_string(),
+            SourcedMcpServerConfig {
+                config: McpServerConfig {
+                    transport: McpServerTransport::StreamableHttp {
+                        url: "http://127.0.0.1:1/mcp".to_string(),
+                        bearer_token_env_var: None,
+                        http_headers: None,
+                        env_http_headers: None,
+                    },
+                    enabled: true,
+                    required: false,
+                    supports_parallel_tool_calls: false,
+                    startup_timeout_sec: None,
+                    tool_timeout_sec: None,
+                    enabled_tools: None,
+                    disabled_tools: None,
+                },
+                source: McpServerSource {
+                    scope: McpServerScope::Project,
+                    path: dir.path().join(".mcp.json"),
+                },
+            },
+        );
+
+        spawn_mcp_tool_cache_population(&cache, &registry)
+            .await
+            .expect("cache population task");
+
+        assert!(cache.is_empty());
     }
 
     #[tokio::test]

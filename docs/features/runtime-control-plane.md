@@ -157,6 +157,32 @@ status with a structured reason. Adapters that need preemption must use the
 explicit cancel or interrupt request family instead of overloading follow-up
 submission.
 
+The TUI currently owns local key handling and submit flow. Appserver, ACP, and
+Wire must not consume raw terminal keys. They should submit semantic runtime
+intents:
+
+- regular composer submit -> `SubmitUserPrompt`;
+- busy-turn follow-up -> `SubmitFollowUp`;
+- pending request-user-input answer -> `AnswerPendingInput`;
+- plan approval choice -> `AnswerPlanApproval`;
+- shell approval choice -> `AnswerShellApproval`;
+- busy-turn cancel from local `Esc` or protocol cancel -> `CancelCurrentTurn`.
+
+Plain `Esc` with no active task is a local TUI concern and should not be
+forwarded as a protocol input event. Overlay close, picker navigation, and text
+editing are UI state, not agent input. If an appserver later needs remote UI
+control, it should use a separate UI-control request family such as
+`CloseOverlay` instead of overloading input control.
+
+The runtime needs a single input-control handler that can be called by the local
+TUI and protocol adapters. It should reuse the same pending-interaction state,
+queue policy, approval policy, and cancellation path that the TUI uses today.
+The handler should emit structured `InputEvent` or session events only after the
+runtime accepts or applies the semantic action. For example, a queued follow-up
+event is emitted when the follow-up is actually queued, and a pending-input
+answered event is emitted when the answer is applied to the active pending
+interaction.
+
 ### Output Subscription
 
 External applications should subscribe to structured runtime events:
