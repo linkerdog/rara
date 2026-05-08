@@ -507,8 +507,8 @@ fn resume_pending_shell_approval_after_full_access(
         return false;
     }
 
-    if let Some(agent) = agent_slot.take() {
-        start_pending_approval_task(app, BashApprovalDecision::Once, agent);
+    if agent_slot.is_some() {
+        input_control::answer_shell_approval(app, agent_slot, ShellApprovalDecision::Once);
     } else {
         app.push_notice("Permission mode: full-access. Approval is still preparing.");
     }
