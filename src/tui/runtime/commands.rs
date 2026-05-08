@@ -214,26 +214,17 @@ pub(super) async fn execute_local_command(
                             GoalStatus::Complete => "complete",
                             GoalStatus::BudgetLimited => "budget-limited",
                         };
-                        let mut notice = format!(
-                            "Goal: {} [{}] · turns={} · tokens={} · elapsed={}s",
-                            goal.objective.as_str(),
-                            status_str,
-                            goal.turns_completed,
-                            goal.tokens_used,
-                            goal.time_used_seconds()
-                        );
-                        if let Some(budget) = goal.token_budget {
-                            notice.push_str(&format!(
-                                " · budget={} tokens · remaining={} tokens",
-                                budget,
-                                goal.remaining_tokens().unwrap_or(0)
-                            ));
-                        }
+                        let usage = goal
+                            .token_budget
+                            .map(|budget| {
+                                format!(" · {} / {budget} tokens", goal.tokens_used.min(budget))
+                            })
+                            .unwrap_or_default();
+                        let notice =
+                            format!("Goal: {} [{status_str}]{usage}", goal.objective.as_str());
                         app.push_notice(notice);
                     } else {
-                        app.push_notice(
-                            "No active goal. Usage: /goal [--tokens <N> <objective> | <objective>].",
-                        );
+                        app.push_notice("No active goal. Use /help for /goal details.");
                     }
                 }
                 "pause" => {
@@ -812,6 +803,72 @@ command = "docs-server"
                 .as_ref()
                 .map(|goal| goal.objective.as_str()),
             Some("improve benchmark coverage")
+        );
+    }
+
+    #[tokio::test]
+    async fn goal_command_status_notice_stays_compact() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let mut app = TuiApp::new(ConfigManager {
+            path: dir.path().join("config.json"),
+        })
+        .expect("app");
+        let mut goal =
+            crate::tui::state::RalphGoal::new("finish goal polish".to_string(), Some(500));
+        goal.tokens_used = 125;
+        goal.turns_completed = 3;
+        app.goal = Some(goal);
+        *app.goal_handle.write().unwrap() = app.goal.clone();
+        let oauth_manager = Arc::new(
+            OAuthManager::new_for_config_dir(dir.path().join("oauth")).expect("oauth manager"),
+        );
+        let mut agent_slot = None;
+
+        execute_local_command(
+            LocalCommand {
+                kind: LocalCommandKind::Goal,
+                arg: None,
+            },
+            &mut app,
+            &mut agent_slot,
+            &oauth_manager,
+        )
+        .await
+        .expect("goal command should be handled");
+
+        assert_eq!(
+            app.notice.as_deref(),
+            Some("Goal: finish goal polish [active] · 125 / 500 tokens")
+        );
+    }
+
+    #[tokio::test]
+    async fn goal_command_empty_state_points_to_help() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let mut app = TuiApp::new(ConfigManager {
+            path: dir.path().join("config.json"),
+        })
+        .expect("app");
+        let oauth_manager = Arc::new(
+            OAuthManager::new_for_config_dir(dir.path().join("oauth")).expect("oauth manager"),
+        );
+        let mut agent_slot = None;
+
+        execute_local_command(
+            LocalCommand {
+                kind: LocalCommandKind::Goal,
+                arg: None,
+            },
+            &mut app,
+            &mut agent_slot,
+            &oauth_manager,
+        )
+        .await
+        .expect("goal command should be handled");
+
+        assert_eq!(
+            app.notice.as_deref(),
+            Some("No active goal. Use /help for /goal details.")
         );
     }
 
