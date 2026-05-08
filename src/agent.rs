@@ -41,7 +41,7 @@ use crate::workspace::WorkspaceMemory;
 
 const MAX_RUNTIME_ERROR_RECOVERY_ATTEMPTS: usize = 1;
 const MAX_PLAN_EXIT_REPAIR_ATTEMPTS: usize = 1;
-const MAX_CONSECUTIVE_REASONING_ONLY_TURNS: usize = 1;
+const MAX_CONSECUTIVE_REASONING_ONLY_TURNS: usize = 3;
 
 pub use self::compact::{CompactBoundaryMetadata, CompactState, latest_compact_boundary_metadata};
 pub use self::planning::{

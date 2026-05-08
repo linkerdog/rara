@@ -1042,8 +1042,8 @@ impl RuntimeContinuationPhase {
             ],
             Self::ReasoningOnlyContinuationRequired => vec![
                 "The previous model turn produced internal reasoning but no visible assistant text and no tool call.",
-                "Continue the same task immediately.",
-                "Do not rely on the hidden reasoning as an action.",
+                "The task is NOT complete. You MUST produce visible text or call a tool in this turn.",
+                "Do not produce another reasoning-only response — the session will stop if you do.",
                 "Either call the next needed tool directly, or provide a visible final answer.",
                 "Do not ask the user to continue.",
             ],
