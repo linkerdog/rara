@@ -19,6 +19,7 @@ use super::terminal_ui::{
     build_terminal, handle_paste, teardown_terminal, update_terminal_viewport,
 };
 use crate::agent::Agent;
+use crate::mcp_tool_cache::McpToolCache;
 use crate::oauth::OAuthManager;
 use crate::runtime_event_bus::RuntimeEventBus;
 use crate::state_db::StateDb;
@@ -34,6 +35,7 @@ pub enum StartupResumeTarget {
 pub async fn run_tui(
     agent: Agent,
     goal_handle: GoalHandle,
+    mcp_tool_cache: McpToolCache,
     oauth_manager: OAuthManager,
     startup_resume: StartupResumeTarget,
     sandbox_network_access: Arc<AtomicBool>,
@@ -44,6 +46,7 @@ pub async fn run_tui(
     let mut app = TuiApp::new(crate::config::ConfigManager::new()?)?;
     app.goal_handle = goal_handle;
     app.goal = app.goal_handle.read().unwrap().clone();
+    app.mcp_tool_cache = Some(mcp_tool_cache);
     app.sandbox_network_access = sandbox_network_access;
     app.event_bus = Some(event_bus);
     app.sandbox_network_access

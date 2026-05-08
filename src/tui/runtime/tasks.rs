@@ -840,6 +840,7 @@ pub(crate) async fn finish_running_task_if_ready(
                 }
                 app.goal_handle = rebuilt.goal_handle;
                 app.goal = app.goal_handle.read().unwrap().clone();
+                app.mcp_tool_cache = Some(rebuilt.mcp_tool_cache);
                 app.config_manager.save(&app.config)?;
                 app.setup_status = Some(format!(
                     "Applied {} / {}",

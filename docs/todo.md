@@ -15,6 +15,7 @@ Active backlog only. Keep this file small and current.
 
 ## Runtime Control Plane / ACP / Wire
 
+- [ ] P0+: Add a runtime input-control bridge so appserver/ACP/Wire can submit prompts, follow-ups, pending-input answers, approval decisions, and cancellation intents through `RuntimeControlRequest::Input` / `SessionControlRequest` instead of TUI-only handlers. Mirror local TUI input lifecycle events to the structured control stream where useful; do not forward raw key presses such as `Esc`.
 - [x] Define adapter-neutral runtime control request/event types for ACP, Wire, TUI, CLI, and future appserver entrypoints (see `docs/features/runtime-control-plane.md`).
 - [x] Add Claude-style `todo_write` runtime state with session persistence, TUI update cards, and structured Wire/ACP-ready events.
 - [x] Add source-aware MCP config registry for user `config.toml` and project `.mcp.json` with duplicate-name conflict failure.
