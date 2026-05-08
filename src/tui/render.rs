@@ -43,7 +43,7 @@ pub fn render(f: &mut Frame, app: &TuiApp) {
     let mut cursor = render_bottom_pane(f, app, layout[1]);
 
     if let Some(overlay) = app.overlay {
-        cursor = render_overlay(f, app, overlay, layout[1]).or(cursor);
+        cursor = render_overlay(f, app, overlay).or(cursor);
     }
 
     if let Some((x, y)) = cursor {

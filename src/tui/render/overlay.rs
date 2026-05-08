@@ -24,12 +24,7 @@ use super::super::state::{CommandSpec, HelpTab, Overlay, StatusTab, TuiApp};
 use crate::tui::context_display::render_context_lines;
 use crate::tui::status_display::render_status_lines;
 
-pub(super) fn render_overlay(
-    f: &mut Frame,
-    app: &TuiApp,
-    overlay: Overlay,
-    bottom_pane_area: Rect,
-) -> Option<(u16, u16)> {
+pub(super) fn render_overlay(f: &mut Frame, app: &TuiApp, overlay: Overlay) -> Option<(u16, u16)> {
     match overlay {
         Overlay::Help(tab) => {
             let popup = centered_rect(78, 70, f.area());
@@ -38,7 +33,7 @@ pub(super) fn render_overlay(
             None
         }
         Overlay::CommandPalette => {
-            let popup = command_palette_rect(f.area(), bottom_pane_area, app);
+            let popup = command_palette_rect(f.area(), app);
             f.render_widget(Clear, popup);
             render_command_palette(f, app, popup);
             None
@@ -339,18 +334,17 @@ mod tests {
     }
 
     #[test]
-    fn command_palette_rect_anchors_above_bottom_pane() {
+    fn command_palette_rect_anchors_above_frame_bottom() {
         let temp = tempdir().unwrap();
         let app = TuiApp::new(ConfigManager {
             path: temp.path().join("config.json"),
         })
         .expect("build tui app");
         let area = Rect::new(0, 0, 120, 40);
-        let bottom_pane = Rect::new(0, 35, 120, 5);
 
-        let popup = command_palette_rect(area, bottom_pane, &app);
+        let popup = command_palette_rect(area, &app);
 
-        assert!(popup.bottom() <= bottom_pane.y);
+        assert!(popup.bottom() <= area.y + area.height - 1);
     }
 
     #[test]
@@ -364,7 +358,7 @@ mod tests {
         let area = Rect::new(0, 0, 100, 24);
         let bottom_pane = Rect::new(0, 19, 100, 5);
 
-        let popup = command_palette_rect(area, bottom_pane, &app);
+        let popup = command_palette_rect(area, &app);
 
         assert!(popup.height >= 12);
         assert!(
@@ -494,7 +488,7 @@ fn setup_flow_rect(area: Rect) -> Rect {
     )
 }
 
-fn command_palette_rect(area: Rect, bottom_pane_area: Rect, app: &TuiApp) -> Rect {
+fn command_palette_rect(area: Rect, app: &TuiApp) -> Rect {
     let query = app.command_query();
     let item_count = if query.is_empty() {
         palette_commands(app, "").len()
@@ -506,7 +500,7 @@ fn command_palette_rect(area: Rect, bottom_pane_area: Rect, app: &TuiApp) -> Rec
     let height = visible_rows.min(area.height.saturating_sub(2).max(4));
     let width = area.width;
     let x = area.x;
-    let max_y = bottom_pane_area.y.saturating_sub(1);
+    let max_y = area.y + area.height - 1;
     let y = max_y.saturating_sub(height).max(area.y);
 
     Rect::new(x, y, width, height)
