@@ -99,4 +99,48 @@ impl McpToolCache {
     pub fn share(&self) -> Arc<Mutex<HashMap<String, Vec<McpToolRecord>>>> {
         self.tools.clone()
     }
+
+    /// Build a cache from an existing shared state (used when spawning).
+    pub(crate) fn from_shared(tools: Arc<Mutex<HashMap<String, Vec<McpToolRecord>>>>) -> Self {
+        Self { tools }
+    }
+
+    /// Same as populate_from_registry but takes owned server data
+    /// (Send-safe, can be called from tokio::spawn).
+    pub async fn populate_from_registry_owned(
+        &self,
+        servers: Vec<(
+            String,
+            std::sync::Arc<crate::config::SourcedMcpServerConfig>,
+        )>,
+    ) {
+        for (name, entry) in servers {
+            let (command, args, env, cwd) = match &entry.config.transport {
+                McpServerTransport::Stdio {
+                    command,
+                    args,
+                    env,
+                    cwd,
+                } => {
+                    let cmd = std::ffi::OsString::from(command);
+                    let argv: Vec<std::ffi::OsString> = args.iter().map(|a| a.into()).collect();
+                    let env_map: HashMap<String, String> = env
+                        .clone()
+                        .map(|m| m.into_iter().collect())
+                        .unwrap_or_default();
+                    (cmd, argv, env_map, cwd.clone())
+                }
+                _ => continue,
+            };
+
+            match rara_mcp_client::list_stdio_tools(command, args, env, cwd).await {
+                Ok(tools) => {
+                    self.insert_server_tools(name.clone(), tools);
+                }
+                Err(e) => {
+                    eprintln!("[mcp-tool-cache] Failed to list tools from {name}: {e}");
+                }
+            }
+        }
+    }
 }

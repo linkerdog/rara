@@ -8,6 +8,7 @@ use super::super::state::{
 use super::tasks::{start_compact_task, start_rebuild_task, start_review_task};
 use crate::agent::{Agent, AgentEvent, AgentExecutionMode, BashApprovalMode};
 use crate::mcp_status::{McpStatusSnapshot, format_mcp_status};
+use crate::mcp_tool_cache::McpToolCache;
 use crate::oauth::OAuthManager;
 use crate::runtime_control::RuntimeProvenance;
 
@@ -388,6 +389,25 @@ fn handle_mcp_command(app: &mut TuiApp) {
             publish_mcp_status_event(app, &snapshot);
             app.push_entry("System", format_mcp_status(&snapshot));
             app.notice = Some("MCP status updated.".into());
+            // Populate the MCP tool cache from the registry.
+            // Clone the registry data before spawning (registry refs aren't Send).
+            if let Some(ref _cache) = app.mcp_tool_cache {
+                let servers: Vec<_> = registry
+                    .servers
+                    .iter()
+                    .map(|(k, v)| (k.clone(), std::sync::Arc::new(v.clone())))
+                    .collect();
+                let tools = _cache.share();
+                tokio::spawn(async move {
+                    // Lock, clear, drop immediately so MutexGuard doesn't cross await.
+                    {
+                        let mut map = tools.lock().unwrap();
+                        map.clear();
+                    }
+                    let tmp = crate::mcp_tool_cache::McpToolCache::from_shared(tools);
+                    tmp.populate_from_registry_owned(servers).await;
+                });
+            }
         }
         Err(err) => {
             publish_mcp_status_load_failed_event(app, &format!("{err:#}"));

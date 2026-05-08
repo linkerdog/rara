@@ -17,6 +17,7 @@ use crate::context::{
     RetrievalSourceContextEntry,
 };
 use crate::control_tokens::{has_pending_internal_control_context, scrub_internal_control_tokens};
+use crate::mcp_tool_cache::McpToolCache;
 use crate::oauth::SavedCodexAuthMode;
 use crate::runtime_event_bus::RuntimeEventBus;
 use crate::state_db::StateDb;
@@ -616,6 +617,8 @@ pub struct TuiApp {
     /// Optional runtime event bus that mirrors AgentEvent to ACP/Wire
     /// subscribers. Set during TUI startup; None only in test contexts.
     pub event_bus: Option<Arc<RuntimeEventBus>>,
+    /// MCP tool cache — populated on startup from configured MCP servers.
+    pub mcp_tool_cache: Option<McpToolCache>,
 }
 
 #[derive(Debug, Clone)]

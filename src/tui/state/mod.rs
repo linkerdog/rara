@@ -256,6 +256,7 @@ impl TuiApp {
             goal: None,
             goal_handle: Arc::new(std::sync::RwLock::new(None)),
             event_bus: None,
+            mcp_tool_cache: None,
         })
     }
 
