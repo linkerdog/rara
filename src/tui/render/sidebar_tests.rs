@@ -1,15 +1,12 @@
 use ratatui::{layout::Rect, style::Color, text::Line};
 use tempfile::tempdir;
 
-use crate::config::ConfigManager;
-use crate::tui::state::{
-    PendingInteractionSnapshot, RuntimeSnapshot, TuiApp,
-};
-
 use super::{
     format_token_count, push_budget_bar, push_child_sessions, push_context_summary,
     push_model_badge, push_session_info,
 };
+use crate::config::ConfigManager;
+use crate::tui::state::{PendingInteractionSnapshot, RuntimeSnapshot, TuiApp};
 
 // ── format_token_count ──────────────────────────────────────────────
 
@@ -57,7 +54,10 @@ fn push_session_info_shows_id_cwd_branch() {
         .map(|l| l.to_string())
         .collect::<Vec<_>>()
         .join("\n");
-    assert!(text.contains("abcdefgh…5678"), "should contain shortened session id");
+    assert!(
+        text.contains("abcdefgh…5678"),
+        "should contain shortened session id"
+    );
     assert!(text.contains("/home/user/project"), "should contain cwd");
     assert!(text.contains("main"), "should contain branch");
 }
@@ -77,7 +77,11 @@ fn push_session_info_empty_session_shows_rara() {
     let mut lines = Vec::new();
     push_session_info(&mut lines, &app);
 
-    let text: String = lines.iter().map(|l| l.to_string()).collect::<Vec<_>>().join("\n");
+    let text: String = lines
+        .iter()
+        .map(|l| l.to_string())
+        .collect::<Vec<_>>()
+        .join("\n");
     assert!(text.contains("RARA"), "should show RARA when no session id");
 }
 
@@ -96,7 +100,11 @@ fn push_session_info_short_session_id_not_truncated() {
     let mut lines = Vec::new();
     push_session_info(&mut lines, &app);
 
-    let text: String = lines.iter().map(|l| l.to_string()).collect::<Vec<_>>().join("\n");
+    let text: String = lines
+        .iter()
+        .map(|l| l.to_string())
+        .collect::<Vec<_>>()
+        .join("\n");
     assert!(text.contains("abc"), "short id should appear as-is");
 }
 
@@ -115,7 +123,11 @@ fn push_model_badge_shows_provider_and_model() {
     let mut lines = Vec::new();
     push_model_badge(&mut lines, &app);
 
-    let text: String = lines.iter().map(|l| l.to_string()).collect::<Vec<_>>().join("\n");
+    let text: String = lines
+        .iter()
+        .map(|l| l.to_string())
+        .collect::<Vec<_>>()
+        .join("\n");
     assert!(text.contains("openai"), "should show provider");
     assert!(text.contains("gpt-4o"), "should show model");
 }
@@ -133,9 +145,16 @@ fn push_model_badge_falls_back_to_default_model() {
     let mut lines = Vec::new();
     push_model_badge(&mut lines, &app);
 
-    let text: String = lines.iter().map(|l| l.to_string()).collect::<Vec<_>>().join("\n");
+    let text: String = lines
+        .iter()
+        .map(|l| l.to_string())
+        .collect::<Vec<_>>()
+        .join("\n");
     assert!(text.contains("anthropic"), "should show provider");
-    assert!(text.contains("default"), "should fall back to default model");
+    assert!(
+        text.contains("default"),
+        "should fall back to default model"
+    );
 }
 
 #[test]
@@ -151,7 +170,11 @@ fn push_model_badge_shows_reasoning_effort_when_set() {
     let mut lines = Vec::new();
     push_model_badge(&mut lines, &app);
 
-    let text: String = lines.iter().map(|l| l.to_string()).collect::<Vec<_>>().join("\n");
+    let text: String = lines
+        .iter()
+        .map(|l| l.to_string())
+        .collect::<Vec<_>>()
+        .join("\n");
     assert!(text.contains("high"), "should show reasoning effort");
 }
 
@@ -168,8 +191,15 @@ fn push_model_badge_no_reasoning_effort_when_none() {
     let mut lines = Vec::new();
     push_model_badge(&mut lines, &app);
 
-    let text: String = lines.iter().map(|l| l.to_string()).collect::<Vec<_>>().join("\n");
-    assert!(!text.contains("reasoning"), "should not mention reasoning when unset");
+    let text: String = lines
+        .iter()
+        .map(|l| l.to_string())
+        .collect::<Vec<_>>()
+        .join("\n");
+    assert!(
+        !text.contains("reasoning"),
+        "should not mention reasoning when unset"
+    );
 }
 
 // ── push_budget_bar ─────────────────────────────────────────────────
@@ -216,7 +246,11 @@ fn push_budget_bar_renders_segments_and_stats() {
     let mut lines = Vec::new();
     push_budget_bar(&mut lines, &app, 38);
 
-    let text: String = lines.iter().map(|l| l.to_string()).collect::<Vec<_>>().join("\n");
+    let text: String = lines
+        .iter()
+        .map(|l| l.to_string())
+        .collect::<Vec<_>>()
+        .join("\n");
     // Budget bar uses unicode block chars — just check labels appear.
     assert!(text.contains("sys"), "should show sys label");
     assert!(text.contains("ws"), "should show ws label");
@@ -250,7 +284,11 @@ fn push_budget_bar_no_remaining_input_budget() {
     push_budget_bar(&mut lines, &app, 38);
 
     // Should still render without free label (no remaining_input_budget).
-    let text: String = lines.iter().map(|l| l.to_string()).collect::<Vec<_>>().join("\n");
+    let text: String = lines
+        .iter()
+        .map(|l| l.to_string())
+        .collect::<Vec<_>>()
+        .join("\n");
     assert!(!text.is_empty(), "should render budget bar");
 }
 
@@ -300,7 +338,11 @@ fn push_child_sessions_shows_count() {
     let mut lines = Vec::new();
     push_child_sessions(&mut lines, &app);
 
-    let text: String = lines.iter().map(|l| l.to_string()).collect::<Vec<_>>().join("\n");
+    let text: String = lines
+        .iter()
+        .map(|l| l.to_string())
+        .collect::<Vec<_>>()
+        .join("\n");
     assert!(text.contains("2 active"), "should show sub-agent count");
 }
 
@@ -318,9 +360,16 @@ fn push_context_summary_shows_turns() {
     let mut lines = Vec::new();
     push_context_summary(&mut lines, &app);
 
-    let text: String = lines.iter().map(|l| l.to_string()).collect::<Vec<_>>().join("\n");
+    let text: String = lines
+        .iter()
+        .map(|l| l.to_string())
+        .collect::<Vec<_>>()
+        .join("\n");
     assert!(text.contains("12 turns"), "should show turn count");
-    assert!(!text.contains("compacted"), "should not show compaction when zero");
+    assert!(
+        !text.contains("compacted"),
+        "should not show compaction when zero"
+    );
 }
 
 #[test]
@@ -336,7 +385,11 @@ fn push_context_summary_shows_compaction() {
     let mut lines = Vec::new();
     push_context_summary(&mut lines, &app);
 
-    let text: String = lines.iter().map(|l| l.to_string()).collect::<Vec<_>>().join("\n");
+    let text: String = lines
+        .iter()
+        .map(|l| l.to_string())
+        .collect::<Vec<_>>()
+        .join("\n");
     assert!(text.contains("8 turns"), "should show turn count");
     assert!(text.contains("compacted"), "should show compaction");
     assert!(text.contains("3 times"), "should show compaction count");

@@ -229,10 +229,7 @@ fn push_budget_bar(lines: &mut Vec<Line<'static>>, app: &TuiApp, width: u16) {
 
 fn push_child_sessions(lines: &mut Vec<Line<'static>>, app: &TuiApp) {
     // Child / sub-agent sessions if any.
-    let child_count = app
-        .snapshot
-        .pending_interactions
-        .len();
+    let child_count = app.snapshot.pending_interactions.len();
     if child_count > 0 {
         lines.push(Line::from(Span::styled(
             format!("sub-agents  {child_count} active"),
