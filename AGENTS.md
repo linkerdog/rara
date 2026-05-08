@@ -58,6 +58,10 @@ The current product direction is to make local inference a first-class path inst
 
 ## 3.1 Rust Engineering Rules
 
+- New or modified Rust code must not introduce new compiler or Clippy warnings.
+  The existing codebase may still contain legacy warnings; keep changes
+  warning-clean within the touched scope, and prefer fixing nearby warnings
+  only when they are directly caused by or blocking the current change.
 - Avoid ambiguous positional booleans, numeric literals, or `Option` arguments in new APIs when they make call sites hard to read. Prefer enums, newtypes, named methods, or small parameter structs.
 - Prefer exhaustive `match` statements over wildcard arms when the variants are part of a meaningful state machine or protocol contract.
 - Newly introduced traits should include concise doc comments that explain the trait role and what implementors must preserve.
