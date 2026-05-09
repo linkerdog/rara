@@ -192,36 +192,8 @@ impl TuiApp {
     }
 
     /// Keep the composer cursor visible by adjusting `composer_scroll`.
-    pub fn maintain_composer_scroll(&mut self, composer_width: u16, visible_height: u16) {
-        let max_width = composer_width.max(1) as usize;
-        let prefix_width = 2; // "› "
-        let content_width = max_width.saturating_sub(prefix_width);
-        if content_width == 0 {
-            return;
-        }
-
-        // Count which line the cursor is on.
-        let cursor = self.composer_cursor_offset();
-        let mut row = 0usize;
-        let mut seen = 0usize;
-        let mut line_width = prefix_width;
-        for ch in self.input.chars() {
-            seen += 1;
-            if seen > cursor {
-                break;
-            }
-            if ch == '\n' {
-                row += 1;
-                line_width = 0;
-                continue;
-            }
-            let char_width = unicode_width::UnicodeWidthChar::width(ch).unwrap_or(1);
-            if line_width + char_width > content_width {
-                row += 1;
-                line_width = 0;
-            }
-            line_width += char_width;
-        }
+    pub fn maintain_composer_scroll(&mut self, _composer_width: u16, visible_height: u16) {
+        let (row, _col) = self.composer_visual_position_for_offset(self.composer_cursor_offset());
 
         let height = visible_height.max(1) as usize;
         if row < self.composer_scroll {
