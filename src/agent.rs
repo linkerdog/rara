@@ -27,6 +27,7 @@ use crate::llm::{ContentBlock, LlmBackend, LlmStreamEvent, LlmTurnMetadata};
 use crate::mcp_status::McpStatusSnapshot;
 use crate::memory_store::MemoryStore;
 use crate::prompt::{self, PromptMode, PromptRuntimeConfig};
+use crate::protocol_sources::PromptSourceRegistry;
 use crate::session::SessionManager;
 use crate::thread_store::ThreadRecorder;
 use crate::todo::TodoState;
@@ -169,6 +170,7 @@ pub struct Agent {
     last_turn_had_tool_calls: bool,
     pending_plan_exit_tool_id: Option<String>,
     prompt_config: PromptRuntimeConfig,
+    prompt_source_registry: Option<Arc<PromptSourceRegistry>>,
     cancellation_token: Option<Arc<AtomicBool>>,
     consecutive_reasoning_only_turns: usize,
 }
@@ -248,6 +250,7 @@ impl Agent {
             last_turn_had_tool_calls: false,
             pending_plan_exit_tool_id: None,
             prompt_config: PromptRuntimeConfig::default(),
+            prompt_source_registry: None,
             cancellation_token: None,
             consecutive_reasoning_only_turns: 0,
         }
@@ -297,6 +300,7 @@ impl Agent {
         self.checkpoint_session()?;
         self.refresh_memory_retrieval_candidates().await;
         self.refresh_file_search_candidates();
+        self.refresh_protocol_prompt_sources_for_query().await;
 
         match self
             .run_agent_loop_with_limit(output_mode, &mut report, &mut agentic_turns)

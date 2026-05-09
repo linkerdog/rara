@@ -200,6 +200,13 @@ workspace instructions and documentation, not in the default runtime system prom
   workspace memory, skills, runtime environment, and append prompts in their
   existing relative order while still making protocol input visible in the
   effective prompt and prompt-source context view.
+- Runtime bootstrap owns the live `PromptSourceRegistry` and attaches it to the
+  agent. At the start of each user query, the agent atomically snapshots
+  turn-active registry entries into `PromptRuntimeConfig::protocol_prompt_sources`
+  and advances turn-limited lifetimes under the same registry lock. The
+  snapshotted sources remain active for every model request inside that query's
+  agent loop. This keeps live protocol input on the normal prompt-runtime path
+  instead of letting adapters edit final prompt text.
 
 ### 4) Agent Loop Integration
 

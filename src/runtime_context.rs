@@ -20,6 +20,7 @@ use crate::llm::{
 use crate::local_backend::{LocalLlmBackend, LocalProgressReporter};
 use crate::mcp_tool_cache::McpToolCache;
 use crate::prompt::{PromptRuntimeConfig, PromptSkillSummary};
+use crate::protocol_sources::PromptSourceRegistry;
 use crate::runtime_event_bus::RuntimeEventBus;
 use crate::sandbox::SandboxManager;
 use crate::session::SessionManager;
@@ -38,6 +39,7 @@ pub(crate) struct RuntimeBootstrap {
     pub warnings: Vec<String>,
     pub sandbox_network_access: Arc<AtomicBool>,
     pub event_bus: Arc<RuntimeEventBus>,
+    pub prompt_source_registry: Arc<PromptSourceRegistry>,
     pub goal_handle: GoalHandle,
     pub mcp_tool_cache: McpToolCache,
 }
@@ -65,6 +67,7 @@ impl RuntimeBootstrap {
             self.workspace,
         );
         agent.set_prompt_config(self.prompt_config);
+        agent.set_prompt_source_registry(self.prompt_source_registry);
         (
             agent,
             self.warnings,
@@ -118,6 +121,7 @@ pub(crate) async fn initialize_rara_context(
     ));
 
     let event_bus = Arc::new(RuntimeEventBus::new(256));
+    let prompt_source_registry = Arc::new(PromptSourceRegistry::new(event_bus.clone()));
     let goal_handle: GoalHandle = Arc::new(std::sync::RwLock::new(None));
     let mcp_tool_cache = McpToolCache::new();
     mcp_tool_cache.clear();
@@ -147,6 +151,7 @@ pub(crate) async fn initialize_rara_context(
         warnings,
         sandbox_network_access,
         event_bus,
+        prompt_source_registry,
         goal_handle,
         mcp_tool_cache,
     })
