@@ -32,7 +32,14 @@ pub(crate) async fn dispatch_event(
     match event {
         AppEvent::Noop => {}
         AppEvent::OpenOverlay(overlay) => app.open_overlay(overlay),
-        AppEvent::CloseOverlay => app.close_overlay(),
+        AppEvent::CloseOverlay => {
+            // Clear palette query when Esc from command palette.
+            if matches!(app.overlay, Some(Overlay::CommandPalette)) {
+                app.input.clear();
+                app.command_palette_idx = 0;
+            }
+            app.close_overlay();
+        }
         AppEvent::CancelRunningTask => {
             input_control::handle_session_control(app, SessionControlRequest::CancelCurrentTurn);
         }
