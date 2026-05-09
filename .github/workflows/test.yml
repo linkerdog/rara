@@ -25,8 +25,5 @@ jobs:
       - name: Cache cargo
         uses: Swatinem/rust-cache@v2
 
-      - name: Ensure Cargo.lock from checkout
-        run: git checkout -- Cargo.lock
-
       - name: Run tests
-        run: cargo test --locked
+        run: cargo test

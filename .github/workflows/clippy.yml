@@ -26,8 +26,5 @@ jobs:
       - name: Cache cargo
         uses: Swatinem/rust-cache@v2
 
-      - name: Ensure Cargo.lock from checkout
-        run: git checkout -- Cargo.lock
-
       - name: Run clippy
-        run: cargo clippy --locked --all-targets --no-deps
+        run: cargo clippy --all-targets --no-deps
