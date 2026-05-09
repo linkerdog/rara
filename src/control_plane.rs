@@ -44,10 +44,10 @@ where
             skill_registry.handle_control(skill_request).await;
             Ok(())
         }
-        RuntimeControlRequest::Memory(memory_request) => {
-            memory_handler.handle_control(memory_request).await;
-            Ok(())
-        }
+        RuntimeControlRequest::Memory(memory_request) => memory_handler
+            .handle_control(memory_request)
+            .await
+            .map_err(|err| err.to_string()),
         _ => Err("control-plane dispatch not yet implemented for this request variant".to_string()),
     }
 }
