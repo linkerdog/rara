@@ -1,3 +1,4 @@
+use rara_tools::tool::ToolOutputStream;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
@@ -6,7 +7,6 @@ use crate::context::{ContextObservabilityView, RetrievalOrchestrationView};
 use crate::mcp_status::{McpConnectionState, McpStatusSnapshot};
 use crate::session_promotion::SessionShardPromotionOutcome;
 use crate::todo::TodoState;
-use crate::tool::ToolOutputStream;
 
 #[allow(dead_code)]
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]

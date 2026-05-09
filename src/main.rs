@@ -1,3 +1,5 @@
+#![allow(unused_imports)]
+
 mod acp;
 mod acp_consumer;
 mod agent;
@@ -35,7 +37,6 @@ mod skill;
 mod thread_cli;
 mod thread_store;
 mod todo;
-mod tool;
 mod tool_result;
 mod tools;
 mod tui;

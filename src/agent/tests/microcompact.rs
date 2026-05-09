@@ -1,12 +1,12 @@
 use std::sync::Arc;
 
 use rara_memory::vectordb::VectorDB;
+use rara_tools::tool::ToolManager;
 use serde_json::json;
 
 use super::support::{SequencedBackend, test_runtime_storage};
 use crate::agent::{Agent, AgentOutputMode, Message};
 use crate::llm::{ContentBlock, LlmResponse, TokenUsage};
-use crate::tool::ToolManager;
 
 #[tokio::test]
 async fn model_request_projects_old_tool_results_without_mutating_history() {

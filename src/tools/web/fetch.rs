@@ -5,11 +5,11 @@ use async_trait::async_trait;
 use backon::{ExponentialBuilder, Retryable};
 use futures::StreamExt;
 use rara_tool_macros::tool_spec;
+use rara_tools::tool::{Tool, ToolError};
 use serde_json::{Value, json};
 use url::Url;
 
 use crate::llm::is_retryable_http_error;
-use crate::tool::{Tool, ToolError};
 
 const DEFAULT_TIMEOUT_SECS: u64 = 30;
 const MAX_TIMEOUT_SECS: u64 = 120;

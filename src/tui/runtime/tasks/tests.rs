@@ -5,6 +5,8 @@ use std::sync::{
 use std::time::{Duration, Instant};
 
 use rara_memory::vectordb::VectorDB;
+use rara_tools::planning::{EnterPlanModeTool, ExitPlanModeTool};
+use rara_tools::tool::ToolManager;
 use serde_json::json;
 use tempfile::tempdir;
 use tokio::sync::{Mutex, mpsc};
@@ -22,8 +24,6 @@ use crate::llm::{ContentBlock, LlmBackend, LlmResponse, TokenUsage};
 use crate::oauth::OAuthManager;
 use crate::prompt::PromptRuntimeConfig;
 use crate::session::SessionManager;
-use crate::tool::ToolManager;
-use crate::tools::planning::{EnterPlanModeTool, ExitPlanModeTool};
 use crate::tui::state::{
     OAuthLoginMode, RalphGoal, RunningTask, RuntimePhase, TaskCompletion, TaskKind, TuiApp,
 };

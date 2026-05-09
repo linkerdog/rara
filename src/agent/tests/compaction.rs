@@ -4,6 +4,7 @@ use anyhow::Result;
 use async_trait::async_trait;
 use rara_memory::vectordb::VectorDB;
 use rara_state::state_db::{PersistedStructuredRolloutEvent, StateDb};
+use rara_tools::tool::ToolManager;
 use serde_json::json;
 
 use super::super::is_compact_boundary_message;
@@ -12,7 +13,6 @@ use crate::agent::{Agent, AgentEvent, CompactState, ContentBlock, Message};
 use crate::context::RetrievedMemoryCandidate;
 use crate::llm::{ContextBudget, LlmBackend, LlmResponse, TokenUsage};
 use crate::session::SessionManager;
-use crate::tool::ToolManager;
 use crate::workspace::WorkspaceMemory;
 
 struct SlowSummarizeBackend;

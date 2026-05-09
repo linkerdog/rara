@@ -4,6 +4,7 @@ use anyhow::Result;
 use async_trait::async_trait;
 use rara_memory::vectordb::VectorDB;
 use rara_tool_macros::tool_spec;
+use rara_tools::tool::{Tool, ToolError, ToolManager};
 use serde_json::{Value, json};
 use tempfile::tempdir;
 
@@ -11,7 +12,6 @@ use crate::agent::Message;
 use crate::llm::LlmBackend;
 use crate::llm::LlmResponse;
 use crate::session::SessionManager;
-use crate::tool::{Tool, ToolError, ToolManager};
 use crate::workspace::WorkspaceMemory;
 
 pub(super) struct StubTool;

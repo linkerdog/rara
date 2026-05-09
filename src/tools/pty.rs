@@ -11,13 +11,13 @@ use std::time::{Duration, Instant};
 use async_trait::async_trait;
 use portable_pty::{Child, CommandBuilder, NativePtySystem, PtySize, PtySystem};
 use rara_tool_macros::tool_spec;
+use rara_tools::tool::{Tool, ToolError};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use tokio::io::{AsyncReadExt, AsyncSeekExt};
 use uuid::Uuid;
 
 use crate::sandbox::{SandboxManager, WrappedCommand, sandbox_failure_hint};
-use crate::tool::{Tool, ToolError};
 
 const PTY_START_QUICK_COMPLETION_TIMEOUT: Duration = Duration::from_millis(750);
 const PTY_START_QUICK_COMPLETION_POLL: Duration = Duration::from_millis(25);

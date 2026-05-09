@@ -161,11 +161,11 @@ fn apply_cli_overrides(config: &mut RaraConfig, cli: Cli) -> Option<Commands> {
 async fn run_acp_command(config: &RaraConfig) -> Result<()> {
     let bootstrap = runtime_context::initialize_rara_context(config, None).await?;
     emit_bootstrap_warnings(&bootstrap.warnings);
-    let acp_agent = RaraAcpAgent {
-        llm_backend: bootstrap.backend.clone(),
-        tool_manager: Arc::new(bootstrap.tool_manager),
-        event_bus: bootstrap.event_bus.clone(),
-    };
+    let acp_agent = RaraAcpAgent::new(
+        bootstrap.backend.clone(),
+        Arc::new(bootstrap.tool_manager),
+        bootstrap.event_bus.clone(),
+    );
     acp_agent
         .run_acp_stdio()
         .await

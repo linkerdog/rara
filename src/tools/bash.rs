@@ -12,6 +12,7 @@ use std::time::Instant;
 
 use async_trait::async_trait;
 use rara_tool_macros::tool_spec;
+use rara_tools::tool::{Tool, ToolCallContext, ToolError, ToolOutputStream, ToolProgressEvent};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use tokio::fs;
@@ -23,7 +24,6 @@ use tokio::time::{Instant as TokioInstant, MissedTickBehavior};
 use uuid::Uuid;
 
 use crate::sandbox::{SandboxManager, WrappedCommand, sandbox_failure_hint};
-use crate::tool::{Tool, ToolCallContext, ToolError, ToolOutputStream, ToolProgressEvent};
 use crate::tool_result::model_preview_bash_output;
 
 pub struct BashTool {
@@ -1620,6 +1620,7 @@ mod tests {
     };
     use std::time::Duration;
 
+    use rara_tools::tool::{Tool, ToolCallContext, ToolOutputStream, ToolProgressEvent};
     use serde_json::{Value, json};
     use tempfile::tempdir;
 
@@ -1630,7 +1631,6 @@ mod tests {
         read_output_tail, sandbox_command_env, sandbox_output_hint, unsandboxed_execution_warning,
     };
     use crate::sandbox::{SandboxManager, WrappedCommand};
-    use crate::tool::{Tool, ToolCallContext, ToolOutputStream, ToolProgressEvent};
     use crate::tool_result::model_preview_bash_output;
 
     #[test]

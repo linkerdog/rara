@@ -231,6 +231,7 @@ mod tests {
 
     use rara_memory::vectordb::VectorDB;
     use rara_state::state_db::StateDb;
+    use rara_tools::tool::ToolManager;
     use serde_json::json;
     use tempfile::tempdir;
 
@@ -240,7 +241,6 @@ mod tests {
     use crate::llm::MockLlm;
     use crate::prompt::PromptRuntimeConfig;
     use crate::todo::{TodoItem, TodoState, TodoStatus};
-    use crate::tool::ToolManager;
     use crate::tui::state::TuiApp;
     use crate::workspace::WorkspaceMemory;
 
