@@ -67,9 +67,23 @@ login warnings, but now comes from `TerminalInfo::is_remote_session()`.
 4. `TERM` fallback;
 5. unknown.
 
+## Status Diagnostics
+
+The `/status` diagnostics surface now consumes the same `TerminalInfo` data model
+through a `TerminalDiagnosticsView`. It reports:
+
+- detected terminal name and sanitized user-agent token;
+- `TERM` and `TERM_PROGRAM` when present;
+- multiplexer and remote-session classification;
+- selected history insertion compatibility mode;
+- current TUI focus and terminal width.
+
+The text status output uses the same view and names the fields with a
+`terminal_*` prefix. Future OTEL attributes should be derived from this view
+instead of reading environment variables again.
+
 ## Follow-Up
 
-- Surface terminal metadata in diagnostics once `/status` has a suitable tab.
 - Add OTEL attributes from the same `TerminalInfo` shape.
 - Decide whether tmux client probing should be lazy, disabled by default, or
   never added.

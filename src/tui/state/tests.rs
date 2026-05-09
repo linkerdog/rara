@@ -487,6 +487,25 @@ fn model_routing_view_falls_back_to_main_model_without_helper() {
 }
 
 #[test]
+fn terminal_diagnostics_view_uses_live_tui_dimensions() {
+    let dir = tempdir().expect("tempdir");
+    let cm = ConfigManager {
+        path: dir.path().join("config.json"),
+    };
+    let mut app = TuiApp::new(cm).expect("app");
+
+    app.terminal_width = 123;
+    app.terminal_focused = false;
+
+    let terminal = app.terminal_diagnostics_view();
+
+    assert_eq!(terminal.width_columns, 123);
+    assert!(!terminal.focused);
+    assert!(!terminal.user_agent.is_empty());
+    assert!(!terminal.history_mode.is_empty());
+}
+
+#[test]
 fn codex_preset_keeps_the_codex_model_label() {
     let dir = tempdir().expect("tempdir");
     let cm = ConfigManager {

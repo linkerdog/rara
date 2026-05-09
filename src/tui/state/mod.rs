@@ -25,7 +25,8 @@ pub use self::types::{
     OAuthLoginMode, OpenAiModelPickerAction, Overlay, PROVIDER_FAMILIES, PendingApprovalSnapshot,
     PendingInteractionSnapshot, PermissionMode, ProviderFamily, RalphGoal, RebuildSuccess,
     RunningTask, RuntimePhase, RuntimeSnapshot, SkillPickerEntry, StatusTab, TaskCompletion,
-    TaskKind, TranscriptEntry, TranscriptEntryPayload, TranscriptTurn, TuiApp, TuiEvent,
+    TaskKind, TerminalDiagnosticsView, TranscriptEntry, TranscriptEntryPayload, TranscriptTurn,
+    TuiApp, TuiEvent,
 };
 
 const OPENAI_PROFILE_SETUP_KINDS: [OpenAiEndpointKind; 3] = [
@@ -37,6 +38,27 @@ pub(super) const INPUT_HISTORY_LIMIT: usize = 200;
 
 pub fn openai_profile_setup_kinds() -> &'static [OpenAiEndpointKind] {
     &OPENAI_PROFILE_SETUP_KINDS
+}
+
+fn terminal_multiplexer_label(
+    multiplexer: Option<&rara_terminal_detection::Multiplexer>,
+) -> String {
+    match multiplexer {
+        Some(rara_terminal_detection::Multiplexer::Tmux { version }) => version
+            .as_ref()
+            .filter(|value| !value.is_empty())
+            .map(|version| format!("tmux/{version}"))
+            .unwrap_or_else(|| "tmux".to_string()),
+        Some(rara_terminal_detection::Multiplexer::Zellij) => "zellij".to_string(),
+        None => "-".to_string(),
+    }
+}
+
+fn terminal_remote_label(remote: Option<&rara_terminal_detection::RemoteSession>) -> &'static str {
+    match remote {
+        Some(rara_terminal_detection::RemoteSession::Ssh) => "ssh",
+        None => "local",
+    }
 }
 
 use rara_persistence::redaction::redact_secrets;
@@ -351,6 +373,25 @@ impl TuiApp {
         let endpoint_kind = self.config.active_openai_profile_kind()?;
         crate::llm::infer_openai_compatible_auxiliary_model(main_model, endpoint_kind)
             .map(|model| model.into_owned())
+    }
+
+    pub fn terminal_diagnostics_view(&self) -> TerminalDiagnosticsView {
+        let info = rara_terminal_detection::terminal_info();
+        TerminalDiagnosticsView {
+            name: format!("{:?}", info.name),
+            user_agent: info.user_agent_token(),
+            term_program: info.term_program.clone(),
+            term: info.term.clone(),
+            multiplexer: terminal_multiplexer_label(info.multiplexer.as_ref()),
+            remote: terminal_remote_label(info.remote.as_ref()).to_string(),
+            history_mode: if info.is_zellij() {
+                "zellij-fallback-insert".to_string()
+            } else {
+                "scroll-region".to_string()
+            },
+            focused: self.terminal_focused,
+            width_columns: self.terminal_width,
+        }
     }
 
     pub fn repo_context_hint(&self) -> Option<String> {
