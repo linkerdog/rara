@@ -6,11 +6,11 @@ use std::sync::{Arc, Mutex};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use anyhow::{Context, Result, bail};
+use rara_memory::vectordb::{MemoryMetadata, VectorDB};
 use rara_persistence::atomic_file;
 use rara_persistence::file_lock::AdvisoryFileLock;
 
 use crate::llm::LlmBackend;
-use crate::vectordb::{MemoryMetadata, VectorDB};
 
 const EXPERIENCES_TABLE: &str = "experiences";
 const DEFAULT_IMPORTANCE: f32 = 0.5;

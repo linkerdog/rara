@@ -9,7 +9,9 @@ mod tests;
 use std::sync::{Arc, atomic::AtomicBool};
 
 use anyhow::{Context, Result};
+use rara_memory::vectordb::VectorDB;
 use rara_persistence::redaction::redact_secrets;
+use rara_state::state_db::StateDb;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use uuid::Uuid;
@@ -23,7 +25,6 @@ use crate::mcp_status::McpStatusSnapshot;
 use crate::memory_store::MemoryStore;
 use crate::prompt::{self, PromptMode, PromptRuntimeConfig};
 use crate::session::SessionManager;
-use crate::state_db::StateDb;
 use crate::thread_store::ThreadRecorder;
 use crate::todo::TodoState;
 use crate::tool::ToolOutputStream;
@@ -36,7 +37,6 @@ use crate::tool_result::{
 use crate::tools::bash::BashCommandInput;
 use crate::tools::planning::{ENTER_PLAN_MODE_TOOL_NAME, EXIT_PLAN_MODE_TOOL_NAME};
 use crate::tools::todo::TODO_WRITE_TOOL_NAME;
-use crate::vectordb::VectorDB;
 use crate::workspace::WorkspaceMemory;
 
 const MAX_RUNTIME_ERROR_RECOVERY_ATTEMPTS: usize = 1;

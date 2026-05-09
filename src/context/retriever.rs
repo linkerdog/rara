@@ -172,12 +172,12 @@ mod tests {
 
     use anyhow::Result;
     use async_trait::async_trait;
+    use rara_memory::vectordb::VectorDB;
     use serde_json::Value;
 
     use super::*;
     use crate::llm::{ContentBlock, LlmResponse};
     use crate::memory_store::{MemoryLabel, MemoryScope, MemorySource, NewMemoryRecord};
-    use crate::vectordb::VectorDB;
 
     #[derive(Default)]
     struct TestBackend {

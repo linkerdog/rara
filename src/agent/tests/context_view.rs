@@ -1,5 +1,6 @@
 use std::sync::Arc;
 
+use rara_memory::vectordb::VectorDB;
 use serde_json::json;
 
 use super::support::{SequencedBackend, test_runtime_storage};
@@ -8,7 +9,6 @@ use crate::llm::{ContentBlock, LlmResponse};
 use crate::memory_store::{MemoryLabel, MemoryScope, MemorySource, MemoryStore, NewMemoryRecord};
 use crate::prompt::PromptRuntimeConfig;
 use crate::tool::ToolManager;
-use crate::vectordb::VectorDB;
 
 #[test]
 fn shared_runtime_context_collects_prompt_plan_and_compaction_state() {

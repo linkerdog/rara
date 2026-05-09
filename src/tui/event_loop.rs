@@ -3,6 +3,7 @@ use std::sync::atomic::AtomicBool;
 
 use crossterm::{event::EventStream, terminal::enable_raw_mode, terminal::size as terminal_size};
 use futures::StreamExt;
+use rara_state::state_db::StateDb;
 use tokio::time::{Duration, MissedTickBehavior, interval};
 
 use super::event_dispatch::dispatch_event;
@@ -22,7 +23,6 @@ use crate::agent::Agent;
 use crate::mcp_tool_cache::McpToolCache;
 use crate::oauth::OAuthManager;
 use crate::runtime_event_bus::RuntimeEventBus;
-use crate::state_db::StateDb;
 
 #[derive(Debug, Clone)]
 pub enum StartupResumeTarget {

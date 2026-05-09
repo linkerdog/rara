@@ -1,13 +1,13 @@
 use std::sync::Arc;
 
 use anyhow::Result;
+use rara_state::state_db::StateDb;
 
 use super::state::{TranscriptEntry, TranscriptTurn, TuiApp};
 use crate::agent::{
     Agent, BashApprovalMode, CompactBoundaryMetadata, CompletedInteraction, PendingApproval,
     PendingUserInput, PlanStep, PlanStepStatus, latest_compact_boundary_metadata,
 };
-use crate::state_db::StateDb;
 use crate::thread_store::{CompactionRecord, RolloutItem, ThreadStore};
 use crate::tools::bash::BashCommandInput;
 
@@ -229,6 +229,8 @@ pub(crate) fn provider_requires_api_key(provider: &str) -> bool {
 mod tests {
     use std::fs;
 
+    use rara_memory::vectordb::VectorDB;
+    use rara_state::state_db::StateDb;
     use serde_json::json;
     use tempfile::tempdir;
 
@@ -237,11 +239,9 @@ mod tests {
     use crate::config::ConfigManager;
     use crate::llm::MockLlm;
     use crate::prompt::PromptRuntimeConfig;
-    use crate::state_db::StateDb;
     use crate::todo::{TodoItem, TodoState, TodoStatus};
     use crate::tool::ToolManager;
     use crate::tui::state::TuiApp;
-    use crate::vectordb::VectorDB;
     use crate::workspace::WorkspaceMemory;
 
     #[test]

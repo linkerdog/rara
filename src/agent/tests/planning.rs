@@ -2,6 +2,7 @@ use std::sync::{Arc, Mutex};
 
 use anyhow::Result;
 use async_trait::async_trait;
+use rara_memory::vectordb::VectorDB;
 use serde_json::json;
 use tempfile::tempdir;
 
@@ -20,7 +21,6 @@ use crate::tool::ToolManager;
 use crate::tool_result::ToolResultStore;
 use crate::tools::planning::{EnterPlanModeTool, ExitPlanModeTool};
 use crate::tools::todo::TodoWriteTool;
-use crate::vectordb::VectorDB;
 use crate::workspace::WorkspaceMemory;
 
 struct CheckpointObserverBackend {

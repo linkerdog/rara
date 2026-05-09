@@ -41,12 +41,12 @@ pub fn openai_profile_setup_kinds() -> &'static [OpenAiEndpointKind] {
 
 use rara_persistence::redaction::redact_secrets;
 use rara_provider_catalog::{ModelCatalogProvider, fallback_models};
+use rara_state::state_db::StateDb;
 
 use super::queued_input::PendingFollowUpMessage;
 use crate::agent::{Agent, AgentExecutionMode, BashApprovalMode};
 use crate::codex_model_catalog::{CodexModelOption, CodexReasoningOption};
 use crate::config::{ConfigManager, DEFAULT_CODEX_BASE_URL, OpenAiEndpointKind};
-use crate::state_db::StateDb;
 use crate::tui::is_ssh_session;
 
 fn completed_interaction_role(kind: InteractionKind, source: Option<&str>) -> &'static str {

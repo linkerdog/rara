@@ -200,7 +200,7 @@ async fn run_wire_command(config: &RaraConfig, prompt: String) -> Result<()> {
 async fn run_distill_command(config: &RaraConfig, thread_id: &str) -> Result<()> {
     let bootstrap = runtime_context::initialize_rara_context(config, None).await?;
     emit_bootstrap_warnings(&bootstrap.warnings);
-    let state_db = crate::state_db::StateDb::new()?;
+    let state_db = rara_state::state_db::StateDb::new()?;
     let memory_store =
         crate::memory_store::MemoryStore::new(bootstrap.backend.clone(), bootstrap.vdb.clone());
     let thread_store = crate::thread_store::ThreadStore::new(&bootstrap.session_manager, &state_db);

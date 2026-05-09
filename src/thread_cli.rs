@@ -1,10 +1,10 @@
 use std::path::Path;
 
 use anyhow::Result;
+use rara_state::state_db::StateDb;
 
 use crate::memory_store::{MemoryLabel, MemoryRecord};
 use crate::session::SessionManager;
-use crate::state_db::StateDb;
 use crate::thread_store::{ThreadSnapshot, ThreadStore, ThreadSummary};
 
 pub(crate) fn run_threads_command(limit: usize) -> Result<()> {
@@ -210,9 +210,10 @@ fn workspace_label(cwd: &str) -> &str {
 
 #[cfg(test)]
 mod tests {
+    use rara_state::state_db::PersistedInteraction;
+
     use super::{format_distilled_memories, format_recent_threads, format_thread_snapshot};
     use crate::memory_store::{MemoryLabel, MemoryRecord, MemoryScope, MemorySource};
-    use crate::state_db::PersistedInteraction;
     use crate::thread_store::{
         CompactionRecord, RolloutItem, ThreadHistorySource, ThreadMaterializationProvenance,
         ThreadMetadata, ThreadMetadataSource, ThreadNonTurnRolloutSource, ThreadSnapshot,

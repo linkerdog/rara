@@ -3,6 +3,7 @@ use std::path::PathBuf;
 use std::sync::{Arc, atomic::AtomicBool};
 use std::time::Instant;
 
+use rara_state::state_db::StateDb;
 use ratatui::text::Line;
 use tokio::sync::mpsc::UnboundedReceiver;
 use tokio::task::JoinHandle;
@@ -20,7 +21,6 @@ use crate::control_tokens::{has_pending_internal_control_context, scrub_internal
 use crate::mcp_tool_cache::McpToolCache;
 use crate::oauth::SavedCodexAuthMode;
 use crate::runtime_event_bus::RuntimeEventBus;
-use crate::state_db::StateDb;
 use crate::thread_store::ThreadSummary;
 use crate::tool::ToolOutputStream;
 use crate::tools::bash::BashCommandInput;

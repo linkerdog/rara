@@ -1,6 +1,8 @@
 use std::collections::HashMap;
 use std::sync::{Arc, OnceLock, atomic::AtomicBool};
 
+use rara_memory::vectordb::VectorDB;
+
 use crate::llm::LlmBackend;
 use crate::prompt::PromptRuntimeConfig;
 use crate::sandbox::SandboxManager;
@@ -34,7 +36,6 @@ use crate::tools::vector::{RememberExperienceTool, RetrieveExperienceTool};
 use crate::tools::web::{WebFetchTool, WebSearchTool};
 use crate::tools::workspace::UpdateProjectMemoryTool;
 use crate::tui::state::GoalHandle;
-use crate::vectordb::VectorDB;
 use crate::workspace::WorkspaceMemory;
 
 static BACKGROUND_SUBAGENTS: OnceLock<Arc<BackgroundSubAgentStore>> = OnceLock::new();
