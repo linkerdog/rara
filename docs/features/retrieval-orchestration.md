@@ -340,9 +340,10 @@ The display should keep details compact and path/URI-like fields visible.
 - Add durable source ids and dedupe keys for future providers.
 - Add tests for duplicate memory/file/session candidates.
 
-### Phase 5: Graph/MCP/Hook Sources
+### Phase 5: Graph/Hook Sources
 
-- Status: partially implemented for MCP resource references.
+- Status: MCP resource references are implemented; hook and graph candidates
+  remain pending.
 - MCP resource references now normalize into the shared `RetrievalCandidate`
   boundary and appear in `/context` provider/candidate views.
 - Resource body loading and excerpt selection remain out of scope for this

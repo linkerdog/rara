@@ -109,7 +109,7 @@ Active backlog only. Keep this file small and current.
 - [x] Thread-scoped and workspace-scoped `MemoryRecord` storage with promotion rules.
 - [x] Initial retrieval orchestration layer from `docs/features/retrieval-orchestration.md`: typed candidates, orchestration view, richer `/context`, deterministic dedupe, and ACP/Wire event exposure.
 - [x] Add the first `RetrievalSourceProvider` boundary for current memory, session, thread-history, vector-slot, tool-result, and file-search candidates.
-- [ ] Add `RetrievalSourceProvider` implementations for MCP resource, hook, and graph sources after the current memory/session/file path is stable.
+- [ ] Add `RetrievalSourceProvider` implementations for hook output and graph sources after the current memory/session/file/MCP path is stable.
 - [x] Initialize LanceDB and wire FTS/vector/hybrid search paths behind the existing memory index façade.
 - [x] Make memory mutation/query control-plane-ready so ACP/Wire can inspect and add memory without directly editing prompt text.
 
