@@ -10,15 +10,15 @@ Ready.        ┌ Provider ─────────────────�
 ──            │Select a provider family.                                             │
 Type a message└──────────────────────────────────────────────────────────────────────┘
               │[1] Codex (current)                                                   │
-Start with:   │[2] DeepSeek                                                          │
-  /help    bro│[3] OpenAI-compatible                                                 │
-  /model   cho│[4] Gemini                                                            │
-  /status  ins│[5] Candle Local                                                      │
-  /quit    lea│[6] Ollama                                                            │
-              │[7] Bedrock                                                           │
-Prompt ideas: │                                                                      │
-  · Explain th│                                                                      │
-  · Find the m│                                                                      │
+Start with:   │    Use Codex with browser login, device-code login, or a Codex API ke│
+  /help    bro│[2] DeepSeek                                                          │
+  /model   cho│    Use DeepSeek with an API key and model list from api.deepseek.com.│
+  /status  ins│[3] OpenAI-compatible                                                 │
+  /quit    lea│    Use OpenAI-compatible endpoint profiles such as Custom, Kimi, or O│
+              │[4] Gemini                                                            │
+Prompt ideas: │    Use Google Gemini via AI Studio (API key) or Code Assist (OAuth). │
+  · Explain th│[5] Candle Local                                                      │
+  · Find the m│    Run local Candle models directly in-process.                      │
               │                                                                      │
                           1-9 jump  Up/Down/jk move  Enter apply  Esc back
 Ready  waiting

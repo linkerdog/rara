@@ -117,19 +117,21 @@ impl ListPickerKind {
         PROVIDER_FAMILIES
             .iter()
             .enumerate()
-            .map(|(idx, (family, label, _desc))| {
-                let status = if app.selected_provider_family() == *family {
+            .map(|(idx, (_family, label, desc))| {
+                let status = if app.selected_provider_family() == PROVIDER_FAMILIES[idx].0 {
                     " (current)"
                 } else {
                     ""
                 };
-                ListItem::new(vec![ratatui::text::Line::from(format!(
-                    "[{}] {}{}",
-                    idx + 1,
-                    label,
-                    status
-                ))])
-                .style(Self::selected_style(idx, selected))
+                let name_line = ratatui::text::Line::from(vec![ratatui::text::Span::styled(
+                    format!("[{}] {}{}", idx + 1, label, status),
+                    Style::default().add_modifier(Modifier::BOLD),
+                )]);
+                let desc_line = ratatui::text::Line::from(ratatui::text::Span::styled(
+                    format!("    {}", desc),
+                    Style::default().fg(TEXT_MUTED),
+                ));
+                ListItem::new(vec![name_line, desc_line]).style(Self::selected_style(idx, selected))
             })
             .collect()
     }
