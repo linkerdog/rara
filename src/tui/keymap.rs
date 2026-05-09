@@ -175,6 +175,7 @@ pub(crate) fn map_key_to_event(key: KeyEvent, app: &TuiApp) -> AppEvent {
                 (KeyCode::Delete, _) | (KeyCode::Char('d'), KeyModifiers::CONTROL) => {
                     AppEvent::DeleteForward
                 }
+                (KeyCode::Char('b'), KeyModifiers::CONTROL) => AppEvent::ToggleSidebar,
                 (KeyCode::Char(c), _) => AppEvent::InputChar(c),
                 _ => AppEvent::Noop,
             }

@@ -210,19 +210,73 @@ fn render_help_modal(f: &mut Frame, app: &TuiApp, area: Rect, tab: HelpTab) {
 
 fn render_command_palette(f: &mut Frame, app: &TuiApp, area: Rect) {
     let query = app.command_query();
-    let items = if query.is_empty() {
+    let all_items = if query.is_empty() {
         palette_items_for_empty_query(app)
     } else {
         palette_items_for_matches(app, query)
     };
+
     let mut state = command_palette_list_state(app.command_palette_idx);
+    let block = Block::default()
+        .borders(Borders::ALL)
+        .border_style(Style::default().fg(TEXT_MUTED))
+        .title_top(Line::from(Span::styled(
+            " Command Palette ",
+            Style::default()
+                .fg(BADGE_FG_DARK)
+                .add_modifier(Modifier::BOLD),
+        )));
+    let inner = block.inner(area);
+    f.render_widget(block, area);
+
+    // Layout: search bar (1) | item list (fill) | footer (1)
+    let chunks = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([
+            Constraint::Length(1), // search bar
+            Constraint::Fill(1),   // items
+            Constraint::Length(1), // footer
+        ])
+        .split(inner);
+
+    // ── Search bar ───────────────────────────────────────────────
+    let search_text = if query.is_empty() {
+        Span::styled("  Type to search…", Style::default().fg(TEXT_MUTED))
+    } else {
+        Span::styled(
+            format!("  /{}", query),
+            Style::default()
+                .fg(BADGE_FG_DARK)
+                .add_modifier(Modifier::BOLD),
+        )
+    };
+    f.render_widget(Paragraph::new(Line::from(search_text)), chunks[0]);
+
+    // ── Item list ────────────────────────────────────────────────
     f.render_stateful_widget(
-        List::new(items)
+        List::new(all_items)
             .highlight_style(command_list_highlight_style())
-            .highlight_symbol("› "),
-        area,
+            .highlight_symbol("›  "),
+        chunks[1],
         &mut state,
     );
+
+    // ── Footer ───────────────────────────────────────────────────
+    let count_text = if query.is_empty() {
+        format!("{} commands", palette_commands(app, "").len())
+    } else {
+        format!(
+            "{} of {} commands",
+            matching_commands(query).len(),
+            palette_commands(app, "").len()
+        )
+    };
+    let hints = "↑↓ navigate  ↵ select  Esc close";
+    let footer_line = Line::from(vec![
+        Span::styled(count_text, Style::default().fg(TEXT_MUTED)),
+        Span::styled(format!("    {hints}"), Style::default().fg(TEXT_MUTED)),
+    ]);
+    f.render_widget(Paragraph::new(footer_line), chunks[2]);
 }
 
 fn command_palette_list_state(selected_index: usize) -> ListState {
@@ -250,7 +304,15 @@ fn help_command_items(query: &str) -> Vec<&'static CommandSpec> {
 }
 
 fn command_palette_item(spec: &CommandSpec) -> ListItem<'static> {
-    ListItem::new(command_palette_line(spec))
+    // Display name with leading slash for consistent width
+    let full_name = format!("/{}", spec.name);
+    ListItem::new(Line::from(vec![
+        Span::styled(
+            format!("{full_name:<12}"),
+            Style::default().add_modifier(Modifier::BOLD),
+        ),
+        Span::styled(spec.summary, Style::default().fg(TEXT_MUTED)),
+    ]))
 }
 
 fn command_palette_line(spec: &CommandSpec) -> Line<'static> {
@@ -489,15 +551,16 @@ fn setup_flow_rect(area: Rect) -> Rect {
 }
 
 fn command_palette_rect(area: Rect, app: &TuiApp) -> Rect {
+    // Account for border + search bar (1) + footer (1) = 4 extra rows.
     let query = app.command_query();
     let item_count = if query.is_empty() {
         palette_commands(app, "").len()
     } else {
         matching_commands(query).len()
     };
-    let max_visible_rows = area.height.saturating_sub(6).clamp(6, 14) as usize;
+    let max_visible_rows = area.height.saturating_sub(8).clamp(6, 14) as usize;
     let visible_rows = item_count.clamp(1, max_visible_rows) as u16;
-    let height = visible_rows.min(area.height.saturating_sub(2).max(4));
+    let height = (visible_rows + 3).min(area.height.saturating_sub(2).max(6));
     let width = area.width;
     let x = area.x;
     let max_y = area.y + area.height - 1;

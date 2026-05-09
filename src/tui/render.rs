@@ -37,7 +37,7 @@ use crate::tui::theme::*;
 pub fn render(f: &mut Frame, app: &TuiApp) {
     let bottom_pane_height = desired_bottom_pane_height(app, f.area().width, f.area().height);
 
-    if f.area().width > 120 {
+    if f.area().width > 120 && app.sidebar_visible {
         render_wide(f, app, bottom_pane_height);
     } else {
         render_narrow(f, app, bottom_pane_height);

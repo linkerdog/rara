@@ -24,6 +24,7 @@ pub(super) async fn execute_local_command(
         LocalCommandKind::BaseUrl => "base-url",
         LocalCommandKind::Clear => "clear",
         LocalCommandKind::Compact => "compact",
+        LocalCommandKind::Connect => "connect",
         LocalCommandKind::Context => "context",
         LocalCommandKind::Help => "help",
         LocalCommandKind::Login => "login",
@@ -120,6 +121,7 @@ pub(super) async fn execute_local_command(
             }
         }
         LocalCommandKind::Model => handle_model_command(command.arg.as_deref(), app)?,
+        LocalCommandKind::Connect => handle_connect_command(app)?,
         LocalCommandKind::Mcp => handle_mcp_command(app),
         LocalCommandKind::Plan => {
             if app.is_busy() {
@@ -298,6 +300,13 @@ pub(super) async fn execute_local_command(
         app.sync_snapshot(agent);
     }
     Ok(false)
+}
+
+fn handle_connect_command(app: &mut TuiApp) -> anyhow::Result<()> {
+    app.open_overlay(Overlay::ListPicker(ListPickerKind::Provider));
+    app.notice =
+        Some("Pick a provider to connect. Select a provider to begin guided setup.".into());
+    Ok(())
 }
 
 fn parse_goal_objective_and_budget(input: &str) -> Result<(String, Option<u32>), String> {
