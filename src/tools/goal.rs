@@ -1,8 +1,8 @@
 use async_trait::async_trait;
 use rara_tool_macros::tool_spec;
+use rara_tools::tool::{Tool, ToolError};
 use serde_json::{Value, json};
 
-use crate::tool::{Tool, ToolError};
 use crate::tui::state::{GoalHandle, GoalStatus, RalphGoal};
 
 pub const CREATE_GOAL_TOOL_NAME: &str = "create_goal";
@@ -198,8 +198,9 @@ fn completion_budget_report(goal: &RalphGoal) -> Option<String> {
 mod tests {
     use std::sync::Arc;
 
+    use rara_tools::tool::Tool;
+
     use super::*;
-    use crate::tool::Tool;
 
     fn goal_handle() -> GoalHandle {
         Arc::new(std::sync::RwLock::new(None))

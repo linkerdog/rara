@@ -34,7 +34,6 @@ mod skill;
 mod thread_cli;
 mod thread_store;
 mod todo;
-mod tool;
 mod tool_result;
 mod tools;
 mod tui;

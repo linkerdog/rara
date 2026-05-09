@@ -2,10 +2,10 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use rara_tool_macros::tool_spec;
+use rara_tools::tool::{Tool, ToolError};
 use serde_json::{Value, json};
 
 use crate::skill::SkillManager;
-use crate::tool::{Tool, ToolError};
 
 pub struct SkillTool {
     pub skill_manager: Arc<SkillManager>,

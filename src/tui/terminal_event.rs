@@ -1,8 +1,8 @@
 use std::collections::VecDeque;
 
+use rara_tools::tool::ToolOutputStream;
 use serde::{Deserialize, Serialize};
 
-use crate::tool::ToolOutputStream;
 use crate::tools::bash::BashCommandInput;
 use crate::tui::tool_text::compact_instruction;
 
@@ -508,7 +508,7 @@ mod tests {
     fn skips_progress_event_when_sanitized_chunk_is_empty() {
         let event = TerminalEvent::from_tool_progress(
             "bash",
-            crate::tool::ToolOutputStream::Stderr,
+            rara_tools::tool::ToolOutputStream::Stderr,
             "\u{1b}]0;title\u{7}\u{7}\r\n",
         );
 

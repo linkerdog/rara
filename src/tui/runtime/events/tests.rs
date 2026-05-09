@@ -1,3 +1,4 @@
+use rara_tools::tool::ToolOutputStream;
 use serde_json::json;
 use tempfile::tempdir;
 
@@ -10,7 +11,6 @@ use super::{apply_tui_event, convert_agent_event};
 use crate::agent::{AgentEvent, AgentExecutionMode};
 use crate::config::ConfigManager;
 use crate::control_tokens::has_pending_internal_control_context;
-use crate::tool::ToolOutputStream;
 use crate::tui::state::{ActivePendingInteractionKind, TranscriptEntryPayload};
 use crate::tui::state::{RuntimePhase, TuiApp, TuiEvent};
 use crate::tui::terminal_event::{TerminalEvent, TerminalTarget};

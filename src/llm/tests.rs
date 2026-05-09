@@ -1,3 +1,5 @@
+use rara_tools::planning::ExitPlanModeTool;
+use rara_tools::tool::Tool;
 use reqwest::StatusCode;
 use serde_json::json;
 
@@ -22,8 +24,6 @@ use crate::config::OpenAiEndpointKind;
 use crate::llm::{
     ContentBlock, LlmBackend, LlmStreamEvent, LlmTurnMetadata, OpenAiCompatibleBackend,
 };
-use crate::tool::Tool;
-use crate::tools::planning::ExitPlanModeTool;
 
 #[test]
 fn converts_assistant_tool_history_to_openai_messages() {

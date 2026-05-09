@@ -1,13 +1,10 @@
 pub mod agent;
 pub mod bash;
 pub mod context;
-pub mod file;
+pub mod goal;
 pub mod goal;
 pub mod mcp_tool_search;
-pub mod patch;
-pub mod planning;
 pub mod pty;
-pub mod search;
 pub mod skill;
 pub mod todo;
 pub mod vector;

@@ -14,13 +14,13 @@ use agent_client_protocol::{
         TextContent,
     },
 };
+use rara_tools::tool::ToolManager;
 use tokio::io::{stdin, stdout};
 use tokio_util::compat::{TokioAsyncReadCompatExt, TokioAsyncWriteCompatExt};
 
 use crate::llm::LlmBackend;
 use crate::llm::LlmStreamEvent;
 use crate::runtime_event_bus::RuntimeEventBus;
-use crate::tool::ToolManager;
 
 /// ACP agent state shared across request handlers.
 pub struct RaraAcpAgent {

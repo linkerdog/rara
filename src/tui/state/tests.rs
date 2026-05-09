@@ -1,5 +1,6 @@
 use rara_memory::vectordb::VectorDB;
 use rara_state::state_db::{PersistedCompactState, PersistedPromptRuntimeState, StateDb};
+use rara_tools::tool::ToolManager;
 use tempfile::tempdir;
 
 use super::{
@@ -14,7 +15,6 @@ use crate::config::{ConfigManager, OpenAiEndpointKind, RaraConfig};
 use crate::config::{DEFAULT_CODEX_BASE_URL, DEFAULT_CODEX_MODEL};
 use crate::llm::MockLlm;
 use crate::session::SessionManager;
-use crate::tool::ToolManager;
 use crate::tools::bash::BashCommandInput;
 use crate::workspace::WorkspaceMemory;
 

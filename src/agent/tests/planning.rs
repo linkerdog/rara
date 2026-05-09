@@ -3,6 +3,8 @@ use std::sync::{Arc, Mutex};
 use anyhow::Result;
 use async_trait::async_trait;
 use rara_memory::vectordb::VectorDB;
+use rara_tools::planning::{EnterPlanModeTool, ExitPlanModeTool};
+use rara_tools::tool::ToolManager;
 use serde_json::json;
 use tempfile::tempdir;
 
@@ -17,9 +19,7 @@ use crate::agent::{
 };
 use crate::llm::{LlmBackend, LlmResponse, TokenUsage};
 use crate::session::SessionManager;
-use crate::tool::ToolManager;
 use crate::tool_result::ToolResultStore;
-use crate::tools::planning::{EnterPlanModeTool, ExitPlanModeTool};
 use crate::tools::todo::TodoWriteTool;
 use crate::workspace::WorkspaceMemory;
 

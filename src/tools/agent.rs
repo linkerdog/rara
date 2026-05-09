@@ -13,6 +13,9 @@ use rara_state::state_db::{
     StateDb,
 };
 use rara_tool_macros::tool_spec;
+use rara_tools::file::{ListFilesTool, ReadFileTool};
+use rara_tools::search::{GlobTool, GrepTool};
+use rara_tools::tool::{Tool, ToolCallContext, ToolError, ToolManager};
 use serde_json::{Value, json};
 
 use crate::agent::{
@@ -23,9 +26,6 @@ use crate::prompt::PromptRuntimeConfig;
 use crate::session::SessionManager;
 use crate::session_transcript::{self, TranscriptScope};
 use crate::thread_store::{ThreadRecorder, ThreadRuntimeLineage, ThreadRuntimeState};
-use crate::tool::{Tool, ToolCallContext, ToolError, ToolManager};
-use crate::tools::file::{ListFilesTool, ReadFileTool};
-use crate::tools::search::{GlobTool, GrepTool};
 use crate::workspace::WorkspaceMemory;
 
 #[derive(Clone, Copy, Debug)]
@@ -191,7 +191,7 @@ impl Tool for AgentTool {
         &self,
         input: Value,
         context: ToolCallContext,
-        _report: &mut (dyn FnMut(crate::tool::ToolProgressEvent) + Send),
+        _report: &mut (dyn FnMut(rara_tools::tool::ToolProgressEvent) + Send),
     ) -> Result<Value, ToolError> {
         self.call_with_parent_session(input, context.session_id())
             .await
@@ -299,7 +299,7 @@ impl Tool for ExploreAgentTool {
         &self,
         input: Value,
         context: ToolCallContext,
-        _report: &mut (dyn FnMut(crate::tool::ToolProgressEvent) + Send),
+        _report: &mut (dyn FnMut(rara_tools::tool::ToolProgressEvent) + Send),
     ) -> Result<Value, ToolError> {
         self.call_with_parent_session(input, context.session_id())
             .await
@@ -398,7 +398,7 @@ impl Tool for PlanAgentTool {
         &self,
         input: Value,
         context: ToolCallContext,
-        _report: &mut (dyn FnMut(crate::tool::ToolProgressEvent) + Send),
+        _report: &mut (dyn FnMut(rara_tools::tool::ToolProgressEvent) + Send),
     ) -> Result<Value, ToolError> {
         self.call_with_parent_session(input, context.session_id())
             .await
@@ -848,7 +848,7 @@ impl Tool for TeamCreateTool {
         &self,
         input: Value,
         context: ToolCallContext,
-        _report: &mut (dyn FnMut(crate::tool::ToolProgressEvent) + Send),
+        _report: &mut (dyn FnMut(rara_tools::tool::ToolProgressEvent) + Send),
     ) -> Result<Value, ToolError> {
         self.call_with_parent_session(input, context.session_id())
             .await
@@ -1300,6 +1300,7 @@ mod tests {
     use rara_memory::vectordb::VectorDB;
     use rara_state::state_db::{PersistedStructuredRolloutEvent, StateDb};
     use rara_state::thread_rollout_log;
+    use rara_tools::tool::{Tool, ToolCallContext, ToolError};
     use serde_json::json;
     use tempfile::tempdir;
     use tokio::time::{Duration, sleep};
@@ -1316,7 +1317,6 @@ mod tests {
     use crate::session::SessionManager;
     use crate::session_transcript::{load_transcript, model_visible_messages};
     use crate::thread_store::{ThreadMetadataSource, ThreadStore};
-    use crate::tool::{Tool, ToolCallContext, ToolError};
     use crate::tools::agent::{
         AgentTool, ExploreAgentTool, PlanAgentTool, SubAgentResumeTool, SubAgentStopTool,
         TeamCreateTool,
