@@ -123,12 +123,15 @@ impl WorkspaceMemory {
         }
         let memory = self.rara_dir.join("memory.md");
         if let Some(content) = self.cached_file_content(&memory) {
+            self.set_memory_file_available(true);
             sources.push(PromptSource {
                 kind: PromptSourceKind::LocalMemory,
                 label: "Local Project Memory".to_string(),
                 display_path: memory.display().to_string(),
                 content,
             });
+        } else {
+            self.set_memory_file_available(false);
         }
         sources
     }
@@ -189,6 +192,12 @@ impl WorkspaceMemory {
             },
         );
         Some(content)
+    }
+
+    fn set_memory_file_available(&self, available: bool) {
+        if let Ok(mut cache) = self.cache.lock() {
+            cache.memory_file_available = Some(available);
+        }
     }
 
     fn read_git_branch(&self) -> String {
@@ -283,7 +292,7 @@ mod tests {
     use std::fs;
     use std::path::{Path, PathBuf};
     use std::sync::{Mutex, OnceLock};
-    use std::time::Duration;
+    use std::time::{Duration, SystemTime};
 
     use tempfile::tempdir;
 
@@ -311,6 +320,24 @@ mod tests {
         fn drop(&mut self) {
             let _ = std::env::set_current_dir(&self.previous);
         }
+    }
+
+    fn modified_time(path: &Path) -> Option<SystemTime> {
+        fs::metadata(path)
+            .ok()
+            .and_then(|meta| meta.modified().ok())
+    }
+
+    fn rewrite_after_mtime_tick(path: &Path, content: &str) {
+        let before = modified_time(path);
+        for _ in 0..20 {
+            std::thread::sleep(Duration::from_millis(20));
+            fs::write(path, content).expect("rewrite file");
+            if modified_time(path) != before {
+                return;
+            }
+        }
+        panic!("file mtime did not change after rewrite attempts");
     }
 
     #[test]
@@ -449,6 +476,63 @@ mod tests {
             .map(|source| source.display_path)
             .collect::<Vec<_>>();
         assert_eq!(nested_project_sources, vec!["AGENTS.md", "src/AGENTS.md"]);
+    }
+
+    #[test]
+    fn discover_prompt_sources_invalidates_modified_instruction_file() {
+        let _lock = cwd_lock().lock().expect("cwd lock");
+        let dir = tempdir().expect("tempdir");
+        let root = dir.path().join("repo");
+        let rara_dir = root.join(".rara");
+        fs::create_dir_all(&rara_dir).expect("mkdir rara");
+        let agents = root.join("AGENTS.md");
+        fs::write(&agents, "old rules").expect("write agents");
+        let workspace = WorkspaceMemory::from_paths(root, rara_dir);
+
+        let first_sources = workspace.discover_prompt_sources();
+        let first = first_sources
+            .iter()
+            .find(|source| matches!(source.kind, PromptSourceKind::ProjectInstruction))
+            .expect("project instruction");
+        assert_eq!(first.content, "old rules");
+
+        rewrite_after_mtime_tick(&agents, "new rules");
+
+        let second_sources = workspace.discover_prompt_sources();
+        let second = second_sources
+            .iter()
+            .find(|source| matches!(source.kind, PromptSourceKind::ProjectInstruction))
+            .expect("project instruction");
+        assert_eq!(second.content, "new rules");
+    }
+
+    #[test]
+    fn discover_prompt_sources_detects_memory_file_created_after_initial_miss() {
+        let _lock = cwd_lock().lock().expect("cwd lock");
+        let dir = tempdir().expect("tempdir");
+        let root = dir.path().join("repo");
+        let rara_dir = root.join(".rara");
+        fs::create_dir_all(&rara_dir).expect("mkdir rara");
+        let workspace = WorkspaceMemory::from_paths(root, rara_dir.clone());
+
+        assert!(!workspace.has_memory_file_cached());
+
+        let first_sources = workspace.discover_prompt_sources();
+        assert!(
+            first_sources
+                .iter()
+                .all(|source| !matches!(source.kind, PromptSourceKind::LocalMemory))
+        );
+
+        fs::write(rara_dir.join("memory.md"), "remember this").expect("write memory");
+
+        let second_sources = workspace.discover_prompt_sources();
+        let memory = second_sources
+            .iter()
+            .find(|source| matches!(source.kind, PromptSourceKind::LocalMemory))
+            .expect("local memory source");
+        assert_eq!(memory.content, "remember this");
+        assert!(workspace.has_memory_file_cached());
     }
 
     #[test]
