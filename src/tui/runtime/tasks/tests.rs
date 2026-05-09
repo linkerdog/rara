@@ -209,7 +209,7 @@ fn create_test_agent(temp: &tempfile::TempDir) -> Agent {
 fn install_completed_query_task(app: &mut TuiApp, agent: Agent, result: anyhow::Result<()>) {
     let (_sender, receiver) = mpsc::unbounded_channel();
     let handle = tokio::spawn(async move { TaskCompletion::Query { agent, result } });
-    app.running_task = Some(RunningTask {
+    app.bottom_pane.running_task = Some(RunningTask {
         kind: TaskKind::Query,
         receiver,
         handle,
@@ -252,9 +252,10 @@ fn browser_oauth_is_rejected_before_task_start_in_ssh() {
 
     start_oauth_task(&mut app, oauth_manager, OAuthLoginMode::Browser);
 
-    assert!(app.running_task.is_none());
+    assert!(app.bottom_pane.running_task.is_none());
     assert!(
-        app.notice
+        app.bottom_pane
+            .notice
             .as_deref()
             .is_some_and(|value| value.contains("Browser login is unavailable"))
     );
@@ -416,7 +417,7 @@ async fn queued_follow_ups_start_as_one_multiline_turn() {
     try_start_queued_follow_up(&mut app, &mut agent_slot);
 
     assert_eq!(app.queued_follow_up_count(), 0);
-    assert!(app.running_task.is_some());
+    assert!(app.bottom_pane.running_task.is_some());
     assert_eq!(app.active_turn.entries.len(), 1);
     assert_eq!(app.active_turn.entries[0].role, "You");
     assert_eq!(
@@ -424,7 +425,7 @@ async fn queued_follow_ups_start_as_one_multiline_turn() {
         "first line\n\nsecond line"
     );
 
-    if let Some(task) = app.running_task.take() {
+    if let Some(task) = app.bottom_pane.running_task.take() {
         task.handle.abort();
     }
 }
@@ -444,12 +445,12 @@ async fn queued_follow_up_starts_after_query_failure() {
     finish_ready_query_task(&mut app, &mut agent_slot).await;
 
     assert_eq!(app.queued_follow_up_count(), 0);
-    assert!(app.running_task.is_some());
+    assert!(app.bottom_pane.running_task.is_some());
     assert_eq!(app.active_turn.entries.len(), 1);
     assert_eq!(app.active_turn.entries[0].role, "You");
     assert_eq!(app.active_turn.entries[0].message, "inspect the failure");
 
-    if let Some(task) = app.running_task.take() {
+    if let Some(task) = app.bottom_pane.running_task.take() {
         task.handle.abort();
     }
 }
@@ -469,12 +470,12 @@ async fn queued_follow_up_starts_after_query_cancellation() {
     finish_ready_query_task(&mut app, &mut agent_slot).await;
 
     assert_eq!(app.queued_follow_up_count(), 0);
-    assert!(app.running_task.is_some());
+    assert!(app.bottom_pane.running_task.is_some());
     assert_eq!(app.active_turn.entries.len(), 1);
     assert_eq!(app.active_turn.entries[0].role, "You");
     assert_eq!(app.active_turn.entries[0].message, "continue after cancel");
 
-    if let Some(task) = app.running_task.take() {
+    if let Some(task) = app.bottom_pane.running_task.take() {
         task.handle.abort();
     }
 }
@@ -519,13 +520,13 @@ async fn plan_turn_completion_keeps_plan_mode_after_plain_answer() {
         finish_running_task_if_ready(&mut app, &mut agent_slot)
             .await
             .expect("finish task");
-        if app.running_task.is_none() {
+        if app.bottom_pane.running_task.is_none() {
             break;
         }
         tokio::time::sleep(Duration::from_millis(10)).await;
     }
 
-    assert!(app.running_task.is_none());
+    assert!(app.bottom_pane.running_task.is_none());
     assert_eq!(app.agent_execution_mode, AgentExecutionMode::Plan);
     assert!(!app.has_pending_plan_approval());
     assert_eq!(
@@ -581,13 +582,13 @@ async fn agent_driven_plan_mode_auto_approves_and_resumes_execution() {
         finish_running_task_if_ready(&mut app, &mut agent_slot)
             .await
             .expect("finish task");
-        if app.running_task.is_none() {
+        if app.bottom_pane.running_task.is_none() {
             break;
         }
         tokio::time::sleep(Duration::from_millis(10)).await;
     }
 
-    assert!(app.running_task.is_none());
+    assert!(app.bottom_pane.running_task.is_none());
     assert_eq!(app.agent_execution_mode, AgentExecutionMode::Execute);
     assert!(!app.has_pending_plan_approval());
     let agent = agent_slot.as_ref().expect("agent should return");
@@ -643,13 +644,13 @@ async fn exit_plan_mode_stops_for_plan_approval() {
         finish_running_task_if_ready(&mut app, &mut agent_slot)
             .await
             .expect("finish task");
-        if app.running_task.is_none() {
+        if app.bottom_pane.running_task.is_none() {
             break;
         }
         tokio::time::sleep(Duration::from_millis(10)).await;
     }
 
-    assert!(app.running_task.is_none());
+    assert!(app.bottom_pane.running_task.is_none());
     assert_eq!(app.agent_execution_mode, AgentExecutionMode::Plan);
     assert!(app.has_pending_plan_approval());
     let agent = agent_slot.as_ref().expect("agent should return");
@@ -666,7 +667,7 @@ async fn query_heartbeat_preserves_running_tool_phase() {
     .expect("build tui app");
     let (_sender, receiver) = mpsc::unbounded_channel();
     let handle = tokio::spawn(std::future::pending::<TaskCompletion>());
-    app.running_task = Some(RunningTask {
+    app.bottom_pane.running_task = Some(RunningTask {
         kind: TaskKind::Query,
         receiver,
         handle,
@@ -687,7 +688,7 @@ async fn query_heartbeat_preserves_running_tool_phase() {
         app.runtime_phase_detail.as_deref(),
         Some("streaming bash output · 3s elapsed")
     );
-    if let Some(task) = app.running_task.take() {
+    if let Some(task) = app.bottom_pane.running_task.take() {
         task.handle.abort();
     }
 }
@@ -702,7 +703,7 @@ async fn query_cancellation_sets_running_task_token() {
     let (_sender, receiver) = mpsc::unbounded_channel();
     let token = Arc::new(AtomicBool::new(false));
     let handle = tokio::spawn(std::future::pending::<TaskCompletion>());
-    app.running_task = Some(RunningTask {
+    app.bottom_pane.running_task = Some(RunningTask {
         kind: TaskKind::Query,
         receiver,
         handle,
@@ -716,7 +717,8 @@ async fn query_cancellation_sets_running_task_token() {
 
     assert!(token.load(Ordering::SeqCst));
     assert!(
-        app.running_task
+        app.bottom_pane
+            .running_task
             .as_ref()
             .is_some_and(|task| task.cancellation_requested)
     );
@@ -726,7 +728,7 @@ async fn query_cancellation_sets_running_task_token() {
         Some("cancelling query")
     );
 
-    if let Some(task) = app.running_task.take() {
+    if let Some(task) = app.bottom_pane.running_task.take() {
         task.handle.abort();
     }
 }

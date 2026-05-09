@@ -74,7 +74,7 @@ pub fn status_active_pending_interaction_text(app: &TuiApp) -> Option<(&'static 
 }
 
 pub fn status_planning_suggestion_text(app: &TuiApp) -> String {
-    let _ = app.pending_planning_suggestion.as_deref();
+    let _ = app.bottom_pane.pending_planning_suggestion.as_deref();
     "suggestion:\nThis looks like a non-trivial task. Enter planning mode first so RARA can analyze the repository, refine the approach, and only stop once a concrete plan is ready.\n\noptions:\n1. Enter planning mode\n2. Continue in execute mode".to_string()
 }
 

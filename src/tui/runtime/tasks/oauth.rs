@@ -35,7 +35,7 @@ pub(crate) fn start_oauth_task(
         OAuthLoginMode::Browser => "browser login",
         OAuthLoginMode::DeviceCode => "device-code login",
     };
-    app.notice = Some(format!("Starting Codex {mode_label}."));
+    app.bottom_pane.notice = Some(format!("Starting Codex {mode_label}."));
     app.set_runtime_phase(
         RuntimePhase::OAuthStarting,
         Some(format!("starting {mode_label}")),
@@ -47,7 +47,7 @@ pub(crate) fn start_oauth_task(
         TaskCompletion::OAuth { mode, result }
     });
 
-    app.running_task = Some(RunningTask {
+    app.bottom_pane.running_task = Some(RunningTask {
         kind: TaskKind::OAuth,
         receiver,
         handle,

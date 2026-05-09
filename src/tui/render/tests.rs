@@ -97,7 +97,7 @@ fn overlay_viewport_uses_full_height_on_empty_transcript() {
         path: temp.path().join("config.json"),
     })
     .expect("build tui app");
-    app.input = "/model".into();
+    app.bottom_pane.input = "/model".into();
     app.open_overlay(Overlay::CommandPalette);
 
     assert_eq!(desired_viewport_height(&app, 107, 53), 53);
@@ -124,7 +124,7 @@ fn transcript_render_stays_above_bottom_pane() {
             },
         ],
     });
-    app.input = "composer text".into();
+    app.bottom_pane.input = "composer text".into();
 
     let width = 80;
     let height = 14;
@@ -147,7 +147,7 @@ fn bottom_pane_background_covers_hint_and_footer_rows() {
         path: temp.path().join("config.json"),
     })
     .expect("build tui app");
-    app.notice = Some("Prompt finished.".into());
+    app.bottom_pane.notice = Some("Prompt finished.".into());
     app.repo_slug = Some("hawkingrei/rara".into());
     app.snapshot.branch = "main".into();
 
@@ -559,7 +559,7 @@ fn bottom_pane_grows_for_multiline_input() {
     .expect("build tui app");
 
     let base = desired_bottom_pane_height(&app, 80, 24);
-    app.input = "first line\nsecond line\nthird line\nfourth line".into();
+    app.bottom_pane.input = "first line\nsecond line\nthird line\nfourth line".into();
     let expanded = desired_bottom_pane_height(&app, 80, 24);
 
     assert_eq!(base, 5);
@@ -574,10 +574,10 @@ fn bottom_pane_preserves_space_only_input_layout() {
     })
     .expect("build tui app");
 
-    app.input = " ".into();
+    app.bottom_pane.input = " ".into();
     let space_only = desired_bottom_pane_height(&app, 80, 24);
 
-    app.input = "  \n ".into();
+    app.bottom_pane.input = "  \n ".into();
     let multiline_space_only = desired_bottom_pane_height(&app, 80, 24);
 
     assert_eq!(space_only, 5);
@@ -908,7 +908,7 @@ fn command_palette_query_uses_full_width_without_leaking_bottom_status() {
         path: temp.path().join("config.json"),
     })
     .expect("build tui app");
-    app.input = "/m".into();
+    app.bottom_pane.input = "/m".into();
     app.open_overlay(Overlay::CommandPalette);
 
     let rendered = render_screen_text(&mut app, 107, 53);
@@ -924,7 +924,7 @@ fn command_palette_empty_query_does_not_render_inline_footer_hint() {
         path: temp.path().join("config.json"),
     })
     .expect("build tui app");
-    app.input = "/".into();
+    app.bottom_pane.input = "/".into();
     app.open_overlay(Overlay::CommandPalette);
 
     let rendered = render_screen_text(&mut app, 107, 53);

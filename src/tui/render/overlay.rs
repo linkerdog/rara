@@ -416,7 +416,7 @@ mod tests {
             path: temp.path().join("config.json"),
         })
         .expect("build tui app");
-        app.input = "/".into();
+        app.bottom_pane.input = "/".into();
         let area = Rect::new(0, 0, 100, 24);
         let bottom_pane = Rect::new(0, 19, 100, 5);
 

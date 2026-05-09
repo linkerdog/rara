@@ -1,10 +1,11 @@
+use bottom_pane_model::BottomPaneModel;
+mod bottom_pane_model;
 mod persistence;
 mod state_presets;
 #[cfg(test)]
 mod tests;
 mod transcript;
 mod types;
-
 use std::cell::RefCell;
 use std::sync::Arc;
 use std::sync::atomic::AtomicBool;
@@ -210,8 +211,12 @@ impl TuiApp {
         let model_picker_idx = selected_preset_idx_for_config(&cfg, provider_picker_idx);
         let sandbox_network = cfg.sandbox_workspace_write.network_access;
         Ok(Self {
-            input: String::new(),
-            input_cursor_offset: None,
+            bottom_pane: BottomPaneModel {
+                input: String::new(),
+                input_cursor_offset: None,
+                notice: startup_notice,
+                ..Default::default()
+            },
             input_history: Vec::new(),
             input_history_cursor: None,
             input_history_draft: None,
@@ -223,7 +228,6 @@ impl TuiApp {
             config: cfg,
             config_manager: cm,
             setup_status: None,
-            notice: startup_notice,
             runtime_phase: RuntimePhase::Idle,
             runtime_phase_detail: None,
             snapshot: RuntimeSnapshot::default(),
@@ -257,20 +261,15 @@ impl TuiApp {
             committed_render_generation: 0,
             committed_render_cache: RefCell::new(CommittedTranscriptRenderCache::default()),
             transcript_scroll: 0,
-            composer_scroll: 0,
             context_scroll: 0,
             terminal_width: 80,
             agent_markdown_stream: None,
             agent_thinking_stream: None,
             active_live: ActiveLiveSections::default(),
-            pending_planning_suggestion: None,
-            pending_follow_up_messages: Vec::new(),
-            queued_follow_up_messages: Vec::new(),
             running_tool_boundary_count: 0,
             terminal_focused: true,
             state_db: None,
             state_db_status: None,
-            running_task: None,
             repo_context_task: None,
             repo_slug: None,
             current_pr_url: None,
@@ -314,11 +313,13 @@ impl TuiApp {
     }
 
     pub fn is_busy(&self) -> bool {
-        self.running_task.is_some()
+        self.bottom_pane.running_task.is_some()
     }
 
     pub fn running_elapsed(&self) -> Option<std::time::Duration> {
-        self.running_task
+        self.bottom_pane
+            .bottom_pane
+            .running_task
             .as_ref()
             .map(|task| task.started_at.elapsed())
     }
@@ -688,7 +689,7 @@ impl TuiApp {
         if self.openai_setup_steps.is_empty() {
             self.openai_setup_keep_empty_api_key = false;
             self.open_overlay(Overlay::ListPicker(ListPickerKind::Model));
-            self.notice = Some(
+            self.bottom_pane.notice = Some(
                 "Endpoint setup complete. Review the active profile and press Enter to rebuild."
                     .into(),
             );
@@ -1292,7 +1293,7 @@ impl TuiApp {
     }
 
     pub fn sync_command_palette_with_input(&mut self) {
-        if input_requests_command_palette(self.input.as_str()) {
+        if input_requests_command_palette(self.bottom_pane.input.as_str()) {
             if matches!(self.overlay, None | Some(Overlay::CommandPalette)) {
                 self.open_overlay(Overlay::CommandPalette);
             }
@@ -1484,7 +1485,7 @@ impl TuiApp {
                 approval: None,
                 source: Some(source.into()),
             });
-        self.notice = Some(format!("{title}"));
+        self.bottom_pane.notice = Some(format!("{title}"));
         self.persist_runtime_state();
     }
 

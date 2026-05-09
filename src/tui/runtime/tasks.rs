@@ -134,10 +134,10 @@ fn merge_rebuilt_agent(mut rebuilt: Agent, previous: Agent) -> Agent {
 }
 
 fn try_start_queued_follow_up(app: &mut TuiApp, agent_slot: &mut Option<Agent>) {
-    if app.running_task.is_none() {
+    if app.bottom_pane.running_task.is_none() {
         app.release_pending_follow_ups();
     }
-    if app.running_task.is_some()
+    if app.bottom_pane.running_task.is_some()
         || app.active_pending_interaction().is_some()
         || app.has_pending_planning_suggestion()
     {
@@ -156,7 +156,7 @@ fn try_start_queued_follow_up(app: &mut TuiApp, agent_slot: &mut Option<Agent>) 
         return;
     };
 
-    app.notice = Some("Running queued follow-up.".to_string());
+    app.bottom_pane.notice = Some("Running queued follow-up.".to_string());
     start_query_task(app, prompt, agent);
 }
 
@@ -191,7 +191,7 @@ pub(super) fn start_query_task(app: &mut TuiApp, prompt: String, mut agent: Agen
     agent.set_bash_approval_mode(app.bash_approval_mode);
     agent.set_full_access_mode(app.permission_mode == PermissionMode::FullAccess);
     sync_bash_prefixes_from_config(app, &mut agent);
-    app.notice = Some("Running prompt.".into());
+    app.bottom_pane.notice = Some("Running prompt.".into());
     app.set_runtime_phase(RuntimePhase::SendingPrompt, Some("sending prompt".into()));
     app.push_entry("You", prompt.clone());
     agent.set_cancellation_token(Some(cancellation_token.clone()));
@@ -209,7 +209,7 @@ pub(super) fn start_query_task(app: &mut TuiApp, prompt: String, mut agent: Agen
         TaskCompletion::Query { agent, result }
     });
 
-    app.running_task = Some(RunningTask {
+    app.bottom_pane.running_task = Some(RunningTask {
         kind: TaskKind::Query,
         receiver,
         handle,
@@ -227,7 +227,7 @@ pub(super) fn start_compact_task(app: &mut TuiApp, mut agent: Agent) {
     agent.set_execution_mode(app.agent_execution_mode);
     agent.set_bash_approval_mode(app.bash_approval_mode);
     agent.set_full_access_mode(app.permission_mode == PermissionMode::FullAccess);
-    app.notice = Some("Compacting conversation history.".into());
+    app.bottom_pane.notice = Some("Compacting conversation history.".into());
     app.set_runtime_phase(
         RuntimePhase::ProcessingResponse,
         Some("compacting history".into()),
@@ -247,7 +247,7 @@ pub(super) fn start_compact_task(app: &mut TuiApp, mut agent: Agent) {
         TaskCompletion::Compact { agent, result }
     });
 
-    app.running_task = Some(RunningTask {
+    app.bottom_pane.running_task = Some(RunningTask {
         kind: TaskKind::Compact,
         receiver,
         handle,
@@ -266,7 +266,7 @@ pub(super) fn start_review_task(app: &mut TuiApp, prompt: String, mut agent: Age
     agent.set_execution_mode(AgentExecutionMode::Review);
     agent.set_bash_approval_mode(BashApprovalMode::Always);
     agent.set_full_access_mode(false);
-    app.notice = Some("Running code review.".into());
+    app.bottom_pane.notice = Some("Running code review.".into());
     app.set_runtime_phase(
         RuntimePhase::ProcessingResponse,
         Some("reviewing changes".into()),
@@ -286,7 +286,7 @@ pub(super) fn start_review_task(app: &mut TuiApp, prompt: String, mut agent: Age
         TaskCompletion::Query { agent, result }
     });
 
-    app.running_task = Some(RunningTask {
+    app.bottom_pane.running_task = Some(RunningTask {
         kind: TaskKind::Query,
         receiver,
         handle,
@@ -322,7 +322,7 @@ pub(super) fn start_pending_approval_task(
         BashApprovalDecision::Always => "always allow bash",
         BashApprovalDecision::Suggestion => "suggestion only",
     };
-    app.notice = Some(format!("Answering approval request: {selection_label}."));
+    app.bottom_pane.notice = Some(format!("Answering approval request: {selection_label}."));
     app.clear_pending_command_approval();
     app.set_runtime_phase(
         RuntimePhase::ProcessingResponse,
@@ -344,7 +344,7 @@ pub(super) fn start_pending_approval_task(
         TaskCompletion::Query { agent, result }
     });
 
-    app.running_task = Some(RunningTask {
+    app.bottom_pane.running_task = Some(RunningTask {
         kind: TaskKind::Query,
         receiver,
         handle,
@@ -390,7 +390,7 @@ fn start_plan_resume_task(
     let event_provenance = local_tui_event_provenance(&agent.session_id);
     app.clear_active_live_sections();
     app.set_pending_plan_approval(false);
-    app.notice = Some(notice);
+    app.bottom_pane.notice = Some(notice);
     app.set_runtime_phase(
         RuntimePhase::ProcessingResponse,
         Some(if continue_planning {
@@ -425,7 +425,7 @@ fn start_plan_resume_task(
         TaskCompletion::Query { agent, result }
     });
 
-    app.running_task = Some(RunningTask {
+    app.bottom_pane.running_task = Some(RunningTask {
         kind: TaskKind::Query,
         receiver,
         handle,
@@ -441,7 +441,7 @@ pub(super) fn start_rebuild_task(app: &mut TuiApp) {
     let config = app.config.clone();
     let provider = config.provider.clone();
     let model = config.model.clone().unwrap_or_else(|| "-".to_string());
-    app.notice = Some(format!("Rebuilding backend for {provider} / {model}."));
+    app.bottom_pane.notice = Some(format!("Rebuilding backend for {provider} / {model}."));
     app.set_runtime_phase(
         RuntimePhase::RebuildingBackend,
         Some(format!("preparing {provider} / {model}")),
@@ -460,7 +460,7 @@ pub(super) fn start_rebuild_task(app: &mut TuiApp) {
         TaskCompletion::Rebuild { result }
     });
 
-    app.running_task = Some(RunningTask {
+    app.bottom_pane.running_task = Some(RunningTask {
         kind: TaskKind::Rebuild,
         receiver,
         handle,
@@ -491,7 +491,7 @@ pub(super) fn start_deepseek_model_list_task(app: &mut TuiApp) {
     let (_sender, receiver) = mpsc::unbounded_channel();
     let api_key = app.config.api_key.clone();
     let base_url = app.config.base_url.clone();
-    app.notice = Some("Loading DeepSeek models.".into());
+    app.bottom_pane.notice = Some("Loading DeepSeek models.".into());
     app.set_runtime_phase(
         RuntimePhase::RebuildingBackend,
         Some("loading models".into()),
@@ -510,7 +510,7 @@ pub(super) fn start_deepseek_model_list_task(app: &mut TuiApp) {
         TaskCompletion::DeepSeekModels { result }
     });
 
-    app.running_task = Some(RunningTask {
+    app.bottom_pane.running_task = Some(RunningTask {
         kind: TaskKind::DeepSeekModels,
         receiver,
         handle,
@@ -522,16 +522,17 @@ pub(super) fn start_deepseek_model_list_task(app: &mut TuiApp) {
 }
 
 pub(super) fn request_running_task_cancellation(app: &mut TuiApp) {
-    let Some(task) = app.running_task.as_mut() else {
-        app.notice = Some("No running task to cancel.".into());
+    let Some(task) = app.bottom_pane.running_task.as_mut() else {
+        app.bottom_pane.notice = Some("No running task to cancel.".into());
         return;
     };
     if !matches!(task.kind, TaskKind::Query) {
-        app.notice = Some("Only running model queries can be cancelled from the TUI.".into());
+        app.bottom_pane.notice =
+            Some("Only running model queries can be cancelled from the TUI.".into());
         return;
     }
     if task.cancellation_requested {
-        app.notice =
+        app.bottom_pane.notice =
             Some("Cancellation already requested. Waiting for the provider stream to stop.".into());
         return;
     }
@@ -539,13 +540,13 @@ pub(super) fn request_running_task_cancellation(app: &mut TuiApp) {
         token.store(true, Ordering::SeqCst);
         task.cancellation_requested = true;
         task.next_heartbeat_after_secs = 0;
-        app.notice = Some("Cancellation requested.".into());
+        app.bottom_pane.notice = Some("Cancellation requested.".into());
         app.set_runtime_phase(
             RuntimePhase::ProcessingResponse,
             Some("cancelling query".into()),
         );
     } else {
-        app.notice = Some("This running task does not expose cancellation.".into());
+        app.bottom_pane.notice = Some("This running task does not expose cancellation.".into());
     }
 }
 
@@ -553,12 +554,17 @@ pub(crate) async fn finish_running_task_if_ready(
     app: &mut TuiApp,
     agent_slot: &mut Option<Agent>,
 ) -> anyhow::Result<()> {
-    if app.running_task.is_none() {
+    if app.bottom_pane.running_task.is_none() {
         return Ok(());
     }
 
     let (pending_events, is_finished) = {
-        let task = app.running_task.as_mut().expect("task should exist");
+        let task = app
+            .bottom_pane
+            .bottom_pane
+            .running_task
+            .as_mut()
+            .expect("task should exist");
         let mut pending_events = Vec::new();
         while let Ok(event) = task.receiver.try_recv() {
             pending_events.push(event);
@@ -576,7 +582,12 @@ pub(crate) async fn finish_running_task_if_ready(
         return Ok(());
     }
 
-    let mut task = app.running_task.take().expect("task should exist");
+    let mut task = app
+        .bottom_pane
+        .bottom_pane
+        .running_task
+        .take()
+        .expect("task should exist");
     let completion = task.handle.await?;
     while let Ok(event) = task.receiver.try_recv() {
         apply_tui_event(app, event);
@@ -709,7 +720,7 @@ pub(crate) async fn finish_running_task_if_ready(
                     app.release_pending_follow_ups();
                     app.finalize_agent_stream(None);
                     if finished_plan_turn && app.has_pending_plan_approval() {
-                        app.notice = Some("Plan ready for approval.".into());
+                        app.bottom_pane.notice = Some("Plan ready for approval.".into());
                         app.set_runtime_phase(
                             RuntimePhase::Idle,
                             Some("awaiting plan approval".into()),
@@ -719,7 +730,7 @@ pub(crate) async fn finish_running_task_if_ready(
                             app.push_notice("Planning finished. Staying in plan mode.");
                         }
                         app.finalize_active_turn();
-                        app.notice = Some("Prompt finished.".into());
+                        app.bottom_pane.notice = Some("Prompt finished.".into());
                         app.set_runtime_phase(RuntimePhase::Idle, Some("prompt finished".into()));
                         try_start_queued_follow_up(app, agent_slot);
                     }
@@ -746,7 +757,7 @@ pub(crate) async fn finish_running_task_if_ready(
                     app.finalize_agent_stream(None);
                     if cancelled {
                         app.finalize_active_turn();
-                        app.notice = Some("Query cancelled.".into());
+                        app.bottom_pane.notice = Some("Query cancelled.".into());
                         app.set_runtime_phase(RuntimePhase::Idle, Some("query cancelled".into()));
                         try_start_queued_follow_up(app, agent_slot);
                         return Ok(());
@@ -847,7 +858,7 @@ pub(crate) async fn finish_running_task_if_ready(
                     app.config.provider,
                     app.current_model_label()
                 ));
-                app.notice = app.setup_status.clone();
+                app.bottom_pane.notice = app.setup_status.clone();
                 *agent_slot = Some(agent);
                 if let Some(agent) = agent_slot.as_ref() {
                     app.sync_snapshot(agent);
@@ -890,7 +901,7 @@ pub(crate) async fn finish_running_task_if_ready(
                     }
                 };
                 app.setup_status = Some(saved_message.into());
-                app.notice = app.setup_status.clone();
+                app.bottom_pane.notice = app.setup_status.clone();
                 app.set_runtime_phase(RuntimePhase::OAuthSaved, Some("oauth token saved".into()));
                 app.close_overlay();
                 app.push_entry("Runtime", saved_message);
@@ -925,7 +936,7 @@ pub(crate) async fn finish_running_task_if_ready(
                 };
                 let msg = saved_message.clone();
                 app.setup_status = Some(saved_message.into());
-                app.notice = app.setup_status.clone();
+                app.bottom_pane.notice = app.setup_status.clone();
                 app.set_runtime_phase(
                     RuntimePhase::OAuthSaved,
                     Some("google oauth token saved".into()),
@@ -945,7 +956,7 @@ pub(crate) async fn finish_running_task_if_ready(
             Ok(models) => {
                 let count = models.len();
                 app.set_deepseek_model_options(models);
-                app.notice = Some(format!("Loaded {count} DeepSeek models."));
+                app.bottom_pane.notice = Some(format!("Loaded {count} DeepSeek models."));
                 app.set_runtime_phase(RuntimePhase::Idle, Some("models loaded".into()));
                 app.open_overlay(super::super::state::Overlay::ListPicker(
                     ListPickerKind::Model,
@@ -972,7 +983,7 @@ pub(crate) async fn finish_running_task_if_ready(
 
 fn emit_query_heartbeat(app: &mut TuiApp) {
     let elapsed = {
-        let Some(task) = app.running_task.as_mut() else {
+        let Some(task) = app.bottom_pane.running_task.as_mut() else {
             return;
         };
         if !matches!(task.kind, TaskKind::Query) {
@@ -1034,5 +1045,5 @@ fn emit_query_heartbeat(app: &mut TuiApp) {
     };
 
     app.set_runtime_phase(phase, Some(detail));
-    app.notice = Some(notice);
+    app.bottom_pane.notice = Some(notice);
 }
