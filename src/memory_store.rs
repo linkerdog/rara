@@ -166,14 +166,26 @@ impl MemoryStore {
     }
 
     pub async fn insert(&self, input: NewMemoryRecord) -> Result<MemoryRecord> {
+        self.insert_with_id(None, input).await
+    }
+
+    pub async fn insert_with_id(
+        &self,
+        id: Option<String>,
+        input: NewMemoryRecord,
+    ) -> Result<MemoryRecord> {
         let content = input.content.trim();
         if content.is_empty() {
             bail!("memory content must not be empty");
         }
+        let id = id
+            .map(|id| id.trim().to_string())
+            .filter(|id| !id.is_empty())
+            .unwrap_or_else(|| format!("memory-{}", uuid::Uuid::new_v4()));
         let importance = clamp_importance(input.importance);
         let now = unix_timestamp_seconds();
         let record = MemoryRecord {
-            id: format!("memory-{}", uuid::Uuid::new_v4()),
+            id,
             title: input
                 .title
                 .filter(|title| !title.trim().is_empty())
@@ -278,6 +290,10 @@ impl MemoryStore {
     pub async fn list_labels(&self, scope: Option<MemoryScope>) -> Result<Vec<MemoryLabelCount>> {
         let records = self.records.load_map().await?;
         Ok(list_label_counts(records.values(), scope.as_ref()))
+    }
+
+    pub async fn record_count(&self) -> Result<usize> {
+        Ok(self.records.load_map().await?.len())
     }
 }
 

@@ -499,10 +499,31 @@ pub enum McpEvent {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "type", content = "payload", rename_all = "snake_case")]
 pub enum MemoryEvent {
-    RecordAdded { memory_id: String },
-    RecordUpdated { memory_id: String },
-    RecordDeleted { memory_id: String },
+    RecordAdded {
+        memory_id: String,
+    },
+    RecordUpdated {
+        memory_id: String,
+    },
+    RecordDeleted {
+        memory_id: String,
+    },
+    LabelsListed {
+        scope: Option<MemoryScope>,
+        labels: Vec<MemoryLabelSummary>,
+    },
+    MetadataQueried {
+        record_count: usize,
+        labels: Vec<MemoryLabelSummary>,
+    },
     SelectionUpdated,
+}
+
+#[allow(dead_code)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct MemoryLabelSummary {
+    pub label: String,
+    pub count: usize,
 }
 
 #[allow(dead_code)]
@@ -1151,6 +1172,53 @@ mod tests {
                     "type": "list_labels",
                     "payload": {
                         "scope": "thread"
+                    }
+                }
+            })
+        );
+    }
+
+    #[test]
+    fn memory_label_and_metadata_events_use_structured_wire_shape() {
+        let labels = serde_json::to_value(RuntimeEvent::Memory(MemoryEvent::LabelsListed {
+            scope: Some(MemoryScope::Workspace),
+            labels: vec![MemoryLabelSummary {
+                label: "decision".to_string(),
+                count: 2,
+            }],
+        }))
+        .unwrap();
+        assert_eq!(
+            labels,
+            json!({
+                "type": "memory",
+                "payload": {
+                    "type": "labels_listed",
+                    "payload": {
+                        "scope": "workspace",
+                        "labels": [{"label": "decision", "count": 2}]
+                    }
+                }
+            })
+        );
+
+        let metadata = serde_json::to_value(RuntimeEvent::Memory(MemoryEvent::MetadataQueried {
+            record_count: 3,
+            labels: vec![MemoryLabelSummary {
+                label: "fact".to_string(),
+                count: 1,
+            }],
+        }))
+        .unwrap();
+        assert_eq!(
+            metadata,
+            json!({
+                "type": "memory",
+                "payload": {
+                    "type": "metadata_queried",
+                    "payload": {
+                        "record_count": 3,
+                        "labels": [{"label": "fact", "count": 1}]
                     }
                 }
             })

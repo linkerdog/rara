@@ -120,6 +120,9 @@ pub(crate) async fn initialize_rara_context(
     let event_bus = Arc::new(RuntimeEventBus::new(256));
     let goal_handle: GoalHandle = Arc::new(std::sync::RwLock::new(None));
 
+    let mcp_tool_cache = McpToolCache::new();
+    mcp_tool_cache.clear();
+
     let tool_manager = create_full_tool_manager(
         backend.clone(),
         vdb.clone(),
@@ -127,14 +130,13 @@ pub(crate) async fn initialize_rara_context(
         workspace.clone(),
         sandbox_manager.clone(),
         skill_manager,
+        mcp_tool_cache,
         prompt_config.clone(),
         Arc::new(shell_env.env),
         sandbox_network_access.clone(),
         goal_handle.clone(),
     );
     let warnings = prompt_config.warnings.clone();
-    let mcp_tool_cache = McpToolCache::new();
-    mcp_tool_cache.clear();
 
     Ok(RuntimeBootstrap {
         backend,

@@ -154,6 +154,20 @@ system prompt by default. A future resource reference should carry:
 `/context` should show selected and available MCP resources with the same
 provenance rules used for files, memory, skills, and prompt sources.
 
+Implementation checkpoint:
+
+- RARA now has a typed `McpResourceReference` adapter that normalizes MCP
+  resource references into `RetrievalCandidate` objects.
+- `ContextAssembler` carries precomputed MCP resource candidates through the
+  same retrieval and `MemorySelection` pipeline as memory, thread, vector, and
+  file-search candidates.
+- `/context` provider status includes an `mcp_resource` source entry with a
+  reference count, and candidate provenance keeps server name, URI, MIME type,
+  source path, and token estimate.
+- Resource bodies are not loaded or injected in this slice. Until a content
+  loader exists, MCP resource candidates remain referenced and visible but
+  non-selectable, preserving prompt-prefix stability.
+
 ### Tool Search
 
 RARA should not inject every MCP tool schema into every turn. Large MCP

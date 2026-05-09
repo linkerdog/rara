@@ -123,7 +123,7 @@ Importance scale:
 | Context injection | Ranked memory candidates pass through `MemorySelection` before prompt injection. | Partial. LanceDB-backed memory and session search now produce direct ranked `MemorySelection` candidates; retention, deduplication, and protocol mutation remain future work. |
 | Graph retrieval | Entity and relationship traversal complements vector recall. | Future work. |
 | Working memory | Daily or session briefing summarizes recent and important memories. | Future work. |
-| MCP / ACP / Wire memory APIs | Protocol clients can query and mutate memory through the runtime control plane. | Future work over the `MemoryStore` boundary. |
+| MCP / ACP / Wire memory APIs | Protocol clients can query and mutate memory through the runtime control plane. | Initial runtime-control handler is implemented for add, update, delete, list-label, and metadata queries over `MemoryStore`; transport-specific command surfaces remain follow-up work. |
 
 ## Memories vs Threads
 
@@ -238,6 +238,10 @@ Current implementation checkpoint:
   touching the LanceDB search row.
 - `MemoryStore::update`, `delete`, and `list_labels` provide the memory-domain
   API needed by future ACP/Wire adapters without exposing LanceDB operations.
+- Protocol memory control requests now execute add, update, delete, list-label,
+  and metadata operations through `MemoryStore` and publish structured memory
+  events. Protocol adapters still must route their transport-specific commands
+  through the shared control-plane dispatcher.
 - Search rehydration treats persisted `MemoryRecord`s as the source of truth:
   indexed rows with deleted ids are filtered instead of reconstructed.
 - `MemoryRecord::is_protected_from_automatic_cleanup` protects pinned,

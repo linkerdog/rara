@@ -179,7 +179,7 @@ fn active_turn_cell_renders_shell_approval_as_interaction_card() {
                 tool_use_id: "toolu_123".into(),
                 command: "bash ./scripts/migrate.sh".into(),
                 allow_net: false,
-                payload: crate::tools::bash::BashCommandInput {
+                payload: rara_tools::bash::BashCommandInput {
                     command: None,
                     program: Some("bash".into()),
                     args: vec!["./scripts/migrate.sh".into()],

@@ -16,6 +16,7 @@ use rara_tools::search::{GlobTool, GrepTool};
 use rara_tools::tool::ToolManager;
 
 use crate::llm::LlmBackend;
+use crate::mcp_tool_cache::McpToolCache;
 use crate::prompt::PromptRuntimeConfig;
 use crate::sandbox::SandboxManager;
 use crate::session::SessionManager;
@@ -26,6 +27,7 @@ use crate::tools::agent::{
 };
 use crate::tools::context::RetrieveSessionContextTool;
 use crate::tools::goal::{CreateGoalTool, GetGoalTool, UpdateGoalTool};
+use crate::tools::mcp_tool_search::McpToolSearch;
 use crate::tools::pty::{
     PtyKillTool, PtyListTool, PtyReadTool, PtySessionStore, PtyStartTool, PtyStatusTool,
     PtyStopTool, PtyWriteTool,
@@ -47,6 +49,7 @@ pub(super) fn create_full_tool_manager(
     workspace: Arc<WorkspaceMemory>,
     sandbox: Arc<SandboxManager>,
     skill_manager: Arc<SkillManager>,
+    mcp_tool_cache: McpToolCache,
     prompt_config: PromptRuntimeConfig,
     shell_env: Arc<HashMap<String, String>>,
     sandbox_network_access: Arc<AtomicBool>,
@@ -137,6 +140,7 @@ pub(super) fn create_full_tool_manager(
     tm.register(Box::new(SkillTool {
         skill_manager: skill_manager.clone(),
     }));
+    tm.register(Box::new(McpToolSearch::new(mcp_tool_cache)));
     tm.register(Box::new(AgentTool {
         backend: backend.clone(),
         vdb: vdb.clone(),

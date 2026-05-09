@@ -21,6 +21,7 @@ const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
 /// A single MCP tool record for caching.
 #[derive(Debug, Clone)]
 pub struct McpToolRecord {
+    pub server: String,
     pub name: String,
     pub display_name: String,
     pub description: String,
@@ -67,6 +68,7 @@ pub async fn list_stdio_tools(
         .tools
         .into_iter()
         .map(|t| McpToolRecord {
+            server: String::new(),
             name: t.name.to_string(),
             display_name: t.name.to_string(),
             description: t.description.map(|d| d.to_string()).unwrap_or_default(),
