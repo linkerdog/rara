@@ -2,7 +2,7 @@ use ratatui::{
     layout::{Alignment, Constraint, Direction, Layout, Rect},
     style::{Color, Modifier, Style},
     text::{Line, Span},
-    widgets::{Block, Borders, Paragraph, Wrap},
+    widgets::{Block, Paragraph, Wrap},
 };
 use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 
@@ -46,23 +46,19 @@ pub(crate) fn desired_bottom_pane_height(app: &TuiApp, width: u16, rows: u16) ->
 }
 
 pub(super) fn render_bottom_pane(f: &mut Frame, app: &TuiApp, area: Rect) -> Option<(u16, u16)> {
-    // Highlight the bottom pane border when a pending interaction needs attention.
-    if let Some(pending) = app.active_pending_interaction() {
+    // Highlight the bottom pane background when a pending interaction needs attention.
+    let style = if let Some(pending) = app.active_pending_interaction() {
         let color = match pending.kind {
             ActivePendingInteractionKind::ShellApproval => STATUS_WARNING,
             ActivePendingInteractionKind::PlanApproval => TEXT_ACCENT,
             _ => STATUS_SUCCESS,
         };
-        let block = Block::default()
-            .borders(Borders::ALL)
-            .border_style(Style::default().fg(color).add_modifier(Modifier::BOLD));
-        let inner = block.inner(area);
-        f.render_widget(block, area);
-        render_bottom_pane_inner(f, app, inner)
+        Style::default().bg(color).fg(Color::Black)
     } else {
-        f.render_widget(Block::default().style(bottom_pane_style()), area);
-        render_bottom_pane_inner(f, app, area)
-    }
+        bottom_pane_style()
+    };
+    f.render_widget(Block::default().style(style), area);
+    render_bottom_pane_inner(f, app, area)
 }
 
 fn render_bottom_pane_inner(f: &mut Frame, app: &TuiApp, area: Rect) -> Option<(u16, u16)> {
