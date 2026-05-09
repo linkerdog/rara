@@ -106,7 +106,7 @@ Active backlog only. Keep this file small and current.
 - [ ] Surface main model vs auxiliary model routing in `/status` and `/context`.
 - [ ] After context observability is complete, add an auxiliary-model compression hook for retrieval candidates without changing durable memory records.
 - [x] `ThreadStore` / `ThreadRecorder`: from façade over `SessionManager`+`StateDb` to true structured thread store.
-- [ ] Thread-scoped and workspace-scoped `MemoryRecord` storage with promotion rules.
+- [x] Thread-scoped and workspace-scoped `MemoryRecord` storage with promotion rules.
 - [x] Initial retrieval orchestration layer from `docs/features/retrieval-orchestration.md`: typed candidates, orchestration view, richer `/context`, deterministic dedupe, and ACP/Wire event exposure.
 - [x] Add the first `RetrievalSourceProvider` boundary for current memory, session, thread-history, vector-slot, tool-result, and file-search candidates.
 - [ ] Add `RetrievalSourceProvider` implementations for MCP resource, hook, and graph sources after the current memory/session/file path is stable.

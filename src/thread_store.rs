@@ -22,7 +22,7 @@ use crate::memory_distiller::{
     MemoryDistiller, dedupe_memory_drafts, new_memory_record_from_draft,
 };
 use crate::memory_store::{
-    MemoryLabel, MemoryRecord, MemoryScope, MemorySource, MemorySourceSpan, MemoryStore,
+    MemoryPromotionTarget, MemoryRecord, MemorySource, MemorySourceSpan, MemoryStore,
     NewMemoryRecord,
 };
 use crate::session::{
@@ -405,7 +405,7 @@ impl<'a> ThreadStore<'a> {
             existing_hits.push(memory_store.search(&draft.content, 5).await?);
         }
 
-        let base = thread_distilled_memory_base(&snapshot);
+        let base = thread_distilled_memory_base(&snapshot)?;
         let mut records = Vec::new();
         for draft in dedupe_memory_drafts(drafts, &existing_hits) {
             records.push(
@@ -1386,7 +1386,7 @@ fn thread_summary_memory_record(thread: &ThreadSnapshot) -> Option<NewMemoryReco
         .or_else(|| first_user_message(thread));
     let summary = summary?;
     let title = thread_title(thread);
-    let mut record = thread_distilled_memory_base(thread);
+    let mut record = thread_distilled_memory_base(thread).ok()?;
     record.title = Some(title);
     record.content = format!(
         concat!(
@@ -1409,23 +1409,19 @@ fn thread_summary_memory_record(thread: &ThreadSnapshot) -> Option<NewMemoryReco
     Some(record)
 }
 
-fn thread_distilled_memory_base(thread: &ThreadSnapshot) -> NewMemoryRecord {
+fn thread_distilled_memory_base(thread: &ThreadSnapshot) -> Result<NewMemoryRecord> {
     let end_turn_index = thread.history.len().saturating_sub(1) as u32;
-    NewMemoryRecord {
-        title: None,
-        content: String::new(),
-        labels: vec![MemoryLabel::Experience],
-        importance: 0.6,
-        pinned: false,
-        source: MemorySource::ThreadDistill,
-        scope: MemoryScope::Thread,
-        session_id: Some(thread.metadata.session_id.clone()),
-        thread_id: Some(thread.metadata.session_id.clone()),
-        source_span: Some(MemorySourceSpan {
-            start_turn_index: 0,
-            end_turn_index,
-        }),
-    }
+    NewMemoryRecord::promotion_base(
+        MemorySource::ThreadDistill,
+        MemoryPromotionTarget::Thread {
+            session_id: Some(thread.metadata.session_id.clone()),
+            thread_id: thread.metadata.session_id.clone(),
+            source_span: Some(MemorySourceSpan {
+                start_turn_index: 0,
+                end_turn_index,
+            }),
+        },
+    )
 }
 
 fn thread_title(thread: &ThreadSnapshot) -> String {

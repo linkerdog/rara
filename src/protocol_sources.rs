@@ -22,7 +22,7 @@ use serde_json::Value;
 use tokio::sync::RwLock;
 
 use crate::memory_store::{
-    MemoryLabel, MemoryLabelCount, MemoryRecord, MemoryRecordPatch,
+    MemoryLabel, MemoryLabelCount, MemoryPromotionTarget, MemoryRecord, MemoryRecordPatch,
     MemoryScope as StoreMemoryScope, MemorySource, MemoryStore, NewMemoryRecord,
 };
 use crate::runtime_control::{
@@ -364,24 +364,31 @@ fn new_memory_record_from_control(
     content: &str,
     metadata: &Value,
 ) -> Result<NewMemoryRecord> {
-    Ok(NewMemoryRecord {
-        title: metadata_string(metadata, "title"),
-        content: content.to_string(),
-        labels: metadata_labels(metadata)?,
-        importance: metadata
-            .get("importance")
-            .and_then(Value::as_f64)
-            .unwrap_or(0.5) as f32,
-        pinned: metadata
-            .get("pinned")
-            .and_then(Value::as_bool)
-            .unwrap_or(false),
-        source: MemorySource::ProtocolWrite,
-        scope: store_scope_from_control(scope.clone()),
-        session_id: metadata_string(metadata, "session_id"),
-        thread_id: metadata_string(metadata, "thread_id"),
-        source_span: None,
-    })
+    let target = match scope {
+        ControlMemoryScope::Workspace => MemoryPromotionTarget::Workspace {
+            session_id: metadata_string(metadata, "session_id"),
+            thread_id: metadata_string(metadata, "thread_id"),
+        },
+        ControlMemoryScope::Thread => MemoryPromotionTarget::Thread {
+            session_id: metadata_string(metadata, "session_id"),
+            thread_id: metadata_string(metadata, "thread_id")
+                .ok_or_else(|| anyhow::anyhow!("thread_id is required for thread memory scope"))?,
+            source_span: None,
+        },
+    };
+    let mut record = NewMemoryRecord::promotion_base(MemorySource::ProtocolWrite, target)?;
+    record.title = metadata_string(metadata, "title");
+    record.content = content.to_string();
+    record.labels = metadata_labels(metadata)?;
+    record.importance = metadata
+        .get("importance")
+        .and_then(Value::as_f64)
+        .unwrap_or(0.5) as f32;
+    record.pinned = metadata
+        .get("pinned")
+        .and_then(Value::as_bool)
+        .unwrap_or(false);
+    Ok(record)
 }
 
 fn memory_patch_from_control(patch: &MemoryRecordControlPatch) -> Result<MemoryRecordPatch> {
@@ -704,7 +711,7 @@ mod tests {
             memory_id: "protocol-memory-duplicate".to_string(),
             scope: ControlMemoryScope::Thread,
             content: "Duplicate protocol ids should not upsert.".to_string(),
-            metadata: json!({"labels": ["fact"]}),
+            metadata: json!({"labels": ["fact"], "thread_id": "thread-duplicate"}),
         };
 
         handler
@@ -717,5 +724,25 @@ mod tests {
             .expect_err("duplicate add should fail");
 
         assert!(err.to_string().contains("already exists"));
+    }
+
+    #[tokio::test]
+    async fn memory_control_thread_record_requires_thread_id() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let bus = Arc::new(RuntimeEventBus::new(8));
+        let store = test_memory_store(temp.path());
+        let handler = MemoryControlHandler::with_store(bus, store);
+
+        let err = handler
+            .handle_control(&MemoryControlRequest::AddRecord {
+                memory_id: "protocol-memory-thread-missing-id".to_string(),
+                scope: ControlMemoryScope::Thread,
+                content: "Thread-scoped protocol writes need an explicit thread id.".to_string(),
+                metadata: json!({"labels": ["fact"]}),
+            })
+            .await
+            .expect_err("thread scope without thread_id should fail");
+
+        assert!(err.to_string().contains("thread_id is required"));
     }
 }
