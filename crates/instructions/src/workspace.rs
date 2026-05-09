@@ -452,6 +452,59 @@ mod tests {
     }
 
     #[test]
+    fn discover_prompt_sources_invalidates_modified_instruction_file() {
+        let dir = tempdir().expect("tempdir");
+        let root = dir.path().join("repo");
+        let rara_dir = root.join(".rara");
+        fs::create_dir_all(&rara_dir).expect("mkdir rara");
+        let agents = root.join("AGENTS.md");
+        fs::write(&agents, "old rules").expect("write agents");
+        let workspace = WorkspaceMemory::from_paths(root, rara_dir);
+
+        let first_sources = workspace.discover_prompt_sources();
+        let first = first_sources
+            .iter()
+            .find(|source| matches!(source.kind, PromptSourceKind::ProjectInstruction))
+            .expect("project instruction");
+        assert_eq!(first.content, "old rules");
+
+        std::thread::sleep(Duration::from_millis(20));
+        fs::write(&agents, "new rules").expect("rewrite agents");
+
+        let second_sources = workspace.discover_prompt_sources();
+        let second = second_sources
+            .iter()
+            .find(|source| matches!(source.kind, PromptSourceKind::ProjectInstruction))
+            .expect("project instruction");
+        assert_eq!(second.content, "new rules");
+    }
+
+    #[test]
+    fn discover_prompt_sources_detects_memory_file_created_after_initial_miss() {
+        let dir = tempdir().expect("tempdir");
+        let root = dir.path().join("repo");
+        let rara_dir = root.join(".rara");
+        fs::create_dir_all(&rara_dir).expect("mkdir rara");
+        let workspace = WorkspaceMemory::from_paths(root, rara_dir.clone());
+
+        let first_sources = workspace.discover_prompt_sources();
+        assert!(
+            first_sources
+                .iter()
+                .all(|source| !matches!(source.kind, PromptSourceKind::LocalMemory))
+        );
+
+        fs::write(rara_dir.join("memory.md"), "remember this").expect("write memory");
+
+        let second_sources = workspace.discover_prompt_sources();
+        let memory = second_sources
+            .iter()
+            .find(|source| matches!(source.kind, PromptSourceKind::LocalMemory))
+            .expect("local memory source");
+        assert_eq!(memory.content, "remember this");
+    }
+
+    #[test]
     fn discover_prompt_sources_falls_back_to_root_for_outside_cwd() {
         let _lock = cwd_lock().lock().expect("cwd lock");
         let dir = tempdir().expect("tempdir");
