@@ -954,17 +954,7 @@ impl Agent {
                 &["bash", "pty", "web_search", "web_fetch", "mcp_tool_search"];
             if CLASSIFIABLE_TOOLS.contains(&tool_name.as_str()) {
                 let classifier_input = tool_input.clone();
-                // Extract the user prompt from history for the classifier
-                let user_prompt = self
-                    .history
-                    .iter()
-                    .rev()
-                    .find(|m| m.role == "user")
-                    .and_then(|m| m.content.as_str())
-                    .map(str::to_string)
-                    .unwrap_or_default();
                 let request = crate::classifier::AutoPermissionRequest {
-                    user_prompt,
                     tool_name: tool_name.clone(),
                     tool_input: classifier_input,
                     workspace_hint: Some(self.workspace.root.display().to_string()),
@@ -1112,17 +1102,7 @@ Rules:
             &request.tool_name,
             &request.tool_input,
         );
-        // Convert messages to a plain-text prompt for the LLM classifier
-        let prompt = messages
-            .iter()
-            .map(|m| {
-                let content = m.content.as_str().unwrap_or_default();
-                format!("[{}]: {}", m.role, content)
-            })
-            .collect::<Vec<_>>()
-            .join("\n\n");
-
-        let raw = self.llm_backend.classify(instructions, &prompt).await?;
+        let raw = self.llm_backend.classify(instructions, &messages).await?;
         Ok(crate::classifier::parse_auto_permission_response(&raw)?)
     }
 
@@ -1140,9 +1120,9 @@ classify its state. Output exactly one JSON object with fields:
 - \"needs\": what the user should do to unblock (only when state is \"blocked\", omit otherwise)
         ";
 
-        let prompt = crate::classifier::build_background_task_message(request);
+        let message = crate::classifier::build_background_task_message(request);
 
-        let raw = self.llm_backend.classify(instructions, &prompt).await?;
+        let raw = self.llm_backend.classify(instructions, &[message]).await?;
         Ok(crate::classifier::parse_background_task_response(&raw)?)
     }
 

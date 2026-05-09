@@ -11,8 +11,6 @@ use serde_json::Value;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AutoPermissionRequest {
-    /// The user's original message prompt
-    pub user_prompt: String,
     /// The tool name being invoked (e.g. "bash", "web_search")
     pub tool_name: String,
     /// Structured tool input projection (only relevant fields)
@@ -188,7 +186,9 @@ pub fn build_classifier_messages(
 }
 
 /// Build a classifier message for background task status evaluation.
-pub fn build_background_task_message(request: &BackgroundTaskClassifyRequest) -> String {
+pub fn build_background_task_message(
+    request: &BackgroundTaskClassifyRequest,
+) -> crate::agent::Message {
     let mut parts = vec![
         format!("Command: {}", request.command),
         format!("Status: {}", request.status),
@@ -202,7 +202,10 @@ pub fn build_background_task_message(request: &BackgroundTaskClassifyRequest) ->
         parts.push(format!("Recent output:\n{}", request.output_tail));
     }
 
-    parts.join("\n")
+    crate::agent::Message {
+        role: "user".into(),
+        content: Value::String(parts.join("\n")),
+    }
 }
 
 fn extract_text_content(content: &Value) -> Option<String> {
@@ -234,13 +237,7 @@ pub fn parse_auto_permission_response(
     if let Ok(resp) = serde_json::from_str::<AutoPermissionResponse>(raw) {
         return Ok(resp);
     }
-    let cleaned = raw
-        .trim()
-        .trim_start_matches("```json")
-        .trim_start_matches("```")
-        .trim_end_matches("```")
-        .trim();
-    serde_json::from_str(cleaned)
+    serde_json::from_str(clean_json_response(raw))
 }
 
 /// Parse BackgroundTaskClassifyResponse from classifier LLM output.
@@ -250,13 +247,16 @@ pub fn parse_background_task_response(
     if let Ok(resp) = serde_json::from_str::<BackgroundTaskClassifyResponse>(raw) {
         return Ok(resp);
     }
-    let cleaned = raw
-        .trim()
+    serde_json::from_str(clean_json_response(raw))
+}
+
+/// Strip surrounding markdown code fences and whitespace from LLM JSON output.
+fn clean_json_response(raw: &str) -> &str {
+    raw.trim()
         .trim_start_matches("```json")
         .trim_start_matches("```")
         .trim_end_matches("```")
-        .trim();
-    serde_json::from_str(cleaned)
+        .trim()
 }
 
 #[cfg(test)]
@@ -356,7 +356,8 @@ mod tests {
             elapsed: Some("30s".to_string()),
         };
 
-        let prompt = build_background_task_message(&request);
+        let msg = build_background_task_message(&request);
+        let prompt = msg.content.as_str().unwrap();
         assert!(prompt.contains("cargo build --release"));
         assert!(prompt.contains("running"));
         assert!(prompt.contains("30s"));
