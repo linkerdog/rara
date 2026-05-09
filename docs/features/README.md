@@ -43,12 +43,17 @@ future appserver integrations can use.
 
 - `mcp-runtime.md`: source-aware MCP configuration, registry, status, refresh,
   reconnect, resource, and Tool Search contracts.
+- `support-acp-integration.md`: ACP client integration guidance boundary,
+  semantic input intents, output subscriptions, source registration, provenance,
+  and trust rules.
 - `bedrock-backend.md`: Bedrock SDK backend crate boundary and RARA adapter
   contract.
 - `file-search.md`: shared gitignore-aware file discovery and fuzzy path
   ranking crate for tools, TUI pickers, and context routing.
 - `retrieval-orchestration.md`: unified candidate-provider, ranking, dedupe,
   budget, and `/context` contract for memory/context retrieval.
+- `workspace-memory-cache.md`: prompt-source and workspace-memory cache
+  invalidation, ordering, and shared observability contract.
 - `thread-goals.md`: persistent `/goal` runtime, tool, continuation, budget,
   and compact TUI contracts aligned with Codex 0.129.
 

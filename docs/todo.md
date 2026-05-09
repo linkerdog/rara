@@ -33,7 +33,7 @@ Active backlog only. Keep this file small and current.
 - [x] Add protocol-safe memory mutation/query scaffolding that creates memory records and selection views without bypassing `MemorySelection` (scaffold via protocol_sources.rs).
 - [x] Add hook declaration scaffolding for protocol and repo extensions; keep execution disabled until permission and sandbox policy are explicit.
 - [ ] Ensure every new skill, memory, prompt, hook, planning, approval, and output feature is control-plane-ready rather than TUI-only.
-- [ ] Add a `support-acp` integration skill for IDE and third-party app authors, covering ACP startup, runtime-control input intents, output event subscription, cancellation/preemption, approvals, MCP/tool-search expectations, and safe context-source registration.
+- [x] Add a `support-acp` integration skill for IDE and third-party app authors, covering ACP startup, runtime-control input intents, output event subscription, cancellation/preemption, approvals, MCP/tool-search expectations, and safe context-source registration (see `docs/features/support-acp-integration.md`).
 
 ## Configuration / Provider Surface
 
@@ -48,7 +48,7 @@ Active backlog only. Keep this file small and current.
 
 - [ ] Add session-style incremental file search for TUI file pickers and context file routing on top of `crates/file-search`.
 - [ ] Tests for workspace prompt-source discovery and cache invalidation (cwd changes, git branches, nested workspaces).
-- [ ] Define `WorkspaceMemory` cache invalidation rules for prompt files and environment info.
+- [x] Define `WorkspaceMemory` cache invalidation rules for prompt files and environment info (see `docs/features/workspace-memory-cache.md`).
 - [ ] Unify `discover_prompt_sources()` and TUI `/status` source reporting.
 - [ ] New prompt inputs through structured source objects, `MemorySelection`, lifecycle events, and runtime-control provenance — not ad hoc text.
 - [ ] Project-scoped extension surface for `.claude/agents/`, `.claude/hooks/`, `.agents/skills/` with precedence rules.
