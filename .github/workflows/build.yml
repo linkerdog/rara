@@ -21,9 +21,13 @@ jobs:
         uses: dtolnay/rust-toolchain@master
         with:
           toolchain: nightly-2026-05-02
-
       - name: Cache cargo
         uses: Swatinem/rust-cache@v2
+
+      - name: Ensure Cargo.lock from checkout
+        run: git checkout -- Cargo.lock
+
+      - name: Build
 
       - name: Build
         run: cargo build --locked
