@@ -459,7 +459,6 @@ impl TuiApp {
 
     pub fn queued_follow_up_preview(&self) -> Option<&str> {
         self.bottom_pane
-            .bottom_pane
             .pending_follow_up_messages
             .first()
             .map(|item| item.text.as_str())
@@ -473,7 +472,6 @@ impl TuiApp {
 
     pub fn pending_follow_up_preview(&self) -> Option<&str> {
         self.bottom_pane
-            .bottom_pane
             .pending_follow_up_messages
             .first()
             .map(|item| item.text.as_str())
@@ -501,7 +499,6 @@ impl TuiApp {
         let message = message.into();
         if !message.trim().is_empty() {
             self.bottom_pane
-                .bottom_pane
                 .pending_follow_up_messages
                 .push(PendingFollowUpMessage {
                     text: message,

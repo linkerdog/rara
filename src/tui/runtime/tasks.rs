@@ -134,10 +134,10 @@ fn merge_rebuilt_agent(mut rebuilt: Agent, previous: Agent) -> Agent {
 }
 
 fn try_start_queued_follow_up(app: &mut TuiApp, agent_slot: &mut Option<Agent>) {
-    if app.bottom_pane.bottom_pane.running_task.is_none() {
+    if app.bottom_pane.running_task.is_none() {
         app.release_pending_follow_ups();
     }
-    if app.bottom_pane.bottom_pane.running_task.is_some()
+    if app.bottom_pane.running_task.is_some()
         || app.active_pending_interaction().is_some()
         || app.has_pending_planning_suggestion()
     {
@@ -209,7 +209,7 @@ pub(super) fn start_query_task(app: &mut TuiApp, prompt: String, mut agent: Agen
         TaskCompletion::Query { agent, result }
     });
 
-    app.bottom_pane.bottom_pane.running_task = Some(RunningTask {
+    app.bottom_pane.running_task = Some(RunningTask {
         kind: TaskKind::Query,
         receiver,
         handle,
@@ -247,7 +247,7 @@ pub(super) fn start_compact_task(app: &mut TuiApp, mut agent: Agent) {
         TaskCompletion::Compact { agent, result }
     });
 
-    app.bottom_pane.bottom_pane.running_task = Some(RunningTask {
+    app.bottom_pane.running_task = Some(RunningTask {
         kind: TaskKind::Compact,
         receiver,
         handle,
@@ -286,7 +286,7 @@ pub(super) fn start_review_task(app: &mut TuiApp, prompt: String, mut agent: Age
         TaskCompletion::Query { agent, result }
     });
 
-    app.bottom_pane.bottom_pane.running_task = Some(RunningTask {
+    app.bottom_pane.running_task = Some(RunningTask {
         kind: TaskKind::Query,
         receiver,
         handle,
@@ -344,7 +344,7 @@ pub(super) fn start_pending_approval_task(
         TaskCompletion::Query { agent, result }
     });
 
-    app.bottom_pane.bottom_pane.running_task = Some(RunningTask {
+    app.bottom_pane.running_task = Some(RunningTask {
         kind: TaskKind::Query,
         receiver,
         handle,
@@ -425,7 +425,7 @@ fn start_plan_resume_task(
         TaskCompletion::Query { agent, result }
     });
 
-    app.bottom_pane.bottom_pane.running_task = Some(RunningTask {
+    app.bottom_pane.running_task = Some(RunningTask {
         kind: TaskKind::Query,
         receiver,
         handle,
@@ -460,7 +460,7 @@ pub(super) fn start_rebuild_task(app: &mut TuiApp) {
         TaskCompletion::Rebuild { result }
     });
 
-    app.bottom_pane.bottom_pane.running_task = Some(RunningTask {
+    app.bottom_pane.running_task = Some(RunningTask {
         kind: TaskKind::Rebuild,
         receiver,
         handle,
@@ -510,7 +510,7 @@ pub(super) fn start_deepseek_model_list_task(app: &mut TuiApp) {
         TaskCompletion::DeepSeekModels { result }
     });
 
-    app.bottom_pane.bottom_pane.running_task = Some(RunningTask {
+    app.bottom_pane.running_task = Some(RunningTask {
         kind: TaskKind::DeepSeekModels,
         receiver,
         handle,
@@ -522,7 +522,7 @@ pub(super) fn start_deepseek_model_list_task(app: &mut TuiApp) {
 }
 
 pub(super) fn request_running_task_cancellation(app: &mut TuiApp) {
-    let Some(task) = app.bottom_pane.bottom_pane.running_task.as_mut() else {
+    let Some(task) = app.bottom_pane.running_task.as_mut() else {
         app.bottom_pane.notice = Some("No running task to cancel.".into());
         return;
     };
@@ -554,14 +554,12 @@ pub(crate) async fn finish_running_task_if_ready(
     app: &mut TuiApp,
     agent_slot: &mut Option<Agent>,
 ) -> anyhow::Result<()> {
-    if app.bottom_pane.bottom_pane.running_task.is_none() {
+    if app.bottom_pane.running_task.is_none() {
         return Ok(());
     }
 
     let (pending_events, is_finished) = {
         let task = app
-            .bottom_pane
-            .bottom_pane
             .bottom_pane
             .running_task
             .as_mut()
@@ -584,8 +582,6 @@ pub(crate) async fn finish_running_task_if_ready(
     }
 
     let mut task = app
-        .bottom_pane
-        .bottom_pane
         .bottom_pane
         .running_task
         .take()
@@ -985,7 +981,7 @@ pub(crate) async fn finish_running_task_if_ready(
 
 fn emit_query_heartbeat(app: &mut TuiApp) {
     let elapsed = {
-        let Some(task) = app.bottom_pane.bottom_pane.running_task.as_mut() else {
+        let Some(task) = app.bottom_pane.running_task.as_mut() else {
             return;
         };
         if !matches!(task.kind, TaskKind::Query) {

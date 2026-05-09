@@ -313,13 +313,11 @@ impl TuiApp {
     }
 
     pub fn is_busy(&self) -> bool {
-        self.bottom_pane.bottom_pane.running_task.is_some()
+        self.bottom_pane.running_task.is_some()
     }
 
     pub fn running_elapsed(&self) -> Option<std::time::Duration> {
         self.bottom_pane
-            .bottom_pane
-            .bottom_pane
             .running_task
             .as_ref()
             .map(|task| task.started_at.elapsed())

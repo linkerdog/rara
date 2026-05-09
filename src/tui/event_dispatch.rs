@@ -330,8 +330,8 @@ pub(crate) async fn dispatch_event(
             Some(Overlay::CommandPalette) => {
                 let query = app.command_query();
                 if let Some(spec) = palette_command_by_index(app, query, app.command_palette_idx) {
-                    app.input = spec.usage.to_string();
-                    app.input_cursor_offset = None;
+                    app.bottom_pane.input = spec.usage.to_string();
+                    app.bottom_pane.input_cursor_offset = None;
                     app.close_overlay();
                 }
             }

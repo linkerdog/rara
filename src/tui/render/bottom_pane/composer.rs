@@ -114,7 +114,6 @@ pub(super) fn composer_hint(app: &TuiApp) -> Line<'static> {
     } else if app.is_busy() {
         if app
             .bottom_pane
-            .bottom_pane
             .running_task
             .as_ref()
             .is_some_and(|task| matches!(task.kind, TaskKind::Query))
