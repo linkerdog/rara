@@ -157,15 +157,15 @@ pub trait LlmBackend: Send + Sync {
     ///
     /// Default implementation uses `summarize()` via the auxiliary model,
     /// but backends may override to use a dedicated classifier endpoint or model.
-    async fn classify(
-        &self,
-        _instructions: &str,
-        prompt: &str,
-    ) -> Result<String> {
+    async fn classify(&self, _instructions: &str, prompt: &str) -> Result<String> {
         self.summarize(
-            &[Message { role: "user".into(), content: serde_json::Value::String(prompt.into()) }],
+            &[Message {
+                role: "user".into(),
+                content: serde_json::Value::String(prompt.into()),
+            }],
             _instructions,
-        ).await
+        )
+        .await
     }
 
     fn context_budget(&self, _messages: &[Message], _tools: &[Value]) -> Option<ContextBudget> {

@@ -950,7 +950,8 @@ impl Agent {
             // ── Auto-permission classifier safety net ────────────────────────────
             // Safety net: for dangerous tools (bash, web_*, pty), run the LLM
             // classifier to detect suspicious commands the static rules missed.
-            const CLASSIFIABLE_TOOLS: &[&str] = &["bash", "pty", "web_search", "web_fetch", "mcp_tool_search"];
+            const CLASSIFIABLE_TOOLS: &[&str] =
+                &["bash", "pty", "web_search", "web_fetch", "mcp_tool_search"];
             if CLASSIFIABLE_TOOLS.contains(&tool_name.as_str()) {
                 let classifier_input = tool_input.clone();
                 // Extract the user prompt from history for the classifier
@@ -985,11 +986,7 @@ impl Agent {
                                     content: error_text.clone(),
                                     is_error: true,
                                 });
-                                tool_results.push(tool_result_message(
-                                    &tool_id,
-                                    error_text,
-                                    true,
-                                ));
+                                tool_results.push(tool_result_message(&tool_id, error_text, true));
                                 continue;
                             }
                             crate::classifier::AutoPermissionDecision::Allow

@@ -4,7 +4,6 @@
 /// - Excludes assistant reasoning text from classifier input
 /// - Only includes user messages and structured tool-call projections
 /// - Static deny rules always override classifier allow decisions
-
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
@@ -229,7 +228,9 @@ fn extract_text_content(content: &Value) -> Option<String> {
 }
 
 /// Parse AutoPermissionResponse from classifier LLM output.
-pub fn parse_auto_permission_response(raw: &str) -> Result<AutoPermissionResponse, serde_json::Error> {
+pub fn parse_auto_permission_response(
+    raw: &str,
+) -> Result<AutoPermissionResponse, serde_json::Error> {
     if let Ok(resp) = serde_json::from_str::<AutoPermissionResponse>(raw) {
         return Ok(resp);
     }
@@ -260,9 +261,10 @@ pub fn parse_background_task_response(
 
 #[cfg(test)]
 mod tests {
+    use serde_json::json;
+
     use super::*;
     use crate::agent::Message;
-    use serde_json::json;
 
     #[test]
     fn test_build_classifier_messages_excludes_assistant_text() {
@@ -285,7 +287,13 @@ mod tests {
         // Must include user message
         let user_msg = &result[0];
         assert_eq!(user_msg.role, "user");
-        assert!(user_msg.content.as_str().unwrap().contains("run cargo build"));
+        assert!(
+            user_msg
+                .content
+                .as_str()
+                .unwrap()
+                .contains("run cargo build")
+        );
 
         // Must NOT include assistant text reasoning
         let assistant_msg = &result[1];
