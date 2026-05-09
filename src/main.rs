@@ -6,6 +6,7 @@ mod agent;
 mod agents_ext;
 mod app_cli;
 mod codex_model_catalog;
+mod classifier;
 mod config;
 mod context;
 mod control_plane;
