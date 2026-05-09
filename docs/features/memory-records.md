@@ -17,9 +17,9 @@ and vector search live in one table, while context assembly still goes through
 This spec describes the target product contract. The current implementation
 slices provide the LanceDB-backed index, retrieval tools, a runtime
 `MemoryStore` facade, ranked `MemorySelection` candidates, pinned retention
-metadata, update/delete/list-label scaffolding, and LLM-assisted thread
-distillation into multiple durable records. Background promotion and richer
-filtering remain follow-up work.
+metadata, update/delete/list-label scaffolding, LLM-assisted thread
+distillation into multiple durable records, and an explicit session-shard
+promotion API. Periodic scheduling and richer filtering remain follow-up work.
 
 ## Six Design Laws (Cross-Industry Consensus)
 
@@ -120,6 +120,7 @@ Importance scale:
 | Memory delete | User or control-plane request can delete records with audit-safe semantics. | Partial. `MemoryStore::delete` removes the domain record and search rehydration filters stale indexed rows; physical LanceDB row cleanup remains future work. |
 | Memory retention | Pinned, user-created, and high-importance memories are protected from automatic cleanup; explicit delete remains possible with provenance. | Implemented as a domain guard on `MemoryRecord`; no automatic cleanup path exists yet. |
 | Thread distillation | Thread history can be distilled into 2-8 durable memory records. | Implemented for loaded threads through `ThreadStore::distill_thread_memories`, with LLM-assisted extraction, batch/existing-memory deduplication, and thread provenance. Long-thread chunking remains future work. |
+| Session-shard promotion | Session context shards can be promoted into durable memory records without writing raw checkpoints to the global index by default. | Partial. `SessionManager::promote_session_context_memories` explicitly distills selected shard checkpoints into `MemoryRecord`s with session provenance; periodic scheduling remains future work. |
 | Context injection | Ranked memory candidates pass through `MemorySelection` before prompt injection. | Partial. LanceDB-backed memory and session search now produce direct ranked `MemorySelection` candidates; retention, deduplication, and protocol mutation remain future work. |
 | Graph retrieval | Entity and relationship traversal complements vector recall. | Future work. |
 | Working memory | Daily or session briefing summarizes recent and important memories. | Future work. |
@@ -255,6 +256,10 @@ Current implementation checkpoint:
   promoting one summary-style record.
 - `ThreadStore::distill_thread_memories` promotes a loaded thread into 2-8
   independently useful `MemoryRecord`s using `MemoryDistiller`.
+- `SessionManager::promote_session_context_memories` explicitly promotes
+  selected per-session context checkpoints into durable `MemoryRecord`s using
+  the same `MemoryDistiller` and duplicate suppression path as thread
+  distillation. The runtime does not schedule background promotion yet.
 - The distillation prompt treats older memory and prior conclusions as
   historical context, not current truth. If the inspected thread proves the
   current design is stale or poor, the distiller should extract the corrected
@@ -292,7 +297,8 @@ Current implementation checkpoint:
     extraction with deduplication is available through `distill_thread_memories`.
 11. Move raw session checkpoints out of the global `conversations` LanceDB table
    into per-session append shards. Done.
-12. Add periodic promotion from session shards into global `MemoryRecord`s.
+12. Add explicit promotion from session shards into global `MemoryRecord`s.
+    Done for API-triggered promotion; periodic scheduling remains future work.
 13. Deprecate `VectorDB`.
 14. Remove `VectorDB`.
 

@@ -10,6 +10,12 @@ use rara_state::thread_rollout_log;
 use serde::{Deserialize, Serialize};
 
 use crate::agent::Message;
+use crate::memory_distiller::{
+    MemoryDistiller, dedupe_memory_drafts, new_memory_record_from_draft,
+};
+use crate::memory_store::{
+    MemoryLabel, MemoryRecord, MemoryScope, MemorySource, MemoryStore, NewMemoryRecord,
+};
 use crate::session_context::{self, SessionContextSearchHit};
 use crate::session_transcript;
 use crate::todo::TodoState;
@@ -148,6 +154,65 @@ impl SessionManager {
         limit: usize,
     ) -> Result<Vec<SessionContextSearchHit>> {
         session_context::search_context_shards(&self.storage_dir, query, query_vector, limit)
+    }
+
+    pub async fn promote_session_context_memories(
+        &self,
+        memory_store: &MemoryStore,
+        session_id: &str,
+        max_checkpoints: usize,
+    ) -> Result<Vec<MemoryRecord>> {
+        if max_checkpoints == 0 {
+            return Ok(Vec::new());
+        }
+        let mut checkpoints =
+            session_context::load_session_context_checkpoints(&self.storage_dir, session_id)?;
+        if checkpoints.is_empty() {
+            return Ok(Vec::new());
+        }
+        if checkpoints.len() > max_checkpoints {
+            checkpoints = checkpoints.split_off(checkpoints.len().saturating_sub(max_checkpoints));
+        }
+
+        let markdown = session_context_promotion_markdown(session_id, &checkpoints);
+        let distiller = MemoryDistiller::new(memory_store.backend());
+        let drafts = distiller.distill_thread_markdown(&markdown).await?;
+        let mut existing_hits = Vec::with_capacity(drafts.len());
+        for draft in &drafts {
+            existing_hits.push(memory_store.search(&draft.content, 3).await?);
+        }
+        let drafts = dedupe_memory_drafts(drafts, &existing_hits);
+        let Some(first) = checkpoints.first() else {
+            return Ok(Vec::new());
+        };
+        let Some(last) = checkpoints.last() else {
+            return Ok(Vec::new());
+        };
+        let base = NewMemoryRecord {
+            title: None,
+            content: String::new(),
+            labels: vec![MemoryLabel::Experience],
+            importance: 0.6,
+            pinned: false,
+            source: MemorySource::SessionDistill,
+            scope: MemoryScope::Session,
+            session_id: Some(session_id.to_string()),
+            thread_id: Some(session_id.to_string()),
+            source_span: Some(crate::memory_store::MemorySourceSpan {
+                start_turn_index: first.turn_index,
+                end_turn_index: last.turn_index,
+            }),
+        };
+
+        let mut memories = Vec::with_capacity(drafts.len());
+        for draft in drafts {
+            memories.push(
+                memory_store
+                    .insert(new_memory_record_from_draft(draft, base.clone()))
+                    .await?,
+            );
+        }
+        Ok(memories)
     }
 
     pub fn plan_file_path(&self, session_id: &str) -> PathBuf {
@@ -481,6 +546,25 @@ impl SessionManager {
     }
 }
 
+fn session_context_promotion_markdown(
+    session_id: &str,
+    checkpoints: &[session_context::SessionContextCheckpoint],
+) -> String {
+    let mut lines = vec![
+        format!("# Session Context {session_id}"),
+        String::new(),
+        "Extract only durable takeaways from these session context checkpoints.".to_string(),
+        "Do not preserve transient command progress or stale intermediate conclusions.".to_string(),
+        String::new(),
+    ];
+    for checkpoint in checkpoints {
+        lines.push(format!("## Turn {}", checkpoint.turn_index));
+        lines.push(checkpoint.text.trim().to_string());
+        lines.push(String::new());
+    }
+    lines.join("\n")
+}
+
 #[cfg(unix)]
 fn sync_parent_dir_best_effort(parent: &std::path::Path) {
     if let Ok(dir) = fs::File::open(parent) {
@@ -515,9 +599,16 @@ fn transcript_is_shorter_than_snapshot_prefix(
 
 #[cfg(test)]
 mod tests {
+    use std::sync::Arc;
+
+    use async_trait::async_trait;
+    use rara_memory::vectordb::VectorDB;
+    use serde_json::Value;
     use tempfile::tempdir;
 
     use super::*;
+    use crate::llm::{ContentBlock, LlmBackend, LlmResponse, TokenUsage};
+    use crate::memory_store::{MemoryLabel, MemoryScope, MemorySource, MemoryStore};
     use crate::session_transcript::{
         SessionTranscriptEntry, load_transcript, main_transcript_path, model_visible_messages,
     };
@@ -946,5 +1037,98 @@ mod tests {
             } if *event_index == 2 && summary == "second"
         ));
         Ok(())
+    }
+
+    #[tokio::test]
+    async fn promote_session_context_memories_distills_shard_into_records() -> Result<()> {
+        let temp = tempdir()?;
+        let rara_dir = temp.path().join(".rara");
+        let session_manager = SessionManager::new_for_rara_dir(rara_dir.clone())?;
+        session_manager.save_session_context_checkpoint(
+            "session-promote",
+            1,
+            "Use session shards first, then promote durable takeaways into MemoryRecords."
+                .to_string(),
+            vec![0.2; 128],
+        )?;
+        session_manager.save_session_context_checkpoint(
+            "session-promote",
+            2,
+            "Promotion records must keep session_id and source span provenance.".to_string(),
+            vec![0.3; 128],
+        )?;
+        let memory_store = MemoryStore::new(
+            Arc::new(SessionPromotionMockLlm),
+            Arc::new(VectorDB::new(
+                rara_dir.join("lancedb").to_str().expect("utf8 path"),
+            )),
+        );
+
+        let memories = session_manager
+            .promote_session_context_memories(&memory_store, "session-promote", 8)
+            .await?;
+
+        assert_eq!(memories.len(), 2);
+        assert!(memories.iter().all(|memory| {
+            memory.source == MemorySource::SessionDistill
+                && memory.scope == MemoryScope::Session
+                && memory.session_id.as_deref() == Some("session-promote")
+                && memory.thread_id.as_deref() == Some("session-promote")
+                && memory
+                    .source_span
+                    .as_ref()
+                    .is_some_and(|span| span.start_turn_index == 1 && span.end_turn_index == 2)
+        }));
+        assert!(
+            memories
+                .iter()
+                .any(|memory| memory.title == "Session shard promotion")
+        );
+        let labels = memory_store.list_labels(Some(MemoryScope::Session)).await?;
+        assert!(
+            labels
+                .iter()
+                .any(|label| label.label == MemoryLabel::Decision)
+        );
+        Ok(())
+    }
+
+    struct SessionPromotionMockLlm;
+
+    #[async_trait]
+    impl LlmBackend for SessionPromotionMockLlm {
+        async fn ask(&self, _messages: &[Message], _tools: &[Value]) -> Result<LlmResponse> {
+            Ok(LlmResponse {
+                content: vec![ContentBlock::Text {
+                    text: serde_json::json!({
+                        "memories": [
+                            {
+                                "title": "Session shard promotion",
+                                "content": "Use session shards as raw recall first, then promote durable takeaways into MemoryRecords.",
+                                "labels": ["decision"],
+                                "importance": 0.8
+                            },
+                            {
+                                "title": "Promotion provenance",
+                                "content": "Session-shard promotion records must preserve session_id, thread_id, and source span provenance.",
+                                "labels": ["procedure"],
+                                "importance": 0.7
+                            }
+                        ]
+                    })
+                    .to_string(),
+                }],
+                stop_reason: Some("end_turn".to_string()),
+                usage: Some(TokenUsage::default()),
+            })
+        }
+
+        async fn embed(&self, _text: &str) -> Result<Vec<f32>> {
+            Ok(vec![0.1; 128])
+        }
+
+        async fn summarize(&self, _messages: &[Message], _instruction: &str) -> Result<String> {
+            Ok("summary".to_string())
+        }
     }
 }
