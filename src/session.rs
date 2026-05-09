@@ -14,7 +14,7 @@ use crate::memory_distiller::{
     MemoryDistiller, dedupe_memory_drafts, new_memory_record_from_draft,
 };
 use crate::memory_store::{
-    MemoryLabel, MemoryRecord, MemoryScope, MemorySource, MemoryStore, NewMemoryRecord,
+    MemoryPromotionTarget, MemoryRecord, MemorySource, MemoryStore, NewMemoryRecord,
 };
 use crate::session_context::{self, SessionContextSearchHit};
 use crate::session_transcript;
@@ -188,21 +188,16 @@ impl SessionManager {
         let Some(last) = checkpoints.last() else {
             return Ok(Vec::new());
         };
-        let base = NewMemoryRecord {
-            title: None,
-            content: String::new(),
-            labels: vec![MemoryLabel::Experience],
-            importance: 0.6,
-            pinned: false,
-            source: MemorySource::SessionDistill,
-            scope: MemoryScope::Session,
-            session_id: Some(session_id.to_string()),
-            thread_id: Some(session_id.to_string()),
-            source_span: Some(crate::memory_store::MemorySourceSpan {
-                start_turn_index: first.turn_index,
-                end_turn_index: last.turn_index,
-            }),
-        };
+        let base = NewMemoryRecord::promotion_base(
+            MemorySource::SessionDistill,
+            MemoryPromotionTarget::Session {
+                session_id: session_id.to_string(),
+                source_span: Some(crate::memory_store::MemorySourceSpan {
+                    start_turn_index: first.turn_index,
+                    end_turn_index: last.turn_index,
+                }),
+            },
+        )?;
 
         let mut memories = Vec::with_capacity(drafts.len());
         for draft in drafts {

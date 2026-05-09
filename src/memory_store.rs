@@ -90,6 +90,23 @@ pub struct NewMemoryRecord {
     pub source_span: Option<MemorySourceSpan>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum MemoryPromotionTarget {
+    Workspace {
+        session_id: Option<String>,
+        thread_id: Option<String>,
+    },
+    Thread {
+        session_id: Option<String>,
+        thread_id: String,
+        source_span: Option<MemorySourceSpan>,
+    },
+    Session {
+        session_id: String,
+        source_span: Option<MemorySourceSpan>,
+    },
+}
+
 impl NewMemoryRecord {
     pub fn experience(content: impl Into<String>) -> Self {
         Self {
@@ -104,6 +121,55 @@ impl NewMemoryRecord {
             thread_id: None,
             source_span: None,
         }
+    }
+
+    pub fn promotion_base(source: MemorySource, target: MemoryPromotionTarget) -> Result<Self> {
+        let (scope, session_id, thread_id, source_span) = match target {
+            MemoryPromotionTarget::Workspace {
+                session_id,
+                thread_id,
+            } => (
+                MemoryScope::Workspace,
+                normalized_optional_id(session_id),
+                normalized_optional_id(thread_id),
+                None,
+            ),
+            MemoryPromotionTarget::Thread {
+                session_id,
+                thread_id,
+                source_span,
+            } => (
+                MemoryScope::Thread,
+                normalized_optional_id(session_id),
+                Some(required_memory_id(thread_id, "thread_id")?),
+                source_span,
+            ),
+            MemoryPromotionTarget::Session {
+                session_id,
+                source_span,
+            } => {
+                let session_id = required_memory_id(session_id, "session_id")?;
+                (
+                    MemoryScope::Session,
+                    Some(session_id.clone()),
+                    Some(session_id),
+                    source_span,
+                )
+            }
+        };
+
+        Ok(Self {
+            title: None,
+            content: String::new(),
+            labels: vec![MemoryLabel::Experience],
+            importance: 0.6,
+            pinned: false,
+            source,
+            scope,
+            session_id,
+            thread_id,
+            source_span,
+        })
     }
 }
 
@@ -300,10 +366,21 @@ impl MemoryStore {
 
 impl MemoryRecord {
     fn index_scope_key(&self) -> String {
-        self.session_id
-            .clone()
-            .or_else(|| self.thread_id.clone())
-            .unwrap_or_else(|| memory_scope_key(&self.scope).to_string())
+        match self.scope {
+            MemoryScope::Thread => self
+                .thread_id
+                .clone()
+                .or_else(|| self.session_id.clone())
+                .unwrap_or_else(|| memory_scope_key(&self.scope).to_string()),
+            MemoryScope::Session => self
+                .session_id
+                .clone()
+                .or_else(|| self.thread_id.clone())
+                .unwrap_or_else(|| memory_scope_key(&self.scope).to_string()),
+            MemoryScope::User | MemoryScope::Workspace | MemoryScope::Project => {
+                memory_scope_key(&self.scope).to_string()
+            }
+        }
     }
 
     pub fn is_protected_from_automatic_cleanup(&self) -> bool {
@@ -777,6 +854,14 @@ fn normalized_optional_id(value: Option<String>) -> Option<String> {
         .filter(|value| !value.is_empty())
 }
 
+fn required_memory_id(value: String, field: &str) -> Result<String> {
+    let value = value.trim().to_string();
+    if value.is_empty() {
+        bail!("{field} is required for scoped memory promotion");
+    }
+    Ok(value)
+}
+
 fn clamp_importance(importance: f32) -> f32 {
     if importance.is_nan() {
         return DEFAULT_IMPORTANCE;
@@ -884,6 +969,79 @@ mod tests {
         assert_eq!(
             load_records_sync(&legacy_path).expect("load legacy records"),
             vec![record]
+        );
+    }
+
+    #[test]
+    fn memory_record_index_scope_key_respects_memory_scope() {
+        let mut workspace = test_memory_record(
+            "memory-workspace",
+            "Workspace-scoped records may carry thread provenance.",
+        );
+        workspace.scope = MemoryScope::Workspace;
+        workspace.session_id = Some("session-1".to_string());
+        workspace.thread_id = Some("thread-1".to_string());
+        assert_eq!(workspace.index_scope_key(), "workspace");
+
+        let mut thread = workspace.clone();
+        thread.scope = MemoryScope::Thread;
+        assert_eq!(thread.index_scope_key(), "thread-1");
+
+        let mut session = workspace.clone();
+        session.scope = MemoryScope::Session;
+        assert_eq!(session.index_scope_key(), "session-1");
+
+        let mut project = workspace;
+        project.scope = MemoryScope::Project;
+        assert_eq!(project.index_scope_key(), "project");
+    }
+
+    #[test]
+    fn memory_promotion_base_enforces_scope_rules() {
+        let workspace = NewMemoryRecord::promotion_base(
+            MemorySource::ProtocolWrite,
+            MemoryPromotionTarget::Workspace {
+                session_id: Some(" session-1 ".to_string()),
+                thread_id: Some(" thread-1 ".to_string()),
+            },
+        )
+        .expect("workspace promotion");
+        assert_eq!(workspace.scope, MemoryScope::Workspace);
+        assert_eq!(workspace.session_id.as_deref(), Some("session-1"));
+        assert_eq!(workspace.thread_id.as_deref(), Some("thread-1"));
+        assert_eq!(workspace.source_span, None);
+
+        let thread_err = NewMemoryRecord::promotion_base(
+            MemorySource::ThreadDistill,
+            MemoryPromotionTarget::Thread {
+                session_id: Some("session-1".to_string()),
+                thread_id: " ".to_string(),
+                source_span: None,
+            },
+        )
+        .expect_err("thread promotion needs a thread id");
+        assert!(thread_err.to_string().contains("thread_id is required"));
+
+        let session = NewMemoryRecord::promotion_base(
+            MemorySource::SessionDistill,
+            MemoryPromotionTarget::Session {
+                session_id: " session-2 ".to_string(),
+                source_span: Some(MemorySourceSpan {
+                    start_turn_index: 2,
+                    end_turn_index: 4,
+                }),
+            },
+        )
+        .expect("session promotion");
+        assert_eq!(session.scope, MemoryScope::Session);
+        assert_eq!(session.session_id.as_deref(), Some("session-2"));
+        assert_eq!(session.thread_id.as_deref(), Some("session-2"));
+        assert_eq!(
+            session.source_span,
+            Some(MemorySourceSpan {
+                start_turn_index: 2,
+                end_turn_index: 4,
+            })
         );
     }
 

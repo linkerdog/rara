@@ -164,6 +164,29 @@ The former `conversations` LanceDB table was an interim checkpoint path. Raw
 session-context checkpoints now write to per-session append shards under the
 rollout directory instead of the global memory index.
 
+## Scope Promotion Rules
+
+Promotion turns transient conversation or protocol input into durable
+`MemoryRecord`s. The record `scope` is the storage and index boundary. Provenance
+fields such as `session_id`, `thread_id`, and `source_span` explain where the
+memory came from, but they must not override the selected scope.
+
+The runtime promotion rules are:
+
+- `Workspace` promotion stores the record in the workspace bucket. It may keep
+  `session_id` and `thread_id` as provenance, but the LanceDB index key remains
+  `workspace`.
+- `Thread` promotion requires a non-empty `thread_id`. `session_id` is optional
+  provenance. The LanceDB index key is the `thread_id`.
+- `Session` promotion requires a non-empty `session_id`. It mirrors that id into
+  `thread_id` for compatibility with current session-thread provenance. The
+  LanceDB index key is the `session_id`.
+
+Protocol memory writes follow the same rules. A protocol client may add
+workspace-scoped memory without a thread id, but thread-scoped memory must pass
+`thread_id` in metadata so future control-plane clients cannot create ambiguous
+thread records.
+
 ## MemoryStore API
 
 - `insert(record) -> MemoryRecord` — persist with auto-embedding
