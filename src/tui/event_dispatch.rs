@@ -33,11 +33,6 @@ pub(crate) async fn dispatch_event(
         AppEvent::Noop => {}
         AppEvent::OpenOverlay(overlay) => app.open_overlay(overlay),
         AppEvent::CloseOverlay => {
-            // Clear palette query when Esc from command palette.
-            if matches!(app.overlay, Some(Overlay::CommandPalette)) {
-                app.bottom_pane.input.clear();
-                app.command_palette_idx = 0;
-            }
             app.close_overlay();
         }
         AppEvent::CancelRunningTask => {
@@ -333,6 +328,9 @@ pub(crate) async fn dispatch_event(
                     app.bottom_pane.input = spec.usage.to_string();
                     app.bottom_pane.input_cursor_offset = None;
                     app.close_overlay();
+                    if handle_submit(app, agent_slot, oauth_manager).await? {
+                        return Ok(true);
+                    }
                 }
             }
             Some(Overlay::BaseUrlEditor) => {
