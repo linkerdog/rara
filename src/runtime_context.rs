@@ -20,7 +20,8 @@ use crate::llm::{
 use crate::local_backend::{LocalLlmBackend, LocalProgressReporter};
 use crate::mcp_tool_cache::McpToolCache;
 use crate::prompt::{PromptRuntimeConfig, PromptSkillSummary};
-use crate::protocol_sources::PromptSourceRegistry;
+use crate::protocol_sources::{PromptSourceRegistry, SkillSourceRegistry};
+use crate::hook_registry::HookRegistry;
 use crate::runtime_event_bus::RuntimeEventBus;
 use crate::sandbox::SandboxManager;
 use crate::session::SessionManager;
@@ -40,6 +41,8 @@ pub(crate) struct RuntimeBootstrap {
     pub sandbox_network_access: Arc<AtomicBool>,
     pub event_bus: Arc<RuntimeEventBus>,
     pub prompt_source_registry: Arc<PromptSourceRegistry>,
+    pub skill_source_registry: Arc<SkillSourceRegistry>,
+    pub hook_registry: Arc<HookRegistry>,
     pub goal_handle: GoalHandle,
     pub mcp_tool_cache: McpToolCache,
 }
@@ -68,6 +71,7 @@ impl RuntimeBootstrap {
         );
         agent.set_prompt_config(self.prompt_config);
         agent.set_prompt_source_registry(self.prompt_source_registry);
+        agent.set_skill_source_registry(self.skill_source_registry);
         (
             agent,
             self.warnings,
@@ -122,6 +126,8 @@ pub(crate) async fn initialize_rara_context(
 
     let event_bus = Arc::new(RuntimeEventBus::new(256));
     let prompt_source_registry = Arc::new(PromptSourceRegistry::new(event_bus.clone()));
+    let skill_source_registry = Arc::new(SkillSourceRegistry::new(event_bus.clone()));
+    let hook_registry = Arc::new(HookRegistry::new(event_bus.clone()));
     let goal_handle: GoalHandle = Arc::new(std::sync::RwLock::new(None));
     let mcp_tool_cache = McpToolCache::new();
     mcp_tool_cache.clear();
@@ -152,6 +158,8 @@ pub(crate) async fn initialize_rara_context(
         sandbox_network_access,
         event_bus,
         prompt_source_registry,
+        skill_source_registry,
+        hook_registry,
         goal_handle,
         mcp_tool_cache,
     })

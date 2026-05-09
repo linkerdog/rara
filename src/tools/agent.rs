@@ -8,10 +8,10 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use async_trait::async_trait;
 use futures::stream::{self, StreamExt, TryStreamExt};
 use rara_memory::vectordb::VectorDB;
-use rara_state::state_db::{
+use rara_persistence::thread_data::{
     PersistedCompactState, PersistedInteraction, PersistedPlanStep, PersistedPromptRuntimeState,
-    StateDb,
 };
+use rara_state::state_db::StateDb;
 use rara_tool_macros::tool_spec;
 use rara_tools::file::{ListFilesTool, ReadFileTool};
 use rara_tools::search::{GlobTool, GrepTool};

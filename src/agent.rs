@@ -27,7 +27,7 @@ use crate::llm::{ContentBlock, LlmBackend, LlmStreamEvent, LlmTurnMetadata};
 use crate::mcp_status::McpStatusSnapshot;
 use crate::memory_store::MemoryStore;
 use crate::prompt::{self, PromptMode, PromptRuntimeConfig};
-use crate::protocol_sources::PromptSourceRegistry;
+use crate::protocol_sources::{PromptSourceRegistry, SkillSourceRegistry};
 use crate::session::SessionManager;
 use crate::thread_store::ThreadRecorder;
 use crate::todo::TodoState;
@@ -173,6 +173,7 @@ pub struct Agent {
     pending_plan_exit_tool_id: Option<String>,
     prompt_config: PromptRuntimeConfig,
     prompt_source_registry: Option<Arc<PromptSourceRegistry>>,
+    skill_source_registry: Option<Arc<SkillSourceRegistry>>,
     cancellation_token: Option<Arc<AtomicBool>>,
     consecutive_reasoning_only_turns: usize,
 }
@@ -255,6 +256,7 @@ impl Agent {
             pending_plan_exit_tool_id: None,
             prompt_config: PromptRuntimeConfig::default(),
             prompt_source_registry: None,
+            skill_source_registry: None,
             cancellation_token: None,
             consecutive_reasoning_only_turns: 0,
         }
@@ -305,6 +307,7 @@ impl Agent {
         self.refresh_memory_retrieval_candidates().await;
         self.refresh_file_search_candidates();
         self.refresh_protocol_prompt_sources_for_query().await;
+        self.refresh_protocol_skill_sources_for_query().await;
 
         match self
             .run_agent_loop_with_limit(output_mode, &mut report, &mut agentic_turns)
@@ -396,8 +399,7 @@ impl Agent {
             .filter(|message| !is_compact_boundary_message(message))
             .cloned()
             .collect::<Vec<_>>();
-        let projection_policy = ToolResultProjectionPolicy::default()
-            .for_provider_cache_edit(self.llm_backend.cache_profile().cache_edit);
+        let projection_policy = self.tool_result_projection_policy();
         let (mut messages, projection_report) =
             project_tool_results_for_context(&history_for_query, &projection_policy);
         self.last_tool_result_projection_report = projection_report.clone();

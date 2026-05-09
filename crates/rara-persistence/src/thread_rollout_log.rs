@@ -5,7 +5,7 @@ use std::sync::{Mutex, OnceLock};
 
 use anyhow::Result;
 
-use crate::state_db::PersistedStructuredRolloutEvent;
+use crate::thread_data::PersistedStructuredRolloutEvent;
 
 fn rollout_log_write_lock() -> &'static Mutex<()> {
     static LOCK: OnceLock<Mutex<()>> = OnceLock::new();

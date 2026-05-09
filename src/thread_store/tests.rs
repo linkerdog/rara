@@ -5,14 +5,14 @@ use std::time::Duration;
 use anyhow::Result;
 use async_trait::async_trait;
 use rara_memory::vectordb::VectorDB;
-use rara_persistence::thread_metadata;
-use rara_state::state_db::{
+use rara_persistence::thread_data::{
     PersistedCompactState, PersistedInteraction, PersistedPlanStep, PersistedPromptRuntimeState,
     PersistedRuntimeRolloutItem, PersistedStructuredRolloutEvent, PersistedThreadLineage,
-    PersistedThreadRecord, PersistedTurnEntry, StateDb,
+    PersistedThreadRecord, PersistedTurnEntry,
 };
-use rara_state::thread_rollout_log;
-use rara_state::thread_turn_log;
+use rara_persistence::thread_metadata;
+use rara_persistence::{thread_rollout_log, thread_turn_log};
+use rara_state::state_db::StateDb;
 use serde_json::Value;
 use tempfile::tempdir;
 

@@ -5,6 +5,7 @@
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
 
+use crate::tui::format::cache_hit_rate_label;
 use crate::tui::state::TuiApp;
 use crate::tui::theme::{
     BUDGET_ACTIVE, BUDGET_FREE, BUDGET_HISTORY, BUDGET_MEMORY, BUDGET_OUTPUT, BUDGET_SYSTEM,
@@ -156,6 +157,70 @@ pub(crate) fn render_context_lines(app: &TuiApp, available_width: u16) -> Vec<Li
         ),
         TEXT_SECONDARY,
     );
+    section_spacer(&mut lines);
+
+    // ── Observability ──
+    section_header(&mut lines, "Observability");
+    // Cache
+    kv(
+        &mut lines,
+        "cache",
+        &format!(
+            "hit={} miss={} rate={}",
+            format_token_count(snap.total_cache_hit_tokens as usize),
+            format_token_count(snap.total_cache_miss_tokens as usize),
+            cache_hit_rate_label(snap.total_cache_hit_tokens, snap.total_cache_miss_tokens)
+                .unwrap_or_else(|| "-".to_string())
+        ),
+        TEXT_SECONDARY,
+    );
+
+    // Microcompact
+    if snap.context_observability.microcompact.enabled {
+        let mc = &snap.context_observability.microcompact;
+        let status = if mc.cache_edit_applied {
+            "Applied (provider cache-edit)"
+        } else if mc.cache_edit_eligible {
+            "Eligible (waiting for provider)"
+        } else {
+            "Enabled (baseline projection)"
+        };
+        kv(
+            &mut lines,
+            "microcompact",
+            status,
+            if mc.cache_edit_applied {
+                STATUS_SUCCESS
+            } else {
+                TEXT_SECONDARY
+            },
+        );
+        kv(
+            &mut lines,
+            "projection",
+            &format!(
+                "cleared={} kept={} saved={}",
+                mc.cleared_results,
+                mc.kept_results,
+                format_char_count(mc.saved_chars)
+            ),
+            TEXT_MUTED,
+        );
+    }
+
+    // Retrieval
+    let ret = &snap.context_observability.retrieval;
+    if ret.candidate_count > 0 {
+        kv(
+            &mut lines,
+            "retrieval",
+            &format!(
+                "{} providers, {} selected / {} available",
+                ret.provider_count, ret.selected_count, ret.available_count
+            ),
+            TEXT_SECONDARY,
+        );
+    }
     section_spacer(&mut lines);
 
     // ── Compaction ──
@@ -394,6 +459,16 @@ fn format_token_count(tokens: usize) -> String {
         format!("{:.1}K", tokens as f64 / 1_000.0)
     } else {
         tokens.to_string()
+    }
+}
+
+fn format_char_count(chars: usize) -> String {
+    if chars >= 1_000_000 {
+        format!("{:.1}M chars", chars as f64 / 1_000_000.0)
+    } else if chars >= 1_000 {
+        format!("{:.1}K chars", chars as f64 / 1_000.0)
+    } else {
+        format!("{chars} chars")
     }
 }
 

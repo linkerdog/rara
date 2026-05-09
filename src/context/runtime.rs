@@ -358,7 +358,7 @@ impl MicrocompactProjectionContextView {
             enabled: policy.enabled,
             budget_chars: policy.budget_chars,
             keep_recent: policy.keep_recent,
-            cache_edit_eligible: policy.cache_edit_eligible || report.cache_edit_eligible,
+            cache_edit_eligible: policy.cache_edit_eligible,
             cache_edit_applied: report.cache_edit_applied,
             original_chars: report.original_chars,
             projected_chars: report.projected_chars,
