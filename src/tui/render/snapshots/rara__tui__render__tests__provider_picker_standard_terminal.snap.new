@@ -1,5 +1,6 @@
 ---
 source: src/tui/render/tests.rs
+assertion_line: 824
 expression: rendered
 ---
 ── RARA ──────────────────────────────────────────────────
