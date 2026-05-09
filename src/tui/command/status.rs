@@ -233,10 +233,15 @@ fn render_context_usage_summary(app: &TuiApp) -> String {
     let autocompact_buffer = window
         .map(|window| window.saturating_sub(app.snapshot.compact_threshold_tokens))
         .filter(|tokens| *tokens > 0);
+    let routing = app.model_routing_view();
 
     let mut lines = vec![
         "Context Usage".to_string(),
-        format!("  model: {}", app.current_model_label()),
+        format!("  model: {}", routing.main_model),
+        format!(
+            "  auxiliary: {} ({})",
+            routing.auxiliary_model, routing.auxiliary_route
+        ),
         format!(
             "  used: {}{} / {}",
             format_token_count(used_tokens),
@@ -536,6 +541,7 @@ pub fn status_runtime_text(app: &TuiApp) -> String {
         "-"
     };
     let surface = app.config.effective_provider_surface();
+    let routing = app.model_routing_view();
     let reasoning_summary = surface
         .reasoning_summary
         .display_or(rara_config::DEFAULT_REASONING_SUMMARY);
@@ -579,12 +585,15 @@ pub fn status_runtime_text(app: &TuiApp) -> String {
         ("remote".to_string(), "-".to_string())
     };
     format!(
-        "provider={}\nendpoint_profile={}\nendpoint_kind={}\nmodel={}\nmodel_source={}\nbase_url={}\nbase_url_source={}\nrevision={}\nrevision_source={}\nagent_mode={}\nbash_approval={}\nmode={}\napi_key={}\napi_key_source={}\ncodex_auth_mode={}\ncodex_endpoint_kind={}\nthinking={}\nreasoning_summary={}\nreasoning_summary_source={}\nreasoning_effort={}\nreasoning_effort_source={}\ntodo={}\ndevice={}\ndtype={}\nfocused={}\nphase={}\ndetail={}",
+        "provider={}\nendpoint_profile={}\nendpoint_kind={}\nmodel={}\nmodel_source={}\nauxiliary_model={}\nauxiliary_model_source={}\nauxiliary_route={}\nbase_url={}\nbase_url_source={}\nrevision={}\nrevision_source={}\nagent_mode={}\nbash_approval={}\nmode={}\napi_key={}\napi_key_source={}\ncodex_auth_mode={}\ncodex_endpoint_kind={}\nthinking={}\nreasoning_summary={}\nreasoning_summary_source={}\nreasoning_effort={}\nreasoning_effort_source={}\ntodo={}\ndevice={}\ndtype={}\nfocused={}\nphase={}\ndetail={}",
         surface.provider,
         endpoint_profile,
         endpoint_kind,
-        surface.model.display_or(app.current_model_label()),
-        surface.model.source.label(),
+        routing.main_model,
+        routing.main_source,
+        routing.auxiliary_model,
+        routing.auxiliary_source,
+        routing.auxiliary_route,
         surface.base_url.display_or("-"),
         surface.base_url.source.label(),
         surface.revision.display_or("main"),

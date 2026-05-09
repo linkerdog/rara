@@ -340,6 +340,9 @@ fn status_runtime_text_reports_effective_provider_surface_sources() {
 
     let rendered = status_runtime_text(&app);
     assert!(rendered.contains("model_source="));
+    assert!(rendered.contains("auxiliary_model="));
+    assert!(rendered.contains("auxiliary_model_source="));
+    assert!(rendered.contains("auxiliary_route="));
     assert!(rendered.contains("base_url_source="));
     assert!(rendered.contains("revision_source="));
     assert!(rendered.contains("reasoning_summary_source=legacy_global"));

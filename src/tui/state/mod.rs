@@ -21,8 +21,8 @@ pub use self::types::current_unix_timestamp_secs;
 pub use self::types::{
     ActiveLiveEvent, ActiveLiveSections, ActivePendingInteraction, ActivePendingInteractionKind,
     AgentMarkdownStreamState, CommandSpec, CompletedInteractionSnapshot, GoalHandle, GoalStatus,
-    HelpTab, InteractionKind, ListPickerKind, LocalCommand, LocalCommandKind, OAuthLoginMode,
-    OpenAiModelPickerAction, Overlay, PROVIDER_FAMILIES, PendingApprovalSnapshot,
+    HelpTab, InteractionKind, ListPickerKind, LocalCommand, LocalCommandKind, ModelRoutingView,
+    OAuthLoginMode, OpenAiModelPickerAction, Overlay, PROVIDER_FAMILIES, PendingApprovalSnapshot,
     PendingInteractionSnapshot, PermissionMode, ProviderFamily, RalphGoal, RebuildSuccess,
     RunningTask, RuntimePhase, RuntimeSnapshot, SkillPickerEntry, StatusTab, TaskCompletion,
     TaskKind, TranscriptEntry, TranscriptEntryPayload, TranscriptTurn, TuiApp, TuiEvent,
@@ -301,6 +301,56 @@ impl TuiApp {
 
     pub fn current_model_label(&self) -> &str {
         self.config.model.as_deref().unwrap_or("-")
+    }
+
+    pub fn model_routing_view(&self) -> ModelRoutingView {
+        let surface = self.config.effective_provider_surface();
+        let main_model = surface
+            .model
+            .value
+            .unwrap_or_else(|| self.current_model_label())
+            .to_string();
+        if let Some(auxiliary_model) = surface
+            .auxiliary_model
+            .value
+            .map(str::trim)
+            .filter(|model| !model.is_empty())
+        {
+            return ModelRoutingView {
+                main_model,
+                main_source: surface.model.source.label().to_string(),
+                auxiliary_model: auxiliary_model.to_string(),
+                auxiliary_source: surface.auxiliary_model.source.label().to_string(),
+                auxiliary_route: "configured".to_string(),
+                auxiliary_uses_main_model: false,
+            };
+        }
+
+        if let Some(auxiliary_model) = self.inferred_auxiliary_model(&main_model) {
+            return ModelRoutingView {
+                main_model,
+                main_source: surface.model.source.label().to_string(),
+                auxiliary_model,
+                auxiliary_source: "inferred".to_string(),
+                auxiliary_route: "provider_lite".to_string(),
+                auxiliary_uses_main_model: false,
+            };
+        }
+
+        ModelRoutingView {
+            auxiliary_model: main_model.clone(),
+            main_model,
+            main_source: surface.model.source.label().to_string(),
+            auxiliary_source: "main_model".to_string(),
+            auxiliary_route: "fallback".to_string(),
+            auxiliary_uses_main_model: true,
+        }
+    }
+
+    fn inferred_auxiliary_model(&self, main_model: &str) -> Option<String> {
+        let endpoint_kind = self.config.active_openai_profile_kind()?;
+        crate::llm::infer_openai_compatible_auxiliary_model(main_model, endpoint_kind)
+            .map(|model| model.into_owned())
     }
 
     pub fn repo_context_hint(&self) -> Option<String> {

@@ -23,8 +23,19 @@ pub(crate) fn render_status_lines(app: &TuiApp, tab: StatusTab) -> Vec<Line<'sta
 
 fn render_overview_status(app: &TuiApp, lines: &mut Vec<Line<'static>>) {
     section_header(lines, "Provider & Model");
+    let routing = app.model_routing_view();
     kv(lines, "provider", &app.config.provider, Color::Cyan);
-    kv(lines, "model", app.current_model_label(), Color::LightBlue);
+    kv(lines, "model", &routing.main_model, Color::LightBlue);
+    kv(
+        lines,
+        "auxiliary",
+        &format!("{} ({})", routing.auxiliary_model, routing.auxiliary_route),
+        if routing.auxiliary_uses_main_model {
+            Color::DarkGray
+        } else {
+            Color::LightBlue
+        },
+    );
     if app.config.provider == "openai-compatible" {
         kv(
             lines,

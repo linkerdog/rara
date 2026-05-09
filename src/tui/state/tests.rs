@@ -446,6 +446,47 @@ fn deepseek_catalog_options_keep_current_custom_model_selectable() {
 }
 
 #[test]
+fn model_routing_view_infers_deepseek_auxiliary_model() {
+    let dir = tempdir().expect("tempdir");
+    let cm = ConfigManager {
+        path: dir.path().join("config.json"),
+    };
+    let mut app = TuiApp::new(cm).expect("app");
+
+    app.config
+        .select_openai_profile("deepseek-default", "DeepSeek", OpenAiEndpointKind::Deepseek);
+    app.config.set_model(Some("deepseek-v4-pro".to_string()));
+
+    let routing = app.model_routing_view();
+
+    assert_eq!(routing.main_model, "deepseek-v4-pro");
+    assert_eq!(routing.auxiliary_model, "deepseek-v4-flash");
+    assert_eq!(routing.auxiliary_route, "provider_lite");
+    assert_eq!(routing.auxiliary_source, "inferred");
+    assert!(!routing.auxiliary_uses_main_model);
+}
+
+#[test]
+fn model_routing_view_falls_back_to_main_model_without_helper() {
+    let dir = tempdir().expect("tempdir");
+    let cm = ConfigManager {
+        path: dir.path().join("config.json"),
+    };
+    let mut app = TuiApp::new(cm).expect("app");
+
+    app.config.set_provider("ollama");
+    app.config.set_model(Some("qwen3".to_string()));
+
+    let routing = app.model_routing_view();
+
+    assert_eq!(routing.main_model, "qwen3");
+    assert_eq!(routing.auxiliary_model, "qwen3");
+    assert_eq!(routing.auxiliary_route, "fallback");
+    assert_eq!(routing.auxiliary_source, "main_model");
+    assert!(routing.auxiliary_uses_main_model);
+}
+
+#[test]
 fn codex_preset_keeps_the_codex_model_label() {
     let dir = tempdir().expect("tempdir");
     let cm = ConfigManager {
