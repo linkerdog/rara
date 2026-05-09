@@ -47,6 +47,10 @@ struct ConnectArgs {
     #[arg(long = "kind", short = 'k')]
     kind: Option<String>,
 
+    /// Custom profile ID (defaults to the kind name, e.g. "deepseek")
+    #[arg(long = "profile-id")]
+    profile_id: Option<String>,
+
     /// Label for this profile
     #[arg(long)]
     label: Option<String>,
@@ -62,6 +66,10 @@ struct ConnectArgs {
     /// Default model for this profile
     #[arg(long)]
     model: Option<String>,
+
+    /// Model revision / version
+    #[arg(long)]
+    revision: Option<String>,
 }
 
 #[derive(Debug, clap::Args)]
@@ -434,7 +442,10 @@ fn save_codex_credential(
 fn run_connect_command(config: &RaraConfig, args: ConnectArgs) -> Result<()> {
     let kind = parse_endpoint_kind(args.kind.as_deref().unwrap_or("custom"))?;
     let mut config = config.clone();
-    let profile_id = kind.default_profile_id().to_string();
+    let profile_id = args
+        .profile_id
+        .clone()
+        .unwrap_or_else(|| kind.default_profile_id().to_string());
     let profile = config
         .openai_profiles
         .entry(profile_id.clone())
@@ -461,6 +472,9 @@ fn run_connect_command(config: &RaraConfig, args: ConnectArgs) -> Result<()> {
     }
     if let Some(label) = args.label {
         profile.label = label;
+    }
+    if let Some(revision) = args.revision {
+        profile.revision = Some(revision);
     }
 
     let config_manager = ConfigManager::new()?;
@@ -641,6 +655,8 @@ mod tests {
             "connect",
             "--kind",
             "deepseek",
+            "--profile-id",
+            "deepseek-v3",
             "--api-key",
             "sk-abc123",
             "--base-url",
@@ -649,11 +665,14 @@ mod tests {
             "deepseek-v3",
             "--label",
             "my-deepseek",
+            "--revision",
+            "v3-0324",
         ])
         .expect("parse connect");
         match cli.command.expect("command") {
             Commands::Connect(args) => {
                 assert_eq!(args.kind, Some("deepseek".to_string()));
+                assert_eq!(args.profile_id, Some("deepseek-v3".to_string()));
                 assert_eq!(args.api_key, Some("sk-abc123".to_string()));
                 assert_eq!(
                     args.base_url,
@@ -661,6 +680,7 @@ mod tests {
                 );
                 assert_eq!(args.model, Some("deepseek-v3".to_string()));
                 assert_eq!(args.label, Some("my-deepseek".to_string()));
+                assert_eq!(args.revision, Some("v3-0324".to_string()));
             }
             other => panic!("unexpected command: {other:?}"),
         }
@@ -672,10 +692,12 @@ mod tests {
         match cli.command.expect("command") {
             Commands::Connect(args) => {
                 assert_eq!(args.kind, None);
+                assert_eq!(args.profile_id, None);
                 assert_eq!(args.api_key, None);
                 assert_eq!(args.base_url, None);
                 assert_eq!(args.model, None);
                 assert_eq!(args.label, None);
+                assert_eq!(args.revision, None);
             }
             other => panic!("unexpected command: {other:?}"),
         }
@@ -864,10 +886,12 @@ mod tests {
         assert!(matches!(
             startup_resume_target_for_command(&Commands::Connect(ConnectArgs {
                 kind: None,
+                profile_id: None,
                 api_key: None,
                 base_url: None,
                 model: None,
                 label: None,
+                revision: None,
             })),
             None
         ));
