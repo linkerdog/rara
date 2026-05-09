@@ -417,6 +417,7 @@ async fn query_injects_selected_memory_context_without_persisting_it_to_history(
     let store = MemoryStore::new(backend.clone(), vdb.clone());
     store
         .insert(NewMemoryRecord {
+            id: None,
             title: Some("Reference project path".to_string()),
             content: "Reference project source lives at /Users/example/reference-project."
                 .to_string(),

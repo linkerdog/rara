@@ -1412,6 +1412,7 @@ fn thread_summary_memory_record(thread: &ThreadSnapshot) -> Option<NewMemoryReco
 fn thread_distilled_memory_base(thread: &ThreadSnapshot) -> NewMemoryRecord {
     let end_turn_index = thread.history.len().saturating_sub(1) as u32;
     NewMemoryRecord {
+        id: None,
         title: None,
         content: String::new(),
         labels: vec![MemoryLabel::Experience],

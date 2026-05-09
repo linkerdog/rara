@@ -217,6 +217,7 @@ mod tests {
         );
         store
             .insert(NewMemoryRecord {
+                id: None,
                 title: Some("Reference project path".to_string()),
                 content:
                     "Reference project source lives at /Users/example/devel/opensource/reference-project."
