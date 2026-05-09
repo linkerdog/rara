@@ -1293,7 +1293,7 @@ impl TuiApp {
 
     pub fn sync_command_palette_with_input(&mut self) {
         if input_requests_command_palette(self.bottom_pane.input.as_str()) {
-            if matches!(self.overlay, None | Some(Overlay::CommandPalette)) {
+            if matches!(self.overlay, None) {
                 self.open_overlay(Overlay::CommandPalette);
             }
         } else if matches!(self.overlay, Some(Overlay::CommandPalette)) {
