@@ -3,7 +3,7 @@ use std::sync::Arc;
 
 use super::super::state::{
     GoalStatus, HelpTab, ListPickerKind, LocalCommand, LocalCommandKind, Overlay, PermissionMode,
-    RalphGoal, RuntimePhase, StatusTab, TuiApp,
+    PickerIntent, RalphGoal, RuntimePhase, StatusTab, TuiApp,
 };
 use super::tasks::{start_compact_task, start_rebuild_task, start_review_task};
 use crate::agent::{Agent, AgentEvent, AgentExecutionMode, BashApprovalMode};
@@ -303,9 +303,12 @@ pub(super) async fn execute_local_command(
 }
 
 fn handle_connect_command(app: &mut TuiApp) -> anyhow::Result<()> {
+    app.picker_intent = Some(PickerIntent::ConfigureProvider);
     app.open_overlay(Overlay::ListPicker(ListPickerKind::Provider));
-    app.notice =
-        Some("Pick a provider to connect. Select a provider to begin guided setup.".into());
+    app.notice = Some(
+        "Connect a provider — select the provider family, then configure API key and model."
+            .into(),
+    );
     Ok(())
 }
 
@@ -371,8 +374,19 @@ fn handle_model_command(arg: Option<&str>, app: &mut TuiApp) -> anyhow::Result<(
     if arg.map(str::trim).filter(|arg| !arg.is_empty()).is_some() {
         app.push_notice("/model does not accept arguments. Use the interactive menu.");
     }
-    app.open_overlay(Overlay::ListPicker(ListPickerKind::Provider));
-    app.notice = Some("Opened provider picker.".into());
+
+    // If a provider is already configured, skip provider picker and go straight to model.
+    if !app.config.provider.is_empty() {
+        app.open_overlay(Overlay::ListPicker(ListPickerKind::Model));
+        app.notice = Some("Change the active model.".into());
+    } else {
+        app.picker_intent = Some(PickerIntent::SwitchModel);
+        app.open_overlay(Overlay::ListPicker(ListPickerKind::Provider));
+        app.notice = Some(
+            "No provider configured yet. Select a provider family first to switch models."
+                .into(),
+        );
+    }
     Ok(())
 }
 
