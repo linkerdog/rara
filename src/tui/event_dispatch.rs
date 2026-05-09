@@ -333,6 +333,9 @@ pub(crate) async fn dispatch_event(
                     app.bottom_pane.input = spec.usage.to_string();
                     app.bottom_pane.input_cursor_offset = None;
                     app.close_overlay();
+                    if handle_submit(app, agent_slot, oauth_manager).await? {
+                        return Ok(true);
+                    }
                 }
             }
             Some(Overlay::BaseUrlEditor) => {
