@@ -224,8 +224,8 @@ impl TuiApp {
         self.agent_markdown_stream = None;
         self.agent_thinking_stream = None;
         self.clear_active_live_sections();
-        self.pending_planning_suggestion = None;
-        self.pending_follow_up_messages.clear();
+        self.bottom_pane.pending_planning_suggestion = None;
+        self.bottom_pane.pending_follow_up_messages.clear();
         self.bottom_pane.queued_follow_up_messages.clear();
         self.running_tool_boundary_count = 0;
         self.set_plan_approval_interaction(false);
@@ -436,24 +436,25 @@ impl TuiApp {
     }
 
     pub fn has_pending_planning_suggestion(&self) -> bool {
-        self.pending_planning_suggestion.is_some()
+        self.bottom_pane.pending_planning_suggestion.is_some()
     }
 
     pub fn has_queued_follow_up_messages(&self) -> bool {
-        !self.pending_follow_up_messages.is_empty()
+        !self.bottom_pane.pending_follow_up_messages.is_empty()
             || !self.bottom_pane.queued_follow_up_messages.is_empty()
     }
 
     pub fn queued_follow_up_count(&self) -> usize {
-        self.pending_follow_up_messages.len() + self.bottom_pane.queued_follow_up_messages.len()
+        self.bottom_pane.pending_follow_up_messages.len()
+            + self.bottom_pane.queued_follow_up_messages.len()
     }
 
     pub fn has_pending_follow_up_messages(&self) -> bool {
-        !self.pending_follow_up_messages.is_empty()
+        !self.bottom_pane.pending_follow_up_messages.is_empty()
     }
 
     pub fn pending_follow_up_count(&self) -> usize {
-        self.pending_follow_up_messages.len()
+        self.bottom_pane.pending_follow_up_messages.len()
     }
 
     pub fn queued_follow_up_preview(&self) -> Option<&str> {
@@ -527,7 +528,7 @@ impl TuiApp {
     }
 
     pub fn release_pending_follow_ups(&mut self) {
-        if self.pending_follow_up_messages.is_empty() {
+        if self.bottom_pane.pending_follow_up_messages.is_empty() {
             return;
         }
         let released = self
@@ -541,25 +542,25 @@ impl TuiApp {
 
     pub fn advance_running_tool_boundary(&mut self) {
         self.running_tool_boundary_count = self.running_tool_boundary_count.saturating_add(1);
-        if self.pending_follow_up_messages.is_empty() {
+        if self.bottom_pane.pending_follow_up_messages.is_empty() {
             return;
         }
         let current = self.running_tool_boundary_count;
         let mut still_pending = Vec::new();
         let mut released = Vec::new();
-        for item in self.pending_follow_up_messages.drain(..) {
+        for item in self.bottom_pane.pending_follow_up_messages.drain(..) {
             if item.release_after_boundary <= current {
                 released.push(item.text);
             } else {
                 still_pending.push(item);
             }
         }
-        self.pending_follow_up_messages = still_pending;
+        self.bottom_pane.pending_follow_up_messages = still_pending;
         self.bottom_pane.queued_follow_up_messages.extend(released);
     }
 
     pub fn queue_planning_suggestion(&mut self, prompt: impl Into<String>) {
-        self.pending_planning_suggestion = Some(prompt.into());
+        self.bottom_pane.pending_planning_suggestion = Some(prompt.into());
         self.bottom_pane.notice = Some(
             "This looks like a non-trivial task. Enter planning mode first or continue in execute mode."
                 .into(),
@@ -568,11 +569,11 @@ impl TuiApp {
     }
 
     pub fn take_pending_planning_suggestion(&mut self) -> Option<String> {
-        self.pending_planning_suggestion.take()
+        self.bottom_pane.pending_planning_suggestion.take()
     }
 
     pub fn clear_pending_planning_suggestion(&mut self) {
-        self.pending_planning_suggestion = None;
+        self.bottom_pane.pending_planning_suggestion = None;
     }
 }
 
