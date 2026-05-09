@@ -5,8 +5,8 @@ use async_trait::async_trait;
 use rara_tool_macros::tool_spec;
 use serde_json::{Value, json};
 
+use crate::file::{FileReadState, SharedFileReadState, read_file_content};
 use crate::tool::{Tool, ToolError};
-use crate::tools::file::{FileReadState, SharedFileReadState, read_file_content};
 
 #[derive(Default)]
 pub struct ApplyPatchTool {
