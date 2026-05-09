@@ -4,10 +4,10 @@ use ratatui::{layout::Rect, style::Color, text::Line};
 use tempfile::tempdir;
 use tokio::sync::mpsc;
 
-use super::bottom_pane::composer::{
+use crate::tui::render::bottom_pane::composer::{
     composer_hint, composer_hint_line, wrapped_text_cursor_position, wrapped_text_rows,
 };
-use super::bottom_pane::status::{
+use crate::tui::render::bottom_pane::status::{
     activity_status_line, animated_activity_label, footer_summary_text,
 };
 use crate::config::ConfigManager;
