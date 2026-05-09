@@ -12,16 +12,16 @@ use crate::state_db::{PersistedTurnEntry, PersistedTurnSummary, turn_preview};
 const TURN_LOG_FILE: &str = "turns.jsonl";
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub(crate) struct PersistedTurnRecord {
+pub struct PersistedTurnRecord {
     pub summary: PersistedTurnSummary,
     pub entries: Vec<PersistedTurnEntry>,
 }
 
-pub(crate) fn turn_log_path(root_dir: &Path, session_id: &str) -> PathBuf {
+pub fn turn_log_path(root_dir: &Path, session_id: &str) -> PathBuf {
     root_dir.join(session_id).join(TURN_LOG_FILE)
 }
 
-pub(crate) fn append_turn_record(
+pub fn append_turn_record(
     root_dir: &Path,
     session_id: &str,
     ordinal: usize,
@@ -62,10 +62,7 @@ pub(crate) fn append_turn_record(
     Ok(summary)
 }
 
-pub(crate) fn load_turn_records(
-    root_dir: &Path,
-    session_id: &str,
-) -> Result<Vec<PersistedTurnRecord>> {
+pub fn load_turn_records(root_dir: &Path, session_id: &str) -> Result<Vec<PersistedTurnRecord>> {
     let path = turn_log_path(root_dir, session_id);
     if !path.exists() {
         return Ok(Vec::new());

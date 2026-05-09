@@ -12,6 +12,8 @@ members = [
     "crates/tool-macros",
     "crates/rara-persistence",
     "crates/rara-mcp-client",
+    "crates/rara-state",
+    "crates/rara-memory",
 ]
 resolver = "2"
 
@@ -41,6 +43,8 @@ edition = "2024"
 [dependencies]
 rara-persistence = { path = "crates/rara-persistence" }
 rara-mcp-client = { path = "crates/rara-mcp-client" }
+rara-memory = { path = "crates/rara-memory" }
+rara-state = { path = "crates/rara-state" }
 tokio = { version = "1.0", features = ["full"] }
 tokio-util = { version = "0.7", features = ["compat"] }
 clap = { version = "4.0", features = ["derive", "env"] }

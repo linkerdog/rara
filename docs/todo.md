@@ -26,8 +26,8 @@ Active backlog only. Keep this file small and current.
 - [x] Publish `/mcp` status snapshots as structured runtime events for future ACP/Wire/appserver subscribers.
 - [x] Add dynamic MCP tool/resource/prompt refresh through structured runtime events (scaffold via McpConnectionManager).
 - [x] Add bounded MCP auto-reconnect with manual reconnect command (scaffold via McpConnectionManager).
-- [ ] Add MCP resource references as source objects visible in `/context`.
-- [ ] Add MCP Tool Search so large MCP tool sets are discovered on demand instead of injected into every prompt.
+- [x] Add MCP resource references as source objects visible in `/context`.
+- [x] Add MCP Tool Search so large MCP tool sets are discovered on demand instead of injected into every prompt.
 - [x] Support protocol-registered prompt sources with provenance, scope, budget hints, and `/context` visibility (scaffold via protocol_sources.rs).
 - [x] Support protocol-registered skill sources through the same `SkillRegistry` precedence and override reporting as local skills (scaffold via protocol_sources.rs).
 - [x] Add protocol-safe memory mutation/query scaffolding that creates memory records and selection views without bypassing `MemorySelection` (scaffold via protocol_sources.rs).
@@ -110,7 +110,7 @@ Active backlog only. Keep this file small and current.
 - [x] Add the first `RetrievalSourceProvider` boundary for current memory, session, thread-history, vector-slot, tool-result, and file-search candidates.
 - [ ] Add `RetrievalSourceProvider` implementations for MCP resource, hook, and graph sources after the current memory/session/file path is stable.
 - [x] Initialize LanceDB and wire FTS/vector/hybrid search paths behind the existing memory index façade.
-- [ ] Make memory mutation/query control-plane-ready so ACP/Wire can inspect and add memory without directly editing prompt text.
+- [x] Make memory mutation/query control-plane-ready so ACP/Wire can inspect and add memory without directly editing prompt text.
 
 ## TUI / Transcript
 

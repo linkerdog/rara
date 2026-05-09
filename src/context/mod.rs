@@ -19,7 +19,9 @@ pub use self::assembler::{
     RuntimeInteractionInput,
 };
 pub(crate) use self::file_search_provider::FileSearchCandidateProvider;
-pub(crate) use self::retrieval_provider::{RetrievalRequest, retrieval_candidates};
+pub(crate) use self::retrieval_provider::{
+    McpResourceReference, RetrievalRequest, mcp_resource_candidate, retrieval_candidates,
+};
 pub(crate) use self::retrieved_memory_render::{
     RetrievedMemoryRenderItem, render_retrieved_memory_context,
     render_retrieved_memory_context_item,

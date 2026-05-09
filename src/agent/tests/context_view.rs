@@ -1,5 +1,6 @@
 use std::sync::Arc;
 
+use rara_memory::vectordb::VectorDB;
 use serde_json::json;
 
 use super::support::{SequencedBackend, test_runtime_storage};
@@ -8,7 +9,6 @@ use crate::llm::{ContentBlock, LlmResponse};
 use crate::memory_store::{MemoryLabel, MemoryScope, MemorySource, MemoryStore, NewMemoryRecord};
 use crate::prompt::PromptRuntimeConfig;
 use crate::tool::ToolManager;
-use crate::vectordb::VectorDB;
 
 #[test]
 fn shared_runtime_context_collects_prompt_plan_and_compaction_state() {
@@ -217,13 +217,15 @@ fn shared_runtime_context_collects_prompt_plan_and_compaction_state() {
         runtime.compaction.source_entries[3].kind,
         "recent_file_excerpts"
     );
-    assert_eq!(runtime.retrieval.entries.len(), 3);
+    assert_eq!(runtime.retrieval.entries.len(), 4);
     assert_eq!(runtime.retrieval.entries[0].kind, "workspace_memory");
     assert_eq!(runtime.retrieval.entries[0].status, "active");
     assert_eq!(runtime.retrieval.entries[1].kind, "thread_history");
     assert_eq!(runtime.retrieval.entries[1].status, "available");
     assert_eq!(runtime.retrieval.entries[2].kind, "vector_memory");
     assert_eq!(runtime.retrieval.entries[2].status, "available");
+    assert_eq!(runtime.retrieval.entries[3].kind, "mcp_resource");
+    assert_eq!(runtime.retrieval.entries[3].status, "missing");
     assert_eq!(runtime.retrieval.memory_selection.selected_items.len(), 9);
     assert_eq!(
         runtime.retrieval.memory_selection.selected_items[0].kind,

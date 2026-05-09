@@ -31,17 +31,13 @@ mod session_context;
 mod session_transcript;
 mod shell_env;
 mod skill;
-mod state_db;
 mod thread_cli;
-mod thread_rollout_log;
 mod thread_store;
-mod thread_turn_log;
 mod todo;
 mod tool;
 mod tool_result;
 mod tools;
 mod tui;
-mod vectordb;
 mod wire_consumer;
 mod workspace;
 

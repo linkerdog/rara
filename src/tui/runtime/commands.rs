@@ -715,6 +715,7 @@ command = "docs-server"
         cache.insert_server_tools(
             "stale".to_string(),
             vec![rara_mcp_client::McpToolRecord {
+                server: String::new(),
                 name: "old_tool".to_string(),
                 display_name: "old_tool".to_string(),
                 description: "stale cached tool".to_string(),

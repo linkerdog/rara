@@ -6,6 +6,15 @@ use std::path::{Path, PathBuf};
 use anyhow::{Context, Result, anyhow};
 use rara_persistence::atomic_file;
 use rara_persistence::thread_metadata;
+use rara_state::state_db::{
+    PersistedCompactState, PersistedInteraction, PersistedLegacyRolloutMigration,
+    PersistedLegacyRolloutSource, PersistedPlanStep, PersistedPromptRuntimeState,
+    PersistedRecentThreadRecord, PersistedRuntimeRolloutItem, PersistedStructuredRolloutEvent,
+    PersistedThreadLineage, PersistedThreadRecord, PersistedTurnEntry, PersistedTurnSummary,
+    StateDb,
+};
+use rara_state::thread_rollout_log::{self, RolloutEventRecorder};
+use rara_state::thread_turn_log;
 use uuid::Uuid;
 
 use crate::agent::Message;
@@ -21,15 +30,6 @@ use crate::session::{
     PersistedThreadHistoryMigration, PersistedThreadHistorySource, SessionManager,
 };
 use crate::session_transcript::{self, ThreadTranscriptRecorder};
-use crate::state_db::{
-    PersistedCompactState, PersistedInteraction, PersistedLegacyRolloutMigration,
-    PersistedLegacyRolloutSource, PersistedPlanStep, PersistedPromptRuntimeState,
-    PersistedRecentThreadRecord, PersistedRuntimeRolloutItem, PersistedStructuredRolloutEvent,
-    PersistedThreadLineage, PersistedThreadRecord, PersistedTurnEntry, PersistedTurnSummary,
-    StateDb,
-};
-use crate::thread_rollout_log::{self, RolloutEventRecorder};
-use crate::thread_turn_log;
 
 #[cfg(test)]
 mod tests;

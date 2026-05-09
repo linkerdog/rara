@@ -15,6 +15,7 @@ use crate::config::McpServerTransport;
 
 /// In-memory cache of MCP tool records, keyed by server name.
 /// Wrapped in Arc<Mutex<...>> for shared access across tool handlers.
+#[derive(Clone)]
 pub struct McpToolCache {
     tools: Arc<Mutex<HashMap<String, Vec<McpToolRecord>>>>,
 }
@@ -29,6 +30,14 @@ impl McpToolCache {
     /// Replace the tool list for a given server (called on MCP connect).
     pub fn insert_server_tools(&self, server: String, tools: Vec<McpToolRecord>) {
         let mut map = self.tools.lock().unwrap();
+        let tools = tools
+            .into_iter()
+            .map(|mut tool| {
+                tool.server = server.clone();
+                tool.display_name = format!("{server}: {}", tool.name);
+                tool
+            })
+            .collect();
         map.insert(server, tools);
     }
 
@@ -46,6 +55,11 @@ impl McpToolCache {
                 }
             }
         }
+        results.sort_by(|left, right| {
+            left.server
+                .cmp(&right.server)
+                .then_with(|| left.name.cmp(&right.name))
+        });
         results.truncate(10);
         results
     }

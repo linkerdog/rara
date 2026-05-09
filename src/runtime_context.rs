@@ -3,6 +3,7 @@ mod tooling;
 use std::sync::{Arc, atomic::AtomicBool};
 
 use anyhow::{Context, Result, bail};
+use rara_memory::vectordb::VectorDB;
 
 use self::tooling::{create_full_tool_manager, load_skill_manager, vector_db_uri_for_workspace};
 use crate::agent::Agent;
@@ -25,7 +26,6 @@ use crate::shell_env::capture_shell_environment_snapshot;
 use crate::skill::SkillScope;
 use crate::tool::ToolManager;
 use crate::tui::state::GoalHandle;
-use crate::vectordb::VectorDB;
 use crate::workspace::WorkspaceMemory;
 
 pub(crate) struct RuntimeBootstrap {
@@ -119,6 +119,8 @@ pub(crate) async fn initialize_rara_context(
 
     let event_bus = Arc::new(RuntimeEventBus::new(256));
     let goal_handle: GoalHandle = Arc::new(std::sync::RwLock::new(None));
+    let mcp_tool_cache = McpToolCache::new();
+    mcp_tool_cache.clear();
 
     let tool_manager = create_full_tool_manager(
         backend.clone(),
@@ -131,10 +133,9 @@ pub(crate) async fn initialize_rara_context(
         Arc::new(shell_env.env),
         sandbox_network_access.clone(),
         goal_handle.clone(),
+        mcp_tool_cache.clone(),
     );
     let warnings = prompt_config.warnings.clone();
-    let mcp_tool_cache = McpToolCache::new();
-    mcp_tool_cache.clear();
 
     Ok(RuntimeBootstrap {
         backend,
@@ -353,6 +354,25 @@ mod tests {
                 .iter()
                 .any(|warning| warning.contains("system prompt"))
         );
+    }
+
+    #[tokio::test]
+    async fn initialize_rara_context_registers_mcp_tool_search() {
+        let config = RaraConfig {
+            provider: "mock".into(),
+            ..Default::default()
+        };
+
+        let bootstrap = initialize_rara_context(&config, None)
+            .await
+            .expect("bootstrap");
+        let schemas = bootstrap.tool_manager.get_schemas();
+        let names = schemas
+            .iter()
+            .filter_map(|schema| schema["name"].as_str())
+            .collect::<Vec<_>>();
+
+        assert!(names.contains(&"mcp_tool_search"));
     }
 
     #[tokio::test]

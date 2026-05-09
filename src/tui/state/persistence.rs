@@ -1,12 +1,12 @@
 use std::sync::Arc;
 
-use serde_json::json;
-
-use super::{InteractionKind, StateDb, TranscriptTurn, TuiApp, state_db_status_error};
-use crate::state_db::{
+use rara_state::state_db::{
     PersistedCompactState, PersistedInteraction, PersistedPlanStep, PersistedPromptRuntimeState,
     PersistedStructuredRolloutEvent, PersistedTurnEntry,
 };
+use serde_json::json;
+
+use super::{InteractionKind, StateDb, TranscriptTurn, TuiApp, state_db_status_error};
 use crate::thread_store::{ThreadRecorder, ThreadRuntimeState, ThreadStore};
 
 impl TuiApp {
