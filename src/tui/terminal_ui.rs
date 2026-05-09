@@ -3,7 +3,7 @@ use std::io;
 use anyhow::Result;
 use crossterm::{
     cursor::Show,
-    event::{DisableBracketedPaste, EnableBracketedPaste},
+    event::{DisableBracketedPaste, DisableMouseCapture, EnableBracketedPaste, EnableMouseCapture},
     execute,
     terminal::disable_raw_mode,
 };
@@ -21,7 +21,11 @@ pub(super) fn build_terminal(
     viewport_height: u16,
 ) -> Result<Terminal<CrosstermBackend<std::io::Stdout>>> {
     let mut terminal = Terminal::new(CrosstermBackend::new(io::stdout()))?;
-    execute!(terminal.backend_mut(), EnableBracketedPaste)?;
+    execute!(
+        terminal.backend_mut(),
+        EnableBracketedPaste,
+        EnableMouseCapture
+    )?;
 
     let result = (|| -> Result<()> {
         let size = terminal.size()?;
@@ -55,7 +59,11 @@ pub(super) fn update_terminal_viewport(
 pub(super) fn teardown_terminal(
     mut terminal: Terminal<CrosstermBackend<std::io::Stdout>>,
 ) -> Result<()> {
-    execute!(terminal.backend_mut(), DisableBracketedPaste)?;
+    execute!(
+        terminal.backend_mut(),
+        DisableBracketedPaste,
+        DisableMouseCapture
+    )?;
     disable_raw_mode()?;
     execute!(terminal.backend_mut(), Show)?;
     terminal.show_cursor()?;
