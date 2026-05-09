@@ -1,3 +1,4 @@
+mod app_command;
 mod app_event;
 mod auth_mode_picker;
 mod command;
