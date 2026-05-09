@@ -223,7 +223,7 @@ fn shared_runtime_context_collects_prompt_plan_and_compaction_state() {
         runtime.compaction.source_entries[3].kind,
         "recent_file_excerpts"
     );
-    assert_eq!(runtime.retrieval.entries.len(), 4);
+    assert_eq!(runtime.retrieval.entries.len(), 6);
     assert_eq!(runtime.retrieval.entries[0].kind, "workspace_memory");
     assert_eq!(runtime.retrieval.entries[0].status, "active");
     assert_eq!(runtime.retrieval.entries[1].kind, "thread_history");
@@ -232,6 +232,10 @@ fn shared_runtime_context_collects_prompt_plan_and_compaction_state() {
     assert_eq!(runtime.retrieval.entries[2].status, "available");
     assert_eq!(runtime.retrieval.entries[3].kind, "mcp_resource");
     assert_eq!(runtime.retrieval.entries[3].status, "missing");
+    assert_eq!(runtime.retrieval.entries[4].kind, "hook_output");
+    assert_eq!(runtime.retrieval.entries[4].status, "missing");
+    assert_eq!(runtime.retrieval.entries[5].kind, "graph_context");
+    assert_eq!(runtime.retrieval.entries[5].status, "missing");
     assert_eq!(runtime.retrieval.memory_selection.selected_items.len(), 9);
     assert_eq!(
         runtime.retrieval.memory_selection.selected_items[0].kind,

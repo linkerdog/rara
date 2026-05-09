@@ -49,9 +49,11 @@ pub struct RuntimeContextInputs<'a> {
     pub vdb_uri: &'a str,
     pub pending_interactions: Vec<RuntimeInteractionInput>,
     pub skill_listing: Option<String>,
-    pub retrieved_memory_candidates: Vec<RetrievedMemoryCandidate>,
-    pub file_search_candidates: Vec<RetrievalCandidate>,
-    pub mcp_resource_candidates: Vec<RetrievalCandidate>,
+    pub retrieved_memory_candidates: &'a [RetrievedMemoryCandidate],
+    pub file_search_candidates: &'a [RetrievalCandidate],
+    pub mcp_resource_candidates: &'a [RetrievalCandidate],
+    pub hook_output_candidates: &'a [RetrievalCandidate],
+    pub graph_context_candidates: &'a [RetrievalCandidate],
     pub tool_result_projection_policy: ToolResultProjectionPolicy,
     pub tool_result_projection_report: ToolResultProjectionReport,
     pub agent_turn_trace: AgentTurnTraceView,
@@ -140,7 +142,9 @@ impl<'a> ContextAssembler<'a> {
             inputs.history,
             inputs.session_id.as_str(),
             inputs.vdb_uri,
-            inputs.mcp_resource_candidates.as_slice(),
+            inputs.mcp_resource_candidates,
+            inputs.hook_output_candidates,
+            inputs.graph_context_candidates,
         );
         let mut compaction = CompactionContextView::from_compact_state(&inputs.compact_state);
         compaction.source_entries = compaction_source_entries(inputs.history);
@@ -171,9 +175,11 @@ impl<'a> ContextAssembler<'a> {
         };
         let retrieval_candidates = retrieval_candidates(
             &retrieval_request,
-            inputs.retrieved_memory_candidates.as_slice(),
-            inputs.file_search_candidates.as_slice(),
-            inputs.mcp_resource_candidates.as_slice(),
+            inputs.retrieved_memory_candidates,
+            inputs.file_search_candidates,
+            inputs.mcp_resource_candidates,
+            inputs.hook_output_candidates,
+            inputs.graph_context_candidates,
         );
         let memory_selection = memory_selection(
             effective_prompt.sources.as_slice(),
@@ -480,9 +486,11 @@ mod tests {
                 vdb_uri: "memory://vdb",
                 pending_interactions: Vec::new(),
                 skill_listing: None,
-                retrieved_memory_candidates: Vec::new(),
-                file_search_candidates: vec![],
-                mcp_resource_candidates: vec![],
+                retrieved_memory_candidates: &[],
+                file_search_candidates: &[],
+                mcp_resource_candidates: &[],
+                hook_output_candidates: &[],
+                graph_context_candidates: &[],
                 tool_result_projection_policy: ToolResultProjectionPolicy::default(),
                 tool_result_projection_report: ToolResultProjectionReport {
                     original_chars: 60_000,
@@ -507,9 +515,13 @@ mod tests {
             runtime_context.prompt.append_system_prompt.as_deref(),
             Some("appendix")
         );
-        assert_eq!(runtime_context.retrieval.entries.len(), 4);
+        assert_eq!(runtime_context.retrieval.entries.len(), 6);
         assert_eq!(runtime_context.retrieval.entries[3].kind, "mcp_resource");
         assert_eq!(runtime_context.retrieval.entries[3].status, "missing");
+        assert_eq!(runtime_context.retrieval.entries[4].kind, "hook_output");
+        assert_eq!(runtime_context.retrieval.entries[4].status, "missing");
+        assert_eq!(runtime_context.retrieval.entries[5].kind, "graph_context");
+        assert_eq!(runtime_context.retrieval.entries[5].status, "missing");
         assert_eq!(runtime_context.compaction.source_entries.len(), 1);
         assert_eq!(
             runtime_context.observability.cache.hit_rate_basis_points,
@@ -568,9 +580,11 @@ mod tests {
                 vdb_uri: "memory://vdb",
                 pending_interactions: Vec::new(),
                 skill_listing: None,
-                retrieved_memory_candidates: Vec::new(),
-                file_search_candidates: vec![],
-                mcp_resource_candidates: vec![],
+                retrieved_memory_candidates: &[],
+                file_search_candidates: &[],
+                mcp_resource_candidates: &[],
+                hook_output_candidates: &[],
+                graph_context_candidates: &[],
                 tool_result_projection_policy: ToolResultProjectionPolicy::default(),
                 tool_result_projection_report: ToolResultProjectionReport::default(),
                 agent_turn_trace: AgentTurnTraceView::default(),
@@ -655,9 +669,11 @@ mod tests {
                 vdb_uri: "memory://vdb",
                 pending_interactions: Vec::new(),
                 skill_listing: None,
-                retrieved_memory_candidates: Vec::new(),
-                file_search_candidates: vec![],
-                mcp_resource_candidates: vec![],
+                retrieved_memory_candidates: &[],
+                file_search_candidates: &[],
+                mcp_resource_candidates: &[],
+                hook_output_candidates: &[],
+                graph_context_candidates: &[],
                 tool_result_projection_policy: ToolResultProjectionPolicy::default(),
                 tool_result_projection_report: ToolResultProjectionReport::default(),
                 agent_turn_trace: AgentTurnTraceView::default(),
@@ -734,7 +750,7 @@ mod tests {
                 vdb_uri: "memory://vdb",
                 pending_interactions: Vec::new(),
                 skill_listing: None,
-                retrieved_memory_candidates: vec![RetrievedMemoryCandidate {
+                retrieved_memory_candidates: &[RetrievedMemoryCandidate {
                     kind: RETRIEVED_WORKSPACE_MEMORY_KIND.to_string(),
                     label: "Memory: reference project path".to_string(),
                     detail: "content: Reference project source lives at /Users/example/reference-project."
@@ -743,8 +759,10 @@ mod tests {
                         .to_string(),
                     rank: 1,
                 }],
-                file_search_candidates: vec![],
-                mcp_resource_candidates: vec![],
+                file_search_candidates: &[],
+                mcp_resource_candidates: &[],
+                hook_output_candidates: &[],
+                graph_context_candidates: &[],
                 tool_result_projection_policy: ToolResultProjectionPolicy::default(),
                 tool_result_projection_report: ToolResultProjectionReport::default(),
                 agent_turn_trace: AgentTurnTraceView::default(),
@@ -817,9 +835,11 @@ mod tests {
                     source: None,
                 }],
                 skill_listing: None,
-                retrieved_memory_candidates: Vec::new(),
-                file_search_candidates: vec![],
-                mcp_resource_candidates: vec![],
+                retrieved_memory_candidates: &[],
+                file_search_candidates: &[],
+                mcp_resource_candidates: &[],
+                hook_output_candidates: &[],
+                graph_context_candidates: &[],
                 tool_result_projection_policy: ToolResultProjectionPolicy::default(),
                 tool_result_projection_report: ToolResultProjectionReport::default(),
                 agent_turn_trace: AgentTurnTraceView::default(),

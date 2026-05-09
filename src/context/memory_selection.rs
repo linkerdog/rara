@@ -484,6 +484,8 @@ mod tests {
             retrieved_memory_candidates,
             file_search_candidates,
             &[],
+            &[],
+            &[],
         );
         memory_selection(
             prompt_sources,
