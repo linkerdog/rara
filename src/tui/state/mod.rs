@@ -197,6 +197,7 @@ impl TuiApp {
             active_turn: TranscriptTurn::default(),
             overlay,
             overlay_stack: Vec::new(),
+            sidebar_visible: true,
             config: cfg,
             config_manager: cm,
             setup_status: None,

@@ -42,4 +42,5 @@ pub enum AppEvent {
     ApplyOverlaySelection,
     CancelRunningTask,
     ClearComposer,
+    ToggleSidebar,
 }
