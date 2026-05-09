@@ -328,11 +328,9 @@ pub(crate) async fn dispatch_event(
             Some(Overlay::CommandPalette) => {
                 let query = app.command_query();
                 if let Some(spec) = palette_command_by_index(app, query, app.command_palette_idx) {
-                    app.set_input(spec.usage.to_string());
+                    app.input = spec.usage.to_string();
+                    app.input_cursor_offset = None;
                     app.close_overlay();
-                    if handle_submit(app, agent_slot, oauth_manager).await? {
-                        return Ok(true);
-                    }
                 }
             }
             Some(Overlay::BaseUrlEditor) => {
