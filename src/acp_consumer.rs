@@ -21,6 +21,7 @@ pub struct AcpConsumer {
     session_id: SessionId,
 }
 
+#[allow(dead_code)]
 impl AcpConsumer {
     pub fn new(event_bus: Arc<RuntimeEventBus>, session_id: SessionId) -> Self {
         Self {
