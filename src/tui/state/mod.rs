@@ -1503,6 +1503,13 @@ impl TuiApp {
             self.cancel_openai_profile_setup();
         }
 
+        // When closing the command palette, clear the `/` input so
+        // sync_command_palette_with_input won't immediately re-open it.
+        if matches!(self.overlay, Some(Overlay::CommandPalette)) {
+            self.bottom_pane.input.clear();
+            self.command_palette_idx = 0;
+        }
+
         // Pop the current overlay from the stack and restore the previous one.
         self.overlay_stack.pop();
         self.overlay = self.overlay_stack.last().copied();

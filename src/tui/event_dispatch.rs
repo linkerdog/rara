@@ -33,11 +33,6 @@ pub(crate) async fn dispatch_event(
         AppEvent::Noop => {}
         AppEvent::OpenOverlay(overlay) => app.open_overlay(overlay),
         AppEvent::CloseOverlay => {
-            // Clear palette query when Esc from command palette.
-            if matches!(app.overlay, Some(Overlay::CommandPalette)) {
-                app.bottom_pane.input.clear();
-                app.command_palette_idx = 0;
-            }
             app.close_overlay();
         }
         AppEvent::CancelRunningTask => {
