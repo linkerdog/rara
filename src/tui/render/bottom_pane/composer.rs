@@ -12,9 +12,8 @@ use super::super::super::interaction_text::pending_interaction_hint_text;
 use super::super::super::queued_input::{pending_follow_up_hint, queued_follow_up_hint};
 use super::super::super::state::char_offset_to_byte_index;
 use super::super::super::state::{ActivePendingInteractionKind, GoalStatus, TaskKind, TuiApp};
-use crate::tui::theme::*;
-
 use super::bottom_pane_style;
+use crate::tui::theme::*;
 
 const COMPOSER_TAB_WIDTH: usize = 4;
 
@@ -350,5 +349,5 @@ fn display_char_width(ch: char) -> usize {
 }
 
 #[cfg(test)]
-#[path = "bottom_pane_tests.rs"]
+#[path = "../bottom_pane_tests.rs"]
 mod tests;

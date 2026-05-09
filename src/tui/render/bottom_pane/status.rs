@@ -9,12 +9,13 @@ use ratatui::{
 use super::super::super::custom_terminal::Frame;
 use super::super::super::interaction_text::pending_interaction_hint_text;
 use super::super::super::queued_input::{pending_follow_up_hint, queued_follow_up_hint};
-use super::super::super::state::{ActivePendingInteractionKind, GoalStatus, RuntimePhase, TaskKind, TuiApp};
+use super::super::super::state::{
+    ActivePendingInteractionKind, GoalStatus, RuntimePhase, TaskKind, TuiApp,
+};
 use super::badge;
+use super::bottom_pane_style;
 use crate::tui::format::cache_hit_rate_label;
 use crate::tui::theme::*;
-
-use super::bottom_pane_style;
 
 pub(super) fn render_activity_bar(f: &mut Frame, app: &TuiApp, area: Rect) {
     let (label, color, detail) = activity_status_line(app);
@@ -70,10 +71,7 @@ pub(super) fn render_activity_bar(f: &mut Frame, app: &TuiApp, area: Rect) {
 }
 
 pub(super) fn activity_status_line(app: &TuiApp) -> (&'static str, Color, String) {
-    if matches!(
-        app.runtime_phase,
-        RuntimePhase::RebuildingBackend
-    ) {
+    if matches!(app.runtime_phase, RuntimePhase::RebuildingBackend) {
         return (
             "Downloading",
             STATUS_INFO,
@@ -250,4 +248,3 @@ fn shows_live_task_stats(app: &TuiApp) -> bool {
                 | RuntimePhase::RunningTool
         )
 }
-

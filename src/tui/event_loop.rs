@@ -160,7 +160,7 @@ pub async fn run_tui(
             }
         }
         drop(agent_slot);
-        drop(app);
+        let _ = app;
         maintainer.needs_redraw = needs_redraw;
     };
     if let Some(handle) = maintainer.app_mut().repo_context_task.take() {

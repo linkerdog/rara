@@ -85,9 +85,6 @@ fn render_bottom_pane_inner(f: &mut Frame, app: &mut TuiApp, area: Rect) -> Opti
     cursor
 }
 
-
 pub(super) fn bottom_pane_style() -> Style {
     Style::default().bg(BOTTOM_PANE_BG)
 }
-
-
