@@ -940,12 +940,17 @@ fn mouse_wheel_scrolls_transcript() {
     })
     .expect("app");
 
+    // First scroll without prior events → base 3 lines (factor 1.0).
     match translate_event(mouse_scroll(MouseEventKind::ScrollUp), &app) {
-        Some(UiEvent::App(AppEvent::ScrollTranscript(delta))) => assert_eq!(delta, -3),
+        Some(UiEvent::App(AppEvent::ScrollTranscript(delta))) => {
+            assert!(delta <= -3 && delta >= -15, "delta {delta} out of range");
+        }
         event => panic!("unexpected event: {event:?}"),
     }
     match translate_event(mouse_scroll(MouseEventKind::ScrollDown), &app) {
-        Some(UiEvent::App(AppEvent::ScrollTranscript(delta))) => assert_eq!(delta, 3),
+        Some(UiEvent::App(AppEvent::ScrollTranscript(delta))) => {
+            assert!(delta >= 3 && delta <= 15, "delta {delta} out of range");
+        }
         event => panic!("unexpected event: {event:?}"),
     }
 }

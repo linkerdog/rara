@@ -152,10 +152,12 @@ pub(crate) fn map_key_to_event(key: KeyEvent, app: &TuiApp) -> AppEvent {
                 (KeyCode::Up, _) if app.should_handle_input_history_navigation(-1) => {
                     AppEvent::NavigateInputHistory(-1)
                 }
+                (KeyCode::Up, _) if app.input.is_empty() => AppEvent::ScrollTranscript(-1),
                 (KeyCode::Up, _) => AppEvent::MoveCursorUp,
                 (KeyCode::Down, _) if app.should_handle_input_history_navigation(1) => {
                     AppEvent::NavigateInputHistory(1)
                 }
+                (KeyCode::Down, _) if app.input.is_empty() => AppEvent::ScrollTranscript(1),
                 (KeyCode::Down, _) => AppEvent::MoveCursorDown,
                 (KeyCode::Char('k'), _) if app.input.is_empty() => AppEvent::ScrollTranscript(-1),
                 (KeyCode::Char('j'), _) if app.input.is_empty() => AppEvent::ScrollTranscript(1),
