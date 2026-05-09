@@ -306,8 +306,7 @@ fn handle_connect_command(app: &mut TuiApp) -> anyhow::Result<()> {
     app.picker_intent = Some(PickerIntent::ConfigureProvider);
     app.open_overlay(Overlay::ListPicker(ListPickerKind::Provider));
     app.notice = Some(
-        "Connect a provider — select the provider family, then configure API key and model."
-            .into(),
+        "Connect a provider — select the provider family, then configure API key and model.".into(),
     );
     Ok(())
 }
@@ -383,8 +382,7 @@ fn handle_model_command(arg: Option<&str>, app: &mut TuiApp) -> anyhow::Result<(
         app.picker_intent = Some(PickerIntent::SwitchModel);
         app.open_overlay(Overlay::ListPicker(ListPickerKind::Provider));
         app.notice = Some(
-            "No provider configured yet. Select a provider family first to switch models."
-                .into(),
+            "No provider configured yet. Select a provider family first to switch models.".into(),
         );
     }
     Ok(())

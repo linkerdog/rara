@@ -7,9 +7,8 @@ use secrecy::{ExposeSecret, SecretString};
 
 use crate::acp::RaraAcpAgent;
 use crate::config::{
-    ConfigManager, DEFAULT_REASONING_SUMMARY, OpenAiEndpointKind,
-    OpenAiEndpointProfile, RaraConfig,
-    DEFAULT_CODEX_BASE_URL, DEFAULT_CODEX_CHATGPT_BASE_URL,
+    ConfigManager, DEFAULT_CODEX_BASE_URL, DEFAULT_CODEX_CHATGPT_BASE_URL,
+    DEFAULT_REASONING_SUMMARY, OpenAiEndpointKind, OpenAiEndpointProfile, RaraConfig,
 };
 use crate::oauth::{OAuthManager, SavedCodexAuthMode};
 use crate::print_consumer::PrintConsumer;
@@ -523,10 +522,7 @@ fn run_models_show(config: &RaraConfig, args: ModelsShowArgs) -> Result<()> {
 
     println!("Profile: {}", profile.id);
     println!("  kind:      {}", profile.kind.label());
-    println!(
-        "  model:     {}",
-        profile.model.as_deref().unwrap_or("-")
-    );
+    println!("  model:     {}", profile.model.as_deref().unwrap_or("-"));
     println!(
         "  base_url:  {}",
         profile.base_url.as_deref().unwrap_or("-")
@@ -565,8 +561,7 @@ mod tests {
 
     #[test]
     fn clap_parses_thread_resume_with_last() {
-        let cli =
-            Cli::try_parse_from(["rara", "resume", "--last"]).expect("parse resume --last");
+        let cli = Cli::try_parse_from(["rara", "resume", "--last"]).expect("parse resume --last");
         match cli.command.expect("command") {
             Commands::Resume { thread_id, last } => {
                 assert_eq!(thread_id, None);
@@ -642,19 +637,28 @@ mod tests {
     #[test]
     fn clap_parses_connect_all_args() {
         let cli = Cli::try_parse_from([
-            "rara", "connect",
-            "--kind", "deepseek",
-            "--api-key", "sk-abc123",
-            "--base-url", "https://api.deepseek.com/v1",
-            "--model", "deepseek-v3",
-            "--label", "my-deepseek",
+            "rara",
+            "connect",
+            "--kind",
+            "deepseek",
+            "--api-key",
+            "sk-abc123",
+            "--base-url",
+            "https://api.deepseek.com/v1",
+            "--model",
+            "deepseek-v3",
+            "--label",
+            "my-deepseek",
         ])
         .expect("parse connect");
         match cli.command.expect("command") {
             Commands::Connect(args) => {
                 assert_eq!(args.kind, Some("deepseek".to_string()));
                 assert_eq!(args.api_key, Some("sk-abc123".to_string()));
-                assert_eq!(args.base_url, Some("https://api.deepseek.com/v1".to_string()));
+                assert_eq!(
+                    args.base_url,
+                    Some("https://api.deepseek.com/v1".to_string())
+                );
                 assert_eq!(args.model, Some("deepseek-v3".to_string()));
                 assert_eq!(args.label, Some("my-deepseek".to_string()));
             }
@@ -664,8 +668,7 @@ mod tests {
 
     #[test]
     fn clap_parses_connect_minimal() {
-        let cli =
-            Cli::try_parse_from(["rara", "connect"]).expect("parse connect");
+        let cli = Cli::try_parse_from(["rara", "connect"]).expect("parse connect");
         match cli.command.expect("command") {
             Commands::Connect(args) => {
                 assert_eq!(args.kind, None);
@@ -680,8 +683,7 @@ mod tests {
 
     #[test]
     fn clap_parses_models_list() {
-        let cli =
-            Cli::try_parse_from(["rara", "models", "list"]).expect("parse models list");
+        let cli = Cli::try_parse_from(["rara", "models", "list"]).expect("parse models list");
         match cli.command.expect("command") {
             Commands::Models(ModelsCommands::List(args)) => {
                 assert_eq!(args.kind, None);
@@ -692,9 +694,8 @@ mod tests {
 
     #[test]
     fn clap_parses_models_list_with_kind() {
-        let cli =
-            Cli::try_parse_from(["rara", "models", "list", "--kind", "kimi"])
-                .expect("parse models list --kind");
+        let cli = Cli::try_parse_from(["rara", "models", "list", "--kind", "kimi"])
+            .expect("parse models list --kind");
         match cli.command.expect("command") {
             Commands::Models(ModelsCommands::List(args)) => {
                 assert_eq!(args.kind, Some("kimi".to_string()));
@@ -706,8 +707,7 @@ mod tests {
     #[test]
     fn clap_parses_models_show() {
         let cli =
-            Cli::try_parse_from(["rara", "models", "show", "deepseek"])
-                .expect("parse models show");
+            Cli::try_parse_from(["rara", "models", "show", "deepseek"]).expect("parse models show");
         match cli.command.expect("command") {
             Commands::Models(ModelsCommands::Show(args)) => {
                 assert_eq!(args.profile_id, "deepseek");
@@ -750,7 +750,10 @@ mod tests {
     fn parse_endpoint_kind_unknown() {
         let err = parse_endpoint_kind("nonexistent").unwrap_err();
         let msg = format!("{err}");
-        assert!(msg.contains("nonexistent"), "message should mention the bad kind: {msg}");
+        assert!(
+            msg.contains("nonexistent"),
+            "message should mention the bad kind: {msg}"
+        );
     }
 
     // --- run_models_list / run_models_show ---
@@ -849,7 +852,10 @@ mod tests {
         )
         .unwrap_err();
         let msg = format!("{err}");
-        assert!(msg.contains("nonexistent"), "message should mention missing id: {msg}");
+        assert!(
+            msg.contains("nonexistent"),
+            "message should mention missing id: {msg}"
+        );
     }
 
     #[test]
