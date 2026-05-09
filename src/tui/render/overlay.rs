@@ -51,7 +51,7 @@ pub(super) fn render_overlay(f: &mut Frame, app: &TuiApp, overlay: Overlay) -> O
             None
         }
         Overlay::ListPicker(kind) => {
-            let popup = centered_rect(72, 70, f.area());
+            let popup = bottom_picker_rect(f.area());
             f.render_widget(Clear, popup);
             super::super::list_picker::render_list_picker(f, app, kind, popup);
             None
@@ -502,6 +502,21 @@ fn render_context_modal(f: &mut Frame, app: &TuiApp, area: Rect) {
         Paragraph::new("esc close  j/k ↑↓ scroll").alignment(Alignment::Center),
         chunks[1],
     );
+}
+
+/// Bottom-anchored compact popup for list pickers (model, provider, etc.).
+/// OpenCode-style: anchored near the input area, not full-screen.
+fn bottom_picker_rect(area: Rect) -> Rect {
+    // OpenCode-style bottom-anchored compact popup
+    let width = area.width.min(76).max(32).clamp(10, area.width);
+    let x = area
+        .x
+        .saturating_add((area.width.saturating_sub(width)) / 2);
+    let height = (area.height / 3).min(18).max(12).clamp(6, area.height);
+    let y = area
+        .y
+        .saturating_add(area.height.saturating_sub(height).saturating_sub(1));
+    Rect::new(x, y.max(area.y), width, height)
 }
 
 fn centered_rect(percent_x: u16, percent_y: u16, area: Rect) -> Rect {
