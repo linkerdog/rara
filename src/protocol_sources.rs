@@ -167,7 +167,7 @@ impl PromptSourceRegistry {
         let mut expired = Vec::new();
         for (id, entry) in sources.iter_mut() {
             if let Some(ref mut remaining) = entry.remaining_turns {
-                if *remaining == 0 {
+                if *remaining <= 1 {
                     expired.push(id.clone());
                 } else {
                     *remaining -= 1;
@@ -212,6 +212,40 @@ impl PromptSourceRegistry {
             .iter()
             .map(ProtocolPromptSourceSnapshot::to_prompt_source)
             .collect()
+    }
+
+    /// Atomically snapshot active prompt sources for one query and advance
+    /// turn-limited lifetimes under the same registry lock.
+    pub async fn list_prompt_sources_for_query(&self) -> Vec<PromptSource> {
+        let mut sources = self.sources.write().await;
+        let prompt_sources = sources
+            .values()
+            .map(ProtocolPromptSourceSnapshot::from)
+            .map(|snapshot| snapshot.to_prompt_source())
+            .collect();
+        let mut expired = Vec::new();
+        for (id, entry) in sources.iter_mut() {
+            if let Some(ref mut remaining) = entry.remaining_turns {
+                if *remaining <= 1 {
+                    expired.push(id.clone());
+                } else {
+                    *remaining -= 1;
+                }
+            }
+        }
+        for id in &expired {
+            sources.remove(id);
+        }
+        drop(sources);
+        for id in expired {
+            let _ = self.event_bus.publish_control(RuntimeEvent::PromptSource(
+                PromptSourceEvent::Dropped {
+                    source_id: id,
+                    reason: "turn limit expired".into(),
+                },
+            ));
+        }
+        prompt_sources
     }
 }
 

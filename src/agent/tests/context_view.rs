@@ -9,6 +9,12 @@ use crate::agent::{Agent, AgentExecutionMode, Message, PlanStep, PlanStepStatus}
 use crate::llm::{ContentBlock, LlmResponse};
 use crate::memory_store::{MemoryLabel, MemoryScope, MemorySource, MemoryStore, NewMemoryRecord};
 use crate::prompt::PromptRuntimeConfig;
+use crate::protocol_sources::PromptSourceRegistry;
+use crate::runtime_control::{
+    PromptSourceControlRequest, PromptSourceLifetime, PromptSourceRegistration, SourceLayer,
+    SourceScope,
+};
+use crate::runtime_event_bus::RuntimeEventBus;
 
 #[test]
 fn shared_runtime_context_collects_prompt_plan_and_compaction_state() {
@@ -399,6 +405,88 @@ fn assemble_turn_context_matches_prompt_and_runtime_views() {
         Some("appendix")
     );
     assert_eq!(assembled.runtime.plan.execution_mode, "plan");
+}
+
+#[tokio::test]
+async fn protocol_prompt_registry_feeds_prompt_runtime_for_query() {
+    let (_temp, session_manager, workspace, rara_dir) = test_runtime_storage();
+    let backend = Arc::new(SequencedBackend::new(vec![LlmResponse {
+        content: vec![ContentBlock::Text {
+            text: "ok".to_string(),
+        }],
+        stop_reason: Some("end_turn".to_string()),
+        usage: None,
+    }]));
+    let mut agent = Agent::new(
+        ToolManager::new(),
+        backend,
+        Arc::new(VectorDB::new(
+            &rara_dir.join("lancedb").display().to_string(),
+        )),
+        session_manager,
+        workspace,
+    );
+    let registry = Arc::new(PromptSourceRegistry::new(Arc::new(RuntimeEventBus::new(8))));
+    registry
+        .handle_control(&PromptSourceControlRequest::Register(
+            PromptSourceRegistration {
+                source_id: "editor-selection".to_string(),
+                scope: SourceScope::Protocol,
+                layer: SourceLayer::User,
+                budget_hint_tokens: Some(64),
+                lifetime: PromptSourceLifetime::Turns(1),
+                content: "The active editor selection is src/main.rs.".to_string(),
+            },
+        ))
+        .await;
+    agent.set_prompt_source_registry(registry.clone());
+
+    agent.refresh_protocol_prompt_sources_for_query().await;
+
+    let effective = agent.effective_prompt();
+    assert!(effective.section_keys.contains(&"protocol_prompt_sources"));
+    assert!(effective.text.contains("## Protocol Prompt Sources"));
+    assert!(
+        effective
+            .text
+            .contains("### Protocol Prompt Source editor-selection")
+    );
+    assert!(
+        effective
+            .text
+            .contains("The active editor selection is src/main.rs.")
+    );
+    assert!(
+        agent
+            .shared_runtime_context()
+            .prompt
+            .source_entries
+            .iter()
+            .any(|entry| {
+                entry.kind == "protocol_prompt_source"
+                    && entry.display_path == "protocol:runtime:editor-selection"
+            })
+    );
+    assert!(
+        registry.list_prompt_sources().await.is_empty(),
+        "turn-limited source should be consumed after one user query"
+    );
+    assert!(
+        agent
+            .effective_prompt()
+            .section_keys
+            .contains(&"protocol_prompt_sources"),
+        "the current query keeps the snapshotted source for every model request"
+    );
+
+    agent.refresh_protocol_prompt_sources_for_query().await;
+
+    assert!(
+        !agent
+            .effective_prompt()
+            .section_keys
+            .contains(&"protocol_prompt_sources")
+    );
 }
 
 #[tokio::test]

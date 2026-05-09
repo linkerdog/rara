@@ -50,7 +50,7 @@ Active backlog only. Keep this file small and current.
 - [x] Tests for workspace prompt-source discovery and cache invalidation (cwd changes, git branches, nested workspaces).
 - [x] Define `WorkspaceMemory` cache invalidation rules for prompt files and environment info (see `docs/features/workspace-memory-cache.md`).
 - [x] Unify `discover_prompt_sources()` and TUI `/status` source reporting.
-- [ ] New prompt inputs through structured source objects, `MemorySelection`, lifecycle events, and runtime-control provenance — not ad hoc text. Prompt-source provenance is now retained in `PromptSourceRegistry`, and snapshots can now convert into prompt-runtime sources visible through `EffectivePrompt` and `/context`; next slice should wire live registry snapshots into agent/runtime config during request assembly.
+- [ ] New prompt inputs through structured source objects, `MemorySelection`, lifecycle events, and runtime-control provenance — not ad hoc text. Protocol prompt sources now retain provenance, convert into prompt-runtime sources, and atomically snapshot from the live registry at the user-query boundary; next slice should add lifecycle events for injection/expiration and extend the same bridge to protocol skill/hook visibility.
 - [ ] Project-scoped extension surface for `.claude/agents/`, `.claude/hooks/`, `.agents/skills/` with precedence rules.
 - [ ] Claude-style `verify` skill and `verifier-*` convention (see `docs/features/verify-skill.md`).
 - [ ] Evolve `SkillTool` to Codex/Claude contract (see `docs/features/skill-tool.md`): frontmatter, scopes, override visibility.

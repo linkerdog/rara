@@ -3,6 +3,7 @@ use crate::context::{
     AssembledContext, AssembledTurnContext, ContextAssembler, RuntimeContextInputs,
     RuntimeInteractionInput,
 };
+use crate::protocol_sources::PromptSourceRegistry;
 use crate::tool_result::ToolResultProjectionPolicy;
 
 impl Agent {
@@ -85,8 +86,22 @@ impl Agent {
         self.prompt_config = prompt_config;
     }
 
+    pub fn set_prompt_source_registry(
+        &mut self,
+        prompt_source_registry: std::sync::Arc<PromptSourceRegistry>,
+    ) {
+        self.prompt_source_registry = Some(prompt_source_registry);
+    }
+
     pub fn prompt_config(&self) -> &PromptRuntimeConfig {
         &self.prompt_config
+    }
+
+    pub(crate) async fn refresh_protocol_prompt_sources_for_query(&mut self) {
+        let Some(registry) = self.prompt_source_registry.as_ref() else {
+            return;
+        };
+        self.prompt_config.protocol_prompt_sources = registry.list_prompt_sources_for_query().await;
     }
 
     pub fn set_cancellation_token(
