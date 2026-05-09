@@ -187,6 +187,26 @@ workspace-scoped memory without a thread id, but thread-scoped memory must pass
 `thread_id` in metadata so future control-plane clients cannot create ambiguous
 thread records.
 
+## Periodic Promotion Policy Gate
+
+Periodic session-shard promotion must be opt-in. The explicit API
+`SessionManager::promote_session_context_memories` remains available for manual
+or control-plane-triggered promotion, but scheduler-style callers should use the
+policy-gated path:
+
+- `SessionShardPromotionPolicy` defaults to disabled.
+- `min_checkpoints` avoids promoting tiny or accidental shards.
+- `max_checkpoints` bounds the tail of context checkpoints passed to
+  distillation.
+- `SessionShardPromotionTrigger` records whether the attempt came from a
+  periodic scheduler, shutdown hook, or runtime-control request.
+- `SessionShardPromotionOutcome` reports eligible/skipped state and promoted
+  count so `/context`, ACP/Wire, and future OTEL exporters can observe promotion
+  attempts without parsing logs.
+
+The first gated path does not install a timer. It provides the contract that any
+future scheduler must call before writing durable memory in the background.
+
 ## MemoryStore API
 
 - `insert(record) -> MemoryRecord` — persist with auto-embedding
@@ -321,9 +341,12 @@ Current implementation checkpoint:
 11. Move raw session checkpoints out of the global `conversations` LanceDB table
    into per-session append shards. Done.
 12. Add explicit promotion from session shards into global `MemoryRecord`s.
-    Done for API-triggered promotion; periodic scheduling remains future work.
-13. Deprecate `VectorDB`.
-14. Remove `VectorDB`.
+    Done for API-triggered promotion.
+13. Add scheduler/policy gates for periodic session-shard promotion.
+    Done for opt-in policy evaluation and observable outcomes; a real periodic
+    timer remains future work.
+14. Deprecate `VectorDB`.
+15. Remove `VectorDB`.
 
 ## Source Journals
 

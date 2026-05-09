@@ -4,6 +4,7 @@ use serde_json::Value;
 use crate::agent::{AgentEvent, BashApprovalDecision};
 use crate::context::{ContextObservabilityView, RetrievalOrchestrationView};
 use crate::mcp_status::{McpConnectionState, McpStatusSnapshot};
+use crate::session_promotion::SessionShardPromotionOutcome;
 use crate::todo::TodoState;
 use crate::tool::ToolOutputStream;
 
@@ -523,6 +524,9 @@ pub enum MemoryEvent {
     },
     RecordsQueried {
         records: Vec<MemoryRecordSummary>,
+    },
+    SessionShardPromotionObserved {
+        outcome: SessionShardPromotionOutcome,
     },
     SelectionUpdated,
 }
@@ -1301,6 +1305,50 @@ mod tests {
                             "session_id": "session-1",
                             "thread_id": null
                         }]
+                    }
+                }
+            })
+        );
+
+        let promotion = serde_json::to_value(RuntimeEvent::Memory(
+            MemoryEvent::SessionShardPromotionObserved {
+                outcome: crate::session_promotion::SessionShardPromotionOutcome {
+                    plan: crate::session_promotion::SessionShardPromotionPlan {
+                        session_id: "session-1".to_string(),
+                        trigger: crate::session_promotion::SessionShardPromotionTrigger::Periodic,
+                        checkpoint_count: 2,
+                        min_checkpoints: 2,
+                        max_checkpoints: 8,
+                        decision: crate::session_promotion::SessionShardPromotionDecision::Skipped {
+                            reason: crate::session_promotion::SessionShardPromotionSkipReason::Disabled,
+                        },
+                    },
+                    promoted_count: 0,
+                },
+            },
+        ))
+        .unwrap();
+        assert_eq!(
+            promotion,
+            json!({
+                "type": "memory",
+                "payload": {
+                    "type": "session_shard_promotion_observed",
+                    "payload": {
+                        "outcome": {
+                            "plan": {
+                                "session_id": "session-1",
+                                "trigger": "periodic",
+                                "checkpoint_count": 2,
+                                "min_checkpoints": 2,
+                                "max_checkpoints": 8,
+                                "decision": {
+                                    "status": "skipped",
+                                    "reason": "disabled"
+                                }
+                            },
+                            "promoted_count": 0
+                        }
                     }
                 }
             })

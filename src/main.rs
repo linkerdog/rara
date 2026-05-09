@@ -28,6 +28,7 @@ mod runtime_event_bus;
 mod sandbox;
 mod session;
 mod session_context;
+mod session_promotion;
 mod session_transcript;
 mod shell_env;
 mod skill;
