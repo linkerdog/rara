@@ -7,6 +7,11 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use async_trait::async_trait;
 use futures::stream::{self, StreamExt, TryStreamExt};
+use rara_memory::vectordb::VectorDB;
+use rara_state::state_db::{
+    PersistedCompactState, PersistedInteraction, PersistedPlanStep, PersistedPromptRuntimeState,
+    StateDb,
+};
 use rara_tool_macros::tool_spec;
 use serde_json::{Value, json};
 
@@ -17,15 +22,10 @@ use crate::llm::LlmBackend;
 use crate::prompt::PromptRuntimeConfig;
 use crate::session::SessionManager;
 use crate::session_transcript::{self, TranscriptScope};
-use crate::state_db::{
-    PersistedCompactState, PersistedInteraction, PersistedPlanStep, PersistedPromptRuntimeState,
-    StateDb,
-};
 use crate::thread_store::{ThreadRecorder, ThreadRuntimeLineage, ThreadRuntimeState};
 use crate::tool::{Tool, ToolCallContext, ToolError, ToolManager};
 use crate::tools::file::{ListFilesTool, ReadFileTool};
 use crate::tools::search::{GlobTool, GrepTool};
-use crate::vectordb::VectorDB;
 use crate::workspace::WorkspaceMemory;
 
 #[derive(Clone, Copy, Debug)]
@@ -1297,6 +1297,9 @@ mod tests {
     };
 
     use async_trait::async_trait;
+    use rara_memory::vectordb::VectorDB;
+    use rara_state::state_db::{PersistedStructuredRolloutEvent, StateDb};
+    use rara_state::thread_rollout_log;
     use serde_json::json;
     use tempfile::tempdir;
     use tokio::time::{Duration, sleep};
@@ -1312,15 +1315,12 @@ mod tests {
     use crate::prompt::PromptRuntimeConfig;
     use crate::session::SessionManager;
     use crate::session_transcript::{load_transcript, model_visible_messages};
-    use crate::state_db::{PersistedStructuredRolloutEvent, StateDb};
-    use crate::thread_rollout_log;
     use crate::thread_store::{ThreadMetadataSource, ThreadStore};
     use crate::tool::{Tool, ToolCallContext, ToolError};
     use crate::tools::agent::{
         AgentTool, ExploreAgentTool, PlanAgentTool, SubAgentResumeTool, SubAgentStopTool,
         TeamCreateTool,
     };
-    use crate::vectordb::VectorDB;
     use crate::workspace::WorkspaceMemory;
 
     struct CountingBackend {

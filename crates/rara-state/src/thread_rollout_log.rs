@@ -12,30 +12,30 @@ fn rollout_log_write_lock() -> &'static Mutex<()> {
     LOCK.get_or_init(|| Mutex::new(()))
 }
 
-pub(crate) fn rollout_events_log_path(root_dir: &Path, thread_id: &str) -> PathBuf {
+pub fn rollout_events_log_path(root_dir: &Path, thread_id: &str) -> PathBuf {
     root_dir.join(thread_id).join("events.jsonl")
 }
 
-pub(crate) fn rollout_events_snapshot_path(root_dir: &Path, thread_id: &str) -> PathBuf {
+pub fn rollout_events_snapshot_path(root_dir: &Path, thread_id: &str) -> PathBuf {
     root_dir.join(thread_id).join("events.json")
 }
 
-pub(crate) struct RolloutEventRecorder {
+pub struct RolloutEventRecorder {
     path: PathBuf,
 }
 
 impl RolloutEventRecorder {
-    pub(crate) fn new(root_dir: &Path, thread_id: &str) -> Self {
+    pub fn new(root_dir: &Path, thread_id: &str) -> Self {
         Self {
             path: rollout_events_log_path(root_dir, thread_id),
         }
     }
 
-    pub(crate) fn append_event(&self, event: &PersistedStructuredRolloutEvent) -> Result<()> {
+    pub fn append_event(&self, event: &PersistedStructuredRolloutEvent) -> Result<()> {
         append_rollout_event_to_path(&self.path, event)
     }
 
-    pub(crate) fn flush(&self) -> Result<()> {
+    pub fn flush(&self) -> Result<()> {
         if let Some(parent) = self.path.parent()
             && parent.exists()
         {
@@ -44,12 +44,12 @@ impl RolloutEventRecorder {
         Ok(())
     }
 
-    pub(crate) fn shutdown(self) -> Result<()> {
+    pub fn shutdown(self) -> Result<()> {
         self.flush()
     }
 }
 
-pub(crate) fn append_rollout_event_line(
+pub fn append_rollout_event_line(
     root_dir: &Path,
     thread_id: &str,
     event: &PersistedStructuredRolloutEvent,
@@ -89,7 +89,7 @@ fn sync_parent_dir_best_effort(parent: &Path) {
 #[cfg(not(unix))]
 fn sync_parent_dir_best_effort(_parent: &Path) {}
 
-pub(crate) fn load_rollout_events(
+pub fn load_rollout_events(
     root_dir: &Path,
     thread_id: &str,
 ) -> Result<Vec<PersistedStructuredRolloutEvent>> {

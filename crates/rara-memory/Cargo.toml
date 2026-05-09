@@ -1,0 +1,16 @@
+[package]
+name = "rara-memory"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+rara-persistence = { path = "../rara-persistence" }
+anyhow.workspace = true
+serde = { version = "1", features = ["derive"] }
+arrow-array = "57.2"
+arrow-schema = "57.2"
+futures = "0.3"
+lance-index = "=4.0.0"
+lancedb = "0.27"
+tokio = { version = "1", features = ["sync"] }

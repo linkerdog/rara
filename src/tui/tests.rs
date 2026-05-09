@@ -2,6 +2,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use crossterm::event::{Event, KeyCode, KeyEvent, KeyModifiers, MouseEvent, MouseEventKind};
+use rara_memory::vectordb::VectorDB;
 use secrecy::ExposeSecret;
 use tempfile::tempdir;
 use tokio::sync::mpsc;
@@ -20,7 +21,6 @@ use crate::session::SessionManager;
 use crate::tool::ToolManager;
 use crate::tools::bash::BashCommandInput;
 use crate::tui::command::palette_commands;
-use crate::vectordb::VectorDB;
 use crate::workspace::WorkspaceMemory;
 
 fn key(code: KeyCode) -> KeyEvent {
