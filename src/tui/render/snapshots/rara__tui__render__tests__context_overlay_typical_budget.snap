@@ -6,6 +6,7 @@ expression: rendered
 Context Usage
 
   model          anthropic/claude-sonnet-4
+  auxiliary      anthropic/claude-sonnet-4 (fallback)
   window         200.0K tokens
   ░░░░□□□□□□□□□□□□□□□□□□□□□□□□□□□□□□□□□□□□□□□□□□□□□□□□□□□□□□□□□□□□□□□□□□□□
   10.2K / 200.0K  5.1% used

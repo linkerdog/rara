@@ -26,11 +26,17 @@ pub(crate) fn render_context_lines(app: &TuiApp, available_width: u16) -> Vec<Li
 
     // ── Context Usage ──
     section_header(&mut lines, "Context Usage");
+    let routing = app.model_routing_view();
+    kv(&mut lines, "model", &routing.main_model, Color::LightBlue);
     kv(
         &mut lines,
-        "model",
-        app.current_model_label(),
-        Color::LightBlue,
+        "auxiliary",
+        &format!("{} ({})", routing.auxiliary_model, routing.auxiliary_route),
+        if routing.auxiliary_uses_main_model {
+            TEXT_MUTED
+        } else {
+            Color::LightBlue
+        },
     );
     kv(
         &mut lines,

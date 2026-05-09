@@ -145,6 +145,16 @@ pub struct LocalCommand {
     pub arg: Option<String>,
 }
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ModelRoutingView {
+    pub main_model: String,
+    pub main_source: String,
+    pub auxiliary_model: String,
+    pub auxiliary_source: String,
+    pub auxiliary_route: String,
+    pub auxiliary_uses_main_model: bool,
+}
+
 pub struct CommandSpec {
     pub category: &'static str,
     pub name: &'static str,

@@ -103,7 +103,7 @@ Active backlog only. Keep this file small and current.
 - [x] Add terminal environment detection for TUI compatibility, diagnostics, and future OTEL attributes.
 - [ ] Surface terminal metadata in `/status` diagnostics and future OTEL attributes.
 - [ ] Add provider-gated cache-edit microcompact only for backends that explicitly declare cache-edit support.
-- [ ] Surface main model vs auxiliary model routing in `/status` and `/context`.
+- [x] Surface main model vs auxiliary model routing in `/status` and `/context`.
 - [ ] After context observability is complete, add an auxiliary-model compression hook for retrieval candidates without changing durable memory records.
 - [x] `ThreadStore` / `ThreadRecorder`: from façade over `SessionManager`+`StateDb` to true structured thread store.
 - [x] Thread-scoped and workspace-scoped `MemoryRecord` storage with promotion rules.
