@@ -191,6 +191,18 @@ impl TuiApp {
         self.sync_command_palette_with_input();
     }
 
+    /// Keep the composer cursor visible by adjusting `composer_scroll`.
+    pub fn maintain_composer_scroll(&mut self, _composer_width: u16, visible_height: u16) {
+        let (row, _col) = self.composer_visual_position_for_offset(self.composer_cursor_offset());
+
+        let height = visible_height.max(1) as usize;
+        if row < self.composer_scroll {
+            self.composer_scroll = row;
+        } else if row >= self.composer_scroll + height {
+            self.composer_scroll = row.saturating_sub(height).saturating_add(1);
+        }
+    }
+
     fn composer_visual_position_for_offset(&self, cursor_offset: usize) -> (usize, usize) {
         let max_width = self.terminal_width.max(1) as usize;
         let mut row = 0usize;

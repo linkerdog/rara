@@ -34,7 +34,7 @@ use super::tool_text::{
 use crate::tui::sub_agent_display::SubAgentKind;
 use crate::tui::theme::*;
 
-pub fn render(f: &mut Frame, app: &TuiApp) {
+pub fn render(f: &mut Frame, app: &mut TuiApp) {
     let bottom_pane_height = desired_bottom_pane_height(app, f.area().width, f.area().height);
 
     if f.area().width > 120 && app.sidebar_visible {
@@ -44,7 +44,7 @@ pub fn render(f: &mut Frame, app: &TuiApp) {
     }
 }
 
-fn render_narrow(f: &mut Frame, app: &TuiApp, bottom_pane_height: u16) {
+fn render_narrow(f: &mut Frame, app: &mut TuiApp, bottom_pane_height: u16) {
     let layout = Layout::default()
         .direction(Direction::Vertical)
         .constraints([Constraint::Fill(1), Constraint::Length(bottom_pane_height)])
@@ -63,7 +63,7 @@ fn render_narrow(f: &mut Frame, app: &TuiApp, bottom_pane_height: u16) {
     }
 }
 
-fn render_wide(f: &mut Frame, app: &TuiApp, bottom_pane_height: u16) {
+fn render_wide(f: &mut Frame, app: &mut TuiApp, bottom_pane_height: u16) {
     let layout = Layout::default()
         .direction(Direction::Horizontal)
         .constraints([

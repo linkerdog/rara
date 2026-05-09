@@ -128,7 +128,7 @@ fn transcript_render_stays_above_bottom_pane() {
 
     let width = 80;
     let height = 14;
-    let rendered = render_screen_text(&app, width, height);
+    let rendered = render_screen_text(&mut app, width, height);
     let lines = rendered.lines().collect::<Vec<_>>();
     let bottom_height = usize::from(desired_bottom_pane_height(&app, width, height));
     let transcript_end = usize::from(height).saturating_sub(bottom_height);
@@ -153,7 +153,7 @@ fn bottom_pane_background_covers_hint_and_footer_rows() {
 
     let width = 100;
     let height = 14;
-    let buffer = render_screen_buffer(&app, width, height);
+    let buffer = render_screen_buffer(&mut app, width, height);
     let bottom_height = desired_bottom_pane_height(&app, width, height);
     let bottom_start = height.saturating_sub(bottom_height);
     let expected_bg = Color::Reset;
@@ -327,12 +327,12 @@ fn renderable_transcript_lines_insert_turn_dividers_between_rounds() {
 #[test]
 fn startup_header_renders_but_does_not_enter_transcript_lines() {
     let temp = tempdir().expect("tempdir");
-    let app = TuiApp::new(ConfigManager {
+    let mut app = TuiApp::new(ConfigManager {
         path: temp.path().join("config.json"),
     })
     .expect("build tui app");
 
-    let rendered = render_screen_text(&app, 100, 24);
+    let rendered = render_screen_text(&mut app, 100, 24);
     assert!(rendered.contains("── RARA"));
 
     let transcript = renderable_transcript_lines(&app, 100)
@@ -803,7 +803,7 @@ fn ssh_startup_page_warns_without_opening_setup_window() {
     app.snapshot.cwd = "~/devel/opensource/rara".into();
     assert!(app.overlay.is_none());
 
-    let rendered = render_screen_text(&app, 100, 24);
+    let rendered = render_screen_text(&mut app, 100, 24);
     assert_snapshot!("ssh_startup_warning_screen", rendered);
 }
 
@@ -816,7 +816,7 @@ fn provider_picker_renders_as_full_overlay_on_standard_terminal() {
     .expect("build tui app");
     app.open_overlay(Overlay::ListPicker(ListPickerKind::Provider));
 
-    let rendered = render_screen_text(&app, 100, 24);
+    let rendered = render_screen_text(&mut app, 100, 24);
     let dir = display_directory_for_startup(&app);
     let rendered = rendered.replace(&dir, "<CWD>");
     assert_snapshot!("provider_picker_standard_terminal", rendered);
@@ -840,7 +840,7 @@ fn openai_model_picker_renders_profile_manager_not_endpoint_presets() {
     app.config.set_api_key("sk-openrouter");
     app.open_overlay(Overlay::ListPicker(ListPickerKind::Model));
 
-    let rendered = render_screen_text(&app, 100, 24);
+    let rendered = render_screen_text(&mut app, 100, 24);
     assert!(rendered.contains("Model Picker"));
     assert!(rendered.contains("Select a model"));
     assert!(!rendered.contains("DeepSeek (openai-compatible/deepseek-chat)"));
@@ -865,7 +865,7 @@ fn deepseek_model_picker_renders_catalog_models_and_refresh_hint() {
     ]);
     app.open_overlay(Overlay::ListPicker(ListPickerKind::Model));
 
-    let rendered = render_screen_text(&app, 100, 24);
+    let rendered = render_screen_text(&mut app, 100, 24);
     assert!(rendered.contains("Model Picker"));
     assert!(rendered.contains("Select a model"));
     assert!(rendered.contains("deepseek-chat"));
@@ -893,7 +893,7 @@ fn openai_model_picker_renders_profile_defaults_when_fields_are_empty() {
     profile.base_url = None;
     app.open_overlay(Overlay::ListPicker(ListPickerKind::Model));
 
-    let rendered = render_screen_text(&app, 100, 24);
+    let rendered = render_screen_text(&mut app, 100, 24);
     assert!(rendered.contains("Model Picker"));
     assert!(rendered.contains("Select a model"));
     assert!(rendered.contains("Select Profile"));
@@ -909,7 +909,7 @@ fn command_palette_query_uses_full_width_without_leaking_bottom_status() {
     app.input = "/m".into();
     app.open_overlay(Overlay::CommandPalette);
 
-    let rendered = render_screen_text(&app, 107, 53);
+    let rendered = render_screen_text(&mut app, 107, 53);
     assert!(rendered.contains("/model"));
     assert!(!rendered.contains("ctx~="));
     assert!(!rendered.contains("enter run  esc close"));
@@ -925,7 +925,7 @@ fn command_palette_empty_query_does_not_render_inline_footer_hint() {
     app.input = "/".into();
     app.open_overlay(Overlay::CommandPalette);
 
-    let rendered = render_screen_text(&app, 107, 53);
+    let rendered = render_screen_text(&mut app, 107, 53);
     assert!(rendered.contains("/approval"));
     assert!(rendered.contains("/model"));
     assert!(!rendered.contains("enter run  esc close"));
@@ -947,7 +947,7 @@ fn api_key_editor_renders_full_prompt_on_standard_terminal() {
     app.provider_picker_idx = provider_family_idx(ProviderFamily::OpenAiCompatible);
     app.open_overlay(Overlay::ApiKeyEditor);
 
-    let rendered = render_screen_text(&app, 100, 24);
+    let rendered = render_screen_text(&mut app, 100, 24);
     assert_snapshot!("api_key_editor_standard_terminal", rendered);
 }
 
@@ -964,7 +964,7 @@ fn deepseek_api_key_editor_uses_deepseek_copy() {
     app.config.set_api_key("sk-deepseek");
     app.open_overlay(Overlay::ApiKeyEditor);
 
-    let rendered = render_screen_text(&app, 100, 24);
+    let rendered = render_screen_text(&mut app, 100, 24);
     assert!(rendered.contains("DeepSeek API Key"));
     assert!(rendered.contains("Paste a DeepSeek API key"));
     assert!(rendered.contains("Enter save and load models"));
@@ -973,7 +973,7 @@ fn deepseek_api_key_editor_uses_deepseek_copy() {
     assert!(!rendered.contains("Esc back to login guide"));
 }
 
-fn render_screen_text(app: &TuiApp, width: u16, height: u16) -> String {
+fn render_screen_text(app: &mut TuiApp, width: u16, height: u16) -> String {
     let buffer = render_screen_buffer(app, width, height);
 
     (0..height)
@@ -988,7 +988,7 @@ fn render_screen_text(app: &TuiApp, width: u16, height: u16) -> String {
         .join("\n")
 }
 
-fn render_screen_buffer(app: &TuiApp, width: u16, height: u16) -> Buffer {
+fn render_screen_buffer(app: &mut TuiApp, width: u16, height: u16) -> Buffer {
     let area = Rect::new(0, 0, width, height);
     let mut buffer = Buffer::empty(area);
     let mut frame = Frame {
