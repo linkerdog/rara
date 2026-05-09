@@ -1023,6 +1023,8 @@ mod tests {
                     enabled: true,
                     budget_chars: 48_000,
                     keep_recent: 6,
+                    cache_edit_eligible: false,
+                    cache_edit_applied: false,
                     original_chars: 60_000,
                     projected_chars: 30_000,
                     saved_chars: 30_000,

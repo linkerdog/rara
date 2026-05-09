@@ -497,6 +497,8 @@ mod tests {
                     projected_chars: 40_000,
                     cleared_results: 2,
                     kept_results: 6,
+                    cache_edit_eligible: false,
+                    cache_edit_applied: false,
                 },
                 agent_turn_trace: AgentTurnTraceView::default(),
             },

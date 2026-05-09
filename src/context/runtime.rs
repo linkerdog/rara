@@ -340,6 +340,8 @@ pub struct MicrocompactProjectionContextView {
     pub enabled: bool,
     pub budget_chars: usize,
     pub keep_recent: usize,
+    pub cache_edit_eligible: bool,
+    pub cache_edit_applied: bool,
     pub original_chars: usize,
     pub projected_chars: usize,
     pub saved_chars: usize,
@@ -356,12 +358,30 @@ impl MicrocompactProjectionContextView {
             enabled: policy.enabled,
             budget_chars: policy.budget_chars,
             keep_recent: policy.keep_recent,
+            cache_edit_eligible: policy.cache_edit_eligible || report.cache_edit_eligible,
+            cache_edit_applied: report.cache_edit_applied,
             original_chars: report.original_chars,
             projected_chars: report.projected_chars,
             saved_chars: report.original_chars.saturating_sub(report.projected_chars),
             cleared_results: report.cleared_results,
             kept_results: report.kept_results,
         }
+    }
+}
+
+#[cfg(test)]
+mod microcompact_projection_tests {
+    use super::*;
+
+    #[test]
+    fn cache_edit_eligibility_comes_from_policy_even_before_projection_report() {
+        let view = MicrocompactProjectionContextView::from_report(
+            &ToolResultProjectionPolicy::default().for_provider_cache_edit(true),
+            &ToolResultProjectionReport::default(),
+        );
+
+        assert!(view.cache_edit_eligible);
+        assert!(!view.cache_edit_applied);
     }
 }
 

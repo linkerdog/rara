@@ -70,7 +70,8 @@ impl Agent {
             mcp_resource_candidates: &self.mcp_resource_candidates,
             hook_output_candidates: &self.hook_output_candidates,
             graph_context_candidates: &self.graph_context_candidates,
-            tool_result_projection_policy: ToolResultProjectionPolicy::default(),
+            tool_result_projection_policy: ToolResultProjectionPolicy::default()
+                .for_provider_cache_edit(self.llm_backend.cache_profile().cache_edit),
             tool_result_projection_report: self.last_tool_result_projection_report.clone(),
             agent_turn_trace: self.last_agent_turn_trace.clone(),
         }

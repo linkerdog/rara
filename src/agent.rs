@@ -396,10 +396,10 @@ impl Agent {
             .filter(|message| !is_compact_boundary_message(message))
             .cloned()
             .collect::<Vec<_>>();
-        let (mut messages, projection_report) = project_tool_results_for_context(
-            &history_for_query,
-            &ToolResultProjectionPolicy::default(),
-        );
+        let projection_policy = ToolResultProjectionPolicy::default()
+            .for_provider_cache_edit(self.llm_backend.cache_profile().cache_edit);
+        let (mut messages, projection_report) =
+            project_tool_results_for_context(&history_for_query, &projection_policy);
         self.last_tool_result_projection_report = projection_report.clone();
         if projection_report.cleared_results > 0 {
             report(AgentEvent::Status(format!(
