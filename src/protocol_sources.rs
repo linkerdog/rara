@@ -14,7 +14,7 @@
 //! - Memory: protocol-registered records are treated as normal memory
 //!   records with protocol provenance.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 
 use anyhow::{Result, bail};
@@ -138,13 +138,6 @@ impl PromptSourceRegistry {
 
 // ── Skill source registry ───────────────────────────────────────────────
 
-/// Stored entry for a protocol-registered skill or skill root.
-#[derive(Clone, Debug)]
-pub struct SkillSourceEntry {
-    pub source_id: String,
-    pub precedence_hint: Option<i32>,
-}
-
 /// Registry for protocol-registered skill sources.
 ///
 /// This is intentionally thin: it records protocol-origin metadata that
@@ -152,10 +145,10 @@ pub struct SkillSourceEntry {
 /// same precedence/resolution as local `SKILL.md` files.
 pub struct SkillSourceRegistry {
     event_bus: Arc<RuntimeEventBus>,
-    /// Protocol-registered skill roots (path overrides).
-    roots: RwLock<BTreeMap<String, SkillSourceEntry>>,
-    /// Protocol-registered inline skills (name → entry).
-    skills: RwLock<BTreeMap<String, SkillSourceEntry>>,
+    /// Protocol-registered skill roots (source ids).
+    roots: RwLock<BTreeSet<String>>,
+    /// Protocol-registered inline skills (skill names).
+    skills: RwLock<BTreeSet<String>>,
     /// Disabled skill names.
     disabled: RwLock<Vec<String>>,
 }
@@ -164,8 +157,8 @@ impl SkillSourceRegistry {
     pub fn new(event_bus: Arc<RuntimeEventBus>) -> Self {
         Self {
             event_bus,
-            roots: RwLock::new(BTreeMap::new()),
-            skills: RwLock::new(BTreeMap::new()),
+            roots: RwLock::new(BTreeSet::new()),
+            skills: RwLock::new(BTreeSet::new()),
             disabled: RwLock::new(Vec::new()),
         }
     }
@@ -177,13 +170,7 @@ impl SkillSourceRegistry {
                 root: _root,
                 precedence_hint,
             } => {
-                self.roots.write().await.insert(
-                    source_id.clone(),
-                    SkillSourceEntry {
-                        source_id: source_id.clone(),
-                        precedence_hint: *precedence_hint,
-                    },
-                );
+                self.roots.write().await.insert(source_id.clone());
             }
             SkillSourceControlRequest::RegisterSkill {
                 source_id,
@@ -191,13 +178,7 @@ impl SkillSourceRegistry {
                 content: _content,
                 precedence_hint,
             } => {
-                self.skills.write().await.insert(
-                    name.clone(),
-                    SkillSourceEntry {
-                        source_id: source_id.clone(),
-                        precedence_hint: *precedence_hint,
-                    },
-                );
+                self.skills.write().await.insert(name.clone());
             }
             SkillSourceControlRequest::DisableSkill {
                 name,
@@ -206,8 +187,8 @@ impl SkillSourceRegistry {
                 self.disabled.write().await.push(name.clone());
             }
             SkillSourceControlRequest::QuerySkills => {
-                let roots: Vec<String> = self.roots.read().await.keys().cloned().collect();
-                let skills: Vec<String> = self.skills.read().await.keys().cloned().collect();
+                let roots: Vec<String> = self.roots.read().await.iter().cloned().collect();
+                let skills: Vec<String> = self.skills.read().await.iter().cloned().collect();
                 for source_id in roots.into_iter().chain(skills) {
                     let _ = self.event_bus.publish_control(RuntimeEvent::PromptSource(
                         PromptSourceEvent::Registered { source_id },
