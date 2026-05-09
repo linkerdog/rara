@@ -15,6 +15,7 @@ use crate::runtime_event_bus::RuntimeEventBus;
 
 /// Subscribes to RuntimeEventBus and yields ACP SessionNotification
 /// for each AgentEvent. The caller sends notifications to the ACP client.
+#[allow(dead_code)]
 pub struct AcpConsumer {
     rx: tokio::sync::broadcast::Receiver<AgentEvent>,
     session_id: SessionId,
@@ -63,7 +64,7 @@ impl AcpConsumer {
                 ))
             }
             // Tool use: emit as notification chunk
-            Ok(AgentEvent::ToolUse { name, input }) => {
+            Ok(AgentEvent::ToolUse { name, input: _ }) => {
                 let label = format!("[Tool: {name}]\n");
                 let chunk = ContentChunk::new(agent_client_protocol::schema::ContentBlock::Text(
                     TextContent::new(label),
@@ -179,7 +180,6 @@ mod tests {
         // Since next_notification is single-consumer per event,
         // we send a text event after to unblock.
         let bus2 = bus.clone();
-        let sid = session_id.clone();
         tokio::spawn(async move {
             tokio::time::sleep(std::time::Duration::from_millis(50)).await;
             bus2.send_with_provenance(

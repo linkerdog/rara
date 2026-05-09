@@ -1,3 +1,5 @@
+#![allow(unused_imports)]
+
 mod acp;
 mod acp_consumer;
 mod agent;

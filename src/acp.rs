@@ -182,8 +182,9 @@ impl RaraAcpAgent {
 
             // -- Call LLM with streaming callback for text deltas --
             let cx_for_cb = cx.clone();
-            let sid_for_cb = session_id.to_string();
+            let sid_cb = session_id.to_string();
             let bus_for_cb = bus.clone();
+            let sid_for_notif = session_id.clone();
 
             let mut on_event = move |event: LlmStreamEvent| {
                 if let LlmStreamEvent::TextDelta(text) = event {
@@ -192,7 +193,7 @@ impl RaraAcpAgent {
                             TextContent::new(text.clone()),
                         ));
                     let _ = cx_for_cb.send_notification(SessionNotification::new(
-                        session_id.clone(),
+                        sid_for_notif.clone(),
                         SessionUpdate::AgentMessageChunk(chunk),
                     ));
                     let _ = bus_for_cb.send_with_provenance(
@@ -200,7 +201,7 @@ impl RaraAcpAgent {
                         crate::runtime_control::RuntimeProvenance {
                             controller: RuntimeControllerKind::Acp,
                             adapter: None,
-                            session_id: Some(sid_for_cb.clone()),
+                            session_id: Some(sid_cb.clone()),
                             source_id: None,
                             trust: crate::runtime_control::RuntimeSourceTrust::Trusted,
                             authorship: crate::runtime_control::RuntimeSourceAuthorship::Generated,
@@ -228,14 +229,7 @@ impl RaraAcpAgent {
                 }
             };
 
-            // -- Separate text and tool-use blocks from the LLM response --
-            let text_blocks: Vec<ContentBlock> = response
-                .content
-                .iter()
-                .filter(|b| matches!(b, ContentBlock::Text { .. }))
-                .cloned()
-                .collect();
-
+            // -- Separate tool-use blocks from the LLM response --
             let tool_uses: Vec<&ContentBlock> = response
                 .content
                 .iter()
