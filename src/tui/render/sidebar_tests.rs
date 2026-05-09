@@ -551,7 +551,10 @@ fn push_files_in_context_detects_replace() {
         .map(|l| l.to_string())
         .collect::<Vec<_>>()
         .join("\n");
-    assert!(text.contains("Changed:"), "replace should be a changed file");
+    assert!(
+        text.contains("Changed:"),
+        "replace should be a changed file"
+    );
     assert!(text.contains("src/main.rs"), "should show replaced path");
 }
 
@@ -573,8 +576,14 @@ fn push_files_in_context_detects_multi_edit() {
         .map(|l| l.to_string())
         .collect::<Vec<_>>()
         .join("\n");
-    assert!(text.contains("Changed:"), "multi_edit should be a changed file");
-    assert!(text.contains("crates/lib.rs"), "should show multi_edit path");
+    assert!(
+        text.contains("Changed:"),
+        "multi_edit should be a changed file"
+    );
+    assert!(
+        text.contains("crates/lib.rs"),
+        "should show multi_edit path"
+    );
 }
 
 #[test]
@@ -585,7 +594,10 @@ fn push_files_in_context_detects_replace_lines() {
     })
     .expect("build tui app");
     app.committed_turns = vec![TranscriptTurn {
-        entries: vec![TranscriptEntry::new("Tool", "replace_lines src/tui/sidebar.rs")],
+        entries: vec![TranscriptEntry::new(
+            "Tool",
+            "replace_lines src/tui/sidebar.rs",
+        )],
     }];
 
     let mut lines = Vec::new();
@@ -595,8 +607,14 @@ fn push_files_in_context_detects_replace_lines() {
         .map(|l| l.to_string())
         .collect::<Vec<_>>()
         .join("\n");
-    assert!(text.contains("Changed:"), "replace_lines should be a changed file");
-    assert!(text.contains("src/tui/sidebar.rs"), "should show replace_lines path");
+    assert!(
+        text.contains("Changed:"),
+        "replace_lines should be a changed file"
+    );
+    assert!(
+        text.contains("src/tui/sidebar.rs"),
+        "should show replace_lines path"
+    );
 }
 
 // ── PendingInteractionSnapshot default helper ───────────────────────
