@@ -1,7 +1,7 @@
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use crossterm::event::{Event, KeyCode, KeyEvent, KeyModifiers, MouseEvent, MouseEventKind};
+use crossterm::event::{Event, KeyCode, KeyEvent, KeyModifiers};
 use rara_memory::vectordb::VectorDB;
 use secrecy::ExposeSecret;
 use tempfile::tempdir;
@@ -31,14 +31,6 @@ fn shifted_key(code: KeyCode) -> KeyEvent {
     KeyEvent::new(code, KeyModifiers::SHIFT)
 }
 
-fn mouse_scroll(kind: MouseEventKind) -> Event {
-    Event::Mouse(MouseEvent {
-        kind,
-        column: 0,
-        row: 0,
-        modifiers: KeyModifiers::NONE,
-    })
-}
 use super::state::{
     InteractionKind, ListPickerKind, Overlay, PendingApprovalSnapshot, PendingInteractionSnapshot,
     PermissionMode, ProviderFamily, RunningTask, StatusTab, TaskKind, TuiApp,
@@ -930,44 +922,6 @@ fn input_history_navigation_keeps_multiline_cursor_movement_for_unrecalled_text(
         map_key_to_event(key(KeyCode::Down), &app),
         AppEvent::MoveCursorDown
     ));
-}
-
-#[test]
-fn mouse_wheel_scrolls_transcript() {
-    let temp = tempdir().expect("tempdir");
-    let app = TuiApp::new(ConfigManager {
-        path: temp.path().join("config.json"),
-    })
-    .expect("app");
-
-    // First scroll without prior events → base 3 lines (factor 1.0).
-    match translate_event(mouse_scroll(MouseEventKind::ScrollUp), &app) {
-        Some(UiEvent::App(AppEvent::ScrollTranscript(delta))) => {
-            assert!(delta <= -3 && delta >= -15, "delta {delta} out of range");
-        }
-        event => panic!("unexpected event: {event:?}"),
-    }
-    match translate_event(mouse_scroll(MouseEventKind::ScrollDown), &app) {
-        Some(UiEvent::App(AppEvent::ScrollTranscript(delta))) => {
-            assert!(delta >= 3 && delta <= 15, "delta {delta} out of range");
-        }
-        event => panic!("unexpected event: {event:?}"),
-    }
-}
-
-#[test]
-fn mouse_wheel_does_not_scroll_transcript_behind_overlay() {
-    let temp = tempdir().expect("tempdir");
-    let mut app = TuiApp::new(ConfigManager {
-        path: temp.path().join("config.json"),
-    })
-    .expect("app");
-    app.open_overlay(Overlay::CommandPalette);
-
-    match translate_event(mouse_scroll(MouseEventKind::ScrollUp), &app) {
-        Some(UiEvent::App(AppEvent::Noop)) => {}
-        event => panic!("unexpected event: {event:?}"),
-    }
 }
 
 #[tokio::test]
