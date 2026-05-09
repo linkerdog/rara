@@ -15,6 +15,7 @@ use crate::tui::state::{
     InteractionKind, PendingInteractionSnapshot, RunningTask, RuntimePhase, RuntimeSnapshot,
     TaskCompletion, TaskKind, TuiApp,
 };
+use crate::tui::theme::STATUS_WARNING;
 
 #[test]
 fn footer_summary_text_is_empty_when_idle_and_no_repo_context() {
@@ -142,7 +143,7 @@ fn activity_status_line_renders_warning_notice_in_yellow() {
 
     let (label, color, detail) = activity_status_line(&app);
     assert_eq!(label, "Warning");
-    assert_eq!(color, Color::Yellow);
+    assert_eq!(color, STATUS_WARNING);
     assert!(detail.contains("missing an API key"));
 }
 

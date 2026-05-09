@@ -101,9 +101,7 @@ impl TranscriptViewport {
         let first_idx = self.layout.first_line_past(target_start);
         let first_inner_scroll =
             target_start.saturating_sub(self.layout.rows_before_line(first_idx)) as u16;
-        let last_exclusive_idx = self
-            .layout
-            .first_line_past(target_end.saturating_sub(1))
+        let last_exclusive_idx = (self.layout.first_line_past(target_end.saturating_sub(1)) + 1)
             .min(self.layout.line_count);
 
         (
