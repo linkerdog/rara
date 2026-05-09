@@ -62,7 +62,7 @@ async fn busy_submit_queues_follow_up_message() {
     app.bottom_pane.input = "continue with the follow-up".into();
 
     let (_sender, receiver) = mpsc::unbounded_channel();
-    app.bottom_pane.bottom_pane.running_task = Some(RunningTask {
+    app.bottom_pane.running_task = Some(RunningTask {
         kind: TaskKind::Query,
         receiver,
         handle: tokio::spawn(async move {
@@ -91,7 +91,6 @@ async fn busy_submit_queues_follow_up_message() {
     );
     assert!(
         app.bottom_pane
-            .bottom_pane
             .notice
             .as_deref()
             .is_some_and(|value| value.contains("Queued for after the next tool call boundary"))
@@ -101,7 +100,7 @@ async fn busy_submit_queues_follow_up_message() {
         Some("continue with the follow-up")
     );
 
-    if let Some(task) = app.bottom_pane.bottom_pane.running_task.take() {
+    if let Some(task) = app.bottom_pane.running_task.take() {
         task.handle.abort();
     }
 }
@@ -233,10 +232,9 @@ async fn pending_plan_approval_blocks_plain_submit() {
 
     assert!(!should_quit);
     assert!(app.has_pending_plan_approval());
-    assert!(app.bottom_pane.bottom_pane.running_task.is_none());
+    assert!(app.bottom_pane.running_task.is_none());
     assert!(
         app.bottom_pane
-            .bottom_pane
             .notice
             .as_deref()
             .is_some_and(|value| value.contains("Press 1 to start implementation"))
@@ -263,11 +261,10 @@ async fn submit_numeric_input_handles_pending_shell_approval() {
         .expect("submit");
 
     assert!(!should_quit);
-    assert!(app.bottom_pane.bottom_pane.running_task.is_none());
+    assert!(app.bottom_pane.running_task.is_none());
     assert_eq!(app.bottom_pane.input, "");
     assert!(
         app.bottom_pane
-            .bottom_pane
             .notice
             .as_deref()
             .is_some_and(|value| value.contains("Approval is still preparing"))
@@ -294,11 +291,10 @@ async fn plain_submit_queues_while_shell_approval_is_pending() {
         .expect("submit");
 
     assert!(!should_quit);
-    assert!(app.bottom_pane.bottom_pane.running_task.is_none());
+    assert!(app.bottom_pane.running_task.is_none());
     assert_eq!(app.queued_follow_up_preview(), Some("then review the diff"));
     assert!(
         app.bottom_pane
-            .bottom_pane
             .notice
             .as_deref()
             .is_some_and(|value| value.contains("pending interaction is answered"))
@@ -314,7 +310,7 @@ async fn esc_cancels_busy_query_without_overlay() {
     .expect("app");
 
     let (_sender, receiver) = mpsc::unbounded_channel();
-    app.bottom_pane.bottom_pane.running_task = Some(RunningTask {
+    app.bottom_pane.running_task = Some(RunningTask {
         kind: TaskKind::Query,
         receiver,
         handle: tokio::spawn(async move {
@@ -332,7 +328,7 @@ async fn esc_cancels_busy_query_without_overlay() {
         AppEvent::CancelRunningTask
     ));
 
-    if let Some(task) = app.bottom_pane.bottom_pane.running_task.take() {
+    if let Some(task) = app.bottom_pane.running_task.take() {
         task.handle.abort();
     }
 }
@@ -347,7 +343,7 @@ async fn busy_submit_allows_quit_command() {
     app.bottom_pane.input = "/quit".into();
 
     let (_sender, receiver) = mpsc::unbounded_channel();
-    app.bottom_pane.bottom_pane.running_task = Some(RunningTask {
+    app.bottom_pane.running_task = Some(RunningTask {
         kind: TaskKind::OAuth,
         receiver,
         handle: tokio::spawn(async move {
@@ -371,7 +367,7 @@ async fn busy_submit_allows_quit_command() {
 
     assert!(should_quit);
 
-    if let Some(task) = app.bottom_pane.bottom_pane.running_task.take() {
+    if let Some(task) = app.bottom_pane.running_task.take() {
         task.handle.abort();
     }
 }
@@ -409,7 +405,7 @@ async fn slash_palette_model_selection_opens_provider_picker_in_local_and_ssh() 
 
         assert!(matches!(app.overlay, Some(Overlay::ListPicker(_))));
         assert_eq!(
-            app.bottom_pane.bottom_pane.notice.as_deref(),
+            app.bottom_pane.notice.as_deref(),
             Some("Change the active model.")
         );
     }
@@ -521,7 +517,7 @@ fn test_agent_for_pending_approval(temp: &tempfile::TempDir) -> Agent {
 }
 
 fn abort_running_task(app: &mut TuiApp) {
-    if let Some(task) = app.bottom_pane.bottom_pane.running_task.take() {
+    if let Some(task) = app.bottom_pane.running_task.take() {
         task.handle.abort();
     }
 }
@@ -618,7 +614,7 @@ async fn full_access_permission_picker_resumes_pending_shell_approval_in_local_a
         assert_eq!(app.permission_mode, PermissionMode::FullAccess);
         assert!(app.pending_command_approval().is_none());
         assert!(agent_slot.is_none());
-        assert!(app.bottom_pane.bottom_pane.running_task.is_some());
+        assert!(app.bottom_pane.running_task.is_some());
         abort_running_task(&mut app);
     }
 }
@@ -655,7 +651,7 @@ async fn always_shell_approval_promotes_full_access_for_follow_up_commands() {
     );
     assert!(app.pending_command_approval().is_none());
     assert!(agent_slot.is_none());
-    assert!(app.bottom_pane.bottom_pane.running_task.is_some());
+    assert!(app.bottom_pane.running_task.is_some());
     abort_running_task(&mut app);
 }
 
@@ -682,7 +678,7 @@ async fn full_access_mode_resumes_stale_pending_shell_approval_from_shortcuts() 
 
         assert!(app.pending_command_approval().is_none());
         assert!(agent_slot.is_none());
-        assert!(app.bottom_pane.bottom_pane.running_task.is_some());
+        assert!(app.bottom_pane.running_task.is_some());
         abort_running_task(&mut app);
     }
 }
@@ -719,7 +715,7 @@ async fn full_access_mode_does_not_resume_shell_approval_behind_active_plan_appr
     );
     assert!(app.pending_command_approval().is_some());
     assert!(agent_slot.is_some());
-    assert!(app.bottom_pane.bottom_pane.running_task.is_none());
+    assert!(app.bottom_pane.running_task.is_none());
 }
 
 #[test]
@@ -1127,7 +1123,6 @@ fn app_starts_with_warning_instead_of_api_key_editor_for_hosted_provider_without
     assert!(app.overlay.is_none());
     assert!(
         app.bottom_pane
-            .bottom_pane
             .notice
             .as_deref()
             .is_some_and(|value| value.starts_with("Warning:"))
@@ -1179,10 +1174,10 @@ async fn openai_model_picker_delete_row_removes_active_profile() {
         Some(Overlay::ListPicker(ListPickerKind::Model))
     ));
     assert!(matches!(
-        app.bottom_pane.bottom_pane.running_task.as_ref(),
+        app.bottom_pane.running_task.as_ref(),
         Some(task) if matches!(task.kind, TaskKind::Rebuild)
     ));
-    if let Some(task) = app.bottom_pane.bottom_pane.running_task.take() {
+    if let Some(task) = app.bottom_pane.running_task.take() {
         task.handle.abort();
     }
 }
@@ -1281,10 +1276,10 @@ async fn deepseek_api_key_save_starts_model_catalog_task() {
 
     assert_eq!(app.config.api_key(), Some("sk-deepseek-test"));
     assert!(matches!(
-        app.bottom_pane.bottom_pane.running_task.as_ref(),
+        app.bottom_pane.running_task.as_ref(),
         Some(task) if matches!(task.kind, TaskKind::DeepSeekModels)
     ));
-    if let Some(task) = app.bottom_pane.bottom_pane.running_task.take() {
+    if let Some(task) = app.bottom_pane.running_task.take() {
         task.handle.abort();
     }
 }
@@ -1318,7 +1313,7 @@ async fn deepseek_model_picker_enter_without_api_key_opens_api_key_editor() {
     .expect("apply model selection");
 
     assert!(matches!(app.overlay, Some(Overlay::ApiKeyEditor)));
-    assert!(app.bottom_pane.bottom_pane.running_task.is_none());
+    assert!(app.bottom_pane.running_task.is_none());
 }
 
 #[tokio::test]
@@ -1352,7 +1347,7 @@ async fn deepseek_model_picker_api_key_action_opens_editor_even_when_key_exists(
     .expect("apply api key action");
 
     assert!(matches!(app.overlay, Some(Overlay::ApiKeyEditor)));
-    assert!(app.bottom_pane.bottom_pane.running_task.is_none());
+    assert!(app.bottom_pane.running_task.is_none());
 }
 
 #[tokio::test]
@@ -1660,7 +1655,6 @@ async fn save_api_key_input_allows_clearing_openai_compatible_credentials() {
     assert_eq!(app.config.api_key(), None);
     assert!(
         app.bottom_pane
-            .bottom_pane
             .notice
             .as_deref()
             .is_some_and(|value| value.contains("Cleared API key"))
@@ -1834,10 +1828,10 @@ async fn codex_model_picker_applies_single_reasoning_level_without_overlay() {
     assert_eq!(app.config.model.as_deref(), Some("gpt-5.2-codex"));
     assert_eq!(app.config.reasoning_effort.as_deref(), Some("high"));
     assert!(matches!(
-        app.bottom_pane.bottom_pane.running_task.as_ref(),
+        app.bottom_pane.running_task.as_ref(),
         Some(task) if matches!(task.kind, TaskKind::Rebuild)
     ));
-    if let Some(task) = app.bottom_pane.bottom_pane.running_task.take() {
+    if let Some(task) = app.bottom_pane.running_task.take() {
         task.handle.abort();
     }
 }

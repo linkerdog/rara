@@ -226,6 +226,7 @@ async fn finish_ready_query_task(app: &mut TuiApp, agent_slot: &mut Option<Agent
             .await
             .expect("finish task");
         if app
+            .bottom_pane
             .running_task
             .as_ref()
             .is_some_and(|task| matches!(task.kind, TaskKind::Query))
