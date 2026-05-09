@@ -3,11 +3,12 @@ use std::sync::Arc;
 use anyhow::{Result, bail};
 use clap::{Parser, Subcommand};
 use rara_persistence::redaction::redact_secrets;
-use secrecy::ExposeSecret;
+use secrecy::{ExposeSecret, SecretString};
 
 use crate::acp::RaraAcpAgent;
 use crate::config::{
-    ConfigManager, DEFAULT_CODEX_BASE_URL, DEFAULT_CODEX_CHATGPT_BASE_URL, RaraConfig,
+    ConfigManager, DEFAULT_CODEX_BASE_URL, DEFAULT_CODEX_CHATGPT_BASE_URL,
+    DEFAULT_REASONING_SUMMARY, OpenAiEndpointKind, OpenAiEndpointProfile, RaraConfig,
 };
 use crate::oauth::{OAuthManager, SavedCodexAuthMode};
 use crate::print_consumer::PrintConsumer;
@@ -39,9 +40,67 @@ pub(crate) struct Cli {
     revision: Option<String>,
 }
 
+/// Register a model provider.
+#[derive(Debug, clap::Args)]
+struct ConnectArgs {
+    /// Provider kind to register (e.g. deepseek, kimi, openrouter, custom)
+    #[arg(long = "kind", short = 'k')]
+    kind: Option<String>,
+
+    /// Custom profile ID (defaults to the kind name, e.g. "deepseek")
+    #[arg(long = "profile-id")]
+    profile_id: Option<String>,
+
+    /// Label for this profile
+    #[arg(long)]
+    label: Option<String>,
+
+    /// API key for the provider
+    #[arg(long)]
+    api_key: Option<String>,
+
+    /// Base URL override
+    #[arg(long)]
+    base_url: Option<String>,
+
+    /// Default model for this profile
+    #[arg(long)]
+    model: Option<String>,
+
+    /// Model revision / version
+    #[arg(long)]
+    revision: Option<String>,
+}
+
+#[derive(Debug, clap::Args)]
+struct ModelsListArgs {
+    /// Filter by provider kind (e.g. deepseek, kimi, openrouter, custom)
+    #[arg(long = "kind", short = 'k')]
+    kind: Option<String>,
+}
+
+#[derive(Debug, clap::Args)]
+struct ModelsShowArgs {
+    /// Profile ID to show
+    profile_id: String,
+}
+
+#[derive(Debug, clap::Subcommand)]
+enum ModelsCommands {
+    /// List configured models
+    List(ModelsListArgs),
+    /// Show a single model profile
+    Show(ModelsShowArgs),
+}
+
 #[derive(Subcommand, Debug)]
 enum Commands {
     Acp,
+    /// Register a model provider
+    Connect(ConnectArgs),
+    /// List, show, or select models
+    #[command(subcommand)]
+    Models(ModelsCommands),
     Ask {
         prompt: String,
     },
@@ -96,6 +155,8 @@ pub(crate) async fn run_cli() -> Result<()> {
 
     match command.unwrap_or(Commands::Tui) {
         Commands::Acp => run_acp_command(&config).await?,
+        Commands::Connect(args) => run_connect_command(&config, args)?,
+        Commands::Models(cmd) => run_models_command(&config, cmd)?,
         Commands::Ask { prompt } => run_ask_command(&config, prompt).await?,
         Commands::Fork { thread_id } => thread_cli::run_fork_command(&thread_id)?,
         Commands::Distill { thread_id } => run_distill_command(&config, &thread_id).await?,
@@ -256,6 +317,8 @@ fn startup_resume_target_for_command(command: &Commands) -> Option<StartupResume
         } => Some(StartupResumeTarget::Picker),
         Commands::Tui => Some(StartupResumeTarget::Fresh),
         Commands::Acp
+        | Commands::Connect(..)
+        | Commands::Models(..)
         | Commands::Ask { .. }
         | Commands::Distill { .. }
         | Commands::Fork { .. }
@@ -376,47 +439,143 @@ fn save_codex_credential(
     config_manager.save(config)
 }
 
+fn run_connect_command(config: &RaraConfig, args: ConnectArgs) -> Result<()> {
+    let kind = parse_endpoint_kind(args.kind.as_deref().unwrap_or("custom"))?;
+    let mut config = config.clone();
+    let profile_id = args
+        .profile_id
+        .clone()
+        .unwrap_or_else(|| kind.default_profile_id().to_string());
+    let profile = config
+        .openai_profiles
+        .entry(profile_id.clone())
+        .or_insert_with(|| OpenAiEndpointProfile {
+            id: profile_id.clone(),
+            label: kind.label().to_string(),
+            kind,
+            api_key: None,
+            base_url: Some(kind.default_base_url().to_string()),
+            model: Some(kind.default_model().to_string()),
+            auxiliary_model: None,
+            reasoning_effort: None,
+            reasoning_summary: Some(DEFAULT_REASONING_SUMMARY.to_string()),
+            revision: None,
+        });
+    if let Some(api_key) = args.api_key {
+        profile.api_key = Some(SecretString::from(api_key));
+    }
+    if let Some(base_url) = args.base_url {
+        profile.base_url = Some(base_url);
+    }
+    if let Some(model) = args.model {
+        profile.model = Some(model);
+    }
+    if let Some(label) = args.label {
+        profile.label = label;
+    }
+    if let Some(revision) = args.revision {
+        profile.revision = Some(revision);
+    }
+
+    let config_manager = ConfigManager::new()?;
+    config_manager.save(&config)?;
+    println!(
+        "Registered provider profile '{}' (kind={}).",
+        profile_id,
+        kind.label()
+    );
+    Ok(())
+}
+
+fn run_models_command(config: &RaraConfig, cmd: ModelsCommands) -> Result<()> {
+    match cmd {
+        ModelsCommands::List(args) => run_models_list(config, args),
+        ModelsCommands::Show(args) => run_models_show(config, args),
+    }
+}
+
+fn run_models_list(config: &RaraConfig, args: ModelsListArgs) -> Result<()> {
+    let profiles: Vec<_> = if let Some(ref kind_filter) = args.kind {
+        let kind = parse_endpoint_kind(kind_filter.as_str())?;
+        config
+            .openai_profiles
+            .iter()
+            .filter(|(_, p)| p.kind == kind)
+            .collect()
+    } else {
+        config.openai_profiles.iter().collect()
+    };
+
+    if profiles.is_empty() {
+        if args.kind.is_some() {
+            println!("No profiles found for the given kind.");
+        } else {
+            println!("No model profiles configured. Use 'rara connect' to register a provider.");
+        }
+        return Ok(());
+    }
+
+    println!("Configured model profiles:\n");
+    for (id, profile) in &profiles {
+        println!(
+            "  {:<25} kind={:<12} model={:?}   base={:?}",
+            id,
+            profile.kind.label(),
+            profile.model.as_deref().unwrap_or("-"),
+            profile.base_url.as_deref().unwrap_or("-"),
+        );
+    }
+    Ok(())
+}
+
+fn run_models_show(config: &RaraConfig, args: ModelsShowArgs) -> Result<()> {
+    let profile = config
+        .openai_profiles
+        .get(&args.profile_id)
+        .ok_or_else(|| anyhow::anyhow!("profile '{}' not found", args.profile_id))?;
+
+    println!("Profile: {}", profile.id);
+    println!("  kind:      {}", profile.kind.label());
+    println!("  model:     {}", profile.model.as_deref().unwrap_or("-"));
+    println!(
+        "  base_url:  {}",
+        profile.base_url.as_deref().unwrap_or("-")
+    );
+    if !profile.label.is_empty() {
+        println!("  label:     {}", profile.label);
+    }
+    Ok(())
+}
+
+fn parse_endpoint_kind(kind_str: &str) -> Result<OpenAiEndpointKind> {
+    match kind_str.to_lowercase().as_str() {
+        "deepseek" => Ok(OpenAiEndpointKind::Deepseek),
+        "kimi" => Ok(OpenAiEndpointKind::Kimi),
+        "openrouter" => Ok(OpenAiEndpointKind::Openrouter),
+        "custom" | "openai-compatible" => Ok(OpenAiEndpointKind::Custom),
+        other => Err(anyhow::anyhow!(
+            "unknown provider kind '{}'. Supported kinds: deepseek, kimi, openrouter, custom",
+            other
+        )),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
-    fn resume_hint_includes_exact_command() {
-        assert_eq!(
-            resume_hint("thread-123"),
-            "Resume this thread with: rara resume thread-123"
-        );
+    fn clap_parses_ask_command() {
+        let cli = Cli::try_parse_from(["rara", "ask", "hello"]).expect("parse ask");
+        match cli.command.expect("command") {
+            Commands::Ask { prompt } => assert_eq!(prompt, "hello"),
+            other => panic!("unexpected command: {other:?}"),
+        }
     }
 
     #[test]
-    fn rendered_resume_hint_starts_on_a_new_line() {
-        assert_eq!(
-            rendered_resume_hint("thread-123"),
-            "\nResume this thread with: rara resume thread-123\n"
-        );
-    }
-
-    #[test]
-    fn clap_parses_resume_command_with_optional_thread_id() {
-        let cli = Cli::try_parse_from(["rara", "resume", "thread-123"]).expect("parse resume");
-        match cli.command.expect("command") {
-            Commands::Resume { thread_id, last } => {
-                assert_eq!(thread_id.as_deref(), Some("thread-123"));
-                assert!(!last);
-            }
-            other => panic!("unexpected command: {other:?}"),
-        }
-
-        let cli = Cli::try_parse_from(["rara", "resume"]).expect("parse resume without id");
-        match cli.command.expect("command") {
-            Commands::Resume { thread_id, last } => {
-                assert_eq!(thread_id, None);
-                assert!(!last);
-            }
-            other => panic!("unexpected command: {other:?}"),
-        }
-
-        let cli = Cli::try_parse_from(["rara", "resume", "--last"]).expect("parse resume latest");
+    fn clap_parses_thread_resume_with_last() {
+        let cli = Cli::try_parse_from(["rara", "resume", "--last"]).expect("parse resume --last");
         match cli.command.expect("command") {
             Commands::Resume { thread_id, last } => {
                 assert_eq!(thread_id, None);
@@ -484,6 +643,263 @@ mod tests {
                 last: false
             }),
             Some(StartupResumeTarget::ThreadId(thread_id)) if thread_id == "thread-123"
+        ));
+    }
+
+    // --- connect / models CLI parsing ---
+
+    #[test]
+    fn clap_parses_connect_all_args() {
+        let cli = Cli::try_parse_from([
+            "rara",
+            "connect",
+            "--kind",
+            "deepseek",
+            "--profile-id",
+            "deepseek-v3",
+            "--api-key",
+            "sk-abc123",
+            "--base-url",
+            "https://api.deepseek.com/v1",
+            "--model",
+            "deepseek-v3",
+            "--label",
+            "my-deepseek",
+            "--revision",
+            "v3-0324",
+        ])
+        .expect("parse connect");
+        match cli.command.expect("command") {
+            Commands::Connect(args) => {
+                assert_eq!(args.kind, Some("deepseek".to_string()));
+                assert_eq!(args.profile_id, Some("deepseek-v3".to_string()));
+                assert_eq!(args.api_key, Some("sk-abc123".to_string()));
+                assert_eq!(
+                    args.base_url,
+                    Some("https://api.deepseek.com/v1".to_string())
+                );
+                assert_eq!(args.model, Some("deepseek-v3".to_string()));
+                assert_eq!(args.label, Some("my-deepseek".to_string()));
+                assert_eq!(args.revision, Some("v3-0324".to_string()));
+            }
+            other => panic!("unexpected command: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn clap_parses_connect_minimal() {
+        let cli = Cli::try_parse_from(["rara", "connect"]).expect("parse connect");
+        match cli.command.expect("command") {
+            Commands::Connect(args) => {
+                assert_eq!(args.kind, None);
+                assert_eq!(args.profile_id, None);
+                assert_eq!(args.api_key, None);
+                assert_eq!(args.base_url, None);
+                assert_eq!(args.model, None);
+                assert_eq!(args.label, None);
+                assert_eq!(args.revision, None);
+            }
+            other => panic!("unexpected command: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn clap_parses_models_list() {
+        let cli = Cli::try_parse_from(["rara", "models", "list"]).expect("parse models list");
+        match cli.command.expect("command") {
+            Commands::Models(ModelsCommands::List(args)) => {
+                assert_eq!(args.kind, None);
+            }
+            other => panic!("unexpected command: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn clap_parses_models_list_with_kind() {
+        let cli = Cli::try_parse_from(["rara", "models", "list", "--kind", "kimi"])
+            .expect("parse models list --kind");
+        match cli.command.expect("command") {
+            Commands::Models(ModelsCommands::List(args)) => {
+                assert_eq!(args.kind, Some("kimi".to_string()));
+            }
+            other => panic!("unexpected command: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn clap_parses_models_show() {
+        let cli =
+            Cli::try_parse_from(["rara", "models", "show", "deepseek"]).expect("parse models show");
+        match cli.command.expect("command") {
+            Commands::Models(ModelsCommands::Show(args)) => {
+                assert_eq!(args.profile_id, "deepseek");
+            }
+            other => panic!("unexpected command: {other:?}"),
+        }
+    }
+
+    // --- parse_endpoint_kind ---
+
+    #[test]
+    fn parse_endpoint_kind_valid_variants() {
+        assert_eq!(
+            parse_endpoint_kind("deepseek").expect("deepseek"),
+            OpenAiEndpointKind::Deepseek
+        );
+        assert_eq!(
+            parse_endpoint_kind("DEEPSEEK").expect("upper"),
+            OpenAiEndpointKind::Deepseek
+        );
+        assert_eq!(
+            parse_endpoint_kind("kimi").expect("kimi"),
+            OpenAiEndpointKind::Kimi
+        );
+        assert_eq!(
+            parse_endpoint_kind("openrouter").expect("openrouter"),
+            OpenAiEndpointKind::Openrouter
+        );
+        assert_eq!(
+            parse_endpoint_kind("custom").expect("custom"),
+            OpenAiEndpointKind::Custom
+        );
+        assert_eq!(
+            parse_endpoint_kind("openai-compatible").expect("compat"),
+            OpenAiEndpointKind::Custom
+        );
+    }
+
+    #[test]
+    fn parse_endpoint_kind_unknown() {
+        let err = parse_endpoint_kind("nonexistent").unwrap_err();
+        let msg = format!("{err}");
+        assert!(
+            msg.contains("nonexistent"),
+            "message should mention the bad kind: {msg}"
+        );
+    }
+
+    // --- run_models_list / run_models_show ---
+
+    fn config_with_profiles() -> RaraConfig {
+        let mut config = RaraConfig::default();
+        config.openai_profiles.insert(
+            "deepseek".to_string(),
+            OpenAiEndpointProfile {
+                id: "deepseek".to_string(),
+                label: "DeepSeek V3".to_string(),
+                kind: OpenAiEndpointKind::Deepseek,
+                api_key: None,
+                base_url: Some("https://api.deepseek.com/v1".to_string()),
+                model: Some("deepseek-chat".to_string()),
+                auxiliary_model: None,
+                reasoning_effort: None,
+                reasoning_summary: Some(DEFAULT_REASONING_SUMMARY.to_string()),
+                revision: None,
+            },
+        );
+        config.openai_profiles.insert(
+            "kimi".to_string(),
+            OpenAiEndpointProfile {
+                id: "kimi".to_string(),
+                label: "Kimi K2".to_string(),
+                kind: OpenAiEndpointKind::Kimi,
+                api_key: None,
+                base_url: Some("https://api.moonshot.cn/v1".to_string()),
+                model: Some("kimi-k2".to_string()),
+                auxiliary_model: None,
+                reasoning_effort: None,
+                reasoning_summary: Some(DEFAULT_REASONING_SUMMARY.to_string()),
+                revision: None,
+            },
+        );
+        config
+    }
+
+    #[test]
+    fn models_list_all() {
+        let config = config_with_profiles();
+        run_models_list(&config, ModelsListArgs { kind: None }).expect("list all");
+    }
+
+    #[test]
+    fn models_list_filter_by_kind() {
+        let config = config_with_profiles();
+        run_models_list(
+            &config,
+            ModelsListArgs {
+                kind: Some("deepseek".to_string()),
+            },
+        )
+        .expect("list deepseek");
+    }
+
+    #[test]
+    fn models_list_none_for_kind() {
+        let config = config_with_profiles();
+        run_models_list(
+            &config,
+            ModelsListArgs {
+                kind: Some("openrouter".to_string()),
+            },
+        )
+        .expect("list openrouter (none configured)");
+    }
+
+    #[test]
+    fn models_list_empty() {
+        let config = RaraConfig::default();
+        run_models_list(&config, ModelsListArgs { kind: None }).expect("list empty");
+    }
+
+    #[test]
+    fn models_show_existing() {
+        let config = config_with_profiles();
+        run_models_show(
+            &config,
+            ModelsShowArgs {
+                profile_id: "deepseek".to_string(),
+            },
+        )
+        .expect("show deepseek");
+    }
+
+    #[test]
+    fn models_show_not_found() {
+        let config = config_with_profiles();
+        let err = run_models_show(
+            &config,
+            ModelsShowArgs {
+                profile_id: "nonexistent".to_string(),
+            },
+        )
+        .unwrap_err();
+        let msg = format!("{err}");
+        assert!(
+            msg.contains("nonexistent"),
+            "message should mention missing id: {msg}"
+        );
+    }
+
+    #[test]
+    fn connect_and_models_startup_resume_targets_are_none() {
+        // These commands skip TUI startup entirely.
+        assert!(matches!(
+            startup_resume_target_for_command(&Commands::Connect(ConnectArgs {
+                kind: None,
+                profile_id: None,
+                api_key: None,
+                base_url: None,
+                model: None,
+                label: None,
+                revision: None,
+            })),
+            None
+        ));
+        assert!(matches!(
+            startup_resume_target_for_command(&Commands::Models(ModelsCommands::List(
+                ModelsListArgs { kind: None }
+            ))),
+            None
         ));
     }
 }

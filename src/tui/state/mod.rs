@@ -23,10 +23,10 @@ pub use self::types::{
     AgentMarkdownStreamState, CommandSpec, CompletedInteractionSnapshot, GoalHandle, GoalStatus,
     HelpTab, InteractionKind, ListPickerKind, LocalCommand, LocalCommandKind, ModelRoutingView,
     OAuthLoginMode, OpenAiModelPickerAction, Overlay, PROVIDER_FAMILIES, PendingApprovalSnapshot,
-    PendingInteractionSnapshot, PermissionMode, ProviderFamily, RalphGoal, RebuildSuccess,
-    RunningTask, RuntimePhase, RuntimeSnapshot, SkillPickerEntry, StatusTab, TaskCompletion,
-    TaskKind, TerminalDiagnosticsView, TranscriptEntry, TranscriptEntryPayload, TranscriptTurn,
-    TuiApp, TuiEvent,
+    PendingInteractionSnapshot, PermissionMode, PickerIntent, ProviderFamily, RalphGoal,
+    RebuildSuccess, RunningTask, RuntimePhase, RuntimeSnapshot, SkillPickerEntry, StatusTab,
+    TaskCompletion, TaskKind, TerminalDiagnosticsView, TranscriptEntry, TranscriptEntryPayload,
+    TranscriptTurn, TuiApp, TuiEvent,
 };
 
 const OPENAI_PROFILE_SETUP_KINDS: [OpenAiEndpointKind; 3] = [
@@ -237,6 +237,7 @@ impl TuiApp {
             auth_mode_idx: 0,
             permission_picker_idx: 0,
             command_palette_idx: 0,
+            picker_intent: None,
             base_url_input: String::new(),
             base_url_cursor_offset: None,
             api_key_input: String::new(),

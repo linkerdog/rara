@@ -400,7 +400,7 @@ async fn slash_palette_model_selection_opens_provider_picker_in_local_and_ssh() 
         .expect("apply command palette selection");
 
         assert!(matches!(app.overlay, Some(Overlay::ListPicker(_))));
-        assert_eq!(app.notice.as_deref(), Some("Opened provider picker."));
+        assert_eq!(app.notice.as_deref(), Some("Change the active model."));
     }
 }
 

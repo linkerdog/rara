@@ -14,7 +14,7 @@ use super::runtime::{start_deepseek_model_list_task, start_oauth_task, start_reb
 use super::session_restore::restore_thread_by_id;
 use super::state::{
     ActivePendingInteractionKind, ListPickerKind, OpenAiModelPickerAction, Overlay, PermissionMode,
-    ProviderFamily, TuiApp,
+    PickerIntent, ProviderFamily, TuiApp,
 };
 use super::submit::{apply_openai_model_picker_action, handle_submit};
 use super::terminal_ui::is_ssh_session;
@@ -357,6 +357,12 @@ pub(crate) async fn dispatch_event(
                     match kind {
                         ListPickerKind::Provider => {
                             open_provider_family_overlay(app, oauth_manager.as_ref()).await?;
+                            // If opened from /model and provider was just configured, jump to model.
+                            if app.picker_intent == Some(PickerIntent::SwitchModel)
+                                && !app.config.provider.is_empty()
+                            {
+                                app.open_overlay(Overlay::ListPicker(ListPickerKind::Model));
+                            }
                         }
                         ListPickerKind::Model => {
                             if app.selected_provider_family() == ProviderFamily::Codex {
