@@ -49,7 +49,7 @@ Active backlog only. Keep this file small and current.
 - [ ] Add session-style incremental file search for TUI file pickers and context file routing on top of `crates/file-search`.
 - [x] Tests for workspace prompt-source discovery and cache invalidation (cwd changes, git branches, nested workspaces).
 - [x] Define `WorkspaceMemory` cache invalidation rules for prompt files and environment info (see `docs/features/workspace-memory-cache.md`).
-- [ ] Unify `discover_prompt_sources()` and TUI `/status` source reporting.
+- [x] Unify `discover_prompt_sources()` and TUI `/status` source reporting.
 - [ ] New prompt inputs through structured source objects, `MemorySelection`, lifecycle events, and runtime-control provenance — not ad hoc text.
 - [ ] Project-scoped extension surface for `.claude/agents/`, `.claude/hooks/`, `.agents/skills/` with precedence rules.
 - [ ] Claude-style `verify` skill and `verifier-*` convention (see `docs/features/verify-skill.md`).
