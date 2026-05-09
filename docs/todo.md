@@ -15,11 +15,11 @@ Active backlog only. Keep this file small and current.
 
 ## Runtime Control Plane / ACP / Wire
 
-- [ ] P0+: Add a runtime input-control bridge so appserver/ACP/Wire can submit prompts, follow-ups, pending-input answers, approval decisions, and cancellation intents through `RuntimeControlRequest::Input` / `SessionControlRequest` instead of TUI-only handlers. Mirror local TUI input lifecycle events to the structured control stream where useful; do not forward raw key presses such as `Esc`.
+- [x] P0+: Add a runtime input-control bridge so appserver/ACP/Wire can submit prompts, follow-ups, pending-input answers, approval decisions, and cancellation intents through `RuntimeControlRequest::Input` / `SessionControlRequest` instead of TUI-only handlers (merged #338+).
 - [x] Define adapter-neutral runtime control request/event types for ACP, Wire, TUI, CLI, and future appserver entrypoints (see `docs/features/runtime-control-plane.md`).
 - [x] Add Claude-style `todo_write` runtime state with session persistence, TUI update cards, and structured Wire/ACP-ready events.
 - [x] Add source-aware MCP config registry for user `config.toml` and project `.mcp.json` with duplicate-name conflict failure.
-- [x] Route ACP prompt/cancel/session handling through the normal RARA runtime path instead of the current stub.
+- [x] Route ACP prompt/cancel/session handling through the normal RARA runtime path instead of the current stub (merged #338+).
 - [x] Add protocol subscriber plumbing on top of the structured `AgentEvent` runtime-control bridge.
 - [x] Add MCP connection manager status model (`configured`, `connecting`, `connected`, `refreshing`, `reconnecting`, `failed`, `disabled`) from `McpRegistry`.
 - [x] Add `/mcp` status surface grouped by scope and source path.
