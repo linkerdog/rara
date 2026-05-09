@@ -3,7 +3,10 @@ use std::sync::Arc;
 use super::command::{palette_command_by_index, parse_local_command};
 use super::input_control;
 use super::runtime::execute_local_command;
-use super::state::{LocalCommandKind, OpenAiModelPickerAction, Overlay, TuiApp};
+use super::state::{
+    ActivePendingInteractionKind, ListPickerKind, LocalCommandKind, OpenAiModelPickerAction,
+    Overlay, TuiApp,
+};
 use crate::agent::Agent;
 
 mod pending;
@@ -22,6 +25,16 @@ pub(crate) async fn handle_submit(
     }
 
     if app.bottom_pane.input.is_empty() {
+        if let Some(interaction) = app.active_pending_interaction() {
+            if matches!(
+                interaction.kind,
+                ActivePendingInteractionKind::ShellApproval
+            ) {
+                app.approval_picker_idx = 0;
+                app.open_overlay(Overlay::ListPicker(ListPickerKind::ApprovalDecision));
+                return Ok(false);
+            }
+        }
         // Lightweight feedback so the user knows Enter was received.
         // Don't overwrite existing notices (e.g., status-info after a command).
         if app.bottom_pane.notice.is_none() {

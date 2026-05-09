@@ -239,6 +239,7 @@ impl TuiApp {
             openai_profile_picker_idx: 0,
             reasoning_effort_picker_idx: 0,
             auth_mode_idx: 0,
+            approval_picker_idx: 0,
             permission_picker_idx: 0,
             command_palette_idx: 0,
             picker_intent: None,

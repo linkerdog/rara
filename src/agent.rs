@@ -947,6 +947,54 @@ impl Agent {
                     break;
                 }
             }
+            // ── Auto-permission classifier safety net ────────────────────────────
+            // Safety net: for dangerous tools (bash, web_*, pty), run the LLM
+            // classifier to detect suspicious commands the static rules missed.
+            const CLASSIFIABLE_TOOLS: &[&str] =
+                &["bash", "pty", "web_search", "web_fetch", "mcp_tool_search"];
+            if CLASSIFIABLE_TOOLS.contains(&tool_name.as_str()) {
+                let classifier_input = tool_input.clone();
+                let request = crate::classifier::AutoPermissionRequest {
+                    tool_name: tool_name.clone(),
+                    tool_input: classifier_input,
+                    workspace_hint: Some(self.workspace.root.display().to_string()),
+                };
+                match self.classify_auto_permission(&request).await {
+                    Ok(resp) => {
+                        report(AgentEvent::Status(format!(
+                            "Auto-permission: {} — {}",
+                            resp.decision, resp.reason,
+                        )));
+                        match resp.decision {
+                            crate::classifier::AutoPermissionDecision::Deny => {
+                                let error_text = format!(
+                                    "Error: auto-permission classifier denied this tool call: {}",
+                                    resp.reason
+                                );
+                                report(AgentEvent::ToolResult {
+                                    name: tool_name.clone(),
+                                    content: error_text.clone(),
+                                    is_error: true,
+                                });
+                                tool_results.push(tool_result_message(&tool_id, error_text, true));
+                                continue;
+                            }
+                            crate::classifier::AutoPermissionDecision::Allow
+                            | crate::classifier::AutoPermissionDecision::Ask => {
+                                // Allow — proceed to existing checks
+                            }
+                        }
+                    }
+                    Err(e) => {
+                        // Classifier unavailable — fail open (existing checks remain)
+                        report(AgentEvent::Status(format!(
+                            "Auto-permission classifier unavailable: {e}"
+                        )));
+                    }
+                }
+            }
+            // ── end auto-permission classifier ───────────────────────────────────
+
             if !self.is_tool_allowed_in_current_mode(&tool_name) {
                 let error_text = format!(
                     "Error: tool '{}' is unavailable in {} mode. Inspect with read-only tools and return a plan instead.",
@@ -1028,6 +1076,54 @@ impl Agent {
             }
         }
         Ok(enforce_tool_result_batch_budget(tool_results))
+    }
+
+    /// Classify whether a tool call should be auto-allowed, denied, or requires
+    /// user approval. Delegates to the LLM backend's auxiliary model.
+    async fn classify_auto_permission(
+        &self,
+        request: &crate::classifier::AutoPermissionRequest,
+    ) -> Result<crate::classifier::AutoPermissionResponse> {
+        let instructions = "\
+You are a security classifier. Given a user message and a proposed tool call,
+output exactly one JSON object with fields:
+- \"decision\": \"allow\", \"deny\", or \"ask\"
+- \"reason\": a short justification
+- \"matched_rule\": optional policy rule name
+
+Rules:
+- allow: read-only, safe filesystem operations within the workspace, standard build/test/lint/format commands, git status/diff/log
+- deny: destructive commands (rm -rf, format disk), privilege escalation (sudo), modifying system files outside workspace, accessing sensitive paths (/etc/passwd)
+- ask: network requests (curl, web_fetch), git push/commit, installing packages, modifying configs outside workspace, commands with unclear intent
+        ";
+
+        let messages = crate::classifier::build_classifier_messages(
+            &self.history,
+            &request.tool_name,
+            &request.tool_input,
+        );
+        let raw = self.llm_backend.classify(instructions, &messages).await?;
+        Ok(crate::classifier::parse_auto_permission_response(&raw)?)
+    }
+
+    /// Classify a background task's current state using the auxiliary model.
+    async fn classify_background_task(
+        &self,
+        request: &crate::classifier::BackgroundTaskClassifyRequest,
+    ) -> Result<crate::classifier::BackgroundTaskClassifyResponse> {
+        let instructions = "\
+You are a process observer. Given a command and its recent output tail,
+classify its state. Output exactly one JSON object with fields:
+- \"state\": \"working\", \"blocked\", \"done\", or \"failed\"
+- \"tempo\": \"active\", \"idle\", or \"blocked\"
+- \"detail\": one-line status description
+- \"needs\": what the user should do to unblock (only when state is \"blocked\", omit otherwise)
+        ";
+
+        let message = crate::classifier::build_background_task_message(request);
+
+        let raw = self.llm_backend.classify(instructions, &[message]).await?;
+        Ok(crate::classifier::parse_background_task_response(&raw)?)
     }
 
     fn tool_call_context(&self) -> ToolCallContext {
