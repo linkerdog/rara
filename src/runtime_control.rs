@@ -275,6 +275,11 @@ pub enum MemoryControlRequest {
     ListLabels {
         scope: Option<MemoryScope>,
     },
+    QueryRecords {
+        query: String,
+        scope: Option<MemoryScope>,
+        limit: usize,
+    },
     QueryMetadata,
     SelectionSnapshot,
 }
@@ -516,6 +521,9 @@ pub enum MemoryEvent {
         record_count: usize,
         labels: Vec<MemoryLabelSummary>,
     },
+    RecordsQueried {
+        records: Vec<MemoryRecordSummary>,
+    },
     SelectionUpdated,
 }
 
@@ -524,6 +532,20 @@ pub enum MemoryEvent {
 pub struct MemoryLabelSummary {
     pub label: String,
     pub count: usize,
+}
+
+#[allow(dead_code)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct MemoryRecordSummary {
+    pub id: String,
+    pub title: String,
+    pub content: String,
+    pub labels: Vec<String>,
+    pub importance_basis_points: u32,
+    pub pinned: bool,
+    pub scope: String,
+    pub session_id: Option<String>,
+    pub thread_id: Option<String>,
 }
 
 #[allow(dead_code)]
@@ -1176,6 +1198,29 @@ mod tests {
                 }
             })
         );
+
+        let query = serde_json::to_value(RuntimeControlRequest::Memory(
+            MemoryControlRequest::QueryRecords {
+                query: "project path".to_string(),
+                scope: Some(MemoryScope::Workspace),
+                limit: 4,
+            },
+        ))
+        .unwrap();
+        assert_eq!(
+            query,
+            json!({
+                "type": "memory",
+                "payload": {
+                    "type": "query_records",
+                    "payload": {
+                        "query": "project path",
+                        "scope": "workspace",
+                        "limit": 4
+                    }
+                }
+            })
+        );
     }
 
     #[test]
@@ -1219,6 +1264,43 @@ mod tests {
                     "payload": {
                         "record_count": 3,
                         "labels": [{"label": "fact", "count": 1}]
+                    }
+                }
+            })
+        );
+
+        let records = serde_json::to_value(RuntimeEvent::Memory(MemoryEvent::RecordsQueried {
+            records: vec![MemoryRecordSummary {
+                id: "memory-1".to_string(),
+                title: "Reference project path".to_string(),
+                content: "The local project is under /repo.".to_string(),
+                labels: vec!["fact".to_string()],
+                importance_basis_points: 7500,
+                pinned: true,
+                scope: "workspace".to_string(),
+                session_id: Some("session-1".to_string()),
+                thread_id: None,
+            }],
+        }))
+        .unwrap();
+        assert_eq!(
+            records,
+            json!({
+                "type": "memory",
+                "payload": {
+                    "type": "records_queried",
+                    "payload": {
+                        "records": [{
+                            "id": "memory-1",
+                            "title": "Reference project path",
+                            "content": "The local project is under /repo.",
+                            "labels": ["fact"],
+                            "importance_basis_points": 7500,
+                            "pinned": true,
+                            "scope": "workspace",
+                            "session_id": "session-1",
+                            "thread_id": null
+                        }]
                     }
                 }
             })

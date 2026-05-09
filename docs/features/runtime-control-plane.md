@@ -282,6 +282,9 @@ provenance for `/context` and protocol observability.
 External applications may:
 
 - add workspace or thread memory records;
+- update or delete existing memory records;
+- list memory labels and counts;
+- query memory records by text and optional scope;
 - query memory metadata;
 - request a memory-selection snapshot;
 - mark memory records as available, selected, or ineligible through structured
@@ -289,6 +292,23 @@ External applications may:
 
 They may not directly edit the final prompt. Memory must enter the model
 working set through `MemorySelection` and context assembly.
+
+The runtime implementation routes memory-control requests through
+`MemoryControlHandler` and `MemoryStore`. Protocol adapters submit typed
+`MemoryControlRequest` values, and the handler publishes structured
+`MemoryEvent` values after the store accepts the change or query. This keeps
+LanceDB and the durable `records.json` layout behind the memory-domain facade.
+
+`AddRecord` writes a `MemoryRecord` with `MemorySource::ProtocolWrite` and the
+request `memory_id` as the durable record id. Protocol metadata may provide
+`title`, `labels`, `importance`, `pinned`, `session_id`, and `thread_id`.
+Labels are validated against the standard memory taxonomy. Unsupported labels
+fail the request instead of being silently persisted.
+
+`UpdateRecord`, `DeleteRecord`, `ListLabels`, and `QueryRecords` use the same
+`MemoryStore` APIs as local tools. Query responses are event views with stable
+string fields and integer importance basis points so ACP/Wire adapters do not
+depend on internal Rust enums or floating-point formatting.
 
 ### Hook Declaration
 

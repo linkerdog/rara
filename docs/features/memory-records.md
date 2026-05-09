@@ -116,15 +116,15 @@ Importance scale:
 | Memory record anatomy | Title, Markdown content, labels, importance, pinned status, timestamps, source, scope, embedding, and provenance. | Partial. `MemoryRecord` is now persisted as the domain record; LanceDB rows still store the compact search index shape. |
 | Memory creation | Agent or user creates a durable `MemoryRecord`; title, labels, and importance can be generated or explicit. | Partial. `remember_experience` is now a compatibility adapter over `MemoryStore::insert`. |
 | Memory search | Hybrid semantic + keyword search with metadata filters and explainable scores. | Partial. LanceDB vector, FTS, and hybrid helpers exist; `MemoryStore::search` rehydrates full persisted records before returning hits. |
-| Memory update | Existing records can be edited without creating duplicates. | Partial. `MemoryStore::update` updates domain records and refreshes the LanceDB row when content changes; external protocol execution remains future work. |
-| Memory delete | User or control-plane request can delete records with audit-safe semantics. | Partial. `MemoryStore::delete` removes the domain record and search rehydration filters stale indexed rows; physical LanceDB row cleanup remains future work. |
+| Memory update | Existing records can be edited without creating duplicates. | Partial. `MemoryStore::update` updates domain records and refreshes the LanceDB row when content changes; `MemoryControlHandler` exposes this through structured control-plane requests. |
+| Memory delete | User or control-plane request can delete records with audit-safe semantics. | Partial. `MemoryStore::delete` removes the domain record and search rehydration filters stale indexed rows; `MemoryControlHandler` exposes deletion through structured control-plane requests; physical LanceDB row cleanup remains future work. |
 | Memory retention | Pinned, user-created, and high-importance memories are protected from automatic cleanup; explicit delete remains possible with provenance. | Implemented as a domain guard on `MemoryRecord`; no automatic cleanup path exists yet. |
 | Thread distillation | Thread history can be distilled into 2-8 durable memory records. | Implemented for loaded threads through `ThreadStore::distill_thread_memories`, with LLM-assisted extraction, batch/existing-memory deduplication, and thread provenance. Long-thread chunking remains future work. |
 | Session-shard promotion | Session context shards can be promoted into durable memory records without writing raw checkpoints to the global index by default. | Partial. `SessionManager::promote_session_context_memories` explicitly distills selected shard checkpoints into `MemoryRecord`s with session provenance; periodic scheduling remains future work. |
 | Context injection | Ranked memory candidates pass through `MemorySelection` before prompt injection. | Partial. LanceDB-backed memory and session search now produce direct ranked `MemorySelection` candidates; retention, deduplication, and protocol mutation remain future work. |
 | Graph retrieval | Entity and relationship traversal complements vector recall. | Future work. |
 | Working memory | Daily or session briefing summarizes recent and important memories. | Future work. |
-| MCP / ACP / Wire memory APIs | Protocol clients can query and mutate memory through the runtime control plane. | Initial runtime-control handler is implemented for add, update, delete, list-label, and metadata queries over `MemoryStore`; transport-specific command surfaces remain follow-up work. |
+| MCP / ACP / Wire memory APIs | Protocol clients can query and mutate memory through the runtime control plane. | Partial. Runtime-control requests can add, update, delete, list labels, query metadata, and query records through `MemoryControlHandler`; transport-specific command surfaces remain follow-up work. |
 
 ## Memories vs Threads
 
@@ -240,9 +240,9 @@ Current implementation checkpoint:
 - `MemoryStore::update`, `delete`, and `list_labels` provide the memory-domain
   API needed by future ACP/Wire adapters without exposing LanceDB operations.
 - Protocol memory control requests now execute add, update, delete, list-label,
-  and metadata operations through `MemoryStore` and publish structured memory
-  events. Protocol adapters still must route their transport-specific commands
-  through the shared control-plane dispatcher.
+  metadata, and record-query operations through `MemoryStore` and publish
+  structured memory events. Protocol adapters still must route their
+  transport-specific commands through the shared control-plane dispatcher.
 - Search rehydration treats persisted `MemoryRecord`s as the source of truth:
   indexed rows with deleted ids are filtered instead of reconstructed.
 - `MemoryRecord::is_protected_from_automatic_cleanup` protects pinned,

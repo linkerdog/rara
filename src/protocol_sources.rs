@@ -22,13 +22,14 @@ use serde_json::Value;
 use tokio::sync::RwLock;
 
 use crate::memory_store::{
-    MemoryLabel, MemoryLabelCount, MemoryRecordPatch, MemoryScope as StoreMemoryScope,
-    MemorySource, MemoryStore, NewMemoryRecord,
+    MemoryLabel, MemoryLabelCount, MemoryRecord, MemoryRecordPatch,
+    MemoryScope as StoreMemoryScope, MemorySource, MemoryStore, NewMemoryRecord,
 };
 use crate::runtime_control::{
     MemoryControlRequest, MemoryEvent, MemoryLabelSummary, MemoryRecordControlPatch,
-    MemoryScope as ControlMemoryScope, PromptSourceControlRequest, PromptSourceEvent,
-    PromptSourceLifetime, PromptSourceRegistration, RuntimeEvent, SkillSourceControlRequest,
+    MemoryRecordSummary, MemoryScope as ControlMemoryScope, PromptSourceControlRequest,
+    PromptSourceEvent, PromptSourceLifetime, PromptSourceRegistration, RuntimeEvent,
+    SkillSourceControlRequest,
 };
 use crate::runtime_event_bus::RuntimeEventBus;
 
@@ -290,6 +291,27 @@ impl MemoryControlHandler {
                     labels: label_summaries(labels),
                 });
             }
+            MemoryControlRequest::QueryRecords {
+                query,
+                scope,
+                limit,
+            } => {
+                let store_scope = scope.clone().map(store_scope_from_control);
+                let records = memory_store
+                    .search(query, *limit)
+                    .await?
+                    .into_iter()
+                    .map(|hit| hit.record)
+                    .filter(|record| {
+                        store_scope
+                            .as_ref()
+                            .is_none_or(|scope| &record.scope == scope)
+                    })
+                    .take(*limit)
+                    .map(memory_record_summary)
+                    .collect();
+                self.publish_memory_event(MemoryEvent::RecordsQueried { records });
+            }
             MemoryControlRequest::QueryMetadata => {
                 let labels = memory_store.list_labels(None).await?;
                 let record_count = memory_store.record_count().await?;
@@ -319,6 +341,9 @@ impl MemoryControlHandler {
             MemoryControlRequest::ListLabels { scope } => MemoryEvent::LabelsListed {
                 scope: scope.clone(),
                 labels: Vec::new(),
+            },
+            MemoryControlRequest::QueryRecords { .. } => MemoryEvent::RecordsQueried {
+                records: Vec::new(),
             },
             MemoryControlRequest::QueryMetadata => MemoryEvent::MetadataQueried {
                 record_count: 0,
@@ -435,6 +460,34 @@ fn label_summaries(labels: Vec<MemoryLabelCount>) -> Vec<MemoryLabelSummary> {
             count: label.count,
         })
         .collect()
+}
+
+fn memory_record_summary(record: MemoryRecord) -> MemoryRecordSummary {
+    MemoryRecordSummary {
+        id: record.id,
+        title: record.title,
+        content: record.content,
+        labels: record
+            .labels
+            .into_iter()
+            .map(|label| memory_label_name(&label).to_string())
+            .collect(),
+        importance_basis_points: (record.importance.clamp(0.0, 1.0) * 10_000.0).round() as u32,
+        pinned: record.pinned,
+        scope: memory_scope_name(record.scope).to_string(),
+        session_id: record.session_id,
+        thread_id: record.thread_id,
+    }
+}
+
+fn memory_scope_name(scope: StoreMemoryScope) -> &'static str {
+    match scope {
+        StoreMemoryScope::User => "user",
+        StoreMemoryScope::Workspace => "workspace",
+        StoreMemoryScope::Project => "project",
+        StoreMemoryScope::Thread => "thread",
+        StoreMemoryScope::Session => "session",
+    }
 }
 
 fn memory_label_name(label: &MemoryLabel) -> &'static str {
@@ -585,6 +638,24 @@ mod tests {
         }
         assert!(saw_update);
         assert!(saw_labels);
+
+        handler
+            .handle_control(&MemoryControlRequest::QueryRecords {
+                query: "Initial memory".to_string(),
+                scope: Some(ControlMemoryScope::Workspace),
+                limit: 4,
+            })
+            .await
+            .expect("query records");
+
+        let event = events.recv().await.expect("records queried event");
+        let RuntimeEvent::Memory(MemoryEvent::RecordsQueried { records }) = event.event else {
+            panic!("expected records queried event");
+        };
+        assert_eq!(records.len(), 1);
+        assert_eq!(records[0].id, "protocol-memory-2");
+        assert_eq!(records[0].labels, vec!["procedure"]);
+        assert_eq!(records[0].scope, "workspace");
 
         handler
             .handle_control(&MemoryControlRequest::DeleteRecord {
