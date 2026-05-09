@@ -12,7 +12,10 @@ test gap after documenting the cache contract.
 - Git `HEAD` changes invalidate cached branch information.
 - Modified instruction files refresh cached prompt-source content.
 - A local `memory.md` created after an initial discovery miss is picked up by a
-  later prompt-source discovery pass.
+  later prompt-source discovery pass and refreshes the memory availability
+  cache.
+- New cache-invalidation tests hold the shared cwd lock because prompt-source
+  discovery reads the process current directory.
 
 ## Validation
 
