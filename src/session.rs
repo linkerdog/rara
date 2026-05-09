@@ -5,13 +5,13 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use anyhow::{Context, Result, anyhow};
 use rara_persistence::atomic_file;
+use rara_state::state_db::PersistedStructuredRolloutEvent;
+use rara_state::thread_rollout_log;
 use serde::{Deserialize, Serialize};
 
 use crate::agent::Message;
 use crate::session_context::{self, SessionContextSearchHit};
 use crate::session_transcript;
-use crate::state_db::PersistedStructuredRolloutEvent;
-use crate::thread_rollout_log;
 use crate::todo::TodoState;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]

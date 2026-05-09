@@ -172,12 +172,12 @@ mod tests {
 
     use anyhow::Result;
     use async_trait::async_trait;
+    use rara_memory::vectordb::VectorDB;
     use serde_json::Value;
 
     use super::*;
     use crate::llm::{ContentBlock, LlmResponse};
     use crate::memory_store::{MemoryLabel, MemoryScope, MemorySource, NewMemoryRecord};
-    use crate::vectordb::VectorDB;
 
     #[derive(Default)]
     struct TestBackend {
@@ -217,7 +217,6 @@ mod tests {
         );
         store
             .insert(NewMemoryRecord {
-                id: None,
                 title: Some("Reference project path".to_string()),
                 content:
                     "Reference project source lives at /Users/example/devel/opensource/reference-project."

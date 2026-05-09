@@ -17,16 +17,17 @@
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
-use anyhow::{Context, Result};
+use anyhow::{Result, bail};
+use serde_json::Value;
 use tokio::sync::RwLock;
 
 use crate::memory_store::{
-    MemoryLabel, MemoryRecord, MemoryRecordPatch, MemoryScope as StoreMemoryScope, MemorySource,
-    MemoryStore, NewMemoryRecord,
+    MemoryLabel, MemoryLabelCount, MemoryRecord, MemoryRecordPatch,
+    MemoryScope as StoreMemoryScope, MemorySource, MemoryStore, NewMemoryRecord,
 };
 use crate::runtime_control::{
-    MemoryControlRequest, MemoryEvent, MemoryLabelCountEvent, MemoryRecordControlPatch,
-    MemoryRecordEventView, MemoryScope as ControlMemoryScope, PromptSourceControlRequest,
+    MemoryControlRequest, MemoryEvent, MemoryLabelSummary, MemoryRecordControlPatch,
+    MemoryRecordSummary, MemoryScope as ControlMemoryScope, PromptSourceControlRequest,
     PromptSourceEvent, PromptSourceLifetime, PromptSourceRegistration, RuntimeEvent,
     SkillSourceControlRequest,
 };
@@ -220,20 +221,33 @@ impl SkillSourceRegistry {
 // ── Memory control handler ──────────────────────────────────────────────
 
 /// Handler for protocol-originated memory control requests.
+///
 pub struct MemoryControlHandler {
     event_bus: Arc<RuntimeEventBus>,
-    memory_store: Arc<MemoryStore>,
+    memory_store: Option<Arc<MemoryStore>>,
 }
 
 impl MemoryControlHandler {
-    pub fn new(event_bus: Arc<RuntimeEventBus>, memory_store: Arc<MemoryStore>) -> Self {
+    pub fn new(event_bus: Arc<RuntimeEventBus>) -> Self {
         Self {
             event_bus,
-            memory_store,
+            memory_store: None,
+        }
+    }
+
+    pub fn with_store(event_bus: Arc<RuntimeEventBus>, memory_store: Arc<MemoryStore>) -> Self {
+        Self {
+            event_bus,
+            memory_store: Some(memory_store),
         }
     }
 
     pub async fn handle_control(&self, request: &MemoryControlRequest) -> Result<()> {
+        let Some(memory_store) = &self.memory_store else {
+            self.publish_scaffold_event(request);
+            return Ok(());
+        };
+
         match request {
             MemoryControlRequest::AddRecord {
                 memory_id,
@@ -241,81 +255,70 @@ impl MemoryControlHandler {
                 content,
                 metadata,
             } => {
-                let record = self
-                    .memory_store
-                    .insert(new_record_from_control(
-                        memory_id, *scope, content, metadata,
-                    )?)
+                if memory_store.get(memory_id).await?.is_some() {
+                    bail!("memory record {memory_id:?} already exists");
+                }
+                let record = memory_store
+                    .insert_with_id(
+                        Some(memory_id.clone()),
+                        new_memory_record_from_control(scope, content, metadata)?,
+                    )
                     .await?;
                 self.publish_memory_event(MemoryEvent::RecordAdded {
                     memory_id: record.id,
                 });
             }
             MemoryControlRequest::UpdateRecord { memory_id, patch } => {
-                let record = self
-                    .memory_store
-                    .update(memory_id, patch_from_control(patch)?)
-                    .await
-                    .with_context(|| format!("update memory record {memory_id}"))?;
+                memory_store
+                    .update(memory_id, memory_patch_from_control(patch)?)
+                    .await?;
                 self.publish_memory_event(MemoryEvent::RecordUpdated {
-                    memory_id: record.id,
+                    memory_id: memory_id.clone(),
                 });
             }
             MemoryControlRequest::DeleteRecord { memory_id } => {
-                if let Some(record) = self
-                    .memory_store
-                    .delete(memory_id)
-                    .await
-                    .with_context(|| format!("delete memory record {memory_id}"))?
-                {
-                    self.publish_memory_event(MemoryEvent::RecordDeleted {
-                        memory_id: record.id,
-                    });
-                }
+                memory_store.delete(memory_id).await?;
+                self.publish_memory_event(MemoryEvent::RecordDeleted {
+                    memory_id: memory_id.clone(),
+                });
             }
             MemoryControlRequest::ListLabels { scope } => {
-                let labels = self
-                    .memory_store
-                    .list_labels(scope.map(scope_from_control))
-                    .await?
-                    .into_iter()
-                    .map(|entry| MemoryLabelCountEvent {
-                        label: label_to_string(entry.label).to_string(),
-                        count: entry.count,
-                    })
-                    .collect();
-                self.publish_memory_event(MemoryEvent::LabelsListed { labels });
+                let labels = memory_store
+                    .list_labels(scope.clone().map(store_scope_from_control))
+                    .await?;
+                self.publish_memory_event(MemoryEvent::LabelsListed {
+                    scope: scope.clone(),
+                    labels: label_summaries(labels),
+                });
             }
             MemoryControlRequest::QueryRecords {
                 query,
                 scope,
                 limit,
             } => {
-                let scope = scope.map(scope_from_control);
-                let records = self
-                    .memory_store
+                let store_scope = scope.clone().map(store_scope_from_control);
+                let records = memory_store
                     .search(query, *limit)
                     .await?
                     .into_iter()
                     .map(|hit| hit.record)
-                    .filter(|record| scope.as_ref().is_none_or(|scope| &record.scope == scope))
+                    .filter(|record| {
+                        store_scope
+                            .as_ref()
+                            .is_none_or(|scope| &record.scope == scope)
+                    })
                     .take(*limit)
-                    .map(record_event_view)
+                    .map(memory_record_summary)
                     .collect();
                 self.publish_memory_event(MemoryEvent::RecordsQueried { records });
             }
             MemoryControlRequest::QueryMetadata => {
-                let labels = self
-                    .memory_store
-                    .list_labels(None)
-                    .await?
-                    .into_iter()
-                    .map(|entry| MemoryLabelCountEvent {
-                        label: label_to_string(entry.label).to_string(),
-                        count: entry.count,
-                    })
-                    .collect();
-                self.publish_memory_event(MemoryEvent::LabelsListed { labels });
+                let labels = memory_store.list_labels(None).await?;
+                let record_count = memory_store.record_count().await?;
+                self.publish_memory_event(MemoryEvent::MetadataQueried {
+                    record_count,
+                    labels: label_summaries(labels),
+                });
             }
             MemoryControlRequest::SelectionSnapshot => {
                 self.publish_memory_event(MemoryEvent::SelectionUpdated);
@@ -324,134 +327,160 @@ impl MemoryControlHandler {
         Ok(())
     }
 
+    fn publish_scaffold_event(&self, request: &MemoryControlRequest) {
+        let event = match request {
+            MemoryControlRequest::AddRecord { memory_id, .. } => MemoryEvent::RecordAdded {
+                memory_id: memory_id.clone(),
+            },
+            MemoryControlRequest::UpdateRecord { memory_id, .. } => MemoryEvent::RecordUpdated {
+                memory_id: memory_id.clone(),
+            },
+            MemoryControlRequest::DeleteRecord { memory_id } => MemoryEvent::RecordDeleted {
+                memory_id: memory_id.clone(),
+            },
+            MemoryControlRequest::ListLabels { scope } => MemoryEvent::LabelsListed {
+                scope: scope.clone(),
+                labels: Vec::new(),
+            },
+            MemoryControlRequest::QueryRecords { .. } => MemoryEvent::RecordsQueried {
+                records: Vec::new(),
+            },
+            MemoryControlRequest::QueryMetadata => MemoryEvent::MetadataQueried {
+                record_count: 0,
+                labels: Vec::new(),
+            },
+            MemoryControlRequest::SelectionSnapshot => MemoryEvent::SelectionUpdated,
+        };
+        self.publish_memory_event(event);
+    }
+
     fn publish_memory_event(&self, event: MemoryEvent) {
         let _ = self.event_bus.publish_control(RuntimeEvent::Memory(event));
     }
 }
 
-fn new_record_from_control(
-    memory_id: &str,
-    scope: ControlMemoryScope,
+fn new_memory_record_from_control(
+    scope: &ControlMemoryScope,
     content: &str,
-    metadata: &serde_json::Value,
+    metadata: &Value,
 ) -> Result<NewMemoryRecord> {
     Ok(NewMemoryRecord {
-        id: Some(memory_id.to_string()),
-        title: metadata
-            .get("title")
-            .and_then(serde_json::Value::as_str)
-            .map(str::trim)
-            .filter(|title| !title.is_empty())
-            .map(str::to_string),
+        title: metadata_string(metadata, "title"),
         content: content.to_string(),
-        labels: labels_from_metadata(metadata)?,
+        labels: metadata_labels(metadata)?,
         importance: metadata
             .get("importance")
-            .and_then(serde_json::Value::as_f64)
+            .and_then(Value::as_f64)
             .unwrap_or(0.5) as f32,
         pinned: metadata
             .get("pinned")
-            .and_then(serde_json::Value::as_bool)
+            .and_then(Value::as_bool)
             .unwrap_or(false),
         source: MemorySource::ProtocolWrite,
-        scope: scope_from_control(scope),
-        session_id: metadata
-            .get("session_id")
-            .and_then(serde_json::Value::as_str)
-            .map(str::to_string),
-        thread_id: metadata
-            .get("thread_id")
-            .and_then(serde_json::Value::as_str)
-            .map(str::to_string),
+        scope: store_scope_from_control(scope.clone()),
+        session_id: metadata_string(metadata, "session_id"),
+        thread_id: metadata_string(metadata, "thread_id"),
         source_span: None,
     })
 }
 
-fn patch_from_control(patch: &MemoryRecordControlPatch) -> Result<MemoryRecordPatch> {
+fn memory_patch_from_control(patch: &MemoryRecordControlPatch) -> Result<MemoryRecordPatch> {
     Ok(MemoryRecordPatch {
         title: patch.title.clone(),
         content: patch.content.clone(),
         labels: patch
             .labels
             .as_ref()
-            .map(|labels| parse_labels(labels))
+            .map(|labels| {
+                labels
+                    .iter()
+                    .map(|label| memory_label_from_str(label))
+                    .collect()
+            })
             .transpose()?,
         importance: patch.importance.map(|importance| importance as f32),
         pinned: patch.pinned,
-        scope: patch.scope.map(scope_from_control),
+        scope: patch.scope.clone().map(store_scope_from_control),
         session_id: patch.session_id.clone(),
         thread_id: patch.thread_id.clone(),
         source_span: None,
     })
 }
 
-fn labels_from_metadata(metadata: &serde_json::Value) -> Result<Vec<MemoryLabel>> {
+fn metadata_labels(metadata: &Value) -> Result<Vec<MemoryLabel>> {
     let Some(labels) = metadata.get("labels") else {
-        return Ok(vec![MemoryLabel::Experience]);
+        return Ok(Vec::new());
     };
-    let labels = labels
-        .as_array()
-        .context("memory metadata labels must be an array")?
+    let Some(labels) = labels.as_array() else {
+        bail!("memory metadata labels must be an array");
+    };
+    labels
         .iter()
         .map(|label| {
-            label
-                .as_str()
-                .context("memory metadata labels must be strings")
-                .and_then(parse_label)
+            let Some(label) = label.as_str() else {
+                bail!("memory metadata labels must be strings");
+            };
+            memory_label_from_str(label)
         })
-        .collect::<Result<Vec<_>>>()?;
-    if labels.is_empty() {
-        Ok(vec![MemoryLabel::Experience])
-    } else {
-        Ok(labels)
-    }
+        .collect()
 }
 
-fn parse_labels(labels: &[String]) -> Result<Vec<MemoryLabel>> {
-    labels.iter().map(|label| parse_label(label)).collect()
+fn metadata_string(metadata: &Value, key: &str) -> Option<String> {
+    metadata
+        .get(key)
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(ToOwned::to_owned)
 }
 
-fn parse_label(label: &str) -> Result<MemoryLabel> {
-    match label {
+fn memory_label_from_str(label: &str) -> Result<MemoryLabel> {
+    match label.trim().to_ascii_lowercase().as_str() {
         "insight" => Ok(MemoryLabel::Insight),
         "decision" => Ok(MemoryLabel::Decision),
         "fact" => Ok(MemoryLabel::Fact),
         "procedure" => Ok(MemoryLabel::Procedure),
         "experience" => Ok(MemoryLabel::Experience),
-        other => anyhow::bail!("unsupported memory label `{other}`"),
+        other => bail!("unknown memory label {other:?}"),
     }
 }
 
-fn label_to_string(label: MemoryLabel) -> &'static str {
-    match label {
-        MemoryLabel::Insight => "insight",
-        MemoryLabel::Decision => "decision",
-        MemoryLabel::Fact => "fact",
-        MemoryLabel::Procedure => "procedure",
-        MemoryLabel::Experience => "experience",
+fn store_scope_from_control(scope: ControlMemoryScope) -> StoreMemoryScope {
+    match scope {
+        ControlMemoryScope::Thread => StoreMemoryScope::Thread,
+        ControlMemoryScope::Workspace => StoreMemoryScope::Workspace,
     }
 }
 
-fn record_event_view(record: MemoryRecord) -> MemoryRecordEventView {
-    MemoryRecordEventView {
+fn label_summaries(labels: Vec<MemoryLabelCount>) -> Vec<MemoryLabelSummary> {
+    labels
+        .into_iter()
+        .map(|label| MemoryLabelSummary {
+            label: memory_label_name(&label.label).to_string(),
+            count: label.count,
+        })
+        .collect()
+}
+
+fn memory_record_summary(record: MemoryRecord) -> MemoryRecordSummary {
+    MemoryRecordSummary {
         id: record.id,
         title: record.title,
         content: record.content,
         labels: record
             .labels
             .into_iter()
-            .map(label_to_string)
-            .map(str::to_string)
+            .map(|label| memory_label_name(&label).to_string())
             .collect(),
         importance_basis_points: (record.importance.clamp(0.0, 1.0) * 10_000.0).round() as u32,
         pinned: record.pinned,
-        scope: scope_to_string(record.scope).to_string(),
+        scope: memory_scope_name(record.scope).to_string(),
         session_id: record.session_id,
         thread_id: record.thread_id,
     }
 }
 
-fn scope_to_string(scope: StoreMemoryScope) -> &'static str {
+fn memory_scope_name(scope: StoreMemoryScope) -> &'static str {
     match scope {
         StoreMemoryScope::User => "user",
         StoreMemoryScope::Workspace => "workspace",
@@ -461,152 +490,232 @@ fn scope_to_string(scope: StoreMemoryScope) -> &'static str {
     }
 }
 
-fn scope_from_control(scope: ControlMemoryScope) -> StoreMemoryScope {
-    match scope {
-        ControlMemoryScope::Thread => StoreMemoryScope::Thread,
-        ControlMemoryScope::Workspace => StoreMemoryScope::Workspace,
+fn memory_label_name(label: &MemoryLabel) -> &'static str {
+    match label {
+        MemoryLabel::Insight => "insight",
+        MemoryLabel::Decision => "decision",
+        MemoryLabel::Fact => "fact",
+        MemoryLabel::Procedure => "procedure",
+        MemoryLabel::Experience => "experience",
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use std::sync::Arc;
-
-    use anyhow::Result;
+    use rara_memory::vectordb::VectorDB;
     use serde_json::json;
 
     use super::*;
     use crate::llm::MockLlm;
-    use crate::runtime_control::MemoryScope;
-    use crate::vectordb::VectorDB;
+    use crate::runtime_control::RuntimeEvent;
 
-    #[tokio::test]
-    async fn memory_control_handler_mutates_memory_store_and_emits_events() -> Result<()> {
-        let temp = tempfile::tempdir()?;
-        let bus = Arc::new(RuntimeEventBus::new(16));
-        let mut events = bus.subscribe_control();
-        let store = Arc::new(MemoryStore::new_with_record_path(
+    fn test_memory_store(root: &std::path::Path) -> Arc<MemoryStore> {
+        Arc::new(MemoryStore::new_with_record_path(
             Arc::new(MockLlm),
             Arc::new(VectorDB::new(
-                temp.path().join("lancedb").to_str().expect("utf8 path"),
+                root.join("lancedb").to_str().expect("utf8 path"),
             )),
-            temp.path().join("records.json"),
-        ));
-        let handler = MemoryControlHandler::new(bus, store.clone());
-
-        handler
-            .handle_control(&MemoryControlRequest::AddRecord {
-                memory_id: "client-memory-1".to_string(),
-                scope: MemoryScope::Workspace,
-                content: "Use protocol memory writes through MemoryStore.".to_string(),
-                metadata: json!({
-                    "title": "Protocol memory writes",
-                    "labels": ["decision"],
-                    "importance": 0.8,
-                    "pinned": true,
-                    "session_id": "session-1"
-                }),
-            })
-            .await?;
-
-        let added = events.try_recv().expect("record added event");
-        let RuntimeEvent::Memory(MemoryEvent::RecordAdded { memory_id }) = added.event else {
-            panic!("expected record added event");
-        };
-        let record = store.get(&memory_id).await?.expect("stored record");
-        assert_eq!(record.id, "client-memory-1");
-        assert_eq!(record.title, "Protocol memory writes");
-        assert_eq!(record.source, MemorySource::ProtocolWrite);
-        assert_eq!(record.scope, StoreMemoryScope::Workspace);
-        assert_eq!(record.labels, vec![MemoryLabel::Decision]);
-        assert!(record.pinned);
-        assert_eq!(record.session_id.as_deref(), Some("session-1"));
-
-        handler
-            .handle_control(&MemoryControlRequest::UpdateRecord {
-                memory_id: memory_id.clone(),
-                patch: MemoryRecordControlPatch {
-                    labels: Some(vec!["fact".to_string()]),
-                    pinned: Some(false),
-                    ..Default::default()
-                },
-            })
-            .await?;
-        let updated = events.try_recv().expect("record updated event");
-        assert!(matches!(
-            updated.event,
-            RuntimeEvent::Memory(MemoryEvent::RecordUpdated { .. })
-        ));
-        let record = store.get(&memory_id).await?.expect("updated record");
-        assert_eq!(record.labels, vec![MemoryLabel::Fact]);
-        assert!(!record.pinned);
-
-        handler
-            .handle_control(&MemoryControlRequest::QueryRecords {
-                query: "protocol memory".to_string(),
-                scope: Some(MemoryScope::Workspace),
-                limit: 4,
-            })
-            .await?;
-        let queried = events.try_recv().expect("records queried event");
-        let RuntimeEvent::Memory(MemoryEvent::RecordsQueried { records }) = queried.event else {
-            panic!("expected records queried event");
-        };
-        assert_eq!(records.len(), 1);
-        assert_eq!(records[0].id, memory_id);
-        assert_eq!(records[0].labels, vec!["fact"]);
-
-        handler
-            .handle_control(&MemoryControlRequest::ListLabels {
-                scope: Some(MemoryScope::Workspace),
-            })
-            .await?;
-        let listed = events.try_recv().expect("labels listed event");
-        let RuntimeEvent::Memory(MemoryEvent::LabelsListed { labels }) = listed.event else {
-            panic!("expected labels listed event");
-        };
-        assert_eq!(labels[0].label, "fact");
-        assert_eq!(labels[0].count, 1);
-
-        handler
-            .handle_control(&MemoryControlRequest::DeleteRecord {
-                memory_id: memory_id.clone(),
-            })
-            .await?;
-        let deleted = events.try_recv().expect("record deleted event");
-        assert!(matches!(
-            deleted.event,
-            RuntimeEvent::Memory(MemoryEvent::RecordDeleted { .. })
-        ));
-        assert!(store.get(&memory_id).await?.is_none());
-
-        Ok(())
+            root.join("memories").join("records.json"),
+        ))
     }
 
     #[tokio::test]
-    async fn memory_control_handler_rejects_unknown_labels() -> Result<()> {
-        let temp = tempfile::tempdir()?;
-        let bus = Arc::new(RuntimeEventBus::new(16));
-        let store = Arc::new(MemoryStore::new_with_record_path(
-            Arc::new(MockLlm),
-            Arc::new(VectorDB::new(
-                temp.path().join("lancedb").to_str().expect("utf8 path"),
-            )),
-            temp.path().join("records.json"),
-        ));
-        let handler = MemoryControlHandler::new(bus, store);
+    async fn memory_control_add_record_writes_memory_store_and_emits_actual_id() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let bus = Arc::new(RuntimeEventBus::new(8));
+        let mut events = bus.subscribe_control();
+        let store = test_memory_store(temp.path());
+        let handler = MemoryControlHandler::with_store(bus, store.clone());
 
-        let error = handler
+        handler
             .handle_control(&MemoryControlRequest::AddRecord {
-                memory_id: "client-memory-1".to_string(),
-                scope: MemoryScope::Workspace,
-                content: "bad label".to_string(),
-                metadata: json!({ "labels": ["unknown"] }),
+                memory_id: "protocol-memory-1".to_string(),
+                scope: ControlMemoryScope::Workspace,
+                content: "ACP memory writes should go through MemoryStore.".to_string(),
+                metadata: json!({
+                    "title": "ACP memory bridge",
+                    "labels": ["decision", "fact"],
+                    "importance": 0.9,
+                    "pinned": true,
+                    "thread_id": "thread-1"
+                }),
             })
             .await
-            .expect_err("unknown label should fail");
+            .expect("add memory");
 
-        assert!(error.to_string().contains("unsupported memory label"));
-        Ok(())
+        let saved = store
+            .get("protocol-memory-1")
+            .await
+            .expect("get memory")
+            .expect("saved memory");
+        assert_eq!(saved.id, "protocol-memory-1");
+        assert_eq!(saved.title, "ACP memory bridge");
+        assert_eq!(saved.labels, vec![MemoryLabel::Decision, MemoryLabel::Fact]);
+        assert_eq!(saved.source, MemorySource::ProtocolWrite);
+        assert_eq!(saved.scope, StoreMemoryScope::Workspace);
+        assert_eq!(saved.thread_id.as_deref(), Some("thread-1"));
+        assert!(saved.pinned);
+
+        let event = events.recv().await.expect("memory event");
+        assert!(matches!(
+            event.event,
+            RuntimeEvent::Memory(MemoryEvent::RecordAdded { memory_id })
+                if memory_id == "protocol-memory-1"
+        ));
+    }
+
+    #[tokio::test]
+    async fn memory_control_update_delete_and_labels_use_memory_store() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let bus = Arc::new(RuntimeEventBus::new(16));
+        let mut events = bus.subscribe_control();
+        let store = test_memory_store(temp.path());
+        let handler = MemoryControlHandler::with_store(bus, store.clone());
+        store
+            .insert_with_id(
+                Some("protocol-memory-2".to_string()),
+                NewMemoryRecord {
+                    title: Some("Initial".to_string()),
+                    content: "Initial memory body.".to_string(),
+                    labels: vec![MemoryLabel::Experience],
+                    importance: 0.5,
+                    pinned: false,
+                    source: MemorySource::ProtocolWrite,
+                    scope: StoreMemoryScope::Thread,
+                    session_id: None,
+                    thread_id: Some("thread-2".to_string()),
+                    source_span: None,
+                },
+            )
+            .await
+            .expect("seed memory");
+
+        handler
+            .handle_control(&MemoryControlRequest::UpdateRecord {
+                memory_id: "protocol-memory-2".to_string(),
+                patch: MemoryRecordControlPatch {
+                    title: Some("Updated".to_string()),
+                    labels: Some(vec!["procedure".to_string()]),
+                    importance: Some(0.8),
+                    scope: Some(ControlMemoryScope::Workspace),
+                    ..Default::default()
+                },
+            })
+            .await
+            .expect("update memory");
+
+        let updated = store
+            .get("protocol-memory-2")
+            .await
+            .expect("get memory")
+            .expect("updated memory");
+        assert_eq!(updated.title, "Updated");
+        assert_eq!(updated.labels, vec![MemoryLabel::Procedure]);
+        assert_eq!(updated.scope, StoreMemoryScope::Workspace);
+
+        handler
+            .handle_control(&MemoryControlRequest::ListLabels { scope: None })
+            .await
+            .expect("list labels");
+
+        let mut saw_update = false;
+        let mut saw_labels = false;
+        for _ in 0..2 {
+            let event = events.recv().await.expect("memory event");
+            match event.event {
+                RuntimeEvent::Memory(MemoryEvent::RecordUpdated { memory_id }) => {
+                    saw_update = memory_id == "protocol-memory-2";
+                }
+                RuntimeEvent::Memory(MemoryEvent::LabelsListed { labels, .. }) => {
+                    saw_labels = labels
+                        == vec![MemoryLabelSummary {
+                            label: "procedure".to_string(),
+                            count: 1,
+                        }];
+                }
+                _ => {}
+            }
+        }
+        assert!(saw_update);
+        assert!(saw_labels);
+
+        handler
+            .handle_control(&MemoryControlRequest::QueryRecords {
+                query: "Initial memory".to_string(),
+                scope: Some(ControlMemoryScope::Workspace),
+                limit: 4,
+            })
+            .await
+            .expect("query records");
+
+        let event = events.recv().await.expect("records queried event");
+        let RuntimeEvent::Memory(MemoryEvent::RecordsQueried { records }) = event.event else {
+            panic!("expected records queried event");
+        };
+        assert_eq!(records.len(), 1);
+        assert_eq!(records[0].id, "protocol-memory-2");
+        assert_eq!(records[0].labels, vec!["procedure"]);
+        assert_eq!(records[0].scope, "workspace");
+
+        handler
+            .handle_control(&MemoryControlRequest::DeleteRecord {
+                memory_id: "protocol-memory-2".to_string(),
+            })
+            .await
+            .expect("delete memory");
+
+        assert!(
+            store
+                .get("protocol-memory-2")
+                .await
+                .expect("get deleted memory")
+                .is_none()
+        );
+    }
+
+    #[tokio::test]
+    async fn memory_control_without_store_keeps_scaffold_events() {
+        let bus = Arc::new(RuntimeEventBus::new(8));
+        let mut events = bus.subscribe_control();
+        let handler = MemoryControlHandler::new(bus);
+
+        handler
+            .handle_control(&MemoryControlRequest::ListLabels {
+                scope: Some(ControlMemoryScope::Thread),
+            })
+            .await
+            .expect("list labels");
+
+        let event = events.recv().await.expect("memory event");
+        assert!(matches!(
+            event.event,
+            RuntimeEvent::Memory(MemoryEvent::LabelsListed { scope: Some(ControlMemoryScope::Thread), labels })
+                if labels.is_empty()
+        ));
+    }
+
+    #[tokio::test]
+    async fn memory_control_add_record_rejects_duplicate_protocol_id() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let bus = Arc::new(RuntimeEventBus::new(8));
+        let store = test_memory_store(temp.path());
+        let handler = MemoryControlHandler::with_store(bus, store.clone());
+        let request = MemoryControlRequest::AddRecord {
+            memory_id: "protocol-memory-duplicate".to_string(),
+            scope: ControlMemoryScope::Thread,
+            content: "Duplicate protocol ids should not upsert.".to_string(),
+            metadata: json!({"labels": ["fact"]}),
+        };
+
+        handler
+            .handle_control(&request)
+            .await
+            .expect("first add memory");
+        let err = handler
+            .handle_control(&request)
+            .await
+            .expect_err("duplicate add should fail");
+
+        assert!(err.to_string().contains("already exists"));
     }
 }

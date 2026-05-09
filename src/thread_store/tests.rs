@@ -4,7 +4,15 @@ use std::time::Duration;
 
 use anyhow::Result;
 use async_trait::async_trait;
+use rara_memory::vectordb::VectorDB;
 use rara_persistence::thread_metadata;
+use rara_state::state_db::{
+    PersistedCompactState, PersistedInteraction, PersistedPlanStep, PersistedPromptRuntimeState,
+    PersistedRuntimeRolloutItem, PersistedStructuredRolloutEvent, PersistedThreadLineage,
+    PersistedThreadRecord, PersistedTurnEntry, StateDb,
+};
+use rara_state::thread_rollout_log;
+use rara_state::thread_turn_log;
 use serde_json::Value;
 use tempfile::tempdir;
 
@@ -16,14 +24,6 @@ use crate::agent::Message;
 use crate::llm::{ContentBlock, LlmBackend, LlmResponse, MockLlm, TokenUsage};
 use crate::memory_store::{MemoryLabel, MemoryScope, MemorySource, MemoryStore};
 use crate::session::{PersistedCompactionEvent, SessionManager};
-use crate::state_db::{
-    PersistedCompactState, PersistedInteraction, PersistedPlanStep, PersistedPromptRuntimeState,
-    PersistedRuntimeRolloutItem, PersistedStructuredRolloutEvent, PersistedThreadLineage,
-    PersistedThreadRecord, PersistedTurnEntry, StateDb,
-};
-use crate::thread_rollout_log;
-use crate::thread_turn_log;
-use crate::vectordb::VectorDB;
 
 #[test]
 fn load_thread_aggregates_history_state_and_rollout_items() -> Result<()> {
@@ -520,7 +520,7 @@ fn load_thread_prefers_structured_runtime_rollout_items() -> Result<()> {
     state_db.replace_runtime_rollout_events(
         "session-runtime-rollout",
         &[
-            crate::state_db::PersistedStructuredRolloutEvent::PlanState {
+            rara_state::state_db::PersistedStructuredRolloutEvent::PlanState {
                 recorded_at: None,
                 explanation: Some("Structured rollout plan".to_string()),
                 steps: vec![PersistedPlanStep {
@@ -529,7 +529,7 @@ fn load_thread_prefers_structured_runtime_rollout_items() -> Result<()> {
                     step: "Structured rollout plan step".to_string(),
                 }],
             },
-            crate::state_db::PersistedStructuredRolloutEvent::Interaction {
+            rara_state::state_db::PersistedStructuredRolloutEvent::Interaction {
                 recorded_at: None,
                 interaction: PersistedInteraction {
                     kind: "request_input".to_string(),
@@ -801,7 +801,7 @@ fn load_thread_preserves_structured_rollout_event_order() -> Result<()> {
     state_db.replace_runtime_rollout_events(
         "session-ordered-events",
         &[
-            crate::state_db::PersistedStructuredRolloutEvent::PlanState {
+            rara_state::state_db::PersistedStructuredRolloutEvent::PlanState {
                 recorded_at: None,
                 explanation: Some("Plan after first compaction".to_string()),
                 steps: vec![PersistedPlanStep {
@@ -810,7 +810,7 @@ fn load_thread_preserves_structured_rollout_event_order() -> Result<()> {
                     step: "Inspect runtime events".to_string(),
                 }],
             },
-            crate::state_db::PersistedStructuredRolloutEvent::Interaction {
+            rara_state::state_db::PersistedStructuredRolloutEvent::Interaction {
                 recorded_at: None,
                 interaction: PersistedInteraction {
                     kind: "request_input".to_string(),
@@ -1362,7 +1362,7 @@ fn latest_thread_summary_uses_thread_summary_contract() -> Result<()> {
         None,
         "execute",
         "always",
-        &crate::state_db::PersistedThreadLineage::default(),
+        &rara_state::state_db::PersistedThreadLineage::default(),
         None,
         &PersistedPromptRuntimeState::default(),
         1,
@@ -1387,7 +1387,7 @@ fn latest_thread_summary_uses_thread_summary_contract() -> Result<()> {
         Some("https://chatgpt.com/backend-api/codex"),
         "plan",
         "on-request",
-        &crate::state_db::PersistedThreadLineage {
+        &rara_state::state_db::PersistedThreadLineage {
             origin_kind: "fork".to_string(),
             forked_from_thread_id: Some("thread-old".to_string()),
         },

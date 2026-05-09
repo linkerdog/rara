@@ -306,7 +306,7 @@ pub struct MemoryRecordControlPatch {
 }
 
 #[allow(dead_code)]
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum MemoryScope {
     Thread,
@@ -504,24 +504,39 @@ pub enum McpEvent {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "type", content = "payload", rename_all = "snake_case")]
 pub enum MemoryEvent {
-    RecordAdded { memory_id: String },
-    RecordUpdated { memory_id: String },
-    RecordDeleted { memory_id: String },
-    LabelsListed { labels: Vec<MemoryLabelCountEvent> },
-    RecordsQueried { records: Vec<MemoryRecordEventView> },
+    RecordAdded {
+        memory_id: String,
+    },
+    RecordUpdated {
+        memory_id: String,
+    },
+    RecordDeleted {
+        memory_id: String,
+    },
+    LabelsListed {
+        scope: Option<MemoryScope>,
+        labels: Vec<MemoryLabelSummary>,
+    },
+    MetadataQueried {
+        record_count: usize,
+        labels: Vec<MemoryLabelSummary>,
+    },
+    RecordsQueried {
+        records: Vec<MemoryRecordSummary>,
+    },
     SelectionUpdated,
 }
 
 #[allow(dead_code)]
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub struct MemoryLabelCountEvent {
+pub struct MemoryLabelSummary {
     pub label: String,
     pub count: usize,
 }
 
 #[allow(dead_code)]
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub struct MemoryRecordEventView {
+pub struct MemoryRecordSummary {
     pub id: String,
     pub title: String,
     pub content: String,
@@ -1186,9 +1201,9 @@ mod tests {
 
         let query = serde_json::to_value(RuntimeControlRequest::Memory(
             MemoryControlRequest::QueryRecords {
-                query: "protocol memory".to_string(),
+                query: "project path".to_string(),
                 scope: Some(MemoryScope::Workspace),
-                limit: 5,
+                limit: 4,
             },
         ))
         .unwrap();
@@ -1199,21 +1214,68 @@ mod tests {
                 "payload": {
                     "type": "query_records",
                     "payload": {
-                        "query": "protocol memory",
+                        "query": "project path",
                         "scope": "workspace",
-                        "limit": 5
+                        "limit": 4
+                    }
+                }
+            })
+        );
+    }
+
+    #[test]
+    fn memory_label_and_metadata_events_use_structured_wire_shape() {
+        let labels = serde_json::to_value(RuntimeEvent::Memory(MemoryEvent::LabelsListed {
+            scope: Some(MemoryScope::Workspace),
+            labels: vec![MemoryLabelSummary {
+                label: "decision".to_string(),
+                count: 2,
+            }],
+        }))
+        .unwrap();
+        assert_eq!(
+            labels,
+            json!({
+                "type": "memory",
+                "payload": {
+                    "type": "labels_listed",
+                    "payload": {
+                        "scope": "workspace",
+                        "labels": [{"label": "decision", "count": 2}]
                     }
                 }
             })
         );
 
-        let queried = serde_json::to_value(RuntimeEvent::Memory(MemoryEvent::RecordsQueried {
-            records: vec![MemoryRecordEventView {
+        let metadata = serde_json::to_value(RuntimeEvent::Memory(MemoryEvent::MetadataQueried {
+            record_count: 3,
+            labels: vec![MemoryLabelSummary {
+                label: "fact".to_string(),
+                count: 1,
+            }],
+        }))
+        .unwrap();
+        assert_eq!(
+            metadata,
+            json!({
+                "type": "memory",
+                "payload": {
+                    "type": "metadata_queried",
+                    "payload": {
+                        "record_count": 3,
+                        "labels": [{"label": "fact", "count": 1}]
+                    }
+                }
+            })
+        );
+
+        let records = serde_json::to_value(RuntimeEvent::Memory(MemoryEvent::RecordsQueried {
+            records: vec![MemoryRecordSummary {
                 id: "memory-1".to_string(),
-                title: "Protocol memory".to_string(),
-                content: "Use MemoryStore for protocol writes.".to_string(),
-                labels: vec!["decision".to_string()],
-                importance_basis_points: 8000,
+                title: "Reference project path".to_string(),
+                content: "The local project is under /repo.".to_string(),
+                labels: vec!["fact".to_string()],
+                importance_basis_points: 7500,
                 pinned: true,
                 scope: "workspace".to_string(),
                 session_id: Some("session-1".to_string()),
@@ -1222,7 +1284,7 @@ mod tests {
         }))
         .unwrap();
         assert_eq!(
-            queried,
+            records,
             json!({
                 "type": "memory",
                 "payload": {
@@ -1230,10 +1292,10 @@ mod tests {
                     "payload": {
                         "records": [{
                             "id": "memory-1",
-                            "title": "Protocol memory",
-                            "content": "Use MemoryStore for protocol writes.",
-                            "labels": ["decision"],
-                            "importance_basis_points": 8000,
+                            "title": "Reference project path",
+                            "content": "The local project is under /repo.",
+                            "labels": ["fact"],
+                            "importance_basis_points": 7500,
                             "pinned": true,
                             "scope": "workspace",
                             "session_id": "session-1",

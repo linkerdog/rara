@@ -123,7 +123,7 @@ Importance scale:
 | Context injection | Ranked memory candidates pass through `MemorySelection` before prompt injection. | Partial. LanceDB-backed memory and session search now produce direct ranked `MemorySelection` candidates; retention, deduplication, and protocol mutation remain future work. |
 | Graph retrieval | Entity and relationship traversal complements vector recall. | Future work. |
 | Working memory | Daily or session briefing summarizes recent and important memories. | Future work. |
-| MCP / ACP / Wire memory APIs | Protocol clients can query and mutate memory through the runtime control plane. | Partial. Runtime-control requests can add, update, delete, list labels, and query records through `MemoryControlHandler`; concrete adapter commands remain future work. |
+| MCP / ACP / Wire memory APIs | Protocol clients can query and mutate memory through the runtime control plane. | Partial. Runtime-control requests can add, update, delete, list labels, query metadata, and query records through `MemoryControlHandler`; transport-specific command surfaces remain follow-up work. |
 
 ## Memories vs Threads
 
@@ -222,7 +222,7 @@ dimension before the first memory write.
 | Component | Integration |
 |-----------|-------------|
 | `remember_experience` | Current compatibility tool; should become a thin adapter over `MemoryStore::insert` |
-| `memory_add` / `memory_update` / `memory_delete` | Protocol-safe memory mutation requests route through `MemoryControlHandler` and `MemoryStore`; concrete adapter command surfaces remain future work |
+| `memory_add` / `memory_update` / `memory_delete` | Future protocol-safe memory mutation tools |
 | `retrieve_experience` | Current compatibility retrieval tool; should delegate to `MemoryStore::search` |
 | `memory_search` | Future protocol-safe search tool with labels, scope, and importance filters |
 | `MemorySelection` | `vector_memory_candidate` becomes `selectable: true` |
@@ -238,9 +238,10 @@ Current implementation checkpoint:
   touching the LanceDB search row.
 - `MemoryStore::update`, `delete`, and `list_labels` provide the memory-domain
   API needed by future ACP/Wire adapters without exposing LanceDB operations.
-- `MemoryControlHandler` now routes add, update, delete, label-list, and query
-  requests through `MemoryStore` and emits structured memory events for
-  protocol subscribers.
+- Protocol memory control requests now execute add, update, delete, list-label,
+  metadata, and record-query operations through `MemoryStore` and publish
+  structured memory events. Protocol adapters still must route their
+  transport-specific commands through the shared control-plane dispatcher.
 - Search rehydration treats persisted `MemoryRecord`s as the source of truth:
   indexed rows with deleted ids are filtered instead of reconstructed.
 - `MemoryRecord::is_protected_from_automatic_cleanup` protects pinned,
@@ -291,11 +292,9 @@ Current implementation checkpoint:
     extraction with deduplication is available through `distill_thread_memories`.
 11. Move raw session checkpoints out of the global `conversations` LanceDB table
    into per-session append shards. Done.
-12. Route memory mutation/query control-plane requests through `MemoryStore`.
-   Done.
-13. Add periodic promotion from session shards into global `MemoryRecord`s.
-14. Deprecate `VectorDB`.
-15. Remove `VectorDB`.
+12. Add periodic promotion from session shards into global `MemoryRecord`s.
+13. Deprecate `VectorDB`.
+14. Remove `VectorDB`.
 
 ## Source Journals
 

@@ -4,6 +4,7 @@ use std::sync::{
 };
 use std::time::{Duration, Instant};
 
+use rara_memory::vectordb::VectorDB;
 use serde_json::json;
 use tempfile::tempdir;
 use tokio::sync::{Mutex, mpsc};
@@ -26,7 +27,6 @@ use crate::tools::planning::{EnterPlanModeTool, ExitPlanModeTool};
 use crate::tui::state::{
     OAuthLoginMode, RalphGoal, RunningTask, RuntimePhase, TaskCompletion, TaskKind, TuiApp,
 };
-use crate::vectordb::VectorDB;
 use crate::workspace::WorkspaceMemory;
 
 struct PlainAnswerBackend;

@@ -1,0 +1,16 @@
+[package]
+name = "rara-state"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+rara-persistence = { path = "../rara-persistence" }
+rara-config = { path = "../config" }
+anyhow.workspace = true
+serde = { version = "1", features = ["derive"] }
+serde_json.workspace = true
+rusqlite = { version = "0.39", features = ["bundled"] }
+
+[dev-dependencies]
+tempfile.workspace = true

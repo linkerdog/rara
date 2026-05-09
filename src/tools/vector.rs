@@ -1,13 +1,13 @@
 use std::sync::Arc;
 
 use async_trait::async_trait;
+use rara_memory::vectordb::VectorDB;
 use rara_tool_macros::tool_spec;
 use serde_json::{Value, json};
 
 use crate::llm::LlmBackend;
 use crate::memory_store::{MemoryStore, NewMemoryRecord};
 use crate::tool::{Tool, ToolError};
-use crate::vectordb::VectorDB;
 
 pub struct RememberExperienceTool {
     pub backend: Arc<dyn LlmBackend>,
