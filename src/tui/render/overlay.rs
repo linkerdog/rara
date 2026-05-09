@@ -512,7 +512,7 @@ fn bottom_picker_rect(area: Rect, _app: &TuiApp) -> Rect {
     let x = area
         .x
         .saturating_add((area.width.saturating_sub(width)) / 2);
-    let height = (area.height / 3).min(18).max(8);
+    let height = (area.height / 3).min(18).max(12);
     let y = area
         .y
         .saturating_add(area.height.saturating_sub(height).saturating_sub(1));
