@@ -44,11 +44,26 @@ struct PromptSourceEntry {
     remaining_turns: Option<u32>,
 }
 
+/// Stable snapshot of a protocol-registered prompt source.
+///
+/// Unlike `list_sources`, this keeps the control-plane provenance and the
+/// current turn-lifetime state that prompt runtime and `/context` integration
+/// need for explainable source injection.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ProtocolPromptSourceSnapshot {
     pub registration: PromptSourceRegistration,
     pub provenance: RuntimeProvenance,
     pub remaining_turns: Option<u32>,
+}
+
+impl From<&PromptSourceEntry> for ProtocolPromptSourceSnapshot {
+    fn from(entry: &PromptSourceEntry) -> Self {
+        Self {
+            registration: entry.registration.clone(),
+            provenance: entry.provenance.clone(),
+            remaining_turns: entry.remaining_turns,
+        }
+    }
 }
 
 /// Registry for protocol-registered prompt sources.
@@ -70,6 +85,8 @@ impl PromptSourceRegistry {
             .await;
     }
 
+    /// Handle a prompt source control request while explicitly recording the
+    /// provenance of the runtime-control envelope that carried it.
     pub async fn handle_control_with_provenance(
         &self,
         request: &PromptSourceControlRequest,
@@ -153,16 +170,13 @@ impl PromptSourceRegistry {
             .collect()
     }
 
+    /// Return all registered sources with provenance and remaining lifetime.
     pub async fn list_source_snapshots(&self) -> Vec<ProtocolPromptSourceSnapshot> {
         self.sources
             .read()
             .await
             .values()
-            .map(|entry| ProtocolPromptSourceSnapshot {
-                registration: entry.registration.clone(),
-                provenance: entry.provenance.clone(),
-                remaining_turns: entry.remaining_turns,
-            })
+            .map(ProtocolPromptSourceSnapshot::from)
             .collect()
     }
 }
