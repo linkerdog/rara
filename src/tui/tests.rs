@@ -59,10 +59,10 @@ async fn busy_submit_queues_follow_up_message() {
         path: temp.path().join("config.json"),
     })
     .expect("app");
-    app.input = "continue with the follow-up".into();
+    app.bottom_pane.input = "continue with the follow-up".into();
 
     let (_sender, receiver) = mpsc::unbounded_channel();
-    app.running_task = Some(RunningTask {
+    app.bottom_pane.running_task = Some(RunningTask {
         kind: TaskKind::Query,
         receiver,
         handle: tokio::spawn(async move {
@@ -90,7 +90,8 @@ async fn busy_submit_queues_follow_up_message() {
         Some("continue with the follow-up")
     );
     assert!(
-        app.notice
+        app.bottom_pane
+            .notice
             .as_deref()
             .is_some_and(|value| value.contains("Queued for after the next tool call boundary"))
     );
@@ -99,7 +100,7 @@ async fn busy_submit_queues_follow_up_message() {
         Some("continue with the follow-up")
     );
 
-    if let Some(task) = app.running_task.take() {
+    if let Some(task) = app.bottom_pane.running_task.take() {
         task.handle.abort();
     }
 }
@@ -218,7 +219,7 @@ async fn pending_plan_approval_blocks_plain_submit() {
     })
     .expect("app");
     app.set_pending_plan_approval(true);
-    app.input = "start implementation".into();
+    app.bottom_pane.input = "start implementation".into();
 
     let mut agent_slot = None;
     let oauth_manager = Arc::new(
@@ -231,9 +232,10 @@ async fn pending_plan_approval_blocks_plain_submit() {
 
     assert!(!should_quit);
     assert!(app.has_pending_plan_approval());
-    assert!(app.running_task.is_none());
+    assert!(app.bottom_pane.running_task.is_none());
     assert!(
-        app.notice
+        app.bottom_pane
+            .notice
             .as_deref()
             .is_some_and(|value| value.contains("Press 1 to start implementation"))
     );
@@ -247,7 +249,7 @@ async fn submit_numeric_input_handles_pending_shell_approval() {
     })
     .expect("app");
     add_pending_shell_approval(&mut app);
-    app.input = "4".into();
+    app.bottom_pane.input = "4".into();
 
     let mut agent_slot = None;
     let oauth_manager = Arc::new(
@@ -259,10 +261,11 @@ async fn submit_numeric_input_handles_pending_shell_approval() {
         .expect("submit");
 
     assert!(!should_quit);
-    assert!(app.running_task.is_none());
-    assert_eq!(app.input, "");
+    assert!(app.bottom_pane.running_task.is_none());
+    assert_eq!(app.bottom_pane.input, "");
     assert!(
-        app.notice
+        app.bottom_pane
+            .notice
             .as_deref()
             .is_some_and(|value| value.contains("Approval is still preparing"))
     );
@@ -276,7 +279,7 @@ async fn plain_submit_queues_while_shell_approval_is_pending() {
     })
     .expect("app");
     add_pending_shell_approval(&mut app);
-    app.input = "then review the diff".into();
+    app.bottom_pane.input = "then review the diff".into();
 
     let mut agent_slot = None;
     let oauth_manager = Arc::new(
@@ -288,10 +291,11 @@ async fn plain_submit_queues_while_shell_approval_is_pending() {
         .expect("submit");
 
     assert!(!should_quit);
-    assert!(app.running_task.is_none());
+    assert!(app.bottom_pane.running_task.is_none());
     assert_eq!(app.queued_follow_up_preview(), Some("then review the diff"));
     assert!(
-        app.notice
+        app.bottom_pane
+            .notice
             .as_deref()
             .is_some_and(|value| value.contains("pending interaction is answered"))
     );
@@ -306,7 +310,7 @@ async fn esc_cancels_busy_query_without_overlay() {
     .expect("app");
 
     let (_sender, receiver) = mpsc::unbounded_channel();
-    app.running_task = Some(RunningTask {
+    app.bottom_pane.running_task = Some(RunningTask {
         kind: TaskKind::Query,
         receiver,
         handle: tokio::spawn(async move {
@@ -324,7 +328,7 @@ async fn esc_cancels_busy_query_without_overlay() {
         AppEvent::CancelRunningTask
     ));
 
-    if let Some(task) = app.running_task.take() {
+    if let Some(task) = app.bottom_pane.running_task.take() {
         task.handle.abort();
     }
 }
@@ -336,10 +340,10 @@ async fn busy_submit_allows_quit_command() {
         path: temp.path().join("config.json"),
     })
     .expect("app");
-    app.input = "/quit".into();
+    app.bottom_pane.input = "/quit".into();
 
     let (_sender, receiver) = mpsc::unbounded_channel();
-    app.running_task = Some(RunningTask {
+    app.bottom_pane.running_task = Some(RunningTask {
         kind: TaskKind::OAuth,
         receiver,
         handle: tokio::spawn(async move {
@@ -363,7 +367,7 @@ async fn busy_submit_allows_quit_command() {
 
     assert!(should_quit);
 
-    if let Some(task) = app.running_task.take() {
+    if let Some(task) = app.bottom_pane.running_task.take() {
         task.handle.abort();
     }
 }
@@ -398,12 +402,11 @@ async fn slash_palette_model_selection_opens_provider_picker_in_local_and_ssh() 
         )
         .await
         .expect("apply command palette selection");
-
         assert!(app.overlay.is_none(), "palette closed after selection");
         assert!(
-            app.input.contains("/model"),
+            app.bottom_pane.input.contains("/model"),
             "input filled with model command, got '{}'",
-            app.input
+            app.bottom_pane.input
         );
     }
 }
@@ -514,7 +517,7 @@ fn test_agent_for_pending_approval(temp: &tempfile::TempDir) -> Agent {
 }
 
 fn abort_running_task(app: &mut TuiApp) {
-    if let Some(task) = app.running_task.take() {
+    if let Some(task) = app.bottom_pane.running_task.take() {
         task.handle.abort();
     }
 }
@@ -611,7 +614,7 @@ async fn full_access_permission_picker_resumes_pending_shell_approval_in_local_a
         assert_eq!(app.permission_mode, PermissionMode::FullAccess);
         assert!(app.pending_command_approval().is_none());
         assert!(agent_slot.is_none());
-        assert!(app.running_task.is_some());
+        assert!(app.bottom_pane.running_task.is_some());
         abort_running_task(&mut app);
     }
 }
@@ -648,7 +651,7 @@ async fn always_shell_approval_promotes_full_access_for_follow_up_commands() {
     );
     assert!(app.pending_command_approval().is_none());
     assert!(agent_slot.is_none());
-    assert!(app.running_task.is_some());
+    assert!(app.bottom_pane.running_task.is_some());
     abort_running_task(&mut app);
 }
 
@@ -675,7 +678,7 @@ async fn full_access_mode_resumes_stale_pending_shell_approval_from_shortcuts() 
 
         assert!(app.pending_command_approval().is_none());
         assert!(agent_slot.is_none());
-        assert!(app.running_task.is_some());
+        assert!(app.bottom_pane.running_task.is_some());
         abort_running_task(&mut app);
     }
 }
@@ -712,7 +715,7 @@ async fn full_access_mode_does_not_resume_shell_approval_behind_active_plan_appr
     );
     assert!(app.pending_command_approval().is_some());
     assert!(agent_slot.is_some());
-    assert!(app.running_task.is_none());
+    assert!(app.bottom_pane.running_task.is_none());
 }
 
 #[test]
@@ -742,7 +745,7 @@ fn plain_input_does_not_treat_s_as_setup_shortcut() {
         path: temp.path().join("config.json"),
     })
     .expect("app");
-    app.input = "先同步ma".into();
+    app.bottom_pane.input = "先同步ma".into();
 
     assert!(matches!(
         map_key_to_event(key(KeyCode::Char('s')), &app),
@@ -775,7 +778,7 @@ fn arrow_keys_and_home_end_map_to_composer_cursor_events() {
         path: temp.path().join("config.json"),
     })
     .expect("app");
-    app.input = "hello".into();
+    app.bottom_pane.input = "hello".into();
 
     assert!(matches!(
         map_key_to_event(key(KeyCode::Left), &app),
@@ -853,20 +856,20 @@ fn input_history_navigation_recalls_previous_submissions_and_restores_draft() {
     app.set_input("draft".to_string());
 
     app.navigate_input_history(-1);
-    assert_eq!(app.input, "second request");
+    assert_eq!(app.bottom_pane.input, "second request");
     assert_eq!(
         app.composer_cursor_offset(),
         "second request".chars().count()
     );
 
     app.navigate_input_history(-1);
-    assert_eq!(app.input, "first request");
+    assert_eq!(app.bottom_pane.input, "first request");
 
     app.navigate_input_history(1);
-    assert_eq!(app.input, "second request");
+    assert_eq!(app.bottom_pane.input, "second request");
 
     app.navigate_input_history(1);
-    assert_eq!(app.input, "draft");
+    assert_eq!(app.bottom_pane.input, "draft");
     assert_eq!(app.input_history_cursor, None);
 }
 
@@ -879,7 +882,7 @@ fn input_history_navigation_starts_from_non_empty_draft_at_start() {
     .expect("app");
     app.record_input_history("previous request");
     app.set_input("draft".to_string());
-    app.input_cursor_offset = Some(0);
+    app.bottom_pane.input_cursor_offset = Some(0);
 
     assert!(matches!(
         map_key_to_event(key(KeyCode::Up), &app),
@@ -887,9 +890,9 @@ fn input_history_navigation_starts_from_non_empty_draft_at_start() {
     ));
 
     app.navigate_input_history(-1);
-    assert_eq!(app.input, "previous request");
+    assert_eq!(app.bottom_pane.input, "previous request");
     app.navigate_input_history(1);
-    assert_eq!(app.input, "draft");
+    assert_eq!(app.bottom_pane.input, "draft");
 }
 
 #[test]
@@ -924,7 +927,7 @@ fn input_history_navigation_keeps_multiline_cursor_movement_for_unrecalled_text(
     .expect("app");
     app.record_input_history("previous request");
     app.set_input("line one\nline two".to_string());
-    app.input_cursor_offset = Some("line one\nline".chars().count());
+    app.bottom_pane.input_cursor_offset = Some("line one\nline".chars().count());
 
     assert!(matches!(
         map_key_to_event(key(KeyCode::Up), &app),
@@ -1005,7 +1008,7 @@ async fn composer_supports_mid_input_insertion_and_backspace() {
     )
     .await
     .expect("insert");
-    assert_eq!(app.input, "hello");
+    assert_eq!(app.bottom_pane.input, "hello");
     assert_eq!(app.composer_cursor_offset(), 4);
 
     dispatch_event(
@@ -1016,7 +1019,7 @@ async fn composer_supports_mid_input_insertion_and_backspace() {
     )
     .await
     .expect("backspace");
-    assert_eq!(app.input, "helo");
+    assert_eq!(app.bottom_pane.input, "helo");
     assert_eq!(app.composer_cursor_offset(), 3);
 }
 
@@ -1032,7 +1035,7 @@ async fn paste_inserts_at_current_cursor_offset() {
 
     super::terminal_ui::handle_paste("l".to_string(), &mut app);
 
-    assert_eq!(app.input, "hello");
+    assert_eq!(app.bottom_pane.input, "hello");
     assert_eq!(app.composer_cursor_offset(), 4);
 }
 
@@ -1046,7 +1049,7 @@ async fn paste_normalizes_crlf_and_cr_newlines() {
 
     super::terminal_ui::handle_paste("first\r\nsecond\rthird".to_string(), &mut app);
 
-    assert_eq!(app.input, "first\nsecond\nthird");
+    assert_eq!(app.bottom_pane.input, "first\nsecond\nthird");
     assert_eq!(
         app.composer_cursor_offset(),
         "first\nsecond\nthird".chars().count()
@@ -1076,7 +1079,7 @@ async fn composer_supports_vertical_cursor_navigation_across_lines() {
     .expect("app");
     app.terminal_width = 12;
     app.set_input("abcd\nefgh".to_string());
-    app.input_cursor_offset = Some("abcd\nef".chars().count());
+    app.bottom_pane.input_cursor_offset = Some("abcd\nef".chars().count());
 
     let oauth_manager = Arc::new(
         crate::oauth::OAuthManager::new_for_config_dir(temp.path().join(".rara"))
@@ -1119,7 +1122,8 @@ fn app_starts_with_warning_instead_of_api_key_editor_for_hosted_provider_without
     let app = TuiApp::new(cm).expect("app");
     assert!(app.overlay.is_none());
     assert!(
-        app.notice
+        app.bottom_pane
+            .notice
             .as_deref()
             .is_some_and(|value| value.starts_with("Warning:"))
     );
@@ -1170,10 +1174,10 @@ async fn openai_model_picker_delete_row_removes_active_profile() {
         Some(Overlay::ListPicker(ListPickerKind::Model))
     ));
     assert!(matches!(
-        app.running_task.as_ref(),
+        app.bottom_pane.running_task.as_ref(),
         Some(task) if matches!(task.kind, TaskKind::Rebuild)
     ));
-    if let Some(task) = app.running_task.take() {
+    if let Some(task) = app.bottom_pane.running_task.take() {
         task.handle.abort();
     }
 }
@@ -1272,10 +1276,10 @@ async fn deepseek_api_key_save_starts_model_catalog_task() {
 
     assert_eq!(app.config.api_key(), Some("sk-deepseek-test"));
     assert!(matches!(
-        app.running_task.as_ref(),
+        app.bottom_pane.running_task.as_ref(),
         Some(task) if matches!(task.kind, TaskKind::DeepSeekModels)
     ));
-    if let Some(task) = app.running_task.take() {
+    if let Some(task) = app.bottom_pane.running_task.take() {
         task.handle.abort();
     }
 }
@@ -1309,7 +1313,7 @@ async fn deepseek_model_picker_enter_without_api_key_opens_api_key_editor() {
     .expect("apply model selection");
 
     assert!(matches!(app.overlay, Some(Overlay::ApiKeyEditor)));
-    assert!(app.running_task.is_none());
+    assert!(app.bottom_pane.running_task.is_none());
 }
 
 #[tokio::test]
@@ -1343,7 +1347,7 @@ async fn deepseek_model_picker_api_key_action_opens_editor_even_when_key_exists(
     .expect("apply api key action");
 
     assert!(matches!(app.overlay, Some(Overlay::ApiKeyEditor)));
-    assert!(app.running_task.is_none());
+    assert!(app.bottom_pane.running_task.is_none());
 }
 
 #[tokio::test]
@@ -1650,7 +1654,8 @@ async fn save_api_key_input_allows_clearing_openai_compatible_credentials() {
     assert!(!should_quit);
     assert_eq!(app.config.api_key(), None);
     assert!(
-        app.notice
+        app.bottom_pane
+            .notice
             .as_deref()
             .is_some_and(|value| value.contains("Cleared API key"))
     );
@@ -1823,10 +1828,10 @@ async fn codex_model_picker_applies_single_reasoning_level_without_overlay() {
     assert_eq!(app.config.model.as_deref(), Some("gpt-5.2-codex"));
     assert_eq!(app.config.reasoning_effort.as_deref(), Some("high"));
     assert!(matches!(
-        app.running_task.as_ref(),
+        app.bottom_pane.running_task.as_ref(),
         Some(task) if matches!(task.kind, TaskKind::Rebuild)
     ));
-    if let Some(task) = app.running_task.take() {
+    if let Some(task) = app.bottom_pane.running_task.take() {
         task.handle.abort();
     }
 }

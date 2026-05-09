@@ -23,7 +23,7 @@ pub(super) fn render_composer(f: &mut Frame, app: &mut TuiApp, area: Rect) -> Op
         .direction(Direction::Vertical)
         .constraints([Constraint::Min(2), Constraint::Length(1)])
         .split(area);
-    let composer_lines = if app.input.is_empty() {
+    let composer_lines = if app.bottom_pane.input.is_empty() {
         vec![Line::from(vec![
             Span::styled(
                 "› ",
@@ -44,37 +44,42 @@ pub(super) fn render_composer(f: &mut Frame, app: &mut TuiApp, area: Rect) -> Op
             Span::styled(" to browse commands.", Style::default().fg(TEXT_SECONDARY)),
         ])]
     } else {
-        wrapped_text_rows(app.input.as_str(), chunks[0].width, Some("› "), Some("  "))
-            .into_iter()
-            .map(|row| {
-                let mut spans = Vec::new();
-                let (prefix, remainder) = if let Some(rest) = row.strip_prefix("› ") {
-                    ("› ", rest)
-                } else if let Some(rest) = row.strip_prefix("  ") {
-                    ("  ", rest)
-                } else {
-                    ("", row.as_str())
-                };
+        wrapped_text_rows(
+            app.bottom_pane.input.as_str(),
+            chunks[0].width,
+            Some("› "),
+            Some("  "),
+        )
+        .into_iter()
+        .map(|row| {
+            let mut spans = Vec::new();
+            let (prefix, remainder) = if let Some(rest) = row.strip_prefix("› ") {
+                ("› ", rest)
+            } else if let Some(rest) = row.strip_prefix("  ") {
+                ("  ", rest)
+            } else {
+                ("", row.as_str())
+            };
 
-                if !prefix.is_empty() {
-                    spans.push(Span::styled(
-                        prefix.to_string(),
-                        Style::default()
-                            .fg(TEXT_ACCENT)
-                            .add_modifier(Modifier::BOLD),
-                    ));
-                }
-                spans.push(Span::raw(expand_composer_display_text(remainder)));
-                Line::from(spans)
-            })
-            .collect::<Vec<_>>()
+            if !prefix.is_empty() {
+                spans.push(Span::styled(
+                    prefix.to_string(),
+                    Style::default()
+                        .fg(TEXT_ACCENT)
+                        .add_modifier(Modifier::BOLD),
+                ));
+            }
+            spans.push(Span::raw(expand_composer_display_text(remainder)));
+            Line::from(spans)
+        })
+        .collect::<Vec<_>>()
     };
     f.render_widget(
         Paragraph::new(composer_lines)
             .block(Block::default())
             .style(bottom_pane_style())
             .wrap(Wrap { trim: false })
-            .scroll((app.composer_scroll as u16, 0)),
+            .scroll((app.bottom_pane.composer_scroll as u16, 0)),
         chunks[0],
     );
     let hint = composer_hint_line(app);
@@ -85,10 +90,10 @@ pub(super) fn render_composer(f: &mut Frame, app: &mut TuiApp, area: Rect) -> Op
         chunks[1],
     );
     Some(composer_cursor_position(
-        app.input.as_str(),
+        app.bottom_pane.input.as_str(),
         app.composer_cursor_offset(),
         chunks[0],
-        app.composer_scroll,
+        app.bottom_pane.composer_scroll,
     ))
 }
 
@@ -98,7 +103,7 @@ pub(super) fn composer_hint(app: &TuiApp) -> Line<'static> {
         Some(super::super::super::state::Overlay::CommandPalette)
     ) {
         ""
-    } else if app.input.trim_start().starts_with('/') {
+    } else if app.bottom_pane.input.trim_start().starts_with('/') {
         "slash command  Enter run  Esc close"
     } else if let Some(pending) = app.active_pending_interaction() {
         pending_interaction_hint_text(pending.kind)
@@ -108,6 +113,7 @@ pub(super) fn composer_hint(app: &TuiApp) -> Line<'static> {
         queued_follow_up_hint()
     } else if app.is_busy() {
         if app
+            .bottom_pane
             .running_task
             .as_ref()
             .is_some_and(|task| matches!(task.kind, TaskKind::Query))
@@ -180,10 +186,10 @@ pub(super) fn desired_composer_height(app: &TuiApp, width: u16, rows: u16) -> u1
 }
 
 fn composer_content_line_count(app: &TuiApp, width: u16) -> u16 {
-    let content = if app.input.is_empty() {
+    let content = if app.bottom_pane.input.is_empty() {
         "Ask about the repo, request a code change, or type /help to browse commands.".to_string()
     } else {
-        app.input.clone()
+        app.bottom_pane.input.clone()
     };
 
     wrapped_text_row_count(&content, width, Some("› "), None)

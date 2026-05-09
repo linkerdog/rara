@@ -136,7 +136,7 @@ fn activity_status_line_renders_warning_notice_in_yellow() {
         path: temp.path().join("config.json"),
     })
     .expect("build tui app");
-    app.notice = Some(
+    app.bottom_pane.notice = Some(
         "Warning: openai-compatible is missing an API key. Use /model to configure the current provider."
             .into(),
     );
@@ -170,7 +170,7 @@ async fn busy_composer_hint_keeps_only_action_keys() {
     .expect("build tui app");
     app.runtime_phase = RuntimePhase::ProcessingResponse;
     let (_sender, receiver) = mpsc::unbounded_channel();
-    app.running_task = Some(RunningTask {
+    app.bottom_pane.running_task = Some(RunningTask {
         kind: TaskKind::Query,
         receiver,
         handle: tokio::spawn(std::future::pending::<TaskCompletion>()),
@@ -185,7 +185,7 @@ async fn busy_composer_hint_keeps_only_action_keys() {
         "Enter queue  Esc/Ctrl+C cancel"
     );
 
-    if let Some(task) = app.running_task.take() {
+    if let Some(task) = app.bottom_pane.running_task.take() {
         task.handle.abort();
     }
 }
@@ -199,7 +199,7 @@ async fn busy_composer_hint_hides_cancel_for_non_query_tasks() {
     .expect("build tui app");
     app.runtime_phase = RuntimePhase::ProcessingResponse;
     let (_sender, receiver) = mpsc::unbounded_channel();
-    app.running_task = Some(RunningTask {
+    app.bottom_pane.running_task = Some(RunningTask {
         kind: TaskKind::Compact,
         receiver,
         handle: tokio::spawn(std::future::pending::<TaskCompletion>()),
@@ -211,7 +211,7 @@ async fn busy_composer_hint_hides_cancel_for_non_query_tasks() {
 
     assert_eq!(composer_hint(&app).to_string(), "Enter queue");
 
-    if let Some(task) = app.running_task.take() {
+    if let Some(task) = app.bottom_pane.running_task.take() {
         task.handle.abort();
     }
 }
@@ -239,7 +239,7 @@ fn composer_hint_line_hides_slash_hint_while_palette_is_open() {
         path: temp.path().join("config.json"),
     })
     .expect("build tui app");
-    app.input = "/".into();
+    app.bottom_pane.input = "/".into();
     app.overlay = Some(crate::tui::state::Overlay::CommandPalette);
 
     let rendered = composer_hint_line(&app).to_string();
@@ -354,7 +354,7 @@ async fn activity_status_line_hides_busy_progress_from_composer_bar() {
     .expect("build tui app");
     app.runtime_phase = RuntimePhase::ProcessingResponse;
     let (_sender, receiver) = mpsc::unbounded_channel();
-    app.running_task = Some(RunningTask {
+    app.bottom_pane.running_task = Some(RunningTask {
         kind: TaskKind::Query,
         receiver,
         handle: tokio::spawn(std::future::pending::<TaskCompletion>()),
@@ -372,7 +372,7 @@ async fn activity_status_line_hides_busy_progress_from_composer_bar() {
     assert!(detail.contains("esc to interrupt"));
     assert!(animated_activity_label(&app, label).starts_with("Working"));
 
-    if let Some(task) = app.running_task.take() {
+    if let Some(task) = app.bottom_pane.running_task.take() {
         task.handle.abort();
     }
 }
@@ -398,7 +398,7 @@ fn activity_status_line_hides_completed_prompt_notice() {
         path: temp.path().join("config.json"),
     })
     .expect("build tui app");
-    app.notice = Some("Prompt finished.".into());
+    app.bottom_pane.notice = Some("Prompt finished.".into());
 
     let (label, _, detail) = activity_status_line(&app);
 
