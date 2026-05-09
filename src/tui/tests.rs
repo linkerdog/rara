@@ -402,11 +402,11 @@ async fn slash_palette_model_selection_opens_provider_picker_in_local_and_ssh() 
         )
         .await
         .expect("apply command palette selection");
-
-        assert!(matches!(app.overlay, Some(Overlay::ListPicker(_))));
-        assert_eq!(
-            app.bottom_pane.notice.as_deref(),
-            Some("Change the active model.")
+        assert!(app.overlay.is_none(), "palette closed after selection");
+        assert!(
+            app.bottom_pane.input.contains("/model"),
+            "input filled with model command, got '{}'",
+            app.bottom_pane.input
         );
     }
 }

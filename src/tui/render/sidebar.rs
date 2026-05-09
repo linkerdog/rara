@@ -1,6 +1,8 @@
 // Wide-screen sidebar (≥120 cols) rendered alongside the main transcript pane.
 // Layout draws a 38-column panel on the left split by a vertical border,
-// showing session identity, model badge, context budget bar, and status.
+// showing session identity, model badge, context summary, files access, and status.
+use std::collections::BTreeSet;
+
 use ratatui::{
     layout::{Constraint, Direction, Layout, Rect},
     style::{Color, Modifier, Style},
@@ -38,11 +40,11 @@ pub(crate) fn render_sidebar(f: &mut Frame, app: &TuiApp, area: Rect) {
     lines.push(Line::from(""));
     push_model_badge(&mut lines, app);
     lines.push(Line::from(""));
-    push_budget_bar(&mut lines, app, body_area.width);
+    push_context_summary(&mut lines, app);
     lines.push(Line::from(""));
     push_child_sessions(&mut lines, app);
     lines.push(Line::from(""));
-    push_context_summary(&mut lines, app);
+    push_files_in_context(&mut lines, app);
 
     f.render_widget(Paragraph::new(lines).wrap(Wrap { trim: false }), body_area);
 
@@ -57,7 +59,7 @@ fn push_session_info(lines: &mut Vec<Line<'static>>, app: &TuiApp) {
     let title = if app.snapshot.session_id.is_empty() {
         "RARA".to_string()
     } else {
-        // Shorten session id for display: first 12 chars.
+        // Shorten session id for display.
         let session_id = &app.snapshot.session_id;
         if session_id.len() > 14 {
             format!(
@@ -77,20 +79,22 @@ fn push_session_info(lines: &mut Vec<Line<'static>>, app: &TuiApp) {
             .add_modifier(Modifier::BOLD),
     )));
 
+    // Compact cwd (+ branch if available) on a single line.
+    let cwd = super::display_directory_for_startup(app);
+    let location = if app.snapshot.branch.is_empty() {
+        cwd
+    } else {
+        format!("{} :: {}", cwd, app.snapshot.branch)
+    };
     lines.push(Line::from(Span::styled(
-        format!("cwd  {}", super::display_directory_for_startup(app)),
-        Style::default().fg(TEXT_SECONDARY),
+        location,
+        Style::default().fg(TEXT_MUTED),
     )));
-
-    if !app.snapshot.branch.is_empty() {
-        lines.push(Line::from(Span::styled(
-            format!("branch  {}", app.snapshot.branch),
-            Style::default().fg(TEXT_SECONDARY),
-        )));
-    }
 }
 
 fn push_model_badge(lines: &mut Vec<Line<'static>>, app: &TuiApp) {
+    lines.push(Line::from(super::section_label("Model", TEXT_SECONDARY)));
+
     let provider = &app.config.provider;
     let provider = provider.as_str();
 
@@ -115,148 +119,165 @@ fn push_model_badge(lines: &mut Vec<Line<'static>>, app: &TuiApp) {
         let effort = effort.trim();
         if !effort.is_empty() {
             lines.push(Line::from(Span::styled(
-                format!("  reasoning  {}", effort),
+                format!("  reasoning  {effort}"),
                 Style::default().fg(TEXT_MUTED),
             )));
         }
     }
 }
 
-fn push_budget_bar(lines: &mut Vec<Line<'static>>, app: &TuiApp, width: u16) {
+fn push_context_summary(lines: &mut Vec<Line<'static>>, app: &TuiApp) {
+    lines.push(Line::from(super::section_label("Context", TEXT_SECONDARY)));
+
     let snap = &app.snapshot;
-    let Some(context_window) = snap.context_window_tokens else {
-        return;
-    };
 
-    let bar_width = width.saturating_sub(2).max(10) as usize;
+    let total_tokens = snap.total_input_tokens as usize + snap.total_output_tokens as usize;
+    let mut parts: Vec<String> = Vec::new();
 
-    // Collect budget segments: (label, tokens, color)
-    struct Segment {
-        label: &'static str,
-        tokens: usize,
-        color: Color,
+    // Token usage: "8.1k/16k"
+    if let Some(ctx) = snap.context_window_tokens {
+        parts.push(format!(
+            "{}/{} tokens",
+            format_token_count(total_tokens),
+            format_token_count(ctx)
+        ));
+    } else {
+        parts.push(format!("{} tokens", format_token_count(total_tokens)));
     }
 
-    let segments = [
-        Segment {
-            label: "sys",
-            tokens: snap.stable_instructions_budget,
-            color: BUDGET_SYSTEM,
-        },
-        Segment {
-            label: "ws",
-            tokens: snap.workspace_prompt_budget,
-            color: BUDGET_WORKSPACE,
-        },
-        Segment {
-            label: "act",
-            tokens: snap.active_turn_budget,
-            color: BUDGET_ACTIVE,
-        },
-        Segment {
-            label: "hist",
-            tokens: snap.compacted_history_budget,
-            color: BUDGET_HISTORY,
-        },
-        Segment {
-            label: "mem",
-            tokens: snap.retrieved_memory_budget,
-            color: BUDGET_MEMORY,
-        },
-    ];
+    // History turns
+    parts.push(format!("{} turns", snap.history_len));
 
-    let used: usize = segments.iter().map(|s| s.tokens).sum();
-    let free = context_window.saturating_sub(used);
-
-    let all_widths: Vec<(usize, Color)> = segments
-        .iter()
-        .map(|s| (s.tokens, s.color))
-        .chain(std::iter::once((free, BUDGET_FREE)))
-        .collect();
-
-    // Build a single-line bar from colored spans.
-    let mut spans: Vec<Span<'static>> = Vec::new();
-
-    // Scale each segment by bar_width relative to context_window.
-    let mut drawn = 0usize;
-    for (idx, (tokens, color)) in all_widths.iter().enumerate() {
-        let seg_width = if idx == all_widths.len() - 1 {
-            // last segment (free) takes remaining space
-            bar_width.saturating_sub(drawn)
-        } else {
-            ((*tokens as f64 / context_window as f64) * bar_width as f64).round() as usize
-        };
-        if seg_width == 0 {
-            continue;
-        }
-        let bar = "█".repeat(seg_width.min(bar_width.saturating_sub(drawn)));
-        spans.push(Span::styled(bar, Style::default().fg(*color)));
-        drawn += seg_width;
+    // Compaction
+    if snap.compaction_count > 0 {
+        parts.push(format!("compacted {}×", snap.compaction_count));
     }
 
-    let bar_line = Line::from(spans);
-    lines.push(bar_line);
-
-    // Legend line.
-    let legend_items: Vec<String> = segments
-        .iter()
-        .map(|s| format!("{} {}", s.label, format_token_count(s.tokens)))
-        .collect();
-    let legend = legend_items.join("  ");
-
-    let remaining_str = snap
-        .remaining_input_budget
-        .map(|r| format!("  free {}", format_token_count(r as usize)))
-        .unwrap_or_default();
-
+    let summary = parts.join(" · ");
     lines.push(Line::from(Span::styled(
-        format!("{}{}", legend, remaining_str),
-        Style::default().fg(TEXT_MUTED),
-    )));
-
-    lines.push(Line::from(Span::styled(
-        format!(
-            "ctx {}  in/out {}/{}  cache hit {}  miss {}",
-            format_token_count(context_window),
-            format_token_count(snap.total_input_tokens as usize),
-            format_token_count(snap.total_output_tokens as usize),
-            format_token_count(snap.total_cache_hit_tokens as usize),
-            format_token_count(snap.total_cache_miss_tokens as usize),
-        ),
+        summary,
         Style::default().fg(TEXT_MUTED),
     )));
 }
 
 fn push_child_sessions(lines: &mut Vec<Line<'static>>, app: &TuiApp) {
-    // Child / sub-agent sessions if any.
     let child_count = app.snapshot.pending_interactions.len();
-    if child_count > 0 {
-        lines.push(Line::from(Span::styled(
-            format!("sub-agents  {child_count} active"),
-            Style::default()
-                .fg(INTERACTION_SUB_AGENT)
-                .add_modifier(Modifier::BOLD),
-        )));
+    if child_count == 0 {
+        return;
     }
-}
 
-fn push_context_summary(lines: &mut Vec<Line<'static>>, app: &TuiApp) {
-    lines.push(Line::from(Span::styled(
-        format!("history  {} turns", app.snapshot.history_len),
-        Style::default().fg(TEXT_SECONDARY),
+    lines.push(Line::from(super::section_label(
+        "Sub-agents",
+        TEXT_SECONDARY,
     )));
 
-    if app.snapshot.compaction_count > 0 {
+    // Show running sub-agents up to 5.
+    for pi in app.snapshot.pending_interactions.iter().take(5) {
+        let label = format!("  {} (running)", pi.title);
         lines.push(Line::from(Span::styled(
-            format!("compacted  {} times", app.snapshot.compaction_count),
+            label,
+            Style::default().fg(INTERACTION_SUB_AGENT),
+        )));
+    }
+
+    if child_count > 5 {
+        lines.push(Line::from(Span::styled(
+            format!("  ... and {} more", child_count - 5),
             Style::default().fg(TEXT_MUTED),
         )));
     }
 }
 
+fn push_files_in_context(lines: &mut Vec<Line<'static>>, app: &TuiApp) {
+    let mut read_files: BTreeSet<String> = BTreeSet::new();
+    let mut changed_files: BTreeSet<String> = BTreeSet::new();
+
+    let all_turns = app
+        .committed_turns
+        .iter()
+        .chain(std::iter::once(&app.active_turn));
+
+    for turn in all_turns {
+        for entry in &turn.entries {
+            if entry.role != "Tool" {
+                continue;
+            }
+            let msg = entry.message.trim();
+
+            if let Some(path) = msg.strip_prefix("read_file ") {
+                read_files.insert(path.trim().to_string());
+            } else if let Some(rest) = msg.strip_prefix("apply_patch ") {
+                for part in rest.split(',') {
+                    let p = part.trim();
+                    if !p.is_empty() {
+                        changed_files.insert(p.to_string());
+                    }
+                }
+            } else if let Some(path) = msg.strip_prefix("write_file ") {
+                changed_files.insert(path.trim().to_string());
+            } else if let Some(path) = msg.strip_prefix("replace ") {
+                changed_files.insert(path.trim().to_string());
+            } else if let Some(path) = msg.strip_prefix("multi_edit ") {
+                changed_files.insert(path.trim().to_string());
+            } else if let Some(path) = msg.strip_prefix("replace_lines ") {
+                changed_files.insert(path.trim().to_string());
+            }
+        }
+    }
+
+    if read_files.is_empty() && changed_files.is_empty() {
+        return;
+    }
+
+    lines.push(Line::from(super::section_label("Files", TEXT_SECONDARY)));
+
+    // Files read.
+    if !read_files.is_empty() {
+        lines.push(Line::from(Span::styled(
+            "Read:",
+            Style::default().fg(TEXT_MUTED),
+        )));
+        for path in read_files.iter().take(5) {
+            lines.push(Line::from(Span::styled(
+                format!("  {path}"),
+                Style::default().fg(TEXT_SECONDARY),
+            )));
+        }
+        if read_files.len() > 5 {
+            lines.push(Line::from(Span::styled(
+                format!("  ... and {} more", read_files.len() - 5),
+                Style::default().fg(TEXT_MUTED),
+            )));
+        }
+    }
+
+    // Files changed.
+    if !changed_files.is_empty() {
+        lines.push(Line::from(Span::styled(
+            "Changed:",
+            Style::default().fg(TEXT_MUTED),
+        )));
+        for path in changed_files.iter().take(5) {
+            lines.push(Line::from(Span::styled(
+                format!("  {path}"),
+                Style::default().fg(INTERACTION_SUB_AGENT),
+            )));
+        }
+        if changed_files.len() > 5 {
+            lines.push(Line::from(Span::styled(
+                format!("  ... and {} more", changed_files.len() - 5),
+                Style::default().fg(TEXT_MUTED),
+            )));
+        }
+    }
+}
+
 fn version_footer_line() -> Span<'static> {
     let version = option_env!("CARGO_PKG_VERSION").unwrap_or("dev");
-    Span::styled(format!("rara v{version}"), Style::default().fg(TEXT_MUTED))
+    Span::styled(
+        format!("• rara v{version}"),
+        Style::default().fg(TEXT_MUTED),
+    )
 }
 
 /// Format a token count for human-readable display.
