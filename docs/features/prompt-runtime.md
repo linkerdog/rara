@@ -207,6 +207,9 @@ workspace instructions and documentation, not in the default runtime system prom
   snapshotted sources remain active for every model request inside that query's
   agent loop. This keeps live protocol input on the normal prompt-runtime path
   instead of letting adapters edit final prompt text.
+- The registry emits lifecycle events for protocol prompt sources:
+  `Registered` when accepted, `Injected` when snapshotted into a user query, and
+  `Dropped` when a turn-limited source expires or is removed from the registry.
 
 ### 4) Agent Loop Integration
 

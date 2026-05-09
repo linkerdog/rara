@@ -466,6 +466,7 @@ pub enum PlanEvent {
 #[serde(tag = "type", content = "payload", rename_all = "snake_case")]
 pub enum PromptSourceEvent {
     Registered { source_id: String },
+    Injected { source_id: String },
     Unregistered { source_id: String },
     Dropped { source_id: String, reason: String },
 }

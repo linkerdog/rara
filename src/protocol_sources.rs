@@ -218,13 +218,12 @@ impl PromptSourceRegistry {
     /// turn-limited lifetimes under the same registry lock.
     pub async fn list_prompt_sources_for_query(&self) -> Vec<PromptSource> {
         let mut sources = self.sources.write().await;
-        let prompt_sources = sources
-            .values()
-            .map(ProtocolPromptSourceSnapshot::from)
-            .map(|snapshot| snapshot.to_prompt_source())
-            .collect();
+        let mut injected = Vec::with_capacity(sources.len());
+        let mut prompt_sources = Vec::with_capacity(sources.len());
         let mut expired = Vec::new();
         for (id, entry) in sources.iter_mut() {
+            injected.push(id.clone());
+            prompt_sources.push(ProtocolPromptSourceSnapshot::from(&*entry).to_prompt_source());
             if let Some(ref mut remaining) = entry.remaining_turns {
                 if *remaining <= 1 {
                     expired.push(id.clone());
@@ -237,6 +236,11 @@ impl PromptSourceRegistry {
             sources.remove(id);
         }
         drop(sources);
+        for id in injected {
+            let _ = self.event_bus.publish_control(RuntimeEvent::PromptSource(
+                PromptSourceEvent::Injected { source_id: id },
+            ));
+        }
         for id in expired {
             let _ = self.event_bus.publish_control(RuntimeEvent::PromptSource(
                 PromptSourceEvent::Dropped {
@@ -688,6 +692,48 @@ mod tests {
             prompt_sources[0].content,
             "Protocol context should keep provenance."
         );
+    }
+
+    #[tokio::test]
+    async fn prompt_source_registry_emits_injected_and_dropped_lifecycle_events() {
+        let bus = Arc::new(RuntimeEventBus::new(8));
+        let mut events = bus.subscribe_control();
+        let registry = PromptSourceRegistry::new(bus);
+
+        registry
+            .handle_control(&PromptSourceControlRequest::Register(
+                PromptSourceRegistration {
+                    source_id: "protocol-source-1".to_string(),
+                    scope: crate::runtime_control::SourceScope::Protocol,
+                    layer: crate::runtime_control::SourceLayer::User,
+                    budget_hint_tokens: Some(128),
+                    lifetime: PromptSourceLifetime::Turns(1),
+                    content: "Protocol context should emit lifecycle events.".to_string(),
+                },
+            ))
+            .await;
+        let registered = events.recv().await.expect("registered event");
+        assert!(matches!(
+            registered.event,
+            RuntimeEvent::PromptSource(PromptSourceEvent::Registered { source_id })
+                if source_id == "protocol-source-1"
+        ));
+
+        let prompt_sources = registry.list_prompt_sources_for_query().await;
+
+        assert_eq!(prompt_sources.len(), 1);
+        let injected = events.recv().await.expect("injected event");
+        assert!(matches!(
+            injected.event,
+            RuntimeEvent::PromptSource(PromptSourceEvent::Injected { source_id })
+                if source_id == "protocol-source-1"
+        ));
+        let dropped = events.recv().await.expect("dropped event");
+        assert!(matches!(
+            dropped.event,
+            RuntimeEvent::PromptSource(PromptSourceEvent::Dropped { source_id, reason })
+                if source_id == "protocol-source-1" && reason == "turn limit expired"
+        ));
     }
 
     #[tokio::test]
