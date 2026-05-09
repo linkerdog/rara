@@ -604,6 +604,7 @@ fn transcript_viewport_visible_window_keeps_partial_wrapped_line_offset() {
             Line::from("  Second line stays visible."),
         ],
         1,
+        12,
     );
 
     let (lines, inner_scroll) = viewport.visible_window(12, 3);
@@ -627,6 +628,7 @@ fn transcript_viewport_visible_window_slices_to_visible_rows() {
             Line::from("  Fourth"),
         ],
         1,
+        80,
     );
 
     // height=3 reserves 1 bottom row, giving 2 visible content rows.

@@ -159,7 +159,7 @@ pub(crate) fn transcript_viewport(
     let visual_row_count = transcript_visual_row_count(&lines, width);
     let effective_height = viewport_height.saturating_sub(1).max(1);
     let scroll_offset = transcript_scroll_offset(app, effective_height, visual_row_count);
-    TranscriptViewport::new(lines, scroll_offset)
+    TranscriptViewport::new(lines, scroll_offset, width)
 }
 
 fn renderable_transcript_lines(app: &TuiApp, width: u16) -> Vec<Line<'static>> {

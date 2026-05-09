@@ -4,15 +4,18 @@ use ratatui::{layout::Rect, style::Color, text::Line};
 use tempfile::tempdir;
 use tokio::sync::mpsc;
 
-use super::{
-    activity_status_line, animated_activity_label, composer_hint, composer_hint_line,
-    footer_summary_text, wrapped_text_cursor_position, wrapped_text_rows,
-};
 use crate::config::ConfigManager;
+use crate::tui::render::bottom_pane::composer::{
+    composer_hint, composer_hint_line, wrapped_text_cursor_position, wrapped_text_rows,
+};
+use crate::tui::render::bottom_pane::status::{
+    activity_status_line, animated_activity_label, footer_summary_text,
+};
 use crate::tui::state::{
     InteractionKind, PendingInteractionSnapshot, RunningTask, RuntimePhase, RuntimeSnapshot,
     TaskCompletion, TaskKind, TuiApp,
 };
+use crate::tui::theme::STATUS_WARNING;
 
 #[test]
 fn footer_summary_text_is_empty_when_idle_and_no_repo_context() {
@@ -140,7 +143,7 @@ fn activity_status_line_renders_warning_notice_in_yellow() {
 
     let (label, color, detail) = activity_status_line(&app);
     assert_eq!(label, "Warning");
-    assert_eq!(color, Color::Yellow);
+    assert_eq!(color, STATUS_WARNING);
     assert!(detail.contains("missing an API key"));
 }
 

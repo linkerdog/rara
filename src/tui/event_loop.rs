@@ -62,7 +62,7 @@ pub async fn run_tui(
             app.attach_state_db(state_db);
             match &startup_resume {
                 StartupResumeTarget::Fresh => {
-                    drop(agent_slot);
+                    let _ = agent_slot;
                 }
                 StartupResumeTarget::Latest => {
                     if let Some(state_db) = app.state_db.as_ref().cloned() {
@@ -117,11 +117,11 @@ pub async fn run_tui(
                 match maybe_event {
                     Some(Ok(event)) => match translate_event(event, app) {
                         Some(UiEvent::App(event)) => {
+                            let _commands = super::app_command::commands_for_event(&event);
                             if dispatch_event(event, app, agent_slot, &oauth_manager).await? {
                                 if let Some(task) = app.running_task.take() {
                                     task.handle.abort();
                                 }
-                                needs_redraw = true;
                                 break Ok(());
                             }
                             needs_redraw = true;
@@ -158,8 +158,8 @@ pub async fn run_tui(
                 }
             }
         }
-        drop(agent_slot);
-        drop(app);
+        let _ = agent_slot;
+        let _ = app;
         maintainer.needs_redraw = needs_redraw;
     };
     if let Some(handle) = maintainer.app_mut().repo_context_task.take() {

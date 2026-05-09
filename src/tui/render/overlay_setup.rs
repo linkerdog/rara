@@ -16,7 +16,7 @@ use crate::config::OpenAiEndpointProfile;
 use crate::tui::auth_mode_picker::build_auth_mode_picker_view;
 use crate::tui::command::api_key_status;
 use crate::tui::is_ssh_session;
-use crate::tui::render::bottom_pane::editor_cursor_position;
+use crate::tui::render::bottom_pane::composer::editor_cursor_position;
 use crate::tui::state::{
     PROVIDER_FAMILIES, PermissionMode, ProviderFamily, TuiApp, current_model_presets,
     openai_profile_setup_kinds,
