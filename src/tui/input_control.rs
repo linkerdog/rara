@@ -3,10 +3,12 @@ use crate::runtime_control::{
     InputEvent, RuntimeEvent, SessionControlRequest, SessionEvent, ShellApprovalDecision,
 };
 use crate::tui::runtime::{
-    request_running_task_cancellation, start_pending_approval_task,
+    request_running_task_cancellation, start_input_control_task, start_pending_approval_task,
     start_plan_approval_resume_task, start_query_task,
 };
-use crate::tui::state::{ActivePendingInteractionKind, InteractionKind, TaskKind, TuiApp};
+use crate::tui::state::{
+    ActivePendingInteractionKind, InteractionKind, RuntimePhase, TaskKind, TuiApp,
+};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum InputControlOutcome {
@@ -103,7 +105,7 @@ pub(crate) fn submit_follow_up(
 pub(crate) fn answer_pending_input(
     app: &mut TuiApp,
     agent_slot: &mut Option<Agent>,
-    mut agent: Agent,
+    agent: Agent,
     answer: String,
 ) {
     publish_input_event(app, InputEvent::PendingInputAnswered);
@@ -112,10 +114,18 @@ pub(crate) fn answer_pending_input(
         return;
     }
 
-    agent.consume_pending_user_input(&answer);
-    app.sync_snapshot(&agent);
-    app.clear_pending_planning_suggestion();
-    start_query_task(app, answer, agent);
+    let request = crate::runtime_control::InputControlRequest::AnswerPendingInput {
+        answer,
+    };
+    
+    start_input_control_task(
+        app,
+        agent,
+        request,
+        "Answering pending input.".into(),
+        RuntimePhase::ProcessingResponse,
+        Some("resuming after input".into()),
+    );
     *agent_slot = None;
 }
 

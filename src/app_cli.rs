@@ -226,6 +226,10 @@ async fn run_acp_command(config: &RaraConfig) -> Result<()> {
         bootstrap.backend.clone(),
         Arc::new(bootstrap.tool_manager),
         bootstrap.event_bus.clone(),
+        bootstrap.mcp_manager.clone(),
+        bootstrap.prompt_source_registry.clone(),
+        bootstrap.skill_source_registry.clone(),
+        Arc::new(crate::protocol_sources::MemoryControlHandler::new(bootstrap.event_bus.clone())),
     );
     acp_agent
         .run_acp_stdio()
@@ -282,9 +286,18 @@ async fn run_tui_command(
 ) -> Result<()> {
     let bootstrap = runtime_context::initialize_rara_context(config, None).await?;
     emit_bootstrap_warnings(&bootstrap.warnings);
-    let sandbox_network_access = bootstrap.sandbox_network_access.clone();
     let event_bus = bootstrap.event_bus.clone();
-    let (agent, _warnings, _network, goal_handle, mcp_tool_cache) = bootstrap.into_parts();
+    let (
+        agent,
+        _warnings,
+        sandbox_network_access,
+        goal_handle,
+        mcp_tool_cache,
+        mcp_manager,
+        prompt_source_registry,
+        skill_source_registry,
+        _hook_registry,
+    ) = bootstrap.into_parts();
     let resumed_thread_id = crate::tui::run_tui(
         agent,
         goal_handle,
@@ -293,6 +306,9 @@ async fn run_tui_command(
         startup_resume,
         sandbox_network_access,
         event_bus,
+        mcp_manager,
+        prompt_source_registry,
+        skill_source_registry,
     )
     .await?;
     if let Some(thread_id) = resumed_thread_id {

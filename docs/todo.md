@@ -164,5 +164,5 @@ Active backlog only. Keep this file small and current.
 ## Code Organization / Docs
 
 - [x] Add `TuiMaintainer` to event loop (merged #276).
-- [x] `rara-persistence` crate: `atomic_file`, `redaction`, `thread_data`, `thread_metadata` (merged #279, #282, #283).
-- [ ] Continue splitting remaining modules into crates (`thread_rollout_log`, `thread_turn_log`, `file_lock`).
+- [x] `rara-persistence` crate: `atomic_file`, `redaction`, `thread_data`, `thread_metadata`, `thread_rollout_log`, `thread_turn_log`, `file_lock` (merged #279, #282, #283, #338+).
+- [ ] Continue splitting remaining oversized modules into smaller files (e.g. `state_db.rs`).

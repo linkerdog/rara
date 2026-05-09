@@ -424,6 +424,15 @@ impl From<ToolOutputStream> for ToolStream {
     }
 }
 
+impl From<ToolStream> for ToolOutputStream {
+    fn from(stream: ToolStream) -> Self {
+        match stream {
+            ToolStream::Stdout => Self::Stdout,
+            ToolStream::Stderr => Self::Stderr,
+        }
+    }
+}
+
 #[allow(dead_code)]
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "type", content = "payload", rename_all = "snake_case")]

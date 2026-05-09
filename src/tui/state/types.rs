@@ -19,8 +19,11 @@ use crate::context::{
     RetrievalSourceContextEntry,
 };
 use crate::control_tokens::{has_pending_internal_control_context, scrub_internal_control_tokens};
+use crate::hook_registry::HookRegistry;
+use crate::mcp_connection_manager::McpConnectionManager;
 use crate::mcp_tool_cache::McpToolCache;
 use crate::oauth::SavedCodexAuthMode;
+use crate::protocol_sources::{MemoryControlHandler, PromptSourceRegistry, SkillSourceRegistry};
 use crate::runtime_event_bus::RuntimeEventBus;
 use crate::thread_store::ThreadSummary;
 use crate::tools::bash::BashCommandInput;
@@ -357,6 +360,11 @@ pub struct RebuildSuccess {
     /// Shared goal handle for model-facing tools.
     pub goal_handle: crate::tui::state::GoalHandle,
     pub mcp_tool_cache: crate::mcp_tool_cache::McpToolCache,
+    pub mcp_manager: Arc<McpConnectionManager>,
+    pub prompt_source_registry: Arc<PromptSourceRegistry>,
+    pub skill_source_registry: Arc<SkillSourceRegistry>,
+    pub hook_registry: Arc<HookRegistry>,
+    pub memory_handler: Arc<MemoryControlHandler>,
 }
 
 pub enum TuiEvent {
@@ -644,6 +652,10 @@ pub struct TuiApp {
     pub terminal_focused: bool,
     pub state_db: Option<Arc<StateDb>>,
     pub state_db_status: Option<String>,
+    pub mcp_manager: Option<Arc<McpConnectionManager>>,
+    pub prompt_source_registry: Option<Arc<PromptSourceRegistry>>,
+    pub skill_source_registry: Option<Arc<SkillSourceRegistry>>,
+    pub memory_handler: Option<Arc<MemoryControlHandler>>,
     pub running_task: Option<RunningTask>,
     pub repo_context_task: Option<JoinHandle<(Option<String>, Option<String>)>>,
     pub repo_slug: Option<String>,

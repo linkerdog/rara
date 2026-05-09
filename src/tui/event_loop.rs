@@ -32,6 +32,9 @@ pub enum StartupResumeTarget {
     Picker,
 }
 
+use crate::mcp_connection_manager::McpConnectionManager;
+use crate::protocol_sources::{PromptSourceRegistry, SkillSourceRegistry};
+
 pub async fn run_tui(
     agent: Agent,
     goal_handle: GoalHandle,
@@ -40,6 +43,9 @@ pub async fn run_tui(
     startup_resume: StartupResumeTarget,
     sandbox_network_access: Arc<AtomicBool>,
     event_bus: Arc<RuntimeEventBus>,
+    mcp_manager: Arc<McpConnectionManager>,
+    prompt_source_registry: Arc<PromptSourceRegistry>,
+    skill_source_registry: Arc<SkillSourceRegistry>,
 ) -> anyhow::Result<Option<String>> {
     enable_raw_mode()?;
     let initial_size = terminal_size()?;
@@ -48,7 +54,11 @@ pub async fn run_tui(
     app.goal = app.goal_handle.read().unwrap().clone();
     app.mcp_tool_cache = Some(mcp_tool_cache);
     app.sandbox_network_access = sandbox_network_access;
-    app.event_bus = Some(event_bus);
+    app.event_bus = Some(event_bus.clone());
+    app.mcp_manager = Some(mcp_manager);
+    app.prompt_source_registry = Some(prompt_source_registry);
+    app.skill_source_registry = Some(skill_source_registry);
+    app.memory_handler = Some(Arc::new(crate::protocol_sources::MemoryControlHandler::new(event_bus.clone())));
     app.sandbox_network_access
         .store(false, std::sync::atomic::Ordering::Relaxed);
     app.terminal_width = initial_size.0;
