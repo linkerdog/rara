@@ -2,6 +2,7 @@ use std::sync::Arc;
 
 use anyhow::Result;
 use rara_state::state_db::StateDb;
+use rara_tools::bash::BashCommandInput;
 
 use super::state::{TranscriptEntry, TranscriptTurn, TuiApp};
 use crate::agent::{
@@ -9,7 +10,6 @@ use crate::agent::{
     PendingUserInput, PlanStep, PlanStepStatus, latest_compact_boundary_metadata,
 };
 use crate::thread_store::{CompactionRecord, RolloutItem, ThreadStore};
-use crate::tools::bash::BashCommandInput;
 
 pub(super) fn restore_latest_thread(
     state_db: &Arc<StateDb>,
@@ -231,6 +231,7 @@ mod tests {
 
     use rara_memory::vectordb::VectorDB;
     use rara_state::state_db::StateDb;
+    use rara_tools::tool::ToolManager;
     use serde_json::json;
     use tempfile::tempdir;
 
@@ -240,7 +241,6 @@ mod tests {
     use crate::llm::MockLlm;
     use crate::prompt::PromptRuntimeConfig;
     use crate::todo::{TodoItem, TodoState, TodoStatus};
-    use crate::tool::ToolManager;
     use crate::tui::state::TuiApp;
     use crate::workspace::WorkspaceMemory;
 

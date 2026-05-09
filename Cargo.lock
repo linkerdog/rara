@@ -10272,6 +10272,7 @@ dependencies = [
  "rara-state",
  "rara-terminal-detection",
  "rara-tool-macros",
+ "rara-tools",
  "ratatui",
  "regex",
  "regex-lite",
@@ -10440,6 +10441,22 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn 2.0.117",
+]
+
+[[package]]
+name = "rara-tools"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "glob",
+ "rara-file-search",
+ "rara-tool-macros",
+ "regex",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.18",
+ "tokio",
 ]
 
 [[package]]

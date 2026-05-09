@@ -1,9 +1,9 @@
 use async_trait::async_trait;
 use rara_tool_macros::tool_spec;
+use rara_tools::tool::{Tool, ToolError};
 use serde_json::Value;
 
 use crate::todo::normalize_todo_write_input;
-use crate::tool::{Tool, ToolError};
 
 pub const TODO_WRITE_TOOL_NAME: &str = "todo_write";
 

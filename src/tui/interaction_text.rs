@@ -151,13 +151,13 @@ pub fn status_command_approval_text(app: &TuiApp) -> String {
 
 #[cfg(test)]
 mod tests {
+    use rara_tools::bash::BashCommandInput;
     use tempfile::tempdir;
 
     use super::{
         pending_interaction_hint_text, status_command_approval_text, status_plan_approval_text,
     };
     use crate::config::ConfigManager;
-    use crate::tools::bash::BashCommandInput;
     use crate::tui::state::{
         InteractionKind, PendingApprovalSnapshot, PendingInteractionSnapshot, TuiApp,
     };

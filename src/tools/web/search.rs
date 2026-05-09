@@ -1,10 +1,10 @@
 use async_trait::async_trait;
 use rara_tool_macros::tool_spec;
+use rara_tools::tool::{Tool, ToolError};
 use serde::Serialize;
 use serde_json::{Value, json};
 
 use super::exa::ExaMcpClient;
-use crate::tool::{Tool, ToolError};
 
 const DEFAULT_NUM_RESULTS: u64 = 8;
 const DEFAULT_SEARCH_TYPE: &str = "auto";

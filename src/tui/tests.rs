@@ -3,6 +3,8 @@ use std::time::{Duration, Instant};
 
 use crossterm::event::{Event, KeyCode, KeyEvent, KeyModifiers, MouseEvent, MouseEventKind};
 use rara_memory::vectordb::VectorDB;
+use rara_tools::bash::BashCommandInput;
+use rara_tools::tool::ToolManager;
 use secrecy::ExposeSecret;
 use tempfile::tempdir;
 use tokio::sync::mpsc;
@@ -18,8 +20,6 @@ use crate::config::{ConfigManager, OpenAiEndpointKind};
 use crate::config::{DEFAULT_CODEX_BASE_URL, DEFAULT_CODEX_CHATGPT_BASE_URL, DEFAULT_CODEX_MODEL};
 use crate::llm::MockLlm;
 use crate::session::SessionManager;
-use crate::tool::ToolManager;
-use crate::tools::bash::BashCommandInput;
 use crate::tui::command::palette_commands;
 use crate::workspace::WorkspaceMemory;
 

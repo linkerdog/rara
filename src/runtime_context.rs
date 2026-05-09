@@ -4,6 +4,7 @@ use std::sync::{Arc, atomic::AtomicBool};
 
 use anyhow::{Context, Result, bail};
 use rara_memory::vectordb::VectorDB;
+use rara_tools::tool::ToolManager;
 
 use self::tooling::{create_full_tool_manager, load_skill_manager, vector_db_uri_for_workspace};
 use crate::agent::Agent;
@@ -24,7 +25,6 @@ use crate::sandbox::SandboxManager;
 use crate::session::SessionManager;
 use crate::shell_env::capture_shell_environment_snapshot;
 use crate::skill::SkillScope;
-use crate::tool::ToolManager;
 use crate::tui::state::GoalHandle;
 use crate::workspace::WorkspaceMemory;
 
