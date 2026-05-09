@@ -34,6 +34,7 @@ pub enum MemorySource {
     AgentTurn,
     UserCreated,
     ThreadDistill,
+    SessionDistill,
     FileImport,
     ProtocolWrite,
 }

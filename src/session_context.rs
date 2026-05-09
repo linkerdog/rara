@@ -138,6 +138,27 @@ pub fn search_context_shards(
     Ok(hits)
 }
 
+pub fn load_session_context_checkpoints(
+    root_dir: &Path,
+    session_id: &str,
+) -> Result<Vec<SessionContextCheckpoint>> {
+    let path = context_shard_path(root_dir, session_id);
+    if !path.exists() {
+        return Ok(Vec::new());
+    }
+    let mut latest_by_turn = HashMap::<u32, SessionContextCheckpoint>::new();
+    for checkpoint in load_context_checkpoint_file_cached(&path)? {
+        latest_by_turn.insert(checkpoint.turn_index, checkpoint);
+    }
+    let mut checkpoints = latest_by_turn.into_values().collect::<Vec<_>>();
+    checkpoints.sort_by(|left, right| {
+        left.turn_index
+            .cmp(&right.turn_index)
+            .then_with(|| left.recorded_at.cmp(&right.recorded_at))
+    });
+    Ok(checkpoints)
+}
+
 fn load_all_context_checkpoints(root_dir: &Path) -> Result<Vec<SessionContextCheckpoint>> {
     let mut checkpoints = Vec::new();
     if !root_dir.exists() {
@@ -335,6 +356,40 @@ mod tests {
 
         assert_eq!(hits.len(), 1);
         assert_eq!(hits[0].checkpoint.text, "new checkpoint text");
+        Ok(())
+    }
+
+    #[test]
+    fn loads_session_context_checkpoints_sorted_with_latest_duplicate() -> Result<()> {
+        let temp = tempfile::tempdir()?;
+        append_context_checkpoint(
+            temp.path(),
+            "session-a",
+            2,
+            "second checkpoint".to_string(),
+            vec![0.0, 1.0],
+        )?;
+        append_context_checkpoint(
+            temp.path(),
+            "session-a",
+            1,
+            "old first checkpoint".to_string(),
+            vec![1.0, 0.0],
+        )?;
+        append_context_checkpoint(
+            temp.path(),
+            "session-a",
+            1,
+            "new first checkpoint".to_string(),
+            vec![1.0, 0.0],
+        )?;
+
+        let checkpoints = load_session_context_checkpoints(temp.path(), "session-a")?;
+
+        assert_eq!(checkpoints.len(), 2);
+        assert_eq!(checkpoints[0].turn_index, 1);
+        assert_eq!(checkpoints[0].text, "new first checkpoint");
+        assert_eq!(checkpoints[1].turn_index, 2);
         Ok(())
     }
 
