@@ -82,9 +82,31 @@ The text status output uses the same view and names the fields with a
 `terminal_*` prefix. Future OTEL attributes should be derived from this view
 instead of reading environment variables again.
 
+The current diagnostic field set is:
+
+| Status text field | Source | Intended OTEL attribute |
+| --- | --- | --- |
+| `terminal_name` | `TerminalInfo::name` | `terminal.name` |
+| `terminal_user_agent` | `TerminalInfo::user_agent_token()` | `terminal.user_agent` |
+| `terminal_term` | `TerminalInfo::term` | `terminal.term` |
+| `terminal_term_program` | `TerminalInfo::term_program` | `terminal.term_program` |
+| `terminal_multiplexer` | `TerminalInfo::multiplexer` | `terminal.multiplexer` |
+| `terminal_remote` | `TerminalInfo::remote` | `terminal.remote` |
+| `terminal_history_mode` | TUI compatibility policy | `terminal.history_mode` |
+| `terminal_focused` | live TUI state | `terminal.focused` |
+| `terminal_width_columns` | live TUI state | `terminal.width_columns` |
+
+## Test Overrides
+
+Production terminal detection reads process environment once through
+`rara_terminal_detection::terminal_info()`. Tests that need SSH/local branches
+use a test-only guard under `tui::terminal_ui::test_env`. The guard sets a
+temporary SSH classification override before mutating `SSH_CONNECTION` and
+restores both on drop. This keeps parallel tests deterministic even though
+`TerminalInfo` itself is cached for production.
+
 ## Follow-Up
 
-- Add OTEL attributes from the same `TerminalInfo` shape.
 - Decide whether tmux client probing should be lazy, disabled by default, or
   never added.
 
