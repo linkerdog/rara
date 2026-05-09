@@ -51,12 +51,10 @@ impl RaraAcpAgent {
         }
     }
 
-    /// Set the cancel flag to stop the current prompt loop.
     fn request_cancel(&self) {
         self.cancel.store(true, Ordering::SeqCst);
     }
 
-    /// Reset the cancel flag for a new prompt.
     fn reset_cancel(&self) {
         self.cancel.store(false, Ordering::SeqCst);
     }
@@ -65,7 +63,7 @@ impl RaraAcpAgent {
         self.cancel.load(Ordering::SeqCst)
     }
 
-    /// Run the ACP agent on stdio using the ACP v0.11 builder API.
+    /// Run the ACP agent on stdio using the ACP builder API.
     pub async fn run_acp_stdio(self) -> AcpResult<()> {
         let llm = self.llm_backend.clone();
         let tools = self.tool_manager.clone();
@@ -130,17 +128,11 @@ impl RaraAcpAgent {
                 },
                 agent_client_protocol::on_receive_dispatch!(),
             )
-            .transport(transport)
-            .build()
-            .run()
+            .connect_to(transport)
             .await
     }
 
     /// Handle a prompt request with a full tool-calling agent loop.
-    ///
-    /// Builds conversation messages, streams text deltas to the ACP client
-    /// via `SessionNotification::AgentMessageChunk`, and executes tool calls
-    /// in a loop (up to `MAX_ACP_TURNS` iterations).
     async fn handle_prompt(
         &self,
         req: PromptRequest,
@@ -160,165 +152,167 @@ impl RaraAcpAgent {
         self.reset_cancel();
 
         let tool_schemas = tool_manager.get_schemas();
+        let bus = self.event_bus.clone();
 
-        // Build initial messages: system prompt + user message.
+        // Build initial messages: system + user.
         let mut messages = vec![
             Message {
                 role: "system".to_string(),
-                content: serde_json::Value::String(rara_system_prompt()),
+                content: Value::String(rara_system_prompt()),
             },
             Message {
                 role: "user".to_string(),
-                content: serde_json::Value::String(prompt_text),
+                content: Value::String(prompt_text),
             },
         ];
-
-        let mut turns: Vec<ContentBlock> = Vec::new();
 
         for turn in 0..MAX_ACP_TURNS {
             if self.is_cancelled() {
                 eprintln!("[acp] prompt cancelled at turn {turn}, session={session_id}");
-                turns.push(ContentBlock::Text {
-                    text: "\n\n[Cancelled]".to_string(),
-                });
+                let err_chunk =
+                    ContentChunk::new(agent_client_protocol::schema::ContentBlock::Text(
+                        TextContent::new("\n\n[Cancelled]".to_string()),
+                    ));
+                let _ = cx.send_notification(SessionNotification::new(
+                    session_id.clone(),
+                    SessionUpdate::AgentMessageChunk(err_chunk),
+                ));
                 break;
             }
 
-            let mut current_text_blocks: Vec<ContentBlock> = Vec::new();
-            let mut current_tool_uses: Vec<ContentBlock> = Vec::new();
+            // -- Call LLM with streaming callback for text deltas --
+            let cx_for_cb = cx.clone();
+            let sid_for_cb = session_id.to_string();
+            let bus_for_cb = bus.clone();
 
-            let bus = self.event_bus.clone();
-            let sid = session_id.to_string();
-
-            // Build the on_event callback for streaming.
-            let mut on_event = {
-                let cx_for_cb = cx.clone();
-                let session_id_for_cb = session_id.clone();
-                move |event: LlmStreamEvent| match event {
-                    LlmStreamEvent::TextDelta(text) => {
-                        let chunk =
-                            ContentChunk::new(agent_client_protocol::schema::ContentBlock::Text(
-                                TextContent::new(text.clone()),
-                            ));
-                        let _ = cx_for_cb.send_notification(SessionNotification::new(
-                            session_id_for_cb.clone(),
-                            SessionUpdate::AgentMessageChunk(chunk),
+            let mut on_event = move |event: LlmStreamEvent| {
+                if let LlmStreamEvent::TextDelta(text) = event {
+                    let chunk =
+                        ContentChunk::new(agent_client_protocol::schema::ContentBlock::Text(
+                            TextContent::new(text.clone()),
                         ));
-                        let _ = bus.send_with_provenance(
-                            crate::agent::AgentEvent::AssistantDelta(text),
-                            crate::runtime_control::RuntimeProvenance {
-                                controller: RuntimeControllerKind::Acp,
-                                adapter: None,
-                                session_id: Some(sid.clone()),
-                                source_id: None,
-                                trust: crate::runtime_control::RuntimeSourceTrust::Trusted,
-                                authorship:
-                                    crate::runtime_control::RuntimeSourceAuthorship::Generated,
-                            },
-                        );
-                    }
-                    LlmStreamEvent::End(response) => {
-                        for block in response.content {
-                            match &block {
-                                ContentBlock::Text { .. } => {
-                                    current_text_blocks.push(block);
-                                }
-                                ContentBlock::ToolUse { name, .. } => {
-                                    eprintln!(
-                                        "[acp] turn {turn}: tool_use {name}, session={session_id}"
-                                    );
-                                    current_tool_uses.push(block);
-                                }
-                                _ => {}
-                            }
-                        }
-                    }
-                    _ => {}
+                    let _ = cx_for_cb.send_notification(SessionNotification::new(
+                        session_id.clone(),
+                        SessionUpdate::AgentMessageChunk(chunk),
+                    ));
+                    let _ = bus_for_cb.send_with_provenance(
+                        crate::agent::AgentEvent::AssistantDelta(text),
+                        crate::runtime_control::RuntimeProvenance {
+                            controller: RuntimeControllerKind::Acp,
+                            adapter: None,
+                            session_id: Some(sid_for_cb.clone()),
+                            source_id: None,
+                            trust: crate::runtime_control::RuntimeSourceTrust::Trusted,
+                            authorship: crate::runtime_control::RuntimeSourceAuthorship::Generated,
+                        },
+                    );
                 }
             };
 
-            match llm
+            let response = match llm
                 .ask_streaming(&messages, &tool_schemas, &mut on_event)
                 .await
             {
-                Ok(response) => {
-                    // Also collect from the direct response for safety.
-                    if current_tool_uses.is_empty() && current_text_blocks.is_empty() {
-                        for block in response.content {
-                            match &block {
-                                ContentBlock::Text { .. } => {
-                                    current_text_blocks.push(block);
-                                }
-                                ContentBlock::ToolUse { name, .. } => {
-                                    eprintln!(
-                                        "[acp] turn {turn}: tool_use {name} (from response), session={session_id}"
-                                    );
-                                    current_tool_uses.push(block);
-                                }
-                                _ => {}
-                            }
-                        }
-                    }
-                }
+                Ok(resp) => resp,
                 Err(e) => {
                     eprintln!("[acp] LLM error at turn {turn}: {e:?}, session={session_id}");
-                    let error_block = ContentBlock::Text {
-                        text: format!("\n\n[LLM error: {e}]"),
-                    };
-                    current_text_blocks.push(error_block);
+                    let err_chunk =
+                        ContentChunk::new(agent_client_protocol::schema::ContentBlock::Text(
+                            TextContent::new(format!("\n\n[LLM error: {e}]")),
+                        ));
+                    let _ = cx.send_notification(SessionNotification::new(
+                        session_id.clone(),
+                        SessionUpdate::AgentMessageChunk(err_chunk),
+                    ));
+                    break;
                 }
-            }
+            };
 
-            // Push assistant message with all content blocks.
-            let assistant_content: Vec<Value> = current_text_blocks
+            // -- Separate text and tool-use blocks from the LLM response --
+            let text_blocks: Vec<ContentBlock> = response
+                .content
                 .iter()
-                .chain(current_tool_uses.iter())
+                .filter(|b| matches!(b, ContentBlock::Text { .. }))
+                .cloned()
+                .collect();
+
+            let tool_uses: Vec<&ContentBlock> = response
+                .content
+                .iter()
+                .filter(|b| matches!(b, ContentBlock::ToolUse { .. }))
+                .collect();
+
+            // Push assistant message into conversation history.
+            let assistant_blocks: Vec<Value> = response
+                .content
+                .iter()
                 .map(content_block_to_value)
                 .collect();
 
-            if !assistant_content.is_empty() {
+            if !assistant_blocks.is_empty() {
                 messages.push(Message {
                     role: "assistant".to_string(),
-                    content: Value::Array(assistant_content),
+                    content: Value::Array(assistant_blocks),
                 });
             }
 
-            turns.extend(current_text_blocks);
-
-            // If no tool uses, we're done.
-            if current_tool_uses.is_empty() {
+            // If no tool calls, we're done.
+            if tool_uses.is_empty() {
                 break;
             }
 
-            // Execute each tool use and collect results.
+            // -- Execute each tool and collect results --
             let mut tool_results: Vec<Value> = Vec::new();
-            for block in &current_tool_uses {
+            for block in &tool_uses {
                 if let ContentBlock::ToolUse { id, name, input } = block {
-                    let result = match tool_manager.get_tool(name) {
+                    eprintln!("[acp] turn {turn}: executing tool {name}, session={session_id}");
+
+                    let result_text = match tool_manager.get_tool(name) {
                         Some(tool) => {
-                            let mut progress_reporter = |ev: ToolProgressEvent| {
+                            let mut reporter = |ev: ToolProgressEvent| {
                                 eprintln!(
                                     "[acp] tool {name} progress: {:?}, session={session_id}",
                                     ev
                                 );
                             };
-                            match tool
-                                .call_with_events(input.clone(), &mut progress_reporter)
-                                .await
-                            {
-                                Ok(output) => Value::String(
-                                    serde_json::to_string(&output).unwrap_or_default(),
-                                ),
-                                Err(err) => Value::String(format!("Tool error: {err}")),
+                            match tool.call_with_events(input.clone(), &mut reporter).await {
+                                Ok(output) => serde_json::to_string(&output).unwrap_or_default(),
+                                Err(err) => format!("Tool error: {err}"),
                             }
                         }
-                        None => Value::String(format!("Unknown tool: {name}")),
+                        None => format!("Unknown tool: {name}"),
                     };
+
+                    // Emit tool result via EventBus and ACP.
+                    let _ = bus.send_with_provenance(
+                        crate::agent::AgentEvent::ToolResult {
+                            name: name.clone(),
+                            content: result_text.clone(),
+                            is_error: false,
+                        },
+                        crate::runtime_control::RuntimeProvenance {
+                            controller: RuntimeControllerKind::Acp,
+                            adapter: None,
+                            session_id: Some(session_id.to_string()),
+                            source_id: None,
+                            trust: crate::runtime_control::RuntimeSourceTrust::Trusted,
+                            authorship: crate::runtime_control::RuntimeSourceAuthorship::Generated,
+                        },
+                    );
+
+                    let label = format!("[Tool result: {name}]\n{result_text}\n");
+                    let chunk = ContentChunk::new(
+                        agent_client_protocol::schema::ContentBlock::Text(TextContent::new(label)),
+                    );
+                    let _ = cx.send_notification(SessionNotification::new(
+                        session_id.clone(),
+                        SessionUpdate::AgentMessageChunk(chunk),
+                    ));
 
                     tool_results.push(serde_json::json!({
                         "type": "tool_result",
                         "tool_call_id": id,
-                        "content": [{"type": "text", "text": result}],
+                        "content": [{"type": "text", "text": result_text}],
                     }));
                 }
             }
@@ -341,7 +335,7 @@ impl RaraAcpAgent {
     }
 }
 
-/// Extract the prompt text from the ACP prompt content blocks.
+/// Extract plain text from ACP content blocks.
 fn extract_prompt_text(prompt: &[agent_client_protocol::schema::ContentBlock]) -> String {
     prompt
         .iter()
@@ -359,10 +353,7 @@ fn extract_prompt_text(prompt: &[agent_client_protocol::schema::ContentBlock]) -
 /// Convert a RARA ContentBlock to a JSON value for message serialization.
 fn content_block_to_value(block: &ContentBlock) -> Value {
     match block {
-        ContentBlock::Text { text } => serde_json::json!({
-            "type": "text",
-            "text": text,
-        }),
+        ContentBlock::Text { text } => serde_json::json!({"type": "text", "text": text}),
         ContentBlock::ToolUse { id, name, input } => serde_json::json!({
             "type": "tool_use",
             "id": id,

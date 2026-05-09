@@ -2,7 +2,6 @@ pub mod agent;
 pub mod bash;
 pub mod context;
 pub mod goal;
-pub mod goal;
 pub mod mcp_tool_search;
 pub mod pty;
 pub mod skill;
