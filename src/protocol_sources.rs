@@ -29,7 +29,7 @@ use crate::runtime_control::{
     MemoryControlRequest, MemoryEvent, MemoryLabelSummary, MemoryRecordControlPatch,
     MemoryRecordSummary, MemoryScope as ControlMemoryScope, PromptSourceControlRequest,
     PromptSourceEvent, PromptSourceLifetime, PromptSourceRegistration, RuntimeEvent,
-    SkillSourceControlRequest,
+    RuntimeProvenance, SkillSourceControlRequest,
 };
 use crate::runtime_event_bus::RuntimeEventBus;
 
@@ -39,8 +39,16 @@ use crate::runtime_event_bus::RuntimeEventBus;
 #[derive(Clone, Debug)]
 struct PromptSourceEntry {
     registration: PromptSourceRegistration,
+    provenance: RuntimeProvenance,
     /// Remaining turn count (only meaningful for `Turns` lifetime).
     remaining_turns: Option<u32>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ProtocolPromptSourceSnapshot {
+    pub registration: PromptSourceRegistration,
+    pub provenance: RuntimeProvenance,
+    pub remaining_turns: Option<u32>,
 }
 
 /// Registry for protocol-registered prompt sources.
@@ -58,6 +66,15 @@ impl PromptSourceRegistry {
     }
 
     pub async fn handle_control(&self, request: &PromptSourceControlRequest) {
+        self.handle_control_with_provenance(request, RuntimeProvenance::runtime(None))
+            .await;
+    }
+
+    pub async fn handle_control_with_provenance(
+        &self,
+        request: &PromptSourceControlRequest,
+        provenance: RuntimeProvenance,
+    ) {
         match request {
             PromptSourceControlRequest::Register(registration) => {
                 let mut sources = self.sources.write().await;
@@ -69,6 +86,7 @@ impl PromptSourceRegistry {
                     registration.source_id.clone(),
                     PromptSourceEntry {
                         registration: registration.clone(),
+                        provenance,
                         remaining_turns: turns,
                     },
                 );
@@ -132,6 +150,19 @@ impl PromptSourceRegistry {
             .await
             .values()
             .map(|e| e.registration.clone())
+            .collect()
+    }
+
+    pub async fn list_source_snapshots(&self) -> Vec<ProtocolPromptSourceSnapshot> {
+        self.sources
+            .read()
+            .await
+            .values()
+            .map(|entry| ProtocolPromptSourceSnapshot {
+                registration: entry.registration.clone(),
+                provenance: entry.provenance.clone(),
+                remaining_turns: entry.remaining_turns,
+            })
             .collect()
     }
 }
@@ -524,6 +555,38 @@ mod tests {
             )),
             root.join("memories").join("records.json"),
         ))
+    }
+
+    #[tokio::test]
+    async fn prompt_source_registry_preserves_control_plane_provenance() {
+        let bus = Arc::new(RuntimeEventBus::new(8));
+        let registry = PromptSourceRegistry::new(bus);
+        let provenance = RuntimeProvenance::protocol(
+            crate::runtime_control::RuntimeControllerKind::Acp,
+            "acp",
+            Some("session-1".to_string()),
+            Some("protocol-source-1".to_string()),
+        );
+
+        registry
+            .handle_control_with_provenance(
+                &PromptSourceControlRequest::Register(PromptSourceRegistration {
+                    source_id: "protocol-source-1".to_string(),
+                    scope: crate::runtime_control::SourceScope::Protocol,
+                    layer: crate::runtime_control::SourceLayer::User,
+                    budget_hint_tokens: Some(128),
+                    lifetime: PromptSourceLifetime::Turns(2),
+                    content: "Protocol context should keep provenance.".to_string(),
+                }),
+                provenance.clone(),
+            )
+            .await;
+
+        let snapshots = registry.list_source_snapshots().await;
+        assert_eq!(snapshots.len(), 1);
+        assert_eq!(snapshots[0].registration.source_id, "protocol-source-1");
+        assert_eq!(snapshots[0].provenance, provenance);
+        assert_eq!(snapshots[0].remaining_turns, Some(2));
     }
 
     #[tokio::test]

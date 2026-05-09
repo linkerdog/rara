@@ -37,7 +37,9 @@ where
             Ok(())
         }
         RuntimeControlRequest::PromptSource(prompt_request) => {
-            prompt_registry.handle_control(prompt_request).await;
+            prompt_registry
+                .handle_control_with_provenance(prompt_request, envelope.provenance.clone())
+                .await;
             Ok(())
         }
         RuntimeControlRequest::SkillSource(skill_request) => {
