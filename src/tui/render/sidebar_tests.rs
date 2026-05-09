@@ -112,7 +112,10 @@ fn push_session_info_no_branch_shows_cwd_only() {
         .collect::<Vec<_>>()
         .join("\n");
     assert!(text.contains("/home/user/project"), "should show cwd");
-    assert!(!text.contains("::"), "no branch separator when branch empty");
+    assert!(
+        !text.contains("::"),
+        "no branch separator when branch empty"
+    );
 }
 
 #[test]
@@ -261,13 +264,19 @@ fn push_context_summary_shows_tokens_turns_compaction() {
         .map(|l| l.to_string())
         .collect::<Vec<_>>()
         .join("\n");
-    assert!(text.contains("Context"), "should show # Context section label");
+    assert!(
+        text.contains("Context"),
+        "should show # Context section label"
+    );
     assert!(
         text.contains("9.4k/16.0k tokens"),
         "should show token usage: 9.4k/16.0k"
     );
     assert!(text.contains("42 turns"), "should show turn count");
-    assert!(text.contains("compacted 3×"), "should show compaction count");
+    assert!(
+        text.contains("compacted 3×"),
+        "should show compaction count"
+    );
 }
 
 #[test]
@@ -314,9 +323,7 @@ fn push_context_summary_no_context_window() {
     let mut lines = Vec::new();
     push_context_summary(&mut lines, &app);
     assert!(
-        lines
-            .iter()
-            .any(|l| l.to_string().contains("600 tokens")),
+        lines.iter().any(|l| l.to_string().contains("600 tokens")),
         "shows total tokens without context window"
     );
 }
@@ -524,6 +531,72 @@ fn push_files_in_context_includes_active_turn() {
         text.contains("crates/tool.rs"),
         "should include files from active turn"
     );
+}
+
+#[test]
+fn push_files_in_context_detects_replace() {
+    let temp = tempdir().unwrap();
+    let mut app = TuiApp::new(ConfigManager {
+        path: temp.path().join("config.json"),
+    })
+    .expect("build tui app");
+    app.committed_turns = vec![TranscriptTurn {
+        entries: vec![TranscriptEntry::new("Tool", "replace src/main.rs")],
+    }];
+
+    let mut lines = Vec::new();
+    push_files_in_context(&mut lines, &app);
+    let text: String = lines
+        .iter()
+        .map(|l| l.to_string())
+        .collect::<Vec<_>>()
+        .join("\n");
+    assert!(text.contains("Changed:"), "replace should be a changed file");
+    assert!(text.contains("src/main.rs"), "should show replaced path");
+}
+
+#[test]
+fn push_files_in_context_detects_multi_edit() {
+    let temp = tempdir().unwrap();
+    let mut app = TuiApp::new(ConfigManager {
+        path: temp.path().join("config.json"),
+    })
+    .expect("build tui app");
+    app.committed_turns = vec![TranscriptTurn {
+        entries: vec![TranscriptEntry::new("Tool", "multi_edit crates/lib.rs")],
+    }];
+
+    let mut lines = Vec::new();
+    push_files_in_context(&mut lines, &app);
+    let text: String = lines
+        .iter()
+        .map(|l| l.to_string())
+        .collect::<Vec<_>>()
+        .join("\n");
+    assert!(text.contains("Changed:"), "multi_edit should be a changed file");
+    assert!(text.contains("crates/lib.rs"), "should show multi_edit path");
+}
+
+#[test]
+fn push_files_in_context_detects_replace_lines() {
+    let temp = tempdir().unwrap();
+    let mut app = TuiApp::new(ConfigManager {
+        path: temp.path().join("config.json"),
+    })
+    .expect("build tui app");
+    app.committed_turns = vec![TranscriptTurn {
+        entries: vec![TranscriptEntry::new("Tool", "replace_lines src/tui/sidebar.rs")],
+    }];
+
+    let mut lines = Vec::new();
+    push_files_in_context(&mut lines, &app);
+    let text: String = lines
+        .iter()
+        .map(|l| l.to_string())
+        .collect::<Vec<_>>()
+        .join("\n");
+    assert!(text.contains("Changed:"), "replace_lines should be a changed file");
+    assert!(text.contains("src/tui/sidebar.rs"), "should show replace_lines path");
 }
 
 // ── PendingInteractionSnapshot default helper ───────────────────────

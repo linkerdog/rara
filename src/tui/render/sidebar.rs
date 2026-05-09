@@ -1,14 +1,14 @@
 // Wide-screen sidebar (≥120 cols) rendered alongside the main transcript pane.
 // Layout draws a 38-column panel on the left split by a vertical border,
 // showing session identity, model badge, context summary, files access, and status.
+use std::collections::BTreeSet;
+
 use ratatui::{
     layout::{Constraint, Direction, Layout, Rect},
     style::{Color, Modifier, Style},
     text::{Line, Span},
     widgets::{Block, Borders, Paragraph, Wrap},
 };
-
-use std::collections::BTreeSet;
 
 use crate::tui::custom_terminal::Frame;
 use crate::tui::state::TuiApp;
@@ -93,10 +93,7 @@ fn push_session_info(lines: &mut Vec<Line<'static>>, app: &TuiApp) {
 }
 
 fn push_model_badge(lines: &mut Vec<Line<'static>>, app: &TuiApp) {
-    lines.push(Line::from(super::section_label(
-        "Model",
-        TEXT_SECONDARY,
-    )));
+    lines.push(Line::from(super::section_label("Model", TEXT_SECONDARY)));
 
     let provider = &app.config.provider;
     let provider = provider.as_str();
@@ -130,10 +127,7 @@ fn push_model_badge(lines: &mut Vec<Line<'static>>, app: &TuiApp) {
 }
 
 fn push_context_summary(lines: &mut Vec<Line<'static>>, app: &TuiApp) {
-    lines.push(Line::from(super::section_label(
-        "Context",
-        TEXT_SECONDARY,
-    )));
+    lines.push(Line::from(super::section_label("Context", TEXT_SECONDARY)));
 
     let snap = &app.snapshot;
 
@@ -221,6 +215,12 @@ fn push_files_in_context(lines: &mut Vec<Line<'static>>, app: &TuiApp) {
                 }
             } else if let Some(path) = msg.strip_prefix("write_file ") {
                 changed_files.insert(path.trim().to_string());
+            } else if let Some(path) = msg.strip_prefix("replace ") {
+                changed_files.insert(path.trim().to_string());
+            } else if let Some(path) = msg.strip_prefix("multi_edit ") {
+                changed_files.insert(path.trim().to_string());
+            } else if let Some(path) = msg.strip_prefix("replace_lines ") {
+                changed_files.insert(path.trim().to_string());
             }
         }
     }
@@ -229,10 +229,7 @@ fn push_files_in_context(lines: &mut Vec<Line<'static>>, app: &TuiApp) {
         return;
     }
 
-    lines.push(Line::from(super::section_label(
-        "Files",
-        TEXT_SECONDARY,
-    )));
+    lines.push(Line::from(super::section_label("Files", TEXT_SECONDARY)));
 
     // Files read.
     if !read_files.is_empty() {
