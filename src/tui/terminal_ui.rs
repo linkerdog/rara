@@ -81,6 +81,10 @@ fn viewport_area(width: u16, height: u16, viewport_height: u16) -> Rect {
 }
 
 pub(crate) fn is_ssh_session() -> bool {
+    #[cfg(test)]
+    if let Some(is_ssh) = test_env::ssh_session_override() {
+        return is_ssh;
+    }
     rara_terminal_detection::is_remote_session()
 }
 
@@ -90,18 +94,28 @@ pub(crate) mod test_env {
     use std::sync::{LazyLock, Mutex, MutexGuard};
 
     static SSH_ENV_LOCK: LazyLock<Mutex<()>> = LazyLock::new(|| Mutex::new(()));
+    static SSH_SESSION_OVERRIDE: LazyLock<Mutex<Option<bool>>> = LazyLock::new(|| Mutex::new(None));
 
     pub(crate) struct SshEnvGuard {
         old_ssh_connection: Option<OsString>,
         old_ssh_tty: Option<OsString>,
+        old_override: Option<bool>,
         _lock: MutexGuard<'static, ()>,
     }
 
     impl SshEnvGuard {
         pub(crate) fn set(is_ssh: bool) -> SshEnvGuard {
-            let lock = SSH_ENV_LOCK.lock().unwrap();
+            let lock = SSH_ENV_LOCK
+                .lock()
+                .unwrap_or_else(|poison| poison.into_inner());
             let old_ssh_connection = std::env::var_os("SSH_CONNECTION");
             let old_ssh_tty = std::env::var_os("SSH_TTY");
+            let old_override = {
+                let mut override_guard = SSH_SESSION_OVERRIDE
+                    .lock()
+                    .unwrap_or_else(|poison| poison.into_inner());
+                override_guard.replace(is_ssh)
+            };
             if is_ssh {
                 unsafe {
                     std::env::set_var("SSH_CONNECTION", "1");
@@ -117,6 +131,7 @@ pub(crate) mod test_env {
             SshEnvGuard {
                 old_ssh_connection,
                 old_ssh_tty,
+                old_override,
                 _lock: lock,
             }
         }
@@ -124,6 +139,12 @@ pub(crate) mod test_env {
 
     impl Drop for SshEnvGuard {
         fn drop(&mut self) {
+            {
+                let mut override_guard = SSH_SESSION_OVERRIDE
+                    .lock()
+                    .unwrap_or_else(|poison| poison.into_inner());
+                *override_guard = self.old_override;
+            }
             if let Some(ref val) = self.old_ssh_connection {
                 unsafe {
                     std::env::set_var("SSH_CONNECTION", val);
@@ -148,6 +169,12 @@ pub(crate) mod test_env {
     /// Convenience wrapper; returns a guard that auto-restores env on drop.
     pub(crate) fn set_ssh_session(is_ssh: bool) -> SshEnvGuard {
         SshEnvGuard::set(is_ssh)
+    }
+
+    pub(crate) fn ssh_session_override() -> Option<bool> {
+        *SSH_SESSION_OVERRIDE
+            .lock()
+            .unwrap_or_else(|poison| poison.into_inner())
     }
 
     #[cfg(test)]

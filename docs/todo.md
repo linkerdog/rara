@@ -101,7 +101,7 @@ Active backlog only. Keep this file small and current.
 - [x] Add per-request microcompact observability to `/context`.
 - [x] Add an OTEL-ready context observability event model for compaction, microcompact projection, cache usage, and memory retrieval.
 - [x] Add terminal environment detection for TUI compatibility, diagnostics, and future OTEL attributes.
-- [ ] Surface terminal metadata in `/status` diagnostics and future OTEL attributes.
+- [x] Surface terminal metadata in `/status` diagnostics and future OTEL attributes.
 - [ ] Add provider-gated cache-edit microcompact only for backends that explicitly declare cache-edit support.
 - [x] Surface main model vs auxiliary model routing in `/status` and `/context`.
 - [ ] After context observability is complete, add an auxiliary-model compression hook for retrieval candidates without changing durable memory records.

@@ -159,6 +159,39 @@ fn render_config_status(app: &TuiApp, lines: &mut Vec<Line<'static>>) {
             Color::LightGreen
         },
     );
+
+    section_spacer(lines);
+    section_header(lines, "Terminal");
+    let terminal = app.terminal_diagnostics_view();
+    kv(lines, "name", &terminal.name, Color::LightBlue);
+    kv(lines, "user_agent", &terminal.user_agent, Color::DarkGray);
+    kv(
+        lines,
+        "term",
+        terminal.term.as_deref().unwrap_or("-"),
+        Color::DarkGray,
+    );
+    kv(
+        lines,
+        "term_program",
+        terminal.term_program.as_deref().unwrap_or("-"),
+        Color::DarkGray,
+    );
+    kv(lines, "multiplexer", &terminal.multiplexer, Color::DarkGray);
+    kv(lines, "remote", &terminal.remote, Color::DarkGray);
+    kv(lines, "history", &terminal.history_mode, Color::DarkGray);
+    kv(
+        lines,
+        "focused",
+        if terminal.focused { "true" } else { "false" },
+        Color::DarkGray,
+    );
+    kv(
+        lines,
+        "width",
+        &format!("{} columns", terminal.width_columns),
+        Color::DarkGray,
+    );
 }
 
 fn render_context_status(app: &TuiApp, lines: &mut Vec<Line<'static>>) {

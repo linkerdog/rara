@@ -345,6 +345,10 @@ fn status_runtime_text_reports_effective_provider_surface_sources() {
     assert!(rendered.contains("auxiliary_route="));
     assert!(rendered.contains("base_url_source="));
     assert!(rendered.contains("revision_source="));
+    assert!(rendered.contains("terminal_name="));
+    assert!(rendered.contains("terminal_user_agent="));
+    assert!(rendered.contains("terminal_history_mode="));
+    assert!(rendered.contains("terminal_width_columns="));
     assert!(rendered.contains("reasoning_summary_source=legacy_global"));
 }
 

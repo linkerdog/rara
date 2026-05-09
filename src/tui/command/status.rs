@@ -542,6 +542,7 @@ pub fn status_runtime_text(app: &TuiApp) -> String {
     };
     let surface = app.config.effective_provider_surface();
     let routing = app.model_routing_view();
+    let terminal = app.terminal_diagnostics_view();
     let reasoning_summary = surface
         .reasoning_summary
         .display_or(rara_config::DEFAULT_REASONING_SUMMARY);
@@ -585,7 +586,7 @@ pub fn status_runtime_text(app: &TuiApp) -> String {
         ("remote".to_string(), "-".to_string())
     };
     format!(
-        "provider={}\nendpoint_profile={}\nendpoint_kind={}\nmodel={}\nmodel_source={}\nauxiliary_model={}\nauxiliary_model_source={}\nauxiliary_route={}\nbase_url={}\nbase_url_source={}\nrevision={}\nrevision_source={}\nagent_mode={}\nbash_approval={}\nmode={}\napi_key={}\napi_key_source={}\ncodex_auth_mode={}\ncodex_endpoint_kind={}\nthinking={}\nreasoning_summary={}\nreasoning_summary_source={}\nreasoning_effort={}\nreasoning_effort_source={}\ntodo={}\ndevice={}\ndtype={}\nfocused={}\nphase={}\ndetail={}",
+        "provider={}\nendpoint_profile={}\nendpoint_kind={}\nmodel={}\nmodel_source={}\nauxiliary_model={}\nauxiliary_model_source={}\nauxiliary_route={}\nbase_url={}\nbase_url_source={}\nrevision={}\nrevision_source={}\nagent_mode={}\nbash_approval={}\nmode={}\napi_key={}\napi_key_source={}\ncodex_auth_mode={}\ncodex_endpoint_kind={}\nthinking={}\nreasoning_summary={}\nreasoning_summary_source={}\nreasoning_effort={}\nreasoning_effort_source={}\ntodo={}\ndevice={}\ndtype={}\nterminal_name={}\nterminal_user_agent={}\nterminal_term={}\nterminal_term_program={}\nterminal_multiplexer={}\nterminal_remote={}\nterminal_history_mode={}\nterminal_focused={}\nterminal_width_columns={}\nphase={}\ndetail={}",
         surface.provider,
         endpoint_profile,
         endpoint_kind,
@@ -615,7 +616,15 @@ pub fn status_runtime_text(app: &TuiApp) -> String {
         todo_summary_line(app),
         device,
         dtype,
-        app.terminal_focused,
+        terminal.name,
+        terminal.user_agent,
+        terminal.term.as_deref().unwrap_or("-"),
+        terminal.term_program.as_deref().unwrap_or("-"),
+        terminal.multiplexer,
+        terminal.remote,
+        terminal.history_mode,
+        terminal.focused,
+        terminal.width_columns,
         phase,
         detail,
     )

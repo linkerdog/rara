@@ -155,6 +155,19 @@ pub struct ModelRoutingView {
     pub auxiliary_uses_main_model: bool,
 }
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct TerminalDiagnosticsView {
+    pub name: String,
+    pub user_agent: String,
+    pub term_program: Option<String>,
+    pub term: Option<String>,
+    pub multiplexer: String,
+    pub remote: String,
+    pub history_mode: String,
+    pub focused: bool,
+    pub width_columns: u16,
+}
+
 pub struct CommandSpec {
     pub category: &'static str,
     pub name: &'static str,
