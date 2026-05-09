@@ -234,6 +234,7 @@ impl TuiApp {
             committed_render_generation: 0,
             committed_render_cache: RefCell::new(CommittedTranscriptRenderCache::default()),
             transcript_scroll: 0,
+            composer_scroll: 0,
             context_scroll: 0,
             terminal_width: 80,
             agent_markdown_stream: None,

@@ -596,6 +596,8 @@ pub struct TuiApp {
     pub committed_render_generation: u64,
     pub committed_render_cache: RefCell<CommittedTranscriptRenderCache>,
     pub transcript_scroll: usize,
+    /// Scroll offset for multiline composer content (lines from top).
+    pub composer_scroll: usize,
     pub context_scroll: u16,
     pub terminal_width: u16,
     pub agent_markdown_stream: Option<AgentMarkdownStreamState>,

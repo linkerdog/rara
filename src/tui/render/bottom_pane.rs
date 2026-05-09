@@ -45,7 +45,11 @@ pub(crate) fn desired_bottom_pane_height(app: &TuiApp, width: u16, rows: u16) ->
     total.clamp(min, max)
 }
 
-pub(super) fn render_bottom_pane(f: &mut Frame, app: &TuiApp, area: Rect) -> Option<(u16, u16)> {
+pub(super) fn render_bottom_pane(
+    f: &mut Frame,
+    app: &mut TuiApp,
+    area: Rect,
+) -> Option<(u16, u16)> {
     // Highlight the bottom pane background when a pending interaction needs attention.
     let style = if let Some(pending) = app.active_pending_interaction() {
         let color = match pending.kind {
@@ -61,7 +65,7 @@ pub(super) fn render_bottom_pane(f: &mut Frame, app: &TuiApp, area: Rect) -> Opt
     render_bottom_pane_inner(f, app, area)
 }
 
-fn render_bottom_pane_inner(f: &mut Frame, app: &TuiApp, area: Rect) -> Option<(u16, u16)> {
+fn render_bottom_pane_inner(f: &mut Frame, app: &mut TuiApp, area: Rect) -> Option<(u16, u16)> {
     let composer_height = area.height.saturating_sub(2).max(3);
     let chunks = Layout::default()
         .direction(Direction::Vertical)
@@ -254,7 +258,8 @@ fn animated_activity_label(app: &TuiApp, label: &str) -> String {
     format!("{label}{dots}")
 }
 
-fn render_composer(f: &mut Frame, app: &TuiApp, area: Rect) -> Option<(u16, u16)> {
+fn render_composer(f: &mut Frame, app: &mut TuiApp, area: Rect) -> Option<(u16, u16)> {
+    app.maintain_composer_scroll(area.width, area.height.saturating_sub(1));
     let chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([Constraint::Min(2), Constraint::Length(1)])
@@ -309,7 +314,8 @@ fn render_composer(f: &mut Frame, app: &TuiApp, area: Rect) -> Option<(u16, u16)
         Paragraph::new(composer_lines)
             .block(Block::default())
             .style(bottom_pane_style())
-            .wrap(Wrap { trim: false }),
+            .wrap(Wrap { trim: false })
+            .scroll((app.composer_scroll as u16, 0)),
         chunks[0],
     );
     let hint = composer_hint_line(app);
@@ -323,6 +329,7 @@ fn render_composer(f: &mut Frame, app: &TuiApp, area: Rect) -> Option<(u16, u16)
         app.input.as_str(),
         app.composer_cursor_offset(),
         chunks[0],
+        app.composer_scroll,
     ))
 }
 
@@ -457,8 +464,15 @@ fn shows_live_task_stats(app: &TuiApp) -> bool {
         )
 }
 
-fn composer_cursor_position(input: &str, cursor_offset: usize, area: Rect) -> (u16, u16) {
-    wrapped_text_cursor_position(input, cursor_offset, area, Some("› "), Some("  "))
+fn composer_cursor_position(
+    input: &str,
+    cursor_offset: usize,
+    area: Rect,
+    scroll: usize,
+) -> (u16, u16) {
+    let (x, y) = wrapped_text_cursor_position(input, cursor_offset, area, Some("› "), Some("  "));
+    let adjusted_y = y.saturating_sub(scroll as u16);
+    (x, adjusted_y)
 }
 
 fn desired_composer_height(app: &TuiApp, width: u16, rows: u16) -> u16 {
