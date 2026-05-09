@@ -449,12 +449,12 @@ fn memory_label_name(label: &MemoryLabel) -> &'static str {
 
 #[cfg(test)]
 mod tests {
+    use rara_memory::vectordb::VectorDB;
     use serde_json::json;
 
     use super::*;
     use crate::llm::MockLlm;
     use crate::runtime_control::RuntimeEvent;
-    use crate::vectordb::VectorDB;
 
     fn test_memory_store(root: &std::path::Path) -> Arc<MemoryStore> {
         Arc::new(MemoryStore::new_with_record_path(
