@@ -14,6 +14,8 @@ pub(crate) fn retrieval_source_entries(
     session_id: &str,
     vdb_uri: &str,
     mcp_resource_candidates: &[crate::context::RetrievalCandidate],
+    hook_output_candidates: &[crate::context::RetrievalCandidate],
+    graph_context_candidates: &[crate::context::RetrievalCandidate],
 ) -> Vec<RetrievalSourceContextEntry> {
     let workspace_memory_active = prompt_sources
         .iter()
@@ -38,6 +40,16 @@ pub(crate) fn retrieval_source_entries(
         "available"
     };
     let mcp_resource_status = if mcp_resource_candidates.is_empty() {
+        "missing"
+    } else {
+        "available"
+    };
+    let hook_output_status = if hook_output_candidates.is_empty() {
+        "missing"
+    } else {
+        "available"
+    };
+    let graph_context_status = if graph_context_candidates.is_empty() {
         "missing"
     } else {
         "available"
@@ -90,6 +102,30 @@ pub(crate) fn retrieval_source_entries(
                 "available as protocol or MCP-provided resource references; resource bodies are not injected until selected by the retrieval pipeline".to_string()
             } else {
                 "no MCP resource references are available for context selection".to_string()
+            },
+        },
+        RetrievalSourceContextEntry {
+            order: 5,
+            kind: "hook_output".to_string(),
+            label: "Hook Output".to_string(),
+            status: hook_output_status.to_string(),
+            detail: format!("outputs={}", hook_output_candidates.len()),
+            inclusion_reason: if hook_output_status == "available" {
+                "available as volatile hook output; prompt injection remains disabled until hook execution policy is explicit".to_string()
+            } else {
+                "no hook output is available for context selection".to_string()
+            },
+        },
+        RetrievalSourceContextEntry {
+            order: 6,
+            kind: "graph_context".to_string(),
+            label: "Graph Context".to_string(),
+            status: graph_context_status.to_string(),
+            detail: format!("contexts={}", graph_context_candidates.len()),
+            inclusion_reason: if graph_context_status == "available" {
+                "available as graph-expanded context; injection remains disabled until graph confidence policy is explicit".to_string()
+            } else {
+                "no graph-expanded context is available for context selection".to_string()
             },
         },
     ]
@@ -204,6 +240,8 @@ fn source_kind_for_memory_selection_item(kind: &str) -> &'static str {
         "thread_history" => "thread_history",
         "vector_memory" => "vector_memory",
         "mcp_resource" => "mcp_resource",
+        "hook_output" => "hook_output",
+        "graph_context" => "graph_context",
         "workspace_memory" => "workspace_memory",
         "tool_retrieval_result" => "tool_result",
         _ => "runtime_context",
@@ -316,6 +354,8 @@ mod tests {
             "session-1",
             "memory://vdb",
             &resources,
+            &[],
+            &[],
         );
 
         let mcp = entries
@@ -325,5 +365,65 @@ mod tests {
         assert_eq!(mcp.status, "available");
         assert_eq!(mcp.detail, "references=1");
         assert!(mcp.inclusion_reason.contains("resource references"));
+    }
+
+    #[test]
+    fn retrieval_sources_include_hook_and_graph_context_slots() {
+        let workspace = crate::workspace::WorkspaceMemory::new().expect("workspace memory");
+        let hook_output = vec![test_candidate("hook_output")];
+        let graph_context = vec![test_candidate("graph_context")];
+
+        let entries = retrieval_source_entries(
+            &workspace,
+            &[],
+            &[],
+            "session-1",
+            "memory://vdb",
+            &[],
+            &hook_output,
+            &graph_context,
+        );
+
+        let hook = entries
+            .iter()
+            .find(|entry| entry.kind == "hook_output")
+            .expect("hook output provider should be visible");
+        let graph = entries
+            .iter()
+            .find(|entry| entry.kind == "graph_context")
+            .expect("graph context provider should be visible");
+        assert_eq!(hook.status, "available");
+        assert_eq!(hook.detail, "outputs=1");
+        assert_eq!(graph.status, "available");
+        assert_eq!(graph.detail, "contexts=1");
+    }
+
+    fn test_candidate(kind: &str) -> crate::context::RetrievalCandidate {
+        crate::context::RetrievalCandidate {
+            id: format!("{kind}:1"),
+            source: crate::context::RetrievalSourceRef {
+                source_type: kind.to_string(),
+                source_id: Some(format!("{kind}-source")),
+                source_path: None,
+                source_uri: None,
+                session_id: None,
+                thread_id: None,
+                workspace_id: None,
+            },
+            kind: kind.to_string(),
+            scope: "runtime".to_string(),
+            label: kind.to_string(),
+            detail: format!("{kind} detail"),
+            summary: None,
+            rank: 1,
+            score: None,
+            priority: 60,
+            dedupe_key: Some(format!("{kind}:dedupe")),
+            budget_impact_tokens: Some(10),
+            selection_reason: format!("{kind} selected"),
+            availability_reason: format!("{kind} available"),
+            not_selected_reason: format!("{kind} not selected"),
+            selectable: false,
+        }
     }
 }

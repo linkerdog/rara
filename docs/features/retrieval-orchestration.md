@@ -85,6 +85,8 @@ Current code already has part of this shape:
   candidates;
 - `RetrievalCandidate` and `RetrievalSourceRef` provide the first typed
   candidate boundary for direct memory/session retrieval inputs;
+- file-search, MCP resource, hook-output, and graph-context sources enter the
+  same orchestration boundary as precomputed candidate providers;
 - `memory_selection()` ranks selected/available/dropped entries;
 - `SharedRuntimeContext.retrieval.memory_selection` is consumed by `/context`.
 
@@ -163,8 +165,12 @@ Provider responsibilities:
 - `FileSearchProvider`: produce file candidates from `crates/file-search`;
   it must not inject file contents directly.
 - `McpResourceProvider`: surface referenced MCP resources as candidates.
-- `HookContextProvider`: surface hook output as volatile candidates.
-- `GraphProvider`: later graph/vector composed context.
+- `HookContextProvider`: surface hook output as volatile candidates; current
+  implementation accepts precomputed candidates and keeps them observable but
+  non-injected until hook execution policy is enabled.
+- `GraphProvider`: surface graph/vector composed context; current
+  implementation accepts precomputed candidates and keeps them observable but
+  non-injected until graph confidence policy is enabled.
 
 ## Ranking And Dedupe
 

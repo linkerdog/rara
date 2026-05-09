@@ -24,6 +24,8 @@ pub(crate) fn retrieval_candidates(
     retrieved_memory_candidates: &[RetrievedMemoryCandidate],
     file_search_candidates: &[RetrievalCandidate],
     mcp_resource_candidates: &[RetrievalCandidate],
+    hook_output_candidates: &[RetrievalCandidate],
+    graph_context_candidates: &[RetrievalCandidate],
 ) -> Vec<RetrievalCandidate> {
     let _query = request.query;
     let mut candidates = Vec::new();
@@ -33,27 +35,31 @@ pub(crate) fn retrieval_candidates(
     let retrieval_tools = RetrievalToolResultProvider;
     let thread_history = ThreadHistoryProvider;
     let vector_memory = VectorMemoryProvider;
-    let file_search = PrecomputedFileSearchProvider {
+    let file_search = PrecomputedSourceProvider {
+        source_kind: "file_search",
         candidates: file_search_candidates,
     };
-    let mcp_resources = PrecomputedMcpResourceProvider {
+    let mcp_resources = PrecomputedSourceProvider {
+        source_kind: "mcp_resource",
         candidates: mcp_resource_candidates,
     };
+    let hook_output = PrecomputedSourceProvider {
+        source_kind: "hook_output",
+        candidates: hook_output_candidates,
+    };
+    let graph_context = PrecomputedSourceProvider {
+        source_kind: "graph_context",
+        candidates: graph_context_candidates,
+    };
 
-    let _source_order = [
-        direct_memory.source_kind(),
-        retrieval_tools.source_kind(),
-        thread_history.source_kind(),
-        vector_memory.source_kind(),
-        file_search.source_kind(),
-        mcp_resources.source_kind(),
-    ];
     candidates.extend(direct_memory.candidates(request));
     candidates.extend(retrieval_tools.candidates(request));
     candidates.extend(thread_history.candidates(request));
     candidates.extend(vector_memory.candidates(request));
     candidates.extend(file_search.candidates(request));
     candidates.extend(mcp_resources.candidates(request));
+    candidates.extend(hook_output.candidates(request));
+    candidates.extend(graph_context.candidates(request));
     candidates
 }
 
@@ -74,31 +80,26 @@ impl RetrievalSourceProvider for DirectRetrievedMemoryProvider<'_> {
     }
 }
 
-pub(crate) struct PrecomputedFileSearchProvider<'a> {
+pub(crate) struct PrecomputedSourceProvider<'a> {
+    source_kind: &'static str,
     candidates: &'a [RetrievalCandidate],
 }
 
-impl RetrievalSourceProvider for PrecomputedFileSearchProvider<'_> {
+impl RetrievalSourceProvider for PrecomputedSourceProvider<'_> {
     fn source_kind(&self) -> &'static str {
-        "file_search"
+        self.source_kind
     }
 
     fn candidates(&self, _request: &RetrievalRequest<'_>) -> Vec<RetrievalCandidate> {
-        self.candidates.to_vec()
-    }
-}
-
-pub(crate) struct PrecomputedMcpResourceProvider<'a> {
-    candidates: &'a [RetrievalCandidate],
-}
-
-impl RetrievalSourceProvider for PrecomputedMcpResourceProvider<'_> {
-    fn source_kind(&self) -> &'static str {
-        "mcp_resource"
-    }
-
-    fn candidates(&self, _request: &RetrievalRequest<'_>) -> Vec<RetrievalCandidate> {
-        self.candidates.to_vec()
+        let source_kind = self.source_kind();
+        let candidates = self.candidates.to_vec();
+        debug_assert!(
+            candidates
+                .iter()
+                .all(|candidate| candidate.kind == source_kind),
+            "precomputed retrieval provider returned a mismatched candidate kind"
+        );
+        candidates
     }
 }
 
@@ -689,7 +690,10 @@ mod tests {
         let memory_provider = DirectRetrievedMemoryProvider {
             candidates: &retrieved,
         };
-        let file_provider = PrecomputedFileSearchProvider { candidates: &file };
+        let file_provider = PrecomputedSourceProvider {
+            source_kind: "file_search",
+            candidates: &file,
+        };
         assert_eq!(memory_provider.source_kind(), "retrieved_memory");
         assert_eq!(file_provider.source_kind(), "file_search");
 
@@ -705,8 +709,17 @@ mod tests {
             },
             1,
         );
+        let hook_output = test_candidate("hook_output", 60);
+        let graph_context = test_candidate("graph_context", 70);
 
-        let candidates = retrieval_candidates(&request, &retrieved, &file, &[resource]);
+        let candidates = retrieval_candidates(
+            &request,
+            &retrieved,
+            &file,
+            &[resource],
+            &[hook_output],
+            &[graph_context],
+        );
 
         assert_eq!(
             candidates
@@ -718,17 +731,52 @@ mod tests {
                 "thread_history",
                 "vector_memory",
                 "file_search",
-                "mcp_resource"
+                "mcp_resource",
+                "hook_output",
+                "graph_context"
             ]
         );
         assert_eq!(candidates[0].source.source_type, "memory_record");
         assert_eq!(candidates[3].source.source_type, "file_search");
         assert_eq!(candidates[4].source.source_type, "mcp_resource");
+        assert_eq!(candidates[5].source.source_type, "hook_output");
+        assert_eq!(candidates[6].source.source_type, "graph_context");
         assert_eq!(
             candidates[4].source.source_uri.as_deref(),
             Some("mcp://docs/rara")
         );
         assert!(!candidates[4].selectable);
+        assert!(!candidates[5].selectable);
+        assert!(!candidates[6].selectable);
+    }
+
+    fn test_candidate(kind: &str, priority: usize) -> RetrievalCandidate {
+        RetrievalCandidate {
+            id: format!("{kind}:1"),
+            source: RetrievalSourceRef {
+                source_type: kind.to_string(),
+                source_id: Some(format!("{kind}-source")),
+                source_path: None,
+                source_uri: None,
+                session_id: None,
+                thread_id: None,
+                workspace_id: None,
+            },
+            kind: kind.to_string(),
+            scope: "runtime".to_string(),
+            label: kind.to_string(),
+            detail: format!("{kind} detail"),
+            summary: None,
+            rank: 1,
+            score: None,
+            priority,
+            dedupe_key: Some(format!("{kind}:dedupe")),
+            budget_impact_tokens: Some(5),
+            selection_reason: format!("{kind} selected"),
+            availability_reason: format!("{kind} available"),
+            not_selected_reason: format!("{kind} not selected"),
+            selectable: false,
+        }
     }
 
     #[test]
