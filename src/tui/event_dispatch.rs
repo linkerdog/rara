@@ -62,6 +62,9 @@ pub(crate) async fn dispatch_event(
             app.insert_newline_in_composer();
         }
         AppEvent::InputChar(c) => {
+            if app.input.is_empty() {
+                app.transcript_scroll = 0;
+            }
             app.insert_active_input_char(c);
         }
         AppEvent::Backspace => {
