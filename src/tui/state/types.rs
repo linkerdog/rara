@@ -128,6 +128,7 @@ pub enum LocalCommandKind {
     Approval,
     Compact,
     Model,
+    Connect,
     BaseUrl,
     Login,
     Mcp,

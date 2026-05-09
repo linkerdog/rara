@@ -1,6 +1,6 @@
 use crate::tui::state::{CommandSpec, LocalCommand, LocalCommandKind, TuiApp};
 
-pub const COMMAND_SPECS: [CommandSpec; 23] = [
+pub const COMMAND_SPECS: [CommandSpec; 24] = [
     CommandSpec {
         category: "Session",
         name: "permissions",
@@ -91,6 +91,13 @@ pub const COMMAND_SPECS: [CommandSpec; 23] = [
         usage: "/mcp",
         summary: "Show configured MCP servers from the effective registry.",
         detail: "Load user config.toml and project .mcp.json, then show MCP servers grouped by scope and source path. This read-only status surface reports configured, disabled, and configuration failures without starting servers yet.",
+    },
+    CommandSpec {
+        category: "Setup",
+        name: "connect",
+        usage: "/connect",
+        summary: "Connect a new AI provider and add an API key.",
+        detail: "Open the provider list to pick an AI provider to connect to. Select a provider and follow the guided setup for API key or OAuth authentication.",
     },
     CommandSpec {
         category: "Setup",
@@ -186,6 +193,7 @@ pub fn parse_local_command(input: &str) -> Option<LocalCommand> {
         "approval" => LocalCommandKind::Approval,
         "compact" => LocalCommandKind::Compact,
         "model" | "models" => LocalCommandKind::Model,
+        "connect" => LocalCommandKind::Connect,
         "base-url" => LocalCommandKind::BaseUrl,
         "login" | "auth" => LocalCommandKind::Login,
         "logout" => LocalCommandKind::Logout,
