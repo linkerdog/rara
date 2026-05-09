@@ -25,6 +25,7 @@ use crate::memory_store::{
     MemoryLabel, MemoryLabelCount, MemoryPromotionTarget, MemoryRecord, MemoryRecordPatch,
     MemoryScope as StoreMemoryScope, MemorySource, MemoryStore, NewMemoryRecord,
 };
+use crate::prompt::{PromptSource, PromptSourceKind};
 use crate::runtime_control::{
     MemoryControlRequest, MemoryEvent, MemoryLabelSummary, MemoryRecordControlPatch,
     MemoryRecordSummary, MemoryScope as ControlMemoryScope, PromptSourceControlRequest,
@@ -62,6 +63,30 @@ impl From<&PromptSourceEntry> for ProtocolPromptSourceSnapshot {
             registration: entry.registration.clone(),
             provenance: entry.provenance.clone(),
             remaining_turns: entry.remaining_turns,
+        }
+    }
+}
+
+impl ProtocolPromptSourceSnapshot {
+    pub fn to_prompt_source(&self) -> PromptSource {
+        PromptSource {
+            kind: PromptSourceKind::ProtocolPromptSource,
+            label: format!("Protocol Prompt Source {}", self.registration.source_id),
+            display_path: self.display_path(),
+            content: self.registration.content.clone(),
+        }
+    }
+
+    fn display_path(&self) -> String {
+        let controller = format!("{:?}", self.provenance.controller).to_lowercase();
+        match self.provenance.adapter.as_deref() {
+            Some(adapter) if !adapter.trim().is_empty() => {
+                format!(
+                    "protocol:{controller}:{adapter}:{}",
+                    self.registration.source_id
+                )
+            }
+            _ => format!("protocol:{controller}:{}", self.registration.source_id),
         }
     }
 }
@@ -177,6 +202,15 @@ impl PromptSourceRegistry {
             .await
             .values()
             .map(ProtocolPromptSourceSnapshot::from)
+            .collect()
+    }
+
+    /// Return active protocol sources in the prompt-runtime source format.
+    pub async fn list_prompt_sources(&self) -> Vec<PromptSource> {
+        self.list_source_snapshots()
+            .await
+            .iter()
+            .map(ProtocolPromptSourceSnapshot::to_prompt_source)
             .collect()
     }
 }
@@ -601,6 +635,25 @@ mod tests {
         assert_eq!(snapshots[0].registration.source_id, "protocol-source-1");
         assert_eq!(snapshots[0].provenance, provenance);
         assert_eq!(snapshots[0].remaining_turns, Some(2));
+
+        let prompt_sources = registry.list_prompt_sources().await;
+        assert_eq!(prompt_sources.len(), 1);
+        assert_eq!(
+            prompt_sources[0].kind,
+            PromptSourceKind::ProtocolPromptSource
+        );
+        assert_eq!(
+            prompt_sources[0].label,
+            "Protocol Prompt Source protocol-source-1"
+        );
+        assert_eq!(
+            prompt_sources[0].display_path,
+            "protocol:acp:acp:protocol-source-1"
+        );
+        assert_eq!(
+            prompt_sources[0].content,
+            "Protocol context should keep provenance."
+        );
     }
 
     #[tokio::test]

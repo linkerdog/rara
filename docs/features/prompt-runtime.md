@@ -191,6 +191,15 @@ workspace instructions and documentation, not in the default runtime system prom
   prompt or rename top-level prompt sections.
 - `/context`, `/status`, and protocol output subscribers must be able to inspect
   the same prompt source objects.
+- `ProtocolPromptSourceSnapshot` is the registry-to-runtime bridge. It converts
+  into a `PromptSourceKind::ProtocolPromptSource` entry before prompt assembly,
+  preserving the source id in the label, protocol provenance in the display
+  path, and adapter-provided content as the source body.
+- Protocol prompt sources are rendered in a dedicated dynamic
+  `protocol_prompt_sources` section. This keeps workspace instructions,
+  workspace memory, skills, runtime environment, and append prompts in their
+  existing relative order while still making protocol input visible in the
+  effective prompt and prompt-source context view.
 
 ### 4) Agent Loop Integration
 

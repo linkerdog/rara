@@ -34,6 +34,7 @@ pub enum PromptSourceKind {
     UserInstruction,
     ProjectInstruction,
     LocalMemory,
+    ProtocolPromptSource,
     CustomSystemPrompt,
     AppendSystemPrompt,
     CompactPrompt,
@@ -53,6 +54,7 @@ impl PromptSource {
             PromptSourceKind::UserInstruction => "user_instruction",
             PromptSourceKind::ProjectInstruction => "project_instruction",
             PromptSourceKind::LocalMemory => "local_memory",
+            PromptSourceKind::ProtocolPromptSource => "protocol_prompt_source",
             PromptSourceKind::CustomSystemPrompt => "custom_system_prompt",
             PromptSourceKind::AppendSystemPrompt => "append_system_prompt",
             PromptSourceKind::CompactPrompt => "compact_prompt",
@@ -68,6 +70,9 @@ impl PromptSource {
                 format!("project instruction: {}", self.display_path)
             }
             PromptSourceKind::LocalMemory => format!("local memory: {}", self.display_path),
+            PromptSourceKind::ProtocolPromptSource => {
+                format!("protocol prompt source: {}", self.display_path)
+            }
             PromptSourceKind::CustomSystemPrompt => {
                 format!("custom system prompt: {}", self.display_path)
             }
@@ -88,6 +93,9 @@ impl PromptSource {
             }
             PromptSourceKind::LocalMemory => {
                 "included as durable workspace memory from the local RARA memory file"
+            }
+            PromptSourceKind::ProtocolPromptSource => {
+                "included as a structured protocol-registered prompt source with runtime-control provenance"
             }
             PromptSourceKind::CustomSystemPrompt => "included as the configured base system prompt",
             PromptSourceKind::AppendSystemPrompt => {
@@ -157,6 +165,7 @@ pub struct PromptRuntimeConfig {
     pub system_prompt: Option<String>,
     pub append_system_prompt: Option<String>,
     pub compact_prompt: Option<String>,
+    pub protocol_prompt_sources: Vec<PromptSource>,
     pub available_skills: Vec<PromptSkillSummary>,
     pub warnings: Vec<String>,
 }
@@ -184,6 +193,7 @@ impl PromptRuntimeConfig {
             system_prompt,
             append_system_prompt,
             compact_prompt,
+            protocol_prompt_sources: Vec::new(),
             available_skills: Vec::new(),
             warnings,
         }
@@ -199,6 +209,7 @@ impl PromptRuntimeConfig {
                 content: content.clone(),
             });
         }
+        sources.extend(self.protocol_prompt_sources.iter().cloned());
         if let Some(content) = &self.append_system_prompt {
             sources.push(PromptSource {
                 kind: PromptSourceKind::AppendSystemPrompt,
@@ -675,11 +686,13 @@ fn dynamic_system_prompt_sections(
         .iter()
         .find(|source| matches!(source.kind, PromptSourceKind::LocalMemory))
         .map(|memory| format!("## {}\n{}", memory.label, memory.content));
+    let protocol_prompt_sources_block = render_protocol_prompt_sources_section(sources);
     let skills_block = render_available_skills_section(available_skills);
 
     vec![
         PromptSection::optional("instructions", instruction_block),
         PromptSection::optional("memory", memory_block),
+        PromptSection::optional("protocol_prompt_sources", protocol_prompt_sources_block),
         PromptSection::optional("skills", skills_block),
         PromptSection::new("runtime_context", render_environment_context(&cwd, &branch)),
         PromptSection::optional(
@@ -691,6 +704,27 @@ fn dynamic_system_prompt_sections(
             matches!(mode, PromptMode::Review).then(review_mode_prompt),
         ),
     ]
+}
+
+fn render_protocol_prompt_sources_section(sources: &[PromptSource]) -> Option<String> {
+    let sections = sources
+        .iter()
+        .filter(|source| matches!(source.kind, PromptSourceKind::ProtocolPromptSource))
+        .map(|source| {
+            format!(
+                "### {}\nSource: {}\n\n{}",
+                source.label, source.display_path, source.content
+            )
+        })
+        .collect::<Vec<_>>();
+    if sections.is_empty() {
+        None
+    } else {
+        Some(format!(
+            "## Protocol Prompt Sources\n\n{}",
+            sections.join("\n\n")
+        ))
+    }
 }
 
 fn render_environment_context(cwd: &str, branch: &str) -> String {
@@ -885,7 +919,7 @@ mod tests {
     use std::fs;
 
     use super::{
-        PromptMode, PromptRuntimeConfig, PromptSkillSummary, PromptSourceKind,
+        PromptMode, PromptRuntimeConfig, PromptSkillSummary, PromptSource, PromptSourceKind,
         build_compact_instruction, build_effective_prompt, build_system_prompt,
         discover_prompt_sources, render_skill_listing,
     };
@@ -934,6 +968,41 @@ mod tests {
             sources
                 .iter()
                 .any(|source| matches!(source.kind, PromptSourceKind::AppendSystemPrompt))
+        );
+    }
+
+    #[test]
+    fn build_effective_prompt_includes_protocol_prompt_sources() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let root = temp.path().join("workspace");
+        let rara_dir = root.join(".rara");
+        fs::create_dir_all(&rara_dir).expect("mkdir .rara");
+        let workspace = WorkspaceMemory::from_paths(root, rara_dir);
+        let runtime = PromptRuntimeConfig {
+            protocol_prompt_sources: vec![PromptSource {
+                kind: PromptSourceKind::ProtocolPromptSource,
+                label: "Protocol Prompt Source acp-note".to_string(),
+                display_path: "protocol:acp:test:acp-note".to_string(),
+                content: "Use the active editor selection as extra context.".to_string(),
+            }],
+            ..Default::default()
+        };
+
+        let effective = build_effective_prompt(&workspace, &runtime, PromptMode::Execute);
+
+        assert!(effective.section_keys.contains(&"protocol_prompt_sources"));
+        assert!(effective.text.contains("## Protocol Prompt Sources"));
+        assert!(effective.text.contains("Protocol Prompt Source acp-note"));
+        assert!(
+            effective
+                .text
+                .contains("Use the active editor selection as extra context.")
+        );
+        assert!(
+            effective
+                .sources
+                .iter()
+                .any(|source| matches!(source.kind, PromptSourceKind::ProtocolPromptSource))
         );
     }
 
