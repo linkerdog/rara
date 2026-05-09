@@ -27,6 +27,7 @@ impl ListPickerKind {
             Self::Resume => app.resume_picker_idx,
             Self::AuthMode => app.auth_mode_idx,
             Self::ReasoningEffort => app.reasoning_effort_picker_idx,
+            Self::ApprovalDecision => app.approval_picker_idx,
         }
     }
 
@@ -41,6 +42,7 @@ impl ListPickerKind {
             Self::Resume => app.resume_picker_idx = i,
             Self::AuthMode => app.auth_mode_idx = i,
             Self::ReasoningEffort => app.reasoning_effort_picker_idx = i,
+            Self::ApprovalDecision => app.approval_picker_idx = i,
         }
     }
 
@@ -54,6 +56,7 @@ impl ListPickerKind {
             Self::Resume => app.recent_threads.len(),
             Self::AuthMode => super::auth_mode_picker::AUTH_MODE_OPTION_COUNT,
             Self::ReasoningEffort => app.selected_codex_reasoning_options().len(),
+            Self::ApprovalDecision => 4,
         }
     }
 
@@ -67,6 +70,7 @@ impl ListPickerKind {
             Self::Resume => " Resumable Sessions ",
             Self::AuthMode => " Codex Auth Mode ",
             Self::ReasoningEffort => " Reasoning Level ",
+            Self::ApprovalDecision => " Approve ",
         }
     }
 
@@ -80,6 +84,9 @@ impl ListPickerKind {
             Self::Resume => "Select a past session to resume.",
             Self::AuthMode => "Choose how Codex authenticates.",
             Self::ReasoningEffort => "Select the reasoning level for the chosen Codex model.",
+            Self::ApprovalDecision => {
+                "Choose whether to approve Once, match Prefix, Always, or only Suggestion."
+            }
         }
     }
 
@@ -99,6 +106,22 @@ impl ListPickerKind {
             Self::Resume => Self::render_resume_items(app, selected),
             Self::OpenAiEndpointKind => Self::render_endpoint_kind_items(app, selected),
             Self::OpenAiProfile => Self::render_openai_profile_items(app, selected),
+            Self::ApprovalDecision => {
+                let labels = [
+                    "1. Once (approve this command only)",
+                    "2. Prefix (approve matching prefix)",
+                    "3. Always (approve all bash commands)",
+                    "4. Suggestion only (show, don't execute)",
+                ];
+                labels
+                    .iter()
+                    .enumerate()
+                    .map(|(i, label)| {
+                        ListItem::new(ratatui::text::Line::from(*label))
+                            .style(Self::selected_style(i, selected))
+                    })
+                    .collect()
+            }
         }
     }
 

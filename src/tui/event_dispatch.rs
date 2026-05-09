@@ -484,6 +484,15 @@ pub(crate) async fn dispatch_event(
                                 }
                             }
                         }
+                        ListPickerKind::ApprovalDecision => {
+                            let selection = match app.approval_picker_idx {
+                                0 => ShellApprovalDecision::Once,
+                                1 => ShellApprovalDecision::Prefix,
+                                2 => ShellApprovalDecision::Always,
+                                _ => ShellApprovalDecision::Suggestion,
+                            };
+                            input_control::answer_shell_approval(app, agent_slot, selection);
+                        }
                     }
                 }
             }
