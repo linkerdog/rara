@@ -86,7 +86,7 @@ Active backlog only. Keep this file small and current.
 - [x] Index parent/child spawn-edge metadata in `StateDb` for resume/listing queries.
 - [x] Add in-process background sub-agent resume/stop over the sidechain transcript contract.
 - [x] Add an explicit promotion API from session context shards into global `MemoryRecord`s.
-- [ ] Add scheduler/policy gates for periodic session-shard promotion so background writes are opt-in and observable.
+- [x] Add scheduler/policy gates for periodic session-shard promotion so background writes are opt-in and observable.
 - [x] Durable in-turn checkpoints: persist after each message/tool-result batch, atomic writes, crash-tolerant `SessionManager`.
 - [ ] Define cross-process background sub-agent restart/reattach semantics.
 - [x] Compaction as first-class lifecycle event: persist summaries, token counters, metadata ownership.

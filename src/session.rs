@@ -17,6 +17,10 @@ use crate::memory_store::{
     MemoryPromotionTarget, MemoryRecord, MemorySource, MemoryStore, NewMemoryRecord,
 };
 use crate::session_context::{self, SessionContextSearchHit};
+use crate::session_promotion::{
+    SessionShardPromotionOutcome, SessionShardPromotionPlan, SessionShardPromotionPolicy,
+    SessionShardPromotionTrigger,
+};
 use crate::session_transcript;
 use crate::todo::TodoState;
 
@@ -208,6 +212,46 @@ impl SessionManager {
             );
         }
         Ok(memories)
+    }
+
+    pub fn plan_session_context_memory_promotion(
+        &self,
+        session_id: &str,
+        policy: SessionShardPromotionPolicy,
+        trigger: SessionShardPromotionTrigger,
+    ) -> Result<SessionShardPromotionPlan> {
+        let checkpoints =
+            session_context::load_session_context_checkpoints(&self.storage_dir, session_id)?;
+        Ok(policy.evaluate(session_id.to_string(), trigger, checkpoints.len()))
+    }
+
+    pub async fn promote_session_context_memories_with_policy(
+        &self,
+        memory_store: &MemoryStore,
+        session_id: &str,
+        policy: SessionShardPromotionPolicy,
+        trigger: SessionShardPromotionTrigger,
+    ) -> Result<(SessionShardPromotionOutcome, Vec<MemoryRecord>)> {
+        let plan = self.plan_session_context_memory_promotion(session_id, policy, trigger)?;
+        if !plan.is_eligible() {
+            return Ok((
+                SessionShardPromotionOutcome {
+                    plan,
+                    promoted_count: 0,
+                },
+                Vec::new(),
+            ));
+        }
+
+        let max_checkpoints = plan.max_checkpoints;
+        let memories = self
+            .promote_session_context_memories(memory_store, session_id, max_checkpoints)
+            .await?;
+        let outcome = SessionShardPromotionOutcome {
+            plan,
+            promoted_count: memories.len(),
+        };
+        Ok((outcome, memories))
     }
 
     pub fn plan_file_path(&self, session_id: &str) -> PathBuf {
@@ -604,6 +648,9 @@ mod tests {
     use super::*;
     use crate::llm::{ContentBlock, LlmBackend, LlmResponse, TokenUsage};
     use crate::memory_store::{MemoryLabel, MemoryScope, MemorySource, MemoryStore};
+    use crate::session_promotion::{
+        SessionShardPromotionDecision, SessionShardPromotionSkipReason,
+    };
     use crate::session_transcript::{
         SessionTranscriptEntry, load_transcript, main_transcript_path, model_visible_messages,
     };
@@ -1085,6 +1132,98 @@ mod tests {
                 .iter()
                 .any(|label| label.label == MemoryLabel::Decision)
         );
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn session_context_promotion_policy_skips_background_writes_by_default() -> Result<()> {
+        let temp = tempdir()?;
+        let rara_dir = temp.path().join(".rara");
+        let session_manager = SessionManager::new_for_rara_dir(rara_dir.clone())?;
+        session_manager.save_session_context_checkpoint(
+            "session-policy-disabled",
+            1,
+            "This checkpoint should not be promoted unless the policy enables writes.".to_string(),
+            vec![0.2; 128],
+        )?;
+        session_manager.save_session_context_checkpoint(
+            "session-policy-disabled",
+            2,
+            "Default policy keeps periodic promotion disabled.".to_string(),
+            vec![0.3; 128],
+        )?;
+        let memory_store = MemoryStore::new(
+            Arc::new(SessionPromotionMockLlm),
+            Arc::new(VectorDB::new(
+                rara_dir.join("lancedb").to_str().expect("utf8 path"),
+            )),
+        );
+
+        let (outcome, memories) = session_manager
+            .promote_session_context_memories_with_policy(
+                &memory_store,
+                "session-policy-disabled",
+                SessionShardPromotionPolicy::default(),
+                SessionShardPromotionTrigger::Periodic,
+            )
+            .await?;
+
+        assert!(memories.is_empty());
+        assert_eq!(outcome.promoted_count, 0);
+        assert_eq!(
+            outcome.plan.decision,
+            SessionShardPromotionDecision::Skipped {
+                reason: SessionShardPromotionSkipReason::Disabled,
+            }
+        );
+        assert_eq!(memory_store.record_count().await?, 0);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn session_context_promotion_policy_promotes_when_enabled() -> Result<()> {
+        let temp = tempdir()?;
+        let rara_dir = temp.path().join(".rara");
+        let session_manager = SessionManager::new_for_rara_dir(rara_dir.clone())?;
+        session_manager.save_session_context_checkpoint(
+            "session-policy-enabled",
+            1,
+            "Use policy gates before periodic session shard promotion.".to_string(),
+            vec![0.2; 128],
+        )?;
+        session_manager.save_session_context_checkpoint(
+            "session-policy-enabled",
+            2,
+            "Eligible policy runs bounded distillation into MemoryRecords.".to_string(),
+            vec![0.3; 128],
+        )?;
+        let memory_store = MemoryStore::new(
+            Arc::new(SessionPromotionMockLlm),
+            Arc::new(VectorDB::new(
+                rara_dir.join("lancedb").to_str().expect("utf8 path"),
+            )),
+        );
+
+        let (outcome, memories) = session_manager
+            .promote_session_context_memories_with_policy(
+                &memory_store,
+                "session-policy-enabled",
+                SessionShardPromotionPolicy {
+                    enabled: true,
+                    min_checkpoints: 2,
+                    max_checkpoints: 8,
+                },
+                SessionShardPromotionTrigger::Periodic,
+            )
+            .await?;
+
+        assert_eq!(
+            outcome.plan.decision,
+            SessionShardPromotionDecision::Eligible
+        );
+        assert_eq!(outcome.promoted_count, memories.len());
+        assert_eq!(memories.len(), 2);
+        assert_eq!(memory_store.record_count().await?, 2);
         Ok(())
     }
 
