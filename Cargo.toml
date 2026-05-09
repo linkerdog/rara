@@ -18,7 +18,7 @@ members = [
 resolver = "2"
 
 [workspace.package]
-version = "0.1.0"
+version = "0.0.1"
 edition = "2024"
 license = "Apache-2.0"
 
@@ -37,7 +37,7 @@ codex-execpolicy = { git = "https://github.com/openai/codex", package = "codex-e
 
 [package]
 name = "rara"
-version = "0.1.0"
+version = "0.0.1"
 edition = "2024"
 
 [dependencies]

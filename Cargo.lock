@@ -10224,7 +10224,7 @@ checksum = "973443cf09a9c8656b574a866ab68dfa19f0867d0340648c7d2f6a71b8a8ea68"
 
 [[package]]
 name = "rara"
-version = "0.1.0"
+version = "0.0.1"
 dependencies = [
  "agent-client-protocol",
  "anyhow",
@@ -10300,7 +10300,7 @@ dependencies = [
 
 [[package]]
 name = "rara-bedrock"
-version = "0.1.0"
+version = "0.0.1"
 dependencies = [
  "anyhow",
  "aws-config",
@@ -10311,7 +10311,7 @@ dependencies = [
 
 [[package]]
 name = "rara-config"
-version = "0.1.0"
+version = "0.0.1"
 dependencies = [
  "anyhow",
  "codex-execpolicy",
@@ -10325,7 +10325,7 @@ dependencies = [
 
 [[package]]
 name = "rara-file-search"
-version = "0.1.0"
+version = "0.0.1"
 dependencies = [
  "anyhow",
  "ignore",
@@ -10336,7 +10336,7 @@ dependencies = [
 
 [[package]]
 name = "rara-instructions"
-version = "0.1.0"
+version = "0.0.1"
 dependencies = [
  "anyhow",
  "rara-config",
@@ -10345,7 +10345,7 @@ dependencies = [
 
 [[package]]
 name = "rara-mcp-client"
-version = "0.1.0"
+version = "0.0.1"
 dependencies = [
  "anyhow",
  "rmcp 1.6.0",
@@ -10355,7 +10355,7 @@ dependencies = [
 
 [[package]]
 name = "rara-memory"
-version = "0.1.0"
+version = "0.0.1"
 dependencies = [
  "anyhow",
  "arrow-array",
@@ -10370,7 +10370,7 @@ dependencies = [
 
 [[package]]
 name = "rara-persistence"
-version = "0.1.0"
+version = "0.0.1"
 dependencies = [
  "anyhow",
  "fs2",
@@ -10384,7 +10384,7 @@ dependencies = [
 
 [[package]]
 name = "rara-provider-catalog"
-version = "0.1.0"
+version = "0.0.1"
 dependencies = [
  "anyhow",
  "rara-config",
@@ -10397,7 +10397,7 @@ dependencies = [
 
 [[package]]
 name = "rara-sandbox"
-version = "0.1.0"
+version = "0.0.1"
 dependencies = [
  "anyhow",
  "rara-config",
@@ -10408,7 +10408,7 @@ dependencies = [
 
 [[package]]
 name = "rara-skills"
-version = "0.1.0"
+version = "0.0.1"
 dependencies = [
  "anyhow",
  "dirs",
@@ -10418,7 +10418,7 @@ dependencies = [
 
 [[package]]
 name = "rara-state"
-version = "0.1.0"
+version = "0.0.1"
 dependencies = [
  "anyhow",
  "rara-config",
@@ -10431,11 +10431,11 @@ dependencies = [
 
 [[package]]
 name = "rara-terminal-detection"
-version = "0.1.0"
+version = "0.0.1"
 
 [[package]]
 name = "rara-tool-macros"
-version = "0.1.0"
+version = "0.0.1"
 dependencies = [
  "proc-macro2",
  "quote",
