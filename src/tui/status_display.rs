@@ -305,6 +305,34 @@ fn format_metric(n: u64) -> String {
     }
 }
 
+/// Shared token count formatter: "1.0k", "2.5M", or plain number.
+/// Keep format stable — sidebar, footer, and context display all use this.
+pub(crate) fn format_token_count(tokens: usize) -> String {
+    if tokens >= 1_000_000 {
+        format!("{:.1}M", tokens as f64 / 1_000_000.0)
+    } else if tokens >= 1_000 {
+        format!("{:.1}k", tokens as f64 / 1_000.0)
+    } else {
+        tokens.to_string()
+    }
+}
+
+/// One-line context summary used by sidebar.
+pub(crate) fn context_sidebar_summary(snap: &crate::tui::state::RuntimeSnapshot) -> String {
+    let token_label = format_token_count(snap.estimated_history_tokens);
+    let mut parts = vec![token_label];
+    if let Some(window) = snap.context_window_tokens {
+        parts.push(format!("{} tokens", format_token_count(window)));
+    }
+    if snap.history_len > 0 {
+        parts.push(format!("{} turns", snap.history_len));
+    }
+    if snap.compaction_count > 0 {
+        parts.push(format!("compacted {}×", snap.compaction_count));
+    }
+    parts.join(" · ")
+}
+
 fn home_path(cwd: &str) -> String {
     if let Ok(home) = std::env::var("HOME")
         && let Some(stripped) = cwd.strip_prefix(&home)

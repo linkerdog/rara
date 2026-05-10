@@ -1,25 +1,24 @@
 ---
 source: src/tui/render/tests.rs
-assertion_line: 1158
 expression: rendered
 ---
 Context Usage
 
   model          anthropic/claude-sonnet-4
   auxiliary      anthropic/claude-sonnet-4 (fallback)
-  window         200.0K tokens
+  window         200.0k tokens
   ░░░░□□□□□□□□□□□□□□□□□□□□□□□□□□□□□□□□□□□□□□□□□□□□□□□□□□□□□□□□□□□□□□□□□□□□
-  10.2K / 200.0K  5.1% used
+  10.2k / 200.0k  5.1% used
 
 Budget Breakdown
 
-  System prompt  1.2K (0.60%)
+  System prompt  1.2k (0.60%)
   Workspace      320 (0.16%)
   Active turn    280 (0.14%)
   History        140 (0.07%)
   Memory         96 (0.05%)
-  Output reserve 8.2K (4.10%)
-  Free           189.8K (94.89%)
+  Output reserve 8.2k (4.10%)
+  Free           189.8k (94.89%)
 
 Session
 
@@ -34,10 +33,10 @@ Observability
 
 Compaction
 
-  estimated      12.0K tokens
-  threshold      180.0K tokens
+  estimated      12.0k tokens
+  threshold      180.0k tokens
   count          1
-  last           12.0K → 4.5K tokens
+  last           12.0k → 4.5k tokens
 
 Active Turn
 
