@@ -47,8 +47,25 @@ pub(crate) fn submit_user_prompt(
     }
 
     let Some(agent) = agent_slot.take() else {
-        app.push_notice("Agent is not ready for input.");
-        return InputControlOutcome::Rejected;
+        // Agent slot is empty — likely a previous task crashed or is still
+        // rebuilding.  Queue the user's message so it isn't lost, and trigger
+        // a rebuild.  After the rebuild completes, try_start_queued_follow_up
+        // will drain the queue.
+        let queued = app.queue_follow_up_message(prompt);
+        let suffix = if queued > 1 {
+            format!(" ({queued} messages queued)")
+        } else {
+            String::new()
+        };
+        app.bottom_pane.notice = Some(format!("Agent not ready — rebuilding now{suffix}."));
+        publish_input_event(
+            app,
+            InputEvent::FollowUpQueued {
+                queue_len: queued as u32,
+            },
+        );
+        super::runtime::start_rebuild_task(app);
+        return InputControlOutcome::Queued;
     };
 
     if app.pending_request_input().is_some() {
@@ -333,5 +350,56 @@ mod tests {
 
         assert_eq!(outcome, InputControlOutcome::Rejected);
         assert!(rx.try_recv().is_err());
+    }
+
+    #[tokio::test]
+    async fn absent_agent_queues_prompt_and_starts_rebuild() {
+        let mut app = test_app();
+        // agent_slot is None by default — test_app() has no agent.
+
+        let outcome = submit_user_prompt(&mut app, &mut None, "hello".to_string());
+
+        // Should accept the input (not reject) and queue the message.
+        assert_eq!(outcome, InputControlOutcome::Queued);
+        assert_eq!(app.queued_follow_up_count(), 1, "message should be queued");
+
+        // Should have started a Rebuild task since none was running.
+        let task = app.bottom_pane.running_task.as_ref().expect("rebuild task");
+        assert!(
+            matches!(task.kind, TaskKind::Rebuild),
+            "expected Rebuild task, got {:?}",
+            task.kind
+        );
+    }
+
+    #[tokio::test]
+    async fn absent_agent_during_rebuild_queues_without_duplicate_rebuild() {
+        let mut app = test_app();
+        // Simulate a rebuild already in progress.
+        let (_sender, receiver) = mpsc::unbounded_channel();
+        app.bottom_pane.running_task = Some(RunningTask {
+            kind: TaskKind::Rebuild,
+            receiver,
+            handle: tokio::spawn(async { std::future::pending::<TaskCompletion>().await }),
+            started_at: Instant::now(),
+            next_heartbeat_after_secs: 2,
+            cancellation_token: None,
+            cancellation_requested: false,
+        });
+
+        let outcome = submit_user_prompt(&mut app, &mut None, "hello".to_string());
+
+        assert_eq!(outcome, InputControlOutcome::Queued);
+        assert_eq!(app.queued_follow_up_count(), 1);
+        // The task should still be Rebuild (not replaced).
+        let task = app
+            .bottom_pane
+            .running_task
+            .as_ref()
+            .expect("task still present");
+        assert!(
+            matches!(task.kind, TaskKind::Rebuild),
+            "should not replace existing Rebuild"
+        );
     }
 }
