@@ -52,7 +52,9 @@ pub struct AgentDefinition {
     pub tools: Vec<String>,
     /// Disallowed tools. Takes precedence over `tools`.
     pub disallowed_tools: Vec<String>,
-    /// Model override. "inherit" = use parent model.
+    /// Model override. "inherit" = use parent model. If the specified model
+    /// is not available on the configured provider, fall back to the default
+    /// model for the current session.
     pub model: Option<String>,
     /// Permission mode override.
     pub permission_mode: Option<String>,
@@ -93,6 +95,8 @@ fn call(&self, input: Value, ctx: ToolCallContext) -> Result<Value> {
     let definition = load_agent_definition(agent_name)?;
     let filtered_tools = apply_tool_filters(definition);
     // spawn with filtered tools and definition.system_prompt
+    // Resolve model: if definition.model is set and available, use it;
+    // otherwise fall back to the session's default model.
 }
 ```
 
