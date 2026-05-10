@@ -9,7 +9,8 @@ the current runtime surface, not a stable product contract.
 
 ## Highlights
 
-- 🖥️ Terminal-first coding agent UI with live tool progress.
+- 🖥️ Terminal-first coding agent UI with live tool progress and GFM markdown
+  rendering.
 - 🔌 Hosted, OpenAI-compatible, Ollama, Gemini, and local Candle model backends.
 - 🛠️ File editing, shell, PTY, search, web, planning, memory, skill, and
   sub-agent tools.
@@ -18,6 +19,8 @@ the current runtime surface, not a stable product contract.
 - 📦 Local skills from markdown, including `SKILL.md` directory skills.
 - 🔍 `/context` and `/status` for inspecting runtime state.
 - 🧵 Queued follow-up messages while the agent is busy or waiting for approval.
+- 🎯 Sidechannel LLM classifier for auto-permission decisions and background
+  task status.
 
 ## What It Does
 
@@ -26,6 +29,8 @@ the current runtime surface, not a stable product contract.
 - Runs local models through Candle-backed backends.
 - Executes file, shell, search, web, planning, memory, skill, and sub-agent
   tools.
+- Applies a sidechannel LLM classifier for auto-permission decisions and
+  background task status, mirroring Claude Code's approach.
 - Keeps workspace state local.
 - Restores, lists, opens, and forks previous threads.
 - Loads project and user instructions.
@@ -106,12 +111,15 @@ Inside the TUI:
 - `/help` opens command help.
 - `/model` changes provider, endpoint profile, API key, model, and reasoning
   settings.
-- `/status` shows runtime status.
+- `/status` shows runtime status, context window budget, and compaction info.
 - `/context` shows prompt sources, active context, memory selection, cache
   markers, and budget information.
 
+Slash commands (`/model`, `/status`, `/help`) work even during agent rebuild.
+
 The composer supports follow-up queuing while the agent is busy or waiting for
-approval.
+approval. Press Enter on an empty composer during a shell-approval prompt to
+open a list picker (Once / Prefix / Always / Suggestion).
 
 ## Tools
 
