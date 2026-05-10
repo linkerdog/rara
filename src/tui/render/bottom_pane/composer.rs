@@ -250,9 +250,7 @@ pub(super) fn wrapped_text_cursor_position(
         .cloned()
         .unwrap_or_else(|| initial_indent.to_string());
     let row_index = wrapped_rows.len().saturating_sub(1);
-    let cursor_y = area
-        .y
-        .saturating_add(row_index.min(area.height.saturating_sub(1) as usize) as u16);
+    let cursor_y = area.y.saturating_add(row_index as u16);
     let display_width = display_text_width(last_row.as_str()) as u16;
     let max_x_offset = area.width.saturating_sub(1);
     let cursor_x = area.x.saturating_add(display_width.min(max_x_offset));

@@ -42,6 +42,7 @@ mod todo;
 mod tool_result;
 mod tools;
 mod tui;
+mod utils;
 mod wire_consumer;
 mod workspace;
 

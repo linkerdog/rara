@@ -1,5 +1,4 @@
 use std::collections::HashSet;
-use std::time::{SystemTime, UNIX_EPOCH};
 
 use anyhow::{Result, anyhow};
 use serde::{Deserialize, Serialize};
@@ -76,7 +75,7 @@ pub fn normalize_todo_write_input(input: &Value) -> Result<TodoState> {
         .get("todos")
         .and_then(Value::as_array)
         .ok_or_else(|| anyhow!("todo_write requires a todos array"))?;
-    let updated_at = epoch_seconds();
+    let updated_at = crate::utils::epoch_seconds();
     let mut items = Vec::with_capacity(todos.len());
     let mut in_progress_count = 0usize;
     let mut seen_ids = HashSet::new();
@@ -169,13 +168,6 @@ fn parse_todo_status(status: &str) -> Option<TodoStatus> {
         "cancelled" => Some(TodoStatus::Cancelled),
         _ => None,
     }
-}
-
-fn epoch_seconds() -> i64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_secs() as i64
 }
 
 #[cfg(test)]
