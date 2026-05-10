@@ -1070,6 +1070,7 @@ impl Tool for BashTool {
         })?;
         let process_group_id = child.id();
 
+        let sandbox_perm = request.sandbox_permissions;
         if request.run_in_background {
             let (record, stop_rx) = self.background_tasks.start_record(
                 &request,
@@ -1080,6 +1081,7 @@ impl Tool for BashTool {
             spawn_background_bash_task(
                 child,
                 wrapped,
+                sandbox_perm,
                 record.clone(),
                 self.background_tasks.clone(),
                 stop_rx,
@@ -1123,7 +1125,9 @@ impl Tool for BashTool {
         let mut live_streamed = false;
         let mut cancelled = false;
         let mut cancellation_watchdog = Box::pin(tokio::time::sleep(Duration::from_secs(u64::MAX)));
-        if !wrapped.sandboxed {
+        if !wrapped.sandboxed
+            && request.sandbox_permissions != BashSandboxPermissions::RequireEscalated
+        {
             let chunk = unsandboxed_execution_warning(&wrapped);
             stderr_text.push_str(&chunk);
             append_aggregated_bash_output(
@@ -1346,14 +1350,22 @@ impl Tool for BackgroundTaskStopTool {
 fn spawn_background_bash_task(
     mut child: Child,
     wrapped: WrappedCommand,
+    sandbox_permissions: BashSandboxPermissions,
     record: BackgroundTaskRecord,
     store: Arc<BackgroundTaskStore>,
     stop_rx: oneshot::Receiver<()>,
     process_group_id: Option<u32>,
 ) {
     tokio::spawn(async move {
-        let result =
-            run_background_bash_task(&mut child, wrapped, &record, stop_rx, process_group_id).await;
+        let result = run_background_bash_task(
+            &mut child,
+            wrapped,
+            sandbox_permissions,
+            &record,
+            stop_rx,
+            process_group_id,
+        )
+        .await;
         let (status, exit_code) = match result {
             Ok(code) => {
                 if code == Some(0) {
@@ -1379,6 +1391,7 @@ fn spawn_background_bash_task(
 async fn run_background_bash_task(
     child: &mut Child,
     wrapped: WrappedCommand,
+    sandbox_permissions: BashSandboxPermissions,
     record: &BackgroundTaskRecord,
     mut stop_rx: oneshot::Receiver<()>,
     process_group_id: Option<u32>,
@@ -1387,7 +1400,7 @@ async fn run_background_bash_task(
         fs::create_dir_all(parent).await?;
     }
     fs::write(&record.output_path, "").await?;
-    if !wrapped.sandboxed {
+    if !wrapped.sandboxed && sandbox_permissions != BashSandboxPermissions::RequireEscalated {
         append_background_output(
             &record.output_path,
             BashStreamKind::Stderr,

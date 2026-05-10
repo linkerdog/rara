@@ -5,19 +5,9 @@
 
 use std::time::{Duration, Instant};
 
-use unicode_width::UnicodeWidthChar;
-
 use super::char_offset_to_byte_index;
 use crate::tui::queued_input::PendingFollowUpMessage;
 use crate::tui::state::types::RunningTask;
-
-/// Shared helper that BottomPaneModel and TuiApp use for composer display.
-pub fn composer_display_char_width(ch: char) -> usize {
-    if ch.is_control() {
-        return 1;
-    }
-    ch.width().unwrap_or(1).max(1)
-}
 
 /// Time window after the last paste-char before the accumulated burst is
 /// flushed into the composer.
@@ -62,26 +52,6 @@ impl BottomPaneModel {
         self.input_cursor_offset
             .unwrap_or_else(|| text.chars().count())
             .min(text.chars().count())
-    }
-
-    pub fn maintain_composer_scroll(&mut self, _composer_width: u16, visible_height: u16) {
-        let cursor_offset = self.composer_cursor_offset();
-        let mut cursor_line = 0usize;
-        for (i, ch) in self.input.chars().enumerate() {
-            if i == cursor_offset {
-                break;
-            }
-            if ch == '\n' {
-                cursor_line += 1;
-            }
-        }
-        let visible_height = visible_height.max(1) as usize;
-        let end_line = self.composer_scroll + visible_height - 1;
-        if cursor_line < self.composer_scroll {
-            self.composer_scroll = cursor_line;
-        } else if cursor_line > end_line {
-            self.composer_scroll = cursor_line - visible_height + 1;
-        }
     }
 
     // ── Paste-burst ──────────────────────────────────────────────────
