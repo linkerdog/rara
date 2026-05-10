@@ -27,9 +27,10 @@ support subagents, and Codex has a minimal external-agent migration scaffold.
 
 ### Codex (`external-agent-migration/`)
 
-- Minimal: just `SpawningAgent` with `AgentStatus::Spawning/Running/Completed`
-  and `ThreadMetadata`.
-- No progress tracking, no token metrics, no activity descriptions.
+* Not a subagent system.  `external-agent-migration` is a **configuration
+  migration tool** that reads Claude Code config files (`.mcp.json`, hooks,
+  agents) and converts them to Codex's native format.  It does not spawn,
+  track, or manage subagents.
 
 ### OpenCode
 
