@@ -100,13 +100,21 @@ The current product direction is to make local inference a first-class path inst
   - derive an implementation plan and concrete task breakdown from that specification;
   - align implementation against that specification;
   - record the resulting implementation checkpoint and any remaining follow-up work.
+- **Every non-trivial change must leave documentation.** No implementation PR
+  that touches behavior, contracts, or architecture should be merged without
+  the corresponding spec or journal update.
 - `docs/features/` stores stable engineering specs and contracts.
 - `docs/journal/` stores dated implementation notes and checkpoints.
 - `docs/todo.md` stores active follow-up work only.
-- Non-trivial changes should update:
+- Non-trivial changes MUST update:
   - the relevant feature spec when a contract or behavior changed;
   - a dated journal note for the implementation checkpoint;
   - `docs/todo.md` only when open follow-up work remains.
+- When creating or revising feature specs, follow the patterns in existing
+  `docs/features/*.md` files (motivation, design, integration points, TUI
+  display if applicable, verification).
+- Dated journal notes (`docs/journal/YYYY-MM-DD-<slug>.md`) should include:
+  what was built, why, what trade-offs were made, and what remains.
 
 ## 6. Near-Term Focus
 
