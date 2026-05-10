@@ -21,14 +21,14 @@ const BASH_ERROR_HEAD_CHARS: usize = 1_000;
 const BASH_ERROR_TAIL_CHARS: usize = 3_000;
 const MICROCOMPACT_TOOL_RESULT_BUDGET: usize = 48_000;
 const MICROCOMPACT_KEEP_RECENT_TOOL_RESULTS: usize = 6;
-const MICROCOMPACT_CLEARED_MESSAGE: &str =
-    "[Old tool result content cleared by RARA microcompact projection]";
+pub const MICROCOMPACT_CLEARED_MESSAGE: &str = "[Old tool result content cleared]";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ToolResultProjectionPolicy {
     pub enabled: bool,
     pub budget_chars: usize,
     pub keep_recent: usize,
+    pub cache_edit_eligible: bool,
 }
 
 impl Default for ToolResultProjectionPolicy {
@@ -37,7 +37,15 @@ impl Default for ToolResultProjectionPolicy {
             enabled: true,
             budget_chars: MICROCOMPACT_TOOL_RESULT_BUDGET,
             keep_recent: MICROCOMPACT_KEEP_RECENT_TOOL_RESULTS,
+            cache_edit_eligible: false,
         }
+    }
+}
+
+impl ToolResultProjectionPolicy {
+    pub fn for_provider_cache_edit(mut self, cache_edit_supported: bool) -> Self {
+        self.cache_edit_eligible = cache_edit_supported;
+        self
     }
 }
 
@@ -47,6 +55,8 @@ pub struct ToolResultProjectionReport {
     pub projected_chars: usize,
     pub cleared_results: usize,
     pub kept_results: usize,
+    pub cache_edit_eligible: bool,
+    pub cache_edit_applied: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -222,12 +232,24 @@ pub fn project_tool_results_for_context(
     policy: &ToolResultProjectionPolicy,
 ) -> (Vec<Message>, ToolResultProjectionReport) {
     if !policy.enabled || policy.budget_chars == 0 {
-        return (messages.to_vec(), ToolResultProjectionReport::default());
+        return (
+            messages.to_vec(),
+            ToolResultProjectionReport {
+                cache_edit_eligible: policy.cache_edit_eligible,
+                ..ToolResultProjectionReport::default()
+            },
+        );
     }
 
     let tool_names = compactable_tool_use_names(messages);
     if tool_names.is_empty() {
-        return (messages.to_vec(), ToolResultProjectionReport::default());
+        return (
+            messages.to_vec(),
+            ToolResultProjectionReport {
+                cache_edit_eligible: policy.cache_edit_eligible,
+                ..ToolResultProjectionReport::default()
+            },
+        );
     }
 
     let candidates = projection_candidates(messages, &tool_names);
@@ -243,6 +265,8 @@ pub fn project_tool_results_for_context(
                 projected_chars: original_chars,
                 cleared_results: 0,
                 kept_results: candidates.len(),
+                cache_edit_eligible: policy.cache_edit_eligible,
+                cache_edit_applied: false,
             },
         );
     }
@@ -289,6 +313,8 @@ pub fn project_tool_results_for_context(
             projected_chars,
             cleared_results,
             kept_results: candidates.len().saturating_sub(cleared_results),
+            cache_edit_eligible: policy.cache_edit_eligible,
+            cache_edit_applied: false,
         },
     )
 }

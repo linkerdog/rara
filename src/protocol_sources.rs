@@ -30,7 +30,7 @@ use crate::runtime_control::{
     MemoryControlRequest, MemoryEvent, MemoryLabelSummary, MemoryRecordControlPatch,
     MemoryRecordSummary, MemoryScope as ControlMemoryScope, PromptSourceControlRequest,
     PromptSourceEvent, PromptSourceLifetime, PromptSourceRegistration, RuntimeEvent,
-    RuntimeProvenance, SkillSourceControlRequest,
+    RuntimeProvenance, SkillEvent, SkillSourceControlRequest,
 };
 use crate::runtime_event_bus::RuntimeEventBus;
 
@@ -301,6 +301,12 @@ impl SkillSourceRegistry {
                         precedence_hint: *precedence_hint,
                     },
                 );
+                let _ =
+                    self.event_bus
+                        .publish_control(RuntimeEvent::Skill(SkillEvent::Registered {
+                            source_id: source_id.clone(),
+                            name: "root".to_string(),
+                        }));
             }
             SkillSourceControlRequest::RegisterSkill {
                 source_id,
@@ -315,6 +321,12 @@ impl SkillSourceRegistry {
                         precedence_hint: *precedence_hint,
                     },
                 );
+                let _ =
+                    self.event_bus
+                        .publish_control(RuntimeEvent::Skill(SkillEvent::Registered {
+                            source_id: source_id.clone(),
+                            name: name.clone(),
+                        }));
             }
             SkillSourceControlRequest::DisableSkill {
                 name,
@@ -323,15 +335,42 @@ impl SkillSourceRegistry {
                 self.disabled.write().await.push(name.clone());
             }
             SkillSourceControlRequest::QuerySkills => {
-                let roots: Vec<String> = self.roots.read().await.keys().cloned().collect();
-                let skills: Vec<String> = self.skills.read().await.keys().cloned().collect();
-                for source_id in roots.into_iter().chain(skills) {
-                    let _ = self.event_bus.publish_control(RuntimeEvent::PromptSource(
-                        PromptSourceEvent::Registered { source_id },
+                let roots = self.roots.read().await;
+                for (source_id, _entry) in roots.iter() {
+                    let _ = self.event_bus.publish_control(RuntimeEvent::Skill(
+                        SkillEvent::Registered {
+                            source_id: source_id.clone(),
+                            name: "root".to_string(),
+                        },
+                    ));
+                }
+                let skills = self.skills.read().await;
+                for (name, entry) in skills.iter() {
+                    let _ = self.event_bus.publish_control(RuntimeEvent::Skill(
+                        SkillEvent::Registered {
+                            source_id: entry.source_id.clone(),
+                            name: name.clone(),
+                        },
                     ));
                 }
             }
         }
+    }
+
+    /// Atomically snapshot active protocol skills and emit Injected events.
+    pub async fn list_skills_for_query(&self) -> Vec<(String, SkillSourceEntry)> {
+        let skills = self.skills.read().await;
+        let mut results = Vec::new();
+        for (name, entry) in skills.iter() {
+            let _ = self
+                .event_bus
+                .publish_control(RuntimeEvent::Skill(SkillEvent::Injected {
+                    source_id: entry.source_id.clone(),
+                    name: name.clone(),
+                }));
+            results.push((name.clone(), entry.clone()));
+        }
+        results
     }
 }
 

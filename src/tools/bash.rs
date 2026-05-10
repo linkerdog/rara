@@ -361,7 +361,7 @@ fn normalized_tokens_summary(tokens: &[String]) -> String {
     let program = command_basename(program);
     let rest = &tokens[1..];
     let args = approval_subcommand_index(program, rest)
-        .map(|index| rest[index..].iter().cloned().collect::<Vec<_>>())
+        .map(|index| rest[index..].to_vec())
         .unwrap_or_else(|| rest.to_vec());
     std::iter::once(program.to_string())
         .chain(args)
@@ -881,7 +881,7 @@ fn sandbox_command_env(
 }
 
 fn ensure_usable_path(env_map: &mut HashMap<String, String>) {
-    let needs_path = env_map.get("PATH").map_or(true, |value| value.is_empty());
+    let needs_path = env_map.get("PATH").is_none_or(|value| value.is_empty());
     if needs_path {
         let fallback_path = env::var("PATH")
             .ok()
@@ -1211,16 +1211,16 @@ impl Tool for BashTool {
             if let Some(path) = wrapped.cleanup_path.as_ref() {
                 let _ = fs::remove_file(path).await;
             }
-            if wrapped.sandboxed {
-                if let Some(hint) = sandbox_output_hint(&stderr_text) {
-                    stderr_text.push_str(hint);
-                    append_aggregated_bash_output(
-                        &mut aggregated_output,
-                        &mut aggregated_output_stream,
-                        BashStreamKind::Stderr,
-                        hint,
-                    );
-                }
+            if wrapped.sandboxed
+                && let Some(hint) = sandbox_output_hint(&stderr_text)
+            {
+                stderr_text.push_str(hint);
+                append_aggregated_bash_output(
+                    &mut aggregated_output,
+                    &mut aggregated_output_stream,
+                    BashStreamKind::Stderr,
+                    hint,
+                );
             }
             let duration_ms = started_at.elapsed().as_millis() as u64;
             let model_preview_output =

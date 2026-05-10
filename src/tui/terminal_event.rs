@@ -117,9 +117,7 @@ impl TerminalEvent {
             "bash" | "background_task_status" => TerminalTarget::BackgroundTask,
             _ => return None,
         };
-        let Some(chunk) = output_tail_preview(chunk).map(|lines| lines.join("\n")) else {
-            return None;
-        };
+        let chunk = output_tail_preview(chunk).map(|lines| lines.join("\n"))?;
         Some(Self::OutputDelta(TerminalOutputDeltaEvent {
             target,
             id: None,

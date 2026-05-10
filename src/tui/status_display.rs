@@ -306,10 +306,10 @@ fn format_metric(n: u64) -> String {
 }
 
 fn home_path(cwd: &str) -> String {
-    if let Ok(home) = std::env::var("HOME") {
-        if let Some(stripped) = cwd.strip_prefix(&home) {
-            return format!("~{}", stripped);
-        }
+    if let Ok(home) = std::env::var("HOME")
+        && let Some(stripped) = cwd.strip_prefix(&home)
+    {
+        return format!("~{}", stripped);
     }
     cwd.to_string()
 }

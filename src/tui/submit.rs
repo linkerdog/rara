@@ -17,15 +17,15 @@ pub(crate) async fn handle_submit(
     oauth_manager: &Arc<crate::oauth::OAuthManager>,
 ) -> anyhow::Result<bool> {
     if app.bottom_pane.input.is_empty() {
-        if let Some(interaction) = app.active_pending_interaction() {
-            if matches!(
+        if let Some(interaction) = app.active_pending_interaction()
+            && matches!(
                 interaction.kind,
                 ActivePendingInteractionKind::ShellApproval
-            ) {
-                app.approval_picker_idx = 0;
-                app.open_overlay(Overlay::ListPicker(ListPickerKind::ApprovalDecision));
-                return Ok(false);
-            }
+            )
+        {
+            app.approval_picker_idx = 0;
+            app.open_overlay(Overlay::ListPicker(ListPickerKind::ApprovalDecision));
+            return Ok(false);
         }
         // Lightweight feedback so the user knows Enter was received.
         // Don't overwrite existing notices (e.g., status-info after a command).
@@ -49,10 +49,10 @@ pub(crate) async fn handle_submit(
 
     if app.is_busy() {
         if trimmed.starts_with('/') {
-            if let Some(command) = parse_local_command(&trimmed) {
-                if matches!(command.kind, LocalCommandKind::Quit) {
-                    return execute_local_command(command, app, agent_slot, oauth_manager).await;
-                }
+            if let Some(command) = parse_local_command(&trimmed)
+                && matches!(command.kind, LocalCommandKind::Quit)
+            {
+                return execute_local_command(command, app, agent_slot, oauth_manager).await;
             }
             app.push_notice(
                 "A task is already running. Wait for it to finish before running a slash command.",

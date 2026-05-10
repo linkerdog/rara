@@ -8,10 +8,10 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use async_trait::async_trait;
 use futures::stream::{self, StreamExt, TryStreamExt};
 use rara_memory::vectordb::VectorDB;
-use rara_state::state_db::{
+use rara_persistence::thread_data::{
     PersistedCompactState, PersistedInteraction, PersistedPlanStep, PersistedPromptRuntimeState,
-    StateDb,
 };
+use rara_state::state_db::StateDb;
 use rara_tool_macros::tool_spec;
 use rara_tools::file::{ListFilesTool, ReadFileTool};
 use rara_tools::search::{GlobTool, GrepTool};
@@ -1298,8 +1298,9 @@ mod tests {
 
     use async_trait::async_trait;
     use rara_memory::vectordb::VectorDB;
-    use rara_state::state_db::{PersistedStructuredRolloutEvent, StateDb};
-    use rara_state::thread_rollout_log;
+    use rara_persistence::thread_data::PersistedStructuredRolloutEvent;
+    use rara_persistence::thread_rollout_log;
+    use rara_state::state_db::StateDb;
     use rara_tools::tool::{Tool, ToolCallContext, ToolError};
     use serde_json::json;
     use tempfile::tempdir;
@@ -2390,11 +2391,10 @@ mod tests {
                 .starts_with("counted")
         );
         assert!(
-            result["persistence_error"]
+            !result["persistence_error"]
                 .as_str()
                 .expect("persistence error")
-                .len()
-                > 0
+                .is_empty()
         );
     }
 

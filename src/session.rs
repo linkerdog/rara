@@ -5,8 +5,8 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use anyhow::{Context, Result, anyhow};
 use rara_persistence::atomic_file;
-use rara_state::state_db::PersistedStructuredRolloutEvent;
-use rara_state::thread_rollout_log;
+use rara_persistence::thread_data::PersistedStructuredRolloutEvent;
+use rara_persistence::thread_rollout_log;
 use serde::{Deserialize, Serialize};
 
 use crate::agent::Message;

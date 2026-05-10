@@ -441,6 +441,15 @@ impl From<ToolOutputStream> for ToolStream {
     }
 }
 
+impl From<ToolStream> for ToolOutputStream {
+    fn from(stream: ToolStream) -> Self {
+        match stream {
+            ToolStream::Stdout => Self::Stdout,
+            ToolStream::Stderr => Self::Stderr,
+        }
+    }
+}
+
 #[allow(dead_code)]
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "type", content = "payload", rename_all = "snake_case")]
@@ -493,6 +502,8 @@ pub enum PromptSourceEvent {
 #[serde(tag = "type", content = "payload", rename_all = "snake_case")]
 pub enum SkillEvent {
     Registered { source_id: String, name: String },
+    Unregistered { source_id: String, name: String },
+    Injected { source_id: String, name: String },
     Shadowed { name: String, by_source_id: String },
     Failed { source_id: String, reason: String },
 }
@@ -577,6 +588,9 @@ pub enum HookEvent {
     Declared {
         hook_id: String,
         lifecycle: HookLifecycle,
+    },
+    Injected {
+        hook_id: String,
     },
     Ignored {
         hook_id: String,
@@ -1067,6 +1081,8 @@ mod tests {
                     enabled: true,
                     budget_chars: 48_000,
                     keep_recent: 6,
+                    cache_edit_eligible: false,
+                    cache_edit_applied: false,
                     original_chars: 60_000,
                     projected_chars: 30_000,
                     saved_chars: 30_000,
@@ -1130,6 +1146,8 @@ mod tests {
                                 "enabled": true,
                                 "budget_chars": 48000,
                                 "keep_recent": 6,
+                                "cache_edit_eligible": false,
+                                "cache_edit_applied": false,
                                 "original_chars": 60000,
                                 "projected_chars": 30000,
                                 "saved_chars": 30000,

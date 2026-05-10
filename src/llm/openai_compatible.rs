@@ -293,18 +293,18 @@ impl OpenAiCompatibleBackend {
                 .and_then(|choices| choices.first())
             {
                 if let Some(delta) = choice.get("delta") {
-                    if let Some(content) = delta.get("content").and_then(Value::as_str) {
-                        if !content.is_empty() {
-                            if let Some(scrubber) = deepseek_text_scrubber.as_mut() {
-                                let visible = scrubber.push(content);
-                                if !visible.is_empty() {
-                                    on_event(LlmStreamEvent::TextDelta(visible));
-                                }
-                            } else {
-                                on_event(LlmStreamEvent::TextDelta(content.to_string()));
+                    if let Some(content) = delta.get("content").and_then(Value::as_str)
+                        && !content.is_empty()
+                    {
+                        if let Some(scrubber) = deepseek_text_scrubber.as_mut() {
+                            let visible = scrubber.push(content);
+                            if !visible.is_empty() {
+                                on_event(LlmStreamEvent::TextDelta(visible));
                             }
-                            streamed_text.push_str(content);
+                        } else {
+                            on_event(LlmStreamEvent::TextDelta(content.to_string()));
                         }
+                        streamed_text.push_str(content);
                     }
                     if let Some(reasoning) = delta.get("reasoning_content").and_then(Value::as_str)
                     {
@@ -321,10 +321,10 @@ impl OpenAiCompatibleBackend {
                     stop_reason = Some(finish.to_string());
                 }
             }
-            if let Some(u) = payload.get("usage") {
-                if !u.is_null() {
-                    usage = Some(u.clone());
-                }
+            if let Some(u) = payload.get("usage")
+                && !u.is_null()
+            {
+                usage = Some(u.clone());
             }
         }
 
@@ -507,7 +507,7 @@ impl LlmBackend for OpenAiCompatibleBackend {
         if summary_model.as_ref() != self.model.as_str()
             && summary
                 .as_ref()
-                .is_err_and(|error| is_auxiliary_model_retryable_error(error))
+                .is_err_and(is_auxiliary_model_retryable_error)
         {
             return self.summarize_with_model(self.model.as_str(), &msgs).await;
         }
@@ -517,7 +517,7 @@ impl LlmBackend for OpenAiCompatibleBackend {
     fn context_budget(&self, _messages: &[Message], _tools: &[Value]) -> Option<ContextBudget> {
         let main_budget = self
             .context_window_override
-            .map(|w| context_budget_from_window(w))
+            .map(context_budget_from_window)
             .or_else(|| model_context_budget(self.model.as_str()));
         let summary_model = self.summary_model();
         let summary_budget = if summary_model.as_ref() == self.model.as_str() {
@@ -581,7 +581,7 @@ impl OpenAiCompatibleBackend {
             .as_deref()
             .map(Cow::Borrowed)
             .or_else(|| infer_openai_compatible_auxiliary_model(&self.model, self.endpoint_kind))
-            .unwrap_or_else(|| Cow::Borrowed(self.model.as_str()))
+            .unwrap_or(Cow::Borrowed(self.model.as_str()))
     }
 }
 
@@ -1079,12 +1079,11 @@ fn render_openai_assistant_message(content: &Value, endpoint_kind: OpenAiEndpoin
     if !tool_calls.is_empty() {
         message["tool_calls"] = Value::Array(tool_calls);
     }
-    if endpoint_kind == OpenAiEndpointKind::Deepseek {
-        if let Some(reasoning_content) =
+    if endpoint_kind == OpenAiEndpointKind::Deepseek
+        && let Some(reasoning_content) =
             provider_metadata_string(content, "deepseek", "reasoning_content")
-        {
-            message["reasoning_content"] = Value::String(reasoning_content.to_string());
-        }
+    {
+        message["reasoning_content"] = Value::String(reasoning_content.to_string());
     }
     message
 }
@@ -1212,18 +1211,17 @@ pub(super) fn parse_chat_completion_response(
             content.push(ContentBlock::Text { text });
         }
     }
-    if endpoint_kind == OpenAiEndpointKind::Deepseek {
-        if let Some(reasoning_content) = choice
+    if endpoint_kind == OpenAiEndpointKind::Deepseek
+        && let Some(reasoning_content) = choice
             .get("reasoning_content")
             .and_then(Value::as_str)
             .filter(|value| !value.is_empty())
-        {
-            content.push(ContentBlock::ProviderMetadata {
-                provider: "deepseek".to_string(),
-                key: "reasoning_content".to_string(),
-                value: Value::String(reasoning_content.to_string()),
-            });
-        }
+    {
+        content.push(ContentBlock::ProviderMetadata {
+            provider: "deepseek".to_string(),
+            key: "reasoning_content".to_string(),
+            value: Value::String(reasoning_content.to_string()),
+        });
     }
     if let Some(tool_calls) = choice["tool_calls"].as_array() {
         for (idx, tc) in tool_calls.iter().enumerate() {
@@ -1368,10 +1366,10 @@ pub(super) fn merge_streaming_tool_calls(
         }
         let existing = &mut accumulated[index];
 
-        if let Some(id) = delta.get("id").and_then(Value::as_str) {
-            if !id.is_empty() {
-                existing["id"] = json!(id);
-            }
+        if let Some(id) = delta.get("id").and_then(Value::as_str)
+            && !id.is_empty()
+        {
+            existing["id"] = json!(id);
         }
         if let Some(type_) = delta.get("type").and_then(Value::as_str) {
             existing["type"] = json!(type_);
@@ -1383,10 +1381,10 @@ pub(super) fn merge_streaming_tool_calls(
             let function_obj = existing["function"]
                 .as_object_mut()
                 .expect("streaming tool call function must be an object");
-            if let Some(name) = function.get("name").and_then(Value::as_str) {
-                if !name.is_empty() {
-                    function_obj.insert("name".to_string(), json!(name));
-                }
+            if let Some(name) = function.get("name").and_then(Value::as_str)
+                && !name.is_empty()
+            {
+                function_obj.insert("name".to_string(), json!(name));
             }
             if let Some(arguments) = function.get("arguments").and_then(Value::as_str) {
                 let existing_args = function_obj

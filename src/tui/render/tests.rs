@@ -171,7 +171,7 @@ fn bottom_pane_background_covers_hint_and_footer_rows() {
 
 #[test]
 fn tool_summary_includes_apply_patch_target_files() {
-    let entries = vec![TranscriptEntry {
+    let entries = [TranscriptEntry {
         role: "Tool".into(),
         message: "apply_patch src/tui/render.rs, src/tui/runtime/events.rs".into(),
         payload: None,
@@ -184,10 +184,8 @@ fn tool_summary_includes_apply_patch_target_files() {
 
 #[test]
 fn tool_summary_includes_bash_result_status_and_output_tail() {
-    let entries = vec![
-        TranscriptEntry { role: "Tool".into(), message: "bash cd /Users/vl/Code/rara && cargo build 2>&1".into(), payload: None },
-        TranscriptEntry { role: "Tool Result".into(), message: "bash failed with exit code 101\nstdout:\n   Compiling rara v0.1.0\nstderr:\nerror[E0425]: cannot find value `foo` in this scope".into(), payload: None },
-    ];
+    let entries = [TranscriptEntry { role: "Tool".into(), message: "bash cd /Users/vl/Code/rara && cargo build 2>&1".into(), payload: None },
+        TranscriptEntry { role: "Tool Result".into(), message: "bash failed with exit code 101\nstdout:\n   Compiling rara v0.1.0\nstderr:\nerror[E0425]: cannot find value `foo` in this scope".into(), payload: None }];
     let refs = entries.iter().collect::<Vec<_>>();
 
     let rendered = current_turn_tool_summary(&refs, false, None).expect("tool summary");
@@ -200,7 +198,7 @@ fn tool_summary_includes_bash_result_status_and_output_tail() {
 
 #[test]
 fn tool_summary_compacts_spawn_agent_instruction_json() {
-    let entries = vec![TranscriptEntry {
+    let entries = [TranscriptEntry {
         role: "Tool".into(),
         message: format!(
             "spawn_agent {}",
@@ -644,7 +642,7 @@ fn transcript_viewport_visible_window_slices_to_visible_rows() {
 
 #[test]
 fn exploration_summary_uses_codex_style_search_labels() {
-    let entries = vec![
+    let entries = [
         TranscriptEntry {
             role: "Tool".into(),
             message: "list_files .".into(),

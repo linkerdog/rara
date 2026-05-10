@@ -81,10 +81,10 @@ impl CodexBackend {
             for (name, value) in &codex_default_headers() {
                 request = request.header(name, value);
             }
-            if let Some(key) = api_key {
-                if !key.is_empty() {
-                    request = request.header("Authorization", format!("Bearer {key}"));
-                }
+            if let Some(key) = api_key
+                && !key.is_empty()
+            {
+                request = request.header("Authorization", format!("Bearer {key}"));
             }
             request.json(&body).send().await.map_err(|e| anyhow!(e))
         })
@@ -215,7 +215,7 @@ impl LlmBackend for CodexBackend {
         let response = if summary_model != self.model.as_str()
             && response
                 .as_ref()
-                .is_err_and(|error| is_auxiliary_model_retryable_error(error))
+                .is_err_and(is_auxiliary_model_retryable_error)
         {
             self.ask_responses_streaming(
                 self.model.as_str(),
@@ -374,10 +374,10 @@ pub(crate) fn apply_codex_stream_event(
             Ok(false)
         }
         Some("response.reasoning_summary_text.delta") | Some("response.reasoning_text.delta") => {
-            if let Some(delta) = payload.get("delta").and_then(Value::as_str) {
-                if let Some(callback) = on_event.as_mut() {
-                    callback(LlmStreamEvent::ReasoningDelta(delta.to_string()));
-                }
+            if let Some(delta) = payload.get("delta").and_then(Value::as_str)
+                && let Some(callback) = on_event.as_mut()
+            {
+                callback(LlmStreamEvent::ReasoningDelta(delta.to_string()));
             }
             Ok(false)
         }
@@ -550,10 +550,10 @@ fn render_codex_user_items(content: &Value) -> Vec<Value> {
                 }
             }
             Some("text") => {
-                if let Some(text) = item.get("text").and_then(Value::as_str) {
-                    if !text.trim().is_empty() {
-                        text_parts.push(text.to_string());
-                    }
+                if let Some(text) = item.get("text").and_then(Value::as_str)
+                    && !text.trim().is_empty()
+                {
+                    text_parts.push(text.to_string());
                 }
             }
             _ => {}
@@ -595,10 +595,10 @@ pub(crate) fn parse_codex_response(resp_json: &Value) -> Result<LlmResponse> {
         for item in items {
             match item.get("type").and_then(Value::as_str) {
                 Some("message") => {
-                    if let Some(text) = extract_codex_output_text(item.get("content")) {
-                        if !text.trim().is_empty() {
-                            content.push(ContentBlock::Text { text });
-                        }
+                    if let Some(text) = extract_codex_output_text(item.get("content"))
+                        && !text.trim().is_empty()
+                    {
+                        content.push(ContentBlock::Text { text });
                     }
                 }
                 Some("function_call") => {

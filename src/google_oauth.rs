@@ -341,12 +341,12 @@ impl GoogleOAuthManager {
 
 fn generate_code_verifier() -> String {
     let bytes: [u8; 64] = rand::random();
-    URL_SAFE_NO_PAD.encode(&bytes)
+    URL_SAFE_NO_PAD.encode(bytes)
 }
 
 fn compute_code_challenge(verifier: &str) -> String {
     let digest = Sha256::digest(verifier.as_bytes());
-    URL_SAFE_NO_PAD.encode(&digest)
+    URL_SAFE_NO_PAD.encode(digest)
 }
 
 fn build_auth_url(code_verifier: &str, redirect_uri: &str) -> Result<String> {
@@ -369,7 +369,7 @@ fn build_auth_url(code_verifier: &str, redirect_uri: &str) -> Result<String> {
 
 fn generate_state() -> String {
     let bytes: [u8; 32] = rand::random();
-    URL_SAFE_NO_PAD.encode(&bytes)
+    URL_SAFE_NO_PAD.encode(bytes)
 }
 
 // ── HTTP callback server ──────────────────────────────────────

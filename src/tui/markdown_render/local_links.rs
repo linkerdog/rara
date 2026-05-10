@@ -50,18 +50,18 @@ fn parse_local_link_target(dest_url: &str) -> Option<(String, Option<String>)> {
 
     let mut path_text = dest_url;
     let mut location_suffix = None;
-    if let Some((candidate_path, fragment)) = dest_url.rsplit_once('#') {
-        if let Some(normalized) = normalize_hash_location_suffix_fragment(fragment) {
-            path_text = candidate_path;
-            location_suffix = Some(normalized);
-        }
+    if let Some((candidate_path, fragment)) = dest_url.rsplit_once('#')
+        && let Some(normalized) = normalize_hash_location_suffix_fragment(fragment)
+    {
+        path_text = candidate_path;
+        location_suffix = Some(normalized);
     }
-    if location_suffix.is_none() {
-        if let Some(suffix) = extract_colon_location_suffix(path_text) {
-            let path_len = path_text.len().saturating_sub(suffix.len());
-            path_text = &path_text[..path_len];
-            location_suffix = Some(suffix);
-        }
+    if location_suffix.is_none()
+        && let Some(suffix) = extract_colon_location_suffix(path_text)
+    {
+        let path_len = path_text.len().saturating_sub(suffix.len());
+        path_text = &path_text[..path_len];
+        location_suffix = Some(suffix);
     }
 
     let decoded_path_text =
@@ -116,10 +116,10 @@ fn extract_colon_location_suffix(path_text: &str) -> Option<String> {
 }
 
 fn expand_local_link_path(path_text: &str) -> String {
-    if let Some(rest) = path_text.strip_prefix("~/") {
-        if let Some(home) = home_dir() {
-            return normalize_local_link_path_text(&home.join(rest).to_string_lossy());
-        }
+    if let Some(rest) = path_text.strip_prefix("~/")
+        && let Some(home) = home_dir()
+    {
+        return normalize_local_link_path_text(&home.join(rest).to_string_lossy());
     }
 
     normalize_local_link_path_text(path_text)

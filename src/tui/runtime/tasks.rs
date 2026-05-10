@@ -88,10 +88,10 @@ fn forward_event_to_bus(
     event: &crate::agent::AgentEvent,
     provenance: &RuntimeProvenance,
 ) {
-    if let Some(bus) = bus.as_ref() {
-        if bus.receiver_count() > 0 {
-            bus.send_with_provenance(event.clone(), provenance.clone());
-        }
+    if let Some(bus) = bus.as_ref()
+        && bus.receiver_count() > 0
+    {
+        bus.send_with_provenance(event.clone(), provenance.clone());
     }
 }
 
@@ -179,35 +179,120 @@ fn sync_bash_prefixes_to_config(app: &mut TuiApp, agent: &Agent) -> anyhow::Resu
     Ok(())
 }
 
-pub(super) fn start_query_task(app: &mut TuiApp, prompt: String, mut agent: Agent) {
+pub(super) fn start_input_control_task(
+    app: &mut TuiApp,
+    agent: Agent,
+    request: crate::runtime_control::InputControlRequest,
+    notice: String,
+    phase: RuntimePhase,
+    phase_detail: Option<String>,
+) {
     let (sender, receiver) = mpsc::unbounded_channel();
     let cancellation_token = Arc::new(AtomicBool::new(false));
-    let bus = app.event_bus.clone();
+    let bus = app.event_bus.clone().expect("event bus must exist");
     let event_provenance = local_tui_event_provenance(&agent.session_id);
+
     app.clear_pending_planning_suggestion();
     app.clear_active_live_sections();
     app.begin_running_turn();
+    app.bottom_pane.notice = Some(notice);
+    app.set_runtime_phase(phase, phase_detail);
+
+    let Some(mcp_manager) = app.mcp_manager.clone() else {
+        return;
+    };
+    let Some(prompt_registry) = app.prompt_source_registry.clone() else {
+        return;
+    };
+    let Some(skill_registry) = app.skill_source_registry.clone() else {
+        return;
+    };
+    let Some(memory_handler) = app.memory_handler.clone() else {
+        return;
+    };
+    let Some(hook_registry) = app.hook_registry.clone() else {
+        return;
+    };
+
+    let mut agent = agent;
     agent.set_execution_mode(app.agent_execution_mode);
     agent.set_bash_approval_mode(app.bash_approval_mode);
     agent.set_full_access_mode(app.permission_mode == PermissionMode::FullAccess);
     sync_bash_prefixes_from_config(app, &mut agent);
-    app.bottom_pane.notice = Some("Running prompt.".into());
-    app.set_runtime_phase(RuntimePhase::SendingPrompt, Some("sending prompt".into()));
-    app.push_entry("You", prompt.clone());
     agent.set_cancellation_token(Some(cancellation_token.clone()));
-    if let Some(ref bus) = bus {
-        let _ = bus.send(crate::agent::AgentEvent::AgentStart);
-    }
+    let _ = bus.send(crate::agent::AgentEvent::AgentStart);
     let handle = tokio::spawn(async move {
         let tx = sender.clone();
-        let result = agent
-            .query_with_mode_and_events(prompt, AgentOutputMode::Silent, move |event| {
-                forward_event_to_bus(&bus, &event, &event_provenance);
-                if let Some(tui_event) = convert_agent_event(event) {
-                    let _ = tx.send(tui_event);
+        let provenance =
+            crate::runtime_control::RuntimeProvenance::local_tui(agent.session_id.clone());
+        let envelope = crate::runtime_control::RuntimeControlEnvelope {
+            request_id: uuid::Uuid::new_v4().to_string(),
+            provenance,
+            request: crate::runtime_control::RuntimeControlRequest::Input(request),
+        };
+
+        let bus_arg = Some(bus.clone());
+        let result = crate::control_plane::dispatch(
+            envelope,
+            &mcp_manager,
+            &prompt_registry,
+            &skill_registry,
+            &memory_handler,
+            &hook_registry,
+            Some(&mut agent),
+            move |control_event| {
+                if let crate::runtime_control::RuntimeEvent::Assistant(ae) = &control_event.event {
+                    let agent_event = match ae {
+                        crate::runtime_control::AssistantEvent::TextDelta(text) => {
+                            crate::agent::AgentEvent::AssistantDelta(text.clone())
+                        }
+                        crate::runtime_control::AssistantEvent::ThinkingDelta(text) => {
+                            crate::agent::AgentEvent::AssistantThinkingDelta(text.clone())
+                        }
+                        _ => return,
+                    };
+                    forward_event_to_bus(&bus_arg, &agent_event, &event_provenance);
+                    if let Some(tui_event) = convert_agent_event(agent_event) {
+                        let _ = tx.send(tui_event);
+                    }
+                } else if let crate::runtime_control::RuntimeEvent::Tool(te) = &control_event.event
+                {
+                    let agent_event = match te {
+                        crate::runtime_control::ToolEvent::Use { name, input, .. } => {
+                            crate::agent::AgentEvent::ToolUse {
+                                name: name.clone(),
+                                input: input.clone(),
+                            }
+                        }
+                        crate::runtime_control::ToolEvent::Result {
+                            name,
+                            content,
+                            is_error,
+                        } => crate::agent::AgentEvent::ToolResult {
+                            name: name.clone(),
+                            content: content.clone(),
+                            is_error: *is_error,
+                        },
+                        crate::runtime_control::ToolEvent::Progress {
+                            name,
+                            stream,
+                            chunk,
+                        } => crate::agent::AgentEvent::ToolProgress {
+                            name: name.clone(),
+                            stream: (*stream).into(),
+                            chunk: chunk.clone(),
+                        },
+                    };
+                    forward_event_to_bus(&bus_arg, &agent_event, &event_provenance);
+                    if let Some(tui_event) = convert_agent_event(agent_event) {
+                        let _ = tx.send(tui_event);
+                    }
                 }
-            })
-            .await;
+            },
+        )
+        .await;
+
+        let result = result.map_err(|e| anyhow::anyhow!("{e}"));
         TaskCompletion::Query { agent, result }
     });
 
@@ -220,6 +305,21 @@ pub(super) fn start_query_task(app: &mut TuiApp, prompt: String, mut agent: Agen
         cancellation_token: Some(cancellation_token),
         cancellation_requested: false,
     });
+}
+
+pub(super) fn start_query_task(app: &mut TuiApp, prompt: String, agent: Agent) {
+    let request = crate::runtime_control::InputControlRequest::SubmitUserPrompt {
+        prompt: prompt.clone(),
+    };
+    app.push_entry("You", prompt);
+    start_input_control_task(
+        app,
+        agent,
+        request,
+        "Running prompt.".into(),
+        RuntimePhase::SendingPrompt,
+        Some("sending prompt".into()),
+    );
 }
 
 pub(super) fn start_compact_task(app: &mut TuiApp, mut agent: Agent) {
@@ -314,47 +414,27 @@ pub(super) fn start_pending_approval_task(
         agent.set_bash_approval_mode(crate::agent::BashApprovalMode::Always);
         agent.set_full_access_mode(true);
     }
-    let (sender, receiver) = mpsc::unbounded_channel();
-    let cancellation_token = Arc::new(AtomicBool::new(false));
-    let bus = app.event_bus.clone();
-    let event_provenance = local_tui_event_provenance(&agent.session_id);
+
     let selection_label = match selection {
         BashApprovalDecision::Once => "run once",
         BashApprovalDecision::Prefix => "allow matching prefix",
         BashApprovalDecision::Always => "always allow bash",
         BashApprovalDecision::Suggestion => "suggestion only",
     };
-    app.bottom_pane.notice = Some(format!("Answering approval request: {selection_label}."));
+
+    let request = crate::runtime_control::InputControlRequest::AnswerShellApproval {
+        decision: selection.into(),
+    };
+
     app.clear_pending_command_approval();
-    app.set_runtime_phase(
+    start_input_control_task(
+        app,
+        agent,
+        request,
+        format!("Answering approval request: {selection_label}."),
         RuntimePhase::ProcessingResponse,
         Some("resuming after approval".into()),
     );
-    sync_bash_prefixes_from_config(app, &mut agent);
-    agent.set_cancellation_token(Some(cancellation_token.clone()));
-
-    let handle = tokio::spawn(async move {
-        let tx = sender.clone();
-        let result = agent
-            .answer_pending_approval_with_events(selection, AgentOutputMode::Silent, move |event| {
-                forward_event_to_bus(&bus, &event, &event_provenance);
-                if let Some(tui_event) = convert_agent_event(event) {
-                    let _ = tx.send(tui_event);
-                }
-            })
-            .await;
-        TaskCompletion::Query { agent, result }
-    });
-
-    app.bottom_pane.running_task = Some(RunningTask {
-        kind: TaskKind::Query,
-        receiver,
-        handle,
-        started_at: Instant::now(),
-        next_heartbeat_after_secs: 2,
-        cancellation_token: Some(cancellation_token),
-        cancellation_requested: false,
-    });
 }
 
 pub(super) fn start_plan_approval_resume_task(
@@ -368,32 +448,15 @@ pub(super) fn start_plan_approval_resume_task(
         "Plan approved. Continuing with implementation."
     };
 
-    start_plan_resume_task(app, continue_planning, agent, notice.to_string());
-}
+    let request = crate::runtime_control::InputControlRequest::AnswerPlanApproval {
+        approved: !continue_planning,
+    };
 
-fn start_automatic_plan_implementation_task(app: &mut TuiApp, agent: Agent) {
-    start_plan_resume_task(
+    start_input_control_task(
         app,
-        false,
         agent,
-        "Plan generated automatically. Continuing with implementation.".into(),
-    );
-}
-
-fn start_plan_resume_task(
-    app: &mut TuiApp,
-    continue_planning: bool,
-    mut agent: Agent,
-    notice: String,
-) {
-    let (sender, receiver) = mpsc::unbounded_channel();
-    let cancellation_token = Arc::new(AtomicBool::new(false));
-    let bus = app.event_bus.clone();
-    let event_provenance = local_tui_event_provenance(&agent.session_id);
-    app.clear_active_live_sections();
-    app.set_pending_plan_approval(false);
-    app.bottom_pane.notice = Some(notice);
-    app.set_runtime_phase(
+        request,
+        notice.to_string(),
         RuntimePhase::ProcessingResponse,
         Some(if continue_planning {
             "resuming plan refinement".into()
@@ -401,41 +464,20 @@ fn start_plan_resume_task(
             "resuming approved plan".into()
         }),
     );
+}
 
-    agent.set_execution_mode(if continue_planning {
-        crate::agent::AgentExecutionMode::Plan
-    } else {
-        crate::agent::AgentExecutionMode::Execute
-    });
-    app.set_agent_execution_mode(agent.execution_mode);
-    agent.set_cancellation_token(Some(cancellation_token.clone()));
+fn start_automatic_plan_implementation_task(app: &mut TuiApp, agent: Agent) {
+    let request =
+        crate::runtime_control::InputControlRequest::AnswerPlanApproval { approved: true };
 
-    let handle = tokio::spawn(async move {
-        let tx = sender.clone();
-        let result = agent
-            .resume_after_plan_approval_with_events(
-                continue_planning,
-                AgentOutputMode::Silent,
-                move |event| {
-                    forward_event_to_bus(&bus, &event, &event_provenance);
-                    if let Some(tui_event) = convert_agent_event(event) {
-                        let _ = tx.send(tui_event);
-                    }
-                },
-            )
-            .await;
-        TaskCompletion::Query { agent, result }
-    });
-
-    app.bottom_pane.running_task = Some(RunningTask {
-        kind: TaskKind::Query,
-        receiver,
-        handle,
-        started_at: Instant::now(),
-        next_heartbeat_after_secs: 2,
-        cancellation_token: Some(cancellation_token),
-        cancellation_requested: false,
-    });
+    start_input_control_task(
+        app,
+        agent,
+        request,
+        "Plan generated automatically. Continuing with implementation.".into(),
+        RuntimePhase::ProcessingResponse,
+        Some("resuming approved plan".into()),
+    );
 }
 
 pub(super) fn start_rebuild_task(app: &mut TuiApp) {
@@ -594,7 +636,7 @@ pub(crate) async fn finish_running_task_if_ready(
     }
     match completion {
         TaskCompletion::Query { agent, result } => {
-            let mut agent = agent;
+            let agent = agent;
             let query_started_in_plan_mode = matches!(
                 app.agent_execution_mode,
                 crate::agent::AgentExecutionMode::Plan
@@ -607,15 +649,13 @@ pub(crate) async fn finish_running_task_if_ready(
             }
             match result {
                 Ok(_) => {
-                    let finished_plan_turn =
-                        matches!(
-                            app.agent_execution_mode,
-                            crate::agent::AgentExecutionMode::Plan
-                        ) || matches!(agent.execution_mode, crate::agent::AgentExecutionMode::Plan);
+                    app.set_agent_execution_mode(agent.execution_mode);
+                    let finished_plan_turn = matches!(
+                        app.agent_execution_mode,
+                        crate::agent::AgentExecutionMode::Plan
+                    );
                     app.clear_active_live_sections();
                     if finished_plan_turn {
-                        agent.set_execution_mode(crate::agent::AgentExecutionMode::Plan);
-                        app.set_agent_execution_mode(crate::agent::AgentExecutionMode::Plan);
                         let plan_ready =
                             agent.last_query_produced_plan() && !agent.current_plan.is_empty();
                         let pending_exit_plan_approval = agent.has_pending_plan_exit_approval();
@@ -738,16 +778,13 @@ pub(crate) async fn finish_running_task_if_ready(
                 Err(err) => {
                     let error_message = format_error_chain(&err);
                     let cancelled = error_message.contains("cancelled by user");
-                    let finished_plan_turn =
-                        matches!(
-                            app.agent_execution_mode,
-                            crate::agent::AgentExecutionMode::Plan
-                        ) || matches!(agent.execution_mode, crate::agent::AgentExecutionMode::Plan);
+                    app.set_agent_execution_mode(agent.execution_mode);
+                    let _finished_plan_turn = matches!(
+                        app.agent_execution_mode,
+                        crate::agent::AgentExecutionMode::Plan
+                    );
                     app.clear_active_live_sections();
-                    if finished_plan_turn {
-                        agent.set_execution_mode(crate::agent::AgentExecutionMode::Plan);
-                        app.set_agent_execution_mode(crate::agent::AgentExecutionMode::Plan);
-                    }
+
                     app.set_pending_plan_approval(false);
                     *agent_slot = Some(agent);
                     if let Some(agent) = agent_slot.as_ref() {
@@ -852,6 +889,10 @@ pub(crate) async fn finish_running_task_if_ready(
                 app.goal_handle = rebuilt.goal_handle;
                 app.goal = app.goal_handle.read().unwrap().clone();
                 app.mcp_tool_cache = Some(rebuilt.mcp_tool_cache);
+                app.mcp_manager = Some(rebuilt.mcp_manager);
+                app.prompt_source_registry = Some(rebuilt.prompt_source_registry);
+                app.skill_source_registry = Some(rebuilt.skill_source_registry);
+                app.memory_handler = Some(rebuilt.memory_handler);
                 app.config_manager.save(&app.config)?;
                 app.setup_status = Some(format!(
                     "Applied {} / {}",
@@ -935,7 +976,7 @@ pub(crate) async fn finish_running_task_if_ready(
                     }
                 };
                 let msg = saved_message.clone();
-                app.setup_status = Some(saved_message.into());
+                app.setup_status = Some(saved_message);
                 app.bottom_pane.notice = app.setup_status.clone();
                 app.set_runtime_phase(
                     RuntimePhase::OAuthSaved,

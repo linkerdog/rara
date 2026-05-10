@@ -49,10 +49,8 @@ impl PrintConsumer {
             AgentEvent::ToolUse { name, .. } => {
                 eprintln!("\n[Tool: {name}]");
             }
-            AgentEvent::ToolResult { name, is_error, .. } => {
-                if *is_error {
-                    eprintln!("\n[Tool error: {name}]");
-                }
+            AgentEvent::ToolResult { name, is_error, .. } if *is_error => {
+                eprintln!("\n[Tool error: {name}]");
             }
             AgentEvent::Status(msg) => {
                 eprintln!("\n[{msg}]");

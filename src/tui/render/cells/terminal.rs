@@ -21,7 +21,7 @@ pub(super) fn terminal_cell_from_entries<'a>(
 
 pub(super) fn terminal_cell_data_from_entry(entry: &TranscriptEntry) -> Option<TerminalCellData> {
     if let Some(TranscriptEntryPayload::Terminal(event)) = entry.payload.as_ref() {
-        return terminal_cell_data_from_event(&event);
+        return terminal_cell_data_from_event(event);
     }
 
     if matches!(entry.role.as_str(), "Tool Result" | "Tool Error") {
@@ -60,10 +60,10 @@ pub(super) fn terminal_cell_data_from_command(
         .or(command.id.as_deref())
         .unwrap_or("command");
     let mut output = command.output.clone();
-    if let Some(output_path) = command.output_path.as_deref() {
-        if !output_path.trim().is_empty() {
-            output.push(output_path.to_string());
-        }
+    if let Some(output_path) = command.output_path.as_deref()
+        && !output_path.trim().is_empty()
+    {
+        output.push(output_path.to_string());
     }
     TerminalCellData {
         command: format!("{target} {command_label}"),
