@@ -1,10 +1,11 @@
+use bottom_pane_model::BottomPaneModel;
+mod bottom_pane_model;
 mod persistence;
 mod state_presets;
 #[cfg(test)]
 mod tests;
 mod transcript;
 mod types;
-
 use std::cell::RefCell;
 use std::sync::Arc;
 use std::sync::atomic::AtomicBool;
@@ -210,8 +211,12 @@ impl TuiApp {
         let model_picker_idx = selected_preset_idx_for_config(&cfg, provider_picker_idx);
         let sandbox_network = cfg.sandbox_workspace_write.network_access;
         Ok(Self {
-            input: String::new(),
-            input_cursor_offset: None,
+            bottom_pane: BottomPaneModel {
+                input: String::new(),
+                input_cursor_offset: None,
+                notice: startup_notice,
+                ..Default::default()
+            },
             input_history: Vec::new(),
             input_history_cursor: None,
             input_history_draft: None,
@@ -223,7 +228,6 @@ impl TuiApp {
             config: cfg,
             config_manager: cm,
             setup_status: None,
-            notice: startup_notice,
             runtime_phase: RuntimePhase::Idle,
             runtime_phase_detail: None,
             snapshot: RuntimeSnapshot::default(),
@@ -235,6 +239,7 @@ impl TuiApp {
             openai_profile_picker_idx: 0,
             reasoning_effort_picker_idx: 0,
             auth_mode_idx: 0,
+            approval_picker_idx: 0,
             permission_picker_idx: 0,
             command_palette_idx: 0,
             picker_intent: None,
@@ -257,15 +262,11 @@ impl TuiApp {
             committed_render_generation: 0,
             committed_render_cache: RefCell::new(CommittedTranscriptRenderCache::default()),
             transcript_scroll: 0,
-            composer_scroll: 0,
             context_scroll: 0,
             terminal_width: 80,
             agent_markdown_stream: None,
             agent_thinking_stream: None,
             active_live: ActiveLiveSections::default(),
-            pending_planning_suggestion: None,
-            pending_follow_up_messages: Vec::new(),
-            queued_follow_up_messages: Vec::new(),
             running_tool_boundary_count: 0,
             terminal_focused: true,
             state_db: None,
@@ -274,7 +275,6 @@ impl TuiApp {
             prompt_source_registry: None,
             skill_source_registry: None,
             memory_handler: None,
-            running_task: None,
             repo_context_task: None,
             repo_slug: None,
             current_pr_url: None,
@@ -318,11 +318,12 @@ impl TuiApp {
     }
 
     pub fn is_busy(&self) -> bool {
-        self.running_task.is_some()
+        self.bottom_pane.running_task.is_some()
     }
 
     pub fn running_elapsed(&self) -> Option<std::time::Duration> {
-        self.running_task
+        self.bottom_pane
+            .running_task
             .as_ref()
             .map(|task| task.started_at.elapsed())
     }
@@ -548,10 +549,9 @@ impl TuiApp {
             .as_deref()
             .map(str::trim)
             .filter(|model| !model.is_empty())
+            && !options.iter().any(|model| model == current_model)
         {
-            if !options.iter().any(|model| model == current_model) {
-                options.push(current_model.to_string());
-            }
+            options.push(current_model.to_string());
         }
         options.sort();
         options.dedup();
@@ -630,13 +630,12 @@ impl TuiApp {
             .selected_openai_profile_kind()
             .unwrap_or(OpenAiEndpointKind::Custom);
         let mut steps = Vec::new();
-        if matches!(kind, OpenAiEndpointKind::Custom) {
-            steps.push(Overlay::BaseUrlEditor);
-        } else if self
-            .config
-            .base_url
-            .as_deref()
-            .is_none_or(|value| value.trim().is_empty())
+        if matches!(kind, OpenAiEndpointKind::Custom)
+            || self
+                .config
+                .base_url
+                .as_deref()
+                .is_none_or(|value| value.trim().is_empty())
         {
             steps.push(Overlay::BaseUrlEditor);
         }
@@ -692,7 +691,7 @@ impl TuiApp {
         if self.openai_setup_steps.is_empty() {
             self.openai_setup_keep_empty_api_key = false;
             self.open_overlay(Overlay::ListPicker(ListPickerKind::Model));
-            self.notice = Some(
+            self.bottom_pane.notice = Some(
                 "Endpoint setup complete. Review the active profile and press Enter to rebuild."
                     .into(),
             );
@@ -1296,7 +1295,7 @@ impl TuiApp {
     }
 
     pub fn sync_command_palette_with_input(&mut self) {
-        if input_requests_command_palette(self.input.as_str()) {
+        if input_requests_command_palette(self.bottom_pane.input.as_str()) {
             if matches!(self.overlay, None | Some(Overlay::CommandPalette)) {
                 self.open_overlay(Overlay::CommandPalette);
             }
@@ -1488,7 +1487,7 @@ impl TuiApp {
                 approval: None,
                 source: Some(source.into()),
             });
-        self.notice = Some(title.clone());
+        self.bottom_pane.notice = Some(title.clone());
         self.persist_runtime_state();
     }
 
@@ -1505,6 +1504,13 @@ impl TuiApp {
             Some(Overlay::BaseUrlEditor | Overlay::ApiKeyEditor | Overlay::ModelNameEditor)
         ) {
             self.cancel_openai_profile_setup();
+        }
+
+        // When closing the command palette, clear the `/` input so
+        // sync_command_palette_with_input won't immediately re-open it.
+        if matches!(self.overlay, Some(Overlay::CommandPalette)) {
+            self.bottom_pane.input.clear();
+            self.command_palette_idx = 0;
         }
 
         // Pop the current overlay from the stack and restore the previous one.

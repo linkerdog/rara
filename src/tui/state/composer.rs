@@ -20,7 +20,10 @@ impl TuiApp {
         target: TextInputTarget,
     ) -> (&mut String, &mut Option<usize>) {
         match target {
-            TextInputTarget::Composer => (&mut self.input, &mut self.input_cursor_offset),
+            TextInputTarget::Composer => (
+                &mut self.bottom_pane.input,
+                &mut self.bottom_pane.input_cursor_offset,
+            ),
             TextInputTarget::BaseUrl => {
                 (&mut self.base_url_input, &mut self.base_url_cursor_offset)
             }
@@ -46,11 +49,14 @@ impl TuiApp {
     /// Returns the slash-command query string with the leading `/` stripped.
     /// For example, if the input is `/help`, this returns `"help"`.
     pub fn command_query(&self) -> &str {
-        self.input.trim_start().trim_start_matches('/')
+        self.bottom_pane.input.trim_start().trim_start_matches('/')
     }
 
     pub fn composer_cursor_offset(&self) -> usize {
-        effective_cursor_offset(self.input.as_str(), self.input_cursor_offset)
+        effective_cursor_offset(
+            self.bottom_pane.input.as_str(),
+            self.bottom_pane.input_cursor_offset,
+        )
     }
 
     pub fn base_url_cursor_offset(&self) -> usize {
@@ -76,15 +82,15 @@ impl TuiApp {
     }
 
     pub fn set_input(&mut self, input: String) {
-        self.input = input;
-        self.input_cursor_offset = None;
+        self.bottom_pane.input = input;
+        self.bottom_pane.input_cursor_offset = None;
         self.reset_input_history_navigation();
         self.sync_command_palette_with_input();
     }
 
     fn set_input_from_history(&mut self, input: String) {
-        self.input = input;
-        self.input_cursor_offset = Some(self.input.chars().count());
+        self.bottom_pane.input = input;
+        self.bottom_pane.input_cursor_offset = Some(self.bottom_pane.input.chars().count());
         self.sync_command_palette_with_input();
     }
 
@@ -118,14 +124,16 @@ impl TuiApp {
         if self.input_history.is_empty() {
             return false;
         }
-        if self.input.is_empty() {
+        if self.bottom_pane.input.is_empty() {
             return true;
         }
         let cursor = self.composer_cursor_offset();
         if delta < 0 {
             cursor == 0 || self.input_history_cursor.is_some()
         } else {
-            delta > 0 && cursor == self.input.chars().count() && self.input_history_cursor.is_some()
+            delta > 0
+                && cursor == self.bottom_pane.input.chars().count()
+                && self.input_history_cursor.is_some()
         }
     }
 
@@ -136,7 +144,7 @@ impl TuiApp {
 
         let next = match self.input_history_cursor {
             None if delta < 0 => {
-                self.input_history_draft = Some(self.input.clone());
+                self.input_history_draft = Some(self.bottom_pane.input.clone());
                 Some(self.input_history.len().saturating_sub(1))
             }
             None => return,
@@ -185,9 +193,9 @@ impl TuiApp {
 
     pub fn insert_newline_in_composer(&mut self) {
         let cursor = self.composer_cursor_offset();
-        let byte_idx = char_offset_to_byte_index(self.input.as_str(), cursor);
-        self.input.insert(byte_idx, '\n');
-        self.input_cursor_offset = Some(cursor.saturating_add(1));
+        let byte_idx = char_offset_to_byte_index(self.bottom_pane.input.as_str(), cursor);
+        self.bottom_pane.input.insert(byte_idx, '\n');
+        self.bottom_pane.input_cursor_offset = Some(cursor.saturating_add(1));
         self.sync_command_palette_with_input();
     }
 
@@ -196,10 +204,10 @@ impl TuiApp {
         let (row, _col) = self.composer_visual_position_for_offset(self.composer_cursor_offset());
 
         let height = visible_height.max(1) as usize;
-        if row < self.composer_scroll {
-            self.composer_scroll = row;
-        } else if row >= self.composer_scroll + height {
-            self.composer_scroll = row.saturating_sub(height).saturating_add(1);
+        if row < self.bottom_pane.composer_scroll {
+            self.bottom_pane.composer_scroll = row;
+        } else if row >= self.bottom_pane.composer_scroll + height {
+            self.bottom_pane.composer_scroll = row.saturating_sub(height).saturating_add(1);
         }
     }
 
@@ -209,7 +217,7 @@ impl TuiApp {
         let mut column = 2usize;
         let mut content_width = 0usize;
 
-        for (seen, ch) in self.input.chars().enumerate() {
+        for (seen, ch) in self.bottom_pane.input.chars().enumerate() {
             if seen >= cursor_offset {
                 break;
             }
@@ -252,7 +260,7 @@ impl TuiApp {
         let mut best_offset = 0usize;
         let mut best_distance = usize::MAX;
 
-        for ch in self.input.chars() {
+        for ch in self.bottom_pane.input.chars() {
             if row != target_row {
                 if row > target_row {
                     return best_offset;
@@ -362,16 +370,17 @@ impl TuiApp {
         let cursor = self.composer_cursor_offset();
         let (row, column) = self.composer_visual_position_for_offset(cursor);
         if row == 0 {
-            self.input_cursor_offset = Some(0);
+            self.bottom_pane.input_cursor_offset = Some(0);
             return;
         }
-        self.input_cursor_offset = Some(self.composer_offset_for_visual_position(row - 1, column));
+        self.bottom_pane.input_cursor_offset =
+            Some(self.composer_offset_for_visual_position(row - 1, column));
     }
 
     pub fn move_composer_cursor_down(&mut self) {
         let cursor = self.composer_cursor_offset();
         let (row, column) = self.composer_visual_position_for_offset(cursor);
         let target = self.composer_offset_for_visual_position(row + 1, column);
-        self.input_cursor_offset = Some(target);
+        self.bottom_pane.input_cursor_offset = Some(target);
     }
 }

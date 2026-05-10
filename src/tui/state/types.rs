@@ -11,6 +11,7 @@ use tokio::task::JoinHandle;
 
 use super::super::markdown_stream::MarkdownStreamCollector;
 use super::super::queued_input::PendingFollowUpMessage;
+use super::bottom_pane_model::BottomPaneModel;
 use crate::agent::{Agent, AgentExecutionMode, BashApprovalMode};
 use crate::codex_model_catalog::CodexModelOption;
 use crate::config::{ConfigManager, OpenAiEndpointKind, RaraConfig};
@@ -70,6 +71,7 @@ pub enum ListPickerKind {
     Resume,
     AuthMode,
     ReasoningEffort,
+    ApprovalDecision,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -312,6 +314,7 @@ pub struct CompletedInteractionSnapshot {
     pub source: Option<String>,
 }
 
+#[derive(Debug)]
 pub enum TaskKind {
     Query,
     Compact,
@@ -387,6 +390,16 @@ pub struct RunningTask {
     pub next_heartbeat_after_secs: u64,
     pub cancellation_token: Option<Arc<AtomicBool>>,
     pub cancellation_requested: bool,
+}
+
+impl std::fmt::Debug for RunningTask {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("RunningTask")
+            .field("kind", &self.kind)
+            .field("started_at", &self.started_at)
+            .field("cancellation_requested", &self.cancellation_requested)
+            .finish()
+    }
 }
 
 pub const PROVIDER_FAMILIES: [(ProviderFamily, &str, &str); 7] = [
@@ -585,8 +598,7 @@ pub struct ActiveLiveSections {
 }
 
 pub struct TuiApp {
-    pub input: String,
-    pub input_cursor_offset: Option<usize>,
+    pub bottom_pane: BottomPaneModel,
     pub input_history: Vec<String>,
     pub input_history_cursor: Option<usize>,
     pub input_history_draft: Option<String>,
@@ -602,7 +614,6 @@ pub struct TuiApp {
     pub config: RaraConfig,
     pub config_manager: ConfigManager,
     pub setup_status: Option<String>,
-    pub notice: Option<String>,
     pub runtime_phase: RuntimePhase,
     pub runtime_phase_detail: Option<String>,
     pub snapshot: RuntimeSnapshot,
@@ -614,6 +625,7 @@ pub struct TuiApp {
     pub openai_profile_picker_idx: usize,
     pub reasoning_effort_picker_idx: usize,
     pub auth_mode_idx: usize,
+    pub approval_picker_idx: usize,
     pub permission_picker_idx: usize,
     pub command_palette_idx: usize,
     /// Tracks whether the current picker overlay was opened from /connect or /model
@@ -637,16 +649,11 @@ pub struct TuiApp {
     pub committed_render_generation: u64,
     pub committed_render_cache: RefCell<CommittedTranscriptRenderCache>,
     pub transcript_scroll: usize,
-    /// Scroll offset for multiline composer content (lines from top).
-    pub composer_scroll: usize,
     pub context_scroll: u16,
     pub terminal_width: u16,
     pub agent_markdown_stream: Option<AgentMarkdownStreamState>,
     pub agent_thinking_stream: Option<AgentMarkdownStreamState>,
     pub active_live: ActiveLiveSections,
-    pub pending_planning_suggestion: Option<String>,
-    pub pending_follow_up_messages: Vec<PendingFollowUpMessage>,
-    pub queued_follow_up_messages: Vec<String>,
     pub running_tool_boundary_count: u64,
     pub terminal_focused: bool,
     pub state_db: Option<Arc<StateDb>>,
@@ -655,7 +662,6 @@ pub struct TuiApp {
     pub prompt_source_registry: Option<Arc<PromptSourceRegistry>>,
     pub skill_source_registry: Option<Arc<SkillSourceRegistry>>,
     pub memory_handler: Option<Arc<MemoryControlHandler>>,
-    pub running_task: Option<RunningTask>,
     pub repo_context_task: Option<JoinHandle<(Option<String>, Option<String>)>>,
     pub repo_slug: Option<String>,
     pub current_pr_url: Option<String>,

@@ -154,6 +154,7 @@ pub(super) fn activity_status_line(app: &TuiApp) -> (&'static str, Color, String
     }
 
     if let Some(warning) = app
+        .bottom_pane
         .notice
         .as_deref()
         .filter(|value| value.starts_with("Warning:"))
@@ -164,7 +165,8 @@ pub(super) fn activity_status_line(app: &TuiApp) -> (&'static str, Color, String
     (
         "Ready",
         STATUS_READY,
-        app.notice
+        app.bottom_pane
+            .notice
             .as_deref()
             .filter(|notice| !matches!(*notice, "Prompt finished." | "Planning finished."))
             .unwrap_or("waiting for input")
@@ -176,7 +178,7 @@ pub(super) fn animated_activity_label(app: &TuiApp, label: &str) -> String {
     if label.is_empty() {
         return String::new();
     }
-    let Some(task) = app.running_task.as_ref() else {
+    let Some(task) = app.bottom_pane.running_task.as_ref() else {
         return label.to_string();
     };
     if !matches!(task.kind, TaskKind::Query | TaskKind::Rebuild) {

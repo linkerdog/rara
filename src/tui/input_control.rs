@@ -27,14 +27,15 @@ pub(crate) fn submit_user_prompt(
 ) -> InputControlOutcome {
     let prompt = prompt.trim().to_string();
     if prompt.is_empty() {
-        if app.notice.is_none() {
-            app.notice = Some("Ready.".into());
+        if app.bottom_pane.notice.is_none() {
+            app.bottom_pane.notice = Some("Ready.".into());
         }
         return InputControlOutcome::Noop;
     }
 
     if app.is_busy() {
         let pending_for_tool_boundary = app
+            .bottom_pane
             .running_task
             .as_ref()
             .is_some_and(|task| matches!(&task.kind, TaskKind::Query));
@@ -81,7 +82,7 @@ pub(crate) fn submit_follow_up(
     } else {
         " 1 follow-up message is queued.".to_string()
     };
-    app.notice = Some(format!(
+    app.bottom_pane.notice = Some(format!(
         "{}{suffix}",
         if release_after_next_tool_boundary {
             "Queued for after the next tool call boundary."
@@ -174,6 +175,7 @@ pub(crate) fn handle_session_control(
         SessionControlRequest::CancelCurrentTurn => {
             request_running_task_cancellation(app);
             if app
+                .bottom_pane
                 .notice
                 .as_deref()
                 .is_some_and(|notice| notice == "Cancellation requested.")
@@ -187,6 +189,7 @@ pub(crate) fn handle_session_control(
         SessionControlRequest::InterruptCurrentTurn => {
             request_running_task_cancellation(app);
             if app
+                .bottom_pane
                 .notice
                 .as_deref()
                 .is_some_and(|notice| notice == "Cancellation requested.")
@@ -268,7 +271,7 @@ mod tests {
 
     fn mark_query_busy(app: &mut TuiApp, cancellation_token: Option<Arc<AtomicBool>>) {
         let (_sender, receiver) = mpsc::unbounded_channel();
-        app.running_task = Some(RunningTask {
+        app.bottom_pane.running_task = Some(RunningTask {
             kind: TaskKind::Query,
             receiver,
             handle: tokio::spawn(async { std::future::pending::<TaskCompletion>().await }),

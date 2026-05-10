@@ -3,7 +3,10 @@ use std::sync::Arc;
 use super::command::{palette_command_by_index, parse_local_command};
 use super::input_control;
 use super::runtime::execute_local_command;
-use super::state::{LocalCommandKind, OpenAiModelPickerAction, Overlay, TuiApp};
+use super::state::{
+    ActivePendingInteractionKind, ListPickerKind, LocalCommandKind, OpenAiModelPickerAction,
+    Overlay, TuiApp,
+};
 use crate::agent::Agent;
 
 mod pending;
@@ -21,23 +24,33 @@ pub(crate) async fn handle_submit(
         app.close_overlay();
     }
 
-    if app.input.is_empty() {
+    if app.bottom_pane.input.is_empty() {
+        if let Some(interaction) = app.active_pending_interaction() {
+            if matches!(
+                interaction.kind,
+                ActivePendingInteractionKind::ShellApproval
+            ) {
+                app.approval_picker_idx = 0;
+                app.open_overlay(Overlay::ListPicker(ListPickerKind::ApprovalDecision));
+                return Ok(false);
+            }
+        }
         // Lightweight feedback so the user knows Enter was received.
         // Don't overwrite existing notices (e.g., status-info after a command).
-        if app.notice.is_none() {
-            app.notice = Some("Ready.".into());
+        if app.bottom_pane.notice.is_none() {
+            app.bottom_pane.notice = Some("Ready.".into());
         }
         return Ok(false);
     }
-    let input = std::mem::take(&mut app.input);
-    app.input_cursor_offset = None;
+    let input = std::mem::take(&mut app.bottom_pane.input);
+    app.bottom_pane.input_cursor_offset = None;
     let trimmed = input.trim().to_string();
     if trimmed.is_empty() {
         // Whitespace-only input: same lightweight feedback.
-        if app.notice.is_none() {
-            app.notice = Some("Ready.".into());
+        if app.bottom_pane.notice.is_none() {
+            app.bottom_pane.notice = Some("Ready.".into());
         }
-        app.input.clear();
+        app.bottom_pane.input.clear();
         return Ok(false);
     }
     app.record_input_history(&trimmed);
@@ -88,7 +101,7 @@ pub(crate) fn apply_openai_model_picker_action(
             if let Some(label) = app.select_openai_model_picker_profile() {
                 app.config_manager.save(&app.config)?;
                 if app.openai_profile_needs_setup() {
-                    app.notice = Some(format!("Selected endpoint profile: {label}"));
+                    app.bottom_pane.notice = Some(format!("Selected endpoint profile: {label}"));
                     app.begin_active_openai_profile_setup();
                 } else {
                     super::runtime::start_rebuild_task(app);
@@ -99,10 +112,10 @@ pub(crate) fn apply_openai_model_picker_action(
             if let Some(label) = app.delete_active_openai_profile() {
                 app.config_manager.save(&app.config)?;
                 if app.openai_profile_needs_setup() {
-                    app.notice = Some(format!("Deleted endpoint profile: {label}"));
+                    app.bottom_pane.notice = Some(format!("Deleted endpoint profile: {label}"));
                     app.begin_active_openai_profile_setup();
                 } else {
-                    app.notice = Some(format!("Deleted endpoint profile: {label}"));
+                    app.bottom_pane.notice = Some(format!("Deleted endpoint profile: {label}"));
                     super::runtime::start_rebuild_task(app);
                 }
             } else {

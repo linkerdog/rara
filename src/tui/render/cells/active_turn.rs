@@ -57,7 +57,7 @@ impl ActiveCell for ActiveTurnCell<'_> {
                     | RuntimePhase::RunningTool
             );
         if current_turn.is_empty() {
-            if let Some(prompt) = self.app.pending_planning_suggestion.as_deref() {
+            if let Some(prompt) = self.app.bottom_pane.pending_planning_suggestion.as_deref() {
                 let cells: Vec<Box<dyn HistoryCell + '_>> = vec![
                     Box::new(UserCell::new(prompt)),
                     Box::new(PlanningSuggestionCell::new(planning_suggestion_text(
@@ -364,13 +364,13 @@ impl ActiveCell for ActiveTurnCell<'_> {
             self.app.pending_follow_up_preview(),
             self.app.pending_follow_up_count(),
             self.app.queued_end_of_turn_preview(),
-            self.app.queued_follow_up_messages.len(),
+            self.app.bottom_pane.queued_follow_up_messages.len(),
         );
         if !queued_sections.is_empty() {
             cells.push(Box::new(QueuedFollowUpCell::new(queued_sections)));
         }
 
-        if self.app.pending_planning_suggestion.is_some() {
+        if self.app.bottom_pane.pending_planning_suggestion.is_some() {
             cells.push(Box::new(PlanningSuggestionCell::new(
                 planning_suggestion_text(self.app),
             )));
@@ -422,7 +422,7 @@ impl ActiveCell for ActiveTurnCell<'_> {
             && self.app.pending_request_input().is_none()
             && !self.app.has_pending_plan_approval()
             && self.app.pending_command_approval().is_none()
-            && self.app.pending_planning_suggestion.is_none();
+            && self.app.bottom_pane.pending_planning_suggestion.is_none();
 
         if uses_ordered_exploration_agent_segments {
             // Preserve chronological "explore -> agent -> explore" segments without
@@ -517,7 +517,7 @@ impl ActiveCell for ActiveTurnCell<'_> {
             && self.app.pending_request_input().is_none()
             && !self.app.has_pending_plan_approval()
             && self.app.pending_command_approval().is_none()
-            && self.app.pending_planning_suggestion.is_none()
+            && self.app.bottom_pane.pending_planning_suggestion.is_none()
             && self.app.snapshot.plan_steps.is_empty()
         {
             cells.push(Box::new(RespondingCell::working(

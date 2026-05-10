@@ -200,7 +200,7 @@ pub(super) fn restore_thread_by_id(
         app.reset_transcript();
     }
     app.sync_snapshot(agent);
-    app.notice = Some(format!("Resumed thread {thread_id}."));
+    app.bottom_pane.notice = Some(format!("Resumed thread {thread_id}."));
     Ok(())
 }
 

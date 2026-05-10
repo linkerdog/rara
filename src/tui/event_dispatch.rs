@@ -33,19 +33,14 @@ pub(crate) async fn dispatch_event(
         AppEvent::Noop => {}
         AppEvent::OpenOverlay(overlay) => app.open_overlay(overlay),
         AppEvent::CloseOverlay => {
-            // Clear palette query when Esc from command palette.
-            if matches!(app.overlay, Some(Overlay::CommandPalette)) {
-                app.input.clear();
-                app.command_palette_idx = 0;
-            }
             app.close_overlay();
         }
         AppEvent::CancelRunningTask => {
             input_control::handle_session_control(app, SessionControlRequest::CancelCurrentTurn);
         }
         AppEvent::ClearComposer => {
-            app.input.clear();
-            app.input_cursor_offset = None;
+            app.bottom_pane.input.clear();
+            app.bottom_pane.input_cursor_offset = None;
         }
         AppEvent::ToggleSidebar => {
             app.sidebar_visible = !app.sidebar_visible;
@@ -62,7 +57,7 @@ pub(crate) async fn dispatch_event(
             app.insert_newline_in_composer();
         }
         AppEvent::InputChar(c) => {
-            if app.input.is_empty() {
+            if app.bottom_pane.input.is_empty() {
                 app.transcript_scroll = 0;
             }
             app.insert_active_input_char(c);
@@ -186,7 +181,7 @@ pub(crate) async fn dispatch_event(
                 app.config
                     .set_base_url((!value.is_empty()).then(|| value.to_string()));
                 app.config_manager.save(&app.config)?;
-                app.notice = Some(format!(
+                app.bottom_pane.notice = Some(format!(
                     "Saved base URL: {}",
                     app.config.base_url.as_deref().unwrap_or("unset")
                 ));
@@ -207,7 +202,8 @@ pub(crate) async fn dispatch_event(
             {
                 app.push_notice("Enter a DeepSeek API key or press Esc to go back.");
             } else if value.is_empty() && app.openai_setup_keep_empty_api_key {
-                app.notice = Some("Kept existing API key for the current profile.".into());
+                app.bottom_pane.notice =
+                    Some("Kept existing API key for the current profile.".into());
                 app.advance_openai_profile_setup();
             } else if value.is_empty() {
                 app.config.clear_api_key();
@@ -215,7 +211,7 @@ pub(crate) async fn dispatch_event(
                     app.codex_auth_mode = None;
                 }
                 app.config_manager.save(&app.config)?;
-                app.notice = Some("Cleared API key for the current provider.".into());
+                app.bottom_pane.notice = Some("Cleared API key for the current provider.".into());
                 if app.openai_setup_steps.is_empty() {
                     app.close_overlay();
                 } else {
@@ -231,15 +227,16 @@ pub(crate) async fn dispatch_event(
                 }
                 app.config_manager.save(&app.config)?;
                 if app.config.provider == "codex" {
-                    app.notice = Some("Saved Codex API key. Rebuilding backend.".into());
+                    app.bottom_pane.notice =
+                        Some("Saved Codex API key. Rebuilding backend.".into());
                     app.close_overlay();
                     start_rebuild_task(app);
                 } else if was_deepseek {
-                    app.notice = Some("Saved DeepSeek API key. Loading models.".into());
+                    app.bottom_pane.notice = Some("Saved DeepSeek API key. Loading models.".into());
                     app.close_overlay();
                     start_deepseek_model_list_task(app);
                 } else {
-                    app.notice = Some("Saved API key for the current provider.".into());
+                    app.bottom_pane.notice = Some("Saved API key for the current provider.".into());
                     if app.openai_setup_steps.is_empty() {
                         app.close_overlay();
                     } else {
@@ -256,7 +253,7 @@ pub(crate) async fn dispatch_event(
                 app.config
                     .set_model((!value.is_empty()).then(|| value.to_string()));
                 app.config_manager.save(&app.config)?;
-                app.notice = Some(format!(
+                app.bottom_pane.notice = Some(format!(
                     "Saved model name: {}",
                     app.config.model.as_deref().unwrap_or("unset")
                 ));
@@ -285,7 +282,7 @@ pub(crate) async fn dispatch_event(
                     let profile_id = app.next_openai_profile_id(kind, label);
                     app.config.select_openai_profile(profile_id, label, kind);
                     app.config_manager.save(&app.config)?;
-                    app.notice = Some(format!("Created endpoint profile: {label}"));
+                    app.bottom_pane.notice = Some(format!("Created endpoint profile: {label}"));
                     app.openai_profile_label_kind = None;
                     app.begin_created_openai_profile_setup();
                 }
@@ -328,9 +325,12 @@ pub(crate) async fn dispatch_event(
             Some(Overlay::CommandPalette) => {
                 let query = app.command_query();
                 if let Some(spec) = palette_command_by_index(app, query, app.command_palette_idx) {
-                    app.input = spec.usage.to_string();
-                    app.input_cursor_offset = None;
+                    app.bottom_pane.input = spec.usage.to_string();
+                    app.bottom_pane.input_cursor_offset = None;
                     app.close_overlay();
+                    if handle_submit(app, agent_slot, oauth_manager).await? {
+                        return Ok(true);
+                    }
                 }
             }
             Some(Overlay::BaseUrlEditor) => {
@@ -341,7 +341,7 @@ pub(crate) async fn dispatch_event(
                     app.config
                         .set_base_url((!value.is_empty()).then(|| value.to_string()));
                     app.config_manager.save(&app.config)?;
-                    app.notice = Some(format!(
+                    app.bottom_pane.notice = Some(format!(
                         "Saved base URL: {}",
                         app.config.base_url.as_deref().unwrap_or("unset")
                     ));
@@ -426,7 +426,7 @@ pub(crate) async fn dispatch_event(
                                 app.config.clear_provider_api_key("codex");
                                 app.codex_auth_mode = None;
                                 app.config_manager.save(&app.config)?;
-                                app.notice = Some(
+                                app.bottom_pane.notice = Some(
                                     if removed {
                                         "Cleared saved credential."
                                     } else {
@@ -476,11 +476,20 @@ pub(crate) async fn dispatch_event(
                                         kind,
                                     );
                                     app.config_manager.save(&app.config)?;
-                                    app.notice =
+                                    app.bottom_pane.notice =
                                         Some(format!("Selected endpoint profile: {label}"));
                                     app.open_overlay(Overlay::ListPicker(ListPickerKind::Model));
                                 }
                             }
+                        }
+                        ListPickerKind::ApprovalDecision => {
+                            let selection = match app.approval_picker_idx {
+                                0 => ShellApprovalDecision::Once,
+                                1 => ShellApprovalDecision::Prefix,
+                                2 => ShellApprovalDecision::Always,
+                                _ => ShellApprovalDecision::Suggestion,
+                            };
+                            input_control::answer_shell_approval(app, agent_slot, selection);
                         }
                     }
                 }

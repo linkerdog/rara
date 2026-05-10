@@ -125,7 +125,7 @@ pub(crate) fn map_key_to_event(key: KeyEvent, app: &TuiApp) -> AppEvent {
             _ => AppEvent::Noop,
         },
         None => {
-            if app.input.is_empty()
+            if app.bottom_pane.input.is_empty()
                 && let Some(index) = pending_shortcut_index(code, app)
             {
                 return AppEvent::SelectPendingOption(index);
@@ -152,24 +152,38 @@ pub(crate) fn map_key_to_event(key: KeyEvent, app: &TuiApp) -> AppEvent {
                 (KeyCode::Up, _) if app.should_handle_input_history_navigation(-1) => {
                     AppEvent::NavigateInputHistory(-1)
                 }
-                (KeyCode::Up, _) if app.input.is_empty() => AppEvent::ScrollTranscript(-1),
+                (KeyCode::Up, _) if app.bottom_pane.input.is_empty() => {
+                    AppEvent::ScrollTranscript(-1)
+                }
                 (KeyCode::Up, _) => AppEvent::MoveCursorUp,
                 (KeyCode::Down, _) if app.should_handle_input_history_navigation(1) => {
                     AppEvent::NavigateInputHistory(1)
                 }
-                (KeyCode::Down, _) if app.input.is_empty() => AppEvent::ScrollTranscript(1),
+                (KeyCode::Down, _) if app.bottom_pane.input.is_empty() => {
+                    AppEvent::ScrollTranscript(1)
+                }
                 (KeyCode::Down, _) => AppEvent::MoveCursorDown,
-                (KeyCode::Char('k'), _) if app.input.is_empty() => AppEvent::ScrollTranscript(-1),
-                (KeyCode::Char('j'), _) if app.input.is_empty() => AppEvent::ScrollTranscript(1),
-                (KeyCode::PageUp, _) if app.input.is_empty() => AppEvent::ScrollTranscript(-8),
-                (KeyCode::PageDown, _) if app.input.is_empty() => AppEvent::ScrollTranscript(8),
+                (KeyCode::Char('k'), _) if app.bottom_pane.input.is_empty() => {
+                    AppEvent::ScrollTranscript(-1)
+                }
+                (KeyCode::Char('j'), _) if app.bottom_pane.input.is_empty() => {
+                    AppEvent::ScrollTranscript(1)
+                }
+                (KeyCode::PageUp, _) if app.bottom_pane.input.is_empty() => {
+                    AppEvent::ScrollTranscript(-8)
+                }
+                (KeyCode::PageDown, _) if app.bottom_pane.input.is_empty() => {
+                    AppEvent::ScrollTranscript(8)
+                }
                 (KeyCode::Char('1'), _)
-                    if app.input.is_empty() && app.has_pending_planning_suggestion() =>
+                    if app.bottom_pane.input.is_empty()
+                        && app.has_pending_planning_suggestion() =>
                 {
                     AppEvent::SelectPendingOption(0)
                 }
                 (KeyCode::Char('2'), _)
-                    if app.input.is_empty() && app.has_pending_planning_suggestion() =>
+                    if app.bottom_pane.input.is_empty()
+                        && app.has_pending_planning_suggestion() =>
                 {
                     AppEvent::SelectPendingOption(1)
                 }

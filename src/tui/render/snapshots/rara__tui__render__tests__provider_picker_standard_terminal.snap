@@ -6,20 +6,21 @@ expression: rendered
 
 model · -                               /model to change
 dir   · <CWD>
-Ready.        ┌ Provider ────────────────────────────────────────────────────────────┐
-──            │Select a provider family.                                             │
-Type a message└──────────────────────────────────────────────────────────────────────┘
-              │[1] Codex (current)                                                   │
-Start with:   │    Use Codex with browser login, device-code login, or a Codex API ke│
-  /help    bro│[2] DeepSeek                                                          │
-  /model   cho│    Use DeepSeek with an API key and model list from api.deepseek.com.│
-  /status  ins│[3] OpenAI-compatible                                                 │
-  /quit    lea│    Use OpenAI-compatible endpoint profiles such as Custom, Kimi, or O│
-              │[4] Gemini                                                            │
-Prompt ideas: │    Use Google Gemini via AI Studio (API key) or Code Assist (OAuth). │
-  · Explain th│[5] Candle Local                                                      │
-  · Find the m│    Run local Candle models directly in-process.                      │
-              │                                                                      │
+Ready.
+──
+Type a message to start a task or run a local command.
+
+Start with:
+  /help    browse built-in commands and runtime hints
+  /model   choose provider first, then switch models
+  /status  i┌ Provider ────────────────────────────────────────────────────────────────┐
+  /quit    l│Select a provider family.                                                 │
+            └──────────────────────────────────────────────────────────────────────────┘
+Prompt ideas│[1] Codex (current)                                                       │
+  · Explain │    Use Codex with browser login, device-code login, or a Codex API key.  │
+  · Find the│[2] DeepSeek                                                              │
+            │    Use DeepSeek with an API key and model list from api.deepseek.com.    │
+            │[3] OpenAI-compatible                                                     │
+Ready  waiti│    Use OpenAI-compatible endpoint profiles such as Custom, Kimi, or OpenR│
+› Ask about │                                                                          │
                           1-9 jump  Up/Down/jk move  Enter apply  Esc back
-Ready  waiting
-› Ask about the repo, request a code change, or type /help to browse commands.

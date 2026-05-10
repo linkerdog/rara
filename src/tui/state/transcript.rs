@@ -211,7 +211,7 @@ impl TuiApp {
 
     pub fn push_notice(&mut self, message: impl Into<String>) {
         let message = redact_secrets(message.into());
-        self.notice = Some(message.clone());
+        self.bottom_pane.notice = Some(message.clone());
         self.push_entry("System", message);
     }
 
@@ -223,12 +223,12 @@ impl TuiApp {
         self.agent_markdown_stream = None;
         self.agent_thinking_stream = None;
         self.clear_active_live_sections();
-        self.pending_planning_suggestion = None;
-        self.pending_follow_up_messages.clear();
-        self.queued_follow_up_messages.clear();
+        self.bottom_pane.pending_planning_suggestion = None;
+        self.bottom_pane.pending_follow_up_messages.clear();
+        self.bottom_pane.queued_follow_up_messages.clear();
         self.running_tool_boundary_count = 0;
         self.set_plan_approval_interaction(false);
-        self.notice = Some("Cleared local transcript view.".into());
+        self.bottom_pane.notice = Some("Cleared local transcript view.".into());
     }
 
     pub fn scroll_transcript(&mut self, delta: i32) {
@@ -438,46 +438,58 @@ impl TuiApp {
     }
 
     pub fn has_pending_planning_suggestion(&self) -> bool {
-        self.pending_planning_suggestion.is_some()
+        self.bottom_pane.pending_planning_suggestion.is_some()
     }
 
     pub fn has_queued_follow_up_messages(&self) -> bool {
-        !self.pending_follow_up_messages.is_empty() || !self.queued_follow_up_messages.is_empty()
+        !self.bottom_pane.pending_follow_up_messages.is_empty()
+            || !self.bottom_pane.queued_follow_up_messages.is_empty()
     }
 
     pub fn queued_follow_up_count(&self) -> usize {
-        self.pending_follow_up_messages.len() + self.queued_follow_up_messages.len()
+        self.bottom_pane.pending_follow_up_messages.len()
+            + self.bottom_pane.queued_follow_up_messages.len()
     }
 
     pub fn has_pending_follow_up_messages(&self) -> bool {
-        !self.pending_follow_up_messages.is_empty()
+        !self.bottom_pane.pending_follow_up_messages.is_empty()
     }
 
     pub fn pending_follow_up_count(&self) -> usize {
-        self.pending_follow_up_messages.len()
+        self.bottom_pane.pending_follow_up_messages.len()
     }
 
     pub fn queued_follow_up_preview(&self) -> Option<&str> {
-        self.pending_follow_up_messages
+        self.bottom_pane
+            .pending_follow_up_messages
             .first()
             .map(|item| item.text.as_str())
-            .or_else(|| self.queued_follow_up_messages.first().map(String::as_str))
+            .or_else(|| {
+                self.bottom_pane
+                    .queued_follow_up_messages
+                    .first()
+                    .map(String::as_str)
+            })
     }
 
     pub fn pending_follow_up_preview(&self) -> Option<&str> {
-        self.pending_follow_up_messages
+        self.bottom_pane
+            .pending_follow_up_messages
             .first()
             .map(|item| item.text.as_str())
     }
 
     pub fn queued_end_of_turn_preview(&self) -> Option<&str> {
-        self.queued_follow_up_messages.first().map(String::as_str)
+        self.bottom_pane
+            .queued_follow_up_messages
+            .first()
+            .map(String::as_str)
     }
 
     pub fn queue_follow_up_message(&mut self, message: impl Into<String>) -> usize {
         let message = message.into();
         if !message.trim().is_empty() {
-            self.queued_follow_up_messages.push(message);
+            self.bottom_pane.queued_follow_up_messages.push(message);
         }
         self.queued_follow_up_count()
     }
@@ -488,7 +500,8 @@ impl TuiApp {
     ) -> usize {
         let message = message.into();
         if !message.trim().is_empty() {
-            self.pending_follow_up_messages
+            self.bottom_pane
+                .pending_follow_up_messages
                 .push(PendingFollowUpMessage {
                     text: message,
                     release_after_boundary: self.running_tool_boundary_count.saturating_add(1),
@@ -498,15 +511,15 @@ impl TuiApp {
     }
 
     pub fn pop_queued_follow_up_message(&mut self) -> Option<String> {
-        if self.queued_follow_up_messages.is_empty() {
+        if self.bottom_pane.queued_follow_up_messages.is_empty() {
             None
         } else {
-            Some(self.queued_follow_up_messages.remove(0))
+            Some(self.bottom_pane.queued_follow_up_messages.remove(0))
         }
     }
 
     pub fn drain_queued_follow_up_messages(&mut self) -> Vec<String> {
-        std::mem::take(&mut self.queued_follow_up_messages)
+        std::mem::take(&mut self.bottom_pane.queued_follow_up_messages)
     }
 
     pub fn begin_running_turn(&mut self) {
@@ -514,39 +527,40 @@ impl TuiApp {
     }
 
     pub fn release_pending_follow_ups(&mut self) {
-        if self.pending_follow_up_messages.is_empty() {
+        if self.bottom_pane.pending_follow_up_messages.is_empty() {
             return;
         }
         let released = self
+            .bottom_pane
             .pending_follow_up_messages
             .drain(..)
             .map(|item| item.text)
             .collect::<Vec<_>>();
-        self.queued_follow_up_messages.extend(released);
+        self.bottom_pane.queued_follow_up_messages.extend(released);
     }
 
     pub fn advance_running_tool_boundary(&mut self) {
         self.running_tool_boundary_count = self.running_tool_boundary_count.saturating_add(1);
-        if self.pending_follow_up_messages.is_empty() {
+        if self.bottom_pane.pending_follow_up_messages.is_empty() {
             return;
         }
         let current = self.running_tool_boundary_count;
         let mut still_pending = Vec::new();
         let mut released = Vec::new();
-        for item in self.pending_follow_up_messages.drain(..) {
+        for item in self.bottom_pane.pending_follow_up_messages.drain(..) {
             if item.release_after_boundary <= current {
                 released.push(item.text);
             } else {
                 still_pending.push(item);
             }
         }
-        self.pending_follow_up_messages = still_pending;
-        self.queued_follow_up_messages.extend(released);
+        self.bottom_pane.pending_follow_up_messages = still_pending;
+        self.bottom_pane.queued_follow_up_messages.extend(released);
     }
 
     pub fn queue_planning_suggestion(&mut self, prompt: impl Into<String>) {
-        self.pending_planning_suggestion = Some(prompt.into());
-        self.notice = Some(
+        self.bottom_pane.pending_planning_suggestion = Some(prompt.into());
+        self.bottom_pane.notice = Some(
             "This looks like a non-trivial task. Enter planning mode first or continue in execute mode."
                 .into(),
         );
@@ -554,11 +568,11 @@ impl TuiApp {
     }
 
     pub fn take_pending_planning_suggestion(&mut self) -> Option<String> {
-        self.pending_planning_suggestion.take()
+        self.bottom_pane.pending_planning_suggestion.take()
     }
 
     pub fn clear_pending_planning_suggestion(&mut self) {
-        self.pending_planning_suggestion = None;
+        self.bottom_pane.pending_planning_suggestion = None;
     }
 }
 

@@ -305,7 +305,7 @@ pub(super) async fn execute_local_command(
 fn handle_connect_command(app: &mut TuiApp) -> anyhow::Result<()> {
     app.picker_intent = Some(PickerIntent::ConfigureProvider);
     app.open_overlay(Overlay::ListPicker(ListPickerKind::Provider));
-    app.notice = Some(
+    app.bottom_pane.notice = Some(
         "Connect a provider — select the provider family, then configure API key and model.".into(),
     );
     Ok(())
@@ -377,11 +377,11 @@ fn handle_model_command(arg: Option<&str>, app: &mut TuiApp) -> anyhow::Result<(
     // If a provider is already configured, skip provider picker and go straight to model.
     if !app.config.provider.is_empty() {
         app.open_overlay(Overlay::ListPicker(ListPickerKind::Model));
-        app.notice = Some("Change the active model.".into());
+        app.bottom_pane.notice = Some("Change the active model.".into());
     } else {
         app.picker_intent = Some(PickerIntent::SwitchModel);
         app.open_overlay(Overlay::ListPicker(ListPickerKind::Provider));
-        app.notice = Some(
+        app.bottom_pane.notice = Some(
             "No provider configured yet. Select a provider family first to switch models.".into(),
         );
     }
@@ -410,7 +410,7 @@ fn handle_mcp_command(app: &mut TuiApp) {
             let snapshot = McpStatusSnapshot::from_registry(&registry);
             publish_mcp_status_event(app, &snapshot);
             app.push_entry("System", format_mcp_status(&snapshot));
-            app.notice = Some("MCP status updated.".into());
+            app.bottom_pane.notice = Some("MCP status updated.".into());
             if let Some(cache) = app.mcp_tool_cache.as_ref() {
                 spawn_mcp_tool_cache_population(cache, &registry);
             }
@@ -421,7 +421,7 @@ fn handle_mcp_command(app: &mut TuiApp) {
                 "System",
                 format!("MCP Servers\n\nFailed to load MCP configuration:\n{err:#}"),
             );
-            app.notice = Some("MCP status failed.".into());
+            app.bottom_pane.notice = Some("MCP status failed.".into());
         }
     }
 }
@@ -606,7 +606,7 @@ mod tests {
 
     fn mark_app_busy(app: &mut TuiApp) {
         let (_sender, receiver) = mpsc::unbounded_channel();
-        app.running_task = Some(RunningTask {
+        app.bottom_pane.running_task = Some(RunningTask {
             kind: TaskKind::DeepSeekModels,
             receiver,
             handle: tokio::spawn(async { TaskCompletion::DeepSeekModels { result: Ok(vec![]) } }),
@@ -797,7 +797,7 @@ command = "docs-server"
         assert_eq!(app.bash_approval_mode_label(), "suggestion");
         assert_eq!(app.permission_mode, PermissionMode::Auto);
         assert_eq!(
-            app.notice.as_deref(),
+            app.bottom_pane.notice.as_deref(),
             Some("A task is already running. Wait for it to finish.")
         );
 
@@ -863,7 +863,7 @@ command = "docs-server"
             Some("existing goal")
         );
         assert_eq!(
-            app.notice.as_deref(),
+            app.bottom_pane.notice.as_deref(),
             Some("A goal already exists. Use /goal clear before setting a new goal.")
         );
     }
@@ -936,7 +936,7 @@ command = "docs-server"
         .expect("goal command should be handled");
 
         assert_eq!(
-            app.notice.as_deref(),
+            app.bottom_pane.notice.as_deref(),
             Some("Goal: finish goal polish [active] · 125 / 500 tokens")
         );
     }
@@ -966,7 +966,7 @@ command = "docs-server"
         .expect("goal command should be handled");
 
         assert_eq!(
-            app.notice.as_deref(),
+            app.bottom_pane.notice.as_deref(),
             Some("No active goal. Use /help for /goal details.")
         );
     }
@@ -1001,6 +1001,9 @@ command = "docs-server"
             app.sandbox_network_access
                 .load(std::sync::atomic::Ordering::Relaxed)
         );
-        assert_eq!(app.notice.as_deref(), Some("Permission mode: full-access."));
+        assert_eq!(
+            app.bottom_pane.notice.as_deref(),
+            Some("Permission mode: full-access.")
+        );
     }
 }
