@@ -1,220 +1,145 @@
 # RARA
 
-RARA is a local-first coding agent CLI written in Rust. It provides a terminal
-chat UI, multiple model providers, tool execution, workspace memory, and session
-restore.
+**A fast, local-first coding agent for your terminal.**
 
-The project is still moving quickly. Treat the README as a technical snapshot of
-the current runtime surface, not a stable product contract.
+RARA runs directly on your machine — no cloud dependency required. Pick your
+model, ask it to write code or explore your repo, and watch it work through a
+rich TUI with live streaming output, syntax highlighting, and side-by-side
+context.
 
-## Highlights
+---
 
-- 🖥️ Terminal-first coding agent UI with live tool progress and GFM markdown
-  rendering.
-- 🔌 Hosted, OpenAI-compatible, Ollama, Gemini, and local Candle model backends.
-- 🛠️ File editing, shell, PTY, search, web, planning, memory, skill, and
-  sub-agent tools.
-- 🧠 Local workspace memory, project memory, thread restore, and thread fork.
-- 🔐 Command sandboxing with macOS seatbelt and Linux bubblewrap support.
-- 📦 Local skills from markdown, including `SKILL.md` directory skills.
-- 🔍 `/context` and `/status` for inspecting runtime state.
-- 🧵 Queued follow-up messages while the agent is busy or waiting for approval.
-- 🎯 Sidechannel LLM classifier for auto-permission decisions and background
-  task status.
+## Why RARA
 
-## What It Does
+- **Runs locally.** Your code, your models, your disk. Nothing leaves your
+  machine unless you choose a hosted provider.
+- **Model freedom.** Use Claude, DeepSeek, Gemini, Ollama, any
+  OpenAI-compatible endpoint, or local Candle models — switch providers and
+  models mid-session with `/model`.
+- **Full tool suite.** Edit files, run shell commands, search code, browse the
+  web, spawn sub-agents, update project memory, and load local skills.
+- **Sandbox by default.** On macOS and Linux, command execution is wrapped in a
+  platform sandbox; you control network and filesystem access per command.
+- **Session persistence.** Every thread is saved, restorable, forkable, and
+  searchable — pick up where you left off.
 
-- Runs an interactive terminal agent with a Ratatui-based TUI.
-- Supports hosted providers and OpenAI-compatible endpoints.
-- Runs local models through Candle-backed backends.
-- Executes file, shell, search, web, planning, memory, skill, and sub-agent
-  tools.
-- Applies a sidechannel LLM classifier for auto-permission decisions and
-  background task status, mirroring Claude Code's approach.
-- Keeps workspace state local.
-- Restores, lists, opens, and forks previous threads.
-- Loads project and user instructions.
-- Loads skills from local markdown files.
-- Applies sandbox policy around command execution, with macOS seatbelt,
-  Linux bubblewrap, or direct execution depending on the platform.
+---
 
-## Build
+## Quick Start
 
 ```bash
-cargo build
-```
-
-Run the TUI directly from source:
-
-```bash
+git clone https://github.com/linkerdog/rara.git
+cd rara
 cargo run -- tui
 ```
 
-Install the local binary:
+Choose a provider on first launch — OpenAI, DeepSeek, Ollama, or a local
+Candle model with zero setup.
+
+For `RARA_API_KEY`, set the environment variable or pass `--api-key`.
 
 ```bash
-cargo install --path .
-```
-
-## CLI
-
-```bash
-rara tui
-rara ask "summarize this repository"
-rara login
-rara login --device-auth
-rara login --with-api-key
-rara resume --last
-rara resume <thread-id>
-rara threads --limit 20
-rara thread <thread-id>
-rara fork <thread-id>
-rara acp
-```
-
-Global provider overrides:
-
-```bash
+# Start a TUI session with a specific provider
 rara --provider deepseek --model deepseek-chat tui
-rara --provider openai-compatible --base-url http://localhost:8080/v1 --model my-model tui
-rara --provider ollama --model qwen3:latest tui
-rara --provider local --model Qwen/Qwen3-0.6B tui
+
+# Ask a one-shot question
+rara ask "summarize this repo"
+
+# Resume your last session
+rara resume --last
 ```
 
-`RARA_API_KEY` can be used instead of passing `--api-key`.
+---
+
+## TUI
+
+The terminal UI gives you a full development environment:
+
+- **Streaming responses** — watch the agent think and act in real time.
+- **Live bash output** — stdout/stderr appear as the command runs.
+- **Syntax highlighting** — code blocks, diffs, and inline code are colorized.
+- **Sidebar context** — current-turn token usage, model info, open files, and
+  child sessions at a glance.
+- **Slash commands** — `/model` to switch providers, `/status` for runtime
+  state, `/context` for prompt diagnostics, `/help` for available commands.
+  All slash commands work during agent rebuild.
+- **Approval picker** — when a shell command needs approval, press Enter on an
+  empty composer to choose Once / Prefix / Always / Suggestion.
+- **Follow-up queuing** — type ahead while the agent is busy; your messages
+  queue and process in order.
+
+---
 
 ## Providers
 
-Current backend families:
+| Family | Description |
+|--------|-------------|
+| `codex` | OpenAI Codex (GPT-based coding agent) |
+| `deepseek` | DeepSeek via hosted API |
+| `gemini` | Google Gemini via hosted API |
+| `kimi` | Moonshot Kimi via hosted API |
+| `openrouter` | OpenRouter gateway |
+| `openai-compatible` | Any OpenAI-compatible endpoint (custom base URL) |
+| `ollama` / `ollama-openai` | Local Ollama inference |
+| `local` / `local-candle` | Hugging Face Candle (local, no server needed) |
+| `mock` | Deterministic test backend |
 
-- `codex`
-- `deepseek`
-- `kimi`
-- `openrouter`
-- `openai-compatible`
-- `ollama` / `ollama-native`
-- `ollama-openai`
-- `gemini`
-- `local` / `local-candle`
-- `gemma4`
-- `qwen3`
-- `mock`
+Provider state includes API key, base URL, model name, reasoning effort,
+and context window size. OpenAI-compatible providers can be saved as named
+profiles for quick switching.
 
-Provider state includes API key, base URL, model, reasoning settings, revision,
-thinking flag, and context size where supported. OpenAI-compatible providers can
-be managed as named endpoint profiles from the TUI model picker.
-
-## TUI Commands
-
-Inside the TUI:
-
-- `/help` opens command help.
-- `/model` changes provider, endpoint profile, API key, model, and reasoning
-  settings.
-- `/status` shows runtime status, context window budget, and compaction info.
-- `/context` shows prompt sources, active context, memory selection, cache
-  markers, and budget information.
-
-Slash commands (`/model`, `/status`, `/help`) work even during agent rebuild.
-
-The composer supports follow-up queuing while the agent is busy or waiting for
-approval. Press Enter on an empty composer during a shell-approval prompt to
-open a list picker (Once / Prefix / Always / Suggestion).
+---
 
 ## Tools
 
-Available tool families include:
+RARA gives the agent access to your workspace:
 
-- Shell: `bash`, `background_task_list`, `background_task_status`,
-  `background_task_stop`.
-- PTY: start/read/list/status/write/kill/stop.
-- Files: `read_file`, `write_file`, `replace`, `replace_lines`,
-  `apply_patch`, `list_files`.
-- Search: `glob`, `grep`.
-- Web: `web_fetch`, `web_search`.
-- Planning: `enter_plan_mode`, `exit_plan_mode`.
-- Memory: `remember_experience`, `retrieve_experience`,
-  `retrieve_session_context`, `update_project_memory`.
-- Skills: `skill`.
-- Agents: `spawn_agent`, `explore_agent`, `plan_agent`, `team_create`.
+| Category | Tools |
+|----------|-------|
+| **Shell** | `bash`, background task list / status / stop |
+| **PTY** | start, read, write, list, status, kill, stop |
+| **Files** | read, write, edit (`replace`, `replace_lines`, `apply_patch`), list |
+| **Search** | `glob`, `grep` |
+| **Web** | `web_fetch`, `web_search` |
+| **Planning** | `enter_plan_mode`, `exit_plan_mode` |
+| **Memory** | `remember_experience`, `retrieve_experience`, `retrieve_session_context`, `update_project_memory` |
+| **Skills** | `skill` (local `SKILL.md` files) |
+| **Agents** | `spawn_agent`, `explore_agent`, `plan_agent`, `team_create` |
+
+A **sidechannel LLM classifier** (using a lightweight auxiliary model)
+evaluates shell and web tool calls before execution — blocking dangerous
+commands and auto-approving safe ones, following the same pattern as
+Claude Code's YOLO classifier.
 
 Long tool output is folded in the transcript with a preview and a path to the
-full result when needed.
+full result.
+
+---
 
 ## Sandbox
 
-Command execution uses a platform-specific sandbox wrapper where available:
+Command execution is sandboxed by default:
 
-- macOS: non-PTY commands use a seatbelt profile through `sandbox-exec`; PTY
-  commands currently run directly because `sandbox-exec` does not reliably
-  preserve interactive PTY stdin.
-- Linux: bubblewrap.
-- Other or unsupported environments: direct execution.
+| Platform | Method |
+|----------|--------|
+| macOS | `sandbox-exec` with seatbelt profile |
+| Linux | `bubblewrap` |
+| Other | Direct execution (no sandbox) |
 
-Network access defaults to enabled for workspace-write command execution and can
-be changed in config.
+PTY sessions on macOS currently run outside the seatbelt sandbox due to
+PTY/seatbelt interaction constraints.
 
-## Local State
+---
 
-RARA stores user config, credentials, workspace memory, thread state, tool
-results, background task logs, and project memory locally.
+## Where State Lives
 
-Useful thread commands:
+- `~/.config/rara/` — config, profiles, auth, access logs
+- `~/.cache/rara/` — model downloads, runtime metadata
+- `~/.local/share/rara/` — workspace thread logs and session data
+- `<workspace>/.rara/` — per-project memory and lock files
 
-```bash
-rara threads
-rara thread <thread-id>
-rara resume <thread-id>
-rara resume --last
-rara fork <thread-id>
-```
+---
 
-## Skills
+## License
 
-Skills are markdown files loaded from local search paths. RARA supports both:
-
-- directory skills with `SKILL.md`;
-- legacy `*.md` skill files.
-
-Skills can define frontmatter metadata including name, title, and description.
-Loaded skills are visible to the agent and can be invoked with the `skill` tool.
-
-## Local Models
-
-Local model support is backed by Candle. Build features expose optional
-accelerators:
-
-```bash
-cargo build --features metal
-cargo build --features cuda
-cargo build --features accelerate
-cargo build --features mkl
-```
-
-Model downloads use the local cache and provider/model configuration.
-
-## Development
-
-Common checks:
-
-```bash
-cargo fmt --check
-cargo check
-cargo test
-```
-
-Documentation policy:
-
-- stable feature specs live in `docs/features/`;
-- dated implementation checkpoints live in `docs/journal/`;
-- active follow-up work lives in `docs/todo.md`.
-
-## Star History
-
-<a href="https://www.star-history.com/?repos=linkerdog%2Frara&type=date&legend=top-left">
- <picture>
-   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/chart?repos=linkerdog/rara&type=date&theme=dark&legend=top-left" />
-   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/chart?repos=linkerdog/rara&type=date&legend=top-left" />
-   <img alt="Star History Chart" src="https://api.star-history.com/chart?repos=linkerdog/rara&type=date&legend=top-left" />
- </picture>
-</a>
+Apache 2.0
