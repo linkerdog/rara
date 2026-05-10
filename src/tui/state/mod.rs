@@ -274,6 +274,7 @@ impl TuiApp {
             mcp_manager: None,
             prompt_source_registry: None,
             skill_source_registry: None,
+            hook_registry: None,
             memory_handler: None,
             repo_context_task: None,
             repo_slug: None,

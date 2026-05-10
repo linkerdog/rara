@@ -411,7 +411,7 @@ impl Agent {
             )));
         }
         let mut system_content = Vec::new();
-        if let Some(index) = assembled.prompt.effective_prompt.dynamic_boundary_index {
+        if let Some(_index) = assembled.prompt.effective_prompt.dynamic_boundary_index {
             let full_text = &assembled.prompt.effective_prompt.text;
             // The text is joined by "\n\n". We want to split it back or just use the sections.
             // But EffectivePrompt only gives us the full text and boundary index.

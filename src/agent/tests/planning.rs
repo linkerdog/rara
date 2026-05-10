@@ -740,15 +740,17 @@ async fn plan_mode_consecutive_reasoning_only_turns_stop_after_three_continuatio
     let continuation_text = observed_messages
         .get(1)
         .and_then(|msgs| {
-            msgs.iter().find_map(|message| {
-                message.content.get(0)?.get("text")?.as_str().and_then(|s| {
-                    if s.contains("agent_runtime") {
-                        Some(s.to_string())
-                    } else {
-                        None
-                    }
+            msgs.iter()
+                .filter(|m| m.role != "system")
+                .find_map(|message| {
+                    message.content.get(0)?.get("text")?.as_str().and_then(|s| {
+                        if s.contains("agent_runtime") {
+                            Some(s.to_string())
+                        } else {
+                            None
+                        }
+                    })
                 })
-            })
         })
         .expect("continuation message should be present");
     assert!(continuation_text.contains("\"phase\": \"reasoning_only_continuation_required\""));

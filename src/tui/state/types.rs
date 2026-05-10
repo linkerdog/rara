@@ -660,6 +660,7 @@ pub struct TuiApp {
     pub mcp_manager: Option<Arc<McpConnectionManager>>,
     pub prompt_source_registry: Option<Arc<PromptSourceRegistry>>,
     pub skill_source_registry: Option<Arc<SkillSourceRegistry>>,
+    pub hook_registry: Option<Arc<HookRegistry>>,
     pub memory_handler: Option<Arc<MemoryControlHandler>>,
     pub repo_context_task: Option<JoinHandle<(Option<String>, Option<String>)>>,
     pub repo_slug: Option<String>,

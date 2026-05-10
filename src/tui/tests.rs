@@ -58,7 +58,19 @@ async fn busy_submit_queues_follow_up_message() {
     let mut app = TuiApp::new(ConfigManager {
         path: temp.path().join("config.json"),
     })
-    .expect("app");
+    .expect("build tui app");
+    let bus = Arc::new(crate::runtime_event_bus::RuntimeEventBus::new(10));
+    app.event_bus = Some(bus.clone());
+    app.prompt_source_registry = Some(Arc::new(crate::protocol_sources::PromptSourceRegistry::new(bus.clone())));
+    app.skill_source_registry = Some(Arc::new(crate::protocol_sources::SkillSourceRegistry::new(bus.clone())));
+    app.hook_registry = Some(Arc::new(crate::hook_registry::HookRegistry::new(bus.clone())));
+    app.mcp_manager = Some(Arc::new(crate::mcp_connection_manager::McpConnectionManager::new(
+        Arc::new(crate::config::McpRegistry::empty()),
+        bus.clone(),
+        crate::mcp_tool_cache::McpToolCache::new(),
+    )));
+    app.memory_handler = Some(Arc::new(crate::protocol_sources::MemoryControlHandler::new(bus.clone())));
+
     app.bottom_pane.input = "continue with the follow-up".into();
 
     let (_sender, receiver) = mpsc::unbounded_channel();
@@ -111,7 +123,19 @@ fn status_overlay_shortcuts_switch_tabs() {
     let mut app = TuiApp::new(ConfigManager {
         path: temp.path().join("config.json"),
     })
-    .expect("app");
+    .expect("build tui app");
+    let bus = Arc::new(crate::runtime_event_bus::RuntimeEventBus::new(10));
+    app.event_bus = Some(bus.clone());
+    app.prompt_source_registry = Some(Arc::new(crate::protocol_sources::PromptSourceRegistry::new(bus.clone())));
+    app.skill_source_registry = Some(Arc::new(crate::protocol_sources::SkillSourceRegistry::new(bus.clone())));
+    app.hook_registry = Some(Arc::new(crate::hook_registry::HookRegistry::new(bus.clone())));
+    app.mcp_manager = Some(Arc::new(crate::mcp_connection_manager::McpConnectionManager::new(
+        Arc::new(crate::config::McpRegistry::empty()),
+        bus.clone(),
+        crate::mcp_tool_cache::McpToolCache::new(),
+    )));
+    app.memory_handler = Some(Arc::new(crate::protocol_sources::MemoryControlHandler::new(bus.clone())));
+
     app.overlay = Some(Overlay::Status(StatusTab::Overview));
 
     assert!(matches!(
@@ -140,7 +164,19 @@ fn context_overlay_scroll_keybindings() {
     let mut app = TuiApp::new(ConfigManager {
         path: temp.path().join("config.json"),
     })
-    .expect("app");
+    .expect("build tui app");
+    let bus = Arc::new(crate::runtime_event_bus::RuntimeEventBus::new(10));
+    app.event_bus = Some(bus.clone());
+    app.prompt_source_registry = Some(Arc::new(crate::protocol_sources::PromptSourceRegistry::new(bus.clone())));
+    app.skill_source_registry = Some(Arc::new(crate::protocol_sources::SkillSourceRegistry::new(bus.clone())));
+    app.hook_registry = Some(Arc::new(crate::hook_registry::HookRegistry::new(bus.clone())));
+    app.mcp_manager = Some(Arc::new(crate::mcp_connection_manager::McpConnectionManager::new(
+        Arc::new(crate::config::McpRegistry::empty()),
+        bus.clone(),
+        crate::mcp_tool_cache::McpToolCache::new(),
+    )));
+    app.memory_handler = Some(Arc::new(crate::protocol_sources::MemoryControlHandler::new(bus.clone())));
+
     app.open_overlay(Overlay::Context);
 
     // j / Down scroll down → positive delta
@@ -178,7 +214,19 @@ fn context_scroll_direction_is_top_down() {
     let mut app = TuiApp::new(ConfigManager {
         path: temp.path().join("config.json"),
     })
-    .expect("app");
+    .expect("build tui app");
+    let bus = Arc::new(crate::runtime_event_bus::RuntimeEventBus::new(10));
+    app.event_bus = Some(bus.clone());
+    app.prompt_source_registry = Some(Arc::new(crate::protocol_sources::PromptSourceRegistry::new(bus.clone())));
+    app.skill_source_registry = Some(Arc::new(crate::protocol_sources::SkillSourceRegistry::new(bus.clone())));
+    app.hook_registry = Some(Arc::new(crate::hook_registry::HookRegistry::new(bus.clone())));
+    app.mcp_manager = Some(Arc::new(crate::mcp_connection_manager::McpConnectionManager::new(
+        Arc::new(crate::config::McpRegistry::empty()),
+        bus.clone(),
+        crate::mcp_tool_cache::McpToolCache::new(),
+    )));
+    app.memory_handler = Some(Arc::new(crate::protocol_sources::MemoryControlHandler::new(bus.clone())));
+
     app.open_overlay(Overlay::Context);
     assert_eq!(app.context_scroll, 0);
 
@@ -217,7 +265,19 @@ async fn pending_plan_approval_blocks_plain_submit() {
     let mut app = TuiApp::new(ConfigManager {
         path: temp.path().join("config.json"),
     })
-    .expect("app");
+    .expect("build tui app");
+    let bus = Arc::new(crate::runtime_event_bus::RuntimeEventBus::new(10));
+    app.event_bus = Some(bus.clone());
+    app.prompt_source_registry = Some(Arc::new(crate::protocol_sources::PromptSourceRegistry::new(bus.clone())));
+    app.skill_source_registry = Some(Arc::new(crate::protocol_sources::SkillSourceRegistry::new(bus.clone())));
+    app.hook_registry = Some(Arc::new(crate::hook_registry::HookRegistry::new(bus.clone())));
+    app.mcp_manager = Some(Arc::new(crate::mcp_connection_manager::McpConnectionManager::new(
+        Arc::new(crate::config::McpRegistry::empty()),
+        bus.clone(),
+        crate::mcp_tool_cache::McpToolCache::new(),
+    )));
+    app.memory_handler = Some(Arc::new(crate::protocol_sources::MemoryControlHandler::new(bus.clone())));
+
     app.set_pending_plan_approval(true);
     app.bottom_pane.input = "start implementation".into();
 
@@ -247,7 +307,19 @@ async fn submit_numeric_input_handles_pending_shell_approval() {
     let mut app = TuiApp::new(ConfigManager {
         path: temp.path().join("config.json"),
     })
-    .expect("app");
+    .expect("build tui app");
+    let bus = Arc::new(crate::runtime_event_bus::RuntimeEventBus::new(10));
+    app.event_bus = Some(bus.clone());
+    app.prompt_source_registry = Some(Arc::new(crate::protocol_sources::PromptSourceRegistry::new(bus.clone())));
+    app.skill_source_registry = Some(Arc::new(crate::protocol_sources::SkillSourceRegistry::new(bus.clone())));
+    app.hook_registry = Some(Arc::new(crate::hook_registry::HookRegistry::new(bus.clone())));
+    app.mcp_manager = Some(Arc::new(crate::mcp_connection_manager::McpConnectionManager::new(
+        Arc::new(crate::config::McpRegistry::empty()),
+        bus.clone(),
+        crate::mcp_tool_cache::McpToolCache::new(),
+    )));
+    app.memory_handler = Some(Arc::new(crate::protocol_sources::MemoryControlHandler::new(bus.clone())));
+
     add_pending_shell_approval(&mut app);
     app.bottom_pane.input = "4".into();
 
@@ -277,7 +349,19 @@ async fn plain_submit_queues_while_shell_approval_is_pending() {
     let mut app = TuiApp::new(ConfigManager {
         path: temp.path().join("config.json"),
     })
-    .expect("app");
+    .expect("build tui app");
+    let bus = Arc::new(crate::runtime_event_bus::RuntimeEventBus::new(10));
+    app.event_bus = Some(bus.clone());
+    app.prompt_source_registry = Some(Arc::new(crate::protocol_sources::PromptSourceRegistry::new(bus.clone())));
+    app.skill_source_registry = Some(Arc::new(crate::protocol_sources::SkillSourceRegistry::new(bus.clone())));
+    app.hook_registry = Some(Arc::new(crate::hook_registry::HookRegistry::new(bus.clone())));
+    app.mcp_manager = Some(Arc::new(crate::mcp_connection_manager::McpConnectionManager::new(
+        Arc::new(crate::config::McpRegistry::empty()),
+        bus.clone(),
+        crate::mcp_tool_cache::McpToolCache::new(),
+    )));
+    app.memory_handler = Some(Arc::new(crate::protocol_sources::MemoryControlHandler::new(bus.clone())));
+
     add_pending_shell_approval(&mut app);
     app.bottom_pane.input = "then review the diff".into();
 
@@ -307,7 +391,19 @@ async fn esc_cancels_busy_query_without_overlay() {
     let mut app = TuiApp::new(ConfigManager {
         path: temp.path().join("config.json"),
     })
-    .expect("app");
+    .expect("build tui app");
+    let bus = Arc::new(crate::runtime_event_bus::RuntimeEventBus::new(10));
+    app.event_bus = Some(bus.clone());
+    app.prompt_source_registry = Some(Arc::new(crate::protocol_sources::PromptSourceRegistry::new(bus.clone())));
+    app.skill_source_registry = Some(Arc::new(crate::protocol_sources::SkillSourceRegistry::new(bus.clone())));
+    app.hook_registry = Some(Arc::new(crate::hook_registry::HookRegistry::new(bus.clone())));
+    app.mcp_manager = Some(Arc::new(crate::mcp_connection_manager::McpConnectionManager::new(
+        Arc::new(crate::config::McpRegistry::empty()),
+        bus.clone(),
+        crate::mcp_tool_cache::McpToolCache::new(),
+    )));
+    app.memory_handler = Some(Arc::new(crate::protocol_sources::MemoryControlHandler::new(bus.clone())));
+
 
     let (_sender, receiver) = mpsc::unbounded_channel();
     app.bottom_pane.running_task = Some(RunningTask {
@@ -339,7 +435,19 @@ async fn busy_submit_allows_quit_command() {
     let mut app = TuiApp::new(ConfigManager {
         path: temp.path().join("config.json"),
     })
-    .expect("app");
+    .expect("build tui app");
+    let bus = Arc::new(crate::runtime_event_bus::RuntimeEventBus::new(10));
+    app.event_bus = Some(bus.clone());
+    app.prompt_source_registry = Some(Arc::new(crate::protocol_sources::PromptSourceRegistry::new(bus.clone())));
+    app.skill_source_registry = Some(Arc::new(crate::protocol_sources::SkillSourceRegistry::new(bus.clone())));
+    app.hook_registry = Some(Arc::new(crate::hook_registry::HookRegistry::new(bus.clone())));
+    app.mcp_manager = Some(Arc::new(crate::mcp_connection_manager::McpConnectionManager::new(
+        Arc::new(crate::config::McpRegistry::empty()),
+        bus.clone(),
+        crate::mcp_tool_cache::McpToolCache::new(),
+    )));
+    app.memory_handler = Some(Arc::new(crate::protocol_sources::MemoryControlHandler::new(bus.clone())));
+
     app.bottom_pane.input = "/quit".into();
 
     let (_sender, receiver) = mpsc::unbounded_channel();
@@ -381,7 +489,19 @@ async fn slash_palette_model_selection_opens_provider_picker_in_local_and_ssh() 
         let mut app = TuiApp::new(ConfigManager {
             path: temp.path().join("config.json"),
         })
-        .expect("app");
+        .expect("build tui app");
+        let bus = Arc::new(crate::runtime_event_bus::RuntimeEventBus::new(10));
+        app.event_bus = Some(bus.clone());
+        app.prompt_source_registry = Some(Arc::new(crate::protocol_sources::PromptSourceRegistry::new(bus.clone())));
+        app.skill_source_registry = Some(Arc::new(crate::protocol_sources::SkillSourceRegistry::new(bus.clone())));
+        app.hook_registry = Some(Arc::new(crate::hook_registry::HookRegistry::new(bus.clone())));
+        app.mcp_manager = Some(Arc::new(crate::mcp_connection_manager::McpConnectionManager::new(
+            Arc::new(crate::config::McpRegistry::empty()),
+            bus.clone(),
+            crate::mcp_tool_cache::McpToolCache::new(),
+        )));
+        app.memory_handler = Some(Arc::new(crate::protocol_sources::MemoryControlHandler::new(bus.clone())));
+
         app.set_input("/".to_string());
         let model_idx = palette_commands(&app, "")
             .iter()
@@ -412,7 +532,19 @@ fn provider_picker_number_keys_cover_current_provider_families() {
     let mut app = TuiApp::new(ConfigManager {
         path: temp.path().join("config.json"),
     })
-    .expect("app");
+    .expect("build tui app");
+    let bus = Arc::new(crate::runtime_event_bus::RuntimeEventBus::new(10));
+    app.event_bus = Some(bus.clone());
+    app.prompt_source_registry = Some(Arc::new(crate::protocol_sources::PromptSourceRegistry::new(bus.clone())));
+    app.skill_source_registry = Some(Arc::new(crate::protocol_sources::SkillSourceRegistry::new(bus.clone())));
+    app.hook_registry = Some(Arc::new(crate::hook_registry::HookRegistry::new(bus.clone())));
+    app.mcp_manager = Some(Arc::new(crate::mcp_connection_manager::McpConnectionManager::new(
+        Arc::new(crate::config::McpRegistry::empty()),
+        bus.clone(),
+        crate::mcp_tool_cache::McpToolCache::new(),
+    )));
+    app.memory_handler = Some(Arc::new(crate::protocol_sources::MemoryControlHandler::new(bus.clone())));
+
     app.open_overlay(Overlay::ListPicker(ListPickerKind::Provider));
 
     let key_char =
@@ -430,7 +562,19 @@ fn auth_mode_picker_prefers_selection_navigation() {
     let mut app = TuiApp::new(ConfigManager {
         path: temp.path().join("config.json"),
     })
-    .expect("app");
+    .expect("build tui app");
+    let bus = Arc::new(crate::runtime_event_bus::RuntimeEventBus::new(10));
+    app.event_bus = Some(bus.clone());
+    app.prompt_source_registry = Some(Arc::new(crate::protocol_sources::PromptSourceRegistry::new(bus.clone())));
+    app.skill_source_registry = Some(Arc::new(crate::protocol_sources::SkillSourceRegistry::new(bus.clone())));
+    app.hook_registry = Some(Arc::new(crate::hook_registry::HookRegistry::new(bus.clone())));
+    app.mcp_manager = Some(Arc::new(crate::mcp_connection_manager::McpConnectionManager::new(
+        Arc::new(crate::config::McpRegistry::empty()),
+        bus.clone(),
+        crate::mcp_tool_cache::McpToolCache::new(),
+    )));
+    app.memory_handler = Some(Arc::new(crate::protocol_sources::MemoryControlHandler::new(bus.clone())));
+
     app.open_overlay(Overlay::ListPicker(ListPickerKind::AuthMode));
 
     assert!(matches!(
@@ -541,7 +685,19 @@ fn pending_shell_approval_number_shortcuts_work_in_local_and_ssh() {
         let mut app = TuiApp::new(ConfigManager {
             path: temp.path().join("config.json"),
         })
-        .expect("app");
+        .expect("build tui app");
+        let bus = Arc::new(crate::runtime_event_bus::RuntimeEventBus::new(10));
+        app.event_bus = Some(bus.clone());
+        app.prompt_source_registry = Some(Arc::new(crate::protocol_sources::PromptSourceRegistry::new(bus.clone())));
+        app.skill_source_registry = Some(Arc::new(crate::protocol_sources::SkillSourceRegistry::new(bus.clone())));
+        app.hook_registry = Some(Arc::new(crate::hook_registry::HookRegistry::new(bus.clone())));
+        app.mcp_manager = Some(Arc::new(crate::mcp_connection_manager::McpConnectionManager::new(
+            Arc::new(crate::config::McpRegistry::empty()),
+            bus.clone(),
+            crate::mcp_tool_cache::McpToolCache::new(),
+        )));
+        app.memory_handler = Some(Arc::new(crate::protocol_sources::MemoryControlHandler::new(bus.clone())));
+
         add_pending_shell_approval(&mut app);
 
         assert!(matches!(
@@ -561,7 +717,19 @@ fn pending_shell_approval_does_not_render_as_request_input() {
     let mut app = TuiApp::new(ConfigManager {
         path: temp.path().join("config.json"),
     })
-    .expect("app");
+    .expect("build tui app");
+    let bus = Arc::new(crate::runtime_event_bus::RuntimeEventBus::new(10));
+    app.event_bus = Some(bus.clone());
+    app.prompt_source_registry = Some(Arc::new(crate::protocol_sources::PromptSourceRegistry::new(bus.clone())));
+    app.skill_source_registry = Some(Arc::new(crate::protocol_sources::SkillSourceRegistry::new(bus.clone())));
+    app.hook_registry = Some(Arc::new(crate::hook_registry::HookRegistry::new(bus.clone())));
+    app.mcp_manager = Some(Arc::new(crate::mcp_connection_manager::McpConnectionManager::new(
+        Arc::new(crate::config::McpRegistry::empty()),
+        bus.clone(),
+        crate::mcp_tool_cache::McpToolCache::new(),
+    )));
+    app.memory_handler = Some(Arc::new(crate::protocol_sources::MemoryControlHandler::new(bus.clone())));
+
     add_pending_shell_approval(&mut app);
 
     assert_eq!(
@@ -579,7 +747,19 @@ async fn full_access_permission_picker_resumes_pending_shell_approval_in_local_a
         let mut app = TuiApp::new(ConfigManager {
             path: temp.path().join("config.json"),
         })
-        .expect("app");
+        .expect("build tui app");
+        let bus = Arc::new(crate::runtime_event_bus::RuntimeEventBus::new(10));
+        app.event_bus = Some(bus.clone());
+        app.prompt_source_registry = Some(Arc::new(crate::protocol_sources::PromptSourceRegistry::new(bus.clone())));
+        app.skill_source_registry = Some(Arc::new(crate::protocol_sources::SkillSourceRegistry::new(bus.clone())));
+        app.hook_registry = Some(Arc::new(crate::hook_registry::HookRegistry::new(bus.clone())));
+        app.mcp_manager = Some(Arc::new(crate::mcp_connection_manager::McpConnectionManager::new(
+            Arc::new(crate::config::McpRegistry::empty()),
+            bus.clone(),
+            crate::mcp_tool_cache::McpToolCache::new(),
+        )));
+        app.memory_handler = Some(Arc::new(crate::protocol_sources::MemoryControlHandler::new(bus.clone())));
+
         add_pending_shell_approval(&mut app);
         app.open_overlay(Overlay::PermissionPicker);
 
@@ -620,7 +800,19 @@ async fn always_shell_approval_promotes_full_access_for_follow_up_commands() {
     let mut app = TuiApp::new(ConfigManager {
         path: temp.path().join("config.json"),
     })
-    .expect("app");
+    .expect("build tui app");
+    let bus = Arc::new(crate::runtime_event_bus::RuntimeEventBus::new(10));
+    app.event_bus = Some(bus.clone());
+    app.prompt_source_registry = Some(Arc::new(crate::protocol_sources::PromptSourceRegistry::new(bus.clone())));
+    app.skill_source_registry = Some(Arc::new(crate::protocol_sources::SkillSourceRegistry::new(bus.clone())));
+    app.hook_registry = Some(Arc::new(crate::hook_registry::HookRegistry::new(bus.clone())));
+    app.mcp_manager = Some(Arc::new(crate::mcp_connection_manager::McpConnectionManager::new(
+        Arc::new(crate::config::McpRegistry::empty()),
+        bus.clone(),
+        crate::mcp_tool_cache::McpToolCache::new(),
+    )));
+    app.memory_handler = Some(Arc::new(crate::protocol_sources::MemoryControlHandler::new(bus.clone())));
+
     add_pending_shell_approval(&mut app);
 
     let oauth_manager = Arc::new(
@@ -657,7 +849,19 @@ async fn full_access_mode_resumes_stale_pending_shell_approval_from_shortcuts() 
         let mut app = TuiApp::new(ConfigManager {
             path: temp.path().join("config.json"),
         })
-        .expect("app");
+        .expect("build tui app");
+        let bus = Arc::new(crate::runtime_event_bus::RuntimeEventBus::new(10));
+        app.event_bus = Some(bus.clone());
+        app.prompt_source_registry = Some(Arc::new(crate::protocol_sources::PromptSourceRegistry::new(bus.clone())));
+        app.skill_source_registry = Some(Arc::new(crate::protocol_sources::SkillSourceRegistry::new(bus.clone())));
+        app.hook_registry = Some(Arc::new(crate::hook_registry::HookRegistry::new(bus.clone())));
+        app.mcp_manager = Some(Arc::new(crate::mcp_connection_manager::McpConnectionManager::new(
+            Arc::new(crate::config::McpRegistry::empty()),
+            bus.clone(),
+            crate::mcp_tool_cache::McpToolCache::new(),
+        )));
+        app.memory_handler = Some(Arc::new(crate::protocol_sources::MemoryControlHandler::new(bus.clone())));
+
         add_pending_shell_approval(&mut app);
         app.permission_mode = PermissionMode::FullAccess;
 
@@ -684,7 +888,19 @@ async fn full_access_mode_does_not_resume_shell_approval_behind_active_plan_appr
     let mut app = TuiApp::new(ConfigManager {
         path: temp.path().join("config.json"),
     })
-    .expect("app");
+    .expect("build tui app");
+    let bus = Arc::new(crate::runtime_event_bus::RuntimeEventBus::new(10));
+    app.event_bus = Some(bus.clone());
+    app.prompt_source_registry = Some(Arc::new(crate::protocol_sources::PromptSourceRegistry::new(bus.clone())));
+    app.skill_source_registry = Some(Arc::new(crate::protocol_sources::SkillSourceRegistry::new(bus.clone())));
+    app.hook_registry = Some(Arc::new(crate::hook_registry::HookRegistry::new(bus.clone())));
+    app.mcp_manager = Some(Arc::new(crate::mcp_connection_manager::McpConnectionManager::new(
+        Arc::new(crate::config::McpRegistry::empty()),
+        bus.clone(),
+        crate::mcp_tool_cache::McpToolCache::new(),
+    )));
+    app.memory_handler = Some(Arc::new(crate::protocol_sources::MemoryControlHandler::new(bus.clone())));
+
     add_pending_shell_approval(&mut app);
     add_pending_plan_approval(&mut app);
     app.permission_mode = PermissionMode::FullAccess;
@@ -719,7 +935,19 @@ fn request_input_shortcuts_match_advertised_three_options() {
     let mut app = TuiApp::new(ConfigManager {
         path: temp.path().join("config.json"),
     })
-    .expect("app");
+    .expect("build tui app");
+    let bus = Arc::new(crate::runtime_event_bus::RuntimeEventBus::new(10));
+    app.event_bus = Some(bus.clone());
+    app.prompt_source_registry = Some(Arc::new(crate::protocol_sources::PromptSourceRegistry::new(bus.clone())));
+    app.skill_source_registry = Some(Arc::new(crate::protocol_sources::SkillSourceRegistry::new(bus.clone())));
+    app.hook_registry = Some(Arc::new(crate::hook_registry::HookRegistry::new(bus.clone())));
+    app.mcp_manager = Some(Arc::new(crate::mcp_connection_manager::McpConnectionManager::new(
+        Arc::new(crate::config::McpRegistry::empty()),
+        bus.clone(),
+        crate::mcp_tool_cache::McpToolCache::new(),
+    )));
+    app.memory_handler = Some(Arc::new(crate::protocol_sources::MemoryControlHandler::new(bus.clone())));
+
     add_pending_request_input(&mut app, 4);
 
     assert_eq!(app.active_pending_option_count(), 3);
@@ -739,7 +967,19 @@ fn plain_input_does_not_treat_s_as_setup_shortcut() {
     let mut app = TuiApp::new(ConfigManager {
         path: temp.path().join("config.json"),
     })
-    .expect("app");
+    .expect("build tui app");
+    let bus = Arc::new(crate::runtime_event_bus::RuntimeEventBus::new(10));
+    app.event_bus = Some(bus.clone());
+    app.prompt_source_registry = Some(Arc::new(crate::protocol_sources::PromptSourceRegistry::new(bus.clone())));
+    app.skill_source_registry = Some(Arc::new(crate::protocol_sources::SkillSourceRegistry::new(bus.clone())));
+    app.hook_registry = Some(Arc::new(crate::hook_registry::HookRegistry::new(bus.clone())));
+    app.mcp_manager = Some(Arc::new(crate::mcp_connection_manager::McpConnectionManager::new(
+        Arc::new(crate::config::McpRegistry::empty()),
+        bus.clone(),
+        crate::mcp_tool_cache::McpToolCache::new(),
+    )));
+    app.memory_handler = Some(Arc::new(crate::protocol_sources::MemoryControlHandler::new(bus.clone())));
+
     app.bottom_pane.input = "先同步ma".into();
 
     assert!(matches!(
@@ -751,10 +991,22 @@ fn plain_input_does_not_treat_s_as_setup_shortcut() {
 #[test]
 fn shift_enter_inserts_newline_in_main_composer() {
     let temp = tempdir().expect("tempdir");
-    let app = TuiApp::new(ConfigManager {
+    let mut app = TuiApp::new(ConfigManager {
         path: temp.path().join("config.json"),
     })
-    .expect("app");
+    .expect("build tui app");
+    let bus = Arc::new(crate::runtime_event_bus::RuntimeEventBus::new(10));
+    app.event_bus = Some(bus.clone());
+    app.prompt_source_registry = Some(Arc::new(crate::protocol_sources::PromptSourceRegistry::new(bus.clone())));
+    app.skill_source_registry = Some(Arc::new(crate::protocol_sources::SkillSourceRegistry::new(bus.clone())));
+    app.hook_registry = Some(Arc::new(crate::hook_registry::HookRegistry::new(bus.clone())));
+    app.mcp_manager = Some(Arc::new(crate::mcp_connection_manager::McpConnectionManager::new(
+        Arc::new(crate::config::McpRegistry::empty()),
+        bus.clone(),
+        crate::mcp_tool_cache::McpToolCache::new(),
+    )));
+    app.memory_handler = Some(Arc::new(crate::protocol_sources::MemoryControlHandler::new(bus.clone())));
+
 
     assert!(matches!(
         map_key_to_event(shifted_key(KeyCode::Enter), &app),
@@ -772,7 +1024,19 @@ fn arrow_keys_and_home_end_map_to_composer_cursor_events() {
     let mut app = TuiApp::new(ConfigManager {
         path: temp.path().join("config.json"),
     })
-    .expect("app");
+    .expect("build tui app");
+    let bus = Arc::new(crate::runtime_event_bus::RuntimeEventBus::new(10));
+    app.event_bus = Some(bus.clone());
+    app.prompt_source_registry = Some(Arc::new(crate::protocol_sources::PromptSourceRegistry::new(bus.clone())));
+    app.skill_source_registry = Some(Arc::new(crate::protocol_sources::SkillSourceRegistry::new(bus.clone())));
+    app.hook_registry = Some(Arc::new(crate::hook_registry::HookRegistry::new(bus.clone())));
+    app.mcp_manager = Some(Arc::new(crate::mcp_connection_manager::McpConnectionManager::new(
+        Arc::new(crate::config::McpRegistry::empty()),
+        bus.clone(),
+        crate::mcp_tool_cache::McpToolCache::new(),
+    )));
+    app.memory_handler = Some(Arc::new(crate::protocol_sources::MemoryControlHandler::new(bus.clone())));
+
     app.bottom_pane.input = "hello".into();
 
     assert!(matches!(
@@ -807,7 +1071,19 @@ fn empty_composer_uses_up_down_for_input_history_when_available() {
     let mut app = TuiApp::new(ConfigManager {
         path: temp.path().join("config.json"),
     })
-    .expect("app");
+    .expect("build tui app");
+    let bus = Arc::new(crate::runtime_event_bus::RuntimeEventBus::new(10));
+    app.event_bus = Some(bus.clone());
+    app.prompt_source_registry = Some(Arc::new(crate::protocol_sources::PromptSourceRegistry::new(bus.clone())));
+    app.skill_source_registry = Some(Arc::new(crate::protocol_sources::SkillSourceRegistry::new(bus.clone())));
+    app.hook_registry = Some(Arc::new(crate::hook_registry::HookRegistry::new(bus.clone())));
+    app.mcp_manager = Some(Arc::new(crate::mcp_connection_manager::McpConnectionManager::new(
+        Arc::new(crate::config::McpRegistry::empty()),
+        bus.clone(),
+        crate::mcp_tool_cache::McpToolCache::new(),
+    )));
+    app.memory_handler = Some(Arc::new(crate::protocol_sources::MemoryControlHandler::new(bus.clone())));
+
     app.record_input_history("previous request");
 
     assert!(matches!(
@@ -826,7 +1102,19 @@ fn empty_composer_keeps_vim_keys_for_transcript_scroll() {
     let mut app = TuiApp::new(ConfigManager {
         path: temp.path().join("config.json"),
     })
-    .expect("app");
+    .expect("build tui app");
+    let bus = Arc::new(crate::runtime_event_bus::RuntimeEventBus::new(10));
+    app.event_bus = Some(bus.clone());
+    app.prompt_source_registry = Some(Arc::new(crate::protocol_sources::PromptSourceRegistry::new(bus.clone())));
+    app.skill_source_registry = Some(Arc::new(crate::protocol_sources::SkillSourceRegistry::new(bus.clone())));
+    app.hook_registry = Some(Arc::new(crate::hook_registry::HookRegistry::new(bus.clone())));
+    app.mcp_manager = Some(Arc::new(crate::mcp_connection_manager::McpConnectionManager::new(
+        Arc::new(crate::config::McpRegistry::empty()),
+        bus.clone(),
+        crate::mcp_tool_cache::McpToolCache::new(),
+    )));
+    app.memory_handler = Some(Arc::new(crate::protocol_sources::MemoryControlHandler::new(bus.clone())));
+
     app.record_input_history("previous request");
 
     assert!(matches!(
@@ -845,7 +1133,19 @@ fn input_history_navigation_recalls_previous_submissions_and_restores_draft() {
     let mut app = TuiApp::new(ConfigManager {
         path: temp.path().join("config.json"),
     })
-    .expect("app");
+    .expect("build tui app");
+    let bus = Arc::new(crate::runtime_event_bus::RuntimeEventBus::new(10));
+    app.event_bus = Some(bus.clone());
+    app.prompt_source_registry = Some(Arc::new(crate::protocol_sources::PromptSourceRegistry::new(bus.clone())));
+    app.skill_source_registry = Some(Arc::new(crate::protocol_sources::SkillSourceRegistry::new(bus.clone())));
+    app.hook_registry = Some(Arc::new(crate::hook_registry::HookRegistry::new(bus.clone())));
+    app.mcp_manager = Some(Arc::new(crate::mcp_connection_manager::McpConnectionManager::new(
+        Arc::new(crate::config::McpRegistry::empty()),
+        bus.clone(),
+        crate::mcp_tool_cache::McpToolCache::new(),
+    )));
+    app.memory_handler = Some(Arc::new(crate::protocol_sources::MemoryControlHandler::new(bus.clone())));
+
     app.record_input_history("first request");
     app.record_input_history("second request");
     app.set_input("draft".to_string());
@@ -874,7 +1174,19 @@ fn input_history_navigation_starts_from_non_empty_draft_at_start() {
     let mut app = TuiApp::new(ConfigManager {
         path: temp.path().join("config.json"),
     })
-    .expect("app");
+    .expect("build tui app");
+    let bus = Arc::new(crate::runtime_event_bus::RuntimeEventBus::new(10));
+    app.event_bus = Some(bus.clone());
+    app.prompt_source_registry = Some(Arc::new(crate::protocol_sources::PromptSourceRegistry::new(bus.clone())));
+    app.skill_source_registry = Some(Arc::new(crate::protocol_sources::SkillSourceRegistry::new(bus.clone())));
+    app.hook_registry = Some(Arc::new(crate::hook_registry::HookRegistry::new(bus.clone())));
+    app.mcp_manager = Some(Arc::new(crate::mcp_connection_manager::McpConnectionManager::new(
+        Arc::new(crate::config::McpRegistry::empty()),
+        bus.clone(),
+        crate::mcp_tool_cache::McpToolCache::new(),
+    )));
+    app.memory_handler = Some(Arc::new(crate::protocol_sources::MemoryControlHandler::new(bus.clone())));
+
     app.record_input_history("previous request");
     app.set_input("draft".to_string());
     app.bottom_pane.input_cursor_offset = Some(0);
@@ -896,7 +1208,19 @@ fn input_history_keeps_recent_entries_bounded() {
     let mut app = TuiApp::new(ConfigManager {
         path: temp.path().join("config.json"),
     })
-    .expect("app");
+    .expect("build tui app");
+    let bus = Arc::new(crate::runtime_event_bus::RuntimeEventBus::new(10));
+    app.event_bus = Some(bus.clone());
+    app.prompt_source_registry = Some(Arc::new(crate::protocol_sources::PromptSourceRegistry::new(bus.clone())));
+    app.skill_source_registry = Some(Arc::new(crate::protocol_sources::SkillSourceRegistry::new(bus.clone())));
+    app.hook_registry = Some(Arc::new(crate::hook_registry::HookRegistry::new(bus.clone())));
+    app.mcp_manager = Some(Arc::new(crate::mcp_connection_manager::McpConnectionManager::new(
+        Arc::new(crate::config::McpRegistry::empty()),
+        bus.clone(),
+        crate::mcp_tool_cache::McpToolCache::new(),
+    )));
+    app.memory_handler = Some(Arc::new(crate::protocol_sources::MemoryControlHandler::new(bus.clone())));
+
 
     for idx in 0..250 {
         app.record_input_history(&format!("request {idx}"));
@@ -919,7 +1243,19 @@ fn input_history_navigation_keeps_multiline_cursor_movement_for_unrecalled_text(
     let mut app = TuiApp::new(ConfigManager {
         path: temp.path().join("config.json"),
     })
-    .expect("app");
+    .expect("build tui app");
+    let bus = Arc::new(crate::runtime_event_bus::RuntimeEventBus::new(10));
+    app.event_bus = Some(bus.clone());
+    app.prompt_source_registry = Some(Arc::new(crate::protocol_sources::PromptSourceRegistry::new(bus.clone())));
+    app.skill_source_registry = Some(Arc::new(crate::protocol_sources::SkillSourceRegistry::new(bus.clone())));
+    app.hook_registry = Some(Arc::new(crate::hook_registry::HookRegistry::new(bus.clone())));
+    app.mcp_manager = Some(Arc::new(crate::mcp_connection_manager::McpConnectionManager::new(
+        Arc::new(crate::config::McpRegistry::empty()),
+        bus.clone(),
+        crate::mcp_tool_cache::McpToolCache::new(),
+    )));
+    app.memory_handler = Some(Arc::new(crate::protocol_sources::MemoryControlHandler::new(bus.clone())));
+
     app.record_input_history("previous request");
     app.set_input("line one\nline two".to_string());
     app.bottom_pane.input_cursor_offset = Some("line one\nline".chars().count());
@@ -937,10 +1273,22 @@ fn input_history_navigation_keeps_multiline_cursor_movement_for_unrecalled_text(
 #[test]
 fn mouse_wheel_scrolls_transcript() {
     let temp = tempdir().expect("tempdir");
-    let app = TuiApp::new(ConfigManager {
+    let mut app = TuiApp::new(ConfigManager {
         path: temp.path().join("config.json"),
     })
-    .expect("app");
+    .expect("build tui app");
+    let bus = Arc::new(crate::runtime_event_bus::RuntimeEventBus::new(10));
+    app.event_bus = Some(bus.clone());
+    app.prompt_source_registry = Some(Arc::new(crate::protocol_sources::PromptSourceRegistry::new(bus.clone())));
+    app.skill_source_registry = Some(Arc::new(crate::protocol_sources::SkillSourceRegistry::new(bus.clone())));
+    app.hook_registry = Some(Arc::new(crate::hook_registry::HookRegistry::new(bus.clone())));
+    app.mcp_manager = Some(Arc::new(crate::mcp_connection_manager::McpConnectionManager::new(
+        Arc::new(crate::config::McpRegistry::empty()),
+        bus.clone(),
+        crate::mcp_tool_cache::McpToolCache::new(),
+    )));
+    app.memory_handler = Some(Arc::new(crate::protocol_sources::MemoryControlHandler::new(bus.clone())));
+
 
     // First scroll without prior events → base 3 lines (factor 1.0).
     match translate_event(mouse_scroll(MouseEventKind::ScrollUp), &app) {
@@ -963,7 +1311,19 @@ fn mouse_wheel_does_not_scroll_transcript_behind_overlay() {
     let mut app = TuiApp::new(ConfigManager {
         path: temp.path().join("config.json"),
     })
-    .expect("app");
+    .expect("build tui app");
+    let bus = Arc::new(crate::runtime_event_bus::RuntimeEventBus::new(10));
+    app.event_bus = Some(bus.clone());
+    app.prompt_source_registry = Some(Arc::new(crate::protocol_sources::PromptSourceRegistry::new(bus.clone())));
+    app.skill_source_registry = Some(Arc::new(crate::protocol_sources::SkillSourceRegistry::new(bus.clone())));
+    app.hook_registry = Some(Arc::new(crate::hook_registry::HookRegistry::new(bus.clone())));
+    app.mcp_manager = Some(Arc::new(crate::mcp_connection_manager::McpConnectionManager::new(
+        Arc::new(crate::config::McpRegistry::empty()),
+        bus.clone(),
+        crate::mcp_tool_cache::McpToolCache::new(),
+    )));
+    app.memory_handler = Some(Arc::new(crate::protocol_sources::MemoryControlHandler::new(bus.clone())));
+
     app.open_overlay(Overlay::CommandPalette);
 
     match translate_event(mouse_scroll(MouseEventKind::ScrollUp), &app) {
@@ -978,7 +1338,19 @@ async fn composer_supports_mid_input_insertion_and_backspace() {
     let mut app = TuiApp::new(ConfigManager {
         path: temp.path().join("config.json"),
     })
-    .expect("app");
+    .expect("build tui app");
+    let bus = Arc::new(crate::runtime_event_bus::RuntimeEventBus::new(10));
+    app.event_bus = Some(bus.clone());
+    app.prompt_source_registry = Some(Arc::new(crate::protocol_sources::PromptSourceRegistry::new(bus.clone())));
+    app.skill_source_registry = Some(Arc::new(crate::protocol_sources::SkillSourceRegistry::new(bus.clone())));
+    app.hook_registry = Some(Arc::new(crate::hook_registry::HookRegistry::new(bus.clone())));
+    app.mcp_manager = Some(Arc::new(crate::mcp_connection_manager::McpConnectionManager::new(
+        Arc::new(crate::config::McpRegistry::empty()),
+        bus.clone(),
+        crate::mcp_tool_cache::McpToolCache::new(),
+    )));
+    app.memory_handler = Some(Arc::new(crate::protocol_sources::MemoryControlHandler::new(bus.clone())));
+
     app.set_input("helo".to_string());
 
     let oauth_manager = Arc::new(
@@ -1024,7 +1396,19 @@ async fn paste_inserts_at_current_cursor_offset() {
     let mut app = TuiApp::new(ConfigManager {
         path: temp.path().join("config.json"),
     })
-    .expect("app");
+    .expect("build tui app");
+    let bus = Arc::new(crate::runtime_event_bus::RuntimeEventBus::new(10));
+    app.event_bus = Some(bus.clone());
+    app.prompt_source_registry = Some(Arc::new(crate::protocol_sources::PromptSourceRegistry::new(bus.clone())));
+    app.skill_source_registry = Some(Arc::new(crate::protocol_sources::SkillSourceRegistry::new(bus.clone())));
+    app.hook_registry = Some(Arc::new(crate::hook_registry::HookRegistry::new(bus.clone())));
+    app.mcp_manager = Some(Arc::new(crate::mcp_connection_manager::McpConnectionManager::new(
+        Arc::new(crate::config::McpRegistry::empty()),
+        bus.clone(),
+        crate::mcp_tool_cache::McpToolCache::new(),
+    )));
+    app.memory_handler = Some(Arc::new(crate::protocol_sources::MemoryControlHandler::new(bus.clone())));
+
     app.set_input("helo".to_string());
     app.move_active_input_cursor_left();
 
@@ -1040,7 +1424,19 @@ async fn paste_normalizes_crlf_and_cr_newlines() {
     let mut app = TuiApp::new(ConfigManager {
         path: temp.path().join("config.json"),
     })
-    .expect("app");
+    .expect("build tui app");
+    let bus = Arc::new(crate::runtime_event_bus::RuntimeEventBus::new(10));
+    app.event_bus = Some(bus.clone());
+    app.prompt_source_registry = Some(Arc::new(crate::protocol_sources::PromptSourceRegistry::new(bus.clone())));
+    app.skill_source_registry = Some(Arc::new(crate::protocol_sources::SkillSourceRegistry::new(bus.clone())));
+    app.hook_registry = Some(Arc::new(crate::hook_registry::HookRegistry::new(bus.clone())));
+    app.mcp_manager = Some(Arc::new(crate::mcp_connection_manager::McpConnectionManager::new(
+        Arc::new(crate::config::McpRegistry::empty()),
+        bus.clone(),
+        crate::mcp_tool_cache::McpToolCache::new(),
+    )));
+    app.memory_handler = Some(Arc::new(crate::protocol_sources::MemoryControlHandler::new(bus.clone())));
+
 
     super::terminal_ui::handle_paste("first\r\nsecond\rthird".to_string(), &mut app);
 
@@ -1054,10 +1450,22 @@ async fn paste_normalizes_crlf_and_cr_newlines() {
 #[test]
 fn crossterm_paste_event_uses_paste_channel() {
     let temp = tempdir().expect("tempdir");
-    let app = TuiApp::new(ConfigManager {
+    let mut app = TuiApp::new(ConfigManager {
         path: temp.path().join("config.json"),
     })
-    .expect("app");
+    .expect("build tui app");
+    let bus = Arc::new(crate::runtime_event_bus::RuntimeEventBus::new(10));
+    app.event_bus = Some(bus.clone());
+    app.prompt_source_registry = Some(Arc::new(crate::protocol_sources::PromptSourceRegistry::new(bus.clone())));
+    app.skill_source_registry = Some(Arc::new(crate::protocol_sources::SkillSourceRegistry::new(bus.clone())));
+    app.hook_registry = Some(Arc::new(crate::hook_registry::HookRegistry::new(bus.clone())));
+    app.mcp_manager = Some(Arc::new(crate::mcp_connection_manager::McpConnectionManager::new(
+        Arc::new(crate::config::McpRegistry::empty()),
+        bus.clone(),
+        crate::mcp_tool_cache::McpToolCache::new(),
+    )));
+    app.memory_handler = Some(Arc::new(crate::protocol_sources::MemoryControlHandler::new(bus.clone())));
+
 
     match translate_event(Event::Paste("first\nsecond".to_string()), &app) {
         Some(UiEvent::Paste(text)) => assert_eq!(text, "first\nsecond"),
@@ -1071,7 +1479,19 @@ async fn composer_supports_vertical_cursor_navigation_across_lines() {
     let mut app = TuiApp::new(ConfigManager {
         path: temp.path().join("config.json"),
     })
-    .expect("app");
+    .expect("build tui app");
+    let bus = Arc::new(crate::runtime_event_bus::RuntimeEventBus::new(10));
+    app.event_bus = Some(bus.clone());
+    app.prompt_source_registry = Some(Arc::new(crate::protocol_sources::PromptSourceRegistry::new(bus.clone())));
+    app.skill_source_registry = Some(Arc::new(crate::protocol_sources::SkillSourceRegistry::new(bus.clone())));
+    app.hook_registry = Some(Arc::new(crate::hook_registry::HookRegistry::new(bus.clone())));
+    app.mcp_manager = Some(Arc::new(crate::mcp_connection_manager::McpConnectionManager::new(
+        Arc::new(crate::config::McpRegistry::empty()),
+        bus.clone(),
+        crate::mcp_tool_cache::McpToolCache::new(),
+    )));
+    app.memory_handler = Some(Arc::new(crate::protocol_sources::MemoryControlHandler::new(bus.clone())));
+
     app.terminal_width = 12;
     app.set_input("abcd\nefgh".to_string());
     app.bottom_pane.input_cursor_offset = Some("abcd\nef".chars().count());
@@ -1130,7 +1550,19 @@ async fn openai_model_picker_delete_row_removes_active_profile() {
     let mut app = TuiApp::new(ConfigManager {
         path: temp.path().join("config.json"),
     })
-    .expect("app");
+    .expect("build tui app");
+    let bus = Arc::new(crate::runtime_event_bus::RuntimeEventBus::new(10));
+    app.event_bus = Some(bus.clone());
+    app.prompt_source_registry = Some(Arc::new(crate::protocol_sources::PromptSourceRegistry::new(bus.clone())));
+    app.skill_source_registry = Some(Arc::new(crate::protocol_sources::SkillSourceRegistry::new(bus.clone())));
+    app.hook_registry = Some(Arc::new(crate::hook_registry::HookRegistry::new(bus.clone())));
+    app.mcp_manager = Some(Arc::new(crate::mcp_connection_manager::McpConnectionManager::new(
+        Arc::new(crate::config::McpRegistry::empty()),
+        bus.clone(),
+        crate::mcp_tool_cache::McpToolCache::new(),
+    )));
+    app.memory_handler = Some(Arc::new(crate::protocol_sources::MemoryControlHandler::new(bus.clone())));
+
     app.provider_picker_idx = provider_family_idx(ProviderFamily::OpenAiCompatible);
     app.config.select_openai_profile(
         "custom-default",
@@ -1183,7 +1615,19 @@ async fn openai_model_picker_space_activates_selected_profile_and_starts_setup_w
     let mut app = TuiApp::new(ConfigManager {
         path: temp.path().join("config.json"),
     })
-    .expect("app");
+    .expect("build tui app");
+    let bus = Arc::new(crate::runtime_event_bus::RuntimeEventBus::new(10));
+    app.event_bus = Some(bus.clone());
+    app.prompt_source_registry = Some(Arc::new(crate::protocol_sources::PromptSourceRegistry::new(bus.clone())));
+    app.skill_source_registry = Some(Arc::new(crate::protocol_sources::SkillSourceRegistry::new(bus.clone())));
+    app.hook_registry = Some(Arc::new(crate::hook_registry::HookRegistry::new(bus.clone())));
+    app.mcp_manager = Some(Arc::new(crate::mcp_connection_manager::McpConnectionManager::new(
+        Arc::new(crate::config::McpRegistry::empty()),
+        bus.clone(),
+        crate::mcp_tool_cache::McpToolCache::new(),
+    )));
+    app.memory_handler = Some(Arc::new(crate::protocol_sources::MemoryControlHandler::new(bus.clone())));
+
     app.provider_picker_idx = provider_family_idx(ProviderFamily::OpenAiCompatible);
     app.open_overlay(Overlay::ListPicker(ListPickerKind::Model));
 
@@ -1225,7 +1669,19 @@ async fn deepseek_provider_family_prompts_for_api_key_before_model_list() {
     let mut app = TuiApp::new(ConfigManager {
         path: temp.path().join("config.json"),
     })
-    .expect("app");
+    .expect("build tui app");
+    let bus = Arc::new(crate::runtime_event_bus::RuntimeEventBus::new(10));
+    app.event_bus = Some(bus.clone());
+    app.prompt_source_registry = Some(Arc::new(crate::protocol_sources::PromptSourceRegistry::new(bus.clone())));
+    app.skill_source_registry = Some(Arc::new(crate::protocol_sources::SkillSourceRegistry::new(bus.clone())));
+    app.hook_registry = Some(Arc::new(crate::hook_registry::HookRegistry::new(bus.clone())));
+    app.mcp_manager = Some(Arc::new(crate::mcp_connection_manager::McpConnectionManager::new(
+        Arc::new(crate::config::McpRegistry::empty()),
+        bus.clone(),
+        crate::mcp_tool_cache::McpToolCache::new(),
+    )));
+    app.memory_handler = Some(Arc::new(crate::protocol_sources::MemoryControlHandler::new(bus.clone())));
+
     let oauth_manager = crate::oauth::OAuthManager::new_for_config_dir(temp.path().join(".rara"))
         .expect("oauth manager");
     app.provider_picker_idx = provider_family_idx(ProviderFamily::DeepSeek);
@@ -1247,7 +1703,19 @@ async fn deepseek_api_key_save_starts_model_catalog_task() {
     let mut app = TuiApp::new(ConfigManager {
         path: temp.path().join("config.json"),
     })
-    .expect("app");
+    .expect("build tui app");
+    let bus = Arc::new(crate::runtime_event_bus::RuntimeEventBus::new(10));
+    app.event_bus = Some(bus.clone());
+    app.prompt_source_registry = Some(Arc::new(crate::protocol_sources::PromptSourceRegistry::new(bus.clone())));
+    app.skill_source_registry = Some(Arc::new(crate::protocol_sources::SkillSourceRegistry::new(bus.clone())));
+    app.hook_registry = Some(Arc::new(crate::hook_registry::HookRegistry::new(bus.clone())));
+    app.mcp_manager = Some(Arc::new(crate::mcp_connection_manager::McpConnectionManager::new(
+        Arc::new(crate::config::McpRegistry::empty()),
+        bus.clone(),
+        crate::mcp_tool_cache::McpToolCache::new(),
+    )));
+    app.memory_handler = Some(Arc::new(crate::protocol_sources::MemoryControlHandler::new(bus.clone())));
+
     app.provider_picker_idx = provider_family_idx(ProviderFamily::DeepSeek);
     app.config
         .select_openai_profile("deepseek-default", "DeepSeek", OpenAiEndpointKind::Deepseek);
@@ -1285,7 +1753,19 @@ async fn deepseek_model_picker_enter_without_api_key_opens_api_key_editor() {
     let mut app = TuiApp::new(ConfigManager {
         path: temp.path().join("config.json"),
     })
-    .expect("app");
+    .expect("build tui app");
+    let bus = Arc::new(crate::runtime_event_bus::RuntimeEventBus::new(10));
+    app.event_bus = Some(bus.clone());
+    app.prompt_source_registry = Some(Arc::new(crate::protocol_sources::PromptSourceRegistry::new(bus.clone())));
+    app.skill_source_registry = Some(Arc::new(crate::protocol_sources::SkillSourceRegistry::new(bus.clone())));
+    app.hook_registry = Some(Arc::new(crate::hook_registry::HookRegistry::new(bus.clone())));
+    app.mcp_manager = Some(Arc::new(crate::mcp_connection_manager::McpConnectionManager::new(
+        Arc::new(crate::config::McpRegistry::empty()),
+        bus.clone(),
+        crate::mcp_tool_cache::McpToolCache::new(),
+    )));
+    app.memory_handler = Some(Arc::new(crate::protocol_sources::MemoryControlHandler::new(bus.clone())));
+
     app.provider_picker_idx = provider_family_idx(ProviderFamily::DeepSeek);
     app.config
         .select_openai_profile("deepseek-default", "DeepSeek", OpenAiEndpointKind::Deepseek);
@@ -1317,7 +1797,19 @@ async fn deepseek_model_picker_api_key_action_opens_editor_even_when_key_exists(
     let mut app = TuiApp::new(ConfigManager {
         path: temp.path().join("config.json"),
     })
-    .expect("app");
+    .expect("build tui app");
+    let bus = Arc::new(crate::runtime_event_bus::RuntimeEventBus::new(10));
+    app.event_bus = Some(bus.clone());
+    app.prompt_source_registry = Some(Arc::new(crate::protocol_sources::PromptSourceRegistry::new(bus.clone())));
+    app.skill_source_registry = Some(Arc::new(crate::protocol_sources::SkillSourceRegistry::new(bus.clone())));
+    app.hook_registry = Some(Arc::new(crate::hook_registry::HookRegistry::new(bus.clone())));
+    app.mcp_manager = Some(Arc::new(crate::mcp_connection_manager::McpConnectionManager::new(
+        Arc::new(crate::config::McpRegistry::empty()),
+        bus.clone(),
+        crate::mcp_tool_cache::McpToolCache::new(),
+    )));
+    app.memory_handler = Some(Arc::new(crate::protocol_sources::MemoryControlHandler::new(bus.clone())));
+
     app.provider_picker_idx = provider_family_idx(ProviderFamily::DeepSeek);
     app.config
         .select_openai_profile("deepseek-default", "DeepSeek", OpenAiEndpointKind::Deepseek);
@@ -1351,7 +1843,19 @@ async fn openai_model_picker_edit_shortcut_starts_wizard_for_selected_profile() 
     let mut app = TuiApp::new(ConfigManager {
         path: temp.path().join("config.json"),
     })
-    .expect("app");
+    .expect("build tui app");
+    let bus = Arc::new(crate::runtime_event_bus::RuntimeEventBus::new(10));
+    app.event_bus = Some(bus.clone());
+    app.prompt_source_registry = Some(Arc::new(crate::protocol_sources::PromptSourceRegistry::new(bus.clone())));
+    app.skill_source_registry = Some(Arc::new(crate::protocol_sources::SkillSourceRegistry::new(bus.clone())));
+    app.hook_registry = Some(Arc::new(crate::hook_registry::HookRegistry::new(bus.clone())));
+    app.mcp_manager = Some(Arc::new(crate::mcp_connection_manager::McpConnectionManager::new(
+        Arc::new(crate::config::McpRegistry::empty()),
+        bus.clone(),
+        crate::mcp_tool_cache::McpToolCache::new(),
+    )));
+    app.memory_handler = Some(Arc::new(crate::protocol_sources::MemoryControlHandler::new(bus.clone())));
+
     app.provider_picker_idx = provider_family_idx(ProviderFamily::OpenAiCompatible);
     app.config.select_openai_profile(
         "custom-default",
@@ -1398,7 +1902,19 @@ async fn openai_profile_edit_wizard_keeps_existing_api_key_when_blank() {
     let mut app = TuiApp::new(ConfigManager {
         path: temp.path().join("config.json"),
     })
-    .expect("app");
+    .expect("build tui app");
+    let bus = Arc::new(crate::runtime_event_bus::RuntimeEventBus::new(10));
+    app.event_bus = Some(bus.clone());
+    app.prompt_source_registry = Some(Arc::new(crate::protocol_sources::PromptSourceRegistry::new(bus.clone())));
+    app.skill_source_registry = Some(Arc::new(crate::protocol_sources::SkillSourceRegistry::new(bus.clone())));
+    app.hook_registry = Some(Arc::new(crate::hook_registry::HookRegistry::new(bus.clone())));
+    app.mcp_manager = Some(Arc::new(crate::mcp_connection_manager::McpConnectionManager::new(
+        Arc::new(crate::config::McpRegistry::empty()),
+        bus.clone(),
+        crate::mcp_tool_cache::McpToolCache::new(),
+    )));
+    app.memory_handler = Some(Arc::new(crate::protocol_sources::MemoryControlHandler::new(bus.clone())));
+
     app.provider_picker_idx = provider_family_idx(ProviderFamily::OpenAiCompatible);
     app.config.select_openai_profile(
         "openrouter-default",
@@ -1454,7 +1970,19 @@ async fn openai_model_picker_create_shortcut_opens_endpoint_kind_picker() {
     let mut app = TuiApp::new(ConfigManager {
         path: temp.path().join("config.json"),
     })
-    .expect("app");
+    .expect("build tui app");
+    let bus = Arc::new(crate::runtime_event_bus::RuntimeEventBus::new(10));
+    app.event_bus = Some(bus.clone());
+    app.prompt_source_registry = Some(Arc::new(crate::protocol_sources::PromptSourceRegistry::new(bus.clone())));
+    app.skill_source_registry = Some(Arc::new(crate::protocol_sources::SkillSourceRegistry::new(bus.clone())));
+    app.hook_registry = Some(Arc::new(crate::hook_registry::HookRegistry::new(bus.clone())));
+    app.mcp_manager = Some(Arc::new(crate::mcp_connection_manager::McpConnectionManager::new(
+        Arc::new(crate::config::McpRegistry::empty()),
+        bus.clone(),
+        crate::mcp_tool_cache::McpToolCache::new(),
+    )));
+    app.memory_handler = Some(Arc::new(crate::protocol_sources::MemoryControlHandler::new(bus.clone())));
+
     app.provider_picker_idx = provider_family_idx(ProviderFamily::OpenAiCompatible);
     app.open_overlay(Overlay::ListPicker(ListPickerKind::Model));
 
@@ -1483,7 +2011,19 @@ async fn selecting_custom_endpoint_kind_prompts_for_profile_label() {
     let mut app = TuiApp::new(ConfigManager {
         path: temp.path().join("config.json"),
     })
-    .expect("app");
+    .expect("build tui app");
+    let bus = Arc::new(crate::runtime_event_bus::RuntimeEventBus::new(10));
+    app.event_bus = Some(bus.clone());
+    app.prompt_source_registry = Some(Arc::new(crate::protocol_sources::PromptSourceRegistry::new(bus.clone())));
+    app.skill_source_registry = Some(Arc::new(crate::protocol_sources::SkillSourceRegistry::new(bus.clone())));
+    app.hook_registry = Some(Arc::new(crate::hook_registry::HookRegistry::new(bus.clone())));
+    app.mcp_manager = Some(Arc::new(crate::mcp_connection_manager::McpConnectionManager::new(
+        Arc::new(crate::config::McpRegistry::empty()),
+        bus.clone(),
+        crate::mcp_tool_cache::McpToolCache::new(),
+    )));
+    app.memory_handler = Some(Arc::new(crate::protocol_sources::MemoryControlHandler::new(bus.clone())));
+
     app.provider_picker_idx = provider_family_idx(ProviderFamily::OpenAiCompatible);
     app.overlay = Some(Overlay::ListPicker(ListPickerKind::OpenAiEndpointKind));
     app.openai_endpoint_kind_picker_idx = 0;
@@ -1519,7 +2059,19 @@ async fn selecting_openai_profile_from_picker_switches_active_profile() {
     let mut app = TuiApp::new(ConfigManager {
         path: temp.path().join("config.json"),
     })
-    .expect("app");
+    .expect("build tui app");
+    let bus = Arc::new(crate::runtime_event_bus::RuntimeEventBus::new(10));
+    app.event_bus = Some(bus.clone());
+    app.prompt_source_registry = Some(Arc::new(crate::protocol_sources::PromptSourceRegistry::new(bus.clone())));
+    app.skill_source_registry = Some(Arc::new(crate::protocol_sources::SkillSourceRegistry::new(bus.clone())));
+    app.hook_registry = Some(Arc::new(crate::hook_registry::HookRegistry::new(bus.clone())));
+    app.mcp_manager = Some(Arc::new(crate::mcp_connection_manager::McpConnectionManager::new(
+        Arc::new(crate::config::McpRegistry::empty()),
+        bus.clone(),
+        crate::mcp_tool_cache::McpToolCache::new(),
+    )));
+    app.memory_handler = Some(Arc::new(crate::protocol_sources::MemoryControlHandler::new(bus.clone())));
+
     app.provider_picker_idx = provider_family_idx(ProviderFamily::OpenAiCompatible);
     app.config.select_openai_profile(
         "openrouter-main",
@@ -1566,7 +2118,19 @@ async fn saving_openai_profile_label_creates_new_openrouter_profile() {
     let mut app = TuiApp::new(ConfigManager {
         path: temp.path().join("config.json"),
     })
-    .expect("app");
+    .expect("build tui app");
+    let bus = Arc::new(crate::runtime_event_bus::RuntimeEventBus::new(10));
+    app.event_bus = Some(bus.clone());
+    app.prompt_source_registry = Some(Arc::new(crate::protocol_sources::PromptSourceRegistry::new(bus.clone())));
+    app.skill_source_registry = Some(Arc::new(crate::protocol_sources::SkillSourceRegistry::new(bus.clone())));
+    app.hook_registry = Some(Arc::new(crate::hook_registry::HookRegistry::new(bus.clone())));
+    app.mcp_manager = Some(Arc::new(crate::mcp_connection_manager::McpConnectionManager::new(
+        Arc::new(crate::config::McpRegistry::empty()),
+        bus.clone(),
+        crate::mcp_tool_cache::McpToolCache::new(),
+    )));
+    app.memory_handler = Some(Arc::new(crate::protocol_sources::MemoryControlHandler::new(bus.clone())));
+
     app.provider_picker_idx = provider_family_idx(ProviderFamily::OpenAiCompatible);
     app.config.select_openai_profile(
         "openrouter-default",
@@ -1625,7 +2189,19 @@ async fn save_api_key_input_allows_clearing_openai_compatible_credentials() {
     let mut app = TuiApp::new(ConfigManager {
         path: temp.path().join("config.json"),
     })
-    .expect("app");
+    .expect("build tui app");
+    let bus = Arc::new(crate::runtime_event_bus::RuntimeEventBus::new(10));
+    app.event_bus = Some(bus.clone());
+    app.prompt_source_registry = Some(Arc::new(crate::protocol_sources::PromptSourceRegistry::new(bus.clone())));
+    app.skill_source_registry = Some(Arc::new(crate::protocol_sources::SkillSourceRegistry::new(bus.clone())));
+    app.hook_registry = Some(Arc::new(crate::hook_registry::HookRegistry::new(bus.clone())));
+    app.mcp_manager = Some(Arc::new(crate::mcp_connection_manager::McpConnectionManager::new(
+        Arc::new(crate::config::McpRegistry::empty()),
+        bus.clone(),
+        crate::mcp_tool_cache::McpToolCache::new(),
+    )));
+    app.memory_handler = Some(Arc::new(crate::protocol_sources::MemoryControlHandler::new(bus.clone())));
+
     app.config.set_provider("openai-compatible");
     app.config.set_api_key("sk-existing");
     app.open_overlay(Overlay::ApiKeyEditor);
@@ -1659,10 +2235,22 @@ async fn save_api_key_input_allows_clearing_openai_compatible_credentials() {
 #[test]
 fn codex_auth_detection_uses_saved_auth_storage() {
     let temp = tempdir().expect("tempdir");
-    let app = TuiApp::new(ConfigManager {
+    let mut app = TuiApp::new(ConfigManager {
         path: temp.path().join("config.json"),
     })
-    .expect("app");
+    .expect("build tui app");
+    let bus = Arc::new(crate::runtime_event_bus::RuntimeEventBus::new(10));
+    app.event_bus = Some(bus.clone());
+    app.prompt_source_registry = Some(Arc::new(crate::protocol_sources::PromptSourceRegistry::new(bus.clone())));
+    app.skill_source_registry = Some(Arc::new(crate::protocol_sources::SkillSourceRegistry::new(bus.clone())));
+    app.hook_registry = Some(Arc::new(crate::hook_registry::HookRegistry::new(bus.clone())));
+    app.mcp_manager = Some(Arc::new(crate::mcp_connection_manager::McpConnectionManager::new(
+        Arc::new(crate::config::McpRegistry::empty()),
+        bus.clone(),
+        crate::mcp_tool_cache::McpToolCache::new(),
+    )));
+    app.memory_handler = Some(Arc::new(crate::protocol_sources::MemoryControlHandler::new(bus.clone())));
+
     let oauth_manager = crate::oauth::OAuthManager::new_for_config_dir(temp.path().join(".rara"))
         .expect("oauth manager");
 
@@ -1680,7 +2268,19 @@ async fn codex_provider_family_routes_to_auth_picker_without_saved_login() {
     let mut app = TuiApp::new(ConfigManager {
         path: temp.path().join("config.json"),
     })
-    .expect("app");
+    .expect("build tui app");
+    let bus = Arc::new(crate::runtime_event_bus::RuntimeEventBus::new(10));
+    app.event_bus = Some(bus.clone());
+    app.prompt_source_registry = Some(Arc::new(crate::protocol_sources::PromptSourceRegistry::new(bus.clone())));
+    app.skill_source_registry = Some(Arc::new(crate::protocol_sources::SkillSourceRegistry::new(bus.clone())));
+    app.hook_registry = Some(Arc::new(crate::hook_registry::HookRegistry::new(bus.clone())));
+    app.mcp_manager = Some(Arc::new(crate::mcp_connection_manager::McpConnectionManager::new(
+        Arc::new(crate::config::McpRegistry::empty()),
+        bus.clone(),
+        crate::mcp_tool_cache::McpToolCache::new(),
+    )));
+    app.memory_handler = Some(Arc::new(crate::protocol_sources::MemoryControlHandler::new(bus.clone())));
+
     let oauth_manager = crate::oauth::OAuthManager::new_for_config_dir(temp.path().join(".rara"))
         .expect("oauth manager");
     app.provider_picker_idx = 0;
@@ -1700,7 +2300,19 @@ async fn codex_provider_family_routes_to_model_picker_with_saved_login() {
     let mut app = TuiApp::new(ConfigManager {
         path: temp.path().join("config.json"),
     })
-    .expect("app");
+    .expect("build tui app");
+    let bus = Arc::new(crate::runtime_event_bus::RuntimeEventBus::new(10));
+    app.event_bus = Some(bus.clone());
+    app.prompt_source_registry = Some(Arc::new(crate::protocol_sources::PromptSourceRegistry::new(bus.clone())));
+    app.skill_source_registry = Some(Arc::new(crate::protocol_sources::SkillSourceRegistry::new(bus.clone())));
+    app.hook_registry = Some(Arc::new(crate::hook_registry::HookRegistry::new(bus.clone())));
+    app.mcp_manager = Some(Arc::new(crate::mcp_connection_manager::McpConnectionManager::new(
+        Arc::new(crate::config::McpRegistry::empty()),
+        bus.clone(),
+        crate::mcp_tool_cache::McpToolCache::new(),
+    )));
+    app.memory_handler = Some(Arc::new(crate::protocol_sources::MemoryControlHandler::new(bus.clone())));
+
     let oauth_manager = crate::oauth::OAuthManager::new_for_config_dir(temp.path().join(".rara"))
         .expect("oauth manager");
     oauth_manager
@@ -1721,7 +2333,19 @@ async fn codex_provider_family_uses_saved_codex_provider_state() {
     let mut app = TuiApp::new(ConfigManager {
         path: temp.path().join("config.json"),
     })
-    .expect("app");
+    .expect("build tui app");
+    let bus = Arc::new(crate::runtime_event_bus::RuntimeEventBus::new(10));
+    app.event_bus = Some(bus.clone());
+    app.prompt_source_registry = Some(Arc::new(crate::protocol_sources::PromptSourceRegistry::new(bus.clone())));
+    app.skill_source_registry = Some(Arc::new(crate::protocol_sources::SkillSourceRegistry::new(bus.clone())));
+    app.hook_registry = Some(Arc::new(crate::hook_registry::HookRegistry::new(bus.clone())));
+    app.mcp_manager = Some(Arc::new(crate::mcp_connection_manager::McpConnectionManager::new(
+        Arc::new(crate::config::McpRegistry::empty()),
+        bus.clone(),
+        crate::mcp_tool_cache::McpToolCache::new(),
+    )));
+    app.memory_handler = Some(Arc::new(crate::protocol_sources::MemoryControlHandler::new(bus.clone())));
+
     let oauth_manager = crate::oauth::OAuthManager::new_for_config_dir(temp.path().join(".rara"))
         .expect("oauth manager");
 
@@ -1746,7 +2370,19 @@ async fn codex_model_picker_opens_reasoning_level_overlay_before_rebuild() {
     let mut app = TuiApp::new(ConfigManager {
         path: temp.path().join("config.json"),
     })
-    .expect("app");
+    .expect("build tui app");
+    let bus = Arc::new(crate::runtime_event_bus::RuntimeEventBus::new(10));
+    app.event_bus = Some(bus.clone());
+    app.prompt_source_registry = Some(Arc::new(crate::protocol_sources::PromptSourceRegistry::new(bus.clone())));
+    app.skill_source_registry = Some(Arc::new(crate::protocol_sources::SkillSourceRegistry::new(bus.clone())));
+    app.hook_registry = Some(Arc::new(crate::hook_registry::HookRegistry::new(bus.clone())));
+    app.mcp_manager = Some(Arc::new(crate::mcp_connection_manager::McpConnectionManager::new(
+        Arc::new(crate::config::McpRegistry::empty()),
+        bus.clone(),
+        crate::mcp_tool_cache::McpToolCache::new(),
+    )));
+    app.memory_handler = Some(Arc::new(crate::protocol_sources::MemoryControlHandler::new(bus.clone())));
+
     let oauth_manager = Arc::new(
         crate::oauth::OAuthManager::new_for_config_dir(temp.path().join(".rara"))
             .expect("oauth manager"),
@@ -1783,7 +2419,19 @@ async fn codex_model_picker_applies_single_reasoning_level_without_overlay() {
     let mut app = TuiApp::new(ConfigManager {
         path: temp.path().join("config.json"),
     })
-    .expect("app");
+    .expect("build tui app");
+    let bus = Arc::new(crate::runtime_event_bus::RuntimeEventBus::new(10));
+    app.event_bus = Some(bus.clone());
+    app.prompt_source_registry = Some(Arc::new(crate::protocol_sources::PromptSourceRegistry::new(bus.clone())));
+    app.skill_source_registry = Some(Arc::new(crate::protocol_sources::SkillSourceRegistry::new(bus.clone())));
+    app.hook_registry = Some(Arc::new(crate::hook_registry::HookRegistry::new(bus.clone())));
+    app.mcp_manager = Some(Arc::new(crate::mcp_connection_manager::McpConnectionManager::new(
+        Arc::new(crate::config::McpRegistry::empty()),
+        bus.clone(),
+        crate::mcp_tool_cache::McpToolCache::new(),
+    )));
+    app.memory_handler = Some(Arc::new(crate::protocol_sources::MemoryControlHandler::new(bus.clone())));
+
     app.provider_picker_idx = 0;
     app.config.set_provider("codex");
     app.set_codex_model_options(vec![CodexModelOption {
@@ -1837,7 +2485,19 @@ fn codex_auth_store_is_synced_into_config_before_model_flow() {
     let mut app = TuiApp::new(ConfigManager {
         path: temp.path().join("config.json"),
     })
-    .expect("app");
+    .expect("build tui app");
+    let bus = Arc::new(crate::runtime_event_bus::RuntimeEventBus::new(10));
+    app.event_bus = Some(bus.clone());
+    app.prompt_source_registry = Some(Arc::new(crate::protocol_sources::PromptSourceRegistry::new(bus.clone())));
+    app.skill_source_registry = Some(Arc::new(crate::protocol_sources::SkillSourceRegistry::new(bus.clone())));
+    app.hook_registry = Some(Arc::new(crate::hook_registry::HookRegistry::new(bus.clone())));
+    app.mcp_manager = Some(Arc::new(crate::mcp_connection_manager::McpConnectionManager::new(
+        Arc::new(crate::config::McpRegistry::empty()),
+        bus.clone(),
+        crate::mcp_tool_cache::McpToolCache::new(),
+    )));
+    app.memory_handler = Some(Arc::new(crate::protocol_sources::MemoryControlHandler::new(bus.clone())));
+
     let oauth_manager = crate::oauth::OAuthManager::new_for_config_dir(temp.path().join(".rara"))
         .expect("oauth manager");
     oauth_manager
@@ -1876,7 +2536,19 @@ fn codex_chatgpt_auth_store_sets_chatgpt_base_url_before_model_flow() {
     let mut app = TuiApp::new(ConfigManager {
         path: temp.path().join("config.json"),
     })
-    .expect("app");
+    .expect("build tui app");
+    let bus = Arc::new(crate::runtime_event_bus::RuntimeEventBus::new(10));
+    app.event_bus = Some(bus.clone());
+    app.prompt_source_registry = Some(Arc::new(crate::protocol_sources::PromptSourceRegistry::new(bus.clone())));
+    app.skill_source_registry = Some(Arc::new(crate::protocol_sources::SkillSourceRegistry::new(bus.clone())));
+    app.hook_registry = Some(Arc::new(crate::hook_registry::HookRegistry::new(bus.clone())));
+    app.mcp_manager = Some(Arc::new(crate::mcp_connection_manager::McpConnectionManager::new(
+        Arc::new(crate::config::McpRegistry::empty()),
+        bus.clone(),
+        crate::mcp_tool_cache::McpToolCache::new(),
+    )));
+    app.memory_handler = Some(Arc::new(crate::protocol_sources::MemoryControlHandler::new(bus.clone())));
+
     let oauth_manager = crate::oauth::OAuthManager::new_for_config_dir(temp.path().join(".rara"))
         .expect("oauth manager");
     codex_login::save_auth(
@@ -1926,7 +2598,19 @@ async fn save_api_key_input_sets_codex_defaults_before_rebuild() {
     let mut app = TuiApp::new(ConfigManager {
         path: temp.path().join("config.json"),
     })
-    .expect("app");
+    .expect("build tui app");
+    let bus = Arc::new(crate::runtime_event_bus::RuntimeEventBus::new(10));
+    app.event_bus = Some(bus.clone());
+    app.prompt_source_registry = Some(Arc::new(crate::protocol_sources::PromptSourceRegistry::new(bus.clone())));
+    app.skill_source_registry = Some(Arc::new(crate::protocol_sources::SkillSourceRegistry::new(bus.clone())));
+    app.hook_registry = Some(Arc::new(crate::hook_registry::HookRegistry::new(bus.clone())));
+    app.mcp_manager = Some(Arc::new(crate::mcp_connection_manager::McpConnectionManager::new(
+        Arc::new(crate::config::McpRegistry::empty()),
+        bus.clone(),
+        crate::mcp_tool_cache::McpToolCache::new(),
+    )));
+    app.memory_handler = Some(Arc::new(crate::protocol_sources::MemoryControlHandler::new(bus.clone())));
+
     app.config.set_provider("codex");
     app.open_overlay(Overlay::ApiKeyEditor);
     app.api_key_input = "sk-codex".into();

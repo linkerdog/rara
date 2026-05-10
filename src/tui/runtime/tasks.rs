@@ -198,19 +198,18 @@ pub(super) fn start_input_control_task(
     app.bottom_pane.notice = Some(notice);
     app.set_runtime_phase(phase, phase_detail);
 
-    let mcp_manager = app.mcp_manager.clone().expect("mcp manager must exist");
-    let prompt_registry = app
-        .prompt_source_registry
-        .clone()
-        .expect("prompt registry must exist");
-    let skill_registry = app
-        .skill_source_registry
-        .clone()
-        .expect("skill registry must exist");
-    let memory_handler = app
-        .memory_handler
-        .clone()
-        .expect("memory handler must exist");
+    let Some(mcp_manager) = app.mcp_manager.clone() else {
+        return;
+    };
+    let Some(prompt_registry) = app.prompt_source_registry.clone() else {
+        return;
+    };
+    let Some(skill_registry) = app.skill_source_registry.clone() else {
+        return;
+    };
+    let Some(memory_handler) = app.memory_handler.clone() else {
+        return;
+    };
 
     let mut agent = agent;
     agent.set_execution_mode(app.agent_execution_mode);
@@ -646,15 +645,14 @@ pub(crate) async fn finish_running_task_if_ready(
             }
             match result {
                 Ok(_) => {
+                    app.set_agent_execution_mode(agent.execution_mode);
                     let finished_plan_turn =
                         matches!(
                             app.agent_execution_mode,
                             crate::agent::AgentExecutionMode::Plan
-                        ) || matches!(agent.execution_mode, crate::agent::AgentExecutionMode::Plan);
+                        );
                     app.clear_active_live_sections();
                     if finished_plan_turn {
-                        agent.set_execution_mode(crate::agent::AgentExecutionMode::Plan);
-                        app.set_agent_execution_mode(crate::agent::AgentExecutionMode::Plan);
                         let plan_ready =
                             agent.last_query_produced_plan() && !agent.current_plan.is_empty();
                         let pending_exit_plan_approval = agent.has_pending_plan_exit_approval();
@@ -777,15 +775,14 @@ pub(crate) async fn finish_running_task_if_ready(
                 Err(err) => {
                     let error_message = format_error_chain(&err);
                     let cancelled = error_message.contains("cancelled by user");
+                    app.set_agent_execution_mode(agent.execution_mode);
                     let finished_plan_turn =
                         matches!(
                             app.agent_execution_mode,
                             crate::agent::AgentExecutionMode::Plan
-                        ) || matches!(agent.execution_mode, crate::agent::AgentExecutionMode::Plan);
+                        );
                     app.clear_active_live_sections();
                     if finished_plan_turn {
-                        agent.set_execution_mode(crate::agent::AgentExecutionMode::Plan);
-                        app.set_agent_execution_mode(crate::agent::AgentExecutionMode::Plan);
                     }
                     app.set_pending_plan_approval(false);
                     *agent_slot = Some(agent);
