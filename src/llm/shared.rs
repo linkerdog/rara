@@ -153,6 +153,20 @@ pub trait LlmBackend: Send + Sync {
 
     async fn embed(&self, text: &str) -> Result<Vec<f32>>;
     async fn summarize(&self, messages: &[Message], instruction: &str) -> Result<String>;
+    /// Side-channel classifier call (auto-permission, background task status).
+    ///
+    /// Default implementation prepends an instructions message and delegates to
+    /// `summarize()` via the auxiliary model,
+    /// but backends may override to use a dedicated classifier endpoint or model.
+    async fn classify(&self, instructions: &str, messages: &[Message]) -> Result<String> {
+        let mut classify_msgs = vec![Message {
+            role: "system".into(),
+            content: serde_json::Value::String(instructions.into()),
+        }];
+        classify_msgs.extend(messages.iter().cloned());
+        self.summarize(&classify_msgs, instructions).await
+    }
+
     fn context_budget(&self, _messages: &[Message], _tools: &[Value]) -> Option<ContextBudget> {
         None
     }

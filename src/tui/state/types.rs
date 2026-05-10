@@ -68,6 +68,7 @@ pub enum ListPickerKind {
     Resume,
     AuthMode,
     ReasoningEffort,
+    ApprovalDecision,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -617,6 +618,7 @@ pub struct TuiApp {
     pub openai_profile_picker_idx: usize,
     pub reasoning_effort_picker_idx: usize,
     pub auth_mode_idx: usize,
+    pub approval_picker_idx: usize,
     pub permission_picker_idx: usize,
     pub command_palette_idx: usize,
     /// Tracks whether the current picker overlay was opened from /connect or /model
