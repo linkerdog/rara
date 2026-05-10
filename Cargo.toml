@@ -30,6 +30,7 @@ dirs = "6.0"
 secrecy = { version = "0.10", features = ["serde"] }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
+serde_yaml = "0.9"
 toml = "1.1.2"
 tempfile = "3.17"
 ignore = "0.4.23"
@@ -53,6 +54,7 @@ tokio-util = { version = "0.7", features = ["compat"] }
 clap = { version = "4.0", features = ["derive", "env"] }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
+serde_yaml = "0.9"
 reqwest = { version = "0.13", features = ["json", "stream"] }
 async-trait = "0.1"
 anyhow = "1.0"
