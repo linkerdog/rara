@@ -51,7 +51,7 @@ fn footer_summary_text_shows_tokens_only_while_busy() {
     };
 
     let rendered = footer_summary_text(&app);
-    assert_eq!(rendered, "tokens=111 in / 22 out");
+    assert_eq!(rendered, "tokens=2.0k");
     assert!(!rendered.contains("history="));
     assert!(!rendered.contains("local="));
     assert!(!rendered.contains("key="));

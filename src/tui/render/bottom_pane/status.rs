@@ -222,8 +222,8 @@ pub(super) fn footer_summary_text(app: &TuiApp) -> String {
 
     if shows_live_task_stats(app) {
         parts.push(format!(
-            "tokens={} in / {} out",
-            app.snapshot.total_input_tokens, app.snapshot.total_output_tokens,
+            "tokens={}",
+            crate::tui::status_display::format_token_count(app.snapshot.estimated_history_tokens),
         ));
     }
 

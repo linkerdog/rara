@@ -7,6 +7,7 @@ use ratatui::text::{Line, Span};
 
 use crate::tui::format::cache_hit_rate_label;
 use crate::tui::state::TuiApp;
+use crate::tui::status_display::format_token_count;
 use crate::tui::theme::{
     BUDGET_ACTIVE, BUDGET_FREE, BUDGET_HISTORY, BUDGET_MEMORY, BUDGET_OUTPUT, BUDGET_SYSTEM,
     BUDGET_WORKSPACE, STATUS_INFO, STATUS_SUCCESS, TEXT_ACCENT, TEXT_MUTED, TEXT_SECONDARY,
@@ -450,16 +451,6 @@ fn kv(lines: &mut Vec<Line<'static>>, key: &str, value: &str, value_color: Color
     let key_span = Span::styled(format!("  {key:<14} "), Style::default().fg(TEXT_SECONDARY));
     let value_span = Span::styled(value.to_string(), Style::default().fg(value_color));
     lines.push(Line::from(vec![key_span, value_span]));
-}
-
-fn format_token_count(tokens: usize) -> String {
-    if tokens >= 1_000_000 {
-        format!("{:.1}M", tokens as f64 / 1_000_000.0)
-    } else if tokens >= 1_000 {
-        format!("{:.1}K", tokens as f64 / 1_000.0)
-    } else {
-        tokens.to_string()
-    }
 }
 
 fn format_char_count(chars: usize) -> String {

@@ -12,6 +12,7 @@ use ratatui::{
 
 use crate::tui::custom_terminal::Frame;
 use crate::tui::state::TuiApp;
+use crate::tui::status_display::context_sidebar_summary;
 use crate::tui::theme::*;
 
 /// Width allocated to the sidebar when the terminal is wide enough.
@@ -130,32 +131,8 @@ fn push_context_summary(lines: &mut Vec<Line<'static>>, app: &TuiApp) {
     lines.push(Line::from(super::section_label("Context", TEXT_SECONDARY)));
 
     let snap = &app.snapshot;
-
-    let total_tokens = snap.total_input_tokens as usize + snap.total_output_tokens as usize;
-    let mut parts: Vec<String> = Vec::new();
-
-    // Token usage: "8.1k/16k"
-    if let Some(ctx) = snap.context_window_tokens {
-        parts.push(format!(
-            "{}/{} tokens",
-            format_token_count(total_tokens),
-            format_token_count(ctx)
-        ));
-    } else {
-        parts.push(format!("{} tokens", format_token_count(total_tokens)));
-    }
-
-    // History turns
-    parts.push(format!("{} turns", snap.history_len));
-
-    // Compaction
-    if snap.compaction_count > 0 {
-        parts.push(format!("compacted {}×", snap.compaction_count));
-    }
-
-    let summary = parts.join(" · ");
     lines.push(Line::from(Span::styled(
-        summary,
+        context_sidebar_summary(snap),
         Style::default().fg(TEXT_MUTED),
     )));
 }
@@ -278,17 +255,6 @@ fn version_footer_line() -> Span<'static> {
         format!("• rara v{version}"),
         Style::default().fg(TEXT_MUTED),
     )
-}
-
-/// Format a token count for human-readable display.
-fn format_token_count(n: usize) -> String {
-    if n >= 1_000_000 {
-        format!("{:.1}M", n as f64 / 1_000_000.0)
-    } else if n >= 1_000 {
-        format!("{:.1}k", n as f64 / 1_000.0)
-    } else {
-        n.to_string()
-    }
 }
 
 #[cfg(test)]
