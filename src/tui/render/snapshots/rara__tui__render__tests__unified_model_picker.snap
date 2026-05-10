@@ -12,13 +12,12 @@ Ready.
 Type a message to start a task or run a local command.
   ┌ All Models ──────────────────────────────────────────────────────────────┐
 St│Select a model across all providers.                                      │
-  │›  [1] DeepSeek/deepseek-chat                                             │
-  │   [2] DeepSeek/deepseek-reasoner                                         │
-  │   [3] DeepSeek/deepseek-v4-flash                                         │
-  │   [4] DeepSeek/deepseek-v4-pro                                           │
-  │   [5] My Custom GPT/gpt-custom                                           │
-Pr│   [6] Custom endpoint/Custom endpoint                                    │
-Re│   [7] DeepSeek/DeepSeek                                                  │
-› │   [8] Kimi/Kimi                                                          │
-  │1-9 jump  Up/Down/jk move  Enter apply  Esc back                          │
   └──────────────────────────────────────────────────────────────────────────┘
+  │Codex/gpt-4o                                                              │
+  │DeepSeek/deepseek-v3                                                      │
+  │DeepSeek/deepseek-chat                                                    │
+  │DeepSeek/deepseek-reasoner                                                │
+Pr│My Custom GPT/gpt-custom                                                  │
+Re│Gemini/Gemini 3 Flash                                                     │
+› │Local/Gemma 4 E4B (Experimental) (alpha)                                  │
+                     Up/Down/jk move  Enter apply  Esc back

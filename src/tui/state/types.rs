@@ -77,7 +77,7 @@ pub enum ListPickerKind {
     UnifiedModel,
 }
 
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Hash)]
 pub enum ProviderFamily {
     Codex,
     DeepSeek,
@@ -119,6 +119,7 @@ pub struct UnifiedModelPreset {
     pub provider_label: String,
     pub model_id: String,
     pub model_label: String,
+    pub status: Option<String>,
 }
 
 impl PermissionMode {
@@ -676,6 +677,7 @@ pub struct TuiApp {
     pub skill_source_registry: Option<Arc<SkillSourceRegistry>>,
     pub hook_registry: Option<Arc<HookRegistry>>,
     pub memory_handler: Option<Arc<MemoryControlHandler>>,
+    pub provider_connection_status: std::collections::HashMap<ProviderFamily, bool>,
     pub repo_context_task: Option<JoinHandle<(Option<String>, Option<String>)>>,
     pub repo_slug: Option<String>,
     pub current_pr_url: Option<String>,

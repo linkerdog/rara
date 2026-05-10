@@ -8,8 +8,7 @@ use crossterm::event::KeyCode;
 use ratatui::{
     layout::{Alignment, Constraint, Direction, Layout, Rect},
     style::{Modifier, Style},
-    text::{Line, Span},
-    widgets::{Block, Borders, List, ListItem, ListState, Paragraph},
+    widgets::{Block, Borders, List, ListItem, Paragraph},
 };
 
 use super::app_event::AppEvent;
@@ -96,9 +95,11 @@ impl ListPickerKind {
         }
     }
 
-    /// Keyboard hint shown at the bottom.
     fn help_text(self) -> &'static str {
-        "1-9 jump  Up/Down/jk move  Enter apply  Esc back"
+        match self {
+            Self::UnifiedModel => "Up/Down/jk move  Enter apply  Esc back",
+            _ => "1-9 jump  Up/Down/jk move  Enter apply  Esc back",
+        }
     }
 
     /// Render the list items for this picker.
@@ -123,7 +124,10 @@ impl ListPickerKind {
                 labels
                     .iter()
                     .enumerate()
-                    .map(|(i, label)| ListItem::new(ratatui::text::Line::from(*label)))
+                    .map(|(i, label)| {
+                        ListItem::new(ratatui::text::Line::from(*label))
+                            .style(Self::selected_style(i, selected))
+                    })
                     .collect()
             }
         }
@@ -145,22 +149,34 @@ impl ListPickerKind {
             .iter()
             .enumerate()
             .map(|(idx, (family, label, desc))| {
-                let connected = super::state::is_provider_connected(app, *family);
-                let dot = if connected { "●" } else { "○" };
-                let status = if app.selected_provider_family() == PROVIDER_FAMILIES[idx].0 {
+                let current = if app.selected_provider_family() == *family {
                     " (current)"
                 } else {
                     ""
                 };
-                let name_line = ratatui::text::Line::from(vec![ratatui::text::Span::styled(
-                    format!("[{}] {dot} {}{}", idx + 1, label, status),
-                    Style::default().add_modifier(Modifier::BOLD),
-                )]);
+                let connected = app
+                    .provider_connection_status
+                    .get(family)
+                    .cloned()
+                    .unwrap_or(false);
+                let status_indicator = if connected {
+                    ratatui::text::Span::styled(" ● ", Style::default().fg(ratatui::style::Color::Green))
+                } else {
+                    ratatui::text::Span::raw("   ")
+                };
+
+                let name_line = ratatui::text::Line::from(vec![
+                    status_indicator,
+                    ratatui::text::Span::styled(
+                        format!("[{}] {}{}", idx + 1, label, current),
+                        Style::default().add_modifier(Modifier::BOLD),
+                    ),
+                ]);
                 let desc_line = ratatui::text::Line::from(ratatui::text::Span::styled(
-                    format!("    {}", desc),
+                    format!("      {}", desc),
                     Style::default().fg(TEXT_MUTED),
                 ));
-                ListItem::new(vec![name_line, desc_line])
+                ListItem::new(vec![name_line, desc_line]).style(Self::selected_style(idx, selected))
             })
             .collect()
     }
@@ -180,6 +196,7 @@ impl ListPickerKind {
                     preset.1,
                     provider_label,
                 )))
+                .style(Self::selected_style(idx, selected))
             })
             .collect();
         if matches!(
@@ -189,11 +206,14 @@ impl ListPickerKind {
             let base = presets.len();
             for (offset, label) in ["Select Profile", "Delete Profile"].iter().enumerate() {
                 let idx = base + offset;
-                items.push(ListItem::new(ratatui::text::Line::from(format!(
-                    "[{}] {}",
-                    idx + 1,
-                    label
-                ))));
+                items.push(
+                    ListItem::new(ratatui::text::Line::from(format!(
+                        "[{}] {}",
+                        idx + 1,
+                        label
+                    )))
+                    .style(Self::selected_style(idx, selected)),
+                );
             }
         }
         items
@@ -207,13 +227,20 @@ impl ListPickerKind {
                 let is_current = app.config.provider == preset.provider_id
                     && app.config.model.as_deref() == Some(&preset.model_id);
                 let marker = if is_current { " (current)" } else { "" };
+                let status_label = if let Some(status) = &preset.status {
+                    format!(" ({})", status)
+                } else {
+                    String::new()
+                };
+
                 ListItem::new(ratatui::text::Line::from(format!(
-                    "[{}] {}/{}{}",
-                    idx + 1,
+                    "{}/{}{}{}",
                     preset.provider_label,
                     preset.model_label,
+                    status_label,
                     marker
                 )))
+                .style(Self::selected_style(idx, selected))
             })
             .collect()
     }
@@ -222,12 +249,16 @@ impl ListPickerKind {
         vec![
             ListItem::new(ratatui::text::Line::from(
                 "[1] Browser Login (browser-based OAuth)",
-            )),
+            ))
+            .style(Self::selected_style(0, selected)),
             ListItem::new(ratatui::text::Line::from(
                 "[2] Device Code Login (headless/SSH)",
-            )),
-            ListItem::new(ratatui::text::Line::from("[3] API Key")),
-            ListItem::new(ratatui::text::Line::from("[4] Sign Out")),
+            ))
+            .style(Self::selected_style(1, selected)),
+            ListItem::new(ratatui::text::Line::from("[3] API Key"))
+                .style(Self::selected_style(2, selected)),
+            ListItem::new(ratatui::text::Line::from("[4] Sign Out"))
+                .style(Self::selected_style(3, selected)),
         ]
     }
 
@@ -248,6 +279,7 @@ impl ListPickerKind {
                     ratatui::text::Line::from(option.description.clone()),
                     ratatui::text::Line::from(""),
                 ])
+                .style(Self::selected_style(idx, selected))
             })
             .collect()
     }
@@ -276,6 +308,7 @@ impl ListPickerKind {
                     ratatui::text::Line::from(format!("     {}", preview)),
                     ratatui::text::Line::from(""),
                 ])
+                .style(Self::selected_style(idx, selected))
             })
             .collect()
     }
@@ -298,14 +331,16 @@ impl ListPickerKind {
                     label,
                     marker
                 )))
+                .style(Self::selected_style(idx, selected))
             })
             .collect()
     }
 
     fn render_openai_profile_items(app: &TuiApp, selected: usize) -> Vec<ListItem<'static>> {
-        let mut items = vec![ListItem::new(ratatui::text::Line::from(
-            "[1] + New Profile",
-        ))];
+        let mut items = vec![
+            ListItem::new(ratatui::text::Line::from("[1] + New Profile"))
+                .style(Self::selected_style(0, selected)),
+        ];
         for (idx, (profile_id, label)) in app.selected_openai_profiles().iter().enumerate() {
             let i = idx + 1;
             let marker = if app.config.active_openai_profile_id() == Some(profile_id.as_str()) {
@@ -313,12 +348,15 @@ impl ListPickerKind {
             } else {
                 ""
             };
-            items.push(ListItem::new(ratatui::text::Line::from(format!(
-                "[{}] {}{}",
-                i + 1,
-                label,
-                marker
-            ))));
+            items.push(
+                ListItem::new(ratatui::text::Line::from(format!(
+                    "[{}] {}{}",
+                    i + 1,
+                    label,
+                    marker
+                )))
+                .style(Self::selected_style(i, selected)),
+            );
         }
         items
     }
@@ -330,83 +368,67 @@ impl ListPickerKind {
 
 pub fn render_list_picker(f: &mut Frame, app: &TuiApp, kind: ListPickerKind, area: Rect) {
     let items = kind.render_items(app);
-    let idx = kind.idx(app);
-    let selected = if kind.item_count(app) == 0 {
-        None
-    } else {
-        Some(idx)
-    };
-    let highlight = Style::default()
-        .fg(TEXT_ACCENT)
-        .add_modifier(Modifier::BOLD);
-
-    let block = Block::default()
-        .borders(Borders::ALL)
-        .border_style(Style::default().fg(TEXT_MUTED))
-        .title_top(Line::from(Span::styled(
-            kind.title(),
-            Style::default()
-                .fg(BADGE_FG_DARK)
-                .add_modifier(Modifier::BOLD),
-        )));
-    let inner = block.inner(area);
-    f.render_widget(block, area);
 
     let chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
-            Constraint::Length(1), // description
-            Constraint::Min(4),    // items
-            Constraint::Length(1), // footer
+            Constraint::Length(3),
+            Constraint::Min(6),
+            Constraint::Length(2),
         ])
-        .split(inner);
+        .split(area);
 
-    // ── Description ──────────────────────────────────────────────
     f.render_widget(
-        Paragraph::new(Span::styled(
-            kind.description(),
-            Style::default().fg(TEXT_MUTED),
-        )),
+        Paragraph::new(kind.description())
+            .block(Block::default().borders(Borders::ALL).title(kind.title())),
         chunks[0],
     );
-
-    // ── Item list ─────────────────────────────────────────────────
-    let mut state = ListState::default();
-    state.select(selected);
-    f.render_stateful_widget(
-        List::new(items)
-            .highlight_style(highlight)
-            .highlight_symbol("›  "),
+    f.render_widget(
+        List::new(items).block(Block::default().borders(Borders::LEFT | Borders::RIGHT)),
         chunks[1],
-        &mut state,
     );
-
-    // ── Footer ──────────────────────────────────────────────────
-    let footer = Line::from(vec![Span::styled(
-        kind.help_text(),
-        Style::default().fg(TEXT_MUTED),
-    )]);
-    f.render_widget(Paragraph::new(footer), chunks[2]);
+    f.render_widget(
+        Paragraph::new(kind.help_text()).alignment(Alignment::Center),
+        chunks[2],
+    );
 }
 
 // ---------------------------------------------------------------------------
 // Key handling — shared for all ListPicker variants
 // ---------------------------------------------------------------------------
 
-pub fn list_picker_key_event(_kind: ListPickerKind, code: KeyCode) -> AppEvent {
+pub fn list_picker_key_event(kind: ListPickerKind, code: KeyCode) -> AppEvent {
     match code {
         KeyCode::Esc => AppEvent::CloseOverlay,
         KeyCode::Up | KeyCode::Char('k') => AppEvent::MoveListPickerSelection(-1),
         KeyCode::Down | KeyCode::Char('j') => AppEvent::MoveListPickerSelection(1),
-        KeyCode::Char('1') => AppEvent::SetListPickerSelection(0),
-        KeyCode::Char('2') => AppEvent::SetListPickerSelection(1),
-        KeyCode::Char('3') => AppEvent::SetListPickerSelection(2),
-        KeyCode::Char('4') => AppEvent::SetListPickerSelection(3),
-        KeyCode::Char('5') => AppEvent::SetListPickerSelection(4),
-        KeyCode::Char('6') => AppEvent::SetListPickerSelection(5),
-        KeyCode::Char('7') => AppEvent::SetListPickerSelection(6),
-        KeyCode::Char('8') => AppEvent::SetListPickerSelection(7),
-        KeyCode::Char('9') => AppEvent::SetListPickerSelection(8),
+        KeyCode::Char('1') if kind != ListPickerKind::UnifiedModel => {
+            AppEvent::SetListPickerSelection(0)
+        }
+        KeyCode::Char('2') if kind != ListPickerKind::UnifiedModel => {
+            AppEvent::SetListPickerSelection(1)
+        }
+        KeyCode::Char('3') if kind != ListPickerKind::UnifiedModel => {
+            AppEvent::SetListPickerSelection(2)
+        }
+        KeyCode::Char('4') if kind != ListPickerKind::UnifiedModel => {
+            AppEvent::SetListPickerSelection(3)
+        }
+        KeyCode::Char('5') if kind != ListPickerKind::UnifiedModel => {
+            AppEvent::SetListPickerSelection(4)
+        }
+        KeyCode::Char('6') if kind != ListPickerKind::UnifiedModel => {
+            AppEvent::SetListPickerSelection(5)
+        }
+        KeyCode::Char('7') if kind != ListPickerKind::UnifiedModel => {
+            AppEvent::SetListPickerSelection(6)
+        }
+        KeyCode::Char('8') if kind != ListPickerKind::UnifiedModel => {
+            AppEvent::SetListPickerSelection(7)
+        }
+        KeyCode::Char('9') if kind != ListPickerKind::UnifiedModel => {
+            AppEvent::SetListPickerSelection(8)
+        }
         KeyCode::Enter => AppEvent::ApplyOverlaySelection,
         _ => AppEvent::Noop,
     }

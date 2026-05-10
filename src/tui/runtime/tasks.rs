@@ -198,21 +198,11 @@ pub(super) fn start_input_control_task(
     app.bottom_pane.notice = Some(notice);
     app.set_runtime_phase(phase, phase_detail);
 
-    let Some(mcp_manager) = app.mcp_manager.clone() else {
-        return;
-    };
-    let Some(prompt_registry) = app.prompt_source_registry.clone() else {
-        return;
-    };
-    let Some(skill_registry) = app.skill_source_registry.clone() else {
-        return;
-    };
-    let Some(memory_handler) = app.memory_handler.clone() else {
-        return;
-    };
-    let Some(hook_registry) = app.hook_registry.clone() else {
-        return;
-    };
+    let mcp_manager = app.mcp_manager.clone().expect("mcp_manager must exist");
+    let prompt_registry = app.prompt_source_registry.clone().expect("prompt_registry must exist");
+    let skill_registry = app.skill_source_registry.clone().expect("skill_registry must exist");
+    let memory_handler = app.memory_handler.clone().expect("memory_handler must exist");
+    let hook_registry = app.hook_registry.clone().expect("hook_registry must exist");
 
     let mut agent = agent;
     agent.set_execution_mode(app.agent_execution_mode);

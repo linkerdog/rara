@@ -508,6 +508,10 @@ pub(crate) async fn dispatch_event(
                                         start_rebuild_task(app);
                                     }
                                 }
+                                ProviderFamily::CandleLocal => {
+                                    app.push_notice("Local models (alpha) are for preview only.");
+                                    app.close_overlay();
+                                }
                                 _ => {
                                     start_rebuild_task(app);
                                 }

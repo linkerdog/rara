@@ -10,6 +10,8 @@ use std::cell::RefCell;
 use std::sync::Arc;
 use std::sync::atomic::AtomicBool;
 
+use crate::google_oauth::GoogleOAuthManager;
+use crate::oauth::OAuthManager;
 use unicode_width::UnicodeWidthChar;
 
 pub use self::state_presets::{
@@ -246,7 +248,7 @@ impl TuiApp {
         let provider_picker_idx = selected_provider_family_idx_for_config(&cfg);
         let model_picker_idx = selected_preset_idx_for_config(&cfg, provider_picker_idx);
         let sandbox_network = cfg.sandbox_workspace_write.network_access;
-        Ok(Self {
+        let mut app = Self {
             bottom_pane: BottomPaneModel {
                 input: String::new(),
                 input_cursor_offset: None,
@@ -314,6 +316,7 @@ impl TuiApp {
             skill_source_registry: None,
             hook_registry: None,
             memory_handler: None,
+            provider_connection_status: std::collections::HashMap::new(),
             repo_context_task: None,
             repo_slug: None,
             current_pr_url: None,
@@ -326,7 +329,12 @@ impl TuiApp {
             goal_handle: Arc::new(std::sync::RwLock::new(None)),
             event_bus: None,
             mcp_tool_cache: None,
-        })
+        };
+
+        app.refresh_provider_connection_status();
+        app.refresh_recent_threads();
+
+        Ok(app)
     }
 
     pub fn start_repo_context_detection(&mut self) {
@@ -335,6 +343,63 @@ impl TuiApp {
         }
 
         self.repo_context_task = Some(tokio::task::spawn_blocking(detect_repo_context));
+    }
+
+    pub fn refresh_provider_connection_status(&mut self) {
+        let mut status = std::collections::HashMap::new();
+
+        for (family, _, _) in PROVIDER_FAMILIES.iter() {
+            let connected = match family {
+                ProviderFamily::Codex => {
+                    let has_key = self.config.provider == "codex" && self.config.has_api_key();
+                    let has_state = self
+                        .config
+                        .provider_states
+                        .get("codex")
+                        .and_then(|s| s.api_key.as_ref())
+                        .is_some();
+                    let has_oauth =
+                        OAuthManager::new().ok().and_then(|m| m.has_saved_auth().ok()) == Some(true);
+                    has_key || has_state || has_oauth
+                }
+                ProviderFamily::DeepSeek => {
+                    let has_key = self.config.provider == "deepseek" && self.config.has_api_key();
+                    let has_profile = self.config.openai_profiles.values().any(|p| {
+                        p.kind == crate::config::OpenAiEndpointKind::Deepseek
+                            && p.api_key.as_ref().is_some()
+                    });
+                    has_key || has_profile
+                }
+                ProviderFamily::Gemini => {
+                    let has_key = self.config.provider == "gemini" && self.config.has_api_key();
+                    let has_oauth = rara_config::ensure_rara_home_dir()
+                        .ok()
+                        .and_then(|dir| GoogleOAuthManager::new(dir).ok())
+                        .is_some_and(|m| m.has_saved_auth());
+                    has_key || has_oauth
+                }
+                ProviderFamily::OpenAiCompatible => self
+                    .config
+                    .openai_profiles
+                    .values()
+                    .any(|p| p.api_key.as_ref().is_some()),
+                ProviderFamily::Bedrock => {
+                    // Bedrock is often configured via env vars, but also check config.
+                    self.config.provider == "bedrock"
+                }
+                ProviderFamily::Ollama => {
+                    // connected if we have a base_url.
+                    self.config
+                        .base_url
+                        .as_deref()
+                        .is_some_and(|url| !url.is_empty())
+                }
+                ProviderFamily::CandleLocal => true, // Local is always "connected"
+            };
+            status.insert(*family, connected);
+        }
+
+        self.provider_connection_status = status;
     }
 
     pub async fn finish_repo_context_task_if_ready(&mut self) {
@@ -501,7 +566,6 @@ impl TuiApp {
     pub fn all_unified_model_presets(&self) -> Vec<UnifiedModelPreset> {
         use crate::tui::state::state_presets::{
             BEDROCK_MODEL_PRESETS, LOCAL_MODEL_PRESETS, OLLAMA_MODEL_PRESETS,
-            OPENAI_COMPATIBLE_MODEL_PRESETS,
         };
 
         let mut results = Vec::new();
@@ -509,53 +573,84 @@ impl TuiApp {
         for (family, name, _description) in PROVIDER_FAMILIES.iter() {
             match family {
                 ProviderFamily::Codex => {
-                    for opt in &self.codex_model_options {
+                    if self.codex_model_options.is_empty() {
+                        // Default if not connected/cached
                         results.push(UnifiedModelPreset {
                             family: *family,
-                            provider_id: name.to_lowercase(),
-                            provider_label: name.to_string(),
-                            model_id: opt.id.clone(),
-                            model_label: opt.label.clone(),
+                            provider_id: "codex".into(),
+                            provider_label: "Codex".into(),
+                            model_id: "gpt-4o".into(),
+                            model_label: "gpt-4o".into(),
+                            status: None,
                         });
+                    } else {
+                        for opt in &self.codex_model_options {
+                            results.push(UnifiedModelPreset {
+                                family: *family,
+                                provider_id: name.to_lowercase(),
+                                provider_label: name.to_string(),
+                                model_id: opt.id.clone(),
+                                model_label: opt.label.clone(),
+                                status: None,
+                            });
+                        }
                     }
                 }
                 ProviderFamily::DeepSeek => {
-                    for model in &self.deepseek_model_options {
+                    if self.deepseek_model_options.is_empty() {
+                        // Default if not connected/cached
                         results.push(UnifiedModelPreset {
                             family: *family,
-                            provider_id: "deepseek".to_string(),
-                            provider_label: name.to_string(),
-                            model_id: model.clone(),
-                            model_label: model.clone(),
+                            provider_id: "deepseek".into(),
+                            provider_label: "DeepSeek".into(),
+                            model_id: "deepseek-chat".into(),
+                            model_label: "deepseek-chat".into(),
+                            status: None,
                         });
+                    } else {
+                        for model in &self.deepseek_model_options {
+                            results.push(UnifiedModelPreset {
+                                family: *family,
+                                provider_id: "deepseek".to_string(),
+                                provider_label: "DeepSeek".to_string(),
+                                model_id: model.clone(),
+                                model_label: model.clone(),
+                                status: None,
+                            });
+                        }
                     }
                 }
                 ProviderFamily::OpenAiCompatible => {
-                    // Include user profiles first
+                    let mut found_profile = false;
                     for (profile_id, profile) in &self.config.openai_profiles {
+                        found_profile = true;
+                        let model_id = profile
+                            .model
+                            .clone()
+                            .unwrap_or_else(|| profile.kind.default_model().to_string());
                         results.push(UnifiedModelPreset {
                             family: *family,
                             provider_id: profile_id.clone(),
                             provider_label: profile.label.clone(),
-                            model_id: profile
-                                .model
-                                .clone()
-                                .unwrap_or_else(|| profile.kind.default_model().to_string()),
-                            model_label: profile
-                                .model
-                                .clone()
-                                .unwrap_or_else(|| profile.kind.label().to_string()),
+                            model_id: model_id.clone(),
+                            model_label: model_id,
+                            status: None,
                         });
                     }
-                    // Then static presets
-                    for preset in OPENAI_COMPATIBLE_MODEL_PRESETS.iter() {
-                        results.push(UnifiedModelPreset {
-                            family: *family,
-                            provider_id: "openai-compatible".to_string(),
-                            provider_label: preset.0.to_string(),
-                            model_id: preset.2.to_string(),
-                            model_label: preset.0.to_string(),
-                        });
+
+                    // If no profiles, show templates
+                    if !found_profile {
+                        use crate::tui::state::state_presets::OPENAI_COMPATIBLE_MODEL_PRESETS;
+                        for preset in OPENAI_COMPATIBLE_MODEL_PRESETS.iter() {
+                            results.push(UnifiedModelPreset {
+                                family: *family,
+                                provider_id: "openai-compatible".to_string(),
+                                provider_label: "OpenAI".to_string(),
+                                model_id: preset.2.to_string(),
+                                model_label: preset.0.to_string(),
+                                status: None,
+                            });
+                        }
                     }
                 }
                 ProviderFamily::CandleLocal => {
@@ -563,9 +658,10 @@ impl TuiApp {
                         results.push(UnifiedModelPreset {
                             family: *family,
                             provider_id: "gemma4".to_string(),
-                            provider_label: name.to_string(),
+                            provider_label: "Local".to_string(),
                             model_id: preset.2.to_string(),
                             model_label: preset.0.to_string(),
+                            status: Some("alpha".to_string()),
                         });
                     }
                 }
@@ -574,9 +670,10 @@ impl TuiApp {
                         results.push(UnifiedModelPreset {
                             family: *family,
                             provider_id: "ollama".to_string(),
-                            provider_label: name.to_string(),
+                            provider_label: "Ollama".to_string(),
                             model_id: preset.2.to_string(),
                             model_label: preset.0.to_string(),
+                            status: None,
                         });
                     }
                 }
@@ -585,9 +682,10 @@ impl TuiApp {
                         results.push(UnifiedModelPreset {
                             family: *family,
                             provider_id: "bedrock".to_string(),
-                            provider_label: name.to_string(),
+                            provider_label: "Bedrock".to_string(),
                             model_id: preset.2.to_string(),
                             model_label: preset.0.to_string(),
+                            status: None,
                         });
                     }
                 }
@@ -595,16 +693,10 @@ impl TuiApp {
                     results.push(UnifiedModelPreset {
                         family: *family,
                         provider_id: "gemini".to_string(),
-                        provider_label: name.to_string(),
+                        provider_label: "Gemini".to_string(),
                         model_id: "gemini-3-flash".to_string(),
                         model_label: "Gemini 3 Flash".to_string(),
-                    });
-                    results.push(UnifiedModelPreset {
-                        family: *family,
-                        provider_id: "gemini".to_string(),
-                        provider_label: name.to_string(),
-                        model_id: "gemini-3-pro".to_string(),
-                        model_label: "Gemini 3 Pro".to_string(),
+                        status: None,
                     });
                 }
             }
@@ -654,26 +746,11 @@ impl TuiApp {
                         profile.label.clone(),
                         profile.kind,
                     );
+                    self.config.set_model(Some(preset.model_id));
                 } else {
-                    // It's a static preset.
-                    let kind = match preset.model_label.as_str() {
-                        "DeepSeek" => OpenAiEndpointKind::Deepseek,
-                        "Kimi" => OpenAiEndpointKind::Kimi,
-                        "OpenRouter" => OpenAiEndpointKind::Openrouter,
-                        _ => OpenAiEndpointKind::Custom,
-                    };
-                    let (profile_id, label) = self
-                        .config
-                        .active_openai_profile()
-                        .filter(|profile| profile.kind == kind)
-                        .map(|profile| (profile.id.clone(), profile.label.clone()))
-                        .unwrap_or_else(|| {
-                            (
-                                kind.default_profile_id().to_string(),
-                                kind.label().to_string(),
-                            )
-                        });
-                    self.config.select_openai_profile(profile_id, label, kind);
+                    // It's a template preset (e.g. "openai-compatible")
+                    self.config.set_provider("openai-compatible");
+                    // Use model_id to infer kind if possible, but mainly we just want to trigger setup
                 }
                 self.config.set_revision(None);
             }
@@ -713,6 +790,14 @@ impl TuiApp {
                 p.provider_id == self.config.provider
                     && self.config.model.as_deref() == Some(&p.model_id)
             })
+            .unwrap_or(0)
+    }
+
+    pub fn first_unified_preset_idx_for_family(&self, target_family: ProviderFamily) -> usize {
+        let presets = self.all_unified_model_presets();
+        presets
+            .iter()
+            .position(|p| p.family == target_family)
             .unwrap_or(0)
     }
 
@@ -1451,9 +1536,15 @@ impl TuiApp {
         }
         if matches!(overlay, Overlay::ListPicker(ListPickerKind::Provider)) {
             self.provider_picker_idx = selected_provider_family_idx_for_config(&self.config);
+            self.refresh_provider_connection_status();
         }
         if matches!(overlay, Overlay::ListPicker(ListPickerKind::Resume)) {
             self.refresh_recent_threads_for_resume_picker();
+        }
+        if matches!(overlay, Overlay::ListPicker(ListPickerKind::UnifiedModel)) {
+            self.refresh_provider_connection_status();
+            self.model_picker_idx = self.selected_unified_preset_idx();
+            self.sync_reasoning_effort_picker();
         }
         if matches!(overlay, Overlay::ListPicker(ListPickerKind::Model)) {
             let selected_family = self.selected_provider_family();

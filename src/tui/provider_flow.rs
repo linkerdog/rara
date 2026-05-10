@@ -144,62 +144,18 @@ pub(super) async fn refresh_codex_model_picker(
 
 pub(super) async fn open_provider_family_overlay(
     app: &mut TuiApp,
-    oauth_manager: &OAuthManager,
+    _oauth_manager: &OAuthManager,
 ) -> anyhow::Result<()> {
-    let entering_codex_family = matches!(app.selected_provider_family(), ProviderFamily::Codex);
-    if entering_codex_family {
-        oauth_manager.invalidate_saved_auth_cache();
-    }
-    if matches!(app.selected_provider_family(), ProviderFamily::DeepSeek) {
-        app.config.select_openai_profile(
-            OpenAiEndpointKind::Deepseek.default_profile_id(),
-            OpenAiEndpointKind::Deepseek.label(),
-            OpenAiEndpointKind::Deepseek,
-        );
-        if !app.config.has_api_key() {
-            app.open_overlay(Overlay::ApiKeyEditor);
-        } else {
-            app.open_overlay(Overlay::ListPicker(ListPickerKind::Model));
-        }
-        return Ok(());
-    }
-    if matches!(app.selected_provider_family(), ProviderFamily::Gemini) {
-        let home = ensure_rara_home_dir()?;
-        let google_oauth = GoogleOAuthManager::new(home)?;
-        if google_oauth.has_saved_auth() {
-            app.open_overlay(Overlay::ListPicker(ListPickerKind::Model));
-        } else {
-            app.config.set_provider("gemini-code-assist");
-            app.open_overlay(Overlay::ListPicker(ListPickerKind::AuthMode));
-        }
-        return Ok(());
-    }
-    let has_synced_codex_auth = if entering_codex_family {
-        sync_codex_credential_from_auth_store(app, oauth_manager)?
-    } else {
-        false
-    };
+    use super::state::PROVIDER_FAMILIES;
+    let family = app.selected_provider_family();
+    let target_idx = app.first_unified_preset_idx_for_family(family);
 
-    if entering_codex_family
-        && !has_synced_codex_auth
-        && !codex_auth_is_available(app, oauth_manager)
-    {
-        app.config.set_provider("codex");
-        app.open_overlay(Overlay::ListPicker(ListPickerKind::AuthMode));
-    } else {
-        if entering_codex_family {
-            refresh_codex_model_picker(app, oauth_manager, RefreshStrategy::OnlineIfUncached)
-                .await?;
-        }
-        app.open_overlay(Overlay::ListPicker(ListPickerKind::Model));
-        if matches!(
-            app.selected_provider_family(),
-            ProviderFamily::OpenAiCompatible
-        ) && app.openai_profile_needs_setup()
-        {
-            app.begin_openai_profile_setup();
-        }
-    }
+    app.model_picker_idx = target_idx;
+    app.open_overlay(Overlay::ListPicker(ListPickerKind::UnifiedModel));
+    app.bottom_pane.notice = Some(format!(
+        "Select a model for {}. Connection setup will start if needed.",
+        PROVIDER_FAMILIES[app.provider_picker_idx].1
+    ));
     Ok(())
 }
 
