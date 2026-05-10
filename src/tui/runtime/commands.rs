@@ -375,7 +375,7 @@ fn handle_model_command(arg: Option<&str>, app: &mut TuiApp) -> anyhow::Result<(
     }
 
     app.model_picker_idx = app.selected_unified_preset_idx();
-    app.open_overlay(Overlay::ListPicker(ListPickerKind::UnifiedModel));
+    app.open_overlay(Overlay::ModelSearch);
     app.bottom_pane.notice = Some("Switch active model across all connected providers.".into());
     Ok(())
 }

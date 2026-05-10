@@ -278,6 +278,8 @@ impl TuiApp {
             approval_picker_idx: 0,
             permission_picker_idx: 0,
             command_palette_idx: 0,
+            model_search_query: String::new(),
+            model_search_idx: 0,
             picker_intent: None,
             base_url_input: String::new(),
             base_url_cursor_offset: None,
@@ -1444,7 +1446,7 @@ impl TuiApp {
     }
 
     pub fn open_overlay(&mut self, overlay: Overlay) {
-        if matches!(overlay, Overlay::CommandPalette) {
+        if matches!(overlay, Overlay::CommandPalette | Overlay::ModelSearch) {
             self.command_palette_idx = 0;
         }
         if matches!(overlay, Overlay::ListPicker(ListPickerKind::Provider)) {
@@ -1553,7 +1555,10 @@ impl TuiApp {
             if matches!(self.overlay, None) {
                 self.open_overlay(Overlay::CommandPalette);
             }
-        } else if matches!(self.overlay, Some(Overlay::CommandPalette)) {
+        } else if matches!(
+            self.overlay,
+            Some(Overlay::CommandPalette | Overlay::ModelSearch)
+        ) {
             self.close_overlay();
         }
     }
@@ -1762,7 +1767,10 @@ impl TuiApp {
 
         // When closing the command palette, clear the `/` input so
         // sync_command_palette_with_input won't immediately re-open it.
-        if matches!(self.overlay, Some(Overlay::CommandPalette)) {
+        if matches!(
+            self.overlay,
+            Some(Overlay::CommandPalette | Overlay::ModelSearch)
+        ) {
             self.bottom_pane.input.clear();
             self.command_palette_idx = 0;
         }

@@ -59,6 +59,8 @@ pub enum Overlay {
     /// Generic list-picker overlay — render content driven by ListPickerKind.
     ListPicker(ListPickerKind),
     PermissionPicker,
+    /// Searchable model picker with input + filtered list (OpenCode-style).
+    ModelSearch,
 }
 
 /// Identifies which content a generic `Overlay::ListPicker` should render.
@@ -637,6 +639,8 @@ pub struct TuiApp {
     pub approval_picker_idx: usize,
     pub permission_picker_idx: usize,
     pub command_palette_idx: usize,
+    pub model_search_query: String,
+    pub model_search_idx: usize,
     /// Tracks whether the current picker overlay was opened from /connect or /model
     pub picker_intent: Option<PickerIntent>,
     pub base_url_input: String,
