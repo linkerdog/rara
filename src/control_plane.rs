@@ -9,6 +9,7 @@
 //! Domain routing is implemented incrementally as individual control-plane
 //! families are wired.
 
+use crate::hook_registry::HookRegistry;
 use crate::mcp_connection_manager::McpConnectionManager;
 use crate::protocol_sources::{MemoryControlHandler, PromptSourceRegistry, SkillSourceRegistry};
 use crate::runtime_control::{RuntimeControlEnvelope, RuntimeControlEvent, RuntimeControlRequest};
@@ -26,6 +27,7 @@ pub async fn dispatch<F>(
     prompt_registry: &PromptSourceRegistry,
     skill_registry: &SkillSourceRegistry,
     memory_handler: &MemoryControlHandler,
+    hook_registry: &HookRegistry,
     _on_event: F,
 ) -> Result<(), String>
 where
@@ -50,6 +52,12 @@ where
             .handle_control(memory_request)
             .await
             .map_err(|err| err.to_string()),
-        _ => Err("control-plane dispatch not yet implemented for this request variant".to_string()),
+        RuntimeControlRequest::Hook(hook_request) => {
+            hook_registry.handle_control(hook_request).await;
+            // Callback wiring for in-process hooks is handled by the hook
+            // loader (hooks.rs) — not by the control-plane dispatcher.
+            Ok(())
+        }
+        _ => Err("control-plane dispatch not yet implemented for this request variant".into()),
     }
 }

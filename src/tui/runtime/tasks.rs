@@ -195,7 +195,9 @@ pub(super) fn start_query_task(app: &mut TuiApp, prompt: String, mut agent: Agen
     app.set_runtime_phase(RuntimePhase::SendingPrompt, Some("sending prompt".into()));
     app.push_entry("You", prompt.clone());
     agent.set_cancellation_token(Some(cancellation_token.clone()));
-
+    if let Some(ref bus) = bus {
+        let _ = bus.send(crate::agent::AgentEvent::AgentStart);
+    }
     let handle = tokio::spawn(async move {
         let tx = sender.clone();
         let result = agent

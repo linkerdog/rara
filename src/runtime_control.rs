@@ -380,13 +380,30 @@ pub enum RuntimeEvent {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "type", content = "payload", rename_all = "snake_case")]
 pub enum SessionEvent {
-    Created { session_id: String },
-    Resumed { session_id: String },
-    Status { message: String },
+    Created {
+        session_id: String,
+    },
+    Resumed {
+        session_id: String,
+    },
+    Status {
+        message: String,
+    },
     TurnStarted,
     TurnCancelled,
     TurnInterrupted,
-    TurnFinished,
+    TurnFinished {
+        reason: Option<String>,
+    },
+    ModelRequest {
+        model: String,
+        input_tokens: u32,
+    },
+    ModelResponse {
+        model: String,
+        output_tokens: u32,
+        finish_reason: Option<String>,
+    },
 }
 
 #[allow(dead_code)]
@@ -594,7 +611,7 @@ pub enum WarningEvent {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "type", content = "payload", rename_all = "snake_case")]
 pub enum ErrorEvent {
-    RuntimeError { message: String },
+    RuntimeError { message: String, recoverable: bool },
 }
 
 #[allow(dead_code)]
@@ -634,6 +651,33 @@ pub fn agent_event_to_runtime_event(event: AgentEvent) -> RuntimeEvent {
             RuntimeEvent::Mcp(McpEvent::StatusLoadFailed { message })
         }
         AgentEvent::TodoUpdated(state) => RuntimeEvent::Todo(TodoEvent::Updated { state }),
+        AgentEvent::AgentStart => RuntimeEvent::Session(SessionEvent::TurnStarted),
+        AgentEvent::AgentStop { reason } => RuntimeEvent::Session(SessionEvent::TurnFinished {
+            reason: Some(reason),
+        }),
+        AgentEvent::AgentError {
+            message,
+            recoverable,
+        } => RuntimeEvent::Error(ErrorEvent::RuntimeError {
+            message,
+            recoverable,
+        }),
+        AgentEvent::ModelRequest {
+            model,
+            input_tokens,
+        } => RuntimeEvent::Session(SessionEvent::ModelRequest {
+            model,
+            input_tokens,
+        }),
+        AgentEvent::ModelResponse {
+            model,
+            output_tokens,
+            finish_reason,
+        } => RuntimeEvent::Session(SessionEvent::ModelResponse {
+            model,
+            output_tokens,
+            finish_reason,
+        }),
     }
 }
 
