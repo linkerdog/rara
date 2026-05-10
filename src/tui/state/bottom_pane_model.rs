@@ -7,6 +7,7 @@ use std::time::{Duration, Instant};
 
 use unicode_width::UnicodeWidthChar;
 
+use super::char_offset_to_byte_index;
 use crate::tui::queued_input::PendingFollowUpMessage;
 use crate::tui::state::types::RunningTask;
 
