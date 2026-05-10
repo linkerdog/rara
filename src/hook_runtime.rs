@@ -2,8 +2,9 @@
 //! and dispatches matching AgentEvent variants to registered hook callbacks.
 //!
 //! Hooks are declared through the control plane (HookControlRequest::Declare)
-//! and executed synchronously in the hook task when a matching lifecycle
-//! event occurs.
+//! and can be registered at any time — before or after calling `start`.
+//! The dispatch loop runs on a dedicated Tokio task and matches events
+//! against the current set of registered hooks.
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -23,35 +24,31 @@ struct HookEntry {
 
 /// In-process hook dispatch runtime.
 ///
-/// Subscribes to the agent-level event bus and runs matching hook callbacks
-/// on a dedicated Tokio task. This initial version only supports in-process
-/// callbacks; external hook runners (e.g. wasm, standalone processes) will
-/// be added later.
+/// Hooks are stored behind an `Arc<RwLock<HashMap<...>>>` so that the
+/// control-plane can register / unregister hooks while the dispatch
+/// loop is already running.
 pub struct HookRuntime {
     bus: Arc<RuntimeEventBus>,
-    hooks: HashMap<String, HookEntry>,
+    hooks: Arc<tokio::sync::RwLock<HashMap<String, HookEntry>>>,
 }
 
 impl HookRuntime {
     pub fn new(bus: Arc<RuntimeEventBus>) -> Self {
         Self {
             bus,
-            hooks: HashMap::new(),
+            hooks: Arc::new(tokio::sync::RwLock::new(HashMap::new())),
         }
     }
 
-    /// Register an in-process hook.
-    ///
-    /// `hook_id` must be unique across all declared hooks. When a matching
-    /// `lifecycle` event fires the `callback` is invoked with the event.
-    pub fn register(
-        &mut self,
+    /// Register an in-process hook.  Safe to call while `start` is running.
+    pub async fn register(
+        &self,
         hook_id: String,
         lifecycle: HookLifecycle,
         description: String,
         callback: HookCallback,
     ) {
-        self.hooks.insert(
+        self.hooks.write().await.insert(
             hook_id,
             HookEntry {
                 lifecycle,
@@ -62,21 +59,22 @@ impl HookRuntime {
     }
 
     /// Unregister a previously declared hook by id.
-    pub fn unregister(&mut self, hook_id: &str) -> bool {
-        self.hooks.remove(hook_id).is_some()
+    pub async fn unregister(&self, hook_id: &str) -> bool {
+        self.hooks.write().await.remove(hook_id).is_some()
     }
 
     /// Return the number of registered hooks.
-    pub fn hook_count(&self) -> usize {
-        self.hooks.len()
+    pub async fn hook_count(&self) -> usize {
+        self.hooks.read().await.len()
     }
 
     /// Start the hook dispatch loop on a dedicated Tokio task.
     ///
     /// The returned handle can be aborted to stop hook processing.
-    pub fn start(self) -> tokio::task::JoinHandle<()> {
-        let hooks = Arc::new(tokio::sync::RwLock::new(self.hooks));
-        let bus = self.bus;
+    /// Callers may safely call `register` / `unregister` after this returns.
+    pub fn start(&self) -> tokio::task::JoinHandle<()> {
+        let hooks = Arc::clone(&self.hooks);
+        let bus = self.bus.clone();
 
         tokio::task::spawn(async move {
             let mut rx = bus.subscribe();
@@ -99,9 +97,13 @@ impl HookRuntime {
 }
 
 /// Map an AgentEvent variant to the HookLifecycle it corresponds to.
+///
+/// `AgentStart` deliberately returns `None` because it fires once per agent
+/// turn, not once per session.  The session-level lifecycle is managed by the
+/// session control plane, not by per-turn agent events.
 fn lifecycle_for_event(event: &AgentEvent) -> Option<HookLifecycle> {
     match event {
-        AgentEvent::AgentStart => Some(HookLifecycle::SessionStart),
+        AgentEvent::AgentStart => None,
         AgentEvent::AgentStop { .. } => Some(HookLifecycle::Stop),
         AgentEvent::ToolUse { .. } => Some(HookLifecycle::PreToolUse),
         AgentEvent::ToolResult { .. } => Some(HookLifecycle::PostToolUse),
@@ -119,7 +121,7 @@ fn lifecycle_for_event(event: &AgentEvent) -> Option<HookLifecycle> {
 }
 
 fn lifecycle_matches(lifecycle: &HookLifecycle, event: &AgentEvent) -> bool {
-    lifecycle_for_event(event) == Some(lifecycle.clone())
+    lifecycle_for_event(event).as_ref() == Some(lifecycle)
 }
 
 #[cfg(test)]
@@ -128,11 +130,12 @@ mod tests {
     use crate::runtime_event_bus::RuntimeEventBus;
 
     #[test]
-    fn test_lifecycle_mapping() {
-        assert_eq!(
-            lifecycle_for_event(&AgentEvent::AgentStart),
-            Some(HookLifecycle::SessionStart)
-        );
+    fn test_lifecycle_mapping_agent_start_is_none() {
+        assert_eq!(lifecycle_for_event(&AgentEvent::AgentStart), None);
+    }
+
+    #[test]
+    fn test_lifecycle_mapping_agent_stop_tool_use() {
         assert_eq!(
             lifecycle_for_event(&AgentEvent::AgentStop {
                 reason: "done".into()
@@ -175,24 +178,26 @@ mod tests {
         );
     }
 
-    #[test]
-    fn test_register_and_unregister() {
+    #[tokio::test]
+    async fn test_register_and_unregister() {
         let bus = Arc::new(RuntimeEventBus::new(4));
-        let mut runtime = HookRuntime::new(bus);
+        let runtime = HookRuntime::new(bus);
 
-        assert_eq!(runtime.hook_count(), 0);
+        assert_eq!(runtime.hook_count().await, 0);
 
-        runtime.register(
-            "hook-1".into(),
-            HookLifecycle::SessionStart,
-            "test hook".into(),
-            Box::new(|_| {}),
-        );
-        assert_eq!(runtime.hook_count(), 1);
+        runtime
+            .register(
+                "hook-1".into(),
+                HookLifecycle::SessionStart,
+                "test hook".into(),
+                Box::new(|_| {}),
+            )
+            .await;
+        assert_eq!(runtime.hook_count().await, 1);
 
-        assert!(runtime.unregister("hook-1"));
-        assert_eq!(runtime.hook_count(), 0);
+        assert!(runtime.unregister("hook-1").await);
+        assert_eq!(runtime.hook_count().await, 0);
 
-        assert!(!runtime.unregister("hook-1"));
+        assert!(!runtime.unregister("hook-1").await);
     }
 }

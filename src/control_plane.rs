@@ -10,12 +10,9 @@
 //! families are wired.
 
 use crate::hook_registry::HookRegistry;
-use crate::hook_runtime::HookRuntime;
 use crate::mcp_connection_manager::McpConnectionManager;
 use crate::protocol_sources::{MemoryControlHandler, PromptSourceRegistry, SkillSourceRegistry};
-use crate::runtime_control::{
-    HookControlRequest, RuntimeControlEnvelope, RuntimeControlEvent, RuntimeControlRequest,
-};
+use crate::runtime_control::{RuntimeControlEnvelope, RuntimeControlEvent, RuntimeControlRequest};
 
 /// Dispatch a structured control-plane request and stream resulting events
 /// to the provided callback.
@@ -31,7 +28,6 @@ pub async fn dispatch<F>(
     skill_registry: &SkillSourceRegistry,
     memory_handler: &MemoryControlHandler,
     hook_registry: &HookRegistry,
-    hook_runtime: &mut HookRuntime,
     _on_event: F,
 ) -> Result<(), String>
 where
@@ -57,16 +53,9 @@ where
             .await
             .map_err(|err| err.to_string()),
         RuntimeControlRequest::Hook(hook_request) => {
-            // Register in both the protocol-facing registry and the execution runtime.
-            if let HookControlRequest::Declare {
-                hook_id,
-                lifecycle,
-                description,
-            } = hook_request
-            {
-                hook_runtime.register(hook_id.clone(), lifecycle.clone(), description.clone());
-            }
             hook_registry.handle_control(hook_request).await;
+            // Callback wiring for in-process hooks is handled by the hook
+            // loader (hooks.rs) — not by the control-plane dispatcher.
             Ok(())
         }
     }

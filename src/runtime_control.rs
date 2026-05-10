@@ -611,7 +611,7 @@ pub enum WarningEvent {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "type", content = "payload", rename_all = "snake_case")]
 pub enum ErrorEvent {
-    RuntimeError { message: String },
+    RuntimeError { message: String, recoverable: bool },
 }
 
 #[allow(dead_code)]
@@ -657,8 +657,11 @@ pub fn agent_event_to_runtime_event(event: AgentEvent) -> RuntimeEvent {
         }),
         AgentEvent::AgentError {
             message,
-            recoverable: _recoverable,
-        } => RuntimeEvent::Error(ErrorEvent::RuntimeError { message }),
+            recoverable,
+        } => RuntimeEvent::Error(ErrorEvent::RuntimeError {
+            message,
+            recoverable,
+        }),
         AgentEvent::ModelRequest {
             model,
             input_tokens,
