@@ -292,7 +292,7 @@ pub(super) fn wrapped_text_rows(
     }
     CACHE.with(|cell| {
         if let Some((ref cached_input, w, ref rows)) = *cell.borrow() {
-            if cached_input == input && *w == width {
+            if cached_input == input && w == width {
                 return rows.clone();
             }
         }
