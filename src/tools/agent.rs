@@ -38,12 +38,13 @@ enum SubAgentKind {
 }
 
 /// Maps Claude Code agent config tool names to RARA internal tool names.
-pub(super) fn agent_tool_display_name(name: &str) -> &str {
+/// Maps Claude Code config tool names (agent yaml) to RARA internal tool names.
+pub(super) fn agent_tool_to_internal_name(name: &str) -> &str {
     match name {
         "Bash" => "bash",
         "Read" => "read_file",
         "Write" => "write_file",
-        "Edit" => "edit",
+        "Edit" => "apply_patch",
         "Glob" => "glob",
         "Grep" => "grep",
         "WebSearch" => "web_search",
@@ -53,8 +54,8 @@ pub(super) fn agent_tool_display_name(name: &str) -> &str {
     }
 }
 
-/// Reverse mapping from dispaly name to Claude Code tool name.
-pub(super) fn agent_tool_internal_name(name: &str) -> &str {
+/// Reverse mapping from RARA internal tool name to Claude Code config name.
+pub(super) fn agent_tool_to_config_name(name: &str) -> &str {
     match name {
         "bash" => "Bash",
         "read_file" => "Read",
@@ -115,14 +116,32 @@ pub type AgentRegistry = HashMap<String, AgentDefinition>;
 /// Built-in agents (general/explore/plan) are always available and do not
 /// require a .claude/agents/ file.  Custom definitions can override built-in
 /// names or define net new agents.
+/// Load agent definitions from `.claude/agents/` in the workspace root
+/// and `~/.claude/agents/*.md` (global config).  Workspace definitions
+/// take precedence when names collide.
 pub fn load_agent_definitions(workspace_root: &Path) -> AgentRegistry {
     let mut registry = AgentRegistry::new();
-    let agents_dir = workspace_root.join(".claude").join("agents");
-    if !agents_dir.exists() || !agents_dir.is_dir() {
-        return registry;
+
+    // 1. Home-directory agents (lower precedence)
+    if let Some(home) = dirs::home_dir() {
+        scan_agents_dir(&home.join(".claude").join("agents"), &mut registry);
     }
 
-    let walker = walkdir::WalkDir::new(&agents_dir)
+    // 2. Workspace agents (higher precedence — overwrites home)
+    scan_agents_dir(
+        &workspace_root.join(".claude").join("agents"),
+        &mut registry,
+    );
+
+    registry
+}
+
+fn scan_agents_dir(agents_dir: &Path, registry: &mut AgentRegistry) {
+    if !agents_dir.exists() || !agents_dir.is_dir() {
+        return;
+    }
+
+    let walker = walkdir::WalkDir::new(agents_dir)
         .max_depth(4)
         .follow_links(false)
         .sort_by_file_name();
@@ -168,8 +187,6 @@ pub fn load_agent_definitions(workspace_root: &Path) -> AgentRegistry {
         def.system_prompt = body.trim().to_string();
         registry.insert(def.name.clone(), def);
     }
-
-    registry
 }
 
 /// Split a .md file into (yaml_frontmatter, markdown_body).  
@@ -247,8 +264,8 @@ fn builtin_agent_definition(name: &str) -> Option<AgentDefinition> {
 pub struct SubagentProgress {
     pub tool_use_count: usize,
     pub tool_use_total: Option<usize>,
-    pub tokens_in: usize,
-    pub tokens_out: usize,
+    pub total_input_tokens: usize,
+    pub total_output_tokens: usize,
     pub activity: Vec<String>,
     pub is_backgrounded: bool,
     pub subagent_name: String,
@@ -259,8 +276,8 @@ impl SubagentProgress {
         Self {
             tool_use_count: 0,
             tool_use_total: None,
-            tokens_in: 0,
-            tokens_out: 0,
+            total_input_tokens: 0,
+            total_output_tokens: 0,
             activity: Vec::new(),
             is_backgrounded: false,
             subagent_name: name.into(),
@@ -280,7 +297,7 @@ impl SubagentProgress {
     }
 
     pub fn total_tokens(&self) -> usize {
-        self.tokens_in + self.tokens_out
+        self.total_input_tokens + self.total_output_tokens
     }
 }
 
