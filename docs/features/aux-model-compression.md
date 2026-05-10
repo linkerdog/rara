@@ -135,9 +135,10 @@ Environment overrides:
 ### Phase 1: Scaffold
 
 1. Add `AuxModelConfig` to `rara-config`.
-2. Add `compress_retrieval_candidates()` function to context assembler.
-3. Wire up in `assemble_runtime_from_effective_prompt()` — call after retrieval,
-   before budget allocation.
+2. Add `compress_retrieval_candidates()` method to `Agent` (not `ContextAssembler` —
+   the assembler is stateless and does not own an `LlmBackend`).
+3. Wire up in `Agent.do_start_of_turn_prep()` — call after retrieval,
+   before context assembly.
 4. Add `[compressed N]` display in context budget.
 
 ### Phase 2: Cache
