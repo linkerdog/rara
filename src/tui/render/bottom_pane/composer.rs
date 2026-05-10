@@ -52,7 +52,13 @@ pub(super) fn render_composer(f: &mut Frame, app: &mut TuiApp, area: Rect) -> Op
             Some("  "),
         );
         let cursor_off = app.composer_cursor_offset();
-        let cursor_row = find_cursor_row_in_wrapped(&rows, cursor_off);
+        let cursor_row = find_cursor_row_in_wrapped(
+            app.bottom_pane.input.as_str(),
+            cursor_off,
+            chunks[0].width,
+            Some("› "),
+            Some("  "),
+        );
         app.maintain_composer_scroll(
             area.width,
             area.height.saturating_sub(1),
@@ -387,18 +393,26 @@ fn display_char_width(ch: char) -> usize {
     }
 }
 
-/// Find which wrapped row the cursor falls on given the absolute char offset
-/// into the raw input text.
-fn find_cursor_row_in_wrapped(rows: &[String], cursor_char_offset: usize) -> usize {
-    let mut char_idx = 0;
-    for (i, row) in rows.iter().enumerate() {
-        let row_len = row.chars().count();
-        if cursor_char_offset <= char_idx + row_len {
-            return i;
-        }
-        char_idx += row_len;
-    }
-    rows.len().saturating_sub(1)
+/// Find which wrapped row the cursor falls on by wrapping only the
+/// cursor prefix substring — matching the approach in
+/// `wrapped_text_cursor_position`.
+fn find_cursor_row_in_wrapped(
+    input: &str,
+    cursor_char_offset: usize,
+    width: u16,
+    initial_indent: Option<&str>,
+    subsequent_indent: Option<&str>,
+) -> usize {
+    let cursor_prefix_end = char_offset_to_byte_index(input, cursor_char_offset);
+    let cursor_prefix = &input[..cursor_prefix_end];
+    let wrapped = wrapped_text_rows(cursor_prefix, width, initial_indent, subsequent_indent);
+    wrapped.len().saturating_sub(1)
+}
+
+fn char_offset_to_byte_index(s: &str, char_offset: usize) -> usize {
+    s.char_indices()
+        .nth(char_offset)
+        .map_or(s.len(), |(i, _)| i)
 }
 
 #[cfg(test)]

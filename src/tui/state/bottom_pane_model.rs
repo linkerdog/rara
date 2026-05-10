@@ -119,16 +119,21 @@ impl BottomPaneModel {
             return false;
         };
         self.paste_burst_deadline = None;
-        if self.input_cursor_offset.is_none() {
-            // Cursor is at end — append.
-            self.input.push_str(&buf);
-        } else {
-            // Insert at cursor position.
-            let pos = char_offset_to_byte_index(&self.input, self.composer_cursor_offset());
-            self.input.insert_str(pos, &buf);
-        }
-        // Reset cursor to None to keep it at end after paste.
-        self.input_cursor_offset = None;
+        let paste_end = {
+            let old_offset = self.composer_cursor_offset();
+            if self.input_cursor_offset.is_none() {
+                // Cursor is at end — just append.
+                self.input.push_str(&buf);
+                None // stays at end
+            } else {
+                // Insert at cursor position.
+                let pos = char_offset_to_byte_index(&self.input, old_offset);
+                self.input.insert_str(pos, &buf);
+                // Place cursor after the pasted text.
+                Some(old_offset + buf.chars().count())
+            }
+        };
+        self.input_cursor_offset = paste_end;
         true
     }
 

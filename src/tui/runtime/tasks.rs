@@ -220,9 +220,7 @@ pub(super) fn start_input_control_task(
     agent.set_full_access_mode(app.permission_mode == PermissionMode::FullAccess);
     sync_bash_prefixes_from_config(app, &mut agent);
     agent.set_cancellation_token(Some(cancellation_token.clone()));
-    if let Some(ref bus) = bus {
-        let _ = bus.send(crate::agent::AgentEvent::AgentStart);
-    }
+    let _ = bus.send(crate::agent::AgentEvent::AgentStart);
 
     let handle = tokio::spawn(async move {
         let tx = sender.clone();
