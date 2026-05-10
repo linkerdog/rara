@@ -221,6 +221,7 @@ pub(super) fn start_input_control_task(
     sync_bash_prefixes_from_config(app, &mut agent);
     agent.set_cancellation_token(Some(cancellation_token.clone()));
     let _ = bus.send(crate::agent::AgentEvent::AgentStart);
+
     let handle = tokio::spawn(async move {
         let tx = sender.clone();
         let provenance =
