@@ -115,7 +115,7 @@ impl BottomPaneModel {
     }
 
     /// Force-flush any pending paste burst regardless of deadline.
-    fn flush_paste_burst(&mut self) -> bool {
+    pub(super) fn flush_paste_burst(&mut self) -> bool {
         let Some(buf) = self.paste_burst_buffer.take() else {
             return false;
         };
