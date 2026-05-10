@@ -81,12 +81,34 @@ fn to_bedrock_tools(tools: &[Value]) -> Vec<BedrockToolSpec> {
         .collect()
 }
 
+fn extract_system_prompt(messages: &[Message]) -> (Vec<String>, Vec<Message>) {
+    let mut system = Vec::new();
+    let mut other = Vec::new();
+    for message in messages {
+        if message.role == "system" {
+            if let Some(text) = message.content.as_str() {
+                system.push(text.to_string());
+            } else if let Some(items) = message.content.as_array() {
+                for item in items {
+                    if let Some(text) = item.get("text").and_then(Value::as_str) {
+                        system.push(text.to_string());
+                    }
+                }
+            }
+        } else {
+            other.push(message.clone());
+        }
+    }
+    (system, other)
+}
+
 #[async_trait]
 impl LlmBackend for BedrockBackend {
     async fn ask(&self, messages: &[Message], tools: &[Value]) -> Result<LlmResponse> {
+        let (system, messages) = extract_system_prompt(messages);
         let response = self
             .client
-            .ask(&to_bedrock_messages(messages), &to_bedrock_tools(tools))
+            .ask(&system, &to_bedrock_messages(&messages), &to_bedrock_tools(tools))
             .await?;
 
         let mut content = Vec::new();

@@ -3,8 +3,9 @@ use aws_config::BehaviorVersion;
 use aws_sdk_bedrockruntime::Client as BedrockClient;
 use aws_sdk_bedrockruntime::types::{
     ContentBlock as BedrockContentBlock, ConversationRole, InferenceConfiguration,
-    Message as BedrockMessage, StopReason, Tool, ToolConfiguration, ToolInputSchema,
-    ToolResultBlock, ToolResultContentBlock, ToolResultStatus, ToolSpecification, ToolUseBlock,
+    Message as BedrockMessage, StopReason, SystemContentBlock, Tool, ToolConfiguration,
+    ToolInputSchema, ToolResultBlock, ToolResultContentBlock, ToolResultStatus, ToolSpecification,
+    ToolUseBlock,
 };
 use aws_smithy_types::{Document, Number};
 use serde_json::Value;
@@ -101,6 +102,7 @@ impl BedrockConverseClient {
 
     pub async fn ask(
         &self,
+        system: &[String],
         messages: &[BedrockChatMessage],
         tools: &[BedrockToolSpec],
     ) -> Result<BedrockChatResponse> {
@@ -111,6 +113,14 @@ impl BedrockConverseClient {
             .converse()
             .model_id(&self.model_id)
             .set_messages(Some(bedrock_messages));
+
+        if !system.is_empty() {
+            let system_blocks: Vec<SystemContentBlock> = system
+                .iter()
+                .map(|s| SystemContentBlock::Text(s.clone()))
+                .collect();
+            builder = builder.set_system(Some(system_blocks));
+        }
 
         if !tools.is_empty() {
             if let Ok(tool_config) = ToolConfiguration::builder()
@@ -384,3 +394,4 @@ mod tests {
         assert!(matches!(&blocks[0], BedrockContentBlock::Text(text) if text == "hello"));
     }
 }
+

@@ -123,12 +123,15 @@ impl BasePromptKind {
     }
 }
 
+pub const DYNAMIC_BOUNDARY: &str = "__DYNAMIC_BOUNDARY__";
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct EffectivePrompt {
     pub text: String,
     pub base_prompt_kind: BasePromptKind,
     pub section_keys: Vec<&'static str>,
     pub sources: Vec<PromptSource>,
+    pub dynamic_boundary_index: Option<usize>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -280,6 +283,12 @@ pub fn build_effective_prompt(
         };
 
     let mut final_sections = vec![base_prompt_text];
+
+    // Boundary separates static rules from session-specific context.
+    final_sections.push(DYNAMIC_BOUNDARY.to_string());
+    let dynamic_boundary_index = Some(final_sections.len() - 1);
+    section_keys.push("dynamic_boundary");
+
     section_keys.extend(
         dynamic_sections
             .iter()
@@ -298,6 +307,7 @@ pub fn build_effective_prompt(
         base_prompt_kind,
         section_keys,
         sources,
+        dynamic_boundary_index,
     }
 }
 
@@ -333,10 +343,6 @@ fn resolve_prompt_text(
     }
 }
 
-fn default_system_prompt() -> String {
-    resolve_sections(default_system_prompt_sections()).join("\n\n")
-}
-
 fn default_system_prompt_sections() -> Vec<PromptSection> {
     vec![
         PromptSection::new(
@@ -369,6 +375,22 @@ fn default_system_prompt_sections() -> Vec<PromptSection> {
                     "When the target is ambiguous, search current files, git state, open PR state, available project docs, and recent runtime context before asking the user to restate information that can be discovered locally.",
                     "Do not create planning, decision, analysis, README, or other documentation files unless the user explicitly asks for documentation.",
                     "Keep user-visible updates concise: state what changed, what was verified, and what remains. Do not narrate private deliberation or every intermediate next step.",
+                ],
+            ),
+        ),
+        PromptSection::new(
+            "coding_standards",
+            section(
+                "Coding Standards",
+                &[
+                    "Follow the Principle of Least Complexity: do not add features, refactors, or abstractions beyond what the task requires.",
+                    "A bug fix does not need surrounding code cleaned up unless it is directly causing the bug.",
+                    "Default to writing no comments. Only add one when the WHY is non-obvious: a hidden constraint, a subtle invariant, or a workaround for a specific bug. Don't explain WHAT the code does.",
+                    "Do not add error handling, fallbacks, or validation for scenarios that can't happen. Trust internal code and framework guarantees; only validate at system boundaries.",
+                    "Do not create helpers, utilities, or abstractions for one-time operations. Three similar lines of code is better than a premature abstraction.",
+                    "Avoid backwards-compatibility hacks like renaming unused variables with underscores or adding 'removed' comments. If code is unused, delete it completely.",
+                    "Before reporting a task complete, verify it actually works: run the narrowest relevant test, build, check, or script.",
+                    "Prioritize writing safe, secure, and correct code. If you notice insecure code, fix it immediately.",
                 ],
             ),
         ),
@@ -688,12 +710,14 @@ fn dynamic_system_prompt_sections(
         .map(|memory| format!("## {}\n{}", memory.label, memory.content));
     let protocol_prompt_sources_block = render_protocol_prompt_sources_section(sources);
     let skills_block = render_available_skills_section(available_skills);
+    let language_prompt = crate::languages::get_language_prompt(&cwd);
 
     vec![
         PromptSection::optional("instructions", instruction_block),
         PromptSection::optional("memory", memory_block),
         PromptSection::optional("protocol_prompt_sources", protocol_prompt_sources_block),
         PromptSection::optional("skills", skills_block),
+        PromptSection::optional("language_best_practices", language_prompt),
         PromptSection::new("runtime_context", render_environment_context(&cwd, &branch)),
         PromptSection::optional(
             "plan_mode",
@@ -1026,6 +1050,26 @@ mod tests {
     }
 
     #[test]
+    fn build_system_prompt_includes_language_best_practices_for_rust_project() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let root = temp.path().join("rust-project");
+        let rara_dir = root.join(".rara");
+        fs::create_dir_all(&rara_dir).expect("mkdir .rara");
+        fs::write(root.join("Cargo.toml"), "").expect("create Cargo.toml");
+        let workspace = WorkspaceMemory::from_paths(root, rara_dir);
+
+        let effective = build_effective_prompt(
+            &workspace,
+            &PromptRuntimeConfig::default(),
+            PromptMode::Execute,
+        );
+
+        assert!(effective.section_keys.contains(&"language_best_practices"));
+        assert!(effective.text.contains("# Rust Best Practices"));
+        assert!(effective.text.contains("idiomatic Rust"));
+    }
+
+    #[test]
     fn default_prompt_includes_factual_verification_rules() {
         let temp = tempfile::tempdir().expect("tempdir");
         let root = temp.path().join("workspace");
@@ -1168,7 +1212,13 @@ mod tests {
 
     #[test]
     fn default_system_prompt_mentions_tool_safety_and_compaction() {
-        let prompt = super::default_system_prompt();
+        let temp = tempfile::tempdir().expect("tempdir");
+        let workspace = WorkspaceMemory::from_paths(temp.path().to_path_buf(), temp.path().join(".rara"));
+        let prompt = super::build_system_prompt(
+            &workspace,
+            &super::PromptRuntimeConfig::default(),
+            super::PromptMode::Execute,
+        );
         assert!(prompt.contains("prompt injection"));
         assert!(prompt.contains("Conversation history may be compacted"));
         assert!(prompt.contains("environment context's cwd"));
@@ -1246,6 +1296,7 @@ mod tests {
 
         for key in [
             "software_engineering_context",
+            "coding_standards",
             "codebase_search_and_evidence",
             "external_sources_and_web_search",
             "task_workflow",
@@ -1258,6 +1309,11 @@ mod tests {
                 "missing prompt section: {key}"
             );
         }
+
+        assert!(effective.text.contains("# Coding Standards"));
+        assert!(effective.text.contains("Principle of Least Complexity"));
+        assert!(effective.text.contains("Default to writing no comments"));
+        assert!(effective.text.contains("verify it actually works"));
 
         assert!(
             effective
@@ -1453,7 +1509,11 @@ mod tests {
 
         let effective = super::build_effective_prompt(&workspace, &runtime, PromptMode::Execute);
         assert_eq!(effective.base_prompt_kind, super::BasePromptKind::Default);
+        assert!(effective.section_keys.contains(&"dynamic_boundary"));
         assert!(effective.section_keys.contains(&"runtime_context"));
         assert!(effective.section_keys.contains(&"append_system_prompt"));
+        assert!(effective.text.contains(super::DYNAMIC_BOUNDARY));
+        assert!(effective.dynamic_boundary_index.is_some());
     }
 }
+

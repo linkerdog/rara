@@ -410,11 +410,54 @@ impl Agent {
                 projection_report.cleared_results
             )));
         }
+        let mut system_content = Vec::new();
+        if let Some(index) = assembled.prompt.effective_prompt.dynamic_boundary_index {
+            let full_text = &assembled.prompt.effective_prompt.text;
+            // The text is joined by "\n\n". We want to split it back or just use the sections.
+            // But EffectivePrompt only gives us the full text and boundary index.
+            // Actually, build_effective_prompt joins them.
+            
+            let parts: Vec<&str> = full_text.split(rara_instructions::DYNAMIC_BOUNDARY).collect();
+            if parts.len() >= 2 {
+                let static_part = parts[0].trim();
+                let dynamic_part = parts[1..].join(rara_instructions::DYNAMIC_BOUNDARY);
+                let dynamic_part = dynamic_part.trim();
+                
+                if !static_part.is_empty() {
+                    system_content.push(json!({
+                        "type": "text",
+                        "text": static_part,
+                        "cache_control": {"type": "ephemeral"} // Add hint for Anthropic-style caching
+                    }));
+                }
+                // Add the boundary itself if needed or just skip it. 
+                // Claude Code keeps it to mark the boundary for future edits.
+                system_content.push(json!({
+                    "type": "text",
+                    "text": rara_instructions::DYNAMIC_BOUNDARY,
+                }));
+                if !dynamic_part.is_empty() {
+                    system_content.push(json!({
+                        "type": "text",
+                        "text": dynamic_part,
+                    }));
+                }
+            } else {
+                system_content.push(json!(assembled.prompt.effective_prompt.text));
+            }
+        } else {
+            system_content.push(json!(assembled.prompt.effective_prompt.text));
+        }
+
         messages.insert(
             0,
             Message {
                 role: "system".to_string(),
-                content: json!(assembled.prompt.effective_prompt.text),
+                content: if system_content.len() == 1 {
+                    system_content.remove(0)
+                } else {
+                    Value::Array(system_content)
+                },
             },
         );
         if let Some(memory_context) = Agent::selected_memory_context_text(&assembled.runtime) {
