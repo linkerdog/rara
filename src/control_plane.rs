@@ -73,9 +73,7 @@ where
         }
         RuntimeControlRequest::Input(input_request) => {
             if let Some(agent) = agent {
-                // Bridge AgentEvent back to the control-plane callback via on_event.
-                // We need to wrap AgentEvent into RuntimeControlEvent.
-                let mut sequence = 0u64; // We might need the bus sequence here
+                let mut sequence = 0u64;
                 let provenance = envelope.provenance.clone();
 
                 let mut report = |event| {
@@ -98,6 +96,6 @@ where
                 Err("no active session available for input control".to_string())
             }
         }
-        _ => Err("control-plane dispatch not yet implemented for this request variant".to_string()),
+        _ => Err("control-plane dispatch not yet implemented for this request variant".into()),
     }
 }

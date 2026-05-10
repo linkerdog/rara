@@ -1,4 +1,6 @@
 // Bottom pane composer — input rendering, text wrapping, placeholder hints.
+use std::cell::RefCell;
+
 use ratatui::{
     layout::{Alignment, Constraint, Direction, Layout, Rect},
     style::{Modifier, Style},
@@ -18,7 +20,6 @@ use crate::tui::theme::*;
 const COMPOSER_TAB_WIDTH: usize = 4;
 
 pub(super) fn render_composer(f: &mut Frame, app: &mut TuiApp, area: Rect) -> Option<(u16, u16)> {
-    app.maintain_composer_scroll(area.width, area.height.saturating_sub(1));
     let chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([Constraint::Min(2), Constraint::Length(1)])
@@ -44,35 +45,49 @@ pub(super) fn render_composer(f: &mut Frame, app: &mut TuiApp, area: Rect) -> Op
             Span::styled(" to browse commands.", Style::default().fg(TEXT_SECONDARY)),
         ])]
     } else {
-        wrapped_text_rows(
+        let rows = wrapped_text_rows(
             app.bottom_pane.input.as_str(),
             chunks[0].width,
             Some("› "),
             Some("  "),
-        )
-        .into_iter()
-        .map(|row| {
-            let mut spans = Vec::new();
-            let (prefix, remainder) = if let Some(rest) = row.strip_prefix("› ") {
-                ("› ", rest)
-            } else if let Some(rest) = row.strip_prefix("  ") {
-                ("  ", rest)
-            } else {
-                ("", row.as_str())
-            };
+        );
+        let cursor_off = app.composer_cursor_offset();
+        let cursor_row = find_cursor_row_in_wrapped(
+            app.bottom_pane.input.as_str(),
+            cursor_off,
+            chunks[0].width,
+            Some("› "),
+            Some("  "),
+        );
+        app.maintain_composer_scroll(
+            area.width,
+            area.height.saturating_sub(1),
+            cursor_row,
+            rows.len(),
+        );
+        rows.into_iter()
+            .map(|row| {
+                let mut spans = Vec::new();
+                let (prefix, remainder) = if let Some(rest) = row.strip_prefix("› ") {
+                    ("› ", rest)
+                } else if let Some(rest) = row.strip_prefix("  ") {
+                    ("  ", rest)
+                } else {
+                    ("", row.as_str())
+                };
 
-            if !prefix.is_empty() {
-                spans.push(Span::styled(
-                    prefix.to_string(),
-                    Style::default()
-                        .fg(TEXT_ACCENT)
-                        .add_modifier(Modifier::BOLD),
-                ));
-            }
-            spans.push(Span::raw(expand_composer_display_text(remainder)));
-            Line::from(spans)
-        })
-        .collect::<Vec<_>>()
+                if !prefix.is_empty() {
+                    spans.push(Span::styled(
+                        prefix.to_string(),
+                        Style::default()
+                            .fg(TEXT_ACCENT)
+                            .add_modifier(Modifier::BOLD),
+                    ));
+                }
+                spans.push(Span::raw(expand_composer_display_text(remainder)));
+                Line::from(spans)
+            })
+            .collect::<Vec<_>>()
     };
     f.render_widget(
         Paragraph::new(composer_lines)
@@ -275,6 +290,30 @@ pub(super) fn wrapped_text_rows(
     initial_indent: Option<&str>,
     subsequent_indent: Option<&str>,
 ) -> Vec<String> {
+    // Simple cache: a single-entry cache is effective because the
+    // same (input, width) pair is queried every frame for render,
+    // cursor, and scroll — so the second and third calls are free.
+    thread_local! {
+        static CACHE: RefCell<Option<(String, u16, Vec<String>)>> = RefCell::new(None);
+    }
+    CACHE.with(|cell| {
+        if let Some((ref cached_input, w, ref rows)) = *cell.borrow() {
+            if cached_input == input && w == width {
+                return rows.clone();
+            }
+        }
+        let rows = wrapped_text_rows_uncached(input, width, initial_indent, subsequent_indent);
+        cell.replace(Some((input.to_string(), width, rows.clone())));
+        rows
+    })
+}
+
+fn wrapped_text_rows_uncached(
+    input: &str,
+    width: u16,
+    initial_indent: Option<&str>,
+    subsequent_indent: Option<&str>,
+) -> Vec<String> {
     let width = width.max(1);
     let initial_indent = initial_indent.unwrap_or("");
     let subsequent_indent = subsequent_indent.unwrap_or("");
@@ -354,6 +393,22 @@ fn display_char_width(ch: char) -> usize {
     }
 }
 
+/// Find which wrapped row the cursor falls on by wrapping only the
+/// cursor prefix substring — matching the approach in
+/// `wrapped_text_cursor_position`.
+fn find_cursor_row_in_wrapped(
+    input: &str,
+    cursor_char_offset: usize,
+    width: u16,
+    initial_indent: Option<&str>,
+    subsequent_indent: Option<&str>,
+) -> usize {
+    let cursor_prefix_end = char_offset_to_byte_index(input, cursor_char_offset);
+    let cursor_prefix = &input[..cursor_prefix_end];
+    let wrapped = wrapped_text_rows(cursor_prefix, width, initial_indent, subsequent_indent);
+    wrapped.len().saturating_sub(1)
+}
+
 #[cfg(test)]
 #[path = "../bottom_pane_tests.rs"]
-mod tests;
+mod bottom_pane_tests;
