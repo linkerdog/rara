@@ -1,0 +1,5 @@
+---
+source: src/tui/markdown_render.rs
+expression: render_to_string(md)
+---
+See the docs (U(https://example.com)) and also Copilot (U(https://copilot.github.com)).

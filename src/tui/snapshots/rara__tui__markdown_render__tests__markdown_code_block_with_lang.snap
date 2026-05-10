@@ -1,0 +1,8 @@
+---
+source: src/tui/markdown_render.rs
+expression: render_to_string(md)
+---
+  rust
+fn main() {
+    println!("hi");
+}
