@@ -109,7 +109,7 @@ impl SkillManager {
     pub fn active_scopes(&self) -> Vec<String> {
         let mut scopes = HashSet::new();
         for skill in self.skills.values() {
-            scopes.insert(skill.scope.as_str().to_string()); 
+            scopes.insert(skill.scope.as_str().to_string());
         }
         let mut result: Vec<String> = scopes.into_iter().collect();
         result.sort();
@@ -168,7 +168,9 @@ impl SkillManager {
                             let name = skill.name.clone();
                             if let Some(existing) = self.skills.get(&name) {
                                 let mut chain = self.overrides.remove(&name).unwrap_or_default();
-                                if scope == SkillScope::Workspace && existing.scope == SkillScope::Global {
+                                if scope == SkillScope::Workspace
+                                    && existing.scope == SkillScope::Global
+                                {
                                     chain.push(existing.clone());
                                     self.skills.insert(name.clone(), skill);
                                 } else {
@@ -202,7 +204,8 @@ impl SkillManager {
             .ok_or_else(|| anyhow!("invalid skill path"))?
             .to_string();
 
-        let description = extract_description(&content).unwrap_or_else(|| "No description provided.".to_string());
+        let description =
+            extract_description(&content).unwrap_or_else(|| "No description provided.".to_string());
 
         Ok(Skill {
             name: name.clone(),
