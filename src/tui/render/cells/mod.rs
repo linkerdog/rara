@@ -170,7 +170,7 @@ fn ordered_exploration_agent_segments<'a>(
 }
 
 #[derive(Clone, Copy)]
-pub(super) enum InteractionCompletionKind {
+pub(crate) enum InteractionCompletionKind {
     ShellApprovalCompleted,
     QuestionAnswered,
     PlanningQuestionAnswered,

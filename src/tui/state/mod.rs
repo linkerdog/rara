@@ -1488,7 +1488,7 @@ impl TuiApp {
                 approval: None,
                 source: Some(source.into()),
             });
-        self.notice = Some(format!("{title}"));
+        self.notice = Some(title.clone());
         self.persist_runtime_state();
     }
 

@@ -1298,8 +1298,9 @@ mod tests {
 
     use async_trait::async_trait;
     use rara_memory::vectordb::VectorDB;
-    use rara_state::state_db::{PersistedStructuredRolloutEvent, StateDb};
-    use rara_state::thread_rollout_log;
+    use rara_persistence::thread_data::PersistedStructuredRolloutEvent;
+    use rara_persistence::thread_rollout_log;
+    use rara_state::state_db::StateDb;
     use rara_tools::tool::{Tool, ToolCallContext, ToolError};
     use serde_json::json;
     use tempfile::tempdir;

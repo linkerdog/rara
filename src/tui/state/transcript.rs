@@ -198,14 +198,13 @@ impl TuiApp {
             self.reset_transcript_scroll_if_following_tail();
             return;
         }
-        if self.active_turn.entries.is_empty() {
-            if let Some(turn) = self.committed_turns.last_mut() {
-                if Self::replace_current_agent_segment_message(turn, message.clone()) {
-                    self.invalidate_committed_render_cache();
-                    self.reset_transcript_scroll_if_following_tail();
-                    return;
-                }
-            }
+        if self.active_turn.entries.is_empty()
+            && let Some(turn) = self.committed_turns.last_mut()
+            && Self::replace_current_agent_segment_message(turn, message.clone())
+        {
+            self.invalidate_committed_render_cache();
+            self.reset_transcript_scroll_if_following_tail();
+            return;
         }
         self.push_entry("Agent", message);
     }
@@ -271,7 +270,10 @@ impl TuiApp {
             RuntimePhase::OAuthExchangingToken => "oauth-exchanging-token",
             RuntimePhase::OAuthDeviceCodePrompt => "oauth-device-code-prompt",
             RuntimePhase::OAuthPollingDeviceCode => "oauth-polling-device-code",
+            RuntimePhase::OAuthVerifying => "oauth-verifying",
+            RuntimePhase::OAuthSuccess => "oauth-success",
             RuntimePhase::OAuthSaved => "oauth-saved",
+            RuntimePhase::OAuthError => "oauth-error",
             RuntimePhase::Failed => "failed",
         }
     }

@@ -418,7 +418,6 @@ mod tests {
         .expect("build tui app");
         app.input = "/".into();
         let area = Rect::new(0, 0, 100, 24);
-        let bottom_pane = Rect::new(0, 19, 100, 5);
 
         let popup = command_palette_rect(area, &app);
 

@@ -44,10 +44,10 @@ pub(crate) async fn handle_submit(
 
     if app.is_busy() {
         if trimmed.starts_with('/') {
-            if let Some(command) = parse_local_command(&trimmed) {
-                if matches!(command.kind, LocalCommandKind::Quit) {
-                    return execute_local_command(command, app, agent_slot, oauth_manager).await;
-                }
+            if let Some(command) = parse_local_command(&trimmed)
+                && matches!(command.kind, LocalCommandKind::Quit)
+            {
+                return execute_local_command(command, app, agent_slot, oauth_manager).await;
             }
             app.push_notice(
                 "A task is already running. Wait for it to finish before running a slash command.",

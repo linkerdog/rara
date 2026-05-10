@@ -188,8 +188,9 @@ pub struct CommandSpec {
     pub detail: &'static str,
 }
 
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
 pub enum RuntimePhase {
+    #[default]
     Idle,
     LocalCommand,
     SendingPrompt,
@@ -202,15 +203,13 @@ pub enum RuntimePhase {
     OAuthExchangingToken,
     OAuthDeviceCodePrompt,
     OAuthPollingDeviceCode,
+    OAuthVerifying,
+    OAuthSuccess,
     OAuthSaved,
+    OAuthError,
     Failed,
 }
 
-impl Default for RuntimePhase {
-    fn default() -> Self {
-        Self::Idle
-    }
-}
 
 #[derive(Default, Clone)]
 pub struct RuntimeSnapshot {

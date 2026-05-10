@@ -47,11 +47,10 @@ pub(crate) fn bash_rg_exploration_action_label(command: &str) -> Option<String> 
     let cwd = command_prefix_cwd(tokens.as_slice(), rg_index);
     let args = &tokens[rg_index + 1..];
 
-    if args.iter().any(|part| *part == "--files") {
+    if args.contains(&"--files") {
         let target = args
             .iter()
-            .filter(|part| !part.starts_with('-'))
-            .next_back()
+            .rfind(|part| !part.starts_with('-'))
             .copied()
             .unwrap_or("workspace");
         Some(format!("Find files {}", display_path_in_cwd(cwd, target)))
