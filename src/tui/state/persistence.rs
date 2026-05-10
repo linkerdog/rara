@@ -21,11 +21,11 @@ impl TuiApp {
 
     pub(super) fn refresh_recent_threads_for_resume_picker(&mut self) {
         self.refresh_recent_threads();
-        self.resume_picker_idx = self
-            .recent_threads
-            .is_empty()
-            .then_some(0)
-            .unwrap_or_else(|| self.resume_picker_idx.min(self.recent_threads.len() - 1));
+        self.resume_picker_idx = if self.recent_threads.is_empty() {
+            0
+        } else {
+            self.resume_picker_idx.min(self.recent_threads.len() - 1)
+        };
     }
 
     pub fn attach_state_db(&mut self, state_db: Arc<StateDb>) {

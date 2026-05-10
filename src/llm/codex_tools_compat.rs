@@ -173,20 +173,20 @@ fn sanitize_json_schema(value: &mut JsonValue) {
             }
         }
         JsonValue::Object(map) => {
-            if let Some(properties) = map.get_mut("properties") {
-                if let Some(properties_map) = properties.as_object_mut() {
-                    for value in properties_map.values_mut() {
-                        sanitize_json_schema(value);
-                    }
+            if let Some(properties) = map.get_mut("properties")
+                && let Some(properties_map) = properties.as_object_mut()
+            {
+                for value in properties_map.values_mut() {
+                    sanitize_json_schema(value);
                 }
             }
             if let Some(items) = map.get_mut("items") {
                 sanitize_json_schema(items);
             }
-            if let Some(additional_properties) = map.get_mut("additionalProperties") {
-                if !matches!(additional_properties, JsonValue::Bool(_)) {
-                    sanitize_json_schema(additional_properties);
-                }
+            if let Some(additional_properties) = map.get_mut("additionalProperties")
+                && !matches!(additional_properties, JsonValue::Bool(_))
+            {
+                sanitize_json_schema(additional_properties);
             }
             if let Some(value) = map.get_mut("prefixItems") {
                 sanitize_json_schema(value);

@@ -133,13 +133,13 @@ pub fn build_classifier_messages(
         match msg.role.as_str() {
             "user" => {
                 // Only include user text content, not tool results
-                if let Some(text) = extract_text_content(&msg.content) {
-                    if !text.is_empty() {
-                        result.push(Message {
-                            role: "user".to_string(),
-                            content: Value::String(text),
-                        });
-                    }
+                if let Some(text) = extract_text_content(&msg.content)
+                    && !text.is_empty()
+                {
+                    result.push(Message {
+                        role: "user".to_string(),
+                        content: Value::String(text),
+                    });
                 }
             }
             "assistant" => {

@@ -178,7 +178,7 @@ pub async fn run_tui(
         handle.abort();
     }
     teardown_terminal(terminal)?;
-    let _ = result?;
+    result?;
     let session_id = maintainer
         .agent()
         .map(|a| a.session_id.clone())

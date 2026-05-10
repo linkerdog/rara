@@ -267,10 +267,10 @@ pub(super) fn collect_assistant_content(content: &Value) -> (Vec<String>, Vec<As
         for item in items {
             match item.get("type").and_then(Value::as_str) {
                 Some("text") => {
-                    if let Some(text) = item.get("text").and_then(Value::as_str) {
-                        if !text.trim().is_empty() {
-                            text_parts.push(text.to_string());
-                        }
+                    if let Some(text) = item.get("text").and_then(Value::as_str)
+                        && !text.trim().is_empty()
+                    {
+                        text_parts.push(text.to_string());
                     }
                 }
                 Some("tool_use") => {
@@ -360,10 +360,10 @@ pub(crate) async fn retry_send_json(
 ) -> Result<reqwest::Response> {
     (|| async {
         let mut request = client.post(url);
-        if let Some(key) = api_key {
-            if !key.is_empty() {
-                request = request.header("Authorization", format!("Bearer {key}"));
-            }
+        if let Some(key) = api_key
+            && !key.is_empty()
+        {
+            request = request.header("Authorization", format!("Bearer {key}"));
         }
         let res = request.json(body).send().await.map_err(|e| anyhow!(e))?;
         let status = res.status();

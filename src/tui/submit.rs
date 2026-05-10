@@ -25,15 +25,15 @@ pub(crate) async fn handle_submit(
     }
 
     if app.bottom_pane.input.is_empty() {
-        if let Some(interaction) = app.active_pending_interaction() {
-            if matches!(
+        if let Some(interaction) = app.active_pending_interaction()
+            && matches!(
                 interaction.kind,
                 ActivePendingInteractionKind::ShellApproval
-            ) {
-                app.approval_picker_idx = 0;
-                app.open_overlay(Overlay::ListPicker(ListPickerKind::ApprovalDecision));
-                return Ok(false);
-            }
+            )
+        {
+            app.approval_picker_idx = 0;
+            app.open_overlay(Overlay::ListPicker(ListPickerKind::ApprovalDecision));
+            return Ok(false);
         }
         // Lightweight feedback so the user knows Enter was received.
         // Don't overwrite existing notices (e.g., status-info after a command).

@@ -2,7 +2,7 @@ use super::*;
 
 #[test]
 fn explicit_progress_entry_groups_preserves_thinking_indentation() {
-    let entries = vec![TranscriptEntry {
+    let entries = [TranscriptEntry {
         role: "Thinking".into(),
         message: "    let value = 1;\n  aligned note\n\n".into(),
         payload: None,

@@ -103,7 +103,7 @@ impl LocalModelSpec {
     }
 
     pub(super) fn context_window(self, raw_config: &Value) -> usize {
-        extract_context_window(raw_config).unwrap_or_else(|| match self {
+        extract_context_window(raw_config).unwrap_or(match self {
             Self::Gemma4E2B | Self::Gemma4E4B => 8192,
             Self::Qwen3_8B => 32768,
         })

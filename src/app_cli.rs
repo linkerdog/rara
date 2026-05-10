@@ -901,7 +901,7 @@ mod tests {
     #[test]
     fn connect_and_models_startup_resume_targets_are_none() {
         // These commands skip TUI startup entirely.
-        assert!(matches!(
+        assert!(
             startup_resume_target_for_command(&Commands::Connect(ConnectArgs {
                 kind: None,
                 profile_id: None,
@@ -910,14 +910,14 @@ mod tests {
                 model: None,
                 label: None,
                 revision: None,
-            })),
-            None
-        ));
-        assert!(matches!(
+            }))
+            .is_none()
+        );
+        assert!(
             startup_resume_target_for_command(&Commands::Models(ModelsCommands::List(
                 ModelsListArgs { kind: None }
-            ))),
-            None
-        ));
+            )))
+            .is_none()
+        );
     }
 }

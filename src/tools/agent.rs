@@ -2391,11 +2391,10 @@ mod tests {
                 .starts_with("counted")
         );
         assert!(
-            result["persistence_error"]
+            !result["persistence_error"]
                 .as_str()
                 .expect("persistence error")
-                .len()
-                > 0
+                .is_empty()
         );
     }
 

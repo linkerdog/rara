@@ -371,7 +371,7 @@ fn render_assembly_layer(lines: &mut Vec<Line<'static>>, app: &TuiApp, layer: &s
     for entry in entries {
         let tokens = entry
             .budget_impact_tokens
-            .map(|n| format_token_count(n))
+            .map(format_token_count)
             .unwrap_or_else(|| "-".to_string());
         let path = entry
             .source_path

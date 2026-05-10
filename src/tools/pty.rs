@@ -293,15 +293,14 @@ impl PtySessionStore {
             snapshot.status = *status;
             matches!(*status, PtySessionStatus::Killing)
         };
-        if should_kill {
-            if let Err(err) =
+        if should_kill
+            && let Err(err) =
                 kill_pty_child(&mut **child.lock().expect("pty child lock"), child_pid)
-            {
-                restore_running_after_failed_kill(&status);
-                return Err(ToolError::ExecutionFailed(format!(
-                    "kill pty session: {err}"
-                )));
-            }
+        {
+            restore_running_after_failed_kill(&status);
+            return Err(ToolError::ExecutionFailed(format!(
+                "kill pty session: {err}"
+            )));
         }
         Ok(snapshot)
     }
@@ -762,7 +761,7 @@ fn command_env_for_wrapped(
 }
 
 fn ensure_usable_path(env_map: &mut HashMap<String, String>) {
-    let needs_path = env_map.get("PATH").map_or(true, |value| value.is_empty());
+    let needs_path = env_map.get("PATH").is_none_or(|value| value.is_empty());
     if needs_path {
         let fallback_path = env::var("PATH")
             .ok()

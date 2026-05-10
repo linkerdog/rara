@@ -114,18 +114,19 @@ pub(crate) async fn initialize_rara_context(
         .into_iter()
         .map(|skill| {
             let scope = match skill.scope {
-                SkillScope::Home => "home",
-                SkillScope::Repo => "repo",
-                SkillScope::Cwd => "cwd",
-                SkillScope::System => "system",
+                rara_skills::SkillScope::Global | rara_skills::SkillScope::Home => "global",
+                rara_skills::SkillScope::Workspace
+                | rara_skills::SkillScope::Repo
+                | rara_skills::SkillScope::Cwd => "workspace",
+                rara_skills::SkillScope::System => "system",
             };
             PromptSkillSummary {
-                name: skill.name,
-                title: skill.title,
+                name: skill.name.clone(),
+                title: Some(skill.name),
                 description: skill.description,
-                display_path: skill.display_path,
+                display_path: skill.path.display().to_string(),
                 scope: scope.to_string(),
-                disable_model_invocation: skill.disable_model_invocation,
+                disable_model_invocation: false,
             }
         })
         .collect();
@@ -215,7 +216,7 @@ pub(crate) async fn build_backend_with_progress(
         provider if RaraConfig::is_openai_compatible_family(provider) => {
             let kind = config
                 .active_openai_profile_kind()
-                .unwrap_or_else(|| match provider {
+                .unwrap_or(match provider {
                     "deepseek" => OpenAiEndpointKind::Deepseek,
                     "kimi" => OpenAiEndpointKind::Kimi,
                     "openrouter" => OpenAiEndpointKind::Openrouter,

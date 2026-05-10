@@ -214,10 +214,10 @@ pub(super) fn apply_tui_event(app: &mut TuiApp, event: TuiEvent) {
             app.finalize_agent_stream(None);
             let role = event.transcript_role();
             let message = event.to_transcript_message();
-            if role == "Tool" {
-                if let Some(action) = tool_action_label(&message) {
-                    app.record_running_action(action);
-                }
+            if role == "Tool"
+                && let Some(action) = tool_action_label(&message)
+            {
+                app.record_running_action(action);
             }
             if matches!(role, "Tool Result" | "Tool Error") {
                 app.advance_running_tool_boundary();
@@ -304,7 +304,7 @@ pub(super) fn convert_agent_event(event: AgentEvent) -> Option<TuiEvent> {
             chunk,
         } => TerminalEvent::from_tool_progress(&name, stream, &chunk)
             .map(TuiEvent::Terminal)
-            .or_else(|| {
+            .or({
                 Some(TuiEvent::ToolProgress {
                     name,
                     stream,

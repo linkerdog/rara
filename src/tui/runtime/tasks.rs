@@ -88,10 +88,10 @@ fn forward_event_to_bus(
     event: &crate::agent::AgentEvent,
     provenance: &RuntimeProvenance,
 ) {
-    if let Some(bus) = bus.as_ref() {
-        if bus.receiver_count() > 0 {
-            bus.send_with_provenance(event.clone(), provenance.clone());
-        }
+    if let Some(bus) = bus.as_ref()
+        && bus.receiver_count() > 0
+    {
+        bus.send_with_provenance(event.clone(), provenance.clone());
     }
 }
 
@@ -632,7 +632,7 @@ pub(crate) async fn finish_running_task_if_ready(
     }
     match completion {
         TaskCompletion::Query { agent, result } => {
-            let mut agent = agent;
+            let agent = agent;
             let query_started_in_plan_mode = matches!(
                 app.agent_execution_mode,
                 crate::agent::AgentExecutionMode::Plan
@@ -646,11 +646,10 @@ pub(crate) async fn finish_running_task_if_ready(
             match result {
                 Ok(_) => {
                     app.set_agent_execution_mode(agent.execution_mode);
-                    let finished_plan_turn =
-                        matches!(
-                            app.agent_execution_mode,
-                            crate::agent::AgentExecutionMode::Plan
-                        );
+                    let finished_plan_turn = matches!(
+                        app.agent_execution_mode,
+                        crate::agent::AgentExecutionMode::Plan
+                    );
                     app.clear_active_live_sections();
                     if finished_plan_turn {
                         let plan_ready =
@@ -776,14 +775,12 @@ pub(crate) async fn finish_running_task_if_ready(
                     let error_message = format_error_chain(&err);
                     let cancelled = error_message.contains("cancelled by user");
                     app.set_agent_execution_mode(agent.execution_mode);
-                    let finished_plan_turn =
-                        matches!(
-                            app.agent_execution_mode,
-                            crate::agent::AgentExecutionMode::Plan
-                        );
+                    let _finished_plan_turn = matches!(
+                        app.agent_execution_mode,
+                        crate::agent::AgentExecutionMode::Plan
+                    );
                     app.clear_active_live_sections();
-                    if finished_plan_turn {
-                    }
+
                     app.set_pending_plan_approval(false);
                     *agent_slot = Some(agent);
                     if let Some(agent) = agent_slot.as_ref() {
@@ -975,7 +972,7 @@ pub(crate) async fn finish_running_task_if_ready(
                     }
                 };
                 let msg = saved_message.clone();
-                app.setup_status = Some(saved_message.into());
+                app.setup_status = Some(saved_message);
                 app.bottom_pane.notice = app.setup_status.clone();
                 app.set_runtime_phase(
                     RuntimePhase::OAuthSaved,

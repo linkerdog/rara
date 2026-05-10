@@ -21,8 +21,7 @@ const BASH_ERROR_HEAD_CHARS: usize = 1_000;
 const BASH_ERROR_TAIL_CHARS: usize = 3_000;
 const MICROCOMPACT_TOOL_RESULT_BUDGET: usize = 48_000;
 const MICROCOMPACT_KEEP_RECENT_TOOL_RESULTS: usize = 6;
-const MICROCOMPACT_CLEARED_MESSAGE: &str =
-    "[Old tool result content cleared by RARA microcompact projection]";
+pub const MICROCOMPACT_CLEARED_MESSAGE: &str = "[Old tool result content cleared]";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ToolResultProjectionPolicy {

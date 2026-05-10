@@ -77,8 +77,19 @@ impl Agent {
     }
 
     pub(super) fn tool_result_projection_policy(&self) -> ToolResultProjectionPolicy {
-        ToolResultProjectionPolicy::default()
-            .for_provider_cache_edit(self.llm_backend.cache_profile().cache_edit)
+        let mut policy = ToolResultProjectionPolicy::default()
+            .for_provider_cache_edit(self.llm_backend.cache_profile().cache_edit);
+
+        // Time-based trigger (Claude Code style):
+        // If the session has been idle for a while, the provider cache is likely cold.
+        // We can disable cache-edit eligibility to allow more aggressive microcompaction
+        // since we'll pay the cache-miss penalty anyway.
+        let idle_duration = self.last_interaction_time.elapsed();
+        if idle_duration > std::time::Duration::from_secs(300) {
+            policy.cache_edit_eligible = false;
+        }
+
+        policy
     }
 
     pub fn build_system_prompt(&self) -> String {

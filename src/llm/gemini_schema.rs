@@ -79,12 +79,11 @@ pub fn sanitize_gemini_schema(schema: &Value) -> Value {
             // guidance; the tool handler still validates the value.
             if let Some(enum_val) = cleaned.get("enum") {
                 let type_val = cleaned.get("type").and_then(|v| v.as_str());
-                if matches!(type_val, Some("integer" | "number" | "boolean")) {
-                    if let Value::Array(items) = enum_val {
-                        if items.iter().any(|v| !v.is_string()) {
-                            cleaned.remove("enum");
-                        }
-                    }
+                if matches!(type_val, Some("integer" | "number" | "boolean"))
+                    && let Value::Array(items) = enum_val
+                    && items.iter().any(|v| !v.is_string())
+                {
+                    cleaned.remove("enum");
                 }
             }
 
@@ -100,7 +99,7 @@ pub fn sanitize_gemini_schema(schema: &Value) -> Value {
 /// properties: {}}` schema.
 pub fn sanitize_gemini_tool_parameters(parameters: &Value) -> Value {
     let cleaned = sanitize_gemini_schema(parameters);
-    if cleaned.is_null() || cleaned.as_object().map_or(true, |o| o.is_empty()) {
+    if cleaned.is_null() || cleaned.as_object().is_none_or(|o| o.is_empty()) {
         serde_json::json!({"type": "object", "properties": {}})
     } else {
         cleaned

@@ -177,6 +177,7 @@ pub struct Agent {
     skill_source_registry: Option<Arc<SkillSourceRegistry>>,
     cancellation_token: Option<Arc<AtomicBool>>,
     consecutive_reasoning_only_turns: usize,
+    last_interaction_time: std::time::Instant,
 }
 
 impl Agent {
@@ -260,6 +261,7 @@ impl Agent {
             skill_source_registry: None,
             cancellation_token: None,
             consecutive_reasoning_only_turns: 0,
+            last_interaction_time: std::time::Instant::now(),
         }
     }
 
@@ -287,6 +289,7 @@ impl Agent {
         F: FnMut(AgentEvent) + Send,
     {
         let turn_start_idx = self.history.len();
+        self.last_interaction_time = std::time::Instant::now();
         let mut agentic_turns = 0usize;
         let mut runtime_error_recoveries = 0usize;
         self.inspection_progress = InspectionProgress::default();
@@ -534,14 +537,12 @@ impl Agent {
                     if matches!(self.execution_mode, AgentExecutionMode::Plan)
                         && name == EXIT_PLAN_MODE_TOOL_NAME
                         && !plan_updated
-                    {
-                        if let Some((steps, explanation)) =
+                        && let Some((steps, explanation)) =
                             planning::parse_exit_plan_tool_input(input)
-                        {
-                            self.current_plan = steps;
-                            self.plan_explanation = explanation;
-                            plan_updated = true;
-                        }
+                    {
+                        self.current_plan = steps;
+                        self.plan_explanation = explanation;
+                        plan_updated = true;
                     }
                     sanitized_content.push(ContentBlock::ToolUse {
                         id: id.clone(),
@@ -958,20 +959,19 @@ impl Agent {
             };
             if let Some(request) = bash_request.as_ref()
                 && matches!(self.execution_mode, AgentExecutionMode::Plan)
+                && !request.is_read_only()
             {
-                if !request.is_read_only() {
-                    let error_text = format!(
-                        "Error: bash is read-only in plan mode. Refuse command '{}' and inspect with read-only commands or return a plan.",
-                        request.summary()
-                    );
-                    report(AgentEvent::ToolResult {
-                        name: tool_name.clone(),
-                        content: error_text.clone(),
-                        is_error: true,
-                    });
-                    tool_results.push(tool_result_message(&tool_id, error_text, true));
-                    continue;
-                }
+                let error_text = format!(
+                    "Error: bash is read-only in plan mode. Refuse command '{}' and inspect with read-only commands or return a plan.",
+                    request.summary()
+                );
+                report(AgentEvent::ToolResult {
+                    name: tool_name.clone(),
+                    content: error_text.clone(),
+                    is_error: true,
+                });
+                tool_results.push(tool_result_message(&tool_id, error_text, true));
+                continue;
             }
             if let Some(request) = bash_request.as_ref()
                 && !self.full_access_mode

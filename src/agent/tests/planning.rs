@@ -2269,12 +2269,10 @@ fn assert_no_unresolved_tool_uses(history: &[crate::agent::Message]) {
                     Some("tool_result") if message.role == "user" => {
                         if let Some(id) =
                             item.get("tool_use_id").and_then(serde_json::Value::as_str)
-                        {
-                            if let Some(pos) =
+                            && let Some(pos) =
                                 pending.iter().position(|pending_id| pending_id == id)
-                            {
-                                pending.remove(pos);
-                            }
+                        {
+                            pending.remove(pos);
                         }
                     }
                     _ => {}

@@ -341,102 +341,6 @@ fn help_selected_tab_style() -> Style {
         .bg(TEXT_SECONDARY)
         .add_modifier(Modifier::BOLD)
 }
-
-#[cfg(test)]
-mod tests {
-    use ratatui::widgets::StatefulWidget;
-    use ratatui::{buffer::Buffer, layout::Rect};
-    use tempfile::tempdir;
-
-    use super::*;
-    use crate::config::ConfigManager;
-    use crate::tui::command::COMMAND_SPECS;
-
-    #[test]
-    fn command_palette_state_scrolls_to_selected_item() {
-        let items = (0..20)
-            .map(|idx| ListItem::new(format!("item {idx}")))
-            .collect::<Vec<_>>();
-        let area = Rect::new(0, 0, 20, 5);
-        let mut buffer = Buffer::empty(area);
-        let mut state = command_palette_list_state(10);
-
-        List::new(items).render(area, &mut buffer, &mut state);
-
-        assert!(state.offset() > 0);
-    }
-
-    #[test]
-    fn command_palette_line_is_compact_single_row() {
-        let spec = &COMMAND_SPECS[0];
-        let line = command_palette_line(spec).to_string();
-
-        assert!(line.contains(spec.usage));
-        assert!(line.contains(spec.summary));
-        assert!(!line.contains('\n'));
-    }
-
-    #[test]
-    fn help_command_items_are_alphabetical_for_empty_query() {
-        let items = help_command_items("");
-        let names = items.iter().map(|spec| spec.name).collect::<Vec<_>>();
-        let mut sorted = names.clone();
-        sorted.sort();
-
-        assert_eq!(items.len(), COMMAND_SPECS.len());
-        assert_eq!(names, sorted);
-    }
-
-    #[test]
-    fn panel_text_prefixes_body_with_lightweight_heading() {
-        assert_eq!(
-            panel_text("runtime", "provider=codex"),
-            "runtime\n\nprovider=codex"
-        );
-    }
-
-    #[test]
-    fn command_palette_rect_anchors_above_frame_bottom() {
-        let temp = tempdir().unwrap();
-        let app = TuiApp::new(ConfigManager {
-            path: temp.path().join("config.json"),
-        })
-        .expect("build tui app");
-        let area = Rect::new(0, 0, 120, 40);
-
-        let popup = command_palette_rect(area, &app);
-
-        assert!(popup.bottom() <= area.y + area.height - 1);
-    }
-
-    #[test]
-    fn command_palette_rect_expands_for_full_empty_query_list() {
-        let temp = tempdir().unwrap();
-        let mut app = TuiApp::new(ConfigManager {
-            path: temp.path().join("config.json"),
-        })
-        .expect("build tui app");
-        app.bottom_pane.input = "/".into();
-        let area = Rect::new(0, 0, 100, 24);
-
-        let popup = command_palette_rect(area, &app);
-
-        assert!(popup.height >= 12);
-        assert!(
-            popup.width <= area.width,
-            "palette should not exceed screen width"
-        );
-    }
-
-    #[test]
-    fn setup_flow_rect_is_tall_enough_for_small_terminal_onboarding() {
-        let area = Rect::new(0, 0, 100, 24);
-        let popup = setup_flow_rect(area);
-
-        assert!(popup.height >= 20);
-        assert!(popup.width >= 90);
-    }
-}
 fn render_status_modal(f: &mut Frame, app: &TuiApp, area: Rect, tab: StatusTab) {
     let lines = render_status_lines(app, tab);
     let chunks = Layout::default()
@@ -581,4 +485,100 @@ fn command_palette_rect(area: Rect, app: &TuiApp) -> Rect {
     let y = max_y.saturating_sub(height).max(area.y);
 
     Rect::new(x, y, width, height)
+}
+
+#[cfg(test)]
+mod tests {
+    use ratatui::widgets::StatefulWidget;
+    use ratatui::{buffer::Buffer, layout::Rect};
+    use tempfile::tempdir;
+
+    use super::*;
+    use crate::config::ConfigManager;
+    use crate::tui::command::COMMAND_SPECS;
+
+    #[test]
+    fn command_palette_state_scrolls_to_selected_item() {
+        let items = (0..20)
+            .map(|idx| ListItem::new(format!("item {idx}")))
+            .collect::<Vec<_>>();
+        let area = Rect::new(0, 0, 20, 5);
+        let mut buffer = Buffer::empty(area);
+        let mut state = command_palette_list_state(10);
+
+        List::new(items).render(area, &mut buffer, &mut state);
+
+        assert!(state.offset() > 0);
+    }
+
+    #[test]
+    fn command_palette_line_is_compact_single_row() {
+        let spec = &COMMAND_SPECS[0];
+        let line = command_palette_line(spec).to_string();
+
+        assert!(line.contains(spec.usage));
+        assert!(line.contains(spec.summary));
+        assert!(!line.contains('\n'));
+    }
+
+    #[test]
+    fn help_command_items_are_alphabetical_for_empty_query() {
+        let items = help_command_items("");
+        let names = items.iter().map(|spec| spec.name).collect::<Vec<_>>();
+        let mut sorted = names.clone();
+        sorted.sort();
+
+        assert_eq!(items.len(), COMMAND_SPECS.len());
+        assert_eq!(names, sorted);
+    }
+
+    #[test]
+    fn panel_text_prefixes_body_with_lightweight_heading() {
+        assert_eq!(
+            panel_text("runtime", "provider=codex"),
+            "runtime\n\nprovider=codex"
+        );
+    }
+
+    #[test]
+    fn command_palette_rect_anchors_above_frame_bottom() {
+        let temp = tempdir().unwrap();
+        let app = TuiApp::new(ConfigManager {
+            path: temp.path().join("config.json"),
+        })
+        .expect("build tui app");
+        let area = Rect::new(0, 0, 120, 40);
+
+        let popup = command_palette_rect(area, &app);
+
+        assert!(popup.bottom() < area.y + area.height);
+    }
+
+    #[test]
+    fn command_palette_rect_expands_for_full_empty_query_list() {
+        let temp = tempdir().unwrap();
+        let mut app = TuiApp::new(ConfigManager {
+            path: temp.path().join("config.json"),
+        })
+        .expect("build tui app");
+        app.bottom_pane.input = "/".into();
+        let area = Rect::new(0, 0, 100, 24);
+
+        let popup = command_palette_rect(area, &app);
+
+        assert!(popup.height >= 12);
+        assert!(
+            popup.width <= area.width,
+            "palette should not exceed screen width"
+        );
+    }
+
+    #[test]
+    fn setup_flow_rect_is_tall_enough_for_small_terminal_onboarding() {
+        let area = Rect::new(0, 0, 100, 24);
+        let popup = setup_flow_rect(area);
+
+        assert!(popup.height >= 20);
+        assert!(popup.width >= 90);
+    }
 }
