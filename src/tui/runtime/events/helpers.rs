@@ -1000,3 +1000,18 @@ pub(super) fn format_error_chain(err: &anyhow::Error) -> String {
     }
     lines.join("\n")
 }
+
+pub(super) fn sanitize_thinking_text(text: &str) -> String {
+    text.lines()
+        .filter(|line| {
+            let t = line.trim();
+            !t.starts_with("</")
+                && !t.starts_with("<parameter")
+                && !t.starts_with("</rara_invoke")
+                && !t.starts_with("</rara_tool_calls")
+                && !t.contains("string=\"true\"")
+                && !t.contains("string=\"false\"")
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
+}

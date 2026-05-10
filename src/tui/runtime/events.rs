@@ -6,7 +6,8 @@ use self::helpers::{
     append_tool_progress, exploration_action_label, exploration_note_lines,
     exploration_result_note, format_tool_result, format_tool_use, is_exploration_tool_name,
     is_oauth_prompt_message, planning_action_label, planning_note_lines, planning_result_note,
-    scrub_internal_control_tokens, subagent_request_input, tool_action_label,
+    sanitize_thinking_text, scrub_internal_control_tokens, subagent_request_input,
+    tool_action_label,
 };
 use super::super::state::{RuntimePhase, TuiApp, TuiEvent, contains_structured_planning_output};
 use crate::agent::AgentEvent;
@@ -261,7 +262,7 @@ pub(super) fn convert_agent_event(event: AgentEvent) -> Option<TuiEvent> {
         }),
         AgentEvent::AssistantThinkingDelta(text) => Some(TuiEvent::Transcript {
             role: "Agent Thinking Delta",
-            message: text,
+            message: sanitize_thinking_text(&text),
         }),
         AgentEvent::ToolUse { name, input } => {
             if name == crate::tools::todo::TODO_WRITE_TOOL_NAME {
