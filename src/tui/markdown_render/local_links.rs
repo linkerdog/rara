@@ -116,7 +116,9 @@ fn extract_colon_location_suffix(path_text: &str) -> Option<String> {
 
 fn expand_local_link_path(path_text: &str) -> String {
     if let Some(rest) = path_text.strip_prefix("~/")
-        && let Some(home) = std::env::var("HOME").ok().map(PathBuf::from)
+        && let Some(home) = std::env::var_os("HOME")
+            .or_else(|| std::env::var_os("USERPROFILE"))
+            .map(PathBuf::from)
     {
         return normalize_local_link_path_text(&home.join(rest).to_string_lossy());
     }

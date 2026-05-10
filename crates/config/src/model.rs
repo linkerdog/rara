@@ -830,9 +830,10 @@ impl ConfigManager {
 }
 
 pub fn rara_home_dir() -> Result<PathBuf> {
-    let home: PathBuf = std::env::var("HOME")
-        .map_err(|_| anyhow::anyhow!("HOME environment variable not set"))?
-        .into();
+    let home = std::env::var_os("HOME")
+        .or_else(|| std::env::var_os("USERPROFILE"))
+        .map(PathBuf::from)
+        .ok_or_else(|| anyhow::anyhow!("HOME or USERPROFILE environment variable not set"))?;
     Ok(home.join(".rara"))
 }
 
