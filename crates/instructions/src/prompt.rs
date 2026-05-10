@@ -1213,7 +1213,8 @@ mod tests {
     #[test]
     fn default_system_prompt_mentions_tool_safety_and_compaction() {
         let temp = tempfile::tempdir().expect("tempdir");
-        let workspace = WorkspaceMemory::from_paths(temp.path().to_path_buf(), temp.path().join(".rara"));
+        let workspace =
+            WorkspaceMemory::from_paths(temp.path().to_path_buf(), temp.path().join(".rara"));
         let prompt = super::build_system_prompt(
             &workspace,
             &super::PromptRuntimeConfig::default(),
@@ -1516,4 +1517,3 @@ mod tests {
         assert!(effective.dynamic_boundary_index.is_some());
     }
 }
-

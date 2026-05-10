@@ -118,9 +118,11 @@ fn ruby_prompt() -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use std::fs;
+
     use tempfile::tempdir;
+
+    use super::*;
 
     #[test]
     fn detects_rust_project() {

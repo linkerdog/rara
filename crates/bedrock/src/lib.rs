@@ -394,4 +394,3 @@ mod tests {
         assert!(matches!(&blocks[0], BedrockContentBlock::Text(text) if text == "hello"));
     }
 }
-

@@ -108,7 +108,11 @@ impl LlmBackend for BedrockBackend {
         let (system, messages) = extract_system_prompt(messages);
         let response = self
             .client
-            .ask(&system, &to_bedrock_messages(&messages), &to_bedrock_tools(tools))
+            .ask(
+                &system,
+                &to_bedrock_messages(&messages),
+                &to_bedrock_tools(tools),
+            )
             .await?;
 
         let mut content = Vec::new();

@@ -212,7 +212,6 @@ pub enum RuntimePhase {
     Failed,
 }
 
-
 #[derive(Default, Clone)]
 pub struct RuntimeSnapshot {
     pub cwd: String,
