@@ -846,10 +846,7 @@ pub(super) fn render_skills_picker_modal(f: &mut Frame, app: &TuiApp, area: Rect
                     Style::default()
                 };
                 let scope = &entry.scope;
-                let line = format!(
-                    "{bullet} {check} [{scope}] {title}",
-                    title = entry.title,
-                );
+                let line = format!("{bullet} {check} [{scope}] {title}", title = entry.title,);
                 ListItem::new(Line::styled(line, style))
             })
             .collect()

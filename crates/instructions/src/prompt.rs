@@ -822,9 +822,7 @@ pub fn render_skill_listing(skills: &[PromptSkillSummary]) -> Option<String> {
     }
 
     let mut skills = skills.to_vec();
-    skills.sort_by(|left, right| {
-        left.name.cmp(&right.name)
-    });
+    skills.sort_by(|left, right| left.name.cmp(&right.name));
 
     let mut lines = Vec::new();
     lines.push("### Available Skills".to_string());

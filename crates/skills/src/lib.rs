@@ -272,9 +272,11 @@ const SYSTEM_SKILL_VERIFIER_GENERIC: &str = include_str!(concat!(
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use std::fs;
+
     use tempfile::tempdir;
+
+    use super::*;
 
     #[test]
     fn test_strip_frontmatter() {
