@@ -402,12 +402,17 @@ async fn slash_palette_model_selection_opens_provider_picker_in_local_and_ssh() 
         )
         .await
         .expect("apply command palette selection");
+
+        let matches_provider = matches!(
+            app.overlay,
+            Some(Overlay::ListPicker(ListPickerKind::Provider))
+        );
         assert!(
-            matches!(
-                app.overlay,
-                Some(Overlay::ListPicker(ListPickerKind::Provider))
-            ),
-            "provider picker should open after model selection in fresh config"
+            matches_provider,
+            "provider picker should open after model selection (ssh={}), \
+             but overlay was {:?}",
+            ssh,
+            app.overlay,
         );
     }
 }
