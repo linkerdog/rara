@@ -47,8 +47,28 @@ pub(crate) fn submit_user_prompt(
     }
 
     let Some(agent) = agent_slot.take() else {
-        app.push_notice("Agent is not ready for input.");
-        return InputControlOutcome::Rejected;
+        // Agent slot is empty — likely a previous task crashed or is still
+        // rebuilding.  Queue the user's message so it isn't lost, and trigger
+        // a rebuild if one isn't already in progress.  After the rebuild
+        // completes, try_start_queued_follow_up will drain the queue.
+        let queued = app.queue_follow_up_message(prompt);
+        let suffix = if queued > 1 {
+            format!(" ({queued} messages queued)")
+        } else {
+            String::new()
+        };
+        let already_rebuilding = app
+            .bottom_pane
+            .running_task
+            .as_ref()
+            .is_some_and(|t| matches!(t.kind, super::state::TaskKind::Rebuild));
+        if already_rebuilding {
+            app.bottom_pane.notice = Some(format!("Agent is rebuilding — message queued{suffix}."));
+        } else {
+            app.bottom_pane.notice = Some(format!("Agent not ready — rebuilding now{suffix}."));
+            super::runtime::start_rebuild_task(app);
+        }
+        return InputControlOutcome::Submitted;
     };
 
     if app.pending_request_input().is_some() {
