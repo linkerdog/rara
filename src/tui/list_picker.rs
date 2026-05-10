@@ -8,7 +8,8 @@ use crossterm::event::KeyCode;
 use ratatui::{
     layout::{Alignment, Constraint, Direction, Layout, Rect},
     style::{Modifier, Style},
-    widgets::{Block, Borders, List, ListItem, Paragraph},
+    text::{Line, Span},
+    widgets::{Block, Borders, List, ListItem, ListState, Paragraph},
 };
 
 use super::app_event::AppEvent;
@@ -122,10 +123,7 @@ impl ListPickerKind {
                 labels
                     .iter()
                     .enumerate()
-                    .map(|(i, label)| {
-                        ListItem::new(ratatui::text::Line::from(*label))
-                            .style(Self::selected_style(i, selected))
-                    })
+                    .map(|(i, label)| ListItem::new(ratatui::text::Line::from(*label)))
                     .collect()
             }
         }
@@ -160,7 +158,7 @@ impl ListPickerKind {
                     format!("    {}", desc),
                     Style::default().fg(TEXT_MUTED),
                 ));
-                ListItem::new(vec![name_line, desc_line]).style(Self::selected_style(idx, selected))
+                ListItem::new(vec![name_line, desc_line])
             })
             .collect()
     }
@@ -180,7 +178,6 @@ impl ListPickerKind {
                     preset.1,
                     provider_label,
                 )))
-                .style(Self::selected_style(idx, selected))
             })
             .collect();
         if matches!(
@@ -190,14 +187,11 @@ impl ListPickerKind {
             let base = presets.len();
             for (offset, label) in ["Select Profile", "Delete Profile"].iter().enumerate() {
                 let idx = base + offset;
-                items.push(
-                    ListItem::new(ratatui::text::Line::from(format!(
-                        "[{}] {}",
-                        idx + 1,
-                        label
-                    )))
-                    .style(Self::selected_style(idx, selected)),
-                );
+                items.push(ListItem::new(ratatui::text::Line::from(format!(
+                    "[{}] {}",
+                    idx + 1,
+                    label
+                ))));
             }
         }
         items
@@ -218,7 +212,6 @@ impl ListPickerKind {
                     preset.model_label,
                     marker
                 )))
-                .style(Self::selected_style(idx, selected))
             })
             .collect()
     }
@@ -227,16 +220,12 @@ impl ListPickerKind {
         vec![
             ListItem::new(ratatui::text::Line::from(
                 "[1] Browser Login (browser-based OAuth)",
-            ))
-            .style(Self::selected_style(0, selected)),
+            )),
             ListItem::new(ratatui::text::Line::from(
                 "[2] Device Code Login (headless/SSH)",
-            ))
-            .style(Self::selected_style(1, selected)),
-            ListItem::new(ratatui::text::Line::from("[3] API Key"))
-                .style(Self::selected_style(2, selected)),
-            ListItem::new(ratatui::text::Line::from("[4] Sign Out"))
-                .style(Self::selected_style(3, selected)),
+            )),
+            ListItem::new(ratatui::text::Line::from("[3] API Key")),
+            ListItem::new(ratatui::text::Line::from("[4] Sign Out")),
         ]
     }
 
@@ -257,7 +246,6 @@ impl ListPickerKind {
                     ratatui::text::Line::from(option.description.clone()),
                     ratatui::text::Line::from(""),
                 ])
-                .style(Self::selected_style(idx, selected))
             })
             .collect()
     }
@@ -286,7 +274,6 @@ impl ListPickerKind {
                     ratatui::text::Line::from(format!("     {}", preview)),
                     ratatui::text::Line::from(""),
                 ])
-                .style(Self::selected_style(idx, selected))
             })
             .collect()
     }
@@ -309,16 +296,14 @@ impl ListPickerKind {
                     label,
                     marker
                 )))
-                .style(Self::selected_style(idx, selected))
             })
             .collect()
     }
 
     fn render_openai_profile_items(app: &TuiApp, selected: usize) -> Vec<ListItem<'static>> {
-        let mut items = vec![
-            ListItem::new(ratatui::text::Line::from("[1] + New Profile"))
-                .style(Self::selected_style(0, selected)),
-        ];
+        let mut items = vec![ListItem::new(ratatui::text::Line::from(
+            "[1] + New Profile",
+        ))];
         for (idx, (profile_id, label)) in app.selected_openai_profiles().iter().enumerate() {
             let i = idx + 1;
             let marker = if app.config.active_openai_profile_id() == Some(profile_id.as_str()) {
@@ -326,15 +311,12 @@ impl ListPickerKind {
             } else {
                 ""
             };
-            items.push(
-                ListItem::new(ratatui::text::Line::from(format!(
-                    "[{}] {}{}",
-                    i + 1,
-                    label,
-                    marker
-                )))
-                .style(Self::selected_style(i, selected)),
-            );
+            items.push(ListItem::new(ratatui::text::Line::from(format!(
+                "[{}] {}{}",
+                i + 1,
+                label,
+                marker
+            ))));
         }
         items
     }
@@ -346,29 +328,63 @@ impl ListPickerKind {
 
 pub fn render_list_picker(f: &mut Frame, app: &TuiApp, kind: ListPickerKind, area: Rect) {
     let items = kind.render_items(app);
+    let idx = kind.idx(app);
+    let selected = if kind.item_count(app) == 0 {
+        None
+    } else {
+        Some(idx)
+    };
+    let highlight = Style::default()
+        .fg(TEXT_ACCENT)
+        .add_modifier(Modifier::BOLD);
+
+    let block = Block::default()
+        .borders(Borders::ALL)
+        .border_style(Style::default().fg(TEXT_MUTED))
+        .title_top(Line::from(Span::styled(
+            kind.title(),
+            Style::default()
+                .fg(BADGE_FG_DARK)
+                .add_modifier(Modifier::BOLD),
+        )));
+    let inner = block.inner(area);
+    f.render_widget(block, area);
 
     let chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
-            Constraint::Length(3),
-            Constraint::Min(6),
-            Constraint::Length(2),
+            Constraint::Length(1), // description
+            Constraint::Min(4),    // items
+            Constraint::Length(1), // footer
         ])
-        .split(area);
+        .split(inner);
 
+    // ── Description ──────────────────────────────────────────────
     f.render_widget(
-        Paragraph::new(kind.description())
-            .block(Block::default().borders(Borders::ALL).title(kind.title())),
+        Paragraph::new(Span::styled(
+            kind.description(),
+            Style::default().fg(TEXT_MUTED),
+        )),
         chunks[0],
     );
-    f.render_widget(
-        List::new(items).block(Block::default().borders(Borders::LEFT | Borders::RIGHT)),
+
+    // ── Item list ─────────────────────────────────────────────────
+    let mut state = ListState::default();
+    state.select(selected);
+    f.render_stateful_widget(
+        List::new(items)
+            .highlight_style(highlight)
+            .highlight_symbol("›  "),
         chunks[1],
+        &mut state,
     );
-    f.render_widget(
-        Paragraph::new(kind.help_text()).alignment(Alignment::Center),
-        chunks[2],
-    );
+
+    // ── Footer ──────────────────────────────────────────────────
+    let footer = Line::from(vec![Span::styled(
+        kind.help_text(),
+        Style::default().fg(TEXT_MUTED),
+    )]);
+    f.render_widget(Paragraph::new(footer), chunks[2]);
 }
 
 // ---------------------------------------------------------------------------
