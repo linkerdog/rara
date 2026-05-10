@@ -1155,3 +1155,32 @@ fn context_overlay_snapshot_with_typical_budget() {
 
     assert_snapshot!("context_overlay_typical_budget", rendered);
 }
+
+#[test]
+fn unified_model_picker_snapshot() {
+    let temp = tempdir().expect("tempdir");
+    let mut app = TuiApp::new(ConfigManager {
+        path: temp.path().join("config.json"),
+    })
+    .expect("build tui app");
+
+    // Add mock OpenAI profiles to see diversity in the unified list
+    app.config.openai_profiles.insert(
+        "custom-gpt".into(),
+        crate::config::OpenAiEndpointProfile {
+            id: "custom-gpt".into(),
+            label: "My Custom GPT".into(),
+            kind: crate::config::OpenAiEndpointKind::Custom,
+            model: Some("gpt-custom".into()),
+            base_url: Some("https://api.example.com".into()),
+            api_key: None,
+            ..Default::default()
+        },
+    );
+
+    app.overlay = Some(Overlay::ListPicker(ListPickerKind::UnifiedModel));
+    app.model_picker_idx = 0;
+
+    let rendered = render_screen_text(&mut app, 80, 20);
+    assert_snapshot!("unified_model_picker", rendered);
+}

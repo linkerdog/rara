@@ -406,6 +406,55 @@ pub(crate) async fn dispatch_event(
                                 start_rebuild_task(app);
                             }
                         }
+                        ListPickerKind::UnifiedModel => {
+                            let idx = app.model_picker_idx;
+                            let presets = app.all_unified_model_presets();
+                            let Some(preset) = presets.get(idx).cloned() else {
+                                return Ok(false);
+                            };
+
+                            app.select_unified_model(idx);
+
+                            match preset.family {
+                                ProviderFamily::Codex => {
+                                    let _ = sync_codex_credential_from_auth_store(
+                                        app,
+                                        oauth_manager.as_ref(),
+                                    )?;
+                                    if should_open_codex_auth_guide(app, oauth_manager.as_ref()) {
+                                        app.open_overlay(Overlay::ListPicker(
+                                            ListPickerKind::AuthMode,
+                                        ));
+                                    } else {
+                                        if app.selected_codex_reasoning_options().len() <= 1 {
+                                            app.apply_selected_codex_reasoning_effort();
+                                            start_rebuild_task(app);
+                                        } else {
+                                            app.open_overlay(Overlay::ListPicker(
+                                                ListPickerKind::ReasoningEffort,
+                                            ));
+                                        }
+                                    }
+                                }
+                                ProviderFamily::OpenAiCompatible => {
+                                    if app.openai_profile_needs_setup() {
+                                        app.begin_active_openai_profile_setup();
+                                    } else {
+                                        start_rebuild_task(app);
+                                    }
+                                }
+                                ProviderFamily::DeepSeek | ProviderFamily::Gemini => {
+                                    if !app.config.has_api_key() {
+                                        app.open_overlay(Overlay::ApiKeyEditor);
+                                    } else {
+                                        start_rebuild_task(app);
+                                    }
+                                }
+                                _ => {
+                                    start_rebuild_task(app);
+                                }
+                            }
+                        }
                         ListPickerKind::AuthMode => match app.auth_mode_idx {
                             0 if !is_ssh_session() => {
                                 app.close_overlay();

@@ -28,6 +28,7 @@ impl ListPickerKind {
             Self::AuthMode => app.auth_mode_idx,
             Self::ReasoningEffort => app.reasoning_effort_picker_idx,
             Self::ApprovalDecision => app.approval_picker_idx,
+            Self::UnifiedModel => app.model_picker_idx,
         }
     }
 
@@ -43,6 +44,7 @@ impl ListPickerKind {
             Self::AuthMode => app.auth_mode_idx = i,
             Self::ReasoningEffort => app.reasoning_effort_picker_idx = i,
             Self::ApprovalDecision => app.approval_picker_idx = i,
+            Self::UnifiedModel => app.model_picker_idx = i,
         }
     }
 
@@ -57,6 +59,7 @@ impl ListPickerKind {
             Self::AuthMode => super::auth_mode_picker::AUTH_MODE_OPTION_COUNT,
             Self::ReasoningEffort => app.selected_codex_reasoning_options().len(),
             Self::ApprovalDecision => 4,
+            Self::UnifiedModel => app.all_unified_model_presets().len(),
         }
     }
 
@@ -71,6 +74,7 @@ impl ListPickerKind {
             Self::AuthMode => " Codex Auth Mode ",
             Self::ReasoningEffort => " Reasoning Level ",
             Self::ApprovalDecision => " Approve ",
+            Self::UnifiedModel => " All Models ",
         }
     }
 
@@ -87,6 +91,7 @@ impl ListPickerKind {
             Self::ApprovalDecision => {
                 "Choose whether to approve Once, match Prefix, Always, or only Suggestion."
             }
+            Self::UnifiedModel => "Select a model across all providers.",
         }
     }
 
@@ -106,6 +111,7 @@ impl ListPickerKind {
             Self::Resume => Self::render_resume_items(app, selected),
             Self::OpenAiEndpointKind => Self::render_endpoint_kind_items(app, selected),
             Self::OpenAiProfile => Self::render_openai_profile_items(app, selected),
+            Self::UnifiedModel => Self::render_unified_model_items(app, selected),
             Self::ApprovalDecision => {
                 let labels = [
                     "1. Once (approve this command only)",
@@ -195,6 +201,26 @@ impl ListPickerKind {
             }
         }
         items
+    }
+
+    fn render_unified_model_items(app: &TuiApp, selected: usize) -> Vec<ListItem<'static>> {
+        app.all_unified_model_presets()
+            .iter()
+            .enumerate()
+            .map(|(idx, preset)| {
+                let is_current = app.config.provider == preset.provider_id
+                    && app.config.model.as_deref() == Some(&preset.model_id);
+                let marker = if is_current { " (current)" } else { "" };
+                ListItem::new(ratatui::text::Line::from(format!(
+                    "[{}] {}/{}{}",
+                    idx + 1,
+                    preset.provider_label,
+                    preset.model_label,
+                    marker
+                )))
+                .style(Self::selected_style(idx, selected))
+            })
+            .collect()
     }
 
     fn render_auth_mode_items(selected: usize) -> Vec<ListItem<'static>> {
