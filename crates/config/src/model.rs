@@ -5,7 +5,6 @@ use std::path::{Path, PathBuf};
 
 use anyhow::Result;
 use codex_execpolicy::{PolicyParser, blocking_append_allow_prefix_rule};
-use dirs::home_dir;
 use secrecy::{ExposeSecret, SecretString};
 use serde::{Deserialize, Serialize};
 
@@ -831,9 +830,10 @@ impl ConfigManager {
 }
 
 pub fn rara_home_dir() -> Result<PathBuf> {
-    Ok(home_dir()
-        .ok_or_else(|| anyhow::anyhow!("failed to resolve home directory for ~/.rara"))?
-        .join(".rara"))
+    let home: PathBuf = std::env::var("HOME")
+        .map_err(|_| anyhow::anyhow!("HOME environment variable not set"))?
+        .into();
+    Ok(home.join(".rara"))
 }
 
 pub fn ensure_rara_home_dir() -> Result<PathBuf> {

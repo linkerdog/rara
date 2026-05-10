@@ -236,7 +236,11 @@ pub fn default_local_model_cache_dir() -> PathBuf {
     if let Ok(path) = std::env::var("RARA_MODEL_CACHE") {
         return PathBuf::from(path);
     }
-    let mut base = dirs::cache_dir().unwrap_or_else(|| PathBuf::from(".rara"));
+    let xdg_cache = std::env::var("XDG_CACHE_HOME")
+        .or_else(|_| std::env::var("HOME").map(|h| format!("{}/.cache", h)));
+    let mut base = xdg_cache
+        .map(PathBuf::from)
+        .unwrap_or_else(|_| PathBuf::from(".rara"));
     base.push("rara");
     base.push("huggingface");
     base
