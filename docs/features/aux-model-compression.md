@@ -63,7 +63,7 @@ candidates into concise structured notes. Preserve:
 Omit:
 - Redundant or duplicate information
 - Irrelevant general knowledge
-- Full source code (note "see file X" instead)
+- Full source code (provide a one-line summary instead)
 
 Output format (markdown):
 ## Retrieved Context
@@ -92,8 +92,8 @@ queries), the cached compression is reused instead of re-calling the aux model.
 ### Token estimation
 
 Before compression, estimate the total token count of raw candidates using
-the tiered heuristic from `context-memory-optimization.md`. After compression,
-record the compressed token count for observability.
+the `estimate_text_tokens()` function in `src/context/assembler.rs`. After
+compression, record the compressed token count for observability.
 
 ### Observability
 
@@ -136,7 +136,8 @@ Environment overrides:
 
 1. Add `AuxModelConfig` to `rara-config`.
 2. Add `compress_retrieval_candidates()` function to context assembler.
-3. Wire up in `assemble()` — call after retrieval, before budget allocation.
+3. Wire up in `assemble_runtime_from_effective_prompt()` — call after retrieval,
+   before budget allocation.
 4. Add `[compressed N]` display in context budget.
 
 ### Phase 2: Cache
