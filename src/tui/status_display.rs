@@ -363,3 +363,39 @@ fn sandbox_label(_app: &TuiApp) -> String {
     }
     .to_string()
 }
+
+#[cfg(test)]
+mod tests {
+    use tempfile::tempdir;
+
+    use super::*;
+    use crate::config::ConfigManager;
+    use crate::tui::state::RuntimeSnapshot;
+
+    #[test]
+    fn context_status_shows_128k_when_window_unknown() {
+        let temp = tempdir().unwrap();
+        let mut app = TuiApp::new(ConfigManager {
+            path: temp.path().join("config.json"),
+        })
+        .expect("build tui app");
+        app.snapshot = RuntimeSnapshot {
+            context_window_tokens: None,
+            estimated_history_tokens: 5000,
+            ..RuntimeSnapshot::default()
+        };
+
+        let mut lines = Vec::new();
+        render_context_status(&app, &mut lines);
+        let text: String = lines
+            .iter()
+            .map(|l| l.to_string())
+            .collect::<Vec<_>>()
+            .join("\n");
+
+        assert!(
+            text.contains("128K"),
+            "should default to 128k window when None, got: {text}"
+        );
+    }
+}

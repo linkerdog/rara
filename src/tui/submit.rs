@@ -9,6 +9,18 @@ use super::state::{
 };
 use crate::agent::Agent;
 
+/// Commands that don't need an active agent and are safe during busy state
+/// (e.g. agent rebuild). These are UI-view commands only.
+fn is_busy_allowed(kind: LocalCommandKind) -> bool {
+    matches!(
+        kind,
+        LocalCommandKind::Quit
+            | LocalCommandKind::Model
+            | LocalCommandKind::Status
+            | LocalCommandKind::Help
+    )
+}
+
 mod pending;
 
 pub(crate) async fn handle_submit(
@@ -50,15 +62,8 @@ pub(crate) async fn handle_submit(
     if app.is_busy() {
         if trimmed.starts_with('/') {
             if let Some(command) = parse_local_command(&trimmed) {
-                match command.kind {
-                    LocalCommandKind::Quit
-                    | LocalCommandKind::Model
-                    | LocalCommandKind::Status
-                    | LocalCommandKind::Help => {
-                        return execute_local_command(command, app, agent_slot, oauth_manager)
-                            .await;
-                    }
-                    _ => {}
+                if is_busy_allowed(command.kind) {
+                    return execute_local_command(command, app, agent_slot, oauth_manager).await;
                 }
             }
             app.push_notice("A task is running. /quit, /model, /status, /help still work.");
@@ -108,15 +113,7 @@ pub(crate) fn apply_openai_model_picker_action(
         OpenAiModelPickerAction::DeleteProfile => {
             if let Some(label) = app.delete_active_openai_profile() {
                 app.config_manager.save(&app.config)?;
-                if app.openai_profile_needs_setup() {
-                    app.bottom_pane.notice = Some(format!("Deleted endpoint profile: {label}"));
-                    app.begin_active_openai_profile_setup();
-                } else {
-                    app.bottom_pane.notice = Some(format!("Deleted endpoint profile: {label}"));
-                    super::runtime::start_rebuild_task(app);
-                }
-            } else {
-                app.push_notice("Cannot delete the only endpoint profile.");
+                app.push_notice(format!("Deleted endpoint profile: {label}"));
             }
         }
     }
@@ -135,5 +132,24 @@ pub(crate) fn clamp_command_palette_selection(app: &mut TuiApp) {
         app.command_palette_idx = 0;
     } else if app.command_palette_idx >= len {
         app.command_palette_idx = len - 1;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn busy_whitelist_allows_readonly_commands() {
+        assert!(is_busy_allowed(LocalCommandKind::Quit));
+        assert!(is_busy_allowed(LocalCommandKind::Model));
+        assert!(is_busy_allowed(LocalCommandKind::Status));
+        assert!(is_busy_allowed(LocalCommandKind::Help));
+    }
+
+    #[test]
+    fn busy_whitelist_denies_mutating_commands() {
+        assert!(!is_busy_allowed(LocalCommandKind::Clear));
+        assert!(!is_busy_allowed(LocalCommandKind::Compact));
     }
 }
