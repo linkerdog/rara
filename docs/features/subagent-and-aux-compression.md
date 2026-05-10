@@ -12,8 +12,9 @@ Codex, and OpenCode subagent implementations:
 
 Neither Claude Code, Codex, nor OpenCode implements aux-model retrieval
 compression — this is a RARA-specific design.  Claude Code uses subagents
-for task decomposition (the reference implementation), OpenCode does not
-support subagents, and Codex has a minimal external-agent migration scaffold.
+for task decomposition (the reference implementation), OpenCode has its own
+TaskTool subagent system, and Codex has no subagent support (only a config
+migration tool).
 
 ## Reference Systems
 
