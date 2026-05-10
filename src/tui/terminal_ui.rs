@@ -14,7 +14,14 @@ use super::state::TuiApp;
 
 pub(super) fn handle_paste(text: String, app: &mut TuiApp) {
     let normalized = text.replace("\r\n", "\n").replace('\r', "\n");
-    app.insert_active_input_text(normalized.as_str());
+    if normalized.contains('\n') || normalized.len() > 1000 {
+        // Large or multi-line paste — use burst buffer to avoid
+        // O(n²) per-frame redraws. The buffer will be flushed after
+        // a short debounce on the next call to drain_paste_burst.
+        app.bottom_pane.handle_paste_burst_chunk(&normalized);
+    } else {
+        app.insert_active_input_text(&normalized);
+    }
 }
 
 pub(super) fn build_terminal(

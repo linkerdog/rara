@@ -139,7 +139,6 @@ pub struct PromptSkillSummary {
     pub name: String,
     pub title: Option<String>,
     pub description: String,
-    pub display_path: String,
     pub scope: String,
     pub disable_model_invocation: bool,
 }
@@ -824,9 +823,7 @@ pub fn render_skill_listing(skills: &[PromptSkillSummary]) -> Option<String> {
 
     let mut skills = skills.to_vec();
     skills.sort_by(|left, right| {
-        left.name
-            .cmp(&right.name)
-            .then_with(|| left.display_path.cmp(&right.display_path))
+        left.name.cmp(&right.name)
     });
 
     let mut lines = Vec::new();
@@ -837,11 +834,10 @@ pub fn render_skill_listing(skills: &[PromptSkillSummary]) -> Option<String> {
         let suffix = if index + 1 == skills.len() { "" } else { "," };
         let desc = truncate_for_skill_listing(&skill.description, MAX_DESC_CHARS);
         lines.push(format!(
-            "  {{\"name\":\"{}\",\"title\":{},\"description\":\"{}\",\"file\":\"{}\",\"scope\":\"{}\",\"disableModelInvocation\":{}}}{}",
+            "  {{\"name\":\"{}\",\"title\":{},\"description\":\"{}\",\"scope\":\"{}\",\"disableModelInvocation\":{}}}{}",
             escape_json_string(&skill.name),
             json_string_or_null(skill.title.as_deref()),
             escape_json_string(&desc),
-            escape_json_string(&skill.display_path),
             escape_json_string(&skill.scope),
             skill.disable_model_invocation,
             suffix

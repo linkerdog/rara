@@ -200,15 +200,26 @@ impl TuiApp {
     }
 
     /// Keep the composer cursor visible by adjusting `composer_scroll`.
-    pub fn maintain_composer_scroll(&mut self, _composer_width: u16, visible_height: u16) {
-        let (row, _col) = self.composer_visual_position_for_offset(self.composer_cursor_offset());
-
+    ///
+    /// `wrapped_cursor_row` and `wrapped_total_rows` come from the
+    /// renderer's soft-wrap computation so the scroll tracks the visual
+    /// display rather than only hard newlines.
+    pub fn maintain_composer_scroll(
+        &mut self,
+        _composer_width: u16,
+        visible_height: u16,
+        wrapped_cursor_row: usize,
+        wrapped_total_rows: usize,
+    ) {
         let height = visible_height.max(1) as usize;
-        if row < self.bottom_pane.composer_scroll {
-            self.bottom_pane.composer_scroll = row;
-        } else if row >= self.bottom_pane.composer_scroll + height {
-            self.bottom_pane.composer_scroll = row.saturating_sub(height).saturating_add(1);
+        let max_scroll = wrapped_total_rows.saturating_sub(1);
+        if wrapped_cursor_row < self.bottom_pane.composer_scroll {
+            self.bottom_pane.composer_scroll = wrapped_cursor_row;
+        } else if wrapped_cursor_row >= self.bottom_pane.composer_scroll + height {
+            self.bottom_pane.composer_scroll =
+                (wrapped_cursor_row.saturating_sub(height - 1)).min(max_scroll);
         }
+        self.bottom_pane.composer_scroll = self.bottom_pane.composer_scroll.min(max_scroll);
     }
 
     fn composer_visual_position_for_offset(&self, cursor_offset: usize) -> (usize, usize) {

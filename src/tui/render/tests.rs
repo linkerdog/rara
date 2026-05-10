@@ -1164,6 +1164,8 @@ fn unified_model_picker_snapshot() {
     })
     .expect("build tui app");
 
+    app.snapshot.cwd = "/workspace/rara".into();
+
     // Add mock OpenAI profiles to see diversity in the unified list
     app.config.openai_profiles.insert(
         "custom-gpt".into(),

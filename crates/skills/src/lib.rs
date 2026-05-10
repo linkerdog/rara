@@ -36,11 +36,15 @@ pub struct Skill {
     pub title: Option<String>,
     pub description: String,
     pub path: PathBuf,
-    pub display_path: String,
     pub scope: SkillScope,
     pub content: String,
-    pub prompt: String,
     pub disable_model_invocation: bool,
+}
+
+impl Skill {
+    pub fn instructions(&self) -> String {
+        strip_frontmatter(&self.content)
+    }
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -49,7 +53,6 @@ pub struct SkillSummary {
     pub title: Option<String>,
     pub description: String,
     pub path: PathBuf,
-    pub display_path: String,
     pub scope: SkillScope,
     pub disable_model_invocation: bool,
 }
@@ -95,7 +98,6 @@ impl SkillManager {
                 title: s.title.clone(),
                 description: s.description.clone(),
                 path: s.path.clone(),
-                display_path: s.display_path.clone(),
                 scope: s.scope,
                 disable_model_invocation: s.disable_model_invocation,
             })
@@ -212,10 +214,8 @@ impl SkillManager {
             title: Some(name),
             description,
             path: path.to_path_buf(),
-            display_path: path.display().to_string(),
             scope,
-            content: content.clone(),
-            prompt: content,
+            content,
             disable_model_invocation: false,
         })
     }
@@ -224,6 +224,29 @@ impl SkillManager {
         // Placeholder for bundled system skills (e.g. verify)
         Ok(())
     }
+}
+
+pub fn strip_frontmatter(content: &str) -> String {
+    let mut in_frontmatter = false;
+    let mut frontmatter_count = 0;
+    let mut result_lines = Vec::new();
+
+    for line in content.lines() {
+        if line.trim() == "---" {
+            frontmatter_count += 1;
+            if frontmatter_count == 1 {
+                in_frontmatter = true;
+                continue;
+            } else if frontmatter_count == 2 {
+                in_frontmatter = false;
+                continue;
+            }
+        }
+        if !in_frontmatter {
+            result_lines.push(line);
+        }
+    }
+    result_lines.join("\n").trim().to_string()
 }
 
 fn extract_description(content: &str) -> Option<String> {
@@ -246,3 +269,80 @@ const SYSTEM_SKILL_VERIFIER_GENERIC: &str = include_str!(concat!(
     env!("CARGO_MANIFEST_DIR"),
     "/../../assets/skills/verifier-generic/SKILL.md"
 ));
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::fs;
+    use tempfile::tempdir;
+
+    #[test]
+    fn test_strip_frontmatter() {
+        let content = "---\ntitle: Test\n---\n# Body\nHello";
+        assert_eq!(strip_frontmatter(content), "# Body\nHello");
+
+        let no_frontmatter = "# Body\nHello";
+        assert_eq!(strip_frontmatter(no_frontmatter), "# Body\nHello");
+    }
+
+    #[test]
+    fn test_skill_discovery() -> Result<()> {
+        let temp = tempdir()?;
+        let skills_dir = temp.path().join(".agents").join("skills");
+        let skill_path = skills_dir.join("test-skill");
+        fs::create_dir_all(&skill_path)?;
+        fs::write(
+            skill_path.join("SKILL.md"),
+            "# Test Skill\nThis is a description.",
+        )?;
+
+        let mut manager = SkillManager::new();
+        manager.discover_workspace_skills(temp.path())?;
+
+        assert_eq!(manager.skills.len(), 1);
+        let skill = manager.get_skill("test-skill").unwrap();
+        assert_eq!(skill.name, "test-skill");
+        assert_eq!(skill.description, "This is a description.");
+        Ok(())
+    }
+
+    #[test]
+    fn test_skill_override() -> Result<()> {
+        let mut manager = SkillManager::new();
+
+        let s1 = Skill {
+            name: "s".into(),
+            title: None,
+            description: "d1".into(),
+            path: PathBuf::from("p1"),
+            scope: SkillScope::Global,
+            content: "c1".into(),
+            disable_model_invocation: false,
+        };
+        manager.skills.insert(s1.name.clone(), s1);
+
+        let s2 = Skill {
+            name: "s".into(),
+            title: None,
+            description: "d2".into(),
+            path: PathBuf::from("p2"),
+            scope: SkillScope::Workspace,
+            content: "c2".into(),
+            disable_model_invocation: false,
+        };
+
+        // Manual insertion logic check
+        let name = s2.name.clone();
+        if let Some(existing) = manager.skills.get(&name) {
+            let mut chain = manager.overrides.remove(&name).unwrap_or_default();
+            chain.push(existing.clone());
+            manager.skills.insert(name.clone(), s2);
+            manager.overrides.insert(name, chain);
+        }
+
+        assert_eq!(manager.skills.get("s").unwrap().content, "c2");
+        assert_eq!(manager.overrides.get("s").unwrap().len(), 1);
+        assert_eq!(manager.overrides.get("s").unwrap()[0].content, "c1");
+        Ok(())
+    }
+}

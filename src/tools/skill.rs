@@ -53,7 +53,6 @@ impl Tool for SkillTool {
                             "title": s.title,
                             "description": s.description,
                             "scope": s.scope.as_str(),
-                            "display_path": s.display_path,
                             "disable_model_invocation": s.disable_model_invocation,
                             "overrides_others": shadows,
                             "shadowed_scopes": if shadows {
@@ -95,8 +94,7 @@ impl Tool for SkillTool {
                     "name": skill.name,
                     "title": skill.title,
                     "scope": skill.scope.as_str(),
-                    "display_path": skill.display_path,
-                    "instructions": strip_frontmatter(&skill.prompt),
+                    "instructions": skill.instructions(),
                     "args": args,
                     "disable_model_invocation": skill.disable_model_invocation,
                     "overrides_others": !shadowed_scopes.is_empty(),
@@ -119,26 +117,6 @@ impl Tool for SkillTool {
     }
 }
 
-fn strip_frontmatter(content: &str) -> String {
-    let trimmed = content.trim_start();
-    if !trimmed.starts_with("---") {
-        return content.to_string();
-    }
-    if let Some(rest) = trimmed[3..].find("---") {
-        let after = &trimmed[3 + rest + 3..];
-        return after.trim_start().to_string();
-    }
-    content.to_string()
-}
-
-#[cfg(test)]
-mod tests {
-    use rara_skills::SkillManager;
-    use serde_json::json;
-
-    use super::*;
-
-    #[tokio::test]
     async fn list_returns_scopes_and_skills() {
         let mut manager = SkillManager::new();
         manager.load_warnings = vec!["test warning".into()];
@@ -166,10 +144,8 @@ mod tests {
                 title: Some("Test Skill".into()),
                 description: "A test".into(),
                 path: std::path::PathBuf::from("test-skill/SKILL.md"),
-                display_path: "test-skill/SKILL.md".into(),
                 scope: rara_skills::SkillScope::Cwd,
                 content: "# Test\nbody".into(),
-                prompt: "# Test\nbody".into(),
                 disable_model_invocation: false,
             },
         );
@@ -216,10 +192,8 @@ mod tests {
                 title: None,
                 description: "Old version".into(),
                 path: std::path::PathBuf::from("old.md"),
-                display_path: "old.md".into(),
                 scope: rara_skills::SkillScope::Home,
                 content: "old".into(),
-                prompt: "old".into(),
                 disable_model_invocation: false,
             }],
         );
@@ -230,10 +204,8 @@ mod tests {
                 title: Some("New Version".into()),
                 description: "New version".into(),
                 path: std::path::PathBuf::from("overridden.md"),
-                display_path: "overridden.md".into(),
                 scope: rara_skills::SkillScope::Cwd,
                 content: "new".into(),
-                prompt: "new".into(),
                 disable_model_invocation: false,
             },
         );
@@ -264,10 +236,8 @@ mod tests {
                 title: None,
                 description: "desc".into(),
                 path: std::path::PathBuf::from("s1.md"),
-                display_path: "s1.md".into(),
                 scope: rara_skills::SkillScope::Home,
                 content: "body".into(),
-                prompt: "body".into(),
                 disable_model_invocation: false,
             },
         );
@@ -278,10 +248,8 @@ mod tests {
                 title: None,
                 description: "desc".into(),
                 path: std::path::PathBuf::from("s2.md"),
-                display_path: "s2.md".into(),
                 scope: rara_skills::SkillScope::Repo,
                 content: "body".into(),
-                prompt: "body".into(),
                 disable_model_invocation: false,
             },
         );
@@ -296,4 +264,3 @@ mod tests {
         assert_eq!(scopes[0].as_str(), Some("home"));
         assert_eq!(scopes[1].as_str(), Some("repo"));
     }
-}

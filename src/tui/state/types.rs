@@ -696,7 +696,6 @@ pub struct SkillPickerEntry {
     pub name: String,
     pub title: String,
     pub scope: String,
-    pub display_path: String,
     pub enabled: bool,
     pub disable_model_invocation: bool,
 }

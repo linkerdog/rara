@@ -2,14 +2,15 @@ use ratatui::{layout::Rect, style::Color, text::Line};
 use tempfile::tempdir;
 
 use super::{
-    format_token_count, push_child_sessions, push_context_summary, push_files_in_context,
-    push_model_badge, push_session_info,
+    push_child_sessions, push_context_summary, push_files_in_context, push_model_badge,
+    push_session_info,
 };
 use crate::config::ConfigManager;
 use crate::tui::state::{
     InteractionKind, PendingInteractionSnapshot, RuntimeSnapshot, TranscriptEntry, TranscriptTurn,
     TuiApp,
 };
+use crate::tui::status_display::format_token_count;
 
 // ── format_token_count ──────────────────────────────────────────────
 
@@ -249,8 +250,7 @@ fn push_context_summary_shows_tokens_turns_compaction() {
     .expect("build tui app");
     app.snapshot = RuntimeSnapshot {
         context_window_tokens: Some(16000),
-        total_input_tokens: 8200,
-        total_output_tokens: 1200,
+        estimated_history_tokens: 9400,
         history_len: 42,
         compaction_count: 3,
         ..RuntimeSnapshot::default()
@@ -269,7 +269,7 @@ fn push_context_summary_shows_tokens_turns_compaction() {
         "should show # Context section label"
     );
     assert!(
-        text.contains("9.4k/16.0k tokens"),
+        text.contains("9.4k · 16.0k tokens"),
         "should show token usage: 9.4k/16.0k"
     );
     assert!(text.contains("42 turns"), "should show turn count");
@@ -288,8 +288,7 @@ fn push_context_summary_no_compaction() {
     .expect("build tui app");
     app.snapshot = RuntimeSnapshot {
         context_window_tokens: Some(16000),
-        total_input_tokens: 1000,
-        total_output_tokens: 500,
+        estimated_history_tokens: 1500,
         history_len: 1,
         compaction_count: 0,
         ..RuntimeSnapshot::default()
@@ -314,8 +313,7 @@ fn push_context_summary_no_context_window() {
     .expect("build tui app");
     app.snapshot = RuntimeSnapshot {
         context_window_tokens: None,
-        total_input_tokens: 500,
-        total_output_tokens: 100,
+        estimated_history_tokens: 600,
         history_len: 5,
         ..RuntimeSnapshot::default()
     };
@@ -323,8 +321,10 @@ fn push_context_summary_no_context_window() {
     let mut lines = Vec::new();
     push_context_summary(&mut lines, &app);
     assert!(
-        lines.iter().any(|l| l.to_string().contains("600 tokens")),
-        "shows total tokens without context window"
+        lines
+            .iter()
+            .any(|l| l.to_string().contains("600 · 5 turns")),
+        "shows current-turn history tokens without context window"
     );
 }
 

@@ -1,0 +1,11 @@
+---
+source: src/tui/markdown_render.rs
+expression: render_to_string(md)
+---
+B+U(# )B+U(H1)
+
+B(## )B(H2)
+
+B+I(### )B+I(H3)
+
+I(#### )I(Not bold (h4+))

@@ -1,0 +1,5 @@
+---
+source: src/tui/markdown_render.rs
+expression: render_to_string(md)
+---
+B(bold) and I(italic) and B+I(both)

@@ -98,6 +98,6 @@ where
                 Err("no active session available for input control".to_string())
             }
         }
-        _ => Err("control-plane dispatch not yet implemented for this request variant".to_string()),
+        _ => Err("control-plane dispatch not yet implemented for this request variant".into()),
     }
 }

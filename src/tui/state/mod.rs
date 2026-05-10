@@ -1399,7 +1399,6 @@ impl TuiApp {
                 name: s.name.clone(),
                 title: s.title.clone().unwrap_or_else(|| s.name.clone()),
                 scope: s.scope.clone(),
-                display_path: s.display_path.clone(),
                 enabled: !s.disable_model_invocation,
                 disable_model_invocation: s.disable_model_invocation,
             })
