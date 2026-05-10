@@ -200,3 +200,13 @@ Documentation policy:
 - stable feature specs live in `docs/features/`;
 - dated implementation checkpoints live in `docs/journal/`;
 - active follow-up work lives in `docs/todo.md`.
+
+## Star History
+
+<a href="https://www.star-history.com/?repos=linkerdog%2Frara&type=date&legend=top-left">
+ <picture>
+   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/chart?repos=linkerdog/rara&type=date&theme=dark&legend=top-left" />
+   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/chart?repos=linkerdog/rara&type=date&legend=top-left" />
+   <img alt="Star History Chart" src="https://api.star-history.com/chart?repos=linkerdog/rara&type=date&legend=top-left" />
+ </picture>
+</a>
