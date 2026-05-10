@@ -2,11 +2,11 @@
 source: src/tui/markdown_render.rs
 expression: render_to_string(md)
 ---
-# Overview
+B+U(# )B+U(Overview)
 
-This is a bold statement with emphasis.
+This is a B(bold) statement with I(emphasis).
 
-## Steps
+B(## )B(Steps)
 
 1. Install with cargo install rara
 2. Run rara init

@@ -2,10 +2,10 @@
 source: src/tui/markdown_render.rs
 expression: render_to_string(md)
 ---
-# H1
+B+U(# )B+U(H1)
 
-## H2
+B(## )B(H2)
 
-### H3
+B+I(### )B+I(H3)
 
-#### Not bold (h4+)
+I(#### )I(Not bold (h4+))

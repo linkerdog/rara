@@ -2,7 +2,7 @@
 source: src/tui/markdown_render.rs
 expression: render_to_string(md)
 ---
-struck normal.
+S(struck) normal.
 
 Auto-link: https://example.com/page
 

@@ -2,4 +2,4 @@
 source: src/tui/markdown_render.rs
 expression: render_to_string(md)
 ---
-bold and italic and both
+B(bold) and I(italic) and B+I(both)

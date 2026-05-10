@@ -33,6 +33,8 @@ struct MarkdownStyles {
     link: Style,
     blockquote: Style,
     code_block_lang_tag: Style,
+    task_list_marker: Style,
+    footnote: Style,
 }
 
 impl MarkdownStyles {
@@ -53,6 +55,8 @@ impl MarkdownStyles {
             link: Style::new().cyan().underlined(),
             blockquote: Style::new().green(),
             code_block_lang_tag: Style::new().dark_gray(),
+            task_list_marker: Style::new().bold(),
+            footnote: Style::new(),
         }
     }
 }
@@ -270,7 +274,8 @@ where
             Event::Html(html) => self.html(html, false),
             Event::InlineHtml(html) => self.html(html, true),
             Event::InlineMath(math) | Event::DisplayMath(math) => self.code(math),
-            Event::FootnoteReference(_) | Event::TaskListMarker(_) => {}
+            Event::TaskListMarker(checked) => self.task_list_marker(checked),
+            Event::FootnoteReference(name) => self.footnote_reference(name),
         }
     }
 
@@ -578,6 +583,21 @@ where
             false,
         ));
         self.needs_newline = true;
+    }
+
+    fn task_list_marker(&mut self, checked: bool) {
+        let symbol = if checked { "☒ " } else { "☐ " };
+        if let Some(ctx) = self.indent_stack.last_mut() {
+            ctx.marker = Some(vec![Span::styled(
+                symbol.to_string(),
+                self.styles.task_list_marker,
+            )]);
+        }
+    }
+
+    fn footnote_reference(&mut self, name: CowStr<'_>) {
+        let content = format!("[{}]", name);
+        self.push_span(Span::styled(content, self.styles.footnote));
     }
 
     fn end_codeblock(&mut self) {
@@ -933,14 +953,31 @@ fn truncate_to_width(value: &str, max_width: usize) -> String {
 #[cfg(test)]
 mod tests {
     use insta::assert_snapshot;
+    use ratatui::style::{Modifier, Style};
 
     use super::*;
 
+    /// Helper that includes style information (modifiers + foreground color) so
+    /// snapshots capture visual rendering intent, not just text structure.
     fn render_to_string(md: &str) -> String {
         render_markdown_text(md)
             .lines
             .iter()
-            .map(|l| l.to_string())
+            .map(|l| {
+                l.spans
+                    .iter()
+                    .map(|span| {
+                        let content = &span.content;
+                        let style = span.style;
+                        let tags = style_modifier_tags(style);
+                        if tags.is_empty() {
+                            content.to_string()
+                        } else {
+                            format!("{}({})", tags, content)
+                        }
+                    })
+                    .collect::<String>()
+            })
             .collect::<Vec<_>>()
             .join("\n")
     }
@@ -949,9 +986,44 @@ mod tests {
         render_markdown_text_with_width(md, Some(width))
             .lines
             .iter()
-            .map(|l| l.to_string())
+            .map(|l| {
+                l.spans
+                    .iter()
+                    .map(|span| {
+                        let content = &span.content;
+                        let style = span.style;
+                        let tags = style_modifier_tags(style);
+                        if tags.is_empty() {
+                            content.to_string()
+                        } else {
+                            format!("{}({})", tags, content)
+                        }
+                    })
+                    .collect::<String>()
+            })
             .collect::<Vec<_>>()
             .join("\n")
+    }
+
+    fn style_modifier_tags(style: Style) -> String {
+        let mut tags = String::new();
+        if style.add_modifier.contains(Modifier::BOLD) {
+            tags.push_str("B+");
+        }
+        if style.add_modifier.contains(Modifier::ITALIC) {
+            tags.push_str("I+");
+        }
+        if style.add_modifier.contains(Modifier::UNDERLINED) {
+            tags.push_str("U+");
+        }
+        if style.add_modifier.contains(Modifier::DIM) {
+            tags.push_str("dim+");
+        }
+        if style.add_modifier.contains(Modifier::CROSSED_OUT) {
+            tags.push_str("S+");
+        }
+        // Strip trailing '+'
+        tags.trim_end_matches('+').to_string()
     }
 
     #[test]
