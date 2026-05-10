@@ -374,17 +374,9 @@ fn handle_model_command(arg: Option<&str>, app: &mut TuiApp) -> anyhow::Result<(
         app.push_notice("/model does not accept arguments. Use the interactive menu.");
     }
 
-    // If a provider is already configured, skip provider picker and go straight to model.
-    if !app.config.provider.is_empty() {
-        app.open_overlay(Overlay::ListPicker(ListPickerKind::Model));
-        app.bottom_pane.notice = Some("Change the active model.".into());
-    } else {
-        app.picker_intent = Some(PickerIntent::SwitchModel);
-        app.open_overlay(Overlay::ListPicker(ListPickerKind::Provider));
-        app.bottom_pane.notice = Some(
-            "No provider configured yet. Select a provider family first to switch models.".into(),
-        );
-    }
+    app.model_picker_idx = app.selected_unified_preset_idx();
+    app.open_overlay(Overlay::ListPicker(ListPickerKind::UnifiedModel));
+    app.bottom_pane.notice = Some("Switch active model across all connected providers.".into());
     Ok(())
 }
 

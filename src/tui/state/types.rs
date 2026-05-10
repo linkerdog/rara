@@ -72,6 +72,7 @@ pub enum ListPickerKind {
     AuthMode,
     ReasoningEffort,
     ApprovalDecision,
+    UnifiedModel,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -107,6 +108,15 @@ pub enum PermissionMode {
     AcceptEdits,
     FullAccess,
     Custom,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct UnifiedModelPreset {
+    pub family: ProviderFamily,
+    pub provider_id: String,
+    pub provider_label: String,
+    pub model_id: String,
+    pub model_label: String,
 }
 
 impl PermissionMode {
@@ -686,7 +696,6 @@ pub struct SkillPickerEntry {
     pub name: String,
     pub title: String,
     pub scope: String,
-    pub display_path: String,
     pub enabled: bool,
     pub disable_model_invocation: bool,
 }

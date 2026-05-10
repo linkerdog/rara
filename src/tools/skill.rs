@@ -53,7 +53,6 @@ impl Tool for SkillTool {
                             "title": s.title,
                             "description": s.description,
                             "scope": s.scope.as_str(),
-                            "display_path": s.display_path,
                             "disable_model_invocation": s.disable_model_invocation,
                             "overrides_others": shadows,
                             "shadowed_scopes": if shadows {
@@ -95,8 +94,7 @@ impl Tool for SkillTool {
                     "name": skill.name,
                     "title": skill.title,
                     "scope": skill.scope.as_str(),
-                    "display_path": skill.display_path,
-                    "instructions": strip_frontmatter(&skill.prompt),
+                    "instructions": skill.instructions(),
                     "args": args,
                     "disable_model_invocation": skill.disable_model_invocation,
                     "overrides_others": !shadowed_scopes.is_empty(),
@@ -119,181 +117,150 @@ impl Tool for SkillTool {
     }
 }
 
-fn strip_frontmatter(content: &str) -> String {
-    let trimmed = content.trim_start();
-    if !trimmed.starts_with("---") {
-        return content.to_string();
-    }
-    if let Some(rest) = trimmed[3..].find("---") {
-        let after = &trimmed[3 + rest + 3..];
-        return after.trim_start().to_string();
-    }
-    content.to_string()
+async fn list_returns_scopes_and_skills() {
+    let mut manager = SkillManager::new();
+    manager.load_warnings = vec!["test warning".into()];
+
+    let tool = SkillTool {
+        skill_manager: Arc::new(manager),
+    };
+
+    let result = tool.call(json!({"action": "list"})).await.expect("list");
+    let skills = result["skills"].as_array().expect("skills array");
+    let scopes = result["scopes"].as_array().expect("scopes array");
+    assert!(skills.is_empty());
+    assert!(scopes.is_empty());
+    assert_eq!(result["load_warnings"][0].as_str(), Some("test warning"));
 }
 
-#[cfg(test)]
-mod tests {
-    use rara_skills::SkillManager;
-    use serde_json::json;
+#[tokio::test]
+async fn invoke_returns_overridden_by_when_present() {
+    let mut manager = SkillManager::new();
+    // Simulate a loaded skill by directly inserting into the skills map.
+    manager.skills.insert(
+        "test-skill".into(),
+        rara_skills::Skill {
+            name: "test-skill".into(),
+            title: Some("Test Skill".into()),
+            description: "A test".into(),
+            path: std::path::PathBuf::from("test-skill/SKILL.md"),
+            scope: rara_skills::SkillScope::Cwd,
+            content: "# Test\nbody".into(),
+            disable_model_invocation: false,
+        },
+    );
 
-    use super::*;
+    let tool = SkillTool {
+        skill_manager: Arc::new(manager),
+    };
 
-    #[tokio::test]
-    async fn list_returns_scopes_and_skills() {
-        let mut manager = SkillManager::new();
-        manager.load_warnings = vec!["test warning".into()];
+    let result = tool
+        .call(json!({"action": "invoke", "skill_name": "test-skill"}))
+        .await
+        .expect("invoke");
 
-        let tool = SkillTool {
-            skill_manager: Arc::new(manager),
-        };
+    assert_eq!(result["name"].as_str(), Some("test-skill"));
+    assert_eq!(result["title"].as_str(), Some("Test Skill"));
+    assert_eq!(result["scope"].as_str(), Some("cwd"));
+    assert_eq!(result["instructions"].as_str(), Some("# Test\nbody"));
+    assert_eq!(result["overrides_others"].as_bool(), Some(false));
+    assert!(result["shadowed_scopes"].as_array().unwrap().is_empty());
+}
 
-        let result = tool.call(json!({"action": "list"})).await.expect("list");
-        let skills = result["skills"].as_array().expect("skills array");
-        let scopes = result["scopes"].as_array().expect("scopes array");
-        assert!(skills.is_empty());
-        assert!(scopes.is_empty());
-        assert_eq!(result["load_warnings"][0].as_str(), Some("test warning"));
-    }
+#[tokio::test]
+async fn invoke_missing_skill_returns_error() {
+    let manager = SkillManager::new();
+    let tool = SkillTool {
+        skill_manager: Arc::new(manager),
+    };
 
-    #[tokio::test]
-    async fn invoke_returns_overridden_by_when_present() {
-        let mut manager = SkillManager::new();
-        // Simulate a loaded skill by directly inserting into the skills map.
-        manager.skills.insert(
-            "test-skill".into(),
-            rara_skills::Skill {
-                name: "test-skill".into(),
-                title: Some("Test Skill".into()),
-                description: "A test".into(),
-                path: std::path::PathBuf::from("test-skill/SKILL.md"),
-                display_path: "test-skill/SKILL.md".into(),
-                scope: rara_skills::SkillScope::Cwd,
-                content: "# Test\nbody".into(),
-                prompt: "# Test\nbody".into(),
-                disable_model_invocation: false,
-            },
-        );
+    let err = tool
+        .call(json!({"action": "invoke", "skill_name": "nonexistent"}))
+        .await
+        .expect_err("nonexistent");
+    assert!(err.to_string().contains("Skill not found"));
+}
 
-        let tool = SkillTool {
-            skill_manager: Arc::new(manager),
-        };
+#[tokio::test]
+async fn list_shows_overridden_flag() {
+    let mut manager = SkillManager::new();
+    // Simulate an override chain: a home skill was overridden by a cwd skill.
+    manager.overrides.insert(
+        "overridden-skill".into(),
+        vec![rara_skills::Skill {
+            name: "overridden-skill".into(),
+            title: None,
+            description: "Old version".into(),
+            path: std::path::PathBuf::from("old.md"),
+            scope: rara_skills::SkillScope::Home,
+            content: "old".into(),
+            disable_model_invocation: false,
+        }],
+    );
+    manager.skills.insert(
+        "overridden-skill".into(),
+        rara_skills::Skill {
+            name: "overridden-skill".into(),
+            title: Some("New Version".into()),
+            description: "New version".into(),
+            path: std::path::PathBuf::from("overridden.md"),
+            scope: rara_skills::SkillScope::Cwd,
+            content: "new".into(),
+            disable_model_invocation: false,
+        },
+    );
 
-        let result = tool
-            .call(json!({"action": "invoke", "skill_name": "test-skill"}))
-            .await
-            .expect("invoke");
+    let tool = SkillTool {
+        skill_manager: Arc::new(manager),
+    };
 
-        assert_eq!(result["name"].as_str(), Some("test-skill"));
-        assert_eq!(result["title"].as_str(), Some("Test Skill"));
-        assert_eq!(result["scope"].as_str(), Some("cwd"));
-        assert_eq!(result["instructions"].as_str(), Some("# Test\nbody"));
-        assert_eq!(result["overrides_others"].as_bool(), Some(false));
-        assert!(result["shadowed_scopes"].as_array().unwrap().is_empty());
-    }
+    let result = tool.call(json!({"action": "list"})).await.expect("list");
+    let skills = result["skills"].as_array().expect("skills array");
+    assert_eq!(skills.len(), 1);
 
-    #[tokio::test]
-    async fn invoke_missing_skill_returns_error() {
-        let manager = SkillManager::new();
-        let tool = SkillTool {
-            skill_manager: Arc::new(manager),
-        };
+    let skill = &skills[0];
+    assert_eq!(skill["name"].as_str(), Some("overridden-skill"));
+    assert_eq!(skill["overrides_others"].as_bool(), Some(true));
+    let shadowed = skill["shadowed_scopes"].as_array().unwrap();
+    assert_eq!(shadowed.len(), 1);
+    assert_eq!(shadowed[0].as_str(), Some("home"));
+}
 
-        let err = tool
-            .call(json!({"action": "invoke", "skill_name": "nonexistent"}))
-            .await
-            .expect_err("nonexistent");
-        assert!(err.to_string().contains("Skill not found"));
-    }
+#[tokio::test]
+async fn list_returns_active_scopes() {
+    let mut manager = SkillManager::new();
+    manager.skills.insert(
+        "s1".into(),
+        rara_skills::Skill {
+            name: "s1".into(),
+            title: None,
+            description: "desc".into(),
+            path: std::path::PathBuf::from("s1.md"),
+            scope: rara_skills::SkillScope::Home,
+            content: "body".into(),
+            disable_model_invocation: false,
+        },
+    );
+    manager.skills.insert(
+        "s2".into(),
+        rara_skills::Skill {
+            name: "s2".into(),
+            title: None,
+            description: "desc".into(),
+            path: std::path::PathBuf::from("s2.md"),
+            scope: rara_skills::SkillScope::Repo,
+            content: "body".into(),
+            disable_model_invocation: false,
+        },
+    );
 
-    #[tokio::test]
-    async fn list_shows_overridden_flag() {
-        let mut manager = SkillManager::new();
-        // Simulate an override chain: a home skill was overridden by a cwd skill.
-        manager.overrides.insert(
-            "overridden-skill".into(),
-            vec![rara_skills::Skill {
-                name: "overridden-skill".into(),
-                title: None,
-                description: "Old version".into(),
-                path: std::path::PathBuf::from("old.md"),
-                display_path: "old.md".into(),
-                scope: rara_skills::SkillScope::Home,
-                content: "old".into(),
-                prompt: "old".into(),
-                disable_model_invocation: false,
-            }],
-        );
-        manager.skills.insert(
-            "overridden-skill".into(),
-            rara_skills::Skill {
-                name: "overridden-skill".into(),
-                title: Some("New Version".into()),
-                description: "New version".into(),
-                path: std::path::PathBuf::from("overridden.md"),
-                display_path: "overridden.md".into(),
-                scope: rara_skills::SkillScope::Cwd,
-                content: "new".into(),
-                prompt: "new".into(),
-                disable_model_invocation: false,
-            },
-        );
+    let tool = SkillTool {
+        skill_manager: Arc::new(manager),
+    };
 
-        let tool = SkillTool {
-            skill_manager: Arc::new(manager),
-        };
-
-        let result = tool.call(json!({"action": "list"})).await.expect("list");
-        let skills = result["skills"].as_array().expect("skills array");
-        assert_eq!(skills.len(), 1);
-
-        let skill = &skills[0];
-        assert_eq!(skill["name"].as_str(), Some("overridden-skill"));
-        assert_eq!(skill["overrides_others"].as_bool(), Some(true));
-        let shadowed = skill["shadowed_scopes"].as_array().unwrap();
-        assert_eq!(shadowed.len(), 1);
-        assert_eq!(shadowed[0].as_str(), Some("home"));
-    }
-
-    #[tokio::test]
-    async fn list_returns_active_scopes() {
-        let mut manager = SkillManager::new();
-        manager.skills.insert(
-            "s1".into(),
-            rara_skills::Skill {
-                name: "s1".into(),
-                title: None,
-                description: "desc".into(),
-                path: std::path::PathBuf::from("s1.md"),
-                display_path: "s1.md".into(),
-                scope: rara_skills::SkillScope::Home,
-                content: "body".into(),
-                prompt: "body".into(),
-                disable_model_invocation: false,
-            },
-        );
-        manager.skills.insert(
-            "s2".into(),
-            rara_skills::Skill {
-                name: "s2".into(),
-                title: None,
-                description: "desc".into(),
-                path: std::path::PathBuf::from("s2.md"),
-                display_path: "s2.md".into(),
-                scope: rara_skills::SkillScope::Repo,
-                content: "body".into(),
-                prompt: "body".into(),
-                disable_model_invocation: false,
-            },
-        );
-
-        let tool = SkillTool {
-            skill_manager: Arc::new(manager),
-        };
-
-        let result = tool.call(json!({"action": "list"})).await.expect("list");
-        let scopes = result["scopes"].as_array().expect("scopes array");
-        assert_eq!(scopes.len(), 2);
-        assert_eq!(scopes[0].as_str(), Some("home"));
-        assert_eq!(scopes[1].as_str(), Some("repo"));
-    }
+    let result = tool.call(json!({"action": "list"})).await.expect("list");
+    let scopes = result["scopes"].as_array().expect("scopes array");
+    assert_eq!(scopes.len(), 2);
+    assert_eq!(scopes[0].as_str(), Some("home"));
+    assert_eq!(scopes[1].as_str(), Some("repo"));
 }

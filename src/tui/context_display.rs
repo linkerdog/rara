@@ -457,7 +457,7 @@ fn format_char_count(chars: usize) -> String {
     if chars >= 1_000_000 {
         format!("{:.1}M chars", chars as f64 / 1_000_000.0)
     } else if chars >= 1_000 {
-        format!("{:.1}K chars", chars as f64 / 1_000.0)
+        format!("{:.1}k chars", chars as f64 / 1_000.0)
     } else {
         format!("{chars} chars")
     }
