@@ -58,5 +58,6 @@ where
             // loader (hooks.rs) — not by the control-plane dispatcher.
             Ok(())
         }
+        _ => Err("control-plane dispatch not yet implemented for this request variant".into()),
     }
 }
