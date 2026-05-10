@@ -9,9 +9,13 @@
 //! Domain routing is implemented incrementally as individual control-plane
 //! families are wired.
 
+use crate::hook_registry::HookRegistry;
+use crate::hook_runtime::HookRuntime;
 use crate::mcp_connection_manager::McpConnectionManager;
 use crate::protocol_sources::{MemoryControlHandler, PromptSourceRegistry, SkillSourceRegistry};
-use crate::runtime_control::{RuntimeControlEnvelope, RuntimeControlEvent, RuntimeControlRequest};
+use crate::runtime_control::{
+    HookControlRequest, RuntimeControlEnvelope, RuntimeControlEvent, RuntimeControlRequest,
+};
 
 /// Dispatch a structured control-plane request and stream resulting events
 /// to the provided callback.
@@ -26,6 +30,8 @@ pub async fn dispatch<F>(
     prompt_registry: &PromptSourceRegistry,
     skill_registry: &SkillSourceRegistry,
     memory_handler: &MemoryControlHandler,
+    hook_registry: &HookRegistry,
+    hook_runtime: &mut HookRuntime,
     _on_event: F,
 ) -> Result<(), String>
 where
@@ -50,6 +56,18 @@ where
             .handle_control(memory_request)
             .await
             .map_err(|err| err.to_string()),
-        _ => Err("control-plane dispatch not yet implemented for this request variant".to_string()),
+        RuntimeControlRequest::Hook(hook_request) => {
+            // Register in both the protocol-facing registry and the execution runtime.
+            if let HookControlRequest::Declare {
+                hook_id,
+                lifecycle,
+                description,
+            } = hook_request
+            {
+                hook_runtime.register(hook_id.clone(), lifecycle.clone(), description.clone());
+            }
+            hook_registry.handle_control(hook_request).await;
+            Ok(())
+        }
     }
 }
