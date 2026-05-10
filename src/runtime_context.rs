@@ -124,7 +124,6 @@ pub(crate) async fn initialize_rara_context(
                 name: skill.name.clone(),
                 title: Some(skill.name),
                 description: skill.description,
-                display_path: skill.path.display().to_string(),
                 scope: scope.to_string(),
                 disable_model_invocation: false,
             }

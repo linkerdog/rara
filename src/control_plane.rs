@@ -73,7 +73,9 @@ where
         }
         RuntimeControlRequest::Input(input_request) => {
             if let Some(agent) = agent {
-                let mut sequence = 0u64;
+                // Bridge AgentEvent back to the control-plane callback via on_event.
+                // We need to wrap AgentEvent into RuntimeControlEvent.
+                let mut sequence = 0u64; // We might need the bus sequence here
                 let provenance = envelope.provenance.clone();
 
                 let mut report = |event| {

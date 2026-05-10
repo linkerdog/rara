@@ -27,7 +27,7 @@ pub use self::types::{
     PendingInteractionSnapshot, PermissionMode, PickerIntent, ProviderFamily, RalphGoal,
     RebuildSuccess, RunningTask, RuntimePhase, RuntimeSnapshot, SkillPickerEntry, StatusTab,
     TaskCompletion, TaskKind, TerminalDiagnosticsView, TranscriptEntry, TranscriptEntryPayload,
-    TranscriptTurn, TuiApp, TuiEvent,
+    TranscriptTurn, TuiApp, TuiEvent, UnifiedModelPreset,
 };
 
 const OPENAI_PROFILE_SETUP_KINDS: [OpenAiEndpointKind; 3] = [
@@ -458,6 +458,224 @@ impl TuiApp {
                 .unwrap_or(0);
         }
         selected_preset_idx_for_config(&self.config, self.provider_picker_idx)
+    }
+
+    pub fn all_unified_model_presets(&self) -> Vec<UnifiedModelPreset> {
+        use crate::tui::state::state_presets::{
+            BEDROCK_MODEL_PRESETS, LOCAL_MODEL_PRESETS, OLLAMA_MODEL_PRESETS,
+            OPENAI_COMPATIBLE_MODEL_PRESETS,
+        };
+
+        let mut results = Vec::new();
+
+        for (family, name, _description) in PROVIDER_FAMILIES.iter() {
+            match family {
+                ProviderFamily::Codex => {
+                    for opt in &self.codex_model_options {
+                        results.push(UnifiedModelPreset {
+                            family: *family,
+                            provider_id: name.to_lowercase(),
+                            provider_label: name.to_string(),
+                            model_id: opt.id.clone(),
+                            model_label: opt.label.clone(),
+                        });
+                    }
+                }
+                ProviderFamily::DeepSeek => {
+                    for model in &self.deepseek_model_options {
+                        results.push(UnifiedModelPreset {
+                            family: *family,
+                            provider_id: "deepseek".to_string(),
+                            provider_label: name.to_string(),
+                            model_id: model.clone(),
+                            model_label: model.clone(),
+                        });
+                    }
+                }
+                ProviderFamily::OpenAiCompatible => {
+                    // Include user profiles first
+                    for (profile_id, profile) in &self.config.openai_profiles {
+                        results.push(UnifiedModelPreset {
+                            family: *family,
+                            provider_id: profile_id.clone(),
+                            provider_label: profile.label.clone(),
+                            model_id: profile
+                                .model
+                                .clone()
+                                .unwrap_or_else(|| profile.kind.default_model().to_string()),
+                            model_label: profile
+                                .model
+                                .clone()
+                                .unwrap_or_else(|| profile.kind.label().to_string()),
+                        });
+                    }
+                    // Then static presets
+                    for preset in OPENAI_COMPATIBLE_MODEL_PRESETS.iter() {
+                        results.push(UnifiedModelPreset {
+                            family: *family,
+                            provider_id: "openai-compatible".to_string(),
+                            provider_label: preset.0.to_string(),
+                            model_id: preset.2.to_string(),
+                            model_label: preset.0.to_string(),
+                        });
+                    }
+                }
+                ProviderFamily::CandleLocal => {
+                    for preset in LOCAL_MODEL_PRESETS.iter() {
+                        results.push(UnifiedModelPreset {
+                            family: *family,
+                            provider_id: "gemma4".to_string(),
+                            provider_label: name.to_string(),
+                            model_id: preset.2.to_string(),
+                            model_label: preset.0.to_string(),
+                        });
+                    }
+                }
+                ProviderFamily::Ollama => {
+                    for preset in OLLAMA_MODEL_PRESETS.iter() {
+                        results.push(UnifiedModelPreset {
+                            family: *family,
+                            provider_id: "ollama".to_string(),
+                            provider_label: name.to_string(),
+                            model_id: preset.2.to_string(),
+                            model_label: preset.0.to_string(),
+                        });
+                    }
+                }
+                ProviderFamily::Bedrock => {
+                    for preset in BEDROCK_MODEL_PRESETS.iter() {
+                        results.push(UnifiedModelPreset {
+                            family: *family,
+                            provider_id: "bedrock".to_string(),
+                            provider_label: name.to_string(),
+                            model_id: preset.2.to_string(),
+                            model_label: preset.0.to_string(),
+                        });
+                    }
+                }
+                ProviderFamily::Gemini => {
+                    results.push(UnifiedModelPreset {
+                        family: *family,
+                        provider_id: "gemini".to_string(),
+                        provider_label: name.to_string(),
+                        model_id: "gemini-3-flash".to_string(),
+                        model_label: "Gemini 3 Flash".to_string(),
+                    });
+                    results.push(UnifiedModelPreset {
+                        family: *family,
+                        provider_id: "gemini".to_string(),
+                        provider_label: name.to_string(),
+                        model_id: "gemini-3-pro".to_string(),
+                        model_label: "Gemini 3 Pro".to_string(),
+                    });
+                }
+            }
+        }
+        results
+    }
+
+    pub fn select_unified_model(&mut self, idx: usize) {
+        let presets = self.all_unified_model_presets();
+        let Some(preset) = presets.get(idx).cloned() else {
+            return;
+        };
+
+        // Update provider picker index to match the selected model's family.
+        if let Some(family_idx) = PROVIDER_FAMILIES
+            .iter()
+            .position(|(family, _, _)| *family == preset.family)
+        {
+            self.provider_picker_idx = family_idx;
+        }
+
+        match preset.family {
+            ProviderFamily::Codex => {
+                self.config.set_provider("codex");
+                self.config.set_model(Some(preset.model_id));
+                self.config.set_revision(None);
+                if crate::config::should_reset_codex_base_url(self.config.base_url.as_deref()) {
+                    self.config
+                        .set_base_url(Some(DEFAULT_CODEX_BASE_URL.to_string()));
+                }
+                self.sync_reasoning_effort_picker();
+            }
+            ProviderFamily::DeepSeek => {
+                self.config.select_openai_profile(
+                    OpenAiEndpointKind::Deepseek.default_profile_id(),
+                    OpenAiEndpointKind::Deepseek.label(),
+                    OpenAiEndpointKind::Deepseek,
+                );
+                self.config.set_model(Some(preset.model_id));
+                self.config.set_revision(None);
+            }
+            ProviderFamily::OpenAiCompatible => {
+                // If it's a user profile, select it.
+                if let Some(profile) = self.config.openai_profiles.get(&preset.provider_id) {
+                    self.config.select_openai_profile(
+                        profile.id.clone(),
+                        profile.label.clone(),
+                        profile.kind,
+                    );
+                } else {
+                    // It's a static preset.
+                    let kind = match preset.model_label.as_str() {
+                        "DeepSeek" => OpenAiEndpointKind::Deepseek,
+                        "Kimi" => OpenAiEndpointKind::Kimi,
+                        "OpenRouter" => OpenAiEndpointKind::Openrouter,
+                        _ => OpenAiEndpointKind::Custom,
+                    };
+                    let (profile_id, label) = self
+                        .config
+                        .active_openai_profile()
+                        .filter(|profile| profile.kind == kind)
+                        .map(|profile| (profile.id.clone(), profile.label.clone()))
+                        .unwrap_or_else(|| {
+                            (
+                                kind.default_profile_id().to_string(),
+                                kind.label().to_string(),
+                            )
+                        });
+                    self.config.select_openai_profile(profile_id, label, kind);
+                }
+                self.config.set_revision(None);
+            }
+            ProviderFamily::Gemini => {
+                self.config.set_provider("gemini");
+                self.config.set_model(Some(preset.model_id));
+                self.config.set_base_url(None);
+                self.config.set_revision(None);
+            }
+            _ => {
+                self.config.set_provider(preset.provider_id.clone());
+                self.config.set_model(Some(preset.model_id));
+                self.config.set_revision(None);
+
+                if preset.provider_id == "ollama" {
+                    if self
+                        .config
+                        .base_url
+                        .as_deref()
+                        .map(str::trim)
+                        .filter(|value| !value.is_empty())
+                        .is_none()
+                    {
+                        self.config
+                            .set_base_url(Some("http://localhost:11434".to_string()));
+                    }
+                }
+            }
+        }
+    }
+
+    pub fn selected_unified_preset_idx(&self) -> usize {
+        let presets = self.all_unified_model_presets();
+        presets
+            .iter()
+            .position(|p| {
+                p.provider_id == self.config.provider
+                    && self.config.model.as_deref() == Some(&p.model_id)
+            })
+            .unwrap_or(0)
     }
 
     pub fn selected_provider_family(&self) -> ProviderFamily {
@@ -1181,7 +1399,6 @@ impl TuiApp {
                 name: s.name.clone(),
                 title: s.title.clone().unwrap_or_else(|| s.name.clone()),
                 scope: s.scope.clone(),
-                display_path: s.display_path.clone(),
                 enabled: !s.disable_model_invocation,
                 disable_model_invocation: s.disable_model_invocation,
             })

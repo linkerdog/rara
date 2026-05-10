@@ -1,5 +1,6 @@
 ---
 source: src/tui/render/tests.rs
+assertion_line: 1156
 expression: rendered
 ---
 Context Usage
