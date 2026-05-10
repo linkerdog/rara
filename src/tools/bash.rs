@@ -2146,18 +2146,22 @@ mod tests {
             Some("direct")
         );
         assert_eq!(result.get("stdout").and_then(Value::as_str), Some("direct"));
+        // RequireEscalated explicitly bypasses sandbox isolation — no warning needed.
         let aggregated_output = result
             .get("aggregated_output")
             .and_then(Value::as_str)
             .expect("aggregated output");
         assert!(aggregated_output.contains("direct"));
-        assert!(aggregated_output.contains("without sandbox isolation"));
+        assert!(
+            !aggregated_output.contains("without sandbox isolation"),
+            "RequireEscalated should suppress the sandbox warning"
+        );
         assert!(result.get("duration_ms").and_then(Value::as_u64).is_some());
         assert!(
             result
                 .get("stderr")
                 .and_then(Value::as_str)
-                .is_some_and(|stderr| stderr.contains("without sandbox isolation"))
+                .is_none_or(|stderr| !stderr.contains("without sandbox isolation"))
         );
     }
 
