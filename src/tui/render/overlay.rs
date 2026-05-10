@@ -21,10 +21,9 @@ use super::super::command::{
 };
 use super::super::custom_terminal::Frame;
 use super::super::state::{CommandSpec, HelpTab, Overlay, StatusTab, TuiApp};
+use super::bottom_pane::desired_bottom_pane_height;
 use crate::tui::context_display::render_context_lines;
 use crate::tui::status_display::render_status_lines;
-
-use super::bottom_pane::desired_bottom_pane_height;
 
 pub(super) fn render_overlay(f: &mut Frame, app: &TuiApp, overlay: Overlay) -> Option<(u16, u16)> {
     match overlay {
