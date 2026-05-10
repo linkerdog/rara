@@ -58,7 +58,8 @@ struct TerminalCellData {
 }
 
 pub(super) fn trim_trailing_empty_lines(lines: &mut Vec<Line<'static>>) {
-    while matches!(lines.last(), Some(line) if line.spans.iter().all(|span| span.content == "")) {
+    while matches!(lines.last(), Some(line) if line.spans.iter().all(|span| span.content.is_empty()))
+    {
         lines.pop();
     }
 }
@@ -146,11 +147,11 @@ fn ordered_exploration_agent_segments<'a>(
                 }
                 segments.push(OrderedActiveSegment::Agent(entry.message.as_str()));
             }
-            "Tool Result" | "Tool Error" | "Tool Progress" | "System" => {
-                if !exploration_items.is_empty() {
-                    saw_interleaving = true;
-                    flush_exploration(&mut segments, &mut exploration_items);
-                }
+            "Tool Result" | "Tool Error" | "Tool Progress" | "System"
+                if !exploration_items.is_empty() =>
+            {
+                saw_interleaving = true;
+                flush_exploration(&mut segments, &mut exploration_items);
             }
             _ => {}
         }
@@ -170,7 +171,7 @@ fn ordered_exploration_agent_segments<'a>(
 }
 
 #[derive(Clone, Copy)]
-pub(super) enum InteractionCompletionKind {
+pub(crate) enum InteractionCompletionKind {
     ShellApprovalCompleted,
     QuestionAnswered,
     PlanningQuestionAnswered,

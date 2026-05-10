@@ -328,20 +328,19 @@ pub(crate) fn latest_tool_results(history: &[Message]) -> Vec<(String, String)> 
         .map(|items| {
             items
                 .iter()
-                .filter_map(|item| {
-                    (item.get("type").and_then(Value::as_str) == Some("tool_result")).then(|| {
-                        let tool_id = item
-                            .get("tool_use_id")
-                            .and_then(Value::as_str)
-                            .unwrap_or("tool_result")
-                            .to_string();
-                        let content = item
-                            .get("content")
-                            .and_then(Value::as_str)
-                            .unwrap_or_default()
-                            .to_string();
-                        (format!("Tool Result {tool_id}"), content)
-                    })
+                .filter(|&item| item.get("type").and_then(Value::as_str) == Some("tool_result"))
+                .map(|item| {
+                    let tool_id = item
+                        .get("tool_use_id")
+                        .and_then(Value::as_str)
+                        .unwrap_or("tool_result")
+                        .to_string();
+                    let content = item
+                        .get("content")
+                        .and_then(Value::as_str)
+                        .unwrap_or_default()
+                        .to_string();
+                    (format!("Tool Result {tool_id}"), content)
                 })
                 .collect::<Vec<_>>()
         })
@@ -497,6 +496,8 @@ mod tests {
                     projected_chars: 40_000,
                     cleared_results: 2,
                     kept_results: 6,
+                    cache_edit_eligible: false,
+                    cache_edit_applied: false,
                 },
                 agent_turn_trace: AgentTurnTraceView::default(),
             },

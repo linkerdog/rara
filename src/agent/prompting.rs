@@ -3,7 +3,7 @@ use crate::context::{
     AssembledContext, AssembledTurnContext, ContextAssembler, RuntimeContextInputs,
     RuntimeInteractionInput,
 };
-use crate::protocol_sources::PromptSourceRegistry;
+use crate::protocol_sources::{PromptSourceRegistry, SkillSourceRegistry};
 use crate::tool_result::ToolResultProjectionPolicy;
 
 impl Agent {
@@ -70,10 +70,26 @@ impl Agent {
             mcp_resource_candidates: &self.mcp_resource_candidates,
             hook_output_candidates: &self.hook_output_candidates,
             graph_context_candidates: &self.graph_context_candidates,
-            tool_result_projection_policy: ToolResultProjectionPolicy::default(),
+            tool_result_projection_policy: self.tool_result_projection_policy(),
             tool_result_projection_report: self.last_tool_result_projection_report.clone(),
             agent_turn_trace: self.last_agent_turn_trace.clone(),
         }
+    }
+
+    pub(super) fn tool_result_projection_policy(&self) -> ToolResultProjectionPolicy {
+        let mut policy = ToolResultProjectionPolicy::default()
+            .for_provider_cache_edit(self.llm_backend.cache_profile().cache_edit);
+
+        // Time-based trigger (Claude Code style):
+        // If the session has been idle for a while, the provider cache is likely cold.
+        // We can disable cache-edit eligibility to allow more aggressive microcompaction
+        // since we'll pay the cache-miss penalty anyway.
+        let idle_duration = self.last_interaction_time.elapsed();
+        if idle_duration > std::time::Duration::from_secs(300) {
+            policy.cache_edit_eligible = false;
+        }
+
+        policy
     }
 
     pub fn build_system_prompt(&self) -> String {
@@ -95,6 +111,13 @@ impl Agent {
         self.prompt_source_registry = Some(prompt_source_registry);
     }
 
+    pub fn set_skill_source_registry(
+        &mut self,
+        skill_source_registry: std::sync::Arc<SkillSourceRegistry>,
+    ) {
+        self.skill_source_registry = Some(skill_source_registry);
+    }
+
     pub fn prompt_config(&self) -> &PromptRuntimeConfig {
         &self.prompt_config
     }
@@ -104,6 +127,15 @@ impl Agent {
             return;
         };
         self.prompt_config.protocol_prompt_sources = registry.list_prompt_sources_for_query().await;
+    }
+
+    pub(crate) async fn refresh_protocol_skill_sources_for_query(&mut self) {
+        let Some(registry) = self.skill_source_registry.as_ref() else {
+            return;
+        };
+        // For now we just emit the Injected events and snapshot them.
+        // Integration with actual skill execution will follow.
+        let _skills = registry.list_skills_for_query().await;
     }
 
     pub fn set_cancellation_token(

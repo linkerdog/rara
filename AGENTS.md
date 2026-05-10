@@ -58,6 +58,7 @@ The current product direction is to make local inference a first-class path inst
 
 ## 3.1 Rust Engineering Rules
 
+- Always run `cargo fmt` to maintain consistent code style.
 - New or modified Rust code must not introduce new compiler or Clippy warnings.
   The existing codebase may still contain legacy warnings; keep changes
   warning-clean within the touched scope, and prefer fixing nearby warnings
@@ -116,6 +117,7 @@ The current product direction is to make local inference a first-class path inst
 
 ## 7. Commit Rules
 
+- Always run `cargo fmt` before every commit to ensure consistent formatting.
 - Use short project-specific conventional commit titles. This is an intentional
   subset of Conventional Commits, not the full upstream type set.
 - Allowed commit title types:

@@ -280,10 +280,10 @@ pub(crate) fn current_turn_exploration_summary_from_entries(
         if MessageRole::try_from_str(&entry.role) != Some(MessageRole::Tool) {
             continue;
         }
-        if let Some(action) = exploration_action_label(&entry.message) {
-            if !actions.iter().any(|existing| existing == &action) {
-                actions.push(action);
-            }
+        if let Some(action) = exploration_action_label(&entry.message)
+            && !actions.iter().any(|existing| existing == &action)
+        {
+            actions.push(action);
         }
     }
     if actions.is_empty() {
@@ -670,7 +670,7 @@ pub(crate) fn formatted_message_lines(
             let hidden_count = truncated_line_count(rendered_len, body_max);
             let (head, tail) = head_tail_line_window(rendered.as_slice(), body_max);
             lines.extend(prefix_lines(
-                head.iter().cloned().collect(),
+                head.to_vec(),
                 Span::raw("  "),
                 Span::raw("  "),
             ));
@@ -681,7 +681,7 @@ pub(crate) fn formatted_message_lines(
                 )));
             }
             lines.extend(prefix_lines(
-                tail.iter().cloned().collect(),
+                tail.to_vec(),
                 Span::raw("  "),
                 Span::raw("  "),
             ));
@@ -708,7 +708,7 @@ fn bulleted_markdown_message_lines(
     let (head, tail) = head_tail_line_window(rendered.as_slice(), max_lines);
 
     let mut lines = prefix_lines(
-        head.iter().cloned().collect(),
+        head.to_vec(),
         Span::styled("• ", Style::default().add_modifier(Modifier::DIM)),
         Span::raw("  "),
     );
@@ -719,7 +719,7 @@ fn bulleted_markdown_message_lines(
         )));
     }
     lines.extend(prefix_lines(
-        tail.iter().cloned().collect(),
+        tail.to_vec(),
         Span::raw("  "),
         Span::raw("  "),
     ));
@@ -743,11 +743,7 @@ fn markdown_message_lines(
     let mut lines = vec![Line::from(role.to_string())];
     let hidden_count = truncated_line_count(rendered_len, max_lines);
     let (head, tail) = head_tail_line_window(rendered.as_slice(), max_lines);
-    let prefixed = prefix_lines(
-        head.iter().cloned().collect(),
-        Span::raw("  "),
-        Span::raw("  "),
-    );
+    let prefixed = prefix_lines(head.to_vec(), Span::raw("  "), Span::raw("  "));
     lines.extend(prefixed);
     if hidden_count > 0 {
         lines.push(Line::from(Span::styled(
@@ -756,7 +752,7 @@ fn markdown_message_lines(
         )));
     }
     lines.extend(prefix_lines(
-        tail.iter().cloned().collect(),
+        tail.to_vec(),
         Span::raw("  "),
         Span::raw("  "),
     ));

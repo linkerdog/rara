@@ -82,12 +82,12 @@ impl LlmBackend for OllamaBackend {
         let resp_json: Value = res.json().await?;
         let message = &resp_json["message"];
         let mut content = Vec::new();
-        if let Some(text) = message.get("content").and_then(Value::as_str) {
-            if !text.trim().is_empty() {
-                content.push(ContentBlock::Text {
-                    text: text.to_string(),
-                });
-            }
+        if let Some(text) = message.get("content").and_then(Value::as_str)
+            && !text.trim().is_empty()
+        {
+            content.push(ContentBlock::Text {
+                text: text.to_string(),
+            });
         }
         if let Some(tool_calls) = message.get("tool_calls").and_then(Value::as_array) {
             for (idx, call) in tool_calls.iter().enumerate() {
@@ -306,21 +306,19 @@ pub(super) fn apply_ollama_stream_event(
         .get("message")
         .and_then(|message| message.get("content"))
         .and_then(Value::as_str)
+        && !delta.is_empty()
     {
-        if !delta.is_empty() {
-            on_event(LlmStreamEvent::TextDelta(delta.to_string()));
-            streamed_text.push_str(delta);
-        }
+        on_event(LlmStreamEvent::TextDelta(delta.to_string()));
+        streamed_text.push_str(delta);
     }
 
     if let Some(tool_calls) = event
         .get("message")
         .and_then(|message| message.get("tool_calls"))
         .and_then(Value::as_array)
+        && !tool_calls.is_empty()
     {
-        if !tool_calls.is_empty() {
-            merge_ollama_stream_tool_calls(streamed_tool_calls, tool_calls);
-        }
+        merge_ollama_stream_tool_calls(streamed_tool_calls, tool_calls);
     }
 
     if event.get("done").and_then(Value::as_bool).unwrap_or(false) {

@@ -271,6 +271,11 @@ impl TuiApp {
             terminal_focused: true,
             state_db: None,
             state_db_status: None,
+            mcp_manager: None,
+            prompt_source_registry: None,
+            skill_source_registry: None,
+            hook_registry: None,
+            memory_handler: None,
             repo_context_task: None,
             repo_slug: None,
             current_pr_url: None,
@@ -545,10 +550,9 @@ impl TuiApp {
             .as_deref()
             .map(str::trim)
             .filter(|model| !model.is_empty())
+            && !options.iter().any(|model| model == current_model)
         {
-            if !options.iter().any(|model| model == current_model) {
-                options.push(current_model.to_string());
-            }
+            options.push(current_model.to_string());
         }
         options.sort();
         options.dedup();
@@ -627,13 +631,12 @@ impl TuiApp {
             .selected_openai_profile_kind()
             .unwrap_or(OpenAiEndpointKind::Custom);
         let mut steps = Vec::new();
-        if matches!(kind, OpenAiEndpointKind::Custom) {
-            steps.push(Overlay::BaseUrlEditor);
-        } else if self
-            .config
-            .base_url
-            .as_deref()
-            .is_none_or(|value| value.trim().is_empty())
+        if matches!(kind, OpenAiEndpointKind::Custom)
+            || self
+                .config
+                .base_url
+                .as_deref()
+                .is_none_or(|value| value.trim().is_empty())
         {
             steps.push(Overlay::BaseUrlEditor);
         }
@@ -1485,7 +1488,7 @@ impl TuiApp {
                 approval: None,
                 source: Some(source.into()),
             });
-        self.bottom_pane.notice = Some(format!("{title}"));
+        self.bottom_pane.notice = Some(title.clone());
         self.persist_runtime_state();
     }
 

@@ -5,14 +5,14 @@ use std::time::Duration;
 use anyhow::Result;
 use async_trait::async_trait;
 use rara_memory::vectordb::VectorDB;
-use rara_persistence::thread_metadata;
-use rara_state::state_db::{
+use rara_persistence::thread_data::{
     PersistedCompactState, PersistedInteraction, PersistedPlanStep, PersistedPromptRuntimeState,
     PersistedRuntimeRolloutItem, PersistedStructuredRolloutEvent, PersistedThreadLineage,
-    PersistedThreadRecord, PersistedTurnEntry, StateDb,
+    PersistedThreadRecord, PersistedTurnEntry,
 };
-use rara_state::thread_rollout_log;
-use rara_state::thread_turn_log;
+use rara_persistence::thread_metadata;
+use rara_persistence::{thread_rollout_log, thread_turn_log};
+use rara_state::state_db::StateDb;
 use serde_json::Value;
 use tempfile::tempdir;
 
@@ -550,7 +550,7 @@ fn load_thread_prefers_structured_runtime_rollout_items() -> Result<()> {
         ThreadNonTurnRolloutSource::StructuredEventsLog
     );
     assert!(matches!(
-        snapshot.rollout_items.get(0),
+        snapshot.rollout_items.first(),
         Some(RolloutItem::PlanState { explanation, steps })
             if explanation.as_deref() == Some("Structured rollout plan")
                 && steps[0].step == "Structured rollout plan step"
@@ -637,7 +637,7 @@ fn load_thread_falls_back_to_legacy_runtime_rollout_file() -> Result<()> {
         ThreadNonTurnRolloutSource::LegacyBackfilled
     );
     assert!(matches!(
-        snapshot.rollout_items.get(0),
+        snapshot.rollout_items.first(),
         Some(RolloutItem::PlanState { explanation, steps })
             if explanation.as_deref() == Some("Legacy runtime rollout plan")
                 && steps[0].step == "Inspect legacy runtime rollout"
@@ -841,7 +841,7 @@ fn load_thread_preserves_structured_rollout_event_order() -> Result<()> {
     let snapshot = store.load_thread("session-ordered-events")?;
 
     assert!(matches!(
-        snapshot.rollout_items.get(0),
+        snapshot.rollout_items.first(),
         Some(RolloutItem::Compaction(compaction))
             if compaction.compaction_count == 1
     ));

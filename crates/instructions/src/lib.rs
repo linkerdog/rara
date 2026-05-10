@@ -1,3 +1,4 @@
+pub mod languages;
 pub mod prompt;
 pub mod workspace;
 

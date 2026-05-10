@@ -192,29 +192,6 @@ fn resume_compaction_label(compaction: &crate::thread_store::CompactionRecord) -
     parts.join(" ")
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn resume_compaction_label_includes_boundary_range_and_tokens() {
-        let label = resume_compaction_label(&crate::thread_store::CompactionRecord {
-            compaction_count: 2,
-            before_tokens: Some(12_000),
-            after_tokens: Some(4_000),
-            recent_file_count: Some(3),
-            boundary_version: Some(1),
-            replaced_start: Some(0),
-            replaced_end: Some(8),
-            metadata_owner: Some("runtime.compaction".to_string()),
-            recent_files: vec![],
-            summary: Some("summary".to_string()),
-        });
-
-        assert_eq!(label, "compact=2 boundary=v1 range=0..8 tokens=12000->4000");
-    }
-}
-
 pub(super) fn render_model_picker_modal(f: &mut Frame, app: &TuiApp, area: Rect) {
     let provider_label = PROVIDER_FAMILIES[app.provider_picker_idx].1;
     if app.selected_provider_family() == ProviderFamily::OpenAiCompatible {
@@ -1056,4 +1033,27 @@ pub(super) fn render_openai_profile_label_editor_modal(
         app.openai_profile_label_cursor_offset(),
         chunks[1],
     ))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn resume_compaction_label_includes_boundary_range_and_tokens() {
+        let label = resume_compaction_label(&crate::thread_store::CompactionRecord {
+            compaction_count: 2,
+            before_tokens: Some(12_000),
+            after_tokens: Some(4_000),
+            recent_file_count: Some(3),
+            boundary_version: Some(1),
+            replaced_start: Some(0),
+            replaced_end: Some(8),
+            metadata_owner: Some("runtime.compaction".to_string()),
+            recent_files: vec![],
+            summary: Some("summary".to_string()),
+        });
+
+        assert_eq!(label, "compact=2 boundary=v1 range=0..8 tokens=12000->4000");
+    }
 }

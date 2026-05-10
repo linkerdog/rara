@@ -15,11 +15,11 @@ Active backlog only. Keep this file small and current.
 
 ## Runtime Control Plane / ACP / Wire
 
-- [ ] P0+: Add a runtime input-control bridge so appserver/ACP/Wire can submit prompts, follow-ups, pending-input answers, approval decisions, and cancellation intents through `RuntimeControlRequest::Input` / `SessionControlRequest` instead of TUI-only handlers. Mirror local TUI input lifecycle events to the structured control stream where useful; do not forward raw key presses such as `Esc`.
+- [x] P0+: Add a runtime input-control bridge so appserver/ACP/Wire can submit prompts, follow-ups, pending-input answers, approval decisions, and cancellation intents through `RuntimeControlRequest::Input` / `SessionControlRequest` instead of TUI-only handlers (merged #338+).
 - [x] Define adapter-neutral runtime control request/event types for ACP, Wire, TUI, CLI, and future appserver entrypoints (see `docs/features/runtime-control-plane.md`).
 - [x] Add Claude-style `todo_write` runtime state with session persistence, TUI update cards, and structured Wire/ACP-ready events.
 - [x] Add source-aware MCP config registry for user `config.toml` and project `.mcp.json` with duplicate-name conflict failure.
-- [x] Route ACP prompt/cancel/session handling through the normal RARA runtime path instead of the current stub.
+- [x] Route ACP prompt/cancel/session handling through the normal RARA runtime path instead of the current stub (merged #338+).
 - [x] Add protocol subscriber plumbing on top of the structured `AgentEvent` runtime-control bridge.
 - [x] Add MCP connection manager status model (`configured`, `connecting`, `connected`, `refreshing`, `reconnecting`, `failed`, `disabled`) from `McpRegistry`.
 - [x] Add `/mcp` status surface grouped by scope and source path.
@@ -102,7 +102,7 @@ Active backlog only. Keep this file small and current.
 - [x] Add an OTEL-ready context observability event model for compaction, microcompact projection, cache usage, and memory retrieval.
 - [x] Add terminal environment detection for TUI compatibility, diagnostics, and future OTEL attributes.
 - [x] Surface terminal metadata in `/status` diagnostics and future OTEL attributes.
-- [ ] Add provider-gated cache-edit microcompact only for backends that explicitly declare cache-edit support.
+- [x] Add provider-gated cache-edit microcompact only for backends that explicitly declare cache-edit support.
 - [x] Surface main model vs auxiliary model routing in `/status` and `/context`.
 - [ ] After context observability is complete, add an auxiliary-model compression hook for retrieval candidates without changing durable memory records.
 - [x] `ThreadStore` / `ThreadRecorder`: from façade over `SessionManager`+`StateDb` to true structured thread store.
@@ -164,5 +164,5 @@ Active backlog only. Keep this file small and current.
 ## Code Organization / Docs
 
 - [x] Add `TuiMaintainer` to event loop (merged #276).
-- [x] `rara-persistence` crate: `atomic_file`, `redaction`, `thread_data`, `thread_metadata` (merged #279, #282, #283).
-- [ ] Continue splitting remaining modules into crates (`thread_rollout_log`, `thread_turn_log`, `file_lock`).
+- [x] `rara-persistence` crate: `atomic_file`, `redaction`, `thread_data`, `thread_metadata`, `thread_rollout_log`, `thread_turn_log`, `file_lock` (merged #279, #282, #283, #338+).
+- [ ] Continue splitting remaining oversized modules into smaller files (e.g. `state_db.rs`).

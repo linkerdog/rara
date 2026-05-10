@@ -23,6 +23,17 @@ pub fn start_query_task(app: &mut TuiApp, prompt: String, agent: Agent) {
     tasks::start_query_task(app, prompt, agent);
 }
 
+pub fn start_input_control_task(
+    app: &mut TuiApp,
+    agent: Agent,
+    request: crate::runtime_control::InputControlRequest,
+    notice: String,
+    phase: super::state::RuntimePhase,
+    phase_detail: Option<String>,
+) {
+    tasks::start_input_control_task(app, agent, request, notice, phase, phase_detail);
+}
+
 pub fn request_running_task_cancellation(app: &mut TuiApp) {
     tasks::request_running_task_cancellation(app);
 }

@@ -277,6 +277,7 @@ mod tests {
                 enabled: true,
                 budget_chars: 180,
                 keep_recent: 1,
+                cache_edit_eligible: false,
             },
         );
         let projected_text = serde_json::to_string(&projected).expect("projected json");
@@ -317,11 +318,43 @@ mod tests {
                 enabled: true,
                 budget_chars: 1,
                 keep_recent: 1,
+                cache_edit_eligible: false,
             },
         );
 
         assert_eq!(projected, messages);
         assert_eq!(report.cleared_results, 0);
+    }
+
+    #[test]
+    fn projection_reports_provider_cache_edit_gate_without_applying_cache_edits() {
+        let messages = vec![
+            Message {
+                role: "assistant".to_string(),
+                content: json!([{
+                    "type": "tool_use",
+                    "id": "tool-1",
+                    "name": "read_file",
+                    "input": {}
+                }]),
+            },
+            Message {
+                role: "user".to_string(),
+                content: json!([{
+                    "type": "tool_result",
+                    "tool_use_id": "tool-1",
+                    "content": "small result"
+                }]),
+            },
+        ];
+
+        let (_projected, report) = project_tool_results_for_context(
+            &messages,
+            &ToolResultProjectionPolicy::default().for_provider_cache_edit(true),
+        );
+
+        assert!(report.cache_edit_eligible);
+        assert!(!report.cache_edit_applied);
     }
 
     #[test]

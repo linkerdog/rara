@@ -331,16 +331,16 @@ fn parse_goal_objective_and_budget(input: &str) -> Result<(String, Option<u32>),
         return Ok((objective.to_string(), Some(budget)));
     }
 
-    if let Some((first, rest)) = input.split_once(char::is_whitespace) {
-        if first.bytes().all(|b| b.is_ascii_digit()) {
-            let budget = parse_goal_token_budget(first)
-                .ok_or_else(|| format!("Invalid goal token budget: {first}."))?;
-            let objective = rest.trim();
-            if objective.is_empty() {
-                return Err("Goal objective cannot be empty.".into());
-            }
-            return Ok((objective.to_string(), Some(budget)));
+    if let Some((first, rest)) = input.split_once(char::is_whitespace)
+        && first.bytes().all(|b| b.is_ascii_digit())
+    {
+        let budget = parse_goal_token_budget(first)
+            .ok_or_else(|| format!("Invalid goal token budget: {first}."))?;
+        let objective = rest.trim();
+        if objective.is_empty() {
+            return Err("Goal objective cannot be empty.".into());
         }
+        return Ok((objective.to_string(), Some(budget)));
     }
 
     Ok((input.to_string(), None))
@@ -447,26 +447,26 @@ fn spawn_mcp_tool_cache_population(
 }
 
 fn publish_mcp_status_load_failed_event(app: &TuiApp, message: &str) {
-    if let Some(bus) = app.event_bus.as_ref() {
-        if bus.receiver_count() > 0 {
-            bus.send_with_provenance(
-                AgentEvent::McpStatusLoadFailed {
-                    message: message.to_string(),
-                },
-                RuntimeProvenance::local_tui(app.snapshot.session_id.clone()),
-            );
-        }
+    if let Some(bus) = app.event_bus.as_ref()
+        && bus.receiver_count() > 0
+    {
+        bus.send_with_provenance(
+            AgentEvent::McpStatusLoadFailed {
+                message: message.to_string(),
+            },
+            RuntimeProvenance::local_tui(app.snapshot.session_id.clone()),
+        );
     }
 }
 
 fn publish_mcp_status_event(app: &TuiApp, snapshot: &McpStatusSnapshot) {
-    if let Some(bus) = app.event_bus.as_ref() {
-        if bus.receiver_count() > 0 {
-            bus.send_with_provenance(
-                AgentEvent::McpStatusUpdated(snapshot.clone()),
-                RuntimeProvenance::local_tui(app.snapshot.session_id.clone()),
-            );
-        }
+    if let Some(bus) = app.event_bus.as_ref()
+        && bus.receiver_count() > 0
+    {
+        bus.send_with_provenance(
+            AgentEvent::McpStatusUpdated(snapshot.clone()),
+            RuntimeProvenance::local_tui(app.snapshot.session_id.clone()),
+        );
     }
 }
 

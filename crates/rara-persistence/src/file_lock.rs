@@ -15,9 +15,10 @@ impl AdvisoryFileLock {
                 .with_context(|| format!("create lock directory {}", parent.display()))?;
         }
         let file = OpenOptions::new()
-            .create(true)
             .read(true)
             .write(true)
+            .create(true)
+            .truncate(true)
             .open(&path)
             .with_context(|| format!("open lock file {}", path.display()))?;
         file.lock_exclusive()

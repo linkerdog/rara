@@ -220,11 +220,11 @@ impl LlmBackend for GeminiBackend {
                         .and_then(|p| p.as_array())
                     {
                         for part in content {
-                            if let Some(text) = part.get("text").and_then(|t| t.as_str()) {
-                                if !text.is_empty() {
-                                    streamed_text.push_str(text);
-                                    on_event(LlmStreamEvent::TextDelta(text.to_string()));
-                                }
+                            if let Some(text) = part.get("text").and_then(|t| t.as_str())
+                                && !text.is_empty()
+                            {
+                                streamed_text.push_str(text);
+                                on_event(LlmStreamEvent::TextDelta(text.to_string()));
                             }
                         }
                     }
@@ -405,7 +405,7 @@ fn build_gemini_request(messages: &[Message], tools: &[Value]) -> Result<Value> 
                 });
                 let schema = tool
                     .get("input_schema")
-                    .map(|s| sanitize_gemini_schema(s))
+                    .map(sanitize_gemini_schema)
                     .unwrap_or_else(|| json!({"type": "object", "properties": {}}));
                 decl["parameters"] = schema;
                 decl
@@ -442,10 +442,10 @@ fn convert_assistant_parts(content: &Value) -> Vec<Value> {
         for block in arr {
             match block.get("type").and_then(|t| t.as_str()) {
                 Some("text") => {
-                    if let Some(text) = block.get("text").and_then(|t| t.as_str()) {
-                        if !text.is_empty() {
-                            parts.push(json!({"text": text}));
-                        }
+                    if let Some(text) = block.get("text").and_then(|t| t.as_str())
+                        && !text.is_empty()
+                    {
+                        parts.push(json!({"text": text}));
                     }
                 }
                 Some("tool_use") => {
@@ -461,10 +461,10 @@ fn convert_assistant_parts(content: &Value) -> Vec<Value> {
                 _ => {}
             }
         }
-    } else if let Some(s) = content.as_str() {
-        if !s.is_empty() {
-            parts.push(json!({"text": s}));
-        }
+    } else if let Some(s) = content.as_str()
+        && !s.is_empty()
+    {
+        parts.push(json!({"text": s}));
     }
 
     if parts.is_empty() {
@@ -524,12 +524,12 @@ fn parse_gemini_candidate(candidate: &Value) -> Result<LlmResponse> {
         .and_then(|p| p.as_array())
     {
         for part in parts {
-            if let Some(text) = part.get("text").and_then(|t| t.as_str()) {
-                if !text.is_empty() {
-                    content_blocks.push(ContentBlock::Text {
-                        text: text.to_string(),
-                    });
-                }
+            if let Some(text) = part.get("text").and_then(|t| t.as_str())
+                && !text.is_empty()
+            {
+                content_blocks.push(ContentBlock::Text {
+                    text: text.to_string(),
+                });
             }
             if let Some(fc) = part.get("functionCall") {
                 let name = fc

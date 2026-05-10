@@ -298,11 +298,11 @@ pub(crate) async fn dispatch_event(
         AppEvent::EditOpenAiProfile => {
             if app.is_busy() {
                 app.push_notice("Wait for the current task before editing a profile.");
-            } else if app.selected_provider_family() == ProviderFamily::OpenAiCompatible {
-                if app.select_openai_model_picker_profile().is_some() {
-                    app.config_manager.save(&app.config)?;
-                    app.begin_edit_openai_profile_setup();
-                }
+            } else if app.selected_provider_family() == ProviderFamily::OpenAiCompatible
+                && app.select_openai_model_picker_profile().is_some()
+            {
+                app.config_manager.save(&app.config)?;
+                app.begin_edit_openai_profile_setup();
             }
         }
         AppEvent::DeleteOpenAiProfile => {
@@ -472,18 +472,14 @@ pub(crate) async fn dispatch_event(
                                 .selected_openai_profiles()
                                 .get(app.openai_profile_picker_idx - 1)
                                 .cloned()
+                                && let Some(kind) = app.selected_openai_profile_kind()
                             {
-                                if let Some(kind) = app.selected_openai_profile_kind() {
-                                    app.config.select_openai_profile(
-                                        profile_id,
-                                        label.clone(),
-                                        kind,
-                                    );
-                                    app.config_manager.save(&app.config)?;
-                                    app.bottom_pane.notice =
-                                        Some(format!("Selected endpoint profile: {label}"));
-                                    app.open_overlay(Overlay::ListPicker(ListPickerKind::Model));
-                                }
+                                app.config
+                                    .select_openai_profile(profile_id, label.clone(), kind);
+                                app.config_manager.save(&app.config)?;
+                                app.bottom_pane.notice =
+                                    Some(format!("Selected endpoint profile: {label}"));
+                                app.open_overlay(Overlay::ListPicker(ListPickerKind::Model));
                             }
                         }
                         ListPickerKind::ApprovalDecision => {

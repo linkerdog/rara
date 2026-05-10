@@ -1,5 +1,6 @@
 mod compact;
 mod context_view;
+mod control_handler;
 mod memory_retrieval;
 mod planning;
 mod prompting;
@@ -27,7 +28,7 @@ use crate::llm::{ContentBlock, LlmBackend, LlmStreamEvent, LlmTurnMetadata};
 use crate::mcp_status::McpStatusSnapshot;
 use crate::memory_store::MemoryStore;
 use crate::prompt::{self, PromptMode, PromptRuntimeConfig};
-use crate::protocol_sources::PromptSourceRegistry;
+use crate::protocol_sources::{PromptSourceRegistry, SkillSourceRegistry};
 use crate::session::SessionManager;
 use crate::thread_store::ThreadRecorder;
 use crate::todo::TodoState;
@@ -195,8 +196,10 @@ pub struct Agent {
     pending_plan_exit_tool_id: Option<String>,
     prompt_config: PromptRuntimeConfig,
     prompt_source_registry: Option<Arc<PromptSourceRegistry>>,
+    skill_source_registry: Option<Arc<SkillSourceRegistry>>,
     cancellation_token: Option<Arc<AtomicBool>>,
     consecutive_reasoning_only_turns: usize,
+    last_interaction_time: std::time::Instant,
 }
 
 impl Agent {
@@ -277,8 +280,10 @@ impl Agent {
             pending_plan_exit_tool_id: None,
             prompt_config: PromptRuntimeConfig::default(),
             prompt_source_registry: None,
+            skill_source_registry: None,
             cancellation_token: None,
             consecutive_reasoning_only_turns: 0,
+            last_interaction_time: std::time::Instant::now(),
         }
     }
 
@@ -306,6 +311,7 @@ impl Agent {
         F: FnMut(AgentEvent) + Send,
     {
         let turn_start_idx = self.history.len();
+        self.last_interaction_time = std::time::Instant::now();
         let mut agentic_turns = 0usize;
         let mut runtime_error_recoveries = 0usize;
         self.inspection_progress = InspectionProgress::default();
@@ -327,6 +333,7 @@ impl Agent {
         self.refresh_memory_retrieval_candidates().await;
         self.refresh_file_search_candidates();
         self.refresh_protocol_prompt_sources_for_query().await;
+        self.refresh_protocol_skill_sources_for_query().await;
 
         match self
             .run_agent_loop_with_limit(output_mode, &mut report, &mut agentic_turns)
@@ -418,10 +425,9 @@ impl Agent {
             .filter(|message| !is_compact_boundary_message(message))
             .cloned()
             .collect::<Vec<_>>();
-        let (mut messages, projection_report) = project_tool_results_for_context(
-            &history_for_query,
-            &ToolResultProjectionPolicy::default(),
-        );
+        let projection_policy = self.tool_result_projection_policy();
+        let (mut messages, projection_report) =
+            project_tool_results_for_context(&history_for_query, &projection_policy);
         self.last_tool_result_projection_report = projection_report.clone();
         if projection_report.cleared_results > 0 {
             report(AgentEvent::Status(format!(
@@ -429,11 +435,56 @@ impl Agent {
                 projection_report.cleared_results
             )));
         }
+        let mut system_content = Vec::new();
+        if let Some(_index) = assembled.prompt.effective_prompt.dynamic_boundary_index {
+            let full_text = &assembled.prompt.effective_prompt.text;
+            // The text is joined by "\n\n". We want to split it back or just use the sections.
+            // But EffectivePrompt only gives us the full text and boundary index.
+            // Actually, build_effective_prompt joins them.
+
+            let parts: Vec<&str> = full_text
+                .split(rara_instructions::DYNAMIC_BOUNDARY)
+                .collect();
+            if parts.len() >= 2 {
+                let static_part = parts[0].trim();
+                let dynamic_part = parts[1..].join(rara_instructions::DYNAMIC_BOUNDARY);
+                let dynamic_part = dynamic_part.trim();
+
+                if !static_part.is_empty() {
+                    system_content.push(json!({
+                        "type": "text",
+                        "text": static_part,
+                        "cache_control": {"type": "ephemeral"} // Add hint for Anthropic-style caching
+                    }));
+                }
+                // Add the boundary itself if needed or just skip it.
+                // Claude Code keeps it to mark the boundary for future edits.
+                system_content.push(json!({
+                    "type": "text",
+                    "text": rara_instructions::DYNAMIC_BOUNDARY,
+                }));
+                if !dynamic_part.is_empty() {
+                    system_content.push(json!({
+                        "type": "text",
+                        "text": dynamic_part,
+                    }));
+                }
+            } else {
+                system_content.push(json!(assembled.prompt.effective_prompt.text));
+            }
+        } else {
+            system_content.push(json!(assembled.prompt.effective_prompt.text));
+        }
+
         messages.insert(
             0,
             Message {
                 role: "system".to_string(),
-                content: json!(assembled.prompt.effective_prompt.text),
+                content: if system_content.len() == 1 {
+                    system_content.remove(0)
+                } else {
+                    Value::Array(system_content)
+                },
             },
         );
         if let Some(memory_context) = Agent::selected_memory_context_text(&assembled.runtime) {
@@ -508,14 +559,12 @@ impl Agent {
                     if matches!(self.execution_mode, AgentExecutionMode::Plan)
                         && name == EXIT_PLAN_MODE_TOOL_NAME
                         && !plan_updated
-                    {
-                        if let Some((steps, explanation)) =
+                        && let Some((steps, explanation)) =
                             planning::parse_exit_plan_tool_input(input)
-                        {
-                            self.current_plan = steps;
-                            self.plan_explanation = explanation;
-                            plan_updated = true;
-                        }
+                    {
+                        self.current_plan = steps;
+                        self.plan_explanation = explanation;
+                        plan_updated = true;
                     }
                     sanitized_content.push(ContentBlock::ToolUse {
                         id: id.clone(),
@@ -932,20 +981,19 @@ impl Agent {
             };
             if let Some(request) = bash_request.as_ref()
                 && matches!(self.execution_mode, AgentExecutionMode::Plan)
+                && !request.is_read_only()
             {
-                if !request.is_read_only() {
-                    let error_text = format!(
-                        "Error: bash is read-only in plan mode. Refuse command '{}' and inspect with read-only commands or return a plan.",
-                        request.summary()
-                    );
-                    report(AgentEvent::ToolResult {
-                        name: tool_name.clone(),
-                        content: error_text.clone(),
-                        is_error: true,
-                    });
-                    tool_results.push(tool_result_message(&tool_id, error_text, true));
-                    continue;
-                }
+                let error_text = format!(
+                    "Error: bash is read-only in plan mode. Refuse command '{}' and inspect with read-only commands or return a plan.",
+                    request.summary()
+                );
+                report(AgentEvent::ToolResult {
+                    name: tool_name.clone(),
+                    content: error_text.clone(),
+                    is_error: true,
+                });
+                tool_results.push(tool_result_message(&tool_id, error_text, true));
+                continue;
             }
             if let Some(request) = bash_request.as_ref()
                 && !self.full_access_mode

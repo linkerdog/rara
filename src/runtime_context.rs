@@ -13,14 +13,16 @@ use crate::config::{
     OpenAiEndpointKind, REASONING_SUMMARY_NONE, RaraConfig, ensure_rara_home_dir,
 };
 use crate::google_oauth::GoogleOAuthManager;
+use crate::hook_registry::HookRegistry;
 use crate::llm::{
     BedrockBackend, CodexBackend, GeminiBackend, LlmBackend, MockLlm, OllamaBackend,
     OpenAiCompatibleBackend, fetch_model_context_window,
 };
 use crate::local_backend::{LocalLlmBackend, LocalProgressReporter};
+use crate::mcp_connection_manager::McpConnectionManager;
 use crate::mcp_tool_cache::McpToolCache;
 use crate::prompt::{PromptRuntimeConfig, PromptSkillSummary};
-use crate::protocol_sources::PromptSourceRegistry;
+use crate::protocol_sources::{PromptSourceRegistry, SkillSourceRegistry};
 use crate::runtime_event_bus::RuntimeEventBus;
 use crate::sandbox::SandboxManager;
 use crate::session::SessionManager;
@@ -40,13 +42,16 @@ pub(crate) struct RuntimeBootstrap {
     pub sandbox_network_access: Arc<AtomicBool>,
     pub event_bus: Arc<RuntimeEventBus>,
     pub prompt_source_registry: Arc<PromptSourceRegistry>,
+    pub skill_source_registry: Arc<SkillSourceRegistry>,
+    pub hook_registry: Arc<HookRegistry>,
     pub goal_handle: GoalHandle,
     pub mcp_tool_cache: McpToolCache,
+    pub mcp_manager: Arc<McpConnectionManager>,
 }
 
 impl RuntimeBootstrap {
     pub(crate) fn into_agent(self) -> Agent {
-        let (agent, _, _, _, _) = self.into_parts();
+        let (agent, _, _, _, _, _, _, _, _) = self.into_parts();
         agent
     }
 
@@ -58,6 +63,10 @@ impl RuntimeBootstrap {
         Arc<AtomicBool>,
         GoalHandle,
         McpToolCache,
+        Arc<McpConnectionManager>,
+        Arc<PromptSourceRegistry>,
+        Arc<SkillSourceRegistry>,
+        Arc<HookRegistry>,
     ) {
         let mut agent = Agent::new(
             self.tool_manager,
@@ -67,13 +76,18 @@ impl RuntimeBootstrap {
             self.workspace,
         );
         agent.set_prompt_config(self.prompt_config);
-        agent.set_prompt_source_registry(self.prompt_source_registry);
+        agent.set_prompt_source_registry(self.prompt_source_registry.clone());
+        agent.set_skill_source_registry(self.skill_source_registry.clone());
         (
             agent,
             self.warnings,
             self.sandbox_network_access,
             self.goal_handle,
             self.mcp_tool_cache,
+            self.mcp_manager,
+            self.prompt_source_registry,
+            self.skill_source_registry,
+            self.hook_registry,
         )
     }
 }
@@ -100,18 +114,19 @@ pub(crate) async fn initialize_rara_context(
         .into_iter()
         .map(|skill| {
             let scope = match skill.scope {
-                SkillScope::Home => "home",
-                SkillScope::Repo => "repo",
-                SkillScope::Cwd => "cwd",
-                SkillScope::System => "system",
+                rara_skills::SkillScope::Global | rara_skills::SkillScope::Home => "global",
+                rara_skills::SkillScope::Workspace
+                | rara_skills::SkillScope::Repo
+                | rara_skills::SkillScope::Cwd => "workspace",
+                rara_skills::SkillScope::System => "system",
             };
             PromptSkillSummary {
-                name: skill.name,
-                title: skill.title,
+                name: skill.name.clone(),
+                title: Some(skill.name),
                 description: skill.description,
-                display_path: skill.display_path,
+                display_path: skill.path.display().to_string(),
                 scope: scope.to_string(),
-                disable_model_invocation: skill.disable_model_invocation,
+                disable_model_invocation: false,
             }
         })
         .collect();
@@ -122,9 +137,23 @@ pub(crate) async fn initialize_rara_context(
 
     let event_bus = Arc::new(RuntimeEventBus::new(256));
     let prompt_source_registry = Arc::new(PromptSourceRegistry::new(event_bus.clone()));
+    let skill_source_registry = Arc::new(SkillSourceRegistry::new(event_bus.clone()));
+    let hook_registry = Arc::new(HookRegistry::new(event_bus.clone()));
     let goal_handle: GoalHandle = Arc::new(std::sync::RwLock::new(None));
     let mcp_tool_cache = McpToolCache::new();
     mcp_tool_cache.clear();
+
+    let config_manager = crate::config::ConfigManager::new()?;
+    let mcp_registry = config_manager
+        .load_mcp_registry_for_project(&ensure_rara_home_dir()?)
+        .unwrap_or_else(|_| crate::config::McpRegistry::empty());
+    let mcp_registry = Arc::new(mcp_registry);
+
+    let mcp_manager = Arc::new(McpConnectionManager::new(
+        mcp_registry.clone(),
+        event_bus.clone(),
+        mcp_tool_cache.clone(),
+    ));
 
     let tool_manager = create_full_tool_manager(
         backend.clone(),
@@ -152,8 +181,11 @@ pub(crate) async fn initialize_rara_context(
         sandbox_network_access,
         event_bus,
         prompt_source_registry,
+        skill_source_registry,
+        hook_registry,
         goal_handle,
         mcp_tool_cache,
+        mcp_manager,
     })
 }
 
@@ -184,7 +216,7 @@ pub(crate) async fn build_backend_with_progress(
         provider if RaraConfig::is_openai_compatible_family(provider) => {
             let kind = config
                 .active_openai_profile_kind()
-                .unwrap_or_else(|| match provider {
+                .unwrap_or(match provider {
                     "deepseek" => OpenAiEndpointKind::Deepseek,
                     "kimi" => OpenAiEndpointKind::Kimi,
                     "openrouter" => OpenAiEndpointKind::Openrouter,

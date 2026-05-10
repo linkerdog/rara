@@ -15,11 +15,11 @@ pub(super) struct CommittedCompletion {
     pub(super) message: String,
 }
 
-pub(super) fn narrative_entries<'a>(
-    entries: &'a [TranscriptEntry],
+pub(super) fn narrative_entries(
+    entries: &[TranscriptEntry],
     has_tool_activity: bool,
     is_renderable_system_message: impl Fn(&str) -> bool,
-) -> Vec<&'a TranscriptEntry> {
+) -> Vec<&TranscriptEntry> {
     if has_tool_activity {
         if let Some(agent) = entries.iter().rev().find(|entry| entry.role == "Agent") {
             return vec![agent];

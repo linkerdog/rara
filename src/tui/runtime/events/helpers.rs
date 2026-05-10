@@ -510,10 +510,10 @@ pub(super) fn format_tool_result(name: &str, content: &str) -> String {
                         }
                     }
                 }
-                if let Some(note) = request.get("note").and_then(serde_json::Value::as_str) {
-                    if !note.trim().is_empty() {
-                        rendered.push_str(&format!("\nnote: {}", note.trim()));
-                    }
+                if let Some(note) = request.get("note").and_then(serde_json::Value::as_str)
+                    && !note.trim().is_empty()
+                {
+                    rendered.push_str(&format!("\nnote: {}", note.trim()));
                 }
             }
             return rendered;

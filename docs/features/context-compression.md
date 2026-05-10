@@ -199,9 +199,11 @@ continuation phase points to a runtime decision bug; a trace with missing tool
 calls after DSML text points to provider parsing; a trace with a continuation
 phase but no later response points to the next model request or transport path.
 
-Provider-specific cache-edit microcompaction is a future optional branch. It
-must be gated by a declared provider capability and must not be inferred from
-OpenAI-compatible request shape alone.
+Provider-specific cache-edit microcompaction is an optional branch. It is now
+represented in the runtime policy and observability model, but no backend
+executor applies cache edits yet. The policy is intentionally provider-gated:
+cache-edit eligibility is copied only from `LlmBackend::cache_profile()` and is
+not inferred from OpenAI-compatible request shape alone.
 
 ### 8) Provider Cache Profiles
 
@@ -222,8 +224,9 @@ to no declared cache capability unless RARA has a provider-specific contract.
 Compression logic must choose behavior from the cache profile:
 
 - no `cache_edit`: use projection and ordinary compaction only;
-- `cache_edit`: a future pass may submit cache edits while preserving local
-  messages;
+- `cache_edit`: mark the request eligible for a provider cache-edit pass while
+  continuing to preserve local messages; until a backend implements the actual
+  executor, `cache_edit_applied` remains false;
 - no `cache_retention_control`: do not inject provider-specific retention
   parameters.
 

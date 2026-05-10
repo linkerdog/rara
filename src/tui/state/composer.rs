@@ -227,13 +227,11 @@ impl TuiApp {
         let mut row = 0usize;
         let mut column = 2usize;
         let mut content_width = 0usize;
-        let mut seen = 0usize;
 
-        for ch in self.bottom_pane.input.chars() {
+        for (seen, ch) in self.bottom_pane.input.chars().enumerate() {
             if seen >= cursor_offset {
                 break;
             }
-            seen += 1;
 
             if ch == '\n' {
                 row += 1;

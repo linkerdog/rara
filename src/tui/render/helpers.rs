@@ -20,10 +20,10 @@ pub(crate) fn display_directory_for_startup(app: &TuiApp) -> String {
     } else {
         app.snapshot.cwd.clone()
     };
-    if let Ok(home) = std::env::var("HOME") {
-        if let Some(stripped) = cwd.strip_prefix(&home) {
-            return format!("~{stripped}");
-        }
+    if let Ok(home) = std::env::var("HOME")
+        && let Some(stripped) = cwd.strip_prefix(&home)
+    {
+        return format!("~{stripped}");
     }
     cwd
 }
@@ -88,7 +88,7 @@ pub(crate) fn with_border(lines: Vec<Line<'static>>, inner_width: usize) -> Vec<
             .sum::<usize>();
         let mut spans = Vec::with_capacity(line.spans.len() + 3);
         spans.push(Span::from("  "));
-        spans.extend(line.into_iter());
+        spans.extend(line);
         if used_width < inner_width {
             spans.push(Span::from(" ".repeat(inner_width - used_width)));
         }

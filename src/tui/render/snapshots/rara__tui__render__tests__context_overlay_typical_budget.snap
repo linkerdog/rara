@@ -1,6 +1,6 @@
 ---
 source: src/tui/render/tests.rs
-assertion_line: 1114
+assertion_line: 1158
 expression: rendered
 ---
 Context Usage
@@ -27,6 +27,10 @@ Session
   branch         main
   session        session-abc
   history        42 msgs  0 entries
+
+Observability
+
+  cache          hit=0 miss=0 rate=-
 
 Compaction
 

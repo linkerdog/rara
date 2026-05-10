@@ -41,12 +41,7 @@ impl Tool for SkillTool {
             .ok_or(ToolError::InvalidInput("action".into()))?;
         match action {
             "list" => {
-                let scopes: Vec<String> = self
-                    .skill_manager
-                    .active_scopes()
-                    .iter()
-                    .map(|s| format!("{:?}", s).to_lowercase())
-                    .collect();
+                let scopes = self.skill_manager.active_scopes();
                 let skills: Vec<Value> = self
                     .skill_manager
                     .list_summaries()
@@ -57,14 +52,14 @@ impl Tool for SkillTool {
                             "name": s.name,
                             "title": s.title,
                             "description": s.description,
-                            "scope": format!("{:?}", s.scope).to_lowercase(),
+                            "scope": s.scope.as_str(),
                             "display_path": s.display_path,
                             "disable_model_invocation": s.disable_model_invocation,
                             "overrides_others": shadows,
                             "shadowed_scopes": if shadows {
                                 self.skill_manager.override_chain(&s.name)
                                     .iter()
-                                    .map(|o| format!("{:?}", o.scope).to_lowercase())
+                                    .map(|o| o.scope.as_str())
                                     .collect::<Vec<_>>()
                             } else {
                                 Vec::new()
@@ -94,12 +89,12 @@ impl Tool for SkillTool {
                     .skill_manager
                     .override_chain(name)
                     .iter()
-                    .map(|o| format!("{:?}", o.scope).to_lowercase())
+                    .map(|o| o.scope.as_str().to_string())
                     .collect();
                 Ok(json!({
                     "name": skill.name,
                     "title": skill.title,
-                    "scope": format!("{:?}", skill.scope).to_lowercase(),
+                    "scope": skill.scope.as_str(),
                     "display_path": skill.display_path,
                     "instructions": strip_frontmatter(&skill.prompt),
                     "args": args,
@@ -170,9 +165,11 @@ mod tests {
                 name: "test-skill".into(),
                 title: Some("Test Skill".into()),
                 description: "A test".into(),
-                prompt: "# Test\nbody".into(),
+                path: std::path::PathBuf::from("test-skill/SKILL.md"),
                 display_path: "test-skill/SKILL.md".into(),
                 scope: rara_skills::SkillScope::Cwd,
+                content: "# Test\nbody".into(),
+                prompt: "# Test\nbody".into(),
                 disable_model_invocation: false,
             },
         );
@@ -218,9 +215,11 @@ mod tests {
                 name: "overridden-skill".into(),
                 title: None,
                 description: "Old version".into(),
-                prompt: "old".into(),
+                path: std::path::PathBuf::from("old.md"),
                 display_path: "old.md".into(),
                 scope: rara_skills::SkillScope::Home,
+                content: "old".into(),
+                prompt: "old".into(),
                 disable_model_invocation: false,
             }],
         );
@@ -230,9 +229,11 @@ mod tests {
                 name: "overridden-skill".into(),
                 title: Some("New Version".into()),
                 description: "New version".into(),
-                prompt: "new".into(),
+                path: std::path::PathBuf::from("overridden.md"),
                 display_path: "overridden.md".into(),
                 scope: rara_skills::SkillScope::Cwd,
+                content: "new".into(),
+                prompt: "new".into(),
                 disable_model_invocation: false,
             },
         );
@@ -262,9 +263,11 @@ mod tests {
                 name: "s1".into(),
                 title: None,
                 description: "desc".into(),
-                prompt: "body".into(),
+                path: std::path::PathBuf::from("s1.md"),
                 display_path: "s1.md".into(),
                 scope: rara_skills::SkillScope::Home,
+                content: "body".into(),
+                prompt: "body".into(),
                 disable_model_invocation: false,
             },
         );
@@ -274,9 +277,11 @@ mod tests {
                 name: "s2".into(),
                 title: None,
                 description: "desc".into(),
-                prompt: "body".into(),
+                path: std::path::PathBuf::from("s2.md"),
                 display_path: "s2.md".into(),
                 scope: rara_skills::SkillScope::Repo,
+                content: "body".into(),
+                prompt: "body".into(),
                 disable_model_invocation: false,
             },
         );

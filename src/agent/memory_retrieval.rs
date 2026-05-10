@@ -112,7 +112,7 @@ fn latest_user_text(history: &[Message]) -> String {
         .iter()
         .rev()
         .find(|msg| msg.role == "user")
-        .and_then(|msg| extract_text(msg));
+        .and_then(extract_text);
     raw.unwrap_or_default()
 }
 

@@ -329,15 +329,13 @@ impl ActiveCell for ActiveTurnCell<'_> {
                 || has_event_planning_summary
                 || has_event_running_summary);
 
-        let inline_plan_summary = latest_agent
-            .and_then(|message| parse_render_plan_block(message))
-            .filter(|_| {
-                self.app.snapshot.plan_steps.is_empty()
-                    && matches!(
-                        self.app.agent_execution_mode,
-                        crate::agent::AgentExecutionMode::Plan
-                    )
-            });
+        let inline_plan_summary = latest_agent.and_then(parse_render_plan_block).filter(|_| {
+            self.app.snapshot.plan_steps.is_empty()
+                && matches!(
+                    self.app.agent_execution_mode,
+                    crate::agent::AgentExecutionMode::Plan
+                )
+        });
 
         if should_show_updated_plan(self.app) {
             cells.push(Box::new(PlanSummaryCell::new(
@@ -376,13 +374,13 @@ impl ActiveCell for ActiveTurnCell<'_> {
             )));
         }
 
-        if let Some(entry) = latest_completion {
-            if let Some(kind) = completion_role_kind(entry.role.as_str()) {
-                cells.push(Box::new(CommittedInteractionCell::new(
-                    kind,
-                    entry.message.clone(),
-                )));
-            }
+        if let Some(entry) = latest_completion
+            && let Some(kind) = completion_role_kind(entry.role.as_str())
+        {
+            cells.push(Box::new(CommittedInteractionCell::new(
+                kind,
+                entry.message.clone(),
+            )));
         }
 
         let suppress_intermediate_agent = turn_live

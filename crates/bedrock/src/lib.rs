@@ -3,8 +3,9 @@ use aws_config::BehaviorVersion;
 use aws_sdk_bedrockruntime::Client as BedrockClient;
 use aws_sdk_bedrockruntime::types::{
     ContentBlock as BedrockContentBlock, ConversationRole, InferenceConfiguration,
-    Message as BedrockMessage, StopReason, Tool, ToolConfiguration, ToolInputSchema,
-    ToolResultBlock, ToolResultContentBlock, ToolResultStatus, ToolSpecification, ToolUseBlock,
+    Message as BedrockMessage, StopReason, SystemContentBlock, Tool, ToolConfiguration,
+    ToolInputSchema, ToolResultBlock, ToolResultContentBlock, ToolResultStatus, ToolSpecification,
+    ToolUseBlock,
 };
 use aws_smithy_types::{Document, Number};
 use serde_json::Value;
@@ -101,6 +102,7 @@ impl BedrockConverseClient {
 
     pub async fn ask(
         &self,
+        system: &[String],
         messages: &[BedrockChatMessage],
         tools: &[BedrockToolSpec],
     ) -> Result<BedrockChatResponse> {
@@ -111,6 +113,14 @@ impl BedrockConverseClient {
             .converse()
             .model_id(&self.model_id)
             .set_messages(Some(bedrock_messages));
+
+        if !system.is_empty() {
+            let system_blocks: Vec<SystemContentBlock> = system
+                .iter()
+                .map(|s| SystemContentBlock::Text(s.clone()))
+                .collect();
+            builder = builder.set_system(Some(system_blocks));
+        }
 
         if !tools.is_empty() {
             if let Ok(tool_config) = ToolConfiguration::builder()
@@ -144,26 +154,14 @@ pub fn model_context_window(model_id: &str) -> (usize, usize) {
     let lower = model_id.to_lowercase();
     let known = if lower.contains("claude-sonnet-4") || lower.contains("claude-3-5-sonnet") {
         Some((200_000, 8_192))
-    } else if lower.contains("claude-3-opus") {
+    } else if lower.contains("claude-3") || lower.contains("claude") {
         Some((200_000, 4_096))
-    } else if lower.contains("claude-3-haiku") {
-        Some((200_000, 4_096))
-    } else if lower.contains("claude-3") {
-        Some((200_000, 4_096))
-    } else if lower.contains("claude") {
-        Some((200_000, 4_096))
-    } else if lower.contains("llama") {
-        Some((128_000, 2_048))
-    } else if lower.contains("nova-pro") {
-        Some((300_000, 5_000))
-    } else if lower.contains("nova-lite") {
-        Some((300_000, 5_000))
     } else if lower.contains("nova") {
         Some((300_000, 5_000))
-    } else if lower.contains("command") {
+    } else if lower.contains("command") || lower.contains("mistral") {
         Some((128_000, 4_096))
-    } else if lower.contains("mistral") {
-        Some((128_000, 4_096))
+    } else if lower.contains("llama") {
+        Some((128_000, 2_048))
     } else {
         None
     };
