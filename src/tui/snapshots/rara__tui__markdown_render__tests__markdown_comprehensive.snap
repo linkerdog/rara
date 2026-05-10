@@ -1,0 +1,23 @@
+---
+source: src/tui/markdown_render.rs
+expression: render_to_string(md)
+---
+# Overview
+
+This is a bold statement with emphasis.
+
+## Steps
+
+1. Install with cargo install rara
+2. Run rara init
+
+  rust
+// example code
+fn main() {
+    println!("ready");
+}
+
+> Note: this is important.
+
+- [x] done task
+- [ ] pending

@@ -1,0 +1,11 @@
+---
+source: src/tui/markdown_render.rs
+expression: render_to_string(md)
+---
+struck normal.
+
+Auto-link: https://example.com/page
+
+Footnote ref[^1].
+
+[^1]: This is the footnote.
