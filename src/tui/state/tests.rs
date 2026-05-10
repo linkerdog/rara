@@ -16,6 +16,7 @@ use crate::config::{DEFAULT_CODEX_BASE_URL, DEFAULT_CODEX_MODEL};
 use crate::llm::MockLlm;
 use crate::session::SessionManager;
 use crate::tools::bash::BashCommandInput;
+use crate::tui::command::palette_commands;
 use crate::workspace::WorkspaceMemory;
 
 fn provider_family_idx(family: ProviderFamily) -> usize {
@@ -1106,4 +1107,99 @@ fn restore_committed_turns_sets_inserted_counter_to_match() {
 
     assert_eq!(app.committed_turns.len(), n);
     assert_eq!(app.active_turn.entries.len(), 0);
+}
+
+// ── Command palette selection persistence ──────────────────────────
+
+/// Typing more characters while the palette is open should NOT reset
+/// `command_palette_idx` back to 0.
+#[test]
+fn command_palette_selection_persists_while_typing() {
+    let dir = tempdir().expect("tempdir");
+    let cm = ConfigManager {
+        path: dir.path().join("config.json"),
+    };
+    let mut app = TuiApp::new(cm).expect("app");
+    app.config = RaraConfig::default();
+
+    // Open palette by typing slash
+    app.insert_active_input_char('/');
+    assert!(matches!(app.overlay, Some(Overlay::CommandPalette)));
+    assert_eq!(app.command_palette_idx, 0);
+
+    // Simulate arrow-down to move selection
+    let cmd_count = palette_commands(&app, app.command_query()).len();
+    assert!(cmd_count > 1, "need at least 2 commands for this test");
+    app.command_palette_idx = 1;
+
+    // Type more characters — this triggers sync_command_palette_with_input
+    // which must NOT reset command_palette_idx when the palette is already open.
+    app.insert_active_input_char('h');
+    assert!(matches!(app.overlay, Some(Overlay::CommandPalette)));
+    assert_eq!(
+        app.command_palette_idx, 1,
+        "selection idx should stay at 1 after typing more chars"
+    );
+
+    // Type another character — still should not reset
+    app.insert_active_input_char('e');
+    assert_eq!(
+        app.command_palette_idx, 1,
+        "selection idx should still be 1 after further typing"
+    );
+}
+
+/// Closing the palette (Esc) should clear the slash input and reset
+/// `command_palette_idx`.
+#[test]
+fn close_command_palette_clears_input_and_resets_idx() {
+    let dir = tempdir().expect("tempdir");
+    let cm = ConfigManager {
+        path: dir.path().join("config.json"),
+    };
+    let mut app = TuiApp::new(cm).expect("app");
+    app.config = RaraConfig::default();
+
+    // Open palette by typing slash
+    app.insert_active_input_char('/');
+    app.insert_active_input_char('h');
+    app.insert_active_input_char('e');
+    app.insert_active_input_char('l');
+    assert!(matches!(app.overlay, Some(Overlay::CommandPalette)));
+    assert!(!app.bottom_pane.input.is_empty());
+
+    // Move selection
+    app.command_palette_idx = 2;
+
+    // Close the palette
+    app.close_overlay();
+
+    // After close: input should be cleared, idx reset
+    assert!(app.bottom_pane.input.is_empty(), "input should be cleared");
+    assert_eq!(
+        app.command_palette_idx, 0,
+        "command_palette_idx should reset to 0"
+    );
+    assert!(matches!(app.overlay, None), "overlay should be closed");
+}
+
+/// Clearing the slash prefix should close the palette and reset idx.
+#[test]
+fn clearing_slash_closes_palette() {
+    let dir = tempdir().expect("tempdir");
+    let cm = ConfigManager {
+        path: dir.path().join("config.json"),
+    };
+    let mut app = TuiApp::new(cm).expect("app");
+    app.config = RaraConfig::default();
+
+    // Open palette and move to index 2
+    app.insert_active_input_char('/');
+    app.command_palette_idx = 2;
+
+    // Backspace to clear the slash — sync fires and closes the palette
+    app.backspace_active_input();
+    assert!(matches!(app.overlay, None));
+    assert_eq!(app.command_palette_idx, 0);
+    assert!(app.bottom_pane.input.is_empty());
 }

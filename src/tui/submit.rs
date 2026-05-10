@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use super::command::{palette_command_by_index, parse_local_command};
+use super::command::parse_local_command;
 use super::input_control;
 use super::runtime::execute_local_command;
 use super::state::{
@@ -16,14 +16,6 @@ pub(crate) async fn handle_submit(
     agent_slot: &mut Option<Agent>,
     oauth_manager: &Arc<crate::oauth::OAuthManager>,
 ) -> anyhow::Result<bool> {
-    if matches!(app.overlay, Some(Overlay::CommandPalette)) {
-        let query = app.command_query();
-        if let Some(spec) = palette_command_by_index(app, query, app.command_palette_idx) {
-            app.set_input(spec.usage.to_string());
-        }
-        app.close_overlay();
-    }
-
     if app.bottom_pane.input.is_empty() {
         if let Some(interaction) = app.active_pending_interaction() {
             if matches!(
