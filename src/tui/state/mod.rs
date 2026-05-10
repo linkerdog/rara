@@ -35,6 +35,42 @@ const OPENAI_PROFILE_SETUP_KINDS: [OpenAiEndpointKind; 3] = [
     OpenAiEndpointKind::Kimi,
     OpenAiEndpointKind::Openrouter,
 ];
+
+pub fn is_provider_connected(app: &TuiApp, family: ProviderFamily) -> bool {
+    let config = &app.config;
+    match family {
+        ProviderFamily::Codex => {
+            config
+                .provider_states
+                .get("codex")
+                .and_then(|s| s.api_key.as_ref())
+                .is_some()
+                || std::env::var("CODEX_API_KEY").is_ok()
+        }
+        ProviderFamily::DeepSeek => {
+            config
+                .provider_states
+                .get("deepseek")
+                .and_then(|s| s.api_key.as_ref())
+                .is_some()
+                || std::env::var("DEEPSEEK_API_KEY").is_ok()
+        }
+        ProviderFamily::Gemini => std::env::var("GEMINI_API_KEY").is_ok(),
+        ProviderFamily::OpenAiCompatible => {
+            config.provider_states.values().any(|s| s.api_key.is_some())
+        }
+        ProviderFamily::Ollama | ProviderFamily::CandleLocal => true,
+        ProviderFamily::Bedrock => {
+            config
+                .provider_states
+                .get("bedrock")
+                .and_then(|s| s.api_key.as_ref())
+                .is_some()
+                || std::env::var("AWS_ACCESS_KEY_ID").is_ok()
+        }
+    }
+}
+
 pub(super) const INPUT_HISTORY_LIMIT: usize = 200;
 
 pub fn openai_profile_setup_kinds() -> &'static [OpenAiEndpointKind] {

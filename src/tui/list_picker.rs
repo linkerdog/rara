@@ -144,14 +144,16 @@ impl ListPickerKind {
         PROVIDER_FAMILIES
             .iter()
             .enumerate()
-            .map(|(idx, (_family, label, desc))| {
+            .map(|(idx, (family, label, desc))| {
+                let connected = super::state::is_provider_connected(app, *family);
+                let dot = if connected { "●" } else { "○" };
                 let status = if app.selected_provider_family() == PROVIDER_FAMILIES[idx].0 {
                     " (current)"
                 } else {
                     ""
                 };
                 let name_line = ratatui::text::Line::from(vec![ratatui::text::Span::styled(
-                    format!("[{}] {}{}", idx + 1, label, status),
+                    format!("[{}] {dot} {}{}", idx + 1, label, status),
                     Style::default().add_modifier(Modifier::BOLD),
                 )]);
                 let desc_line = ratatui::text::Line::from(ratatui::text::Span::styled(
