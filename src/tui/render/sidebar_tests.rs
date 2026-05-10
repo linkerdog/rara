@@ -323,8 +323,8 @@ fn push_context_summary_no_context_window() {
     assert!(
         lines
             .iter()
-            .any(|l| l.to_string().contains("600 · 5 turns")),
-        "shows current-turn history tokens without context window"
+            .any(|l| l.to_string().contains("600 · 128.0k tokens · 5 turns")),
+        "shows current-turn history tokens with default 128k context window"
     );
 }
 

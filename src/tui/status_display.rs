@@ -203,14 +203,12 @@ fn render_context_status(app: &TuiApp, lines: &mut Vec<Line<'static>>) {
         &format!("{} tokens", snap.estimated_history_tokens),
         Color::DarkGray,
     );
-    if let Some(window) = snap.context_window_tokens {
-        kv(
-            lines,
-            "window",
-            &format_metric(window as u64),
-            Color::LightBlue,
-        );
-    }
+    kv(
+        lines,
+        "window",
+        &format_metric(snap.context_window_tokens.unwrap_or(128_000) as u64),
+        Color::LightBlue,
+    );
     if let Some(remaining) = snap.remaining_input_budget {
         kv(
             lines,
@@ -321,9 +319,8 @@ pub(crate) fn format_token_count(tokens: usize) -> String {
 pub(crate) fn context_sidebar_summary(snap: &crate::tui::state::RuntimeSnapshot) -> String {
     let token_label = format_token_count(snap.estimated_history_tokens);
     let mut parts = vec![token_label];
-    if let Some(window) = snap.context_window_tokens {
-        parts.push(format!("{} tokens", format_token_count(window)));
-    }
+    let window = snap.context_window_tokens.unwrap_or(128_000);
+    parts.push(format!("{} tokens", format_token_count(window)));
     if snap.history_len > 0 {
         parts.push(format!("{} turns", snap.history_len));
     }
