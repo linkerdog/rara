@@ -13,6 +13,7 @@ use crate::config::{
     OpenAiEndpointKind, REASONING_SUMMARY_NONE, RaraConfig, ensure_rara_home_dir,
 };
 use crate::google_oauth::GoogleOAuthManager;
+use crate::hook_registry::HookRegistry;
 use crate::llm::{
     BedrockBackend, CodexBackend, GeminiBackend, LlmBackend, MockLlm, OllamaBackend,
     OpenAiCompatibleBackend, fetch_model_context_window,
@@ -22,7 +23,6 @@ use crate::mcp_connection_manager::McpConnectionManager;
 use crate::mcp_tool_cache::McpToolCache;
 use crate::prompt::{PromptRuntimeConfig, PromptSkillSummary};
 use crate::protocol_sources::{PromptSourceRegistry, SkillSourceRegistry};
-use crate::hook_registry::HookRegistry;
 use crate::runtime_event_bus::RuntimeEventBus;
 use crate::sandbox::SandboxManager;
 use crate::session::SessionManager;

@@ -58,7 +58,9 @@ pub async fn run_tui(
     app.mcp_manager = Some(mcp_manager);
     app.prompt_source_registry = Some(prompt_source_registry);
     app.skill_source_registry = Some(skill_source_registry);
-    app.memory_handler = Some(Arc::new(crate::protocol_sources::MemoryControlHandler::new(event_bus.clone())));
+    app.memory_handler = Some(Arc::new(
+        crate::protocol_sources::MemoryControlHandler::new(event_bus.clone()),
+    ));
     app.sandbox_network_access
         .store(false, std::sync::atomic::Ordering::Relaxed);
     app.terminal_width = initial_size.0;

@@ -1,6 +1,6 @@
 mod compact;
-mod control_handler;
 mod context_view;
+mod control_handler;
 mod memory_retrieval;
 mod planning;
 mod prompting;

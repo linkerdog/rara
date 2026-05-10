@@ -301,12 +301,12 @@ impl SkillSourceRegistry {
                         precedence_hint: *precedence_hint,
                     },
                 );
-                let _ = self.event_bus.publish_control(RuntimeEvent::Skill(
-                    SkillEvent::Registered {
-                        source_id: source_id.clone(),
-                        name: "root".to_string(),
-                    },
-                ));
+                let _ =
+                    self.event_bus
+                        .publish_control(RuntimeEvent::Skill(SkillEvent::Registered {
+                            source_id: source_id.clone(),
+                            name: "root".to_string(),
+                        }));
             }
             SkillSourceControlRequest::RegisterSkill {
                 source_id,
@@ -321,12 +321,12 @@ impl SkillSourceRegistry {
                         precedence_hint: *precedence_hint,
                     },
                 );
-                let _ = self.event_bus.publish_control(RuntimeEvent::Skill(
-                    SkillEvent::Registered {
-                        source_id: source_id.clone(),
-                        name: name.clone(),
-                    },
-                ));
+                let _ =
+                    self.event_bus
+                        .publish_control(RuntimeEvent::Skill(SkillEvent::Registered {
+                            source_id: source_id.clone(),
+                            name: name.clone(),
+                        }));
             }
             SkillSourceControlRequest::DisableSkill {
                 name,
@@ -362,12 +362,12 @@ impl SkillSourceRegistry {
         let skills = self.skills.read().await;
         let mut results = Vec::new();
         for (name, entry) in skills.iter() {
-            let _ = self.event_bus.publish_control(RuntimeEvent::Skill(
-                SkillEvent::Injected {
+            let _ = self
+                .event_bus
+                .publish_control(RuntimeEvent::Skill(SkillEvent::Injected {
                     source_id: entry.source_id.clone(),
                     name: name.clone(),
-                },
-            ));
+                }));
             results.push((name.clone(), entry.clone()));
         }
         results

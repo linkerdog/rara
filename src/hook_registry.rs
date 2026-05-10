@@ -65,12 +65,12 @@ impl HookRegistry {
             HookControlRequest::QueryHooks => {
                 let hooks = self.hooks.read().await;
                 for (hook_id, entry) in hooks.iter() {
-                    let _ = self.event_bus.publish_control(RuntimeEvent::Hook(
-                        HookEvent::Declared {
-                            hook_id: hook_id.clone(),
-                            lifecycle: entry.lifecycle.clone(),
-                        },
-                    ));
+                    let _ =
+                        self.event_bus
+                            .publish_control(RuntimeEvent::Hook(HookEvent::Declared {
+                                hook_id: hook_id.clone(),
+                                lifecycle: entry.lifecycle.clone(),
+                            }));
                 }
             }
         }

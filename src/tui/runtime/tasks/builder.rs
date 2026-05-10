@@ -1,4 +1,5 @@
 use std::sync::Arc;
+
 use crate::tui::state::RebuildSuccess;
 
 pub(super) async fn rebuild_agent_with_progress(
@@ -18,7 +19,9 @@ pub(super) async fn rebuild_agent_with_progress(
         skill_source_registry,
         hook_registry,
     ) = bootstrap.into_parts();
-    let memory_handler = Arc::new(crate::protocol_sources::MemoryControlHandler::new(event_bus));
+    let memory_handler = Arc::new(crate::protocol_sources::MemoryControlHandler::new(
+        event_bus,
+    ));
     Ok(RebuildSuccess {
         agent,
         warnings,

@@ -191,7 +191,7 @@ pub(super) fn start_input_control_task(
     let cancellation_token = Arc::new(AtomicBool::new(false));
     let bus = app.event_bus.clone().expect("event bus must exist");
     let event_provenance = local_tui_event_provenance(&agent.session_id);
-    
+
     app.clear_pending_planning_suggestion();
     app.clear_active_live_sections();
     app.begin_running_turn();
@@ -199,9 +199,18 @@ pub(super) fn start_input_control_task(
     app.set_runtime_phase(phase, phase_detail);
 
     let mcp_manager = app.mcp_manager.clone().expect("mcp manager must exist");
-    let prompt_registry = app.prompt_source_registry.clone().expect("prompt registry must exist");
-    let skill_registry = app.skill_source_registry.clone().expect("skill registry must exist");
-    let memory_handler = app.memory_handler.clone().expect("memory handler must exist");
+    let prompt_registry = app
+        .prompt_source_registry
+        .clone()
+        .expect("prompt registry must exist");
+    let skill_registry = app
+        .skill_source_registry
+        .clone()
+        .expect("skill registry must exist");
+    let memory_handler = app
+        .memory_handler
+        .clone()
+        .expect("memory handler must exist");
 
     let mut agent = agent;
     agent.set_execution_mode(app.agent_execution_mode);
@@ -212,7 +221,8 @@ pub(super) fn start_input_control_task(
 
     let handle = tokio::spawn(async move {
         let tx = sender.clone();
-        let provenance = crate::runtime_control::RuntimeProvenance::local_tui(agent.session_id.clone());
+        let provenance =
+            crate::runtime_control::RuntimeProvenance::local_tui(agent.session_id.clone());
         let envelope = crate::runtime_control::RuntimeControlEnvelope {
             request_id: uuid::Uuid::new_v4().to_string(),
             provenance,
@@ -230,19 +240,45 @@ pub(super) fn start_input_control_task(
             move |control_event| {
                 if let crate::runtime_control::RuntimeEvent::Assistant(ae) = &control_event.event {
                     let agent_event = match ae {
-                        crate::runtime_control::AssistantEvent::TextDelta(text) => crate::agent::AgentEvent::AssistantDelta(text.clone()),
-                        crate::runtime_control::AssistantEvent::ThinkingDelta(text) => crate::agent::AgentEvent::AssistantThinkingDelta(text.clone()),
+                        crate::runtime_control::AssistantEvent::TextDelta(text) => {
+                            crate::agent::AgentEvent::AssistantDelta(text.clone())
+                        }
+                        crate::runtime_control::AssistantEvent::ThinkingDelta(text) => {
+                            crate::agent::AgentEvent::AssistantThinkingDelta(text.clone())
+                        }
                         _ => return,
                     };
                     forward_event_to_bus(&bus_arg, &agent_event, &event_provenance);
                     if let Some(tui_event) = convert_agent_event(agent_event) {
                         let _ = tx.send(tui_event);
                     }
-                } else if let crate::runtime_control::RuntimeEvent::Tool(te) = &control_event.event {
-                     let agent_event = match te {
-                        crate::runtime_control::ToolEvent::Use { name, input, .. } => crate::agent::AgentEvent::ToolUse { name: name.clone(), input: input.clone() },
-                        crate::runtime_control::ToolEvent::Result { name, content, is_error } => crate::agent::AgentEvent::ToolResult { name: name.clone(), content: content.clone(), is_error: *is_error },
-                        crate::runtime_control::ToolEvent::Progress { name, stream, chunk } => crate::agent::AgentEvent::ToolProgress { name: name.clone(), stream: (*stream).into(), chunk: chunk.clone() },
+                } else if let crate::runtime_control::RuntimeEvent::Tool(te) = &control_event.event
+                {
+                    let agent_event = match te {
+                        crate::runtime_control::ToolEvent::Use { name, input, .. } => {
+                            crate::agent::AgentEvent::ToolUse {
+                                name: name.clone(),
+                                input: input.clone(),
+                            }
+                        }
+                        crate::runtime_control::ToolEvent::Result {
+                            name,
+                            content,
+                            is_error,
+                        } => crate::agent::AgentEvent::ToolResult {
+                            name: name.clone(),
+                            content: content.clone(),
+                            is_error: *is_error,
+                        },
+                        crate::runtime_control::ToolEvent::Progress {
+                            name,
+                            stream,
+                            chunk,
+                        } => crate::agent::AgentEvent::ToolProgress {
+                            name: name.clone(),
+                            stream: (*stream).into(),
+                            chunk: chunk.clone(),
+                        },
                     };
                     forward_event_to_bus(&bus_arg, &agent_event, &event_provenance);
                     if let Some(tui_event) = convert_agent_event(agent_event) {
@@ -252,7 +288,7 @@ pub(super) fn start_input_control_task(
             },
         )
         .await;
-        
+
         let result = result.map_err(|e| anyhow::anyhow!("{e}"));
         TaskCompletion::Query { agent, result }
     });
@@ -375,18 +411,18 @@ pub(super) fn start_pending_approval_task(
         agent.set_bash_approval_mode(crate::agent::BashApprovalMode::Always);
         agent.set_full_access_mode(true);
     }
-    
+
     let selection_label = match selection {
         BashApprovalDecision::Once => "run once",
         BashApprovalDecision::Prefix => "allow matching prefix",
         BashApprovalDecision::Always => "always allow bash",
         BashApprovalDecision::Suggestion => "suggestion only",
     };
-    
+
     let request = crate::runtime_control::InputControlRequest::AnswerShellApproval {
         decision: selection.into(),
     };
-    
+
     app.clear_pending_command_approval();
     start_input_control_task(
         app,
@@ -428,9 +464,8 @@ pub(super) fn start_plan_approval_resume_task(
 }
 
 fn start_automatic_plan_implementation_task(app: &mut TuiApp, agent: Agent) {
-    let request = crate::runtime_control::InputControlRequest::AnswerPlanApproval {
-        approved: true,
-    };
+    let request =
+        crate::runtime_control::InputControlRequest::AnswerPlanApproval { approved: true };
 
     start_input_control_task(
         app,

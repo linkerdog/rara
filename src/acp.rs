@@ -24,7 +24,9 @@ use crate::agent::{Agent, Message};
 use crate::llm::{ContentBlock, LlmBackend, LlmStreamEvent};
 use crate::mcp_connection_manager::McpConnectionManager;
 use crate::protocol_sources::{MemoryControlHandler, PromptSourceRegistry, SkillSourceRegistry};
-use crate::runtime_control::{RuntimeControlEnvelope, RuntimeControlRequest, RuntimeControllerKind};
+use crate::runtime_control::{
+    RuntimeControlEnvelope, RuntimeControlRequest, RuntimeControllerKind,
+};
 use crate::runtime_event_bus::RuntimeEventBus;
 
 /// Maximum agentic turns per ACP prompt to prevent infinite loops.
@@ -77,7 +79,6 @@ impl RaraAcpAgent {
         AcpRoleAgent::builder(AcpRoleAgent)
             .name("rara")
             .on_receive_request(
-
                 async move |initialize: InitializeRequest, responder, _cx| {
                     responder.respond(
                         InitializeResponse::new(initialize.protocol_version)
@@ -118,11 +119,11 @@ impl RaraAcpAgent {
                     let this = this.clone();
                     async move |_notif: CancelNotification, _cx: ConnectionTo<Client>| {
                         eprintln!("[acp] cancel notification received");
-                        
+
                         let provenance = crate::runtime_control::RuntimeProvenance::protocol(
                             crate::runtime_control::RuntimeControllerKind::Acp,
                             "acp",
-                            None, // We might not have session_id here if it's broad? 
+                            None, // We might not have session_id here if it's broad?
                             // Actually ACP CancelNotification has session_id.
                             None,
                         );
@@ -146,7 +147,8 @@ impl RaraAcpAgent {
                             &this.memory_handler,
                             agent,
                             |_| {},
-                        ).await;
+                        )
+                        .await;
 
                         Ok(())
                     }
@@ -189,7 +191,9 @@ impl RaraAcpAgent {
         let mut active_agent = self.active_agent.lock().await;
         if active_agent.is_none() {
             let bootstrap = match crate::runtime_context::initialize_rara_context(
-                &crate::config::ConfigManager::new().and_then(|m| m.load()).unwrap_or_default(),
+                &crate::config::ConfigManager::new()
+                    .and_then(|m| m.load())
+                    .unwrap_or_default(),
                 None,
             )
             .await
@@ -234,17 +238,36 @@ impl RaraAcpAgent {
             let _ = bus.send_with_provenance(
                 match &control_event.event {
                     crate::runtime_control::RuntimeEvent::Session(se) => match se {
-                        crate::runtime_control::SessionEvent::Status { message } => crate::agent::AgentEvent::Status(message.clone()),
+                        crate::runtime_control::SessionEvent::Status { message } => {
+                            crate::agent::AgentEvent::Status(message.clone())
+                        }
                         _ => return,
                     },
                     crate::runtime_control::RuntimeEvent::Assistant(ae) => match ae {
-                        crate::runtime_control::AssistantEvent::TextDelta(text) => crate::agent::AgentEvent::AssistantDelta(text.clone()),
-                        crate::runtime_control::AssistantEvent::ThinkingDelta(text) => crate::agent::AgentEvent::AssistantThinkingDelta(text.clone()),
+                        crate::runtime_control::AssistantEvent::TextDelta(text) => {
+                            crate::agent::AgentEvent::AssistantDelta(text.clone())
+                        }
+                        crate::runtime_control::AssistantEvent::ThinkingDelta(text) => {
+                            crate::agent::AgentEvent::AssistantThinkingDelta(text.clone())
+                        }
                         _ => return,
                     },
                     crate::runtime_control::RuntimeEvent::Tool(te) => match te {
-                        crate::runtime_control::ToolEvent::Use { name, input, .. } => crate::agent::AgentEvent::ToolUse { name: name.clone(), input: input.clone() },
-                        crate::runtime_control::ToolEvent::Result { name, content, is_error } => crate::agent::AgentEvent::ToolResult { name: name.clone(), content: content.clone(), is_error: *is_error },
+                        crate::runtime_control::ToolEvent::Use { name, input, .. } => {
+                            crate::agent::AgentEvent::ToolUse {
+                                name: name.clone(),
+                                input: input.clone(),
+                            }
+                        }
+                        crate::runtime_control::ToolEvent::Result {
+                            name,
+                            content,
+                            is_error,
+                        } => crate::agent::AgentEvent::ToolResult {
+                            name: name.clone(),
+                            content: content.clone(),
+                            is_error: *is_error,
+                        },
                         _ => return,
                     },
                     _ => return,
@@ -254,7 +277,9 @@ impl RaraAcpAgent {
 
             // Translate to ACP SessionNotification.
             match control_event.event {
-                crate::runtime_control::RuntimeEvent::Assistant(crate::runtime_control::AssistantEvent::TextDelta(text)) => {
+                crate::runtime_control::RuntimeEvent::Assistant(
+                    crate::runtime_control::AssistantEvent::TextDelta(text),
+                ) => {
                     let chunk = ContentChunk::new(
                         agent_client_protocol::schema::ContentBlock::Text(TextContent::new(text)),
                     );
@@ -263,7 +288,9 @@ impl RaraAcpAgent {
                         SessionUpdate::AgentMessageChunk(chunk),
                     ));
                 }
-                crate::runtime_control::RuntimeEvent::Tool(crate::runtime_control::ToolEvent::Result { name, content, .. }) => {
+                crate::runtime_control::RuntimeEvent::Tool(
+                    crate::runtime_control::ToolEvent::Result { name, content, .. },
+                ) => {
                     let label = format!("\n[Tool result: {name}]\n{}\n", content);
                     let chunk = ContentChunk::new(
                         agent_client_protocol::schema::ContentBlock::Text(TextContent::new(label)),

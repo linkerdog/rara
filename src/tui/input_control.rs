@@ -114,10 +114,8 @@ pub(crate) fn answer_pending_input(
         return;
     }
 
-    let request = crate::runtime_control::InputControlRequest::AnswerPendingInput {
-        answer,
-    };
-    
+    let request = crate::runtime_control::InputControlRequest::AnswerPendingInput { answer };
+
     start_input_control_task(
         app,
         agent,

@@ -69,7 +69,7 @@ where
                 // We need to wrap AgentEvent into RuntimeControlEvent.
                 let mut sequence = 0u64; // We might need the bus sequence here
                 let provenance = envelope.provenance.clone();
-                
+
                 let mut report = |event| {
                     sequence += 1;
                     let event_id = format!("evt-dispatch-{}", sequence);
