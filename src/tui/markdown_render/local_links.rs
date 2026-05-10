@@ -1,7 +1,6 @@
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::LazyLock;
 
-use dirs::home_dir;
 use regex_lite::Regex;
 use url::Url;
 
@@ -117,7 +116,9 @@ fn extract_colon_location_suffix(path_text: &str) -> Option<String> {
 
 fn expand_local_link_path(path_text: &str) -> String {
     if let Some(rest) = path_text.strip_prefix("~/")
-        && let Some(home) = home_dir()
+        && let Some(home) = std::env::var_os("HOME")
+            .or_else(|| std::env::var_os("USERPROFILE"))
+            .map(PathBuf::from)
     {
         return normalize_local_link_path_text(&home.join(rest).to_string_lossy());
     }

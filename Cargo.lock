@@ -10240,7 +10240,6 @@ dependencies = [
  "codex-login",
  "codex-models-manager",
  "crossterm",
- "dirs",
  "ethnum",
  "eventsource-stream",
  "fs2",
@@ -10317,7 +10316,6 @@ version = "0.0.1"
 dependencies = [
  "anyhow",
  "codex-execpolicy",
- "dirs",
  "secrecy",
  "serde",
  "serde_json",
@@ -10413,7 +10411,6 @@ name = "rara-skills"
 version = "0.0.1"
 dependencies = [
  "anyhow",
- "dirs",
  "serde",
  "tempfile",
 ]

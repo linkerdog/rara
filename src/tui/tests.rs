@@ -1772,6 +1772,9 @@ async fn paste_normalizes_crlf_and_cr_newlines() {
 
     super::terminal_ui::handle_paste("first\r\nsecond\rthird".to_string(), &mut app);
 
+    // Flush paste burst so the text actually lands in the input.
+    app.bottom_pane.flush_paste_burst();
+
     assert_eq!(app.bottom_pane.input, "first\nsecond\nthird");
     assert_eq!(
         app.composer_cursor_offset(),

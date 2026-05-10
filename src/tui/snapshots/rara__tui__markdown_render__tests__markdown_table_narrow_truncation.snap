@@ -1,0 +1,7 @@
+---
+source: src/tui/markdown_render.rs
+expression: "render_to_string_width(md, 40)"
+---
+Column A    | Column B | Column C   
+----------- | -------- | -----------
+long long … | short    | also quite…

@@ -1,0 +1,8 @@
+---
+source: src/tui/markdown_render.rs
+expression: render_to_string(md)
+---
+Name  | Value | Notes 
+----- | ----- | ------
+alpha | 1     | first 
+beta  | 22    | second

@@ -6,7 +6,7 @@ This specification covers two improvements informed by review of Claude Code,
 Codex, and OpenCode subagent implementations:
 
 1. **Subagent enhancement**: add progress tracking, token metrics, activity
-   descriptions, and background execution to RARA's `SpawnAgent`.
+   descriptions, and background execution to RARA's subagent system.
 2. **Auxiliary-model retrieval compression**: use a cheap model to compress
    retrieval candidates before injecting them into the main model context.
 
@@ -49,7 +49,7 @@ TaskTool supports full subagent delegation:
 
 ### Current State (RARA)
 
-`src/tools/agent.rs` `SpawnAgent` has:
+`src/tools/agent.rs` `BackgroundSubAgentRecord` has:
 - `AgentStatus`: `Spawning`, `Running`, `Completed`
 - `created_at`: `Instant`
 - `last_output`: `Vec<ContentBlock>`
@@ -84,7 +84,7 @@ Update `SpawnAgent`:
 ```rust
 pub struct SpawnAgent {
     pub status: AgentStatus,
-    pub created_at: Instant,
+    pub started_at: u64,                      // Unix timestamp
     pub last_output: Vec<ContentBlock>,
     pub progress: SubagentProgress,           // NEW
     pub pending_messages: Vec<String>,         // NEW
@@ -180,17 +180,17 @@ resolves through the provider surface. The `RalphAgent` already has
 
 ### Integration Point
 
-In `RalphAgent.do_start_of_turn_prep()` (after `refresh_*_candidates`):
+In `Agent.do_start_of_turn_prep()` (after `refresh_*_candidates`):
 
 ```rust
-if self.config.compression.enabled && !self.compressed_retrieval_text.is_empty() {
+if retrieval_token_count > self.config.compression_threshold_tokens {
     self.compress_retrieval_candidates().await;
 }
 ```
 
 ### Caching
 
-Store compressed result sharded by the hash of raw retrieval candidates.
+Store compressed result keyed by the hash of raw retrieval candidates.
 If the same candidates are retrieved across turns, reuse the cached
 compressed version.
 
