@@ -32,9 +32,17 @@ support subagents, and Codex has a minimal external-agent migration scaffold.
   agents) and converts them to Codex's native format.  It does not spawn,
   track, or manage subagents.
 
-### OpenCode
+### OpenCode (`tool/task.ts`)
 
-- No `task` tool. Subagent delegation is not implemented.
+TaskTool supports full subagent delegation:
+
+- `subagent_type`: specialized agents with different permission sets.
+- `task_id`: optional resume of a previous subagent session.
+- Permission scoping: subagents can deny `todowrite` and `task` tools.
+- `experimental.primary_tools`: configurable tool allowlists.
+- `ctx.ask()`: interactive approval before spawning.
+- `ctx.abort`: abort controller for cancellation.
+- Output: structured with `task_id` + `<task_result>` wrapper.
 
 ## Part 1: Subagent Enhancement
 
