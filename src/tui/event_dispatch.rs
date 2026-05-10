@@ -325,9 +325,13 @@ pub(crate) async fn dispatch_event(
             Some(Overlay::CommandPalette) => {
                 let query = app.command_query();
                 if let Some(spec) = palette_command_by_index(app, query, app.command_palette_idx) {
-                    app.bottom_pane.input = spec.usage.to_string();
-                    app.bottom_pane.input_cursor_offset = None;
+                    // Save the command text before close_overlay, which clears
+                    // the composer input for CommandPalette to prevent immediate
+                    // re-open via sync_command_palette_with_input.
+                    let usage = spec.usage.to_string();
                     app.close_overlay();
+                    app.bottom_pane.input = usage;
+                    app.bottom_pane.input_cursor_offset = None;
                     if handle_submit(app, agent_slot, oauth_manager).await? {
                         return Ok(true);
                     }
