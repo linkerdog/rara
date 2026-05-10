@@ -229,6 +229,7 @@ async fn run_acp_command(config: &RaraConfig) -> Result<()> {
         bootstrap.mcp_manager.clone(),
         bootstrap.prompt_source_registry.clone(),
         bootstrap.skill_source_registry.clone(),
+        bootstrap.hook_registry.clone(),
         Arc::new(crate::protocol_sources::MemoryControlHandler::new(
             bootstrap.event_bus.clone(),
         )),

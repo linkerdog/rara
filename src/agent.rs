@@ -110,6 +110,28 @@ pub enum AgentEvent {
         message: String,
     },
     TodoUpdated(TodoState),
+    /// Agent loop started a new run.
+    AgentStart,
+    /// Agent loop stopped normally (e.g. turn complete, user interruption).
+    AgentStop {
+        reason: String,
+    },
+    /// Agent error that may be recoverable (retry) or terminal.
+    AgentError {
+        message: String,
+        recoverable: bool,
+    },
+    /// Agent is about to call the model with accumulated history.
+    ModelRequest {
+        model: String,
+        input_tokens: u32,
+    },
+    /// Model returned a complete response for this stream.
+    ModelResponse {
+        model: String,
+        output_tokens: u32,
+        finish_reason: Option<String>,
+    },
 }
 
 #[derive(Debug)]

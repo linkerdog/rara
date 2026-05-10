@@ -21,6 +21,7 @@ use tokio::io::{stdin, stdout};
 use tokio_util::compat::{TokioAsyncReadCompatExt, TokioAsyncWriteCompatExt};
 
 use crate::agent::{Agent, Message};
+use crate::hook_registry::HookRegistry;
 use crate::llm::{ContentBlock, LlmBackend, LlmStreamEvent};
 use crate::mcp_connection_manager::McpConnectionManager;
 use crate::protocol_sources::{MemoryControlHandler, PromptSourceRegistry, SkillSourceRegistry};
@@ -40,6 +41,7 @@ pub struct RaraAcpAgent {
     pub mcp_manager: Arc<McpConnectionManager>,
     pub prompt_registry: Arc<PromptSourceRegistry>,
     pub skill_registry: Arc<SkillSourceRegistry>,
+    pub hook_registry: Arc<HookRegistry>,
     pub memory_handler: Arc<MemoryControlHandler>,
     /// active agent (one per ACP session for now)
     active_agent: tokio::sync::Mutex<Option<Agent>>,
@@ -53,6 +55,7 @@ impl RaraAcpAgent {
         mcp_manager: Arc<McpConnectionManager>,
         prompt_registry: Arc<PromptSourceRegistry>,
         skill_registry: Arc<SkillSourceRegistry>,
+        hook_registry: Arc<HookRegistry>,
         memory_handler: Arc<MemoryControlHandler>,
     ) -> Self {
         Self {
@@ -62,6 +65,7 @@ impl RaraAcpAgent {
             mcp_manager,
             prompt_registry,
             skill_registry,
+            hook_registry,
             memory_handler,
             active_agent: tokio::sync::Mutex::new(None),
         }
@@ -145,6 +149,7 @@ impl RaraAcpAgent {
                             &this.prompt_registry,
                             &this.skill_registry,
                             &this.memory_handler,
+                            &this.hook_registry,
                             agent,
                             |_| {},
                         )
@@ -311,6 +316,7 @@ impl RaraAcpAgent {
             &self.prompt_registry,
             &self.skill_registry,
             &self.memory_handler,
+            &self.hook_registry,
             Some(agent),
             &mut on_event,
         )

@@ -210,6 +210,9 @@ pub(super) fn start_input_control_task(
     let Some(memory_handler) = app.memory_handler.clone() else {
         return;
     };
+    let Some(hook_registry) = app.hook_registry.clone() else {
+        return;
+    };
 
     let mut agent = agent;
     agent.set_execution_mode(app.agent_execution_mode);
@@ -217,7 +220,7 @@ pub(super) fn start_input_control_task(
     agent.set_full_access_mode(app.permission_mode == PermissionMode::FullAccess);
     sync_bash_prefixes_from_config(app, &mut agent);
     agent.set_cancellation_token(Some(cancellation_token.clone()));
-
+    let _ = bus.send(crate::agent::AgentEvent::AgentStart);
     let handle = tokio::spawn(async move {
         let tx = sender.clone();
         let provenance =
@@ -235,6 +238,7 @@ pub(super) fn start_input_control_task(
             &prompt_registry,
             &skill_registry,
             &memory_handler,
+            &hook_registry,
             Some(&mut agent),
             move |control_event| {
                 if let crate::runtime_control::RuntimeEvent::Assistant(ae) = &control_event.event {

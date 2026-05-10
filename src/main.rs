@@ -13,6 +13,7 @@ mod control_plane;
 mod control_tokens;
 mod google_oauth;
 mod hook_registry;
+mod hook_runtime;
 mod hooks;
 mod llm;
 mod local_backend;

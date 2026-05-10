@@ -317,6 +317,11 @@ pub(super) fn convert_agent_event(event: AgentEvent) -> Option<TuiEvent> {
         }),
         AgentEvent::McpStatusUpdated(_) => None,
         AgentEvent::McpStatusLoadFailed { .. } => None,
+        AgentEvent::AgentStart => None,
+        AgentEvent::AgentStop { .. } => None,
+        AgentEvent::AgentError { .. } => None,
+        AgentEvent::ModelRequest { .. } => None,
+        AgentEvent::ModelResponse { .. } => None,
     }
 }
 
