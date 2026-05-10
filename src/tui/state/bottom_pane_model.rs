@@ -155,9 +155,3 @@ impl Default for BottomPaneModel {
         Self::new()
     }
 }
-
-fn char_offset_to_byte_index(s: &str, char_offset: usize) -> usize {
-    s.char_indices()
-        .nth(char_offset)
-        .map_or(s.len(), |(i, _)| i)
-}

@@ -409,12 +409,6 @@ fn find_cursor_row_in_wrapped(
     wrapped.len().saturating_sub(1)
 }
 
-fn char_offset_to_byte_index(s: &str, char_offset: usize) -> usize {
-    s.char_indices()
-        .nth(char_offset)
-        .map_or(s.len(), |(i, _)| i)
-}
-
 #[cfg(test)]
 #[path = "../bottom_pane_tests.rs"]
-mod tests;
+mod bottom_pane_tests;
