@@ -1177,7 +1177,7 @@ impl<'a> ThreadRecorder<'a> {
         self.append_rollout_item(
             session_id,
             &PersistedStructuredRolloutEvent::Compaction {
-                recorded_at: Some(epoch_seconds()),
+                recorded_at: Some(crate::utils::epoch_seconds()),
                 event_index: event.event_index,
                 before_tokens: event.before_tokens,
                 after_tokens: event.after_tokens,
@@ -1222,7 +1222,7 @@ impl<'a> ThreadRecorder<'a> {
         state: &ThreadRuntimeState<'_>,
         lineage: &ThreadRuntimeLineage,
     ) -> Result<()> {
-        let now = epoch_seconds();
+        let now = crate::utils::epoch_seconds();
         let existing_metadata = match thread_metadata::load_thread_record(
             &self.state_db.rollout_root(),
             state.session_id,
@@ -1311,7 +1311,7 @@ impl<'a> ThreadRecorder<'a> {
             session_id,
             &PersistedStructuredRolloutEvent::runtime_state_from_items(
                 items,
-                Some(epoch_seconds()),
+                Some(crate::utils::epoch_seconds()),
             ),
         )?;
         self.shutdown(session_id)
@@ -1554,15 +1554,6 @@ fn sync_parent_dir_best_effort(parent: &Path) {
 
 #[cfg(not(unix))]
 fn sync_parent_dir_best_effort(_parent: &Path) {}
-
-fn epoch_seconds() -> i64 {
-    use std::time::{SystemTime, UNIX_EPOCH};
-
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_secs() as i64
-}
 
 fn push_rollout_item(
     ordered_items: &mut Vec<(i64, usize, RolloutItem)>,

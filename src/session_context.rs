@@ -3,11 +3,13 @@ use std::fs::{self, OpenOptions};
 use std::io::{BufRead, BufReader, Write};
 use std::path::{Path, PathBuf};
 use std::sync::{Mutex, OnceLock};
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::time::SystemTime;
 
 use anyhow::{Context, Result};
 use rara_persistence::file_lock::AdvisoryFileLock;
 use serde::{Deserialize, Serialize};
+
+use crate::utils::epoch_seconds;
 
 const CONTEXT_SHARD_FILE: &str = "context.jsonl";
 const CONTEXT_SHARD_CACHE_MAX_ENTRIES: usize = 256;
@@ -74,7 +76,7 @@ pub fn append_context_checkpoint(
         turn_index,
         text,
         vector,
-        recorded_at: epoch_seconds(),
+        recorded_at: crate::utils::epoch_seconds(),
     };
     let _lock = AdvisoryFileLock::acquire(path.with_extension("lock"))?;
     let mut line = serde_json::to_vec(&checkpoint)?;
@@ -263,13 +265,6 @@ fn cosine_similarity(query_vector: &[f32], vector: &[f32]) -> Option<f32> {
         return None;
     }
     Some(dot / (query_norm.sqrt() * vector_norm.sqrt()))
-}
-
-fn epoch_seconds() -> i64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_secs() as i64
 }
 
 #[cfg(unix)]

@@ -1,7 +1,6 @@
 use std::fs;
 use std::io::Write;
 use std::path::PathBuf;
-use std::time::{SystemTime, UNIX_EPOCH};
 
 use anyhow::{Context, Result, anyhow};
 use rara_persistence::atomic_file;
@@ -23,6 +22,7 @@ use crate::session_promotion::{
 };
 use crate::session_transcript;
 use crate::todo::TodoState;
+use crate::utils::epoch_seconds;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct PersistedCompactionEvent {
@@ -376,7 +376,7 @@ impl SessionManager {
         self.append_rollout_event(
             session_id,
             PersistedStructuredRolloutEvent::Compaction {
-                recorded_at: Some(epoch_seconds()),
+                recorded_at: Some(crate::utils::epoch_seconds()),
                 event_index: event.event_index,
                 before_tokens: event.before_tokens,
                 after_tokens: event.after_tokens,
@@ -404,7 +404,7 @@ impl SessionManager {
         self.append_rollout_event(
             session_id,
             PersistedStructuredRolloutEvent::SpawnAgent {
-                recorded_at: Some(epoch_seconds()),
+                recorded_at: Some(crate::utils::epoch_seconds()),
                 event_id: event_id.to_string(),
                 agent_id: agent_id.to_string(),
                 name: name.map(str::to_string),
@@ -613,13 +613,6 @@ fn sync_parent_dir_best_effort(parent: &std::path::Path) {
 
 #[cfg(not(unix))]
 fn sync_parent_dir_best_effort(_parent: &std::path::Path) {}
-
-fn epoch_seconds() -> i64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_secs() as i64
-}
 
 fn transcript_is_shorter_than_snapshot_prefix(
     session_manager: &SessionManager,
