@@ -1,5 +1,5 @@
 use std::collections::HashMap;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::{
     Arc, Mutex,
     atomic::{AtomicBool, Ordering},
@@ -123,7 +123,7 @@ pub fn load_agent_definitions(workspace_root: &Path) -> AgentRegistry {
     let mut registry = AgentRegistry::new();
 
     // 1. Home-directory agents (lower precedence)
-    if let Some(home) = dirs::home_dir() {
+    if let Some(home) = std::env::var_os("HOME").map(PathBuf::from) {
         scan_agents_dir(&home.join(".claude").join("agents"), &mut registry);
     }
 
