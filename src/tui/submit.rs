@@ -113,7 +113,15 @@ pub(crate) fn apply_openai_model_picker_action(
         OpenAiModelPickerAction::DeleteProfile => {
             if let Some(label) = app.delete_active_openai_profile() {
                 app.config_manager.save(&app.config)?;
-                app.push_notice(format!("Deleted endpoint profile: {label}"));
+                if app.openai_profile_needs_setup() {
+                    app.bottom_pane.notice = Some(format!("Deleted endpoint profile: {label}"));
+                    app.begin_active_openai_profile_setup();
+                } else {
+                    app.bottom_pane.notice = Some(format!("Deleted endpoint profile: {label}"));
+                    super::runtime::start_rebuild_task(app);
+                }
+            } else {
+                app.push_notice("Cannot delete the only endpoint profile.");
             }
         }
     }

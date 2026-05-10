@@ -47,7 +47,9 @@ pub(crate) fn submit_user_prompt(
     }
 
     let Some(agent) = agent_slot.take() else {
-        app.push_notice("Agent is not ready for input.");
+        app.push_notice("Agent not ready. Starting rebuild — try again in a moment.");
+        // Auto-recover: trigger agent rebuild so the slot is refilled.
+        super::runtime::start_rebuild_task(app);
         return InputControlOutcome::Rejected;
     };
 
