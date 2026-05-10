@@ -37,8 +37,8 @@ pub struct BottomPaneModel {
     // Paste-burst state: when a paste contains newlines or exceeds the
     // large-paste threshold we accumulate chars and flush in one `push_str`,
     // avoiding O(n²) per-frame redraws for long pastes.
-    paste_burst_buffer: Option<String>,
-    paste_burst_deadline: Option<Instant>,
+    pub(super) paste_burst_buffer: Option<String>,
+    pub(super) paste_burst_deadline: Option<Instant>,
 }
 
 impl BottomPaneModel {
@@ -123,14 +123,11 @@ impl BottomPaneModel {
         let paste_end = {
             let old_offset = self.composer_cursor_offset();
             if self.input_cursor_offset.is_none() {
-                // Cursor is at end — just append.
                 self.input.push_str(&buf);
-                None // stays at end
+                None
             } else {
-                // Insert at cursor position.
                 let pos = char_offset_to_byte_index(&self.input, old_offset);
                 self.input.insert_str(pos, &buf);
-                // Place cursor after the pasted text.
                 Some(old_offset + buf.chars().count())
             }
         };
