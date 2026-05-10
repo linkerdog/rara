@@ -8,7 +8,7 @@ use crate::redaction::{redact_known_secret, sanitize_url_for_display};
 
 const MODELS_TIMEOUT_SECS: u64 = 15;
 
-pub const FALLBACK_MODELS: [&str; 2] = ["deepseek-chat", "deepseek-reasoner"];
+pub const FALLBACK_MODELS: [&str; 3] = ["deepseek-chat", "deepseek-reasoner", "deepseek-v4"];
 
 #[derive(Deserialize)]
 struct ModelsResponse {

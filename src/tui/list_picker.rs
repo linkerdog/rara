@@ -95,9 +95,11 @@ impl ListPickerKind {
         }
     }
 
-    /// Keyboard hint shown at the bottom.
     fn help_text(self) -> &'static str {
-        "1-9 jump  Up/Down/jk move  Enter apply  Esc back"
+        match self {
+            Self::UnifiedModel => "Up/Down/jk move  Enter apply  Esc back",
+            _ => "1-9 jump  Up/Down/jk move  Enter apply  Esc back",
+        }
     }
 
     /// Render the list items for this picker.
@@ -146,18 +148,32 @@ impl ListPickerKind {
         PROVIDER_FAMILIES
             .iter()
             .enumerate()
-            .map(|(idx, (_family, label, desc))| {
-                let status = if app.selected_provider_family() == PROVIDER_FAMILIES[idx].0 {
+            .map(|(idx, (family, label, desc))| {
+                let current = if app.selected_provider_family() == *family {
                     " (current)"
                 } else {
                     ""
                 };
-                let name_line = ratatui::text::Line::from(vec![ratatui::text::Span::styled(
-                    format!("[{}] {}{}", idx + 1, label, status),
-                    Style::default().add_modifier(Modifier::BOLD),
-                )]);
+                let connected = app
+                    .provider_connection_status
+                    .get(family)
+                    .cloned()
+                    .unwrap_or(false);
+                let status_indicator = if connected {
+                    ratatui::text::Span::styled(" ● ", Style::default().fg(ratatui::style::Color::Green))
+                } else {
+                    ratatui::text::Span::raw("   ")
+                };
+
+                let name_line = ratatui::text::Line::from(vec![
+                    status_indicator,
+                    ratatui::text::Span::styled(
+                        format!("[{}] {}{}", idx + 1, label, current),
+                        Style::default().add_modifier(Modifier::BOLD),
+                    ),
+                ]);
                 let desc_line = ratatui::text::Line::from(ratatui::text::Span::styled(
-                    format!("    {}", desc),
+                    format!("      {}", desc),
                     Style::default().fg(TEXT_MUTED),
                 ));
                 ListItem::new(vec![name_line, desc_line]).style(Self::selected_style(idx, selected))
@@ -211,11 +227,17 @@ impl ListPickerKind {
                 let is_current = app.config.provider == preset.provider_id
                     && app.config.model.as_deref() == Some(&preset.model_id);
                 let marker = if is_current { " (current)" } else { "" };
+                let status_label = if let Some(status) = &preset.status {
+                    format!(" ({})", status)
+                } else {
+                    String::new()
+                };
+
                 ListItem::new(ratatui::text::Line::from(format!(
-                    "[{}] {}/{}{}",
-                    idx + 1,
+                    "{}/{}{}{}",
                     preset.provider_label,
                     preset.model_label,
+                    status_label,
                     marker
                 )))
                 .style(Self::selected_style(idx, selected))
@@ -375,20 +397,38 @@ pub fn render_list_picker(f: &mut Frame, app: &TuiApp, kind: ListPickerKind, are
 // Key handling — shared for all ListPicker variants
 // ---------------------------------------------------------------------------
 
-pub fn list_picker_key_event(_kind: ListPickerKind, code: KeyCode) -> AppEvent {
+pub fn list_picker_key_event(kind: ListPickerKind, code: KeyCode) -> AppEvent {
     match code {
         KeyCode::Esc => AppEvent::CloseOverlay,
         KeyCode::Up | KeyCode::Char('k') => AppEvent::MoveListPickerSelection(-1),
         KeyCode::Down | KeyCode::Char('j') => AppEvent::MoveListPickerSelection(1),
-        KeyCode::Char('1') => AppEvent::SetListPickerSelection(0),
-        KeyCode::Char('2') => AppEvent::SetListPickerSelection(1),
-        KeyCode::Char('3') => AppEvent::SetListPickerSelection(2),
-        KeyCode::Char('4') => AppEvent::SetListPickerSelection(3),
-        KeyCode::Char('5') => AppEvent::SetListPickerSelection(4),
-        KeyCode::Char('6') => AppEvent::SetListPickerSelection(5),
-        KeyCode::Char('7') => AppEvent::SetListPickerSelection(6),
-        KeyCode::Char('8') => AppEvent::SetListPickerSelection(7),
-        KeyCode::Char('9') => AppEvent::SetListPickerSelection(8),
+        KeyCode::Char('1') if kind != ListPickerKind::UnifiedModel => {
+            AppEvent::SetListPickerSelection(0)
+        }
+        KeyCode::Char('2') if kind != ListPickerKind::UnifiedModel => {
+            AppEvent::SetListPickerSelection(1)
+        }
+        KeyCode::Char('3') if kind != ListPickerKind::UnifiedModel => {
+            AppEvent::SetListPickerSelection(2)
+        }
+        KeyCode::Char('4') if kind != ListPickerKind::UnifiedModel => {
+            AppEvent::SetListPickerSelection(3)
+        }
+        KeyCode::Char('5') if kind != ListPickerKind::UnifiedModel => {
+            AppEvent::SetListPickerSelection(4)
+        }
+        KeyCode::Char('6') if kind != ListPickerKind::UnifiedModel => {
+            AppEvent::SetListPickerSelection(5)
+        }
+        KeyCode::Char('7') if kind != ListPickerKind::UnifiedModel => {
+            AppEvent::SetListPickerSelection(6)
+        }
+        KeyCode::Char('8') if kind != ListPickerKind::UnifiedModel => {
+            AppEvent::SetListPickerSelection(7)
+        }
+        KeyCode::Char('9') if kind != ListPickerKind::UnifiedModel => {
+            AppEvent::SetListPickerSelection(8)
+        }
         KeyCode::Enter => AppEvent::ApplyOverlaySelection,
         _ => AppEvent::Noop,
     }
