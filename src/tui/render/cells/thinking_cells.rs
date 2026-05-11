@@ -47,7 +47,7 @@ impl HistoryCell for ThinkingBlockCell<'_> {
 
         if !self.message.is_empty() {
             let rendered = render_markdown_text_with_width(&self.message, Some(render_width));
-            rendered_lines.extend(rendered.lines.into_iter());
+            rendered_lines.extend(rendered.lines);
         }
         if let Some(lines) = self.stream_lines {
             rendered_lines.extend(lines.iter().cloned());

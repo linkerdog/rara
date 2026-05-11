@@ -151,7 +151,7 @@ fn scan_agents_dir(agents_dir: &Path, registry: &mut AgentRegistry) {
             continue;
         }
         let path = entry.path();
-        if path.extension().map_or(true, |e| e != "md") {
+        if path.extension().is_none_or(|e| e != "md") {
             continue;
         }
 

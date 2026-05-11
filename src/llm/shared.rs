@@ -435,14 +435,13 @@ const OPENAI_GPT4_CONTEXT_WINDOW_TOKENS: usize = 128_000;
 pub(super) fn model_context_budget(model: &str) -> Option<ContextBudget> {
     let canonical = model.trim().to_ascii_lowercase();
     // Look up DeepSeek models from the provider catalog map.
-    if canonical.contains("deepseek") {
-        if let Some(window) = rara_provider_catalog::deepseek::MODEL_WINDOWS
+    if canonical.contains("deepseek")
+        && let Some(window) = rara_provider_catalog::deepseek::MODEL_WINDOWS
             .iter()
-            .find(|(name, _)| name.contains(&canonical.as_str()))
+            .find(|(name, _)| name.contains(canonical.as_str()))
             .map(|(_, w)| *w as usize)
-        {
-            return Some(context_budget_from_window(window));
-        }
+    {
+        return Some(context_budget_from_window(window));
     }
     if canonical.contains("gpt-5")
         || canonical.contains("codex")

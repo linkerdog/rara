@@ -396,6 +396,7 @@ fn approval_subcommand_index(program: &str, args: &[String]) -> Option<usize> {
     }
 }
 
+#[allow(clippy::if_same_then_else)]
 fn skip_known_global_options(
     args: &[String],
     valueless_options: &[&str],
