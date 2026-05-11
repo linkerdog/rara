@@ -264,6 +264,8 @@ pub(crate) async fn dispatch_event(
                     app.close_overlay();
                     start_rebuild_task(app);
                 } else if was_deepseek {
+                    app.config.base_url =
+                        Some(crate::config::DEFAULT_DEEPSEEK_BASE_URL.to_string());
                     app.bottom_pane.notice = Some("Saved DeepSeek API key. Loading models.".into());
                     app.close_overlay();
                     start_deepseek_model_list_task(app);
