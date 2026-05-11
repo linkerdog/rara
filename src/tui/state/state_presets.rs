@@ -43,6 +43,8 @@ pub fn selected_provider_family_idx_for_config(config: &RaraConfig) -> usize {
         "openai-compatible" => {
             if config.active_openai_profile_kind() == Some(OpenAiEndpointKind::Deepseek) {
                 ProviderFamily::DeepSeek
+            } else if config.active_openai_profile_kind() == Some(OpenAiEndpointKind::Kimi) {
+                ProviderFamily::Kimi
             } else {
                 ProviderFamily::OpenAiCompatible
             }

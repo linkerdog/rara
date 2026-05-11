@@ -19,14 +19,12 @@ pub const MODEL_WINDOWS: &[(&str, u32)] = &[
     ("kimi-k2-thinking-turbo", 262_144),
 ];
 
-pub const FALLBACK_MODELS: [&str; 6] = [
-    "kimi-k2.6",
-    "kimi-k2.5",
-    "kimi-k2-0905-preview",
-    "kimi-k2-turbo-preview",
-    "kimi-k2-thinking",
-    "kimi-k2-thinking-turbo",
-];
+pub fn fallback_models() -> Vec<String> {
+    MODEL_WINDOWS
+        .iter()
+        .map(|(model, _)| (*model).to_string())
+        .collect()
+}
 
 #[derive(Deserialize)]
 struct ModelsResponse {
@@ -36,13 +34,6 @@ struct ModelsResponse {
 #[derive(Deserialize)]
 struct ModelEntry {
     id: String,
-}
-
-pub fn fallback_models() -> Vec<String> {
-    FALLBACK_MODELS
-        .iter()
-        .map(|model| (*model).to_string())
-        .collect()
 }
 
 pub fn models_url(base_url: Option<&str>) -> String {

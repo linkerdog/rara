@@ -64,6 +64,7 @@ pub fn is_provider_connected(app: &TuiApp, family: ProviderFamily) -> bool {
                 .and_then(|s| s.api_key.as_ref())
                 .is_some()
                 || std::env::var("KIMI_API_KEY").is_ok()
+                || std::env::var("MOONSHOT_API_KEY").is_ok()
         }
         ProviderFamily::Gemini => {
             std::env::var("GEMINI_API_KEY").is_ok()
