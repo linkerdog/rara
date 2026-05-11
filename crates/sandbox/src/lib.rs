@@ -567,11 +567,10 @@ fn shell_command_flag(shell: &str) -> String {
         .file_name()
         .and_then(|name| name.to_str())
         .unwrap_or(shell);
-    if matches!(name, "bash" | "zsh" | "ksh") {
-        "-lc".to_string()
-    } else {
-        "-c".to_string()
-    }
+    // Use -c (non-login) so shell init files are not sourced.
+    // Login scripts (.zshrc, .bashrc) produce noise like "ttyname error"
+    // and can hang when stdin/stderr are pipes.
+    "-c".to_string()
 }
 
 fn process_sandbox_home() -> PathBuf {

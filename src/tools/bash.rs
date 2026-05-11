@@ -845,6 +845,7 @@ fn sandbox_command_env(
 ) -> HashMap<String, String> {
     let sandbox_home = sandbox_home.to_string_lossy();
     let mut env_map = HashMap::from([
+        ("TERM".to_string(), "dumb".to_string()),
         ("HOME".to_string(), sandbox_home.to_string()),
         (
             "XDG_CONFIG_HOME".to_string(),
