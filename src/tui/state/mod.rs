@@ -638,6 +638,14 @@ impl TuiApp {
                 ProviderFamily::OpenAiCompatible => {
                     let mut found_profile = false;
                     for (profile_id, profile) in &self.config.openai_profiles {
+                        // Skip profiles whose kind already has a dedicated
+                        // provider family (these show up via their own branch).
+                        if matches!(
+                            profile.kind,
+                            OpenAiEndpointKind::Deepseek | OpenAiEndpointKind::Kimi
+                        ) {
+                            continue;
+                        }
                         found_profile = true;
                         let model_id = profile
                             .model
@@ -769,6 +777,7 @@ impl TuiApp {
                     OpenAiEndpointKind::Deepseek.label(),
                     OpenAiEndpointKind::Deepseek,
                 );
+                self.config.set_provider("deepseek");
                 self.config.set_model(Some(preset.model_id));
                 self.config.set_revision(None);
             }
@@ -1264,6 +1273,7 @@ impl TuiApp {
                 OpenAiEndpointKind::Deepseek.label(),
                 OpenAiEndpointKind::Deepseek,
             );
+            self.config.set_provider("deepseek");
             self.config.set_model(Some(model));
             self.config.set_revision(None);
             return;
