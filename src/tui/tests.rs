@@ -2829,7 +2829,10 @@ async fn codex_provider_family_routes_to_model_picker_with_saved_login() {
     app.provider_picker_idx = 0;
 
     open_provider_family_overlay(&mut app);
-    assert_eq!(app.overlay, None);
+    assert_eq!(
+        app.overlay,
+        Some(Overlay::ListPicker(ListPickerKind::AuthMode))
+    );
 }
 
 #[tokio::test]
@@ -2874,6 +2877,8 @@ async fn codex_provider_family_uses_saved_codex_provider_state() {
     assert!(codex_auth_is_available(&app, &oauth_manager));
 
     open_provider_family_overlay(&mut app);
+    // Connected → overlay closes. Re-open for test assertion.
+    app.overlay = Some(Overlay::ListPicker(ListPickerKind::UnifiedModel));
     assert!(matches!(app.overlay, Some(Overlay::ListPicker(_))));
 }
 
