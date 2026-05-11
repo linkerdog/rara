@@ -1,3 +1,5 @@
+// Status items reserved for inline TUI command surfaces.
+#![allow(dead_code)]
 use time::{OffsetDateTime, format_description};
 
 use crate::config::RaraConfig;

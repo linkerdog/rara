@@ -1,3 +1,5 @@
+// Agent tool items reserved for subagent and team features.
+#![allow(dead_code)]
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::{

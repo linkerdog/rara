@@ -1,5 +1,6 @@
 //! Google OAuth PKCE flow for Gemini Code Assist.
-
+// Some items reserved for future OAuth flows.
+#![allow(dead_code)]
 use std::io::{Read, Write};
 use std::net::{SocketAddr, TcpListener};
 use std::path::{Path, PathBuf};

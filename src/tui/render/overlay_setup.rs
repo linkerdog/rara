@@ -1,3 +1,5 @@
+// Items reserved for planned overlay migration.
+#![allow(dead_code)]
 use std::path::Path;
 
 use ratatui::{
