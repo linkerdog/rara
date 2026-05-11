@@ -32,9 +32,9 @@ pub enum StartupResumeTarget {
     Picker,
 }
 
+use crate::hook_registry::HookRegistry;
 use crate::mcp_connection_manager::McpConnectionManager;
 use crate::protocol_sources::{PromptSourceRegistry, SkillSourceRegistry};
-use crate::hook_registry::HookRegistry;
 
 pub async fn run_tui(
     agent: Agent,

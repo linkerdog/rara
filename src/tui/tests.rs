@@ -2074,7 +2074,10 @@ async fn deepseek_provider_family_prompts_for_api_key_before_model_list() {
         .await
         .expect("open overlay");
 
-    assert_eq!(app.overlay, Some(Overlay::ListPicker(ListPickerKind::UnifiedModel)));
+    assert_eq!(
+        app.overlay,
+        Some(Overlay::ListPicker(ListPickerKind::UnifiedModel))
+    );
 }
 
 #[tokio::test]
@@ -2790,7 +2793,10 @@ async fn codex_provider_family_routes_to_auth_picker_without_saved_login() {
     open_provider_family_overlay(&mut app, &oauth_manager)
         .await
         .expect("open overlay");
-    assert_eq!(app.overlay, Some(Overlay::ListPicker(ListPickerKind::UnifiedModel)));
+    assert_eq!(
+        app.overlay,
+        Some(Overlay::ListPicker(ListPickerKind::UnifiedModel))
+    );
 }
 
 #[tokio::test]
@@ -2832,7 +2838,10 @@ async fn codex_provider_family_routes_to_model_picker_with_saved_login() {
     open_provider_family_overlay(&mut app, &oauth_manager)
         .await
         .expect("open overlay");
-    assert_eq!(app.overlay, Some(Overlay::ListPicker(ListPickerKind::UnifiedModel)));
+    assert_eq!(
+        app.overlay,
+        Some(Overlay::ListPicker(ListPickerKind::UnifiedModel))
+    );
 }
 
 #[tokio::test]

@@ -15,13 +15,12 @@ Start with:
   /model   choose provider first, then switch models
   /status  i┌ Provider ────────────────────────────────────────────────────────────────┐
   /quit    l│Select a provider family.                                                 │
-            │›  [1] ○ Codex (current)                                                  │
-Prompt ideas│       Use Codex with browser login, device-code login, or a Codex API key│
-  · Explain │   [2] ○ DeepSeek                                                         │
-  · Find the│       Use DeepSeek with an API key and model list from api.deepseek.com. │
-            │   [3] ○ OpenAI-compatible                                                │
-Ready  waiti│       Use OpenAI-compatible endpoint profiles such as Custom, Kimi, or Op│
-› Ask about │   [4] ○ Gemini                                                           │
-            │       Use Google Gemini via AI Studio (API key) or Code Assist (OAuth).  │
-            │1-9 jump  Up/Down/jk move  Enter apply  Esc back                          │
             └──────────────────────────────────────────────────────────────────────────┘
+Prompt ideas│ ● [1] Codex (current)                                                    │
+  · Explain │      Use Codex with browser login, device-code login, or a Codex API key.│
+  · Find the│   [2] DeepSeek                                                           │
+            │      Use DeepSeek with an API key and model list from api.deepseek.com.  │
+            │   [3] OpenAI-compatible                                                  │
+Ready  waiti│      Use OpenAI-compatible endpoint profiles such as Custom, Kimi, or Ope│
+› Ask about │                                                                          │
+                          1-9 jump  Up/Down/jk move  Enter apply  Esc back

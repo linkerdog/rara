@@ -160,7 +160,10 @@ impl ListPickerKind {
                     .cloned()
                     .unwrap_or(false);
                 let status_indicator = if connected {
-                    ratatui::text::Span::styled(" ● ", Style::default().fg(ratatui::style::Color::Green))
+                    ratatui::text::Span::styled(
+                        " ● ",
+                        Style::default().fg(ratatui::style::Color::Green),
+                    )
                 } else {
                     ratatui::text::Span::raw("   ")
                 };
@@ -235,10 +238,7 @@ impl ListPickerKind {
 
                 ListItem::new(ratatui::text::Line::from(format!(
                     "{}/{}{}{}",
-                    preset.provider_label,
-                    preset.model_label,
-                    status_label,
-                    marker
+                    preset.provider_label, preset.model_label, status_label, marker
                 )))
                 .style(Self::selected_style(idx, selected))
             })

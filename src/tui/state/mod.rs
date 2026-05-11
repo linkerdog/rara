@@ -10,8 +10,6 @@ use std::cell::RefCell;
 use std::sync::Arc;
 use std::sync::atomic::AtomicBool;
 
-use crate::google_oauth::GoogleOAuthManager;
-use crate::oauth::OAuthManager;
 use unicode_width::UnicodeWidthChar;
 
 pub use self::state_presets::{
@@ -31,6 +29,8 @@ pub use self::types::{
     TaskCompletion, TaskKind, TerminalDiagnosticsView, TranscriptEntry, TranscriptEntryPayload,
     TranscriptTurn, TuiApp, TuiEvent, UnifiedModelPreset,
 };
+use crate::google_oauth::GoogleOAuthManager;
+use crate::oauth::OAuthManager;
 
 const OPENAI_PROFILE_SETUP_KINDS: [OpenAiEndpointKind; 3] = [
     OpenAiEndpointKind::Custom,
@@ -358,8 +358,10 @@ impl TuiApp {
                         .get("codex")
                         .and_then(|s| s.api_key.as_ref())
                         .is_some();
-                    let has_oauth =
-                        OAuthManager::new().ok().and_then(|m| m.has_saved_auth().ok()) == Some(true);
+                    let has_oauth = OAuthManager::new()
+                        .ok()
+                        .and_then(|m| m.has_saved_auth().ok())
+                        == Some(true);
                     has_key || has_state || has_oauth
                 }
                 ProviderFamily::DeepSeek => {
