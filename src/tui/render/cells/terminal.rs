@@ -2,18 +2,32 @@ use super::TerminalCellData;
 use super::interaction_cells::TerminalCell;
 use crate::tui::state::{TranscriptEntry, TranscriptEntryPayload};
 use crate::tui::terminal_event::{
-    TerminalCollectionEvent, TerminalCommandEvent, TerminalEvent, TerminalTarget,
+    TerminalCollectionEvent, TerminalCommandEvent, TerminalEvent, TerminalStream, TerminalTarget,
 };
 
 pub(super) fn terminal_cell_from_entries<'a>(
     entries: impl DoubleEndedIterator<Item = &'a TranscriptEntry>,
 ) -> Option<TerminalCell> {
-    let data = entries
-        .filter_map(terminal_cell_data_from_entry)
-        .next_back()?;
+    let mut base_data: Option<TerminalCellData> = None;
+    let mut output_deltas: Vec<(TerminalStream, String)> = Vec::new();
+
+    for entry in entries {
+        if let Some(data) = terminal_cell_data_from_entry(entry) {
+            base_data = Some(data);
+        } else if let Some(TranscriptEntryPayload::Terminal(TerminalEvent::OutputDelta(delta))) =
+            entry.payload.as_ref()
+        {
+            output_deltas.push((delta.stream, delta.chunk.clone()));
+        }
+    }
+
+    let mut data = base_data?;
+    data.output_deltas = output_deltas;
+
     Some(TerminalCell::new(
         data.command,
         data.output,
+        data.output_deltas,
         data.active,
         data.success,
     ))
@@ -68,6 +82,7 @@ pub(super) fn terminal_cell_data_from_command(
     TerminalCellData {
         command: format!("{target} {command_label}"),
         output,
+        output_deltas: Vec::new(),
         active: force_active || command.status == "running",
         success: if force_active {
             None
@@ -102,6 +117,7 @@ pub(super) fn terminal_cell_data_from_collection(
     TerminalCellData {
         command: format!("{target} {action}"),
         output,
+        output_deltas: Vec::new(),
         active: false,
         success: Some(!collection.items.iter().any(|item| item.is_error)),
     }
@@ -138,6 +154,7 @@ pub(super) fn parse_terminal_tool_result(message: &str) -> Option<TerminalCellDa
         return Some(TerminalCellData {
             command: format!("pty {command}"),
             output,
+            output_deltas: Vec::new(),
             active: status == "running",
             success: terminal_status_success(status),
         });
@@ -149,6 +166,7 @@ pub(super) fn parse_terminal_tool_result(message: &str) -> Option<TerminalCellDa
         return Some(TerminalCellData {
             command: format!("background {command}"),
             output,
+            output_deltas: Vec::new(),
             active: status == "running",
             success: terminal_status_success(status),
         });

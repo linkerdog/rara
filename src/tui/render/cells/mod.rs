@@ -53,6 +53,7 @@ enum OrderedActiveSegment<'a> {
 struct TerminalCellData {
     command: String,
     output: Vec<String>,
+    output_deltas: Vec<(crate::tui::terminal_event::TerminalStream, String)>,
     active: bool,
     success: Option<bool>,
 }

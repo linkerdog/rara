@@ -103,6 +103,11 @@ impl ToolManager {
     pub fn get_schemas(&self) -> Vec<Value> {
         self.get_schemas_filtered(|_| true)
     }
+
+    pub fn retain(&mut self, mut predicate: impl FnMut(&str) -> bool) {
+        self.tools.retain(|name, _| predicate(name));
+    }
+
     pub fn get_schemas_filtered<F>(&self, mut include: F) -> Vec<Value>
     where
         F: FnMut(&str) -> bool,
