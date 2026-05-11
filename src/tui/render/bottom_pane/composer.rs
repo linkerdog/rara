@@ -153,7 +153,7 @@ pub(super) fn composer_hint(app: &TuiApp) -> Line<'static> {
 
 /// Split hint text on whitespace-delimited single-digit numbers like " 1 " and
 /// highlight the digits with a keycap-like accent.
-fn parse_hint_with_keys(text: &'static str) -> Line<'static> {
+pub(super) fn parse_hint_with_keys(text: &'static str) -> Line<'static> {
     let mut spans: Vec<Span<'static>> = Vec::new();
     let mut remaining = text;
     while let Some(pos) = remaining.find(|c: char| c.is_ascii_digit()) {
@@ -200,7 +200,7 @@ pub(super) fn desired_composer_height(app: &TuiApp, width: u16, rows: u16) -> u1
     content_rows.clamp(3, max_height)
 }
 
-fn composer_content_line_count(app: &TuiApp, width: u16) -> u16 {
+pub(super) fn composer_content_line_count(app: &TuiApp, width: u16) -> u16 {
     let content = if app.bottom_pane.input.is_empty() {
         "Ask about the repo, request a code change, or type /help to browse commands.".to_string()
     } else {
@@ -292,13 +292,14 @@ pub(super) fn wrapped_text_rows(
     // same (input, width) pair is queried every frame for render,
     // cursor, and scroll — so the second and third calls are free.
     thread_local! {
-        static CACHE: RefCell<Option<(String, u16, Vec<String>)>> = RefCell::new(None);
+        static CACHE: RefCell<Option<(String, u16, Vec<String>)>> = const { RefCell::new(None) };
     }
     CACHE.with(|cell| {
-        if let Some((ref cached_input, w, ref rows)) = *cell.borrow() {
-            if cached_input == input && w == width {
-                return rows.clone();
-            }
+        if let Some((ref cached_input, w, ref rows)) = *cell.borrow()
+            && cached_input == input
+            && w == width
+        {
+            return rows.clone();
         }
         let rows = wrapped_text_rows_uncached(input, width, initial_indent, subsequent_indent);
         cell.replace(Some((input.to_string(), width, rows.clone())));
@@ -394,7 +395,7 @@ fn display_char_width(ch: char) -> usize {
 /// Find which wrapped row the cursor falls on by wrapping only the
 /// cursor prefix substring — matching the approach in
 /// `wrapped_text_cursor_position`.
-fn find_cursor_row_in_wrapped(
+pub(super) fn find_cursor_row_in_wrapped(
     input: &str,
     cursor_char_offset: usize,
     width: u16,
