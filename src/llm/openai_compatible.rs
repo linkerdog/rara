@@ -974,7 +974,7 @@ fn normalize_deepseek_reasoning_effort(
         .map(str::trim)
         .filter(|value| !value.is_empty())
     else {
-        return if strong_reasoning { "max" } else { "high" }.to_string();
+        return "max".to_string();
     };
 
     match reasoning_effort.to_ascii_lowercase().as_str() {

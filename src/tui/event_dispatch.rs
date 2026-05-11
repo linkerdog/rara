@@ -457,6 +457,7 @@ pub(crate) async fn dispatch_event(
                                     app.open_overlay(Overlay::ApiKeyEditor);
                                 } else if app.config.has_api_key() {
                                     app.select_local_model(app.model_picker_idx);
+                                    app.config.reasoning_effort = Some("max".to_string());
                                     start_rebuild_task(app);
                                 } else {
                                     app.open_overlay(Overlay::ApiKeyEditor);
@@ -511,6 +512,9 @@ pub(crate) async fn dispatch_event(
                                     app.close_overlay();
                                 }
                                 _ => {
+                                    if preset.family == ProviderFamily::DeepSeek {
+                                        app.config.reasoning_effort = Some("max".to_string());
+                                    }
                                     start_rebuild_task(app);
                                 }
                             }
