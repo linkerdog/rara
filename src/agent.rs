@@ -170,6 +170,7 @@ pub struct Agent {
     pub total_cache_hit_tokens: u32,
     pub total_cache_miss_tokens: u32,
     pub tool_result_store: ToolResultStore,
+    pub max_turns: Option<usize>,
     pub execution_mode: AgentExecutionMode,
     pub bash_approval_mode: BashApprovalMode,
     pub full_access_mode: bool,
@@ -255,6 +256,7 @@ impl Agent {
                 )
             }),
             execution_mode: AgentExecutionMode::Execute,
+            max_turns: None,
             bash_approval_mode: BashApprovalMode::Always,
             full_access_mode: false,
             current_plan: Vec::new(),
@@ -646,6 +648,14 @@ impl Agent {
     {
         let mut plan_exit_repair_attempts = 0usize;
         loop {
+            if let Some(max) = self.max_turns {
+                if *agentic_turns >= max {
+                    report(AgentEvent::Status(format!(
+                        "Agent reached max-turns limit ({max})",
+                    )));
+                    break;
+                }
+            }
             self.ensure_active_plan_step();
             let mut turn_output = self.run_model_turn(output_mode, report).await?;
             self.record_agent_turn_trace(&turn_output, *agentic_turns, None, None, false);
