@@ -533,11 +533,13 @@ pub(super) fn start_google_oauth_task(
 pub(super) fn start_deepseek_model_list_task(app: &mut TuiApp) {
     let (_sender, receiver) = mpsc::unbounded_channel();
     let api_key = app.config.api_key.clone();
+    let surface = app.config.effective_provider_surface();
     let base_url = Some(
-        app.config
+        surface
             .base_url
-            .clone()
-            .unwrap_or_else(|| crate::config::DEFAULT_DEEPSEEK_BASE_URL.to_string()),
+            .value
+            .unwrap_or(crate::config::DEFAULT_DEEPSEEK_BASE_URL)
+            .to_string(),
     );
     app.bottom_pane.notice = Some("Loading DeepSeek models.".into());
     app.set_runtime_phase(
