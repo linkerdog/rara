@@ -37,6 +37,7 @@ pub enum MemorySource {
     SessionDistill,
     FileImport,
     ProtocolWrite,
+    AutoMemory,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
