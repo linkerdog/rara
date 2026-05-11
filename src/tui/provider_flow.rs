@@ -181,13 +181,9 @@ pub(super) fn open_provider_connection(app: &mut TuiApp) {
     }
 }
 
-// Keep the old function as a thin wrapper for the Codex auth-guide path
-pub(super) async fn open_provider_family_overlay(
-    app: &mut TuiApp,
-    _oauth_manager: &OAuthManager,
-) -> anyhow::Result<()> {
+/// Thin wrapper for the dispatch layer. Delegates to `open_provider_connection`.
+pub(super) fn open_provider_family_overlay(app: &mut TuiApp) {
     open_provider_connection(app);
-    Ok(())
 }
 
 pub(super) fn should_open_codex_auth_guide(app: &TuiApp, oauth_manager: &OAuthManager) -> bool {
