@@ -102,6 +102,8 @@ impl BottomPaneModel {
             }
         };
         self.input_cursor_offset = paste_end;
+        let char_count = buf.chars().count();
+        self.notice = Some(format!("Pasted {} chars", char_count));
         true
     }
 
