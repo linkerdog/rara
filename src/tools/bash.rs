@@ -855,6 +855,10 @@ fn sandbox_command_env(
             format!("{sandbox_home}/.cache"),
         ),
         (
+            "XDG_STATE_HOME".to_string(),
+            format!("{sandbox_home}/.local/state"),
+        ),
+        (
             "XDG_DATA_HOME".to_string(),
             format!("{sandbox_home}/.local/share"),
         ),
@@ -864,7 +868,8 @@ fn sandbox_command_env(
             .iter()
             .map(|(key, value)| (key.clone(), value.clone())),
     );
-    // Apply sandbox defaults that survive base_env but can be
+    // Apply unified execution env defaults that survive base_env but can
+    // be overridden by explicit overrides (mirrors Codex's UNIFIED_EXEC_ENV).
     for (k, v) in [("TERM", "dumb"), ("NO_COLOR", "1"), ("PAGER", "cat")] {
         env_map.entry(k.to_string()).or_insert(v.to_string());
     }
