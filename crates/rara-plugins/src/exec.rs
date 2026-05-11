@@ -12,7 +12,7 @@ use tokio::io::AsyncWriteExt;
 use tokio::process::Command;
 use tokio::time::timeout;
 
-use crate::plugin_loader::HookHandler;
+use crate::types::HookHandler;
 
 /// Output format for hook commands.
 #[derive(Debug, Clone, Serialize)]

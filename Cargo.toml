@@ -15,6 +15,7 @@ members = [
     "crates/rara-state",
     "crates/rara-memory",
     "crates/rara-tools",
+    "crates/rara-plugins",
 ]
 resolver = "2"
 

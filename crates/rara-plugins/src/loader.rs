@@ -1,63 +1,25 @@
-//! Claude Code plugin discovery and loading.
-//!
-//! Scans plugin directories, reads `.claude-plugin/plugin.json` and
-//! `hooks/hooks.json`, produces a loaded Plugin struct ready for
-//! registration with the hook runtime.
-
-use std::collections::BTreeMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 
 use serde::Deserialize;
 
-/// A loaded Claude Code plugin.
-#[derive(Debug, Clone)]
-pub struct Plugin {
-    pub name: String,
-    pub version: Option<String>,
-    pub description: String,
-    pub root: PathBuf,
-    pub hooks: Vec<HookHandler>,
-    pub mcp_config: Option<McpConfig>,
-    pub load_warnings: Vec<String>,
-}
-
-/// A single hook handler from hooks.json.
-#[derive(Debug, Clone, Deserialize)]
-pub struct HookHandler {
-    #[serde(default)]
-    pub r#type: String,
-    #[serde(default)]
-    pub command: String,
-    #[serde(default)]
-    pub timeout: u64,
-    #[serde(default)]
-    pub matcher: Option<String>,
-    #[serde(default)]
-    pub once: bool,
-}
+use crate::types::{HookEvent, HookHandler, McpConfig, Plugin, RegisteredHook};
 
 /// Parsed hooks.json content.
 #[derive(Debug, Clone, Deserialize)]
 struct HooksJson {
     #[serde(default)]
-    #[serde(rename = "Stop")]
-    stop: Vec<MatcherGroup>,
+    Stop: Vec<MatcherGroup>,
     #[serde(default)]
-    #[serde(rename = "PostToolUse")]
-    post_tool_use: Vec<MatcherGroup>,
+    PostToolUse: Vec<MatcherGroup>,
     #[serde(default)]
-    #[serde(rename = "PreToolUse")]
-    pre_tool_use: Vec<MatcherGroup>,
+    PreToolUse: Vec<MatcherGroup>,
     #[serde(default)]
-    #[serde(rename = "UserPromptSubmit")]
-    user_prompt_submit: Vec<MatcherGroup>,
+    UserPromptSubmit: Vec<MatcherGroup>,
     #[serde(default)]
-    #[serde(rename = "SessionStart")]
-    session_start: Vec<MatcherGroup>,
+    SessionStart: Vec<MatcherGroup>,
     #[serde(default)]
-    #[serde(rename = "SessionEnd")]
-    session_end: Vec<MatcherGroup>,
+    SessionEnd: Vec<MatcherGroup>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -67,7 +29,6 @@ struct MatcherGroup {
     hooks: Vec<HookHandler>,
 }
 
-/// Minimal parsed plugin.json (only the fields we need).
 #[derive(Debug, Clone, Deserialize)]
 struct PluginJson {
     #[serde(default)]
@@ -76,55 +37,6 @@ struct PluginJson {
     version: Option<String>,
     #[serde(default)]
     description: String,
-}
-
-/// Parsed .mcp.json content.
-#[derive(Debug, Clone, Deserialize)]
-pub struct McpConfig {
-    #[serde(rename = "mcpServers")]
-    pub mcp_servers: BTreeMap<String, McpServer>,
-}
-
-#[derive(Debug, Clone, Deserialize)]
-pub struct McpServer {
-    pub command: String,
-    #[serde(default)]
-    pub args: Vec<String>,
-    #[serde(default)]
-    pub env: BTreeMap<String, String>,
-}
-
-/// Registered hook handler with its event binding.
-#[derive(Debug, Clone)]
-pub struct RegisteredHook {
-    pub event: HookEvent,
-    pub handler: HookHandler,
-    pub plugin_name: String,
-    pub plugin_root: PathBuf,
-}
-
-/// Hook lifecycle events matching hooks.json keys.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum HookEvent {
-    Stop,
-    PostToolUse,
-    PreToolUse,
-    UserPromptSubmit,
-    SessionStart,
-    SessionEnd,
-}
-
-impl HookEvent {
-    pub fn as_str(&self) -> &'static str {
-        match self {
-            Self::Stop => "Stop",
-            Self::PostToolUse => "PostToolUse",
-            Self::PreToolUse => "PreToolUse",
-            Self::UserPromptSubmit => "UserPromptSubmit",
-            Self::SessionStart => "SessionStart",
-            Self::SessionEnd => "SessionEnd",
-        }
-    }
 }
 
 /// Discover and load all plugins from a directory.
@@ -155,7 +67,6 @@ pub fn load_plugin(root: &Path) -> Option<Plugin> {
 
     let mut load_warnings = Vec::new();
 
-    // Parse plugin.json
     let plugin_json = fs::read_to_string(plugin_dir.join("plugin.json"))
         .ok()
         .and_then(|s| serde_json::from_str::<PluginJson>(&s).ok());
@@ -174,7 +85,6 @@ pub fn load_plugin(root: &Path) -> Option<Plugin> {
         .unwrap_or_default();
     let version = plugin_json.as_ref().and_then(|j| j.version.clone());
 
-    // Parse hooks.json
     let hooks_path = root.join("hooks").join("hooks.json");
     let hooks = if hooks_path.exists() {
         match parse_hooks_json(&hooks_path) {
@@ -188,7 +98,6 @@ pub fn load_plugin(root: &Path) -> Option<Plugin> {
         Vec::new()
     };
 
-    // Parse .mcp.json
     let mcp_config = root
         .join(".mcp.json")
         .exists()
@@ -215,44 +124,29 @@ fn parse_hooks_json(path: &Path) -> Result<Vec<HookHandler>, String> {
     let parsed: HooksJson = serde_json::from_str(&raw).map_err(|e| e.to_string())?;
 
     let mut handlers = Vec::new();
-    // Flatten matcher groups into individual handlers with event binding
-    // Note: event binding is stored in RegisteredHook when we connect to runtime
-    for group in parsed.stop {
-        for h in group.hooks {
-            handlers.push(h);
-        }
+    for group in parsed.Stop {
+        handlers.extend(group.hooks);
     }
-    for group in parsed.post_tool_use {
-        for h in group.hooks {
-            handlers.push(h);
-        }
+    for group in parsed.PostToolUse {
+        handlers.extend(group.hooks);
     }
-    for group in parsed.pre_tool_use {
-        for h in group.hooks {
-            handlers.push(h);
-        }
+    for group in parsed.PreToolUse {
+        handlers.extend(group.hooks);
     }
-    for group in parsed.user_prompt_submit {
-        for h in group.hooks {
-            handlers.push(h);
-        }
+    for group in parsed.UserPromptSubmit {
+        handlers.extend(group.hooks);
     }
-    for group in parsed.session_start {
-        for h in group.hooks {
-            handlers.push(h);
-        }
+    for group in parsed.SessionStart {
+        handlers.extend(group.hooks);
     }
-    for group in parsed.session_end {
-        for h in group.hooks {
-            handlers.push(h);
-        }
+    for group in parsed.SessionEnd {
+        handlers.extend(group.hooks);
     }
     Ok(handlers)
 }
 
 /// Produce all registered hooks for a plugin, binding each handler to its event.
 pub fn registered_hooks_for_plugin(plugin: &Plugin) -> Vec<RegisteredHook> {
-    // Re-parse hooks.json to get the event grouping
     let hooks_path = plugin.root.join("hooks").join("hooks.json");
     let parsed: Option<HooksJson> = fs::read_to_string(&hooks_path)
         .ok()
@@ -263,7 +157,7 @@ pub fn registered_hooks_for_plugin(plugin: &Plugin) -> Vec<RegisteredHook> {
         return registered;
     };
 
-    for group in parsed.stop {
+    for group in parsed.Stop {
         for h in group.hooks {
             registered.push(RegisteredHook {
                 event: HookEvent::Stop,
@@ -273,7 +167,7 @@ pub fn registered_hooks_for_plugin(plugin: &Plugin) -> Vec<RegisteredHook> {
             });
         }
     }
-    for group in parsed.post_tool_use {
+    for group in parsed.PostToolUse {
         for h in group.hooks {
             registered.push(RegisteredHook {
                 event: HookEvent::PostToolUse,
@@ -283,7 +177,7 @@ pub fn registered_hooks_for_plugin(plugin: &Plugin) -> Vec<RegisteredHook> {
             });
         }
     }
-    for group in parsed.pre_tool_use {
+    for group in parsed.PreToolUse {
         for h in group.hooks {
             registered.push(RegisteredHook {
                 event: HookEvent::PreToolUse,
@@ -293,7 +187,7 @@ pub fn registered_hooks_for_plugin(plugin: &Plugin) -> Vec<RegisteredHook> {
             });
         }
     }
-    for group in parsed.user_prompt_submit {
+    for group in parsed.UserPromptSubmit {
         for h in group.hooks {
             registered.push(RegisteredHook {
                 event: HookEvent::UserPromptSubmit,
@@ -303,7 +197,7 @@ pub fn registered_hooks_for_plugin(plugin: &Plugin) -> Vec<RegisteredHook> {
             });
         }
     }
-    for group in parsed.session_start {
+    for group in parsed.SessionStart {
         for h in group.hooks {
             registered.push(RegisteredHook {
                 event: HookEvent::SessionStart,
@@ -313,7 +207,7 @@ pub fn registered_hooks_for_plugin(plugin: &Plugin) -> Vec<RegisteredHook> {
             });
         }
     }
-    for group in parsed.session_end {
+    for group in parsed.SessionEnd {
         for h in group.hooks {
             registered.push(RegisteredHook {
                 event: HookEvent::SessionEnd,
@@ -328,8 +222,6 @@ pub fn registered_hooks_for_plugin(plugin: &Plugin) -> Vec<RegisteredHook> {
 
 #[cfg(test)]
 mod tests {
-    use std::fs;
-
     use serde_json::json;
 
     use super::*;
