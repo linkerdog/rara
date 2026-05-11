@@ -194,6 +194,7 @@ pub struct Agent {
     inspection_progress: InspectionProgress,
     last_query_plan_updated: bool,
     last_turn_had_tool_calls: bool,
+    recent_tool_calls: Vec<(String, String)>,
     pending_plan_exit_tool_id: Option<String>,
     prompt_config: PromptRuntimeConfig,
     prompt_source_registry: Option<Arc<PromptSourceRegistry>>,
@@ -279,6 +280,7 @@ impl Agent {
             inspection_progress: InspectionProgress::default(),
             last_query_plan_updated: false,
             last_turn_had_tool_calls: false,
+            recent_tool_calls: Vec::new(),
             pending_plan_exit_tool_id: None,
             prompt_config: PromptRuntimeConfig::default(),
             prompt_source_registry: None,
@@ -664,6 +666,35 @@ impl Agent {
             self.record_agent_turn_trace(&turn_output, *agentic_turns, None, None, false);
             self.last_query_plan_updated = turn_output.plan_updated;
             self.last_turn_had_tool_calls = !turn_output.tool_calls.is_empty();
+            if !turn_output.tool_calls.is_empty() {
+                // Detect repeated tool calls — both within a single turn
+                // and across consecutive turns.
+                let mut identical_calls_within_turn = 0;
+                let candidates: Vec<(String, String)> = turn_output
+                    .tool_calls
+                    .iter()
+                    .map(|tc| {
+                        let input_key = serde_json::to_string(&tc.input).unwrap_or_default();
+                        (tc.name.clone(), input_key)
+                    })
+                    .collect();
+                let prev = &self.recent_tool_calls;
+                let dup_count = candidates.iter().filter(|c| prev.contains(c)).count();
+                // Also check within-turn repeats
+                if candidates.len() >= 2 {
+                    for i in 1..candidates.len() {
+                        if candidates[i] == candidates[i - 1] {
+                            identical_calls_within_turn += 1;
+                        }
+                    }
+                }
+                self.recent_tool_calls = candidates;
+                if dup_count >= 2 || identical_calls_within_turn >= 1 {
+                    report(AgentEvent::Status(format!(
+                        "Repeated tool call pattern detected. Consider re-evaluating the approach.",
+                    )));
+                }
+            }
             if turn_output
                 .tool_calls
                 .iter()
