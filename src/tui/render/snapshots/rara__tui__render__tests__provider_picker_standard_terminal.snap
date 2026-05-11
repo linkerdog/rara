@@ -1,5 +1,6 @@
 ---
 source: src/tui/render/tests.rs
+assertion_line: 875
 expression: rendered
 ---
 ── RARA ──────────────────────────────────────────────────
@@ -20,7 +21,7 @@ Prompt ideas│   [1] Codex (current)                                           
   · Explain │      Use Codex with browser login, device-code login, or a Codex API key.│
   · Find the│   [2] DeepSeek                                                           │
             │      Use DeepSeek with an API key and model list from api.deepseek.com.  │
-            │   [3] OpenAI-compatible                                                  │
-Warning  War│      Use OpenAI-compatible endpoint profiles such as Custom, Kimi, or Ope│
+            │   [3] Kimi                                                               │
+Warning  War│      Use Moonshot Kimi with an API key from api.moonshot.cn.             │
 › Ask about │                                                                          │
                           1-9 jump  Up/Down/jk move  Enter apply  Esc back

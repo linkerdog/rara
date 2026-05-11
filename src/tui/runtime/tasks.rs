@@ -571,6 +571,45 @@ pub(super) fn start_deepseek_model_list_task(app: &mut TuiApp) {
     });
 }
 
+pub(super) fn start_kimi_model_list_task(app: &mut TuiApp) {
+    let (_sender, receiver) = mpsc::unbounded_channel();
+    let api_key = app.config.api_key.clone();
+    let base_url = Some(
+        app.config
+            .base_url
+            .clone()
+            .unwrap_or_else(|| crate::config::DEFAULT_KIMI_BASE_URL.to_string()),
+    );
+    app.bottom_pane.notice = Some("Loading Kimi models.".into());
+    app.set_runtime_phase(
+        RuntimePhase::RebuildingBackend,
+        Some("loading models".into()),
+    );
+
+    let handle = tokio::spawn(async move {
+        let result = load_model_catalog(
+            ModelCatalogProvider::Kimi,
+            ModelCatalogRequest {
+                api_key: api_key.as_ref(),
+                base_url: base_url.as_deref(),
+            },
+        )
+        .await
+        .map(|catalog| catalog.models);
+        TaskCompletion::KimiModels { result }
+    });
+
+    app.bottom_pane.running_task = Some(RunningTask {
+        kind: TaskKind::KimiModels,
+        receiver,
+        handle,
+        started_at: Instant::now(),
+        next_heartbeat_after_secs: u64::MAX,
+        cancellation_token: None,
+        cancellation_requested: false,
+    });
+}
+
 pub(super) fn request_running_task_cancellation(app: &mut TuiApp) {
     let Some(task) = app.bottom_pane.running_task.as_mut() else {
         app.bottom_pane.notice = Some("No running task to cancel.".into());
@@ -1013,6 +1052,30 @@ pub(crate) async fn finish_running_task_if_ready(
                 app.set_deepseek_model_options(fallback_models(ModelCatalogProvider::DeepSeek));
                 let message = format!(
                     "Failed to load DeepSeek models. Showing fallback list.\n{}",
+                    format_error_chain(&err)
+                );
+                app.push_entry("System", message.clone());
+                app.push_notice(message);
+                app.set_runtime_phase(RuntimePhase::Idle, Some("model list fallback".into()));
+                app.open_overlay(super::super::state::Overlay::ListPicker(
+                    ListPickerKind::Model,
+                ));
+            }
+        },
+        TaskCompletion::KimiModels { result } => match result {
+            Ok(models) => {
+                let count = models.len();
+                app.set_kimi_model_options(models);
+                app.bottom_pane.notice = Some(format!("Loaded {count} Kimi models."));
+                app.set_runtime_phase(RuntimePhase::Idle, Some("models loaded".into()));
+                app.open_overlay(super::super::state::Overlay::ListPicker(
+                    ListPickerKind::Model,
+                ));
+            }
+            Err(err) => {
+                app.set_kimi_model_options(fallback_models(ModelCatalogProvider::Kimi));
+                let message = format!(
+                    "Failed to load Kimi models. Showing fallback list.\n{}",
                     format_error_chain(&err)
                 );
                 app.push_entry("System", message.clone());

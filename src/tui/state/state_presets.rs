@@ -47,7 +47,8 @@ pub fn selected_provider_family_idx_for_config(config: &RaraConfig) -> usize {
                 ProviderFamily::OpenAiCompatible
             }
         }
-        "kimi" | "openrouter" => ProviderFamily::OpenAiCompatible,
+        "kimi" => ProviderFamily::Kimi,
+        "openrouter" => ProviderFamily::OpenAiCompatible,
         "gemini" | "gemini-code-assist" => ProviderFamily::Gemini,
         "ollama" | "ollama-native" | "ollama-openai" => ProviderFamily::Ollama,
         "bedrock" => ProviderFamily::Bedrock,
@@ -70,6 +71,7 @@ pub fn current_model_presets(
     match super::PROVIDER_FAMILIES[provider_picker_idx].0 {
         ProviderFamily::Codex => &CODEX_MODEL_PRESETS,
         ProviderFamily::DeepSeek => &[],
+        ProviderFamily::Kimi => &[],
         ProviderFamily::OpenAiCompatible => &OPENAI_COMPATIBLE_MODEL_PRESETS,
         ProviderFamily::Gemini => &[],
         ProviderFamily::CandleLocal => &LOCAL_MODEL_PRESETS,
@@ -129,7 +131,7 @@ mod tests {
             ..RaraConfig::default()
         };
 
-        assert_eq!(selected_provider_family_idx_for_config(&config), 2);
+        assert_eq!(selected_provider_family_idx_for_config(&config), 3);
     }
 
     #[test]
@@ -151,21 +153,29 @@ mod tests {
             ..RaraConfig::default()
         };
 
-        assert_eq!(selected_provider_family_idx_for_config(&local), 4);
-        assert_eq!(selected_provider_family_idx_for_config(&ollama), 5);
-        assert_eq!(selected_provider_family_idx_for_config(&ollama_native), 5);
-        assert_eq!(selected_provider_family_idx_for_config(&ollama_openai), 5);
+        assert_eq!(selected_provider_family_idx_for_config(&local), 5);
+        assert_eq!(selected_provider_family_idx_for_config(&ollama), 6);
+        assert_eq!(selected_provider_family_idx_for_config(&ollama_native), 6);
+        assert_eq!(selected_provider_family_idx_for_config(&ollama_openai), 6);
     }
 
     #[test]
     fn keeps_legacy_openai_endpoint_providers_in_openai_compatible_family() {
-        for provider in ["kimi", "openrouter"] {
-            let config = RaraConfig {
-                provider: provider.to_string(),
-                ..RaraConfig::default()
-            };
-            assert_eq!(selected_provider_family_idx_for_config(&config), 2);
-        }
+        let config = RaraConfig {
+            provider: "openrouter".to_string(),
+            ..RaraConfig::default()
+        };
+        assert_eq!(selected_provider_family_idx_for_config(&config), 3);
+    }
+
+    #[test]
+    fn routes_kimi_provider_to_dedicated_family() {
+        let config = RaraConfig {
+            provider: "kimi".to_string(),
+            ..RaraConfig::default()
+        };
+
+        assert_eq!(selected_provider_family_idx_for_config(&config), 2);
     }
 
     #[test]

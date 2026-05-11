@@ -57,6 +57,14 @@ pub fn is_provider_connected(app: &TuiApp, family: ProviderFamily) -> bool {
                 .is_some()
                 || std::env::var("DEEPSEEK_API_KEY").is_ok()
         }
+        ProviderFamily::Kimi => {
+            config
+                .provider_states
+                .get("kimi")
+                .and_then(|s| s.api_key.as_ref())
+                .is_some()
+                || std::env::var("KIMI_API_KEY").is_ok()
+        }
         ProviderFamily::Gemini => {
             std::env::var("GEMINI_API_KEY").is_ok()
                 || config
@@ -305,6 +313,7 @@ impl TuiApp {
             openai_setup_keep_empty_api_key: false,
             codex_model_options: Vec::new(),
             deepseek_model_options: fallback_models(ModelCatalogProvider::DeepSeek),
+            kimi_model_options: fallback_models(ModelCatalogProvider::Kimi),
             recent_commands: Vec::new(),
             recent_threads: Vec::new(),
             resume_picker_idx: 0,
@@ -380,6 +389,10 @@ impl TuiApp {
                             && p.api_key.as_ref().is_some()
                     });
                     has_key || has_profile
+                }
+                ProviderFamily::Kimi => {
+                    let has_key = self.config.provider == "kimi" && self.config.has_api_key();
+                    has_key
                 }
                 ProviderFamily::Gemini => {
                     let has_key = self.config.provider == "gemini" && self.config.has_api_key();
@@ -571,6 +584,13 @@ impl TuiApp {
                 .position(|model| self.config.model.as_deref() == Some(model.as_str()))
                 .unwrap_or(0);
         }
+        if self.selected_provider_family() == ProviderFamily::Kimi {
+            return self
+                .kimi_model_options
+                .iter()
+                .position(|model| self.config.model.as_deref() == Some(model.as_str()))
+                .unwrap_or(0);
+        }
         selected_preset_idx_for_config(&self.config, self.provider_picker_idx)
     }
 
@@ -627,6 +647,31 @@ impl TuiApp {
                                 family: *family,
                                 provider_id: "deepseek".to_string(),
                                 provider_label: "DeepSeek".to_string(),
+                                model_id: model.clone(),
+                                model_label: model.clone(),
+                                status: None,
+                                context_window: None,
+                            });
+                        }
+                    }
+                }
+                ProviderFamily::Kimi => {
+                    if self.kimi_model_options.is_empty() {
+                        results.push(UnifiedModelPreset {
+                            family: *family,
+                            provider_id: "kimi".into(),
+                            provider_label: "Kimi".into(),
+                            model_id: "kimi-k2.6".into(),
+                            model_label: "kimi-k2.6".into(),
+                            status: None,
+                            context_window: None,
+                        });
+                    } else {
+                        for model in &self.kimi_model_options {
+                            results.push(UnifiedModelPreset {
+                                family: *family,
+                                provider_id: "kimi".to_string(),
+                                provider_label: "Kimi".to_string(),
                                 model_id: model.clone(),
                                 model_label: model.clone(),
                                 status: None,
@@ -852,6 +897,8 @@ impl TuiApp {
             self.codex_model_options.len()
         } else if self.selected_provider_family() == ProviderFamily::DeepSeek {
             self.deepseek_model_options.len() + 1
+        } else if self.selected_provider_family() == ProviderFamily::Kimi {
+            self.kimi_model_options.len() + 1
         } else if self.selected_provider_family() == ProviderFamily::OpenAiCompatible {
             self.openai_model_picker_profiles().len()
         } else {
@@ -866,6 +913,15 @@ impl TuiApp {
     pub fn selected_deepseek_api_key_action(&self) -> bool {
         self.selected_provider_family() == ProviderFamily::DeepSeek
             && self.model_picker_idx >= self.deepseek_api_key_action_idx()
+    }
+
+    pub fn kimi_api_key_action_idx(&self) -> usize {
+        self.kimi_model_options.len()
+    }
+
+    pub fn selected_kimi_api_key_action(&self) -> bool {
+        self.selected_provider_family() == ProviderFamily::Kimi
+            && self.model_picker_idx >= self.kimi_api_key_action_idx()
     }
 
     pub fn selected_codex_model(&self) -> Option<&CodexModelOption> {
@@ -940,6 +996,28 @@ impl TuiApp {
         options.sort();
         options.dedup();
         self.deepseek_model_options = options;
+        self.model_picker_idx = self.selected_preset_idx();
+    }
+
+    pub fn set_kimi_model_options(&mut self, options: Vec<String>) {
+        let mut options = if options.is_empty() {
+            fallback_models(ModelCatalogProvider::Kimi)
+        } else {
+            options
+        };
+        if let Some(current_model) = self
+            .config
+            .model
+            .as_deref()
+            .map(str::trim)
+            .filter(|model| !model.is_empty())
+            && !options.iter().any(|model| model == current_model)
+        {
+            options.push(current_model.to_string());
+        }
+        options.sort();
+        options.dedup();
+        self.kimi_model_options = options;
         self.model_picker_idx = self.selected_preset_idx();
     }
 
@@ -1233,6 +1311,9 @@ impl TuiApp {
         if self.selected_provider_family() == ProviderFamily::DeepSeek {
             return None;
         }
+        if self.selected_provider_family() == ProviderFamily::Kimi {
+            return None;
+        }
         if self.selected_provider_family() == ProviderFamily::OpenAiCompatible {
             return None;
         }
@@ -1274,6 +1355,19 @@ impl TuiApp {
                 OpenAiEndpointKind::Deepseek,
             );
             self.config.set_provider("deepseek");
+            self.config.set_model(Some(model));
+            self.config.set_revision(None);
+            return;
+        }
+        if self.selected_provider_family() == ProviderFamily::Kimi {
+            let Some(model) = self.kimi_model_options.get(idx).cloned() else {
+                return;
+            };
+            self.config.select_openai_profile(
+                OpenAiEndpointKind::Kimi.default_profile_id(),
+                OpenAiEndpointKind::Kimi.label(),
+                OpenAiEndpointKind::Kimi,
+            );
             self.config.set_model(Some(model));
             self.config.set_revision(None);
             return;

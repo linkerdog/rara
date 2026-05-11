@@ -10,7 +10,10 @@ use super::provider_flow::{
     sync_codex_credential_from_auth_store,
 };
 use super::runtime::apply_permission_mode;
-use super::runtime::{start_deepseek_model_list_task, start_oauth_task, start_rebuild_task};
+use super::runtime::{
+    start_deepseek_model_list_task, start_kimi_model_list_task, start_oauth_task,
+    start_rebuild_task,
+};
 use super::session_restore::restore_thread_by_id;
 use super::state::{
     ActivePendingInteractionKind, ListPickerKind, OpenAiModelPickerAction, Overlay, PermissionMode,
@@ -234,6 +237,8 @@ pub(crate) async fn dispatch_event(
             } else if value.is_empty() && app.selected_provider_family() == ProviderFamily::DeepSeek
             {
                 app.push_notice("Enter a DeepSeek API key or press Esc to go back.");
+            } else if value.is_empty() && app.selected_provider_family() == ProviderFamily::Kimi {
+                app.push_notice("Enter a Kimi API key or press Esc to go back.");
             } else if value.is_empty() && app.openai_setup_keep_empty_api_key {
                 app.bottom_pane.notice =
                     Some("Kept existing API key for the current profile.".into());
@@ -252,6 +257,7 @@ pub(crate) async fn dispatch_event(
                 }
             } else {
                 let was_deepseek = app.selected_provider_family() == ProviderFamily::DeepSeek;
+                let was_kimi = app.selected_provider_family() == ProviderFamily::Kimi;
                 app.config.set_api_key(value.to_string());
                 if app.config.provider == "codex" {
                     app.codex_auth_mode = Some(SavedCodexAuthMode::ApiKey);
@@ -268,6 +274,10 @@ pub(crate) async fn dispatch_event(
                     app.bottom_pane.notice = Some("Saved DeepSeek API key. Loading models.".into());
                     app.close_overlay();
                     start_deepseek_model_list_task(app);
+                } else if was_kimi {
+                    app.bottom_pane.notice = Some("Saved Kimi API key. Loading models.".into());
+                    app.close_overlay();
+                    start_kimi_model_list_task(app);
                 } else {
                     app.bottom_pane.notice = Some("Saved API key for the current provider.".into());
                     if app.openai_setup_steps.is_empty() {
@@ -461,6 +471,15 @@ pub(crate) async fn dispatch_event(
                                 } else {
                                     app.open_overlay(Overlay::ApiKeyEditor);
                                 }
+                            } else if app.selected_provider_family() == ProviderFamily::Kimi {
+                                if app.selected_kimi_api_key_action() {
+                                    app.open_overlay(Overlay::ApiKeyEditor);
+                                } else if app.config.has_api_key() {
+                                    app.select_local_model(app.model_picker_idx);
+                                    start_rebuild_task(app);
+                                } else {
+                                    app.open_overlay(Overlay::ApiKeyEditor);
+                                }
                             } else {
                                 app.select_local_model(app.model_picker_idx);
                                 start_rebuild_task(app);
@@ -501,7 +520,9 @@ pub(crate) async fn dispatch_event(
                                 {
                                     app.begin_active_openai_profile_setup();
                                 }
-                                ProviderFamily::DeepSeek | ProviderFamily::Gemini
+                                ProviderFamily::DeepSeek
+                                | ProviderFamily::Kimi
+                                | ProviderFamily::Gemini
                                     if !app.config.has_api_key() =>
                                 {
                                     app.open_overlay(Overlay::ApiKeyEditor);
