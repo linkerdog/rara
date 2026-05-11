@@ -931,7 +931,7 @@ fn deepseek_explicit_thinking_folds_legacy_assistant_history_without_reasoning()
     );
 
     assert_eq!(body["thinking"]["type"], "enabled");
-    assert_eq!(body["reasoning_effort"], "high");
+    assert_eq!(body["reasoning_effort"], "max");
     let messages = body["messages"].as_array().expect("messages");
     assert_eq!(messages.len(), 2);
     assert_eq!(messages[0]["role"], "user");
@@ -1086,7 +1086,7 @@ fn deepseek_explicit_thinking_stays_enabled_for_reasoning_compatible_history() {
     );
 
     assert_eq!(body["thinking"]["type"], "enabled");
-    assert_eq!(body["reasoning_effort"], "high");
+    assert_eq!(body["reasoning_effort"], "max");
 }
 
 #[test]
