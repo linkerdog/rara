@@ -169,11 +169,15 @@ fn wrap_pty_shell_command_uses_direct_backend_on_macos() {
 }
 
 #[test]
-fn shell_command_flag_uses_non_login_shell() {
-    // All shells use -c (non-login) to avoid sourcing .profile/.zshrc etc.
-    assert_eq!(shell_command_flag("/bin/zsh"), "-c");
-    assert_eq!(shell_command_flag("/usr/bin/bash"), "-c");
-    assert_eq!(shell_command_flag("sh"), "-c");
+fn shell_command_flag_obeys_use_login_shell_param() {
+    // Default: non-login (-c) to avoid sourcing .zshrc/.bashrc.
+    assert_eq!(shell_command_flag("/bin/zsh", false), "-c");
+    assert_eq!(shell_command_flag("/usr/bin/bash", false), "-c");
+    assert_eq!(shell_command_flag("sh", false), "-c");
+    // When use_login_shell is true, bash/zsh get -lc; sh stays -c.
+    assert_eq!(shell_command_flag("/bin/zsh", true), "-lc");
+    assert_eq!(shell_command_flag("/usr/bin/bash", true), "-lc");
+    assert_eq!(shell_command_flag("sh", true), "-c");
 }
 
 #[test]
