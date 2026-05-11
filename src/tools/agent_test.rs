@@ -15,10 +15,10 @@ use tokio::time::{Duration, sleep};
 
 use super::{
     AgentDefinition, BACKGROUND_SUBAGENT_COMPLETED_RETENTION, BackgroundSubAgentRecord,
-    BackgroundSubAgentStore, SubAgentKind, TEAM_CREATE_CONCURRENCY_LIMIT, append_subagent_prompt,
-    build_filtered_tool_manager, build_read_only_tool_manager, build_subagent_tool_manager,
-    latest_assistant_text_from_history, parse_team_task_kind, resolve_kind_definition,
-    resolve_spawn_agent_definition,
+    BackgroundSubAgentStore, SubAgentKind, SubagentProgress, TEAM_CREATE_CONCURRENCY_LIMIT,
+    append_subagent_prompt, build_filtered_tool_manager, build_read_only_tool_manager,
+    build_subagent_tool_manager, latest_assistant_text_from_history, parse_team_task_kind,
+    resolve_kind_definition, resolve_spawn_agent_definition,
 };
 use crate::agent::Message;
 use crate::llm::{ContentBlock, LlmBackend, LlmResponse, MockLlm};
