@@ -1242,7 +1242,11 @@ async fn run_sub_agent(
         kind.execution_mode()
     });
     sub.set_prompt_config(append_subagent_prompt(prompt_config, kind.append_prompt()));
+
     let def_max_turns = definition.map(|d| d.max_turns).unwrap_or(0);
+    // model override from definition.model is recorded in
+    // BackgroundSubAgentRecord.model but backend switching is not yet
+    // implemented (requires LlmBackend factory or set_model support).
     if def_max_turns > 0 {
         sub.set_max_turns(def_max_turns);
     }
