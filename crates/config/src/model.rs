@@ -10,9 +10,10 @@ use serde::{Deserialize, Serialize};
 
 use crate::defaults::{
     DEFAULT_CODEX_BASE_URL, DEFAULT_CODEX_MODEL, DEFAULT_DEEPSEEK_BASE_URL, DEFAULT_DEEPSEEK_MODEL,
-    DEFAULT_KIMI_BASE_URL, DEFAULT_KIMI_MODEL, DEFAULT_OPENAI_COMPATIBLE_BASE_URL,
-    DEFAULT_OPENAI_COMPATIBLE_MODEL, DEFAULT_OPENROUTER_BASE_URL, DEFAULT_OPENROUTER_MODEL,
-    DEFAULT_REASONING_SUMMARY, should_apply_codex_base_url, should_reset_codex_model,
+    DEFAULT_GEMINI_BASE_URL, DEFAULT_KIMI_BASE_URL, DEFAULT_KIMI_MODEL,
+    DEFAULT_OPENAI_COMPATIBLE_BASE_URL, DEFAULT_OPENAI_COMPATIBLE_MODEL,
+    DEFAULT_OPENROUTER_BASE_URL, DEFAULT_OPENROUTER_MODEL, DEFAULT_REASONING_SUMMARY,
+    should_apply_codex_base_url, should_reset_codex_model,
 };
 use crate::mcp::{McpRegistry, load_mcp_registry};
 use crate::migration::migrate_reasoning_summary;
@@ -357,6 +358,17 @@ impl RaraConfig {
         self.migrate_legacy_openai_profiles();
     }
 
+    /// Hardcoded base URL for built-in providers. Returns the default API
+    /// endpoint for known provider IDs. Custom/openai-compatible providers
+    /// return None (they have their base_url set via profiles).
+    fn provider_hardcoded_base_url(provider: &str) -> Option<&'static str> {
+        match provider {
+            "deepseek" => Some(DEFAULT_DEEPSEEK_BASE_URL),
+            "gemini" => Some(DEFAULT_GEMINI_BASE_URL),
+            _ => None,
+        }
+    }
+
     pub fn effective_provider_surface(&self) -> EffectiveProviderSurface<'_> {
         let provider_state = if self.provider == "openai-compatible" {
             None
@@ -392,7 +404,7 @@ impl RaraConfig {
                     .or_else(|| profile.and_then(|profile| profile.base_url.as_deref())),
                 self.base_url.as_deref(),
                 None,
-                None,
+                Self::provider_hardcoded_base_url(self.provider.as_str()),
             ),
             revision: resolve_provider_value(
                 provider_state

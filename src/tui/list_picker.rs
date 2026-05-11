@@ -52,7 +52,7 @@ impl ListPickerKind {
     pub fn item_count(self, app: &TuiApp) -> usize {
         match self {
             Self::Provider => super::state::PROVIDER_FAMILIES.len(),
-            Self::Model => super::state::current_model_presets(app.provider_picker_idx).len(),
+            Self::Model => app.current_model_picker_len(),
             Self::OpenAiEndpointKind => super::state::openai_profile_setup_kinds().len(),
             Self::OpenAiProfile => app.selected_openai_profiles().len() + 1,
             Self::Resume => app.recent_threads.len(),
@@ -185,28 +185,40 @@ impl ListPickerKind {
     }
 
     fn render_model_items(app: &TuiApp, selected: usize) -> Vec<ListItem<'static>> {
-        use super::state::{PROVIDER_FAMILIES, ProviderFamily, current_model_presets};
+        use super::state::{PROVIDER_FAMILIES, ProviderFamily};
         let provider_label = PROVIDER_FAMILIES[app.provider_picker_idx].1;
-        let presets = current_model_presets(app.provider_picker_idx);
-        let mut items: Vec<ListItem<'static>> = presets
-            .iter()
-            .enumerate()
-            .map(|(idx, preset)| {
-                // presets are tuples: (model_id, label, extra)
-                ListItem::new(ratatui::text::Line::from(format!(
-                    "[{}] {} ({})",
-                    idx + 1,
-                    preset.1,
-                    provider_label,
-                )))
-                .style(Self::selected_style(idx, selected))
-            })
-            .collect();
+        let family = app.selected_provider_family();
+        let mut items: Vec<ListItem<'static>> = if family == ProviderFamily::DeepSeek {
+            app.deepseek_model_options
+                .iter()
+                .enumerate()
+                .map(|(idx, model)| {
+                    ListItem::new(ratatui::text::Line::from(format!(
+                        "{} ({})",
+                        model, provider_label,
+                    )))
+                    .style(Self::selected_style(idx, selected))
+                })
+                .collect()
+        } else {
+            let presets = super::state::current_model_presets(app.provider_picker_idx);
+            presets
+                .iter()
+                .enumerate()
+                .map(|(idx, preset)| {
+                    ListItem::new(ratatui::text::Line::from(format!(
+                        "{} ({})",
+                        preset.1, provider_label,
+                    )))
+                    .style(Self::selected_style(idx, selected))
+                })
+                .collect()
+        };
         if matches!(
             app.selected_provider_family(),
             ProviderFamily::OpenAiCompatible
         ) {
-            let base = presets.len();
+            let base = items.len();
             for (offset, label) in ["Select Profile", "Delete Profile"].iter().enumerate() {
                 let idx = base + offset;
                 items.push(
