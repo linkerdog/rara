@@ -95,7 +95,7 @@ impl BottomPaneModel {
         self.paste_burst_deadline = None;
 
         let char_count = buf.chars().count();
-        let is_large = char_count > 1000 || buf.contains('\n');
+        let is_large = char_count > 1000;
 
         if is_large {
             let placeholder = format!("[Pasted Content {} chars]", char_count);
