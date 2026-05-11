@@ -38,9 +38,6 @@ pub(crate) fn render_sidebar(f: &mut Frame, app: &TuiApp, area: Rect) {
     let mut lines: Vec<Line<'static>> = Vec::new();
 
     push_session_info(&mut lines, app);
-    lines.push(Line::from(""));
-    push_provider_connections(&mut lines, app);
-    lines.push(Line::from(""));
     push_model_badge(&mut lines, app);
     lines.push(Line::from(""));
     push_context_summary(&mut lines, app);

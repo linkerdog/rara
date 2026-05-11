@@ -57,10 +57,19 @@ pub fn is_provider_connected(app: &TuiApp, family: ProviderFamily) -> bool {
                 .is_some()
                 || std::env::var("DEEPSEEK_API_KEY").is_ok()
         }
-        ProviderFamily::Gemini => std::env::var("GEMINI_API_KEY").is_ok(),
-        ProviderFamily::OpenAiCompatible => {
-            config.provider_states.values().any(|s| s.api_key.is_some())
+        ProviderFamily::Gemini => {
+            std::env::var("GEMINI_API_KEY").is_ok()
+                || config
+                    .provider_states
+                    .get("gemini")
+                    .and_then(|s| s.api_key.as_ref())
+                    .is_some()
         }
+        ProviderFamily::OpenAiCompatible => config
+            .provider_states
+            .get("openai")
+            .and_then(|s| s.api_key.as_ref())
+            .is_some(),
         ProviderFamily::Ollama | ProviderFamily::CandleLocal => true,
         ProviderFamily::Bedrock => {
             config

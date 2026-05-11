@@ -416,7 +416,7 @@ pub(crate) async fn dispatch_event(
                 } else {
                     match kind {
                         ListPickerKind::Provider => {
-                            open_provider_family_overlay(app, oauth_manager.as_ref()).await?;
+                            open_provider_family_overlay(app);
                             // If opened from /model and provider was just configured, jump to model.
                             if app.picker_intent == Some(PickerIntent::SwitchModel)
                                 && !app.config.provider.is_empty()

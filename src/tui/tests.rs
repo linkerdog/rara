@@ -2070,14 +2070,9 @@ async fn deepseek_provider_family_prompts_for_api_key_before_model_list() {
         .expect("oauth manager");
     app.provider_picker_idx = provider_family_idx(ProviderFamily::DeepSeek);
 
-    open_provider_family_overlay(&mut app, &oauth_manager)
-        .await
-        .expect("open overlay");
+    open_provider_family_overlay(&mut app);
 
-    assert_eq!(
-        app.overlay,
-        Some(Overlay::ListPicker(ListPickerKind::UnifiedModel))
-    );
+    assert_eq!(app.overlay, Some(Overlay::ApiKeyEditor));
 }
 
 #[tokio::test]
@@ -2790,12 +2785,10 @@ async fn codex_provider_family_routes_to_auth_picker_without_saved_login() {
 
     assert_eq!(app.selected_provider_family(), ProviderFamily::Codex);
 
-    open_provider_family_overlay(&mut app, &oauth_manager)
-        .await
-        .expect("open overlay");
+    open_provider_family_overlay(&mut app);
     assert_eq!(
         app.overlay,
-        Some(Overlay::ListPicker(ListPickerKind::UnifiedModel))
+        Some(Overlay::ListPicker(ListPickerKind::AuthMode))
     );
 }
 
@@ -2835,12 +2828,10 @@ async fn codex_provider_family_routes_to_model_picker_with_saved_login() {
         .expect("save api key");
     app.provider_picker_idx = 0;
 
-    open_provider_family_overlay(&mut app, &oauth_manager)
-        .await
-        .expect("open overlay");
+    open_provider_family_overlay(&mut app);
     assert_eq!(
         app.overlay,
-        Some(Overlay::ListPicker(ListPickerKind::UnifiedModel))
+        Some(Overlay::ListPicker(ListPickerKind::AuthMode))
     );
 }
 
@@ -2885,9 +2876,9 @@ async fn codex_provider_family_uses_saved_codex_provider_state() {
 
     assert!(codex_auth_is_available(&app, &oauth_manager));
 
-    open_provider_family_overlay(&mut app, &oauth_manager)
-        .await
-        .expect("open overlay");
+    open_provider_family_overlay(&mut app);
+    // Connected → overlay closes. Re-open for test assertion.
+    app.overlay = Some(Overlay::ListPicker(ListPickerKind::UnifiedModel));
     assert!(matches!(app.overlay, Some(Overlay::ListPicker(_))));
 }
 
@@ -2949,9 +2940,7 @@ async fn codex_model_picker_opens_reasoning_level_overlay_before_rebuild() {
     }];
 
     app.provider_picker_idx = 0;
-    open_provider_family_overlay(&mut app, &oauth_manager)
-        .await
-        .expect("open overlay");
+    open_provider_family_overlay(&mut app);
     app.overlay = Some(Overlay::ListPicker(ListPickerKind::UnifiedModel));
     app.model_picker_idx = 0;
 
