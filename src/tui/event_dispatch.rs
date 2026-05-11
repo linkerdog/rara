@@ -64,7 +64,7 @@ pub(crate) async fn dispatch_event(
             if matches!(app.overlay, Some(Overlay::ModelSearch)) {
                 app.model_search_query.push(c);
                 app.model_search_idx = 0;
-                return Ok(true);
+                return Ok(false);
             }
             if app.bottom_pane.input.is_empty() {
                 app.transcript_scroll = 0;
@@ -74,7 +74,7 @@ pub(crate) async fn dispatch_event(
         AppEvent::Backspace => {
             if matches!(app.overlay, Some(Overlay::ModelSearch)) {
                 app.model_search_query.pop();
-                return Ok(true);
+                return Ok(false);
             }
             app.backspace_active_input();
         }
@@ -123,7 +123,7 @@ pub(crate) async fn dispatch_event(
                     let next = (app.model_search_idx as i32 + delta).clamp(0, count as i32 - 1);
                     app.model_search_idx = next as usize;
                 }
-                return Ok(true);
+                return Ok(false);
             }
             let len = palette_commands(app, app.command_query()).len();
             if len > 0 {
