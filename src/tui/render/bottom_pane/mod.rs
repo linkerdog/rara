@@ -21,9 +21,6 @@ pub(crate) fn desired_viewport_height(app: &TuiApp, width: u16, rows: u16) -> u1
     if app.overlay.is_some() {
         return rows.max(1);
     }
-    if app.transcript_scroll > 0 {
-        return rows.max(1);
-    }
     let bottom_pane_height = desired_bottom_pane_height(app, width, rows);
     let has_active_content =
         !app.active_turn.entries.is_empty() || app.bottom_pane.has_pending_planning_suggestion();
