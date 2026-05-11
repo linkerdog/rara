@@ -200,8 +200,14 @@ impl SandboxManager {
             "/".to_string(),
             "--dev".to_string(),
             "/dev".to_string(),
+            // Mount host /dev/pts so that programs (e.g. Python os.ttyname)
+            // can find their controlling terminal inside the sandbox.
+            // bubblewrap --dev only creates static nodes (null, zero, …);
+            // it does not propagate the PTY slave from the parent terminal.
+            "--dev-bind-try".to_string(),
+            "/dev/pts".to_string(),
+            "/dev/pts".to_string(),
             "--proc".to_string(),
-            "/proc".to_string(),
             "--tmpfs".to_string(),
             "/tmp".to_string(),
             "--dir".to_string(),
