@@ -1555,10 +1555,7 @@ impl TuiApp {
             if matches!(self.overlay, None) {
                 self.open_overlay(Overlay::CommandPalette);
             }
-        } else if matches!(
-            self.overlay,
-            Some(Overlay::CommandPalette | Overlay::ModelSearch)
-        ) {
+        } else if matches!(self.overlay, Some(Overlay::CommandPalette)) {
             self.close_overlay();
         }
     }
