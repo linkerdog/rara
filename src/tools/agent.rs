@@ -927,7 +927,6 @@ impl BackgroundSubAgentStore {
             Ok(result) => {
                 record.progress.total_input_tokens = result.total_input_tokens as usize;
                 record.progress.total_output_tokens = result.total_output_tokens as usize;
-                record.progress.tool_use_count = result.total_input_tokens as usize; // approximate
                 record.status = result.status;
                 record.summary = Some(result.summary);
                 record.persistence_error = result.persistence_error;
