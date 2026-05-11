@@ -1,28 +1,25 @@
-// Bottom pane status — activity bar and footer rendering.
-use ratatui::{
-    layout::{Alignment, Rect},
-    style::{Color, Modifier, Style},
-    text::{Line, Span},
-    widgets::Paragraph,
-};
+// Bottom pane view builder — pre-computes structured view data from TuiApp.
+use ratatui::style::Color;
 
-use super::super::super::custom_terminal::Frame;
-use super::super::super::interaction_text::pending_interaction_hint_text;
-use super::super::super::queued_input::{pending_follow_up_hint, queued_follow_up_hint};
 use super::super::super::state::{
-    ActivePendingInteractionKind, GoalStatus, RuntimePhase, TaskKind, TuiApp,
+    ActivePendingInteractionKind, GoalStatus, PendingInteractionSnapshot, RalphGoal, RuntimePhase,
+    TaskKind, TuiApp,
 };
-use super::badge;
-use super::bottom_pane_style;
-use crate::tui::format::cache_hit_rate_label;
-use crate::tui::theme::*;
+use super::view::{ActivityView, BottomPaneView, FooterView};
+use crate::tui::theme::{
+    INTERACTION_SUB_AGENT, STATUS_INFO, STATUS_READY, STATUS_SUCCESS, STATUS_WARNING, TEXT_ACCENT,
+};
 
-pub(super) fn render_activity_bar(f: &mut Frame, app: &TuiApp, area: Rect) {
-    let (label, color, detail) = activity_status_line(app);
-    let mut spans = vec![Span::styled(
-        animated_activity_label(app, label),
-        Style::default().fg(color).add_modifier(Modifier::BOLD),
-    )];
+pub(super) fn build_bottom_pane_view(app: &TuiApp, width: u16, _height: u16) -> BottomPaneView {
+    BottomPaneView {
+        activity: build_activity_view(app, width),
+        footer: build_footer_view(app),
+    }
+}
+
+fn build_activity_view(app: &TuiApp, _width: u16) -> ActivityView {
+    let (label, label_color, detail) = activity_status_line(app);
+    let animated = animated_activity_label(app, label);
     let label_already_reflects_planning = matches!(
         app.active_pending_interaction().map(|item| item.kind),
         Some(
@@ -30,44 +27,45 @@ pub(super) fn render_activity_bar(f: &mut Frame, app: &TuiApp, area: Rect) {
                 | ActivePendingInteractionKind::PlanningQuestion
         )
     ) || matches!(label, "Planning");
+    let plan_badge = app.agent_execution_mode_label() == "plan" && !label_already_reflects_planning;
+    let perm_badge = app.permission_mode_label() != "auto";
+    let perm_label = app.permission_mode_label();
+    let goal_label = app.goal.as_ref().map(|goal| goal_label_text(goal.status));
+    let goal_detail = app.goal.as_ref().map(|goal| goal_detail_text(goal));
 
-    if app.agent_execution_mode_label() == "plan" && !label_already_reflects_planning {
-        spans.push(Span::raw("  "));
-        spans.push(badge("mode", "plan", TEXT_ACCENT));
+    ActivityView {
+        label: animated,
+        label_color,
+        detail,
+        plan_badge,
+        perm_badge,
+        perm_label,
+        goal_label,
+        goal_detail,
     }
-    if app.permission_mode_label() != "auto" {
-        spans.push(Span::raw("  "));
-        spans.push(badge("perm", app.permission_mode_label(), STATUS_INFO));
+}
+
+fn goal_label_text(status: GoalStatus) -> (&'static str, Color) {
+    match status {
+        GoalStatus::Pursuing => ("pursuing", STATUS_INFO),
+        GoalStatus::Paused => ("paused", STATUS_WARNING),
+        GoalStatus::Complete => ("done", STATUS_SUCCESS),
+        GoalStatus::BudgetLimited => ("budget", STATUS_WARNING),
     }
-    if let Some(goal) = app.goal.as_ref() {
-        spans.push(Span::raw("  "));
-        let (goal_label, goal_color) = match goal.status {
-            GoalStatus::Pursuing => ("pursuing", STATUS_INFO),
-            GoalStatus::Paused => ("paused", STATUS_WARNING),
-            GoalStatus::Complete => ("done", STATUS_SUCCESS),
-            GoalStatus::BudgetLimited => ("budget", STATUS_WARNING),
-        };
-        spans.push(badge("goal", goal_label, goal_color));
-        let goal_detail = if let Some(budget) = goal.token_budget {
-            format!(
-                "t{} · {}/{} tokens · {} left",
-                goal.turns_completed,
-                goal.tokens_used,
-                budget,
-                goal.remaining_tokens().unwrap_or(0)
-            )
-        } else {
-            format!("t{} · {} tokens", goal.turns_completed, goal.tokens_used)
-        };
-        spans.push(Span::raw(" "));
-        spans.push(Span::styled(goal_detail, Style::default().fg(TEXT_MUTED)));
+}
+
+fn goal_detail_text(goal: &RalphGoal) -> String {
+    if let Some(budget) = goal.token_budget {
+        format!(
+            "t{} · {}/{} tokens · {} left",
+            goal.turns_completed,
+            goal.tokens_used,
+            budget,
+            goal.remaining_tokens().unwrap_or(0)
+        )
+    } else {
+        format!("t{} · {} tokens", goal.turns_completed, goal.tokens_used)
     }
-    if !detail.is_empty() {
-        spans.push(Span::raw("  "));
-        spans.push(Span::styled(detail, Style::default().fg(TEXT_SECONDARY)));
-    }
-    let status = Paragraph::new(Line::from(spans)).style(bottom_pane_style());
-    f.render_widget(status, area);
 }
 
 pub(super) fn activity_status_line(app: &TuiApp) -> (&'static str, Color, String) {
@@ -116,7 +114,7 @@ pub(super) fn activity_status_line(app: &TuiApp) -> (&'static str, Color, String
         return (label, color, detail);
     }
 
-    if app.has_pending_planning_suggestion() {
+    if app.bottom_pane.has_pending_planning_suggestion() {
         return (
             "Planning Suggested",
             TEXT_ACCENT,
@@ -193,24 +191,14 @@ pub(super) fn animated_activity_label(app: &TuiApp, label: &str) -> String {
     format!("{label}{dots}")
 }
 
-pub(super) fn render_footer(f: &mut Frame, app: &TuiApp, area: Rect) {
-    if matches!(
-        app.overlay,
-        Some(super::super::super::state::Overlay::CommandPalette)
-    ) {
-        f.render_widget(Paragraph::new("").style(bottom_pane_style()), area);
-        return;
+fn build_footer_view(app: &TuiApp) -> FooterView {
+    FooterView {
+        text: footer_summary_text(app),
+        hide: matches!(
+            app.overlay,
+            Some(crate::tui::state::Overlay::CommandPalette)
+        ),
     }
-    let summary = footer_summary_text(app);
-    f.render_widget(
-        Paragraph::new(Line::from(Span::styled(
-            summary,
-            Style::default().fg(TEXT_SECONDARY),
-        )))
-        .style(bottom_pane_style())
-        .alignment(Alignment::Right),
-        area,
-    );
 }
 
 pub(super) fn footer_summary_text(app: &TuiApp) -> String {
@@ -223,11 +211,11 @@ pub(super) fn footer_summary_text(app: &TuiApp) -> String {
     if shows_live_task_stats(app) {
         parts.push(format!(
             "tokens={}",
-            crate::tui::status_display::format_token_count(app.snapshot.estimated_history_tokens),
+            crate::tui::status_display::format_token_count(app.snapshot.estimated_history_tokens,),
         ));
     }
 
-    if let Some(rate) = cache_hit_rate_label(
+    if let Some(rate) = crate::tui::format::cache_hit_rate_label(
         app.snapshot.total_cache_hit_tokens,
         app.snapshot.total_cache_miss_tokens,
     ) {
