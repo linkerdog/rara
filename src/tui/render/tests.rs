@@ -629,7 +629,7 @@ fn transcript_viewport_visible_window_slices_to_visible_rows() {
         80,
     );
 
-    // height=3 reserves 1 bottom row, giving 2 visible content rows.
+    // height=3 gives 3 visible content rows.
     let (lines, inner_scroll) = viewport.visible_window(80, 3);
     let rendered = lines
         .into_iter()
@@ -637,7 +637,7 @@ fn transcript_viewport_visible_window_slices_to_visible_rows() {
         .collect::<Vec<_>>();
 
     assert_eq!(inner_scroll, 0);
-    assert_eq!(rendered, vec!["• Second", "  Third"]);
+    assert_eq!(rendered, vec!["• Second", "  Third", "  Fourth"]);
 }
 
 #[test]
