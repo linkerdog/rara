@@ -1,3 +1,5 @@
+use std::time::Duration;
+
 use super::*;
 use crate::context::{
     AssembledContext, AssembledTurnContext, ContextAssembler, RuntimeContextInputs,
@@ -80,12 +82,20 @@ impl Agent {
         let mut policy = ToolResultProjectionPolicy::default()
             .for_provider_cache_edit(self.llm_backend.cache_profile().cache_edit);
 
-        // Time-based trigger (Claude Code style):
-        // If the session has been idle for a while, the provider cache is likely cold.
-        // We can disable cache-edit eligibility to allow more aggressive microcompaction
-        // since we'll pay the cache-miss penalty anyway.
+        // Time-based trigger (Claude Code microcompact style):
+        // When the gap since the last interaction exceeds 60 minutes, the
+        // provider prompt cache has expired (typical TTL is ~1 hour).
+        // We tighten keep_recent to send a smaller payload — we're paying
+        // the cache-miss cost anyway, so there's no benefit to preserving
+        // old tool results for cache stability.
         let idle_duration = self.last_interaction_time.elapsed();
-        if idle_duration > std::time::Duration::from_secs(300) {
+        const CACHE_TTL_IDLE_THRESHOLD: Duration = Duration::from_secs(3600);
+        const CACHE_EDIT_IDLE_THRESHOLD: Duration = Duration::from_secs(300);
+
+        if idle_duration > CACHE_TTL_IDLE_THRESHOLD {
+            policy.keep_recent = 2;
+            policy.cache_edit_eligible = false;
+        } else if idle_duration > CACHE_EDIT_IDLE_THRESHOLD {
             policy.cache_edit_eligible = false;
         }
 
