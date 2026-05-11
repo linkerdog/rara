@@ -225,10 +225,12 @@ pub(crate) async fn build_backend_with_progress(
                 .model
                 .clone()
                 .unwrap_or_else(|| kind.default_model().to_string());
-            let base_url = config
+            let surface = config.effective_provider_surface();
+            let base_url = surface
                 .base_url
-                .clone()
-                .unwrap_or_else(|| kind.default_base_url().to_string());
+                .value
+                .unwrap_or_else(|| kind.default_base_url())
+                .to_string();
             let mut backend = OpenAiCompatibleBackend::new_with_endpoint_kind_and_reasoning(
                 config.api_key_secret(),
                 base_url.clone(),
