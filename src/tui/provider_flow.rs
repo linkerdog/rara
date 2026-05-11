@@ -157,7 +157,14 @@ pub(super) fn open_provider_connection(app: &mut TuiApp) {
     }
 
     match family {
-        ProviderFamily::DeepSeek | ProviderFamily::Gemini => {
+        ProviderFamily::DeepSeek => {
+            if app.config.base_url.is_none() {
+                app.config.base_url = Some(crate::config::DEFAULT_DEEPSEEK_BASE_URL.to_string());
+            }
+            app.open_overlay(Overlay::ApiKeyEditor);
+            app.bottom_pane.notice = Some(format!("Enter your {label} API key."));
+        }
+        ProviderFamily::Gemini => {
             app.open_overlay(Overlay::ApiKeyEditor);
             app.bottom_pane.notice = Some(format!("Enter your {label} API key."));
         }

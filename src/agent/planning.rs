@@ -154,6 +154,14 @@ impl Agent {
         self.execution_mode = mode;
     }
 
+    pub fn set_max_turns(&mut self, max_turns: usize) {
+        self.max_turns = if max_turns == 0 {
+            None
+        } else {
+            Some(max_turns)
+        };
+    }
+
     pub fn execution_mode_label(&self) -> &'static str {
         match self.execution_mode {
             AgentExecutionMode::Execute => "execute",
