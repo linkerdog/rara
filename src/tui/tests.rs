@@ -3305,3 +3305,44 @@ async fn save_api_key_input_sets_codex_defaults_before_rebuild() {
         Some(crate::oauth::SavedCodexAuthMode::ApiKey)
     );
 }
+
+#[tokio::test]
+async fn deepseek_model_picker_shows_dynamic_models_after_list_load() {
+    use crate::config::OpenAiEndpointKind;
+
+    let temp = tempdir().expect("tempdir");
+    let mut app = TuiApp::new(ConfigManager {
+        path: temp.path().join("config.json"),
+    })
+    .expect("build tui app");
+
+    app.config
+        .select_openai_profile("deepseek-default", "DeepSeek", OpenAiEndpointKind::Deepseek);
+    app.config.set_api_key("sk-deepseek-test");
+    app.provider_picker_idx = provider_family_idx(ProviderFamily::DeepSeek);
+    app.open_overlay(Overlay::ListPicker(ListPickerKind::Model));
+
+    let initial_count = ListPickerKind::Model.item_count(&app);
+    assert!(
+        initial_count > 0,
+        "initial model list should have fallback models"
+    );
+
+    app.set_deepseek_model_options(vec![
+        "deepseek-chat".to_string(),
+        "deepseek-reasoner".to_string(),
+    ]);
+    let loaded_count = ListPickerKind::Model.item_count(&app);
+    assert_eq!(
+        loaded_count, 3,
+        "after loading models, picker should show 2 models + 1 action"
+    );
+
+    app.close_overlay();
+    app.open_overlay(Overlay::ListPicker(ListPickerKind::Model));
+    assert_eq!(
+        ListPickerKind::Model.item_count(&app),
+        3,
+        "after reopening picker, still 2 models + 1 action"
+    );
+}
