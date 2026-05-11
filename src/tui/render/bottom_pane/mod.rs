@@ -12,26 +12,24 @@ use ratatui::{
 };
 
 use super::super::custom_terminal::Frame;
-use super::super::state::{ActivePendingInteractionKind, TuiApp};
-use super::badge;
-use crate::tui::theme::*;
+use super::super::state::TuiApp;
+use crate::tui::theme::{STATUS_SUCCESS, STATUS_WARNING, SURFACE_BOTTOM_PANE_BG, TEXT_ACCENT};
+
+const BOTTOM_PANE_BG: Color = SURFACE_BOTTOM_PANE_BG;
 
 pub(crate) fn desired_viewport_height(app: &TuiApp, width: u16, rows: u16) -> u16 {
     if app.overlay.is_some() {
         return rows.max(1);
     }
-
     if app.transcript_scroll > 0 {
         return rows.max(1);
     }
-
     let bottom_pane_height = desired_bottom_pane_height(app, width, rows);
     let has_active_content =
-        !app.active_turn.entries.is_empty() || app.has_pending_planning_suggestion();
+        !app.active_turn.entries.is_empty() || app.bottom_pane.has_pending_planning_suggestion();
     if !app.has_any_transcript() && !has_active_content {
         return rows.max(1);
     }
-
     rows.saturating_sub(bottom_pane_height).max(1)
 }
 
@@ -43,17 +41,21 @@ pub(crate) fn desired_bottom_pane_height(app: &TuiApp, width: u16, rows: u16) ->
     total.clamp(min, max)
 }
 
+pub(super) fn bottom_pane_style() -> Style {
+    Style::default().bg(BOTTOM_PANE_BG)
+}
+
 pub(super) fn render_bottom_pane(
     f: &mut Frame,
     app: &mut TuiApp,
     area: Rect,
 ) -> Option<(u16, u16)> {
     let view = view_builder::build_bottom_pane_view(app, area.width, area.height);
-    // Highlight the bottom pane background when a pending interaction needs attention.
+
     let style = if let Some(pending) = app.active_pending_interaction() {
         let color = match pending.kind {
-            ActivePendingInteractionKind::ShellApproval => STATUS_WARNING,
-            ActivePendingInteractionKind::PlanApproval => TEXT_ACCENT,
+            super::super::state::ActivePendingInteractionKind::ShellApproval => STATUS_WARNING,
+            super::super::state::ActivePendingInteractionKind::PlanApproval => TEXT_ACCENT,
             _ => STATUS_SUCCESS,
         };
         Style::default().bg(color).fg(Color::Black)
@@ -61,15 +63,7 @@ pub(super) fn render_bottom_pane(
         bottom_pane_style()
     };
     f.render_widget(Block::default().style(style), area);
-    render_bottom_pane_inner(f, app, area, &view)
-}
 
-fn render_bottom_pane_inner(
-    f: &mut Frame,
-    app: &mut TuiApp,
-    area: Rect,
-    view: &view::BottomPaneView,
-) -> Option<(u16, u16)> {
     let composer_height = area.height.saturating_sub(2).max(3);
     let chunks = Layout::default()
         .direction(Direction::Vertical)
@@ -83,8 +77,4 @@ fn render_bottom_pane_inner(
     let cursor = composer::render_composer(f, app, chunks[1]);
     footer::render_footer(f, &view.footer, chunks[2]);
     cursor
-}
-
-pub(super) fn bottom_pane_style() -> Style {
-    Style::default().bg(SURFACE_BOTTOM_PANE_BG)
 }

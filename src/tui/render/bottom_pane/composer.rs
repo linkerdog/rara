@@ -15,7 +15,7 @@ use super::super::super::queued_input::{pending_follow_up_hint, queued_follow_up
 use super::super::super::state::char_offset_to_byte_index;
 use super::super::super::state::{ActivePendingInteractionKind, GoalStatus, TaskKind, TuiApp};
 use super::bottom_pane_style;
-use crate::tui::theme::*;
+use crate::tui::theme::{TEXT_ACCENT, TEXT_MUTED, TEXT_SECONDARY};
 
 const COMPOSER_TAB_WIDTH: usize = 4;
 

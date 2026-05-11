@@ -1,34 +1,23 @@
 // Bottom pane view builder — pre-computes structured view data from TuiApp.
-use ratatui::{style::Color, text::Line};
+use ratatui::style::Color;
 
-use super::super::super::interaction_text::pending_interaction_hint_text;
-use super::super::super::queued_input::{pending_follow_up_hint, queued_follow_up_hint};
 use super::super::super::state::{
-    ActivePendingInteractionKind, GoalStatus, RuntimePhase, TaskKind, TuiApp,
+    ActivePendingInteractionKind, GoalStatus, PendingInteractionSnapshot, RalphGoal, RuntimePhase,
+    TaskKind, TuiApp,
 };
-use super::composer::{composer_content_line_count, find_cursor_row_in_wrapped, wrapped_text_rows};
-use super::view::*;
-use crate::tui::format::cache_hit_rate_label;
-use crate::tui::state::Overlay;
-use crate::tui::status_display::format_token_count;
-use crate::tui::theme::*;
+use super::view::{ActivityView, BottomPaneView, FooterView};
+use crate::tui::theme::{
+    INTERACTION_SUB_AGENT, STATUS_INFO, STATUS_READY, STATUS_SUCCESS, STATUS_WARNING, TEXT_ACCENT,
+};
 
-pub(super) fn build_bottom_pane_view(
-    app: &mut crate::tui::state::TuiApp,
-    width: u16,
-    rows: u16,
-) -> BottomPaneView {
-    let activity = build_activity_view(app);
-    let composer = build_composer_view(app, width, rows);
-    let footer = build_footer_view(app);
+pub(super) fn build_bottom_pane_view(app: &TuiApp, width: u16, _height: u16) -> BottomPaneView {
     BottomPaneView {
-        activity,
-        composer,
-        footer,
+        activity: build_activity_view(app, width),
+        footer: build_footer_view(app),
     }
 }
 
-fn build_activity_view(app: &TuiApp) -> ActivityView {
+fn build_activity_view(app: &TuiApp, _width: u16) -> ActivityView {
     let (label, label_color, detail) = activity_status_line(app);
     let animated = animated_activity_label(app, label);
     let label_already_reflects_planning = matches!(
@@ -41,7 +30,8 @@ fn build_activity_view(app: &TuiApp) -> ActivityView {
     let plan_badge = app.agent_execution_mode_label() == "plan" && !label_already_reflects_planning;
     let perm_badge = app.permission_mode_label() != "auto";
     let perm_label = app.permission_mode_label();
-    let goal = app.goal.clone();
+    let goal_label = app.goal.as_ref().map(|goal| goal_label_text(goal.status));
+    let goal_detail = app.goal.as_ref().map(|goal| goal_detail_text(goal));
 
     ActivityView {
         label: animated,
@@ -50,7 +40,31 @@ fn build_activity_view(app: &TuiApp) -> ActivityView {
         plan_badge,
         perm_badge,
         perm_label,
-        goal,
+        goal_label,
+        goal_detail,
+    }
+}
+
+fn goal_label_text(status: GoalStatus) -> (&'static str, Color) {
+    match status {
+        GoalStatus::Pursuing => ("pursuing", STATUS_INFO),
+        GoalStatus::Paused => ("paused", STATUS_WARNING),
+        GoalStatus::Complete => ("done", STATUS_SUCCESS),
+        GoalStatus::BudgetLimited => ("budget", STATUS_WARNING),
+    }
+}
+
+fn goal_detail_text(goal: &RalphGoal) -> String {
+    if let Some(budget) = goal.token_budget {
+        format!(
+            "t{} · {}/{} tokens · {} left",
+            goal.turns_completed,
+            goal.tokens_used,
+            budget,
+            goal.remaining_tokens().unwrap_or(0)
+        )
+    } else {
+        format!("t{} · {} tokens", goal.turns_completed, goal.tokens_used)
     }
 }
 
@@ -100,7 +114,7 @@ pub(super) fn activity_status_line(app: &TuiApp) -> (&'static str, Color, String
         return (label, color, detail);
     }
 
-    if app.has_pending_planning_suggestion() {
+    if app.bottom_pane.has_pending_planning_suggestion() {
         return (
             "Planning Suggested",
             TEXT_ACCENT,
@@ -159,156 +173,60 @@ pub(super) fn activity_status_line(app: &TuiApp) -> (&'static str, Color, String
 }
 
 pub(super) fn animated_activity_label(app: &TuiApp, label: &str) -> String {
-    if !app.is_busy() || app.active_turn.entries.is_empty() {
+    if label.is_empty() {
+        return String::new();
+    }
+    let Some(task) = app.bottom_pane.running_task.as_ref() else {
+        return label.to_string();
+    };
+    if !matches!(task.kind, TaskKind::Query | TaskKind::Rebuild) {
         return label.to_string();
     }
-    if let Some(task) = &app.bottom_pane.running_task {
-        let elapsed_ms = task.started_at.elapsed().as_millis();
-        let dots = match (elapsed_ms / 500) % 4 {
-            0 => "",
-            1 => ".",
-            2 => "..",
-            _ => "...",
-        };
-        return format!("{label}{dots}");
-    }
-    label.to_string()
-}
 
-fn build_composer_view(app: &mut TuiApp, area_width: u16, area_height: u16) -> ComposerInputView {
-    let cursor_offset = app.composer_cursor_offset();
-    let input = app.bottom_pane.input.clone();
-
-    let content_rows = composer_content_line_count(app, area_width) as usize;
-    let cursor_row =
-        find_cursor_row_in_wrapped(&input, cursor_offset, area_width, Some("› "), Some("  "));
-    app.maintain_composer_scroll(
-        area_width,
-        area_height.saturating_sub(1),
-        cursor_row,
-        content_rows,
-    );
-
-    let hint = if matches!(app.overlay, Some(Overlay::CommandPalette)) {
-        Line::default()
-    } else if input.trim_start().starts_with('/') {
-        crate::tui::render::bottom_pane::composer::parse_hint_with_keys(
-            "slash command  Enter run  Esc close",
-        )
-    } else if let Some(pending) = app.active_pending_interaction() {
-        let text = pending_interaction_hint_text(pending.kind);
-        if text.is_empty() {
-            Line::default()
-        } else {
-            crate::tui::render::bottom_pane::composer::parse_hint_with_keys(text)
-        }
-    } else if app.has_pending_follow_up_messages() {
-        let text = pending_follow_up_hint();
-        if text.is_empty() {
-            Line::default()
-        } else {
-            crate::tui::render::bottom_pane::composer::parse_hint_with_keys(text)
-        }
-    } else if app.has_queued_follow_up_messages() {
-        let text = queued_follow_up_hint();
-        if text.is_empty() {
-            Line::default()
-        } else {
-            crate::tui::render::bottom_pane::composer::parse_hint_with_keys(text)
-        }
-    } else if app.is_busy() {
-        let text = if app
-            .bottom_pane
-            .running_task
-            .as_ref()
-            .is_some_and(|task| matches!(task.kind, TaskKind::Query))
-        {
-            "Enter queue  Esc/Ctrl+C cancel"
-        } else {
-            "Enter queue"
-        };
-        crate::tui::render::bottom_pane::composer::parse_hint_with_keys(text)
-    } else if app.has_pending_planning_suggestion() {
-        crate::tui::render::bottom_pane::composer::parse_hint_with_keys(
-            "planning suggested  1 enter planning mode  2 continue in execute mode",
-        )
-    } else if app.agent_execution_mode_label() == "plan" {
-        crate::tui::render::bottom_pane::composer::parse_hint_with_keys(
-            "planning mode  read-only planning; approve to execute",
-        )
-    } else {
-        Line::default()
+    let dots = match (task.started_at.elapsed().as_millis() / 450) % 3 {
+        0 => ".",
+        1 => "..",
+        _ => "...",
     };
-
-    ComposerInputView {
-        input,
-        cursor_offset,
-        scroll: app.bottom_pane.composer_scroll,
-        hint,
-        overlay: app.overlay,
-    }
+    format!("{label}{dots}")
 }
 
 fn build_footer_view(app: &TuiApp) -> FooterView {
-    let hide = matches!(app.overlay, Some(Overlay::CommandPalette));
-    let parts = footer_summary_parts(app);
-    FooterView { parts, hide }
+    FooterView {
+        text: footer_summary_text(app),
+        hide: matches!(
+            app.overlay,
+            Some(crate::tui::state::Overlay::CommandPalette)
+        ),
+    }
 }
 
-fn footer_summary_parts(app: &TuiApp) -> Vec<String> {
+pub(super) fn footer_summary_text(app: &TuiApp) -> String {
     let mut parts: Vec<String> = Vec::new();
 
     if let Some(hint) = app.repo_context_hint() {
         parts.push(hint);
     }
 
-    let live = shows_live_task_stats(app);
-    if let Some(task) = &app.bottom_pane.running_task
-        && live
-    {
-        let elapsed = task.started_at.elapsed();
-        let secs = elapsed.as_secs();
-        let mins = secs / 60;
-        let secs_remainder = secs % 60;
-        let elapsed_str = if mins > 0 {
-            format!("elapsed={mins}m{secs_remainder}s")
-        } else {
-            format!("elapsed={secs}s")
-        };
-        parts.push(elapsed_str);
-    }
-    if live && app.snapshot.total_cache_hit_tokens > 0 {
-        parts.push(format!(
-            "tokens={} (↓{})",
-            format_token_count(
-                app.snapshot.estimated_history_tokens
-                    + app.snapshot.total_cache_hit_tokens as usize
-                    + app.snapshot.total_cache_miss_tokens as usize
-            ),
-            format_token_count(
-                (app.snapshot.total_cache_hit_tokens + app.snapshot.total_cache_miss_tokens)
-                    as usize
-            ),
-        ));
-    } else if live {
+    if shows_live_task_stats(app) {
         parts.push(format!(
             "tokens={}",
-            format_token_count(app.snapshot.estimated_history_tokens)
+            crate::tui::status_display::format_token_count(app.snapshot.estimated_history_tokens,),
         ));
     }
 
-    if let Some(rate) = cache_hit_rate_label(
+    if let Some(rate) = crate::tui::format::cache_hit_rate_label(
         app.snapshot.total_cache_hit_tokens,
         app.snapshot.total_cache_miss_tokens,
     ) {
         parts.push(format!("cache_hit={rate}"));
     }
 
-    if !live && app.snapshot.compaction_count > 0 {
+    if !shows_live_task_stats(app) && app.snapshot.compaction_count > 0 {
         parts.push(format!("compactions={}", app.snapshot.compaction_count));
     }
 
-    parts
+    parts.join("  ")
 }
 
 fn shows_live_task_stats(app: &TuiApp) -> bool {
@@ -319,9 +237,4 @@ fn shows_live_task_stats(app: &TuiApp) -> bool {
                 | RuntimePhase::ProcessingResponse
                 | RuntimePhase::RunningTool
         )
-}
-
-#[allow(dead_code)]
-pub(super) fn footer_summary_text(app: &TuiApp) -> String {
-    footer_summary_parts(app).join("  ")
 }
