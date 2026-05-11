@@ -357,6 +357,17 @@ impl RaraConfig {
         self.migrate_legacy_openai_profiles();
     }
 
+    /// Hardcoded base URL for built-in providers. Returns the default API
+    /// endpoint for known provider IDs. Custom/openai-compatible providers
+    /// return None (they have their base_url set via profiles).
+    fn provider_hardcoded_base_url(provider: &str) -> Option<&'static str> {
+        match provider {
+            "deepseek" => Some("https://api.deepseek.com"),
+            "gemini" => Some("https://generativelanguage.googleapis.com"),
+            _ => None,
+        }
+    }
+
     pub fn effective_provider_surface(&self) -> EffectiveProviderSurface<'_> {
         let provider_state = if self.provider == "openai-compatible" {
             None
@@ -392,7 +403,7 @@ impl RaraConfig {
                     .or_else(|| profile.and_then(|profile| profile.base_url.as_deref())),
                 self.base_url.as_deref(),
                 None,
-                None,
+                Self::provider_hardcoded_base_url(self.provider.as_str()),
             ),
             revision: resolve_provider_value(
                 provider_state

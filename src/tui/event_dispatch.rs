@@ -257,9 +257,6 @@ pub(crate) async fn dispatch_event(
                     app.codex_auth_mode = Some(SavedCodexAuthMode::ApiKey);
                     app.config
                         .apply_codex_defaults_for_base_url(DEFAULT_CODEX_BASE_URL);
-                } else if was_deepseek && app.config.base_url.is_none() {
-                    app.config.base_url =
-                        Some(crate::config::DEFAULT_DEEPSEEK_BASE_URL.to_string());
                 }
                 app.config_manager.save(&app.config)?;
                 if app.config.provider == "codex" {
