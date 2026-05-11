@@ -319,12 +319,7 @@ pub(crate) fn format_token_count(tokens: usize) -> String {
 
 /// One-line context summary used by sidebar.
 pub(crate) fn context_sidebar_summary(snap: &crate::tui::state::RuntimeSnapshot) -> String {
-    let used = snap
-        .stable_instructions_budget
-        .saturating_add(snap.active_turn_budget)
-        .saturating_add(snap.compacted_history_budget)
-        .saturating_add(snap.retrieved_memory_budget);
-    let token_label = format_token_count(used);
+    let token_label = format_token_count(snap.estimated_history_tokens);
     let mut parts = vec![token_label];
     if let Some(window) = snap.context_window_tokens {
         parts.push(format!("{} tokens", format_token_count(window)));
