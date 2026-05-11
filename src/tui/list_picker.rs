@@ -245,7 +245,7 @@ impl ListPickerKind {
             .collect()
     }
 
-    fn render_auth_mode_items(selected: usize) -> Vec<ListItem<'static>> {
+    fn render_auth_mode_items(_selected: usize) -> Vec<ListItem<'static>> {
         vec![
             ListItem::new(ratatui::text::Line::from(
                 "Browser Login (browser-based OAuth)",
