@@ -120,6 +120,8 @@ pub struct UnifiedModelPreset {
     pub model_id: String,
     pub model_label: String,
     pub status: Option<String>,
+    /// Context window in tokens, if known.
+    pub context_window: Option<u32>,
 }
 
 impl PermissionMode {

@@ -593,6 +593,7 @@ impl TuiApp {
                             model_id: "gpt-4o".into(),
                             model_label: "gpt-4o".into(),
                             status: None,
+                            context_window: None,
                         });
                     } else {
                         for opt in &self.codex_model_options {
@@ -603,6 +604,7 @@ impl TuiApp {
                                 model_id: opt.id.clone(),
                                 model_label: opt.label.clone(),
                                 status: None,
+                                context_window: None,
                             });
                         }
                     }
@@ -617,6 +619,7 @@ impl TuiApp {
                             model_id: "deepseek-chat".into(),
                             model_label: "deepseek-chat".into(),
                             status: None,
+                            context_window: None,
                         });
                     } else {
                         for model in &self.deepseek_model_options {
@@ -627,6 +630,7 @@ impl TuiApp {
                                 model_id: model.clone(),
                                 model_label: model.clone(),
                                 status: None,
+                                context_window: None,
                             });
                         }
                     }
@@ -646,6 +650,7 @@ impl TuiApp {
                             model_id: model_id.clone(),
                             model_label: model_id,
                             status: None,
+                            context_window: None,
                         });
                     }
 
@@ -660,6 +665,7 @@ impl TuiApp {
                                 model_id: preset.2.to_string(),
                                 model_label: preset.0.to_string(),
                                 status: None,
+                                context_window: None,
                             });
                         }
                     }
@@ -673,6 +679,7 @@ impl TuiApp {
                             model_id: preset.2.to_string(),
                             model_label: preset.0.to_string(),
                             status: Some("alpha".to_string()),
+                            context_window: None,
                         });
                     }
                 }
@@ -685,6 +692,7 @@ impl TuiApp {
                             model_id: preset.2.to_string(),
                             model_label: preset.0.to_string(),
                             status: None,
+                            context_window: None,
                         });
                     }
                 }
@@ -697,6 +705,7 @@ impl TuiApp {
                             model_id: preset.2.to_string(),
                             model_label: preset.0.to_string(),
                             status: None,
+                            context_window: None,
                         });
                     }
                 }
@@ -708,11 +717,25 @@ impl TuiApp {
                         model_id: "gemini-3-flash".to_string(),
                         model_label: "Gemini 3 Flash".to_string(),
                         status: None,
+                        context_window: None,
                     });
                 }
             }
         }
+        for p in &mut results {
+            p.context_window = Self::resolve_context_window(&p.model_id);
+        }
         results
+    }
+
+    /// Look up context window tokens for a model from provider catalogs.
+    fn resolve_context_window(model_id: &str) -> Option<u32> {
+        for &(name, tokens) in rara_provider_catalog::deepseek::MODEL_WINDOWS {
+            if model_id == name {
+                return Some(tokens);
+            }
+        }
+        None
     }
 
     pub fn select_unified_model(&mut self, idx: usize) {

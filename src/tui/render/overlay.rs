@@ -668,10 +668,18 @@ fn render_model_search(f: &mut Frame, app: &TuiApp, area: Rect) {
                 Style::default().add_modifier(Modifier::BOLD),
             );
             let family = Span::styled(
-                format!("  {}", p.provider_label.as_str()),
+                p.provider_label.as_str(),
                 Style::default().fg(TEXT_SECONDARY),
             );
-            ListItem::new(Line::from(vec![name, family]))
+            let window = if let Some(tokens) = p.context_window {
+                Span::styled(
+                    format!("  · {: >4.0} K", tokens as f64 / 1000.0),
+                    Style::default().fg(TEXT_MUTED),
+                )
+            } else {
+                Span::raw("")
+            };
+            ListItem::new(Line::from(vec![name, family, window]))
         })
         .collect();
 
