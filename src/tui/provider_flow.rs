@@ -162,11 +162,9 @@ pub(super) fn open_provider_connection(app: &mut TuiApp) {
             app.bottom_pane.notice = Some(format!("Enter your {label} API key."));
         }
         ProviderFamily::Codex => {
-            let target_idx = app.first_unified_preset_idx_for_family(family);
-            app.model_picker_idx = target_idx;
-            app.open_overlay(Overlay::ListPicker(ListPickerKind::UnifiedModel));
+            app.open_overlay(Overlay::ListPicker(ListPickerKind::AuthMode));
             app.bottom_pane.notice = Some(format!(
-                "Select a model for {label}. OAuth will start if needed."
+                "Choose authentication mode for {label}: OAuth or API key."
             ));
         }
         ProviderFamily::OpenAiCompatible => {

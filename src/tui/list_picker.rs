@@ -248,17 +248,13 @@ impl ListPickerKind {
     fn render_auth_mode_items(selected: usize) -> Vec<ListItem<'static>> {
         vec![
             ListItem::new(ratatui::text::Line::from(
-                "[1] Browser Login (browser-based OAuth)",
-            ))
-            .style(Self::selected_style(0, selected)),
+                "Browser Login (browser-based OAuth)",
+            )),
             ListItem::new(ratatui::text::Line::from(
-                "[2] Device Code Login (headless/SSH)",
-            ))
-            .style(Self::selected_style(1, selected)),
-            ListItem::new(ratatui::text::Line::from("[3] API Key"))
-                .style(Self::selected_style(2, selected)),
-            ListItem::new(ratatui::text::Line::from("[4] Sign Out"))
-                .style(Self::selected_style(3, selected)),
+                "Device Code Login (headless/SSH)",
+            )),
+            ListItem::new(ratatui::text::Line::from("API Key")),
+            ListItem::new(ratatui::text::Line::from("Sign Out")),
         ]
     }
 
