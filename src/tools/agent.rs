@@ -6,7 +6,7 @@ use std::sync::{
     Arc, Mutex,
     atomic::{AtomicBool, Ordering},
 };
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use async_trait::async_trait;
 use futures::stream::{self, StreamExt, TryStreamExt};
@@ -305,6 +305,7 @@ impl SubagentProgress {
 
 const TEAM_CREATE_MAX_TASKS: usize = 8;
 const TEAM_CREATE_CONCURRENCY_LIMIT: usize = 4;
+const SUBAGENT_TIMEOUT_SECS: u64 = 300;
 
 macro_rules! strict_read_only_subagent_prompt {
     () => {
@@ -782,6 +783,7 @@ struct BackgroundSubAgentRecord {
     session_id: String,
     name: Option<String>,
     model: Option<String>,
+    progress: SubagentProgress,
     kind: &'static str,
     parent_session_id: Option<String>,
     status: &'static str,
@@ -804,6 +806,9 @@ impl BackgroundSubAgentStore {
             session_id: session_id.clone(),
             name: start.name.clone(),
             model: start.definition.model.clone(),
+            progress: SubagentProgress::new(
+                start.name.clone().unwrap_or_else(|| "sub-agent".into()),
+            ),
             kind: start.kind.label(),
             parent_session_id: start.parent_session_id.clone(),
             status: "running",
@@ -977,6 +982,12 @@ impl BackgroundSubAgentRecord {
             "session_id": self.session_id,
             "name": self.name,
             "model": self.model,
+            "progress": {
+                "name": self.progress.subagent_name,
+                "tool_use_count": self.progress.tool_use_count,
+                "latest_activity": self.progress.latest_activity(),
+                "total_tokens": self.progress.total_tokens(),
+            },
             "kind": self.kind,
             "parent_session_id": self.parent_session_id,
             "status": self.status,
@@ -1247,12 +1258,20 @@ async fn run_sub_agent(
         sub.set_max_turns(def_max_turns);
     }
 
-    sub.query_with_mode(
+    let query_fut = sub.query_with_mode(
         instruction.to_string(),
         crate::agent::AgentOutputMode::Silent,
-    )
-    .await
-    .map_err(|e| ToolError::ExecutionFailed(e.to_string()))?;
+    );
+
+    tokio::time::timeout(Duration::from_secs(SUBAGENT_TIMEOUT_SECS), query_fut)
+        .await
+        .map_err(|_| {
+            ToolError::ExecutionFailed(format!(
+                "sub-agent timed out after {} seconds",
+                SUBAGENT_TIMEOUT_SECS
+            ))
+        })?
+        .map_err(|e| ToolError::ExecutionFailed(e.to_string()))?;
 
     let status = kind.result_status();
     let summary = latest_assistant_text(&sub).unwrap_or_else(|| "Sub-agent finished.".to_string());
