@@ -15,15 +15,16 @@ pub const MODEL_WINDOWS: &[(&str, u32)] = &[
     ("deepseek-reasoner", 65_536),
     ("deepseek-v4-flash", 1_048_576),
     ("deepseek-v4-pro", 1_048_576),
+    ("deepseek-v4-preview", 1_048_576),
 ];
 
-pub const FALLBACK_MODELS: [&str; 4] = [
+pub const FALLBACK_MODELS: [&str; 5] = [
     "deepseek-chat",
     "deepseek-reasoner",
     "deepseek-v4-flash",
     "deepseek-v4-pro",
+    "deepseek-v4-preview",
 ];
-
 #[derive(Deserialize)]
 struct ModelsResponse {
     data: Vec<ModelEntry>,
