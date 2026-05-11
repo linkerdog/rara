@@ -855,10 +855,6 @@ fn sandbox_command_env(
             format!("{sandbox_home}/.cache"),
         ),
         (
-            "XDG_STATE_HOME".to_string(),
-            format!("{sandbox_home}/.local/state"),
-        ),
-        (
             "XDG_DATA_HOME".to_string(),
             format!("{sandbox_home}/.local/share"),
         ),
@@ -868,6 +864,11 @@ fn sandbox_command_env(
             .iter()
             .map(|(key, value)| (key.clone(), value.clone())),
     );
+    // Apply sandbox defaults that survive base_env but can be
+    // overridden by explicit overrides.
+    env_map
+        .entry("TERM".to_string())
+        .or_insert("dumb".to_string());
     env_map.extend(
         overrides
             .iter()
@@ -879,7 +880,6 @@ fn sandbox_command_env(
     }
     env_map
 }
-
 fn ensure_usable_path(env_map: &mut HashMap<String, String>) {
     let needs_path = env_map.get("PATH").is_none_or(|value| value.is_empty());
     if needs_path {
