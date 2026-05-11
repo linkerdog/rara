@@ -67,18 +67,20 @@ Model list: each row shows model name + context window size.
 
 ## Implementation Plan
 
-### Phase 1 — Connection state (P0)
-- Add `fn is_provider_connected(app: &TuiApp, family: ProviderFamily) -> bool`
-- Add green/red dot rendering to list picker items
-- Display connected providers in sidebar
+### Phase 1 — Connection state (P0) ✅ DONE (#362)
+- [x] Add `fn is_provider_connected(app: &TuiApp, family: ProviderFamily) -> bool`
+- [x] Add green/red dot rendering to list picker items
+- [x] ~~Display connected providers in sidebar~~ removed — too cluttered
 
-### Phase 2 — Refactor /connect (P0)
-- Remove forced config wizard
-- Provider picker → check credentials → auth if needed → list models
+### Phase 2 — Refactor /connect (P0) ✅ DONE (#365)
+- [x] Remove forced config wizard
+- [x] Connected → notice "Provider is connected ✓"
+- [x] Not-connected → auth overlay (ApiKeyEditor, AuthMode, Profile editor)
 
-### Phase 3 — Refactor /model (P1)
-- Two-step: provider picker → model list
-- Model list shows context window sizes from `MODEL_WINDOWS` map
+### Phase 3 — Refactor /model (P1) ✅ DONE (#362)
+- [x] ModelSearch overlay with input-driven filtering
+- [ ] **Remaining**: show context window sizes from `MODEL_WINDOWS` map in ModelSearch items
+- [ ] **Remaining**: model list from API (`/v1/models`) for connected providers, fallback to `MODEL_WINDOWS`
 
 ## Future
 - Custom provider support (arbitrary API endpoint + API key)
