@@ -807,9 +807,46 @@ fn ssh_startup_page_warns_without_opening_setup_window() {
     assert_snapshot!("ssh_startup_warning_screen", rendered);
 }
 
+struct ScopedEnvGuard {
+    saved: Vec<(String, Option<String>)>,
+}
+
+impl ScopedEnvGuard {
+    fn remove(vars: &[&str]) -> Self {
+        let saved = vars
+            .iter()
+            .map(|v| (v.to_string(), std::env::var(v).ok()))
+            .collect();
+        for v in vars {
+            unsafe { std::env::remove_var(v) };
+        }
+        Self { saved }
+    }
+}
+
+impl Drop for ScopedEnvGuard {
+    fn drop(&mut self) {
+        for (var, val) in &self.saved {
+            if let Some(v) = val {
+                unsafe { std::env::set_var(var, v) };
+            } else {
+                unsafe { std::env::remove_var(var) };
+            }
+        }
+    }
+}
+
 #[test]
 fn provider_picker_renders_as_full_overlay_on_standard_terminal() {
     let temp = tempdir().expect("tempdir");
+    // Scrub all API-key env vars so the snapshot is deterministic regardless
+    // of developer machine or CI environment.
+    let _guard = ScopedEnvGuard::remove(&[
+        "CODEX_API_KEY",
+        "DEEPSEEK_API_KEY",
+        "OPENAI_API_KEY",
+        "GEMINI_API_KEY",
+    ]);
     let cm = ConfigManager {
         path: temp.path().join("config.json"),
     };
