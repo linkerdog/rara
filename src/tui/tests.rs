@@ -1783,6 +1783,86 @@ async fn paste_normalizes_crlf_and_cr_newlines() {
 }
 
 #[test]
+fn large_paste_inserts_placeholder_at_cursor_position() {
+    let temp = tempdir().expect("tempdir");
+    let mut app = TuiApp::new(ConfigManager {
+        path: temp.path().join("config.json"),
+    })
+    .expect("build tui app");
+    // Pre-fill input and move cursor to middle
+    app.bottom_pane.input = "before after".to_string();
+    app.bottom_pane.input_cursor_offset = Some("before ".chars().count());
+
+    let big = "x".repeat(1200);
+    super::terminal_ui::handle_paste(big.clone(), &mut app);
+    app.bottom_pane.flush_paste_burst();
+
+    // Placeholder should appear at cursor position, not end
+    assert!(
+        app.bottom_pane
+            .input
+            .starts_with("before [Pasted Content #0 — 1200 chars]after")
+    );
+    // Cursor should be after the placeholder
+    assert_eq!(
+        app.composer_cursor_offset(),
+        "before [Pasted Content #0 — 1200 chars]".chars().count()
+    );
+}
+
+#[test]
+fn multiple_large_pastes_accumulate_in_pending_vec() {
+    let temp = tempdir().expect("tempdir");
+    let mut app = TuiApp::new(ConfigManager {
+        path: temp.path().join("config.json"),
+    })
+    .expect("build tui app");
+
+    let big_a = "a".repeat(1200);
+    let big_b = "b".repeat(1100);
+    super::terminal_ui::handle_paste(big_a.clone(), &mut app);
+    app.bottom_pane.flush_paste_burst();
+    assert_eq!(app.bottom_pane.large_paste_pending.len(), 1);
+
+    super::terminal_ui::handle_paste(big_b.clone(), &mut app);
+    app.bottom_pane.flush_paste_burst();
+    assert_eq!(app.bottom_pane.large_paste_pending.len(), 2);
+
+    // Both placeholders should be in the input
+    assert!(app.bottom_pane.input.contains("Pasted Content #0"));
+    assert!(app.bottom_pane.input.contains("Pasted Content #1"));
+    // Counters should be unique
+    assert_ne!(
+        app.bottom_pane.large_paste_pending[0].0,
+        app.bottom_pane.large_paste_pending[1].0
+    );
+}
+
+#[test]
+fn expand_large_paste_replaces_all_placeholders() {
+    let temp = tempdir().expect("tempdir");
+    let mut app = TuiApp::new(ConfigManager {
+        path: temp.path().join("config.json"),
+    })
+    .expect("build tui app");
+
+    let big = "z".repeat(1500);
+    super::terminal_ui::handle_paste(big.clone(), &mut app);
+    app.bottom_pane.flush_paste_burst();
+    assert!(app.bottom_pane.large_paste_pending.len() == 1);
+    assert!(app.bottom_pane.input.contains("Pasted Content"));
+    assert!(!app.bottom_pane.input.contains(&big));
+
+    app.bottom_pane.expand_large_paste();
+
+    // After expand: placeholder gone, full text present, counter reset
+    assert!(!app.bottom_pane.input.contains("Pasted Content"));
+    assert!(app.bottom_pane.input.contains(&big));
+    assert_eq!(app.bottom_pane.large_paste_pending.len(), 0);
+    assert_eq!(app.bottom_pane.large_paste_counter, 0);
+}
+
+#[test]
 fn crossterm_paste_event_uses_paste_channel() {
     let temp = tempdir().expect("tempdir");
     let mut app = TuiApp::new(ConfigManager {

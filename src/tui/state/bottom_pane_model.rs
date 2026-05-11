@@ -29,8 +29,10 @@ pub struct BottomPaneModel {
     // avoiding O(n²) per-frame redraws for long pastes.
     pub(super) paste_burst_buffer: Option<String>,
     pub(super) paste_burst_deadline: Option<Instant>,
-    /// (placeholder, full_text) — expanded on submit via expand_large_paste.
-    pub(super) large_paste_pending: Option<(String, String)>,
+    /// Large pastes pending expansion on submit. Each entry is
+    /// `(placeholder_text, full_text)` where placeholder is unique.
+    pub(crate) large_paste_pending: Vec<(String, String)>,
+    pub(crate) large_paste_counter: u32,
 }
 
 impl BottomPaneModel {
@@ -46,7 +48,8 @@ impl BottomPaneModel {
             notice: None,
             paste_burst_buffer: None,
             paste_burst_deadline: None,
-            large_paste_pending: None,
+            large_paste_pending: Vec::new(),
+            large_paste_counter: 0,
         }
     }
 
@@ -98,12 +101,17 @@ impl BottomPaneModel {
         let is_large = char_count > 1000;
 
         if is_large {
-            let placeholder = format!("[Pasted Content {} chars]", char_count);
-            self.input.push_str(&placeholder);
-            self.input_cursor_offset = None;
-            self.large_paste_pending = Some((placeholder, buf));
+            let counter = self.large_paste_counter;
+            self.large_paste_counter += 1;
+            let placeholder = format!("[Pasted Content #{} — {} chars]", counter, char_count);
+            // Insert placeholder at cursor position instead of end
+            let offset = self.composer_cursor_offset();
+            let pos = char_offset_to_byte_index(&self.input, offset);
+            self.input.insert_str(pos, &placeholder);
+            self.input_cursor_offset = Some(offset + placeholder.chars().count());
+            self.large_paste_pending.push((placeholder, buf));
             self.notice = Some(format!(
-                "Large paste ({char_count} chars) — expanded on submit"
+                "Large paste #{counter} ({char_count} chars) — expanded on submit"
             ));
             return true;
         }
@@ -130,9 +138,12 @@ impl BottomPaneModel {
 
     /// Replace paste placeholder in input with the real text. Call before submit.
     pub(crate) fn expand_large_paste(&mut self) {
-        if let Some((placeholder, full_text)) = self.large_paste_pending.take() {
+        let pending: Vec<_> = std::mem::take(&mut self.large_paste_pending);
+        for (placeholder, full_text) in pending {
             self.input = self.input.replace(&placeholder, &full_text);
         }
+        // Also handle legacy single-entry format for safety
+        self.large_paste_counter = 0;
     }
 
     pub fn has_queued_follow_up_messages(&self) -> bool {
