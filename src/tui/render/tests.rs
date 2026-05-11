@@ -810,10 +810,14 @@ fn ssh_startup_page_warns_without_opening_setup_window() {
 #[test]
 fn provider_picker_renders_as_full_overlay_on_standard_terminal() {
     let temp = tempdir().expect("tempdir");
-    let mut app = TuiApp::new(ConfigManager {
+    let cm = ConfigManager {
         path: temp.path().join("config.json"),
-    })
-    .expect("build tui app");
+    };
+    let mut config = RaraConfig::default();
+    config.clear_api_key();
+    cm.save(&config).expect("save config");
+
+    let mut app = TuiApp::new(cm).expect("build tui app");
     app.open_overlay(Overlay::ListPicker(ListPickerKind::Provider));
 
     let rendered = render_screen_text(&mut app, 100, 24);
