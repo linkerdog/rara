@@ -321,9 +321,11 @@ pub(crate) fn format_token_count(tokens: usize) -> String {
 pub(crate) fn context_sidebar_summary(snap: &crate::tui::state::RuntimeSnapshot) -> String {
     let used = snap
         .stable_instructions_budget
+        .saturating_add(snap.workspace_prompt_budget)
         .saturating_add(snap.active_turn_budget)
         .saturating_add(snap.compacted_history_budget)
-        .saturating_add(snap.retrieved_memory_budget);
+        .saturating_add(snap.retrieved_memory_budget)
+        .saturating_add(snap.reserved_output_tokens);
     let token_label = format_token_count(used);
     let mut parts = vec![token_label];
     if let Some(window) = snap.context_window_tokens {
