@@ -244,11 +244,12 @@ impl ApprovalCell {
 
 impl HistoryCell for ApprovalCell {
     fn display_lines(&self, _width: u16) -> Vec<Line<'static>> {
+        let card_style = Style::default().fg(PENDING_CARD_FG).bg(PENDING_CARD_BG);
         let mut lines = vec![Line::from(section_label(self.title, self.color))];
         lines.extend(
             self.lines
                 .iter()
-                .map(|line| Line::from(format!("  {line}"))),
+                .map(|line| Line::from(Span::styled(format!("  {line}"), card_style))),
         );
         lines
     }
