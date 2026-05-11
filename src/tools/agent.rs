@@ -411,6 +411,14 @@ impl SubAgentKind {
         }
     }
 
+    fn default_max_turns(self) -> usize {
+        match self {
+            SubAgentKind::Plan => 200,
+            SubAgentKind::General => 100,
+            SubAgentKind::Explore => 100,
+        }
+    }
+
     fn read_only(self) -> bool {
         !matches!(self, SubAgentKind::General)
     }
@@ -1259,10 +1267,17 @@ async fn run_sub_agent(
         kind.execution_mode()
     });
     sub.set_prompt_config(append_subagent_prompt(prompt_config, kind.append_prompt()));
-    let def_max_turns = definition.map(|d| d.max_turns).unwrap_or(0);
-    if def_max_turns > 0 {
-        sub.set_max_turns(def_max_turns);
-    }
+
+    let def_max_turns = definition
+        .and_then(|d| {
+            if d.max_turns > 0 {
+                Some(d.max_turns)
+            } else {
+                None
+            }
+        })
+        .unwrap_or_else(|| kind.default_max_turns());
+    sub.set_max_turns(def_max_turns);
 
     let query_fut = sub.query_with_mode(
         instruction.to_string(),
