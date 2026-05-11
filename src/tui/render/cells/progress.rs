@@ -5,7 +5,7 @@ use super::super::{
 };
 use super::HistoryCell;
 use super::summary_cells::{ExploringCell, PlanningCell, RunningCell};
-use super::thinking_cells::{ThinkingGroupCell, ThinkingTextCell};
+use super::thinking_cells::ThinkingBlockCell;
 use crate::tui::state::{ActiveLiveEvent, TranscriptEntry};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -92,7 +92,7 @@ pub(super) fn push_progress_group<'a>(
 ) {
     match role {
         ProgressRole::Thinking => {
-            cells.push(Box::new(ThinkingTextCell::new(&messages.join("\n"), 4)))
+            cells.push(Box::new(ThinkingBlockCell::new(&messages.join("\n"), 4)))
         }
         ProgressRole::Exploring => cells.push(Box::new(ExploringCell::new(
             compact_summary_lines(messages.as_slice(), 4, "more exploration step(s)"),
@@ -193,16 +193,11 @@ pub(super) fn push_live_thinking_group<'a>(
     if messages.is_empty() && stream_lines.is_none_or(|lines| lines.is_empty()) {
         return;
     }
-    if stream_lines.is_some() {
-        cells.push(Box::new(ThinkingGroupCell::new(
-            std::mem::take(messages).join("\n"),
-            stream_lines,
-            4,
-        )));
-        return;
-    }
-    cells.push(Box::new(ThinkingTextCell::new(&messages.join("\n"), 4)));
-    messages.clear();
+    cells.push(Box::new(ThinkingBlockCell::with_stream_lines(
+        std::mem::take(messages).join("\n"),
+        stream_lines,
+        4,
+    )));
 }
 
 pub(super) fn push_live_exploration_group<'a>(
