@@ -11,7 +11,7 @@ use ratatui::{
 };
 
 use crate::tui::custom_terminal::Frame;
-use crate::tui::state::{PROVIDER_FAMILIES, ProviderFamily, TuiApp, is_provider_connected};
+use crate::tui::state::TuiApp;
 use crate::tui::status_display::context_sidebar_summary;
 use crate::tui::theme::*;
 
@@ -91,30 +91,7 @@ fn push_session_info(lines: &mut Vec<Line<'static>>, app: &TuiApp) {
         Style::default().fg(TEXT_MUTED),
     )));
 }
-
-fn push_provider_connections(lines: &mut Vec<Line<'static>>, app: &TuiApp) {
-    lines.push(Line::from(super::section_label(
-        "Providers",
-        TEXT_SECONDARY,
-    )));
-    for (family, name, _) in PROVIDER_FAMILIES.iter() {
-        let connected = is_provider_connected(app, *family);
-        let dot = if connected { "●" } else { "○" };
-        let color = if connected {
-            STATUS_SUCCESS
-        } else {
-            TEXT_MUTED
-        };
-        lines.push(Line::from(Span::styled(
-            format!("  {dot}  {name}"),
-            Style::default().fg(color),
-        )));
-    }
-}
-
 fn push_model_badge(lines: &mut Vec<Line<'static>>, app: &TuiApp) {
-    lines.push(Line::from(super::section_label("Model", TEXT_SECONDARY)));
-
     let provider = &app.config.provider;
     let provider = provider.as_str();
 
