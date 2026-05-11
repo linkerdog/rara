@@ -23,6 +23,7 @@ mod mcp_tool_cache;
 mod memory_distiller;
 mod memory_store;
 mod oauth;
+mod plugin_middleware;
 mod print_consumer;
 mod prompt;
 mod protocol_sources;
