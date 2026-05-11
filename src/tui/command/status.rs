@@ -211,7 +211,7 @@ fn format_token_percent(tokens: usize, window: Option<usize>) -> String {
 
 fn context_usage_line(label: &str, tokens: usize, window: Option<usize>) -> String {
     format!(
-        "  {label}: {}{}",
+        "  {label:>20}: {:>8}{}",
         format_token_count(tokens),
         format_token_percent(tokens, window)
     )
@@ -239,20 +239,20 @@ fn render_context_usage_summary(app: &TuiApp) -> String {
 
     let mut lines = vec![
         "Context Usage".to_string(),
-        format!("  model: {}", routing.main_model),
+        format!("  {:>20}: {}", "model", routing.main_model),
         format!(
-            "  auxiliary: {} ({})",
-            routing.auxiliary_model, routing.auxiliary_route
+            "  {:>20}: {} ({})",
+            "auxiliary", routing.auxiliary_model, routing.auxiliary_route
         ),
         format!(
-            "  used: {}{} / {}",
+            "  {:>20}: {:>8}{}  /  {}",
+            "used",
             format_token_count(used_tokens),
             format_token_percent(used_tokens, window),
             window
                 .map(format_token_count)
                 .unwrap_or_else(|| "unknown window".to_string())
         ),
-        "  Estimated usage by category".to_string(),
         context_usage_line("System prompt", prompt_tokens, window),
         context_usage_line("Active turn", app.snapshot.active_turn_budget, window),
         context_usage_line(
@@ -293,7 +293,7 @@ fn format_char_count(chars: usize) -> String {
 fn render_context_observability(app: &TuiApp) -> String {
     let view = &app.snapshot.context_observability;
     format!(
-        "Observability\n  cache: hit={} miss={} hit_rate={}\n  microcompact: enabled={} cache_edit_eligible={} cache_edit_applied={} cleared={} kept={} saved={} budget={} keep_recent={}\n  retrieval: providers={} candidates={} selected={} available={} dropped={} selected_budget={}\n  agent_turn: idx={} mode={} stop={} outcome={} phase={} text={} reasoning={} reasoning_only={} streamed_text={} streamed_reasoning={} assistant_recorded={} tools={} consecutive_reasoning_only={}",
+        "Observability\n  cache_hit: {}\n  cache_miss: {}\n  cache_hit_rate: {}\n  microcompact_enabled: {}\n  microcompact_cache_edit_eligible: {}\n  microcompact_cache_edit_applied: {}\n  microcompact_cleared: {}\n  microcompact_kept: {}\n  microcompact_saved_chars: {}\n  microcompact_budget_chars: {}\n  microcompact_keep_recent: {}\n  retrieval_providers: {}\n  retrieval_candidates: {}\n  retrieval_selected: {}\n  retrieval_available: {}\n  retrieval_dropped: {}\n  retrieval_selected_budget: {}\n  agent_turn_idx: {}\n  agent_turn_mode: {}\n  agent_turn_stop: {}\n  agent_turn_outcome: {}\n  agent_turn_phase: {}\n  agent_turn_text: {}\n  agent_turn_reasoning: {}\n  agent_turn_reasoning_only: {}\n  agent_turn_streamed_text: {}\n  agent_turn_streamed_reasoning: {}\n  agent_turn_assistant_recorded: {}\n  agent_turn_tools: {}\n  agent_turn_consecutive_reasoning_only: {}",
         format_token_count(view.cache.hit_tokens as usize),
         format_token_count(view.cache.miss_tokens as usize),
         format_basis_points(view.cache.hit_rate_basis_points),
