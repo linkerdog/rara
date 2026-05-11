@@ -1052,6 +1052,9 @@ impl Tool for BashTool {
             .envs(&command_env)
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
+        if wrapped.sandboxed {
+            command.stdin(Stdio::null());
+        }
         configure_process_group(&mut command);
         let started_at = Instant::now();
         let mut child = command.spawn().map_err(|err| {
