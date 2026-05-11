@@ -43,10 +43,6 @@ pub fn translate_event(event: Event, app: &TuiApp) -> Option<UiEvent> {
 }
 
 fn map_mouse_to_event(mouse_event: MouseEvent, app: &TuiApp) -> AppEvent {
-    if app.overlay.is_some() {
-        return AppEvent::Noop;
-    }
-
     match mouse_event.kind {
         MouseEventKind::ScrollUp | MouseEventKind::ScrollDown => {
             let direction: i32 = if matches!(mouse_event.kind, MouseEventKind::ScrollUp) {
@@ -55,8 +51,14 @@ fn map_mouse_to_event(mouse_event: MouseEvent, app: &TuiApp) -> AppEvent {
                 1
             };
             let lines = MOUSE_WHEEL_SCROLL_LINES as f64 * scroll_accel_factor();
-            AppEvent::ScrollTranscript((direction * lines.round() as i32).clamp(-15, 15))
+            let delta = (direction * lines.round() as i32).clamp(-15, 15);
+            if app.overlay.is_some() {
+                AppEvent::ScrollContext(delta)
+            } else {
+                AppEvent::ScrollTranscript(delta)
+            }
         }
+        // All other mouse events: ignore when overlay is open
         _ => AppEvent::Noop,
     }
 }
