@@ -865,10 +865,9 @@ fn sandbox_command_env(
             .map(|(key, value)| (key.clone(), value.clone())),
     );
     // Apply sandbox defaults that survive base_env but can be
-    // overridden by explicit overrides.
-    env_map
-        .entry("TERM".to_string())
-        .or_insert("dumb".to_string());
+    for (k, v) in [("TERM", "dumb"), ("NO_COLOR", "1"), ("PAGER", "cat")] {
+        env_map.entry(k.to_string()).or_insert(v.to_string());
+    }
     env_map.extend(
         overrides
             .iter()

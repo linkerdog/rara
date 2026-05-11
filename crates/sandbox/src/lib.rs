@@ -248,7 +248,7 @@ impl SandboxManager {
         allow_net: bool,
     ) -> Result<WrappedCommand> {
         let shell = shell_program();
-        let shell_flag = shell_command_flag(&shell);
+        let shell_flag = shell_command_flag(&shell, false);
         match &self.backend {
             SandboxBackend::MacosSeatbelt => {
                 let profile_path = self.create_profile(allow_net)?;
@@ -425,7 +425,7 @@ impl SandboxBackend {
 
 fn wrap_direct_shell_command(original_cmd: &str) -> WrappedCommand {
     let shell = shell_program();
-    let shell_flag = shell_command_flag(&shell);
+    let shell_flag = shell_command_flag(&shell, false);
     WrappedCommand {
         program: shell,
         args: vec![shell_flag, original_cmd.to_string()],
@@ -562,11 +562,19 @@ fn sanitize_shell_program(value: &str) -> Option<String> {
     }
 }
 
-fn shell_command_flag(_shell: &str) -> String {
+fn shell_command_flag(shell: &str, use_login_shell: bool) -> String {
+    let name = Path::new(shell)
+        .file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or(shell);
     // Use -c (non-login) so shell init files are not sourced.
-    // Login scripts (.zshrc, .bashrc) produce noise like "ttyname error"
-    // and can hang when stdin/stderr are pipes.
-    "-c".to_string()
+    // When use_login_shell is false, we avoid sourcing .zshrc/.bashrc,
+    // which can produce "ttyname error" noise and may hang in pipe environments.
+    if use_login_shell && matches!(name, "bash" | "zsh" | "ksh") {
+        "-lc".to_string()
+    } else {
+        "-c".to_string()
+    }
 }
 
 fn process_sandbox_home() -> PathBuf {
