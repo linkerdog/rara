@@ -650,6 +650,9 @@ impl Agent {
         loop {
             if let Some(max) = self.max_turns {
                 if *agentic_turns >= max {
+                    self.last_agent_turn_trace.loop_outcome = Some("stopped".to_string());
+                    self.last_agent_turn_trace.continuation_phase =
+                        Some("max_turns_reached".to_string());
                     report(AgentEvent::Status(format!(
                         "Agent reached max-turns limit ({max})",
                     )));

@@ -155,7 +155,11 @@ impl Agent {
     }
 
     pub fn set_max_turns(&mut self, max_turns: usize) {
-        self.max_turns = Some(max_turns);
+        self.max_turns = if max_turns == 0 {
+            None
+        } else {
+            Some(max_turns)
+        };
     }
 
     pub fn execution_mode_label(&self) -> &'static str {
