@@ -24,11 +24,13 @@ use crate::tui::render::{
 };
 use crate::tui::state::{ActivePendingInteractionKind, TuiApp};
 use crate::tui::sub_agent_display::SUB_AGENT_QUESTION_COLOR;
+use crate::tui::terminal_event::TerminalStream;
 use crate::tui::theme::*;
 
 pub(crate) struct TerminalCell {
     command: String,
     output: Vec<String>,
+    output_deltas: Vec<(TerminalStream, String)>,
     active: bool,
     success: Option<bool>,
 }
@@ -37,12 +39,14 @@ impl TerminalCell {
     pub(crate) fn new(
         command: impl Into<String>,
         output: Vec<String>,
+        output_deltas: Vec<(TerminalStream, String)>,
         active: bool,
         success: Option<bool>,
     ) -> Self {
         Self {
             command: command.into(),
             output,
+            output_deltas,
             active,
             success,
         }
@@ -146,6 +150,24 @@ impl HistoryCell for TerminalCell {
         // Stdout section
         if !stdout.is_empty() {
             lines.extend(Self::fold_output(stdout.len(), &stdout, "    "));
+        }
+
+        // Live output delta section (shown while terminal is running)
+        if self.active && !self.output_deltas.is_empty() {
+            let live_lines: Vec<String> = self
+                .output_deltas
+                .iter()
+                .flat_map(|(stream, chunk)| {
+                    let prefix = match stream {
+                        TerminalStream::Stderr => "[stderr] ",
+                        TerminalStream::Stdout => "",
+                    };
+                    chunk.lines().map(move |line| format!("{prefix}{line}"))
+                })
+                .collect();
+            if !live_lines.is_empty() {
+                lines.extend(Self::fold_output(live_lines.len(), &live_lines, "    "));
+            }
         }
 
         // Stderr section with colored background

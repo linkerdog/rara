@@ -50,7 +50,20 @@ impl<'a> MessageCell<'a> {
 }
 
 impl HistoryCell for MessageCell<'_> {
-    fn display_lines(&self, _width: u16) -> Vec<Line<'static>> {
+    fn display_lines(&self, width: u16) -> Vec<Line<'static>> {
+        if self.message.contains("*** Begin Patch") {
+            let mut lines = Vec::new();
+            if !self.role.is_empty() {
+                lines.push(Line::from(vec![Span::styled(
+                    self.role.to_string(),
+                    Style::default()
+                        .fg(TEXT_SECONDARY)
+                        .add_modifier(Modifier::ITALIC),
+                )]));
+            }
+            lines.extend(render_patch_preview(self.message, width));
+            return lines;
+        }
         formatted_message_lines(self.role, self.message, self.max_lines, self.cwd)
     }
 }
