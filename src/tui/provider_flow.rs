@@ -142,20 +142,53 @@ pub(super) async fn refresh_codex_model_picker(
     Ok(())
 }
 
+/// Opens the appropriate connection/configuration overlay for a provider.
+/// If already connected, shows a notice. If not, opens auth flow.
+pub(super) fn open_provider_connection(app: &mut TuiApp) {
+    let family = app.selected_provider_family();
+    let label = super::state::PROVIDER_FAMILIES[app.provider_picker_idx].1;
+
+    if super::state::is_provider_connected(app, family) {
+        app.bottom_pane.notice = Some(format!(
+            "{label} is connected ✓  Run /model to change models, /connect again to reconfigure."
+        ));
+        app.close_overlay();
+        return;
+    }
+
+    match family {
+        ProviderFamily::DeepSeek | ProviderFamily::Gemini => {
+            app.open_overlay(Overlay::ApiKeyEditor);
+            app.bottom_pane.notice = Some(format!("Enter your {label} API key."));
+        }
+        ProviderFamily::Codex => {
+            let target_idx = app.first_unified_preset_idx_for_family(family);
+            app.model_picker_idx = target_idx;
+            app.open_overlay(Overlay::ListPicker(ListPickerKind::UnifiedModel));
+            app.bottom_pane.notice = Some(format!(
+                "Select a model for {label}. OAuth will start if needed."
+            ));
+        }
+        ProviderFamily::OpenAiCompatible => {
+            app.open_overlay(Overlay::ListPicker(ListPickerKind::OpenAiProfile));
+            app.bottom_pane.notice =
+                Some("Set up your OpenAI-compatible endpoint: name, URL, and API key.".into());
+        }
+        _ => {
+            let target_idx = app.first_unified_preset_idx_for_family(family);
+            app.model_picker_idx = target_idx;
+            app.open_overlay(Overlay::ListPicker(ListPickerKind::UnifiedModel));
+            app.bottom_pane.notice = Some(format!("Select a model for {label}."));
+        }
+    }
+}
+
+// Keep the old function as a thin wrapper for the Codex auth-guide path
 pub(super) async fn open_provider_family_overlay(
     app: &mut TuiApp,
     _oauth_manager: &OAuthManager,
 ) -> anyhow::Result<()> {
-    use super::state::PROVIDER_FAMILIES;
-    let family = app.selected_provider_family();
-    let target_idx = app.first_unified_preset_idx_for_family(family);
-
-    app.model_picker_idx = target_idx;
-    app.open_overlay(Overlay::ListPicker(ListPickerKind::UnifiedModel));
-    app.bottom_pane.notice = Some(format!(
-        "Select a model for {}. Connection setup will start if needed.",
-        PROVIDER_FAMILIES[app.provider_picker_idx].1
-    ));
+    open_provider_connection(app);
     Ok(())
 }
 
