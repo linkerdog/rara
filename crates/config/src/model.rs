@@ -10,9 +10,10 @@ use serde::{Deserialize, Serialize};
 
 use crate::defaults::{
     DEFAULT_CODEX_BASE_URL, DEFAULT_CODEX_MODEL, DEFAULT_DEEPSEEK_BASE_URL, DEFAULT_DEEPSEEK_MODEL,
-    DEFAULT_KIMI_BASE_URL, DEFAULT_KIMI_MODEL, DEFAULT_OPENAI_COMPATIBLE_BASE_URL,
-    DEFAULT_OPENAI_COMPATIBLE_MODEL, DEFAULT_OPENROUTER_BASE_URL, DEFAULT_OPENROUTER_MODEL,
-    DEFAULT_REASONING_SUMMARY, should_apply_codex_base_url, should_reset_codex_model,
+    DEFAULT_GEMINI_BASE_URL, DEFAULT_KIMI_BASE_URL, DEFAULT_KIMI_MODEL,
+    DEFAULT_OPENAI_COMPATIBLE_BASE_URL, DEFAULT_OPENAI_COMPATIBLE_MODEL,
+    DEFAULT_OPENROUTER_BASE_URL, DEFAULT_OPENROUTER_MODEL, DEFAULT_REASONING_SUMMARY,
+    should_apply_codex_base_url, should_reset_codex_model,
 };
 use crate::mcp::{McpRegistry, load_mcp_registry};
 use crate::migration::migrate_reasoning_summary;
@@ -362,8 +363,8 @@ impl RaraConfig {
     /// return None (they have their base_url set via profiles).
     fn provider_hardcoded_base_url(provider: &str) -> Option<&'static str> {
         match provider {
-            "deepseek" => Some("https://api.deepseek.com"),
-            "gemini" => Some("https://generativelanguage.googleapis.com"),
+            "deepseek" => Some(DEFAULT_DEEPSEEK_BASE_URL),
+            "gemini" => Some(DEFAULT_GEMINI_BASE_URL),
             _ => None,
         }
     }
