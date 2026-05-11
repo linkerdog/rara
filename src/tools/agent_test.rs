@@ -838,6 +838,7 @@ fn background_subagent_store_prunes_old_completed_records() {
                     session_id: format!("session-{idx}"),
                     name: None,
                     model: None,
+                    progress: SubagentProgress::new("test".into()),
                     kind: "general",
                     parent_session_id: None,
                     status: "done",
