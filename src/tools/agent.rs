@@ -925,6 +925,9 @@ impl BackgroundSubAgentStore {
         record.finished_at = Some(unix_timestamp_secs());
         match result {
             Ok(result) => {
+                record.progress.total_input_tokens = result.total_input_tokens as usize;
+                record.progress.total_output_tokens = result.total_output_tokens as usize;
+                record.progress.tool_use_count = result.total_input_tokens as usize; // approximate
                 record.status = result.status;
                 record.summary = Some(result.summary);
                 record.persistence_error = result.persistence_error;
@@ -983,9 +986,11 @@ impl BackgroundSubAgentRecord {
             "name": self.name,
             "model": self.model,
             "progress": {
-                "name": self.progress.subagent_name,
                 "tool_use_count": self.progress.tool_use_count,
+                "tool_use_total": self.progress.tool_use_total,
                 "latest_activity": self.progress.latest_activity(),
+                "total_input_tokens": self.progress.total_input_tokens,
+                "total_output_tokens": self.progress.total_output_tokens,
                 "total_tokens": self.progress.total_tokens(),
             },
             "kind": self.kind,
@@ -1214,6 +1219,8 @@ struct SubAgentResult {
     plan: Option<Vec<PlanStep>>,
     plan_explanation: Option<String>,
     request_user_input: Option<PendingUserInput>,
+    total_input_tokens: u32,
+    total_output_tokens: u32,
 }
 
 async fn run_sub_agent(
@@ -1265,9 +1272,11 @@ async fn run_sub_agent(
 
     tokio::time::timeout(Duration::from_secs(SUBAGENT_TIMEOUT_SECS), query_fut)
         .await
-        .map_err(|_| {
+        .map_err(|_elapsed| {
             ToolError::ExecutionFailed(format!(
-                "sub-agent timed out after {} seconds",
+                "sub-agent {} ({}) timed out after {} seconds",
+                agent_id,
+                kind.label(),
                 SUBAGENT_TIMEOUT_SECS
             ))
         })?
@@ -1294,6 +1303,8 @@ async fn run_sub_agent(
     Ok(SubAgentResult {
         agent_id: agent_id.to_string(),
         session_id: sub.session_id.clone(),
+        total_input_tokens: sub.total_input_tokens,
+        total_output_tokens: sub.total_output_tokens,
         status,
         summary,
         persistence_error,
