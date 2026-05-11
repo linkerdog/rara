@@ -43,7 +43,6 @@ use crate::workspace::WorkspaceMemory;
 
 const MAX_RUNTIME_ERROR_RECOVERY_ATTEMPTS: usize = 1;
 const MAX_PLAN_EXIT_REPAIR_ATTEMPTS: usize = 1;
-const MAX_CONSECUTIVE_REASONING_ONLY_TURNS: usize = 3;
 
 pub use self::compact::{CompactBoundaryMetadata, CompactState, latest_compact_boundary_metadata};
 pub use self::planning::{
@@ -199,7 +198,6 @@ pub struct Agent {
     prompt_source_registry: Option<Arc<PromptSourceRegistry>>,
     skill_source_registry: Option<Arc<SkillSourceRegistry>>,
     cancellation_token: Option<Arc<AtomicBool>>,
-    consecutive_reasoning_only_turns: usize,
     last_interaction_time: std::time::Instant,
 }
 
@@ -284,7 +282,6 @@ impl Agent {
             prompt_source_registry: None,
             skill_source_registry: None,
             cancellation_token: None,
-            consecutive_reasoning_only_turns: 0,
             last_interaction_time: std::time::Instant::now(),
         }
     }
@@ -725,34 +722,10 @@ impl Agent {
             );
 
             if turn_output.tool_calls.is_empty() {
-                // Reset consecutive reasoning-only counter when the model
-                // produces visible text.
-                if turn_output.had_text_response {
-                    self.consecutive_reasoning_only_turns = 0;
-                }
                 let is_reasoning_only = Self::is_reasoning_only_turn(
                     turn_output.had_text_response,
                     turn_output.had_reasoning_response,
                 );
-                if is_reasoning_only {
-                    self.consecutive_reasoning_only_turns += 1;
-                    if self.consecutive_reasoning_only_turns > MAX_CONSECUTIVE_REASONING_ONLY_TURNS
-                    {
-                        self.record_agent_turn_trace(
-                            &turn_output,
-                            *agentic_turns,
-                            Some("stopped"),
-                            Some("reasoning_only_limit"),
-                            assistant_message_recorded,
-                        );
-                        report(AgentEvent::Status(
-                            "Model produced reasoning-only for too many consecutive turns. Stopping."
-                                .to_string(),
-                        ));
-                        self.complete_active_plan_step();
-                        break;
-                    }
-                }
                 if self.should_continue_plan_without_tools(
                     turn_output.plan_updated,
                     turn_output.continue_inspection,
@@ -824,9 +797,6 @@ impl Agent {
                 self.complete_active_plan_step();
                 break;
             }
-            // Reset consecutive reasoning-only counter when the model
-            // produces tool calls.
-            self.consecutive_reasoning_only_turns = 0;
             *agentic_turns += 1;
             self.record_agent_turn_trace(
                 &turn_output,
@@ -877,7 +847,6 @@ impl Agent {
             plan_updated: turn_output.plan_updated,
             continue_inspection: turn_output.continue_inspection,
             malformed_proposed_plan: turn_output.malformed_proposed_plan,
-            consecutive_reasoning_only_turns: self.consecutive_reasoning_only_turns,
         };
     }
 

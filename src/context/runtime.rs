@@ -415,7 +415,6 @@ pub struct AgentTurnTraceView {
     pub plan_updated: bool,
     pub continue_inspection: bool,
     pub malformed_proposed_plan: bool,
-    pub consecutive_reasoning_only_turns: usize,
 }
 
 impl RetrievalObservationView {
