@@ -839,7 +839,7 @@ impl BackgroundSubAgentStore {
             let result = run_sub_agent(
                 start.kind,
                 &start.agent_id,
-                None,
+                Some(&start.definition),
                 start.name.as_deref(),
                 start.parent_session_id.as_deref(),
                 &start.instruction,
@@ -1612,14 +1612,18 @@ fn build_filtered_tool_manager(kind: SubAgentKind, definition: &AgentDefinition)
     let mut tm = build_subagent_tool_manager(kind);
 
     if !definition.tools.is_empty() {
-        let allowed: std::collections::HashSet<&str> =
-            definition.tools.iter().map(|s| s.as_str()).collect();
+        let allowed: std::collections::HashSet<&str> = definition
+            .tools
+            .iter()
+            .map(|s| agent_tool_to_internal_name(s))
+            .collect();
         tm.retain(|name| allowed.contains(name));
-    } else if !definition.disallowed_tools.is_empty() {
+    }
+    if !definition.disallowed_tools.is_empty() {
         let blocked: std::collections::HashSet<&str> = definition
             .disallowed_tools
             .iter()
-            .map(|s| s.as_str())
+            .map(|s| agent_tool_to_internal_name(s))
             .collect();
         tm.retain(|name| !blocked.contains(name));
     }

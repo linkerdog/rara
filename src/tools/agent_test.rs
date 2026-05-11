@@ -1128,7 +1128,7 @@ fn filtered_tool_manager_respects_tools_whitelist() {
     let definition = AgentDefinition {
         name: "custom".into(),
         description: "custom".into(),
-        tools: vec!["grep".into(), "read_file".into()],
+        tools: vec!["Grep".into(), "Read".into()],
         disallowed_tools: vec![],
         model: None,
         max_turns: 0,
@@ -1150,7 +1150,7 @@ fn filtered_tool_manager_respects_disallowed_tools_blacklist() {
         name: "custom".into(),
         description: "custom".into(),
         tools: vec![],
-        disallowed_tools: vec!["grep".into(), "glob".into()],
+        disallowed_tools: vec!["Grep".into(), "Glob".into()],
         model: None,
         max_turns: 0,
         plan_mode_required: false,
@@ -1163,6 +1163,31 @@ fn filtered_tool_manager_respects_disallowed_tools_blacklist() {
     assert!(manager.get_tool("list_files").is_some());
     assert!(manager.get_tool("grep").is_none());
     assert!(manager.get_tool("glob").is_none());
+}
+
+#[test]
+fn filtered_tool_manager_disallowed_takes_precedence_over_tools() {
+    let definition = AgentDefinition {
+        name: "custom".into(),
+        description: "custom".into(),
+        tools: vec!["Grep".into(), "Read".into()],
+        disallowed_tools: vec!["Grep".into()],
+        model: None,
+        max_turns: 0,
+        plan_mode_required: false,
+        permission_mode: None,
+        hidden: false,
+        system_prompt: String::new(),
+    };
+    let manager = build_filtered_tool_manager(SubAgentKind::Explore, &definition);
+    assert!(
+        manager.get_tool("read_file").is_some(),
+        "Read should be allowed"
+    );
+    assert!(
+        manager.get_tool("grep").is_none(),
+        "Grep should be blocked by disallowed_tools"
+    );
 }
 
 #[test]
