@@ -31,7 +31,7 @@ fn build_activity_view(app: &TuiApp, _width: u16) -> ActivityView {
     let perm_badge = app.permission_mode_label() != "auto";
     let perm_label = app.permission_mode_label();
     let goal_label = app.goal.as_ref().map(|goal| goal_label_text(goal.status));
-    let goal_detail = app.goal.as_ref().map(|goal| goal_detail_text(goal));
+    let goal_detail = app.goal.as_ref().map(goal_detail_text);
 
     ActivityView {
         label: animated,

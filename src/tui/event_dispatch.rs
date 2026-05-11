@@ -494,19 +494,15 @@ pub(crate) async fn dispatch_event(
                                         }
                                     }
                                 }
-                                ProviderFamily::OpenAiCompatible => {
-                                    if app.openai_profile_needs_setup() {
-                                        app.begin_active_openai_profile_setup();
-                                    } else {
-                                        start_rebuild_task(app);
-                                    }
+                                ProviderFamily::OpenAiCompatible
+                                    if app.openai_profile_needs_setup() =>
+                                {
+                                    app.begin_active_openai_profile_setup();
                                 }
-                                ProviderFamily::DeepSeek | ProviderFamily::Gemini => {
-                                    if !app.config.has_api_key() {
-                                        app.open_overlay(Overlay::ApiKeyEditor);
-                                    } else {
-                                        start_rebuild_task(app);
-                                    }
+                                ProviderFamily::DeepSeek | ProviderFamily::Gemini
+                                    if !app.config.has_api_key() =>
+                                {
+                                    app.open_overlay(Overlay::ApiKeyEditor);
                                 }
                                 ProviderFamily::CandleLocal => {
                                     app.push_notice("Local models (alpha) are for preview only.");

@@ -7,6 +7,11 @@
 // The palette is based on the Nord color scheme (matching OpenCode's
 // default dark theme) extended with semantic tokens for UI, Markdown,
 // and syntax highlighting.
+//
+// Many constants are reserved for planned rendering features (Markdown
+// syntax highlighting, diff views, phase badges, etc.). The full palette
+// is kept here as a single source of truth.
+#![allow(dead_code)]
 use ratatui::style::Color;
 
 // ── Nord palette (reference) ────────────────────────────────────

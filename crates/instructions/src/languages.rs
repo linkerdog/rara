@@ -2,7 +2,6 @@ use std::path::Path;
 
 /// High-quality software engineering and idiomatic patterns for specific languages.
 /// Inspired by Claude Code's data references.
-
 pub fn get_language_prompt(cwd: &str) -> Option<String> {
     let root = Path::new(cwd);
 

@@ -600,9 +600,7 @@ pub(super) fn format_tool_result(name: &str, content: &str) -> String {
                 rendered.push('\n');
                 rendered.push_str(remainder.trim_end());
             }
-        } else if content.contains("<persisted-output>") {
-            rendered.push_str("\nfull result stored on disk");
-        } else if content.contains("full_result_path=") {
+        } else if content.contains("<persisted-output>") || content.contains("full_result_path=") {
             rendered.push_str("\nfull result stored on disk");
         } else if let Some(preview) = tool_result_preview(content) {
             rendered.push_str(&format!("\n{preview}"));

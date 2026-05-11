@@ -218,6 +218,7 @@ fn record_write_best_effort(read_state: &FileReadState, path: &str, content: &st
     }
 }
 
+#[derive(Default)]
 pub struct ReadFileTool {
     read_state: Option<SharedFileReadState>,
 }
@@ -227,12 +228,6 @@ impl ReadFileTool {
         Self {
             read_state: Some(read_state),
         }
-    }
-}
-
-impl Default for ReadFileTool {
-    fn default() -> Self {
-        Self { read_state: None }
     }
 }
 
@@ -516,6 +511,7 @@ fn truncate_read_line(line: &str) -> (String, bool) {
     (truncated, true)
 }
 
+#[derive(Default)]
 pub struct WriteFileTool {
     read_state: Option<SharedFileReadState>,
 }
@@ -525,12 +521,6 @@ impl WriteFileTool {
         Self {
             read_state: Some(read_state),
         }
-    }
-}
-
-impl Default for WriteFileTool {
-    fn default() -> Self {
-        Self { read_state: None }
     }
 }
 
@@ -582,6 +572,7 @@ impl Tool for WriteFileTool {
     }
 }
 
+#[derive(Default)]
 pub struct ReplaceTool {
     read_state: Option<SharedFileReadState>,
 }
@@ -591,12 +582,6 @@ impl ReplaceTool {
         Self {
             read_state: Some(read_state),
         }
-    }
-}
-
-impl Default for ReplaceTool {
-    fn default() -> Self {
-        Self { read_state: None }
     }
 }
 
@@ -650,6 +635,7 @@ impl Tool for ReplaceTool {
     }
 }
 
+#[derive(Default)]
 pub struct ReplaceLinesTool {
     read_state: Option<SharedFileReadState>,
 }
@@ -659,12 +645,6 @@ impl ReplaceLinesTool {
         Self {
             read_state: Some(read_state),
         }
-    }
-}
-
-impl Default for ReplaceLinesTool {
-    fn default() -> Self {
-        Self { read_state: None }
     }
 }
 
@@ -766,6 +746,7 @@ impl Tool for ReplaceLinesTool {
     }
 }
 
+#[derive(Default)]
 pub struct MultiEditTool {
     read_state: Option<SharedFileReadState>,
 }
@@ -775,12 +756,6 @@ impl MultiEditTool {
         Self {
             read_state: Some(read_state),
         }
-    }
-}
-
-impl Default for MultiEditTool {
-    fn default() -> Self {
-        Self { read_state: None }
     }
 }
 

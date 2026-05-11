@@ -116,7 +116,7 @@ impl SandboxManager {
             }
         }
         for root in &self.command_install_roots {
-            let root = sandbox_profile_string_literal(&root);
+            let root = sandbox_profile_string_literal(root);
             file_rules.push_str(&format!(
                 "(allow file-read* (subpath \"{root}\"))\n(allow file-map-executable (subpath \"{root}\"))\n"
             ));

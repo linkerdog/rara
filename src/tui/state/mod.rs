@@ -776,18 +776,17 @@ impl TuiApp {
                 self.config.set_model(Some(preset.model_id));
                 self.config.set_revision(None);
 
-                if preset.provider_id == "ollama" {
-                    if self
+                if preset.provider_id == "ollama"
+                    && self
                         .config
                         .base_url
                         .as_deref()
                         .map(str::trim)
                         .filter(|value| !value.is_empty())
                         .is_none()
-                    {
-                        self.config
-                            .set_base_url(Some("http://localhost:11434".to_string()));
-                    }
+                {
+                    self.config
+                        .set_base_url(Some("http://localhost:11434".to_string()));
                 }
             }
         }
@@ -1654,7 +1653,7 @@ impl TuiApp {
 
     pub fn sync_command_palette_with_input(&mut self) {
         if input_requests_command_palette(self.bottom_pane.input.as_str()) {
-            if matches!(self.overlay, None) {
+            if self.overlay.is_none() {
                 self.open_overlay(Overlay::CommandPalette);
             }
         } else if matches!(self.overlay, Some(Overlay::CommandPalette)) {
