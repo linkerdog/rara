@@ -1216,3 +1216,21 @@ fn resolve_spawn_agent_definition_falls_back_for_unknown() {
     assert_eq!(def.name, "unknown-agent");
     assert!(!def.plan_mode_required);
 }
+
+#[test]
+fn explore_agent_definition_has_default_max_turns_50() {
+    let def = resolve_kind_definition(SubAgentKind::Explore);
+    assert_eq!(def.max_turns, 50);
+}
+
+#[test]
+fn plan_agent_definition_has_default_max_turns_30() {
+    let def = resolve_kind_definition(SubAgentKind::Plan);
+    assert_eq!(def.max_turns, 30);
+}
+
+#[test]
+fn general_agent_definition_has_unlimited_max_turns() {
+    let def = resolve_kind_definition(SubAgentKind::General);
+    assert_eq!(def.max_turns, 0);
+}

@@ -239,7 +239,7 @@ fn builtin_agent_definition(name: &str) -> Option<AgentDefinition> {
             tools: vec!["Read".into(), "Glob".into(), "Grep".into()],
             disallowed_tools: vec!["Write".into(), "Edit".into(), "Bash".into()],
             model: None,
-            max_turns: 0,
+            max_turns: 50,
             permission_mode: None,
             plan_mode_required: false,
             hidden: false,
@@ -251,7 +251,7 @@ fn builtin_agent_definition(name: &str) -> Option<AgentDefinition> {
             tools: vec!["Read".into(), "Glob".into(), "Grep".into()],
             disallowed_tools: vec!["Write".into(), "Edit".into(), "Bash".into()],
             model: None,
-            max_turns: 0,
+            max_turns: 30,
             permission_mode: None,
             plan_mode_required: true,
             hidden: false,
@@ -1242,6 +1242,11 @@ async fn run_sub_agent(
         kind.execution_mode()
     });
     sub.set_prompt_config(append_subagent_prompt(prompt_config, kind.append_prompt()));
+    let def_max_turns = definition.map(|d| d.max_turns).unwrap_or(0);
+    if def_max_turns > 0 {
+        sub.set_max_turns(def_max_turns);
+    }
+
     sub.query_with_mode(
         instruction.to_string(),
         crate::agent::AgentOutputMode::Silent,
