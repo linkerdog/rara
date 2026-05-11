@@ -502,15 +502,8 @@ impl Agent {
                         report(AgentEvent::AssistantDelta(delta));
                     }
                     LlmStreamEvent::ReasoningDelta(delta) => {
-                        let non_empty = !delta.trim().is_empty();
-                        if non_empty {
-                            if !streamed_any_reasoning_delta {
-                                streamed_any_reasoning_delta = true;
-                                report(AgentEvent::AssistantDelta(format!("[Thinking] {delta}")));
-                            } else {
-                                report(AgentEvent::AssistantDelta(delta));
-                            }
-                        }
+                        streamed_any_reasoning_delta = true;
+                        report(AgentEvent::AssistantThinkingDelta(delta));
                     }
                 }
             })
