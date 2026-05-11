@@ -123,6 +123,10 @@ pub async fn run_tui(
             terminal.draw(|f| render(f, app))?;
             needs_redraw = false;
         }
+        // Flush any buffered paste burst before next event poll
+        if app.bottom_pane.check_paste_burst_flush() {
+            needs_redraw = true;
+        }
 
         tokio::select! {
             _ = tick.tick() => {

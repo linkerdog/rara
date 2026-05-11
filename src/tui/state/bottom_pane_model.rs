@@ -29,6 +29,8 @@ pub struct BottomPaneModel {
     // avoiding O(n²) per-frame redraws for long pastes.
     pub(super) paste_burst_buffer: Option<String>,
     pub(super) paste_burst_deadline: Option<Instant>,
+    /// (placeholder, full_text) — expanded on submit via expand_large_paste.
+    pub(super) large_paste_pending: Option<(String, String)>,
 }
 
 impl BottomPaneModel {
@@ -44,6 +46,7 @@ impl BottomPaneModel {
             notice: None,
             paste_burst_buffer: None,
             paste_burst_deadline: None,
+            large_paste_pending: None,
         }
     }
 
@@ -90,6 +93,21 @@ impl BottomPaneModel {
             return false;
         };
         self.paste_burst_deadline = None;
+
+        let char_count = buf.chars().count();
+        let is_large = char_count > 1000;
+
+        if is_large {
+            let placeholder = format!("[Pasted Content {} chars]", char_count);
+            self.input.push_str(&placeholder);
+            self.input_cursor_offset = None;
+            self.large_paste_pending = Some((placeholder, buf));
+            self.notice = Some(format!(
+                "Large paste ({char_count} chars) — expanded on submit"
+            ));
+            return true;
+        }
+
         let paste_end = {
             let old_offset = self.composer_cursor_offset();
             if self.input_cursor_offset.is_none() {
@@ -102,11 +120,19 @@ impl BottomPaneModel {
             }
         };
         self.input_cursor_offset = paste_end;
+        self.notice = Some(format!("Pasted {char_count} chars"));
         true
     }
 
     pub fn has_pending_planning_suggestion(&self) -> bool {
         self.pending_planning_suggestion.is_some()
+    }
+
+    /// Replace paste placeholder in input with the real text. Call before submit.
+    pub(crate) fn expand_large_paste(&mut self) {
+        if let Some((placeholder, full_text)) = self.large_paste_pending.take() {
+            self.input = self.input.replace(&placeholder, &full_text);
+        }
     }
 
     pub fn has_queued_follow_up_messages(&self) -> bool {

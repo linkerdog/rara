@@ -49,6 +49,7 @@ pub(crate) async fn dispatch_event(
             app.sidebar_visible = !app.sidebar_visible;
         }
         AppEvent::SubmitComposer => {
+            app.bottom_pane.expand_large_paste();
             if resume_pending_shell_approval_after_full_access(app, agent_slot) {
                 return Ok(false);
             }
