@@ -822,6 +822,15 @@ impl ScopedEnvGuard {
         }
         Self { saved }
     }
+
+    fn set(vars: &[(&str, &str)]) -> Self {
+        let keys: Vec<&str> = vars.iter().map(|(k, _)| *k).collect();
+        let mut guard = Self::remove(&keys);
+        for (k, v) in vars {
+            unsafe { std::env::set_var(k, v) };
+        }
+        guard
+    }
 }
 
 impl Drop for ScopedEnvGuard {
@@ -841,6 +850,9 @@ fn provider_picker_renders_as_full_overlay_on_standard_terminal() {
     let temp = tempdir().expect("tempdir");
     // Scrub all API-key env vars so the snapshot is deterministic regardless
     // of developer machine or CI environment.
+    // Redirect HOME to temp dir so OAuthManager (which reads ~/.rara/codex-auth/)
+    // finds no saved Codex OAuth tokens from the developer's real home.
+    let _home_guard = ScopedEnvGuard::set(&[("HOME", &temp.path().to_string_lossy())]);
     let _guard = ScopedEnvGuard::remove(&[
         "CODEX_API_KEY",
         "DEEPSEEK_API_KEY",
