@@ -1080,7 +1080,7 @@ fn active_turn_cell_shows_live_thinking_stream() {
         .collect::<Vec<_>>()
         .join("\n");
 
-    assert!(rendered.contains("# Thinking"));
+    assert!(rendered.contains("▾ Thinking ·"));
     assert!(rendered.contains("checking runtime events"));
 }
 
@@ -1122,7 +1122,7 @@ fn active_turn_cell_flattens_thinking_and_running_events_in_order() {
     assert!(first_thinking < first_running);
     assert!(first_running < second_thinking);
     assert!(second_thinking < second_running);
-    assert_eq!(rendered.matches("# Thinking").count(), 2);
+    assert_eq!(rendered.matches("▾ Thinking ·").count(), 2);
     assert_eq!(rendered.matches("# Running").count(), 2);
 }
 
@@ -1160,7 +1160,7 @@ fn active_turn_cell_places_streaming_thinking_after_latest_progress_event() {
 
     assert!(first_thinking < running);
     assert!(running < second_thinking);
-    assert_eq!(rendered.matches("# Thinking").count(), 2);
+    assert_eq!(rendered.matches("▾ Thinking ·").count(), 2);
     assert_eq!(rendered.matches("# Running").count(), 1);
 }
 
@@ -1198,7 +1198,7 @@ fn active_turn_cell_places_streaming_thinking_after_latest_exploration_event() {
 
     assert!(first_thinking < exploring);
     assert!(exploring < second_thinking);
-    assert_eq!(rendered.matches("# Thinking").count(), 2);
+    assert_eq!(rendered.matches("▾ Thinking ·").count(), 2);
     assert_eq!(rendered.matches("# Exploring").count(), 1);
 }
 
@@ -1233,7 +1233,7 @@ fn active_turn_cell_groups_consecutive_thinking_events_with_stream() {
     let second_thinking = rendered.find("second reasoning block").unwrap();
 
     assert!(first_thinking < second_thinking);
-    assert_eq!(rendered.matches("# Thinking").count(), 1);
+    assert_eq!(rendered.matches("▾ Thinking ·").count(), 1);
 }
 
 #[test]
@@ -1408,7 +1408,7 @@ fn active_turn_cell_shows_live_thinking_tail_without_cloning_full_body() {
         .collect::<Vec<_>>()
         .join("\n");
 
-    assert!(rendered.contains("# Thinking"));
+    assert!(rendered.contains("▾ Thinking ·"));
     assert!(rendered.contains("... 1 more line(s)"));
     assert!(!rendered.contains("line 1"));
     assert!(rendered.contains("line 2"));

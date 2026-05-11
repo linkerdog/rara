@@ -180,7 +180,7 @@ fn committed_turn_cell_keeps_progress_segments_and_terminal_output() {
         .collect::<Vec<_>>()
         .join("\n");
 
-    let thinking_idx = rendered.find("# Thinking").unwrap();
+    let thinking_idx = rendered.find("▸ Thinking ·").unwrap();
     let progress_idx = rendered.find("Run cargo test active_turn_cell").unwrap();
     let terminal_idx = rendered.find("running 38 tests").unwrap();
     let agent_idx = rendered.find("• The focused tests passed.").unwrap();
