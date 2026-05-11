@@ -33,6 +33,9 @@ pub(crate) async fn dispatch_event(
         AppEvent::Noop => {}
         AppEvent::OpenOverlay(overlay) => app.open_overlay(overlay),
         AppEvent::CloseOverlay => {
+            if matches!(app.overlay, Some(Overlay::ModelSearch)) {
+                app.model_search_query.clear();
+            }
             app.close_overlay();
         }
         AppEvent::CancelRunningTask => {
@@ -57,12 +60,21 @@ pub(crate) async fn dispatch_event(
             app.insert_newline_in_composer();
         }
         AppEvent::InputChar(c) => {
+            if matches!(app.overlay, Some(Overlay::ModelSearch)) {
+                app.model_search_query.push(c);
+                app.model_search_idx = 0;
+                return Ok(true);
+            }
             if app.bottom_pane.input.is_empty() {
                 app.transcript_scroll = 0;
             }
             app.insert_active_input_char(c);
         }
         AppEvent::Backspace => {
+            if matches!(app.overlay, Some(Overlay::ModelSearch)) {
+                app.model_search_query.pop();
+                return Ok(true);
+            }
             app.backspace_active_input();
         }
         AppEvent::DeleteForward => {
@@ -92,6 +104,26 @@ pub(crate) async fn dispatch_event(
         AppEvent::ScrollTranscript(delta) => app.scroll_transcript(delta),
         AppEvent::ScrollContext(delta) => app.scroll_context(delta),
         AppEvent::MoveCommandSelection(delta) => {
+            if matches!(app.overlay, Some(Overlay::ModelSearch)) {
+                let presets = app.all_unified_model_presets();
+                let q = app.model_search_query.to_ascii_lowercase();
+                let count = if q.is_empty() {
+                    presets.len()
+                } else {
+                    presets
+                        .iter()
+                        .filter(|p| {
+                            p.model_label.to_ascii_lowercase().contains(&q)
+                                || p.provider_label.to_ascii_lowercase().contains(&q)
+                        })
+                        .count()
+                };
+                if count > 0 {
+                    let next = (app.model_search_idx as i32 + delta).clamp(0, count as i32 - 1);
+                    app.model_search_idx = next as usize;
+                }
+                return Ok(true);
+            }
             let len = palette_commands(app, app.command_query()).len();
             if len > 0 {
                 let next = (app.command_palette_idx as i32 + delta).clamp(0, len as i32 - 1);
@@ -322,6 +354,32 @@ pub(crate) async fn dispatch_event(
             app.open_overlay(Overlay::Status(tab));
         }
         AppEvent::ApplyOverlaySelection => match app.overlay {
+            Some(Overlay::ModelSearch) => {
+                let presets = app.all_unified_model_presets();
+                let q = app.model_search_query.to_ascii_lowercase();
+                let filtered: Vec<_> = if q.is_empty() {
+                    presets.iter().collect()
+                } else {
+                    presets
+                        .iter()
+                        .filter(|p| {
+                            p.model_label.to_ascii_lowercase().contains(&q)
+                                || p.provider_label.to_ascii_lowercase().contains(&q)
+                        })
+                        .collect()
+                };
+                if let Some(preset) = filtered.get(app.model_search_idx) {
+                    let all = app.all_unified_model_presets();
+                    if let Some(global_idx) = all
+                        .iter()
+                        .position(|p| p.model_id == preset.model_id && p.family == preset.family)
+                    {
+                        app.close_overlay();
+                        app.model_search_query.clear();
+                        app.select_unified_model(global_idx);
+                    }
+                }
+            }
             Some(Overlay::CommandPalette) => {
                 let query = app.command_query();
                 if let Some(spec) = palette_command_by_index(app, query, app.command_palette_idx) {
@@ -449,6 +507,10 @@ pub(crate) async fn dispatch_event(
                                     } else {
                                         start_rebuild_task(app);
                                     }
+                                }
+                                ProviderFamily::CandleLocal => {
+                                    app.push_notice("Local models (alpha) are for preview only.");
+                                    app.close_overlay();
                                 }
                                 _ => {
                                     start_rebuild_task(app);

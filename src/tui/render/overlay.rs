@@ -39,6 +39,12 @@ pub(super) fn render_overlay(f: &mut Frame, app: &TuiApp, overlay: Overlay) -> O
             render_command_palette(f, app, popup);
             None
         }
+        Overlay::ModelSearch => {
+            let popup = command_palette_rect(f.area(), app);
+            f.render_widget(Clear, popup);
+            render_model_search(f, app, popup);
+            None
+        }
         Overlay::Status(tab) => {
             let popup = centered_rect(78, 70, f.area());
             f.render_widget(Clear, popup);
@@ -599,4 +605,95 @@ mod tests {
         assert!(popup.height >= 20);
         assert!(popup.width >= 90);
     }
+}
+
+fn render_model_search(f: &mut Frame, app: &TuiApp, area: Rect) {
+    let query = app.model_search_query.as_str();
+    let presets = app.all_unified_model_presets();
+    let filtered: Vec<_> = if query.is_empty() {
+        presets.iter().collect()
+    } else {
+        let q = query.to_ascii_lowercase();
+        presets
+            .iter()
+            .filter(|p| p.model_label.to_ascii_lowercase().contains(&q))
+            .collect()
+    };
+
+    let mut state = ListState::default();
+    state.select(Some(
+        app.model_search_idx.min(filtered.len().saturating_sub(1)),
+    ));
+
+    let block = Block::default()
+        .borders(Borders::ALL)
+        .border_style(Style::default().fg(TEXT_MUTED))
+        .title_top(Line::from(Span::styled(
+            " Model Search ",
+            Style::default()
+                .fg(BADGE_FG_DARK)
+                .add_modifier(Modifier::BOLD),
+        )));
+    let inner = block.inner(area);
+    f.render_widget(block, area);
+
+    let chunks = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([
+            Constraint::Length(1), // search input
+            Constraint::Min(4),    // model list
+            Constraint::Length(1), // footer
+        ])
+        .split(inner);
+
+    // Search input
+    let search_text = if query.is_empty() {
+        Span::styled("  Type to filter models…", Style::default().fg(TEXT_MUTED))
+    } else {
+        Span::styled(
+            format!("  {}", query),
+            Style::default()
+                .fg(BADGE_FG_DARK)
+                .add_modifier(Modifier::BOLD),
+        )
+    };
+    f.render_widget(Paragraph::new(Line::from(search_text)), chunks[0]);
+
+    // Model list
+    let items: Vec<ListItem> = filtered
+        .iter()
+        .map(|p| {
+            let name = Span::styled(
+                format!("{}  ", p.model_label),
+                Style::default().add_modifier(Modifier::BOLD),
+            );
+            let family = Span::styled(
+                format!("  {}", p.provider_label.as_str()),
+                Style::default().fg(TEXT_SECONDARY),
+            );
+            ListItem::new(Line::from(vec![name, family]))
+        })
+        .collect();
+
+    f.render_stateful_widget(
+        List::new(items)
+            .highlight_style(
+                Style::default()
+                    .fg(TEXT_ACCENT)
+                    .add_modifier(Modifier::BOLD),
+            )
+            .highlight_symbol("›  "),
+        chunks[1],
+        &mut state,
+    );
+
+    // Footer
+    let footer = Line::from(vec![Span::styled(
+        format!(
+            "{} models  ↑↓ navigate  ↵ select  Esc close",
+            filtered.len()
+        ),
+        Style::default().fg(TEXT_MUTED),
+    )]);
+    f.render_widget(Paragraph::new(footer), chunks[2]);
 }

@@ -5,7 +5,7 @@ use codex_login::{AuthCredentialsStoreMode, AuthManager};
 use codex_models_manager::bundled_models_response;
 use codex_models_manager::manager::{ModelsManager, RefreshStrategy, StaticModelsManager};
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Default)]
 pub struct CodexReasoningOption {
     pub value: String,
     pub label: String,
@@ -13,7 +13,7 @@ pub struct CodexReasoningOption {
     pub is_default: bool,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Default)]
 pub struct CodexModelOption {
     pub id: String,
     pub model: String,

@@ -32,6 +32,7 @@ pub enum StartupResumeTarget {
     Picker,
 }
 
+use crate::hook_registry::HookRegistry;
 use crate::mcp_connection_manager::McpConnectionManager;
 use crate::protocol_sources::{PromptSourceRegistry, SkillSourceRegistry};
 
@@ -46,6 +47,7 @@ pub async fn run_tui(
     mcp_manager: Arc<McpConnectionManager>,
     prompt_source_registry: Arc<PromptSourceRegistry>,
     skill_source_registry: Arc<SkillSourceRegistry>,
+    hook_registry: Arc<crate::hook_registry::HookRegistry>,
 ) -> anyhow::Result<Option<String>> {
     enable_raw_mode()?;
     let initial_size = terminal_size()?;
@@ -58,6 +60,7 @@ pub async fn run_tui(
     app.mcp_manager = Some(mcp_manager);
     app.prompt_source_registry = Some(prompt_source_registry);
     app.skill_source_registry = Some(skill_source_registry);
+    app.hook_registry = Some(hook_registry);
     app.memory_handler = Some(Arc::new(
         crate::protocol_sources::MemoryControlHandler::new(event_bus.clone()),
     ));

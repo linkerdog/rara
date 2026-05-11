@@ -299,7 +299,7 @@ async fn run_tui_command(
         mcp_manager,
         prompt_source_registry,
         skill_source_registry,
-        _hook_registry,
+        hook_registry,
     ) = bootstrap.into_parts();
     let resumed_thread_id = crate::tui::run_tui(
         agent,
@@ -312,6 +312,7 @@ async fn run_tui_command(
         mcp_manager,
         prompt_source_registry,
         skill_source_registry,
+        hook_registry,
     )
     .await?;
     if let Some(thread_id) = resumed_thread_id {

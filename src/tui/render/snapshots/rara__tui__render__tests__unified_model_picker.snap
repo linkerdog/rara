@@ -1,6 +1,5 @@
 ---
 source: src/tui/render/tests.rs
-assertion_line: 1187
 expression: rendered
 ---
 ── RARA ──────────────────────────────────────────────────
@@ -13,11 +12,11 @@ Type a message to start a task or run a local command.
   ┌ All Models ──────────────────────────────────────────────────────────────┐
 St│Select a model across all providers.                                      │
   └──────────────────────────────────────────────────────────────────────────┘
-  │[1] DeepSeek/deepseek-chat                                                │
-  │[2] DeepSeek/deepseek-reasoner                                            │
-  │[3] My Custom GPT/gpt-custom                                              │
-  │[4] Custom endpoint/Custom endpoint                                       │
-Pr│[5] DeepSeek/DeepSeek                                                     │
-Re│[6] Kimi/Kimi                                                             │
-› │[7] OpenRouter/OpenRouter                                                 │
-                1-9 jump  Up/Down/jk move  Enter apply  Esc back
+  │Codex/gpt-4o                                                              │
+  │DeepSeek/deepseek-chat                                                    │
+  │DeepSeek/deepseek-reasoner                                                │
+  │DeepSeek/deepseek-v4-flash                                                │
+Pr│DeepSeek/deepseek-v4-pro                                                  │
+Re│DeepSeek/deepseek-v4-preview                                              │
+› │My Custom GPT/gpt-custom                                                  │
+                     Up/Down/jk move  Enter apply  Esc back

@@ -807,13 +807,66 @@ fn ssh_startup_page_warns_without_opening_setup_window() {
     assert_snapshot!("ssh_startup_warning_screen", rendered);
 }
 
+struct ScopedEnvGuard {
+    saved: Vec<(String, Option<String>)>,
+}
+
+impl ScopedEnvGuard {
+    fn remove(vars: &[&str]) -> Self {
+        let saved = vars
+            .iter()
+            .map(|v| (v.to_string(), std::env::var(v).ok()))
+            .collect();
+        for v in vars {
+            unsafe { std::env::remove_var(v) };
+        }
+        Self { saved }
+    }
+
+    fn set(vars: &[(&str, &str)]) -> Self {
+        let keys: Vec<&str> = vars.iter().map(|(k, _)| *k).collect();
+        let mut guard = Self::remove(&keys);
+        for (k, v) in vars {
+            unsafe { std::env::set_var(k, v) };
+        }
+        guard
+    }
+}
+
+impl Drop for ScopedEnvGuard {
+    fn drop(&mut self) {
+        for (var, val) in &self.saved {
+            if let Some(v) = val {
+                unsafe { std::env::set_var(var, v) };
+            } else {
+                unsafe { std::env::remove_var(var) };
+            }
+        }
+    }
+}
+
 #[test]
 fn provider_picker_renders_as_full_overlay_on_standard_terminal() {
     let temp = tempdir().expect("tempdir");
-    let mut app = TuiApp::new(ConfigManager {
+    // Scrub all API-key env vars so the snapshot is deterministic regardless
+    // of developer machine or CI environment.
+    // Redirect HOME to temp dir so OAuthManager (which reads ~/.rara/codex-auth/)
+    // finds no saved Codex OAuth tokens from the developer's real home.
+    let _home_guard = ScopedEnvGuard::set(&[("HOME", &temp.path().to_string_lossy())]);
+    let _guard = ScopedEnvGuard::remove(&[
+        "CODEX_API_KEY",
+        "DEEPSEEK_API_KEY",
+        "OPENAI_API_KEY",
+        "GEMINI_API_KEY",
+    ]);
+    let cm = ConfigManager {
         path: temp.path().join("config.json"),
-    })
-    .expect("build tui app");
+    };
+    let mut config = RaraConfig::default();
+    config.clear_api_key();
+    cm.save(&config).expect("save config");
+
+    let mut app = TuiApp::new(cm).expect("build tui app");
     app.open_overlay(Overlay::ListPicker(ListPickerKind::Provider));
 
     let rendered = render_screen_text(&mut app, 100, 24);

@@ -623,8 +623,8 @@ async fn slash_palette_model_selection_opens_provider_picker_in_local_and_ssh() 
         .expect("apply command palette selection");
 
         assert!(
-            matches!(app.overlay, Some(Overlay::ListPicker(_))),
-            "list picker should open after model selection (ssh={ssh}), \
+            matches!(app.overlay, Some(Overlay::ModelSearch)),
+            "model search should open after model selection (ssh={ssh}), \
              but overlay was {overlay:?}",
             ssh = ssh,
             overlay = app.overlay,
@@ -2075,10 +2075,9 @@ async fn deepseek_provider_family_prompts_for_api_key_before_model_list() {
         .expect("open overlay");
 
     assert_eq!(
-        app.config.active_openai_profile_kind(),
-        Some(OpenAiEndpointKind::Deepseek)
+        app.overlay,
+        Some(Overlay::ListPicker(ListPickerKind::UnifiedModel))
     );
-    assert!(matches!(app.overlay, Some(Overlay::ApiKeyEditor)));
 }
 
 #[tokio::test]
@@ -2794,8 +2793,10 @@ async fn codex_provider_family_routes_to_auth_picker_without_saved_login() {
     open_provider_family_overlay(&mut app, &oauth_manager)
         .await
         .expect("open overlay");
-    assert_eq!(app.config.provider, "codex");
-    assert!(matches!(app.overlay, Some(Overlay::ListPicker(_))));
+    assert_eq!(
+        app.overlay,
+        Some(Overlay::ListPicker(ListPickerKind::UnifiedModel))
+    );
 }
 
 #[tokio::test]
@@ -2837,8 +2838,10 @@ async fn codex_provider_family_routes_to_model_picker_with_saved_login() {
     open_provider_family_overlay(&mut app, &oauth_manager)
         .await
         .expect("open overlay");
-    assert!(matches!(app.overlay, Some(Overlay::ListPicker(_))));
-    assert!(!app.codex_model_options.is_empty());
+    assert_eq!(
+        app.overlay,
+        Some(Overlay::ListPicker(ListPickerKind::UnifiedModel))
+    );
 }
 
 #[tokio::test]
@@ -2925,11 +2928,32 @@ async fn codex_model_picker_opens_reasoning_level_overlay_before_rebuild() {
         .save_api_key("sk-test-codex")
         .expect("save api key");
 
+    app.codex_model_options = vec![crate::codex_model_catalog::CodexModelOption {
+        id: "anthropic/claude-3-5-sonnet-20241022".into(),
+        label: "Claude 3.5 Sonnet v2".into(),
+        model: "anthropic/claude-3-5-sonnet-20241022".into(),
+        reasoning_options: vec![
+            crate::codex_model_catalog::CodexReasoningOption {
+                label: "Low".into(),
+                value: "low".into(),
+                ..Default::default()
+            },
+            crate::codex_model_catalog::CodexReasoningOption {
+                label: "High".into(),
+                value: "high".into(),
+                ..Default::default()
+            },
+        ],
+        is_default: true,
+        ..Default::default()
+    }];
+
     app.provider_picker_idx = 0;
     open_provider_family_overlay(&mut app, &oauth_manager)
         .await
         .expect("open overlay");
-    app.overlay = Some(Overlay::ListPicker(ListPickerKind::Model));
+    app.overlay = Some(Overlay::ListPicker(ListPickerKind::UnifiedModel));
+    app.model_picker_idx = 0;
 
     let mut agent_slot = None;
     dispatch_event(

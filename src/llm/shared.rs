@@ -429,34 +429,36 @@ pub(super) fn context_budget_from_window(context_window_tokens: usize) -> Contex
     }
 }
 
-const DEEPSEEK_LONG_CONTEXT_WINDOW_TOKENS: usize = 1_048_576;
 const OPENAI_LONG_CONTEXT_WINDOW_TOKENS: usize = 200_000;
 const OPENAI_GPT4_CONTEXT_WINDOW_TOKENS: usize = 128_000;
-const DEEPSEEK_LONG_CONTEXT_MODEL_MARKERS: &[&str] = &["deepseek-v4"];
 
 pub(super) fn model_context_budget(model: &str) -> Option<ContextBudget> {
     let canonical = model.trim().to_ascii_lowercase();
-    let context_window_tokens = if is_deepseek_long_context_model(&canonical) {
-        DEEPSEEK_LONG_CONTEXT_WINDOW_TOKENS
-    } else if canonical.contains("gpt-5")
+    // Look up DeepSeek models from the provider catalog map.
+    if canonical.contains("deepseek") {
+        if let Some(window) = rara_provider_catalog::deepseek::MODEL_WINDOWS
+            .iter()
+            .find(|(name, _)| name.contains(&canonical.as_str()))
+            .map(|(_, w)| *w as usize)
+        {
+            return Some(context_budget_from_window(window));
+        }
+    }
+    if canonical.contains("gpt-5")
         || canonical.contains("codex")
         || canonical.contains("gpt-4.1")
         || canonical.contains("gpt-4o")
     {
-        OPENAI_LONG_CONTEXT_WINDOW_TOKENS
-    } else if canonical.contains("gpt-4") {
-        OPENAI_GPT4_CONTEXT_WINDOW_TOKENS
-    } else {
-        return None;
-    };
-    Some(context_budget_from_window(context_window_tokens))
-}
-
-fn is_deepseek_long_context_model(canonical_model: &str) -> bool {
-    canonical_model.contains("deepseek")
-        && DEEPSEEK_LONG_CONTEXT_MODEL_MARKERS
-            .iter()
-            .any(|marker| canonical_model.contains(marker))
+        return Some(context_budget_from_window(
+            OPENAI_LONG_CONTEXT_WINDOW_TOKENS,
+        ));
+    }
+    if canonical.contains("gpt-4") {
+        return Some(context_budget_from_window(
+            OPENAI_GPT4_CONTEXT_WINDOW_TOKENS,
+        ));
+    }
+    None
 }
 
 pub(crate) fn hashed_embedding(text: &str, dim: usize) -> Vec<f32> {

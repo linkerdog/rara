@@ -25,7 +25,7 @@ pub(crate) fn map_key_to_event(key: KeyEvent, app: &TuiApp) -> AppEvent {
             } => AppEvent::SelectHelpTab(HelpTab::Runtime),
             _ => AppEvent::Noop,
         },
-        Some(Overlay::CommandPalette) => match code {
+        Some(Overlay::CommandPalette | Overlay::ModelSearch) => match code {
             KeyCode::Esc => AppEvent::CloseOverlay,
             KeyCode::Up | KeyCode::Char('k') => AppEvent::MoveCommandSelection(-1),
             KeyCode::Down | KeyCode::Char('j') => AppEvent::MoveCommandSelection(1),

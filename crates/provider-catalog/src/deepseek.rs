@@ -8,8 +8,23 @@ use crate::redaction::{redact_known_secret, sanitize_url_for_display};
 
 const MODELS_TIMEOUT_SECS: u64 = 15;
 
-pub const FALLBACK_MODELS: [&str; 2] = ["deepseek-chat", "deepseek-reasoner"];
+/// Model name → context window tokens (for budget calculation).
+/// Also serves as the fallback model list when the API is unavailable.
+pub const MODEL_WINDOWS: &[(&str, u32)] = &[
+    ("deepseek-chat", 65_536),
+    ("deepseek-reasoner", 65_536),
+    ("deepseek-v4-flash", 1_048_576),
+    ("deepseek-v4-pro", 1_048_576),
+    ("deepseek-v4-preview", 1_048_576),
+];
 
+pub const FALLBACK_MODELS: [&str; 5] = [
+    "deepseek-chat",
+    "deepseek-reasoner",
+    "deepseek-v4-flash",
+    "deepseek-v4-pro",
+    "deepseek-v4-preview",
+];
 #[derive(Deserialize)]
 struct ModelsResponse {
     data: Vec<ModelEntry>,
