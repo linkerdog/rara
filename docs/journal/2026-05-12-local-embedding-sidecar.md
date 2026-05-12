@@ -33,16 +33,25 @@ weights are loaded, tracks preparation state, and exposes `POST
 identity matches and the selected backend reports `loaded: true`.
 
 The follow-up embedding-provider decoupling slice also landed on top of this
-runtime:
+runtime. Vector-producing paths now use a standalone `EmbeddingBackend`, and
+runtime bootstrap routes providers without a reliable embedding surface to the
+local model server instead of hashed embeddings. `MemoryStore`, retrieval
+orchestration, session-context checkpointing, vector tools, and sub-agents all
+inherit that embedding backend, while the configured chat `LlmBackend`
+continues to own chat, tool calling, summarization, classification, context
+budgeting, and provider cache metadata. The local model server HTTP client also
+bypasses system proxies for loopback traffic so local embedding calls do not
+leak into proxy-managed outbound routes.
 
-- vector-producing paths now use a standalone `EmbeddingBackend`;
-- runtime bootstrap routes unsupported chat providers to the local model server
-  instead of hashed embeddings;
-- `MemoryStore`, retrieval orchestration, session-context checkpointing, vector
-  tools, and sub-agents all inherit that embedding backend;
-- the local model server HTTP client bypasses system proxies for loopback
-  traffic so local embedding calls do not leak into proxy-managed outbound
-  routes.
+TUI app construction now uses an inspect-only local model server status path.
+This keeps `/status` and initial UI state lightweight; they can report setup,
+waiting, ready, or error state without creating a venv, installing
+dependencies, or loading model weights. Runtime bootstrap remains the owner of
+automatic preparation. When the selected provider actually requires the local
+sidecar and the managed backend/model is not ready yet, startup opens with a
+lightweight agent, starts a rebuild task that performs local embedding
+bootstrap, and then automatically swaps in the rebuilt agent when the sidecar
+is ready.
 
 ## Why
 
@@ -86,9 +95,8 @@ Target shape:
 ## Follow-Up
 
 - Add config for model server enablement and backend selection.
-- Move bootstrap work off synchronous TUI startup so creating the venv,
-  installing dependencies, and downloading model artifacts can stream progress
-  without blocking first paint.
+- Add explicit embedding provider override / control surface instead of routing
+  only from the provider family defaults.
 - Surface structured download byte progress from the Python dependency stack
   when the backend exposes it.
 - Smoke test the exact `mlx-community/Qwen3-Embedding-0.6B-4bit-DWQ` artifact

@@ -24,6 +24,6 @@ pub(crate) use self::shared::hashed_embedding;
 pub(crate) use self::shared::is_retryable_http_error;
 pub use self::shared::{
     ContextBudget, EmbeddingBackend, EmbeddingInputKind, LlmBackend, LlmEmbeddingBackend,
-    LlmStreamEvent, LlmTurnMetadata, MockLlm,
+    LlmStreamEvent, LlmTurnMetadata, MockLlm, ProviderCacheProfile,
 };
 pub use self::types::{ContentBlock, LlmResponse, TokenUsage};

@@ -12,6 +12,7 @@ use crate::config::{
     DEFAULT_CODEX_BASE_URL, DEFAULT_CODEX_MODEL, DEFAULT_GEMINI_BASE_URL, DEFAULT_GEMINI_MODEL,
     OpenAiEndpointKind, REASONING_SUMMARY_NONE, RaraConfig, ensure_rara_home_dir,
 };
+use crate::embedding::EmbeddingOverrideBackend;
 use crate::google_oauth::GoogleOAuthManager;
 use crate::hook_registry::HookRegistry;
 use crate::llm::{
@@ -19,7 +20,10 @@ use crate::llm::{
     MockLlm, OllamaBackend, OpenAiCompatibleBackend, fetch_model_context_window,
 };
 use crate::local_backend::{LocalLlmBackend, LocalProgressReporter};
-use crate::local_model_server::LocalModelServerEmbeddingBackend;
+use crate::local_model_server::{
+    LocalModelServerEmbeddingBackend, LocalModelServerStatus, inspect_local_model_server_status,
+    prepare_local_model_server_status,
+};
 use crate::mcp_connection_manager::McpConnectionManager;
 use crate::mcp_tool_cache::McpToolCache;
 use crate::prompt::{PromptRuntimeConfig, PromptSkillSummary};
@@ -99,9 +103,36 @@ pub(crate) async fn initialize_rara_context(
     config: &RaraConfig,
     progress: Option<LocalProgressReporter>,
 ) -> Result<RuntimeBootstrap> {
-    let backend = build_backend_with_progress(config, progress).await?;
-    let backend: Arc<dyn LlmBackend> = backend.into();
-    let embedding_backend = build_embedding_backend(config, backend.clone()).await?;
+    initialize_rara_context_with_local_embedding_bootstrap(
+        config,
+        progress,
+        LocalEmbeddingBootstrap::Prepare,
+    )
+    .await
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum LocalEmbeddingBootstrap {
+    Prepare,
+    InspectOnly,
+}
+
+pub(crate) async fn initialize_rara_context_with_local_embedding_bootstrap(
+    config: &RaraConfig,
+    progress: Option<LocalProgressReporter>,
+    local_embedding_bootstrap: LocalEmbeddingBootstrap,
+) -> Result<RuntimeBootstrap> {
+    let embedding_progress = progress.clone();
+    let chat_backend = build_backend_with_progress(config, progress).await?;
+    let chat_backend: Arc<dyn LlmBackend> = chat_backend.into();
+    let mut embedding_warnings = Vec::new();
+    let (backend, embedding_backend) = build_embedding_backends(
+        config,
+        chat_backend,
+        local_embedding_bootstrap,
+        embedding_progress,
+        &mut embedding_warnings,
+    )?;
 
     let workspace = Arc::new(WorkspaceMemory::new()?);
     let vdb = Arc::new(VectorDB::new(&vector_db_uri_for_workspace(&workspace)));
@@ -172,7 +203,8 @@ pub(crate) async fn initialize_rara_context(
         goal_handle.clone(),
         mcp_tool_cache.clone(),
     );
-    let warnings = prompt_config.warnings.clone();
+    let mut warnings = prompt_config.warnings.clone();
+    warnings.extend(embedding_warnings);
 
     Ok(RuntimeBootstrap {
         backend,
@@ -225,16 +257,73 @@ fn embedding_route_for_config(config: &RaraConfig) -> EmbeddingRoute {
     }
 }
 
-async fn build_embedding_backend(
+pub(crate) fn config_requires_local_embedding_sidecar(config: &RaraConfig) -> bool {
+    matches!(
+        embedding_route_for_config(config),
+        EmbeddingRoute::LocalModelServer
+    )
+}
+
+fn build_embedding_backends(
     config: &RaraConfig,
-    backend: Arc<dyn LlmBackend>,
-) -> Result<Arc<dyn EmbeddingBackend>> {
+    chat_backend: Arc<dyn LlmBackend>,
+    bootstrap: LocalEmbeddingBootstrap,
+    progress: Option<LocalProgressReporter>,
+    warnings: &mut Vec<String>,
+) -> Result<(Arc<dyn LlmBackend>, Arc<dyn EmbeddingBackend>)> {
     match embedding_route_for_config(config) {
-        EmbeddingRoute::CurrentLlmBackend => Ok(Arc::new(LlmEmbeddingBackend::new(backend))),
+        EmbeddingRoute::CurrentLlmBackend => {
+            let embedding_backend: Arc<dyn EmbeddingBackend> =
+                Arc::new(LlmEmbeddingBackend::new(chat_backend.clone()));
+            Ok((chat_backend, embedding_backend))
+        }
         EmbeddingRoute::LocalModelServer => {
             let rara_home = ensure_rara_home_dir()?;
-            Ok(Arc::new(LocalModelServerEmbeddingBackend::new(rara_home)?))
+            let status = local_model_server_status_for_bootstrap(&rara_home, bootstrap, &progress);
+            if status.state == crate::local_model_server::LocalModelServerState::Error {
+                warnings.push(format!(
+                    "local embedding backend bootstrap reported: {}",
+                    status.detail
+                ));
+            }
+            let embedding_backend: Arc<dyn EmbeddingBackend> = Arc::new(
+                LocalModelServerEmbeddingBackend::from_initial_status(rara_home, status)?,
+            );
+            let backend: Arc<dyn LlmBackend> = Arc::new(EmbeddingOverrideBackend::new(
+                chat_backend,
+                embedding_backend.clone(),
+            ));
+            Ok((backend, embedding_backend))
         }
+    }
+}
+
+fn local_model_server_status_for_bootstrap(
+    rara_home: &std::path::Path,
+    bootstrap: LocalEmbeddingBootstrap,
+    progress: &Option<LocalProgressReporter>,
+) -> LocalModelServerStatus {
+    report_local_embedding_progress(progress, "Embedding · checking local model server");
+    let status = match bootstrap {
+        LocalEmbeddingBootstrap::Prepare => {
+            report_local_embedding_progress(progress, "Embedding · preparing local model server");
+            prepare_local_model_server_status(rara_home)
+        }
+        LocalEmbeddingBootstrap::InspectOnly => inspect_local_model_server_status(rara_home),
+    };
+    report_local_embedding_progress(
+        progress,
+        format!("Embedding · {:?} · {}", status.state, status.detail),
+    );
+    status
+}
+
+fn report_local_embedding_progress(
+    progress: &Option<LocalProgressReporter>,
+    message: impl Into<String>,
+) {
+    if let Some(callback) = progress {
+        callback(message.into());
     }
 }
 

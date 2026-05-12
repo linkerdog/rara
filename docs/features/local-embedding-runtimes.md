@@ -22,6 +22,8 @@ platforms should start with a CPU ONNX path before any CUDA-specific work.
 - Reuse an already-running RARA model server across local RARA processes.
 - Expose the server through one standalone `EmbeddingBackend` implementation for
   memory retrieval, memory indexing, and session-context checkpoints.
+- Route memory embeddings through the local sidecar while preserving hosted
+  chat/completion providers for normal turns.
 
 ## Non-Goals
 
@@ -112,6 +114,31 @@ work, not separate user-facing commands. Startup should not block the TUI until
 the full model is ready, but it should begin preparation automatically when local
 embeddings are enabled and the required venv, packages, server process, or model
 artifact are missing.
+
+### Embedding Backend Boundary
+
+RARA has a dedicated embedding backend boundary for local memory retrieval. The
+first implementation is a transitional wrapper: chat, tool calling,
+summarization, and classification continue to use the selected `LlmBackend`,
+while `embed` calls are delegated to the local model server when startup reports
+a ready sidecar.
+
+The wrapper exists so existing `MemoryStore`, retrieval, tool, and session
+checkpoint call sites can move to local embeddings without a broad constructor
+migration. The durable target is still a first-class embedding dependency for
+memory/retrieval modules rather than embedding behavior living permanently on
+the chat backend trait.
+
+The local embedding client sends OpenAI-compatible requests to the managed
+loopback server:
+
+```json
+{"input":"Remember this decision","input_type":"document","backend":"mlx_qwen3"}
+```
+
+If the sidecar is not ready or startup reports an error, RARA falls back to the
+configured provider's existing embedding implementation and surfaces a bootstrap
+warning for hard failures.
 
 ### Startup Bootstrap And Reuse
 
@@ -344,6 +371,17 @@ Valid preparation states:
 - The server binds only to loopback.
 - Normal RARA startup should automatically prepare the local embedding runtime
   when local embeddings are enabled and the selected model is missing.
+- TUI startup should first inspect the managed sidecar state. If the server and
+  selected model are already ready, startup must skip the initialization window
+  and avoid repeated venv, dependency, or model preparation work.
+- If the sidecar is not ready, TUI startup should open the interface with a
+  lightweight agent whose initial construction does not block on sidecar
+  preparation, show an initialization status surface, and replace the agent
+  automatically when local embedding bootstrap completes.
+- When the local model server is ready, memory embedding calls should use the
+  sidecar endpoint instead of the hosted chat provider's embedding fallback.
+- Chat completions, tool calling, summaries, context budgets, cache profiles,
+  and classifiers remain owned by the configured chat `LlmBackend`.
 - Multiple RARA instances should share one healthy local model server instead
   of starting duplicate servers.
 - Stale runtime metadata or a dead server process must be detected through a
@@ -377,6 +415,8 @@ Valid preparation states:
 | Symlink attack | Unix unit test rejects a symlink at the server install path |
 | Python protocol | Unit test posts `/v1/embeddings` through `LocalModelServerEmbeddingBackend` and asserts the expected `input_type` |
 | Status display | TUI/status test shows enabled/setup/error state without loading model weights |
+| Embedding wrapper | Unit test verifies chat calls stay on the configured `LlmBackend` while embeddings use the sidecar backend |
+| Local embedding protocol | Unit test verifies the Rust client sends the expected `/v1/embeddings` request shape and parses vectors |
 | Startup bootstrap | Unit/integration test starts with no venv/model metadata and records automatic prepare state |
 | Runtime wiring | `cargo test memory_store::tests -- --nocapture` proves vector writes/search can use an explicit embedding backend |
 | Server reuse | Integration test starts a second RARA process/client and verifies it reuses the healthy server metadata |
@@ -395,6 +435,10 @@ Valid preparation states:
   after setup.
 - Startup should prepare the server automatically; `/status` should report that
   background preparation state rather than initiating it.
+- TUI startup should not block first paint on local embedding bootstrap. A
+  completed sidecar should be reused silently; an incomplete sidecar should show
+  initialization progress and close that status surface when the rebuild task
+  completes.
 - Model downloads are performed by the Python backend dependency stack after
   Rust starts or reuses the managed server.
 - Missing `mlx-embeddings` should be recovered by Rust installing the bundled
