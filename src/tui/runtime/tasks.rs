@@ -817,6 +817,9 @@ pub(crate) async fn finish_running_task_if_ready(
                             app.push_notice("Planning finished. Staying in plan mode.");
                         }
                         app.finalize_active_turn();
+                        if let Some(agent) = agent_slot.as_ref() {
+                            crate::auto_memory::maybe_auto_memory(app, agent);
+                        }
                         app.bottom_pane.notice = Some("Prompt finished.".into());
                         app.set_runtime_phase(RuntimePhase::Idle, Some("prompt finished".into()));
                         try_start_queued_follow_up(app, agent_slot);

@@ -10,6 +10,10 @@ use rara_config::workspace_data_dir_for;
 use crate::prompt::{PromptSource, PromptSourceKind};
 
 const PROJECT_INSTRUCTION_FILES: [&str; 3] = ["CLAUDE.md", "GEMINI.md", "AGENTS.md"];
+const RULES_DIR_NAME: &str = ".rara/rules";
+// Reserved for private per-user rules (gitignored).
+#[allow(dead_code)]
+const LOCAL_INSTRUCTION_FILE: &str = ".rara/local.md";
 const USER_INSTRUCTION_FILE: &str = "AGENTS.md";
 
 pub struct WorkspaceMemory {
@@ -120,7 +124,26 @@ impl WorkspaceMemory {
                     });
                 }
             }
+            // Collect .rara/rules/*.md from this directory (if present).
+            let rules_dir = dir.join(RULES_DIR_NAME);
+            if rules_dir.is_dir() {
+                if let Ok(entries) = fs::read_dir(&rules_dir) {
+                    for entry in entries.flatten() {
+                        let path = entry.path();
+                        let file_name = entry.file_name();
+                        if file_name.to_str().is_some_and(|n| n.ends_with(".md")) {
+                            if let Some(content) = self.cached_file_content(&path) {
+                                sources.push(self.make_rules_source(&path, &rules_dir, content));
+                            }
+                        }
+                    }
+                }
+            }
         }
+
+        // Stable sort by display path for deterministic prompt injection.
+        sources.sort_by(|a, b| a.display_path.cmp(&b.display_path));
+
         let memory = self.rara_dir.join("memory.md");
         if let Some(content) = self.cached_file_content(&memory) {
             self.set_memory_file_available(true);
@@ -134,6 +157,30 @@ impl WorkspaceMemory {
             self.set_memory_file_available(false);
         }
         sources
+    }
+
+    fn make_rules_source(&self, path: &Path, _rules_dir: &Path, content: String) -> PromptSource {
+        let file_name = path
+            .file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or("unknown.md");
+        let dir_label = path
+            .parent()
+            .and_then(|p| p.parent())
+            .and_then(|p| p.strip_prefix(&self.root).ok())
+            .map(|r| r.display().to_string())
+            .filter(|s| !s.is_empty());
+        let label = if let Some(dir) = dir_label {
+            format!("Project Rule ({dir}/.rara/rules/{file_name})")
+        } else {
+            format!("Project Rule (repo/.rara/rules/{file_name})")
+        };
+        PromptSource {
+            kind: PromptSourceKind::ProjectInstruction,
+            label,
+            display_path: format!(".rara/rules/{file_name}"),
+            content,
+        }
     }
 
     fn user_instruction_sources(&self) -> Vec<PromptSource> {

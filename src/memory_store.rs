@@ -37,6 +37,7 @@ pub enum MemorySource {
     SessionDistill,
     FileImport,
     ProtocolWrite,
+    AutoMemory,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
@@ -352,6 +353,55 @@ impl MemoryStore {
 
     pub async fn delete(&self, id: &str) -> Result<Option<MemoryRecord>> {
         self.records.delete(id).await
+    }
+
+    /// Insert a record without requiring an embedding model.
+    /// Writes to JSON only, skips LanceDB vector index.
+    pub async fn insert_text_only(&self, input: NewMemoryRecord) -> Result<MemoryRecord> {
+        let content = input.content.trim();
+        if content.is_empty() {
+            bail!("memory content must not be empty");
+        }
+        let id = format!("memory-{}", uuid::Uuid::new_v4());
+        let importance = clamp_importance(input.importance);
+        let now = unix_timestamp_seconds();
+        let record = MemoryRecord {
+            id,
+            title: input
+                .title
+                .filter(|title| !title.trim().is_empty())
+                .unwrap_or_else(|| title_from_content(content)),
+            content: content.to_string(),
+            labels: normalized_labels(input.labels),
+            importance,
+            pinned: input.pinned,
+            source: input.source,
+            scope: input.scope,
+            session_id: normalized_optional_id(input.session_id),
+            thread_id: normalized_optional_id(input.thread_id),
+            source_span: input.source_span,
+            created_at_unix_seconds: now,
+            updated_at_unix_seconds: now,
+        };
+        self.records.upsert(&record).await?;
+        Ok(record)
+    }
+
+    /// Returns the most recent records for a scope. No embedding required.
+    pub async fn list_recent(
+        &self,
+        scope: Option<MemoryScope>,
+        limit: usize,
+    ) -> Result<Vec<MemoryRecord>> {
+        let records_map = self.records.load_map().await?;
+        let mut records: Vec<_> = records_map
+            .values()
+            .filter(|r| scope.as_ref().is_none_or(|s| &r.scope == s))
+            .cloned()
+            .collect();
+        records.sort_by(|a, b| b.created_at_unix_seconds.cmp(&a.created_at_unix_seconds));
+        records.truncate(limit);
+        Ok(records)
     }
 
     pub async fn list_labels(&self, scope: Option<MemoryScope>) -> Result<Vec<MemoryLabelCount>> {

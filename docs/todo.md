@@ -88,6 +88,8 @@ Active backlog only. Keep this file small and current.
 - [x] Add an explicit promotion API from session context shards into global `MemoryRecord`s.
 - [x] Add scheduler/policy gates for periodic session-shard promotion so background writes are opt-in and observable.
 - [x] Durable in-turn checkpoints: persist after each message/tool-result batch, atomic writes, crash-tolerant `SessionManager`.
+- [x] Auto-memory extraction: background LLM-driven fact extraction after every 5 turns, inserted into LanceDB via MemoryStore (PR #375).
+- [x] Directory-walking rules layer: `.rara/rules/*.md` discovered from CWD to repo root (PR #375).
 - [ ] Define cross-process background sub-agent restart/reattach semantics.
 - [x] Compaction as first-class lifecycle event: persist summaries, token counters, metadata ownership.
 - [x] Add prompt-too-long retry for compaction by dropping oldest API-round groups.
@@ -117,7 +119,7 @@ Active backlog only. Keep this file small and current.
 
 - [x] Remove crossterm history write path, unify all rendering through Ratatui (PR #272).
 - [x] Decouple overlays from transcript layout (pure top layer, no viewport perturbation).
-- [ ] Split the bottom pane into composable activity, composer, queued-preview, and footer modules.
+- [x] Split the bottom pane into composable activity, composer, queued-preview, and footer modules (PR #366).
 - [ ] Introduce a `BottomPaneModel` so bottom-pane rendering consumes structured view data instead of reading broad `TuiApp` state directly.
 - [ ] Move approval, request-input, command-palette, and picker flows toward a Codex-style bottom-pane view stack after the rendering split is stable.
 - [ ] Post-exit resume hint (e.g. `rara resume --last`).
