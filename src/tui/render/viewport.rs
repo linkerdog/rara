@@ -88,9 +88,9 @@ impl TranscriptViewport {
             return (Vec::new(), 0);
         }
 
-        // Reserve one bottom row as breathing room so content isn't
-        // visually flush against the input bar at any scroll position.
-        let visible_rows = usize::from(height.saturating_sub(1).max(1));
+        // Breathing room is handled by the caller (transcript_viewport)
+        // when computing scroll_offset.
+        let visible_rows = usize::from(height);
         let target_start = usize::from(self.scroll_offset);
         let target_end = target_start.saturating_add(visible_rows);
 
