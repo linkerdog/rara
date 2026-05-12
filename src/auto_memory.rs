@@ -1,8 +1,10 @@
 /// Background auto-memory extraction after each turn.
 ///
 /// After every 5 turns, collects recent user/assistant messages
-/// and uses the LLM backend to extract durable facts, then inserts
-/// them into LanceDB via MemoryStore (AutoMemory source).
+/// and uses the LLM backend to extract durable facts, then writes
+/// them to the MemoryStore (JSON companion file + LanceDB index).
+/// No embedding model is required — the JSON file stores full content
+/// and LanceDB insertion is best-effort.
 use std::sync::Arc;
 
 use tokio::sync::Mutex;
@@ -50,7 +52,7 @@ impl AutoMemoryExtractor {
         tokio::spawn(async move {
             let result = match backend.summarize(&messages, EXTRACTION_INSTRUCTION).await {
                 Ok(r) => r,
-                Err(e) => {
+                Err(_e) => {
                     return;
                 }
             };
@@ -67,15 +69,13 @@ impl AutoMemoryExtractor {
                     labels: vec![MemoryLabel::Fact],
                     importance: 0.5,
                     pinned: false,
-                    scope: MemoryScope::Workspace,
+                    scope: MemoryScope::User,
                     source: MemorySource::AutoMemory,
                     session_id: None,
                     thread_id: None,
                     source_span: None,
                 };
-                if let Err(e) = store.insert(record).await {
-                    // Background task — silently skip insert errors
-                }
+                if let Err(_e) = store.insert(record).await {}
             }
         });
     }
