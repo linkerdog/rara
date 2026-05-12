@@ -10265,6 +10265,7 @@ dependencies = [
  "rara-mcp-client",
  "rara-memory",
  "rara-persistence",
+ "rara-plugins",
  "rara-provider-catalog",
  "rara-sandbox",
  "rara-skills",
@@ -10380,6 +10381,16 @@ dependencies = [
  "tempfile",
  "url",
  "uuid",
+]
+
+[[package]]
+name = "rara-plugins"
+version = "0.0.1"
+dependencies = [
+ "serde",
+ "serde_json",
+ "tempfile",
+ "tokio",
 ]
 
 [[package]]

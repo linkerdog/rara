@@ -15,6 +15,7 @@ members = [
     "crates/rara-state",
     "crates/rara-memory",
     "crates/rara-tools",
+    "crates/rara-plugins",
 ]
 resolver = "2"
 
@@ -47,6 +48,7 @@ rara-persistence = { path = "crates/rara-persistence" }
 rara-mcp-client = { path = "crates/rara-mcp-client" }
 rara-memory = { path = "crates/rara-memory" }
 rara-tools = { path = "crates/rara-tools" }
+rara-plugins = { path = "crates/rara-plugins" }
 rara-state = { path = "crates/rara-state" }
 tokio = { version = "1.0", features = ["full"] }
 tokio-util = { version = "0.7", features = ["compat"] }
