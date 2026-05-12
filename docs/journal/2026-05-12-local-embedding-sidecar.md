@@ -13,6 +13,12 @@ Added a bundled Python model server scaffold and a Rust extractor that writes
 the embedded server and platform requirement manifests under RARA's managed home
 directory.
 
+The extractor is now called from TUI startup, so the bundled component is no
+longer dead code. `/status` reports the selected local embedding backend, model
+name, and whether setup is still required. This path does not start the Python
+server, create the venv, install dependencies, download model weights, or call
+the health endpoint yet.
+
 ## Why
 
 The Rust MLX ecosystem is not yet the lowest-risk path for a Qwen3 embedding
@@ -39,10 +45,11 @@ explicit setup step rather than an implicit server startup side effect.
 
 ## Status Surface
 
-The spec now requires `/status` to show local embedding model state with a
-compact indicator and model name. The status path should call the model
-server's lightweight health endpoint and must not force-load model weights just
-to render the TUI.
+`/status` now shows local embedding model state with backend, model, and setup
+detail. The current implementation is a setup-state surface backed by the
+bundled component extractor. The later process-supervision slice should switch
+ready/error detection to the model server's lightweight health endpoint without
+force-loading model weights.
 
 Target shape:
 
@@ -56,7 +63,8 @@ Target shape:
 - Add Rust process supervision for the Python model server.
 - Add explicit venv creation and dependency installation commands.
 - Wire `/v1/embeddings` into a standalone `EmbeddingBackend`.
-- Add `/status` rendering for enabled/setup/error local embedding states.
+- Upgrade `/status` ready/error detection from local setup checks to model
+  server health checks.
 - Add config for model server enablement and backend selection.
 - Smoke test the exact `mlx-community/Qwen3-Embedding-0.6B-4bit-DWQ` artifact
   with `mlx-embeddings`.

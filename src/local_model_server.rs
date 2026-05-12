@@ -22,6 +22,37 @@ const REQUIREMENTS_PORTABLE: &[u8] = include_bytes!(concat!(
     "/components/model_server/requirements-portable.txt"
 ));
 const REQUIREMENTS_PORTABLE_NAME: &str = "requirements-portable.txt";
+const MLX_QWEN3_MODEL_ID: &str = "mlx-community/Qwen3-Embedding-0.6B-4bit-DWQ";
+const FASTEMBED_BGE_M3_MODEL_ID: &str = "BAAI/bge-m3";
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum LocalModelServerState {
+    Ready,
+    SetupRequired,
+    Error,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct LocalModelServerStatus {
+    pub state: LocalModelServerState,
+    pub backend: String,
+    pub model: String,
+    pub detail: String,
+    pub server_path: Option<PathBuf>,
+}
+
+impl Default for LocalModelServerStatus {
+    fn default() -> Self {
+        let (backend, model) = default_embedding_backend();
+        Self {
+            state: LocalModelServerState::SetupRequired,
+            backend: backend.to_string(),
+            model: model.to_string(),
+            detail: "model server component has not been prepared".to_string(),
+            server_path: None,
+        }
+    }
+}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct BundledModelServer {
@@ -69,6 +100,55 @@ pub(crate) fn ensure_bundled_model_server(rara_home: &Path) -> Result<BundledMod
         venv_dir: runtime_dir.join("venv"),
         requirements: ensure_model_server_requirements(&runtime_dir)?,
     })
+}
+
+pub(crate) fn prepare_local_model_server_status(rara_home: &Path) -> LocalModelServerStatus {
+    let (backend, model) = default_embedding_backend();
+    match ensure_bundled_model_server(rara_home) {
+        Ok(server) => {
+            let python = venv_python_path(&server.venv_dir);
+            if python.is_file() {
+                LocalModelServerStatus {
+                    state: LocalModelServerState::Ready,
+                    backend: backend.to_string(),
+                    model: model.to_string(),
+                    detail: "model server component and venv are installed".to_string(),
+                    server_path: Some(server.path),
+                }
+            } else {
+                LocalModelServerStatus {
+                    state: LocalModelServerState::SetupRequired,
+                    backend: backend.to_string(),
+                    model: model.to_string(),
+                    detail: format!("venv python missing at {}", python.display()),
+                    server_path: Some(server.path),
+                }
+            }
+        }
+        Err(err) => LocalModelServerStatus {
+            state: LocalModelServerState::Error,
+            backend: backend.to_string(),
+            model: model.to_string(),
+            detail: err.to_string(),
+            server_path: None,
+        },
+    }
+}
+
+fn default_embedding_backend() -> (&'static str, &'static str) {
+    if cfg!(all(target_os = "macos", target_arch = "aarch64")) {
+        ("mlx_qwen3", MLX_QWEN3_MODEL_ID)
+    } else {
+        ("fastembed_bge_m3", FASTEMBED_BGE_M3_MODEL_ID)
+    }
+}
+
+fn venv_python_path(venv_dir: &Path) -> PathBuf {
+    if cfg!(windows) {
+        venv_dir.join("Scripts").join("python.exe")
+    } else {
+        venv_dir.join("bin").join("python")
+    }
 }
 
 fn ensure_model_server_requirements(runtime_dir: &Path) -> Result<Vec<BundledModelServerFile>> {
@@ -197,7 +277,10 @@ fn sha256_hex(content: &[u8]) -> String {
 mod tests {
     use std::fs;
 
-    use super::{ensure_bundled_model_server, sha256_hex};
+    use super::{
+        LocalModelServerState, ensure_bundled_model_server, prepare_local_model_server_status,
+        sha256_hex,
+    };
 
     #[test]
     fn installs_bundled_model_server_under_rara_home() {
@@ -245,6 +328,22 @@ mod tests {
             fs::read(&repaired.path).expect("read repaired model server"),
             super::MODEL_SERVER
         );
+    }
+
+    #[test]
+    fn status_installs_component_and_reports_missing_venv() {
+        let temp = tempfile::tempdir().expect("tempdir");
+
+        let status = prepare_local_model_server_status(temp.path());
+
+        assert_eq!(status.state, LocalModelServerState::SetupRequired);
+        assert!(
+            status
+                .server_path
+                .as_ref()
+                .is_some_and(|path| path.is_file())
+        );
+        assert!(status.detail.contains("venv python missing"));
     }
 
     #[cfg(unix)]

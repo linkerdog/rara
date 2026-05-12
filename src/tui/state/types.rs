@@ -685,6 +685,7 @@ pub struct TuiApp {
     pub terminal_focused: bool,
     pub state_db: Option<Arc<StateDb>>,
     pub state_db_status: Option<String>,
+    pub local_model_server: crate::local_model_server::LocalModelServerStatus,
     pub mcp_manager: Option<Arc<McpConnectionManager>>,
     pub prompt_source_registry: Option<Arc<PromptSourceRegistry>>,
     pub skill_source_registry: Option<Arc<SkillSourceRegistry>>,
