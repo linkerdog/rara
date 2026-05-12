@@ -11,6 +11,10 @@ Adjacent progress entries with the same role are still merged into one block so
 `Thinking`, `Exploring`, `Planning`, and `Running` sections do not become noisy
 when the runtime emits several consecutive updates.
 
+Tool-message fallback cells keep a Codex-style small main-view budget. They
+show enough context for scanning while leaving full terminal/output fidelity to
+dedicated terminal cells and future transcript-detail surfaces.
+
 ## Why
 
 The previous committed renderer optimized for compact semantic groups. That

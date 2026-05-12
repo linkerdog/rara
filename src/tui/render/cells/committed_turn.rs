@@ -11,6 +11,9 @@ use super::{
     HistoryCell, InteractionCompletionKind, is_progress_stack_title, trim_trailing_empty_lines,
 };
 use crate::tui::state::{TranscriptEntry, TranscriptEntryPayload};
+
+const TOOL_MESSAGE_MAX_LINES: usize = 5;
+
 pub(crate) struct CommittedTurnCell<'a> {
     entries: &'a [TranscriptEntry],
     cwd: Option<&'a Path>,
@@ -106,7 +109,7 @@ fn push_ordered_committed_activity<'a>(
             cells.push(Box::new(MessageCell::new(
                 &entry.role,
                 &entry.message,
-                4,
+                TOOL_MESSAGE_MAX_LINES,
                 cwd,
             )));
             continue;
