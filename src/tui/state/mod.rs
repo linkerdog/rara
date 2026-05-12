@@ -58,13 +58,17 @@ pub fn is_provider_connected(app: &TuiApp, family: ProviderFamily) -> bool {
                 || std::env::var("DEEPSEEK_API_KEY").is_ok()
         }
         ProviderFamily::Kimi => {
-            config
+            let has_state = config
                 .provider_states
                 .get("kimi")
                 .and_then(|s| s.api_key.as_ref())
-                .is_some()
-                || std::env::var("KIMI_API_KEY").is_ok()
-                || std::env::var("MOONSHOT_API_KEY").is_ok()
+                .is_some();
+            let has_env =
+                std::env::var("KIMI_API_KEY").is_ok() || std::env::var("MOONSHOT_API_KEY").is_ok();
+            let has_profile = config.openai_profiles.values().any(|p| {
+                p.kind == crate::config::OpenAiEndpointKind::Kimi && p.api_key.as_ref().is_some()
+            });
+            has_state || has_env || has_profile
         }
         ProviderFamily::Gemini => {
             std::env::var("GEMINI_API_KEY").is_ok()
@@ -393,7 +397,11 @@ impl TuiApp {
                 }
                 ProviderFamily::Kimi => {
                     let has_key = self.config.provider == "kimi" && self.config.has_api_key();
-                    has_key
+                    let has_profile = self.config.openai_profiles.values().any(|p| {
+                        p.kind == crate::config::OpenAiEndpointKind::Kimi
+                            && p.api_key.as_ref().is_some()
+                    });
+                    has_key || has_profile
                 }
                 ProviderFamily::Gemini => {
                     let has_key = self.config.provider == "gemini" && self.config.has_api_key();
