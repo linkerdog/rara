@@ -36,7 +36,12 @@ another independent feature line:
    durable local embedding backend.
 6. Audit Codex and Claude Code system prompts and migrate only the parts that
    fit RARA's stable prompt-runtime contract.
-7. Keep web/source-reporting, auxiliary-model routing, cross-process sub-agent
+7. Port reusable AgentHub `.agents/skills` patterns into RARA skills. The
+   reusable pieces are docs journal/spec writing, focused testing guidance, and
+   project title conventions. AgentHub ACP rendering and backend agent debug
+   skills should stay source material only unless RARA grows equivalent
+   domain-specific ACP/TUI/debug workflows.
+8. Keep web/source-reporting, auxiliary-model routing, cross-process sub-agent
    reattach, Terminal-Bench readiness, and release packaging as follow-up lanes.
 
 ## Trade-offs

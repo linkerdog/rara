@@ -67,6 +67,7 @@ Active backlog only. Keep this file small and current.
 - [ ] Audit Codex and Claude Code system prompts, then migrate applicable prompt guidance into RARA's default prompt family without reordering stable prompt sections.
 - [ ] New prompt inputs through structured source objects, `MemorySelection`, lifecycle events, and runtime-control provenance — not ad hoc text. Protocol prompt sources now retain provenance, convert into prompt-runtime sources, atomically snapshot from the live registry at the user-query boundary, and emit registered/injected/dropped lifecycle events; next slice should extend the same bridge to protocol skill/hook visibility.
 - [ ] Project-scoped extension surface for `.claude/agents/`, `.claude/hooks/`, `.agents/skills/` with precedence rules.
+- [ ] Port reusable AgentHub `.agents/skills` patterns into RARA repo skills: docs journal/spec writing, project title rules, and focused testing guidance; do not copy AgentHub-specific ACP rendering/debug skills directly.
 - [ ] Claude-style `verify` skill and `verifier-*` convention (see `docs/features/verify-skill.md`).
 - [ ] Evolve `SkillTool` to Codex/Claude contract (see `docs/features/skill-tool.md`): frontmatter, scopes, override visibility.
 - [ ] Surface skill precedence/override across home, repo, nested roots.
