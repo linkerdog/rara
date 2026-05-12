@@ -248,6 +248,45 @@ fn deepseek_reasoning_content_roundtrips_as_provider_metadata() {
 }
 
 #[test]
+fn deepseek_visible_text_without_reasoning_content_synthesizes_empty_metadata() {
+    let response = parse_chat_completion_response(
+        &json!({
+            "choices": [{
+                "message": {
+                    "role": "assistant",
+                    "content": "Visible answer"
+                },
+                "finish_reason": "stop"
+            }]
+        }),
+        OpenAiEndpointKind::Deepseek,
+    )
+    .expect("parse response");
+
+    assert_eq!(response.content.len(), 2);
+    assert!(matches!(
+        &response.content[0],
+        ContentBlock::Text { text } if text == "Visible answer"
+    ));
+    assert!(matches!(
+        &response.content[1],
+        ContentBlock::ProviderMetadata { provider, key, value }
+            if provider == "deepseek"
+                && key == "reasoning_content"
+                && value == ""
+    ));
+
+    let messages = vec![Message {
+        role: "assistant".to_string(),
+        content: serde_json::to_value(&response.content).expect("content json"),
+    }];
+    let deepseek_messages =
+        to_openai_messages_for_endpoint(&messages, OpenAiEndpointKind::Deepseek);
+    assert_eq!(deepseek_messages[0]["reasoning_content"], "");
+    assert_eq!(deepseek_messages[0]["content"], "Visible answer");
+}
+
+#[test]
 fn deepseek_raw_leading_think_block_is_not_visible_text() {
     let response = parse_chat_completion_response(
         &json!({
@@ -263,11 +302,18 @@ fn deepseek_raw_leading_think_block_is_not_visible_text() {
     )
     .expect("parse response");
 
-    assert_eq!(response.content.len(), 1);
+    assert_eq!(response.content.len(), 2);
     assert!(matches!(
         &response.content[0],
         ContentBlock::Text { text }
             if text.trim() == "Visible answer." && !text.contains("private reasoning")
+    ));
+    assert!(matches!(
+        &response.content[1],
+        ContentBlock::ProviderMetadata { provider, key, value }
+            if provider == "deepseek"
+                && key == "reasoning_content"
+                && value == ""
     ));
 }
 
@@ -287,10 +333,17 @@ fn deepseek_endpoint_preserves_literal_leading_think_without_control_evidence() 
     )
     .expect("parse response");
 
-    assert_eq!(response.content.len(), 1);
+    assert_eq!(response.content.len(), 2);
     assert!(matches!(
         &response.content[0],
         ContentBlock::Text { text } if text == "<think>inner</think> is an XML example."
+    ));
+    assert!(matches!(
+        &response.content[1],
+        ContentBlock::ProviderMetadata { provider, key, value }
+            if provider == "deepseek"
+                && key == "reasoning_content"
+                && value == ""
     ));
 }
 
@@ -483,6 +536,30 @@ fn deepseek_streaming_reasoning_content_preserves_exact_bytes() {
 }
 
 #[test]
+fn deepseek_streaming_visible_text_without_reasoning_content_synthesizes_empty_metadata() {
+    let content = build_streaming_response_content(
+        OpenAiEndpointKind::Deepseek,
+        "Visible answer".to_string(),
+        String::new(),
+        &[],
+    )
+    .expect("build streaming content");
+
+    assert_eq!(content.len(), 2);
+    assert!(matches!(
+        &content[0],
+        ContentBlock::Text { text } if text == "Visible answer"
+    ));
+    assert!(matches!(
+        &content[1],
+        ContentBlock::ProviderMetadata { provider, key, value }
+            if provider == "deepseek"
+                && key == "reasoning_content"
+                && value == ""
+    ));
+}
+
+#[test]
 fn deepseek_reasoner_defaults_preserve_standard_body() {
     let body = build_chat_completion_request_body(
         "deepseek-reasoner",
@@ -628,6 +705,39 @@ fn deepseek_v4_defaults_fold_legacy_tool_results_without_reasoning_content() {
             .as_str()
             .is_some_and(|content| content.contains("tool_results_available"))
     );
+}
+
+#[test]
+fn deepseek_v4_preserves_assistant_history_with_empty_reasoning_content() {
+    let body = build_chat_completion_request_body(
+        "deepseek-v4-pro",
+        &[
+            Message {
+                role: "assistant".to_string(),
+                content: json!([
+                    {"type":"text","text":"Visible answer"},
+                    {"type":"provider_metadata","provider":"deepseek","key":"reasoning_content","value":""}
+                ]),
+            },
+            Message {
+                role: "user".to_string(),
+                content: json!([{"type":"text","text":"Continue."}]),
+            },
+        ],
+        &[],
+        OpenAiEndpointKind::Deepseek,
+        None,
+        None,
+        LlmTurnMetadata::default(),
+    );
+
+    let messages = body["messages"].as_array().expect("messages");
+    assert_eq!(messages.len(), 2);
+    assert_eq!(messages[0]["role"], "assistant");
+    assert_eq!(messages[0]["content"], "Visible answer");
+    assert_eq!(messages[0]["reasoning_content"], "");
+    assert_eq!(messages[1]["role"], "user");
+    assert_eq!(messages[1]["content"], "Continue.");
 }
 
 #[test]
@@ -1189,11 +1299,18 @@ fn deepseek_streaming_raw_leading_think_block_is_not_visible_text() {
     )
     .expect("build streaming content");
 
-    assert_eq!(content.len(), 1);
+    assert_eq!(content.len(), 2);
     assert!(matches!(
         &content[0],
         ContentBlock::Text { text }
             if text.trim() == "Visible answer." && !text.contains("private reasoning")
+    ));
+    assert!(matches!(
+        &content[1],
+        ContentBlock::ProviderMetadata { provider, key, value }
+            if provider == "deepseek"
+                && key == "reasoning_content"
+                && value == ""
     ));
 }
 
@@ -1207,10 +1324,17 @@ fn deepseek_streaming_preserves_literal_leading_think_without_control_evidence()
     )
     .expect("build streaming content");
 
-    assert_eq!(content.len(), 1);
+    assert_eq!(content.len(), 2);
     assert!(matches!(
         &content[0],
         ContentBlock::Text { text } if text == "<think>inner</think> is an XML example."
+    ));
+    assert!(matches!(
+        &content[1],
+        ContentBlock::ProviderMetadata { provider, key, value }
+            if provider == "deepseek"
+                && key == "reasoning_content"
+                && value == ""
     ));
 }
 
@@ -1359,13 +1483,20 @@ fn parses_ascii_pipe_dsml_tool_calls_for_deepseek_pdf_compatibility() {
     )
     .expect("parse response");
 
-    assert_eq!(response.content.len(), 2);
+    assert_eq!(response.content.len(), 3);
     assert!(matches!(
         &response.content[0],
         ContentBlock::Text { text } if text.contains("inspect the directory")
     ));
     assert!(matches!(
         &response.content[1],
+        ContentBlock::ProviderMetadata { provider, key, value }
+            if provider == "deepseek"
+                && key == "reasoning_content"
+                && value == ""
+    ));
+    assert!(matches!(
+        &response.content[2],
         ContentBlock::ToolUse { id, name, input }
             if id == "dsml-tool-1" && name == "list_files" && input["path"] == "src"
     ));
