@@ -75,7 +75,7 @@ impl AutoMemoryExtractor {
                     thread_id: None,
                     source_span: None,
                 };
-                if let Err(_e) = store.insert(record).await {}
+                if let Err(_e) = store.insert_text_only(record).await {}
             }
         });
     }
