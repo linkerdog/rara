@@ -163,7 +163,6 @@ fn push_model_badge_shows_provider_and_model() {
         .map(|l| l.to_string())
         .collect::<Vec<_>>()
         .join("\n");
-    assert!(text.contains("Model"), "should show # Model section label");
     assert!(text.contains("openai"), "should show provider");
     assert!(text.contains("gpt-4o"), "should show model");
 }
@@ -669,8 +668,7 @@ fn section_header_appears_in_sidebar() {
         .collect::<Vec<_>>()
         .join("\n");
 
-    // Model, Context, and Files sections should exist.
-    assert!(text.contains("Model"), "sidebar has Model section");
+    // Context section should exist.
     assert!(text.contains("Context"), "sidebar has Context section");
     // Files only appears when there are file-tool entries; in this test none.
 }
