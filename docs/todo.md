@@ -64,7 +64,7 @@ Active backlog only. Keep this file small and current.
 - [x] Unify `discover_prompt_sources()` and TUI `/status` source reporting.
 - [x] Add directory-walking `.rara/rules/*.md` prompt sources from CWD to repo root.
 - [ ] Define and implement `.rara/local.md` semantics, scope, precedence, and visibility before enabling it as a prompt source.
-- [ ] Audit Codex and Claude Code system prompts, then migrate applicable prompt guidance into RARA's default prompt family without reordering stable prompt sections.
+- [ ] Continue the Codex/Claude Code prompt audit after the first Claude-derived slice: skill invocation and compact-summary continuation contracts are migrated; remaining candidates are plan-mode phase discipline and dynamic environment/status snapshots.
 - [ ] New prompt inputs through structured source objects, `MemorySelection`, lifecycle events, and runtime-control provenance — not ad hoc text. Protocol prompt sources now retain provenance, convert into prompt-runtime sources, atomically snapshot from the live registry at the user-query boundary, and emit registered/injected/dropped lifecycle events; next slice should extend the same bridge to protocol skill/hook visibility.
 - [ ] Project-scoped extension surface for `.claude/agents/`, `.claude/hooks/`, `.agents/skills/` with precedence rules.
 - [x] Port reusable AgentHub `.agents/skills` patterns into RARA repo skills: docs journal/spec writing, project title rules, and focused testing guidance; do not copy AgentHub-specific ACP rendering/debug skills directly.

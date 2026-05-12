@@ -137,6 +137,11 @@ workspace instructions and documentation, not in the default runtime system prom
 - Context compaction must not use the normal system prompt.
 - Compaction uses a dedicated compact instruction.
 - `compact_prompt` or `compact_prompt_file` overrides the built-in compact instruction.
+- The built-in compact instruction is a continuation contract, not a generic recap request. It should
+  preserve user intent, constraints, repository findings, inspected or touched files, completed work,
+  plan state, pending interactions, unresolved risks, failed approaches, and the next best action.
+- The structure is intentionally markdown-only in this phase. The runtime should not require a
+  Claude-specific wrapper tag unless a future parser owns that format.
 
 ## Contracts
 
