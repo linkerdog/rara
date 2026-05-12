@@ -106,7 +106,7 @@ Active backlog only. Keep this file small and current.
 - [x] Durable in-turn checkpoints: persist after each message/tool-result batch, atomic writes, crash-tolerant `SessionManager`.
 - [x] Auto-memory extraction: background LLM-driven fact extraction after every 5 turns, inserted into LanceDB via MemoryStore (PR #375).
 - [x] Directory-walking rules layer: `.rara/rules/*.md` discovered from CWD to repo root (PR #375).
-- [ ] Prototype local embedding models for memory retrieval, comparing local inference quality/latency against the current remote or fallback embedding path before choosing a durable backend.
+- [ ] Prototype local embedding models for memory retrieval with a RARA-owned Python model server under `.rara`, starting with macOS MLX/Qwen3 and portable FastEmbed/ONNX BGE-M3 backends before choosing the durable embedding profile and LanceDB table identity.
 - [ ] Add auto-memory extraction controls and observability: enable/disable config, last-run status, error reporting, dedupe metrics, and stale/timeout diagnostics.
 - [ ] Define cross-process background sub-agent restart/reattach semantics.
 - [x] Compaction as first-class lifecycle event: persist summaries, token counters, metadata ownership.
