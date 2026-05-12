@@ -1116,7 +1116,6 @@ mod tests {
                     plan_updated: false,
                     continue_inspection: false,
                     malformed_proposed_plan: false,
-                    consecutive_reasoning_only_turns: 1,
                 },
             },
         });
@@ -1180,8 +1179,7 @@ mod tests {
                                 "tool_call_count": 0,
                                 "plan_updated": false,
                                 "continue_inspection": false,
-                                "malformed_proposed_plan": false,
-                                "consecutive_reasoning_only_turns": 1
+                                "malformed_proposed_plan": false
                             }
                         }
                     }

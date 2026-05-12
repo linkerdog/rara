@@ -293,7 +293,7 @@ fn format_char_count(chars: usize) -> String {
 fn render_context_observability(app: &TuiApp) -> String {
     let view = &app.snapshot.context_observability;
     format!(
-        "Observability\n  cache: hit={} miss={} hit_rate={}\n  microcompact: enabled={} cache_edit_eligible={} cache_edit_applied={} cleared={} kept={} saved={} budget={} keep_recent={}\n  retrieval: providers={} candidates={} selected={} available={} dropped={} selected_budget={}\n  agent_turn: idx={} mode={} stop={} outcome={} phase={} text={} reasoning={} reasoning_only={} streamed_text={} streamed_reasoning={} assistant_recorded={} tools={} consecutive_reasoning_only={}",
+        "Observability\n  cache: hit={} miss={} hit_rate={}\n  microcompact: enabled={} cache_edit_eligible={} cache_edit_applied={} cleared={} kept={} saved={} budget={} keep_recent={}\n  retrieval: providers={} candidates={} selected={} available={} dropped={} selected_budget={}\n  agent_turn: idx={} mode={} stop={} outcome={} phase={} text={} reasoning={} reasoning_only={} streamed_text={} streamed_reasoning={} assistant_recorded={} tools={}",
         format_token_count(view.cache.hit_tokens as usize),
         format_token_count(view.cache.miss_tokens as usize),
         format_basis_points(view.cache.hit_rate_basis_points),
@@ -323,7 +323,6 @@ fn render_context_observability(app: &TuiApp) -> String {
         view.agent_turn.streamed_reasoning_delta,
         view.agent_turn.assistant_message_recorded,
         view.agent_turn.tool_call_count,
-        view.agent_turn.consecutive_reasoning_only_turns,
     )
 }
 
