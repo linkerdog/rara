@@ -64,6 +64,7 @@ Active backlog only. Keep this file small and current.
 - [x] Unify `discover_prompt_sources()` and TUI `/status` source reporting.
 - [x] Add directory-walking `.rara/rules/*.md` prompt sources from CWD to repo root.
 - [ ] Define and implement `.rara/local.md` semantics, scope, precedence, and visibility before enabling it as a prompt source.
+- [ ] Audit Codex and Claude Code system prompts, then migrate applicable prompt guidance into RARA's default prompt family without reordering stable prompt sections.
 - [ ] New prompt inputs through structured source objects, `MemorySelection`, lifecycle events, and runtime-control provenance — not ad hoc text. Protocol prompt sources now retain provenance, convert into prompt-runtime sources, atomically snapshot from the live registry at the user-query boundary, and emit registered/injected/dropped lifecycle events; next slice should extend the same bridge to protocol skill/hook visibility.
 - [ ] Project-scoped extension surface for `.claude/agents/`, `.claude/hooks/`, `.agents/skills/` with precedence rules.
 - [ ] Claude-style `verify` skill and `verifier-*` convention (see `docs/features/verify-skill.md`).
@@ -104,6 +105,7 @@ Active backlog only. Keep this file small and current.
 - [x] Durable in-turn checkpoints: persist after each message/tool-result batch, atomic writes, crash-tolerant `SessionManager`.
 - [x] Auto-memory extraction: background LLM-driven fact extraction after every 5 turns, inserted into LanceDB via MemoryStore (PR #375).
 - [x] Directory-walking rules layer: `.rara/rules/*.md` discovered from CWD to repo root (PR #375).
+- [ ] Prototype local embedding models for memory retrieval, comparing local inference quality/latency against the current remote or fallback embedding path before choosing a durable backend.
 - [ ] Add auto-memory extraction controls and observability: enable/disable config, last-run status, error reporting, dedupe metrics, and bounded background concurrency.
 - [ ] Define cross-process background sub-agent restart/reattach semantics.
 - [x] Compaction as first-class lifecycle event: persist summaries, token counters, metadata ownership.

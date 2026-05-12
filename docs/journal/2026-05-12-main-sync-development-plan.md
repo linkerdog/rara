@@ -32,7 +32,11 @@ another independent feature line:
    moving pending-interaction flows into a bottom-pane view stack.
 4. Add observability and controls around auto-memory extraction before making it
    more aggressive.
-5. Keep web/source-reporting, auxiliary-model routing, cross-process sub-agent
+5. Prototype local embedding models for memory retrieval before committing to a
+   durable local embedding backend.
+6. Audit Codex and Claude Code system prompts and migrate only the parts that
+   fit RARA's stable prompt-runtime contract.
+7. Keep web/source-reporting, auxiliary-model routing, cross-process sub-agent
    reattach, Terminal-Bench readiness, and release packaging as follow-up lanes.
 
 ## Trade-offs
