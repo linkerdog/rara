@@ -15,10 +15,11 @@ use crate::config::{
 use crate::google_oauth::GoogleOAuthManager;
 use crate::hook_registry::HookRegistry;
 use crate::llm::{
-    BedrockBackend, CodexBackend, GeminiBackend, LlmBackend, MockLlm, OllamaBackend,
-    OpenAiCompatibleBackend, fetch_model_context_window,
+    BedrockBackend, CodexBackend, EmbeddingBackend, GeminiBackend, LlmBackend, LlmEmbeddingBackend,
+    MockLlm, OllamaBackend, OpenAiCompatibleBackend, fetch_model_context_window,
 };
 use crate::local_backend::{LocalLlmBackend, LocalProgressReporter};
+use crate::local_model_server::LocalModelServerEmbeddingBackend;
 use crate::mcp_connection_manager::McpConnectionManager;
 use crate::mcp_tool_cache::McpToolCache;
 use crate::prompt::{PromptRuntimeConfig, PromptSkillSummary};
@@ -33,6 +34,7 @@ use crate::workspace::WorkspaceMemory;
 
 pub(crate) struct RuntimeBootstrap {
     pub backend: Arc<dyn LlmBackend>,
+    pub embedding_backend: Arc<dyn EmbeddingBackend>,
     pub vdb: Arc<VectorDB>,
     pub session_manager: Arc<SessionManager>,
     pub workspace: Arc<WorkspaceMemory>,
@@ -68,9 +70,10 @@ impl RuntimeBootstrap {
         Arc<SkillSourceRegistry>,
         Arc<HookRegistry>,
     ) {
-        let mut agent = Agent::new(
+        let mut agent = Agent::new_with_embedding_backend(
             self.tool_manager,
             self.backend,
+            self.embedding_backend,
             self.vdb,
             self.session_manager,
             self.workspace,
@@ -98,6 +101,7 @@ pub(crate) async fn initialize_rara_context(
 ) -> Result<RuntimeBootstrap> {
     let backend = build_backend_with_progress(config, progress).await?;
     let backend: Arc<dyn LlmBackend> = backend.into();
+    let embedding_backend = build_embedding_backend(config, backend.clone()).await?;
 
     let workspace = Arc::new(WorkspaceMemory::new()?);
     let vdb = Arc::new(VectorDB::new(&vector_db_uri_for_workspace(&workspace)));
@@ -156,6 +160,7 @@ pub(crate) async fn initialize_rara_context(
 
     let tool_manager = create_full_tool_manager(
         backend.clone(),
+        embedding_backend.clone(),
         vdb.clone(),
         session_manager.clone(),
         workspace.clone(),
@@ -171,6 +176,7 @@ pub(crate) async fn initialize_rara_context(
 
     Ok(RuntimeBootstrap {
         backend,
+        embedding_backend,
         vdb,
         session_manager,
         workspace,
@@ -186,6 +192,50 @@ pub(crate) async fn initialize_rara_context(
         mcp_tool_cache,
         mcp_manager,
     })
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum EmbeddingRoute {
+    CurrentLlmBackend,
+    LocalModelServer,
+}
+
+fn embedding_route_for_config(config: &RaraConfig) -> EmbeddingRoute {
+    match config.provider.as_str() {
+        "codex" | "mock" => EmbeddingRoute::CurrentLlmBackend,
+        provider if RaraConfig::is_openai_compatible_family(provider) => {
+            let endpoint_kind = config
+                .active_openai_profile_kind()
+                .unwrap_or(match provider {
+                    "deepseek" => OpenAiEndpointKind::Deepseek,
+                    "kimi" => OpenAiEndpointKind::Kimi,
+                    "openrouter" => OpenAiEndpointKind::Openrouter,
+                    _ => OpenAiEndpointKind::Custom,
+                });
+            match endpoint_kind {
+                OpenAiEndpointKind::Deepseek | OpenAiEndpointKind::Kimi => {
+                    EmbeddingRoute::LocalModelServer
+                }
+                OpenAiEndpointKind::Custom | OpenAiEndpointKind::Openrouter => {
+                    EmbeddingRoute::CurrentLlmBackend
+                }
+            }
+        }
+        _ => EmbeddingRoute::LocalModelServer,
+    }
+}
+
+async fn build_embedding_backend(
+    config: &RaraConfig,
+    backend: Arc<dyn LlmBackend>,
+) -> Result<Arc<dyn EmbeddingBackend>> {
+    match embedding_route_for_config(config) {
+        EmbeddingRoute::CurrentLlmBackend => Ok(Arc::new(LlmEmbeddingBackend::new(backend))),
+        EmbeddingRoute::LocalModelServer => {
+            let rara_home = ensure_rara_home_dir()?;
+            Ok(Arc::new(LocalModelServerEmbeddingBackend::new(rara_home)?))
+        }
+    }
 }
 
 pub(crate) async fn build_backend(config: &RaraConfig) -> Result<Box<dyn LlmBackend>> {
@@ -352,8 +402,8 @@ mod tests {
     use tempfile::tempdir;
 
     use super::{
-        build_backend_with_progress, initialize_rara_context, ollama_thinking_enabled,
-        vector_db_uri_for_workspace,
+        EmbeddingRoute, build_backend_with_progress, embedding_route_for_config,
+        initialize_rara_context, ollama_thinking_enabled, vector_db_uri_for_workspace,
     };
     use crate::config::{DEFAULT_REASONING_SUMMARY, REASONING_SUMMARY_NONE, RaraConfig};
     use crate::workspace::WorkspaceMemory;
@@ -491,5 +541,65 @@ mod tests {
         };
 
         assert!(ollama_thinking_enabled(&config));
+    }
+
+    #[test]
+    fn embedding_route_prefers_local_sidecar_for_unsupported_or_local_chat_providers() {
+        let deepseek = RaraConfig {
+            provider: "deepseek".to_string(),
+            ..Default::default()
+        };
+        assert_eq!(
+            embedding_route_for_config(&deepseek),
+            EmbeddingRoute::LocalModelServer
+        );
+
+        let local = RaraConfig {
+            provider: "local".to_string(),
+            ..Default::default()
+        };
+        assert_eq!(
+            embedding_route_for_config(&local),
+            EmbeddingRoute::LocalModelServer
+        );
+
+        let gemini_code_assist = RaraConfig {
+            provider: "gemini-code-assist".to_string(),
+            ..Default::default()
+        };
+        assert_eq!(
+            embedding_route_for_config(&gemini_code_assist),
+            EmbeddingRoute::LocalModelServer
+        );
+    }
+
+    #[test]
+    fn embedding_route_reuses_provider_embedding_for_supported_openai_like_surfaces() {
+        let codex = RaraConfig {
+            provider: "codex".to_string(),
+            ..Default::default()
+        };
+        assert_eq!(
+            embedding_route_for_config(&codex),
+            EmbeddingRoute::CurrentLlmBackend
+        );
+
+        let openai_compatible = RaraConfig {
+            provider: "openai-compatible".to_string(),
+            ..Default::default()
+        };
+        assert_eq!(
+            embedding_route_for_config(&openai_compatible),
+            EmbeddingRoute::CurrentLlmBackend
+        );
+
+        let mock = RaraConfig {
+            provider: "mock".to_string(),
+            ..Default::default()
+        };
+        assert_eq!(
+            embedding_route_for_config(&mock),
+            EmbeddingRoute::CurrentLlmBackend
+        );
     }
 }

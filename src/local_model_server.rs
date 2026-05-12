@@ -3,13 +3,18 @@ use std::io::{Read, Write};
 use std::net::TcpStream;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output, Stdio};
+use std::sync::Mutex;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use anyhow::{Context, Result, anyhow, bail};
+use async_trait::async_trait;
 use fs2::FileExt;
+use rara_persistence::redaction::{redact_secrets, sanitize_url_for_display};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sha2::{Digest, Sha256};
+
+use crate::llm::{EmbeddingBackend, EmbeddingInputKind};
 
 const MODEL_SERVER: &[u8] = include_bytes!(concat!(
     env!("CARGO_MANIFEST_DIR"),
@@ -108,6 +113,122 @@ struct ModelServerMetadata {
 
 struct StartupLock {
     _file: File,
+}
+
+pub(crate) struct LocalModelServerEmbeddingBackend {
+    rara_home: PathBuf,
+    client: reqwest::Client,
+    endpoint: Mutex<Option<String>>,
+}
+
+impl LocalModelServerEmbeddingBackend {
+    pub(crate) fn new(rara_home: PathBuf) -> Result<Self> {
+        let status = prepare_local_model_server_status(&rara_home);
+        Ok(Self {
+            rara_home,
+            client: reqwest::Client::builder()
+                .timeout(Duration::from_secs(30))
+                .no_proxy()
+                .build()
+                .context("build local embedding HTTP client")?,
+            endpoint: Mutex::new(status.endpoint),
+        })
+    }
+
+    async fn embed_once(
+        &self,
+        endpoint: &str,
+        text: &str,
+        kind: EmbeddingInputKind,
+    ) -> Result<Vec<f32>> {
+        let embeddings_url = format!("{}/v1/embeddings", endpoint.trim_end_matches('/'));
+        let response = self
+            .client
+            .post(&embeddings_url)
+            .json(&serde_json::json!({
+                "input": text,
+                "input_type": kind.as_api_value(),
+            }))
+            .send()
+            .await
+            .with_context(|| {
+                format!(
+                    "send local embedding request to {}",
+                    sanitize_url_for_display(&embeddings_url)
+                )
+            })?;
+        if !response.status().is_success() {
+            let body = redact_secrets(response.text().await.unwrap_or_default());
+            bail!(
+                "local embedding request failed at {}: {}",
+                sanitize_url_for_display(&embeddings_url),
+                body
+            );
+        }
+        let payload: Value = response
+            .json()
+            .await
+            .context("parse local embedding response")?;
+        let embedding = payload
+            .get("data")
+            .and_then(Value::as_array)
+            .and_then(|items| items.first())
+            .and_then(|item| item.get("embedding"))
+            .and_then(Value::as_array)
+            .ok_or_else(|| anyhow!("local embedding response missing data[0].embedding"))?;
+        embedding
+            .iter()
+            .map(|value| {
+                value
+                    .as_f64()
+                    .map(|number| number as f32)
+                    .ok_or_else(|| anyhow!("local embedding vector contained non-numeric value"))
+            })
+            .collect()
+    }
+
+    fn cached_endpoint(&self) -> Option<String> {
+        self.endpoint
+            .lock()
+            .expect("local embedding endpoint lock poisoned")
+            .clone()
+    }
+
+    fn refresh_endpoint(&self) -> Result<String> {
+        let status = prepare_local_model_server_status(&self.rara_home);
+        let endpoint = status.endpoint.ok_or_else(|| {
+            anyhow!(
+                "local embedding model server unavailable: state={:?}; {}",
+                status.state,
+                status.detail
+            )
+        })?;
+        *self
+            .endpoint
+            .lock()
+            .expect("local embedding endpoint lock poisoned") = Some(endpoint.clone());
+        Ok(endpoint)
+    }
+}
+
+#[async_trait]
+impl EmbeddingBackend for LocalModelServerEmbeddingBackend {
+    async fn embed(&self, text: &str, kind: EmbeddingInputKind) -> Result<Vec<f32>> {
+        let endpoint = match self.cached_endpoint() {
+            Some(endpoint) => endpoint,
+            None => self.refresh_endpoint()?,
+        };
+        match self.embed_once(&endpoint, text, kind).await {
+            Ok(vector) => Ok(vector),
+            Err(first_error) => {
+                let refreshed_endpoint = self.refresh_endpoint()?;
+                if refreshed_endpoint == endpoint {
+                    return Err(first_error);
+                }
+                self.embed_once(&refreshed_endpoint, text, kind).await
+            }
+        }
+    }
 }
 
 pub(crate) fn ensure_bundled_model_server(rara_home: &Path) -> Result<BundledModelServer> {
@@ -765,15 +886,18 @@ mod tests {
     use std::fs;
     use std::io::{Read, Write};
     use std::net::TcpListener;
+    use std::sync::{Arc, Mutex};
     use std::thread;
 
     use super::{
-        BootstrapMode, LocalModelServerState, ModelServerMetadata, StartupLock,
-        ensure_bundled_model_server, health_identity_matches, health_model_ready, metadata_path,
-        prepare_local_model_server_status_inner, requirements_marker_matches,
-        requirements_marker_path, reusable_server_status, selected_requirements_file, sha256_hex,
-        startup_lock_path, unix_timestamp_secs, write_file_atomically, write_server_metadata,
+        BootstrapMode, LocalModelServerEmbeddingBackend, LocalModelServerState,
+        ModelServerMetadata, StartupLock, ensure_bundled_model_server, health_identity_matches,
+        health_model_ready, metadata_path, prepare_local_model_server_status_inner,
+        requirements_marker_matches, requirements_marker_path, reusable_server_status,
+        selected_requirements_file, sha256_hex, startup_lock_path, unix_timestamp_secs,
+        write_file_atomically, write_server_metadata,
     };
+    use crate::llm::{EmbeddingBackend, EmbeddingInputKind};
 
     #[test]
     fn installs_bundled_model_server_under_rara_home() {
@@ -882,6 +1006,82 @@ mod tests {
         let expected_endpoint = format!("http://127.0.0.1:{port}");
         assert_eq!(status.endpoint.as_deref(), Some(expected_endpoint.as_str()));
         assert!(status.detail.contains("reusing model server"));
+    }
+
+    #[tokio::test]
+    async fn local_embedding_backend_posts_query_input_type() {
+        let listener = TcpListener::bind(("127.0.0.1", 0)).expect("bind fake embeddings server");
+        let port = listener.local_addr().expect("local addr").port();
+        let captured_body = Arc::new(Mutex::new(String::new()));
+        let captured_body_writer = captured_body.clone();
+        thread::spawn(move || {
+            let (mut stream, _) = listener.accept().expect("accept embeddings request");
+            let mut request = Vec::new();
+            let mut header_end = None;
+            let mut content_length = 0usize;
+            while header_end.is_none() {
+                let mut buffer = [0_u8; 512];
+                let read = stream.read(&mut buffer).expect("read request");
+                request.extend_from_slice(&buffer[..read]);
+                if let Some(position) = request.windows(4).position(|window| window == b"\r\n\r\n")
+                {
+                    let end = position + 4;
+                    header_end = Some(end);
+                    let headers =
+                        String::from_utf8(request[..position].to_vec()).expect("headers utf8");
+                    content_length = headers
+                        .lines()
+                        .find_map(|line| {
+                            let (name, value) = line.split_once(':')?;
+                            if name.eq_ignore_ascii_case("content-length") {
+                                value.trim().parse::<usize>().ok()
+                            } else {
+                                None
+                            }
+                        })
+                        .unwrap_or_default();
+                }
+            }
+            let header_end = header_end.expect("header end");
+            while request.len() < header_end + content_length {
+                let mut buffer = [0_u8; 512];
+                let read = stream.read(&mut buffer).expect("read request body");
+                request.extend_from_slice(&buffer[..read]);
+            }
+            let body = String::from_utf8(request[header_end..header_end + content_length].to_vec())
+                .expect("body utf8");
+            *captured_body_writer.lock().expect("captured body") = body;
+
+            let response_body = r#"{"object":"list","data":[{"object":"embedding","index":0,"embedding":[1.0,2.0,3.0]}]}"#;
+            let response = format!(
+                "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+                response_body.len(),
+                response_body
+            );
+            stream
+                .write_all(response.as_bytes())
+                .expect("write embeddings response");
+        });
+
+        let backend = LocalModelServerEmbeddingBackend {
+            rara_home: std::env::temp_dir(),
+            client: reqwest::Client::builder()
+                .timeout(std::time::Duration::from_secs(5))
+                .no_proxy()
+                .build()
+                .expect("client"),
+            endpoint: Mutex::new(Some(format!("http://127.0.0.1:{port}"))),
+        };
+
+        let vector = backend
+            .embed("Explain vector search", EmbeddingInputKind::Query)
+            .await
+            .expect("embed via local model server");
+        assert_eq!(vector, vec![1.0, 2.0, 3.0]);
+
+        let body = captured_body.lock().expect("captured body").clone();
+        assert!(body.contains(r#""input":"Explain vector search""#));
+        assert!(body.contains(r#""input_type":"query""#));
     }
 
     #[test]

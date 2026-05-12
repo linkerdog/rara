@@ -10,7 +10,7 @@ use rara_memory::vectordb::{MemoryMetadata, VectorDB};
 use rara_persistence::atomic_file;
 use rara_persistence::file_lock::AdvisoryFileLock;
 
-use crate::llm::LlmBackend;
+use crate::llm::{EmbeddingBackend, EmbeddingInputKind, LlmBackend, LlmEmbeddingBackend};
 
 const EXPERIENCES_TABLE: &str = "experiences";
 const DEFAULT_IMPORTANCE: f32 = 0.5;
@@ -202,16 +202,28 @@ pub struct MemoryRecordSearchHit {
 }
 
 pub struct MemoryStore {
-    backend: Arc<dyn LlmBackend>,
+    llm_backend: Arc<dyn LlmBackend>,
+    embedding_backend: Arc<dyn EmbeddingBackend>,
     vdb: Arc<VectorDB>,
     records: MemoryRecordFileStore,
 }
 
 impl MemoryStore {
     pub fn new(backend: Arc<dyn LlmBackend>, vdb: Arc<VectorDB>) -> Self {
+        let embedding_backend: Arc<dyn EmbeddingBackend> =
+            Arc::new(LlmEmbeddingBackend::new(backend.clone()));
+        Self::new_with_embedding_backend(backend, embedding_backend, vdb)
+    }
+
+    pub fn new_with_embedding_backend(
+        llm_backend: Arc<dyn LlmBackend>,
+        embedding_backend: Arc<dyn EmbeddingBackend>,
+        vdb: Arc<VectorDB>,
+    ) -> Self {
         let records = MemoryRecordFileStore::for_vdb_uri(vdb.uri());
         Self {
-            backend,
+            llm_backend,
+            embedding_backend,
             vdb,
             records,
         }
@@ -222,15 +234,32 @@ impl MemoryStore {
         vdb: Arc<VectorDB>,
         record_path: PathBuf,
     ) -> Self {
-        Self {
+        let embedding_backend: Arc<dyn EmbeddingBackend> =
+            Arc::new(LlmEmbeddingBackend::new(backend.clone()));
+        Self::new_with_embedding_backend_and_record_path(
             backend,
+            embedding_backend,
+            vdb,
+            record_path,
+        )
+    }
+
+    pub fn new_with_embedding_backend_and_record_path(
+        llm_backend: Arc<dyn LlmBackend>,
+        embedding_backend: Arc<dyn EmbeddingBackend>,
+        vdb: Arc<VectorDB>,
+        record_path: PathBuf,
+    ) -> Self {
+        Self {
+            llm_backend,
+            embedding_backend,
             vdb,
             records: MemoryRecordFileStore::new(record_path),
         }
     }
 
     pub(crate) fn backend(&self) -> Arc<dyn LlmBackend> {
-        Arc::clone(&self.backend)
+        Arc::clone(&self.llm_backend)
     }
 
     pub async fn insert(&self, input: NewMemoryRecord) -> Result<MemoryRecord> {
@@ -270,7 +299,10 @@ impl MemoryStore {
             created_at_unix_seconds: now,
             updated_at_unix_seconds: now,
         };
-        let vector = self.backend.embed(&record.content).await?;
+        let vector = self
+            .embedding_backend
+            .embed(&record.content, EmbeddingInputKind::Document)
+            .await?;
         self.vdb
             .upsert_turn(
                 EXPERIENCES_TABLE,
@@ -291,7 +323,10 @@ impl MemoryStore {
         if query.trim().is_empty() || limit == 0 {
             return Ok(Vec::new());
         }
-        let query_vector = self.backend.embed(query).await?;
+        let query_vector = self
+            .embedding_backend
+            .embed(query, EmbeddingInputKind::Query)
+            .await?;
         self.search_with_embedding(query, query_vector, limit).await
     }
 
@@ -334,7 +369,10 @@ impl MemoryStore {
         let normalized_patch = normalize_memory_record_patch(patch)?;
         let updated = self.records.update(id, normalized_patch.clone()).await?;
         if patch_requires_index_refresh(&normalized_patch) {
-            let vector = self.backend.embed(&updated.content).await?;
+            let vector = self
+                .embedding_backend
+                .embed(&updated.content, EmbeddingInputKind::Document)
+                .await?;
             self.vdb
                 .upsert_turn(
                     EXPERIENCES_TABLE,
@@ -971,8 +1009,54 @@ fn unix_timestamp_seconds() -> u64 {
 
 #[cfg(test)]
 mod tests {
+    use anyhow::{Result, anyhow};
+    use async_trait::async_trait;
+    use serde_json::Value;
+
     use super::*;
-    use crate::llm::MockLlm;
+    use crate::agent::Message;
+    use crate::llm::{
+        ContentBlock, EmbeddingBackend, EmbeddingInputKind, LlmBackend, LlmResponse, MockLlm,
+    };
+
+    struct FailingLlmBackend;
+
+    #[async_trait]
+    impl LlmBackend for FailingLlmBackend {
+        async fn ask(&self, _messages: &[Message], _tools: &[Value]) -> Result<LlmResponse> {
+            Ok(LlmResponse {
+                content: vec![ContentBlock::Text {
+                    text: "ok".to_string(),
+                }],
+                stop_reason: Some("end_turn".to_string()),
+                usage: None,
+            })
+        }
+
+        async fn embed(&self, _text: &str) -> Result<Vec<f32>> {
+            Err(anyhow!("llm embedding path should stay unused"))
+        }
+
+        async fn summarize(&self, _messages: &[Message], _instruction: &str) -> Result<String> {
+            Ok("summary".to_string())
+        }
+    }
+
+    struct FixedEmbeddingBackend;
+
+    #[async_trait]
+    impl EmbeddingBackend for FixedEmbeddingBackend {
+        async fn embed(&self, text: &str, kind: EmbeddingInputKind) -> Result<Vec<f32>> {
+            let vector = match kind {
+                EmbeddingInputKind::Query if text.contains("parser") => vec![1.0, 0.0, 0.0, 0.0],
+                EmbeddingInputKind::Document if text.contains("DeepSeek") => {
+                    vec![1.0, 0.0, 0.0, 0.0]
+                }
+                _ => vec![0.0, 1.0, 0.0, 0.0],
+            };
+            Ok(vector)
+        }
+    }
 
     fn test_memory_record(id: &str, content: &str) -> MemoryRecord {
         MemoryRecord {
@@ -1162,6 +1246,30 @@ mod tests {
             store.get(&saved.id).await.expect("get saved memory"),
             Some(saved)
         );
+    }
+
+    #[tokio::test]
+    async fn memory_store_uses_separate_embedding_backend_for_vector_paths() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let store = MemoryStore::new_with_embedding_backend(
+            Arc::new(FailingLlmBackend),
+            Arc::new(FixedEmbeddingBackend),
+            Arc::new(VectorDB::new(temp.path().to_str().expect("utf8 path"))),
+        );
+
+        let saved = store
+            .insert(NewMemoryRecord::experience(
+                "DeepSeek DSML requires a structured parser.",
+            ))
+            .await
+            .expect("insert memory with separate embedding backend");
+        let hits = store
+            .search("structured parser", 8)
+            .await
+            .expect("search memories with separate embedding backend");
+
+        assert_eq!(hits.len(), 1);
+        assert_eq!(hits[0].record.id, saved.id);
     }
 
     #[tokio::test]
@@ -1375,7 +1483,9 @@ mod tests {
         let metadata_hits = vdb
             .search_with_metadata(
                 EXPERIENCES_TABLE,
-                backend.embed("Scope-only updates").await.expect("embed"),
+                LlmBackend::embed(backend.as_ref(), "Scope-only updates")
+                    .await
+                    .expect("embed"),
                 5,
             )
             .await

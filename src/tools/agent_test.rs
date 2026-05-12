@@ -21,7 +21,7 @@ use super::{
     resolve_kind_definition, resolve_spawn_agent_definition,
 };
 use crate::agent::Message;
-use crate::llm::{ContentBlock, LlmBackend, LlmResponse, MockLlm};
+use crate::llm::{ContentBlock, EmbeddingBackend, LlmBackend, LlmResponse, MockLlm};
 use crate::prompt::PromptRuntimeConfig;
 use crate::session::SessionManager;
 use crate::session_transcript::{load_transcript, model_visible_messages};
@@ -44,6 +44,10 @@ struct PeakBackend {
 struct PlanStateBackend;
 
 struct SlowBackend;
+
+fn mock_embedding_backend() -> Arc<dyn EmbeddingBackend> {
+    Arc::new(MockLlm)
+}
 
 fn record_peak(current: usize, peak: &AtomicUsize) {
     let mut observed = peak.load(Ordering::SeqCst);
@@ -299,6 +303,7 @@ async fn team_create_runs_real_subagents_in_order() {
     std::fs::create_dir_all(&root).expect("workspace");
     let tool = TeamCreateTool {
         backend: Arc::new(MockLlm),
+        embedding_backend: mock_embedding_backend(),
         vdb: Arc::new(VectorDB::new(
             &rara_dir.join("lancedb").display().to_string(),
         )),
@@ -351,6 +356,7 @@ async fn team_create_validates_all_tasks_before_running_subagents() {
         backend: Arc::new(CountingBackend {
             calls: calls.clone(),
         }),
+        embedding_backend: mock_embedding_backend(),
         vdb: Arc::new(VectorDB::new(
             &rara_dir.join("lancedb").display().to_string(),
         )),
@@ -391,6 +397,7 @@ async fn team_create_rejects_non_string_kind_before_running_subagents() {
         backend: Arc::new(CountingBackend {
             calls: calls.clone(),
         }),
+        embedding_backend: mock_embedding_backend(),
         vdb: Arc::new(VectorDB::new(
             &rara_dir.join("lancedb").display().to_string(),
         )),
@@ -430,6 +437,7 @@ async fn team_create_rejects_unstable_explicit_name_before_running_subagents() {
         backend: Arc::new(CountingBackend {
             calls: calls.clone(),
         }),
+        embedding_backend: mock_embedding_backend(),
         vdb: Arc::new(VectorDB::new(
             &rara_dir.join("lancedb").display().to_string(),
         )),
@@ -468,6 +476,7 @@ async fn spawn_agent_rejects_name_that_normalizes_empty_before_running_subagent(
         backend: Arc::new(CountingBackend {
             calls: calls.clone(),
         }),
+        embedding_backend: mock_embedding_backend(),
         vdb: Arc::new(VectorDB::new(
             &rara_dir.join("lancedb").display().to_string(),
         )),
@@ -505,6 +514,7 @@ async fn team_create_limits_concurrent_subagents() {
             in_flight,
             peak: peak.clone(),
         }),
+        embedding_backend: mock_embedding_backend(),
         vdb: Arc::new(VectorDB::new(
             &rara_dir.join("lancedb").display().to_string(),
         )),
@@ -539,6 +549,7 @@ async fn team_create_writes_parent_scoped_sidechain_transcripts() {
         backend: Arc::new(CountingBackend {
             calls: Arc::new(AtomicUsize::new(0)),
         }),
+        embedding_backend: mock_embedding_backend(),
         vdb: Arc::new(VectorDB::new(
             &rara_dir.join("lancedb").display().to_string(),
         )),
@@ -627,6 +638,7 @@ async fn spawn_agent_writes_parent_scoped_sidechain_transcript() {
         backend: Arc::new(CountingBackend {
             calls: Arc::new(AtomicUsize::new(0)),
         }),
+        embedding_backend: mock_embedding_backend(),
         vdb: Arc::new(VectorDB::new(
             &rara_dir.join("lancedb").display().to_string(),
         )),
@@ -710,6 +722,7 @@ async fn background_subagent_resume_returns_completed_summary_without_inline_sid
         backend: Arc::new(CountingBackend {
             calls: Arc::new(AtomicUsize::new(0)),
         }),
+        embedding_backend: mock_embedding_backend(),
         vdb: Arc::new(VectorDB::new(
             &rara_dir.join("lancedb").display().to_string(),
         )),
@@ -779,6 +792,7 @@ async fn background_subagent_stop_marks_running_task_cancelled() {
     let background_subagents = Arc::new(BackgroundSubAgentStore::default());
     let tool = ExploreAgentTool {
         backend: Arc::new(SlowBackend),
+        embedding_backend: mock_embedding_backend(),
         vdb: Arc::new(VectorDB::new(
             &rara_dir.join("lancedb").display().to_string(),
         )),
@@ -875,6 +889,7 @@ async fn background_plan_agent_resume_returns_plan_state() {
     let background_subagents = Arc::new(BackgroundSubAgentStore::default());
     let tool = PlanAgentTool {
         backend: Arc::new(PlanStateBackend),
+        embedding_backend: mock_embedding_backend(),
         vdb: Arc::new(VectorDB::new(
             &rara_dir.join("lancedb").display().to_string(),
         )),
@@ -931,6 +946,7 @@ async fn plan_agent_writes_parent_scoped_sidechain_transcript() {
     std::fs::create_dir_all(&root).expect("workspace");
     let tool = PlanAgentTool {
         backend: Arc::new(PlanStateBackend),
+        embedding_backend: mock_embedding_backend(),
         vdb: Arc::new(VectorDB::new(
             &rara_dir.join("lancedb").display().to_string(),
         )),
@@ -1006,6 +1022,7 @@ async fn subagent_without_parent_context_does_not_write_sidechain() {
         backend: Arc::new(CountingBackend {
             calls: Arc::new(AtomicUsize::new(0)),
         }),
+        embedding_backend: mock_embedding_backend(),
         vdb: Arc::new(VectorDB::new(
             &rara_dir.join("lancedb").display().to_string(),
         )),
@@ -1049,6 +1066,7 @@ async fn subagent_returns_result_when_sidechain_persistence_fails() {
         backend: Arc::new(CountingBackend {
             calls: Arc::new(AtomicUsize::new(0)),
         }),
+        embedding_backend: mock_embedding_backend(),
         vdb: Arc::new(VectorDB::new(
             &rara_dir.join("lancedb").display().to_string(),
         )),
@@ -1093,6 +1111,7 @@ async fn team_create_rejects_too_many_tasks() {
     std::fs::create_dir_all(&root).expect("workspace");
     let tool = TeamCreateTool {
         backend: Arc::new(MockLlm),
+        embedding_backend: mock_embedding_backend(),
         vdb: Arc::new(VectorDB::new(
             &rara_dir.join("lancedb").display().to_string(),
         )),

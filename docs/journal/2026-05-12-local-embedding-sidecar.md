@@ -32,6 +32,18 @@ weights are loaded, tracks preparation state, and exposes `POST
 /models/prepare`. Rust treats a server as reusable only after the health
 identity matches and the selected backend reports `loaded: true`.
 
+The follow-up embedding-provider decoupling slice also landed on top of this
+runtime:
+
+- vector-producing paths now use a standalone `EmbeddingBackend`;
+- runtime bootstrap routes unsupported chat providers to the local model server
+  instead of hashed embeddings;
+- `MemoryStore`, retrieval orchestration, session-context checkpointing, vector
+  tools, and sub-agents all inherit that embedding backend;
+- the local model server HTTP client bypasses system proxies for loopback
+  traffic so local embedding calls do not leak into proxy-managed outbound
+  routes.
+
 ## Why
 
 The Rust MLX ecosystem is not yet the lowest-risk path for a Qwen3 embedding
@@ -73,7 +85,6 @@ Target shape:
 
 ## Follow-Up
 
-- Wire `/v1/embeddings` into a standalone `EmbeddingBackend`.
 - Add config for model server enablement and backend selection.
 - Move bootstrap work off synchronous TUI startup so creating the venv,
   installing dependencies, and downloading model artifacts can stream progress

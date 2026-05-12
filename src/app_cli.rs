@@ -269,8 +269,11 @@ async fn run_distill_command(config: &RaraConfig, thread_id: &str) -> Result<()>
     let bootstrap = runtime_context::initialize_rara_context(config, None).await?;
     emit_bootstrap_warnings(&bootstrap.warnings);
     let state_db = rara_state::state_db::StateDb::new()?;
-    let memory_store =
-        crate::memory_store::MemoryStore::new(bootstrap.backend.clone(), bootstrap.vdb.clone());
+    let memory_store = crate::memory_store::MemoryStore::new_with_embedding_backend(
+        bootstrap.backend.clone(),
+        bootstrap.embedding_backend.clone(),
+        bootstrap.vdb.clone(),
+    );
     let thread_store = crate::thread_store::ThreadStore::new(&bootstrap.session_manager, &state_db);
     let memories = thread_store
         .distill_thread_memories(&memory_store, thread_id)

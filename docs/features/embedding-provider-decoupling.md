@@ -2,139 +2,152 @@
 
 ## Problem
 
-RARA's embedding layer currently reuses the chat provider's credentials and
-endpoint URL. The `LlmBackend::embed` method constructs the embeddings URL by
-appending `/v1/embeddings` to the chat provider's `base_url`. Providers that
-only offer chat — DeepSeek, Kimi, and potentially others — do not expose an
-embeddings endpoint; the call fails at the HTTP layer.
+RARA's vector retrieval path used to depend directly on `LlmBackend::embed`.
+That created two concrete failures:
 
-```
-deepseek base_url → https://api.deepseek.com/v1
-embedding URL     → https://api.deepseek.com/v1/embeddings  ← 404 / host error
-```
+- chat providers without an embeddings surface, such as DeepSeek and Kimi,
+  could not support memory retrieval through the main runtime path;
+- local and compatibility providers often fell back to weak hashed embeddings,
+  so "vector search" existed structurally but not semantically.
 
-Failures bubble up as `retrieve_session_context` and `retrieve_experience`
-returning empty results, silently degrading memory retrieval.
+The result was inconsistent memory behavior across providers and no clean place
+to plug in the local embedding sidecar introduced by
+`docs/features/local-embedding-runtimes.md`.
 
 ## Scope
 
-- Decouple the embedding backend from the chat backend so they can be configured
-  independently.
-- Define a minimal `EmbeddingBackend` contract that the existing `LlmBackend`
-  embed methods are refactored into.
-- Providers that don't support embeddings (DeepSeek, Kimi) degrade gracefully
-  with neither HTTP calls nor panics.
-- Retain existing behavior for OpenAI-compatible providers that do support
-  embeddings (OpenAI, Ollama, Gemini, Codex).
-- **Memory retrieval (`retrieve_session_context`, `retrieve_experience`,
-  `remember_experience`, `retrieve_memory`) must continue working when any
-  valid embedding provider is configured**, even if the chat provider is
-  DeepSeek or Kimi.
+- Introduce a standalone `EmbeddingBackend` contract for vector-producing paths.
+- Route memory retrieval, memory writes, session-context checkpointing, and
+  vector tools through that standalone backend.
+- Allow runtime bootstrap to choose between provider-native embeddings and the
+  local model-server sidecar independently of the chat backend.
+- Preserve the existing `LlmBackend::embed` implementations as a compatibility
+  shim for provider wrappers and tests in this slice.
 
 ## Non-Goals
 
-- Adding a local inference-based embedding backend (Candle, ONNX) in this spec.
-  The Near-Term Focus item "A real embedding backend for local memory
-  retrieval quality" is a separate project.
-- Changing the LanceDB memory storage format.
-- Adding embedding provider selection to the TUI setup flow (spec-only; TUI
-  integration is follow-up).
+- Removing `LlmBackend::embed` in the same PR. That cleanup is deferred until
+  the remaining provider/test surfaces no longer rely on the compatibility
+  hook.
+- Adding a user-facing embedding-provider picker or config stanza.
+- Reworking LanceDB table identity for mixed-profile or mixed-dimension
+  embeddings.
+- Adding keyword-only recovery to every retrieval path when embeddings are
+  unavailable.
 
 ## Architecture
 
-### 1) EmbeddingBackend Trait
+### 1) Standalone Embedding Contract
 
-Extract a standalone trait, separate from `LlmBackend`:
+The canonical vector boundary is now:
 
 ```rust
 #[async_trait]
 pub trait EmbeddingBackend: Send + Sync {
-    /// Compute a vector embedding for `text`.
-    async fn embed(&self, text: &str) -> Result<Vec<f32>>;
+    async fn embed(&self, text: &str, kind: EmbeddingInputKind) -> Result<Vec<f32>>;
 }
 ```
 
-- `OpenAiEmbeddingBackend` — wraps the existing `openai_compatible::embed` logic.
-  Configured with its own `base_url`, `api_key`, and `model`.
-- `GeminiEmbeddingBackend` — wraps the existing `gemini::embed`.
-- `OllamaEmbeddingBackend` — wraps the existing `ollama::embed`.
-- `NoopEmbeddingBackend` — returns `Err("embedding not configured")` for
-  providers that don't support embeddings.
+`EmbeddingInputKind` distinguishes query vectors from document vectors so the
+local sidecar can preserve backend-specific retrieval formatting rules.
 
-Memory consumers (`memory_store.rs`, `context/retriever.rs`, `session.rs`,
-`context/assembler.rs`) call `EmbeddingBackend::embed` instead of
-`LlmBackend::embed`.
+### 2) Runtime Routing
 
-### 2) Provider Detection
+Runtime bootstrap constructs the chat backend and embedding backend separately.
+The current default route matrix is:
 
-`OpenAiEndpointKind` already disambiguates Deepseek vs standard OpenAI-compatible
-providers. During backend construction:
-
-| Chat Provider | Embedding Behavior |
+| Chat provider | Embedding route |
 |---|---|
-| OpenAI / OpenAI-compatible | `OpenAiEmbeddingBackend` with same `base_url` |
-| DeepSeek / Kimi | `NoopEmbeddingBackend` |
-| Codex | Reuses parent `openai_compatible::embed` (already delegates internally) |
-| Gemini | `GeminiEmbeddingBackend` |
-| Ollama | `OllamaEmbeddingBackend` |
-| Bedrock | `NoopEmbeddingBackend` (stubbed today) |
-| Local/Candle | `NoopEmbeddingBackend` |
+| `codex` | Provider-native embedding via `LlmEmbeddingBackend` |
+| `openai-compatible`, `openrouter`, custom OpenAI-like surfaces | Provider-native embedding via `LlmEmbeddingBackend` |
+| `mock` | Provider-native embedding via `LlmEmbeddingBackend` |
+| `deepseek`, `kimi` | `LocalModelServerEmbeddingBackend` |
+| `gemini`, `gemini-code-assist` | `LocalModelServerEmbeddingBackend` |
+| `ollama`, `ollama-native`, `ollama-openai` | `LocalModelServerEmbeddingBackend` |
+| `bedrock` | `LocalModelServerEmbeddingBackend` |
+| `local`, `local-candle`, `gemma4`, `qwen3`, `qwn3` | `LocalModelServerEmbeddingBackend` |
 
-### 3) Independent Config (Future)
+This means the chat surface and vector surface are no longer forced to share
+capabilities even when they still share process-level configuration.
 
-A dedicated embedding config block allows manual override when the chat provider
-doesn't support embeddings but the user has a separate embedding service:
+### 3) Local Sidecar Backend
 
-```toml
-[embedding]
-provider = "openai"       # or "gemini", "ollama", "none"
-model = "text-embedding-3-small"
-base_url = "https://api.openai.com/v1"
-api_key = "sk-..."
+`LocalModelServerEmbeddingBackend` talks to the bundled Python model server's
+`POST /v1/embeddings` endpoint and sends:
+
+```json
+{"input":"Explain vector search","input_type":"query"}
 ```
 
-When `provider = "none"`, memory retrieval degrades to keyword-only search
-(already supported by LanceDB FTS). This config is deferred to a follow-up PR;
-the current spec only requires that the default behavior selects a working
-embedding backend per provider.
+or:
 
-### 4) Fallback Paths
-
-The retriever already has a keyword-only fallback:
-
-```rust
-// context/retriever.rs:52
-let Ok(query_vector) = self.backend.embed(query).await else {
-    // keyword fallback
-};
+```json
+{"input":"Checkpoint text","input_type":"document"}
 ```
 
-This path already works when `embed` returns `Err`. The `NoopEmbeddingBackend`
-triggers this naturally.
+The client caches the last known loopback endpoint, refreshes it through the
+existing bootstrap/status path if a request fails, and bypasses system proxies
+for loopback requests so local embedding traffic does not get captured by a
+global HTTP proxy.
 
-## Implementation Contract
+### 4) Wiring Points
 
-### Phase 1: Trait Extraction (this PR)
+The following paths now depend on `EmbeddingBackend`, not directly on
+`LlmBackend::embed`:
 
-1. Define `EmbeddingBackend` trait in `src/llm/shared.rs` (or new
-   `src/llm/embedding.rs`).
-2. Move each backend's `embed` method from `LlmBackend` to its own
-   `EmbeddingBackend` impl block.
-3. In the `BootstrapRuntime`, construct the embedding backend separately from
-   the chat backend, selecting `NoopEmbeddingBackend` for DeepSeek/Kimi.
-4. Update call sites in `memory_store.rs`, `retriever.rs`, `session.rs`,
-   `assembler.rs` to use the new `EmbeddingBackend` reference.
-5. Remove `embed` from `LlmBackend`.
+- `MemoryStore::insert`, `search`, and `update`
+- `MemoryRetrievalOrchestrator`
+- `retrieve_session_context`
+- `remember_experience` and `retrieve_experience`
+- per-turn session-context checkpoint writes in `Agent`
+- sub-agent and team-created agent runtime construction
 
-### Phase 2: Config (follow-up)
+`MemoryStore` still retains a chat-backend handle for memory distillation, but
+vector indexing/search is a separate dependency.
 
-1. Add `[embedding]` section to `RaraConfig`.
-2. Add `/embedding` command to TUI.
-3. CLI: `--embedding-provider` and `--embedding-model` flags.
+## Contracts
 
-## Verification
+- Query embeddings must be requested with `EmbeddingInputKind::Query`.
+- Durable memory/session text written into vector indexes must use
+  `EmbeddingInputKind::Document`.
+- Runtime bootstrap must build one embedding backend per process runtime and
+  pass it through to the main agent and sub-agents.
+- The local sidecar client must not rely on ambient proxy configuration for
+  loopback embedding calls.
+- `MemoryStore` may keep a chat-backend reference for distillation, but its
+  vector paths must not implicitly call that backend for embeddings when an
+  explicit embedding backend is supplied.
+- Unsupported or unavailable embedding routes must fail without panic.
 
-- `cargo test` — existing tests pass with `NoopEmbeddingBackend`.
-- Integration test: DeepSeek chat provider + OpenAI embedding → memory retrieval
-  produces non-empty results.
-- Integration test: DeepSeek chat provider + no embedding → keyword fallback.
+## Validation Matrix
+
+| Case | Validation |
+|---|---|
+| MemoryStore decoupling | `cargo test memory_store::tests -- --nocapture` |
+| Local sidecar request shape | `cargo test local_model_server::tests::local_embedding_backend_posts_query_input_type -- --nocapture --test-threads=1` |
+| Provider route matrix | `cargo test runtime_context::tests -- --nocapture` |
+| Tool/sub-agent wiring compile surface | `cargo test tools::agent_test -- --nocapture` |
+| Whole-crate typecheck | `cargo check` |
+
+## Operational Notes
+
+- Provider-native embeddings are still exposed through the legacy
+  `LlmBackend::embed` compatibility path in this slice.
+- The local sidecar path is now the default recovery route for providers that
+  cannot produce useful embeddings themselves.
+- Retrieval paths that depend on a query vector still degrade to "no vector
+  candidates" when the configured embedding backend is unavailable; broader
+  keyword-only fallback remains follow-up work.
+
+## Open Risks
+
+- The compatibility shim means the chat trait still carries embedding methods,
+  so the type boundary is cleaner at runtime than it is at the trait layer.
+- The current route matrix is provider-name based. Explicit embedding config is
+  still needed for users who want to override the default local-sidecar route.
+- Mixed-platform local embeddings still need profile-aware LanceDB identity
+  before cross-profile reuse is safe.
+
+## Source Journals
+
+- `docs/journal/2026-05-12-local-embedding-sidecar.md`

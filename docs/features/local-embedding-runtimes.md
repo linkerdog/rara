@@ -20,8 +20,8 @@ platforms should start with a CPU ONNX path before any CUDA-specific work.
 - Automatically prepare and start the local model server when local embeddings
   are enabled and no usable server/model is available.
 - Reuse an already-running RARA model server across local RARA processes.
-- Keep the server bootstrap narrow enough to become one `EmbeddingBackend`
-  implementation after embedding provider decoupling lands.
+- Expose the server through one standalone `EmbeddingBackend` implementation for
+  memory retrieval, memory indexing, and session-context checkpoints.
 
 ## Non-Goals
 
@@ -256,6 +256,18 @@ The model server health response is the source for `/status`:
 The health endpoint reports readiness and loaded state. Embedding generation
 still goes through `/v1/embeddings`.
 
+### EmbeddingBackend Integration
+
+The canonical Rust consumer is `LocalModelServerEmbeddingBackend`.
+
+- Query retrieval uses `input_type: "query"`.
+- Memory writes and session-context checkpoints use
+  `input_type: "document"`.
+- Runtime bootstrap may select the local sidecar independently of the chat
+  provider, so local embeddings remain available even when the chat provider
+  cannot produce useful vectors.
+- Sub-agents inherit the same embedding backend route as the parent runtime.
+
 ### Model Preparation And Progress
 
 Model downloads are owned by the Python backend dependency stack because MLX,
@@ -345,11 +357,15 @@ Valid preparation states:
   backend selector only; it does not
   accept arbitrary module names, local file paths, shell commands, or model ids
   from requests.
+- The local-sidecar `EmbeddingBackend` must use `query` versus `document`
+  input kinds consistently so backend-specific retrieval instructions stay
+  correct.
 - Python dependency installation is performed by Rust during automatic startup
   preparation from bundled requirement manifests, not by arbitrary server-side
   code or workspace scripts.
 - Model artifact download is performed by the Python backend stack after Rust
   asks the managed server to prepare the selected backend/model.
+- Local loopback embedding requests must bypass system proxy configuration.
 
 ## Validation Matrix
 
@@ -359,9 +375,10 @@ Valid preparation states:
 | Requirement extraction | Unit test installs bundled platform requirement manifests |
 | Tampered server | Unit test rewrites mismatched server content from bundled bytes |
 | Symlink attack | Unix unit test rejects a symlink at the server install path |
-| Python protocol | Follow-up integration test calls `/v1/embeddings` and asserts a 1024-d vector |
+| Python protocol | Unit test posts `/v1/embeddings` through `LocalModelServerEmbeddingBackend` and asserts the expected `input_type` |
 | Status display | TUI/status test shows enabled/setup/error state without loading model weights |
 | Startup bootstrap | Unit/integration test starts with no venv/model metadata and records automatic prepare state |
+| Runtime wiring | `cargo test memory_store::tests -- --nocapture` proves vector writes/search can use an explicit embedding backend |
 | Server reuse | Integration test starts a second RARA process/client and verifies it reuses the healthy server metadata |
 | Dead server recovery | Integration test writes stale metadata or stops the server, then verifies the next startup acquires the lock and starts a replacement |
 | Progress reporting | Test or smoke script observes creating/installing/downloading/ready status transitions |
@@ -385,6 +402,7 @@ Valid preparation states:
   failure should be reported as setup/bootstrap error state.
 - RARA should avoid duplicate model downloads by using the startup lock and by
   reusing a healthy running server.
+- Local sidecar HTTP calls must stay on loopback and bypass proxy interception.
 
 ## Open Risks
 
@@ -399,6 +417,8 @@ Valid preparation states:
   versioned by profile.
 - LanceDB table versioning still needs a separate migration plan before mixed
   embedding dimensions or model profiles are enabled.
+- Explicit embedding enable/disable and provider override config still remains
+  follow-up work.
 
 ## Source Journals
 
