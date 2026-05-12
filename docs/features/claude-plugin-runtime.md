@@ -253,6 +253,30 @@ Matchers are parsed but not evaluated in the first slice (matching is deferred).
 | `discover_plugins` skips non-directories | unit test |
 | `discover_plugins` de-dupes by name | unit test |
 
+## Implementation Status
+
+Implemented in the first merged slice:
+
+- `crates/rara-plugins` exists with loader, executor, and shared types.
+- `.claude-plugin/plugin.json` and `hooks/hooks.json` are parsed.
+- Command hooks can be executed with stdin JSON, timeout handling, exit-code
+  reporting, and stdout parsing.
+- A middleware bridge exists in `src/plugin_middleware.rs`, but it is not yet
+  part of the runtime startup path.
+- The current discovery API scans one plugin directory at a time; the target
+  user/project/CLI precedence and dedupe contract remains to be implemented.
+
+Next implementation slices:
+
+1. Register discovered plugin hooks during runtime bootstrap and make the path
+   work for TUI, CLI, ACP, and Wire surfaces.
+2. Fix lifecycle parity gaps before user-facing rollout: `SessionEnd` mapping,
+   matcher evaluation, blocking hook results, and hook output observability.
+3. Add `rara plugin install/list/remove` with explicit trust copy and git/local
+   source handling.
+4. Feed plugin `.mcp.json`, commands, skills, and agents into the same
+   structured extension-source registries used by native RARA features.
+
 ## Open Risks
 
 - Hook scripts may `require` Node modules that aren't installed in the user's
@@ -267,4 +291,5 @@ Matchers are parsed but not evaluated in the first slice (matching is deferred).
 
 ## Source Journals
 
-- `docs/journal/2026-05-12-claude-plugin-runtime.md` (to be written)
+- `docs/journal/2026-05-12-claude-plugin-runtime.md`
+- `docs/journal/2026-05-12-main-sync-development-plan.md`

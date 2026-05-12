@@ -4,14 +4,14 @@ Active backlog only. Keep this file small and current.
 
 ## Suggested Rollout Order
 
-1. Runtime control plane and ACP/Wire-ready context contracts
-2. Runtime bootstrap and source-object unification
-3. Configuration and provider-surface cleanup
-4. Workspace / skill observability and cache correctness
-5. Memory / retrieval / thread persistence
-6. TUI transcript parity and command-surface polish
-7. Terminal-Bench evaluation readiness
-8. Release distribution and package-manager adapters
+1. Claude plugin runtime integration and extension-source unification
+2. Provider/model connection polish and `reasoning_summary` completion
+3. TUI bottom-pane/view-stack cleanup and transcript rendering parity
+4. Web/source-reporting and auxiliary-model routing
+5. Cross-process sub-agent durability and Terminal-Bench readiness
+6. Security, sandbox policy provenance, and secret handling
+7. Release distribution and package-manager adapters
+8. Oversized-module cleanup and docs/spec hygiene
 
 ## Runtime Control Plane / ACP / Wire
 
@@ -35,6 +35,16 @@ Active backlog only. Keep this file small and current.
 - [ ] Ensure every new skill, memory, prompt, hook, planning, approval, and output feature is control-plane-ready rather than TUI-only.
 - [x] Add a `support-acp` integration skill for IDE and third-party app authors, covering ACP startup, runtime-control input intents, output event subscription, cancellation/preemption, approvals, MCP/tool-search expectations, and safe context-source registration (see `docs/features/support-acp-integration.md`).
 
+## Plugins / Extension Runtime
+
+- [x] Add the first `rara-plugins` crate for Claude Code plugin discovery, `plugin.json` parsing, `hooks/hooks.json` parsing, command-hook execution, timeouts, and tests.
+- [ ] Wire plugin hook registration into runtime startup so discovered command hooks actually fire through `HookRuntime` for TUI, CLI, ACP, and Wire entrypoints.
+- [ ] Fix plugin lifecycle parity gaps before broader rollout: `SessionEnd` mapping, matcher evaluation, hook stdout/stderr observability, and blocking `{ "continue": false }` semantics.
+- [ ] Add `rara plugin install/list/remove` with local-path and git-source support, plus explicit trust/sandbox copy.
+- [ ] Parse plugin `.mcp.json` into the existing MCP registry and launch lifecycle instead of leaving MCP config as inert metadata.
+- [ ] Register plugin-provided commands, skills, and agents as structured extension sources with precedence and `/context` visibility.
+- [ ] Design prompt/http/agent hook support only after command hooks have runtime integration, observability, and permission boundaries.
+
 ## Configuration / Provider Surface
 
 - [ ] Complete `reasoning_summary` rollout across backend requests, switching flows, and status surfaces; retire remaining `thinking`-only behavior outside migration fallback.
@@ -42,6 +52,8 @@ Active backlog only. Keep this file small and current.
 - [ ] Study Gemini/Codex-style multi-model routing for top-tier + flash/fast model pairing.
 - [ ] Deepen provider-surface continuity after hot-swap: auth-mode/endpoint alignment, provenance reporting.
 - [ ] Align Codex endpoint selection with auth mode (ChatGPT/Codex login vs API key).
+- [ ] Show provider-catalog context windows in ModelSearch items for DeepSeek/Kimi/OpenAI/Codex where known.
+- [ ] Load model lists from provider APIs for connected providers, with provider-catalog windows as fallback metadata.
 - [ ] Split Codex-specific persisted auth/config to `~/.codex`, keep RARA config under `~/.rara`.
 
 ## Workspace / Skills / Prompt Sources
@@ -50,6 +62,8 @@ Active backlog only. Keep this file small and current.
 - [x] Tests for workspace prompt-source discovery and cache invalidation (cwd changes, git branches, nested workspaces).
 - [x] Define `WorkspaceMemory` cache invalidation rules for prompt files and environment info (see `docs/features/workspace-memory-cache.md`).
 - [x] Unify `discover_prompt_sources()` and TUI `/status` source reporting.
+- [x] Add directory-walking `.rara/rules/*.md` prompt sources from CWD to repo root.
+- [ ] Define and implement `.rara/local.md` semantics, scope, precedence, and visibility before enabling it as a prompt source.
 - [ ] New prompt inputs through structured source objects, `MemorySelection`, lifecycle events, and runtime-control provenance — not ad hoc text. Protocol prompt sources now retain provenance, convert into prompt-runtime sources, atomically snapshot from the live registry at the user-query boundary, and emit registered/injected/dropped lifecycle events; next slice should extend the same bridge to protocol skill/hook visibility.
 - [ ] Project-scoped extension surface for `.claude/agents/`, `.claude/hooks/`, `.agents/skills/` with precedence rules.
 - [ ] Claude-style `verify` skill and `verifier-*` convention (see `docs/features/verify-skill.md`).
@@ -90,6 +104,7 @@ Active backlog only. Keep this file small and current.
 - [x] Durable in-turn checkpoints: persist after each message/tool-result batch, atomic writes, crash-tolerant `SessionManager`.
 - [x] Auto-memory extraction: background LLM-driven fact extraction after every 5 turns, inserted into LanceDB via MemoryStore (PR #375).
 - [x] Directory-walking rules layer: `.rara/rules/*.md` discovered from CWD to repo root (PR #375).
+- [ ] Add auto-memory extraction controls and observability: enable/disable config, last-run status, error reporting, dedupe metrics, and bounded background concurrency.
 - [ ] Define cross-process background sub-agent restart/reattach semantics.
 - [x] Compaction as first-class lifecycle event: persist summaries, token counters, metadata ownership.
 - [x] Add prompt-too-long retry for compaction by dropping oldest API-round groups.
@@ -120,7 +135,7 @@ Active backlog only. Keep this file small and current.
 - [x] Remove crossterm history write path, unify all rendering through Ratatui (PR #272).
 - [x] Decouple overlays from transcript layout (pure top layer, no viewport perturbation).
 - [x] Split the bottom pane into composable activity, composer, queued-preview, and footer modules (PR #366).
-- [ ] Introduce a `BottomPaneModel` so bottom-pane rendering consumes structured view data instead of reading broad `TuiApp` state directly.
+- [ ] Complete `BottomPaneModel` migration: activity/footer now use structured view data, but composer and sizing still read broad `TuiApp` state directly.
 - [ ] Move approval, request-input, command-palette, and picker flows toward a Codex-style bottom-pane view stack after the rendering split is stable.
 - [ ] Post-exit resume hint (e.g. `rara resume --last`).
 - [x] Claude-style repo context hints beneath input area (GitHub PR link).
@@ -131,6 +146,7 @@ Active backlog only. Keep this file small and current.
 - [x] Tool-action summaries more source-aware and file-aware.
 - [ ] Live `bash` transcript: lifecycle framing, streamed stdout/stderr, long-output folding.
 - [ ] High-fidelity render pass for `write/update`, inline diffs, approval cards, message-card hierarchy.
+- [ ] Add committed thinking expand/collapse interaction and elapsed-time summary after the first collapsible thinking display slice.
 - [ ] Strengthen terminal Markdown rendering parity: GitHub-flavored Markdown coverage, local file-link rendering, fenced code blocks, list wrapping, and focused snapshot coverage.
 - [ ] Expand TUI snapshot coverage.
 - [ ] Keep transcript and pending-interaction state backed by structured events that ACP/Wire output subscribers can reuse.
