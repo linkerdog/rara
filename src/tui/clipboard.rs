@@ -11,8 +11,10 @@ pub(crate) fn copy_text(text: &str) -> io::Result<()> {
 
 fn write_osc52(text: &str) -> io::Result<()> {
     let encoded = STANDARD.encode(text.as_bytes());
-    let sequence = if std::env::var_os("TMUX").is_some() || std::env::var_os("STY").is_some() {
+    let sequence = if std::env::var_os("TMUX").is_some() {
         format!("\x1bPtmux;\x1b\x1b]52;c;{encoded}\x07\x1b\\")
+    } else if std::env::var_os("STY").is_some() {
+        format!("\x1bP\x1b]52;c;{encoded}\x07\x1b\\")
     } else {
         format!("\x1b]52;c;{encoded}\x07")
     };
@@ -48,9 +50,9 @@ fn pipe_to_command(program: &str, args: &[&str], text: &str) -> io::Result<()> {
         .stdout(Stdio::null())
         .stderr(Stdio::null())
         .spawn()?;
-    if let Some(stdin) = child.stdin.as_mut() {
+    if let Some(mut stdin) = child.stdin.take() {
         stdin.write_all(text.as_bytes())?;
     }
-    let _ = child.wait();
+    child.wait()?;
     Ok(())
 }

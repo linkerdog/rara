@@ -19,8 +19,8 @@ area only:
 - left-button drag starts and updates a transcript selection;
 - selected cells are highlighted by RARA while dragging;
 - releasing the left button copies the selected plain text;
-- dragging at the top or bottom edge autoscrolls the transcript and extends the
-  selection;
+- dragging outside the top or bottom edge autoscrolls the transcript and
+  extends the selection;
 - normal wheel scrolling remains available outside active drag selection.
 
 ## Non-Goals
@@ -45,6 +45,11 @@ The render path owns the authoritative visible transcript snapshot. Each frame:
 4. renders the transcript;
 5. applies selection highlight over the rendered buffer.
 
+Snapshot rebuilding is guarded by a lightweight key derived from the viewport
+area, scroll offset, transcript size, and transcript edge content. Unchanged
+frames reuse the previous screen-area-to-text mapping instead of reallocating
+wrapped rows.
+
 Mouse handling uses that latest snapshot to map screen coordinates back to
 wrapped transcript rows. The tick loop drives edge autoscroll while dragging.
 
@@ -60,8 +65,8 @@ best-effort fallbacks for local sessions.
   row.
 - A zero-width selection does not copy anything.
 - Copied text is plain text reconstructed from visible wrapped transcript rows.
-- Edge autoscroll uses the same transcript scroll direction as wheel and
-  keyboard scrolling.
+- Edge autoscroll only starts once the cursor leaves the transcript viewport and
+  uses the same transcript scroll direction as wheel and keyboard scrolling.
 - Clipboard failures must not terminate the TUI; they surface as notices.
 
 ## Validation Matrix

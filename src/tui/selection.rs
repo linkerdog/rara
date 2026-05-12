@@ -1,3 +1,8 @@
+use std::{
+    collections::hash_map::DefaultHasher,
+    hash::{Hash, Hasher},
+};
+
 use ratatui::{
     buffer::Buffer,
     layout::Rect,
@@ -25,6 +30,7 @@ pub(crate) struct TranscriptSelection {
     last_mouse: Option<ScreenPosition>,
     dragging: bool,
     snapshot: TranscriptSelectionSnapshot,
+    snapshot_key: Option<TranscriptSelectionSnapshotKey>,
 }
 
 impl TranscriptSelection {
@@ -39,13 +45,19 @@ impl TranscriptSelection {
         width: u16,
         scroll_offset: u16,
     ) {
+        let key = TranscriptSelectionSnapshotKey::from_lines(lines, area, width, scroll_offset);
+        if self.snapshot_key == Some(key) {
+            return;
+        }
         self.snapshot =
             TranscriptSelectionSnapshot::from_lines(lines, area, width, usize::from(scroll_offset));
+        self.snapshot_key = Some(key);
         self.clamp_points_to_snapshot();
     }
 
     pub(crate) fn clear_snapshot(&mut self) {
         self.snapshot = TranscriptSelectionSnapshot::default();
+        self.snapshot_key = None;
         self.clear();
     }
 
@@ -105,13 +117,12 @@ impl TranscriptSelection {
         }
         let last = self.last_mouse?;
         let area = self.snapshot.area;
-        let bottom = area.bottom().saturating_sub(1);
-        if last.y <= area.y && self.snapshot.visible_start > 0 {
+        if last.y < area.y && self.snapshot.visible_start > 0 {
             let next_row = self.snapshot.visible_start.saturating_sub(1);
             self.focus = Some(self.snapshot.point_for_row_and_x(next_row, last.x));
             return Some(-1);
         }
-        if last.y >= bottom && self.snapshot.visible_end < self.snapshot.rows.len() {
+        if last.y >= area.bottom() && self.snapshot.visible_end < self.snapshot.rows.len() {
             let next_row = self.snapshot.visible_end.min(self.snapshot.rows.len() - 1);
             self.focus = Some(self.snapshot.point_for_row_and_x(next_row, last.x));
             return Some(1);
@@ -196,6 +207,48 @@ struct TranscriptSelectionSnapshot {
     rows: Vec<VisualRow>,
     visible_start: usize,
     visible_end: usize,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+struct TranscriptSelectionSnapshotKey {
+    area: Rect,
+    width: u16,
+    scroll_offset: u16,
+    line_count: usize,
+    span_count: usize,
+    text_len: usize,
+    edge_hash: u64,
+}
+
+impl TranscriptSelectionSnapshotKey {
+    fn from_lines(lines: &[Line<'static>], area: Rect, width: u16, scroll_offset: u16) -> Self {
+        let mut span_count = 0usize;
+        let mut text_len = 0usize;
+        for line in lines {
+            span_count = span_count.saturating_add(line.spans.len());
+            for span in &line.spans {
+                text_len = text_len.saturating_add(span.content.len());
+            }
+        }
+
+        let mut hasher = DefaultHasher::new();
+        if let Some(first) = lines.first() {
+            hash_line(first, &mut hasher);
+        }
+        if let Some(last) = lines.last() {
+            hash_line(last, &mut hasher);
+        }
+
+        Self {
+            area,
+            width,
+            scroll_offset,
+            line_count: lines.len(),
+            span_count,
+            text_len,
+            edge_hash: hasher.finish(),
+        }
+    }
 }
 
 impl TranscriptSelectionSnapshot {
@@ -371,6 +424,12 @@ fn slice_display_cols(text: &str, start: usize, end: usize) -> String {
     out
 }
 
+fn hash_line(line: &Line<'static>, hasher: &mut DefaultHasher) {
+    for span in &line.spans {
+        span.content.hash(hasher);
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use ratatui::{layout::Rect, text::Line};
@@ -406,7 +465,22 @@ mod tests {
         assert!(selection.start(ScreenPosition::new(0, 2)));
         assert!(selection.drag(ScreenPosition::new(0, 1)));
 
+        assert_eq!(selection.autoscroll_delta(), None);
+        assert!(selection.drag(ScreenPosition::new(0, 0)));
         assert_eq!(selection.autoscroll_delta(), Some(-1));
         assert_eq!(selection.selected_text().as_deref(), Some("one\ntwo"));
+    }
+
+    #[test]
+    fn snapshot_cache_refreshes_when_transcript_edges_change() {
+        let mut selection = TranscriptSelection::default();
+        let area = Rect::new(0, 0, 10, 2);
+        selection.update_snapshot(&[Line::from("one")], area, 10, 0);
+        assert!(selection.start(ScreenPosition::new(0, 0)));
+        assert!(selection.drag(ScreenPosition::new(3, 0)));
+        assert_eq!(selection.selected_text().as_deref(), Some("one"));
+
+        selection.update_snapshot(&[Line::from("two")], area, 10, 0);
+        assert_eq!(selection.selected_text().as_deref(), Some("two"));
     }
 }
