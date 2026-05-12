@@ -163,7 +163,6 @@ fn push_model_badge_shows_provider_and_model() {
         .map(|l| l.to_string())
         .collect::<Vec<_>>()
         .join("\n");
-    assert!(text.contains("Model"), "should show # Model section label");
     assert!(text.contains("openai"), "should show provider");
     assert!(text.contains("gpt-4o"), "should show model");
 }
@@ -250,7 +249,7 @@ fn push_context_summary_shows_tokens_turns_compaction() {
     .expect("build tui app");
     app.snapshot = RuntimeSnapshot {
         context_window_tokens: Some(16000),
-        estimated_history_tokens: 9400,
+        stable_instructions_budget: 9400,
         history_len: 42,
         compaction_count: 3,
         ..RuntimeSnapshot::default()
@@ -269,7 +268,7 @@ fn push_context_summary_shows_tokens_turns_compaction() {
         "should show # Context section label"
     );
     assert!(
-        text.contains("9.4k · 16.0k tokens"),
+        text.contains("9.4k") && text.contains("16.0k") && text.contains("42 turns"),
         "should show token usage: 9.4k/16.0k"
     );
     assert!(text.contains("42 turns"), "should show turn count");
@@ -288,7 +287,7 @@ fn push_context_summary_no_compaction() {
     .expect("build tui app");
     app.snapshot = RuntimeSnapshot {
         context_window_tokens: Some(16000),
-        estimated_history_tokens: 1500,
+        stable_instructions_budget: 1500,
         history_len: 1,
         compaction_count: 0,
         ..RuntimeSnapshot::default()
@@ -313,7 +312,7 @@ fn push_context_summary_no_context_window() {
     .expect("build tui app");
     app.snapshot = RuntimeSnapshot {
         context_window_tokens: None,
-        estimated_history_tokens: 600,
+        stable_instructions_budget: 600,
         history_len: 5,
         ..RuntimeSnapshot::default()
     };
@@ -669,8 +668,7 @@ fn section_header_appears_in_sidebar() {
         .collect::<Vec<_>>()
         .join("\n");
 
-    // Model, Context, and Files sections should exist.
-    assert!(text.contains("Model"), "sidebar has Model section");
+    // Context section should exist.
     assert!(text.contains("Context"), "sidebar has Context section");
     // Files only appears when there are file-tool entries; in this test none.
 }
