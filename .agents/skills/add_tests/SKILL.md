@@ -38,6 +38,47 @@ For a non-trivial change, choose the narrowest useful test surface:
    - Use `tempdir()` and isolate filesystem state.
    - Never rely on the current working directory or developer-local paths.
 
+## Non-Negotiable Expectations
+
+### Bugfixes Need Regression Coverage
+
+Behavior fixes should normally include a focused automated test that reproduces
+the fixed behavior or locks the regression boundary.
+
+Manual verification alone is acceptable only when an automated test is not
+practical, such as terminal-only behavior that cannot be isolated without
+fragile infrastructure. In that case, record the reason in the PR or final
+summary.
+
+### Prefer The Narrowest Meaningful Surface
+
+Do not default to the whole suite when one focused module proves the change.
+
+Examples:
+
+- TUI state transition:
+  - `cargo test tui::state::<test_name> -- --nocapture`
+- TUI render contract:
+  - focused `src/tui/render/*` test or snapshot
+- provider request construction:
+  - focused `llm::tests::<test_name>`
+- agent-loop behavior:
+  - focused `agent::tests::<test_name>`
+- crate boundary or broad Rust type impact:
+  - focused test plus `cargo check`
+
+### Classify CI Failures
+
+When a PR goes red, classify the failure before changing tests:
+
+- implementation bug
+- test bug
+- workflow/config bug
+- unrelated flaky infrastructure
+
+Do not weaken a test to hide an implementation regression. If the test is
+wrong, fix the fixture or assertion while preserving the regression intent.
+
 ## Repository-Specific Guidance
 
 ### Assertion Style
@@ -140,6 +181,9 @@ cargo check
 ```
 
 If a change only affects one rendering contract, prefer one focused test target plus `cargo check`.
+
+For documentation-only or skill-only changes, Rust tests are usually not
+needed; run `git diff --check` and inspect the rendered markdown shape instead.
 
 ## Heuristics For Choosing Assertions
 
