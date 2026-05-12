@@ -42,8 +42,7 @@ pub fn models_url(base_url: Option<&str>) -> String {
         .filter(|value| !value.is_empty())
         .unwrap_or(DEFAULT_KIMI_BASE_URL)
         .trim_end_matches('/');
-    let root = base_url.strip_suffix("/v1").unwrap_or(base_url);
-    format!("{root}/models")
+    format!("{base_url}/models")
 }
 
 pub fn parse_models(body: &str) -> Result<Vec<String>> {
@@ -95,7 +94,7 @@ mod tests {
     fn kimi_models_url_uses_root_models_endpoint() {
         assert_eq!(
             models_url(Some("https://api.moonshot.cn/v1")),
-            "https://api.moonshot.cn/models"
+            "https://api.moonshot.cn/v1/models"
         );
         assert_eq!(
             models_url(Some("https://api.moonshot.cn")),
