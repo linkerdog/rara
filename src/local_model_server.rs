@@ -142,6 +142,10 @@ pub(crate) fn prepare_local_model_server_status(rara_home: &Path) -> LocalModelS
     prepare_local_model_server_status_inner(rara_home, BootstrapMode::Automatic)
 }
 
+pub(crate) fn inspect_local_model_server_status(rara_home: &Path) -> LocalModelServerStatus {
+    prepare_local_model_server_status_inner(rara_home, BootstrapMode::InspectOnly)
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum BootstrapMode {
     Automatic,

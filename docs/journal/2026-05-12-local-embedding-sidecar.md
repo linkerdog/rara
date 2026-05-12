@@ -32,6 +32,26 @@ weights are loaded, tracks preparation state, and exposes `POST
 /models/prepare`. Rust treats a server as reusable only after the health
 identity matches and the selected backend reports `loaded: true`.
 
+RARA now has a dedicated embedding backend boundary for this sidecar. Runtime
+bootstrap prepares the managed model server and wraps the configured chat
+backend when the sidecar is ready: chat, tool calling, summarization,
+classification, context budgeting, and provider cache metadata still go to the
+configured `LlmBackend`, while `embed` calls go to the local sidecar. If the
+sidecar is unavailable, RARA falls back to the provider embedding path and
+reports bootstrap warnings only for hard local embedding errors.
+
+TUI app construction uses an inspect-only local model server status path. This
+keeps `/status` and initial UI state lightweight; they can report setup,
+waiting, ready, or error state without creating a venv, installing dependencies,
+or loading model weights. Runtime bootstrap remains the owner of automatic
+preparation.
+
+TUI startup now mirrors the same idempotent check: it first inspects the managed
+sidecar. If the selected backend/model is already ready, startup skips the
+initialization task. If not, the UI opens with a lightweight provider-backed
+agent, starts a rebuild task that performs local embedding bootstrap, and then
+automatically swaps in the rebuilt agent when the sidecar is ready.
+
 ## Why
 
 The Rust MLX ecosystem is not yet the lowest-risk path for a Qwen3 embedding
@@ -73,11 +93,14 @@ Target shape:
 
 ## Follow-Up
 
-- Wire `/v1/embeddings` into a standalone `EmbeddingBackend`.
 - Add config for model server enablement and backend selection.
 - Move bootstrap work off synchronous TUI startup so creating the venv,
   installing dependencies, and downloading model artifacts can stream progress
   without blocking first paint.
+- Move `MemoryStore`, retrieval, and tools from the transitional `LlmBackend`
+  embedding wrapper to an explicit embedding dependency.
+- Split query/document embedding intent in the Rust memory path so retrieval
+  queries can use the Python server's query instruction path.
 - Surface structured download byte progress from the Python dependency stack
   when the backend exposes it.
 - Smoke test the exact `mlx-community/Qwen3-Embedding-0.6B-4bit-DWQ` artifact

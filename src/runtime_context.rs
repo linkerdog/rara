@@ -12,6 +12,7 @@ use crate::config::{
     DEFAULT_CODEX_BASE_URL, DEFAULT_CODEX_MODEL, DEFAULT_GEMINI_BASE_URL, DEFAULT_GEMINI_MODEL,
     OpenAiEndpointKind, REASONING_SUMMARY_NONE, RaraConfig, ensure_rara_home_dir,
 };
+use crate::embedding::{EmbeddingOverrideBackend, LocalModelEmbeddingBackend};
 use crate::google_oauth::GoogleOAuthManager;
 use crate::hook_registry::HookRegistry;
 use crate::llm::{
@@ -96,8 +97,35 @@ pub(crate) async fn initialize_rara_context(
     config: &RaraConfig,
     progress: Option<LocalProgressReporter>,
 ) -> Result<RuntimeBootstrap> {
-    let backend = build_backend_with_progress(config, progress).await?;
-    let backend: Arc<dyn LlmBackend> = backend.into();
+    initialize_rara_context_with_local_embedding_bootstrap(
+        config,
+        progress,
+        LocalEmbeddingBootstrap::Prepare,
+    )
+    .await
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum LocalEmbeddingBootstrap {
+    Prepare,
+    InspectOnly,
+}
+
+pub(crate) async fn initialize_rara_context_with_local_embedding_bootstrap(
+    config: &RaraConfig,
+    progress: Option<LocalProgressReporter>,
+    local_embedding_bootstrap: LocalEmbeddingBootstrap,
+) -> Result<RuntimeBootstrap> {
+    let embedding_progress = progress.clone();
+    let chat_backend = build_backend_with_progress(config, progress).await?;
+    let chat_backend: Arc<dyn LlmBackend> = chat_backend.into();
+    let mut embedding_warnings = Vec::new();
+    let backend = maybe_wrap_local_embedding_backend(
+        chat_backend,
+        local_embedding_bootstrap,
+        embedding_progress,
+        &mut embedding_warnings,
+    )?;
 
     let workspace = Arc::new(WorkspaceMemory::new()?);
     let vdb = Arc::new(VectorDB::new(&vector_db_uri_for_workspace(&workspace)));
@@ -167,7 +195,8 @@ pub(crate) async fn initialize_rara_context(
         goal_handle.clone(),
         mcp_tool_cache.clone(),
     );
-    let warnings = prompt_config.warnings.clone();
+    let mut warnings = prompt_config.warnings.clone();
+    warnings.extend(embedding_warnings);
 
     Ok(RuntimeBootstrap {
         backend,
@@ -186,6 +215,61 @@ pub(crate) async fn initialize_rara_context(
         mcp_tool_cache,
         mcp_manager,
     })
+}
+
+fn maybe_wrap_local_embedding_backend(
+    backend: Arc<dyn LlmBackend>,
+    bootstrap: LocalEmbeddingBootstrap,
+    progress: Option<LocalProgressReporter>,
+    warnings: &mut Vec<String>,
+) -> Result<Arc<dyn LlmBackend>> {
+    let rara_home = ensure_rara_home_dir()?;
+    report_local_embedding_progress(&progress, "Embedding · checking local model server");
+    let status = match bootstrap {
+        LocalEmbeddingBootstrap::Prepare => {
+            report_local_embedding_progress(&progress, "Embedding · preparing local model server");
+            crate::local_model_server::prepare_local_model_server_status(&rara_home)
+        }
+        LocalEmbeddingBootstrap::InspectOnly => {
+            crate::local_model_server::inspect_local_model_server_status(&rara_home)
+        }
+    };
+    report_local_embedding_progress(
+        &progress,
+        format!("Embedding · {:?} · {}", status.state, status.detail),
+    );
+    match status.state {
+        crate::local_model_server::LocalModelServerState::Ready => {
+            let Some(local_embedding) = LocalModelEmbeddingBackend::from_status(&status) else {
+                warnings.push(
+                    "local embedding server is ready but did not report an endpoint; using provider embeddings"
+                        .to_string(),
+                );
+                return Ok(backend);
+            };
+            Ok(Arc::new(EmbeddingOverrideBackend::new(
+                backend,
+                Arc::new(local_embedding),
+            )))
+        }
+        crate::local_model_server::LocalModelServerState::Error => {
+            warnings.push(format!(
+                "local embedding backend unavailable: {}",
+                status.detail
+            ));
+            Ok(backend)
+        }
+        _ => Ok(backend),
+    }
+}
+
+fn report_local_embedding_progress(
+    progress: &Option<LocalProgressReporter>,
+    message: impl Into<String>,
+) {
+    if let Some(callback) = progress {
+        callback(message.into());
+    }
 }
 
 pub(crate) async fn build_backend(config: &RaraConfig) -> Result<Box<dyn LlmBackend>> {

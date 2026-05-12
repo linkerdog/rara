@@ -276,7 +276,7 @@ impl TuiApp {
             .map(std::path::Path::to_path_buf)
             .unwrap_or_else(|| std::path::PathBuf::from("."));
         let local_model_server =
-            crate::local_model_server::prepare_local_model_server_status(&local_model_server_home);
+            crate::local_model_server::inspect_local_model_server_status(&local_model_server_home);
         let mut app = Self {
             bottom_pane: BottomPaneModel {
                 input: String::new(),
