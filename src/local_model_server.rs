@@ -2,7 +2,7 @@ use std::fs::{self, File};
 use std::io::{Read, Write};
 use std::net::TcpStream;
 use std::path::{Path, PathBuf};
-use std::process::{Command, Stdio};
+use std::process::{Command, Output, Stdio};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use anyhow::{Context, Result, anyhow, bail};
@@ -34,7 +34,9 @@ const DEFAULT_MODEL_SERVER_HOST: &str = "127.0.0.1";
 const DEFAULT_MODEL_SERVER_PORT: u16 = 18181;
 const SERVER_METADATA_NAME: &str = "server.json";
 const STARTUP_LOCK_NAME: &str = "startup.lock";
+const REQUIREMENTS_MARKER_NAME: &str = "requirements-installed.json";
 const HEALTH_TIMEOUT: Duration = Duration::from_millis(300);
+const PREPARE_TIMEOUT: Duration = Duration::from_secs(30);
 const STARTUP_HEALTH_ATTEMPTS: usize = 10;
 const STARTUP_HEALTH_DELAY: Duration = Duration::from_millis(100);
 
@@ -43,6 +45,9 @@ pub(crate) enum LocalModelServerState {
     Ready,
     Starting,
     WaitingForServer,
+    CreatingVenv,
+    InstallingDependencies,
+    PreparingModel,
     SetupRequired,
     Error,
 }
@@ -134,6 +139,19 @@ pub(crate) fn ensure_bundled_model_server(rara_home: &Path) -> Result<BundledMod
 }
 
 pub(crate) fn prepare_local_model_server_status(rara_home: &Path) -> LocalModelServerStatus {
+    prepare_local_model_server_status_inner(rara_home, BootstrapMode::Automatic)
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum BootstrapMode {
+    Automatic,
+    InspectOnly,
+}
+
+fn prepare_local_model_server_status_inner(
+    rara_home: &Path,
+    mode: BootstrapMode,
+) -> LocalModelServerStatus {
     let (backend, model) = default_embedding_backend();
     match ensure_bundled_model_server(rara_home) {
         Ok(server) => {
@@ -142,7 +160,7 @@ pub(crate) fn prepare_local_model_server_status(rara_home: &Path) -> LocalModelS
             }
 
             let python = venv_python_path(&server.venv_dir);
-            if !python.is_file() {
+            if !python.is_file() && mode == BootstrapMode::InspectOnly {
                 return LocalModelServerStatus {
                     state: LocalModelServerState::SetupRequired,
                     backend: backend.to_string(),
@@ -170,6 +188,31 @@ pub(crate) fn prepare_local_model_server_status(rara_home: &Path) -> LocalModelS
                 return status;
             }
 
+            let python = match ensure_managed_venv(&server) {
+                Ok(python) => python,
+                Err(err) => {
+                    return LocalModelServerStatus {
+                        state: LocalModelServerState::Error,
+                        backend: backend.to_string(),
+                        model: model.to_string(),
+                        detail: format!("failed to create managed Python venv: {err}"),
+                        server_path: Some(server.path),
+                        endpoint: None,
+                    };
+                }
+            };
+
+            if let Err(err) = ensure_model_server_dependencies(&server, &python) {
+                return LocalModelServerStatus {
+                    state: LocalModelServerState::Error,
+                    backend: backend.to_string(),
+                    model: model.to_string(),
+                    detail: format!("failed to install model server dependencies: {err}"),
+                    server_path: Some(server.path),
+                    endpoint: None,
+                };
+            }
+
             start_model_server(&server, &python, backend, model)
         }
         Err(err) => LocalModelServerStatus {
@@ -194,7 +237,7 @@ fn reusable_server_status(
     }
     let endpoint = endpoint_url(&metadata.host, metadata.port);
     let health = probe_health(&metadata.host, metadata.port).ok()?;
-    if !health_identity_matches(&health, backend, model) {
+    if !health_identity_matches(&health, backend, model) || !health_model_ready(&health, backend) {
         return None;
     }
     Some(LocalModelServerStatus {
@@ -249,17 +292,48 @@ fn start_model_server(
             for _ in 0..STARTUP_HEALTH_ATTEMPTS {
                 if let Ok(health) = probe_health(host, port) {
                     if health_identity_matches(&health, backend, model) {
+                        return match prepare_model(host, port, backend) {
+                            Ok(()) => LocalModelServerStatus {
+                                state: LocalModelServerState::Ready,
+                                backend: backend.to_string(),
+                                model: model.to_string(),
+                                detail: format!(
+                                    "started model server and prepared model at {endpoint}"
+                                ),
+                                server_path: Some(server.path.clone()),
+                                endpoint: Some(endpoint),
+                            },
+                            Err(err) => LocalModelServerStatus {
+                                state: LocalModelServerState::Error,
+                                backend: backend.to_string(),
+                                model: model.to_string(),
+                                detail: format!("failed to prepare model: {err}"),
+                                server_path: Some(server.path.clone()),
+                                endpoint: Some(endpoint),
+                            },
+                        };
+                    }
+                }
+                std::thread::sleep(STARTUP_HEALTH_DELAY);
+            }
+
+            if let Ok(()) = prepare_model(host, port, backend) {
+                if let Ok(health) = probe_health(host, port) {
+                    if health_identity_matches(&health, backend, model)
+                        && health_model_ready(&health, backend)
+                    {
                         return LocalModelServerStatus {
                             state: LocalModelServerState::Ready,
                             backend: backend.to_string(),
                             model: model.to_string(),
-                            detail: format!("started model server at {endpoint}"),
+                            detail: format!(
+                                "started model server and prepared model at {endpoint}"
+                            ),
                             server_path: Some(server.path.clone()),
                             endpoint: Some(endpoint),
                         };
                     }
                 }
-                std::thread::sleep(STARTUP_HEALTH_DELAY);
             }
 
             LocalModelServerStatus {
@@ -300,6 +374,83 @@ fn venv_python_path(venv_dir: &Path) -> PathBuf {
     } else {
         venv_dir.join("bin").join("python")
     }
+}
+
+fn ensure_managed_venv(server: &BundledModelServer) -> Result<PathBuf> {
+    let python = venv_python_path(&server.venv_dir);
+    if python.is_file() {
+        return Ok(python);
+    }
+    let python_launcher =
+        std::env::var_os("RARA_PYTHON").unwrap_or_else(|| std::ffi::OsString::from("python3"));
+    let output = Command::new(&python_launcher)
+        .arg("-m")
+        .arg("venv")
+        .arg(&server.venv_dir)
+        .stdin(Stdio::null())
+        .output()
+        .with_context(|| format!("run {:?} -m venv", python_launcher))?;
+    ensure_command_success(output, "create managed Python venv")?;
+    if !python.is_file() {
+        bail!("venv python was not created at {}", python.display());
+    }
+    Ok(python)
+}
+
+fn ensure_model_server_dependencies(server: &BundledModelServer, python: &Path) -> Result<()> {
+    let requirements = selected_requirements_file(server)?;
+    let marker_path = requirements_marker_path(&server.runtime_dir);
+    if requirements_marker_matches(&marker_path, &requirements.sha256)? {
+        return Ok(());
+    }
+    let output = Command::new(python)
+        .arg("-m")
+        .arg("pip")
+        .arg("--disable-pip-version-check")
+        .arg("install")
+        .arg("-r")
+        .arg(&requirements.path)
+        .stdin(Stdio::null())
+        .output()
+        .with_context(|| format!("run {} -m pip install", python.display()))?;
+    ensure_command_success(output, "install model server dependencies")?;
+    let marker = serde_json::json!({
+        "requirements_sha256": requirements.sha256,
+        "requirements_path": requirements.path,
+    });
+    write_file_atomically(&marker_path, serde_json::to_vec_pretty(&marker)?.as_slice())?;
+    Ok(())
+}
+
+fn selected_requirements_file(server: &BundledModelServer) -> Result<&BundledModelServerFile> {
+    let name = if cfg!(all(target_os = "macos", target_arch = "aarch64")) {
+        REQUIREMENTS_MACOS_ARM64_NAME
+    } else {
+        REQUIREMENTS_PORTABLE_NAME
+    };
+    server
+        .requirements
+        .iter()
+        .find(|file| file.path.ends_with(name))
+        .ok_or_else(|| anyhow!("missing bundled requirements file {name}"))
+}
+
+fn requirements_marker_path(runtime_dir: &Path) -> PathBuf {
+    runtime_dir.join(REQUIREMENTS_MARKER_NAME)
+}
+
+fn requirements_marker_matches(path: &Path, expected_hash: &str) -> Result<bool> {
+    let content = match fs::read_to_string(path) {
+        Ok(content) => content,
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => return Ok(false),
+        Err(err) => return Err(err).with_context(|| format!("read {}", path.display())),
+    };
+    let value: Value =
+        serde_json::from_str(&content).with_context(|| format!("parse {}", path.display()))?;
+    Ok(value
+        .get("requirements_sha256")
+        .and_then(Value::as_str)
+        .is_some_and(|hash| hash == expected_hash))
 }
 
 fn ensure_model_server_requirements(runtime_dir: &Path) -> Result<Vec<BundledModelServerFile>> {
@@ -415,6 +566,58 @@ fn probe_health(host: &str, port: u16) -> Result<Value> {
     serde_json::from_str(body).context("parse model server health response")
 }
 
+fn prepare_model(host: &str, port: u16, backend: &str) -> Result<()> {
+    let body = serde_json::json!({ "backend": backend }).to_string();
+    let response = post_json(host, port, "/models/prepare", &body, PREPARE_TIMEOUT)
+        .context("call model prepare endpoint")?;
+    if response.get("ok").and_then(Value::as_bool) != Some(true) {
+        bail!("model prepare endpoint returned non-ok response");
+    }
+    if response.get("backend").and_then(Value::as_str) != Some(backend) {
+        bail!("model prepare endpoint returned mismatched backend");
+    }
+    if response.get("state").and_then(Value::as_str) != Some("ready") {
+        bail!("model prepare endpoint did not report ready state");
+    }
+    Ok(())
+}
+
+fn post_json(host: &str, port: u16, path: &str, body: &str, timeout: Duration) -> Result<Value> {
+    let mut stream =
+        TcpStream::connect((host, port)).with_context(|| format!("connect {host}:{port}"))?;
+    stream
+        .set_read_timeout(Some(timeout))
+        .context("set model server POST read timeout")?;
+    stream
+        .set_write_timeout(Some(timeout))
+        .context("set model server POST write timeout")?;
+    let request = format!(
+        "POST {path} HTTP/1.1\r\nHost: {host}:{port}\r\nConnection: close\r\nAccept: application/json\r\nContent-Type: application/json\r\nContent-Length: {}\r\n\r\n{}",
+        body.len(),
+        body
+    );
+    stream
+        .write_all(request.as_bytes())
+        .context("write model server POST request")?;
+    let mut response = Vec::new();
+    stream
+        .read_to_end(&mut response)
+        .context("read model server POST response")?;
+    let response = String::from_utf8(response).context("decode model server POST response")?;
+    if !response.starts_with("HTTP/1.0 200") && !response.starts_with("HTTP/1.1 200") {
+        let error = response
+            .split_once("\r\n\r\n")
+            .map(|(_, body)| body.trim())
+            .unwrap_or("missing response body");
+        bail!("model server POST returned non-200 status: {error}");
+    }
+    let body = response
+        .split_once("\r\n\r\n")
+        .map(|(_, body)| body)
+        .ok_or_else(|| anyhow!("model server POST response missing body"))?;
+    serde_json::from_str(body).context("parse model server POST response")
+}
+
 fn health_identity_matches(health: &Value, backend: &str, model: &str) -> bool {
     if health.get("ok").and_then(Value::as_bool) != Some(true) {
         return false;
@@ -432,6 +635,30 @@ fn health_identity_matches(health: &Value, backend: &str, model: &str) -> bool {
         .and_then(|value| value.get("model"))
         .and_then(Value::as_str)
         .is_none_or(|reported| reported == model)
+}
+
+fn health_model_ready(health: &Value, backend: &str) -> bool {
+    health
+        .get("embeddings")
+        .and_then(|value| value.get(backend))
+        .and_then(|value| value.get("loaded"))
+        .and_then(Value::as_bool)
+        == Some(true)
+}
+
+fn ensure_command_success(output: Output, context: &str) -> Result<()> {
+    if output.status.success() {
+        return Ok(());
+    }
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    bail!(
+        "{context} failed with status {}: {}{}{}",
+        output.status,
+        stderr.trim(),
+        if stdout.trim().is_empty() { "" } else { "\n" },
+        stdout.trim()
+    );
 }
 
 fn unix_timestamp_secs() -> u64 {
@@ -541,10 +768,11 @@ mod tests {
     use std::thread;
 
     use super::{
-        LocalModelServerState, ModelServerMetadata, StartupLock, ensure_bundled_model_server,
-        health_identity_matches, metadata_path, prepare_local_model_server_status,
-        reusable_server_status, sha256_hex, startup_lock_path, unix_timestamp_secs,
-        write_server_metadata,
+        BootstrapMode, LocalModelServerState, ModelServerMetadata, StartupLock,
+        ensure_bundled_model_server, health_identity_matches, health_model_ready, metadata_path,
+        prepare_local_model_server_status_inner, requirements_marker_matches,
+        requirements_marker_path, reusable_server_status, selected_requirements_file, sha256_hex,
+        startup_lock_path, unix_timestamp_secs, write_file_atomically, write_server_metadata,
     };
 
     #[test]
@@ -599,7 +827,8 @@ mod tests {
     fn status_installs_component_and_reports_missing_venv() {
         let temp = tempfile::tempdir().expect("tempdir");
 
-        let status = prepare_local_model_server_status(temp.path());
+        let status =
+            prepare_local_model_server_status_inner(temp.path(), BootstrapMode::InspectOnly);
 
         assert_eq!(status.state, LocalModelServerState::SetupRequired);
         assert!(
@@ -635,7 +864,7 @@ mod tests {
             let mut request = [0_u8; 1024];
             let _ = stream.read(&mut request);
             let body = format!(
-                r#"{{"ok":true,"default_embedding_backend":"{response_backend}","embeddings":{{"{response_backend}":{{"model":"{response_model}"}}}}}}"#
+                r#"{{"ok":true,"default_embedding_backend":"{response_backend}","embeddings":{{"{response_backend}":{{"model":"{response_model}","loaded":true}}}}}}"#
             );
             let response = format!(
                 "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\n\r\n{}",
@@ -701,6 +930,58 @@ mod tests {
             "mlx_qwen3",
             super::MLX_QWEN3_MODEL_ID
         ));
+    }
+
+    #[test]
+    fn health_ready_requires_loaded_model() {
+        let health = serde_json::json!({
+            "ok": true,
+            "default_embedding_backend": "mlx_qwen3",
+            "embeddings": {
+                "mlx_qwen3": {
+                    "model": super::MLX_QWEN3_MODEL_ID,
+                    "loaded": false,
+                }
+            },
+        });
+
+        assert!(health_identity_matches(
+            &health,
+            "mlx_qwen3",
+            super::MLX_QWEN3_MODEL_ID
+        ));
+        assert!(!health_model_ready(&health, "mlx_qwen3"));
+    }
+
+    #[test]
+    fn selects_platform_requirement_manifest_and_marker() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let server = ensure_bundled_model_server(temp.path()).expect("install model server");
+        let selected = selected_requirements_file(&server).expect("selected requirements");
+        let expected_name = if cfg!(all(target_os = "macos", target_arch = "aarch64")) {
+            super::REQUIREMENTS_MACOS_ARM64_NAME
+        } else {
+            super::REQUIREMENTS_PORTABLE_NAME
+        };
+
+        assert!(selected.path.ends_with(expected_name));
+        let marker_path = requirements_marker_path(&server.runtime_dir);
+        assert!(
+            !requirements_marker_matches(&marker_path, &selected.sha256).expect("missing marker")
+        );
+        let marker = serde_json::json!({
+            "requirements_sha256": selected.sha256,
+            "requirements_path": selected.path,
+        });
+        write_file_atomically(
+            &marker_path,
+            serde_json::to_vec_pretty(&marker).unwrap().as_slice(),
+        )
+        .expect("write marker");
+
+        assert!(
+            requirements_marker_matches(&marker_path, &selected.sha256).expect("matching marker")
+        );
     }
 
     #[cfg(unix)]

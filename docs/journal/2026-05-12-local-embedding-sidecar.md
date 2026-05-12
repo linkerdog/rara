@@ -20,13 +20,17 @@ name, and whether setup is still required.
 The Rust side now also owns the first process-discovery boundary. Startup reads
 managed `server.json` metadata, verifies the loopback `/health` identity, reuses
 a matching server, and uses a non-blocking `startup.lock` so multiple RARA
-processes do not start duplicate servers. If a managed venv already exists and
-no reusable server is healthy, the lock owner starts the Python server and writes
-fresh metadata. If another process owns startup, later processes report
-`waiting_for_server` instead of starting a second server.
+processes do not start duplicate servers. The lock owner creates the managed
+venv when it is missing, installs the selected bundled requirements manifest,
+starts the Python server, writes fresh metadata, and asks the server to prepare
+the selected embedding backend through `POST /models/prepare`. If another
+process owns startup, later processes report `waiting_for_server` instead of
+starting a second server or triggering a duplicate dependency/model prepare.
 
-This still does not create the venv, install dependencies, or trigger model
-download. Those remain the next bootstrap-preparation slice.
+The Python server now reports the default embedding backend in `/health` before
+weights are loaded, tracks preparation state, and exposes `POST
+/models/prepare`. Rust treats a server as reusable only after the health
+identity matches and the selected backend reports `loaded: true`.
 
 ## Why
 
@@ -49,8 +53,9 @@ does not accept local script paths, shell commands, arbitrary imports, or
 arbitrary model ids.
 
 The intended Python runtime is a RARA-owned venv under
-`~/.rara/runtime/model-server/venv`. Dependency installation is kept as an
-explicit setup step rather than an implicit server startup side effect.
+`~/.rara/runtime/model-server/venv`. Dependency installation is performed by the
+Rust bootstrap owner from bundled requirement manifests, then recorded through a
+requirements hash marker so ordinary startup can skip a repeated install.
 
 ## Status Surface
 
@@ -68,11 +73,13 @@ Target shape:
 
 ## Follow-Up
 
-- Add explicit venv creation and dependency installation during automatic
-  bootstrap.
-- Add model preparation/download through the Python server and surface progress.
 - Wire `/v1/embeddings` into a standalone `EmbeddingBackend`.
 - Add config for model server enablement and backend selection.
+- Move bootstrap work off synchronous TUI startup so creating the venv,
+  installing dependencies, and downloading model artifacts can stream progress
+  without blocking first paint.
+- Surface structured download byte progress from the Python dependency stack
+  when the backend exposes it.
 - Smoke test the exact `mlx-community/Qwen3-Embedding-0.6B-4bit-DWQ` artifact
   with `mlx-embeddings`.
 - Smoke test FastEmbed/BGE-M3 on Linux or a non-Apple-Silicon environment.

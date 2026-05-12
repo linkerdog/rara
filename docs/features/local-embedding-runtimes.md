@@ -80,6 +80,7 @@ The server binds only to loopback and exposes:
 ```text
 GET  /health
 POST /v1/embeddings
+POST /models/prepare
 POST /models/unload
 ```
 

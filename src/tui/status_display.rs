@@ -307,6 +307,15 @@ fn render_local_embedding_status(app: &TuiApp, lines: &mut Vec<Line<'static>>) {
         crate::local_model_server::LocalModelServerState::WaitingForServer => {
             ("waiting_for_server", Color::Yellow)
         }
+        crate::local_model_server::LocalModelServerState::CreatingVenv => {
+            ("creating_venv", Color::Yellow)
+        }
+        crate::local_model_server::LocalModelServerState::InstallingDependencies => {
+            ("installing_dependencies", Color::Yellow)
+        }
+        crate::local_model_server::LocalModelServerState::PreparingModel => {
+            ("preparing_model", Color::Yellow)
+        }
         crate::local_model_server::LocalModelServerState::SetupRequired => {
             ("setup_required", Color::Yellow)
         }

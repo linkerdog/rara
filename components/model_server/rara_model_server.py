@@ -214,6 +214,7 @@ class FastEmbedBgeM3Backend(EmbeddingBackend):
 class ModelRegistry:
     def __init__(self) -> None:
         self.backends: dict[str, EmbeddingBackend] = {}
+        self.preparation: dict[str, dict[str, Any]] = {}
 
     def embedding_backend(self, requested: str | None) -> EmbeddingBackend:
         name = requested or os.environ.get("RARA_EMBEDDING_BACKEND") or _platform_default_backend()
@@ -230,8 +231,40 @@ class ModelRegistry:
         for backend in self.backends.values():
             backend.unload_if_idle()
 
+    def prepare_model(self, requested: str | None) -> dict[str, Any]:
+        backend = self.embedding_backend(requested)
+        self.preparation[backend.name] = {
+            "state": "loading",
+            "backend": backend.name,
+            "model": backend.model_id,
+            "message": "loading model",
+        }
+        try:
+            backend.load()
+        except Exception as exc:
+            self.preparation[backend.name] = {
+                "state": "error",
+                "backend": backend.name,
+                "model": backend.model_id,
+                "message": str(exc),
+            }
+            raise
+        self.preparation[backend.name] = {
+            "state": "ready",
+            "backend": backend.name,
+            "model": backend.model_id,
+            "message": "model ready",
+        }
+        return {
+            "ok": True,
+            "backend": backend.name,
+            "model": backend.model_id,
+            "state": "ready",
+        }
+
     def status(self) -> dict[str, Any]:
         default_backend = _platform_default_backend()
+        self.embedding_backend(default_backend)
         return {
             "ok": True,
             "default_embedding_backend": default_backend,
@@ -242,6 +275,9 @@ class ModelRegistry:
             },
             "embeddings": {
                 name: backend.status() for name, backend in sorted(self.backends.items())
+            },
+            "preparation": {
+                name: state.copy() for name, state in sorted(self.preparation.items())
             },
         }
 
@@ -268,6 +304,9 @@ class RequestHandler(BaseHTTPRequestHandler):
                 return
             if self.path == "/models/unload":
                 self._unload_model()
+                return
+            if self.path == "/models/prepare":
+                self._prepare_model()
                 return
             _json_response(self, HTTPStatus.NOT_FOUND, {"ok": False, "error": "not found"})
         except Exception as exc:  # noqa: BLE001
@@ -322,6 +361,14 @@ class RequestHandler(BaseHTTPRequestHandler):
         backend = REGISTRY.embedding_backend(backend_name if isinstance(backend_name, str) else None)
         backend.unload()
         _json_response(self, HTTPStatus.OK, {"ok": True, "backend": backend.name})
+
+    def _prepare_model(self) -> None:
+        request = _read_json(self)
+        backend_name = request.get("backend")
+        if backend_name is not None and not isinstance(backend_name, str):
+            raise ValueError("backend must be a string")
+        response = REGISTRY.prepare_model(backend_name)
+        _json_response(self, HTTPStatus.OK, response)
 
 
 def main() -> int:

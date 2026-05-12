@@ -592,6 +592,11 @@ pub fn status_runtime_text(app: &TuiApp) -> String {
         crate::local_model_server::LocalModelServerState::Ready => "ready",
         crate::local_model_server::LocalModelServerState::Starting => "starting",
         crate::local_model_server::LocalModelServerState::WaitingForServer => "waiting_for_server",
+        crate::local_model_server::LocalModelServerState::CreatingVenv => "creating_venv",
+        crate::local_model_server::LocalModelServerState::InstallingDependencies => {
+            "installing_dependencies"
+        }
+        crate::local_model_server::LocalModelServerState::PreparingModel => "preparing_model",
         crate::local_model_server::LocalModelServerState::SetupRequired => "setup_required",
         crate::local_model_server::LocalModelServerState::Error => "error",
     };
