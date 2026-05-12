@@ -1599,7 +1599,7 @@ fn mouse_wheel_scrolls_transcript() {
 }
 
 #[test]
-fn mouse_wheel_with_overlay_routes_to_scroll_context() {
+fn mouse_wheel_with_command_palette_routes_to_move_command_selection() {
     let temp = tempdir().expect("tempdir");
     let mut app = TuiApp::new(ConfigManager {
         path: temp.path().join("config.json"),
@@ -1630,15 +1630,15 @@ fn mouse_wheel_with_overlay_routes_to_scroll_context() {
     app.open_overlay(Overlay::CommandPalette);
 
     match translate_event(mouse_scroll(MouseEventKind::ScrollUp), &app) {
-        Some(UiEvent::App(AppEvent::ScrollContext(delta))) => {
-            assert!((-15..=0).contains(&delta), "delta {delta} out of range");
+        Some(UiEvent::App(AppEvent::MoveCommandSelection(delta))) => {
+            assert!(delta < 0, "delta {delta} should be negative");
         }
         event => panic!("unexpected event: {event:?}"),
     }
 
     match translate_event(mouse_scroll(MouseEventKind::ScrollDown), &app) {
-        Some(UiEvent::App(AppEvent::ScrollContext(delta))) => {
-            assert!((0..=15).contains(&delta), "delta {delta} out of range");
+        Some(UiEvent::App(AppEvent::MoveCommandSelection(delta))) => {
+            assert!(delta > 0, "delta {delta} should be positive");
         }
         event => panic!("unexpected event: {event:?}"),
     }
@@ -3411,7 +3411,7 @@ fn non_scroll_mouse_click_is_noop_regardless_of_overlay() {
 }
 
 #[test]
-fn mouse_wheel_with_status_overlay_routes_to_scroll_context() {
+fn mouse_wheel_with_status_overlay_routes_to_noop() {
     let temp = tempdir().expect("tempdir");
     let mut app = TuiApp::new(ConfigManager {
         path: temp.path().join("config.json"),
@@ -3442,48 +3442,46 @@ fn mouse_wheel_with_status_overlay_routes_to_scroll_context() {
     app.overlay = Some(Overlay::Status(StatusTab::Overview));
 
     match translate_event(mouse_scroll(MouseEventKind::ScrollUp), &app) {
-        Some(UiEvent::App(AppEvent::ScrollContext(delta))) => {
-            assert!((-15..=0).contains(&delta), "delta {delta} out of range");
-        }
+        Some(UiEvent::App(AppEvent::Noop)) => {}
         event => panic!("unexpected event: {event:?}"),
     }
-}
 
-#[test]
-fn mouse_wheel_with_context_overlay_routes_to_scroll_context() {
-    let temp = tempdir().expect("tempdir");
-    let mut app = TuiApp::new(ConfigManager {
-        path: temp.path().join("config.json"),
-    })
-    .expect("build tui app");
-    let bus = Arc::new(crate::runtime_event_bus::RuntimeEventBus::new(10));
-    app.event_bus = Some(bus.clone());
-    app.prompt_source_registry = Some(Arc::new(
-        crate::protocol_sources::PromptSourceRegistry::new(bus.clone()),
-    ));
-    app.skill_source_registry = Some(Arc::new(crate::protocol_sources::SkillSourceRegistry::new(
-        bus.clone(),
-    )));
-    app.hook_registry = Some(Arc::new(crate::hook_registry::HookRegistry::new(
-        bus.clone(),
-    )));
-    app.mcp_manager = Some(Arc::new(
-        crate::mcp_connection_manager::McpConnectionManager::new(
-            Arc::new(crate::config::McpRegistry::empty()),
+    #[test]
+    fn mouse_wheel_with_context_overlay_routes_to_scroll_context() {
+        let temp = tempdir().expect("tempdir");
+        let mut app = TuiApp::new(ConfigManager {
+            path: temp.path().join("config.json"),
+        })
+        .expect("build tui app");
+        let bus = Arc::new(crate::runtime_event_bus::RuntimeEventBus::new(10));
+        app.event_bus = Some(bus.clone());
+        app.prompt_source_registry = Some(Arc::new(
+            crate::protocol_sources::PromptSourceRegistry::new(bus.clone()),
+        ));
+        app.skill_source_registry = Some(Arc::new(
+            crate::protocol_sources::SkillSourceRegistry::new(bus.clone()),
+        ));
+        app.hook_registry = Some(Arc::new(crate::hook_registry::HookRegistry::new(
             bus.clone(),
-            crate::mcp_tool_cache::McpToolCache::new(),
-        ),
-    ));
-    app.memory_handler = Some(Arc::new(
-        crate::protocol_sources::MemoryControlHandler::new(bus.clone()),
-    ));
+        )));
+        app.mcp_manager = Some(Arc::new(
+            crate::mcp_connection_manager::McpConnectionManager::new(
+                Arc::new(crate::config::McpRegistry::empty()),
+                bus.clone(),
+                crate::mcp_tool_cache::McpToolCache::new(),
+            ),
+        ));
+        app.memory_handler = Some(Arc::new(
+            crate::protocol_sources::MemoryControlHandler::new(bus.clone()),
+        ));
 
-    app.open_overlay(Overlay::Context);
+        app.open_overlay(Overlay::Context);
 
-    match translate_event(mouse_scroll(MouseEventKind::ScrollUp), &app) {
-        Some(UiEvent::App(AppEvent::ScrollContext(delta))) => {
-            assert!((-15..=0).contains(&delta), "delta {delta} out of range");
+        match translate_event(mouse_scroll(MouseEventKind::ScrollUp), &app) {
+            Some(UiEvent::App(AppEvent::ScrollContext(delta))) => {
+                assert!((-15..=0).contains(&delta), "delta {delta} out of range");
+            }
+            event => panic!("unexpected event: {event:?}"),
         }
-        event => panic!("unexpected event: {event:?}"),
     }
 }

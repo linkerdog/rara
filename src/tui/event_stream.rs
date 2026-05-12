@@ -4,7 +4,7 @@ use std::time::Instant;
 use crossterm::event::{Event, KeyEventKind, MouseEvent, MouseEventKind};
 
 use super::app_event::AppEvent;
-use super::state::TuiApp;
+use super::state::{Overlay, TuiApp};
 
 const MOUSE_WHEEL_SCROLL_LINES: i32 = 3;
 /// Maximum acceleration multiplier for rapid scrolling.
@@ -52,10 +52,16 @@ fn map_mouse_to_event(mouse_event: MouseEvent, app: &TuiApp) -> AppEvent {
             };
             let lines = MOUSE_WHEEL_SCROLL_LINES as f64 * scroll_accel_factor();
             let delta = (direction * lines.round() as i32).clamp(-15, 15);
-            if app.overlay.is_some() {
-                AppEvent::ScrollContext(delta)
-            } else {
-                AppEvent::ScrollTranscript(delta)
+            match &app.overlay {
+                Some(Overlay::Context) => AppEvent::ScrollContext(delta),
+                Some(Overlay::CommandPalette) | Some(Overlay::ModelSearch) => {
+                    AppEvent::MoveCommandSelection(delta)
+                }
+                Some(Overlay::ListPicker(_)) => AppEvent::MoveListPickerSelection(delta),
+                Some(Overlay::PermissionPicker) => AppEvent::MovePermissionSelection(delta),
+                Some(Overlay::SkillsPicker) => AppEvent::MoveSkillsSelection(delta),
+                Some(_) => AppEvent::Noop,
+                None => AppEvent::ScrollTranscript(delta),
             }
         }
         _ => AppEvent::Noop,
