@@ -2,72 +2,93 @@
 
 ## Problem
 
-When `EnableMouseCapture` is active (added in PR #317 for scroll acceleration),
-the terminal sends all mouse events to the application. Native text selection
-(drag-to-select, double-click to select word) is blocked at the terminal layer.
-Users cannot select text from the transcript or input area with the mouse.
+RARA enables terminal mouse capture so the TUI can receive wheel events and keep
+transcript scrolling inside the application. That disables terminal-native
+drag-to-select behavior for the visible transcript.
 
-This is inherent in all terminal applications that enable mouse reporting; it
-is not a Ratatui limitation. The trade-off is:
+Codex avoids this by keeping transcript history in terminal scrollback and not
+capturing mouse events by default. RARA intentionally keeps the application-owned
+transcript viewport for now, so copy-friendly selection must be implemented at
+the TUI layer.
 
-- Mouse reporting ON  → scroll acceleration, click-to-interact, but no text selection
-- Mouse reporting OFF → native text selection, but no mouse-driven scroll/click
+## Scope
 
-## Solution: Shift-Toggle Mouse Passthrough
+The canonical behavior is application-owned selection for the visible transcript
+area only:
 
-Hold `Shift` to temporarily disable mouse capture while the key is held,
-allowing native text selection. When `Shift` is released, mouse capture resumes.
-
-### Implementation
-
-1. Detect `Shift` key press/release in the key event handler
-2. On `Shift` press: `DisableMouseCapture`
-3. On `Shift` release: `EnableMouseCapture`
-
-```rust
-// event_dispatch.rs
-AppEvent::Key(KeyEvent { code: KeyCode::Key(..), modifiers, kind }) => {
-    if kind == KeyEventKind::Press && modifiers.intersects(KeyModifiers::SHIFT) {
-        execute!(backend, DisableMouseCapture)?;
-    } else if kind == KeyEventKind::Release && !modifiers.intersects(KeyModifiers::SHIFT) {
-        execute!(backend, EnableMouseCapture)?;
-    }
-}
-```
-
-### Detection
-
-`crossterm` exposes `KeyModifiers::SHIFT` for regular keys. For standalone
-Shift press, terminals may send different key events. The reliable approach is
-to track `SHIFT` modifier on keyboard events rather than detecting a standalone
-Shift press. When ANY key is pressed with Shift held, enter selection mode.
-
-Simultaneously, scan for `MouseEventKind::Down` events and if they occur without
-a registered TUI interaction target, treat them as selection start.
-
-### Behavior Matrix
-
-| State | Mouse scroll | Text selection | Mouse click |
-|-------|-------------|----------------|-------------|
-| Normal (mouse capture ON) | ✅ scroll acceleration | ❌ blocked | ✅ interact with TUI |
-| Shift held (mouse capture OFF) | ❌ terminal handles | ✅ native selection | ❌ ignored |
-
-### Constraints
-
-- The backend reference must be accessible from `event_dispatch`. Currently
-  `event_dispatch` receives `&mut TuiApp` and `agent_slot`. We need to add
-  `&mut Terminal<CrosstermBackend<Stdout>>` or a channel to send capture
-  toggle commands.
-- `DisableMouseCapture`/`EnableMouseCapture` must be called on the same
-  backend that owns the terminal output handle.
+- left-button drag starts and updates a transcript selection;
+- selected cells are highlighted by RARA while dragging;
+- releasing the left button copies the selected plain text;
+- dragging at the top or bottom edge autoscrolls the transcript and extends the
+  selection;
+- normal wheel scrolling remains available outside active drag selection.
 
 ## Non-Goals
 
-- Per-pixel mouse selection precision (inherently limited by terminal cell grid).
-- Copy-to-clipboard integration (use terminal's native copy: Cmd+C / Ctrl+Shift+C).
+- Selecting text in the composer.
+- Selecting text in overlays such as `/help`, `/status`, pickers, or context
+  inspection.
+- Selecting text from the wide-screen sidebar.
+- Selecting off-screen terminal scrollback rows outside the transcript model.
+- Preserving rich styles in the copied text.
 
-## Verification
+## Architecture
 
-- Manual: open RARA, hold Shift, drag mouse over transcript text → text should
-  be highlighted by the terminal.
-- Release Shift, scroll with mouse wheel → scroll acceleration should resume.
+RARA keeps `EnableMouseCapture` enabled and routes left-button mouse events into
+`TranscriptSelection`.
+
+The render path owns the authoritative visible transcript snapshot. Each frame:
+
+1. builds the transcript viewport;
+2. computes the visible wrapped rows for the current scroll offset;
+3. stores the screen-area-to-text mapping in `TuiApp.transcript_selection`;
+4. renders the transcript;
+5. applies selection highlight over the rendered buffer.
+
+Mouse handling uses that latest snapshot to map screen coordinates back to
+wrapped transcript rows. The tick loop drives edge autoscroll while dragging.
+
+Clipboard output first emits OSC 52 so SSH sessions can copy to the local
+terminal clipboard when the terminal permits it. Platform clipboard commands are
+best-effort fallbacks for local sessions.
+
+## Contracts
+
+- Selection only starts when there is no active overlay and the mouse down event
+  lands inside the transcript snapshot.
+- Dragging outside the transcript area clamps to the nearest visible transcript
+  row.
+- A zero-width selection does not copy anything.
+- Copied text is plain text reconstructed from visible wrapped transcript rows.
+- Edge autoscroll uses the same transcript scroll direction as wheel and
+  keyboard scrolling.
+- Clipboard failures must not terminate the TUI; they surface as notices.
+
+## Validation Matrix
+
+| Behavior | Validation |
+| --- | --- |
+| Wrapped text range extraction | Unit tests for `TranscriptSelection` |
+| Autoscroll selection extension | Unit tests for non-zero scroll offset |
+| Mouse event routing | Existing TUI event tests plus focused selection events |
+| Clipboard fallback safety | Manual SSH/local verification |
+| Render highlight | Manual TUI verification; future snapshot if styling changes |
+
+## Operational Notes
+
+OSC 52 depends on terminal policy. Some terminals disable remote clipboard
+writes by default, and tmux/screen may require passthrough support. RARA still
+attempts native clipboard fallback, but over SSH that fallback writes the remote
+machine clipboard rather than the user's local desktop clipboard.
+
+## Open Risks
+
+- The first implementation reconstructs copied text from wrapped visual rows,
+  so extremely wide Unicode grapheme clusters may not match terminal emulator
+  selection exactly.
+- The transcript snapshot is frame-based. If a mouse event arrives before the
+  first transcript frame, selection start is ignored.
+
+## Source Journals
+
+- [2026-05-13-transcript-copy-selection](../journal/2026-05-13-transcript-copy-selection.md)

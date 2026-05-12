@@ -29,6 +29,7 @@ use crate::runtime_event_bus::RuntimeEventBus;
 use crate::thread_store::ThreadSummary;
 use crate::tools::bash::BashCommandInput;
 use crate::tui::display_sanitize::sanitize_display_text;
+use crate::tui::selection::TranscriptSelection;
 use crate::tui::terminal_event::TerminalEvent;
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -676,6 +677,7 @@ pub struct TuiApp {
     pub committed_render_generation: u64,
     pub committed_render_cache: RefCell<CommittedTranscriptRenderCache>,
     pub transcript_scroll: usize,
+    pub(crate) transcript_selection: TranscriptSelection,
     pub context_scroll: u16,
     pub terminal_width: u16,
     pub agent_markdown_stream: Option<AgentMarkdownStreamState>,

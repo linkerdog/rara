@@ -118,9 +118,10 @@ fn shows_startup_header(app: &TuiApp) -> bool {
         && !app.has_pending_planning_suggestion()
 }
 
-fn render_transcript(f: &mut Frame, app: &TuiApp, area: Rect) {
+fn render_transcript(f: &mut Frame, app: &mut TuiApp, area: Rect) {
     let viewport = transcript_viewport(app, area.width, area.height);
     if !app.has_any_transcript() && viewport.lines.is_empty() {
+        app.transcript_selection.clear_snapshot();
         let lines = vec![
             Line::from("Ready."),
             Line::from(Span::styled("──", Style::default().fg(TEXT_SECONDARY))),
@@ -146,7 +147,15 @@ fn render_transcript(f: &mut Frame, app: &TuiApp, area: Rect) {
         return;
     }
 
+    app.transcript_selection.update_snapshot(
+        viewport.lines.as_slice(),
+        area,
+        area.width,
+        viewport.scroll_offset,
+    );
     viewport.render(f, area);
+    app.transcript_selection
+        .highlight_visible_range(f.buffer_mut());
 }
 
 pub(crate) fn transcript_viewport(
