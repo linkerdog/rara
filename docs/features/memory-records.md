@@ -131,7 +131,7 @@ Importance scale:
 | Memory retention | Pinned, user-created, and high-importance memories are protected from automatic cleanup; explicit delete remains possible with provenance. | Implemented as a domain guard on `MemoryRecord`; no automatic cleanup path exists yet. |
 | Thread distillation | Thread history can be distilled into 2-8 durable memory records. | Implemented for loaded threads through `ThreadStore::distill_thread_memories`, with LLM-assisted extraction, batch/existing-memory deduplication, and thread provenance. Long-thread chunking remains future work. |
 | Session-shard promotion | Session context shards can be promoted into durable memory records without writing raw checkpoints to the global index by default. | Partial. `SessionManager::promote_session_context_memories` explicitly distills selected shard checkpoints into `MemoryRecord`s with session provenance; periodic scheduling remains future work. |
-| Auto-memory extraction | Recent committed turns can be distilled into `MemorySource::AutoMemory` records without blocking turn completion. The extraction route should use the same main-agent model configuration unless a future spec adds an explicit auxiliary route. | Partial. The TUI triggers auto-memory every five committed turns through a same-model background service that keeps one in-flight extraction, coalesces newer eligible snapshots into one trailing run, and offers bounded shutdown drain. Controls, status, and richer error visibility remain future work. |
+| Auto-memory extraction | Recent committed turns can be distilled into `MemorySource::AutoMemory` records without blocking turn completion. The extraction route should use the same main-agent model configuration unless a future spec adds an explicit auxiliary route. | Partial. The TUI triggers auto-memory every five committed turns through a same-model background service that keeps one in-flight extraction, coalesces newer eligible snapshots into one trailing run, records session/thread/span provenance on each write, and offers bounded shutdown drain. Controls, status, and richer error visibility remain future work. |
 | Context injection | Ranked memory candidates pass through `MemorySelection` before prompt injection. | Partial. LanceDB-backed memory and session search now produce direct ranked `MemorySelection` candidates; retention, deduplication, and protocol mutation remain future work. |
 | Graph retrieval | Entity and relationship traversal complements vector recall. | Future work. |
 | Working memory | Daily or session briefing summarizes recent and important memories. | Future work. |
@@ -239,11 +239,17 @@ The canonical runtime contract is:
   configuration as the parent interactive agent unless a future feature adds an
   explicit auxiliary route;
 - only one auto-memory extraction may run at a time for a given process;
+- completed-turn watermarks and duplicate suppression are tracked per session, so
+  restoring or switching threads does not suppress a newer session that has a
+  smaller turn count than the previously active one;
 - when a newer eligible snapshot arrives while extraction is in flight, the
   service coalesces pending work to the newest snapshot and runs at most one
   trailing extraction after the current one completes;
 - duplicate notifications for the same completed-turn boundary must not launch
   duplicate extractions;
+- durable writes carry `session_id`, `thread_id`, and `source_span` provenance
+  for the session/thread and turn range that produced the extracted fact, even
+  though the compatibility path still writes user-scoped memories;
 - graceful shutdown and other consistency-sensitive boundaries may call a
   bounded drain hook so in-flight extraction gets a short chance to finish
   without making exit unbounded;

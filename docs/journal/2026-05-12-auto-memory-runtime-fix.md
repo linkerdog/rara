@@ -45,6 +45,12 @@ could be empty even when the panic did not fire.
   process-local service that allows only one in-flight extraction, coalesces
   newer eligible snapshots into one trailing run, and ignores duplicate
   notifications for the same completed-turn boundary.
+- Track completed-turn watermarks per session instead of globally, so restoring
+  or switching threads inside one TUI process does not suppress a newer session
+  whose transcript is shorter than the previously active thread.
+- Persist auto-memory provenance on each write by recording `session_id`,
+  `thread_id`, and `source_span`, and emit minimal warning output when summary
+  or record insertion fails instead of silently swallowing those errors.
 - Add a bounded shutdown drain hook so TUI exit gives in-flight auto-memory a
   short chance to finish without letting quit block indefinitely.
 
