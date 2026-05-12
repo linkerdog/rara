@@ -547,6 +547,56 @@ pub(crate) fn prefixed_message_lines(
     lines.extend(tail.iter().map(|line| Line::from(format!("  {line}"))));
     lines
 }
+
+pub(crate) fn prefixed_tail_message_lines(
+    role: &str,
+    message: &str,
+    max_lines: usize,
+) -> Vec<Line<'static>> {
+    let message = crate::tui::display_sanitize::sanitize_display_text(message);
+    let message = message.as_str();
+    let (icon, color) = role_prefix_icon(role);
+    let label = if icon.is_empty() {
+        format!("{}:", role)
+    } else {
+        icon.to_string()
+    };
+    let message_lines = message.lines().collect::<Vec<_>>();
+    if message_lines.is_empty() {
+        return vec![Line::from(vec![Span::styled(
+            label,
+            Style::default().fg(color),
+        )])];
+    }
+
+    let visible_count = max_lines.min(message_lines.len());
+    let hidden_count = message_lines.len().saturating_sub(visible_count);
+    let tail = &message_lines[message_lines.len() - visible_count..];
+    let mut lines = Vec::new();
+
+    if hidden_count > 0 {
+        lines.push(Line::from(vec![
+            Span::styled(label, Style::default().fg(color)),
+            Span::styled(
+                format!(" ... {} earlier line(s)", hidden_count),
+                Style::default().fg(TEXT_SECONDARY),
+            ),
+        ]));
+        lines.extend(tail.iter().map(|line| Line::from(format!("  {line}"))));
+    } else if let Some(first) = tail.first() {
+        let mut spans = vec![Span::styled(label, Style::default().fg(color))];
+        spans.push(Span::raw(format!(" {first}")));
+        lines.push(Line::from(spans));
+        lines.extend(
+            tail.iter()
+                .skip(1)
+                .map(|line| Line::from(format!("  {line}"))),
+        );
+    }
+
+    lines
+}
+
 fn user_message_lines(message: &str, max_lines: usize) -> Vec<Line<'static>> {
     let message = crate::tui::display_sanitize::sanitize_display_text(message);
     let message = message.as_str();

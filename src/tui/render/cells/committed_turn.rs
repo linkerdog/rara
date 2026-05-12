@@ -106,7 +106,7 @@ fn push_ordered_committed_activity<'a>(
             entry.role.as_str(),
             "Tool" | "Tool Result" | "Tool Error" | "Tool Progress"
         ) {
-            cells.push(Box::new(MessageCell::new(
+            cells.push(Box::new(MessageCell::new_tail(
                 &entry.role,
                 &entry.message,
                 TOOL_MESSAGE_MAX_LINES,

@@ -14,6 +14,10 @@ when the runtime emits several consecutive updates.
 Tool-message fallback cells keep a Codex-style small main-view budget. They
 show enough context for scanning while leaving full terminal/output fidelity to
 dedicated terminal cells and future transcript-detail surfaces.
+When a fallback tool message exceeds that budget, RARA now favors the newest
+tail lines instead of keeping the first line, matching the Codex TUI behavior
+where long command output keeps the recent end of the stream visible in the
+main chat view.
 
 ## Why
 

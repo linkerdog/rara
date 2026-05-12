@@ -454,6 +454,49 @@ fn committed_turn_cell_renders_terminal_result_with_inline_output_path() {
 }
 
 #[test]
+fn committed_turn_cell_shows_tail_for_long_tool_messages() {
+    let entries = vec![
+        TranscriptEntry {
+            role: "You".into(),
+            message: "Run the long task".into(),
+            payload: None,
+        },
+        TranscriptEntry {
+            role: "Tool Progress".into(),
+            message: [
+                "line 1", "line 2", "line 3", "line 4", "line 5", "line 6", "line 7", "line 8",
+            ]
+            .join("\n"),
+            payload: None,
+        },
+        TranscriptEntry {
+            role: "Agent".into(),
+            message: "The task finished.".into(),
+            payload: None,
+        },
+    ];
+
+    let rendered = CommittedTurnCell::new(entries.as_slice(), Some(Path::new(".")))
+        .display_lines(100)
+        .into_iter()
+        .map(|line| line.to_string())
+        .collect::<Vec<_>>()
+        .join("\n");
+
+    let hidden_idx = rendered.find("3 earlier line(s)").unwrap();
+    let first_visible_tail = rendered.find("line 4").unwrap();
+    let final_tail = rendered.find("line 8").unwrap();
+    let agent = rendered.find("• The task finished.").unwrap();
+
+    assert!(!rendered.contains("line 1"));
+    assert!(!rendered.contains("line 2"));
+    assert!(!rendered.contains("line 3"));
+    assert!(hidden_idx < first_visible_tail);
+    assert!(first_visible_tail < final_tail);
+    assert!(final_tail < agent);
+}
+
+#[test]
 fn committed_turn_cell_renders_typed_terminal_event_as_terminal_cell() {
     let entries = vec![
         TranscriptEntry {
