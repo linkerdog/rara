@@ -185,6 +185,9 @@ pub async fn run_tui(
         handle.abort();
     }
     teardown_terminal(terminal)?;
+    if result.is_ok() {
+        let _ = crate::auto_memory::drain_auto_memory_for_shutdown().await;
+    }
     result?;
     let session_id = maintainer
         .agent()

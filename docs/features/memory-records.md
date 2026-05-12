@@ -18,8 +18,10 @@ This spec describes the target product contract. The current implementation
 slices provide the LanceDB-backed index, retrieval tools, a runtime
 `MemoryStore` facade, ranked `MemorySelection` candidates, pinned retention
 metadata, update/delete/list-label scaffolding, LLM-assisted thread
-distillation into multiple durable records, and an explicit session-shard
-promotion API. Periodic scheduling and richer filtering remain follow-up work.
+distillation into multiple durable records, an explicit session-shard
+promotion API, and a TUI auto-memory background extractor that writes directly
+through `MemoryStore`. Richer filtering, controls, and observability remain
+follow-up work.
 
 ## Six Design Laws (Cross-Industry Consensus)
 
@@ -67,7 +69,15 @@ pub struct MemoryRecord {
 }
 
 pub enum MemoryLabel { Insight, Decision, Fact, Procedure, Experience }
-pub enum MemorySource { AgentTurn, UserCreated, ThreadDistill, FileImport }
+pub enum MemorySource {
+    AgentTurn,
+    UserCreated,
+    ThreadDistill,
+    SessionDistill,
+    FileImport,
+    ProtocolWrite,
+    AutoMemory,
+}
 ```
 
 ## Product Contract
@@ -121,6 +131,7 @@ Importance scale:
 | Memory retention | Pinned, user-created, and high-importance memories are protected from automatic cleanup; explicit delete remains possible with provenance. | Implemented as a domain guard on `MemoryRecord`; no automatic cleanup path exists yet. |
 | Thread distillation | Thread history can be distilled into 2-8 durable memory records. | Implemented for loaded threads through `ThreadStore::distill_thread_memories`, with LLM-assisted extraction, batch/existing-memory deduplication, and thread provenance. Long-thread chunking remains future work. |
 | Session-shard promotion | Session context shards can be promoted into durable memory records without writing raw checkpoints to the global index by default. | Partial. `SessionManager::promote_session_context_memories` explicitly distills selected shard checkpoints into `MemoryRecord`s with session provenance; periodic scheduling remains future work. |
+| Auto-memory extraction | Recent committed turns can be distilled into `MemorySource::AutoMemory` records without blocking turn completion. The extraction route should use the same main-agent model configuration unless a future spec adds an explicit auxiliary route. | Partial. The TUI triggers auto-memory every five committed turns through a same-model background service that keeps one in-flight extraction, coalesces newer eligible snapshots into one trailing run, records session/thread/span provenance on each write, and offers bounded shutdown drain. Controls, status, and richer error visibility remain future work. |
 | Context injection | Ranked memory candidates pass through `MemorySelection` before prompt injection. | Partial. LanceDB-backed memory and session search now produce direct ranked `MemorySelection` candidates; retention, deduplication, and protocol mutation remain future work. |
 | Graph retrieval | Entity and relationship traversal complements vector recall. | Future work. |
 | Working memory | Daily or session briefing summarizes recent and important memories. | Future work. |
@@ -206,6 +217,45 @@ policy-gated path:
 
 The first gated path does not install a timer. It provides the contract that any
 future scheduler must call before writing durable memory in the background.
+
+## Auto-Memory Extraction Contract
+
+Auto-memory is the lightweight compatibility path that turns recent committed
+conversation turns into `MemoryRecord`s with source `AutoMemory`. It is not the
+same feature as thread distillation or session-shard promotion:
+
+- auto-memory works from the live TUI transcript tail instead of a loaded
+  thread or persisted shard set;
+- auto-memory writes directly to `MemoryStore` instead of staging raw
+  checkpoints in the global memory index;
+- auto-memory is allowed to skip intermediate eligible snapshots when newer
+  committed-turn context supersedes them.
+
+The canonical runtime contract is:
+
+- turn completion is a notify-only path; it must not synchronously wait for
+  auto-memory extraction work to finish;
+- the auto-memory service uses the same main-agent backend and model
+  configuration as the parent interactive agent unless a future feature adds an
+  explicit auxiliary route;
+- only one auto-memory extraction may run at a time for a given process;
+- completed-turn watermarks and duplicate suppression are tracked per session, so
+  restoring or switching threads does not suppress a newer session that has a
+  smaller turn count than the previously active one;
+- when a newer eligible snapshot arrives while extraction is in flight, the
+  service coalesces pending work to the newest snapshot and runs at most one
+  trailing extraction after the current one completes;
+- duplicate notifications for the same completed-turn boundary must not launch
+  duplicate extractions;
+- durable writes carry `session_id`, `thread_id`, and `source_span` provenance
+  for the session/thread and turn range that produced the extracted fact, even
+  though the compatibility path still writes user-scoped memories;
+- graceful shutdown and other consistency-sensitive boundaries may call a
+  bounded drain hook so in-flight extraction gets a short chance to finish
+  without making exit unbounded;
+- extraction failures must not panic the TUI thread or block future user turns;
+  observability may report those failures, but transcript correctness does not
+  depend on synchronous reporting.
 
 ## MemoryStore API
 
@@ -303,6 +353,17 @@ Current implementation checkpoint:
   selected per-session context checkpoints into durable `MemoryRecord`s using
   the same `MemoryDistiller` and duplicate suppression path as thread
   distillation. The runtime does not schedule background promotion yet.
+- TUI auto-memory writes `MemorySource::AutoMemory` records through
+  `MemoryStore::insert_text_only` after every five committed turns.
+- The auto-memory trigger uses the interactive agent's existing backend/model
+  route instead of switching to a separate auxiliary model, preserving prompt
+  semantics with the currently active main model selection.
+- Auto-memory orchestration is process-local and single-flight: one extraction
+  runs at a time, newer eligible turn snapshots coalesce into one trailing run,
+  and duplicate notifications for the same completed-turn boundary are ignored.
+- The TUI shutdown path gives auto-memory a bounded drain window before process
+  exit so completed-turn extraction has a chance to persist without making quit
+  semantics indefinite.
 - The distillation prompt treats older memory and prior conclusions as
   historical context, not current truth. If the inspected thread proves the
   current design is stale or poor, the distiller should extract the corrected
@@ -353,3 +414,4 @@ Current implementation checkpoint:
 - 2026-05-03-memory-records-and-threads-spec.md
 - 2026-05-03-lancedb-memory-index.md
 - 2026-05-03-memory-record-persistence-and-thread-export.md
+- 2026-05-12-auto-memory-runtime-fix.md
