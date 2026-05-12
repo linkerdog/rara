@@ -132,6 +132,8 @@ The model should be told:
 - call `skill` before doing task-specific work when a matching skill exists;
 - only invoke skills listed in the current available-skills section or explicitly typed by the user;
 - do not invent skill names from memory or training data;
+- do not claim that a skill applies unless it has been invoked or already injected in the current
+  turn;
 - if a skill is already injected in the current turn, follow it instead of invoking it again.
 
 This is closest to Claude Code's `SkillTool` invocation rule and Codex's explicit
@@ -195,6 +197,8 @@ responses, not from a separate best-effort scan.
 - `SkillTool` must reject missing skill names with a structured error.
 - Skill invocation must be idempotent within a turn: if the skill has already been injected, the
   agent should follow it rather than reinvoking it.
+- Matching a visible skill is a pre-task invocation requirement: the model should load the skill
+  before doing task-specific analysis, planning, or implementation that the skill governs.
 - Skills may request additional tools, but those requests are advisory until RARA implements
   dependency-aware tool gating.
 

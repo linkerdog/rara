@@ -12,7 +12,7 @@ pub struct SkillTool {
 }
 #[tool_spec(
     name = "skill",
-    description = "Manage and invoke reusable skills. Skills are stored in SKILL.md files across home, repo, and cwd scopes. Higher-precedence scopes override lower-precedence skills with the same name. Use list to discover available skills, invoke to load instructions, reload to re-scan after file changes.",
+    description = "Manage and invoke reusable skills. Skills are stored in SKILL.md files across home, repo, and cwd scopes. Higher-precedence scopes override lower-precedence skills with the same name. Use list to discover available skills, invoke to load instructions, reload to re-scan after file changes. If a user names a skill, uses slash-command shorthand like /review, or the request clearly matches an available skill, invoke that exact listed skill before doing task-specific work. Never invent skill names from memory or training data, and never mention that a skill applies unless you actually invoke it or it has already been injected in the current turn.",
     input_schema = {
         "type": "object",
         "properties": {
@@ -23,7 +23,7 @@ pub struct SkillTool {
             },
             "skill_name": {
                 "type": "string",
-                "description": "Name of the skill to invoke. Required when action is invoke."
+                "description": "Exact name of the available skill to invoke, without a leading slash. Required when action is invoke. Do not guess names that were not returned by list or explicitly typed by the user."
             },
             "args": {
                 "type": "string",
@@ -131,6 +131,26 @@ async fn list_returns_scopes_and_skills() {
     assert!(skills.is_empty());
     assert!(scopes.is_empty());
     assert_eq!(result["load_warnings"][0].as_str(), Some("test warning"));
+}
+
+#[test]
+fn skill_tool_description_requires_exact_pre_task_invocation() {
+    let manager = SkillManager::new();
+    let tool = SkillTool {
+        skill_manager: Arc::new(manager),
+    };
+    let description = tool.description();
+
+    assert!(description.contains("slash-command shorthand"));
+    assert!(description.contains("invoke that exact listed skill before doing task-specific work"));
+    assert!(description.contains("Never invent skill names"));
+    assert!(
+        description.contains("never mention that a skill applies unless you actually invoke it")
+    );
+
+    let schema = tool.input_schema().to_string();
+    assert!(schema.contains("without a leading slash"));
+    assert!(schema.contains("Do not guess names"));
 }
 
 #[tokio::test]
