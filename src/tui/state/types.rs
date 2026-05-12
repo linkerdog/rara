@@ -81,6 +81,7 @@ pub enum ListPickerKind {
 pub enum ProviderFamily {
     Codex,
     DeepSeek,
+    Kimi,
     OpenAiCompatible,
     Gemini,
     CandleLocal,
@@ -336,6 +337,7 @@ pub enum TaskKind {
     OAuth,
     GoogleOAuth,
     DeepSeekModels,
+    KimiModels,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -365,6 +367,9 @@ pub enum TaskCompletion {
         result: anyhow::Result<crate::google_oauth::GoogleCredential>,
     },
     DeepSeekModels {
+        result: anyhow::Result<Vec<String>>,
+    },
+    KimiModels {
         result: anyhow::Result<Vec<String>>,
     },
 }
@@ -416,7 +421,7 @@ impl std::fmt::Debug for RunningTask {
     }
 }
 
-pub const PROVIDER_FAMILIES: [(ProviderFamily, &str, &str); 7] = [
+pub const PROVIDER_FAMILIES: [(ProviderFamily, &str, &str); 8] = [
     (
         ProviderFamily::Codex,
         "Codex",
@@ -426,6 +431,11 @@ pub const PROVIDER_FAMILIES: [(ProviderFamily, &str, &str); 7] = [
         ProviderFamily::DeepSeek,
         "DeepSeek",
         "Use DeepSeek with an API key and model list from api.deepseek.com.",
+    ),
+    (
+        ProviderFamily::Kimi,
+        "Kimi",
+        "Use Moonshot Kimi with an API key from api.moonshot.cn.",
     ),
     (
         ProviderFamily::OpenAiCompatible,
@@ -659,6 +669,7 @@ pub struct TuiApp {
     pub openai_setup_keep_empty_api_key: bool,
     pub codex_model_options: Vec<CodexModelOption>,
     pub deepseek_model_options: Vec<String>,
+    pub kimi_model_options: Vec<String>,
     pub recent_commands: Vec<String>,
     pub recent_threads: Vec<ThreadSummary>,
     pub resume_picker_idx: usize,

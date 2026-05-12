@@ -976,6 +976,7 @@ pub fn model_help_text(app: &TuiApp) -> String {
                         let shortcut = match family {
                             ProviderFamily::Codex
                             | ProviderFamily::DeepSeek
+                            | ProviderFamily::Kimi
                             | ProviderFamily::OpenAiCompatible
                             | ProviderFamily::Gemini
                             | ProviderFamily::CandleLocal

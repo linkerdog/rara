@@ -157,7 +157,7 @@ pub(super) fn open_provider_connection(app: &mut TuiApp) {
     }
 
     match family {
-        ProviderFamily::DeepSeek => {
+        ProviderFamily::DeepSeek | ProviderFamily::Kimi => {
             app.open_overlay(Overlay::ApiKeyEditor);
             app.bottom_pane.notice = Some(format!("Enter your {label} API key."));
         }

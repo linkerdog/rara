@@ -365,6 +365,7 @@ impl RaraConfig {
         match provider {
             "deepseek" => Some(DEFAULT_DEEPSEEK_BASE_URL),
             "gemini" => Some(DEFAULT_GEMINI_BASE_URL),
+            "kimi" => Some(DEFAULT_KIMI_BASE_URL),
             _ => None,
         }
     }

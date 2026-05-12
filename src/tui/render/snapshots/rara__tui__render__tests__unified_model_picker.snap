@@ -1,5 +1,6 @@
 ---
 source: src/tui/render/tests.rs
+assertion_line: 1240
 expression: rendered
 ---
 ── RARA ──────────────────────────────────────────────────
@@ -18,5 +19,5 @@ St│Select a model across all providers.                                      �
   │DeepSeek/deepseek-v4-flash                                                │
 Pr│DeepSeek/deepseek-v4-pro                                                  │
 Re│DeepSeek/deepseek-v4-preview                                              │
-› │My Custom GPT/gpt-custom                                                  │
+› │Kimi/kimi-k2.6                                                            │
                      Up/Down/jk move  Enter apply  Esc back
