@@ -83,7 +83,34 @@ impl LlmBackend for EmbeddingOverrideBackend {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::llm::{ContentBlock, MockLlm};
+    use crate::llm::{ContentBlock, LlmResponse, TokenUsage};
+
+    struct StaticChatBackend;
+
+    #[async_trait]
+    impl LlmBackend for StaticChatBackend {
+        async fn ask(&self, _messages: &[Message], _tools: &[Value]) -> Result<LlmResponse> {
+            Ok(LlmResponse {
+                content: vec![ContentBlock::Text {
+                    text: "chat".to_string(),
+                }],
+                stop_reason: Some("end_turn".to_string()),
+                usage: Some(TokenUsage {
+                    input_tokens: 1,
+                    output_tokens: 1,
+                    ..TokenUsage::default()
+                }),
+            })
+        }
+
+        async fn embed(&self, _text: &str) -> Result<Vec<f32>> {
+            Ok(vec![9.0])
+        }
+
+        async fn summarize(&self, _messages: &[Message], _instruction: &str) -> Result<String> {
+            Ok("summary".to_string())
+        }
+    }
 
     struct StaticEmbeddingBackend;
 
@@ -98,8 +125,10 @@ mod tests {
 
     #[tokio::test]
     async fn override_backend_delegates_chat_and_replaces_embedding() {
-        let backend =
-            EmbeddingOverrideBackend::new(Arc::new(MockLlm), Arc::new(StaticEmbeddingBackend));
+        let backend = EmbeddingOverrideBackend::new(
+            Arc::new(StaticChatBackend),
+            Arc::new(StaticEmbeddingBackend),
+        );
 
         let chat = backend
             .ask(
@@ -115,7 +144,7 @@ mod tests {
 
         assert!(matches!(
             chat.content.as_slice(),
-            [ContentBlock::Text { text }] if text == "ok"
+            [ContentBlock::Text { text }] if text == "chat"
         ));
         assert_eq!(embedding, vec![1.0, 2.0, 3.0]);
     }
