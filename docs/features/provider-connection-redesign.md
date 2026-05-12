@@ -82,6 +82,14 @@ Model list: each row shows model name + context window size.
 - [ ] **Remaining**: show context window sizes from `MODEL_WINDOWS` map in ModelSearch items
 - [ ] **Remaining**: model list from API (`/v1/models`) for connected providers, fallback to `MODEL_WINDOWS`
 
+### Phase 4 — Model Catalog And API-List Polish (P1)
+- [x] Add Kimi as a first-class provider with catalog-backed model windows.
+- [x] Add DeepSeek v4 model-window metadata to the provider catalog.
+- [ ] Generalize ModelSearch display so every provider with catalog metadata
+      shows context windows consistently.
+- [ ] Add provider API model-list loading for connected API-key providers, with
+      catalog metadata as fallback and enrichment.
+
 ## Future
 - Custom provider support (arbitrary API endpoint + API key)
 - Model list caching with manual `/refresh`

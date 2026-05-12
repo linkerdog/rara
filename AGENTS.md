@@ -14,7 +14,8 @@ It is the baseline index for future implementation and evolution.
 - [4. Current Key Decisions](#4-current-key-decisions)
 - [5. Documentation Rules](#5-documentation-rules)
 - [6. Near-Term Focus](#6-near-term-focus)
-- [7. Commit Rules](#7-commit-rules)
+- [7. Repository Skills](#7-repository-skills)
+- [8. Commit Rules](#8-commit-rules)
 
 ### Docs
 - [docs/features/](docs/features/README.md) — engineering specs and contracts (28 files)
@@ -123,7 +124,23 @@ The current product direction is to make local inference a first-class path inst
 - Stronger local-model prompt formatting and stop-sequence handling.
 - A real embedding backend for local memory retrieval quality.
 
-## 7. Commit Rules
+## 7. Repository Skills
+
+Repo-local skills live under `.agents/skills/`. Use them as focused workflow
+guides instead of expanding this charter with long procedural detail:
+
+- `add_tests`: choose and write focused RARA test coverage.
+- `context-cache-management`: update context compression, memory placement, or
+  provider cache behavior while preserving stable prompt prefixes.
+- `support-acp`: integrate or debug ACP clients and control-plane behavior.
+- `rara-docs-journal`: write or review dated implementation journals under
+  `docs/journal/`.
+- `rara-docs-spec`: write or review canonical feature specs under
+  `docs/features/`.
+- `project-github-titles`: write RARA commit and PR titles using the allowed
+  project title format.
+
+## 8. Commit Rules
 
 - Always run `cargo fmt` before every commit to ensure consistent formatting.
 - Use short project-specific conventional commit titles. This is an intentional
