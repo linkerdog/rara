@@ -12,7 +12,7 @@ pub struct SkillTool {
 }
 #[tool_spec(
     name = "skill",
-    description = "Manage and invoke reusable skills. Skills are stored in SKILL.md files across home, repo, and cwd scopes. Higher-precedence scopes override lower-precedence skills with the same name. Use list to discover available skills, invoke to load instructions, reload to re-scan after file changes. If a user names a skill, uses slash-command shorthand like /review, or the request clearly matches an available skill, invoke that exact listed skill before doing task-specific work. Never invent skill names from memory or training data, and never mention that a skill applies unless you actually invoke it or it has already been injected in the current turn.",
+    description = "Manage and invoke reusable skills. Skills are stored in SKILL.md files across home, repo, and cwd scopes. Higher-precedence scopes override lower-precedence skills with the same name. Use list to discover available skills, invoke to load instructions, reload to re-scan after file changes. If a user names a skill or uses slash-command shorthand like /review, or if the request clearly matches an available skill, invoke that exact listed skill before doing task-specific work. Never invent skill names from memory or training data, and never mention that a skill applies unless you actually invoke it or it has already been injected in the current turn.",
     input_schema = {
         "type": "object",
         "properties": {
