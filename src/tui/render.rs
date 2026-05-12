@@ -2,7 +2,6 @@ mod bottom_pane;
 pub(crate) mod cells;
 pub(crate) mod diff;
 mod helpers;
-mod history_pipeline;
 mod overlay;
 mod sidebar;
 #[cfg(test)]

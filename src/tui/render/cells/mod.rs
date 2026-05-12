@@ -25,9 +25,7 @@ pub(crate) use self::plan_cells::{
     PlanModeCell, PlanSummaryCell, PlanningSuggestionCell, planning_suggestion_text,
 };
 pub(crate) use self::responding_cell::RespondingCell;
-pub(crate) use self::summary_cells::{
-    ExploredCell, ExploringCell, PlanningCell, RanCell, RunningCell,
-};
+pub(crate) use self::summary_cells::{ExploringCell, PlanningCell, RunningCell};
 pub(crate) use self::thinking_cells::ThinkingBlockCell;
 pub(crate) use self::user_startup::{StartupCardCell, UserCell};
 use super::wrapped_history_line_count;

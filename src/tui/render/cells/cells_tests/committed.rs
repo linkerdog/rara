@@ -54,14 +54,13 @@ fn committed_turn_cell_keeps_user_summary_and_agent_sections_in_order() {
         .join("\n");
 
     let you_idx = rendered.find("Review this repo").unwrap();
-    let explored_idx = rendered.find("# Explored").unwrap();
-    let ran_idx = rendered.find("# Ran").unwrap();
+    let first_tool_idx = rendered.find("list_files .").unwrap();
+    let second_tool_idx = rendered.find("bash cargo check").unwrap();
     let agent_idx = rendered.find("• Final recommendation").unwrap();
 
-    assert!(rendered.contains("List ."));
-    assert!(you_idx < explored_idx);
-    assert!(explored_idx < ran_idx);
-    assert!(ran_idx < agent_idx);
+    assert!(you_idx < first_tool_idx);
+    assert!(first_tool_idx < second_tool_idx);
+    assert!(second_tool_idx < agent_idx);
 }
 
 #[test]
@@ -352,7 +351,7 @@ fn committed_turn_cell_places_completion_records_before_final_agent_message() {
 }
 
 #[test]
-fn committed_turn_cell_orders_completion_records_by_interaction_kind() {
+fn committed_turn_cell_preserves_completion_record_order() {
     let entries = vec![
         TranscriptEntry {
             role: "You".into(),
@@ -395,9 +394,9 @@ fn committed_turn_cell_orders_completion_records_by_interaction_kind() {
         .find("• Here is the final narrative summary.")
         .unwrap();
 
+    assert!(generic_question_idx < shell_idx);
     assert!(shell_idx < planning_question_idx);
-    assert!(planning_question_idx < generic_question_idx);
-    assert!(generic_question_idx < agent_idx);
+    assert!(planning_question_idx < agent_idx);
     assert!(!rendered.contains("# Plan Decision"));
 }
 
@@ -422,7 +421,7 @@ fn committed_turn_cell_renders_terminal_result_as_terminal_cell() {
     assert!(rendered.contains("running tests"));
     assert!(rendered.contains("ok"));
     assert!(rendered.contains("• The background test task completed."));
-    assert!(!rendered.contains("background_task_status bash-123"));
+    assert!(rendered.contains("background_task_status bash-123"));
 }
 
 #[test]

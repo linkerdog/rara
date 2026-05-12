@@ -111,9 +111,6 @@ macro_rules! summary_cell {
     };
 }
 
-summary_cell!(ExploredCell, "Explored", PHASE_EXPLORED);
-summary_cell!(RanCell, "Ran", PHASE_RAN);
-
 summary_cell!(
     PlanningCell,
     "Planning",
