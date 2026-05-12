@@ -8,7 +8,7 @@ license.workspace = true
 rara-persistence = { path = "../rara-persistence" }
 anyhow.workspace = true
 serde = { version = "1", features = ["derive"] }
-arrow-array = "57.2"
+arrow-array = "58.3"
 arrow-schema = "57.2"
 futures = "0.3"
 lance-index = "=4.0.0"
