@@ -15,9 +15,18 @@ directory.
 
 The extractor is now called from TUI startup, so the bundled component is no
 longer dead code. `/status` reports the selected local embedding backend, model
-name, and whether setup is still required. This path does not start the Python
-server, create the venv, install dependencies, download model weights, or call
-the health endpoint yet.
+name, and whether setup is still required.
+
+The Rust side now also owns the first process-discovery boundary. Startup reads
+managed `server.json` metadata, verifies the loopback `/health` identity, reuses
+a matching server, and uses a non-blocking `startup.lock` so multiple RARA
+processes do not start duplicate servers. If a managed venv already exists and
+no reusable server is healthy, the lock owner starts the Python server and writes
+fresh metadata. If another process owns startup, later processes report
+`waiting_for_server` instead of starting a second server.
+
+This still does not create the venv, install dependencies, or trigger model
+download. Those remain the next bootstrap-preparation slice.
 
 ## Why
 
@@ -45,11 +54,10 @@ explicit setup step rather than an implicit server startup side effect.
 
 ## Status Surface
 
-`/status` now shows local embedding model state with backend, model, and setup
-detail. The current implementation is a setup-state surface backed by the
-bundled component extractor. The later process-supervision slice should switch
-ready/error detection to the model server's lightweight health endpoint without
-force-loading model weights.
+`/status` now shows local embedding model state with backend, model, setup
+detail, waiting state, startup state, and reused endpoint when available. Ready
+state is backed by a lightweight health probe; rendering `/status` itself does
+not initiate download or model weight loading.
 
 Target shape:
 
@@ -60,11 +68,10 @@ Target shape:
 
 ## Follow-Up
 
-- Add Rust process supervision for the Python model server.
-- Add explicit venv creation and dependency installation commands.
+- Add explicit venv creation and dependency installation during automatic
+  bootstrap.
+- Add model preparation/download through the Python server and surface progress.
 - Wire `/v1/embeddings` into a standalone `EmbeddingBackend`.
-- Upgrade `/status` ready/error detection from local setup checks to model
-  server health checks.
 - Add config for model server enablement and backend selection.
 - Smoke test the exact `mlx-community/Qwen3-Embedding-0.6B-4bit-DWQ` artifact
   with `mlx-embeddings`.

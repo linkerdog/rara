@@ -1,8 +1,14 @@
-use std::fs;
-use std::io::Write;
+use std::fs::{self, File};
+use std::io::{Read, Write};
+use std::net::TcpStream;
 use std::path::{Path, PathBuf};
+use std::process::{Command, Stdio};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use anyhow::{Context, Result, anyhow, bail};
+use fs2::FileExt;
+use serde::{Deserialize, Serialize};
+use serde_json::Value;
 use sha2::{Digest, Sha256};
 
 const MODEL_SERVER: &[u8] = include_bytes!(concat!(
@@ -24,10 +30,19 @@ const REQUIREMENTS_PORTABLE: &[u8] = include_bytes!(concat!(
 const REQUIREMENTS_PORTABLE_NAME: &str = "requirements-portable.txt";
 const MLX_QWEN3_MODEL_ID: &str = "mlx-community/Qwen3-Embedding-0.6B-4bit-DWQ";
 const FASTEMBED_BGE_M3_MODEL_ID: &str = "BAAI/bge-m3";
+const DEFAULT_MODEL_SERVER_HOST: &str = "127.0.0.1";
+const DEFAULT_MODEL_SERVER_PORT: u16 = 18181;
+const SERVER_METADATA_NAME: &str = "server.json";
+const STARTUP_LOCK_NAME: &str = "startup.lock";
+const HEALTH_TIMEOUT: Duration = Duration::from_millis(300);
+const STARTUP_HEALTH_ATTEMPTS: usize = 10;
+const STARTUP_HEALTH_DELAY: Duration = Duration::from_millis(100);
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum LocalModelServerState {
     Ready,
+    Starting,
+    WaitingForServer,
     SetupRequired,
     Error,
 }
@@ -39,6 +54,7 @@ pub(crate) struct LocalModelServerStatus {
     pub model: String,
     pub detail: String,
     pub server_path: Option<PathBuf>,
+    pub endpoint: Option<String>,
 }
 
 impl Default for LocalModelServerStatus {
@@ -50,6 +66,7 @@ impl Default for LocalModelServerStatus {
             model: model.to_string(),
             detail: "model server component has not been prepared".to_string(),
             server_path: None,
+            endpoint: None,
         }
     }
 }
@@ -72,6 +89,20 @@ pub(crate) struct BundledModelServerFile {
 struct BundledFile {
     name: &'static str,
     content: &'static [u8],
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+struct ModelServerMetadata {
+    pid: u32,
+    host: String,
+    port: u16,
+    component_sha256: String,
+    profile: String,
+    started_at: u64,
+}
+
+struct StartupLock {
+    _file: File,
 }
 
 pub(crate) fn ensure_bundled_model_server(rara_home: &Path) -> Result<BundledModelServer> {
@@ -106,24 +137,40 @@ pub(crate) fn prepare_local_model_server_status(rara_home: &Path) -> LocalModelS
     let (backend, model) = default_embedding_backend();
     match ensure_bundled_model_server(rara_home) {
         Ok(server) => {
+            if let Some(status) = reusable_server_status(&server, backend, model) {
+                return status;
+            }
+
             let python = venv_python_path(&server.venv_dir);
-            if python.is_file() {
-                LocalModelServerStatus {
-                    state: LocalModelServerState::Ready,
-                    backend: backend.to_string(),
-                    model: model.to_string(),
-                    detail: "model server component and venv are installed".to_string(),
-                    server_path: Some(server.path),
-                }
-            } else {
-                LocalModelServerStatus {
+            if !python.is_file() {
+                return LocalModelServerStatus {
                     state: LocalModelServerState::SetupRequired,
                     backend: backend.to_string(),
                     model: model.to_string(),
                     detail: format!("venv python missing at {}", python.display()),
                     server_path: Some(server.path),
-                }
+                    endpoint: None,
+                };
             }
+
+            let lock_path = startup_lock_path(&server.runtime_dir);
+            let Ok(_lock) = StartupLock::try_acquire(&lock_path) else {
+                return LocalModelServerStatus {
+                    state: LocalModelServerState::WaitingForServer,
+                    backend: backend.to_string(),
+                    model: model.to_string(),
+                    detail: "waiting for another RARA process to finish model server startup"
+                        .to_string(),
+                    server_path: Some(server.path),
+                    endpoint: None,
+                };
+            };
+
+            if let Some(status) = reusable_server_status(&server, backend, model) {
+                return status;
+            }
+
+            start_model_server(&server, &python, backend, model)
         }
         Err(err) => LocalModelServerStatus {
             state: LocalModelServerState::Error,
@@ -131,6 +178,106 @@ pub(crate) fn prepare_local_model_server_status(rara_home: &Path) -> LocalModelS
             model: model.to_string(),
             detail: err.to_string(),
             server_path: None,
+            endpoint: None,
+        },
+    }
+}
+
+fn reusable_server_status(
+    server: &BundledModelServer,
+    backend: &str,
+    model: &str,
+) -> Option<LocalModelServerStatus> {
+    let metadata = read_server_metadata(&metadata_path(&server.runtime_dir)).ok()??;
+    if metadata.component_sha256 != server.sha256 || metadata.profile != embedding_profile_id() {
+        return None;
+    }
+    let endpoint = endpoint_url(&metadata.host, metadata.port);
+    let health = probe_health(&metadata.host, metadata.port).ok()?;
+    if !health_identity_matches(&health, backend, model) {
+        return None;
+    }
+    Some(LocalModelServerStatus {
+        state: LocalModelServerState::Ready,
+        backend: backend.to_string(),
+        model: model.to_string(),
+        detail: format!("reusing model server at {endpoint}"),
+        server_path: Some(server.path.clone()),
+        endpoint: Some(endpoint),
+    })
+}
+
+fn start_model_server(
+    server: &BundledModelServer,
+    python: &Path,
+    backend: &str,
+    model: &str,
+) -> LocalModelServerStatus {
+    let host = DEFAULT_MODEL_SERVER_HOST;
+    let port = DEFAULT_MODEL_SERVER_PORT;
+    let endpoint = endpoint_url(host, port);
+    match Command::new(python)
+        .arg(&server.path)
+        .env("RARA_MODEL_SERVER_HOST", host)
+        .env("RARA_MODEL_SERVER_PORT", port.to_string())
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()
+    {
+        Ok(child) => {
+            let metadata = ModelServerMetadata {
+                pid: child.id(),
+                host: host.to_string(),
+                port,
+                component_sha256: server.sha256.clone(),
+                profile: embedding_profile_id().to_string(),
+                started_at: unix_timestamp_secs(),
+            };
+            if let Err(err) = write_server_metadata(&metadata_path(&server.runtime_dir), &metadata)
+            {
+                return LocalModelServerStatus {
+                    state: LocalModelServerState::Error,
+                    backend: backend.to_string(),
+                    model: model.to_string(),
+                    detail: format!("failed to write model server metadata: {err}"),
+                    server_path: Some(server.path.clone()),
+                    endpoint: Some(endpoint),
+                };
+            }
+
+            for _ in 0..STARTUP_HEALTH_ATTEMPTS {
+                if let Ok(health) = probe_health(host, port) {
+                    if health_identity_matches(&health, backend, model) {
+                        return LocalModelServerStatus {
+                            state: LocalModelServerState::Ready,
+                            backend: backend.to_string(),
+                            model: model.to_string(),
+                            detail: format!("started model server at {endpoint}"),
+                            server_path: Some(server.path.clone()),
+                            endpoint: Some(endpoint),
+                        };
+                    }
+                }
+                std::thread::sleep(STARTUP_HEALTH_DELAY);
+            }
+
+            LocalModelServerStatus {
+                state: LocalModelServerState::Starting,
+                backend: backend.to_string(),
+                model: model.to_string(),
+                detail: format!("started model server process; waiting for health at {endpoint}"),
+                server_path: Some(server.path.clone()),
+                endpoint: Some(endpoint),
+            }
+        }
+        Err(err) => LocalModelServerStatus {
+            state: LocalModelServerState::Error,
+            backend: backend.to_string(),
+            model: model.to_string(),
+            detail: format!("failed to start model server: {err}"),
+            server_path: Some(server.path.clone()),
+            endpoint: Some(endpoint),
         },
     }
 }
@@ -141,6 +288,10 @@ fn default_embedding_backend() -> (&'static str, &'static str) {
     } else {
         ("fastembed_bge_m3", FASTEMBED_BGE_M3_MODEL_ID)
     }
+}
+
+fn embedding_profile_id() -> &'static str {
+    "qwen3-embedding-0.6b"
 }
 
 fn venv_python_path(venv_dir: &Path) -> PathBuf {
@@ -179,6 +330,115 @@ fn ensure_model_server_requirements(runtime_dir: &Path) -> Result<Vec<BundledMod
         })
     })
     .collect()
+}
+
+impl StartupLock {
+    fn try_acquire(path: &Path) -> Result<Self> {
+        if let Some(parent) = path.parent() {
+            fs::create_dir_all(parent)
+                .with_context(|| format!("create lock directory {}", parent.display()))?;
+        }
+        let file = fs::OpenOptions::new()
+            .read(true)
+            .write(true)
+            .create(true)
+            .truncate(false)
+            .open(path)
+            .with_context(|| format!("open lock file {}", path.display()))?;
+        file.try_lock_exclusive()
+            .with_context(|| format!("lock file {}", path.display()))?;
+        Ok(Self { _file: file })
+    }
+}
+
+impl Drop for StartupLock {
+    fn drop(&mut self) {
+        let _ = self._file.unlock();
+    }
+}
+
+fn metadata_path(runtime_dir: &Path) -> PathBuf {
+    runtime_dir.join(SERVER_METADATA_NAME)
+}
+
+fn startup_lock_path(runtime_dir: &Path) -> PathBuf {
+    runtime_dir.join(STARTUP_LOCK_NAME)
+}
+
+fn endpoint_url(host: &str, port: u16) -> String {
+    format!("http://{host}:{port}")
+}
+
+fn read_server_metadata(path: &Path) -> Result<Option<ModelServerMetadata>> {
+    let content = match fs::read_to_string(path) {
+        Ok(content) => content,
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(err) => return Err(err).with_context(|| format!("read {}", path.display())),
+    };
+    let metadata = serde_json::from_str(&content)
+        .with_context(|| format!("parse model server metadata {}", path.display()))?;
+    Ok(Some(metadata))
+}
+
+fn write_server_metadata(path: &Path, metadata: &ModelServerMetadata) -> Result<()> {
+    let content = serde_json::to_vec_pretty(metadata)?;
+    write_file_atomically(path, &content)
+}
+
+fn probe_health(host: &str, port: u16) -> Result<Value> {
+    let mut stream =
+        TcpStream::connect((host, port)).with_context(|| format!("connect {host}:{port}"))?;
+    stream
+        .set_read_timeout(Some(HEALTH_TIMEOUT))
+        .context("set model server health read timeout")?;
+    stream
+        .set_write_timeout(Some(HEALTH_TIMEOUT))
+        .context("set model server health write timeout")?;
+    let request = format!(
+        "GET /health HTTP/1.1\r\nHost: {host}:{port}\r\nConnection: close\r\nAccept: application/json\r\n\r\n"
+    );
+    stream
+        .write_all(request.as_bytes())
+        .context("write model server health request")?;
+    let mut response = Vec::new();
+    stream
+        .read_to_end(&mut response)
+        .context("read model server health response")?;
+    let response = String::from_utf8(response).context("decode model server health response")?;
+    if !response.starts_with("HTTP/1.0 200") && !response.starts_with("HTTP/1.1 200") {
+        bail!("model server health returned non-200 status");
+    }
+    let body = response
+        .split_once("\r\n\r\n")
+        .map(|(_, body)| body)
+        .ok_or_else(|| anyhow!("model server health response missing body"))?;
+    serde_json::from_str(body).context("parse model server health response")
+}
+
+fn health_identity_matches(health: &Value, backend: &str, model: &str) -> bool {
+    if health.get("ok").and_then(Value::as_bool) != Some(true) {
+        return false;
+    }
+    if health
+        .get("default_embedding_backend")
+        .and_then(Value::as_str)
+        != Some(backend)
+    {
+        return false;
+    }
+    health
+        .get("embeddings")
+        .and_then(|value| value.get(backend))
+        .and_then(|value| value.get("model"))
+        .and_then(Value::as_str)
+        .is_none_or(|reported| reported == model)
+}
+
+fn unix_timestamp_secs() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs()
 }
 
 fn ensure_runtime_dir_inside_home(rara_home: &Path, runtime_dir: &Path) -> Result<()> {
@@ -276,10 +536,15 @@ fn sha256_hex(content: &[u8]) -> String {
 #[cfg(test)]
 mod tests {
     use std::fs;
+    use std::io::{Read, Write};
+    use std::net::TcpListener;
+    use std::thread;
 
     use super::{
-        LocalModelServerState, ensure_bundled_model_server, prepare_local_model_server_status,
-        sha256_hex,
+        LocalModelServerState, ModelServerMetadata, StartupLock, ensure_bundled_model_server,
+        health_identity_matches, metadata_path, prepare_local_model_server_status,
+        reusable_server_status, sha256_hex, startup_lock_path, unix_timestamp_secs,
+        write_server_metadata,
     };
 
     #[test]
@@ -344,6 +609,98 @@ mod tests {
                 .is_some_and(|path| path.is_file())
         );
         assert!(status.detail.contains("venv python missing"));
+    }
+
+    #[test]
+    fn reuses_running_server_only_after_health_identity_matches() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let server = ensure_bundled_model_server(temp.path()).expect("install model server");
+        let (backend, model) = super::default_embedding_backend();
+        let listener = TcpListener::bind(("127.0.0.1", 0)).expect("bind fake health server");
+        let port = listener.local_addr().expect("local addr").port();
+        let metadata = ModelServerMetadata {
+            pid: std::process::id(),
+            host: "127.0.0.1".to_string(),
+            port,
+            component_sha256: server.sha256.clone(),
+            profile: super::embedding_profile_id().to_string(),
+            started_at: unix_timestamp_secs(),
+        };
+        write_server_metadata(&metadata_path(&server.runtime_dir), &metadata)
+            .expect("write metadata");
+        let response_model = model.to_string();
+        let response_backend = backend.to_string();
+        thread::spawn(move || {
+            let (mut stream, _) = listener.accept().expect("accept health request");
+            let mut request = [0_u8; 1024];
+            let _ = stream.read(&mut request);
+            let body = format!(
+                r#"{{"ok":true,"default_embedding_backend":"{response_backend}","embeddings":{{"{response_backend}":{{"model":"{response_model}"}}}}}}"#
+            );
+            let response = format!(
+                "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\n\r\n{}",
+                body.len(),
+                body
+            );
+            stream
+                .write_all(response.as_bytes())
+                .expect("write health response");
+        });
+
+        let status = reusable_server_status(&server, backend, model).expect("server reused");
+
+        assert_eq!(status.state, LocalModelServerState::Ready);
+        let expected_endpoint = format!("http://127.0.0.1:{port}");
+        assert_eq!(status.endpoint.as_deref(), Some(expected_endpoint.as_str()));
+        assert!(status.detail.contains("reusing model server"));
+    }
+
+    #[test]
+    fn stale_metadata_with_wrong_hash_is_not_reused() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let server = ensure_bundled_model_server(temp.path()).expect("install model server");
+        let (backend, model) = super::default_embedding_backend();
+        let metadata = ModelServerMetadata {
+            pid: std::process::id(),
+            host: "127.0.0.1".to_string(),
+            port: 9,
+            component_sha256: "stale".to_string(),
+            profile: super::embedding_profile_id().to_string(),
+            started_at: unix_timestamp_secs(),
+        };
+        write_server_metadata(&metadata_path(&server.runtime_dir), &metadata)
+            .expect("write metadata");
+
+        assert!(reusable_server_status(&server, backend, model).is_none());
+    }
+
+    #[test]
+    fn startup_lock_allows_only_one_owner() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let lock_path = startup_lock_path(temp.path());
+        let _owner = StartupLock::try_acquire(&lock_path).expect("first owner");
+
+        let err = match StartupLock::try_acquire(&lock_path) {
+            Ok(_) => panic!("second owner should be blocked"),
+            Err(err) => err,
+        };
+
+        assert!(err.to_string().contains("lock file"));
+    }
+
+    #[test]
+    fn health_identity_rejects_wrong_backend() {
+        let health = serde_json::json!({
+            "ok": true,
+            "default_embedding_backend": "other",
+            "embeddings": {},
+        });
+
+        assert!(!health_identity_matches(
+            &health,
+            "mlx_qwen3",
+            super::MLX_QWEN3_MODEL_ID
+        ));
     }
 
     #[cfg(unix)]
