@@ -7,19 +7,19 @@ use sha2::{Digest, Sha256};
 
 const MODEL_SERVER: &[u8] = include_bytes!(concat!(
     env!("CARGO_MANIFEST_DIR"),
-    "/assets/model_server/rara_model_server.py"
+    "/components/model_server/rara_model_server.py"
 ));
 const MODEL_SERVER_NAME: &str = "rara_model_server.py";
 
 const REQUIREMENTS_MACOS_ARM64: &[u8] = include_bytes!(concat!(
     env!("CARGO_MANIFEST_DIR"),
-    "/assets/model_server/requirements-macos-arm64.txt"
+    "/components/model_server/requirements-macos-arm64.txt"
 ));
 const REQUIREMENTS_MACOS_ARM64_NAME: &str = "requirements-macos-arm64.txt";
 
 const REQUIREMENTS_PORTABLE: &[u8] = include_bytes!(concat!(
     env!("CARGO_MANIFEST_DIR"),
-    "/assets/model_server/requirements-portable.txt"
+    "/components/model_server/requirements-portable.txt"
 ));
 const REQUIREMENTS_PORTABLE_NAME: &str = "requirements-portable.txt";
 
@@ -138,13 +138,13 @@ fn existing_file_matches(path: &Path, expected_hash: &str) -> Result<bool> {
 }
 
 fn write_file_atomically(path: &Path, content: &[u8]) -> Result<()> {
-    if let Ok(metadata) = fs::symlink_metadata(path)
-        && metadata.file_type().is_symlink()
-    {
-        bail!(
-            "refusing to overwrite symlinked model server: {}",
-            path.display()
-        );
+    if let Ok(metadata) = fs::symlink_metadata(path) {
+        if metadata.file_type().is_symlink() {
+            bail!(
+                "refusing to overwrite symlinked model server: {}",
+                path.display()
+            );
+        }
     }
 
     let file_name = path

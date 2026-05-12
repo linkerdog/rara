@@ -33,7 +33,9 @@ QUERY_INSTRUCTION = (
 )
 
 
-def _json_response(handler: BaseHTTPRequestHandler, status: HTTPStatus, payload: dict[str, Any]) -> None:
+def _json_response(
+    handler: BaseHTTPRequestHandler, status: HTTPStatus, payload: dict[str, Any]
+) -> None:
     data = json.dumps(payload, separators=(",", ":")).encode("utf-8")
     handler.send_response(status)
     handler.send_header("Content-Type", "application/json")
@@ -50,8 +52,8 @@ def _read_json(handler: BaseHTTPRequestHandler) -> dict[str, Any]:
         length = int(raw_length)
     except ValueError as exc:
         raise ValueError("invalid content length") from exc
-    if length > MAX_BODY_BYTES:
-        raise ValueError("request body too large")
+    if length < 0 or length > MAX_BODY_BYTES:
+        raise ValueError("request body size out of bounds")
     body = handler.rfile.read(length)
     request = json.loads(body)
     if not isinstance(request, dict):
@@ -269,6 +271,7 @@ class RequestHandler(BaseHTTPRequestHandler):
                 return
             _json_response(self, HTTPStatus.NOT_FOUND, {"ok": False, "error": "not found"})
         except Exception as exc:  # noqa: BLE001
+            self.log_message("Error handling POST %s: %s", self.path, exc)
             _json_response(self, HTTPStatus.BAD_REQUEST, {"ok": False, "error": str(exc)})
         finally:
             REGISTRY.unload_idle()
