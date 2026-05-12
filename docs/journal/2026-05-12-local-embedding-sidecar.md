@@ -51,7 +51,9 @@ automatic preparation. When the selected provider actually requires the local
 sidecar and the managed backend/model is not ready yet, startup opens with a
 lightweight agent, starts a rebuild task that performs local embedding
 bootstrap, and then automatically swaps in the rebuilt agent when the sidecar
-is ready.
+is ready. The rebuild result carries the final local model server status back
+into TUI state, so `/status` and the overview panel do not keep showing the
+startup inspect-only state after initialization succeeds.
 
 ## Why
 

@@ -377,6 +377,7 @@ pub enum TaskCompletion {
 pub struct RebuildSuccess {
     pub agent: Agent,
     pub warnings: Vec<String>,
+    pub local_model_server: crate::local_model_server::LocalModelServerStatus,
     pub sandbox_network_access: Arc<AtomicBool>,
     /// Shared goal handle for model-facing tools.
     pub goal_handle: crate::tui::state::GoalHandle,

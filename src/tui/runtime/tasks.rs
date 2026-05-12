@@ -943,6 +943,7 @@ pub(crate) async fn finish_running_task_if_ready(
                 app.prompt_source_registry = Some(rebuilt.prompt_source_registry);
                 app.skill_source_registry = Some(rebuilt.skill_source_registry);
                 app.memory_handler = Some(rebuilt.memory_handler);
+                app.local_model_server = rebuilt.local_model_server;
                 app.config_manager.save(&app.config)?;
                 app.setup_status = Some(format!(
                     "Applied {} / {}",
