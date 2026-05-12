@@ -47,7 +47,11 @@ impl Agent {
         }
         ensure_api_round_boundary_range(&self.history, from, up_to)?;
 
-        let current_tokens = estimate_history_tokens(&self.history).unwrap_or_default();
+        let current_tokens = if self.compact_state.estimated_history_tokens > 0 {
+            self.compact_state.estimated_history_tokens
+        } else {
+            estimate_history_tokens(&self.history).unwrap_or_default()
+        };
         self.compact_state.estimated_history_tokens = current_tokens;
         self.compact_state.last_compaction_before_tokens = None;
         self.compact_state.last_compaction_after_tokens = None;
@@ -274,7 +278,7 @@ impl Agent {
             match summary_result {
                 Ok(Ok(summary)) => return Ok(summary),
                 Ok(Err(err)) if is_context_window_error(&err) => {
-                    let groups = group_history_by_api_round(input)?;
+                    let groups = group_history_by_api_round(input);
                     let Some(next_start) = groups.get(1).map(|group| group.start) else {
                         return Err(err);
                     };
@@ -315,22 +319,15 @@ impl Agent {
         if let Ok(tokens) = estimate_message_tokens(message) {
             self.compact_state.estimated_history_tokens += tokens;
         } else {
-            self.recompute_history_token_estimate();
+            self.compact_state.estimated_history_tokens +=
+                approximate_token_count_for_message(message);
         }
     }
 
     fn record_history_messages_tokens(&mut self, messages: &[Message]) {
-        let mut total = 0usize;
         for message in messages {
-            match estimate_message_tokens(message) {
-                Ok(tokens) => total += tokens,
-                Err(_) => {
-                    self.recompute_history_token_estimate();
-                    return;
-                }
-            }
+            self.record_history_message_tokens(message);
         }
-        self.compact_state.estimated_history_tokens += total;
     }
 
     fn recompute_history_token_estimate(&mut self) {
@@ -348,7 +345,7 @@ pub(crate) fn build_compact_plan(
         return Ok(None);
     }
 
-    let groups = group_history_by_api_round(history)?;
+    let groups = group_history_by_api_round(history);
     if groups.len() < 2 {
         return Ok(None);
     }
@@ -399,7 +396,7 @@ fn retained_history_budget(threshold: usize, force: bool) -> usize {
 
 #[allow(dead_code)]
 fn ensure_api_round_boundary_range(history: &[Message], from: usize, up_to: usize) -> Result<()> {
-    let groups = group_history_by_api_round(history)?;
+    let groups = group_history_by_api_round(history);
     let is_boundary = |idx: usize| {
         idx == history.len()
             || groups
@@ -414,8 +411,7 @@ fn ensure_api_round_boundary_range(history: &[Message], from: usize, up_to: usiz
     Ok(())
 }
 
-pub(crate) fn group_history_by_api_round(history: &[Message]) -> Result<Vec<ApiRoundGroup>> {
-    let bpe = tokenizer()?;
+pub(crate) fn group_history_by_api_round(history: &[Message]) -> Vec<ApiRoundGroup> {
     let mut groups = Vec::new();
     let mut group_start = 0usize;
     let mut current_tokens = 0usize;
@@ -427,25 +423,25 @@ pub(crate) fn group_history_by_api_round(history: &[Message]) -> Result<Vec<ApiR
             groups.push(ApiRoundGroup {
                 start: group_start,
                 end: idx,
-                token_estimate: current_tokens,
+                token_estimate: current_tokens.max(1),
             });
             group_start = idx;
             current_tokens = 0;
         }
         current_tokens =
-            current_tokens.saturating_add(estimate_message_tokens_with_bpe(message, bpe)?);
+            current_tokens.saturating_add(approximate_token_count_for_message(message));
     }
 
     if group_start < history.len() {
         groups.push(ApiRoundGroup {
             start: group_start,
             end: history.len(),
-            token_estimate: current_tokens,
+            token_estimate: current_tokens.max(1),
         });
     }
     debug_assert_eq!(groups.last().map(|group| group.end), Some(history.len()));
 
-    Ok(groups)
+    groups
 }
 
 fn build_compact_carry_over(
@@ -664,6 +660,20 @@ fn estimate_history_tokens(history: &[Message]) -> Result<usize> {
 fn estimate_message_tokens(message: &Message) -> Result<usize> {
     let bpe = tokenizer()?;
     estimate_message_tokens_with_bpe(message, bpe)
+}
+
+fn approximate_message_char_count(message: &Message) -> usize {
+    if let Some(text) = message.content.as_str() {
+        text.len()
+    } else {
+        message.content.to_string().len()
+    }
+}
+
+fn approximate_token_count_for_message(message: &Message) -> usize {
+    approximate_message_char_count(message)
+        .saturating_div(4)
+        .max(1)
 }
 
 fn estimate_message_tokens_with_bpe(
@@ -1292,7 +1302,7 @@ mod tests {
             },
         ];
 
-        let groups = group_history_by_api_round(&history).expect("groups");
+        let groups = group_history_by_api_round(&history);
 
         assert_eq!(
             groups

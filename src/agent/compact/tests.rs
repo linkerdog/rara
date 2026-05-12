@@ -61,7 +61,7 @@ mod tests {
             },
         ];
 
-        let groups = group_history_by_api_round(&history).expect("groups");
+        let groups = group_history_by_api_round(&history);
 
         assert_eq!(
             groups
