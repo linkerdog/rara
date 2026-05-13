@@ -71,15 +71,15 @@ impl Tool for GrepTool {
         {
             if entry.file_type().is_file() {
                 if let Ok(c) = fs::read_to_string(entry.path()) {
-                    let all_lines: Vec<&str> = c.lines().collect();
-                    for (line_idx, line) in all_lines.iter().enumerate() {
-                        if re.is_match(line) {
-                            let mut entry_json = json!({
-                                "file": entry.path().display().to_string(),
-                                "line": line_idx + 1,
-                                "content": line.trim()
-                            });
-                            if context_lines > 0 {
+                    if context_lines > 0 {
+                        let all_lines: Vec<&str> = c.lines().collect();
+                        for (line_idx, line) in all_lines.iter().enumerate() {
+                            if re.is_match(line) {
+                                let mut entry_json = json!({
+                                    "file": entry.path().display().to_string(),
+                                    "line": line_idx + 1,
+                                    "content": line.trim()
+                                });
                                 let start = line_idx.saturating_sub(context_lines);
                                 let end = (line_idx + context_lines + 1).min(all_lines.len());
                                 let context: Vec<serde_json::Value> = (start..end)
@@ -91,8 +91,18 @@ impl Tool for GrepTool {
                                     })
                                     .collect();
                                 entry_json["context"] = json!(context);
+                                results.push(entry_json);
                             }
-                            results.push(entry_json);
+                        }
+                    } else {
+                        for (line_idx, line) in c.lines().enumerate() {
+                            if re.is_match(line) {
+                                results.push(json!({
+                                    "file": entry.path().display().to_string(),
+                                    "line": line_idx + 1,
+                                    "content": line.trim()
+                                }));
+                            }
                         }
                     }
                 }
