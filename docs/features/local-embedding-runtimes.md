@@ -306,20 +306,25 @@ The canonical Rust consumer is `LocalModelServerEmbeddingBackend`.
 
 ### Model Preparation And Progress
 
-Model download ownership is split by runtime profile. Rust owns the first MLX
-Qwen3 snapshot download so startup can report byte progress and skip repeated
-network work after a local snapshot marker proves that all files are already
-present. Portable FastEmbed/BGE-M3 still lets the Python backend stack resolve
-its package-level model cache.
+Model download ownership is split by runtime profile. Each profile declares
+whether Rust or Python owns model artifact preparation. The macOS MLX Qwen3
+profile is Rust-managed so startup can report byte progress and skip repeated
+network work after local cache state proves the snapshot is present. Portable
+FastEmbed/BGE-M3 is Python-managed for this slice and lets the Python backend
+stack resolve its package-level model cache.
 
 - Rust creates or reuses the managed venv.
-- Rust prepares the MLX Qwen3 Hugging Face snapshot in the RARA model cache and
-  records the completed snapshot in model-server runtime metadata.
+- Rust-managed profiles prepare their Hugging Face snapshot in the RARA model
+  cache and record the completed snapshot in model-server runtime metadata.
+  Startup first checks `model-snapshot.json`, then the local Hugging Face
+  `refs/<revision>` and `snapshots/<sha>` paths, and only resolves remote
+  metadata when the local snapshot is missing or incomplete.
 - Rust starts or reuses the loopback Python server.
 - Rust asks the server to prepare a backend/model through a dedicated prepare
-  API, passing the prepared local snapshot path for MLX.
-- Python loads from the validated local MLX snapshot path. Portable FastEmbed
-  performs its own model resolution through the configured model cache.
+  API, passing a prepared local snapshot path only for Rust-managed profiles.
+- Python loads from the validated local snapshot path when one is provided.
+  Python-managed profiles such as portable FastEmbed perform their own model
+  resolution through the configured model cache.
 - Python exposes structured preparation progress.
 - Rust polls or subscribes to that progress and surfaces it in `/status` and
   startup status text.
@@ -427,10 +432,10 @@ Valid preparation states:
 - Python dependency installation is performed by Rust during automatic startup
   preparation from bundled requirement manifests, not by arbitrary server-side
   code or workspace scripts.
-- MLX model artifact download is performed by Rust before the managed server is
-  asked to prepare the selected backend/model. A completed snapshot marker lets
-  later startups skip the Hugging Face metadata request and download path when
-  every recorded file still exists.
+- Rust-managed model artifact download is performed before the managed server
+  is asked to prepare the selected backend/model. A completed snapshot marker or
+  complete local Hugging Face `refs/<revision>` snapshot lets later startups
+  skip the Hugging Face metadata request and download path.
 - Portable FastEmbed model artifact resolution remains inside the Python
   backend stack for this slice.
 - Local loopback embedding requests must bypass system proxy configuration.
@@ -473,9 +478,9 @@ Valid preparation states:
   completed sidecar should be reused silently; an incomplete sidecar should show
   initialization progress and close that status surface when the rebuild task
   completes.
-- MLX model downloads are performed by Rust before the server prepare request.
-  Python receives only a validated local snapshot path under
-  `RARA_MODEL_CACHE_DIR`.
+- Rust-managed profile downloads are performed by Rust before the server
+  prepare request. Python receives only a validated local snapshot path under
+  `RARA_MODEL_CACHE_DIR` for those profiles.
 - Missing `mlx-embeddings` should be recovered by Rust installing the bundled
   macOS requirements into the managed venv. If that installation fails, the
   failure should be reported as setup/bootstrap error state.

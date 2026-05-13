@@ -114,6 +114,13 @@ endpoint is available, leaving startup/rebuild tasks as the only place that
 creates venvs, installs dependencies, starts the server, or asks Python to
 prepare the model.
 
+Model artifact preparation is now represented as a runtime profile capability
+instead of a hard-coded backend-name branch. The macOS MLX Qwen3 profile is
+Rust-managed and can reuse either `model-snapshot.json` or the local Hugging
+Face `refs/main` snapshot before making a remote metadata request. Portable
+FastEmbed/BGE-M3 remains Python-managed for this slice, so Linux and other
+non-Apple-Silicon platforms do not inherit MLX-specific cache checks.
+
 ## Status Surface
 
 `/status` now shows local embedding model state with backend, model, setup

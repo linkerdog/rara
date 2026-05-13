@@ -51,6 +51,27 @@ const STARTUP_HEALTH_ATTEMPTS: usize = 10;
 const STARTUP_HEALTH_DELAY: Duration = Duration::from_millis(100);
 const MODEL_REVISION: &str = "main";
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum SnapshotPreparation {
+    RustManaged {
+        required_files: SnapshotRequiredFiles,
+    },
+    PythonManaged,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum SnapshotRequiredFiles {
+    MlxQwen3,
+}
+
+#[derive(Debug, Clone, Copy)]
+struct LocalEmbeddingModelProfile {
+    backend: &'static str,
+    model: &'static str,
+    revision: &'static str,
+    snapshot_preparation: SnapshotPreparation,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum LocalModelServerState {
     Ready,
@@ -311,7 +332,9 @@ fn prepare_local_model_server_status_inner(
     mode: BootstrapMode,
     progress: Option<LocalProgressReporter>,
 ) -> LocalModelServerStatus {
-    let (backend, model) = default_embedding_backend();
+    let profile = default_embedding_profile();
+    let backend = profile.backend;
+    let model = profile.model;
     match ensure_bundled_model_server(rara_home) {
         Ok(server) => {
             if let Some(status) = reusable_server_status(&server, backend, model) {
@@ -358,8 +381,7 @@ fn prepare_local_model_server_status_inner(
 
             let model_path = match prepare_local_embedding_model_snapshot(
                 &server.runtime_dir,
-                backend,
-                model,
+                &profile,
                 &progress,
             ) {
                 Ok(path) => path,
@@ -602,12 +624,29 @@ fn start_model_server(
     }
 }
 
-fn default_embedding_backend() -> (&'static str, &'static str) {
+fn default_embedding_profile() -> LocalEmbeddingModelProfile {
     if cfg!(all(target_os = "macos", target_arch = "aarch64")) {
-        ("mlx_qwen3", MLX_QWEN3_MODEL_ID)
+        LocalEmbeddingModelProfile {
+            backend: "mlx_qwen3",
+            model: MLX_QWEN3_MODEL_ID,
+            revision: MODEL_REVISION,
+            snapshot_preparation: SnapshotPreparation::RustManaged {
+                required_files: SnapshotRequiredFiles::MlxQwen3,
+            },
+        }
     } else {
-        ("fastembed_bge_m3", FASTEMBED_BGE_M3_MODEL_ID)
+        LocalEmbeddingModelProfile {
+            backend: "fastembed_bge_m3",
+            model: FASTEMBED_BGE_M3_MODEL_ID,
+            revision: MODEL_REVISION,
+            snapshot_preparation: SnapshotPreparation::PythonManaged,
+        }
     }
+}
+
+fn default_embedding_backend() -> (&'static str, &'static str) {
+    let profile = default_embedding_profile();
+    (profile.backend, profile.model)
 }
 
 fn embedding_profile_id() -> &'static str {
@@ -701,17 +740,18 @@ fn requirements_marker_matches(path: &Path, expected_hash: &str) -> Result<bool>
 
 fn prepare_local_embedding_model_snapshot(
     runtime_dir: &Path,
-    backend: &str,
-    model: &str,
+    profile: &LocalEmbeddingModelProfile,
     progress: &Option<LocalProgressReporter>,
 ) -> Result<Option<PathBuf>> {
-    if backend != "mlx_qwen3" {
+    let SnapshotPreparation::RustManaged { required_files } = profile.snapshot_preparation else {
         return Ok(None);
-    }
+    };
+    let model = profile.model;
 
     let cache_dir = default_local_model_cache_dir();
     let marker_path = model_snapshot_marker_path(runtime_dir);
-    if let Some(marker) = read_matching_model_snapshot_marker(&marker_path, model, MODEL_REVISION)?
+    if let Some(marker) =
+        read_matching_model_snapshot_marker(&marker_path, model, profile.revision)?
     {
         if cached_snapshot_under_cache(&marker.snapshot_path, &cache_dir)?
             && snapshot_has_all_files(&marker.snapshot_path, &marker.files)
@@ -727,17 +767,34 @@ fn prepare_local_embedding_model_snapshot(
         }
     }
 
-    report_progress(
-        progress,
-        format!("Model · checking local cache for {model}"),
-    );
     let repo = Repo::with_revision(
         model.to_string(),
         RepoType::Model,
-        MODEL_REVISION.to_string(),
+        profile.revision.to_string(),
     );
     let cache = Cache::new(cache_dir.clone());
     let cache_repo = cache.repo(repo.clone());
+    report_progress(
+        progress,
+        format!("Model · checking local snapshot for {model}"),
+    );
+    if let Some((snapshot_path, files)) =
+        local_cached_model_snapshot(&cache_dir, &repo, required_files, profile.revision)?
+    {
+        write_model_snapshot_marker(
+            &marker_path,
+            model,
+            profile.revision,
+            &snapshot_path,
+            &files,
+        )?;
+        report_progress(
+            progress,
+            format!("Model · already available at {}", snapshot_path.display()),
+        );
+        return Ok(Some(snapshot_path));
+    }
+
     let mut builder = ApiBuilder::from_cache(cache)
         .with_progress(false)
         .with_retries(3);
@@ -752,6 +809,10 @@ fn prepare_local_embedding_model_snapshot(
     }
     let api = builder.build().context("build Hugging Face API client")?;
     let api_repo = api.repo(repo);
+    report_progress(
+        progress,
+        format!("Model · resolving model metadata for {model}"),
+    );
     let info = api_repo
         .info()
         .context("resolve model repository metadata")?;
@@ -767,7 +828,13 @@ fn prepare_local_embedding_model_snapshot(
 
     let snapshot_path = cache_repo.pointer_path(&info.sha);
     if snapshot_has_all_files(&snapshot_path, &files) {
-        write_model_snapshot_marker(&marker_path, model, MODEL_REVISION, &snapshot_path, &files)?;
+        write_model_snapshot_marker(
+            &marker_path,
+            model,
+            profile.revision,
+            &snapshot_path,
+            &files,
+        )?;
         report_progress(
             progress,
             format!("Model · already available at {}", snapshot_path.display()),
@@ -797,7 +864,13 @@ fn prepare_local_embedding_model_snapshot(
     if !snapshot_has_all_files(&snapshot_path, &files) {
         bail!("model snapshot is incomplete after download");
     }
-    write_model_snapshot_marker(&marker_path, model, MODEL_REVISION, &snapshot_path, &files)?;
+    write_model_snapshot_marker(
+        &marker_path,
+        model,
+        profile.revision,
+        &snapshot_path,
+        &files,
+    )?;
     report_progress(
         progress,
         format!("Model · ready at {}", snapshot_path.display()),
@@ -809,6 +882,94 @@ fn snapshot_has_all_files(snapshot_path: &Path, files: &[String]) -> bool {
     files
         .iter()
         .all(|filename| snapshot_path.join(filename).exists())
+}
+
+fn local_cached_model_snapshot(
+    cache_dir: &Path,
+    repo: &Repo,
+    required_files: SnapshotRequiredFiles,
+    revision: &str,
+) -> Result<Option<(PathBuf, Vec<String>)>> {
+    let repo_dir = cache_dir.join(repo.folder_name());
+    let ref_path = repo_dir.join("refs").join(revision);
+    let commit_hash = match fs::read_to_string(&ref_path) {
+        Ok(hash) => hash.trim().to_string(),
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(err) => return Err(err).with_context(|| format!("read {}", ref_path.display())),
+    };
+    if commit_hash.is_empty() {
+        return Ok(None);
+    }
+    let snapshot_path = repo_dir.join("snapshots").join(commit_hash);
+    if !cached_snapshot_under_cache(&snapshot_path, cache_dir)? {
+        return Ok(None);
+    }
+    let files = collect_snapshot_files(&snapshot_path)?;
+    if files.is_empty() || !snapshot_has_minimum_model_files(required_files, &files) {
+        return Ok(None);
+    }
+    Ok(Some((snapshot_path, files)))
+}
+
+fn collect_snapshot_files(snapshot_path: &Path) -> Result<Vec<String>> {
+    let mut files = Vec::new();
+    collect_snapshot_files_inner(snapshot_path, snapshot_path, &mut files)?;
+    files.sort();
+    Ok(files)
+}
+
+fn collect_snapshot_files_inner(
+    root: &Path,
+    current: &Path,
+    files: &mut Vec<String>,
+) -> Result<()> {
+    let entries = match fs::read_dir(current) {
+        Ok(entries) => entries,
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+        Err(err) => return Err(err).with_context(|| format!("read {}", current.display())),
+    };
+    for entry in entries {
+        let entry = entry.with_context(|| format!("read entry in {}", current.display()))?;
+        let path = entry.path();
+        let file_type = entry
+            .file_type()
+            .with_context(|| format!("stat {}", path.display()))?;
+        if file_type.is_dir() {
+            collect_snapshot_files_inner(root, &path, files)?;
+        } else if file_type.is_file() || file_type.is_symlink() {
+            let relative = path
+                .strip_prefix(root)
+                .with_context(|| format!("strip {}", root.display()))?;
+            files.push(relative_path_string(relative));
+        }
+    }
+    Ok(())
+}
+
+fn relative_path_string(path: &Path) -> String {
+    path.components()
+        .filter_map(|component| match component {
+            std::path::Component::Normal(part) => Some(part.to_string_lossy()),
+            _ => None,
+        })
+        .collect::<Vec<_>>()
+        .join("/")
+}
+
+fn snapshot_has_minimum_model_files(
+    required_files: SnapshotRequiredFiles,
+    files: &[String],
+) -> bool {
+    match required_files {
+        SnapshotRequiredFiles::MlxQwen3 => {
+            let has_config = files.iter().any(|file| file == "config.json");
+            let has_tokenizer = files
+                .iter()
+                .any(|file| file == "tokenizer.json" || file == "tokenizer.model");
+            let has_weights = files.iter().any(|file| file.ends_with(".safetensors"));
+            has_config && has_tokenizer && has_weights
+        }
+    }
 }
 
 fn model_snapshot_marker_path(runtime_dir: &Path) -> PathBuf {
@@ -1273,12 +1434,12 @@ mod tests {
     use super::{
         BootstrapMode, LocalModelServerEmbeddingBackend, LocalModelServerState,
         ModelServerMetadata, StartupLock, cleanup_failed_venv, ensure_bundled_model_server,
-        health_identity_matches, health_model_ready, metadata_path, model_snapshot_marker_path,
-        prepare_local_model_server_status_inner, read_matching_model_snapshot_marker,
-        requirements_marker_matches, requirements_marker_path, reusable_server_status,
-        selected_requirements_file, sha256_hex, snapshot_has_all_files, startup_lock_path,
-        unix_timestamp_secs, venv_python_path, write_file_atomically, write_model_snapshot_marker,
-        write_server_metadata,
+        health_identity_matches, health_model_ready, local_cached_model_snapshot, metadata_path,
+        model_snapshot_marker_path, prepare_local_model_server_status_inner,
+        read_matching_model_snapshot_marker, requirements_marker_matches, requirements_marker_path,
+        reusable_server_status, selected_requirements_file, sha256_hex, snapshot_has_all_files,
+        snapshot_has_minimum_model_files, startup_lock_path, unix_timestamp_secs, venv_python_path,
+        write_file_atomically, write_model_snapshot_marker, write_server_metadata,
     };
     use crate::llm::{EmbeddingBackend, EmbeddingInputKind};
 
@@ -1686,6 +1847,65 @@ mod tests {
                 .expect("read non-matching marker")
                 .is_none()
         );
+    }
+
+    #[test]
+    fn local_cached_model_snapshot_reuses_existing_ref_without_metadata() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let repo = Repo::with_revision(
+            super::MLX_QWEN3_MODEL_ID.to_string(),
+            RepoType::Model,
+            super::MODEL_REVISION.to_string(),
+        );
+        let repo_dir = temp.path().join(repo.folder_name());
+        let commit = "cached-main-sha";
+        let snapshot_path = repo_dir.join("snapshots").join(commit);
+        fs::create_dir_all(snapshot_path.join("nested")).expect("mkdir snapshot");
+        fs::create_dir_all(repo_dir.join("refs")).expect("mkdir refs");
+        fs::write(repo_dir.join("refs").join(super::MODEL_REVISION), commit).expect("write ref");
+        fs::write(snapshot_path.join("config.json"), b"{}").expect("write config");
+        fs::write(snapshot_path.join("tokenizer.json"), b"{}").expect("write tokenizer");
+        fs::write(snapshot_path.join("nested/model.safetensors"), b"weights")
+            .expect("write weights");
+
+        let (found_path, files) = local_cached_model_snapshot(
+            temp.path(),
+            &repo,
+            super::SnapshotRequiredFiles::MlxQwen3,
+            super::MODEL_REVISION,
+        )
+        .expect("local cache probe")
+        .expect("snapshot found");
+
+        assert_eq!(found_path, snapshot_path);
+        assert_eq!(
+            files,
+            vec![
+                "config.json".to_string(),
+                "nested/model.safetensors".to_string(),
+                "tokenizer.json".to_string()
+            ]
+        );
+    }
+
+    #[test]
+    fn snapshot_required_files_are_profile_driven() {
+        assert!(!snapshot_has_minimum_model_files(
+            super::SnapshotRequiredFiles::MlxQwen3,
+            &[
+                "config.json".to_string(),
+                "tokenizer.json".to_string(),
+                "model.bin".to_string(),
+            ]
+        ));
+        assert!(snapshot_has_minimum_model_files(
+            super::SnapshotRequiredFiles::MlxQwen3,
+            &[
+                "config.json".to_string(),
+                "tokenizer.json".to_string(),
+                "model.safetensors".to_string(),
+            ]
+        ));
     }
 
     #[cfg(unix)]
