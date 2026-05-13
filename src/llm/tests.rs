@@ -1576,9 +1576,16 @@ fn parses_dsml_tool_calls_from_text_content() {
     )
     .expect("parse response");
 
-    assert_eq!(response.content.len(), 1);
+    assert_eq!(response.content.len(), 2);
     assert!(matches!(
         &response.content[0],
+        ContentBlock::ProviderMetadata { provider, key, value }
+            if provider == "deepseek"
+                && key == "reasoning_content"
+                && value == ""
+    ));
+    assert!(matches!(
+        &response.content[1],
         ContentBlock::ToolUse { id, name, input }
             if id == "dsml-tool-1"
                 && name == "apply_patch"
