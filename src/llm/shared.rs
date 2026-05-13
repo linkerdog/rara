@@ -175,6 +175,43 @@ pub trait LlmBackend: Send + Sync {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum EmbeddingInputKind {
+    Query,
+    Document,
+}
+
+impl EmbeddingInputKind {
+    pub const fn as_api_value(self) -> &'static str {
+        match self {
+            Self::Query => "query",
+            Self::Document => "document",
+        }
+    }
+}
+
+#[async_trait]
+pub trait EmbeddingBackend: Send + Sync {
+    async fn embed(&self, text: &str, kind: EmbeddingInputKind) -> Result<Vec<f32>>;
+}
+
+pub struct LlmEmbeddingBackend {
+    backend: Arc<dyn LlmBackend>,
+}
+
+impl LlmEmbeddingBackend {
+    pub fn new(backend: Arc<dyn LlmBackend>) -> Self {
+        Self { backend }
+    }
+}
+
+#[async_trait]
+impl EmbeddingBackend for LlmEmbeddingBackend {
+    async fn embed(&self, text: &str, _kind: EmbeddingInputKind) -> Result<Vec<f32>> {
+        self.backend.embed(text).await
+    }
+}
+
 pub struct MockLlm;
 
 #[async_trait]
@@ -209,6 +246,13 @@ impl LlmBackend for MockLlm {
 
     async fn summarize(&self, _messages: &[Message], _instruction: &str) -> Result<String> {
         Ok("Mock summary".into())
+    }
+}
+
+#[async_trait]
+impl EmbeddingBackend for MockLlm {
+    async fn embed(&self, _text: &str, _kind: EmbeddingInputKind) -> Result<Vec<f32>> {
+        Ok(vec![0.1; 128])
     }
 }
 

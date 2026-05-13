@@ -71,6 +71,12 @@ The transcript should move toward Codex/Claude-style tool visibility:
   - keep commands sandboxed unless escalation is justified by user request or
     clear sandbox failure evidence;
   - use background task controls for long-running non-interactive commands.
+- The `bash` tool may normalize simple absolute working-directory prefixes
+  before execution. A command shaped like `cd /absolute/path && <command>` can
+  be converted into `cwd=/absolute/path` plus `<command>` when no explicit
+  `cwd` or `program` field is present. This normalization must stay
+  conservative: do not rewrite relative paths, empty command tails, or complex
+  shell syntax where `cd` may be part of intentional shell state.
 - The final `bash` transcript row should keep the exit code and avoid
   duplicating large output that was already streamed live; when live streaming
   was shown, the rendered row should use a compact summary or truncated preview

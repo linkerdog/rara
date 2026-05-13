@@ -24,7 +24,10 @@ use crate::context::{
     AgentTurnTraceView, FileSearchCandidateProvider, RetrievalCandidate, RetrievedMemoryCandidate,
 };
 use crate::control_tokens::scrub_internal_control_tokens;
-use crate::llm::{ContentBlock, LlmBackend, LlmStreamEvent, LlmTurnMetadata};
+use crate::llm::{
+    ContentBlock, EmbeddingBackend, EmbeddingInputKind, LlmBackend, LlmEmbeddingBackend,
+    LlmStreamEvent, LlmTurnMetadata,
+};
 use crate::mcp_status::McpStatusSnapshot;
 use crate::memory_store::MemoryStore;
 use crate::prompt::{self, PromptMode, PromptRuntimeConfig};
@@ -157,6 +160,7 @@ struct TurnOutput {
 pub struct Agent {
     pub tool_manager: ToolManager,
     pub llm_backend: Arc<dyn LlmBackend>,
+    pub embedding_backend: Arc<dyn EmbeddingBackend>,
     pub vdb: Arc<VectorDB>,
     pub memory_store: Arc<MemoryStore>,
     pub session_manager: Arc<SessionManager>,
@@ -210,8 +214,32 @@ impl Agent {
         session_manager: Arc<SessionManager>,
         workspace: Arc<WorkspaceMemory>,
     ) -> Self {
+        let embedding_backend: Arc<dyn EmbeddingBackend> =
+            Arc::new(LlmEmbeddingBackend::new(llm_backend.clone()));
+        Self::new_with_embedding_backend(
+            tool_manager,
+            llm_backend,
+            embedding_backend,
+            vdb,
+            session_manager,
+            workspace,
+        )
+    }
+
+    pub fn new_with_embedding_backend(
+        tool_manager: ToolManager,
+        llm_backend: Arc<dyn LlmBackend>,
+        embedding_backend: Arc<dyn EmbeddingBackend>,
+        vdb: Arc<VectorDB>,
+        session_manager: Arc<SessionManager>,
+        workspace: Arc<WorkspaceMemory>,
+    ) -> Self {
         let root = workspace.root.clone();
-        let memory_store = Arc::new(MemoryStore::new(llm_backend.clone(), vdb.clone()));
+        let memory_store = Arc::new(MemoryStore::new_with_embedding_backend(
+            llm_backend.clone(),
+            embedding_backend.clone(),
+            vdb.clone(),
+        ));
         let state_db =
             session_manager.storage_dir.parent().and_then(
                 |rara_dir| match StateDb::new_for_root_dir(rara_dir.to_path_buf()) {
@@ -228,6 +256,7 @@ impl Agent {
         Self {
             tool_manager,
             llm_backend,
+            embedding_backend,
             vdb,
             memory_store,
             session_manager,
@@ -368,7 +397,11 @@ impl Agent {
             prompt,
             self.history.last().unwrap().content
         );
-        if let Ok(vector) = self.llm_backend.embed(&turn_text).await {
+        if let Ok(vector) = self
+            .embedding_backend
+            .embed(&turn_text, EmbeddingInputKind::Document)
+            .await
+        {
             let session_manager = self.session_manager.clone();
             let session_id = self.session_id.clone();
             let _ = tokio::task::spawn_blocking(move || {

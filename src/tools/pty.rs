@@ -474,13 +474,13 @@ impl PtyCommandInput {
 }
 #[tool_spec(
     name = "pty_start",
-    description = "Start an interactive PTY session only for commands that need terminal input, terminal control, or an interactive program. For ordinary non-interactive commands, use bash instead. Prefer dedicated RARA tools for file search, file reads, and file edits. Use the cwd field instead of prepending cd. PTY sandboxing is platform-dependent and best-effort; with the macOS seatbelt backend, PTY commands currently run directly because sandbox-exec does not preserve interactive PTY stdin reliably. Treat allow_net as a network-access toggle, not a sandbox guarantee. Inspect or stop sessions with pty_status, pty_list, and pty_stop.",
+    description = "Start an interactive PTY session only for commands that need terminal input, terminal control, or an interactive program. For ordinary non-interactive commands, use bash instead. Use the cwd field for the working directory; do not prefix commands with cd. Prefer dedicated RARA tools for file search, file reads, and file edits. PTY sandboxing is platform-dependent and best-effort; with the macOS seatbelt backend, PTY commands currently run directly because sandbox-exec does not preserve interactive PTY stdin reliably. Treat allow_net as a network-access toggle, not a sandbox guarantee. Inspect or stop sessions with pty_status, pty_list, and pty_stop.",
     input_schema = {
         "type": "object",
         "properties": {
             "command": {
                 "type": "string",
-                "description": "Shell command to run inside a PTY. Use PTY only for interactive commands; use bash for ordinary non-interactive commands."
+                "description": "Shell command to run inside a PTY. Do not prefix this command with cd; set the cwd field instead. Use PTY only for interactive commands; use bash for ordinary non-interactive commands."
             },
             "program": {
                 "type": "string",
@@ -493,7 +493,7 @@ impl PtyCommandInput {
             },
             "cwd": {
                 "type": "string",
-                "description": "Optional working directory. Defaults to the current turn cwd; prefer this over prepending cd to a command."
+                "description": "Optional working directory. Defaults to the current turn cwd. Use this instead of prefixing the command with cd."
             },
             "env": {
                 "type": "object",
@@ -924,8 +924,9 @@ mod tests {
 
         let schema = start.input_schema().to_string();
         assert!(schema.contains("Use PTY only for interactive commands"));
+        assert!(schema.contains("Do not prefix this command with cd"));
         assert!(schema.contains("use bash for ordinary non-interactive commands"));
-        assert!(schema.contains("prefer this over prepending cd"));
+        assert!(schema.contains("Use this instead of prefixing the command with cd"));
         assert!(list.description().contains("duplicate interactive work"));
         assert!(status.description().contains("pty_start"));
         assert!(stop.description().contains("session_id is omitted"));

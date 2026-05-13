@@ -21,11 +21,13 @@ use crate::agent::{
 };
 use crate::config::ConfigManager;
 use crate::llm::{ContentBlock, LlmBackend, LlmResponse, TokenUsage};
+use crate::local_model_server::{LocalModelServerState, LocalModelServerStatus};
 use crate::oauth::OAuthManager;
 use crate::prompt::PromptRuntimeConfig;
 use crate::session::SessionManager;
 use crate::tui::state::{
-    OAuthLoginMode, RalphGoal, RunningTask, RuntimePhase, TaskCompletion, TaskKind, TuiApp,
+    OAuthLoginMode, RalphGoal, RebuildSuccess, RunningTask, RuntimePhase, TaskCompletion, TaskKind,
+    TuiApp,
 };
 use crate::workspace::WorkspaceMemory;
 
@@ -220,6 +222,52 @@ fn install_completed_query_task(app: &mut TuiApp, agent: Agent, result: anyhow::
     });
 }
 
+fn install_completed_rebuild_task(app: &mut TuiApp, success: RebuildSuccess) {
+    let (_sender, receiver) = mpsc::unbounded_channel();
+    let handle = tokio::spawn(async move {
+        TaskCompletion::Rebuild {
+            result: Ok(success),
+        }
+    });
+    app.bottom_pane.running_task = Some(RunningTask {
+        kind: TaskKind::Rebuild,
+        receiver,
+        handle,
+        started_at: Instant::now(),
+        next_heartbeat_after_secs: 2,
+        cancellation_token: None,
+        cancellation_requested: false,
+    });
+}
+
+fn rebuild_success(
+    temp: &tempfile::TempDir,
+    local_model_server: LocalModelServerStatus,
+) -> RebuildSuccess {
+    let bus = Arc::new(crate::runtime_event_bus::RuntimeEventBus::new(10));
+    RebuildSuccess {
+        agent: create_test_agent(temp),
+        warnings: Vec::new(),
+        local_model_server,
+        sandbox_network_access: Arc::new(AtomicBool::new(false)),
+        goal_handle: Arc::new(std::sync::RwLock::new(None)),
+        mcp_tool_cache: crate::mcp_tool_cache::McpToolCache::new(),
+        mcp_manager: Arc::new(crate::mcp_connection_manager::McpConnectionManager::new(
+            Arc::new(crate::config::McpRegistry::empty()),
+            bus.clone(),
+            crate::mcp_tool_cache::McpToolCache::new(),
+        )),
+        prompt_source_registry: Arc::new(crate::protocol_sources::PromptSourceRegistry::new(
+            bus.clone(),
+        )),
+        skill_source_registry: Arc::new(crate::protocol_sources::SkillSourceRegistry::new(
+            bus.clone(),
+        )),
+        hook_registry: Arc::new(crate::hook_registry::HookRegistry::new(bus.clone())),
+        memory_handler: Arc::new(crate::protocol_sources::MemoryControlHandler::new(bus)),
+    }
+}
+
 async fn finish_ready_query_task(app: &mut TuiApp, agent_slot: &mut Option<Agent>) {
     for _ in 0..20 {
         finish_running_task_if_ready(app, agent_slot)
@@ -236,6 +284,89 @@ async fn finish_ready_query_task(app: &mut TuiApp, agent_slot: &mut Option<Agent
         }
         tokio::time::sleep(Duration::from_millis(10)).await;
     }
+}
+
+#[tokio::test]
+async fn rebuild_success_refreshes_local_model_server_status() {
+    let temp = tempdir().unwrap();
+    let mut app = TuiApp::new(ConfigManager {
+        path: temp.path().join("config.json"),
+    })
+    .expect("build tui app");
+    app.local_model_server = LocalModelServerStatus {
+        state: LocalModelServerState::SetupRequired,
+        backend: "mlx_qwen3".to_string(),
+        model: "mlx-community/Qwen3-Embedding-0.6B-4bit-DWQ".to_string(),
+        detail: "stale startup status".to_string(),
+        server_path: None,
+        endpoint: None,
+    };
+    let ready_status = LocalModelServerStatus {
+        state: LocalModelServerState::Ready,
+        backend: "mlx_qwen3".to_string(),
+        model: "mlx-community/Qwen3-Embedding-0.6B-4bit-DWQ".to_string(),
+        detail: "started model server and prepared model".to_string(),
+        server_path: Some(temp.path().join("rara_model_server.py")),
+        endpoint: Some("http://127.0.0.1:18181".to_string()),
+    };
+    install_completed_rebuild_task(&mut app, rebuild_success(&temp, ready_status.clone()));
+
+    let mut agent_slot = Some(create_test_agent(&temp));
+    for _ in 0..20 {
+        finish_running_task_if_ready(&mut app, &mut agent_slot)
+            .await
+            .expect("finish rebuild task");
+        if app.bottom_pane.running_task.is_none() {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+
+    assert_eq!(app.local_model_server, ready_status);
+    assert_eq!(app.runtime_phase, RuntimePhase::BackendReady);
+}
+
+#[tokio::test]
+async fn rebuild_success_keeps_long_warnings_in_transcript() {
+    let temp = tempdir().unwrap();
+    let mut app = TuiApp::new(ConfigManager {
+        path: temp.path().join("config.json"),
+    })
+    .expect("build tui app");
+    let ready_status = LocalModelServerStatus {
+        state: LocalModelServerState::Ready,
+        backend: "mlx_qwen3".to_string(),
+        model: "mlx-community/Qwen3-Embedding-0.6B-4bit-DWQ".to_string(),
+        detail: "started model server and prepared model".to_string(),
+        server_path: Some(temp.path().join("rara_model_server.py")),
+        endpoint: Some("http://127.0.0.1:18181".to_string()),
+    };
+    let warning = "local embedding backend bootstrap reported: failed to install model server dependencies: install model server dependencies failed with status exit status: 1: ERROR: ResolutionImpossible".to_string();
+    let mut success = rebuild_success(&temp, ready_status);
+    success.warnings = vec![warning.clone()];
+    install_completed_rebuild_task(&mut app, success);
+
+    let mut agent_slot = Some(create_test_agent(&temp));
+    for _ in 0..20 {
+        finish_running_task_if_ready(&mut app, &mut agent_slot)
+            .await
+            .expect("finish rebuild task");
+        if app.bottom_pane.running_task.is_none() {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+
+    assert_eq!(
+        app.bottom_pane.notice.as_deref(),
+        Some("Startup warning added to transcript.")
+    );
+    assert!(
+        app.committed_turns
+            .iter()
+            .flat_map(|turn| turn.entries.iter())
+            .any(|entry| entry.role == "System" && entry.message == warning)
+    );
 }
 
 #[test]

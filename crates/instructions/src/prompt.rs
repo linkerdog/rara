@@ -521,6 +521,7 @@ fn default_system_prompt_sections() -> Vec<PromptSection> {
                     "When you encounter an obstacle, do not use destructive actions as a shortcut. Investigate root causes instead of bypassing safety checks (e.g. --no-verify).",
                     "If you discover unexpected state (unfamiliar files, branches, lock files), investigate before deleting or overwriting — it may represent in-progress user work.",
                     "Match the scope of your actions to what was actually requested. Do not expand the blast radius beyond the task.",
+                    "Do not switch Git branches as a cleanup or end-of-task step unless the user explicitly asks you to change branches.",
                     "When in doubt, ask before acting. The cost of pausing to confirm is low; the cost of an unwanted action is very high.",
                 ],
             ),
@@ -1289,6 +1290,7 @@ mod tests {
         assert!(prompt.contains("first inspect local usage"));
         assert!(prompt.contains("<cmd> --help"));
         assert!(prompt.contains("avoid using 'cd'"));
+        assert!(prompt.contains("Do not switch Git branches as a cleanup"));
         assert!(prompt.contains("Let the existing codebase shape the solution"));
         assert!(prompt.contains("Keep changes small and reviewable"));
         assert!(prompt.contains("decompose the work into several smaller"));

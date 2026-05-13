@@ -46,6 +46,10 @@ fn render_overview_status(app: &TuiApp, lines: &mut Vec<Line<'static>>) {
     }
 
     section_spacer(lines);
+    section_header(lines, "Local Embeddings");
+    render_local_embedding_status(app, lines);
+
+    section_spacer(lines);
     section_header(lines, "Execution");
     kv(
         lines,
@@ -295,6 +299,37 @@ fn kv(lines: &mut Vec<Line<'static>>, key: &str, value: &str, value_color: Color
     lines.push(Line::from(vec![key_span, value_span]));
 }
 
+fn render_local_embedding_status(app: &TuiApp, lines: &mut Vec<Line<'static>>) {
+    let status = &app.local_model_server;
+    let (label, color) = match status.state {
+        crate::local_model_server::LocalModelServerState::Ready => ("ready", Color::LightGreen),
+        crate::local_model_server::LocalModelServerState::Starting => ("starting", Color::Yellow),
+        crate::local_model_server::LocalModelServerState::WaitingForServer => {
+            ("waiting_for_server", Color::Yellow)
+        }
+        crate::local_model_server::LocalModelServerState::CreatingVenv => {
+            ("creating_venv", Color::Yellow)
+        }
+        crate::local_model_server::LocalModelServerState::InstallingDependencies => {
+            ("installing_dependencies", Color::Yellow)
+        }
+        crate::local_model_server::LocalModelServerState::PreparingModel => {
+            ("preparing_model", Color::Yellow)
+        }
+        crate::local_model_server::LocalModelServerState::PreparedButStopped => {
+            ("prepared_stopped", Color::Yellow)
+        }
+        crate::local_model_server::LocalModelServerState::SetupRequired => {
+            ("setup_required", Color::Yellow)
+        }
+        crate::local_model_server::LocalModelServerState::Error => ("error", Color::Red),
+    };
+    kv(lines, "embedding", label, color);
+    kv(lines, "backend", &status.backend, Color::DarkGray);
+    kv(lines, "model", &status.model, Color::LightBlue);
+    kv(lines, "detail", &status.detail, Color::DarkGray);
+}
+
 fn format_metric(n: u64) -> String {
     if n >= 1_000_000 {
         format!("{:.1}M", n as f64 / 1_000_000.0)
@@ -372,4 +407,32 @@ fn sandbox_label(_app: &TuiApp) -> String {
         "none"
     }
     .to_string()
+}
+
+#[cfg(test)]
+mod tests {
+    use tempfile::tempdir;
+
+    use super::render_status_lines;
+    use crate::config::ConfigManager;
+    use crate::tui::state::{StatusTab, TuiApp};
+
+    #[test]
+    fn overview_status_reports_local_embedding_component() {
+        let temp = tempdir().expect("tempdir");
+        let app = TuiApp::new(ConfigManager {
+            path: temp.path().join("config.json"),
+        })
+        .expect("app");
+
+        let rendered = render_status_lines(&app, StatusTab::Overview)
+            .into_iter()
+            .map(|line| line.to_string())
+            .collect::<Vec<_>>()
+            .join("\n");
+
+        assert!(rendered.contains("Local Embeddings"));
+        assert!(rendered.contains("setup_required"));
+        assert!(rendered.contains("embedding"));
+    }
 }

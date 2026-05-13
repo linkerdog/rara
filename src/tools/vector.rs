@@ -6,11 +6,12 @@ use rara_tool_macros::tool_spec;
 use rara_tools::tool::{Tool, ToolError};
 use serde_json::{Value, json};
 
-use crate::llm::LlmBackend;
+use crate::llm::{EmbeddingBackend, LlmBackend};
 use crate::memory_store::{MemoryStore, NewMemoryRecord};
 
 pub struct RememberExperienceTool {
-    pub backend: Arc<dyn LlmBackend>,
+    pub llm_backend: Arc<dyn LlmBackend>,
+    pub embedding_backend: Arc<dyn EmbeddingBackend>,
     pub vdb: Arc<VectorDB>,
     pub db_uri: String,
 }
@@ -25,7 +26,11 @@ impl Tool for RememberExperienceTool {
         let text = i["experience"]
             .as_str()
             .ok_or(ToolError::InvalidInput("experience".into()))?;
-        let store = MemoryStore::new(self.backend.clone(), self.vdb.clone());
+        let store = MemoryStore::new_with_embedding_backend(
+            self.llm_backend.clone(),
+            self.embedding_backend.clone(),
+            self.vdb.clone(),
+        );
         let record = store
             .insert(NewMemoryRecord::experience(text))
             .await
@@ -37,7 +42,8 @@ impl Tool for RememberExperienceTool {
 }
 
 pub struct RetrieveExperienceTool {
-    pub backend: Arc<dyn LlmBackend>,
+    pub llm_backend: Arc<dyn LlmBackend>,
+    pub embedding_backend: Arc<dyn EmbeddingBackend>,
     pub vdb: Arc<VectorDB>,
     pub db_uri: String,
 }
@@ -52,7 +58,11 @@ impl Tool for RetrieveExperienceTool {
         let query = input["query"]
             .as_str()
             .ok_or(ToolError::InvalidInput("query".into()))?;
-        let store = MemoryStore::new(self.backend.clone(), self.vdb.clone());
+        let store = MemoryStore::new_with_embedding_backend(
+            self.llm_backend.clone(),
+            self.embedding_backend.clone(),
+            self.vdb.clone(),
+        );
         let hits = store
             .search(query, 8)
             .await
@@ -96,7 +106,8 @@ mod tests {
         let vdb = Arc::new(VectorDB::new(temp.path().to_str().expect("utf8 path")));
         let backend = Arc::new(MockLlm);
         let remember = RememberExperienceTool {
-            backend: backend.clone(),
+            llm_backend: backend.clone(),
+            embedding_backend: backend.clone(),
             vdb: vdb.clone(),
             db_uri: vdb.uri().to_string(),
         };
@@ -106,7 +117,8 @@ mod tests {
             .expect("remember experience");
 
         let retrieve = RetrieveExperienceTool {
-            backend,
+            llm_backend: backend.clone(),
+            embedding_backend: backend,
             vdb,
             db_uri: temp.path().display().to_string(),
         };

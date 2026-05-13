@@ -48,6 +48,7 @@ pub async fn run_tui(
     prompt_source_registry: Arc<PromptSourceRegistry>,
     skill_source_registry: Arc<SkillSourceRegistry>,
     hook_registry: Arc<crate::hook_registry::HookRegistry>,
+    initialize_local_embeddings: bool,
 ) -> anyhow::Result<Option<String>> {
     enable_raw_mode()?;
     let initial_size = terminal_size()?;
@@ -102,6 +103,11 @@ pub async fn run_tui(
 
     maintainer.sync_snapshot();
     maintainer.start_repo_context_detection();
+    if initialize_local_embeddings {
+        let (app, _) = maintainer.split_mut();
+        app.push_entry("Runtime", "Initializing local embedding model.");
+        super::runtime::start_rebuild_task(app);
+    }
 
     let result: anyhow::Result<()> = loop {
         maintainer.poll_repo_context().await;

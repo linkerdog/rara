@@ -106,7 +106,7 @@ Active backlog only. Keep this file small and current.
 - [x] Durable in-turn checkpoints: persist after each message/tool-result batch, atomic writes, crash-tolerant `SessionManager`.
 - [x] Auto-memory extraction: background LLM-driven fact extraction after every 5 turns, inserted into LanceDB via MemoryStore (PR #375).
 - [x] Directory-walking rules layer: `.rara/rules/*.md` discovered from CWD to repo root (PR #375).
-- [ ] Prototype local embedding models for memory retrieval, comparing local inference quality/latency against the current remote or fallback embedding path before choosing a durable backend.
+- [ ] Add explicit embedding controls and profile-aware storage follow-ups for the local model server path: enable/disable config, provider override, sidecar-first provider capability registry/allowlist, and LanceDB identity/versioning by canonical embedding profile.
 - [ ] Add auto-memory extraction controls and observability: enable/disable config, last-run status, error reporting, dedupe metrics, and stale/timeout diagnostics.
 - [ ] Define cross-process background sub-agent restart/reattach semantics.
 - [x] Compaction as first-class lifecycle event: persist summaries, token counters, metadata ownership.

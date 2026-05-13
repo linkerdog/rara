@@ -943,6 +943,7 @@ pub(crate) async fn finish_running_task_if_ready(
                 app.prompt_source_registry = Some(rebuilt.prompt_source_registry);
                 app.skill_source_registry = Some(rebuilt.skill_source_registry);
                 app.memory_handler = Some(rebuilt.memory_handler);
+                app.local_model_server = rebuilt.local_model_server;
                 app.config_manager.save(&app.config)?;
                 app.setup_status = Some(format!(
                     "Applied {} / {}",
@@ -957,8 +958,17 @@ pub(crate) async fn finish_running_task_if_ready(
                 app.close_overlay();
                 app.set_runtime_phase(RuntimePhase::BackendReady, Some("backend ready".into()));
                 app.push_entry("Runtime", app.setup_status.clone().unwrap_or_default());
+                let warning_count = rebuilt.warnings.len();
                 for warning in rebuilt.warnings {
-                    app.push_notice(warning);
+                    app.push_entry("System", warning);
+                }
+                if warning_count > 0 {
+                    let notice = if warning_count == 1 {
+                        "Startup warning added to transcript.".to_string()
+                    } else {
+                        format!("{warning_count} startup warnings added to transcript.")
+                    };
+                    app.bottom_pane.notice = Some(notice);
                 }
                 app.finalize_active_turn();
                 try_start_queued_follow_up(app, agent_slot);

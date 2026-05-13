@@ -5,7 +5,7 @@ use crate::context::assembler::latest_user_request;
 use crate::context::{
     RETRIEVED_THREAD_CONTEXT_KIND, RETRIEVED_WORKSPACE_MEMORY_KIND, RetrievedMemoryCandidate,
 };
-use crate::llm::LlmBackend;
+use crate::llm::{EmbeddingBackend, EmbeddingInputKind, LlmBackend, LlmEmbeddingBackend};
 use crate::memory_store::{MemoryRecordSearchHit, MemoryStore};
 use crate::session::SessionManager;
 use crate::session_context::SessionContextSearchHit;
@@ -15,7 +15,7 @@ const THREAD_CONTEXT_LIMIT: usize = 4;
 const MEMORY_DETAIL_MAX_CHARS: usize = 1_200;
 
 pub(crate) struct MemoryRetrievalOrchestrator {
-    backend: Arc<dyn LlmBackend>,
+    embedding_backend: Arc<dyn EmbeddingBackend>,
     session_manager: Arc<SessionManager>,
     memory_store: Arc<MemoryStore>,
 }
@@ -26,8 +26,18 @@ impl MemoryRetrievalOrchestrator {
         session_manager: Arc<SessionManager>,
         memory_store: Arc<MemoryStore>,
     ) -> Self {
+        let embedding_backend: Arc<dyn EmbeddingBackend> =
+            Arc::new(LlmEmbeddingBackend::new(backend));
+        Self::new_with_embedding_backend(embedding_backend, session_manager, memory_store)
+    }
+
+    pub(crate) fn new_with_embedding_backend(
+        embedding_backend: Arc<dyn EmbeddingBackend>,
+        session_manager: Arc<SessionManager>,
+        memory_store: Arc<MemoryStore>,
+    ) -> Self {
         Self {
-            backend,
+            embedding_backend,
             session_manager,
             memory_store,
         }
@@ -49,7 +59,11 @@ impl MemoryRetrievalOrchestrator {
             return Vec::new();
         }
 
-        let Ok(query_vector) = self.backend.embed(query).await else {
+        let Ok(query_vector) = self
+            .embedding_backend
+            .embed(query, EmbeddingInputKind::Query)
+            .await
+        else {
             return Vec::new();
         };
         let mut candidates = Vec::new();
