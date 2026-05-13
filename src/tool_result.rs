@@ -533,11 +533,51 @@ fn compact_read_file(input: &Value, result: &Value) -> String {
     let total_chars = content.chars().count();
     let preview = truncate_text(content, INLINE_CHAR_BUDGET.min(LARGE_PREVIEW_HEAD));
     let summary = summarize_tool_result("read_file", input, result);
-    if preview.chars().count() < total_chars {
-        format!("{summary}\nContent preview:\n{preview}\n... truncated.")
+    let metadata = read_file_metadata_line(result);
+    let body = if preview.chars().count() < total_chars {
+        format!("Content preview:\n{preview}\n... truncated.")
     } else {
-        format!("{summary}\nContent:\n{preview}")
-    }
+        format!("Content:\n{preview}")
+    };
+    format!("{summary}\n{metadata}\n{body}")
+}
+
+fn read_file_metadata_line(result: &Value) -> String {
+    let start = result
+        .get("start_line")
+        .and_then(Value::as_u64)
+        .unwrap_or(1);
+    let end = result.get("end_line").and_then(Value::as_u64).unwrap_or(0);
+    let next = result
+        .get("next_offset")
+        .and_then(Value::as_u64)
+        .map(|n| format!("{n}"))
+        .unwrap_or_else(|| "none".to_string());
+    let total = if result
+        .get("total_lines_exact")
+        .and_then(Value::as_bool)
+        .unwrap_or(false)
+    {
+        format!(
+            "{}",
+            result
+                .get("total_lines")
+                .and_then(Value::as_u64)
+                .unwrap_or(0)
+        )
+    } else {
+        format!(
+            "{}",
+            result
+                .get("observed_lines")
+                .and_then(Value::as_u64)
+                .map(|n| format!("{n}+"))
+                .unwrap_or_else(|| "?".to_string())
+        )
+    };
+    format!(
+        "[file size] start_line={start}, end_line={end}, next_offset={next}, total_lines={total}"
+    )
 }
 
 fn compact_glob(result: &Value) -> String {
@@ -582,7 +622,15 @@ fn compact_grep(result: &Value) -> String {
                 .get("content")
                 .and_then(Value::as_str)
                 .unwrap_or_default();
-            format!("{file}:{line}: {content}")
+            let ctx_hint = entry
+                .get("context")
+                .and_then(Value::as_array)
+                .filter(|a| !a.is_empty())
+                .map(|a| format!(" (+{} context lines)", a.len()));
+            format!(
+                "{file}:{line}: {content}{}",
+                ctx_hint.as_deref().unwrap_or("")
+            )
         })
         .collect::<Vec<_>>()
         .join("\n");
