@@ -1,5 +1,6 @@
 pub mod agent;
 pub mod bash;
+pub(crate) mod bash_readonly;
 pub mod context;
 pub mod goal;
 pub mod mcp_tool_search;
