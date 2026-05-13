@@ -25,6 +25,8 @@ construction to treat fresh assistant turns as legacy history.
 - Replay explicit empty `reasoning_content` back to DeepSeek assistant history.
 - Keep true legacy DeepSeek assistant history on the existing fold-to-context
   compatibility path.
+- Cover tool-call-only assistant turns so standard OpenAI `tool_calls` and
+  DeepSeek DSML tool calls also synthesize an explicit empty reasoning slot.
 - Add focused regression coverage for non-streaming, streaming, and DeepSeek V4
   history replay.
 
@@ -33,7 +35,9 @@ construction to treat fresh assistant turns as legacy history.
 - The request-side DeepSeek fold path now keys off field presence instead of
   non-empty content. Only truly missing `reasoning_content` counts as legacy.
 - Response parsing synthesizes empty DeepSeek reasoning metadata for assistant
-  turns that have visible text or tool calls but no explicit reasoning text.
+  turns that have visible text or tool calls but no explicit reasoning text,
+  including tool-call-only turns before those tool calls are appended into the
+  final content vector.
 - Reasoning-only assistant turns still stay off the replay path because
   request-side empty-assistant filtering continues to ignore metadata-only
   messages.
@@ -41,8 +45,13 @@ construction to treat fresh assistant turns as legacy history.
 ## Validation
 
 - `cargo test llm::tests::deepseek_visible_text_without_reasoning_content_synthesizes_empty_metadata -- --nocapture`
+- `cargo test llm::tests::deepseek_tool_call_only_turn_synthesizes_empty_reasoning_content -- --nocapture`
+- `cargo test llm::tests::deepseek_dsml_tool_call_only_turn_synthesizes_empty_reasoning_content -- --nocapture`
 - `cargo test llm::tests::deepseek_streaming_visible_text_without_reasoning_content_synthesizes_empty_metadata -- --nocapture`
+- `cargo test llm::tests::deepseek_streaming_tool_call_only_turn_synthesizes_empty_reasoning_content -- --nocapture`
+- `cargo test llm::tests::deepseek_streaming_dsml_tool_call_only_turn_synthesizes_empty_reasoning_content -- --nocapture`
 - `cargo test llm::tests::deepseek_v4_preserves_assistant_history_with_empty_reasoning_content -- --nocapture`
+- `cargo test deepseek_ -- --nocapture`
 - `cargo check`
 
 ## Follow-Ups

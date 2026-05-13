@@ -1212,6 +1212,12 @@ pub(super) fn parse_chat_completion_response(
             content.push(ContentBlock::Text { text });
         }
     }
+    let has_standard_tool_calls = choice
+        .get("tool_calls")
+        .and_then(Value::as_array)
+        .is_some_and(|tool_calls| !tool_calls.is_empty());
+    let should_synthesize_empty_reasoning_slot =
+        !content.is_empty() || !parsed_dsml_tool_calls.is_empty() || has_standard_tool_calls;
     if endpoint_kind == OpenAiEndpointKind::Deepseek {
         if let Some(reasoning_content) = choice.get("reasoning_content").and_then(Value::as_str) {
             content.push(ContentBlock::ProviderMetadata {
@@ -1219,12 +1225,7 @@ pub(super) fn parse_chat_completion_response(
                 key: "reasoning_content".to_string(),
                 value: Value::String(reasoning_content.to_string()),
             });
-        } else if content.iter().any(|block| {
-            matches!(
-                block,
-                ContentBlock::Text { .. } | ContentBlock::ToolUse { .. }
-            )
-        }) {
+        } else if should_synthesize_empty_reasoning_slot {
             content.push(ContentBlock::ProviderMetadata {
                 provider: "deepseek".to_string(),
                 key: "reasoning_content".to_string(),
@@ -1304,6 +1305,9 @@ pub(super) fn build_streaming_response_content(
         });
     }
 
+    let should_synthesize_empty_reasoning_slot = !content.is_empty()
+        || !parsed_dsml_tool_calls.is_empty()
+        || !streamed_tool_calls.is_empty();
     if endpoint_kind == OpenAiEndpointKind::Deepseek {
         if !streamed_reasoning_content.is_empty() {
             content.push(ContentBlock::ProviderMetadata {
@@ -1311,12 +1315,7 @@ pub(super) fn build_streaming_response_content(
                 key: "reasoning_content".to_string(),
                 value: Value::String(streamed_reasoning_content),
             });
-        } else if content.iter().any(|block| {
-            matches!(
-                block,
-                ContentBlock::Text { .. } | ContentBlock::ToolUse { .. }
-            )
-        }) {
+        } else if should_synthesize_empty_reasoning_slot {
             content.push(ContentBlock::ProviderMetadata {
                 provider: "deepseek".to_string(),
                 key: "reasoning_content".to_string(),

@@ -287,6 +287,102 @@ fn deepseek_visible_text_without_reasoning_content_synthesizes_empty_metadata() 
 }
 
 #[test]
+fn deepseek_tool_call_only_turn_synthesizes_empty_reasoning_content() {
+    let response = parse_chat_completion_response(
+        &json!({
+            "choices": [{
+                "message": {
+                    "role": "assistant",
+                    "content": "",
+                    "tool_calls": [{
+                        "id": "call-1",
+                        "type": "function",
+                        "function": {
+                            "name": "read_file",
+                            "arguments": "{\"path\":\"Cargo.toml\"}"
+                        }
+                    }]
+                },
+                "finish_reason": "tool_calls"
+            }]
+        }),
+        OpenAiEndpointKind::Deepseek,
+    )
+    .expect("parse response");
+
+    assert_eq!(response.content.len(), 2);
+    assert!(matches!(
+        &response.content[0],
+        ContentBlock::ProviderMetadata { provider, key, value }
+            if provider == "deepseek"
+                && key == "reasoning_content"
+                && value == ""
+    ));
+    assert!(matches!(
+        &response.content[1],
+        ContentBlock::ToolUse { id, name, input }
+            if id == "call-1" && name == "read_file" && input["path"] == "Cargo.toml"
+    ));
+
+    let messages = vec![Message {
+        role: "assistant".to_string(),
+        content: serde_json::to_value(&response.content).expect("content json"),
+    }];
+    let deepseek_messages =
+        to_openai_messages_for_endpoint(&messages, OpenAiEndpointKind::Deepseek);
+    assert_eq!(deepseek_messages[0]["reasoning_content"], "");
+    assert_eq!(deepseek_messages[0]["tool_calls"][0]["id"], "call-1");
+}
+
+#[test]
+fn deepseek_dsml_tool_call_only_turn_synthesizes_empty_reasoning_content() {
+    let response = parse_chat_completion_response(
+        &json!({
+            "choices": [{
+                "message": {
+                    "role": "assistant",
+                    "content": concat!(
+                        "<｜DSML｜tool_calls>\n",
+                        "<｜DSML｜invoke name=\"read_file\">\n",
+                        "<｜DSML｜parameter name=\"path\" string=\"true\">Cargo.toml</｜DSML｜parameter>\n",
+                        "</｜DSML｜invoke>\n",
+                        "</｜DSML｜tool_calls>"
+                    )
+                },
+                "finish_reason": "tool_calls"
+            }]
+        }),
+        OpenAiEndpointKind::Deepseek,
+    )
+    .expect("parse response");
+
+    assert_eq!(response.content.len(), 2);
+    assert!(matches!(
+        &response.content[0],
+        ContentBlock::ProviderMetadata { provider, key, value }
+            if provider == "deepseek"
+                && key == "reasoning_content"
+                && value == ""
+    ));
+    assert!(matches!(
+        &response.content[1],
+        ContentBlock::ToolUse { id, name, input }
+            if id == "dsml-tool-1"
+                && name == "read_file"
+                && input["path"] == "Cargo.toml"
+    ));
+
+    let messages = vec![Message {
+        role: "assistant".to_string(),
+        content: serde_json::to_value(&response.content).expect("content json"),
+    }];
+    let deepseek_messages =
+        to_openai_messages_for_endpoint(&messages, OpenAiEndpointKind::Deepseek);
+    assert_eq!(deepseek_messages[0]["reasoning_content"], "");
+    assert_eq!(deepseek_messages[0]["tool_calls"][0]["id"], "dsml-tool-1");
+}
+
+#[test]
 fn deepseek_raw_leading_think_block_is_not_visible_text() {
     let response = parse_chat_completion_response(
         &json!({
@@ -556,6 +652,73 @@ fn deepseek_streaming_visible_text_without_reasoning_content_synthesizes_empty_m
             if provider == "deepseek"
                 && key == "reasoning_content"
                 && value == ""
+    ));
+}
+
+#[test]
+fn deepseek_streaming_tool_call_only_turn_synthesizes_empty_reasoning_content() {
+    let content = build_streaming_response_content(
+        OpenAiEndpointKind::Deepseek,
+        String::new(),
+        String::new(),
+        &[json!({
+            "id": "stream-call-1",
+            "function": {
+                "name": "read_file",
+                "arguments": "{\"path\":\"Cargo.toml\"}"
+            }
+        })],
+    )
+    .expect("build streaming content");
+
+    assert_eq!(content.len(), 2);
+    assert!(matches!(
+        &content[0],
+        ContentBlock::ProviderMetadata { provider, key, value }
+            if provider == "deepseek"
+                && key == "reasoning_content"
+                && value == ""
+    ));
+    assert!(matches!(
+        &content[1],
+        ContentBlock::ToolUse { id, name, input }
+            if id == "stream-call-1"
+                && name == "read_file"
+                && input["path"] == "Cargo.toml"
+    ));
+}
+
+#[test]
+fn deepseek_streaming_dsml_tool_call_only_turn_synthesizes_empty_reasoning_content() {
+    let content = build_streaming_response_content(
+        OpenAiEndpointKind::Deepseek,
+        concat!(
+            "<｜DSML｜tool_calls>\n",
+            "<｜DSML｜invoke name=\"read_file\">\n",
+            "<｜DSML｜parameter name=\"path\" string=\"true\">Cargo.toml</｜DSML｜parameter>\n",
+            "</｜DSML｜invoke>\n",
+            "</｜DSML｜tool_calls>"
+        )
+        .to_string(),
+        String::new(),
+        &[],
+    )
+    .expect("build streaming content");
+
+    assert_eq!(content.len(), 2);
+    assert!(matches!(
+        &content[0],
+        ContentBlock::ProviderMetadata { provider, key, value }
+            if provider == "deepseek"
+                && key == "reasoning_content"
+                && value == ""
+    ));
+    assert!(matches!(
+        &content[1],
+        ContentBlock::ToolUse { id, name, input }
+            if id == "dsml-tool-1"
+                && name == "read_file"
+                && input["path"] == "Cargo.toml"
     ));
 }
 
