@@ -110,28 +110,69 @@ impl PtySessionStore {
         }
         let now = Instant::now();
         let idle_cutoff = Duration::from_secs(PTY_IDLE_PRUNE_SECS);
-        let mut idle_ids: Vec<(String, Instant)> = sessions
+
+        // Collect (id, last_read, has_exited) for all sessions
+        let mut meta: Vec<(String, Instant, bool)> = sessions
             .iter()
-            .filter(|(_, s)| {
-                matches!(
+            .map(|(id, s)| {
+                let exited = !matches!(
                     *s.status.lock().expect("pty status lock"),
                     PtySessionStatus::Running
-                ) && now.duration_since(s.last_read) >= idle_cutoff
+                );
+                (id.clone(), s.last_read, exited)
             })
-            .map(|(id, s)| (id.clone(), s.last_read))
             .collect();
-        idle_ids.sort_by_key(|(_, last)| *last);
+
+        // Protect the 8 most recently read sessions
+        let mut by_recency = meta.clone();
+        by_recency.sort_by_key(|(_, last, _)| std::cmp::Reverse(*last));
+        let protected: std::collections::HashSet<&str> = by_recency
+            .iter()
+            .take(8)
+            .map(|(id, _, _)| id.as_str())
+            .collect();
+
+        // Idle = not read recently
+        let is_idle = |last: Instant| now.duration_since(last) >= idle_cutoff;
+
+        // Phase 1: prefer idle + exited
+        let mut by_lru = meta.clone();
+        by_lru.sort_by_key(|(_, last, _)| *last);
         let excess = count.saturating_sub(MAX_PTY_SESSIONS - 1);
-        idle_ids.truncate(excess);
-        let pruned = idle_ids.len();
-        drop(sessions);
-        for (id, _) in idle_ids {
-            let sessions = self.sessions.lock().expect("pty session store lock");
-            if let Some(session) = sessions.get(&id) {
-                let mut status = session.status.lock().expect("pty status lock");
-                if matches!(*status, PtySessionStatus::Running) {
-                    *status = PtySessionStatus::Killed;
+
+        let to_prune: Vec<String> = by_lru
+            .iter()
+            .filter(|(id, last, exited)| {
+                !protected.contains(id.as_str()) && *exited && is_idle(*last)
+            })
+            .take(excess)
+            .map(|(id, _, _)| id.clone())
+            .collect();
+
+        // Phase 2: if not enough exited, also prune idle running sessions
+        let to_prune = if to_prune.len() < excess {
+            let need_more = excess - to_prune.len();
+            let mut result = to_prune;
+            for (id, last, _) in &by_lru {
+                if result.len() >= excess {
+                    break;
                 }
+                if !protected.contains(id.as_str()) && is_idle(*last) && !result.contains(id) {
+                    result.push(id.clone());
+                }
+            }
+            result
+        } else {
+            to_prune
+        };
+
+        let pruned = to_prune.len();
+        drop(sessions);
+        for id in &to_prune {
+            let sessions = self.sessions.lock().expect("pty session store lock");
+            if let Some(session) = sessions.get(id) {
+                let mut status = session.status.lock().expect("pty status lock");
+                *status = PtySessionStatus::Killed;
             }
         }
         pruned
