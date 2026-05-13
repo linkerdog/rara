@@ -1,6 +1,7 @@
 mod app_command;
 mod app_event;
 mod auth_mode_picker;
+mod clipboard;
 mod command;
 mod constants;
 mod context_display;
@@ -27,6 +28,7 @@ mod provider_flow;
 mod queued_input;
 mod render;
 pub(super) mod runtime;
+mod selection;
 mod session_restore;
 pub(crate) mod state;
 mod status_display;

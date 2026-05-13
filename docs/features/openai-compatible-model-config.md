@@ -97,6 +97,17 @@ tool calls must replay the original `reasoning_content` without trimming or
 rewriting it, because DeepSeek requires thinking-mode tool-call turns to be
 sent back intact on later requests.
 
+For DeepSeek thinking-capable models, `reasoning_content` is a three-state
+history contract:
+
+- missing `reasoning_content` means the assistant turn is legacy history that
+  predates RARA's DeepSeek reasoning preservation and may need to be folded
+  into an internal context note;
+- `reasoning_content = ""` means the assistant turn is a known DeepSeek turn
+  whose reasoning slot was present but empty and must still be replayed with an
+  explicit empty field;
+- non-empty `reasoning_content` must be preserved byte-for-byte.
+
 ## Remembered Provider State
 
 RARA keeps provider-scoped remembered state in `RaraConfig.provider_states`.
@@ -164,6 +175,9 @@ fields in addition to standard `content` and `tool_calls`:
 
 - `reasoning_content` must be retained for the next request when DeepSeek
   returns it;
+- `reasoning_content = ""` must remain distinguishable from missing legacy
+  history and must be replayed as an explicit empty field on later DeepSeek
+  requests;
 - reasoning metadata must not be rendered as ordinary assistant prose in the
   committed transcript;
 - tool calls must still round-trip with their `id`, `name`, and `arguments`;

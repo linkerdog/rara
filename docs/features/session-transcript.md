@@ -179,6 +179,26 @@ projection:
 
 This mirrors Codex's fork filtering while keeping Claude-style sidechain files.
 
+### TUI Turn Rendering
+
+Committed TUI turn rendering must preserve the recorded entry order. `You`,
+progress entries (`Thinking`, `Exploring`, `Planning`, `Running`), assistant
+messages, system notices, interaction completions, tool calls, and terminal
+events are all part of one time-ordered turn projection. The renderer may merge
+adjacent progress entries with the same role to avoid noisy duplicate headers,
+but it must not globally sort entries by role, move approvals ahead of earlier
+messages, or replace a mixed tool turn with only the final assistant message.
+
+Live active-turn rendering may still use runtime event state for streaming
+thinking and progress tails, but those live events have the same ordering
+contract: event order is the user-visible ordering boundary, with only adjacent
+same-role progress compaction allowed.
+
+Fallback rendering for plain tool and tool-progress messages keeps the newest
+tail lines when the message exceeds the main-view line budget. Recent command
+or tool output is usually the actionable state; full-output fidelity belongs to
+terminal cells and transcript-detail surfaces.
+
 ## Validation Matrix
 
 | Case | Expected behavior |
@@ -198,6 +218,9 @@ This mirrors Codex's fork filtering while keeping Claude-style sidechain files.
 | Damaged transcript fallback | Transcript parse errors fall back to `history.json` when available and rewrite a clean transcript. |
 | Empty or short transcript fallback | Empty transcripts or shorter transcript prefixes fall back to `history.json` and repair the transcript. |
 | Turn materialization | `ThreadStore` prefers `turns.jsonl` over stale `StateDb` turn rows. |
+| Render committed mixed turn | `You`, thinking/exploring/running, tool calls, approvals, terminal output, and agent messages render in recorded order. |
+| Render long fallback tool message | The main view shows a hidden-earlier-lines marker plus the newest tail lines. |
+| Render live progress turn | Streaming thinking and progress events render in event order while adjacent same-role progress may compact. |
 
 ## Open Risks
 

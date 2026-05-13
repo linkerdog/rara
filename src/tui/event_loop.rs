@@ -136,6 +136,9 @@ pub async fn run_tui(
 
         tokio::select! {
             _ = tick.tick() => {
+                if let Some(delta) = app.transcript_selection.autoscroll_delta() {
+                    app.scroll_transcript(delta);
+                }
                 needs_redraw = true;
             }
             maybe_event = events.next() => {

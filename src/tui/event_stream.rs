@@ -1,9 +1,10 @@
 use std::sync::Mutex;
 use std::time::Instant;
 
-use crossterm::event::{Event, KeyEventKind, MouseEvent, MouseEventKind};
+use crossterm::event::{Event, KeyEventKind, MouseButton, MouseEvent, MouseEventKind};
 
 use super::app_event::AppEvent;
+use super::selection::ScreenPosition;
 use super::state::{Overlay, TuiApp};
 
 const MOUSE_WHEEL_SCROLL_LINES: i32 = 3;
@@ -44,7 +45,28 @@ pub fn translate_event(event: Event, app: &TuiApp) -> Option<UiEvent> {
 
 fn map_mouse_to_event(mouse_event: MouseEvent, app: &TuiApp) -> AppEvent {
     match mouse_event.kind {
+        MouseEventKind::Down(MouseButton::Left) if app.overlay.is_none() => {
+            AppEvent::StartTranscriptSelection(ScreenPosition::new(
+                mouse_event.column,
+                mouse_event.row,
+            ))
+        }
+        MouseEventKind::Drag(MouseButton::Left) if app.overlay.is_none() => {
+            AppEvent::DragTranscriptSelection(ScreenPosition::new(
+                mouse_event.column,
+                mouse_event.row,
+            ))
+        }
+        MouseEventKind::Up(MouseButton::Left) if app.overlay.is_none() => {
+            AppEvent::FinishTranscriptSelection(ScreenPosition::new(
+                mouse_event.column,
+                mouse_event.row,
+            ))
+        }
         MouseEventKind::ScrollUp | MouseEventKind::ScrollDown => {
+            if app.transcript_selection.is_dragging() {
+                return AppEvent::Noop;
+            }
             let direction: i32 = if matches!(mouse_event.kind, MouseEventKind::ScrollUp) {
                 -1
             } else {

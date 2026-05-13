@@ -18,9 +18,9 @@ use crate::tui::queued_input::{
 };
 use crate::tui::render::diff::render_patch_preview;
 use crate::tui::render::{
-    display_width, formatted_message_lines, prefixed_message_lines, rendered_markdown_lines,
-    section_label, startup_card_inner_width, truncate_for_startup_card, truncate_path_middle,
-    with_border,
+    display_width, formatted_message_lines, prefixed_message_lines, prefixed_tail_message_lines,
+    rendered_markdown_lines, section_label, startup_card_inner_width, truncate_for_startup_card,
+    truncate_path_middle, with_border,
 };
 use crate::tui::state::{ActivePendingInteractionKind, TuiApp};
 use crate::tui::sub_agent_display::SUB_AGENT_QUESTION_COLOR;
@@ -31,6 +31,13 @@ pub(crate) struct MessageCell<'a> {
     message: &'a str,
     max_lines: usize,
     cwd: Option<&'a Path>,
+    window: MessageWindow,
+}
+
+#[derive(Clone, Copy)]
+enum MessageWindow {
+    HeadTail,
+    Tail,
 }
 
 impl<'a> MessageCell<'a> {
@@ -45,6 +52,22 @@ impl<'a> MessageCell<'a> {
             message,
             max_lines,
             cwd,
+            window: MessageWindow::HeadTail,
+        }
+    }
+
+    pub(crate) fn new_tail(
+        role: &'a str,
+        message: &'a str,
+        max_lines: usize,
+        cwd: Option<&'a Path>,
+    ) -> Self {
+        Self {
+            role,
+            message,
+            max_lines,
+            cwd,
+            window: MessageWindow::Tail,
         }
     }
 }
@@ -63,6 +86,9 @@ impl HistoryCell for MessageCell<'_> {
             }
             lines.extend(render_patch_preview(self.message, width));
             return lines;
+        }
+        if matches!(self.window, MessageWindow::Tail) {
+            return prefixed_tail_message_lines(self.role, self.message, self.max_lines);
         }
         formatted_message_lines(self.role, self.message, self.max_lines, self.cwd)
     }
