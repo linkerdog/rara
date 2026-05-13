@@ -298,7 +298,7 @@ pub fn project_tool_results_for_context(
         if content == MICROCOMPACT_CLEARED_MESSAGE {
             continue;
         }
-        let replacement = microcompact_cleared_tool_result(&candidate.tool_name);
+        let replacement = microcompact_cleared_tool_result(&candidate.tool_name, content);
         projected_chars = projected_chars
             .saturating_sub(candidate.chars)
             .saturating_add(replacement.chars().count());
@@ -399,10 +399,50 @@ fn is_microcompactable_tool(name: &str) -> bool {
     )
 }
 
-fn microcompact_cleared_tool_result(tool_name: &str) -> String {
-    format!(
-        "{MICROCOMPACT_CLEARED_MESSAGE}\ntool={tool_name}\nreason=older compactable tool results exceeded the per-request projection budget; original transcript remains unchanged"
-    )
+fn microcompact_cleared_tool_result(tool_name: &str, original_content: &str) -> String {
+    let mut lines = vec![
+        format!("{MICROCOMPACT_CLEARED_MESSAGE}"),
+        format!("tool={tool_name}"),
+        "reason=older compactable tool results exceeded the per-request projection budget; original transcript remains unchanged".to_string(),
+    ];
+    if tool_name == "read_file" {
+        if let Some(meta) = read_file_marker_lines(original_content) {
+            lines.push(meta);
+        }
+    }
+    lines.join("\n")
+}
+
+fn read_file_marker_lines(raw_json: &str) -> Option<String> {
+    let v: serde_json::Value = serde_json::from_str(raw_json).ok()?;
+    let start = v.get("start_line").and_then(|x| x.as_u64()).unwrap_or(1);
+    let end = v.get("end_line").and_then(|x| x.as_u64()).unwrap_or(0);
+    let next = v
+        .get("next_offset")
+        .and_then(|x| x.as_u64())
+        .map(|n| format!("{n}"))
+        .unwrap_or_else(|| "none".to_string());
+    let total = if v
+        .get("total_lines_exact")
+        .and_then(|x| x.as_bool())
+        .unwrap_or(false)
+    {
+        format!(
+            "{}",
+            v.get("total_lines").and_then(|x| x.as_u64()).unwrap_or(0)
+        )
+    } else {
+        format!(
+            "{}",
+            v.get("observed_lines")
+                .and_then(|x| x.as_u64())
+                .map(|n| format!("{n}+"))
+                .unwrap_or_else(|| "?".to_string())
+        )
+    };
+    Some(format!(
+        "[file size] start_line={start}, end_line={end}, next_offset={next}, total_lines={total}"
+    ))
 }
 
 #[derive(Debug)]
@@ -533,11 +573,51 @@ fn compact_read_file(input: &Value, result: &Value) -> String {
     let total_chars = content.chars().count();
     let preview = truncate_text(content, INLINE_CHAR_BUDGET.min(LARGE_PREVIEW_HEAD));
     let summary = summarize_tool_result("read_file", input, result);
-    if preview.chars().count() < total_chars {
-        format!("{summary}\nContent preview:\n{preview}\n... truncated.")
+    let metadata = read_file_metadata_line(result);
+    let body = if preview.chars().count() < total_chars {
+        format!("Content preview:\n{preview}\n... truncated.")
     } else {
-        format!("{summary}\nContent:\n{preview}")
-    }
+        format!("Content:\n{preview}")
+    };
+    format!("{summary}\n{metadata}\n{body}")
+}
+
+fn read_file_metadata_line(result: &Value) -> String {
+    let start = result
+        .get("start_line")
+        .and_then(Value::as_u64)
+        .unwrap_or(1);
+    let end = result.get("end_line").and_then(Value::as_u64).unwrap_or(0);
+    let next = result
+        .get("next_offset")
+        .and_then(Value::as_u64)
+        .map(|n| format!("{n}"))
+        .unwrap_or_else(|| "none".to_string());
+    let total = if result
+        .get("total_lines_exact")
+        .and_then(Value::as_bool)
+        .unwrap_or(false)
+    {
+        format!(
+            "{}",
+            result
+                .get("total_lines")
+                .and_then(Value::as_u64)
+                .unwrap_or(0)
+        )
+    } else {
+        format!(
+            "{}",
+            result
+                .get("observed_lines")
+                .and_then(Value::as_u64)
+                .map(|n| format!("{n}+"))
+                .unwrap_or_else(|| "?".to_string())
+        )
+    };
+    format!(
+        "[file size] start_line={start}, end_line={end}, next_offset={next}, total_lines={total}"
+    )
 }
 
 fn compact_glob(result: &Value) -> String {
@@ -582,7 +662,15 @@ fn compact_grep(result: &Value) -> String {
                 .get("content")
                 .and_then(Value::as_str)
                 .unwrap_or_default();
-            format!("{file}:{line}: {content}")
+            let ctx_hint = entry
+                .get("context")
+                .and_then(Value::as_array)
+                .filter(|a| !a.is_empty())
+                .map(|a| format!(" (+{} context lines)", a.len()));
+            format!(
+                "{file}:{line}: {content}{}",
+                ctx_hint.as_deref().unwrap_or("")
+            )
         })
         .collect::<Vec<_>>()
         .join("\n");
