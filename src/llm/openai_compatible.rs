@@ -772,10 +772,7 @@ fn schema_is_object(schema: &Value) -> bool {
 fn fold_deepseek_legacy_reasoning_history(openai_messages: Vec<Value>) -> Vec<Value> {
     let Some(last_legacy_assistant_idx) = openai_messages.iter().rposition(|message| {
         message.get("role").and_then(Value::as_str) == Some("assistant")
-            && !message
-                .get("reasoning_content")
-                .and_then(Value::as_str)
-                .is_some_and(|reasoning| !reasoning.is_empty())
+            && !assistant_has_deepseek_reasoning_slot(message)
     }) else {
         return openai_messages;
     };
@@ -806,6 +803,12 @@ fn fold_deepseek_legacy_reasoning_history(openai_messages: Vec<Value>) -> Vec<Va
     }
     folded.extend(openai_messages.into_iter().skip(fold_end + 1));
     folded
+}
+
+fn assistant_has_deepseek_reasoning_slot(message: &Value) -> bool {
+    message
+        .get("reasoning_content")
+        .is_some_and(Value::is_string)
 }
 
 fn deepseek_history_requires_reasoning_content(
@@ -1113,9 +1116,7 @@ fn provider_metadata_string<'a>(content: &'a Value, provider: &str, key: &str) -
         if item.get("key").and_then(Value::as_str) != Some(key) {
             return None;
         }
-        item.get("value")
-            .and_then(Value::as_str)
-            .filter(|value| !value.is_empty())
+        item.get("value").and_then(Value::as_str)
     })
 }
 
@@ -1211,17 +1212,26 @@ pub(super) fn parse_chat_completion_response(
             content.push(ContentBlock::Text { text });
         }
     }
-    if endpoint_kind == OpenAiEndpointKind::Deepseek
-        && let Some(reasoning_content) = choice
-            .get("reasoning_content")
-            .and_then(Value::as_str)
-            .filter(|value| !value.is_empty())
-    {
-        content.push(ContentBlock::ProviderMetadata {
-            provider: "deepseek".to_string(),
-            key: "reasoning_content".to_string(),
-            value: Value::String(reasoning_content.to_string()),
-        });
+    let has_standard_tool_calls = choice
+        .get("tool_calls")
+        .and_then(Value::as_array)
+        .is_some_and(|tool_calls| !tool_calls.is_empty());
+    let should_synthesize_empty_reasoning_slot =
+        !content.is_empty() || !parsed_dsml_tool_calls.is_empty() || has_standard_tool_calls;
+    if endpoint_kind == OpenAiEndpointKind::Deepseek {
+        if let Some(reasoning_content) = choice.get("reasoning_content").and_then(Value::as_str) {
+            content.push(ContentBlock::ProviderMetadata {
+                provider: "deepseek".to_string(),
+                key: "reasoning_content".to_string(),
+                value: Value::String(reasoning_content.to_string()),
+            });
+        } else if should_synthesize_empty_reasoning_slot {
+            content.push(ContentBlock::ProviderMetadata {
+                provider: "deepseek".to_string(),
+                key: "reasoning_content".to_string(),
+                value: Value::String(String::new()),
+            });
+        }
     }
     if let Some(tool_calls) = choice["tool_calls"].as_array() {
         for (idx, tc) in tool_calls.iter().enumerate() {
@@ -1295,12 +1305,23 @@ pub(super) fn build_streaming_response_content(
         });
     }
 
-    if endpoint_kind == OpenAiEndpointKind::Deepseek && !streamed_reasoning_content.is_empty() {
-        content.push(ContentBlock::ProviderMetadata {
-            provider: "deepseek".to_string(),
-            key: "reasoning_content".to_string(),
-            value: Value::String(streamed_reasoning_content),
-        });
+    let should_synthesize_empty_reasoning_slot = !content.is_empty()
+        || !parsed_dsml_tool_calls.is_empty()
+        || !streamed_tool_calls.is_empty();
+    if endpoint_kind == OpenAiEndpointKind::Deepseek {
+        if !streamed_reasoning_content.is_empty() {
+            content.push(ContentBlock::ProviderMetadata {
+                provider: "deepseek".to_string(),
+                key: "reasoning_content".to_string(),
+                value: Value::String(streamed_reasoning_content),
+            });
+        } else if should_synthesize_empty_reasoning_slot {
+            content.push(ContentBlock::ProviderMetadata {
+                provider: "deepseek".to_string(),
+                key: "reasoning_content".to_string(),
+                value: Value::String(String::new()),
+            });
+        }
     }
 
     for (idx, tc) in streamed_tool_calls.iter().enumerate() {
