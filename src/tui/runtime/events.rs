@@ -10,7 +10,11 @@ use self::helpers::{
 };
 use super::super::state::{RuntimePhase, TuiApp, TuiEvent, contains_structured_planning_output};
 use crate::agent::AgentEvent;
+use crate::memory_notice::{count_label, memory_notice};
 use crate::runtime_control::MemoryEvent;
+use crate::session_promotion::{
+    SessionShardPromotionDecision, SessionShardPromotionOutcome, SessionShardPromotionSkipReason,
+};
 use crate::todo::format_todo_update;
 use crate::tui::terminal_event::{TerminalEvent, TerminalTarget};
 
@@ -333,40 +337,62 @@ pub(super) fn convert_agent_event(event: AgentEvent) -> Option<TuiEvent> {
 pub(super) fn format_memory_event_notice(event: &MemoryEvent) -> String {
     match event {
         MemoryEvent::RecordAdded { memory_id } => {
-            format!("Memory · wrote record {}", short_memory_id(memory_id))
+            memory_notice(format!("wrote record {}", short_memory_id(memory_id)))
         }
         MemoryEvent::RecordUpdated { memory_id } => {
-            format!("Memory · updated record {}", short_memory_id(memory_id))
+            memory_notice(format!("updated record {}", short_memory_id(memory_id)))
         }
         MemoryEvent::RecordDeleted { memory_id } => {
-            format!("Memory · deleted record {}", short_memory_id(memory_id))
+            memory_notice(format!("deleted record {}", short_memory_id(memory_id)))
         }
-        MemoryEvent::LabelsListed { labels, .. } => {
-            format!(
-                "Memory · listed labels: {} {}",
-                labels.len(),
-                count_label("label", labels.len())
-            )
-        }
-        MemoryEvent::MetadataQueried { record_count, .. } => {
-            format!(
-                "Memory · queried metadata: {} {}",
-                record_count,
-                count_label("record", *record_count)
-            )
-        }
-        MemoryEvent::RecordsQueried { records } => {
-            format!(
-                "Memory · queried records: {} {}",
-                records.len(),
-                count_label("result", records.len())
-            )
-        }
+        MemoryEvent::LabelsListed { labels, .. } => memory_notice(format!(
+            "listed labels: {} {}",
+            labels.len(),
+            count_label("label", labels.len())
+        )),
+        MemoryEvent::MetadataQueried { record_count, .. } => memory_notice(format!(
+            "queried metadata: {} {}",
+            record_count,
+            count_label("record", *record_count)
+        )),
+        MemoryEvent::RecordsQueried { records } => memory_notice(format!(
+            "queried records: {} {}",
+            records.len(),
+            count_label("result", records.len())
+        )),
         MemoryEvent::ActionObserved { message } => message.clone(),
         MemoryEvent::SessionShardPromotionObserved { outcome } => {
-            format!("Memory · observed session shard promotion: {outcome:?}")
+            memory_notice(format_session_shard_promotion_outcome(outcome))
         }
-        MemoryEvent::SelectionUpdated => "Memory · refreshed selection snapshot".to_string(),
+        MemoryEvent::SelectionUpdated => memory_notice("refreshed selection snapshot"),
+    }
+}
+
+fn format_session_shard_promotion_outcome(outcome: &SessionShardPromotionOutcome) -> String {
+    let checkpoint_count = outcome.plan.checkpoint_count;
+    match &outcome.plan.decision {
+        SessionShardPromotionDecision::Eligible => format!(
+            "promoted session shards: {} {} from {} {}",
+            outcome.promoted_count,
+            count_label("record", outcome.promoted_count),
+            checkpoint_count,
+            count_label("checkpoint", checkpoint_count)
+        ),
+        SessionShardPromotionDecision::Skipped { reason } => format!(
+            "skipped session shard promotion: {} with {} {}",
+            session_shard_skip_reason_label(reason),
+            checkpoint_count,
+            count_label("checkpoint", checkpoint_count)
+        ),
+    }
+}
+
+fn session_shard_skip_reason_label(reason: &SessionShardPromotionSkipReason) -> &'static str {
+    match reason {
+        SessionShardPromotionSkipReason::Disabled => "disabled",
+        SessionShardPromotionSkipReason::Empty => "no checkpoints",
+        SessionShardPromotionSkipReason::BelowMinCheckpoints => "below minimum checkpoints",
+        SessionShardPromotionSkipReason::MaxCheckpointsZero => "max checkpoints is zero",
     }
 }
 
@@ -375,14 +401,6 @@ fn short_memory_id(memory_id: &str) -> &str {
         .char_indices()
         .nth(12)
         .map_or(memory_id, |(idx, _)| &memory_id[..idx])
-}
-
-fn count_label(label: &str, count: usize) -> String {
-    if count == 1 {
-        label.to_string()
-    } else {
-        format!("{label}s")
-    }
 }
 
 pub(super) fn format_error_chain(err: &anyhow::Error) -> String {
