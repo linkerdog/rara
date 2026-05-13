@@ -78,7 +78,7 @@ The current product direction is to make local inference a first-class path inst
   planned activation milestone in `docs/todo.md`.
 - Adding `#[allow(dead_code)]` to an individual item requires a comment
   explaining why the item is intentionally unused and when it will be activated.
-- File-size violations detected in review (source files exceeding ~800 lines
+- File-size violations detected in review (source files exceeding 800 lines
   under `src/` or `crates/`) must be fixed before merge, not deferred to a
   follow-up task.
 - `mod.rs` files shall be facades: module declarations and re-exports only.

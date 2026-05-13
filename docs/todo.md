@@ -191,7 +191,7 @@ Active backlog only. Keep this file small and current.
 ### P0 — Oversized module split (blocking)
 
 - [ ] Split `src/tui/state/mod.rs` (2000+ lines): extract types, presets, persistence, provider-status into submodules; shrink mod.rs to ≤300 lines facade.
-- [ ] Remove dead code from production source files: 71 `#[allow(dead_code)]` sites. Priority: `src/runtime_control.rs` (scaffolding), `src/hook_registry.rs`, `src/acp_consumer.rs`, `src/mcp_status.rs`.
+- [ ] Remove dead code from production source files: 71 `#[allow(dead_code)]` sites. Priority: `src/runtime_control.rs` (scaffolding), `src/hook_registry.rs`, `src/acp_consumer.rs`, `src/mcp_status.rs`, `src/tui/custom_terminal.rs`.
 
 ### P1 — Agent and compaction modules
 

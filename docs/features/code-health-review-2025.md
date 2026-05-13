@@ -22,7 +22,7 @@ these issues.
 
 ## Scope
 
-- Split oversized source files that exceed ~800 lines.
+- Split oversized source files that exceed 800 lines.
 - Remove dead code from production compilation units.
 - Narrow `Agent` field visibility to `pub(crate)` or private where safe.
 - Add AGENTS.md enforcement rules to prevent regression.
@@ -82,10 +82,13 @@ Add the following to AGENTS.md §3.1:
 
 - Dead code is not permitted in production source files. Use `#[cfg(test)]`
   for test-only helpers; remove everything else.
-- File-size violations detected in review must be fixed before merge, not
-  deferred.
+- File-size violations (source files exceeding 800 lines under `src/` or
+  `crates/`) detected in review must be fixed before merge, not deferred.
 - Adding `#[allow(dead_code)]` requires a comment explaining why the code is
   intentionally unused and when it will be activated.
+- `mod.rs` files shall be facades: module declarations and re-exports only.
+  They must not contain business logic. Pure import/re-export size is not a
+  concern.
 
 ## Contracts
 
