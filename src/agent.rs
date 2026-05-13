@@ -107,6 +107,9 @@ pub enum AgentEvent {
         stream: ToolOutputStream,
         chunk: String,
     },
+    MemoryAction {
+        message: String,
+    },
     McpStatusUpdated(McpStatusSnapshot),
     McpStatusLoadFailed {
         message: String,
@@ -360,7 +363,17 @@ impl Agent {
             content: json!([{"type": "text", "text": prompt.clone()}]),
         });
         self.checkpoint_session()?;
+        report(AgentEvent::MemoryAction {
+            message: "Memory · querying workspace memory".to_string(),
+        });
         self.refresh_memory_retrieval_candidates().await;
+        report(AgentEvent::MemoryAction {
+            message: format!(
+                "Memory · queried workspace memory: {} {}",
+                self.retrieved_memory_candidates.len(),
+                memory_count_label("candidate", self.retrieved_memory_candidates.len())
+            ),
+        });
         self.refresh_file_search_candidates();
         self.refresh_protocol_prompt_sources_for_query().await;
         self.refresh_protocol_skill_sources_for_query().await;
@@ -404,7 +417,7 @@ impl Agent {
         {
             let session_manager = self.session_manager.clone();
             let session_id = self.session_id.clone();
-            let _ = tokio::task::spawn_blocking(move || {
+            let save_result = tokio::task::spawn_blocking(move || {
                 session_manager.save_session_context_checkpoint(
                     &session_id,
                     turn_start_idx as u32,
@@ -413,6 +426,11 @@ impl Agent {
                 )
             })
             .await;
+            if matches!(save_result, Ok(Ok(()))) {
+                report(AgentEvent::MemoryAction {
+                    message: "Memory · wrote session checkpoint".to_string(),
+                });
+            }
         }
         Ok(())
     }
@@ -1316,5 +1334,13 @@ fn recoverable_runtime_error_message(kind: &str, err: &anyhow::Error) -> Message
         content: json!([{"type": "text", "text": format!(
             "<agent_runtime_error>\nkind: {kind}\nerror:\n{error}\n\ninstructions:\n- Treat this as a recoverable local runtime or filesystem error from the previous step.\n- Explain the likely cause briefly, then choose the safest next action.\n- If the error came from disk space, sandboxing, or file permissions, inspect or suggest remediation instead of repeating the exact failing operation blindly.\n- Continue the same user task when it is safe to do so.\n</agent_runtime_error>"
         )}]),
+    }
+}
+
+fn memory_count_label(label: &str, count: usize) -> String {
+    if count == 1 {
+        label.to_string()
+    } else {
+        format!("{label}s")
     }
 }

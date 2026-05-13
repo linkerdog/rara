@@ -321,6 +321,7 @@ mod helper_tests {
 pub(super) fn is_renderable_system_message(message: &str) -> bool {
     let lower = message.trim().to_ascii_lowercase();
     lower.starts_with("query failed:")
+        || lower.starts_with("memory ·")
         || lower.starts_with("compaction failed:")
         || lower.starts_with("compact failed:")
         || lower.starts_with("oauth failed:")

@@ -10,6 +10,7 @@ use self::helpers::{
 };
 use super::super::state::{RuntimePhase, TuiApp, TuiEvent, contains_structured_planning_output};
 use crate::agent::AgentEvent;
+use crate::runtime_control::MemoryEvent;
 use crate::todo::format_todo_update;
 use crate::tui::terminal_event::{TerminalEvent, TerminalTarget};
 
@@ -311,6 +312,10 @@ pub(super) fn convert_agent_event(event: AgentEvent) -> Option<TuiEvent> {
                     chunk,
                 })
             }),
+        AgentEvent::MemoryAction { message } => Some(TuiEvent::Transcript {
+            role: "System",
+            message,
+        }),
         AgentEvent::TodoUpdated(state) => Some(TuiEvent::Transcript {
             role: "Todo",
             message: format_todo_update(&state),
@@ -322,6 +327,61 @@ pub(super) fn convert_agent_event(event: AgentEvent) -> Option<TuiEvent> {
         AgentEvent::AgentError { .. } => None,
         AgentEvent::ModelRequest { .. } => None,
         AgentEvent::ModelResponse { .. } => None,
+    }
+}
+
+pub(super) fn format_memory_event_notice(event: &MemoryEvent) -> String {
+    match event {
+        MemoryEvent::RecordAdded { memory_id } => {
+            format!("Memory · wrote record {}", short_memory_id(memory_id))
+        }
+        MemoryEvent::RecordUpdated { memory_id } => {
+            format!("Memory · updated record {}", short_memory_id(memory_id))
+        }
+        MemoryEvent::RecordDeleted { memory_id } => {
+            format!("Memory · deleted record {}", short_memory_id(memory_id))
+        }
+        MemoryEvent::LabelsListed { labels, .. } => {
+            format!(
+                "Memory · listed labels: {} {}",
+                labels.len(),
+                count_label("label", labels.len())
+            )
+        }
+        MemoryEvent::MetadataQueried { record_count, .. } => {
+            format!(
+                "Memory · queried metadata: {} {}",
+                record_count,
+                count_label("record", *record_count)
+            )
+        }
+        MemoryEvent::RecordsQueried { records } => {
+            format!(
+                "Memory · queried records: {} {}",
+                records.len(),
+                count_label("result", records.len())
+            )
+        }
+        MemoryEvent::ActionObserved { message } => message.clone(),
+        MemoryEvent::SessionShardPromotionObserved { outcome } => {
+            format!("Memory · observed session shard promotion: {outcome:?}")
+        }
+        MemoryEvent::SelectionUpdated => "Memory · refreshed selection snapshot".to_string(),
+    }
+}
+
+fn short_memory_id(memory_id: &str) -> &str {
+    memory_id
+        .char_indices()
+        .nth(12)
+        .map_or(memory_id, |(idx, _)| &memory_id[..idx])
+}
+
+fn count_label(label: &str, count: usize) -> String {
+    if count == 1 {
+        label.to_string()
+    } else {
+        format!("{label}s")
     }
 }
 
