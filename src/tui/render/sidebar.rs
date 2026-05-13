@@ -1,6 +1,7 @@
 // Wide-screen sidebar (≥120 cols) rendered alongside the main transcript pane.
 // Layout draws a 38-column panel on the left split by a vertical border,
-// showing session identity, model badge, context summary, files access, and status.
+// showing session identity, model badge, context summary, todo progress,
+// files access, and status.
 use std::collections::BTreeSet;
 
 use ratatui::{
@@ -42,6 +43,9 @@ pub(crate) fn render_sidebar(f: &mut Frame, app: &TuiApp, area: Rect) {
     lines.push(Line::from(""));
     push_context_summary(&mut lines, app);
     lines.push(Line::from(""));
+    if push_todo_section(&mut lines, app) {
+        lines.push(Line::from(""));
+    }
     push_child_sessions(&mut lines, app);
     lines.push(Line::from(""));
     push_files_in_context(&mut lines, app);
@@ -131,6 +135,64 @@ fn push_context_summary(lines: &mut Vec<Line<'static>>, app: &TuiApp) {
         context_sidebar_summary(snap),
         Style::default().fg(TEXT_MUTED),
     )));
+}
+
+fn push_todo_section(lines: &mut Vec<Line<'static>>, app: &TuiApp) -> bool {
+    let todo = &app.snapshot.todo;
+    if todo.summary.total == 0 {
+        return false;
+    }
+
+    lines.push(Line::from(super::section_label("Todo", TEXT_SECONDARY)));
+    let open = todo.summary.pending + todo.summary.in_progress;
+    lines.push(Line::from(Span::styled(
+        format!(
+            "{}/{} done · {} open",
+            todo.summary.completed, todo.summary.total, open
+        ),
+        Style::default().fg(TEXT_MUTED),
+    )));
+
+    if let Some(active) = todo.summary.active_item.as_deref() {
+        lines.push(Line::from(Span::styled(
+            format!("Active: {active}"),
+            Style::default().fg(INTERACTION_SUB_AGENT),
+        )));
+    }
+
+    for (_, status, content) in todo.items.iter().take(4) {
+        lines.push(Line::from(Span::styled(
+            format!("{} {}", todo_status_marker(status), content.trim()),
+            todo_status_style(status),
+        )));
+    }
+
+    if todo.items.len() > 4 {
+        lines.push(Line::from(Span::styled(
+            format!("... and {} more", todo.items.len() - 4),
+            Style::default().fg(TEXT_MUTED),
+        )));
+    }
+
+    true
+}
+
+fn todo_status_marker(status: &str) -> &'static str {
+    match status {
+        "in_progress" => "[>]",
+        "completed" => "[x]",
+        "cancelled" => "[-]",
+        _ => "[ ]",
+    }
+}
+
+fn todo_status_style(status: &str) -> Style {
+    match status {
+        "in_progress" => Style::default().fg(INTERACTION_SUB_AGENT),
+        "completed" => Style::default().fg(STATUS_SUCCESS),
+        "cancelled" => Style::default().fg(TEXT_MUTED),
+        _ => Style::default().fg(TEXT_SECONDARY),
+    }
 }
 
 fn push_child_sessions(lines: &mut Vec<Line<'static>>, app: &TuiApp) {
