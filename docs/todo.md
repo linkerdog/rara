@@ -146,6 +146,8 @@ Active backlog only. Keep this file small and current.
 - [ ] Stabilize active response blocks while streaming, avoid generic transcript fallback.
 - [ ] Rework built-in command TUI (`/help`, `/model`, `/status`, command palette, overlays) to match Codex/Claude.
 - [ ] Refine `/status`: provider/model state, reasoning, sandbox/network, context injection, tool availability.
+- [x] Add a lightweight `rara-observability` crate and `/status` metrics tag for bounded in-memory P80/P99 latency of memory read, write, and query operations; keep samples capped, non-persistent, and free of request text or vectors.
+- [ ] After the local embedding sidecar lands on `main`, add `/status` context fields for backend/model/state/cache-hit detail.
 - [x] Tool-action summaries more source-aware and file-aware.
 - [ ] Live `bash` transcript: lifecycle framing, streamed stdout/stderr, long-output folding.
 - [ ] High-fidelity render pass for `write/update`, inline diffs, approval cards, message-card hierarchy.

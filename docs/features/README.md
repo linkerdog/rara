@@ -52,6 +52,8 @@ future appserver integrations can use.
   ranking crate for tools, TUI pickers, and context routing.
 - `retrieval-orchestration.md`: unified candidate-provider, ranking, dedupe,
   budget, and `/context` contract for memory/context retrieval.
+- `observability.md`: bounded process-local runtime metrics and `/status`
+  context/metrics contracts.
 - `workspace-memory-cache.md`: prompt-source and workspace-memory cache
   invalidation, ordering, and shared observability contract.
 - `thread-goals.md`: persistent `/goal` runtime, tool, continuation, budget,

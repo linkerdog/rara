@@ -16,7 +16,7 @@ use self::overlay_setup::{
 };
 use super::super::command::{
     general_help_text, matching_commands, model_help_text, palette_commands,
-    recent_transcript_preview, status_prompt_sources_text, status_resources_text,
+    recent_transcript_preview, status_metrics_text, status_prompt_sources_text,
     status_runtime_text, status_workspace_text,
 };
 use super::super::custom_terminal::Frame;
@@ -188,7 +188,7 @@ fn render_help_modal(f: &mut Frame, app: &TuiApp, area: Rect, tab: HelpTab) {
                 left[2],
             );
             f.render_widget(
-                Paragraph::new(panel_text("resources", &status_resources_text(app)))
+                Paragraph::new(panel_text("metrics", &status_metrics_text(app)))
                     .block(Block::default().borders(Borders::RIGHT))
                     .wrap(Wrap { trim: false }),
                 right[0],

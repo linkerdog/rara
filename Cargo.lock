@@ -10264,6 +10264,7 @@ dependencies = [
  "rara-instructions",
  "rara-mcp-client",
  "rara-memory",
+ "rara-observability",
  "rara-persistence",
  "rara-plugins",
  "rara-provider-catalog",
@@ -10367,6 +10368,13 @@ dependencies = [
  "rara-persistence",
  "serde",
  "tokio",
+]
+
+[[package]]
+name = "rara-observability"
+version = "0.0.1"
+dependencies = [
+ "serde",
 ]
 
 [[package]]

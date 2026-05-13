@@ -4,8 +4,8 @@ use super::specs::normalize_command_token;
 use super::status::truncate_preview;
 use super::{
     COMMAND_SPECS, help_text, matching_commands, model_help_text, palette_commands,
-    parse_local_command, recommended_commands, status_context_text, status_prompt_sources_text,
-    status_resources_text, status_runtime_text,
+    parse_local_command, recommended_commands, status_context_text, status_metrics_text,
+    status_prompt_sources_text, status_resources_text, status_runtime_text,
 };
 use crate::config::{ConfigManager, OpenAiEndpointKind};
 use crate::context::{PromptSourceContextEntry, TodoContextView};
@@ -699,6 +699,28 @@ fn status_resources_text_includes_token_and_cache_summary() {
     assert!(rendered.contains("recent_compact_files=src/main.rs, src/lib.rs"));
     assert!(rendered.contains("state_db=sqlite:/tmp/rara/state.db"));
     assert!(!rendered.contains("cache=sqlite:/tmp/rara/state.db"));
+}
+
+#[test]
+fn status_metrics_text_reports_memory_latency_percentiles() {
+    rara_observability::global_memory_observability().record_latency(
+        rara_observability::MemoryOperation::Query,
+        std::time::Duration::from_millis(42),
+    );
+    let dir = tempdir().expect("tempdir");
+    let cm = ConfigManager {
+        path: dir.path().join("config.json"),
+    };
+    let app = TuiApp::new(cm).expect("app");
+
+    let rendered = status_metrics_text(&app);
+
+    assert!(rendered.contains("memory_read_latency="));
+    assert!(rendered.contains("memory_write_latency="));
+    assert!(rendered.contains("memory_query_latency="));
+    assert!(rendered.contains("p80="));
+    assert!(rendered.contains("p99="));
+    assert!(rendered.contains("samples="));
 }
 
 #[test]

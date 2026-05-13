@@ -14,6 +14,7 @@ members = [
     "crates/rara-mcp-client",
     "crates/rara-state",
     "crates/rara-memory",
+    "crates/rara-observability",
     "crates/rara-tools",
     "crates/rara-plugins",
 ]
@@ -47,6 +48,7 @@ edition = "2024"
 rara-persistence = { path = "crates/rara-persistence" }
 rara-mcp-client = { path = "crates/rara-mcp-client" }
 rara-memory = { path = "crates/rara-memory" }
+rara-observability = { path = "crates/rara-observability" }
 rara-tools = { path = "crates/rara-tools" }
 rara-plugins = { path = "crates/rara-plugins" }
 rara-state = { path = "crates/rara-state" }
