@@ -292,12 +292,17 @@ fn prepare_local_model_server_status_inner(
             }
 
             let python = venv_python_path(&server.venv_dir);
-            if !python.is_file() && mode == BootstrapMode::InspectOnly {
+            if mode == BootstrapMode::InspectOnly {
+                let detail = if python.is_file() {
+                    "model server not ready; initialization will run after TUI starts".to_string()
+                } else {
+                    format!("venv python missing at {}", python.display())
+                };
                 return LocalModelServerStatus {
                     state: LocalModelServerState::SetupRequired,
                     backend: backend.to_string(),
                     model: model.to_string(),
-                    detail: format!("venv python missing at {}", python.display()),
+                    detail,
                     server_path: Some(server.path),
                     endpoint: None,
                 };
@@ -973,6 +978,27 @@ mod tests {
                 .is_some_and(|path| path.is_file())
         );
         assert!(status.detail.contains("venv python missing"));
+    }
+
+    #[test]
+    fn inspect_only_does_not_install_dependencies_when_venv_exists() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let server = ensure_bundled_model_server(temp.path()).expect("install model server");
+        let python = super::venv_python_path(&server.venv_dir);
+        fs::create_dir_all(python.parent().expect("python parent")).expect("mkdir venv bin");
+        fs::write(&python, b"").expect("fake python");
+
+        let status =
+            prepare_local_model_server_status_inner(temp.path(), BootstrapMode::InspectOnly);
+
+        assert_eq!(status.state, LocalModelServerState::SetupRequired);
+        assert!(
+            status
+                .detail
+                .contains("initialization will run after TUI starts")
+        );
+        assert!(!requirements_marker_path(&server.runtime_dir).exists());
+        assert!(!startup_lock_path(&server.runtime_dir).exists());
     }
 
     #[test]

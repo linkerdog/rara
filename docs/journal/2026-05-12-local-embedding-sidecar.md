@@ -55,6 +55,11 @@ is ready. The rebuild result carries the final local model server status back
 into TUI state, so `/status` and the overview panel do not keep showing the
 startup inspect-only state after initialization succeeds.
 
+Inspect-only startup now has a hard side-effect boundary: after checking for a
+reusable ready server, it returns setup-required status instead of acquiring the
+startup lock or running dependency installation. This prevents a partially
+created managed venv from blocking the first TUI frame with pip resolver work.
+
 The macOS Apple Silicon dependency manifest pins published and compatible MLX,
 MLX-VLM, Transformers, and Regex packages. The narrower pins avoid slow pip
 backtracking during first-run bootstrap and prevent the resolver from choosing
