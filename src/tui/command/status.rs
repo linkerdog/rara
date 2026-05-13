@@ -597,6 +597,7 @@ pub fn status_runtime_text(app: &TuiApp) -> String {
             "installing_dependencies"
         }
         crate::local_model_server::LocalModelServerState::PreparingModel => "preparing_model",
+        crate::local_model_server::LocalModelServerState::PreparedButStopped => "prepared_stopped",
         crate::local_model_server::LocalModelServerState::SetupRequired => "setup_required",
         crate::local_model_server::LocalModelServerState::Error => "error",
     };

@@ -154,8 +154,13 @@ RARA owns the model server lifecycle. A normal `rara` startup should:
    health check as a dead server and attempt to become the owner process.
 5. Acquire a managed startup lock before creating the venv, installing
    dependencies, starting the server, or preparing the model.
-6. Start the server if no reusable server exists.
-7. Ask the server to prepare the default embedding backend/model if the health
+6. If the managed venv and dependency marker already match the bundled
+   requirements, invoke the server with the prepared venv Python directly.
+7. If the managed runtime is missing or out of date, create or repair the venv
+   and install the selected bundled requirements before starting the server. If
+   dependency installation fails, remove the managed venv directory so the next
+   startup does not treat a partial environment as prepared.
+8. Ask the server to prepare the default embedding backend/model if the health
    endpoint reports that the model is not present or not ready.
 
 The startup lock must live under the managed model-server runtime directory and
@@ -174,8 +179,12 @@ model server:
    ownership.
 3. At most one agent may hold the startup lock and act as the bootstrap owner at
    any point in time.
-4. The bootstrap owner creates the venv if needed, installs dependencies, starts
-   the server, and asks Python to prepare/download the selected model.
+4. The bootstrap owner checks whether the managed venv and dependency marker are
+   already prepared. If so, it skips dependency installation and starts the
+   server with the prepared venv Python. If not, it creates or repairs the
+   venv, installs dependencies, removes the venv on installation failure, starts
+   the server after successful dependency installation, and asks Python to
+   prepare/download the selected model.
 5. Non-owner agents must not create another venv, run another dependency
    install, start another server on a different port, or trigger duplicate model
    downloads while an owner is making progress.
@@ -356,6 +365,7 @@ Valid preparation states:
 | `installing_dependencies` | Rust is installing bundled requirement manifests |
 | `starting_server` | Rust is starting the loopback Python process |
 | `waiting_for_server` | Another RARA process owns bootstrap and this process is waiting to reuse it |
+| `prepared_stopped` | The managed Python runtime is prepared, but no reusable server is currently running |
 | `reusing_server` | Rust found and reused an existing healthy server |
 | `downloading` | Rust or Python is downloading model artifacts, depending on the runtime profile |
 | `ready` | Server and selected embedding model are ready |
@@ -379,12 +389,23 @@ Valid preparation states:
 - TUI startup should first inspect the managed sidecar state. If the server and
   selected model are already ready, startup must skip the initialization window
   and avoid repeated venv, dependency, or model preparation work.
+- If startup inspection finds a prepared runtime but no live server, background
+  initialization must start the server with
+  `.rara/runtime/model-server/venv/bin/python` and skip venv creation and
+  dependency installation.
+- If startup preparation creates or repairs the managed venv and dependency
+  installation fails, RARA must remove the managed venv directory before
+  reporting the bootstrap error.
 - If the sidecar is not ready, TUI startup should open the interface with a
   lightweight agent whose initial construction does not block on sidecar
   preparation, show an initialization status surface, and replace the agent
   automatically when local embedding bootstrap completes.
 - When the local model server is ready, memory embedding calls should use the
   sidecar endpoint instead of the hosted chat provider's embedding fallback.
+- Embedding request hot paths must not create a venv, install dependencies,
+  download model artifacts, or start the server. If no reusable endpoint is
+  available, the embedding backend should fail fast and let memory retrieval
+  skip or fall back according to the caller's policy.
 - Chat completions, tool calling, summaries, context budgets, cache profiles,
   and classifiers remain owned by the configured chat `LlmBackend`.
 - Multiple RARA instances should share one healthy local model server instead
@@ -442,6 +463,10 @@ Valid preparation states:
   and Python runtime discovery.
 - The server process should use `.rara/runtime/model-server/venv/bin/python`
   after setup.
+- If the prepared venv and requirements marker already exist, startup should
+  only execute that Python server command and should not reinstall dependencies.
+- If dependency installation fails, startup should delete the managed venv
+  directory and report the install error instead of leaving a partial runtime.
 - Startup should prepare the server automatically; `/status` should report that
   background preparation state rather than initiating it.
 - TUI startup should not block first paint on local embedding bootstrap. A

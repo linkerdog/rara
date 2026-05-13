@@ -101,6 +101,18 @@ The intended Python runtime is a RARA-owned venv under
 `~/.rara/runtime/model-server/venv`. Dependency installation is performed by the
 Rust bootstrap owner from bundled requirement manifests, then recorded through a
 requirements hash marker so ordinary startup can skip a repeated install.
+Startup now treats the prepared runtime and live server as separate facts: if a
+healthy server is already running, RARA reuses it; if the venv and dependency
+marker already match but no server is alive, bootstrap starts the Python server
+with the prepared venv and skips reinstalling dependencies. If dependency
+installation fails while preparing the runtime, RARA removes the managed venv
+directory so a later startup retries from a clean environment.
+
+Embedding request hot paths no longer perform sidecar bootstrap. They only
+refresh by inspecting the existing managed state and fail fast when no reusable
+endpoint is available, leaving startup/rebuild tasks as the only place that
+creates venvs, installs dependencies, starts the server, or asks Python to
+prepare the model.
 
 ## Status Surface
 

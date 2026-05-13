@@ -59,6 +59,7 @@ pub(crate) enum LocalModelServerState {
     CreatingVenv,
     InstallingDependencies,
     PreparingModel,
+    PreparedButStopped,
     SetupRequired,
     Error,
 }
@@ -216,14 +217,18 @@ impl LocalModelServerEmbeddingBackend {
     }
 
     fn refresh_endpoint(&self) -> Result<String> {
-        let status = prepare_local_model_server_status(&self.rara_home);
-        let endpoint = status.endpoint.ok_or_else(|| {
-            anyhow!(
+        let status = inspect_local_model_server_status(&self.rara_home);
+        let Some(endpoint) = status.endpoint else {
+            *self
+                .endpoint
+                .lock()
+                .expect("local embedding endpoint lock poisoned") = None;
+            return Err(anyhow!(
                 "local embedding model server unavailable: state={:?}; {}",
                 status.state,
                 status.detail
-            )
-        })?;
+            ));
+        };
         *self
             .endpoint
             .lock()
@@ -313,21 +318,8 @@ fn prepare_local_model_server_status_inner(
                 return status;
             }
 
-            let python = venv_python_path(&server.venv_dir);
             if mode == BootstrapMode::InspectOnly {
-                let detail = if python.is_file() {
-                    "model server not ready; initialization will run after TUI starts".to_string()
-                } else {
-                    format!("venv python missing at {}", python.display())
-                };
-                return LocalModelServerStatus {
-                    state: LocalModelServerState::SetupRequired,
-                    backend: backend.to_string(),
-                    model: model.to_string(),
-                    detail,
-                    server_path: Some(server.path),
-                    endpoint: None,
-                };
+                return inspect_prepared_runtime_status(&server, backend, model);
             }
 
             let lock_path = startup_lock_path(&server.runtime_dir);
@@ -347,30 +339,22 @@ fn prepare_local_model_server_status_inner(
                 return status;
             }
 
-            let python = match ensure_managed_venv(&server) {
+            let python = match prepared_runtime_python(&server).and_then(|python| match python {
+                Some(python) => Ok(python),
+                None => prepare_managed_runtime(&server),
+            }) {
                 Ok(python) => python,
                 Err(err) => {
                     return LocalModelServerStatus {
                         state: LocalModelServerState::Error,
                         backend: backend.to_string(),
                         model: model.to_string(),
-                        detail: format!("failed to create managed Python venv: {err}"),
+                        detail: err.to_string(),
                         server_path: Some(server.path),
                         endpoint: None,
                     };
                 }
             };
-
-            if let Err(err) = ensure_model_server_dependencies(&server, &python) {
-                return LocalModelServerStatus {
-                    state: LocalModelServerState::Error,
-                    backend: backend.to_string(),
-                    model: model.to_string(),
-                    detail: format!("failed to install model server dependencies: {err}"),
-                    server_path: Some(server.path),
-                    endpoint: None,
-                };
-            }
 
             let model_path = match prepare_local_embedding_model_snapshot(
                 &server.runtime_dir,
@@ -402,6 +386,87 @@ fn prepare_local_model_server_status_inner(
             endpoint: None,
         },
     }
+}
+
+fn inspect_prepared_runtime_status(
+    server: &BundledModelServer,
+    backend: &str,
+    model: &str,
+) -> LocalModelServerStatus {
+    let python = venv_python_path(&server.venv_dir);
+    match prepared_runtime_python(server) {
+        Ok(Some(_)) => LocalModelServerStatus {
+            state: LocalModelServerState::PreparedButStopped,
+            backend: backend.to_string(),
+            model: model.to_string(),
+            detail: "managed Python runtime is prepared; model server is not running".to_string(),
+            server_path: Some(server.path.clone()),
+            endpoint: None,
+        },
+        Ok(None) => LocalModelServerStatus {
+            state: LocalModelServerState::SetupRequired,
+            backend: backend.to_string(),
+            model: model.to_string(),
+            detail: if python.is_file() {
+                "managed Python venv exists but dependencies are not installed".to_string()
+            } else {
+                format!("venv python missing at {}", python.display())
+            },
+            server_path: Some(server.path.clone()),
+            endpoint: None,
+        },
+        Err(err) => LocalModelServerStatus {
+            state: LocalModelServerState::Error,
+            backend: backend.to_string(),
+            model: model.to_string(),
+            detail: format!("failed to inspect managed Python runtime: {err}"),
+            server_path: Some(server.path.clone()),
+            endpoint: None,
+        },
+    }
+}
+
+fn prepared_runtime_python(server: &BundledModelServer) -> Result<Option<PathBuf>> {
+    let python = venv_python_path(&server.venv_dir);
+    if !python.is_file() {
+        return Ok(None);
+    }
+    let requirements = selected_requirements_file(server)?;
+    if !requirements_marker_matches(
+        &requirements_marker_path(&server.runtime_dir),
+        &requirements.sha256,
+    )? {
+        return Ok(None);
+    }
+    Ok(Some(python))
+}
+
+fn prepare_managed_runtime(server: &BundledModelServer) -> Result<PathBuf> {
+    let python = ensure_managed_venv(server).context("failed to create managed Python venv")?;
+    if let Err(err) = ensure_model_server_dependencies(server, &python)
+        .context("failed to install model server dependencies")
+    {
+        if let Err(cleanup_err) = cleanup_failed_venv(server) {
+            return Err(anyhow!(
+                "{err}; also failed to remove incomplete managed venv {}: {cleanup_err}",
+                server.venv_dir.display()
+            ));
+        }
+        return Err(anyhow!(
+            "{err}; removed incomplete managed venv {}",
+            server.venv_dir.display()
+        ));
+    }
+    Ok(python)
+}
+
+fn cleanup_failed_venv(server: &BundledModelServer) -> Result<()> {
+    ensure_runtime_dir_inside_home(&server.runtime_dir, &server.venv_dir)?;
+    if server.venv_dir.exists() {
+        fs::remove_dir_all(&server.venv_dir)
+            .with_context(|| format!("remove failed managed venv {}", server.venv_dir.display()))?;
+    }
+    Ok(())
 }
 
 fn reusable_server_status(
@@ -1207,12 +1272,12 @@ mod tests {
 
     use super::{
         BootstrapMode, LocalModelServerEmbeddingBackend, LocalModelServerState,
-        ModelServerMetadata, StartupLock, ensure_bundled_model_server, health_identity_matches,
-        health_model_ready, metadata_path, model_snapshot_marker_path,
+        ModelServerMetadata, StartupLock, cleanup_failed_venv, ensure_bundled_model_server,
+        health_identity_matches, health_model_ready, metadata_path, model_snapshot_marker_path,
         prepare_local_model_server_status_inner, read_matching_model_snapshot_marker,
         requirements_marker_matches, requirements_marker_path, reusable_server_status,
         selected_requirements_file, sha256_hex, snapshot_has_all_files, startup_lock_path,
-        unix_timestamp_secs, write_file_atomically, write_model_snapshot_marker,
+        unix_timestamp_secs, venv_python_path, write_file_atomically, write_model_snapshot_marker,
         write_server_metadata,
     };
     use crate::llm::{EmbeddingBackend, EmbeddingInputKind};
@@ -1286,7 +1351,7 @@ mod tests {
     fn inspect_only_does_not_install_dependencies_when_venv_exists() {
         let temp = tempfile::tempdir().expect("tempdir");
         let server = ensure_bundled_model_server(temp.path()).expect("install model server");
-        let python = super::venv_python_path(&server.venv_dir);
+        let python = venv_python_path(&server.venv_dir);
         fs::create_dir_all(python.parent().expect("python parent")).expect("mkdir venv bin");
         fs::write(&python, b"").expect("fake python");
 
@@ -1294,13 +1359,47 @@ mod tests {
             prepare_local_model_server_status_inner(temp.path(), BootstrapMode::InspectOnly, None);
 
         assert_eq!(status.state, LocalModelServerState::SetupRequired);
-        assert!(
-            status
-                .detail
-                .contains("initialization will run after TUI starts")
-        );
+        assert!(status.detail.contains("dependencies are not installed"));
         assert!(!requirements_marker_path(&server.runtime_dir).exists());
         assert!(!startup_lock_path(&server.runtime_dir).exists());
+    }
+
+    #[test]
+    fn inspect_reports_prepared_runtime_when_server_is_stopped() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let server = ensure_bundled_model_server(temp.path()).expect("install model server");
+        let python = venv_python_path(&server.venv_dir);
+        fs::create_dir_all(python.parent().expect("python parent")).expect("create venv bin");
+        fs::write(&python, b"").expect("write venv python placeholder");
+        let selected = selected_requirements_file(&server).expect("selected requirements");
+        let marker = serde_json::json!({
+            "requirements_sha256": selected.sha256,
+            "requirements_path": selected.path,
+        });
+        write_file_atomically(
+            &requirements_marker_path(&server.runtime_dir),
+            serde_json::to_vec_pretty(&marker).unwrap().as_slice(),
+        )
+        .expect("write requirements marker");
+
+        let status =
+            prepare_local_model_server_status_inner(temp.path(), BootstrapMode::InspectOnly, None);
+
+        assert_eq!(status.state, LocalModelServerState::PreparedButStopped);
+        assert_eq!(status.endpoint, None);
+        assert!(status.detail.contains("runtime is prepared"));
+    }
+
+    #[test]
+    fn cleanup_failed_venv_removes_managed_venv() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let server = ensure_bundled_model_server(temp.path()).expect("install model server");
+        fs::create_dir_all(&server.venv_dir).expect("create venv dir");
+        fs::write(server.venv_dir.join("partial"), b"partial").expect("write partial file");
+
+        cleanup_failed_venv(&server).expect("cleanup failed venv");
+
+        assert!(!server.venv_dir.exists());
     }
 
     #[test]
@@ -1421,6 +1520,30 @@ mod tests {
         let body = captured_body.lock().expect("captured body").clone();
         assert!(body.contains(r#""input":"Explain vector search""#));
         assert!(body.contains(r#""input_type":"query""#));
+    }
+
+    #[tokio::test]
+    async fn local_embedding_backend_refresh_does_not_prepare_missing_runtime() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let backend = LocalModelServerEmbeddingBackend::from_initial_status(
+            temp.path().to_path_buf(),
+            super::LocalModelServerStatus::default(),
+        )
+        .expect("backend");
+
+        let err = backend
+            .embed("Explain vector search", EmbeddingInputKind::Query)
+            .await
+            .expect_err("embed should fail without bootstrapping");
+
+        assert!(
+            err.to_string()
+                .contains("local embedding model server unavailable")
+        );
+        assert!(
+            !venv_python_path(&temp.path().join("runtime/model-server/venv")).is_file(),
+            "embed refresh must not create or prepare the managed venv"
+        );
     }
 
     #[test]

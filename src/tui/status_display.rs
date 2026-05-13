@@ -316,6 +316,9 @@ fn render_local_embedding_status(app: &TuiApp, lines: &mut Vec<Line<'static>>) {
         crate::local_model_server::LocalModelServerState::PreparingModel => {
             ("preparing_model", Color::Yellow)
         }
+        crate::local_model_server::LocalModelServerState::PreparedButStopped => {
+            ("prepared_stopped", Color::Yellow)
+        }
         crate::local_model_server::LocalModelServerState::SetupRequired => {
             ("setup_required", Color::Yellow)
         }
