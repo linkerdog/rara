@@ -1,3 +1,4 @@
+use super::selection::ScreenPosition;
 use super::state::{HelpTab, Overlay, StatusTab};
 
 #[derive(Debug, Clone)]
@@ -18,6 +19,9 @@ pub enum AppEvent {
     MoveCursorDown,
     NavigateInputHistory(i32),
     ScrollTranscript(i32),
+    StartTranscriptSelection(ScreenPosition),
+    DragTranscriptSelection(ScreenPosition),
+    FinishTranscriptSelection(ScreenPosition),
     ScrollContext(i32),
     MoveCommandSelection(i32),
     MovePermissionSelection(i32),

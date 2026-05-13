@@ -106,6 +106,22 @@ pub(crate) async fn dispatch_event(
             app.navigate_input_history(delta);
         }
         AppEvent::ScrollTranscript(delta) => app.scroll_transcript(delta),
+        AppEvent::StartTranscriptSelection(position) => {
+            app.transcript_selection.start(position);
+        }
+        AppEvent::DragTranscriptSelection(position) => {
+            app.transcript_selection.drag(position);
+        }
+        AppEvent::FinishTranscriptSelection(position) => {
+            if let Some(text) = app.transcript_selection.finish(position) {
+                match crate::tui::clipboard::copy_text(text.as_str()) {
+                    Ok(()) => app.push_notice("Copied transcript selection to clipboard."),
+                    Err(err) => {
+                        app.push_notice(format!("Failed to copy transcript selection: {err}"))
+                    }
+                }
+            }
+        }
         AppEvent::ScrollContext(delta) => app.scroll_context(delta),
         AppEvent::MoveCommandSelection(delta) => {
             if matches!(app.overlay, Some(Overlay::ModelSearch)) {

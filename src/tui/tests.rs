@@ -3382,7 +3382,7 @@ fn mouse_wheel_with_no_overlay_routes_to_scroll_transcript() {
 }
 
 #[test]
-fn non_scroll_mouse_click_is_noop_regardless_of_overlay() {
+fn left_mouse_drag_routes_to_transcript_selection_without_overlay() {
     let temp = tempdir().expect("tempdir");
     let mut app = TuiApp::new(ConfigManager {
         path: temp.path().join("config.json"),
@@ -3398,7 +3398,8 @@ fn non_scroll_mouse_click_is_noop_regardless_of_overlay() {
 
     assert!(matches!(
         translate_event(click.clone(), &app),
-        Some(UiEvent::App(AppEvent::Noop))
+        Some(UiEvent::App(AppEvent::StartTranscriptSelection(position)))
+            if position.x == 5 && position.y == 10
     ));
 
     app.open_overlay(Overlay::CommandPalette);
