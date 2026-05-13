@@ -121,6 +121,13 @@ Face `refs/main` snapshot before making a remote metadata request. Portable
 FastEmbed/BGE-M3 remains Python-managed for this slice, so Linux and other
 non-Apple-Silicon platforms do not inherit MLX-specific cache checks.
 
+Review follow-up tightened the sidecar boundary further. Embedding endpoint
+refresh now runs through `spawn_blocking`, so failed or expired endpoint
+inspection does not block the async executor. Rust health and prepare calls use
+`reqwest` instead of hand-written TCP request parsing. Atomic file writes also
+include a per-process counter in temporary filenames so concurrent writes to the
+same managed file do not collide within one RARA process.
+
 ## Status Surface
 
 `/status` now shows local embedding model state with backend, model, setup

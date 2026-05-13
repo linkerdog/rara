@@ -1,9 +1,9 @@
 use std::fs::{self, File};
-use std::io::{Read, Write};
-use std::net::TcpStream;
+use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output, Stdio};
 use std::sync::Mutex;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use anyhow::{Context, Result, anyhow, bail};
@@ -50,6 +50,7 @@ const PREPARE_TIMEOUT: Duration = Duration::from_secs(30);
 const STARTUP_HEALTH_ATTEMPTS: usize = 10;
 const STARTUP_HEALTH_DELAY: Duration = Duration::from_millis(100);
 const MODEL_REVISION: &str = "main";
+static ATOMIC_WRITE_COUNTER: AtomicU64 = AtomicU64::new(0);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum SnapshotPreparation {
@@ -237,24 +238,38 @@ impl LocalModelServerEmbeddingBackend {
             .clone()
     }
 
-    fn refresh_endpoint(&self) -> Result<String> {
-        let status = inspect_local_model_server_status(&self.rara_home);
-        let Some(endpoint) = status.endpoint else {
-            *self
-                .endpoint
-                .lock()
-                .expect("local embedding endpoint lock poisoned") = None;
-            return Err(anyhow!(
-                "local embedding model server unavailable: state={:?}; {}",
-                status.state,
-                status.detail
-            ));
-        };
-        *self
-            .endpoint
-            .lock()
-            .expect("local embedding endpoint lock poisoned") = Some(endpoint.clone());
-        Ok(endpoint)
+    async fn refresh_endpoint(&self) -> Result<String> {
+        let rara_home = self.rara_home.clone();
+        let result = tokio::task::spawn_blocking(move || {
+            let status = inspect_local_model_server_status(&rara_home);
+            let Some(endpoint) = status.endpoint else {
+                return Err(anyhow!(
+                    "local embedding model server unavailable: state={:?}; {}",
+                    status.state,
+                    status.detail
+                ));
+            };
+            Ok(endpoint)
+        })
+        .await
+        .context("join local embedding endpoint refresh")?;
+
+        match result {
+            Ok(endpoint) => {
+                *self
+                    .endpoint
+                    .lock()
+                    .expect("local embedding endpoint lock poisoned") = Some(endpoint.clone());
+                Ok(endpoint)
+            }
+            Err(err) => {
+                *self
+                    .endpoint
+                    .lock()
+                    .expect("local embedding endpoint lock poisoned") = None;
+                Err(err)
+            }
+        }
     }
 }
 
@@ -263,12 +278,12 @@ impl EmbeddingBackend for LocalModelServerEmbeddingBackend {
     async fn embed(&self, text: &str, kind: EmbeddingInputKind) -> Result<Vec<f32>> {
         let endpoint = match self.cached_endpoint() {
             Some(endpoint) => endpoint,
-            None => self.refresh_endpoint()?,
+            None => self.refresh_endpoint().await?,
         };
         match self.embed_once(&endpoint, text, kind).await {
             Ok(vector) => Ok(vector),
             Err(first_error) => {
-                let refreshed_endpoint = self.refresh_endpoint()?;
+                let refreshed_endpoint = self.refresh_endpoint().await?;
                 if refreshed_endpoint == endpoint {
                     return Err(first_error);
                 }
@@ -1196,33 +1211,15 @@ fn write_server_metadata(path: &Path, metadata: &ModelServerMetadata) -> Result<
 }
 
 fn probe_health(host: &str, port: u16) -> Result<Value> {
-    let mut stream =
-        TcpStream::connect((host, port)).with_context(|| format!("connect {host}:{port}"))?;
-    stream
-        .set_read_timeout(Some(HEALTH_TIMEOUT))
-        .context("set model server health read timeout")?;
-    stream
-        .set_write_timeout(Some(HEALTH_TIMEOUT))
-        .context("set model server health write timeout")?;
-    let request = format!(
-        "GET /health HTTP/1.1\r\nHost: {host}:{port}\r\nConnection: close\r\nAccept: application/json\r\n\r\n"
-    );
-    stream
-        .write_all(request.as_bytes())
-        .context("write model server health request")?;
-    let mut response = Vec::new();
-    stream
-        .read_to_end(&mut response)
-        .context("read model server health response")?;
-    let response = String::from_utf8(response).context("decode model server health response")?;
-    if !response.starts_with("HTTP/1.0 200") && !response.starts_with("HTTP/1.1 200") {
-        bail!("model server health returned non-200 status");
-    }
-    let body = response
-        .split_once("\r\n\r\n")
-        .map(|(_, body)| body)
-        .ok_or_else(|| anyhow!("model server health response missing body"))?;
-    serde_json::from_str(body).context("parse model server health response")
+    model_server_http_client(HEALTH_TIMEOUT)?
+        .get(model_server_url(host, port, "/health")?)
+        .header(reqwest::header::ACCEPT, "application/json")
+        .send()
+        .context("send model server health request")?
+        .error_for_status()
+        .context("model server health returned non-success status")?
+        .json()
+        .context("parse model server health response")
 }
 
 fn prepare_model(host: &str, port: u16, backend: &str, model_path: Option<&Path>) -> Result<()> {
@@ -1246,39 +1243,34 @@ fn prepare_model(host: &str, port: u16, backend: &str, model_path: Option<&Path>
 }
 
 fn post_json(host: &str, port: u16, path: &str, body: &str, timeout: Duration) -> Result<Value> {
-    let mut stream =
-        TcpStream::connect((host, port)).with_context(|| format!("connect {host}:{port}"))?;
-    stream
-        .set_read_timeout(Some(timeout))
-        .context("set model server POST read timeout")?;
-    stream
-        .set_write_timeout(Some(timeout))
-        .context("set model server POST write timeout")?;
-    let request = format!(
-        "POST {path} HTTP/1.1\r\nHost: {host}:{port}\r\nConnection: close\r\nAccept: application/json\r\nContent-Type: application/json\r\nContent-Length: {}\r\n\r\n{}",
-        body.len(),
-        body
-    );
-    stream
-        .write_all(request.as_bytes())
-        .context("write model server POST request")?;
-    let mut response = Vec::new();
-    stream
-        .read_to_end(&mut response)
-        .context("read model server POST response")?;
-    let response = String::from_utf8(response).context("decode model server POST response")?;
-    if !response.starts_with("HTTP/1.0 200") && !response.starts_with("HTTP/1.1 200") {
+    let response = model_server_http_client(timeout)?
+        .post(model_server_url(host, port, path)?)
+        .header(reqwest::header::ACCEPT, "application/json")
+        .header(reqwest::header::CONTENT_TYPE, "application/json")
+        .body(body.to_string())
+        .send()
+        .context("send model server POST request")?;
+    if !response.status().is_success() {
+        let status = response.status();
         let error = response
-            .split_once("\r\n\r\n")
-            .map(|(_, body)| body.trim())
-            .unwrap_or("missing response body");
-        bail!("model server POST returned non-200 status: {error}");
+            .text()
+            .unwrap_or_else(|_| "missing response body".to_string());
+        bail!("model server POST returned non-success status {status}: {error}");
     }
-    let body = response
-        .split_once("\r\n\r\n")
-        .map(|(_, body)| body)
-        .ok_or_else(|| anyhow!("model server POST response missing body"))?;
-    serde_json::from_str(body).context("parse model server POST response")
+    response.json().context("parse model server POST response")
+}
+
+fn model_server_http_client(timeout: Duration) -> Result<reqwest::blocking::Client> {
+    reqwest::blocking::Client::builder()
+        .timeout(timeout)
+        .no_proxy()
+        .build()
+        .context("build model server HTTP client")
+}
+
+fn model_server_url(host: &str, port: u16, path: &str) -> Result<reqwest::Url> {
+    reqwest::Url::parse(&format!("http://{host}:{port}{path}"))
+        .with_context(|| format!("build model server URL for {host}:{port}{path}"))
 }
 
 fn health_identity_matches(health: &Value, backend: &str, model: &str) -> bool {
@@ -1381,7 +1373,12 @@ fn write_file_atomically(path: &Path, content: &[u8]) -> Result<()> {
         .file_name()
         .and_then(|name| name.to_str())
         .ok_or_else(|| anyhow!("invalid model server path: {}", path.display()))?;
-    let tmp_path = path.with_file_name(format!(".{file_name}.{}.tmp", std::process::id()));
+    let write_id = ATOMIC_WRITE_COUNTER.fetch_add(1, Ordering::Relaxed);
+    let tmp_path = path.with_file_name(format!(
+        ".{file_name}.{}.{}.tmp",
+        std::process::id(),
+        write_id
+    ));
     let mut file = fs::OpenOptions::new()
         .write(true)
         .create_new(true)
@@ -1430,6 +1427,8 @@ mod tests {
     use std::net::TcpListener;
     use std::sync::{Arc, Mutex};
     use std::thread;
+
+    use hf_hub::{Repo, RepoType};
 
     use super::{
         BootstrapMode, LocalModelServerEmbeddingBackend, LocalModelServerState,
