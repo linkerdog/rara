@@ -22,7 +22,7 @@ use crate::llm::{
 use crate::local_backend::{LocalLlmBackend, LocalProgressReporter};
 use crate::local_model_server::{
     LocalModelServerEmbeddingBackend, LocalModelServerStatus, inspect_local_model_server_status,
-    prepare_local_model_server_status,
+    prepare_local_model_server_status_with_progress,
 };
 use crate::mcp_connection_manager::McpConnectionManager;
 use crate::mcp_tool_cache::McpToolCache;
@@ -307,7 +307,7 @@ fn local_model_server_status_for_bootstrap(
     let status = match bootstrap {
         LocalEmbeddingBootstrap::Prepare => {
             report_local_embedding_progress(progress, "Embedding · preparing local model server");
-            prepare_local_model_server_status(rara_home)
+            prepare_local_model_server_status_with_progress(rara_home, progress.clone())
         }
         LocalEmbeddingBootstrap::InspectOnly => inspect_local_model_server_status(rara_home),
     };

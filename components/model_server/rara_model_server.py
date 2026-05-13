@@ -16,6 +16,7 @@ import sys
 import time
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from pathlib import Path
 from typing import Any, Iterable
 
 
@@ -73,6 +74,21 @@ def _format_query(text: str, input_type: str) -> str:
     return f"Instruct: {QUERY_INSTRUCTION}\nQuery:{text}"
 
 
+def _validated_local_model_path(model_path: str | None) -> str | None:
+    if not model_path:
+        return None
+    cache_dir = os.environ.get("RARA_MODEL_CACHE_DIR")
+    if not cache_dir:
+        raise RuntimeError("local model paths require RARA_MODEL_CACHE_DIR")
+    root = Path(cache_dir).expanduser().resolve()
+    candidate = Path(model_path).expanduser().resolve()
+    if not candidate.is_dir():
+        raise RuntimeError(f"local model path is not a directory: {model_path}")
+    if root != candidate and root not in candidate.parents:
+        raise RuntimeError("local model path must stay under RARA_MODEL_CACHE_DIR")
+    return str(candidate)
+
+
 def _first_vector(values: Iterable[Any]) -> list[float]:
     try:
         vector = next(iter(values))
@@ -94,7 +110,7 @@ class EmbeddingBackend:
         self.loaded_at: float | None = None
         self.last_used = 0.0
 
-    def load(self) -> None:
+    def load(self, model_path: str | None = None) -> None:
         raise NotImplementedError
 
     def embed_one(self, text: str, input_type: str) -> list[float]:
@@ -129,7 +145,7 @@ class MlxQwen3Backend(EmbeddingBackend):
         self.model: Any | None = None
         self.tokenizer: Any | None = None
 
-    def load(self) -> None:
+    def load(self, model_path: str | None = None) -> None:
         if self.model is not None and self.tokenizer is not None:
             return
         requested = os.environ.get("RARA_MLX_EMBEDDING_MODEL", MLX_MODEL_ID)
@@ -137,7 +153,7 @@ class MlxQwen3Backend(EmbeddingBackend):
             raise RuntimeError(f"unsupported MLX embedding model: {requested}")
         from mlx_embeddings import load
 
-        self.model, self.tokenizer = load(requested)
+        self.model, self.tokenizer = load(_validated_local_model_path(model_path) or requested)
         self.loaded_at = time.monotonic()
 
     def embed_one(self, text: str, input_type: str) -> list[float]:
@@ -181,9 +197,11 @@ class FastEmbedBgeM3Backend(EmbeddingBackend):
         super().__init__()
         self.model: Any | None = None
 
-    def load(self) -> None:
+    def load(self, model_path: str | None = None) -> None:
         if self.model is not None:
             return
+        if model_path is not None:
+            raise RuntimeError("FastEmbed local model paths are not supported")
         requested = os.environ.get("RARA_FASTEMBED_EMBEDDING_MODEL", FASTEMBED_MODEL_ID)
         if requested != FASTEMBED_MODEL_ID:
             raise RuntimeError(f"unsupported FastEmbed model: {requested}")
@@ -231,7 +249,7 @@ class ModelRegistry:
         for backend in self.backends.values():
             backend.unload_if_idle()
 
-    def prepare_model(self, requested: str | None) -> dict[str, Any]:
+    def prepare_model(self, requested: str | None, model_path: str | None) -> dict[str, Any]:
         backend = self.embedding_backend(requested)
         self.preparation[backend.name] = {
             "state": "loading",
@@ -240,7 +258,7 @@ class ModelRegistry:
             "message": "loading model",
         }
         try:
-            backend.load()
+            backend.load(model_path)
         except Exception as exc:
             self.preparation[backend.name] = {
                 "state": "error",
@@ -367,7 +385,10 @@ class RequestHandler(BaseHTTPRequestHandler):
         backend_name = request.get("backend")
         if backend_name is not None and not isinstance(backend_name, str):
             raise ValueError("backend must be a string")
-        response = REGISTRY.prepare_model(backend_name)
+        model_path = request.get("model_path")
+        if model_path is not None and not isinstance(model_path, str):
+            raise ValueError("model_path must be a string")
+        response = REGISTRY.prepare_model(backend_name, model_path)
         _json_response(self, HTTPStatus.OK, response)
 
 

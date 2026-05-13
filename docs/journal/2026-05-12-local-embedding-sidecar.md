@@ -68,6 +68,15 @@ managed Python environment. Startup warnings from the rebuild path are written
 into the transcript as system entries, while the bottom input area keeps only a
 compact notice that points users to the transcript.
 
+Rust now prepares the MLX Qwen3 model snapshot before asking Python to load the
+backend. The bootstrap owner downloads the allowlisted Hugging Face files into
+RARA's model cache, reports per-file byte progress through the TUI initialization
+surface, writes a completed snapshot marker under the managed model-server
+runtime directory, and passes the local snapshot path to `POST /models/prepare`.
+Later startups first validate that marker and all recorded files; if the model
+is already present, they skip the Hugging Face metadata and download path.
+Python accepts the local path only when it resolves under `RARA_MODEL_CACHE_DIR`.
+
 ## Why
 
 The Rust MLX ecosystem is not yet the lowest-risk path for a Qwen3 embedding
@@ -112,8 +121,8 @@ Target shape:
 - Add config for model server enablement and backend selection.
 - Add explicit embedding provider override / control surface instead of routing
   only from the provider family defaults.
-- Surface structured download byte progress from the Python dependency stack
-  when the backend exposes it.
+- Surface portable FastEmbed/BGE-M3 download progress when the backend exposes
+  it.
 - Smoke test the exact `mlx-community/Qwen3-Embedding-0.6B-4bit-DWQ` artifact
   with `mlx-embeddings`.
 - Smoke test FastEmbed/BGE-M3 on Linux or a non-Apple-Silicon environment.

@@ -9,12 +9,16 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use anyhow::{Context, Result, anyhow, bail};
 use async_trait::async_trait;
 use fs2::FileExt;
+use hf_hub::api::Progress as HfProgress;
+use hf_hub::api::sync::ApiBuilder;
+use hf_hub::{Cache, Repo, RepoType};
 use rara_persistence::redaction::{redact_secrets, sanitize_url_for_display};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sha2::{Digest, Sha256};
 
 use crate::llm::{EmbeddingBackend, EmbeddingInputKind};
+use crate::local_backend::{LocalProgressReporter, default_local_model_cache_dir};
 
 const MODEL_SERVER: &[u8] = include_bytes!(concat!(
     env!("CARGO_MANIFEST_DIR"),
@@ -40,10 +44,12 @@ const DEFAULT_MODEL_SERVER_PORT: u16 = 18181;
 const SERVER_METADATA_NAME: &str = "server.json";
 const STARTUP_LOCK_NAME: &str = "startup.lock";
 const REQUIREMENTS_MARKER_NAME: &str = "requirements-installed.json";
+const MODEL_SNAPSHOT_MARKER_NAME: &str = "model-snapshot.json";
 const HEALTH_TIMEOUT: Duration = Duration::from_millis(300);
 const PREPARE_TIMEOUT: Duration = Duration::from_secs(30);
 const STARTUP_HEALTH_ATTEMPTS: usize = 10;
 const STARTUP_HEALTH_DELAY: Duration = Duration::from_millis(100);
+const MODEL_REVISION: &str = "main";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum LocalModelServerState {
@@ -109,6 +115,14 @@ struct ModelServerMetadata {
     component_sha256: String,
     profile: String,
     started_at: u64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+struct ModelSnapshotMarker {
+    model: String,
+    revision: String,
+    snapshot_path: PathBuf,
+    files: Vec<String>,
 }
 
 struct StartupLock {
@@ -267,11 +281,18 @@ pub(crate) fn ensure_bundled_model_server(rara_home: &Path) -> Result<BundledMod
 }
 
 pub(crate) fn prepare_local_model_server_status(rara_home: &Path) -> LocalModelServerStatus {
-    prepare_local_model_server_status_inner(rara_home, BootstrapMode::Automatic)
+    prepare_local_model_server_status_with_progress(rara_home, None)
+}
+
+pub(crate) fn prepare_local_model_server_status_with_progress(
+    rara_home: &Path,
+    progress: Option<LocalProgressReporter>,
+) -> LocalModelServerStatus {
+    prepare_local_model_server_status_inner(rara_home, BootstrapMode::Automatic, progress)
 }
 
 pub(crate) fn inspect_local_model_server_status(rara_home: &Path) -> LocalModelServerStatus {
-    prepare_local_model_server_status_inner(rara_home, BootstrapMode::InspectOnly)
+    prepare_local_model_server_status_inner(rara_home, BootstrapMode::InspectOnly, None)
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -283,6 +304,7 @@ enum BootstrapMode {
 fn prepare_local_model_server_status_inner(
     rara_home: &Path,
     mode: BootstrapMode,
+    progress: Option<LocalProgressReporter>,
 ) -> LocalModelServerStatus {
     let (backend, model) = default_embedding_backend();
     match ensure_bundled_model_server(rara_home) {
@@ -350,7 +372,26 @@ fn prepare_local_model_server_status_inner(
                 };
             }
 
-            start_model_server(&server, &python, backend, model)
+            let model_path = match prepare_local_embedding_model_snapshot(
+                &server.runtime_dir,
+                backend,
+                model,
+                &progress,
+            ) {
+                Ok(path) => path,
+                Err(err) => {
+                    return LocalModelServerStatus {
+                        state: LocalModelServerState::Error,
+                        backend: backend.to_string(),
+                        model: model.to_string(),
+                        detail: format!("failed to prepare model files: {err}"),
+                        server_path: Some(server.path),
+                        endpoint: None,
+                    };
+                }
+            };
+
+            start_model_server(&server, &python, backend, model, model_path.as_deref())
         }
         Err(err) => LocalModelServerStatus {
             state: LocalModelServerState::Error,
@@ -392,14 +433,17 @@ fn start_model_server(
     python: &Path,
     backend: &str,
     model: &str,
+    model_path: Option<&Path>,
 ) -> LocalModelServerStatus {
     let host = DEFAULT_MODEL_SERVER_HOST;
     let port = DEFAULT_MODEL_SERVER_PORT;
     let endpoint = endpoint_url(host, port);
+    let model_cache_dir = default_local_model_cache_dir();
     match Command::new(python)
         .arg(&server.path)
         .env("RARA_MODEL_SERVER_HOST", host)
         .env("RARA_MODEL_SERVER_PORT", port.to_string())
+        .env("RARA_MODEL_CACHE_DIR", &model_cache_dir)
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(Stdio::null())
@@ -429,7 +473,7 @@ fn start_model_server(
             for _ in 0..STARTUP_HEALTH_ATTEMPTS {
                 if let Ok(health) = probe_health(host, port) {
                     if health_identity_matches(&health, backend, model) {
-                        return match prepare_model(host, port, backend) {
+                        return match prepare_model(host, port, backend, model_path) {
                             Ok(()) => LocalModelServerStatus {
                                 state: LocalModelServerState::Ready,
                                 backend: backend.to_string(),
@@ -454,7 +498,7 @@ fn start_model_server(
                 std::thread::sleep(STARTUP_HEALTH_DELAY);
             }
 
-            if let Ok(()) = prepare_model(host, port, backend) {
+            if let Ok(()) = prepare_model(host, port, backend, model_path) {
                 if let Ok(health) = probe_health(host, port) {
                     if health_identity_matches(&health, backend, model)
                         && health_model_ready(&health, backend)
@@ -590,6 +634,258 @@ fn requirements_marker_matches(path: &Path, expected_hash: &str) -> Result<bool>
         .is_some_and(|hash| hash == expected_hash))
 }
 
+fn prepare_local_embedding_model_snapshot(
+    runtime_dir: &Path,
+    backend: &str,
+    model: &str,
+    progress: &Option<LocalProgressReporter>,
+) -> Result<Option<PathBuf>> {
+    if backend != "mlx_qwen3" {
+        return Ok(None);
+    }
+
+    let cache_dir = default_local_model_cache_dir();
+    let marker_path = model_snapshot_marker_path(runtime_dir);
+    if let Some(marker) = read_matching_model_snapshot_marker(&marker_path, model, MODEL_REVISION)?
+    {
+        if cached_snapshot_under_cache(&marker.snapshot_path, &cache_dir)?
+            && snapshot_has_all_files(&marker.snapshot_path, &marker.files)
+        {
+            report_progress(
+                progress,
+                format!(
+                    "Model · already available at {}",
+                    marker.snapshot_path.display()
+                ),
+            );
+            return Ok(Some(marker.snapshot_path));
+        }
+    }
+
+    report_progress(
+        progress,
+        format!("Model · checking local cache for {model}"),
+    );
+    let repo = Repo::with_revision(
+        model.to_string(),
+        RepoType::Model,
+        MODEL_REVISION.to_string(),
+    );
+    let cache = Cache::new(cache_dir.clone());
+    let cache_repo = cache.repo(repo.clone());
+    let mut builder = ApiBuilder::from_cache(cache)
+        .with_progress(false)
+        .with_retries(3);
+    if let Ok(endpoint) = std::env::var("HF_ENDPOINT") {
+        builder = builder.with_endpoint(endpoint);
+    }
+    if let Some(token) = std::env::var("HF_TOKEN")
+        .ok()
+        .filter(|value| !value.is_empty())
+    {
+        builder = builder.with_token(Some(token));
+    }
+    let api = builder.build().context("build Hugging Face API client")?;
+    let api_repo = api.repo(repo);
+    let info = api_repo
+        .info()
+        .context("resolve model repository metadata")?;
+    let files: Vec<String> = info
+        .siblings
+        .into_iter()
+        .map(|sibling| sibling.rfilename)
+        .filter(|name| !name.ends_with('/'))
+        .collect();
+    if files.is_empty() {
+        bail!("model repository has no downloadable files");
+    }
+
+    let snapshot_path = cache_repo.pointer_path(&info.sha);
+    if snapshot_has_all_files(&snapshot_path, &files) {
+        write_model_snapshot_marker(&marker_path, model, MODEL_REVISION, &snapshot_path, &files)?;
+        report_progress(
+            progress,
+            format!("Model · already available at {}", snapshot_path.display()),
+        );
+        return Ok(Some(snapshot_path));
+    }
+
+    report_progress(
+        progress,
+        format!("Model · downloading {} file(s)", files.len()),
+    );
+    for filename in &files {
+        let target = snapshot_path.join(filename);
+        if target.exists() {
+            report_progress(progress, format!("Model · cached {filename}"));
+            continue;
+        }
+        report_progress(progress, format!("Model · downloading {filename}"));
+        api_repo
+            .download_with_progress(
+                filename,
+                TuiDownloadProgress::new(filename.clone(), progress.clone()),
+            )
+            .with_context(|| format!("download model file {filename}"))?;
+    }
+
+    if !snapshot_has_all_files(&snapshot_path, &files) {
+        bail!("model snapshot is incomplete after download");
+    }
+    write_model_snapshot_marker(&marker_path, model, MODEL_REVISION, &snapshot_path, &files)?;
+    report_progress(
+        progress,
+        format!("Model · ready at {}", snapshot_path.display()),
+    );
+    Ok(Some(snapshot_path))
+}
+
+fn snapshot_has_all_files(snapshot_path: &Path, files: &[String]) -> bool {
+    files
+        .iter()
+        .all(|filename| snapshot_path.join(filename).exists())
+}
+
+fn model_snapshot_marker_path(runtime_dir: &Path) -> PathBuf {
+    runtime_dir.join(MODEL_SNAPSHOT_MARKER_NAME)
+}
+
+fn read_matching_model_snapshot_marker(
+    path: &Path,
+    expected_model: &str,
+    expected_revision: &str,
+) -> Result<Option<ModelSnapshotMarker>> {
+    let content = match fs::read_to_string(path) {
+        Ok(content) => content,
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(err) => return Err(err).with_context(|| format!("read {}", path.display())),
+    };
+    let marker: ModelSnapshotMarker =
+        serde_json::from_str(&content).with_context(|| format!("parse {}", path.display()))?;
+    if marker.model != expected_model || marker.revision != expected_revision {
+        return Ok(None);
+    }
+    if marker.files.is_empty() {
+        return Ok(None);
+    }
+    Ok(Some(marker))
+}
+
+fn write_model_snapshot_marker(
+    path: &Path,
+    model: &str,
+    revision: &str,
+    snapshot_path: &Path,
+    files: &[String],
+) -> Result<()> {
+    let marker = ModelSnapshotMarker {
+        model: model.to_string(),
+        revision: revision.to_string(),
+        snapshot_path: snapshot_path.to_path_buf(),
+        files: files.to_vec(),
+    };
+    write_file_atomically(path, serde_json::to_vec_pretty(&marker)?.as_slice())
+}
+
+fn cached_snapshot_under_cache(snapshot_path: &Path, cache_dir: &Path) -> Result<bool> {
+    let snapshot = match fs::canonicalize(snapshot_path) {
+        Ok(path) => path,
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => return Ok(false),
+        Err(err) => {
+            return Err(err).with_context(|| format!("resolve {}", snapshot_path.display()));
+        }
+    };
+    let cache = match fs::canonicalize(cache_dir) {
+        Ok(path) => path,
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => return Ok(false),
+        Err(err) => return Err(err).with_context(|| format!("resolve {}", cache_dir.display())),
+    };
+    Ok(snapshot == cache || snapshot.starts_with(cache))
+}
+
+fn report_progress(progress: &Option<LocalProgressReporter>, message: impl Into<String>) {
+    if let Some(callback) = progress {
+        callback(message.into());
+    }
+}
+
+struct TuiDownloadProgress {
+    filename: String,
+    progress: Option<LocalProgressReporter>,
+    total: usize,
+    current: usize,
+    last_percent: Option<usize>,
+}
+
+impl TuiDownloadProgress {
+    fn new(filename: String, progress: Option<LocalProgressReporter>) -> Self {
+        Self {
+            filename,
+            progress,
+            total: 0,
+            current: 0,
+            last_percent: None,
+        }
+    }
+
+    fn emit(&mut self, force: bool) {
+        let percent = if self.total == 0 {
+            0
+        } else {
+            self.current.saturating_mul(100) / self.total
+        };
+        if !force && self.last_percent == Some(percent) {
+            return;
+        }
+        self.last_percent = Some(percent);
+        report_progress(
+            &self.progress,
+            format!(
+                "Model · {} · {}% ({}/{})",
+                self.filename,
+                percent,
+                format_bytes(self.current),
+                format_bytes(self.total)
+            ),
+        );
+    }
+}
+
+impl HfProgress for TuiDownloadProgress {
+    fn init(&mut self, size: usize, filename: &str) {
+        self.total = size;
+        self.current = 0;
+        self.filename = filename.to_string();
+        self.emit(true);
+    }
+
+    fn update(&mut self, size: usize) {
+        self.current = self.current.saturating_add(size);
+        self.emit(false);
+    }
+
+    fn finish(&mut self) {
+        self.current = self.total;
+        self.emit(true);
+    }
+}
+
+fn format_bytes(bytes: usize) -> String {
+    const KIB: f64 = 1024.0;
+    const MIB: f64 = KIB * 1024.0;
+    const GIB: f64 = MIB * 1024.0;
+    let value = bytes as f64;
+    if value >= GIB {
+        format!("{:.1}GiB", value / GIB)
+    } else if value >= MIB {
+        format!("{:.1}MiB", value / MIB)
+    } else if value >= KIB {
+        format!("{:.1}KiB", value / KIB)
+    } else {
+        format!("{bytes}B")
+    }
+}
+
 fn ensure_model_server_requirements(runtime_dir: &Path) -> Result<Vec<BundledModelServerFile>> {
     let requirements_dir = runtime_dir.join("requirements");
     fs::create_dir_all(&requirements_dir)
@@ -703,8 +999,12 @@ fn probe_health(host: &str, port: u16) -> Result<Value> {
     serde_json::from_str(body).context("parse model server health response")
 }
 
-fn prepare_model(host: &str, port: u16, backend: &str) -> Result<()> {
-    let body = serde_json::json!({ "backend": backend }).to_string();
+fn prepare_model(host: &str, port: u16, backend: &str, model_path: Option<&Path>) -> Result<()> {
+    let mut body = serde_json::json!({ "backend": backend });
+    if let Some(model_path) = model_path {
+        body["model_path"] = Value::String(model_path.display().to_string());
+    }
+    let body = body.to_string();
     let response = post_json(host, port, "/models/prepare", &body, PREPARE_TIMEOUT)
         .context("call model prepare endpoint")?;
     if response.get("ok").and_then(Value::as_bool) != Some(true) {
@@ -908,10 +1208,12 @@ mod tests {
     use super::{
         BootstrapMode, LocalModelServerEmbeddingBackend, LocalModelServerState,
         ModelServerMetadata, StartupLock, ensure_bundled_model_server, health_identity_matches,
-        health_model_ready, metadata_path, prepare_local_model_server_status_inner,
+        health_model_ready, metadata_path, model_snapshot_marker_path,
+        prepare_local_model_server_status_inner, read_matching_model_snapshot_marker,
         requirements_marker_matches, requirements_marker_path, reusable_server_status,
-        selected_requirements_file, sha256_hex, startup_lock_path, unix_timestamp_secs,
-        write_file_atomically, write_server_metadata,
+        selected_requirements_file, sha256_hex, snapshot_has_all_files, startup_lock_path,
+        unix_timestamp_secs, write_file_atomically, write_model_snapshot_marker,
+        write_server_metadata,
     };
     use crate::llm::{EmbeddingBackend, EmbeddingInputKind};
 
@@ -968,7 +1270,7 @@ mod tests {
         let temp = tempfile::tempdir().expect("tempdir");
 
         let status =
-            prepare_local_model_server_status_inner(temp.path(), BootstrapMode::InspectOnly);
+            prepare_local_model_server_status_inner(temp.path(), BootstrapMode::InspectOnly, None);
 
         assert_eq!(status.state, LocalModelServerState::SetupRequired);
         assert!(
@@ -989,7 +1291,7 @@ mod tests {
         fs::write(&python, b"").expect("fake python");
 
         let status =
-            prepare_local_model_server_status_inner(temp.path(), BootstrapMode::InspectOnly);
+            prepare_local_model_server_status_inner(temp.path(), BootstrapMode::InspectOnly, None);
 
         assert_eq!(status.state, LocalModelServerState::SetupRequired);
         assert!(
@@ -1218,6 +1520,48 @@ mod tests {
 
         assert!(
             requirements_marker_matches(&marker_path, &selected.sha256).expect("matching marker")
+        );
+    }
+
+    #[test]
+    fn model_snapshot_marker_requires_matching_files() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let snapshot_path = temp.path().join("cache").join("snapshot");
+        fs::create_dir_all(snapshot_path.join("nested")).expect("mkdir snapshot");
+        fs::write(snapshot_path.join("config.json"), b"{}").expect("write config");
+        let files = vec![
+            "config.json".to_string(),
+            "nested/model.safetensors".to_string(),
+        ];
+
+        assert!(!snapshot_has_all_files(&snapshot_path, &files));
+
+        fs::write(snapshot_path.join("nested/model.safetensors"), b"weights")
+            .expect("write weights");
+        assert!(snapshot_has_all_files(&snapshot_path, &files));
+
+        let marker_path = model_snapshot_marker_path(temp.path());
+        write_model_snapshot_marker(
+            &marker_path,
+            super::MLX_QWEN3_MODEL_ID,
+            super::MODEL_REVISION,
+            &snapshot_path,
+            &files,
+        )
+        .expect("write marker");
+        let marker = read_matching_model_snapshot_marker(
+            &marker_path,
+            super::MLX_QWEN3_MODEL_ID,
+            super::MODEL_REVISION,
+        )
+        .expect("read marker")
+        .expect("matching marker");
+        assert_eq!(marker.snapshot_path, snapshot_path);
+        assert_eq!(marker.files, files);
+        assert!(
+            read_matching_model_snapshot_marker(&marker_path, "other/model", super::MODEL_REVISION)
+                .expect("read non-matching marker")
+                .is_none()
         );
     }
 

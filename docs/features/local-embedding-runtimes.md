@@ -297,15 +297,20 @@ The canonical Rust consumer is `LocalModelServerEmbeddingBackend`.
 
 ### Model Preparation And Progress
 
-Model downloads are owned by the Python backend dependency stack because MLX,
-FastEmbed, Hugging Face cache behavior, and ONNX Runtime integration all live
-behind Python libraries. Rust owns orchestration and display:
+Model download ownership is split by runtime profile. Rust owns the first MLX
+Qwen3 snapshot download so startup can report byte progress and skip repeated
+network work after a local snapshot marker proves that all files are already
+present. Portable FastEmbed/BGE-M3 still lets the Python backend stack resolve
+its package-level model cache.
 
 - Rust creates or reuses the managed venv.
+- Rust prepares the MLX Qwen3 Hugging Face snapshot in the RARA model cache and
+  records the completed snapshot in model-server runtime metadata.
 - Rust starts or reuses the loopback Python server.
 - Rust asks the server to prepare a backend/model through a dedicated prepare
-  API.
-- Python performs package-level model resolution and download.
+  API, passing the prepared local snapshot path for MLX.
+- Python loads from the validated local MLX snapshot path. Portable FastEmbed
+  performs its own model resolution through the configured model cache.
 - Python exposes structured preparation progress.
 - Rust polls or subscribes to that progress and surfaces it in `/status` and
   startup status text.
@@ -319,7 +324,7 @@ POST /models/prepare
 Prepare request:
 
 ```json
-{"backend":"mlx_qwen3"}
+{"backend":"mlx_qwen3","model_path":"/Users/alice/Library/Caches/rara/huggingface/models--mlx-community--Qwen3-Embedding-0.6B-4bit-DWQ/snapshots/<sha>"}
 ```
 
 Prepare response:
@@ -352,7 +357,7 @@ Valid preparation states:
 | `starting_server` | Rust is starting the loopback Python process |
 | `waiting_for_server` | Another RARA process owns bootstrap and this process is waiting to reuse it |
 | `reusing_server` | Rust found and reused an existing healthy server |
-| `downloading` | Python is downloading model artifacts |
+| `downloading` | Rust or Python is downloading model artifacts, depending on the runtime profile |
 | `ready` | Server and selected embedding model are ready |
 | `error` | Bootstrap, server startup, dependency install, or model preparation failed |
 
@@ -401,8 +406,12 @@ Valid preparation states:
 - Python dependency installation is performed by Rust during automatic startup
   preparation from bundled requirement manifests, not by arbitrary server-side
   code or workspace scripts.
-- Model artifact download is performed by the Python backend stack after Rust
-  asks the managed server to prepare the selected backend/model.
+- MLX model artifact download is performed by Rust before the managed server is
+  asked to prepare the selected backend/model. A completed snapshot marker lets
+  later startups skip the Hugging Face metadata request and download path when
+  every recorded file still exists.
+- Portable FastEmbed model artifact resolution remains inside the Python
+  backend stack for this slice.
 - Local loopback embedding requests must bypass system proxy configuration.
 
 ## Validation Matrix
@@ -439,13 +448,15 @@ Valid preparation states:
   completed sidecar should be reused silently; an incomplete sidecar should show
   initialization progress and close that status surface when the rebuild task
   completes.
-- Model downloads are performed by the Python backend dependency stack after
-  Rust starts or reuses the managed server.
+- MLX model downloads are performed by Rust before the server prepare request.
+  Python receives only a validated local snapshot path under
+  `RARA_MODEL_CACHE_DIR`.
 - Missing `mlx-embeddings` should be recovered by Rust installing the bundled
   macOS requirements into the managed venv. If that installation fails, the
   failure should be reported as setup/bootstrap error state.
-- RARA should avoid duplicate model downloads by using the startup lock and by
-  reusing a healthy running server.
+- RARA should avoid duplicate model downloads by using the startup lock,
+  reusing a healthy running server, and checking the local MLX snapshot marker
+  before contacting Hugging Face.
 - Local sidecar HTTP calls must stay on loopback and bypass proxy interception.
 
 ## Open Risks
