@@ -298,7 +298,7 @@ pub fn project_tool_results_for_context(
         if content == MICROCOMPACT_CLEARED_MESSAGE {
             continue;
         }
-        let replacement = microcompact_cleared_tool_result(&candidate.tool_name);
+        let replacement = microcompact_cleared_tool_result(&candidate.tool_name, content);
         projected_chars = projected_chars
             .saturating_sub(candidate.chars)
             .saturating_add(replacement.chars().count());
@@ -399,10 +399,50 @@ fn is_microcompactable_tool(name: &str) -> bool {
     )
 }
 
-fn microcompact_cleared_tool_result(tool_name: &str) -> String {
-    format!(
-        "{MICROCOMPACT_CLEARED_MESSAGE}\ntool={tool_name}\nreason=older compactable tool results exceeded the per-request projection budget; original transcript remains unchanged"
-    )
+fn microcompact_cleared_tool_result(tool_name: &str, original_content: &str) -> String {
+    let mut lines = vec![
+        format!("{MICROCOMPACT_CLEARED_MESSAGE}"),
+        format!("tool={tool_name}"),
+        "reason=older compactable tool results exceeded the per-request projection budget; original transcript remains unchanged".to_string(),
+    ];
+    if tool_name == "read_file" {
+        if let Some(meta) = read_file_marker_lines(original_content) {
+            lines.push(meta);
+        }
+    }
+    lines.join("\n")
+}
+
+fn read_file_marker_lines(raw_json: &str) -> Option<String> {
+    let v: serde_json::Value = serde_json::from_str(raw_json).ok()?;
+    let start = v.get("start_line").and_then(|x| x.as_u64()).unwrap_or(1);
+    let end = v.get("end_line").and_then(|x| x.as_u64()).unwrap_or(0);
+    let next = v
+        .get("next_offset")
+        .and_then(|x| x.as_u64())
+        .map(|n| format!("{n}"))
+        .unwrap_or_else(|| "none".to_string());
+    let total = if v
+        .get("total_lines_exact")
+        .and_then(|x| x.as_bool())
+        .unwrap_or(false)
+    {
+        format!(
+            "{}",
+            v.get("total_lines").and_then(|x| x.as_u64()).unwrap_or(0)
+        )
+    } else {
+        format!(
+            "{}",
+            v.get("observed_lines")
+                .and_then(|x| x.as_u64())
+                .map(|n| format!("{n}+"))
+                .unwrap_or_else(|| "?".to_string())
+        )
+    };
+    Some(format!(
+        "[file size] start_line={start}, end_line={end}, next_offset={next}, total_lines={total}"
+    ))
 }
 
 #[derive(Debug)]
