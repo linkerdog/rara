@@ -1280,6 +1280,7 @@ mod tests {
             child: Arc::new(Mutex::new(Box::new(FailingKillChild))),
             child_pid: None,
             status,
+            last_read: Instant::now(),
         };
         sessions
             .sessions
