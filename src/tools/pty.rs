@@ -140,39 +140,37 @@ impl PtySessionStore {
         by_lru.sort_by_key(|(_, last, _)| *last);
         let excess = count.saturating_sub(MAX_PTY_SESSIONS - 1);
 
-        let to_prune: Vec<String> = by_lru
-            .iter()
-            .filter(|(id, last, exited)| {
-                !protected.contains(id.as_str()) && *exited && is_idle(*last)
-            })
-            .take(excess)
-            .map(|(id, _, _)| id.clone())
-            .collect();
+        let mut to_prune = Vec::with_capacity(excess);
+        let mut idle_running_candidates = Vec::new();
 
-        // Phase 2: if not enough exited, also prune idle running sessions
-        let to_prune = if to_prune.len() < excess {
-            let need_more = excess - to_prune.len();
-            let mut result = to_prune;
-            for (id, last, _) in &by_lru {
-                if result.len() >= excess {
-                    break;
-                }
-                if !protected.contains(id.as_str()) && is_idle(*last) && !result.contains(id) {
-                    result.push(id.clone());
+        for (id, last, exited) in &by_lru {
+            if !protected.contains(id.as_str()) && is_idle(*last) {
+                if *exited {
+                    to_prune.push(id.clone());
+                } else {
+                    idle_running_candidates.push(id.clone());
                 }
             }
-            result
+        }
+
+        if to_prune.len() < excess {
+            let needed = excess - to_prune.len();
+            to_prune.extend(idle_running_candidates.into_iter().take(needed));
         } else {
-            to_prune
-        };
+            to_prune.truncate(excess);
+        }
 
         let pruned = to_prune.len();
         drop(sessions);
-        for id in &to_prune {
-            let sessions = self.sessions.lock().expect("pty session store lock");
-            if let Some(session) = sessions.get(id) {
-                let mut status = session.status.lock().expect("pty status lock");
-                *status = PtySessionStatus::Killed;
+        if !to_prune.is_empty() {
+            if let Ok(sessions) = self.sessions.lock() {
+                for id in &to_prune {
+                    if let Some(session) = sessions.get(id) {
+                        if let Ok(mut status) = session.status.lock() {
+                            *status = PtySessionStatus::Killed;
+                        }
+                    }
+                }
             }
         }
         pruned
