@@ -21,6 +21,8 @@ use crate::sandbox::{SandboxManager, WrappedCommand, sandbox_failure_hint};
 
 const PTY_START_QUICK_COMPLETION_TIMEOUT: Duration = Duration::from_millis(750);
 const PTY_START_QUICK_COMPLETION_POLL: Duration = Duration::from_millis(25);
+const MAX_PTY_SESSIONS: usize = 15;
+const PTY_IDLE_PRUNE_SECS: u64 = 120;
 
 pub struct PtyStartTool {
     pub sessions: Arc<PtySessionStore>,
@@ -69,6 +71,7 @@ struct PtySessionRecord {
     child: Arc<Mutex<Box<dyn portable_pty::Child + Send + Sync>>>,
     child_pid: Option<u32>,
     status: Arc<Mutex<PtySessionStatus>>,
+    last_read: Instant,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -99,6 +102,41 @@ impl PtySessionStore {
         })
     }
 
+    fn prune_idle_sessions(&self) -> usize {
+        let sessions = self.sessions.lock().expect("pty session store lock");
+        let count = sessions.len();
+        if count < MAX_PTY_SESSIONS {
+            return 0;
+        }
+        let now = Instant::now();
+        let idle_cutoff = Duration::from_secs(PTY_IDLE_PRUNE_SECS);
+        let mut idle_ids: Vec<(String, Instant)> = sessions
+            .iter()
+            .filter(|(_, s)| {
+                matches!(
+                    *s.status.lock().expect("pty status lock"),
+                    PtySessionStatus::Running
+                ) && now.duration_since(s.last_read) >= idle_cutoff
+            })
+            .map(|(id, s)| (id.clone(), s.last_read))
+            .collect();
+        idle_ids.sort_by_key(|(_, last)| *last);
+        let excess = count.saturating_sub(MAX_PTY_SESSIONS - 1);
+        idle_ids.truncate(excess);
+        let pruned = idle_ids.len();
+        drop(sessions);
+        for (id, _) in idle_ids {
+            let sessions = self.sessions.lock().expect("pty session store lock");
+            if let Some(session) = sessions.get(&id) {
+                let mut status = session.status.lock().expect("pty status lock");
+                if matches!(*status, PtySessionStatus::Running) {
+                    *status = PtySessionStatus::Killed;
+                }
+            }
+        }
+        pruned
+    }
+
     fn start(
         &self,
         command: String,
@@ -111,6 +149,7 @@ impl PtySessionStore {
     ) -> Result<PtySessionSnapshot, ToolError> {
         let id = format!("pty-{}", Uuid::new_v4());
         let output_path = self.dir.join(format!("{id}.log"));
+        self.prune_idle_sessions();
         let pty_system = NativePtySystem::default();
         let pair = pty_system
             .openpty(PtySize {
@@ -194,6 +233,7 @@ impl PtySessionStore {
             child,
             child_pid,
             status,
+            last_read: Instant::now(),
         };
         let snapshot = record.snapshot();
         self.sessions
@@ -207,8 +247,11 @@ impl PtySessionStore {
         self.sessions
             .lock()
             .expect("pty session store lock")
-            .get(id)
-            .map(PtySessionRecord::snapshot)
+            .get_mut(id)
+            .map(|record| {
+                record.last_read = Instant::now();
+                record.snapshot()
+            })
     }
 
     async fn wait_for_quick_completion(&self, id: &str, timeout: Duration) -> PtySessionSnapshot {
