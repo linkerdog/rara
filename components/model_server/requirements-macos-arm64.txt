@@ -1,5 +1,5 @@
 mlx==0.30.0
-mlx-embeddings==0.0.5.post4
+mlx-embeddings==0.1.0
 huggingface-hub>=0.30
 transformers>=4.51
 sentencepiece>=0.2
