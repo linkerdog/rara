@@ -1446,13 +1446,20 @@ fn parses_visible_text_before_dsml_tool_calls_for_deepseek() {
     )
     .expect("parse response");
 
-    assert_eq!(response.content.len(), 2);
+    assert_eq!(response.content.len(), 3);
     assert!(matches!(
         &response.content[0],
         ContentBlock::Text { text } if text.contains("inspect the file")
     ));
     assert!(matches!(
         &response.content[1],
+        ContentBlock::ProviderMetadata { provider, key, value }
+            if provider == "deepseek"
+                && key == "reasoning_content"
+                && value == ""
+    ));
+    assert!(matches!(
+        &response.content[2],
         ContentBlock::ToolUse { id, name, input }
             if id == "dsml-tool-1"
                 && name == "read_file"
