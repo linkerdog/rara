@@ -219,40 +219,19 @@ pub(super) fn completion_role_kind(role: &str) -> Option<InteractionCompletionKi
 mod helper_tests {
     use super::{
         plan::compact_live_response_message, plan::compact_live_response_source,
-        plan::parse_render_plan_block, plan::split_progress_sentences,
+        plan::parse_render_plan_block,
     };
 
     #[test]
-    fn split_progress_sentences_keeps_ellipses_and_decimal_versions() {
-        let sentences = split_progress_sentences(
-            "Wait... I checked v1.0 parsing. Next I will inspect restore.",
-        );
-
-        assert_eq!(
-            sentences,
-            vec![
-                "Wait...".to_string(),
-                "I checked v1.0 parsing.".to_string(),
-                "Next I will inspect restore.".to_string(),
-            ]
-        );
-    }
-
-    #[test]
-    fn compact_live_response_message_preserves_selected_sentence_order() {
+    fn compact_live_response_message_keeps_markdown_source_intact() {
         let rendered = compact_live_response_message(
-            "Next I will inspect restore. I checked the auth path. I checked the persistence path. Then I will verify chronology.",
+            "Let me trace `AnalyzeExec.Next()` including `MemTracker.AttachTo(GlobalAnalyzeMemoryTracker)`. Next I will inspect `select.go`.",
         )
         .unwrap();
 
         assert_eq!(
             rendered,
-            [
-                "Next I will inspect restore.",
-                "I checked the auth path.",
-                "Then I will verify chronology.",
-            ]
-            .join("\n")
+            "Let me trace `AnalyzeExec.Next()` including `MemTracker.AttachTo(GlobalAnalyzeMemoryTracker)`. Next I will inspect `select.go`."
         );
     }
 

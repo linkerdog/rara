@@ -38,6 +38,7 @@ enum RespondingCellContent<'a> {
     CompactMessage {
         message: String,
         max_lines: usize,
+        cwd: Option<&'a Path>,
     },
     Message {
         role: &'static str,
@@ -88,9 +89,17 @@ impl<'a> RespondingCell<'a> {
         }
     }
 
-    pub(crate) fn from_compact_message(message: String, max_lines: usize) -> Self {
+    pub(crate) fn from_compact_message(
+        message: String,
+        max_lines: usize,
+        cwd: Option<&'a Path>,
+    ) -> Self {
         Self {
-            content: RespondingCellContent::CompactMessage { message, max_lines },
+            content: RespondingCellContent::CompactMessage {
+                message,
+                max_lines,
+                cwd,
+            },
         }
     }
 
@@ -123,9 +132,11 @@ impl HistoryCell for RespondingCell<'_> {
                 max_lines,
                 cwd,
             } if *role == "Responding" => compact_message_lines(message, *max_lines),
-            RespondingCellContent::CompactMessage { message, max_lines } => {
-                compact_message_lines(message, *max_lines)
-            }
+            RespondingCellContent::CompactMessage {
+                message,
+                max_lines,
+                cwd,
+            } => compact_markdown_message_lines(message, *max_lines, *cwd),
             RespondingCellContent::Message {
                 role,
                 message,
@@ -204,6 +215,16 @@ pub(crate) fn markdown_body_lines(
         lines.push(Line::from(String::new()));
     }
     lines
+}
+
+fn compact_markdown_message_lines(
+    message: &str,
+    max_lines: usize,
+    cwd: Option<&Path>,
+) -> Vec<Line<'static>> {
+    let mut rendered = Vec::new();
+    crate::tui::markdown::append_markdown(message, None, cwd, &mut rendered);
+    lightweight_stream_lines(rendered.as_slice(), max_lines)
 }
 
 fn responding_card_lines(

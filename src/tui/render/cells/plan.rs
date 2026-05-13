@@ -1,35 +1,3 @@
-pub(super) fn split_progress_sentences(message: &str) -> Vec<String> {
-    let mut sentences = Vec::new();
-    let mut current = String::new();
-    let mut chars = message.chars().peekable();
-
-    while let Some(ch) = chars.next() {
-        current.push(ch);
-
-        let next = chars.peek().copied();
-        let previous = current.chars().rev().nth(1);
-        let is_decimal_separator = ch == '.'
-            && previous.is_some_and(|prev| prev.is_ascii_digit())
-            && next.is_some_and(|peek| peek.is_ascii_digit());
-        let continues_punctuation = next.is_some_and(|peek| matches!(peek, '.' | '!' | '?'));
-
-        if matches!(ch, '.' | '!' | '?') && !is_decimal_separator && !continues_punctuation {
-            let trimmed = current.trim();
-            if !trimmed.is_empty() {
-                sentences.push(trimmed.to_string());
-            }
-            current.clear();
-        }
-    }
-
-    let tail = current.trim();
-    if !tail.is_empty() {
-        sentences.push(tail.to_string());
-    }
-
-    sentences
-}
-
 pub(super) fn is_structured_response_marker(line: &str) -> bool {
     let trimmed = line.trim();
     trimmed.starts_with("<proposed_plan>")
@@ -103,56 +71,7 @@ pub(super) fn compact_live_response_source(message: &str) -> Option<String> {
 }
 
 pub(super) fn compact_live_response_message(message: &str) -> Option<String> {
-    let source = compact_live_response_source(message)?;
-    let sentences = split_progress_sentences(&source);
-    if sentences.len() <= 3 {
-        return Some(sentences.join("\n"));
-    }
-
-    let next_markers = [
-        "next ",
-        "i will ",
-        "i'll ",
-        "then i will ",
-        "then i'll ",
-        "i am going to ",
-    ];
-
-    let mut selected_indices = vec![0];
-    let mut next_step_idx = None;
-
-    for (idx, sentence) in sentences.iter().enumerate().skip(1) {
-        let lowered = sentence.to_ascii_lowercase();
-        if next_step_idx.is_none()
-            && next_markers
-                .iter()
-                .any(|marker| lowered.starts_with(marker))
-        {
-            next_step_idx = Some(idx);
-            break;
-        }
-    }
-
-    if let Some(idx) = next_step_idx {
-        selected_indices.push(idx);
-    }
-
-    let mut idx = 1;
-    while selected_indices.len() < 3 && idx < sentences.len() {
-        if !selected_indices.contains(&idx) {
-            selected_indices.push(idx);
-        }
-        idx += 1;
-    }
-
-    selected_indices.sort_unstable();
-    Some(
-        selected_indices
-            .into_iter()
-            .map(|idx| sentences[idx].clone())
-            .collect::<Vec<_>>()
-            .join("\n"),
-    )
+    compact_live_response_source(message)
 }
 
 pub(super) fn parse_render_plan_block(
