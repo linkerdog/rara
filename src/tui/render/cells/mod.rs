@@ -1,5 +1,6 @@
 use ratatui::{style::Color, text::Line};
 
+use crate::memory_notice::MEMORY_NOTICE_PREFIX;
 use crate::tui::state::TranscriptEntry;
 
 #[path = "active_turn.rs"]
@@ -320,7 +321,9 @@ mod helper_tests {
 
 pub(super) fn is_renderable_system_message(message: &str) -> bool {
     let lower = message.trim().to_ascii_lowercase();
+    let memory_notice_prefix = MEMORY_NOTICE_PREFIX.to_ascii_lowercase();
     lower.starts_with("query failed:")
+        || lower.starts_with(&memory_notice_prefix)
         || lower.starts_with("compaction failed:")
         || lower.starts_with("compact failed:")
         || lower.starts_with("oauth failed:")

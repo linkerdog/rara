@@ -22,7 +22,9 @@ use super::super::state::{
     GoalStatus, ListPickerKind, OAuthLoginMode, PermissionMode, RalphGoal, RunningTask,
     RuntimePhase, TaskCompletion, TaskKind, TuiApp, TuiEvent,
 };
-use super::events::{apply_tui_event, convert_agent_event, format_error_chain};
+use super::events::{
+    apply_tui_event, convert_agent_event, format_error_chain, format_memory_event_notice,
+};
 use crate::agent::{Agent, AgentOutputMode, BashApprovalDecision};
 use crate::runtime_control::RuntimeProvenance;
 use crate::runtime_event_bus::RuntimeEventBus;
@@ -286,6 +288,13 @@ pub(super) fn start_input_control_task(
                     if let Some(tui_event) = convert_agent_event(agent_event) {
                         let _ = tx.send(tui_event);
                     }
+                } else if let crate::runtime_control::RuntimeEvent::Memory(me) =
+                    &control_event.event
+                {
+                    let _ = tx.send(TuiEvent::Transcript {
+                        role: "System",
+                        message: format_memory_event_notice(me),
+                    });
                 }
             },
         )

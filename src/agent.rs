@@ -29,6 +29,7 @@ use crate::llm::{
     LlmStreamEvent, LlmTurnMetadata,
 };
 use crate::mcp_status::McpStatusSnapshot;
+use crate::memory_notice::{count_label, memory_notice};
 use crate::memory_store::MemoryStore;
 use crate::prompt::{self, PromptMode, PromptRuntimeConfig};
 use crate::protocol_sources::{PromptSourceRegistry, SkillSourceRegistry};
@@ -106,6 +107,9 @@ pub enum AgentEvent {
         name: String,
         stream: ToolOutputStream,
         chunk: String,
+    },
+    MemoryAction {
+        message: String,
     },
     McpStatusUpdated(McpStatusSnapshot),
     McpStatusLoadFailed {
@@ -360,7 +364,17 @@ impl Agent {
             content: json!([{"type": "text", "text": prompt.clone()}]),
         });
         self.checkpoint_session()?;
+        report(AgentEvent::MemoryAction {
+            message: memory_notice("querying workspace memory"),
+        });
         self.refresh_memory_retrieval_candidates().await;
+        report(AgentEvent::MemoryAction {
+            message: memory_notice(format!(
+                "queried workspace memory: {} {}",
+                self.retrieved_memory_candidates.len(),
+                count_label("candidate", self.retrieved_memory_candidates.len())
+            )),
+        });
         self.refresh_file_search_candidates();
         self.refresh_protocol_prompt_sources_for_query().await;
         self.refresh_protocol_skill_sources_for_query().await;
@@ -404,7 +418,7 @@ impl Agent {
         {
             let session_manager = self.session_manager.clone();
             let session_id = self.session_id.clone();
-            let _ = tokio::task::spawn_blocking(move || {
+            let save_result = tokio::task::spawn_blocking(move || {
                 session_manager.save_session_context_checkpoint(
                     &session_id,
                     turn_start_idx as u32,
@@ -413,6 +427,11 @@ impl Agent {
                 )
             })
             .await;
+            if matches!(save_result, Ok(Ok(()))) {
+                report(AgentEvent::MemoryAction {
+                    message: memory_notice("wrote session checkpoint"),
+                });
+            }
         }
         Ok(())
     }

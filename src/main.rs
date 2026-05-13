@@ -24,6 +24,7 @@ mod mcp_connection_manager;
 mod mcp_status;
 mod mcp_tool_cache;
 mod memory_distiller;
+mod memory_notice;
 mod memory_store;
 mod oauth;
 mod plugin_middleware;

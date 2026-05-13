@@ -7,10 +7,15 @@ use super::helpers::{
     format_tool_use, is_oauth_prompt_message, planning_note_lines, scrub_internal_control_tokens,
     subagent_request_input,
 };
-use super::{apply_tui_event, convert_agent_event};
+use super::{apply_tui_event, convert_agent_event, format_memory_event_notice};
 use crate::agent::{AgentEvent, AgentExecutionMode};
 use crate::config::ConfigManager;
 use crate::control_tokens::has_pending_internal_control_context;
+use crate::runtime_control::{MemoryEvent, MemoryRecordSummary};
+use crate::session_promotion::{
+    SessionShardPromotionDecision, SessionShardPromotionOutcome, SessionShardPromotionPlan,
+    SessionShardPromotionSkipReason, SessionShardPromotionTrigger,
+};
 use crate::tui::state::{ActivePendingInteractionKind, TranscriptEntryPayload};
 use crate::tui::state::{RuntimePhase, TuiApp, TuiEvent};
 use crate::tui::terminal_event::{TerminalEvent, TerminalTarget};
@@ -30,6 +35,68 @@ fn parses_delegated_request_input_from_subagent_result() {
         parsed.note.as_deref(),
         Some("We need one product decision before editing.")
     );
+}
+
+#[test]
+fn memory_action_event_becomes_renderable_system_notice() {
+    let event = convert_agent_event(AgentEvent::MemoryAction {
+        message: "Memory · querying workspace memory".into(),
+    })
+    .expect("memory actions should be visible");
+
+    match event {
+        TuiEvent::Transcript { role, message } => {
+            assert_eq!(role, "System");
+            assert_eq!(message, "Memory · querying workspace memory");
+        }
+        _ => panic!("memory action should convert to transcript event"),
+    }
+}
+
+#[test]
+fn memory_query_notice_reports_count_without_record_content() {
+    let notice = format_memory_event_notice(&MemoryEvent::RecordsQueried {
+        records: vec![MemoryRecordSummary {
+            id: "memory-1234567890".into(),
+            title: "Useful title".into(),
+            content: "secret memory content".into(),
+            labels: vec!["project".into()],
+            importance_basis_points: 8000,
+            pinned: false,
+            scope: "workspace".into(),
+            session_id: None,
+            thread_id: None,
+        }],
+    });
+
+    assert_eq!(notice, "Memory · queried records: 1 result");
+    assert!(!notice.contains("secret memory content"));
+    assert!(!notice.contains("Useful title"));
+}
+
+#[test]
+fn memory_promotion_notice_uses_readable_outcome() {
+    let notice = format_memory_event_notice(&MemoryEvent::SessionShardPromotionObserved {
+        outcome: SessionShardPromotionOutcome {
+            plan: SessionShardPromotionPlan {
+                session_id: "session-a".into(),
+                trigger: SessionShardPromotionTrigger::RuntimeControl,
+                checkpoint_count: 3,
+                min_checkpoints: 2,
+                max_checkpoints: 8,
+                decision: SessionShardPromotionDecision::Skipped {
+                    reason: SessionShardPromotionSkipReason::BelowMinCheckpoints,
+                },
+            },
+            promoted_count: 0,
+        },
+    });
+
+    assert_eq!(
+        notice,
+        "Memory · skipped session shard promotion: below minimum checkpoints with 3 checkpoints"
+    );
+    assert!(!notice.contains("SessionShardPromotionOutcome"));
 }
 
 #[test]

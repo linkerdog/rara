@@ -96,6 +96,36 @@ fn committed_turn_cell_ignores_routine_system_notices() {
 }
 
 #[test]
+fn committed_turn_cell_renders_memory_action_notices() {
+    let entries = vec![
+        TranscriptEntry {
+            role: "You".into(),
+            message: "Review this repo".into(),
+            payload: None,
+        },
+        TranscriptEntry {
+            role: "System".into(),
+            message: "Memory · queried workspace memory: 2 candidates".into(),
+            payload: None,
+        },
+        TranscriptEntry {
+            role: "Agent".into(),
+            message: "Final recommendation".into(),
+            payload: None,
+        },
+    ];
+
+    let rendered = CommittedTurnCell::new(entries.as_slice(), Some(Path::new(".")))
+        .display_lines(100)
+        .into_iter()
+        .map(|line| line.to_string())
+        .collect::<Vec<_>>()
+        .join("\n");
+
+    assert!(rendered.contains("Memory · queried workspace memory: 2 candidates"));
+}
+
+#[test]
 fn committed_turn_cell_renders_materialized_sidecar_sections() {
     let entries = vec![
         TranscriptEntry { role: "You".into(), message: "Review the workspace logic".into(), payload: None },
