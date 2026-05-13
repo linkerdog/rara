@@ -15,7 +15,8 @@ session restore without polluting `plan.md` with transient status.
 
 - A session-scoped todo artifact for the current execution working set.
 - A tool surface that lets the agent create, update, complete, and inspect todo items.
-- Runtime and TUI state that can display todo progress when it changes.
+- Runtime and TUI state that can display todo progress when it changes and keep the active working
+  set visible from status surfaces.
 - Context assembly support so compacted or resumed turns can recover the current todo state.
 - Clear separation between approved plan state and mutable todo state.
 
@@ -82,6 +83,16 @@ to RARA's runtime:
 The tool should update the whole todo list atomically rather than patching individual fields. This
 keeps the model contract simple and makes it easy to validate status transitions.
 
+The tool description and execute-mode prompt should also teach the working discipline around that
+contract:
+
+- use `todo_write` proactively for complex multi-step execution, not for trivial one-step work;
+- resend the full working set when statuses, blockers, order, or validation work changes;
+- keep at most one `in_progress` item unless multi-agent ownership exists later;
+- prefer concrete execution items such as bug reproduction, focused tests, or final verification;
+- do not treat implementation as effectively complete while the relevant verification item is still
+  pending or failing.
+
 A later `todo_read` tool is optional. In the first implementation, todo state can be provided through
 runtime context and `/context`/`/status`, so a separate read tool is not required unless models need
 an explicit recall action.
@@ -106,6 +117,8 @@ Todo progress should be displayed only when it changes or when explicitly reques
 surfaces:
 
 - `todo_write` results may render a compact `Todo Updated` card.
+- the wide-screen sidebar may show a bounded `Todo` section with progress, active item, and a short
+  checklist preview while todo state exists.
 - `/context` should show the current todo artifact and active item.
 - `/status` may show a brief count summary.
 - Completed todo state should not stay pinned as a permanent bottom card after it becomes stale.
@@ -141,6 +154,15 @@ This keeps Todo visible as execution state without turning it into persistent tr
 - If todo state is too large for the active context budget, inject counts and the active item first,
   then omit completed items before omitting pending items.
 
+### Execution Guidance
+
+- The execute-mode prompt should tell the agent to keep todo state current for complex multi-step
+  execution instead of tracking mutable progress only in prose.
+- When a task changes non-trivial behavior, the todo list should normally preserve a focused
+  reproduction, regression-test, or verification item until that validation has actually happened.
+- Sidebar, `/status`, and `/context` should all project from the same structured todo state instead
+  of keeping separate UI-only copies.
+
 ## Validation Matrix
 
 - Unit tests for todo state validation and normalization.
@@ -175,6 +197,8 @@ conversion:
   clearer ownership model.
 - The UI should avoid permanent todo cards; stale completed lists can become visual noise in long
   sessions.
+- Sidebar todo previews must stay bounded so they remain useful instead of pushing out more stable
+  context information.
 - Future context compaction should decide whether to carry the active todo only or a bounded pending
   projection.
 
@@ -182,3 +206,4 @@ conversion:
 
 - [2026-05-01-todo-and-review-specs](../journal/2026-05-01-todo-and-review-specs.md)
 - [2026-05-03-todo-write-runtime](../journal/2026-05-03-todo-write-runtime.md)
+- [2026-05-13-todo-verification-runtime-guidance](../journal/2026-05-13-todo-verification-runtime-guidance.md)

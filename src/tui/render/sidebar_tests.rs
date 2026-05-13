@@ -3,9 +3,11 @@ use tempfile::tempdir;
 
 use super::{
     push_child_sessions, push_context_summary, push_files_in_context, push_model_badge,
-    push_session_info,
+    push_session_info, push_todo_section,
 };
 use crate::config::ConfigManager;
+use crate::context::TodoContextView;
+use crate::todo::TodoSummary;
 use crate::tui::state::{
     InteractionKind, PendingInteractionSnapshot, RuntimeSnapshot, TranscriptEntry, TranscriptTurn,
     TuiApp,
@@ -325,6 +327,67 @@ fn push_context_summary_no_context_window() {
             .any(|l| l.to_string().contains("600 · 5 turns")),
         "shows current-turn history tokens without context window"
     );
+}
+
+#[test]
+fn push_todo_section_shows_progress_and_items() {
+    let temp = tempdir().unwrap();
+    let mut app = TuiApp::new(ConfigManager {
+        path: temp.path().join("config.json"),
+    })
+    .expect("build tui app");
+    app.snapshot = RuntimeSnapshot {
+        todo: TodoContextView {
+            summary: TodoSummary {
+                total: 4,
+                pending: 1,
+                in_progress: 1,
+                completed: 1,
+                cancelled: 1,
+                active_item: Some("Run focused regression test".into()),
+            },
+            updated_at: Some(1_777_584_000),
+            items: vec![
+                (
+                    "todo-1".into(),
+                    "completed".into(),
+                    "Reproduce failing behavior".into(),
+                ),
+                (
+                    "todo-2".into(),
+                    "in_progress".into(),
+                    "Run focused regression test".into(),
+                ),
+                (
+                    "todo-3".into(),
+                    "pending".into(),
+                    "Check nearby side effects".into(),
+                ),
+                (
+                    "todo-4".into(),
+                    "cancelled".into(),
+                    "Broader cleanup".into(),
+                ),
+            ],
+        },
+        ..RuntimeSnapshot::default()
+    };
+
+    let mut lines = Vec::new();
+    assert!(push_todo_section(&mut lines, &app));
+
+    let text: String = lines
+        .iter()
+        .map(|l| l.to_string())
+        .collect::<Vec<_>>()
+        .join("\n");
+    assert!(text.contains("Todo"));
+    assert!(text.contains("1/4 done · 2 open"));
+    assert!(text.contains("Active: Run focused regression test"));
+    assert!(text.contains("[x] Reproduce failing behavior"));
+    assert!(text.contains("[>] Run focused regression test"));
+    assert!(text.contains("[ ] Check nearby side effects"));
+    assert!(text.contains("[-] Broader cleanup"));
 }
 
 // ── push_child_sessions ─────────────────────────────────────────────

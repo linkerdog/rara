@@ -50,7 +50,7 @@ The effective prompt is assembled in this order:
 2. dynamic instruction sources;
 3. memory sources;
 4. runtime context;
-5. mode-specific addenda such as plan mode;
+5. mode-specific addenda such as execute mode, plan mode, and review mode;
 6. append prompt.
 
 ### 3.1) Built-In Engineering Workflow Guidance
@@ -63,7 +63,8 @@ The default base prompt includes source-grounded engineering workflow guidance f
 - external-source and web-search selection, including when to prefer local source, GitHub tooling,
   MCP resources, upstream open-source documentation, or fetched web evidence;
 - structured tool use, including edit-tool discipline and unfiltered command-output inspection;
-- reviewable implementation workflow, focused validation, and PR hygiene;
+- reviewable implementation workflow, focused validation, sandbox-persistent verification, and PR
+  hygiene;
 - Git conflict resolution when conflict markers are present.
 
 Software-engineering task interpretation is adapted from Claude-style task framing. In a repository,
@@ -83,6 +84,15 @@ Git conflict guidance is intentionally conservative. It tells the model to inspe
 state and conflicted file, preserve complementary changes instead of blindly choosing one side, use
 structured edits where practical, scan for remaining conflict markers, and run the narrowest relevant
 validation before claiming the conflict is resolved.
+
+Testing and verification guidance is split between the always-on base prompt, execute-mode addenda,
+and tool descriptions. The default prompt should require the agent to reproduce or characterize bug
+failures before changing code when practical, prefer focused regression tests, inspect the changed
+runtime surface when user-visible or workflow behavior changed, and treat sandbox denials as a
+diagnostic or escalation path rather than a reason to abandon validation. A denied validation call
+or denied escalation request should be treated as new routing information: do not retry it
+verbatim, either narrow the command, use another local evidence path, or explain the exact blocked
+capability that still requires approval.
 
 Large-write guidance follows the same edit-tool boundary:
 
@@ -119,9 +129,14 @@ Prompt guidance is intentionally split by responsibility:
 
 - Runtime system prompt: behavior that materially affects task completion, correctness, safety,
   evidence quality, memory staleness, and agent-loop continuation.
+- Execute-mode addenda: execution-only workflow rules that depend on mutable task progress, such as
+  keeping multi-step work current with `todo_write`, carrying pending verification items, and
+  biasing toward the next safe local step.
+- Plan/review-mode addenda: read-only contracts, approval flow, and output-shape rules that apply
+  only in those modes.
 - Tool descriptions and input schemas: call-time constraints such as shell-vs-PTY selection,
-  dedicated file/edit tool preference, `cwd` handling, background task controls, and stdout/stderr
-  handling.
+  dedicated file/edit tool preference, `cwd` handling, background task controls, stdout/stderr
+  handling, and sandbox-escalation discipline for validation commands.
 - Workspace instruction files such as `AGENTS.md`: repository-maintenance conventions, Rust API
   style, TUI module boundaries, snapshot expectations, commit rules, and documentation workflow.
 - Skills: deeper task-specific workflows that should be loaded only when relevant.
@@ -131,6 +146,31 @@ New always-on prompt text should be rare, additive, and placed near related sect
 reordering existing prompt sections, because stable prefixes matter for provider prompt-cache reuse.
 RARA-specific documentation conventions such as SDD, journals, and TODO hygiene belong in
 workspace instructions and documentation, not in the default runtime system prompt.
+
+Prompt locality is a contract, not only a style preference:
+
+- place a rule at the narrowest layer that still guarantees the behavior;
+- do not move an execution-only rule into the always-on base prompt just because Claude or Codex has
+  a nearby sentence in its own runtime;
+- when borrowing from other agents, migrate the behavioral contract, not the exact prompt text or
+  provider-specific wrapper structure.
+
+Examples:
+
+- irreversible-action confirmation belongs in always-on runtime safety guidance because it applies
+  across tasks and tools;
+- `todo_write` usage belongs in execute-mode guidance because it is meaningless in read-only plan or
+  review turns;
+- `todo_write` replacement semantics and completion discipline belong in the tool description because
+  the model needs them when deciding what todo payload to send;
+- stale-read recovery and file-write boundaries belong in edit-tool descriptions because the model
+  needs those rules at the tool-choice point;
+- sandbox-escalation behavior for tests, builds, and checks belongs in the bash tool description as
+  well as the always-on validation guidance because the model needs that rule when choosing whether
+  to retry, narrow the command, or request approval, and because denied calls should not be retried
+  verbatim;
+- repository-specific engineering rules remain in `AGENTS.md` or skills instead of bloating the
+  default runtime prompt.
 
 ### 4) Compact Prompt
 
@@ -256,4 +296,6 @@ workspace instructions and documentation, not in the default runtime system prom
 - [2026-04-25-context-assembly-stage1](../journal/2026-04-25-context-assembly-stage1.md)
 - [2026-05-02-git-conflict-prompt-guidance](../journal/2026-05-02-git-conflict-prompt-guidance.md)
 - [2026-05-07-engineering-guidance-placement](../journal/2026-05-07-engineering-guidance-placement.md)
+- [2026-05-13-claude-prompt-locality](../journal/2026-05-13-claude-prompt-locality.md)
+- [2026-05-14-sandbox-denial-escalation-guidance](../journal/2026-05-14-sandbox-denial-escalation-guidance.md)
 - [Runtime Control Plane](runtime-control-plane.md)

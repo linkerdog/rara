@@ -11,13 +11,13 @@ pub struct TodoWriteTool;
 
 #[tool_spec(
     name = "todo_write",
-    description = "Create or replace the session todo list for complex multi-step execution. Use this to track mutable execution progress, not to request plan approval.",
+    description = "Create or replace the session todo list for complex multi-step execution. Use this proactively once work has multiple concrete steps or verification work worth tracking; do not use it for trivial one-step tasks or to request plan approval. Re-send the full working set whenever statuses, order, blockers, or validation steps change. Keep at most one item in_progress, update statuses promptly, and prefer concrete execution items such as reproducing a bug, running a focused test, or final verification. Do not mark an item completed until the underlying implementation or validation is actually done.",
     input_schema = {
         "type": "object",
         "properties": {
             "todos": {
                 "type": "array",
-                "description": "Complete replacement list of todo items for the current session.",
+                "description": "Complete replacement list of todo items for the current session. Re-send the entire working set whenever items, order, statuses, blockers, or verification work changes.",
                 "items": {
                     "type": "object",
                     "properties": {
@@ -27,12 +27,12 @@ pub struct TodoWriteTool;
                         },
                         "content": {
                             "type": "string",
-                            "description": "Imperative description of the task."
+                            "description": "Short imperative task description. Prefer concrete work items such as 'Reproduce failing behavior' or 'Run focused regression test'."
                         },
                         "status": {
                             "type": "string",
                             "enum": ["pending", "in_progress", "completed", "cancelled"],
-                            "description": "Current task status. Keep at most one item in_progress."
+                            "description": "Current task status. Keep at most one item in_progress, and do not mark completed until the relevant implementation or verification work is actually done."
                         }
                     },
                     "required": ["content", "status"],
@@ -89,5 +89,21 @@ mod tests {
             schema["properties"]["todos"]["items"]["additionalProperties"],
             false
         );
+    }
+
+    #[test]
+    fn todo_write_description_guides_execution_and_verification() {
+        let tool = TodoWriteTool;
+        let description = tool.description();
+        assert!(description.contains("multiple concrete steps"));
+        assert!(description.contains("verification work worth tracking"));
+        assert!(description.contains("Re-send the full working set"));
+        assert!(description.contains("running a focused test"));
+        assert!(description.contains("underlying implementation or validation"));
+
+        let schema = tool.input_schema().to_string();
+        assert!(schema.contains("entire working set"));
+        assert!(schema.contains("Reproduce failing behavior"));
+        assert!(schema.contains("relevant implementation or verification work"));
     }
 }
