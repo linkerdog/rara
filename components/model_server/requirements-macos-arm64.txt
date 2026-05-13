@@ -1,4 +1,4 @@
-mlx==0.30.0
+mlx==0.31.2
 mlx-embeddings==0.1.0
 huggingface-hub>=0.30
 transformers>=4.51

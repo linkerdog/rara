@@ -326,6 +326,49 @@ async fn rebuild_success_refreshes_local_model_server_status() {
     assert_eq!(app.runtime_phase, RuntimePhase::BackendReady);
 }
 
+#[tokio::test]
+async fn rebuild_success_keeps_long_warnings_in_transcript() {
+    let temp = tempdir().unwrap();
+    let mut app = TuiApp::new(ConfigManager {
+        path: temp.path().join("config.json"),
+    })
+    .expect("build tui app");
+    let ready_status = LocalModelServerStatus {
+        state: LocalModelServerState::Ready,
+        backend: "mlx_qwen3".to_string(),
+        model: "mlx-community/Qwen3-Embedding-0.6B-4bit-DWQ".to_string(),
+        detail: "started model server and prepared model".to_string(),
+        server_path: Some(temp.path().join("rara_model_server.py")),
+        endpoint: Some("http://127.0.0.1:18181".to_string()),
+    };
+    let warning = "local embedding backend bootstrap reported: failed to install model server dependencies: install model server dependencies failed with status exit status: 1: ERROR: ResolutionImpossible".to_string();
+    let mut success = rebuild_success(&temp, ready_status);
+    success.warnings = vec![warning.clone()];
+    install_completed_rebuild_task(&mut app, success);
+
+    let mut agent_slot = Some(create_test_agent(&temp));
+    for _ in 0..20 {
+        finish_running_task_if_ready(&mut app, &mut agent_slot)
+            .await
+            .expect("finish rebuild task");
+        if app.bottom_pane.running_task.is_none() {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+
+    assert_eq!(
+        app.bottom_pane.notice.as_deref(),
+        Some("Startup warning added to transcript.")
+    );
+    assert!(
+        app.committed_turns
+            .iter()
+            .flat_map(|turn| turn.entries.iter())
+            .any(|entry| entry.role == "System" && entry.message == warning)
+    );
+}
+
 #[test]
 fn browser_oauth_is_rejected_before_task_start_in_ssh() {
     let temp = tempdir().unwrap();

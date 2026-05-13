@@ -55,6 +55,11 @@ is ready. The rebuild result carries the final local model server status back
 into TUI state, so `/status` and the overview panel do not keep showing the
 startup inspect-only state after initialization succeeds.
 
+The macOS Apple Silicon dependency manifest pins published and compatible MLX
+packages. Startup warnings from the rebuild path are written into the
+transcript as system entries, while the bottom input area keeps only a compact
+notice that points users to the transcript.
+
 ## Why
 
 The Rust MLX ecosystem is not yet the lowest-risk path for a Qwen3 embedding
