@@ -186,4 +186,20 @@ Active backlog only. Keep this file small and current.
 
 - [x] Add `TuiMaintainer` to event loop (merged #276).
 - [x] `rara-persistence` crate: `atomic_file`, `redaction`, `thread_data`, `thread_metadata`, `thread_rollout_log`, `thread_turn_log`, `file_lock` (merged #279, #282, #283, #338+).
-- [ ] Continue splitting remaining oversized modules into smaller files (e.g. `state_db.rs`).
+- [x] Code health review (see `docs/features/code-health-review-2025.md`).
+
+### P0 — Oversized module split (blocking)
+
+- [ ] Split `src/tui/state/mod.rs` (2000+ lines): extract types, presets, persistence, provider-status into submodules; shrink mod.rs to ≤300 lines facade.
+- [ ] Remove dead code from production source files: 71 `#[allow(dead_code)]` sites. Priority: `src/runtime_control.rs` (scaffolding), `src/hook_registry.rs`, `src/acp_consumer.rs`, `src/mcp_status.rs`.
+
+### P1 — Agent and compaction modules
+
+- [ ] Split `src/agent.rs` (1287 lines): extract tool-execution, plan-handling, history-management into `agent/` submodules.
+- [ ] Split `src/agent/compact/main.rs` (~1250 lines): split by compaction phase (microcompact, full-compact, strategy).
+- [ ] Narrow `Agent` struct field visibility from `pub` to `pub(crate)` or private; add accessor methods where needed.
+
+### P2 — Render and context modules
+
+- [ ] Split `src/tui/render.rs` (990 lines): move remaining top-level functions into existing render submodules.
+- [ ] Split `src/context/assembler.rs` (916 lines): extract budget calculation and message assembly.

@@ -71,6 +71,19 @@ The current product direction is to make local inference a first-class path inst
 - Do not add helper functions that are only used once unless they name a non-obvious invariant or isolate a testable boundary.
 - When adding a new concept, first check whether it belongs in an existing narrow crate/module or whether a small new module avoids growing a high-touch orchestration file.
 
+- Dead code is not permitted in production source files. Use `#[cfg(test)]`
+  for test-only helpers; remove all unreachable types, functions, and constants.
+  One `#![allow(dead_code)]` on a module is acceptable only when the module
+  documents a reserved palette or namespace with a comment linking to the
+  planned activation milestone in `docs/todo.md`.
+- Adding `#[allow(dead_code)]` to an individual item requires a comment
+  explaining why the item is intentionally unused and when it will be activated.
+- File-size violations detected in review (source files exceeding ~800 lines
+  under `src/` or `crates/`) must be fixed before merge, not deferred to a
+  follow-up task.
+- `mod.rs` files shall be facades: module declarations and re-exports only.
+  They must not exceed 300 lines and must not contain business logic.
+
 ## 3.2 TUI Engineering Rules
 
 - Keep TUI state, display data, and rendering separate. State modules should not build Ratatui `Line`, `Span`, color, or layout objects.
