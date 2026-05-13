@@ -82,7 +82,9 @@ The current product direction is to make local inference a first-class path inst
   under `src/` or `crates/`) must be fixed before merge, not deferred to a
   follow-up task.
 - `mod.rs` files shall be facades: module declarations and re-exports only.
-  They must not exceed 300 lines and must not contain business logic.
+  They must not contain business logic. Pure import/re-export size is not a
+  concern, but any function body, type definition, or logic belongs in a
+  submodule.
 
 ## 3.2 TUI Engineering Rules
 

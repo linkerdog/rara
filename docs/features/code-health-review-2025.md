@@ -93,7 +93,7 @@ Add the following to AGENTS.md §3.1:
 
 - No source file under `src/` or `crates/` shall exceed 800 lines.
 - `mod.rs` files shall be facades only (module declarations + re-exports),
-  not exceeding 300 lines.
+  no business logic. Pure import size is not a concern.
 - These limits are enforced by review, not by tooling, until a CI gate is
   added.
 
