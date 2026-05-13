@@ -55,10 +55,13 @@ is ready. The rebuild result carries the final local model server status back
 into TUI state, so `/status` and the overview panel do not keep showing the
 startup inspect-only state after initialization succeeds.
 
-The macOS Apple Silicon dependency manifest pins published and compatible MLX
-packages. Startup warnings from the rebuild path are written into the
-transcript as system entries, while the bottom input area keeps only a compact
-notice that points users to the transcript.
+The macOS Apple Silicon dependency manifest pins published and compatible MLX,
+MLX-VLM, Transformers, and Regex packages. The narrower pins avoid slow pip
+backtracking during first-run bootstrap and prevent the resolver from choosing
+newer Transformers releases whose Regex constraints are not available in every
+managed Python environment. Startup warnings from the rebuild path are written
+into the transcript as system entries, while the bottom input area keeps only a
+compact notice that points users to the transcript.
 
 ## Why
 
