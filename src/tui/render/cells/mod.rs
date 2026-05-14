@@ -326,6 +326,8 @@ pub(super) fn is_renderable_system_message(message: &str) -> bool {
         || lower.starts_with(&memory_notice_prefix)
         || lower.starts_with("compaction failed:")
         || lower.starts_with("compact failed:")
+        || lower.starts_with("local embedding backend bootstrap reported:")
+        || lower.starts_with("skill loading failed:")
         || lower.starts_with("oauth failed:")
         || lower.starts_with("backend rebuild failed:")
         || lower.starts_with("open this url in a browser and enter the one-time code:")
