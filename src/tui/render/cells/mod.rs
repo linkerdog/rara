@@ -231,7 +231,7 @@ mod helper_tests {
 
         assert_eq!(
             rendered,
-            "Let me trace `AnalyzeExec.Next()` including `MemTracker.AttachTo(GlobalAnalyzeMemoryTracker)`. Next I will inspect `select.go`."
+            "Let me trace `AnalyzeExec.Next()` including `MemTracker.AttachTo(GlobalAnalyzeMemoryTracker)`.\nNext I will inspect `select.go`."
         );
     }
 
