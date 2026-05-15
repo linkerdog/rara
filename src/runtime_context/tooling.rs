@@ -11,7 +11,7 @@ use rara_tools::planning::{EnterPlanModeTool, ExitPlanModeTool};
 use rara_tools::search::{GlobTool, GrepTool};
 use rara_tools::tool::ToolManager;
 
-use crate::llm::LlmBackend;
+use crate::llm::{EmbeddingBackend, LlmBackend};
 use crate::mcp_tool_cache::McpToolCache;
 use crate::prompt::PromptRuntimeConfig;
 use crate::sandbox::SandboxManager;
@@ -44,6 +44,7 @@ static BACKGROUND_SUBAGENTS: OnceLock<Arc<BackgroundSubAgentStore>> = OnceLock::
 
 pub(super) fn create_full_tool_manager(
     backend: Arc<dyn LlmBackend>,
+    embedding_backend: Arc<dyn EmbeddingBackend>,
     vdb: Arc<VectorDB>,
     session_manager: Arc<SessionManager>,
     workspace: Arc<WorkspaceMemory>,
@@ -122,17 +123,19 @@ pub(super) fn create_full_tool_manager(
     tm.register(Box::new(ExitPlanModeTool));
     tm.register(Box::new(TodoWriteTool));
     tm.register(Box::new(RememberExperienceTool {
-        backend: backend.clone(),
+        llm_backend: backend.clone(),
+        embedding_backend: embedding_backend.clone(),
         vdb: vdb.clone(),
         db_uri: vector_db_uri.clone(),
     }));
     tm.register(Box::new(RetrieveExperienceTool {
-        backend: backend.clone(),
+        llm_backend: backend.clone(),
+        embedding_backend: embedding_backend.clone(),
         vdb: vdb.clone(),
         db_uri: vector_db_uri,
     }));
     tm.register(Box::new(RetrieveSessionContextTool {
-        backend: backend.clone(),
+        embedding_backend: embedding_backend.clone(),
         session_manager: session_manager.clone(),
     }));
     tm.register(Box::new(UpdateProjectMemoryTool {
@@ -143,6 +146,7 @@ pub(super) fn create_full_tool_manager(
     }));
     tm.register(Box::new(AgentTool {
         backend: backend.clone(),
+        embedding_backend: embedding_backend.clone(),
         vdb: vdb.clone(),
         session_manager: session_manager.clone(),
         workspace: workspace.clone(),
@@ -151,6 +155,7 @@ pub(super) fn create_full_tool_manager(
     }));
     tm.register(Box::new(ExploreAgentTool {
         backend: backend.clone(),
+        embedding_backend: embedding_backend.clone(),
         vdb: vdb.clone(),
         session_manager: session_manager.clone(),
         workspace: workspace.clone(),
@@ -159,6 +164,7 @@ pub(super) fn create_full_tool_manager(
     }));
     tm.register(Box::new(PlanAgentTool {
         backend: backend.clone(),
+        embedding_backend: embedding_backend.clone(),
         vdb: vdb.clone(),
         session_manager: session_manager.clone(),
         workspace: workspace.clone(),
@@ -167,6 +173,7 @@ pub(super) fn create_full_tool_manager(
     }));
     tm.register(Box::new(TeamCreateTool {
         backend,
+        embedding_backend,
         vdb,
         session_manager,
         workspace,

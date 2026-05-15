@@ -113,6 +113,7 @@ fn lifecycle_for_event(event: &AgentEvent) -> Option<HookLifecycle> {
         | AgentEvent::AssistantDelta(_)
         | AgentEvent::AssistantThinkingDelta(_)
         | AgentEvent::ToolProgress { .. }
+        | AgentEvent::MemoryAction { .. }
         | AgentEvent::McpStatusUpdated(_)
         | AgentEvent::McpStatusLoadFailed { .. }
         | AgentEvent::TodoUpdated(_)

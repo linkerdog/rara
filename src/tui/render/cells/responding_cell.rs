@@ -11,7 +11,7 @@ use super::{HistoryCell, InteractionCompletionKind};
 use crate::tui::interaction_text::{
     pending_interaction_card_title, status_planning_suggestion_text,
 };
-use crate::tui::markdown_render::render_markdown_text_with_width;
+use crate::tui::markdown_render::render_markdown_text_with_width_and_cwd;
 use crate::tui::plan_display::updated_plan_lines;
 use crate::tui::queued_input::{
     QueuedFollowUpSection, pending_follow_up_heading, queued_follow_up_heading,
@@ -38,6 +38,7 @@ enum RespondingCellContent<'a> {
     CompactMessage {
         message: String,
         max_lines: usize,
+        cwd: Option<&'a Path>,
     },
     Message {
         role: &'static str,
@@ -88,9 +89,17 @@ impl<'a> RespondingCell<'a> {
         }
     }
 
-    pub(crate) fn from_compact_message(message: String, max_lines: usize) -> Self {
+    pub(crate) fn from_compact_message(
+        message: String,
+        max_lines: usize,
+        cwd: Option<&'a Path>,
+    ) -> Self {
         Self {
-            content: RespondingCellContent::CompactMessage { message, max_lines },
+            content: RespondingCellContent::CompactMessage {
+                message,
+                max_lines,
+                cwd,
+            },
         }
     }
 
@@ -123,9 +132,11 @@ impl HistoryCell for RespondingCell<'_> {
                 max_lines,
                 cwd,
             } if *role == "Responding" => compact_message_lines(message, *max_lines),
-            RespondingCellContent::CompactMessage { message, max_lines } => {
-                compact_message_lines(message, *max_lines)
-            }
+            RespondingCellContent::CompactMessage {
+                message,
+                max_lines,
+                cwd,
+            } => compact_markdown_message_lines(message, *max_lines, *cwd),
             RespondingCellContent::Message {
                 role,
                 message,
@@ -203,6 +214,50 @@ pub(crate) fn markdown_body_lines(
     if lines.is_empty() {
         lines.push(Line::from(String::new()));
     }
+    lines
+}
+
+fn compact_markdown_message_lines(
+    message: &str,
+    max_lines: usize,
+    cwd: Option<&Path>,
+) -> Vec<Line<'static>> {
+    let message_lines = message.lines().collect::<Vec<_>>();
+    if message_lines.is_empty() {
+        return vec![Line::from("•")];
+    }
+
+    let capped = if max_lines == usize::MAX {
+        message_lines.len()
+    } else {
+        max_lines.min(message_lines.len())
+    };
+
+    let mut lines = Vec::new();
+    for line in message_lines.iter().take(capped) {
+        let rendered = render_markdown_text_with_width_and_cwd(line, None, cwd);
+        let mut body = rendered.lines;
+        if body.is_empty() {
+            lines.push(Line::from("•"));
+            continue;
+        }
+
+        if let Some(first) = body.first_mut() {
+            first.spans.insert(0, Span::raw("• "));
+        }
+        for continuation in body.iter_mut().skip(1) {
+            continuation.spans.insert(0, Span::raw("  "));
+        }
+        lines.extend(body);
+    }
+
+    if message_lines.len() > capped {
+        lines.push(Line::from(Span::styled(
+            format!("  ... {} more line(s)", message_lines.len() - capped),
+            Style::default().fg(TEXT_SECONDARY),
+        )));
+    }
+
     lines
 }
 

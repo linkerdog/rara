@@ -554,6 +554,9 @@ pub enum MemoryEvent {
     RecordsQueried {
         records: Vec<MemoryRecordSummary>,
     },
+    ActionObserved {
+        message: String,
+    },
     SessionShardPromotionObserved {
         outcome: SessionShardPromotionOutcome,
     },
@@ -658,6 +661,9 @@ pub fn agent_event_to_runtime_event(event: AgentEvent) -> RuntimeEvent {
             stream: stream.into(),
             chunk,
         }),
+        AgentEvent::MemoryAction { message } => {
+            RuntimeEvent::Memory(MemoryEvent::ActionObserved { message })
+        }
         AgentEvent::McpStatusUpdated(snapshot) => {
             RuntimeEvent::Mcp(McpEvent::StatusUpdated { snapshot })
         }

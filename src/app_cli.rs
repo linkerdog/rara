@@ -9,6 +9,7 @@ use crate::acp::RaraAcpAgent;
 use crate::config::{
     ConfigManager, DEFAULT_CODEX_BASE_URL, DEFAULT_CODEX_CHATGPT_BASE_URL,
     DEFAULT_REASONING_SUMMARY, OpenAiEndpointKind, OpenAiEndpointProfile, RaraConfig,
+    ensure_rara_home_dir,
 };
 use crate::oauth::{OAuthManager, SavedCodexAuthMode};
 use crate::print_consumer::PrintConsumer;
@@ -269,8 +270,11 @@ async fn run_distill_command(config: &RaraConfig, thread_id: &str) -> Result<()>
     let bootstrap = runtime_context::initialize_rara_context(config, None).await?;
     emit_bootstrap_warnings(&bootstrap.warnings);
     let state_db = rara_state::state_db::StateDb::new()?;
-    let memory_store =
-        crate::memory_store::MemoryStore::new(bootstrap.backend.clone(), bootstrap.vdb.clone());
+    let memory_store = crate::memory_store::MemoryStore::new_with_embedding_backend(
+        bootstrap.backend.clone(),
+        bootstrap.embedding_backend.clone(),
+        bootstrap.vdb.clone(),
+    );
     let thread_store = crate::thread_store::ThreadStore::new(&bootstrap.session_manager, &state_db);
     let memories = thread_store
         .distill_thread_memories(&memory_store, thread_id)
@@ -287,7 +291,17 @@ async fn run_tui_command(
     oauth_manager: OAuthManager,
     startup_resume: StartupResumeTarget,
 ) -> Result<()> {
-    let bootstrap = runtime_context::initialize_rara_context(config, None).await?;
+    let initialize_local_embeddings = should_initialize_local_embeddings_on_tui_startup(config)?;
+    let bootstrap = if initialize_local_embeddings {
+        runtime_context::initialize_rara_context_with_local_embedding_bootstrap(
+            config,
+            None,
+            runtime_context::LocalEmbeddingBootstrap::InspectOnly,
+        )
+        .await?
+    } else {
+        runtime_context::initialize_rara_context(config, None).await?
+    };
     emit_bootstrap_warnings(&bootstrap.warnings);
     let event_bus = bootstrap.event_bus.clone();
     let (
@@ -313,12 +327,25 @@ async fn run_tui_command(
         prompt_source_registry,
         skill_source_registry,
         hook_registry,
+        initialize_local_embeddings,
     )
     .await?;
     if let Some(thread_id) = resumed_thread_id {
         print!("{}", rendered_resume_hint(&thread_id));
     }
     Ok(())
+}
+
+fn should_initialize_local_embeddings_on_tui_startup(config: &RaraConfig) -> Result<bool> {
+    if !runtime_context::config_requires_local_embedding_sidecar(config) {
+        return Ok(false);
+    }
+    let rara_home = ensure_rara_home_dir()?;
+    let status = crate::local_model_server::inspect_local_model_server_status(&rara_home);
+    Ok(!matches!(
+        status.state,
+        crate::local_model_server::LocalModelServerState::Ready
+    ))
 }
 
 fn startup_resume_target_for_command(command: &Commands) -> Option<StartupResumeTarget> {

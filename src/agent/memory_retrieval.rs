@@ -8,8 +8,8 @@ use crate::context::{
 
 impl Agent {
     pub(super) async fn refresh_memory_retrieval_candidates(&mut self) {
-        self.retrieved_memory_candidates = MemoryRetrievalOrchestrator::new(
-            self.llm_backend.clone(),
+        self.retrieved_memory_candidates = MemoryRetrievalOrchestrator::new_with_embedding_backend(
+            self.embedding_backend.clone(),
             self.session_manager.clone(),
             self.memory_store.clone(),
         )

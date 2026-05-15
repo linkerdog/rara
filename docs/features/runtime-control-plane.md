@@ -310,6 +310,13 @@ fail the request instead of being silently persisted.
 string fields and integer importance basis points so ACP/Wire adapters do not
 depend on internal Rust enums or floating-point formatting.
 
+Memory activity that affects the local agent turn must also produce a
+content-free TUI notice. Query notices may expose the operation and result
+count, and write notices may expose the operation and shortened record id, but
+they must not render stored memory content, query text, or titles in the
+transcript. Automatic workspace-memory retrieval and session checkpoint writes
+use the same notice style as protocol memory-control events.
+
 ### Hook Declaration
 
 External applications may declare hooks for lifecycle points such as:
@@ -511,6 +518,8 @@ adapters.
 - Permission and sandbox policy cannot be bypassed by third-party control.
 - Control events are the shared output surface for TUI, ACP, Wire, and headless
   evaluation.
+- TUI memory notices are transient transcript entries. They are observability
+  hints, not durable memory records.
 - Features that add user-visible state must define whether that state is
   persisted, compacted, or transient.
 
@@ -524,6 +533,8 @@ adapters.
 - Tests proving protocol skill sources follow normal precedence and override
   reporting.
 - Tests proving memory writes cannot bypass `MemorySelection`.
+- TUI tests proving memory action notices render without leaking record
+  content.
 - ACP adapter tests for prompt, cancellation, and output events once the adapter
   is wired.
 - Wire adapter tests should reuse the same control-plane fixtures.
@@ -544,3 +555,4 @@ adapters.
 - [2026-05-01-skilltool-and-verify-specs](../journal/2026-05-01-skilltool-and-verify-specs.md)
 - [2026-05-01-memory-selection-spec](../journal/2026-05-01-memory-selection-spec.md)
 - [2026-05-01-tui-modular-queued-follow-up](../journal/2026-05-01-tui-modular-queued-follow-up.md)
+- [2026-05-13-memory-action-notices](../journal/2026-05-13-memory-action-notices.md)

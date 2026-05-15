@@ -378,6 +378,7 @@ pub enum TaskCompletion {
 pub struct RebuildSuccess {
     pub agent: Agent,
     pub warnings: Vec<String>,
+    pub local_model_server: crate::local_model_server::LocalModelServerStatus,
     pub sandbox_network_access: Arc<AtomicBool>,
     /// Shared goal handle for model-facing tools.
     pub goal_handle: crate::tui::state::GoalHandle,
@@ -687,6 +688,7 @@ pub struct TuiApp {
     pub terminal_focused: bool,
     pub state_db: Option<Arc<StateDb>>,
     pub state_db_status: Option<String>,
+    pub local_model_server: crate::local_model_server::LocalModelServerStatus,
     pub mcp_manager: Option<Arc<McpConnectionManager>>,
     pub prompt_source_registry: Option<Arc<PromptSourceRegistry>>,
     pub skill_source_registry: Option<Arc<SkillSourceRegistry>>,

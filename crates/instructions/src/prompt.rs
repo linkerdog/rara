@@ -431,6 +431,7 @@ fn default_system_prompt_sections() -> Vec<PromptSection> {
                     "Report outcomes faithfully. If tests fail, checks are pending, output is partial, truncated, or work is incomplete, state that directly with the relevant evidence. Never claim tests or checks passed unless the observed output shows that they passed.",
                     "When output is truncated, do not infer the missing result from the visible tail or from what usually happens. Re-run a narrower command, inspect a saved full log, or use targeted search until the relevant evidence is visible.",
                     "If an approach fails, diagnose why before switching tactics: read the error, check your assumptions, and try a focused fix. Do not retry the identical action blindly.",
+                    "If a tool call, sandboxed command, or escalated command request is denied, treat that denial as new information. Do not immediately repeat the exact same call; adjust the command, choose another local path, or explain why the blocked capability is essential.",
                 ],
             ),
         ),
@@ -521,6 +522,7 @@ fn default_system_prompt_sections() -> Vec<PromptSection> {
                     "When you encounter an obstacle, do not use destructive actions as a shortcut. Investigate root causes instead of bypassing safety checks (e.g. --no-verify).",
                     "If you discover unexpected state (unfamiliar files, branches, lock files), investigate before deleting or overwriting — it may represent in-progress user work.",
                     "Match the scope of your actions to what was actually requested. Do not expand the blast radius beyond the task.",
+                    "Do not switch Git branches as a cleanup or end-of-task step unless the user explicitly asks you to change branches.",
                     "When in doubt, ask before acting. The cost of pausing to confirm is low; the cost of an unwanted action is very high.",
                 ],
             ),
@@ -566,6 +568,8 @@ fn default_system_prompt_sections() -> Vec<PromptSection> {
                     "Prefer multiple parallel tool calls when reading or searching independent files — it reduces turnaround time.",
                     "When a tool fails, read the exact error, update the working hypothesis, and try the narrowest corrective action that preserves the user's constraints.",
                     "Do not abandon the task after a transient tool, sandbox, network, or filesystem error when a safe local fallback is available.",
+                    "Especially for tests, builds, and checks, treat sandbox denials as a routing problem: inspect the exact failure, retry with a narrower command when possible, or ask for escalated permissions instead of declaring verification impossible.",
+                    "If a command or escalation request was denied, do not blindly re-run the same denied call. Narrow the command, switch to another local evidence path, or report the exact blocked permission you still need.",
                     "When output is truncated, narrow the query, read a smaller range, inspect saved full output, or use a targeted search before asking the user for the missing content.",
                     "When command output may be large, prefer targeted commands, exact tests, log files plus search, or smaller ranges over arbitrary tailing of the last few lines.",
                     "For long-running commands, prefer background task or PTY tools when available; after starting one, use list/status/stop tools to keep the task observable and controllable.",
@@ -609,7 +613,11 @@ fn default_system_prompt_sections() -> Vec<PromptSection> {
                     "Choose validation based on the risk of the change. A narrow unit test is enough for a local helper; state, rendering, or workflow changes need tests at the nearest behavioral boundary.",
                     "Prefer regression tests that would fail on the old behavior and pass for the intended behavior.",
                     "Run the smallest relevant test first, then broaden only when the touched path or risk justifies it.",
+                    "For bug fixes, close the loop in order when practical: reproduce or characterize the original failure, implement the fix, run the focused regression test, then check nearby behavior for side effects.",
+                    "Treat build/test output as necessary evidence, not the whole story. When user-visible state, runtime workflow, or tool behavior changed, also inspect the changed surface or structured runtime result.",
                     "Inspect the real command output before claiming success. A command that exits successfully with warnings should be reported as passed with warnings when the warnings matter.",
+                    "If sandbox or permission limits block a needed validation command, do not stop at the first denial. Read the exact error, try the narrowest equivalent command or other local evidence path, and request escalated permissions only when the sandbox is the real blocker.",
+                    "If the runtime or user denies an escalated validation command, do not re-submit the exact same denied request immediately. Keep the verification work open, use other local evidence if available, or explain the specific permission that still blocks completion.",
                     "If tests cannot be run because of environment, time, sandbox, network, or missing dependency constraints, report that exact limitation and the next best validation.",
                     "Do not update snapshots, fixtures, or recorded outputs blindly. Verify that the new output represents the intended behavior.",
                     "Do not treat formatting as validation for behavior. Formatting is useful, but behavior needs tests, checks, or direct inspection.",
@@ -738,6 +746,10 @@ fn dynamic_system_prompt_sections(
         PromptSection::optional("skills", skills_block),
         PromptSection::optional("language_best_practices", language_prompt),
         PromptSection::new("runtime_context", render_environment_context(&cwd, &branch)),
+        PromptSection::optional(
+            "execute_mode",
+            matches!(mode, PromptMode::Execute).then(execute_mode_prompt),
+        ),
         PromptSection::optional(
             "plan_mode",
             matches!(mode, PromptMode::Plan).then(plan_mode_prompt),
@@ -920,6 +932,21 @@ fn plan_mode_prompt() -> String {
     prompt
 }
 
+fn execute_mode_prompt() -> String {
+    section(
+        "Execute Mode",
+        &[
+            "For complex multi-step execution, keep mutable task state current with 'todo_write' instead of tracking progress only in prose.",
+            "Use 'todo_write' proactively once work has multiple concrete steps, and refresh the full list when new requirements, blockers, or validation work changes the working set.",
+            "Update todo state as soon as a step changes: mark completed items promptly, keep at most one item in progress, and do not batch status changes until the end.",
+            "For non-trivial code changes, keep reproduction, regression-test, or verification work visible in the todo list when it is still pending, and do not treat the implementation as effectively done while the relevant validation item is still pending or failing.",
+            "When a needed test, build, or check is blocked by sandbox permissions, keep pushing on verification: inspect the exact denial, try the narrowest viable alternative, or request escalated permissions with concrete justification rather than stopping at 'sandbox blocked'.",
+            "If a validation command or escalation request is denied, keep the relevant verification todo item pending and describe the blocked capability instead of marking the task effectively done.",
+            "When the next safe local step is obvious from the inspected code and transcript, take it instead of stopping with optional suggestions about what could be done next.",
+        ],
+    )
+}
+
 fn review_mode_prompt() -> String {
     REVIEW_MODE_PROMPT.clone()
 }
@@ -1073,6 +1100,49 @@ mod tests {
     }
 
     #[test]
+    fn build_system_prompt_includes_execute_mode_guidance_only_in_execute_mode() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let root = temp.path().join("workspace");
+        let rara_dir = root.join(".rara");
+        fs::create_dir_all(&rara_dir).expect("mkdir .rara");
+        let workspace = WorkspaceMemory::from_paths(root, rara_dir);
+
+        let execute = build_effective_prompt(
+            &workspace,
+            &PromptRuntimeConfig::default(),
+            PromptMode::Execute,
+        );
+        assert!(execute.section_keys.contains(&"execute_mode"));
+        assert!(execute.text.contains("# Execute Mode"));
+        assert!(execute.text.contains("todo_write"));
+        assert!(execute.text.contains("refresh the full list"));
+        assert!(
+            execute
+                .text
+                .contains("do not batch status changes until the end")
+        );
+        assert!(
+            execute
+                .text
+                .contains("relevant validation item is still pending or failing")
+        );
+        assert!(execute.text.contains("stopping at 'sandbox blocked'"));
+        assert!(
+            execute
+                .text
+                .contains("keep the relevant verification todo item pending")
+        );
+
+        let plan = build_effective_prompt(
+            &workspace,
+            &PromptRuntimeConfig::default(),
+            PromptMode::Plan,
+        );
+        assert!(!plan.section_keys.contains(&"execute_mode"));
+        assert!(!plan.text.contains("# Execute Mode"));
+    }
+
+    #[test]
     fn build_system_prompt_includes_language_best_practices_for_rust_project() {
         let temp = tempfile::tempdir().expect("tempdir");
         let root = temp.path().join("rust-project");
@@ -1130,6 +1200,11 @@ mod tests {
             effective
                 .text
                 .contains("When output is truncated, do not infer the missing result")
+        );
+        assert!(
+            effective
+                .text
+                .contains("Do not immediately repeat the exact same call")
         );
     }
 
@@ -1289,6 +1364,7 @@ mod tests {
         assert!(prompt.contains("first inspect local usage"));
         assert!(prompt.contains("<cmd> --help"));
         assert!(prompt.contains("avoid using 'cd'"));
+        assert!(prompt.contains("Do not switch Git branches as a cleanup"));
         assert!(prompt.contains("Let the existing codebase shape the solution"));
         assert!(prompt.contains("Keep changes small and reviewable"));
         assert!(prompt.contains("decompose the work into several smaller"));
@@ -1311,9 +1387,12 @@ mod tests {
         assert!(prompt.contains("list/status/stop tools"));
         assert!(prompt.contains("available GitHub tools or the 'gh' CLI"));
         assert!(prompt.contains("never rewrite history"));
+        assert!(prompt.contains("Especially for tests, builds, and checks"));
+        assert!(prompt.contains("do not blindly re-run the same denied call"));
         assert!(prompt.contains("evidence-backed conclusion"));
         assert!(prompt.contains("Do not assume durable vector recall exists"));
         assert!(prompt.contains("Use 'spawn_agent' or 'team_create'"));
+        assert!(prompt.contains("todo_write"));
     }
 
     #[test]
@@ -1425,6 +1504,22 @@ mod tests {
             effective
                 .text
                 .contains("Prefer regression tests that would fail on the old behavior")
+        );
+        assert!(
+            effective
+                .text
+                .contains("close the loop in order when practical")
+        );
+        assert!(
+            effective
+                .text
+                .contains("Treat build/test output as necessary evidence")
+        );
+        assert!(effective.text.contains("do not stop at the first denial"));
+        assert!(
+            effective
+                .text
+                .contains("do not re-submit the exact same denied request immediately")
         );
         assert!(
             effective

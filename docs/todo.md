@@ -106,7 +106,7 @@ Active backlog only. Keep this file small and current.
 - [x] Durable in-turn checkpoints: persist after each message/tool-result batch, atomic writes, crash-tolerant `SessionManager`.
 - [x] Auto-memory extraction: background LLM-driven fact extraction after every 5 turns, inserted into LanceDB via MemoryStore (PR #375).
 - [x] Directory-walking rules layer: `.rara/rules/*.md` discovered from CWD to repo root (PR #375).
-- [ ] Prototype local embedding models for memory retrieval, comparing local inference quality/latency against the current remote or fallback embedding path before choosing a durable backend.
+- [ ] Add explicit embedding controls and profile-aware storage follow-ups for the local model server path: enable/disable config, provider override, sidecar-first provider capability registry/allowlist, and LanceDB identity/versioning by canonical embedding profile.
 - [ ] Add auto-memory extraction controls and observability: enable/disable config, last-run status, error reporting, dedupe metrics, and stale/timeout diagnostics.
 - [ ] Define cross-process background sub-agent restart/reattach semantics.
 - [x] Compaction as first-class lifecycle event: persist summaries, token counters, metadata ownership.
@@ -188,4 +188,20 @@ Active backlog only. Keep this file small and current.
 
 - [x] Add `TuiMaintainer` to event loop (merged #276).
 - [x] `rara-persistence` crate: `atomic_file`, `redaction`, `thread_data`, `thread_metadata`, `thread_rollout_log`, `thread_turn_log`, `file_lock` (merged #279, #282, #283, #338+).
-- [ ] Continue splitting remaining oversized modules into smaller files (e.g. `state_db.rs`).
+- [x] Code health review (see `docs/features/code-health-review-2025.md`).
+
+### P0 — Oversized module split (blocking)
+
+- [ ] Split `src/tui/state/mod.rs` (2000+ lines): extract types, presets, persistence, provider-status into submodules; shrink mod.rs to ≤300 lines facade.
+- [ ] Remove dead code from production source files: 71 `#[allow(dead_code)]` sites. Priority: `src/runtime_control.rs` (scaffolding), `src/hook_registry.rs`, `src/acp_consumer.rs`, `src/mcp_status.rs`, `src/tui/custom_terminal.rs`.
+
+### P1 — Agent and compaction modules
+
+- [ ] Split `src/agent.rs` (1287 lines): extract tool-execution, plan-handling, history-management into `agent/` submodules.
+- [ ] Split `src/agent/compact/main.rs` (~1250 lines): split by compaction phase (microcompact, full-compact, strategy).
+- [ ] Narrow `Agent` struct field visibility from `pub` to `pub(crate)` or private; add accessor methods where needed.
+
+### P2 — Render and context modules
+
+- [ ] Split `src/tui/render.rs` (990 lines): move remaining top-level functions into existing render submodules.
+- [ ] Split `src/context/assembler.rs` (916 lines): extract budget calculation and message assembly.

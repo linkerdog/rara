@@ -22,7 +22,9 @@ use super::super::state::{
     GoalStatus, ListPickerKind, OAuthLoginMode, PermissionMode, RalphGoal, RunningTask,
     RuntimePhase, TaskCompletion, TaskKind, TuiApp, TuiEvent,
 };
-use super::events::{apply_tui_event, convert_agent_event, format_error_chain};
+use super::events::{
+    apply_tui_event, convert_agent_event, format_error_chain, format_memory_event_notice,
+};
 use crate::agent::{Agent, AgentOutputMode, BashApprovalDecision};
 use crate::runtime_control::RuntimeProvenance;
 use crate::runtime_event_bus::RuntimeEventBus;
@@ -286,6 +288,13 @@ pub(super) fn start_input_control_task(
                     if let Some(tui_event) = convert_agent_event(agent_event) {
                         let _ = tx.send(tui_event);
                     }
+                } else if let crate::runtime_control::RuntimeEvent::Memory(me) =
+                    &control_event.event
+                {
+                    let _ = tx.send(TuiEvent::Transcript {
+                        role: "System",
+                        message: format_memory_event_notice(me),
+                    });
                 }
             },
         )
@@ -943,6 +952,7 @@ pub(crate) async fn finish_running_task_if_ready(
                 app.prompt_source_registry = Some(rebuilt.prompt_source_registry);
                 app.skill_source_registry = Some(rebuilt.skill_source_registry);
                 app.memory_handler = Some(rebuilt.memory_handler);
+                app.local_model_server = rebuilt.local_model_server;
                 app.config_manager.save(&app.config)?;
                 app.setup_status = Some(format!(
                     "Applied {} / {}",
@@ -957,8 +967,17 @@ pub(crate) async fn finish_running_task_if_ready(
                 app.close_overlay();
                 app.set_runtime_phase(RuntimePhase::BackendReady, Some("backend ready".into()));
                 app.push_entry("Runtime", app.setup_status.clone().unwrap_or_default());
+                let warning_count = rebuilt.warnings.len();
                 for warning in rebuilt.warnings {
-                    app.push_notice(warning);
+                    app.push_entry("System", warning);
+                }
+                if warning_count > 0 {
+                    let notice = if warning_count == 1 {
+                        "Startup warning added to transcript.".to_string()
+                    } else {
+                        format!("{warning_count} startup warnings added to transcript.")
+                    };
+                    app.bottom_pane.notice = Some(notice);
                 }
                 app.finalize_active_turn();
                 try_start_queued_follow_up(app, agent_slot);

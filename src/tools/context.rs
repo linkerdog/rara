@@ -5,11 +5,11 @@ use rara_tool_macros::tool_spec;
 use rara_tools::tool::{Tool, ToolError};
 use serde_json::{Value, json};
 
-use crate::llm::LlmBackend;
+use crate::llm::{EmbeddingBackend, EmbeddingInputKind};
 use crate::session::SessionManager;
 
 pub struct RetrieveSessionContextTool {
-    pub backend: Arc<dyn LlmBackend>,
+    pub embedding_backend: Arc<dyn EmbeddingBackend>,
     pub session_manager: Arc<SessionManager>,
 }
 #[tool_spec(
@@ -27,8 +27,8 @@ impl Tool for RetrieveSessionContextTool {
             return Ok(json!({ "status": "no_context_found", "matches": [] }));
         }
         let vector = self
-            .backend
-            .embed(query)
+            .embedding_backend
+            .embed(query, EmbeddingInputKind::Query)
             .await
             .map_err(|err| ToolError::ExecutionFailed(err.to_string()))?;
         let session_manager = self.session_manager.clone();
@@ -82,7 +82,7 @@ mod tests {
             )
             .expect("save session context checkpoint");
         let tool = RetrieveSessionContextTool {
-            backend: Arc::new(MockLlm),
+            embedding_backend: Arc::new(MockLlm),
             session_manager,
         };
 

@@ -25,7 +25,7 @@ use serde_json::{Value, json};
 use crate::agent::{
     Agent, AgentExecutionMode, Message, PendingUserInput, PlanStep, PlanStepStatus,
 };
-use crate::llm::LlmBackend;
+use crate::llm::{EmbeddingBackend, LlmBackend};
 use crate::prompt::PromptRuntimeConfig;
 use crate::session::SessionManager;
 use crate::session_transcript::{self, TranscriptScope};
@@ -434,6 +434,7 @@ impl SubAgentKind {
 
 pub struct AgentTool {
     pub backend: Arc<dyn LlmBackend>,
+    pub embedding_backend: Arc<dyn EmbeddingBackend>,
     pub vdb: Arc<VectorDB>,
     pub session_manager: Arc<SessionManager>,
     pub workspace: Arc<WorkspaceMemory>,
@@ -505,6 +506,7 @@ impl AgentTool {
                 parent_session_id: parent_session_id.map(str::to_string),
                 instruction: instruction.to_string(),
                 backend: self.backend.clone(),
+                embedding_backend: self.embedding_backend.clone(),
                 vdb: self.vdb.clone(),
                 session_manager: self.session_manager.clone(),
                 workspace: self.workspace.clone(),
@@ -522,6 +524,7 @@ impl AgentTool {
             None,
             None,
             self.backend.clone(),
+            self.embedding_backend.clone(),
             self.vdb.clone(),
             self.session_manager.clone(),
             self.workspace.clone(),
@@ -545,6 +548,7 @@ impl AgentTool {
 
 pub struct ExploreAgentTool {
     pub backend: Arc<dyn LlmBackend>,
+    pub embedding_backend: Arc<dyn EmbeddingBackend>,
     pub vdb: Arc<VectorDB>,
     pub session_manager: Arc<SessionManager>,
     pub workspace: Arc<WorkspaceMemory>,
@@ -607,6 +611,7 @@ impl ExploreAgentTool {
                 parent_session_id: parent_session_id.map(str::to_string),
                 instruction: instruction.to_string(),
                 backend: self.backend.clone(),
+                embedding_backend: self.embedding_backend.clone(),
                 vdb: self.vdb.clone(),
                 session_manager: self.session_manager.clone(),
                 workspace: self.workspace.clone(),
@@ -624,6 +629,7 @@ impl ExploreAgentTool {
             None,
             None,
             self.backend.clone(),
+            self.embedding_backend.clone(),
             self.vdb.clone(),
             self.session_manager.clone(),
             self.workspace.clone(),
@@ -646,6 +652,7 @@ impl ExploreAgentTool {
 
 pub struct PlanAgentTool {
     pub backend: Arc<dyn LlmBackend>,
+    pub embedding_backend: Arc<dyn EmbeddingBackend>,
     pub vdb: Arc<VectorDB>,
     pub session_manager: Arc<SessionManager>,
     pub workspace: Arc<WorkspaceMemory>,
@@ -708,6 +715,7 @@ impl PlanAgentTool {
                 parent_session_id: parent_session_id.map(str::to_string),
                 instruction: instruction.to_string(),
                 backend: self.backend.clone(),
+                embedding_backend: self.embedding_backend.clone(),
                 vdb: self.vdb.clone(),
                 session_manager: self.session_manager.clone(),
                 workspace: self.workspace.clone(),
@@ -725,6 +733,7 @@ impl PlanAgentTool {
             None,
             None,
             self.backend.clone(),
+            self.embedding_backend.clone(),
             self.vdb.clone(),
             self.session_manager.clone(),
             self.workspace.clone(),
@@ -752,6 +761,7 @@ impl PlanAgentTool {
 
 pub struct TeamCreateTool {
     pub backend: Arc<dyn LlmBackend>,
+    pub embedding_backend: Arc<dyn EmbeddingBackend>,
     pub vdb: Arc<VectorDB>,
     pub session_manager: Arc<SessionManager>,
     pub workspace: Arc<WorkspaceMemory>,
@@ -779,6 +789,7 @@ struct BackgroundSubAgentStart {
     parent_session_id: Option<String>,
     instruction: String,
     backend: Arc<dyn LlmBackend>,
+    embedding_backend: Arc<dyn EmbeddingBackend>,
     vdb: Arc<VectorDB>,
     session_manager: Arc<SessionManager>,
     workspace: Arc<WorkspaceMemory>,
@@ -859,6 +870,7 @@ impl BackgroundSubAgentStore {
                 Some(session_id),
                 Some(cancellation),
                 start.backend,
+                start.embedding_backend,
                 start.vdb,
                 start.session_manager,
                 start.workspace,
@@ -1175,6 +1187,7 @@ impl TeamCreateTool {
         let tasks = normalize_team_tasks(tasks)?;
         let runs = tasks.into_iter().map(|task| {
             let backend = self.backend.clone();
+            let embedding_backend = self.embedding_backend.clone();
             let vdb = self.vdb.clone();
             let session_manager = self.session_manager.clone();
             let workspace = self.workspace.clone();
@@ -1193,6 +1206,7 @@ impl TeamCreateTool {
                     None,
                     None,
                     backend,
+                    embedding_backend,
                     vdb,
                     session_manager,
                     workspace,
@@ -1240,6 +1254,7 @@ async fn run_sub_agent(
     session_id: Option<String>,
     cancellation_token: Option<Arc<AtomicBool>>,
     backend: Arc<dyn LlmBackend>,
+    embedding_backend: Arc<dyn EmbeddingBackend>,
     vdb: Arc<VectorDB>,
     session_manager: Arc<SessionManager>,
     workspace: Arc<WorkspaceMemory>,
@@ -1250,9 +1265,10 @@ async fn run_sub_agent(
     } else {
         build_subagent_tool_manager(kind)
     };
-    let mut sub = Agent::new(
+    let mut sub = Agent::new_with_embedding_backend(
         tool_manager,
         backend,
+        embedding_backend,
         vdb,
         session_manager.clone(),
         workspace.clone(),

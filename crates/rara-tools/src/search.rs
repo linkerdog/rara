@@ -44,7 +44,8 @@ pub struct GrepTool;
         "properties": {
             "pattern": { "type": "string" },
             "path": { "type": "string", "default": "." },
-            "include_ignored": { "type": "boolean", "default": false }
+            "include_ignored": { "type": "boolean", "default": false },
+            "context_lines": { "type": "integer", "minimum": 0, "default": 0, "description": "Number of surrounding context lines to include per match." }
         },
         "required": ["pattern"]
     }
@@ -60,6 +61,7 @@ impl Tool for GrepTool {
             .get("include_ignored")
             .and_then(Value::as_bool)
             .unwrap_or(false);
+        let context_lines = i.get("context_lines").and_then(Value::as_u64).unwrap_or(0) as usize;
         let re = Regex::new(p).map_err(|e| ToolError::InvalidInput(e.to_string()))?;
         let mut results = Vec::new();
         for entry in walkdir::WalkDir::new(search_path)
@@ -69,9 +71,38 @@ impl Tool for GrepTool {
         {
             if entry.file_type().is_file() {
                 if let Ok(c) = fs::read_to_string(entry.path()) {
-                    for (line_idx, line) in c.lines().enumerate() {
-                        if re.is_match(line) {
-                            results.push(json!({ "file": entry.path().display().to_string(), "line": line_idx + 1, "content": line.trim() }));
+                    if context_lines > 0 {
+                        let all_lines: Vec<&str> = c.lines().collect();
+                        for (line_idx, line) in all_lines.iter().enumerate() {
+                            if re.is_match(line) {
+                                let mut entry_json = json!({
+                                    "file": entry.path().display().to_string(),
+                                    "line": line_idx + 1,
+                                    "content": line.trim()
+                                });
+                                let start = line_idx.saturating_sub(context_lines);
+                                let end = (line_idx + context_lines + 1).min(all_lines.len());
+                                let context: Vec<serde_json::Value> = (start..end)
+                                    .map(|i| {
+                                        json!({
+                                            "line": i + 1,
+                                            "text": all_lines[i]
+                                        })
+                                    })
+                                    .collect();
+                                entry_json["context"] = json!(context);
+                                results.push(entry_json);
+                            }
+                        }
+                    } else {
+                        for (line_idx, line) in c.lines().enumerate() {
+                            if re.is_match(line) {
+                                results.push(json!({
+                                    "file": entry.path().display().to_string(),
+                                    "line": line_idx + 1,
+                                    "content": line.trim()
+                                }));
+                            }
                         }
                     }
                 }

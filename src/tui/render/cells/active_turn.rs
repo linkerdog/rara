@@ -392,7 +392,8 @@ impl ActiveCell for ActiveTurnCell<'_> {
         let suppress_planning_chatter = matches!(
             self.app.agent_execution_mode,
             crate::agent::AgentExecutionMode::Plan
-        ) && has_exploration_summary
+        ) && (has_exploration_summary
+            || has_event_exploration_summary)
             && latest_agent.is_some_and(|message| !contains_structured_planning_output(message))
             && self.app.snapshot.plan_steps.is_empty()
             && self.app.pending_request_input().is_none()
@@ -443,8 +444,7 @@ impl ActiveCell for ActiveTurnCell<'_> {
                 if compact_live_response {
                     if let Some(message) = compact_live_response_message(agent_message) {
                         cells.push(Box::new(RespondingCell::from_compact_message(
-                            message,
-                            usize::MAX,
+                            message, 4, self.cwd,
                         )));
                     }
                 } else {
@@ -471,8 +471,7 @@ impl ActiveCell for ActiveTurnCell<'_> {
             if compact_live_response {
                 if let Some(message) = compact_live_response_message(agent_message) {
                     cells.push(Box::new(RespondingCell::from_compact_message(
-                        message,
-                        usize::MAX,
+                        message, 4, self.cwd,
                     )));
                 }
             } else {

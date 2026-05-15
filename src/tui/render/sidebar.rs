@@ -1,7 +1,5 @@
 // Wide-screen sidebar (≥120 cols) rendered alongside the main transcript pane.
 // Layout draws a 38-column panel on the left split by a vertical border,
-// showing session identity, model badge, context summary, files access, and status.
-use std::collections::BTreeSet;
 
 use ratatui::{
     layout::{Constraint, Direction, Layout, Rect},
@@ -42,9 +40,11 @@ pub(crate) fn render_sidebar(f: &mut Frame, app: &TuiApp, area: Rect) {
     lines.push(Line::from(""));
     push_context_summary(&mut lines, app);
     lines.push(Line::from(""));
+    if push_todo_section(&mut lines, app) {
+        lines.push(Line::from(""));
+    }
     push_child_sessions(&mut lines, app);
     lines.push(Line::from(""));
-    push_files_in_context(&mut lines, app);
 
     f.render_widget(Paragraph::new(lines).wrap(Wrap { trim: false }), body_area);
 
@@ -133,6 +133,64 @@ fn push_context_summary(lines: &mut Vec<Line<'static>>, app: &TuiApp) {
     )));
 }
 
+fn push_todo_section(lines: &mut Vec<Line<'static>>, app: &TuiApp) -> bool {
+    let todo = &app.snapshot.todo;
+    if todo.summary.total == 0 {
+        return false;
+    }
+
+    lines.push(Line::from(super::section_label("Todo", TEXT_SECONDARY)));
+    let open = todo.summary.pending + todo.summary.in_progress;
+    lines.push(Line::from(Span::styled(
+        format!(
+            "{}/{} done · {} open",
+            todo.summary.completed, todo.summary.total, open
+        ),
+        Style::default().fg(TEXT_MUTED),
+    )));
+
+    if let Some(active) = todo.summary.active_item.as_deref() {
+        lines.push(Line::from(Span::styled(
+            format!("Active: {active}"),
+            Style::default().fg(INTERACTION_SUB_AGENT),
+        )));
+    }
+
+    for (_, status, content) in todo.items.iter().take(4) {
+        lines.push(Line::from(Span::styled(
+            format!("{} {}", todo_status_marker(status), content.trim()),
+            todo_status_style(status),
+        )));
+    }
+
+    if todo.items.len() > 4 {
+        lines.push(Line::from(Span::styled(
+            format!("... and {} more", todo.items.len() - 4),
+            Style::default().fg(TEXT_MUTED),
+        )));
+    }
+
+    true
+}
+
+fn todo_status_marker(status: &str) -> &'static str {
+    match status {
+        "in_progress" => "[>]",
+        "completed" => "[x]",
+        "cancelled" => "[-]",
+        _ => "[ ]",
+    }
+}
+
+fn todo_status_style(status: &str) -> Style {
+    match status {
+        "in_progress" => Style::default().fg(INTERACTION_SUB_AGENT),
+        "completed" => Style::default().fg(STATUS_SUCCESS),
+        "cancelled" => Style::default().fg(TEXT_MUTED),
+        _ => Style::default().fg(TEXT_SECONDARY),
+    }
+}
+
 fn push_child_sessions(lines: &mut Vec<Line<'static>>, app: &TuiApp) {
     let child_count = app.snapshot.pending_interactions.len();
     if child_count == 0 {
@@ -158,90 +216,6 @@ fn push_child_sessions(lines: &mut Vec<Line<'static>>, app: &TuiApp) {
             format!("  ... and {} more", child_count - 5),
             Style::default().fg(TEXT_MUTED),
         )));
-    }
-}
-
-fn push_files_in_context(lines: &mut Vec<Line<'static>>, app: &TuiApp) {
-    let mut read_files: BTreeSet<String> = BTreeSet::new();
-    let mut changed_files: BTreeSet<String> = BTreeSet::new();
-
-    let all_turns = app
-        .committed_turns
-        .iter()
-        .chain(std::iter::once(&app.active_turn));
-
-    for turn in all_turns {
-        for entry in &turn.entries {
-            if entry.role != "Tool" {
-                continue;
-            }
-            let msg = entry.message.trim();
-
-            if let Some(path) = msg.strip_prefix("read_file ") {
-                read_files.insert(path.trim().to_string());
-            } else if let Some(rest) = msg.strip_prefix("apply_patch ") {
-                for part in rest.split(',') {
-                    let p = part.trim();
-                    if !p.is_empty() {
-                        changed_files.insert(p.to_string());
-                    }
-                }
-            } else if let Some(path) = msg.strip_prefix("write_file ") {
-                changed_files.insert(path.trim().to_string());
-            } else if let Some(path) = msg.strip_prefix("replace ") {
-                changed_files.insert(path.trim().to_string());
-            } else if let Some(path) = msg.strip_prefix("multi_edit ") {
-                changed_files.insert(path.trim().to_string());
-            } else if let Some(path) = msg.strip_prefix("replace_lines ") {
-                changed_files.insert(path.trim().to_string());
-            }
-        }
-    }
-
-    if read_files.is_empty() && changed_files.is_empty() {
-        return;
-    }
-
-    lines.push(Line::from(super::section_label("Files", TEXT_SECONDARY)));
-
-    // Files read.
-    if !read_files.is_empty() {
-        lines.push(Line::from(Span::styled(
-            "Read:",
-            Style::default().fg(TEXT_MUTED),
-        )));
-        for path in read_files.iter().take(5) {
-            lines.push(Line::from(Span::styled(
-                format!("  {path}"),
-                Style::default().fg(TEXT_SECONDARY),
-            )));
-        }
-        if read_files.len() > 5 {
-            lines.push(Line::from(Span::styled(
-                format!("  ... and {} more", read_files.len() - 5),
-                Style::default().fg(TEXT_MUTED),
-            )));
-        }
-    }
-
-    // Files changed.
-    if !changed_files.is_empty() {
-        lines.push(Line::from(Span::styled(
-            "Changed:",
-            Style::default().fg(TEXT_MUTED),
-        )));
-        for path in changed_files.iter().take(5) {
-            lines.push(Line::from(Span::styled(
-                format!("  {path}"),
-                Style::default().fg(INTERACTION_SUB_AGENT),
-            )));
-        }
-        if changed_files.len() > 5 {
-            lines.push(Line::from(Span::styled(
-                format!("  ... and {} more", changed_files.len() - 5),
-                Style::default().fg(TEXT_MUTED),
-            )));
-        }
     }
 }
 

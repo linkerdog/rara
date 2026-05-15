@@ -54,6 +54,8 @@ future appserver integrations can use.
   budget, and `/context` contract for memory/context retrieval.
 - `observability.md`: bounded process-local runtime metrics and `/status`
   context/metrics contracts.
+- `local-embedding-runtimes.md`: local Python model server, macOS MLX/Qwen3
+  backend, portable FastEmbed/ONNX backend, and server safety contract.
 - `workspace-memory-cache.md`: prompt-source and workspace-memory cache
   invalidation, ordering, and shared observability contract.
 - `thread-goals.md`: persistent `/goal` runtime, tool, continuation, budget,

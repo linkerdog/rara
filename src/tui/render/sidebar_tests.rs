@@ -2,10 +2,12 @@ use ratatui::{layout::Rect, style::Color, text::Line};
 use tempfile::tempdir;
 
 use super::{
-    push_child_sessions, push_context_summary, push_files_in_context, push_model_badge,
-    push_session_info,
+    push_child_sessions, push_context_summary, push_model_badge, push_session_info,
+    push_todo_section,
 };
 use crate::config::ConfigManager;
+use crate::context::TodoContextView;
+use crate::todo::TodoSummary;
 use crate::tui::state::{
     InteractionKind, PendingInteractionSnapshot, RuntimeSnapshot, TranscriptEntry, TranscriptTurn,
     TuiApp,
@@ -327,6 +329,67 @@ fn push_context_summary_no_context_window() {
     );
 }
 
+#[test]
+fn push_todo_section_shows_progress_and_items() {
+    let temp = tempdir().unwrap();
+    let mut app = TuiApp::new(ConfigManager {
+        path: temp.path().join("config.json"),
+    })
+    .expect("build tui app");
+    app.snapshot = RuntimeSnapshot {
+        todo: TodoContextView {
+            summary: TodoSummary {
+                total: 4,
+                pending: 1,
+                in_progress: 1,
+                completed: 1,
+                cancelled: 1,
+                active_item: Some("Run focused regression test".into()),
+            },
+            updated_at: Some(1_777_584_000),
+            items: vec![
+                (
+                    "todo-1".into(),
+                    "completed".into(),
+                    "Reproduce failing behavior".into(),
+                ),
+                (
+                    "todo-2".into(),
+                    "in_progress".into(),
+                    "Run focused regression test".into(),
+                ),
+                (
+                    "todo-3".into(),
+                    "pending".into(),
+                    "Check nearby side effects".into(),
+                ),
+                (
+                    "todo-4".into(),
+                    "cancelled".into(),
+                    "Broader cleanup".into(),
+                ),
+            ],
+        },
+        ..RuntimeSnapshot::default()
+    };
+
+    let mut lines = Vec::new();
+    assert!(push_todo_section(&mut lines, &app));
+
+    let text: String = lines
+        .iter()
+        .map(|l| l.to_string())
+        .collect::<Vec<_>>()
+        .join("\n");
+    assert!(text.contains("Todo"));
+    assert!(text.contains("1/4 done · 2 open"));
+    assert!(text.contains("Active: Run focused regression test"));
+    assert!(text.contains("[x] Reproduce failing behavior"));
+    assert!(text.contains("[>] Run focused regression test"));
+    assert!(text.contains("[ ] Check nearby side effects"));
+    assert!(text.contains("[-] Broader cleanup"));
+}
+
 // ── push_child_sessions ─────────────────────────────────────────────
 // Now shows "# Sub-agents" section header + each title (running).
 
@@ -382,240 +445,6 @@ fn push_child_sessions_skip_when_empty() {
     assert!(lines.is_empty(), "empty when no pending interactions");
 }
 
-// ── push_files_in_context ───────────────────────────────────────────
-// Extracts read_file / apply_patch / write_file paths from transcript.
-
-#[test]
-fn push_files_in_context_empty_when_no_file_tools() {
-    let temp = tempdir().unwrap();
-    let mut app = TuiApp::new(ConfigManager {
-        path: temp.path().join("config.json"),
-    })
-    .expect("build tui app");
-    app.committed_turns = vec![TranscriptTurn {
-        entries: vec![TranscriptEntry::new(
-            "Assistant",
-            "Let me think about this.",
-        )],
-    }];
-
-    let mut lines = Vec::new();
-    push_files_in_context(&mut lines, &app);
-    assert!(lines.is_empty(), "empty when no file-tool entries");
-}
-
-#[test]
-fn push_files_in_context_shows_read_and_changed() {
-    let temp = tempdir().unwrap();
-    let mut app = TuiApp::new(ConfigManager {
-        path: temp.path().join("config.json"),
-    })
-    .expect("build tui app");
-    app.committed_turns = vec![TranscriptTurn {
-        entries: vec![
-            TranscriptEntry::new("Tool", "read_file src/main.rs"),
-            TranscriptEntry::new("Tool", "read_file crates/lib.rs"),
-            TranscriptEntry::new("Tool", "apply_patch src/main.rs"),
-            TranscriptEntry::new("Tool", "write_file docs/new.md"),
-        ],
-    }];
-
-    let mut lines = Vec::new();
-    push_files_in_context(&mut lines, &app);
-    let text: String = lines
-        .iter()
-        .map(|l| l.to_string())
-        .collect::<Vec<_>>()
-        .join("\n");
-    assert!(text.contains("Files"), "should show # Files section label");
-    assert!(text.contains("Read:"), "should have Read subsection");
-    assert!(text.contains("src/main.rs"), "should show read file");
-    assert!(text.contains("crates/lib.rs"), "should show read file");
-    assert!(text.contains("Changed:"), "should have Changed subsection");
-    assert!(text.contains("docs/new.md"), "should show changed file");
-}
-
-#[test]
-fn push_files_in_context_deduplicates() {
-    let temp = tempdir().unwrap();
-    let mut app = TuiApp::new(ConfigManager {
-        path: temp.path().join("config.json"),
-    })
-    .expect("build tui app");
-    app.committed_turns = vec![TranscriptTurn {
-        entries: vec![
-            TranscriptEntry::new("Tool", "read_file src/main.rs"),
-            TranscriptEntry::new("Tool", "read_file src/main.rs"),
-        ],
-    }];
-
-    let mut lines = Vec::new();
-    push_files_in_context(&mut lines, &app);
-    let text: String = lines
-        .iter()
-        .map(|l| l.to_string())
-        .collect::<Vec<_>>()
-        .join("\n");
-    // Only one occurrence of src/main.rs
-    let count = text.matches("src/main.rs").count();
-    assert_eq!(count, 1, "duplicate file paths are collapsed");
-}
-
-#[test]
-fn push_files_in_context_truncates_at_five() {
-    let temp = tempdir().unwrap();
-    let mut app = TuiApp::new(ConfigManager {
-        path: temp.path().join("config.json"),
-    })
-    .expect("build tui app");
-    let files: Vec<_> = (1..=8)
-        .map(|i| TranscriptEntry::new("Tool", format!("read_file src/file{i}.rs")))
-        .collect();
-    app.committed_turns = vec![TranscriptTurn { entries: files }];
-
-    let mut lines = Vec::new();
-    push_files_in_context(&mut lines, &app);
-    let text: String = lines
-        .iter()
-        .map(|l| l.to_string())
-        .collect::<Vec<_>>()
-        .join("\n");
-    assert!(
-        text.contains("... and 3 more"),
-        "should truncate at 5 with overflow count"
-    );
-}
-
-#[test]
-fn push_files_in_context_read_only_no_changed() {
-    let temp = tempdir().unwrap();
-    let mut app = TuiApp::new(ConfigManager {
-        path: temp.path().join("config.json"),
-    })
-    .expect("build tui app");
-    app.committed_turns = vec![TranscriptTurn {
-        entries: vec![TranscriptEntry::new("Tool", "read_file src/main.rs")],
-    }];
-
-    let mut lines = Vec::new();
-    push_files_in_context(&mut lines, &app);
-    let text: String = lines
-        .iter()
-        .map(|l| l.to_string())
-        .collect::<Vec<_>>()
-        .join("\n");
-    assert!(text.contains("Read:"));
-    assert!(!text.contains("Changed:"));
-}
-
-#[test]
-fn push_files_in_context_includes_active_turn() {
-    let temp = tempdir().unwrap();
-    let mut app = TuiApp::new(ConfigManager {
-        path: temp.path().join("config.json"),
-    })
-    .expect("build tui app");
-    app.active_turn = TranscriptTurn {
-        entries: vec![TranscriptEntry::new("Tool", "read_file crates/tool.rs")],
-    };
-
-    let mut lines = Vec::new();
-    push_files_in_context(&mut lines, &app);
-    let text: String = lines
-        .iter()
-        .map(|l| l.to_string())
-        .collect::<Vec<_>>()
-        .join("\n");
-    assert!(
-        text.contains("crates/tool.rs"),
-        "should include files from active turn"
-    );
-}
-
-#[test]
-fn push_files_in_context_detects_replace() {
-    let temp = tempdir().unwrap();
-    let mut app = TuiApp::new(ConfigManager {
-        path: temp.path().join("config.json"),
-    })
-    .expect("build tui app");
-    app.committed_turns = vec![TranscriptTurn {
-        entries: vec![TranscriptEntry::new("Tool", "replace src/main.rs")],
-    }];
-
-    let mut lines = Vec::new();
-    push_files_in_context(&mut lines, &app);
-    let text: String = lines
-        .iter()
-        .map(|l| l.to_string())
-        .collect::<Vec<_>>()
-        .join("\n");
-    assert!(
-        text.contains("Changed:"),
-        "replace should be a changed file"
-    );
-    assert!(text.contains("src/main.rs"), "should show replaced path");
-}
-
-#[test]
-fn push_files_in_context_detects_multi_edit() {
-    let temp = tempdir().unwrap();
-    let mut app = TuiApp::new(ConfigManager {
-        path: temp.path().join("config.json"),
-    })
-    .expect("build tui app");
-    app.committed_turns = vec![TranscriptTurn {
-        entries: vec![TranscriptEntry::new("Tool", "multi_edit crates/lib.rs")],
-    }];
-
-    let mut lines = Vec::new();
-    push_files_in_context(&mut lines, &app);
-    let text: String = lines
-        .iter()
-        .map(|l| l.to_string())
-        .collect::<Vec<_>>()
-        .join("\n");
-    assert!(
-        text.contains("Changed:"),
-        "multi_edit should be a changed file"
-    );
-    assert!(
-        text.contains("crates/lib.rs"),
-        "should show multi_edit path"
-    );
-}
-
-#[test]
-fn push_files_in_context_detects_replace_lines() {
-    let temp = tempdir().unwrap();
-    let mut app = TuiApp::new(ConfigManager {
-        path: temp.path().join("config.json"),
-    })
-    .expect("build tui app");
-    app.committed_turns = vec![TranscriptTurn {
-        entries: vec![TranscriptEntry::new(
-            "Tool",
-            "replace_lines src/tui/sidebar.rs",
-        )],
-    }];
-
-    let mut lines = Vec::new();
-    push_files_in_context(&mut lines, &app);
-    let text: String = lines
-        .iter()
-        .map(|l| l.to_string())
-        .collect::<Vec<_>>()
-        .join("\n");
-    assert!(
-        text.contains("Changed:"),
-        "replace_lines should be a changed file"
-    );
-    assert!(
-        text.contains("src/tui/sidebar.rs"),
-        "should show replace_lines path"
-    );
-}
-
 // ── PendingInteractionSnapshot default helper ───────────────────────
 
 impl Default for PendingInteractionSnapshot {
@@ -659,8 +488,6 @@ fn section_header_appears_in_sidebar() {
     push_context_summary(&mut lines, &app);
     lines.push(Line::from(""));
     push_child_sessions(&mut lines, &app);
-    lines.push(Line::from(""));
-    push_files_in_context(&mut lines, &app);
 
     let text: String = lines
         .iter()
@@ -668,7 +495,5 @@ fn section_header_appears_in_sidebar() {
         .collect::<Vec<_>>()
         .join("\n");
 
-    // Context section should exist.
     assert!(text.contains("Context"), "sidebar has Context section");
-    // Files only appears when there are file-tool entries; in this test none.
 }

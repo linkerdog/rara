@@ -151,6 +151,7 @@ impl BashCommandInput {
     pub fn from_value(input: Value) -> Result<Self, ToolError> {
         let parsed: Self = serde_json::from_value(input)
             .map_err(|err| ToolError::InvalidInput(format!("bash payload: {err}")))?;
+        let parsed = parsed.normalize_simple_cd_prefix();
         parsed.validate()?;
         Ok(parsed)
     }
@@ -177,6 +178,28 @@ impl BashCommandInput {
             Some(cwd) if !cwd.trim().is_empty() => Ok(cwd.clone()),
             _ => Ok(env::current_dir()?.to_string_lossy().to_string()),
         }
+    }
+
+    fn normalize_simple_cd_prefix(mut self) -> Self {
+        if self.cwd.as_ref().is_some_and(|cwd| !cwd.trim().is_empty())
+            || self
+                .program
+                .as_ref()
+                .is_some_and(|value| !value.trim().is_empty())
+        {
+            return self;
+        }
+
+        let Some(command) = self.command.as_deref() else {
+            return self;
+        };
+        let Some((cwd, command)) = parse_simple_cd_prefix(command) else {
+            return self;
+        };
+
+        self.cwd = Some(cwd);
+        self.command = Some(command);
+        self
     }
 
     pub fn summary(&self) -> String {
@@ -343,6 +366,69 @@ impl BashCommandInput {
         tokens.extend(self.args.iter().cloned());
         normalized_tokens_summary(&tokens)
     }
+}
+
+fn parse_simple_cd_prefix(command: &str) -> Option<(String, String)> {
+    let trimmed = command.trim_start();
+    let after_cd = trimmed.strip_prefix("cd")?;
+    if !after_cd.chars().next().is_some_and(char::is_whitespace) {
+        return None;
+    }
+
+    let after_cd = after_cd.trim_start();
+    let (cwd, rest) = parse_cd_target(after_cd)?;
+    if !Path::new(&cwd).is_absolute() {
+        return None;
+    }
+
+    let rest = rest.trim_start();
+    let rest = rest.strip_prefix("&&")?.trim_start();
+    if rest.is_empty() {
+        return None;
+    }
+
+    Some((cwd, rest.to_string()))
+}
+
+fn parse_cd_target(input: &str) -> Option<(String, &str)> {
+    let quote = input
+        .chars()
+        .next()
+        .filter(|value| *value == '\'' || *value == '"');
+    if let Some(quote) = quote {
+        let mut chars = input.char_indices();
+        chars.next();
+        for (idx, ch) in chars {
+            if ch == '\\' {
+                return None;
+            }
+            if ch == quote {
+                let path = &input[1..idx];
+                if path.is_empty() {
+                    return None;
+                }
+                return Some((path.to_string(), &input[idx + quote.len_utf8()..]));
+            }
+        }
+        return None;
+    }
+
+    let path_end = input
+        .char_indices()
+        .find_map(|(idx, ch)| ch.is_whitespace().then_some(idx))
+        .unwrap_or(input.len());
+    let path = &input[..path_end];
+    if path.is_empty()
+        || path.chars().any(|ch| {
+            matches!(
+                ch,
+                ';' | '&' | '|' | '<' | '>' | '$' | '`' | '(' | ')' | '{' | '}'
+            )
+        })
+    {
+        return None;
+    }
+    Some((path.to_string(), &input[path_end..]))
 }
 
 impl BackgroundTaskStore {
@@ -557,13 +643,13 @@ fn command_env_for_wrapped(
 
 #[tool_spec(
     name = "bash",
-    description = "Run a shell command in the sandbox for commands that need process execution. Prefer dedicated RARA tools for file search, file reads, and file edits. Edit files with apply_patch, replace, replace_lines, or write_file; do not use shell redirection, sed -i, awk, perl, heredocs, or ad-hoc scripts to edit files when direct edit tools can do the job. Use the cwd field instead of prepending cd. Avoid newline-separated command chaining. If commands are independent and can run in parallel, make multiple bash tool calls in one assistant turn instead of joining them with &&, ;, or pipelines. Do not add 2>&1, head, tail, or grep only to reduce displayed output; RARA preserves stdout/stderr and provides bounded model-facing previews. Commands must be non-interactive: do not start editors, pagers, REPLs, prompts, or TUI programs from bash. For git commits, always supply the message with git commit -m or git commit -F; never run bare git commit and wait for an editor. Keep commands sandboxed unless require_escalated is justified by user request or clear sandbox failure evidence. Use run_in_background for long-running non-interactive commands, then inspect or stop them with background_task_status, background_task_list, and background_task_stop.",
+    description = "Run a shell command in the sandbox for commands that need process execution. Use the cwd field for the working directory; do not prefix commands with cd. Prefer dedicated RARA tools for file search, file reads, and file edits. Edit files with apply_patch, replace, replace_lines, or write_file; do not use shell redirection, sed -i, awk, perl, heredocs, or ad-hoc scripts to edit files when direct edit tools can do the job. Avoid newline-separated command chaining. If commands are independent and can run in parallel, make multiple bash tool calls in one assistant turn instead of joining them with &&, ;, or pipelines. Do not add 2>&1, head, tail, or grep only to reduce displayed output; RARA preserves stdout/stderr and provides bounded model-facing previews. Commands must be non-interactive: do not start editors, pagers, REPLs, prompts, or TUI programs from bash. For git commits, always supply the message with git commit -m or git commit -F; never run bare git commit and wait for an editor. Keep commands sandboxed unless require_escalated is justified by user request or clear sandbox failure evidence. If a needed test, build, or check is blocked by sandbox limits, inspect the exact denial, try the narrowest viable command, and request require_escalated only when that evidence shows the sandbox is the blocker; do not stop verification just because the first command was denied. Do not re-run the exact same denied sandboxed validation command; either narrow it or switch to require_escalated with a concrete justification when the blocked capability is essential. Use run_in_background for long-running non-interactive commands, then inspect or stop them with background_task_status, background_task_list, and background_task_stop.",
     input_schema = {
         "type": "object",
         "properties": {
             "command": {
                 "type": "string",
-                "description": "Legacy shell command string. Prefer program+args for new calls. Avoid newline-separated command chaining. Do not join independent validation commands with &&, ;, or pipelines just to run them together; make multiple bash tool calls instead. Do not add 2>&1, head, tail, or grep only to trim output for the model. Do not run interactive editors, pagers, REPLs, prompts, or TUI programs from bash. For git commits, use git commit -m or git commit -F, never bare git commit. Do not use this field for file edits when apply_patch, replace, replace_lines, or write_file can do the job; avoid sed -i, awk, perl, shell redirection, and heredocs for edits."
+                "description": "Legacy shell command string. Do not prefix this command with cd; set the cwd field instead. Prefer program+args for new calls. Avoid newline-separated command chaining. Do not join independent validation commands with &&, ;, or pipelines just to run them together; make multiple bash tool calls instead. Do not add 2>&1, head, tail, or grep only to trim output for the model. Do not run interactive editors, pagers, REPLs, prompts, or TUI programs from bash. For git commits, use git commit -m or git commit -F, never bare git commit. Do not use this field for file edits when apply_patch, replace, replace_lines, or write_file can do the job; avoid sed -i, awk, perl, shell redirection, and heredocs for edits. If a validation command is denied by the sandbox, inspect the exact failure and either narrow the command or request escalated permissions instead of giving up. Do not repeat the exact same denied sandboxed validation call."
             },
             "program": {
                 "type": "string",
@@ -576,7 +662,7 @@ fn command_env_for_wrapped(
             },
             "cwd": {
                 "type": "string",
-                "description": "Optional working directory override. Defaults to the current turn cwd; prefer this over prepending cd to a command."
+                "description": "Optional working directory override. Defaults to the current turn cwd. Use this instead of prefixing the command with cd."
             },
             "env": {
                 "type": "object",
@@ -597,11 +683,11 @@ fn command_env_for_wrapped(
                 "type": "string",
                 "enum": ["use_default", "require_escalated"],
                 "default": "use_default",
-                "description": "Sandbox permissions for the command. Defaults to use_default. Set to require_escalated only when the user asked for it or sandbox failure evidence shows the command cannot work inside the sandbox."
+                "description": "Sandbox permissions for the command. Defaults to use_default. Set to require_escalated only when the user asked for it or sandbox failure evidence shows the command cannot work inside the sandbox. For tests, builds, and checks, first confirm that the denial is actually caused by sandbox restrictions. If the same essential validation command was already denied for sandbox reasons, prefer require_escalated over repeating the denied sandboxed call."
             },
             "justification": {
                 "type": "string",
-                "description": "Only set if sandbox_permissions is require_escalated. Ask the user a short question explaining why this command needs to run outside the sandbox."
+                "description": "Only set if sandbox_permissions is require_escalated. Ask the user a short question explaining why this command needs to run outside the sandbox and which blocked validation or capability requires it."
             },
             "prefix_rule": {
                 "type": "array",
@@ -1297,6 +1383,53 @@ mod tests {
     }
 
     #[test]
+    fn normalizes_simple_absolute_cd_prefix() {
+        let input = BashCommandInput::from_value(json!({
+            "command": "cd /tmp/workspace && cargo check",
+        }))
+        .expect("legacy payload");
+
+        assert_eq!(input.cwd.as_deref(), Some("/tmp/workspace"));
+        assert_eq!(input.command.as_deref(), Some("cargo check"));
+        assert_eq!(input.summary(), "cargo check");
+    }
+
+    #[test]
+    fn normalizes_simple_quoted_absolute_cd_prefix() {
+        let input = BashCommandInput::from_value(json!({
+            "command": "cd '/tmp/work space' && cargo test",
+        }))
+        .expect("legacy payload");
+
+        assert_eq!(input.cwd.as_deref(), Some("/tmp/work space"));
+        assert_eq!(input.command.as_deref(), Some("cargo test"));
+    }
+
+    #[test]
+    fn leaves_complex_or_ambiguous_cd_prefix_unchanged() {
+        let relative = BashCommandInput::from_value(json!({
+            "command": "cd crates && cargo check",
+        }))
+        .expect("relative payload");
+        assert_eq!(relative.cwd, None);
+        assert_eq!(
+            relative.command.as_deref(),
+            Some("cd crates && cargo check")
+        );
+
+        let existing_cwd = BashCommandInput::from_value(json!({
+            "command": "cd /tmp/other && cargo check",
+            "cwd": "/tmp/workspace",
+        }))
+        .expect("cwd payload");
+        assert_eq!(existing_cwd.cwd.as_deref(), Some("/tmp/workspace"));
+        assert_eq!(
+            existing_cwd.command.as_deref(),
+            Some("cd /tmp/other && cargo check")
+        );
+    }
+
+    #[test]
     fn parses_structured_payload() {
         let input = BashCommandInput::from_value(json!({
             "program": "cargo",
@@ -1380,14 +1513,25 @@ mod tests {
         assert!(description.contains("Commands must be non-interactive"));
         assert!(description.contains("git commit -m"));
         assert!(description.contains("require_escalated"));
+        assert!(description.contains("do not stop verification"));
+        assert!(
+            description
+                .contains("Do not re-run the exact same denied sandboxed validation command")
+        );
         assert!(description.contains("background_task_status"));
 
         let schema = tool.input_schema().to_string();
         assert!(schema.contains("Prefer program+args"));
+        assert!(schema.contains("Do not prefix this command with cd"));
         assert!(schema.contains("apply_patch, replace, replace_lines"));
         assert!(schema.contains("never bare git commit"));
-        assert!(schema.contains("prefer this over prepending cd"));
+        assert!(schema.contains("request escalated permissions instead of giving up"));
+        assert!(schema.contains("Do not repeat the exact same denied sandboxed validation call"));
+        assert!(schema.contains("Use this instead of prefixing the command with cd"));
         assert!(schema.contains("sandbox failure evidence"));
+        assert!(
+            schema.contains("prefer require_escalated over repeating the denied sandboxed call")
+        );
         assert!(schema.contains("Do not suggest broad prefixes"));
     }
 
