@@ -12,6 +12,7 @@ use fs2::FileExt;
 use hf_hub::api::Progress as HfProgress;
 use hf_hub::api::sync::ApiBuilder;
 use hf_hub::{Cache, Repo, RepoType};
+use nix::unistd::Pid;
 use rara_persistence::redaction::{redact_secrets, sanitize_url_for_display};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -47,8 +48,8 @@ const REQUIREMENTS_MARKER_NAME: &str = "requirements-installed.json";
 const MODEL_SNAPSHOT_MARKER_NAME: &str = "model-snapshot.json";
 const HEALTH_TIMEOUT: Duration = Duration::from_millis(300);
 const PREPARE_TIMEOUT: Duration = Duration::from_secs(30);
-const STARTUP_HEALTH_ATTEMPTS: usize = 10;
-const STARTUP_HEALTH_DELAY: Duration = Duration::from_millis(100);
+const STARTUP_HEALTH_ATTEMPTS: usize = 30;
+const STARTUP_HEALTH_DELAY: Duration = Duration::from_millis(200);
 const MODEL_REVISION: &str = "main";
 static ATOMIC_WRITE_COUNTER: AtomicU64 = AtomicU64::new(0);
 
@@ -269,6 +270,18 @@ impl LocalModelServerEmbeddingBackend {
                     .expect("local embedding endpoint lock poisoned") = None;
                 Err(err)
             }
+        }
+    }
+}
+
+impl Drop for LocalModelServerEmbeddingBackend {
+    fn drop(&mut self) {
+        let runtime_dir = self.rara_home.join("runtime").join("model-server");
+        if let Ok(Some(metadata)) = read_server_metadata(&metadata_path(&runtime_dir)) {
+            let _ = nix::sys::signal::kill(
+                Pid::from_raw(metadata.pid as i32),
+                nix::sys::signal::Signal::SIGTERM,
+            );
         }
     }
 }
@@ -517,8 +530,30 @@ fn reusable_server_status(
     }
     let endpoint = endpoint_url(&metadata.host, metadata.port);
     let health = probe_health(&metadata.host, metadata.port).ok()?;
-    if !health_identity_matches(&health, backend, model) || !health_model_ready(&health, backend) {
+    if !health_identity_matches(&health, backend, model) {
         return None;
+    }
+    if !health_model_ready(&health, backend) {
+        if let Some(error_message) = health_preparation_error(&health, backend) {
+            return Some(LocalModelServerStatus {
+                state: LocalModelServerState::Error,
+                backend: backend.to_string(),
+                model: model.to_string(),
+                detail: format!(
+                    "model server running at {endpoint}; model preparation failed: {error_message}"
+                ),
+                server_path: Some(server.path.clone()),
+                endpoint: Some(endpoint),
+            });
+        }
+        return Some(LocalModelServerStatus {
+            state: LocalModelServerState::PreparingModel,
+            backend: backend.to_string(),
+            model: model.to_string(),
+            detail: format!("model server running at {endpoint}; model is still loading"),
+            server_path: Some(server.path.clone()),
+            endpoint: Some(endpoint),
+        });
     }
     Some(LocalModelServerStatus {
         state: LocalModelServerState::Ready,
@@ -541,6 +576,9 @@ fn start_model_server(
     let port = DEFAULT_MODEL_SERVER_PORT;
     let endpoint = endpoint_url(host, port);
     let model_cache_dir = default_local_model_cache_dir();
+    let stderr_log_path = server.runtime_dir.join("model-server-stderr.log");
+    let stderr_file = std::fs::File::create(&stderr_log_path)
+        .unwrap_or_else(|_| std::fs::File::create("/dev/null").unwrap());
     match Command::new(python)
         .arg(&server.path)
         .env("RARA_MODEL_SERVER_HOST", host)
@@ -548,10 +586,10 @@ fn start_model_server(
         .env("RARA_MODEL_CACHE_DIR", &model_cache_dir)
         .stdin(Stdio::null())
         .stdout(Stdio::null())
-        .stderr(Stdio::null())
+        .stderr(Stdio::from(stderr_file))
         .spawn()
     {
-        Ok(child) => {
+        Ok(mut child) => {
             let metadata = ModelServerMetadata {
                 pid: child.id(),
                 host: host.to_string(),
@@ -572,39 +610,79 @@ fn start_model_server(
                 };
             }
 
+            let mut health_ever_passed = false;
+            let mut last_prepare_error: Option<anyhow::Error> = None;
             for _ in 0..STARTUP_HEALTH_ATTEMPTS {
                 if let Ok(health) = probe_health(host, port) {
+                    health_ever_passed = true;
                     if health_identity_matches(&health, backend, model) {
-                        return match prepare_model(host, port, backend, model_path) {
-                            Ok(()) => LocalModelServerStatus {
-                                state: LocalModelServerState::Ready,
-                                backend: backend.to_string(),
-                                model: model.to_string(),
-                                detail: format!(
-                                    "started model server and prepared model at {endpoint}"
-                                ),
-                                server_path: Some(server.path.clone()),
-                                endpoint: Some(endpoint),
-                            },
-                            Err(err) => LocalModelServerStatus {
-                                state: LocalModelServerState::Error,
-                                backend: backend.to_string(),
-                                model: model.to_string(),
-                                detail: format!("failed to prepare model: {err}"),
-                                server_path: Some(server.path.clone()),
-                                endpoint: Some(endpoint),
-                            },
-                        };
+                        match prepare_model(host, port, backend, model_path) {
+                            Ok(state) => {
+                                let (state_tag, detail) = if state == "ready" {
+                                    (
+                                        LocalModelServerState::Ready,
+                                        format!(
+                                            "started model server and prepared model at {endpoint}"
+                                        ),
+                                    )
+                                } else {
+                                    (
+                                        LocalModelServerState::PreparingModel,
+                                        format!(
+                                            "started model server at {endpoint}; model is still loading"
+                                        ),
+                                    )
+                                };
+                                return LocalModelServerStatus {
+                                    state: state_tag,
+                                    backend: backend.to_string(),
+                                    model: model.to_string(),
+                                    detail,
+                                    server_path: Some(server.path.clone()),
+                                    endpoint: Some(endpoint),
+                                };
+                            }
+                            Err(err) => {
+                                last_prepare_error = Some(err);
+                            }
+                        }
                     }
                 }
                 std::thread::sleep(STARTUP_HEALTH_DELAY);
+                if let Ok(Some(status)) = child.try_wait() {
+                    return LocalModelServerStatus {
+                        state: LocalModelServerState::Error,
+                        backend: backend.to_string(),
+                        model: model.to_string(),
+                        detail: format!(
+                            "model server process exited with {status} during startup (stderr log: {})",
+                            stderr_log_path.display()
+                        ),
+                        server_path: Some(server.path.clone()),
+                        endpoint: Some(endpoint),
+                    };
+                }
+            }
+            if let Some(err) = last_prepare_error {
+                return LocalModelServerStatus {
+                    state: LocalModelServerState::Error,
+                    backend: backend.to_string(),
+                    model: model.to_string(),
+                    detail: format!(
+                        "failed to prepare model at {endpoint} after {} health checks: {err} (stderr log: {})",
+                        STARTUP_HEALTH_ATTEMPTS,
+                        stderr_log_path.display()
+                    ),
+                    server_path: Some(server.path.clone()),
+                    endpoint: Some(endpoint),
+                };
             }
 
-            if let Ok(()) = prepare_model(host, port, backend, model_path) {
-                if let Ok(health) = probe_health(host, port) {
-                    if health_identity_matches(&health, backend, model)
-                        && health_model_ready(&health, backend)
-                    {
+            let stderr_hint = format!(" (stderr log: {})", stderr_log_path.display());
+            match prepare_model(host, port, backend, model_path) {
+                Ok(state) => {
+                    health_ever_passed = true;
+                    if state == "ready" {
                         return LocalModelServerStatus {
                             state: LocalModelServerState::Ready,
                             backend: backend.to_string(),
@@ -616,6 +694,23 @@ fn start_model_server(
                             endpoint: Some(endpoint),
                         };
                     }
+                    if let Ok(health) = probe_health(host, port) {
+                        if health_identity_matches(&health, backend, model) {
+                            return LocalModelServerStatus {
+                                state: LocalModelServerState::PreparingModel,
+                                backend: backend.to_string(),
+                                model: model.to_string(),
+                                detail: format!(
+                                    "started model server at {endpoint}; model is still loading"
+                                ),
+                                server_path: Some(server.path.clone()),
+                                endpoint: Some(endpoint),
+                            };
+                        }
+                    }
+                }
+                Err(err) => {
+                    last_prepare_error = Some(err);
                 }
             }
 
@@ -623,7 +718,15 @@ fn start_model_server(
                 state: LocalModelServerState::Starting,
                 backend: backend.to_string(),
                 model: model.to_string(),
-                detail: format!("started model server process; waiting for health at {endpoint}"),
+                detail: if health_ever_passed {
+                    format!(
+                        "started model server process; waiting for health at {endpoint}{stderr_hint}"
+                    )
+                } else {
+                    format!(
+                        "started model server process; health never reached at {endpoint}{stderr_hint}"
+                    )
+                },
                 server_path: Some(server.path.clone()),
                 endpoint: Some(endpoint),
             }
@@ -1222,24 +1325,35 @@ fn probe_health(host: &str, port: u16) -> Result<Value> {
         .context("parse model server health response")
 }
 
-fn prepare_model(host: &str, port: u16, backend: &str, model_path: Option<&Path>) -> Result<()> {
+fn prepare_model(
+    host: &str,
+    port: u16,
+    backend: &str,
+    model_path: Option<&Path>,
+) -> Result<String> {
     let mut body = serde_json::json!({ "backend": backend });
     if let Some(model_path) = model_path {
         body["model_path"] = Value::String(model_path.display().to_string());
     }
     let body = body.to_string();
+    let url = format!("http://{host}:{port}/models/prepare");
     let response = post_json(host, port, "/models/prepare", &body, PREPARE_TIMEOUT)
-        .context("call model prepare endpoint")?;
+        .with_context(|| format!("call POST {url}"))?;
     if response.get("ok").and_then(Value::as_bool) != Some(true) {
         bail!("model prepare endpoint returned non-ok response");
     }
     if response.get("backend").and_then(Value::as_str) != Some(backend) {
         bail!("model prepare endpoint returned mismatched backend");
     }
-    if response.get("state").and_then(Value::as_str) != Some("ready") {
-        bail!("model prepare endpoint did not report ready state");
+    let state = response
+        .get("state")
+        .and_then(Value::as_str)
+        .unwrap_or("unknown")
+        .to_string();
+    if state != "ready" && state != "loading" {
+        bail!("model prepare endpoint returned unexpected state: {state}");
     }
-    Ok(())
+    Ok(state)
 }
 
 fn post_json(host: &str, port: u16, path: &str, body: &str, timeout: Duration) -> Result<Value> {
@@ -1299,6 +1413,17 @@ fn health_model_ready(health: &Value, backend: &str) -> bool {
         .and_then(|value| value.get("loaded"))
         .and_then(Value::as_bool)
         == Some(true)
+}
+
+fn health_preparation_error<'a>(health: &'a Value, backend: &str) -> Option<&'a str> {
+    let prep = health
+        .get("preparation")
+        .and_then(|value| value.get(backend))?;
+    if prep.get("state").and_then(Value::as_str) == Some("error") {
+        prep.get("message").and_then(Value::as_str)
+    } else {
+        None
+    }
 }
 
 fn ensure_command_success(output: Output, context: &str) -> Result<()> {

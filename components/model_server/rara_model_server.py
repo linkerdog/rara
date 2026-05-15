@@ -13,6 +13,7 @@ import json
 import os
 import platform
 import sys
+import threading
 import time
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -193,6 +194,33 @@ class FastEmbedBgeM3Backend(EmbeddingBackend):
     name = "fastembed_bge_m3"
     model_id = FASTEMBED_MODEL_ID
 
+    _bge_m3_registered = False
+    _bge_m3_lock = threading.Lock()
+
+    @classmethod
+    def _ensure_bge_m3_registered(cls) -> None:
+        if cls._bge_m3_registered:
+            return
+        with cls._bge_m3_lock:
+            if cls._bge_m3_registered:
+                return
+            from fastembed import TextEmbedding
+            from fastembed.common.model_description import ModelSource, PoolingType
+
+            TextEmbedding.add_custom_model(
+                model=FASTEMBED_MODEL_ID,
+                dim=EMBEDDING_DIMENSION,
+                description="Text embeddings, Unimodal (text), multilingual, 8192 tokens, BGE-M3",
+                license="apache-2.0",
+                size_in_gb=2.3,
+                sources=ModelSource(hf=FASTEMBED_MODEL_ID),
+                pooling=PoolingType.MEAN,
+                normalization=True,
+                model_file="onnx/model.onnx",
+                additional_files=["onnx/model.onnx_data"],
+            )
+            cls._bge_m3_registered = True
+
     def __init__(self) -> None:
         super().__init__()
         self.model: Any | None = None
@@ -205,6 +233,9 @@ class FastEmbedBgeM3Backend(EmbeddingBackend):
         requested = os.environ.get("RARA_FASTEMBED_EMBEDDING_MODEL", FASTEMBED_MODEL_ID)
         if requested != FASTEMBED_MODEL_ID:
             raise RuntimeError(f"unsupported FastEmbed model: {requested}")
+
+        self._ensure_bge_m3_registered()
+
         from fastembed import TextEmbedding
 
         kwargs: dict[str, Any] = {"model_name": requested}
@@ -233,6 +264,8 @@ class ModelRegistry:
     def __init__(self) -> None:
         self.backends: dict[str, EmbeddingBackend] = {}
         self.preparation: dict[str, dict[str, Any]] = {}
+        self._preparing: dict[str, bool] = {}
+        self._prepare_lock = threading.Lock()
 
     def embedding_backend(self, requested: str | None) -> EmbeddingBackend:
         name = requested or os.environ.get("RARA_EMBEDDING_BACKEND") or _platform_default_backend()
@@ -251,6 +284,14 @@ class ModelRegistry:
 
     def prepare_model(self, requested: str | None, model_path: str | None) -> dict[str, Any]:
         backend = self.embedding_backend(requested)
+        if backend.loaded_at is not None:
+            return {"ok": True, "backend": backend.name, "model": backend.model_id, "state": "ready"}
+        with self._prepare_lock:
+            if backend.loaded_at is not None:
+                return {"ok": True, "backend": backend.name, "model": backend.model_id, "state": "ready"}
+            if self._preparing.get(backend.name):
+                return {"ok": True, "backend": backend.name, "model": backend.model_id, "state": "loading"}
+            self._preparing[backend.name] = True
         self.preparation[backend.name] = {
             "state": "loading",
             "backend": backend.name,
@@ -260,6 +301,8 @@ class ModelRegistry:
         try:
             backend.load(model_path)
         except Exception as exc:
+            with self._prepare_lock:
+                self._preparing[backend.name] = False
             self.preparation[backend.name] = {
                 "state": "error",
                 "backend": backend.name,
@@ -267,6 +310,8 @@ class ModelRegistry:
                 "message": str(exc),
             }
             raise
+        with self._prepare_lock:
+            self._preparing[backend.name] = False
         self.preparation[backend.name] = {
             "state": "ready",
             "backend": backend.name,
@@ -280,8 +325,23 @@ class ModelRegistry:
             "state": "ready",
         }
 
+    def start_background_preparation(self) -> None:
+        backend_name = self._platform_default_backend()
+
+        def _run() -> None:
+            try:
+                self.prepare_model(backend_name, None)
+            except Exception as exc:
+                print(
+                    f"[model-server] background model preparation failed: {exc}",
+                    file=sys.stderr,
+                )
+
+        t = threading.Thread(target=_run, daemon=True)
+        t.start()
+
     def status(self) -> dict[str, Any]:
-        default_backend = _platform_default_backend()
+        default_backend = self._platform_default_backend()
         self.embedding_backend(default_backend)
         return {
             "ok": True,
@@ -298,6 +358,10 @@ class ModelRegistry:
                 name: state.copy() for name, state in sorted(self.preparation.items())
             },
         }
+
+    @staticmethod
+    def _platform_default_backend() -> str:
+        return _platform_default_backend()
 
 
 REGISTRY = ModelRegistry()
@@ -398,6 +462,8 @@ def main() -> int:
     if host not in {"127.0.0.1", "localhost"}:
         raise RuntimeError("RARA model server only binds to loopback hosts")
     server = ThreadingHTTPServer((host, port), RequestHandler)
+    print(f"RARA model server listening on {host}:{port}", flush=True)
+    REGISTRY.start_background_preparation()
     try:
         server.serve_forever()
     except KeyboardInterrupt:
