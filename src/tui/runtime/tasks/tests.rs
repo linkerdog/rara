@@ -35,14 +35,14 @@ struct PlainAnswerBackend;
 
 #[test]
 fn goal_continuation_prompt_contains_budget_and_completion_audit() {
-    let mut goal = RalphGoal::new("ship Codex 0.129 goal parity".to_string(), Some(10_000));
+    let mut goal = RalphGoal::new("ship Codex 0.130 goal parity".to_string(), Some(10_000));
     goal.tokens_used = 2_500;
     goal.turns_completed = 2;
 
     let prompt = goal_continuation_prompt(&goal);
 
     assert!(prompt.contains("<untrusted_objective>"));
-    assert!(prompt.contains("ship Codex 0.129 goal parity"));
+    assert!(prompt.contains("ship Codex 0.130 goal parity"));
     assert!(prompt.contains("Tokens used: 2500"));
     assert!(prompt.contains("Token budget: 10000"));
     assert!(prompt.contains("Tokens remaining: 7500"));
