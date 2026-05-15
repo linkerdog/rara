@@ -1,8 +1,5 @@
 // Wide-screen sidebar (≥120 cols) rendered alongside the main transcript pane.
 // Layout draws a 38-column panel on the left split by a vertical border,
-// showing session identity, model badge, context summary, todo progress,
-// files access, and status.
-use std::collections::BTreeSet;
 
 use ratatui::{
     layout::{Constraint, Direction, Layout, Rect},
@@ -48,7 +45,6 @@ pub(crate) fn render_sidebar(f: &mut Frame, app: &TuiApp, area: Rect) {
     }
     push_child_sessions(&mut lines, app);
     lines.push(Line::from(""));
-    push_files_in_context(&mut lines, app);
 
     f.render_widget(Paragraph::new(lines).wrap(Wrap { trim: false }), body_area);
 
@@ -220,90 +216,6 @@ fn push_child_sessions(lines: &mut Vec<Line<'static>>, app: &TuiApp) {
             format!("  ... and {} more", child_count - 5),
             Style::default().fg(TEXT_MUTED),
         )));
-    }
-}
-
-fn push_files_in_context(lines: &mut Vec<Line<'static>>, app: &TuiApp) {
-    let mut read_files: BTreeSet<String> = BTreeSet::new();
-    let mut changed_files: BTreeSet<String> = BTreeSet::new();
-
-    let all_turns = app
-        .committed_turns
-        .iter()
-        .chain(std::iter::once(&app.active_turn));
-
-    for turn in all_turns {
-        for entry in &turn.entries {
-            if entry.role != "Tool" {
-                continue;
-            }
-            let msg = entry.message.trim();
-
-            if let Some(path) = msg.strip_prefix("read_file ") {
-                read_files.insert(path.trim().to_string());
-            } else if let Some(rest) = msg.strip_prefix("apply_patch ") {
-                for part in rest.split(',') {
-                    let p = part.trim();
-                    if !p.is_empty() {
-                        changed_files.insert(p.to_string());
-                    }
-                }
-            } else if let Some(path) = msg.strip_prefix("write_file ") {
-                changed_files.insert(path.trim().to_string());
-            } else if let Some(path) = msg.strip_prefix("replace ") {
-                changed_files.insert(path.trim().to_string());
-            } else if let Some(path) = msg.strip_prefix("multi_edit ") {
-                changed_files.insert(path.trim().to_string());
-            } else if let Some(path) = msg.strip_prefix("replace_lines ") {
-                changed_files.insert(path.trim().to_string());
-            }
-        }
-    }
-
-    if read_files.is_empty() && changed_files.is_empty() {
-        return;
-    }
-
-    lines.push(Line::from(super::section_label("Files", TEXT_SECONDARY)));
-
-    // Files read.
-    if !read_files.is_empty() {
-        lines.push(Line::from(Span::styled(
-            "Read:",
-            Style::default().fg(TEXT_MUTED),
-        )));
-        for path in read_files.iter().take(5) {
-            lines.push(Line::from(Span::styled(
-                format!("  {path}"),
-                Style::default().fg(TEXT_SECONDARY),
-            )));
-        }
-        if read_files.len() > 5 {
-            lines.push(Line::from(Span::styled(
-                format!("  ... and {} more", read_files.len() - 5),
-                Style::default().fg(TEXT_MUTED),
-            )));
-        }
-    }
-
-    // Files changed.
-    if !changed_files.is_empty() {
-        lines.push(Line::from(Span::styled(
-            "Changed:",
-            Style::default().fg(TEXT_MUTED),
-        )));
-        for path in changed_files.iter().take(5) {
-            lines.push(Line::from(Span::styled(
-                format!("  {path}"),
-                Style::default().fg(INTERACTION_SUB_AGENT),
-            )));
-        }
-        if changed_files.len() > 5 {
-            lines.push(Line::from(Span::styled(
-                format!("  ... and {} more", changed_files.len() - 5),
-                Style::default().fg(TEXT_MUTED),
-            )));
-        }
     }
 }
 
