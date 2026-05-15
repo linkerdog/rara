@@ -7,6 +7,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use anyhow::{Context, Result, bail};
 use rara_memory::vectordb::{MemoryMetadata, VectorDB};
+use rara_observability::{MemoryObservability, MemoryOperation, global_memory_observability};
 use rara_persistence::atomic_file;
 use rara_persistence::file_lock::AdvisoryFileLock;
 
@@ -206,6 +207,7 @@ pub struct MemoryStore {
     embedding_backend: Arc<dyn EmbeddingBackend>,
     vdb: Arc<VectorDB>,
     records: MemoryRecordFileStore,
+    observability: Arc<MemoryObservability>,
 }
 
 impl MemoryStore {
@@ -226,6 +228,7 @@ impl MemoryStore {
             embedding_backend,
             vdb,
             records,
+            observability: global_memory_observability(),
         }
     }
 
@@ -255,6 +258,7 @@ impl MemoryStore {
             embedding_backend,
             vdb,
             records: MemoryRecordFileStore::new(record_path),
+            observability: global_memory_observability(),
         }
     }
 
@@ -271,6 +275,7 @@ impl MemoryStore {
         id: Option<String>,
         input: NewMemoryRecord,
     ) -> Result<MemoryRecord> {
+        let _timer = self.observability.start_timer(MemoryOperation::Write);
         let content = input.content.trim();
         if content.is_empty() {
             bail!("memory content must not be empty");
@@ -320,6 +325,7 @@ impl MemoryStore {
     }
 
     pub async fn search(&self, query: &str, limit: usize) -> Result<Vec<MemoryRecordSearchHit>> {
+        let _timer = self.observability.start_timer(MemoryOperation::Query);
         if query.trim().is_empty() || limit == 0 {
             return Ok(Vec::new());
         }
@@ -327,10 +333,22 @@ impl MemoryStore {
             .embedding_backend
             .embed(query, EmbeddingInputKind::Query)
             .await?;
-        self.search_with_embedding(query, query_vector, limit).await
+        self.search_with_embedding_inner(query, query_vector, limit)
+            .await
     }
 
     pub async fn search_with_embedding(
+        &self,
+        query: &str,
+        query_vector: Vec<f32>,
+        limit: usize,
+    ) -> Result<Vec<MemoryRecordSearchHit>> {
+        let _timer = self.observability.start_timer(MemoryOperation::Query);
+        self.search_with_embedding_inner(query, query_vector, limit)
+            .await
+    }
+
+    async fn search_with_embedding_inner(
         &self,
         query: &str,
         query_vector: Vec<f32>,
@@ -358,14 +376,17 @@ impl MemoryStore {
     }
 
     pub async fn get(&self, id: &str) -> Result<Option<MemoryRecord>> {
+        let _timer = self.observability.start_timer(MemoryOperation::Read);
         self.records.get(id).await
     }
 
     pub async fn set_pinned(&self, id: &str, pinned: bool) -> Result<MemoryRecord> {
+        let _timer = self.observability.start_timer(MemoryOperation::Write);
         self.records.set_pinned(id, pinned).await
     }
 
     pub async fn update(&self, id: &str, patch: MemoryRecordPatch) -> Result<MemoryRecord> {
+        let _timer = self.observability.start_timer(MemoryOperation::Write);
         let normalized_patch = normalize_memory_record_patch(patch)?;
         let updated = self.records.update(id, normalized_patch.clone()).await?;
         if patch_requires_index_refresh(&normalized_patch) {
@@ -390,12 +411,14 @@ impl MemoryStore {
     }
 
     pub async fn delete(&self, id: &str) -> Result<Option<MemoryRecord>> {
+        let _timer = self.observability.start_timer(MemoryOperation::Write);
         self.records.delete(id).await
     }
 
     /// Insert a record without requiring an embedding model.
     /// Writes to JSON only, skips LanceDB vector index.
     pub async fn insert_text_only(&self, input: NewMemoryRecord) -> Result<MemoryRecord> {
+        let _timer = self.observability.start_timer(MemoryOperation::Write);
         let content = input.content.trim();
         if content.is_empty() {
             bail!("memory content must not be empty");
@@ -431,6 +454,7 @@ impl MemoryStore {
         scope: Option<MemoryScope>,
         limit: usize,
     ) -> Result<Vec<MemoryRecord>> {
+        let _timer = self.observability.start_timer(MemoryOperation::Read);
         let records_map = self.records.load_map().await?;
         let mut records: Vec<_> = records_map
             .values()
@@ -443,11 +467,13 @@ impl MemoryStore {
     }
 
     pub async fn list_labels(&self, scope: Option<MemoryScope>) -> Result<Vec<MemoryLabelCount>> {
+        let _timer = self.observability.start_timer(MemoryOperation::Read);
         let records = self.records.load_map().await?;
         Ok(list_label_counts(records.values(), scope.as_ref()))
     }
 
     pub async fn record_count(&self) -> Result<usize> {
+        let _timer = self.observability.start_timer(MemoryOperation::Read);
         Ok(self.records.load_map().await?.len())
     }
 }

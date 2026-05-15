@@ -1,0 +1,12 @@
+[package]
+name = "rara-observability"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[lib]
+name = "rara_observability"
+path = "src/lib.rs"
+
+[dependencies]
+serde = { workspace = true }

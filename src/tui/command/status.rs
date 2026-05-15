@@ -1,5 +1,6 @@
 // Status items reserved for inline TUI command surfaces.
 #![allow(dead_code)]
+use rara_observability::{LatencyPercentiles, memory_latency_snapshot};
 use time::{OffsetDateTime, format_description};
 
 use crate::config::RaraConfig;
@@ -758,6 +759,28 @@ pub fn status_resources_text(app: &TuiApp) -> String {
         recent_compact_files,
         cache,
         state_db,
+    )
+}
+
+pub fn status_metrics_text(_app: &TuiApp) -> String {
+    let memory_latency = memory_latency_snapshot();
+    format!(
+        "memory_read_latency={}\nmemory_write_latency={}\nmemory_query_latency={}",
+        format_latency_percentiles(memory_latency.read),
+        format_latency_percentiles(memory_latency.write),
+        format_latency_percentiles(memory_latency.query),
+    )
+}
+
+fn format_latency_percentiles(percentiles: LatencyPercentiles) -> String {
+    if percentiles.sample_count == 0 {
+        return "-".to_string();
+    }
+    format!(
+        "p80={}ms p99={}ms samples={}",
+        percentiles.p80_ms.unwrap_or_default(),
+        percentiles.p99_ms.unwrap_or_default(),
+        percentiles.sample_count
     )
 }
 
