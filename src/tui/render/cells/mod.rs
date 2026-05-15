@@ -1,6 +1,5 @@
 use ratatui::{style::Color, text::Line};
 
-use crate::memory_notice::MEMORY_NOTICE_PREFIX;
 use crate::tui::state::TranscriptEntry;
 
 #[path = "active_turn.rs"]
@@ -319,18 +318,29 @@ mod helper_tests {
     }
 }
 
+const RENDERABLE_SYSTEM_MESSAGE_PREFIXES: &[&str] = &[
+    "query failed:",
+    "memory ·",
+    "compaction failed:",
+    "compact failed:",
+    "local embedding backend bootstrap reported:",
+    "skill loading failed:",
+    "oauth failed:",
+    "backend rebuild failed:",
+    "open this url in a browser and enter the one-time code:",
+    "starting codex browser login.",
+    "error:",
+];
+
+fn starts_with_ignore_ascii_case(s: &str, prefix: &str) -> bool {
+    s.len() >= prefix.len() && s[..prefix.len()].eq_ignore_ascii_case(prefix)
+}
+
 pub(super) fn is_renderable_system_message(message: &str) -> bool {
-    let lower = message.trim().to_ascii_lowercase();
-    let memory_notice_prefix = MEMORY_NOTICE_PREFIX.to_ascii_lowercase();
-    lower.starts_with("query failed:")
-        || lower.starts_with(&memory_notice_prefix)
-        || lower.starts_with("compaction failed:")
-        || lower.starts_with("compact failed:")
-        || lower.starts_with("oauth failed:")
-        || lower.starts_with("backend rebuild failed:")
-        || lower.starts_with("open this url in a browser and enter the one-time code:")
-        || lower.starts_with("starting codex browser login.")
-        || lower.starts_with("error:")
+    let trimmed = message.trim();
+    RENDERABLE_SYSTEM_MESSAGE_PREFIXES
+        .iter()
+        .any(|prefix| starts_with_ignore_ascii_case(trimmed, prefix))
 }
 
 #[cfg(test)]
