@@ -11,6 +11,6 @@ serde = { version = "1", features = ["derive"] }
 arrow-array = "58"
 arrow-schema = "58"
 futures = "0.3"
-lance-index = "0.29"
+lance-index = "6"
 lancedb = "0.29"
 tokio = { version = "1", features = ["sync"] }
