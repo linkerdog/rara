@@ -59,7 +59,7 @@ future appserver integrations can use.
 - `workspace-memory-cache.md`: prompt-source and workspace-memory cache
   invalidation, ordering, and shared observability contract.
 - `thread-goals.md`: persistent `/goal` runtime, tool, continuation, budget,
-  and compact TUI contracts aligned with Codex 0.129.
+  and compact TUI contracts aligned with Codex 0.130.
 
 ## App Server Architecture
 

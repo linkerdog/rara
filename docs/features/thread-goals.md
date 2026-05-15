@@ -7,7 +7,7 @@ working across turns. The older contract allowed the model to mark a goal as
 `achieved` or `unmet`, but that made completion semantics loose and gave the
 model control over states that should belong to the runtime or TUI.
 
-Codex 0.129 narrows this surface:
+Codex 0.130 narrows this surface:
 
 - the model can create a goal only when explicitly asked;
 - the model can only mark an existing goal as `complete`;
