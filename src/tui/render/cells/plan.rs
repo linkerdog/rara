@@ -1,19 +1,24 @@
 pub(super) fn split_progress_sentences(message: &str) -> Vec<String> {
     let mut sentences = Vec::new();
     let mut current = String::new();
+    let mut in_backtick = false;
     let mut chars = message.chars().peekable();
 
     while let Some(ch) = chars.next() {
         current.push(ch);
 
         let next = chars.peek().copied();
+        let is_sentence_end = matches!(ch, '.' | '!' | '?');
         let previous = current.chars().rev().nth(1);
         let is_decimal_separator = ch == '.'
             && previous.is_some_and(|prev| prev.is_ascii_digit())
             && next.is_some_and(|peek| peek.is_ascii_digit());
         let continues_punctuation = next.is_some_and(|peek| matches!(peek, '.' | '!' | '?'));
 
-        if matches!(ch, '.' | '!' | '?') && !is_decimal_separator && !continues_punctuation {
+        if ch == '`' {
+            in_backtick = !in_backtick;
+        }
+        if is_sentence_end && !is_decimal_separator && !continues_punctuation && !in_backtick {
             let trimmed = current.trim();
             if !trimmed.is_empty() {
                 sentences.push(trimmed.to_string());

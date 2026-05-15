@@ -218,41 +218,54 @@ pub(super) fn completion_role_kind(role: &str) -> Option<InteractionCompletionKi
 #[cfg(test)]
 mod helper_tests {
     use super::{
-        plan::compact_live_response_message, plan::compact_live_response_source,
-        plan::parse_render_plan_block, plan::split_progress_sentences,
+        HistoryCell, RespondingCell, plan::compact_live_response_message,
+        plan::compact_live_response_source, plan::parse_render_plan_block,
     };
 
     #[test]
-    fn split_progress_sentences_keeps_ellipses_and_decimal_versions() {
-        let sentences = split_progress_sentences(
-            "Wait... I checked v1.0 parsing. Next I will inspect restore.",
-        );
-
-        assert_eq!(
-            sentences,
-            vec![
-                "Wait...".to_string(),
-                "I checked v1.0 parsing.".to_string(),
-                "Next I will inspect restore.".to_string(),
-            ]
-        );
-    }
-
-    #[test]
-    fn compact_live_response_message_preserves_selected_sentence_order() {
+    fn compact_live_response_message_keeps_markdown_source_intact() {
         let rendered = compact_live_response_message(
-            "Next I will inspect restore. I checked the auth path. I checked the persistence path. Then I will verify chronology.",
+            "Let me trace `AnalyzeExec.Next()` including `MemTracker.AttachTo(GlobalAnalyzeMemoryTracker)`. Next I will inspect `select.go`.",
         )
         .unwrap();
 
         assert_eq!(
             rendered,
-            [
-                "Next I will inspect restore.",
-                "I checked the auth path.",
-                "Then I will verify chronology.",
+            "Let me trace `AnalyzeExec.Next()` including `MemTracker.AttachTo(GlobalAnalyzeMemoryTracker)`.\nNext I will inspect `select.go`."
+        );
+    }
+
+    #[test]
+    fn compact_live_response_message_prefers_first_sentence_and_next_step() {
+        let rendered = compact_live_response_message(
+            "I inspected the repository structure. I checked the runtime boundary. I checked the prompt assembly path. Next I will inspect the persistence layer. Then I will verify the restore contract.",
+        )
+        .unwrap();
+
+        assert_eq!(
+            rendered,
+            "I inspected the repository structure.\nI checked the runtime boundary.\nNext I will inspect the persistence layer."
+        );
+    }
+
+    #[test]
+    fn compact_responding_cell_preserves_line_breaks_and_inline_code() {
+        let lines = RespondingCell::from_compact_message(
+            "Inspect `AnalyzeExec.Next()`.\nNext I will inspect `select.go`.".to_string(),
+            4,
+            None,
+        )
+        .display_lines(100)
+        .into_iter()
+        .map(|line| line.to_string())
+        .collect::<Vec<_>>();
+
+        assert_eq!(
+            lines,
+            vec![
+                "• Inspect AnalyzeExec.Next().".to_string(),
+                "• Next I will inspect select.go.".to_string(),
             ]
-            .join("\n")
         );
     }
 
