@@ -1,3 +1,4 @@
+#![recursion_limit = "512"]
 #![allow(unused_imports)]
 
 mod acp;
