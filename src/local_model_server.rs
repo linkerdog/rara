@@ -355,6 +355,19 @@ enum BootstrapMode {
     InspectOnly,
 }
 
+fn format_error_chain(err: &anyhow::Error) -> String {
+    let mut chain = err.chain();
+    let mut out = match chain.next() {
+        Some(first) => first.to_string(),
+        None => return String::new(),
+    };
+    for cause in chain {
+        out.push_str("\nCaused by: ");
+        out.push_str(&cause.to_string());
+    }
+    out
+}
+
 fn prepare_local_model_server_status_inner(
     rara_home: &Path,
     mode: BootstrapMode,
@@ -400,7 +413,7 @@ fn prepare_local_model_server_status_inner(
                         state: LocalModelServerState::Error,
                         backend: backend.to_string(),
                         model: model.to_string(),
-                        detail: format!("{err:#?}"),
+                        detail: format_error_chain(&err),
                         server_path: Some(server.path),
                         endpoint: None,
                     };
@@ -418,7 +431,10 @@ fn prepare_local_model_server_status_inner(
                         state: LocalModelServerState::Error,
                         backend: backend.to_string(),
                         model: model.to_string(),
-                        detail: format!("failed to prepare model files: {err}"),
+                        detail: format!(
+                            "failed to prepare model files:\n{}",
+                            format_error_chain(&err)
+                        ),
                         server_path: Some(server.path),
                         endpoint: None,
                     };
