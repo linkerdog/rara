@@ -855,21 +855,33 @@ fn ensure_managed_venv(server: &BundledModelServer) -> Result<PathBuf> {
         .stdin(Stdio::null())
         .output()
         .with_context(|| format!("run {:?} -m venv", python_launcher))?;
-    if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        let stdout = String::from_utf8_lossy(&output.stdout);
-        eprintln!(
-            "rara: {} -m venv failed (status {}):\nstderr: {}\nstdout: {}",
-            python_launcher.to_string_lossy(),
-            output.status,
-            stderr.trim(),
-            stdout.trim(),
-        );
+    if output.status.success() {
+        if !python.is_file() {
+            bail!("venv python was not created at {}", python.display());
+        }
+        return Ok(python);
     }
-    ensure_command_success(output, "create managed Python venv")?;
+
+    let fallback_output = Command::new(&python_launcher)
+        .arg("-m")
+        .arg("venv")
+        .arg("--without-pip")
+        .arg(&server.venv_dir)
+        .stdin(Stdio::null())
+        .output()
+        .with_context(|| format!("run {:?} -m venv --without-pip", python_launcher))?;
+    ensure_command_success(fallback_output, "create managed Python venv")?;
     if !python.is_file() {
         bail!("venv python was not created at {}", python.display());
     }
+    let pip_output = Command::new(&python)
+        .arg("-m")
+        .arg("ensurepip")
+        .arg("--upgrade")
+        .stdin(Stdio::null())
+        .output()
+        .with_context(|| format!("run {} -m ensurepip", python.display()))?;
+    ensure_command_success(pip_output, "install pip into managed Python venv")?;
     Ok(python)
 }
 
