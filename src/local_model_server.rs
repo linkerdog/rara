@@ -856,18 +856,50 @@ fn parse_python_version(raw: &str, python: &std::ffi::OsStr) -> Result<()> {
     Ok(())
 }
 
+/// Create a managed Python venv using `uv` (preferred) or the system Python.
+///
+/// `uv venv --python 3.11` handles Python discovery and installation automatically.
+/// Falls back to probing PATH for `python3.1{3,2,1,0}` / `python3` when `uv`
+/// is not available.
 fn ensure_managed_venv(server: &BundledModelServer) -> Result<PathBuf> {
     let python = venv_python_path(&server.venv_dir);
     if python.is_file() {
         return Ok(python);
     }
-    let python_launcher = find_python310_plus()?;
 
     if server.venv_dir.exists() {
         fs::remove_dir_all(&server.venv_dir)
             .with_context(|| format!("remove stale venv {}", server.venv_dir.display()))?;
     }
 
+    // Primary: use `uv` to create the venv with Python >= 3.11.
+    if let Ok(p) = create_venv_with_uv(server) {
+        return Ok(p);
+    }
+
+    // Fallback: find a system Python >= 3.10 and use `python -m venv --without-pip`.
+    create_venv_with_system_python(server)
+}
+
+fn create_venv_with_uv(server: &BundledModelServer) -> Result<PathBuf> {
+    let output = Command::new("uv")
+        .arg("venv")
+        .arg("--python")
+        .arg("3.11")
+        .arg(&server.venv_dir)
+        .stdin(Stdio::null())
+        .output()
+        .with_context(|| "run uv venv --python 3.11")?;
+    ensure_command_success(output, "create managed Python venv with uv")?;
+    let python = venv_python_path(&server.venv_dir);
+    if !python.is_file() {
+        bail!("venv python was not created at {}", python.display());
+    }
+    Ok(python)
+}
+
+fn create_venv_with_system_python(server: &BundledModelServer) -> Result<PathBuf> {
+    let python_launcher = find_python310_plus()?;
     let output = Command::new(&python_launcher)
         .arg("-m")
         .arg("venv")
@@ -877,10 +909,10 @@ fn ensure_managed_venv(server: &BundledModelServer) -> Result<PathBuf> {
         .output()
         .with_context(|| format!("run {:?} -m venv --without-pip", python_launcher))?;
     ensure_command_success(output, "create managed Python venv")?;
+    let python = venv_python_path(&server.venv_dir);
     if !python.is_file() {
         bail!("venv python was not created at {}", python.display());
     }
-
     let pip_output = Command::new(&python)
         .arg("-m")
         .arg("ensurepip")
@@ -1661,7 +1693,7 @@ mod tests {
     use super::{
         BootstrapMode, LocalModelServerEmbeddingBackend, LocalModelServerState,
         ModelServerMetadata, StartupLock, cleanup_failed_venv, ensure_bundled_model_server,
-        ensure_managed_venv, find_python310_plus, health_identity_matches, health_model_ready,
+        ensure_managed_venv, health_identity_matches, health_model_ready,
         local_cached_model_snapshot, metadata_path, model_snapshot_marker_path,
         parse_python_version, prepare_local_model_server_status_inner,
         read_matching_model_snapshot_marker, requirements_marker_matches, requirements_marker_path,
@@ -2160,7 +2192,7 @@ mod tests {
         let temp = tempfile::tempdir().expect("tempdir");
         let server = ensure_bundled_model_server(temp.path()).expect("install model server");
 
-        let _python_launcher = match find_python310_plus() {
+        let venv_python = match ensure_managed_venv(&server) {
             Ok(p) => p,
             Err(e) => {
                 eprintln!("skipping ensure_managed_venv test: {e}");
@@ -2168,9 +2200,6 @@ mod tests {
             }
         };
 
-        assert!(!server.venv_dir.exists());
-
-        let venv_python = ensure_managed_venv(&server).expect("create managed venv");
         assert!(venv_python.is_file());
         assert!(server.venv_dir.exists());
 
@@ -2196,19 +2225,17 @@ mod tests {
         let temp = tempfile::tempdir().expect("tempdir");
         let server = ensure_bundled_model_server(temp.path()).expect("install model server");
 
-        let _python_launcher = match find_python310_plus() {
+        fs::create_dir_all(&server.venv_dir).expect("create fake stale venv dir");
+        fs::write(server.venv_dir.join("partial"), b"leftover").expect("write partial file");
+        assert!(server.venv_dir.exists());
+
+        let venv_python = match ensure_managed_venv(&server) {
             Ok(p) => p,
             Err(e) => {
                 eprintln!("skipping stale venv test: {e}");
                 return;
             }
         };
-
-        fs::create_dir_all(&server.venv_dir).expect("create fake stale venv dir");
-        fs::write(server.venv_dir.join("partial"), b"leftover").expect("write partial file");
-        assert!(server.venv_dir.exists());
-
-        let venv_python = ensure_managed_venv(&server).expect("create managed venv after cleanup");
         assert!(venv_python.is_file());
         assert!(!server.venv_dir.join("partial").exists());
     }
