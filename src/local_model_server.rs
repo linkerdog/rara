@@ -787,7 +787,6 @@ fn venv_python_path(venv_dir: &Path) -> PathBuf {
 fn find_python310_plus() -> Result<std::ffi::OsString> {
     if let Some(python) = std::env::var_os("RARA_PYTHON") {
         check_python_version(&python)?;
-        eprintln!("rara: using python {:?} (from RARA_PYTHON)", python);
         return Ok(python);
     }
     // Probed in order of preference.
@@ -801,7 +800,6 @@ fn find_python310_plus() -> Result<std::ffi::OsString> {
         let candidate = std::ffi::OsString::from(name);
         // A missing binary will fail --version below; skip it silently.
         if check_python_version(&candidate).is_ok() {
-            eprintln!("rara: using python {:?} (>= 3.10)", candidate);
             return Ok(candidate);
         }
     }
@@ -848,21 +846,13 @@ fn ensure_managed_venv(server: &BundledModelServer) -> Result<PathBuf> {
         return Ok(python);
     }
     let python_launcher = find_python310_plus()?;
-    let output = Command::new(&python_launcher)
-        .arg("-m")
-        .arg("venv")
-        .arg(&server.venv_dir)
-        .stdin(Stdio::null())
-        .output()
-        .with_context(|| format!("run {:?} -m venv", python_launcher))?;
-    if output.status.success() {
-        if !python.is_file() {
-            bail!("venv python was not created at {}", python.display());
-        }
-        return Ok(python);
+
+    if server.venv_dir.exists() {
+        fs::remove_dir_all(&server.venv_dir)
+            .with_context(|| format!("remove stale venv {}", server.venv_dir.display()))?;
     }
 
-    let fallback_output = Command::new(&python_launcher)
+    let output = Command::new(&python_launcher)
         .arg("-m")
         .arg("venv")
         .arg("--without-pip")
@@ -870,10 +860,11 @@ fn ensure_managed_venv(server: &BundledModelServer) -> Result<PathBuf> {
         .stdin(Stdio::null())
         .output()
         .with_context(|| format!("run {:?} -m venv --without-pip", python_launcher))?;
-    ensure_command_success(fallback_output, "create managed Python venv")?;
+    ensure_command_success(output, "create managed Python venv")?;
     if !python.is_file() {
         bail!("venv python was not created at {}", python.display());
     }
+
     let pip_output = Command::new(&python)
         .arg("-m")
         .arg("ensurepip")
