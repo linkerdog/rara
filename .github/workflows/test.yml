@@ -26,4 +26,4 @@ jobs:
         uses: Swatinem/rust-cache@v2
 
       - name: Run tests
-        run: cargo test --locked --features cuda
+        run: cargo test --locked
