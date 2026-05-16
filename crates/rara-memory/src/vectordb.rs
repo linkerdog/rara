@@ -11,7 +11,7 @@ use arrow_array::{
 };
 use arrow_schema::{DataType, Field, Schema, SchemaRef};
 use futures::TryStreamExt;
-use lance_index::scalar::FullTextSearchQuery;
+use lancedb::index::scalar::FullTextSearchQuery;
 use lancedb::index::Index;
 use lancedb::index::scalar::FtsIndexBuilder;
 use lancedb::query::{ExecutableQuery, QueryBase};

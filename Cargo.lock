@@ -12016,7 +12016,6 @@ dependencies = [
  "arrow-array 58.3.0",
  "arrow-schema 58.3.0",
  "futures",
- "lance-index 6.0.0",
  "lancedb",
  "rara-persistence",
  "serde",
