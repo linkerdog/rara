@@ -820,7 +820,7 @@ fn check_python_version(python: &std::ffi::OsStr) -> Result<()> {
     if !output.status.success() {
         return Ok(()); // broken; skip
     }
-    let raw = String::from_utf8_lossy(&output.stdout);
+    let raw = String::from_utf8_lossy(&output.stderr);
     if raw.is_empty() {
         return Ok(()); // no output; skip
     }
@@ -1643,7 +1643,7 @@ mod tests {
         BootstrapMode, LocalModelServerEmbeddingBackend, LocalModelServerState,
         ModelServerMetadata, StartupLock, cleanup_failed_venv, ensure_bundled_model_server,
         health_identity_matches, health_model_ready, local_cached_model_snapshot, metadata_path,
-        model_snapshot_marker_path, prepare_local_model_server_status_inner,
+        model_snapshot_marker_path, parse_python_version, prepare_local_model_server_status_inner,
         read_matching_model_snapshot_marker, requirements_marker_matches, requirements_marker_path,
         reusable_server_status, selected_requirements_file, sha256_hex, snapshot_has_all_files,
         snapshot_has_minimum_model_files, startup_lock_path, unix_timestamp_secs, venv_python_path,
@@ -2114,6 +2114,25 @@ mod tests {
                 "model.safetensors".to_string(),
             ]
         ));
+    }
+
+    #[test]
+    fn parse_python_version_accepts_valid_versions() {
+        let py = std::ffi::OsStr::new("python3");
+        parse_python_version("Python 3.10.0", py).expect("3.10.0");
+        parse_python_version("Python 3.11.2", py).expect("3.11.2");
+        parse_python_version("Python 3.12.0", py).expect("3.12.0");
+        parse_python_version("Python 3.13.1", py).expect("3.13.1");
+        parse_python_version("3.10.0", py).expect("bare 3.10.0");
+    }
+
+    #[test]
+    fn parse_python_version_rejects_old_versions() {
+        let py = std::ffi::OsStr::new("python3");
+        assert!(parse_python_version("Python 3.9.0", py).is_err());
+        assert!(parse_python_version("Python 3.8.0", py).is_err());
+        assert!(parse_python_version("Python 2.7.18", py).is_err());
+        assert!(parse_python_version("garbage", py).is_err());
     }
 
     #[cfg(unix)]
