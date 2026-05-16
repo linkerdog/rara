@@ -807,28 +807,34 @@ fn find_python310_plus() -> Result<std::ffi::OsString> {
 }
 
 fn check_python_version(python: &std::ffi::OsStr) -> Result<()> {
-    let output = Command::new(python)
+    let output = match Command::new(python)
         .arg("--version")
         .stdin(Stdio::null())
         .output()
-        .with_context(|| format!("run {:?} --version", python))?;
-    if !output.status.success() {
-        return Ok(()); // binary not found or broken; skip
-    }
-    // Python sends --version to stdout in 3.4+, but some builds use stderr.
-    let raw = if output.stdout.is_empty() {
-        String::from_utf8_lossy(&output.stderr)
-    } else {
-        String::from_utf8_lossy(&output.stdout)
+    {
+        Ok(output) => output,
+        Err(_) => return Ok(()), // binary not found
     };
+    if !output.status.success() {
+        return Ok(()); // broken; skip
+    }
+    let raw = String::from_utf8_lossy(&output.stdout);
+    if raw.is_empty() {
+        return Ok(()); // no output; skip
+    }
     parse_python_version(raw.trim(), python)
 }
 
 fn parse_python_version(raw: &str, python: &std::ffi::OsStr) -> Result<()> {
-    let parts: Vec<&str> = raw.split_whitespace().collect();
-    let version = parts.get(1).unwrap_or(&"");
-    let nums: Vec<u32> = version.split('.').filter_map(|s| s.parse().ok()).collect();
-    if nums.len() < 2 || nums[0] < 3 || (nums[0] == 3 && nums[1] < 10) {
+    // Extract the first "M.m" from the output (handles "Python 3.12.3" and bare "3.12.3").
+    let nums: Vec<u32> = raw
+        .split(|c: char| !c.is_ascii_digit())
+        .filter_map(|s| s.parse().ok())
+        .collect();
+    if nums.len() < 2 {
+        bail!("could not parse version from {:?} output: {}", python, raw);
+    }
+    if nums[0] < 3 || (nums[0] == 3 && nums[1] < 10) {
         bail!("{:?} is {} (need >= 3.10)", python, raw);
     }
     Ok(())
