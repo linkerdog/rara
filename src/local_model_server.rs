@@ -400,7 +400,7 @@ fn prepare_local_model_server_status_inner(
                         state: LocalModelServerState::Error,
                         backend: backend.to_string(),
                         model: model.to_string(),
-                        detail: err.to_string(),
+                        detail: format!("{err:#?}"),
                         server_path: Some(server.path),
                         endpoint: None,
                     };
