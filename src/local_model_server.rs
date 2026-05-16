@@ -858,7 +858,7 @@ fn parse_python_version(raw: &str, python: &std::ffi::OsStr) -> Result<()> {
 
 /// Create a managed Python venv using `uv` (preferred) or the system Python.
 ///
-/// `uv venv --python 3.11` handles Python discovery and installation automatically.
+/// `uv venv --python 3.14` handles Python discovery and installation automatically.
 /// Falls back to probing PATH for `python3.1{3,2,1,0}` / `python3` when `uv`
 /// is not available.
 fn ensure_managed_venv(server: &BundledModelServer) -> Result<PathBuf> {
@@ -872,7 +872,7 @@ fn ensure_managed_venv(server: &BundledModelServer) -> Result<PathBuf> {
             .with_context(|| format!("remove stale venv {}", server.venv_dir.display()))?;
     }
 
-    // Primary: use `uv` to create the venv with Python >= 3.11.
+    // Primary: use `uv` to create the venv with Python >= 3.14.
     if let Ok(p) = create_venv_with_uv(server) {
         return Ok(p);
     }
@@ -885,11 +885,11 @@ fn create_venv_with_uv(server: &BundledModelServer) -> Result<PathBuf> {
     let output = Command::new("uv")
         .arg("venv")
         .arg("--python")
-        .arg("3.11")
+        .arg("3.14")
         .arg(&server.venv_dir)
         .stdin(Stdio::null())
         .output()
-        .with_context(|| "run uv venv --python 3.11")?;
+        .with_context(|| "run uv venv --python 3.14")?;
     ensure_command_success(output, "create managed Python venv with uv")?;
     let python = venv_python_path(&server.venv_dir);
     if !python.is_file() {
@@ -930,6 +930,40 @@ fn ensure_model_server_dependencies(server: &BundledModelServer, python: &Path) 
     if requirements_marker_matches(&marker_path, &requirements.sha256)? {
         return Ok(());
     }
+
+    // Prefer `uv pip install` — uv's resolver handles conflicts that pip cannot.
+    if let Err(uv_err) = install_deps_with_uv(python, &requirements.path) {
+        let pip_err = install_deps_with_pip(python, &requirements.path)
+            .context("fallback pip install also failed");
+        match pip_err {
+            Ok(()) => {}
+            Err(e) => bail!("uv pip install: {uv_err}\nfallback pip: {e}"),
+        }
+    }
+
+    let marker = serde_json::json!({
+        "requirements_sha256": requirements.sha256,
+        "requirements_path": requirements.path,
+    });
+    write_file_atomically(&marker_path, serde_json::to_vec_pretty(&marker)?.as_slice())?;
+    Ok(())
+}
+
+fn install_deps_with_uv(python: &Path, requirements: &Path) -> Result<()> {
+    let output = Command::new("uv")
+        .arg("pip")
+        .arg("install")
+        .arg("--python")
+        .arg(python)
+        .arg("-r")
+        .arg(requirements)
+        .stdin(Stdio::null())
+        .output()
+        .with_context(|| "run uv pip install")?;
+    ensure_command_success(output, "install model server dependencies with uv")
+}
+
+fn install_deps_with_pip(python: &Path, requirements: &Path) -> Result<()> {
     let output = Command::new(python)
         .arg("-m")
         .arg("pip")
@@ -947,17 +981,11 @@ fn ensure_model_server_dependencies(server: &BundledModelServer, python: &Path) 
         .arg("--disable-pip-version-check")
         .arg("install")
         .arg("-r")
-        .arg(&requirements.path)
+        .arg(requirements)
         .stdin(Stdio::null())
         .output()
         .with_context(|| format!("run {} -m pip install", python.display()))?;
-    ensure_command_success(output, "install model server dependencies")?;
-    let marker = serde_json::json!({
-        "requirements_sha256": requirements.sha256,
-        "requirements_path": requirements.path,
-    });
-    write_file_atomically(&marker_path, serde_json::to_vec_pretty(&marker)?.as_slice())?;
-    Ok(())
+    ensure_command_success(output, "install model server dependencies")
 }
 
 fn selected_requirements_file(server: &BundledModelServer) -> Result<&BundledModelServerFile> {
