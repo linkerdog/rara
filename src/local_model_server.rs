@@ -787,6 +787,7 @@ fn venv_python_path(venv_dir: &Path) -> PathBuf {
 fn find_python310_plus() -> Result<std::ffi::OsString> {
     if let Some(python) = std::env::var_os("RARA_PYTHON") {
         check_python_version(&python)?;
+        eprintln!("rara: using python {:?} (from RARA_PYTHON)", python);
         return Ok(python);
     }
     // Probed in order of preference.
