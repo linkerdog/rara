@@ -800,88 +800,29 @@ fn venv_python_path(venv_dir: &Path) -> PathBuf {
 /// Respects `RARA_PYTHON` if set; otherwise probes known executable names in
 /// descending version order and picks the first one whose reported version is
 /// at least 3.10.
-fn find_python310_plus() -> Result<std::ffi::OsString> {
-    if let Some(python) = std::env::var_os("RARA_PYTHON") {
-        check_python_version(&python)?;
-        return Ok(python);
-    }
-    // Probed in order of preference.
-    for name in [
-        "python3.13",
-        "python3.12",
-        "python3.11",
-        "python3.10",
-        "python3",
-    ] {
-        let candidate = std::ffi::OsString::from(name);
-        // A missing binary will fail --version below; skip it silently.
-        if check_python_version(&candidate).is_ok() {
-            return Ok(candidate);
-        }
-    }
-    bail!("no Python >= 3.10 found; install Python 3.10+ or set RARA_PYTHON")
-}
-
-fn check_python_version(python: &std::ffi::OsStr) -> Result<()> {
-    let output = match Command::new(python)
+fn ensure_uv_installed() -> Result<()> {
+    match Command::new("uv")
         .arg("--version")
         .stdin(Stdio::null())
         .output()
     {
-        Ok(output) => output,
-        Err(e) => bail!("{:?} --version: {e}", python),
-    };
-    if !output.status.success() {
-        bail!("{:?} --version exited {}", python, output.status);
+        Ok(output) if output.status.success() => Ok(()),
+        _ => bail!(
+            "uv is not installed; install it:\n  https://docs.astral.sh/uv/getting-started/installation/"
+        ),
     }
-    let raw = String::from_utf8_lossy(&output.stderr);
-    if raw.is_empty() {
-        bail!("{:?} --version produced no output", python);
-    }
-    parse_python_version(raw.trim(), python)
 }
 
-fn parse_python_version(raw: &str, python: &std::ffi::OsStr) -> Result<()> {
-    // Extract the first "M.m" from the output (handles "Python 3.12.3" and bare "3.12.3").
-    let nums: Vec<u32> = raw
-        .split(|c: char| !c.is_ascii_digit())
-        .filter_map(|s| s.parse().ok())
-        .collect();
-    if nums.len() < 2 {
-        bail!("could not parse version from {:?} output: {}", python, raw);
-    }
-    if nums[0] < 3 || (nums[0] == 3 && nums[1] < 10) {
-        bail!("{:?} is {} (need >= 3.10)", python, raw);
-    }
-    Ok(())
-}
-
-/// Create a managed Python venv using `uv` (preferred) or the system Python.
-///
-/// `uv venv --python 3.14` handles Python discovery and installation automatically.
-/// Falls back to probing PATH for `python3.1{3,2,1,0}` / `python3` when `uv`
-/// is not available.
 fn ensure_managed_venv(server: &BundledModelServer) -> Result<PathBuf> {
     let python = venv_python_path(&server.venv_dir);
     if python.is_file() {
         return Ok(python);
     }
-
     if server.venv_dir.exists() {
         fs::remove_dir_all(&server.venv_dir)
             .with_context(|| format!("remove stale venv {}", server.venv_dir.display()))?;
     }
-
-    // Primary: use `uv` to create the venv with Python >= 3.14.
-    if let Ok(p) = create_venv_with_uv(server) {
-        return Ok(p);
-    }
-
-    // Fallback: find a system Python >= 3.10 and use `python -m venv --without-pip`.
-    create_venv_with_system_python(server)
-}
-
-fn create_venv_with_uv(server: &BundledModelServer) -> Result<PathBuf> {
+    ensure_uv_installed()?;
     let output = Command::new("uv")
         .arg("venv")
         .arg("--python")
@@ -891,36 +832,9 @@ fn create_venv_with_uv(server: &BundledModelServer) -> Result<PathBuf> {
         .output()
         .with_context(|| "run uv venv --python 3.14")?;
     ensure_command_success(output, "create managed Python venv with uv")?;
-    let python = venv_python_path(&server.venv_dir);
     if !python.is_file() {
         bail!("venv python was not created at {}", python.display());
     }
-    Ok(python)
-}
-
-fn create_venv_with_system_python(server: &BundledModelServer) -> Result<PathBuf> {
-    let python_launcher = find_python310_plus()?;
-    let output = Command::new(&python_launcher)
-        .arg("-m")
-        .arg("venv")
-        .arg("--without-pip")
-        .arg(&server.venv_dir)
-        .stdin(Stdio::null())
-        .output()
-        .with_context(|| format!("run {:?} -m venv --without-pip", python_launcher))?;
-    ensure_command_success(output, "create managed Python venv")?;
-    let python = venv_python_path(&server.venv_dir);
-    if !python.is_file() {
-        bail!("venv python was not created at {}", python.display());
-    }
-    let pip_output = Command::new(&python)
-        .arg("-m")
-        .arg("ensurepip")
-        .arg("--upgrade")
-        .stdin(Stdio::null())
-        .output()
-        .with_context(|| format!("run {} -m ensurepip", python.display()))?;
-    ensure_command_success(pip_output, "install pip into managed Python venv")?;
     Ok(python)
 }
 
@@ -931,15 +845,17 @@ fn ensure_model_server_dependencies(server: &BundledModelServer, python: &Path) 
         return Ok(());
     }
 
-    // Prefer `uv pip install` — uv's resolver handles conflicts that pip cannot.
-    if let Err(uv_err) = install_deps_with_uv(python, &requirements.path) {
-        let pip_err = install_deps_with_pip(python, &requirements.path)
-            .context("fallback pip install also failed");
-        match pip_err {
-            Ok(()) => {}
-            Err(e) => bail!("uv pip install: {uv_err}\nfallback pip: {e}"),
-        }
-    }
+    let output = Command::new("uv")
+        .arg("pip")
+        .arg("install")
+        .arg("--python")
+        .arg(python)
+        .arg("-r")
+        .arg(&requirements.path)
+        .stdin(Stdio::null())
+        .output()
+        .with_context(|| "run uv pip install")?;
+    ensure_command_success(output, "install model server dependencies with uv")?;
 
     let marker = serde_json::json!({
         "requirements_sha256": requirements.sha256,
@@ -947,45 +863,6 @@ fn ensure_model_server_dependencies(server: &BundledModelServer, python: &Path) 
     });
     write_file_atomically(&marker_path, serde_json::to_vec_pretty(&marker)?.as_slice())?;
     Ok(())
-}
-
-fn install_deps_with_uv(python: &Path, requirements: &Path) -> Result<()> {
-    let output = Command::new("uv")
-        .arg("pip")
-        .arg("install")
-        .arg("--python")
-        .arg(python)
-        .arg("-r")
-        .arg(requirements)
-        .stdin(Stdio::null())
-        .output()
-        .with_context(|| "run uv pip install")?;
-    ensure_command_success(output, "install model server dependencies with uv")
-}
-
-fn install_deps_with_pip(python: &Path, requirements: &Path) -> Result<()> {
-    let output = Command::new(python)
-        .arg("-m")
-        .arg("pip")
-        .arg("--disable-pip-version-check")
-        .arg("install")
-        .arg("--upgrade")
-        .arg("pip")
-        .stdin(Stdio::null())
-        .output()
-        .with_context(|| format!("run {} -m pip install --upgrade pip", python.display()))?;
-    ensure_command_success(output, "upgrade pip")?;
-    let output = Command::new(python)
-        .arg("-m")
-        .arg("pip")
-        .arg("--disable-pip-version-check")
-        .arg("install")
-        .arg("-r")
-        .arg(requirements)
-        .stdin(Stdio::null())
-        .output()
-        .with_context(|| format!("run {} -m pip install", python.display()))?;
-    ensure_command_success(output, "install model server dependencies")
 }
 
 fn selected_requirements_file(server: &BundledModelServer) -> Result<&BundledModelServerFile> {
@@ -1723,7 +1600,7 @@ mod tests {
         ModelServerMetadata, StartupLock, cleanup_failed_venv, ensure_bundled_model_server,
         ensure_managed_venv, health_identity_matches, health_model_ready,
         local_cached_model_snapshot, metadata_path, model_snapshot_marker_path,
-        parse_python_version, prepare_local_model_server_status_inner,
+        prepare_local_model_server_status_inner,
         read_matching_model_snapshot_marker, requirements_marker_matches, requirements_marker_path,
         reusable_server_status, selected_requirements_file, sha256_hex, snapshot_has_all_files,
         snapshot_has_minimum_model_files, startup_lock_path, unix_timestamp_secs, venv_python_path,
@@ -2196,24 +2073,6 @@ mod tests {
         ));
     }
 
-    #[test]
-    fn parse_python_version_accepts_valid_versions() {
-        let py = std::ffi::OsStr::new("python3");
-        parse_python_version("Python 3.10.0", py).expect("3.10.0");
-        parse_python_version("Python 3.11.2", py).expect("3.11.2");
-        parse_python_version("Python 3.12.0", py).expect("3.12.0");
-        parse_python_version("Python 3.13.1", py).expect("3.13.1");
-        parse_python_version("3.10.0", py).expect("bare 3.10.0");
-    }
-
-    #[test]
-    fn parse_python_version_rejects_old_versions() {
-        let py = std::ffi::OsStr::new("python3");
-        assert!(parse_python_version("Python 3.9.0", py).is_err());
-        assert!(parse_python_version("Python 3.8.0", py).is_err());
-        assert!(parse_python_version("Python 2.7.18", py).is_err());
-        assert!(parse_python_version("garbage", py).is_err());
-    }
 
     #[test]
     fn ensure_managed_venv_creates_and_reuses_venv_with_pip() {
