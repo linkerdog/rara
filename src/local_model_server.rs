@@ -779,13 +779,61 @@ fn venv_python_path(venv_dir: &Path) -> PathBuf {
     }
 }
 
+/// Find a Python >= 3.10 on the system.
+///
+/// Respects `RARA_PYTHON` if set; otherwise probes known executable names in
+/// descending version order and picks the first one whose reported version is
+/// at least 3.10.
+fn find_python310_plus() -> Result<std::ffi::OsString> {
+    if let Some(python) = std::env::var_os("RARA_PYTHON") {
+        check_python_version(&python)?;
+        return Ok(python);
+    }
+    // Probed in order of preference.
+    for name in ["python3.13", "python3.12", "python3.11", "python3.10", "python3"] {
+        let candidate = std::ffi::OsString::from(name);
+        // A missing binary will fail --version below; skip it silently.
+        if check_python_version(&candidate).is_ok() {
+            return Ok(candidate);
+        }
+    }
+    bail!("no Python >= 3.10 found; install Python 3.10+ or set RARA_PYTHON")
+}
+
+fn check_python_version(python: &std::ffi::OsStr) -> Result<()> {
+    let output = Command::new(python)
+        .arg("--version")
+        .stdin(Stdio::null())
+        .output()
+        .with_context(|| format!("run {:?} --version", python))?;
+    if !output.status.success() {
+        return Ok(()); // binary not found or broken; skip
+    }
+    // Python sends --version to stdout in 3.4+, but some builds use stderr.
+    let raw = if output.stdout.is_empty() {
+        String::from_utf8_lossy(&output.stderr)
+    } else {
+        String::from_utf8_lossy(&output.stdout)
+    };
+    parse_python_version(raw.trim(), python)
+}
+
+fn parse_python_version(raw: &str, python: &std::ffi::OsStr) -> Result<()> {
+    let parts: Vec<&str> = raw.split_whitespace().collect();
+    let version = parts.get(1).unwrap_or(&"");
+    let nums: Vec<u32> = version.split('.').filter_map(|s| s.parse().ok()).collect();
+    if nums.len() < 2 || nums[0] < 3 || (nums[0] == 3 && nums[1] < 10) {
+        bail!("{:?} is {} (need >= 3.10)", python, raw);
+    }
+    Ok(())
+}
+
 fn ensure_managed_venv(server: &BundledModelServer) -> Result<PathBuf> {
     let python = venv_python_path(&server.venv_dir);
     if python.is_file() {
         return Ok(python);
     }
-    let python_launcher =
-        std::env::var_os("RARA_PYTHON").unwrap_or_else(|| std::ffi::OsString::from("python3"));
+    let python_launcher = find_python310_plus()?;
     let output = Command::new(&python_launcher)
         .arg("-m")
         .arg("venv")
@@ -806,6 +854,17 @@ fn ensure_model_server_dependencies(server: &BundledModelServer, python: &Path) 
     if requirements_marker_matches(&marker_path, &requirements.sha256)? {
         return Ok(());
     }
+    let output = Command::new(python)
+        .arg("-m")
+        .arg("pip")
+        .arg("--disable-pip-version-check")
+        .arg("install")
+        .arg("--upgrade")
+        .arg("pip")
+        .stdin(Stdio::null())
+        .output()
+        .with_context(|| format!("run {} -m pip install --upgrade pip", python.display()))?;
+    ensure_command_success(output, "upgrade pip")?;
     let output = Command::new(python)
         .arg("-m")
         .arg("pip")
