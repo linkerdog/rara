@@ -405,7 +405,7 @@ fn prepare_local_model_server_status_inner(
 
             let python = match prepared_runtime_python(&server).and_then(|python| match python {
                 Some(python) => Ok(python),
-                None => prepare_managed_runtime(&server),
+                None => prepare_managed_runtime(&server, &progress),
             }) {
                 Ok(python) => python,
                 Err(err) => {
@@ -507,9 +507,13 @@ fn prepared_runtime_python(server: &BundledModelServer) -> Result<Option<PathBuf
     Ok(Some(python))
 }
 
-fn prepare_managed_runtime(server: &BundledModelServer) -> Result<PathBuf> {
-    let python = ensure_managed_venv(server).context("failed to create managed Python venv")?;
-    if let Err(err) = ensure_model_server_dependencies(server, &python)
+fn prepare_managed_runtime(
+    server: &BundledModelServer,
+    progress: &Option<LocalProgressReporter>,
+) -> Result<PathBuf> {
+    let python =
+        ensure_managed_venv(server, progress).context("failed to create managed Python venv")?;
+    if let Err(err) = ensure_model_server_dependencies(server, &python, progress)
         .context("failed to install model server dependencies")
     {
         if let Err(cleanup_err) = cleanup_failed_venv(server) {
@@ -813,7 +817,10 @@ fn ensure_uv_installed() -> Result<()> {
     }
 }
 
-fn ensure_managed_venv(server: &BundledModelServer) -> Result<PathBuf> {
+fn ensure_managed_venv(
+    server: &BundledModelServer,
+    progress: &Option<LocalProgressReporter>,
+) -> Result<PathBuf> {
     let python = venv_python_path(&server.venv_dir);
     if python.is_file() {
         return Ok(python);
@@ -822,15 +829,17 @@ fn ensure_managed_venv(server: &BundledModelServer) -> Result<PathBuf> {
         fs::remove_dir_all(&server.venv_dir)
             .with_context(|| format!("remove stale venv {}", server.venv_dir.display()))?;
     }
+    report_progress(progress, "Embedding · creating Python venv with uv");
     ensure_uv_installed()?;
     let output = Command::new("uv")
         .arg("venv")
         .arg("--python")
         .arg("3.14")
+        .arg("--seed")
         .arg(&server.venv_dir)
         .stdin(Stdio::null())
         .output()
-        .with_context(|| "run uv venv --python 3.14")?;
+        .with_context(|| "run uv venv --python 3.14 --seed")?;
     ensure_command_success(output, "create managed Python venv with uv")?;
     if !python.is_file() {
         bail!("venv python was not created at {}", python.display());
@@ -838,13 +847,21 @@ fn ensure_managed_venv(server: &BundledModelServer) -> Result<PathBuf> {
     Ok(python)
 }
 
-fn ensure_model_server_dependencies(server: &BundledModelServer, python: &Path) -> Result<()> {
+fn ensure_model_server_dependencies(
+    server: &BundledModelServer,
+    python: &Path,
+    progress: &Option<LocalProgressReporter>,
+) -> Result<()> {
     let requirements = selected_requirements_file(server)?;
     let marker_path = requirements_marker_path(&server.runtime_dir);
     if requirements_marker_matches(&marker_path, &requirements.sha256)? {
         return Ok(());
     }
 
+    report_progress(
+        progress,
+        "Embedding · installing model server dependencies with uv",
+    );
     let output = Command::new("uv")
         .arg("pip")
         .arg("install")
@@ -1600,9 +1617,9 @@ mod tests {
         ModelServerMetadata, StartupLock, cleanup_failed_venv, ensure_bundled_model_server,
         ensure_managed_venv, health_identity_matches, health_model_ready,
         local_cached_model_snapshot, metadata_path, model_snapshot_marker_path,
-        prepare_local_model_server_status_inner,
-        read_matching_model_snapshot_marker, requirements_marker_matches, requirements_marker_path,
-        reusable_server_status, selected_requirements_file, sha256_hex, snapshot_has_all_files,
+        prepare_local_model_server_status_inner, read_matching_model_snapshot_marker,
+        requirements_marker_matches, requirements_marker_path, reusable_server_status,
+        selected_requirements_file, sha256_hex, snapshot_has_all_files,
         snapshot_has_minimum_model_files, startup_lock_path, unix_timestamp_secs, venv_python_path,
         write_file_atomically, write_model_snapshot_marker, write_server_metadata,
     };
@@ -2073,13 +2090,12 @@ mod tests {
         ));
     }
 
-
     #[test]
     fn ensure_managed_venv_creates_and_reuses_venv_with_pip() {
         let temp = tempfile::tempdir().expect("tempdir");
         let server = ensure_bundled_model_server(temp.path()).expect("install model server");
 
-        let venv_python = match ensure_managed_venv(&server) {
+        let venv_python = match ensure_managed_venv(&server, &None) {
             Ok(p) => p,
             Err(e) => {
                 eprintln!("skipping ensure_managed_venv test: {e}");
@@ -2103,7 +2119,7 @@ mod tests {
             String::from_utf8_lossy(&pip_check.stderr).trim()
         );
 
-        let reused = ensure_managed_venv(&server).expect("reuse managed venv");
+        let reused = ensure_managed_venv(&server, &None).expect("reuse managed venv");
         assert_eq!(reused, venv_python);
     }
 
@@ -2116,7 +2132,7 @@ mod tests {
         fs::write(server.venv_dir.join("partial"), b"leftover").expect("write partial file");
         assert!(server.venv_dir.exists());
 
-        let venv_python = match ensure_managed_venv(&server) {
+        let venv_python = match ensure_managed_venv(&server, &None) {
             Ok(p) => p,
             Err(e) => {
                 eprintln!("skipping stale venv test: {e}");
