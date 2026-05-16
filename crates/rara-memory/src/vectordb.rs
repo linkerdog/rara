@@ -11,9 +11,9 @@ use arrow_array::{
 };
 use arrow_schema::{DataType, Field, Schema, SchemaRef};
 use futures::TryStreamExt;
-use lancedb::index::scalar::FullTextSearchQuery;
 use lancedb::index::Index;
 use lancedb::index::scalar::FtsIndexBuilder;
+use lancedb::index::scalar::FullTextSearchQuery;
 use lancedb::query::{ExecutableQuery, QueryBase};
 use lancedb::{Connection, Error as LanceDbError, Table, connect};
 use rara_persistence::file_lock::AdvisoryFileLock;
