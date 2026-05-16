@@ -27,4 +27,4 @@ jobs:
         uses: Swatinem/rust-cache@v2
 
       - name: Run clippy
-        run: cargo clippy --locked --all-targets --no-deps --features accelerate
+        run: cargo clippy --locked --all-targets --no-deps --features cuda

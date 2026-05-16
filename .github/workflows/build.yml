@@ -26,4 +26,4 @@ jobs:
         uses: Swatinem/rust-cache@v2
 
       - name: Build
-        run: cargo build --features accelerate
+        run: cargo build --features cuda
