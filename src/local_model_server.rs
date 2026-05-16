@@ -790,7 +790,13 @@ fn find_python310_plus() -> Result<std::ffi::OsString> {
         return Ok(python);
     }
     // Probed in order of preference.
-    for name in ["python3.13", "python3.12", "python3.11", "python3.10", "python3"] {
+    for name in [
+        "python3.13",
+        "python3.12",
+        "python3.11",
+        "python3.10",
+        "python3",
+    ] {
         let candidate = std::ffi::OsString::from(name);
         // A missing binary will fail --version below; skip it silently.
         if check_python_version(&candidate).is_ok() {
