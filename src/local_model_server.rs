@@ -800,6 +800,7 @@ fn find_python310_plus() -> Result<std::ffi::OsString> {
         let candidate = std::ffi::OsString::from(name);
         // A missing binary will fail --version below; skip it silently.
         if check_python_version(&candidate).is_ok() {
+            eprintln!("rara: using python {:?} (>= 3.10)", candidate);
             return Ok(candidate);
         }
     }
@@ -853,6 +854,17 @@ fn ensure_managed_venv(server: &BundledModelServer) -> Result<PathBuf> {
         .stdin(Stdio::null())
         .output()
         .with_context(|| format!("run {:?} -m venv", python_launcher))?;
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        eprintln!(
+            "rara: {} -m venv failed (status {}):\nstderr: {}\nstdout: {}",
+            python_launcher.to_string_lossy(),
+            output.status,
+            stderr.trim(),
+            stdout.trim(),
+        );
+    }
     ensure_command_success(output, "create managed Python venv")?;
     if !python.is_file() {
         bail!("venv python was not created at {}", python.display());
