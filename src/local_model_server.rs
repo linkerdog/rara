@@ -813,14 +813,14 @@ fn check_python_version(python: &std::ffi::OsStr) -> Result<()> {
         .output()
     {
         Ok(output) => output,
-        Err(_) => return Ok(()), // binary not found
+        Err(e) => bail!("{:?} --version: {e}", python),
     };
     if !output.status.success() {
-        return Ok(()); // broken; skip
+        bail!("{:?} --version exited {}", python, output.status);
     }
     let raw = String::from_utf8_lossy(&output.stderr);
     if raw.is_empty() {
-        return Ok(()); // no output; skip
+        bail!("{:?} --version produced no output", python);
     }
     parse_python_version(raw.trim(), python)
 }
@@ -1645,8 +1645,9 @@ mod tests {
     use super::{
         BootstrapMode, LocalModelServerEmbeddingBackend, LocalModelServerState,
         ModelServerMetadata, StartupLock, cleanup_failed_venv, ensure_bundled_model_server,
-        health_identity_matches, health_model_ready, local_cached_model_snapshot, metadata_path,
-        model_snapshot_marker_path, parse_python_version, prepare_local_model_server_status_inner,
+        ensure_managed_venv, find_python310_plus, health_identity_matches, health_model_ready,
+        local_cached_model_snapshot, metadata_path, model_snapshot_marker_path,
+        parse_python_version, prepare_local_model_server_status_inner,
         read_matching_model_snapshot_marker, requirements_marker_matches, requirements_marker_path,
         reusable_server_status, selected_requirements_file, sha256_hex, snapshot_has_all_files,
         snapshot_has_minimum_model_files, startup_lock_path, unix_timestamp_secs, venv_python_path,
@@ -2136,6 +2137,64 @@ mod tests {
         assert!(parse_python_version("Python 3.8.0", py).is_err());
         assert!(parse_python_version("Python 2.7.18", py).is_err());
         assert!(parse_python_version("garbage", py).is_err());
+    }
+
+    #[test]
+    fn ensure_managed_venv_creates_and_reuses_venv_with_pip() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let server = ensure_bundled_model_server(temp.path()).expect("install model server");
+
+        let _python_launcher = match find_python310_plus() {
+            Ok(p) => p,
+            Err(e) => {
+                eprintln!("skipping ensure_managed_venv test: {e}");
+                return;
+            }
+        };
+
+        assert!(!server.venv_dir.exists());
+
+        let venv_python = ensure_managed_venv(&server).expect("create managed venv");
+        assert!(venv_python.is_file());
+        assert!(server.venv_dir.exists());
+
+        let pip_check = std::process::Command::new(&venv_python)
+            .arg("-m")
+            .arg("pip")
+            .arg("--version")
+            .stdin(std::process::Stdio::null())
+            .output()
+            .expect("run pip --version");
+        assert!(
+            pip_check.status.success(),
+            "pip should be installed, stderr: {}",
+            String::from_utf8_lossy(&pip_check.stderr).trim()
+        );
+
+        let reused = ensure_managed_venv(&server).expect("reuse managed venv");
+        assert_eq!(reused, venv_python);
+    }
+
+    #[test]
+    fn ensure_managed_venv_cleans_stale_venv_dir() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let server = ensure_bundled_model_server(temp.path()).expect("install model server");
+
+        let _python_launcher = match find_python310_plus() {
+            Ok(p) => p,
+            Err(e) => {
+                eprintln!("skipping stale venv test: {e}");
+                return;
+            }
+        };
+
+        fs::create_dir_all(&server.venv_dir).expect("create fake stale venv dir");
+        fs::write(server.venv_dir.join("partial"), b"leftover").expect("write partial file");
+        assert!(server.venv_dir.exists());
+
+        let venv_python = ensure_managed_venv(&server).expect("create managed venv after cleanup");
+        assert!(venv_python.is_file());
+        assert!(!server.venv_dir.join("partial").exists());
     }
 
     #[cfg(unix)]
