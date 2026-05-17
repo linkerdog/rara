@@ -476,6 +476,21 @@ pub struct TranscriptEntry {
 #[derive(Clone, Debug)]
 pub enum TranscriptEntryPayload {
     Terminal(TerminalEvent),
+    System(SystemMessageKind),
+}
+
+#[derive(Clone, Debug, Copy, PartialEq, Eq)]
+pub enum SystemMessageKind {
+    EmbeddingStatus,
+    Memory,
+    OAuth,
+    SkillLoading,
+    BackendRebuild,
+    BackendBootstrap,
+    ToolOutputCapture,
+    MCPStatus,
+    OAuthPrompt,
+    Other,
 }
 
 impl TranscriptEntry {
@@ -492,6 +507,14 @@ impl TranscriptEntry {
             role: "Terminal Event".to_string(),
             message: event.to_transcript_message(),
             payload: Some(TranscriptEntryPayload::Terminal(event)),
+        }
+    }
+
+    pub fn system(message: impl Into<String>, kind: SystemMessageKind) -> Self {
+        Self {
+            role: "System".to_string(),
+            message: message.into(),
+            payload: Some(TranscriptEntryPayload::System(kind)),
         }
     }
 }

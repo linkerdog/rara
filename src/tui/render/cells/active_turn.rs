@@ -119,9 +119,7 @@ impl ActiveCell for ActiveTurnCell<'_> {
         let latest_system = current_turn
             .iter()
             .rev()
-            .find(|entry| {
-                entry.role == "System" && is_renderable_system_message(entry.message.as_str())
-            })
+            .find(|entry| entry.role == "System" && is_renderable_system_message(entry))
             .map(|entry| entry.message.as_str());
         let latest_tool_result = current_turn
             .iter()
