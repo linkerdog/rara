@@ -194,12 +194,9 @@ impl LspManager {
             ServerKind::TypeScript,
         ] {
             if kind.extensions().contains(&ext.as_str()) {
-                // Check detect file exists
                 let detect = self.workspace_root.join(kind.detect_file());
                 if detect.exists() {
-                    // Check command is on PATH
-                    let cmd = kind.command()[0];
-                    if Command::new(cmd).arg("--version").output().is_ok() {
+                    if server_available(*kind) {
                         return Ok(*kind);
                     }
                 }
@@ -252,6 +249,10 @@ impl LspManager {
             }
         });
         let _ = conn.send_request("initialize", init_params);
+        // Per LSP spec, initialized must be sent AFTER the initialize
+        // response. Since we don't parse the response yet, sleep briefly
+        // to let the server process the request before notifying.
+        std::thread::sleep(std::time::Duration::from_millis(100));
         let _ = conn.send_notification("initialized", serde_json::json!({}));
 
         servers.insert(kind, Some(conn));
@@ -279,12 +280,13 @@ impl LspManager {
                 }
             }),
         )?;
+        // Drop the mutex lock before sleeping so other threads
+        // can access diagnostics while we wait for server responses.
+        drop(servers);
 
         // Poll for diagnostics (simple approach: sleep briefly)
         std::thread::sleep(std::time::Duration::from_millis(300));
 
-        // Parse accumulate d diagnostics from stdout thread
-        // For now, return empty — full notification parsing in follow-up
         Ok(())
     }
 }
@@ -319,6 +321,26 @@ impl LspConnection {
         self.writer.flush()?;
         Ok(())
     }
+}
+
+/// Returns true if the LSP server command is available on PATH.
+/// Results are cached per-process via OnceLock.
+fn server_available(kind: ServerKind) -> bool {
+    use std::sync::OnceLock;
+    static RUST_ANALYZER_OK: OnceLock<bool> = OnceLock::new();
+    static GOPLS_OK: OnceLock<bool> = OnceLock::new();
+    static TS_OK: OnceLock<bool> = OnceLock::new();
+
+    let lock = match kind {
+        ServerKind::RustAnalyzer => &RUST_ANALYZER_OK,
+        ServerKind::Gopls => &GOPLS_OK,
+        ServerKind::TypeScript => &TS_OK,
+    };
+
+    *lock.get_or_init(|| {
+        let cmd = kind.command()[0];
+        Command::new(cmd).arg("--version").output().is_ok()
+    })
 }
 
 fn kind_to_lang_id(kind: ServerKind) -> &'static str {
