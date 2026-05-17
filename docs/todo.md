@@ -219,3 +219,5 @@ Active backlog only. Keep this file small and current.
   raw-string literals (`{` in format strings vs structural `{`).
   Recommended approach: refactor ~7 large methods (>60 lines each) into
   free functions first, then split remaining impl block with `include!`.
+
+- [ ] Implement session/global memory files with summary-driven retrieval (spec: `docs/features/session-global-memory.md`).
