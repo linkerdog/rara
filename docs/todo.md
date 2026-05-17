@@ -221,3 +221,4 @@ Active backlog only. Keep this file small and current.
   free functions first, then split remaining impl block with `include!`.
 
 - [ ] Implement session/global memory files with summary-driven retrieval (spec: `docs/features/session-global-memory.md`).
+- [ ] Implement LSP integration (spec: `docs/features/lsp-integration.md`).
