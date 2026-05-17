@@ -285,6 +285,11 @@ fn build_embedding_backends(
                     "local embedding backend bootstrap reported: {}",
                     status.detail
                 ));
+            } else {
+                warnings.push(format!(
+                    "embedding · {} · {} · {:?}",
+                    status.backend, status.model, status.state
+                ));
             }
             let embedding_backend: Arc<dyn EmbeddingBackend> = Arc::new(
                 LocalModelServerEmbeddingBackend::from_initial_status(rara_home, status)?,
