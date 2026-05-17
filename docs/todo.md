@@ -205,3 +205,17 @@ Active backlog only. Keep this file small and current.
 
 - [ ] Split `src/tui/render.rs` (990 lines): move remaining top-level functions into existing render submodules.
 - [ ] Split `src/context/assembler.rs` (916 lines): extract budget calculation and message assembly.
+
+- `src/tui/state/mod.rs` (2037 lines) cannot be split with `include!` because the
+  monolithic `impl TuiApp` block (1816 lines) shares brace nesting across methods.
+  Requires refactoring: extract ~7 large method bodies into free functions first,
+  then the impl block will naturally shrink below 800 lines.
+
+## Known Limitations (2025-07-15)
+
+- `src/tui/state/mod.rs` (2037 lines): the monolithic `impl TuiApp` block
+  spans 1816 lines. Multiple inherent `impl` blocks ARE supported by Rust,
+  but extracting method groups requires precise brace tracking across
+  raw-string literals (`{` in format strings vs structural `{`).
+  Recommended approach: refactor ~7 large methods (>60 lines each) into
+  free functions first, then split remaining impl block with `include!`.
