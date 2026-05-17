@@ -882,7 +882,9 @@ pub(crate) fn ensure_model_server_dependencies(
     Ok(())
 }
 
-pub(crate) fn selected_requirements_file(server: &BundledModelServer) -> Result<&BundledModelServerFile> {
+pub(crate) fn selected_requirements_file(
+    server: &BundledModelServer,
+) -> Result<&BundledModelServerFile> {
     let name = if cfg!(all(target_os = "macos", target_arch = "aarch64")) {
         REQUIREMENTS_MACOS_ARM64_NAME
     } else {
@@ -1204,7 +1206,10 @@ pub(crate) fn cached_snapshot_under_cache(snapshot_path: &Path, cache_dir: &Path
     Ok(snapshot == cache || snapshot.starts_with(cache))
 }
 
-pub(crate) fn report_progress(progress: &Option<LocalProgressReporter>, message: impl Into<String>) {
+pub(crate) fn report_progress(
+    progress: &Option<LocalProgressReporter>,
+    message: impl Into<String>,
+) {
     if let Some(callback) = progress {
         callback(message.into());
     }
@@ -1287,7 +1292,9 @@ pub(crate) fn format_bytes(bytes: usize) -> String {
     }
 }
 
-pub(crate) fn ensure_model_server_requirements(runtime_dir: &Path) -> Result<Vec<BundledModelServerFile>> {
+pub(crate) fn ensure_model_server_requirements(
+    runtime_dir: &Path,
+) -> Result<Vec<BundledModelServerFile>> {
     let requirements_dir = runtime_dir.join("requirements");
     fs::create_dir_all(&requirements_dir)
         .with_context(|| format!("create {}", requirements_dir.display()))?;
@@ -1413,7 +1420,13 @@ pub(crate) fn prepare_model(
     Ok(state)
 }
 
-pub(crate) fn post_json(host: &str, port: u16, path: &str, body: &str, timeout: Duration) -> Result<Value> {
+pub(crate) fn post_json(
+    host: &str,
+    port: u16,
+    path: &str,
+    body: &str,
+    timeout: Duration,
+) -> Result<Value> {
     let response = model_server_http_client(timeout)?
         .post(model_server_url(host, port, path)?)
         .header(reqwest::header::ACCEPT, "application/json")
@@ -1604,3 +1617,4 @@ pub(crate) fn sha256_hex(content: &[u8]) -> String {
 
 #[cfg(test)]
 mod tests;
+
