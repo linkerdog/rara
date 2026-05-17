@@ -479,7 +479,7 @@ pub enum TranscriptEntryPayload {
     System(SystemMessageKind),
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Copy, PartialEq, Eq)]
 pub enum SystemMessageKind {
     EmbeddingStatus,
     Memory,

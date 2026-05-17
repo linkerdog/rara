@@ -1568,7 +1568,7 @@ fn active_turn_cell_renders_device_code_prompt_system_message() {
     app.active_turn = TranscriptTurn {
         entries: vec![
             TranscriptEntry { role: "Runtime".into(), message: "Starting Codex device-code login flow.".into(), payload: None },
-            TranscriptEntry { role: "System".into(), message: "Open this URL in a browser and enter the one-time code:\nhttps://example.test\n\nCode: ABCD".into(), payload: None },
+            TranscriptEntry { role: "System".into(), message: "Open this URL in a browser and enter the one-time code:\nhttps://example.test\n\nCode: ABCD".into(), payload: Some(crate::tui::state::TranscriptEntryPayload::System(crate::tui::state::SystemMessageKind::OAuthPrompt)) },
         ],
     };
 

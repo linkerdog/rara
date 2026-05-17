@@ -106,7 +106,9 @@ fn committed_turn_cell_renders_memory_action_notices() {
         TranscriptEntry {
             role: "System".into(),
             message: "Memory · queried workspace memory: 2 candidates".into(),
-            payload: None,
+            payload: Some(crate::tui::state::TranscriptEntryPayload::System(
+                crate::tui::state::SystemMessageKind::Memory,
+            )),
         },
         TranscriptEntry {
             role: "Agent".into(),
