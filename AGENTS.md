@@ -70,6 +70,9 @@ The current product direction is to make local inference a first-class path inst
 - Keep modules private by default and expose public APIs intentionally through explicit module exports.
 - Do not add helper functions that are only used once unless they name a non-obvious invariant or isolate a testable boundary.
 - When adding a new concept, first check whether it belongs in an existing narrow crate/module or whether a small new module avoids growing a high-touch orchestration file.
+- Avoid `unsafe` unless it is strictly necessary. When `unsafe` is required,
+  isolate the smallest possible boundary and add a concise `// SAFETY:`
+  comment explaining the invariant that makes the block sound.
 
 - Dead code is not permitted in production source files. Use `#[cfg(test)]`
   for test-only helpers; remove all unreachable types, functions, and constants.
