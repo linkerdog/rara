@@ -77,7 +77,6 @@ impl HookRegistry {
     }
 
     /// Return a snapshot of all registered hooks.
-    #[allow(dead_code)]
     pub async fn all_hooks(&self) -> Vec<HookEntry> {
         self.hooks.read().await.values().cloned().collect()
     }
