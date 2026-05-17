@@ -1,6 +1,6 @@
 use ratatui::{style::Color, text::Line};
 
-use crate::tui::state::TranscriptEntry;
+use crate::tui::state::{TranscriptEntry, TranscriptEntryPayload};
 
 #[path = "active_turn.rs"]
 mod active_turn;
@@ -331,32 +331,9 @@ mod helper_tests {
     }
 }
 
-const RENDERABLE_SYSTEM_MESSAGE_PREFIXES: &[&str] = &[
-    "query failed:",
-    "memory ·",
-    "compaction failed:",
-    "compact failed:",
-    "local embedding backend bootstrap reported:",
-    "skill loading failed:",
-    "oauth failed:",
-    "backend rebuild failed:",
-    "embedding ·",
-    "open this url in a browser and enter the one-time code:",
-    "starting codex browser login.",
-    "error:",
-];
-
-fn starts_with_ignore_ascii_case(s: &str, prefix: &str) -> bool {
-    s.len() >= prefix.len() && s[..prefix.len()].eq_ignore_ascii_case(prefix)
+pub(super) fn is_renderable_system_message(entry: &TranscriptEntry) -> bool {
+    matches!(entry.payload, Some(TranscriptEntryPayload::System(_)))
 }
-
-pub(super) fn is_renderable_system_message(message: &str) -> bool {
-    let trimmed = message.trim();
-    RENDERABLE_SYSTEM_MESSAGE_PREFIXES
-        .iter()
-        .any(|prefix| starts_with_ignore_ascii_case(trimmed, prefix))
-}
-
 #[cfg(test)]
 #[path = "cells_tests.rs"]
 mod tests; // #[path] set above

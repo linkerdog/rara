@@ -4,8 +4,8 @@ use rara_persistence::redaction::redact_secrets;
 use ratatui::text::Line;
 
 use super::{
-    ActiveLiveEvent, ActiveLiveSections, PendingFollowUpMessage, RuntimePhase, TranscriptEntry,
-    TranscriptTurn, TuiApp,
+    ActiveLiveEvent, ActiveLiveSections, PendingFollowUpMessage, RuntimePhase, SystemMessageKind,
+    TranscriptEntry, TranscriptTurn, TuiApp,
 };
 use crate::tui::terminal_event::TerminalEvent;
 
@@ -102,6 +102,13 @@ impl TuiApp {
         self.active_turn
             .entries
             .push(TranscriptEntry::terminal_event(event));
+        self.reset_transcript_scroll_if_following_tail();
+    }
+
+    pub fn push_system(&mut self, message: impl Into<String>, kind: SystemMessageKind) {
+        self.active_turn
+            .entries
+            .push(TranscriptEntry::system(message, kind));
         self.reset_transcript_scroll_if_following_tail();
     }
 

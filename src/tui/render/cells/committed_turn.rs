@@ -125,7 +125,7 @@ fn push_ordered_committed_activity<'a>(
         }
 
         if entry.role == "Agent"
-            || (entry.role == "System" && super::is_renderable_system_message(&entry.message))
+            || (entry.role == "System" && super::is_renderable_system_message(entry))
         {
             let max_lines = if entry.role == "Agent" { usize::MAX } else { 4 };
             cells.push(Box::new(MessageCell::new(

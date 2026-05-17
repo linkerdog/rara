@@ -26,8 +26,8 @@ pub use self::types::{
     OAuthLoginMode, OpenAiModelPickerAction, Overlay, PROVIDER_FAMILIES, PendingApprovalSnapshot,
     PendingInteractionSnapshot, PermissionMode, PickerIntent, ProviderFamily, RalphGoal,
     RebuildSuccess, RunningTask, RuntimePhase, RuntimeSnapshot, SkillPickerEntry, StatusTab,
-    TaskCompletion, TaskKind, TerminalDiagnosticsView, TranscriptEntry, TranscriptEntryPayload,
-    TranscriptTurn, TuiApp, TuiEvent, UnifiedModelPreset,
+    SystemMessageKind, TaskCompletion, TaskKind, TerminalDiagnosticsView, TranscriptEntry,
+    TranscriptEntryPayload, TranscriptTurn, TuiApp, TuiEvent, UnifiedModelPreset,
 };
 use crate::google_oauth::GoogleOAuthManager;
 use crate::oauth::OAuthManager;
