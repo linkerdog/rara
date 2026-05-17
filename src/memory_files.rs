@@ -64,9 +64,6 @@ fn validate_memory_path(path: &Path) -> Result<()> {
             .with_context(|| format!("resolve memory parent {}", path.display()))?;
         canonical_parent.join(path.file_name().unwrap_or(std::ffi::OsStr::new("")))
     };
-    // Platform-agnostic: check that "memory" appears as a full path component.
-    // `components()` yields platform-independent path segments, so "memory"
-    // matches as a complete directory name, not a substring.
     let in_memory_dir = canonical.components().any(|c| {
         use std::ffi::OsStr;
         c.as_os_str() == OsStr::new("memory")
@@ -109,41 +106,62 @@ pub(crate) fn update_summary(rara_home: &Path, session_id: &str, topics: &str) -
     Ok(())
 }
 
-/// Condenses the oldest session entries into a single archived line.
+/// Condenses the oldest session entries when the summary exceeds 5KB.
+/// Keeps the most recent ~10 sessions individually and collapses older ones.
 fn condense_old_entries(content: &str) -> String {
-    let mut lines: Vec<&str> = content.lines().collect();
-    let mut new_lines = Vec::new();
-    let mut in_old_sessions = false;
-    let mut old_start: Option<usize> = None;
-    let mut condensed = String::new();
+    let mut sections: Vec<&str> = content.split("\n## ").collect();
+    if sections.is_empty() {
+        return content.to_string();
+    }
 
-    for (i, line) in lines.iter().enumerate() {
-        if line.starts_with("## Session ") {
-            if in_old_sessions {
-                let first_id = lines[old_start.unwrap()]
-                    .strip_prefix("## Session ")
-                    .unwrap_or("?");
-                let last_id = lines[i - 1].strip_prefix("## Session ").unwrap_or("?");
-                condensed = format!(
-                    "## Sessions {first_id}..{last_id} (archived, {count} sessions)",
-                    count = 1
-                );
-                break;
-            }
-            if new_lines.len() > 10 {
-                in_old_sessions = true;
-                old_start = Some(i);
-                continue;
-            }
+    let header = sections.remove(0);
+    let mut new_sections = vec![header.to_string()];
+
+    let mut session_indices = vec![];
+    for (i, s) in sections.iter().enumerate() {
+        if s.starts_with("Session ") {
+            session_indices.push(i);
         }
-        new_lines.push(*line);
     }
 
-    if !condensed.is_empty() {
-        new_lines.push("");
-        new_lines.push(&condensed);
+    if session_indices.len() <= 10 {
+        for s in &sections {
+            new_sections.push(format!("## {s}"));
+        }
+        return new_sections.join("\n");
     }
-    new_lines.join("\n")
+
+    let keep_count = 10;
+    let split_point = session_indices[session_indices.len() - keep_count];
+    let old_count = session_indices.len() - keep_count;
+    let first_id = sections[session_indices[0]]
+        .strip_prefix("Session ")
+        .and_then(|s| s.split_whitespace().next())
+        .unwrap_or("?");
+    let last_idx = session_indices[old_count - 1];
+    let last_id = sections[last_idx]
+        .strip_prefix("Session ")
+        .and_then(|s| s.split_whitespace().next())
+        .unwrap_or("?");
+
+    for (i, s) in sections.iter().enumerate() {
+        if i >= split_point {
+            break;
+        }
+        if i < session_indices[0] {
+            new_sections.push(format!("## {s}"));
+        }
+    }
+
+    new_sections.push(format!(
+        "## Sessions {first_id}..{last_id} (archived, {old_count} sessions)"
+    ));
+
+    for s in &sections[split_point..] {
+        new_sections.push(format!("## {s}"));
+    }
+
+    new_sections.join("\n")
 }
 
 /// Reads the full summary index.
@@ -156,22 +174,25 @@ pub(crate) fn read_summary(rara_home: &Path) -> Result<String> {
     }
 }
 
-/// Searches memory files and optionally LanceDB for matching content.
-/// Returns merged results from both backends.
+/// Searches memory files for matching content.
+/// Uses `rg` when available; falls back to recursive file walk only when
+/// rg is not installed (not when it finds no results).
 pub(crate) fn search_memory(rara_home: &Path, query: &str) -> Result<Vec<String>> {
     let mut results = Vec::new();
-
-    // 1. Search memory files via rg (or native fallback)
     let dir = memory_dir(rara_home);
-    if dir.exists() {
-        let rg_result = std::process::Command::new("rg")
-            .arg("-l")
-            .arg("--no-heading")
-            .arg(query)
-            .arg(&dir)
-            .output();
-        match rg_result {
-            Ok(output) if output.status.success() => {
+    if !dir.exists() {
+        return Ok(results);
+    }
+
+    match std::process::Command::new("rg")
+        .arg("-l")
+        .arg("--no-heading")
+        .arg(query)
+        .arg(&dir)
+        .output()
+    {
+        Ok(output) => {
+            if output.status.success() {
                 let stdout = String::from_utf8_lossy(&output.stdout);
                 for line in stdout.lines() {
                     if let Ok(rel) = std::path::Path::new(line.trim()).strip_prefix(&dir) {
@@ -179,31 +200,32 @@ pub(crate) fn search_memory(rara_home: &Path, query: &str) -> Result<Vec<String>
                     }
                 }
             }
-            _ => {
-                // Native fallback: walk memory dir and grep each file
-                if let Ok(entries) = std::fs::read_dir(&dir) {
-                    for entry in entries.flatten() {
-                        let path = entry.path();
-                        if path.extension().map_or(false, |e| e == "md") {
-                            if let Ok(content) = fs::read_to_string(&path) {
-                                if content.contains(query) {
-                                    if let Ok(rel) = path.strip_prefix(&dir) {
-                                        results.push(format!("file: {}", rel.display()));
-                                    }
-                                }
-                            }
+        }
+        Err(_) => {
+            walk_memory_dir(&dir, &dir, query, &mut results);
+        }
+    }
+
+    Ok(results)
+}
+
+fn walk_memory_dir(base: &Path, dir: &Path, query: &str, results: &mut Vec<String>) {
+    if let Ok(entries) = std::fs::read_dir(dir) {
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.is_dir() {
+                walk_memory_dir(base, &path, query, results);
+            } else if path.extension().map_or(false, |e| e == "md") {
+                if let Ok(content) = fs::read_to_string(&path) {
+                    if content.contains(query) {
+                        if let Ok(rel) = path.strip_prefix(base) {
+                            results.push(format!("file: {}", rel.display()));
                         }
                     }
                 }
             }
         }
     }
-
-    // 2. LanceDB search (placeholder for Phase 3 wiring)
-    // let lancedb_results = memory_store.search(query)?;
-    // results.extend(lancedb_results);
-
-    Ok(results)
 }
 
 /// Creates a session memory file and records it in the summary index.
@@ -300,7 +322,6 @@ mod tests {
         let summary = read_summary(&home).expect("summary");
         assert!(summary.contains("boot-test"));
 
-        // Clean up
         let _ = fs::remove_file(&path);
     }
 }
