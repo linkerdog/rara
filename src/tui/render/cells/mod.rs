@@ -340,6 +340,7 @@ const RENDERABLE_SYSTEM_MESSAGE_PREFIXES: &[&str] = &[
     "skill loading failed:",
     "oauth failed:",
     "backend rebuild failed:",
+    "embedding ·",
     "open this url in a browser and enter the one-time code:",
     "starting codex browser login.",
     "error:",
