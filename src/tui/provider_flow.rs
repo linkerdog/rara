@@ -194,6 +194,3 @@ pub(super) fn should_open_codex_auth_guide(app: &TuiApp, oauth_manager: &OAuthMa
     app.selected_provider_family() == ProviderFamily::Codex
         && !codex_auth_is_available(app, oauth_manager)
 }
-
-#[allow(dead_code)]
-fn _keep_agent_type(_agent: &mut Option<Agent>) {}
