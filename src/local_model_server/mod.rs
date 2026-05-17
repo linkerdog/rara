@@ -21,14 +21,14 @@ use sha2::{Digest, Sha256};
 use crate::llm::{EmbeddingBackend, EmbeddingInputKind};
 use crate::local_backend::{LocalProgressReporter, default_local_model_cache_dir};
 
-include!("_types.rs");
-include!("_backend.rs");
-include!("_status.rs");
-include!("_server.rs");
-include!("_prepare.rs");
-include!("_model.rs");
-include!("_progress.rs");
-include!("_util.rs");
+include!("types.rs");
+include!("backend.rs");
+include!("status.rs");
+include!("server.rs");
+include!("prepare.rs");
+include!("model.rs");
+include!("progress.rs");
+include!("util.rs");
 
 pub(crate) fn sha256_hex(content: &[u8]) -> String {
     let digest = Sha256::digest(content);
