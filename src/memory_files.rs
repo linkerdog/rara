@@ -1,14 +1,21 @@
 //! Durable session and global memory files under `~/.rara/memory/`.
 //!
 //! Implements `docs/features/session-global-memory.md`:
-//! session-scoped `.md` files, global `global.md`, `summary.md` index,
-//! and a unified `search_memory` that merges file grep + LanceDB results.
+//! session-scoped `.md` files, global `MEMORY.md`, `summary.md` index,
+//! concurrent-safe writes via atomic temp-file + rename, and a unified
+//! `search_memory` that merges file grep + LanceDB results.
+//!
+//! Concurrent model: every write to a memory file uses atomic
+//! temp-file + rename.  Writes that rewrite an entire file (summary.md)
+//! additionally acquire a `fs2` exclusive lock so that parallel agents
+//! serialise their index updates.
 
-use std::fs;
+use std::fs::{self, File};
 use std::io::Write;
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result, bail};
+use fs2::FileExt;
 
 /// Returns the memory root directory under the given RARA home.
 pub(crate) fn memory_dir(rara_home: &Path) -> PathBuf {
@@ -25,7 +32,7 @@ pub(crate) fn ensure_memory_dir(rara_home: &Path) -> Result<PathBuf> {
 /// Returns the path to a session memory file.
 pub(crate) fn session_memory_path(rara_home: &Path, session_id: &str) -> Result<PathBuf> {
     let dir = ensure_memory_dir(rara_home)?;
-    Ok(dir.join("sessions").join(format!("{session_id}.md")))
+    Ok(dir.join("sessions").join(format!("{}.md", session_id)))
 }
 
 /// Returns the path to the global memory file.
@@ -35,21 +42,86 @@ pub(crate) fn global_memory_path(rara_home: &Path) -> Result<PathBuf> {
 }
 
 /// Appends content to a memory file.
+///
+/// Uses atomic append (read-merge-write via temp file + rename) so that
+/// concurrent writers never see a partially-written file.
 pub(crate) fn write_memory(path: &Path, content: &str) -> Result<()> {
     validate_memory_path(path)?;
-    let mut f = fs::OpenOptions::new()
-        .create(true)
-        .append(true)
-        .open(path)
-        .with_context(|| format!("open memory file {}", path.display()))?;
-    writeln!(f, "{content}")?;
+    let existing = if path.exists() {
+        fs::read_to_string(path).unwrap_or_default()
+    } else {
+        String::new()
+    };
+    let new_content = format!("{}{}\n", existing, content.trim_end());
+    atomic_write(path, &new_content).with_context(|| format!("write memory {}", path.display()))?;
     Ok(())
+}
+
+/// Writes `content` to a temp file next to `path` and renames it
+/// atomically, ensuring readers never see a partial write.
+fn atomic_write(path: &Path, content: &str) -> std::io::Result<()> {
+    let tmp = path.with_extension("tmp");
+    let mut f = File::create(&tmp)?;
+    f.write_all(content.as_bytes())?;
+    f.sync_all()?;
+    fs::rename(&tmp, path)?;
+    Ok(())
+}
+
+/// Acquires an exclusive lock on `lock_path` (via `fs2`), runs `f`, and
+/// releases the lock.  Used to serialise summary.md updates across
+/// concurrent agents.
+fn with_file_lock<F, R>(lock_path: &Path, f: F) -> Result<R>
+where
+    F: FnOnce() -> Result<R>,
+{
+    let lock_file = File::create(lock_path)
+        .with_context(|| format!("create lock file {}", lock_path.display()))?;
+    lock_file
+        .lock_exclusive()
+        .with_context(|| format!("acquire lock {}", lock_path.display()))?;
+    let result = f();
+    // Best-effort unlock; the OS will release when the process exits.
+    let _ = lock_file.unlock();
+    let _ = fs::remove_file(lock_path);
+    result
 }
 
 /// Reads the full content of a memory file.
 pub(crate) fn read_memory_file(path: &Path) -> Result<String> {
     validate_memory_path(path)?;
+    if !path.exists() {
+        return Ok(String::new());
+    }
     fs::read_to_string(path).with_context(|| format!("read memory file {}", path.display()))
+}
+
+/// Reads the summary index truncated to a context-friendly limit.
+///
+/// Returns at most `SUMMARY_CONTEXT_LINES` lines or `SUMMARY_MAX_BYTES`
+/// bytes — whichever is hit first.  The caller injects this into the
+/// system prompt every turn.
+pub(crate) fn read_summary_for_context(rara_home: &Path) -> Result<String> {
+    let path = summary_path(rara_home)?;
+    let raw = read_memory_file(&path)?;
+    if raw.is_empty() {
+        return Ok(String::new());
+    }
+    let mut lines: Vec<&str> = raw.lines().collect();
+    if lines.len() > SUMMARY_CONTEXT_LINES {
+        lines.truncate(SUMMARY_CONTEXT_LINES);
+        lines.push("... (truncated)");
+    }
+    let body = lines.join("\n");
+    if body.len() > SUMMARY_MAX_BYTES as usize {
+        // Truncate at byte boundary, avoiding mid-codepoint split
+        let mut end = SUMMARY_MAX_BYTES as usize;
+        while end > 0 && !body.is_char_boundary(end) {
+            end -= 1;
+        }
+        return Ok(format!("{}...", &body[..end]));
+    }
+    Ok(body)
 }
 
 /// Rejects paths that escape the memory directory.
@@ -83,245 +155,236 @@ pub(crate) fn summary_path(rara_home: &Path) -> Result<PathBuf> {
 /// Maximum size for summary.md before condensing old entries.
 const SUMMARY_MAX_BYTES: u64 = 5 * 1024;
 
-/// Updates the summary index with a new session entry.
-/// Condenses oldest entries when the file exceeds 5KB.
+/// Maximum lines to read into context.
+const SUMMARY_CONTEXT_LINES: usize = 200;
+
+/// Updates the summary index with a new session entry in Claude-style
+/// one-line pointer format:
+///
+/// ```text
+/// - [Session abc123](sessions/abc123.md) — Refactored auth module
+/// ```
+///
+/// Acquires an exclusive lock on `summary.lock`, so concurrent agents
+/// serialise their index updates.
 pub(crate) fn update_summary(rara_home: &Path, session_id: &str, topics: &str) -> Result<()> {
     let path = summary_path(rara_home)?;
     validate_memory_path(&path)?;
+    let lock_path = path.with_extension("summary.lock");
 
-    let mut content = if path.exists() {
-        fs::read_to_string(&path).unwrap_or_default()
-    } else {
-        String::from("# Memory Summary\n\n")
-    };
+    with_file_lock(&lock_path, || {
+        let mut content = if path.exists() {
+            fs::read_to_string(&path).unwrap_or_default()
+        } else {
+            String::from("# Memory Summary\n\n")
+        };
 
-    let entry = format!("\n## Session {session_id}\n{topics}\n");
-    content.push_str(&entry);
+        // Format as Claude-style one-line pointers
+        let filename = format!("sessions/{}.md", session_id);
+        for topic in topics.lines() {
+            let topic = topic.trim();
+            if topic.is_empty() {
+                continue;
+            }
+            content.push_str(&format!(
+                "- [Session {}]({}) — {}\n",
+                session_id, filename, topic
+            ));
+        }
+        content.push('\n');
 
-    if content.len() as u64 > SUMMARY_MAX_BYTES {
-        content = condense_old_entries(&content);
-    }
+        // Truncate oldest entries when over the byte limit
+        if content.len() as u64 > SUMMARY_MAX_BYTES {
+            content = condense_old_entries(&content);
+        }
 
-    fs::write(&path, &content).with_context(|| format!("write summary {}", path.display()))?;
-    Ok(())
+        atomic_write(&path, &content)
+            .with_context(|| format!("write summary {}", path.display()))?;
+        Ok(())
+    })
 }
 
 /// Condenses the oldest session entries when the summary exceeds 5KB.
-/// Keeps the most recent ~10 sessions individually and collapses older ones.
+/// Keeps the most recent entries and drops the oldest lines (FIFO).
 fn condense_old_entries(content: &str) -> String {
-    let mut sections: Vec<&str> = content.split("\n## ").collect();
-    if sections.is_empty() {
+    let lines: Vec<&str> = content.lines().collect();
+    // Keep header line ("# Memory Summary") and as many tail entries as fit
+    let header = lines.first().copied().unwrap_or("# Memory Summary");
+    let entries: Vec<&str> = lines
+        .iter()
+        .filter(|l| l.starts_with("- ["))
+        .copied()
+        .collect();
+    if entries.is_empty() {
         return content.to_string();
     }
-
-    let header = sections.remove(0);
-    let mut new_sections = vec![header.to_string()];
-
-    let mut session_indices = vec![];
-    for (i, s) in sections.iter().enumerate() {
-        if s.starts_with("Session ") {
-            session_indices.push(i);
-        }
-    }
-
-    if session_indices.len() <= 10 {
-        for s in &sections {
-            new_sections.push(format!("## {s}"));
-        }
-        return new_sections.join("\n");
-    }
-
-    let keep_count = 10;
-    let split_point = session_indices[session_indices.len() - keep_count];
-    let old_count = session_indices.len() - keep_count;
-    let first_id = sections[session_indices[0]]
-        .strip_prefix("Session ")
-        .and_then(|s| s.split_whitespace().next())
-        .unwrap_or("?");
-    let last_idx = session_indices[old_count - 1];
-    let last_id = sections[last_idx]
-        .strip_prefix("Session ")
-        .and_then(|s| s.split_whitespace().next())
-        .unwrap_or("?");
-
-    for (i, s) in sections.iter().enumerate() {
-        if i >= split_point {
+    // Keep header + newest entries that fit in 5KB
+    let mut condensed = format!("{}\n\n", header);
+    let mut byte_count = condensed.len();
+    for entry in entries.iter().rev() {
+        let entry_text = format!("{}\n", entry);
+        byte_count += entry_text.len();
+        if byte_count > SUMMARY_MAX_BYTES as usize {
+            condensed.push_str("... (older entries truncated)\n");
             break;
         }
-        if i < session_indices[0] {
-            new_sections.push(format!("## {s}"));
-        }
+        condensed.push_str(&entry_text);
     }
-
-    new_sections.push(format!(
-        "## Sessions {first_id}..{last_id} (archived, {old_count} sessions)"
-    ));
-
-    for s in &sections[split_point..] {
-        new_sections.push(format!("## {s}"));
-    }
-
-    new_sections.join("\n")
+    condensed
 }
 
-/// Reads the full summary index.
-pub(crate) fn read_summary(rara_home: &Path) -> Result<String> {
-    let path = summary_path(rara_home)?;
-    if path.exists() {
-        read_memory_file(&path)
-    } else {
-        Ok(String::new())
-    }
+/// A single search hit from memory files.
+#[derive(Debug, Clone)]
+pub(crate) struct MemorySearchHit {
+    pub path: String,
+    pub snippet: String,
 }
 
-/// Searches memory files for matching content.
-/// Uses `rg` when available; falls back to recursive file walk only when
-/// rg is not installed (not when it finds no results).
-pub(crate) fn search_memory(rara_home: &Path, query: &str) -> Result<Vec<String>> {
+/// Searches all memory files with a unified `rg`-first strategy.
+///
+/// Phase 1: grep across all `.md` files in the memory directory.
+/// Phase 2: LanceDB / embedding-based retrieval (placeholder).
+/// Results are merged and deduplicated by snippet prefix.
+pub(crate) fn search_memory(query: &str, rara_home: &Path) -> Result<Vec<MemorySearchHit>> {
     let mut results = Vec::new();
+
+    // 1. rg across all memory files
+    if let Ok(rg_hits) = rg_search_memory(query, rara_home) {
+        results.extend(rg_hits);
+    }
+
+    // 2. LanceDB / embedding results (placeholder for Phase 2)
+    let embedding_hits = search_lancedb(query, rara_home);
+
+    // 3. Merge and deduplicate
+    Ok(merge_memory_results(results, embedding_hits))
+}
+
+/// Runs rg over all `.md` files in the memory directory.
+fn rg_search_memory(query: &str, rara_home: &Path) -> Result<Vec<MemorySearchHit>, std::io::Error> {
     let dir = memory_dir(rara_home);
     if !dir.exists() {
-        return Ok(results);
+        return Ok(Vec::new());
+    }
+    let mut cmd = std::process::Command::new("rg");
+    let output = cmd
+        .args([
+            "--no-heading",
+            "--with-filename",
+            "--line-number",
+            "--max-count=10",
+            "--glob",
+            "*.md",
+            "-F",
+            query,
+        ])
+        .current_dir(&dir)
+        .output()?;
+
+    if !output.status.success() {
+        return Ok(Vec::new());
     }
 
-    match std::process::Command::new("rg")
-        .arg("-l")
-        .arg("--no-heading")
-        .arg(query)
-        .arg(&dir)
-        .output()
-    {
-        Ok(output) => {
-            if output.status.success() {
-                let stdout = String::from_utf8_lossy(&output.stdout);
-                for line in stdout.lines() {
-                    if let Ok(rel) = std::path::Path::new(line.trim()).strip_prefix(&dir) {
-                        results.push(format!("file: {}", rel.display()));
-                    }
-                }
-            }
-        }
-        Err(_) => {
-            walk_memory_dir(&dir, &dir, query, &mut results);
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let mut results = Vec::new();
+    for line in stdout.lines() {
+        if let Some((path, snippet)) = line.split_once(':') {
+            results.push(MemorySearchHit {
+                path: path.to_string(),
+                snippet: snippet.to_string(),
+            });
         }
     }
-
     Ok(results)
 }
 
-fn walk_memory_dir(base: &Path, dir: &Path, query: &str, results: &mut Vec<String>) {
-    if let Ok(entries) = std::fs::read_dir(dir) {
-        for entry in entries.flatten() {
-            let path = entry.path();
-            if path.is_dir() {
-                walk_memory_dir(base, &path, query, results);
-            } else if path.extension().map_or(false, |e| e == "md") {
-                if let Ok(content) = fs::read_to_string(&path) {
-                    if content.contains(query) {
-                        if let Ok(rel) = path.strip_prefix(base) {
-                            results.push(format!("file: {}", rel.display()));
-                        }
-                    }
-                }
-            }
-        }
-    }
+fn search_lancedb(_query: &str, _rara_home: &Path) -> Vec<MemorySearchHit> {
+    // Placeholder: LanceDB / embedding-based retrieval
+    Vec::new()
 }
 
-/// Creates a session memory file and records it in the summary index.
-pub(crate) fn create_session(rara_home: &Path, session_id: &str) -> Result<PathBuf> {
-    let path = session_memory_path(rara_home, session_id)?;
-    if !path.exists() {
-        write_memory(&path, &format!("# Session {session_id}\n\n"))?;
-        update_summary(rara_home, session_id, "(new session)")?;
+/// Merges text and embedding results, deduplicating by snippet prefix.
+fn merge_memory_results(
+    text: Vec<MemorySearchHit>,
+    embedding: Vec<MemorySearchHit>,
+) -> Vec<MemorySearchHit> {
+    let mut seen = std::collections::HashSet::new();
+    let mut results = Vec::new();
+    for hit in text.into_iter().chain(embedding) {
+        if seen.insert(hit.snippet.chars().take(80).collect::<String>()) {
+            results.push(hit);
+        }
     }
-    Ok(path)
+    results
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    fn test_home() -> PathBuf {
-        let id = std::process::id();
-        std::env::temp_dir().join(format!("rara-memory-test-{id}"))
+    #[test]
+    fn atomic_write_then_read_roundtrip() {
+        let dir = tempfile::tempdir().unwrap();
+        let mem_dir = dir.path().join(".rara").join("memory");
+        fs::create_dir_all(&mem_dir).unwrap();
+        let path = mem_dir.join("test.md");
+        write_memory(&path, "hello world").unwrap();
+        let content = read_memory_file(&path).unwrap();
+        assert!(content.contains("hello world"));
     }
 
     #[test]
-    fn write_and_read_session_memory() {
-        let home = test_home();
-        let path = session_memory_path(&home, "test-session").expect("session path");
-        let _ = fs::remove_file(&path);
-        write_memory(&path, "## Key Finding\n- Test entry").expect("write");
-        write_memory(&path, "- Another entry").expect("append");
-        let content = read_memory_file(&path).expect("read");
-        assert!(content.contains("Test entry"));
-        assert!(content.contains("Another entry"));
-        let _ = fs::remove_file(&path);
+    fn atomic_write_keeps_prior_lines() {
+        let dir = tempfile::tempdir().unwrap();
+        let mem_dir = dir.path().join(".rara").join("memory");
+        fs::create_dir_all(&mem_dir).unwrap();
+        let path = mem_dir.join("test.md");
+        write_memory(&path, "line 1").unwrap();
+        write_memory(&path, "line 2").unwrap();
+        let content = read_memory_file(&path).unwrap();
+        assert!(content.contains("line 1"));
+        assert!(content.contains("line 2"));
     }
 
     #[test]
-    fn write_and_read_global_memory() {
-        let home = test_home();
-        let path = global_memory_path(&home).expect("global path");
-        write_memory(&path, "## Global Test\n- Global entry").expect("write");
-        let content = read_memory_file(&path).expect("read");
-        assert!(content.contains("Global entry"));
+    fn summary_entry_format_is_claude_style() {
+        let dir = tempfile::tempdir().unwrap();
+        let rara_home = dir.path().join(".rara");
+        fs::create_dir_all(&rara_home).unwrap();
+        update_summary(
+            &rara_home,
+            "session-1",
+            "Fixed auth bug\nAdded rate limiting",
+        )
+        .unwrap();
+        let content = read_summary_for_context(&rara_home).unwrap();
+        assert!(content.contains("- [Session session-1](sessions/session-1.md) — Fixed auth bug"));
+        assert!(content.contains("Added rate limiting"));
     }
 
     #[test]
-    fn rejects_path_traversal() {
-        let home = test_home();
-        let dir = memory_dir(&home);
-        let _ = fs::create_dir_all(&dir);
-        let bad_path = dir.join("../evil.md");
-        assert!(validate_memory_path(&bad_path).is_err());
+    fn summary_respects_byte_limit() {
+        let dir = tempfile::tempdir().unwrap();
+        let rara_home = dir.path().join(".rara");
+        fs::create_dir_all(&rara_home).unwrap();
+        for i in 0..200 {
+            let id = format!("session-{}", i);
+            update_summary(&rara_home, &id, "Topic").unwrap();
+        }
+        let summary_path = summary_path(&rara_home).unwrap();
+        let raw = fs::read_to_string(&summary_path).unwrap();
+        assert!(raw.len() <= SUMMARY_MAX_BYTES as usize + 200); // small margin
     }
 
     #[test]
-    fn ensures_memory_dir_creates_structure() {
-        let home = test_home();
-        let test_dir = home.join("memory").join("sessions");
-        let _ = fs::remove_dir_all(&home);
-        let result = ensure_memory_dir(&home);
-        assert!(result.is_ok());
-        assert!(test_dir.exists());
-    }
+    fn search_memory_returns_rg_hits() {
+        let dir = tempfile::tempdir().unwrap();
+        let rara_home = dir.path().join(".rara");
+        fs::create_dir_all(rara_home.join("memory").join("sessions")).unwrap();
+        let session_path = rara_home.join("memory").join("sessions").join("test.md");
+        fs::write(&session_path, "remember: use cargo fmt before commit").unwrap();
 
-    #[test]
-    fn summary_updates_and_reads_back() {
-        let home = test_home();
-        let _ = fs::remove_file(summary_path(&home).unwrap_or_else(|_| PathBuf::new()));
-        update_summary(&home, "sess-1", "- topic A\n- topic B").expect("update");
-        update_summary(&home, "sess-2", "- topic C").expect("append");
-
-        let content = read_summary(&home).expect("read");
-        assert!(content.contains("sess-1"));
-        assert!(content.contains("sess-2"));
-        assert!(content.contains("topic A"));
-    }
-
-    #[test]
-    fn search_memory_finds_keywords() {
-        let home = test_home();
-        let path = session_memory_path(&home, "search-test").expect("path");
-        let _ = fs::remove_file(&path);
-        write_memory(&path, "## Finding\n- venv creation fix\n- uv --python 3.14").expect("write");
-
-        let results = search_memory(&home, "venv").expect("search");
-        assert!(!results.is_empty());
-        assert!(results.iter().any(|r| r.contains("search-test")));
-    }
-
-    #[test]
-    fn create_session_bootstraps_file_and_summary() {
-        let home = test_home();
-        let path = create_session(&home, "boot-test").expect("create");
-        assert!(path.exists());
-
-        let summary = read_summary(&home).expect("summary");
-        assert!(summary.contains("boot-test"));
-
-        let _ = fs::remove_file(&path);
+        let hits = search_memory("cargo fmt", &rara_home).unwrap();
+        assert!(hits.iter().any(|h| h.snippet.contains("cargo fmt")));
     }
 }

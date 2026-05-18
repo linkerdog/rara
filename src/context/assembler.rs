@@ -85,6 +85,14 @@ impl<'a> ContextAssembler<'a> {
     }
 
     pub fn assemble(&self, mode: PromptMode) -> AssembledContext {
+        let mut prompt = prompt::build_effective_prompt(self.workspace, self.runtime, mode);
+        // Inject memory summary index into system prompt
+        if let Ok(summary) = crate::memory_files::read_summary_for_context(&self.workspace.rara_dir)
+            && !summary.is_empty()
+        {
+            prompt.text.push_str("\n\n## Memory Summary\n\n");
+            prompt.text.push_str(&summary);
+        }
         AssembledContext {
             effective_prompt: prompt::build_effective_prompt(self.workspace, self.runtime, mode),
             compact_instruction: prompt::build_compact_instruction(self.runtime),

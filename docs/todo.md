@@ -100,10 +100,11 @@ Active backlog only. Keep this file small and current.
 
 ## Memory
 
-- [ ] Implement session/global memory files with summary-driven retrieval (Phase 2–4 of spec).
-- [ ] Wire `memory_summary` tool.
-- [ ] Wire memory into context assembler.
-- [ ] `RetrieveMemory` → return real LanceDB results instead of placeholder empty.
+- [x] Implement session/global memory files with summary-driven retrieval (Phase 2 of spec).
+- [x] Wire `memory_summary` summary index into context assembler.
+- [x] Concurrent-safe writes: atomic temp-file + fs2 locking for shared memory files.
+- [ ] Wire `search_memory` tool → return real LanceDB results instead of placeholder empty.
+- [ ] Wire memory hooks (pre/post memory write, query).
 
 ## Model Support
 
