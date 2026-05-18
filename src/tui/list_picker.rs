@@ -438,6 +438,15 @@ pub fn list_picker_key_event(kind: ListPickerKind, code: KeyCode) -> AppEvent {
             AppEvent::SetListPickerSelection(8)
         }
         KeyCode::Enter => AppEvent::ApplyOverlaySelection,
+        KeyCode::Tab if kind == ListPickerKind::Resume => {
+            AppEvent::CycleResumeFilterMode
+        }
+        KeyCode::BackTab if kind == ListPickerKind::Resume => {
+            AppEvent::CycleResumeSortKey
+        }
+        KeyCode::Left | KeyCode::Right if kind == ListPickerKind::Resume => {
+            AppEvent::CycleResumeSortKey
+        }
         _ => AppEvent::Noop,
     }
 }

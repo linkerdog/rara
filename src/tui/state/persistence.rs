@@ -19,8 +19,20 @@ impl TuiApp {
             ThreadStore::list_recent_threads_for_db(state_db, 20).unwrap_or_default();
     }
 
-    pub(super) fn refresh_recent_threads_for_resume_picker(&mut self) {
+    pub(crate) fn refresh_recent_threads_for_resume_picker(&mut self) {
         self.refresh_recent_threads();
+        // Apply filter
+        if self.resume_filter_mode == ResumeFilterMode::Cwd {
+            let current_cwd = std::env::current_dir()
+                .map(|p| p.to_string_lossy().to_string())
+                .unwrap_or_default();
+            self.recent_threads.retain(|t| t.metadata.cwd == current_cwd);
+        }
+        // Apply sort
+        self.recent_threads.sort_by(|a, b| match self.resume_sort_key {
+            ResumeSortKey::Updated => b.metadata.updated_at.cmp(&a.metadata.updated_at),
+            ResumeSortKey::Created => b.metadata.created_at.cmp(&a.metadata.created_at),
+        });
         self.resume_picker_idx = if self.recent_threads.is_empty() {
             0
         } else {

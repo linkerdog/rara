@@ -646,6 +646,18 @@ pub struct ActiveLiveSections {
     pub running_actions: Vec<String>,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ResumeFilterMode {
+    Cwd,
+    All,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ResumeSortKey {
+    Updated,
+    Created,
+}
+
 pub struct TuiApp {
     pub bottom_pane: BottomPaneModel,
     pub input_history: Vec<String>,
@@ -698,6 +710,8 @@ pub struct TuiApp {
     pub recent_commands: Vec<String>,
     pub recent_threads: Vec<ThreadSummary>,
     pub resume_picker_idx: usize,
+    pub resume_filter_mode: ResumeFilterMode,
+    pub resume_sort_key: ResumeSortKey,
     pub committed_render_generation: u64,
     pub committed_render_cache: RefCell<CommittedTranscriptRenderCache>,
     pub transcript_scroll: usize,
