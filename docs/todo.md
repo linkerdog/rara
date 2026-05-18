@@ -50,7 +50,7 @@ Active backlog only. Keep this file small and current.
 - [ ] Sidebar status update: `app.local_model_server` after bootstrap
 
 ### Specs to Write
-- [ ] Hooks/plugin lifecycle spec
+- [x] Hooks/plugin lifecycle spec — `docs/features/file-hooks.md`
 - [ ] Subagent context optimization spec
 
 ## Runtime Control Plane / ACP / Wire
