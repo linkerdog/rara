@@ -8,7 +8,9 @@ use self::helpers::{
     is_oauth_prompt_message, planning_action_label, planning_note_lines, planning_result_note,
     scrub_internal_control_tokens, subagent_request_input, tool_action_label,
 };
-use super::super::state::{RuntimePhase, TuiApp, TuiEvent, contains_structured_planning_output};
+use super::super::state::{
+    RuntimePhase, SystemMessageKind, TuiApp, TuiEvent, contains_structured_planning_output,
+};
 use crate::agent::AgentEvent;
 use crate::memory_notice::{count_label, memory_notice};
 use crate::runtime_control::MemoryEvent;
@@ -167,7 +169,7 @@ pub(super) fn apply_tui_event(app: &mut TuiApp, event: TuiEvent) {
                     app.set_runtime_phase(RuntimePhase::OAuthPollingDeviceCode, Some(detail));
                 } else if is_oauth_prompt_message(&message) {
                     let is_device_code = message.to_ascii_lowercase().contains("one-time code");
-                    app.push_entry("System", message);
+                    app.push_system(message, SystemMessageKind::OAuthPrompt);
                     if is_device_code {
                         app.set_runtime_phase(
                             RuntimePhase::OAuthDeviceCodePrompt,
@@ -200,7 +202,16 @@ pub(super) fn apply_tui_event(app: &mut TuiApp, event: TuiEvent) {
                     app.set_runtime_phase(RuntimePhase::RebuildingBackend, Some(detail));
                 }
             }
-            app.push_entry(role, message)
+            if role == "System" {
+                let kind = if message.starts_with("Memory ·") {
+                    SystemMessageKind::Memory
+                } else {
+                    SystemMessageKind::Other
+                };
+                app.push_system(message, kind)
+            } else {
+                app.push_entry(role, message)
+            }
         }
         TuiEvent::Terminal(TerminalEvent::OutputDelta(event)) => {
             let name = match event.target {

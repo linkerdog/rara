@@ -3,7 +3,7 @@ use std::sync::Arc;
 
 use super::super::state::{
     GoalStatus, HelpTab, ListPickerKind, LocalCommand, LocalCommandKind, Overlay, PermissionMode,
-    PickerIntent, RalphGoal, RuntimePhase, StatusTab, TuiApp,
+    PickerIntent, RalphGoal, RuntimePhase, StatusTab, SystemMessageKind, TuiApp,
 };
 use super::tasks::{start_compact_task, start_rebuild_task, start_review_task};
 use crate::agent::{Agent, AgentEvent, AgentExecutionMode, BashApprovalMode};
@@ -401,7 +401,7 @@ fn handle_mcp_command(app: &mut TuiApp) {
         Ok(registry) => {
             let snapshot = McpStatusSnapshot::from_registry(&registry);
             publish_mcp_status_event(app, &snapshot);
-            app.push_entry("System", format_mcp_status(&snapshot));
+            app.push_system(format_mcp_status(&snapshot), SystemMessageKind::MCPStatus);
             app.bottom_pane.notice = Some("MCP status updated.".into());
             if let Some(cache) = app.mcp_tool_cache.as_ref() {
                 spawn_mcp_tool_cache_population(cache, &registry);
@@ -409,9 +409,9 @@ fn handle_mcp_command(app: &mut TuiApp) {
         }
         Err(err) => {
             publish_mcp_status_load_failed_event(app, &format!("{err:#}"));
-            app.push_entry(
-                "System",
+            app.push_system(
                 format!("MCP Servers\n\nFailed to load MCP configuration:\n{err:#}"),
+                SystemMessageKind::MCPStatus,
             );
             app.bottom_pane.notice = Some("MCP status failed.".into());
         }

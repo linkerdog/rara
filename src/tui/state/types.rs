@@ -487,7 +487,6 @@ pub enum SystemMessageKind {
     SkillLoading,
     BackendRebuild,
     BackendBootstrap,
-    ToolOutputCapture,
     MCPStatus,
     OAuthPrompt,
     Other,
