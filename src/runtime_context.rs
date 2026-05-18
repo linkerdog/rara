@@ -189,6 +189,17 @@ pub(crate) async fn initialize_rara_context_with_local_embedding_bootstrap(
         mcp_tool_cache.clone(),
     ));
 
+    // Discover file-based hooks and inject into prompt config
+    let mut file_hooks = crate::hooks::HookRegistry::new();
+    if let Ok(cwd) = std::env::current_dir() {
+        file_hooks.discover_repo_hooks(&cwd);
+    }
+    prompt_config.hook_prompt_text = file_hooks
+        .hooks
+        .values()
+        .map(|h| format!("## {}\n\n{}", h.phase.as_str(), h.body))
+        .collect();
+
     let tool_manager = create_full_tool_manager(
         backend.clone(),
         embedding_backend.clone(),

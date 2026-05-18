@@ -169,6 +169,7 @@ pub struct PromptRuntimeConfig {
     pub compact_prompt: Option<String>,
     pub protocol_prompt_sources: Vec<PromptSource>,
     pub available_skills: Vec<PromptSkillSummary>,
+    pub hook_prompt_text: Vec<String>,
     pub warnings: Vec<String>,
 }
 
@@ -197,8 +198,13 @@ impl PromptRuntimeConfig {
             compact_prompt,
             protocol_prompt_sources: Vec::new(),
             available_skills: Vec::new(),
+            hook_prompt_text: Vec::new(),
             warnings,
         }
+    }
+
+    pub fn hooks_prompt(&self) -> String {
+        self.hook_prompt_text.join("\n\n")
     }
 
     pub fn as_sources(&self) -> Vec<PromptSource> {
