@@ -47,6 +47,13 @@ pub(crate) fn global_memory_path(rara_home: &Path) -> Result<PathBuf> {
 /// concurrent writers never see a partially-written file.
 pub(crate) fn write_memory(path: &Path, content: &str) -> Result<()> {
     validate_memory_path(path)?;
+    // Per-file lock to serialise concurrent writes to the same file
+    let lock_path = path.with_extension("lock");
+    let lock_file = File::create(&lock_path)
+        .with_context(|| format!("create lock file {}", lock_path.display()))?;
+    lock_file
+        .lock_exclusive()
+        .with_context(|| format!("acquire lock {}", lock_path.display()))?;
     let existing = if path.exists() {
         fs::read_to_string(path).unwrap_or_default()
     } else {
@@ -54,6 +61,8 @@ pub(crate) fn write_memory(path: &Path, content: &str) -> Result<()> {
     };
     let new_content = format!("{}{}\n", existing, content.trim_end());
     atomic_write(path, &new_content).with_context(|| format!("write memory {}", path.display()))?;
+    let _ = lock_file.unlock();
+    let _ = fs::remove_file(&lock_path);
     Ok(())
 }
 
@@ -208,28 +217,33 @@ pub(crate) fn update_summary(rara_home: &Path, session_id: &str, topics: &str) -
 /// Keeps the most recent entries and drops the oldest lines (FIFO).
 fn condense_old_entries(content: &str) -> String {
     let lines: Vec<&str> = content.lines().collect();
-    // Keep header line ("# Memory Summary") and as many tail entries as fit
     let header = lines.first().copied().unwrap_or("# Memory Summary");
     let entries: Vec<&str> = lines
         .iter()
-        .filter(|l| l.starts_with("- ["))
+        .filter(|l| l.starts_with("- [") && l.contains("](") && l.contains(") — "))
         .copied()
         .collect();
     if entries.is_empty() {
         return content.to_string();
     }
-    // Keep header + newest entries that fit in 5KB
-    let mut condensed = format!("{}\n\n", header);
-    let mut byte_count = condensed.len();
+    // Walk newest-to-oldest, collect entries that fit in 5KB, then
+    // reverse for correct chronological order.
+    let mut kept: Vec<String> = Vec::new();
+    let mut byte_count = header.len() + 2; // header + "\n\n"
     for entry in entries.iter().rev() {
         let entry_text = format!("{}\n", entry);
         byte_count += entry_text.len();
         if byte_count > SUMMARY_MAX_BYTES as usize {
-            condensed.push_str("... (older entries truncated)\n");
             break;
         }
-        condensed.push_str(&entry_text);
+        kept.push(entry_text);
     }
+    kept.reverse();
+    let mut condensed = format!("{}\n\n", header);
+    if kept.len() < entries.len() {
+        condensed.push_str("... (older entries truncated)\n");
+    }
+    condensed.push_str(&kept.concat());
     condensed
 }
 
@@ -376,8 +390,19 @@ mod tests {
         assert!(raw.len() <= SUMMARY_MAX_BYTES as usize + 200); // small margin
     }
 
+    fn rg_available() -> bool {
+        std::process::Command::new("rg")
+            .arg("--version")
+            .output()
+            .map(|o| o.status.success())
+            .unwrap_or(false)
+    }
+
     #[test]
     fn search_memory_returns_rg_hits() {
+        if !rg_available() {
+            return; // skip when rg is not installed
+        }
         let dir = tempfile::tempdir().unwrap();
         let rara_home = dir.path().join(".rara");
         fs::create_dir_all(rara_home.join("memory").join("sessions")).unwrap();

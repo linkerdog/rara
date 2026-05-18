@@ -101,7 +101,7 @@ impl<'a> ContextAssembler<'a> {
             prompt.text.push_str(&context_sections.join("\n\n"));
         }
         AssembledContext {
-            effective_prompt: prompt::build_effective_prompt(self.workspace, self.runtime, mode),
+            effective_prompt: prompt,
             compact_instruction: prompt::build_compact_instruction(self.runtime),
         }
     }
