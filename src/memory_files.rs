@@ -4,6 +4,6 @@
 
 pub(crate) use rara_memory::files::{
     MemorySearchHit, ensure_memory_dir, global_memory_path, memory_dir, read_memory_file,
-    read_summary_for_context, search_memory, session_memory_path, summary_path, update_summary,
-    write_memory,
+    read_memory_section, read_summary_for_context, search_memory, session_memory_path,
+    summary_path, update_summary, write_memory,
 };

@@ -167,6 +167,50 @@ pub const SUMMARY_MAX_BYTES: u64 = 5 * 1024;
 /// Maximum lines to read into context.
 pub const SUMMARY_CONTEXT_LINES: usize = 200;
 
+/// RARA-adapted memory read-path template (inspired by Codex `read_path.md`).
+/// Prepended to summary content when the summary is non-empty.
+pub const MEMORY_READ_PATH_HEADER: &str = "\
+## Memory
+
+You have access to a memory folder with guidance from prior runs. It can
+save time and help you stay consistent. Use it whenever it is likely to help.
+
+**Decision boundary**: Skip memory only when the request is clearly
+self-contained (current time, trivial translation, one-line shell command).
+Use memory by default when the query mentions workspace files/paths in the
+summary below, asks for prior context, or is ambiguous and could depend on
+earlier project decisions. If unsure, do a quick memory pass.
+
+**Memory layout**:
+- `summary.md` (provided below; do NOT open again) — index of session pointers
+- `global.md` — global project preferences and conventions
+- `sessions/<id>.md` — per-session summaries of key decisions and outcomes
+
+**Quick memory pass**: Skim the summary below for task-relevant keywords, then
+use the `search_memory` tool to find specific details. Cite memory sources
+with format `<file>:<line_start>-<line_end>|note=[how memory was used]`.
+
+**Updating memory**: You can write to `memory.md` or create session files ONLY
+when explicitly asked. Write additions under `~/.rara/memory/sessions/` or
+append to `global.md`.
+
+========= MEMORY SUMMARY BEGINS =========";
+
+pub const MEMORY_READ_PATH_FOOTER: &str = "========= MEMORY SUMMARY ENDS =========";
+
+/// Returns the full memory section for the system prompt, including
+/// read-path instructions and truncated summary content.
+pub fn read_memory_section(rara_home: &Path) -> String {
+    let summary = match read_summary_for_context(rara_home) {
+        Ok(s) if !s.is_empty() => s,
+        _ => return String::new(),
+    };
+    format!(
+        "{}\n{}\n{}",
+        MEMORY_READ_PATH_HEADER, summary, MEMORY_READ_PATH_FOOTER
+    )
+}
+
 /// Updates the summary index with a new session entry in Claude-style
 /// one-line pointer format:
 ///
