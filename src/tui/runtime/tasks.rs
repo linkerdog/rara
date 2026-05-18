@@ -20,7 +20,7 @@ use tokio::sync::mpsc;
 
 use super::super::state::{
     GoalStatus, ListPickerKind, OAuthLoginMode, PermissionMode, RalphGoal, RunningTask,
-    RuntimePhase, TaskCompletion, TaskKind, TuiApp, TuiEvent,
+    RuntimePhase, SystemMessageKind, TaskCompletion, TaskKind, TuiApp, TuiEvent,
 };
 use super::events::{
     apply_tui_event, convert_agent_event, format_error_chain, format_memory_event_notice,
@@ -81,6 +81,16 @@ Summarize the completed work, remaining blockers, and the next safest step for t
         goal_budget_label(goal),
         goal_remaining_label(goal)
     )
+}
+
+fn classify_system_warning(warning: &str, default_kind: SystemMessageKind) -> SystemMessageKind {
+    if warning.starts_with("embedding ·") || warning.starts_with("local embedding backend") {
+        SystemMessageKind::EmbeddingStatus
+    } else if warning.starts_with("Skill loading") {
+        SystemMessageKind::SkillLoading
+    } else {
+        default_kind
+    }
 }
 
 /// Forward `event` to the broadcast bus when there are active subscribers.
@@ -871,7 +881,7 @@ pub(crate) async fn finish_running_task_if_ready(
                             sanitize_url_for_display(base_url)
                         ));
                     }
-                    app.push_entry("System", message.clone());
+                    app.push_system(message.clone(), SystemMessageKind::Other);
                     app.push_notice(message);
                     try_start_queued_follow_up(app, agent_slot);
                 }
@@ -919,7 +929,7 @@ pub(crate) async fn finish_running_task_if_ready(
                     app.release_pending_follow_ups();
                     app.set_runtime_phase(RuntimePhase::Failed, Some("compact failed".into()));
                     let message = format!("Compaction failed:\n{}", format_error_chain(&err));
-                    app.push_entry("System", message.clone());
+                    app.push_system(message.clone(), SystemMessageKind::Other);
                     app.push_notice(message);
                 }
             }
@@ -954,6 +964,7 @@ pub(crate) async fn finish_running_task_if_ready(
                 app.memory_handler = Some(rebuilt.memory_handler);
                 app.local_model_server = rebuilt.local_model_server;
                 app.config_manager.save(&app.config)?;
+                let is_bootstrap = app.setup_status.is_none();
                 app.setup_status = Some(format!(
                     "Applied {} / {}",
                     app.config.provider,
@@ -966,10 +977,23 @@ pub(crate) async fn finish_running_task_if_ready(
                 }
                 app.close_overlay();
                 app.set_runtime_phase(RuntimePhase::BackendReady, Some("backend ready".into()));
-                app.push_entry("Runtime", app.setup_status.clone().unwrap_or_default());
+                app.push_system(
+                    app.setup_status.clone().unwrap_or_default(),
+                    if is_bootstrap {
+                        SystemMessageKind::BackendBootstrap
+                    } else {
+                        SystemMessageKind::BackendRebuild
+                    },
+                );
                 let warning_count = rebuilt.warnings.len();
+                let default_kind = if is_bootstrap {
+                    SystemMessageKind::BackendBootstrap
+                } else {
+                    SystemMessageKind::BackendRebuild
+                };
                 for warning in rebuilt.warnings {
-                    app.push_entry("System", warning);
+                    let kind = classify_system_warning(&warning, default_kind);
+                    app.push_system(warning, kind);
                 }
                 if warning_count > 0 {
                     let notice = if warning_count == 1 {
@@ -1020,7 +1044,7 @@ pub(crate) async fn finish_running_task_if_ready(
             Err(err) => {
                 app.set_runtime_phase(RuntimePhase::Failed, Some("oauth failed".into()));
                 let message = format!("OAuth failed:\n{}", format_error_chain(&err));
-                app.push_entry("System", message.clone());
+                app.push_system(message.clone(), SystemMessageKind::OAuth);
                 app.push_notice(message);
             }
         },
@@ -1058,7 +1082,7 @@ pub(crate) async fn finish_running_task_if_ready(
             Err(err) => {
                 app.set_runtime_phase(RuntimePhase::Failed, Some("google oauth failed".into()));
                 let message = format!("Google OAuth failed:\n{}", format_error_chain(&err));
-                app.push_entry("System", message.clone());
+                app.push_system(message.clone(), SystemMessageKind::OAuth);
                 app.push_notice(message);
             }
         },
@@ -1078,7 +1102,7 @@ pub(crate) async fn finish_running_task_if_ready(
                     "Failed to load DeepSeek models. Showing fallback list.\n{}",
                     format_error_chain(&err)
                 );
-                app.push_entry("System", message.clone());
+                app.push_system(message.clone(), SystemMessageKind::Other);
                 app.push_notice(message);
                 app.set_runtime_phase(RuntimePhase::Idle, Some("model list fallback".into()));
                 app.open_overlay(super::super::state::Overlay::ListPicker(
@@ -1102,7 +1126,7 @@ pub(crate) async fn finish_running_task_if_ready(
                     "Failed to load Kimi models. Showing fallback list.\n{}",
                     format_error_chain(&err)
                 );
-                app.push_entry("System", message.clone());
+                app.push_system(message.clone(), SystemMessageKind::Other);
                 app.push_notice(message);
                 app.set_runtime_phase(RuntimePhase::Idle, Some("model list fallback".into()));
                 app.open_overlay(super::super::state::Overlay::ListPicker(
