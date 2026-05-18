@@ -46,6 +46,7 @@ pub enum AppEvent {
     ApplyOverlaySelection,
     CycleResumeFilter,
     CycleResumeSort,
+    ClearResumeSearch,
     CancelRunningTask,
     ClearComposer,
     ToggleSidebar,

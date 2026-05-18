@@ -8,13 +8,15 @@ use crossterm::event::KeyCode;
 use ratatui::{
     layout::{Alignment, Constraint, Direction, Layout, Rect},
     style::{Modifier, Style},
-    widgets::{Block, Borders, List, ListItem, Paragraph},
+    text::{Line, Span},
+    widgets::{Block, Borders, List, ListItem, ListState, Paragraph},
 };
 
 use super::app_event::AppEvent;
 use super::custom_terminal::Frame;
 use super::state::{ListPickerKind, TuiApp};
 use super::theme::*;
+use crate::thread_store::ThreadSummary;
 
 impl ListPickerKind {
     /// Return the 0-based index of the highlighted item.
@@ -296,27 +298,13 @@ impl ListPickerKind {
         if app.recent_threads.is_empty() {
             return vec![ListItem::new("No threads available.")];
         }
+        let now = current_unix_time_secs();
         app.recent_threads
             .iter()
             .enumerate()
             .map(|(idx, summary)| {
-                let preview = if summary.preview.is_empty() {
-                    "(no preview)"
-                } else {
-                    summary.preview.as_str()
-                };
-                ListItem::new(vec![
-                    ratatui::text::Line::from(format!(
-                        "[{}] {} / {}  branch={}",
-                        idx + 1,
-                        summary.metadata.session_id,
-                        summary.metadata.provider,
-                        summary.metadata.branch,
-                    )),
-                    ratatui::text::Line::from(format!("     {}", preview)),
-                    ratatui::text::Line::from(""),
-                ])
-                .style(Self::selected_style(idx, selected))
+                ListItem::new(render_resume_summary_lines(idx, summary, now))
+                    .style(Self::selected_style(idx, selected))
             })
             .collect()
     }
@@ -370,11 +358,118 @@ impl ListPickerKind {
     }
 }
 
+fn render_resume_summary_lines(
+    idx: usize,
+    summary: &ThreadSummary,
+    now: u64,
+) -> Vec<Line<'static>> {
+    let preview = normalized_resume_preview(summary);
+    let metadata = &summary.metadata;
+    let workspace = resume_workspace_label(&metadata.cwd);
+    let updated = format_resume_age(metadata.updated_at, now);
+    let counts = format!(
+        "hist={} trans={} compact={}",
+        metadata.history_len, metadata.transcript_len, summary.compaction.compaction_count
+    );
+    let compaction = resume_compaction_detail(summary);
+
+    let title = Line::from(vec![
+        Span::raw(format!("[{}] ", idx + 1)),
+        Span::styled(preview, Style::default().add_modifier(Modifier::BOLD)),
+    ]);
+    let metadata = Line::from(format!(
+        "     {updated}  {}/{}  mode={} approval={}  cwd={} branch={} id={}  {counts}",
+        metadata.provider,
+        metadata.model,
+        metadata.agent_mode,
+        metadata.bash_approval,
+        workspace,
+        metadata.branch,
+        metadata.session_id
+    ));
+
+    let mut lines = vec![title, metadata];
+    if let Some(compaction) = compaction {
+        lines.push(Line::from(format!("     {compaction}")));
+    }
+    lines
+}
+
+fn normalized_resume_preview(summary: &ThreadSummary) -> String {
+    let preview = summary.preview.replace('\n', " ");
+    let preview = preview.trim();
+    if preview.is_empty() {
+        "(no transcript preview)".to_string()
+    } else {
+        preview.to_string()
+    }
+}
+
+fn resume_workspace_label(cwd: &str) -> String {
+    std::path::Path::new(cwd)
+        .file_name()
+        .and_then(|name| name.to_str())
+        .filter(|name| !name.is_empty())
+        .map(str::to_string)
+        .unwrap_or_else(|| cwd.to_string())
+}
+
+fn current_unix_time_secs() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|duration| duration.as_secs())
+        .unwrap_or(0)
+}
+
+fn format_resume_age(updated_at: i64, now: u64) -> String {
+    if updated_at <= 0 {
+        return "updated unknown".to_string();
+    }
+    let age = now.saturating_sub(updated_at as u64);
+    let label = if age < 60 {
+        "just now".to_string()
+    } else if age < 3600 {
+        format!("{}m ago", age / 60)
+    } else if age < 86400 {
+        format!("{}h ago", age / 3600)
+    } else {
+        format!("{}d ago", age / 86400)
+    };
+    format!("updated {label}")
+}
+
+fn resume_compaction_detail(summary: &ThreadSummary) -> Option<String> {
+    let compaction = &summary.compaction;
+    if compaction.compaction_count == 0 {
+        return None;
+    }
+    let mut parts = Vec::new();
+    if let Some(version) = compaction.boundary_version {
+        parts.push(format!("boundary=v{version}"));
+    }
+    if let Some(count) = compaction.recent_file_count {
+        parts.push(format!("recent_files={count}"));
+    }
+    if let (Some(before), Some(after)) = (compaction.before_tokens, compaction.after_tokens) {
+        parts.push(format!("tokens={before}->{after}"));
+    }
+    if parts.is_empty() {
+        None
+    } else {
+        Some(format!("compact {}", parts.join(" ")))
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Unified render — one function for all ListPicker variants
 // ---------------------------------------------------------------------------
 
 pub fn render_list_picker(f: &mut Frame, app: &TuiApp, kind: ListPickerKind, area: Rect) {
+    if kind == ListPickerKind::Resume {
+        render_resume_picker(f, app, area);
+        return;
+    }
+
     let items = kind.render_items(app);
 
     let chunks = Layout::default()
@@ -401,11 +496,89 @@ pub fn render_list_picker(f: &mut Frame, app: &TuiApp, kind: ListPickerKind, are
     );
 }
 
+fn render_resume_picker(f: &mut Frame, app: &TuiApp, area: Rect) {
+    let items = ListPickerKind::Resume.render_items(app);
+    let chunks = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([
+            Constraint::Length(4),
+            Constraint::Min(8),
+            Constraint::Length(1),
+        ])
+        .split(area);
+
+    let query = if app.resume_search_query.is_empty() {
+        "type to filter".to_string()
+    } else {
+        app.resume_search_query.clone()
+    };
+    let filter_status = if app.resume_filter_cwd {
+        "filter=[cwd] all"
+    } else {
+        "filter=cwd [all]"
+    };
+    let sort_status = if app.resume_sort_by_created {
+        "sort=updated [created]"
+    } else {
+        "sort=[updated] created"
+    };
+    let total = app.recent_threads.len();
+    let current = if total == 0 {
+        0
+    } else {
+        app.resume_picker_idx + 1
+    };
+    let search_line = Line::from(vec![
+        Span::styled("Search: ", Style::default().add_modifier(Modifier::BOLD)),
+        Span::raw(query),
+        Span::raw(format!("  showing {current}/{total}")),
+    ]);
+    let status_line = Line::from(format!(
+        "{filter_status}  {sort_status}  tab cwd/all  left/right sort"
+    ));
+
+    f.render_widget(
+        Paragraph::new(vec![search_line, status_line]).block(
+            Block::default()
+                .borders(Borders::ALL)
+                .title(ListPickerKind::Resume.title()),
+        ),
+        chunks[0],
+    );
+
+    let mut state = ListState::default();
+    if total > 0 {
+        state.select(Some(app.resume_picker_idx));
+    }
+    f.render_stateful_widget(
+        List::new(items)
+            .highlight_style(Style::default().fg(TEXT_ACCENT))
+            .highlight_symbol("› ")
+            .block(Block::default().borders(Borders::LEFT | Borders::RIGHT)),
+        chunks[1],
+        &mut state,
+    );
+
+    let footer = if app.resume_search_query.is_empty() {
+        "type search  tab cwd/all  left/right sort  up/down move  enter resume  esc close"
+    } else {
+        "type search  backspace edit  esc clear search  enter resume"
+    };
+    f.render_widget(
+        Paragraph::new(footer).alignment(Alignment::Center),
+        chunks[2],
+    );
+}
+
 // ---------------------------------------------------------------------------
 // Key handling — shared for all ListPicker variants
 // ---------------------------------------------------------------------------
 
 pub fn list_picker_key_event(kind: ListPickerKind, code: KeyCode) -> AppEvent {
+    if kind == ListPickerKind::Resume {
+        return resume_picker_key_event(code);
+    }
+
     match code {
         KeyCode::Esc => AppEvent::CloseOverlay,
         KeyCode::Up | KeyCode::Char('k') => AppEvent::MoveListPickerSelection(-1),
@@ -437,13 +610,97 @@ pub fn list_picker_key_event(kind: ListPickerKind, code: KeyCode) -> AppEvent {
         KeyCode::Char('9') if kind != ListPickerKind::UnifiedModel => {
             AppEvent::SetListPickerSelection(8)
         }
-        KeyCode::Tab if kind == ListPickerKind::Resume => AppEvent::CycleResumeFilter,
-        KeyCode::BackTab if kind == ListPickerKind::Resume => AppEvent::CycleResumeSort,
-        KeyCode::Left | KeyCode::Right if kind == ListPickerKind::Resume => {
-            AppEvent::CycleResumeSort
-        }
-
         KeyCode::Enter => AppEvent::ApplyOverlaySelection,
         _ => AppEvent::Noop,
+    }
+}
+
+fn resume_picker_key_event(code: KeyCode) -> AppEvent {
+    match code {
+        KeyCode::Esc => AppEvent::ClearResumeSearch,
+        KeyCode::Up => AppEvent::MoveListPickerSelection(-1),
+        KeyCode::Down => AppEvent::MoveListPickerSelection(1),
+        KeyCode::Tab => AppEvent::CycleResumeFilter,
+        KeyCode::BackTab | KeyCode::Left | KeyCode::Right => AppEvent::CycleResumeSort,
+        KeyCode::Backspace => AppEvent::Backspace,
+        KeyCode::Enter => AppEvent::ApplyOverlaySelection,
+        KeyCode::Char(c) if !c.is_control() => AppEvent::InputChar(c),
+        _ => AppEvent::Noop,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::thread_store::{CompactionRecord, ThreadMetadata};
+
+    #[test]
+    fn resume_summary_lines_surface_runtime_location_and_compaction_metadata() {
+        let summary = ThreadSummary {
+            metadata: ThreadMetadata {
+                session_id: "thread-123".to_string(),
+                cwd: "/Users/test/projects/rara".to_string(),
+                branch: "feature/resume-picker".to_string(),
+                provider: "codex".to_string(),
+                model: "gpt-5.2".to_string(),
+                base_url: None,
+                agent_mode: "execute".to_string(),
+                bash_approval: "suggestion".to_string(),
+                created_at: 0,
+                origin_kind: "direct".to_string(),
+                forked_from_thread_id: None,
+                history_len: 8,
+                transcript_len: 5,
+                updated_at: 0,
+            },
+            preview: "User: improve resume picker".to_string(),
+            compaction: CompactionRecord {
+                compaction_count: 2,
+                before_tokens: Some(12_000),
+                after_tokens: Some(4_000),
+                recent_file_count: Some(3),
+                boundary_version: Some(1),
+                replaced_start: None,
+                replaced_end: None,
+                metadata_owner: None,
+                recent_files: Vec::new(),
+                summary: None,
+            },
+        };
+
+        let rendered = render_resume_summary_lines(0, &summary, 0)
+            .into_iter()
+            .map(|line| line.to_string())
+            .collect::<Vec<_>>()
+            .join("\n");
+
+        assert!(rendered.contains("[1] User: improve resume picker"));
+        assert!(rendered.contains("updated unknown  codex/gpt-5.2"));
+        assert!(rendered.contains("mode=execute approval=suggestion"));
+        assert!(rendered.contains("cwd=rara branch=feature/resume-picker id=thread-123"));
+        assert!(rendered.contains("hist=8 trans=5 compact=2"));
+        assert!(rendered.contains("compact boundary=v1 recent_files=3 tokens=12000->4000"));
+        assert!(!rendered.contains("compaction runs=2"));
+        assert_eq!(rendered.lines().count(), 3);
+    }
+
+    #[test]
+    fn resume_picker_key_event_treats_printable_keys_as_search_input() {
+        assert!(matches!(
+            list_picker_key_event(ListPickerKind::Resume, KeyCode::Char('1')),
+            AppEvent::InputChar('1')
+        ));
+        assert!(matches!(
+            list_picker_key_event(ListPickerKind::Resume, KeyCode::Char('j')),
+            AppEvent::InputChar('j')
+        ));
+        assert!(matches!(
+            list_picker_key_event(ListPickerKind::Resume, KeyCode::Up),
+            AppEvent::MoveListPickerSelection(-1)
+        ));
+        assert!(matches!(
+            list_picker_key_event(ListPickerKind::Resume, KeyCode::Tab),
+            AppEvent::CycleResumeFilter
+        ));
     }
 }

@@ -39,6 +39,12 @@ pub(crate) async fn dispatch_event(
             if matches!(app.overlay, Some(Overlay::ModelSearch)) {
                 app.model_search_query.clear();
             }
+            if matches!(
+                app.overlay,
+                Some(Overlay::ListPicker(ListPickerKind::Resume))
+            ) {
+                app.clear_resume_search();
+            }
             app.close_overlay();
         }
         AppEvent::CancelRunningTask => {
@@ -69,6 +75,13 @@ pub(crate) async fn dispatch_event(
                 app.model_search_idx = 0;
                 return Ok(false);
             }
+            if matches!(
+                app.overlay,
+                Some(Overlay::ListPicker(ListPickerKind::Resume))
+            ) {
+                app.push_resume_search_char(c);
+                return Ok(false);
+            }
             if app.bottom_pane.input.is_empty() {
                 app.transcript_scroll = 0;
             }
@@ -77,6 +90,13 @@ pub(crate) async fn dispatch_event(
         AppEvent::Backspace => {
             if matches!(app.overlay, Some(Overlay::ModelSearch)) {
                 app.model_search_query.pop();
+                return Ok(false);
+            }
+            if matches!(
+                app.overlay,
+                Some(Overlay::ListPicker(ListPickerKind::Resume))
+            ) {
+                app.pop_resume_search_char();
                 return Ok(false);
             }
             app.backspace_active_input();
@@ -385,6 +405,17 @@ pub(crate) async fn dispatch_event(
         }
         AppEvent::CycleResumeSort => {
             app.cycle_resume_sort();
+        }
+        AppEvent::ClearResumeSearch => {
+            if matches!(
+                app.overlay,
+                Some(Overlay::ListPicker(ListPickerKind::Resume))
+            ) && !app.resume_search_query.is_empty()
+            {
+                app.clear_resume_search();
+            } else {
+                app.close_overlay();
+            }
         }
 
         AppEvent::ApplyOverlaySelection => match app.overlay {
