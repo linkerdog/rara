@@ -85,8 +85,22 @@ impl<'a> ContextAssembler<'a> {
     }
 
     pub fn assemble(&self, mode: PromptMode) -> AssembledContext {
+        let mut prompt = prompt::build_effective_prompt(self.workspace, self.runtime, mode);
+        let mut context_sections = Vec::new();
+        // Inject memory section (read-path instructions + summary)
+        let memory_section = crate::memory_files::read_memory_section(&self.workspace.rara_dir);
+        if !memory_section.is_empty() {
+            context_sections.push(memory_section);
+        }
+        if !self.runtime.hooks_prompt().is_empty() {
+            context_sections.push(format!("## Hooks\n\n{}", self.runtime.hooks_prompt()));
+        }
+        if !context_sections.is_empty() {
+            prompt.text.push_str("\n\n");
+            prompt.text.push_str(&context_sections.join("\n\n"));
+        }
         AssembledContext {
-            effective_prompt: prompt::build_effective_prompt(self.workspace, self.runtime, mode),
+            effective_prompt: prompt,
             compact_instruction: prompt::build_compact_instruction(self.runtime),
         }
     }

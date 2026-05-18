@@ -7,9 +7,13 @@ license.workspace = true
 [dependencies]
 rara-persistence = { path = "../rara-persistence" }
 anyhow.workspace = true
+fs2 = "0.4"
 serde = { version = "1", features = ["derive"] }
 arrow-array = "58"
 arrow-schema = "58"
 futures = "0.3"
- lancedb = "0.29"
+lancedb = "0.29"
 tokio = { version = "1", features = ["sync"] }
+
+[dev-dependencies]
+tempfile = "3"

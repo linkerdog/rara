@@ -12016,10 +12016,12 @@ dependencies = [
  "anyhow",
  "arrow-array 58.3.0",
  "arrow-schema 58.3.0",
+ "fs2",
  "futures",
  "lancedb",
  "rara-persistence",
  "serde",
+ "tempfile",
  "tokio",
 ]
 
