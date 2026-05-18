@@ -1,3 +1,2 @@
-#![allow(unused_imports)]
-
+pub mod files;
 pub mod vectordb;
