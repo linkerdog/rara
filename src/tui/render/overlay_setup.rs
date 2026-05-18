@@ -197,18 +197,8 @@ pub(super) fn render_resume_picker_modal(f: &mut Frame, app: &TuiApp, area: Rect
     } else {
         0
     };
-    let filter_label = match app.resume_filter_mode {
-        crate::tui::state::ResumeFilterMode::Cwd => "Cwd",
-        crate::tui::state::ResumeFilterMode::All => "All",
-    };
-    let sort_label = match app.resume_sort_key {
-        crate::tui::state::ResumeSortKey::Updated => "Updated",
-        crate::tui::state::ResumeSortKey::Created => "Created",
-    };
     let footer = format!(
-        "enter resume   esc exit   ctrl+c exit   ↑/↓ browse\
-           Filter: [{filter_label}] All   Sort: [{sort_label}] Created\
-           {current} / {total} · {pct}%"
+        "enter resume   esc exit   ctrl+c exit   ↑/↓ browse   {current} / {total} · {pct}%"
     );
     f.render_widget(
         Paragraph::new(footer).alignment(Alignment::Center),
