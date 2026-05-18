@@ -1301,6 +1301,7 @@ fn resume_picker_snapshot() {
 
     app.overlay = Some(Overlay::ListPicker(ListPickerKind::Resume));
     app.resume_filter_cwd = false;
+    app.cwd = "/Users/dev/opensource/rara".to_string();
     app.resume_picker_idx = 0;
 
     let rendered = render_screen_text(&mut app, 80, 20);
