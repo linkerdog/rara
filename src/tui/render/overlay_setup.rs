@@ -137,29 +137,50 @@ pub(super) fn render_resume_picker_modal(f: &mut Frame, app: &TuiApp, area: Rect
                 } else {
                     Style::default()
                 };
-                let when = format!("updated_at={}", session.metadata.updated_at);
-                let preview = if session.preview.is_empty() {
-                    "(no preview)".to_string()
+                let when = if session.metadata.updated_at > 0 {
+                    let secs = session.metadata.updated_at;
+                    let dt = if let Ok(utc) = time::OffsetDateTime::from_unix_timestamp(secs) {
+                        format!(
+                            "{}",
+                            utc.format(
+                                &time::format_description::parse(
+                                    "[year]-[month]-[day] [hour]:[minute]"
+                                )
+                                .unwrap()
+                            )
+                            .unwrap_or_else(|_| "unknown".to_string())
+                        )
+                    } else {
+                        "unknown".to_string()
+                    };
+                    dt
                 } else {
-                    session.preview.clone()
+                    "unknown".to_string()
+                };
+                let msg_count = session.metadata.history_len;
+                let preview = if session.preview.is_empty() {
+                    "(empty)".to_string()
+                } else {
+                    let p = session.preview.replace('\n', " ");
+                    if p.len() > 80 {
+                        format!("{}...", &p[..80])
+                    } else {
+                        p
+                    }
                 };
                 let workspace = Path::new(&session.metadata.cwd)
                     .file_name()
                     .and_then(|name| name.to_str())
                     .filter(|name| !name.is_empty())
                     .unwrap_or("-");
-                let compaction = resume_compaction_label(&session.compaction);
                 ListItem::new(vec![
                     Line::from(format!(
-                        "{}  {} / {}  branch={}",
-                        session.metadata.session_id,
-                        session.metadata.provider,
-                        session.metadata.model,
-                        session.metadata.branch
+                        "{}  {}  {}  msgs={}",
+                        session.metadata.session_id, session.metadata.model, workspace, msg_count,
                     )),
                     Line::from(format!(
-                        "  {when}  mode={}  workspace={}  {}",
-                        session.metadata.agent_mode, workspace, compaction
+                        "  {when}  {}/{}",
+                        session.metadata.provider, session.metadata.agent_mode,
                     )),
                     Line::from(format!("  {preview}")),
                 ])
