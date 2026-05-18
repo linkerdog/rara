@@ -329,6 +329,8 @@ impl TuiApp {
             recent_commands: Vec::new(),
             recent_threads: Vec::new(),
             resume_picker_idx: 0,
+            resume_filter_cwd: true,
+            resume_sort_by_created: false,
             committed_render_generation: 0,
             committed_render_cache: RefCell::new(CommittedTranscriptRenderCache::default()),
             transcript_scroll: 0,

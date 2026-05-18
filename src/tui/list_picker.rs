@@ -437,6 +437,12 @@ pub fn list_picker_key_event(kind: ListPickerKind, code: KeyCode) -> AppEvent {
         KeyCode::Char('9') if kind != ListPickerKind::UnifiedModel => {
             AppEvent::SetListPickerSelection(8)
         }
+        KeyCode::Tab if kind == ListPickerKind::Resume => AppEvent::CycleResumeFilter,
+        KeyCode::BackTab if kind == ListPickerKind::Resume => AppEvent::CycleResumeSort,
+        KeyCode::Left | KeyCode::Right if kind == ListPickerKind::Resume => {
+            AppEvent::CycleResumeSort
+        }
+
         KeyCode::Enter => AppEvent::ApplyOverlaySelection,
         _ => AppEvent::Noop,
     }

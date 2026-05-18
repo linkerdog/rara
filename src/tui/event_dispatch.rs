@@ -380,6 +380,13 @@ pub(crate) async fn dispatch_event(
         AppEvent::SelectStatusTab(tab) => {
             app.open_overlay(Overlay::Status(tab));
         }
+        AppEvent::CycleResumeFilter => {
+            app.cycle_resume_filter();
+        }
+        AppEvent::CycleResumeSort => {
+            app.cycle_resume_sort();
+        }
+
         AppEvent::ApplyOverlaySelection => match app.overlay {
             Some(Overlay::ModelSearch) => {
                 let presets = app.all_unified_model_presets();

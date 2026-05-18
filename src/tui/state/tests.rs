@@ -838,6 +838,9 @@ fn resume_picker_refreshes_recent_threads_on_open() {
         )
         .expect("upsert thread");
 
+    // Disable Cwd filter for deterministic test — the test sessions use
+    // different workspace directories than the test process cwd.
+    app.resume_filter_cwd = false;
     app.open_overlay(Overlay::ListPicker(ListPickerKind::Resume));
 
     assert_eq!(app.recent_threads.len(), 1);

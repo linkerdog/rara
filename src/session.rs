@@ -111,7 +111,10 @@ impl SessionManager {
         if let Some(parent) = path.parent() {
             fs::create_dir_all(parent)?;
         }
-        let content = serde_json::to_string(history)?;
+        // Filter out System-only messages (bootstrap warnings, embedding status,
+        // LSP diagnostics). These are infrastructure noise, not conversation history.
+        let filtered: Vec<&Message> = history.iter().filter(|m| m.role != "System").collect();
+        let content = serde_json::to_string(&filtered)?;
         let tmp_path = path.with_extension(format!("json.tmp-{}", uuid::Uuid::new_v4()));
         {
             let mut file = fs::File::create(&tmp_path)?;

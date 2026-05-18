@@ -44,6 +44,8 @@ pub enum AppEvent {
     SelectHelpTab(HelpTab),
     SelectStatusTab(StatusTab),
     ApplyOverlaySelection,
+    CycleResumeFilter,
+    CycleResumeSort,
     CancelRunningTask,
     ClearComposer,
     ToggleSidebar,

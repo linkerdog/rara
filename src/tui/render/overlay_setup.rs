@@ -137,29 +137,44 @@ pub(super) fn render_resume_picker_modal(f: &mut Frame, app: &TuiApp, area: Rect
                 } else {
                     Style::default()
                 };
-                let when = format!("updated_at={}", session.metadata.updated_at);
-                let preview = if session.preview.is_empty() {
-                    "(no preview)".to_string()
+                let when = if session.metadata.updated_at > 0 {
+                    let secs = session.metadata.updated_at;
+                    let now = std::time::SystemTime::now()
+                        .duration_since(std::time::UNIX_EPOCH)
+                        .map(|d| d.as_secs())
+                        .unwrap_or(secs as u64);
+                    let age = now.saturating_sub(secs as u64);
+                    if age < 60 {
+                        "just now".to_string()
+                    } else if age < 3600 {
+                        format!("{}m ago", age / 60)
+                    } else if age < 86400 {
+                        format!("{}h ago", age / 3600)
+                    } else {
+                        format!("{}d ago", age / 86400)
+                    }
                 } else {
-                    session.preview.clone()
+                    "unknown".to_string()
+                };
+                let msg_count = session.metadata.history_len;
+                let preview = if session.preview.is_empty() {
+                    "(empty)".to_string()
+                } else {
+                    session.preview.replace('\n', " ")
                 };
                 let workspace = Path::new(&session.metadata.cwd)
                     .file_name()
                     .and_then(|name| name.to_str())
                     .filter(|name| !name.is_empty())
                     .unwrap_or("-");
-                let compaction = resume_compaction_label(&session.compaction);
                 ListItem::new(vec![
                     Line::from(format!(
-                        "{}  {} / {}  branch={}",
-                        session.metadata.session_id,
-                        session.metadata.provider,
-                        session.metadata.model,
-                        session.metadata.branch
+                        "{}  {}  {}  msgs={}",
+                        session.metadata.session_id, session.metadata.model, workspace, msg_count,
                     )),
                     Line::from(format!(
-                        "  {when}  mode={}  workspace={}  {}",
-                        session.metadata.agent_mode, workspace, compaction
+                        "  {when}  {}/{}",
+                        session.metadata.provider, session.metadata.agent_mode,
                     )),
                     Line::from(format!("  {preview}")),
                 ])
@@ -171,8 +186,22 @@ pub(super) fn render_resume_picker_modal(f: &mut Frame, app: &TuiApp, area: Rect
         List::new(items).block(Block::default().borders(Borders::LEFT | Borders::RIGHT)),
         chunks[1],
     );
+    let total = app.recent_threads.len();
+    let current = if total > 0 {
+        app.resume_picker_idx + 1
+    } else {
+        0
+    };
+    let pct = if total > 0 {
+        (current * 100) / total
+    } else {
+        0
+    };
+    let footer = format!(
+        "enter resume   esc exit   ctrl+c exit   ↑/↓ browse   {current} / {total} · {pct}%"
+    );
     f.render_widget(
-        Paragraph::new("Esc close  Up/Down move  Enter restore").alignment(Alignment::Center),
+        Paragraph::new(footer).alignment(Alignment::Center),
         chunks[2],
     );
 }
