@@ -139,21 +139,20 @@ pub(super) fn render_resume_picker_modal(f: &mut Frame, app: &TuiApp, area: Rect
                 };
                 let when = if session.metadata.updated_at > 0 {
                     let secs = session.metadata.updated_at;
-                    let dt = if let Ok(utc) = time::OffsetDateTime::from_unix_timestamp(secs) {
-                        format!(
-                            "{}",
-                            utc.format(
-                                &time::format_description::parse(
-                                    "[year]-[month]-[day] [hour]:[minute]"
-                                )
-                                .unwrap()
-                            )
-                            .unwrap_or_else(|_| "unknown".to_string())
-                        )
+                    let now = std::time::SystemTime::now()
+                        .duration_since(std::time::UNIX_EPOCH)
+                        .map(|d| d.as_secs())
+                        .unwrap_or(secs as u64);
+                    let age = now.saturating_sub(secs as u64);
+                    if age < 60 {
+                        "just now".to_string()
+                    } else if age < 3600 {
+                        format!("{}m ago", age / 60)
+                    } else if age < 86400 {
+                        format!("{}h ago", age / 3600)
                     } else {
-                        "unknown".to_string()
-                    };
-                    dt
+                        format!("{}d ago", age / 86400)
+                    }
                 } else {
                     "unknown".to_string()
                 };
@@ -161,12 +160,7 @@ pub(super) fn render_resume_picker_modal(f: &mut Frame, app: &TuiApp, area: Rect
                 let preview = if session.preview.is_empty() {
                     "(empty)".to_string()
                 } else {
-                    let p = session.preview.replace('\n', " ");
-                    if p.len() > 80 {
-                        format!("{}...", &p[..80])
-                    } else {
-                        p
-                    }
+                    session.preview.replace('\n', " ")
                 };
                 let workspace = Path::new(&session.metadata.cwd)
                     .file_name()
@@ -192,8 +186,22 @@ pub(super) fn render_resume_picker_modal(f: &mut Frame, app: &TuiApp, area: Rect
         List::new(items).block(Block::default().borders(Borders::LEFT | Borders::RIGHT)),
         chunks[1],
     );
+    let total = app.recent_threads.len();
+    let current = if total > 0 {
+        app.resume_picker_idx + 1
+    } else {
+        0
+    };
+    let pct = if total > 0 {
+        (current * 100) / total
+    } else {
+        0
+    };
+    let footer = format!(
+        "enter resume   esc exit   ctrl+c exit   ↑/↓ browse   {current} / {total} · {pct}%"
+    );
     f.render_widget(
-        Paragraph::new("Esc close  Up/Down move  Enter restore").alignment(Alignment::Center),
+        Paragraph::new(footer).alignment(Alignment::Center),
         chunks[2],
     );
 }
