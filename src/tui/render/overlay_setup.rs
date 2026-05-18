@@ -1,6 +1,5 @@
 // Items reserved for planned overlay migration.
 #![allow(dead_code)]
-use std::path::Path;
 
 use ratatui::{
     layout::{Alignment, Constraint, Direction, Layout, Rect},
@@ -96,131 +95,6 @@ pub(super) fn render_provider_picker_modal(f: &mut Frame, app: &TuiApp, area: Re
             .alignment(Alignment::Center),
         chunks[2],
     );
-}
-
-pub(super) fn render_resume_picker_modal(f: &mut Frame, app: &TuiApp, area: Rect) {
-    let intro = if app.recent_threads.is_empty() {
-        "No persisted threads found yet."
-    } else {
-        "Choose a recent thread to restore its transcript, plan state, and interaction cards."
-    };
-    let intro_height = wrapped_text_height(intro, area.width);
-    let chunks = Layout::default()
-        .direction(Direction::Vertical)
-        .constraints([
-            Constraint::Length(intro_height),
-            Constraint::Min(8),
-            Constraint::Length(2),
-        ])
-        .split(area);
-    f.render_widget(
-        Paragraph::new(intro)
-            .block(
-                Block::default()
-                    .borders(Borders::ALL)
-                    .title(" Resume Thread "),
-            )
-            .wrap(Wrap { trim: false }),
-        chunks[0],
-    );
-    let items = if app.recent_threads.is_empty() {
-        vec![ListItem::new("No threads available.")]
-    } else {
-        app.recent_threads
-            .iter()
-            .enumerate()
-            .map(|(idx, session)| {
-                let style = if idx == app.resume_picker_idx {
-                    Style::default()
-                        .fg(TEXT_ACCENT)
-                        .add_modifier(Modifier::BOLD)
-                } else {
-                    Style::default()
-                };
-                let when = if session.metadata.updated_at > 0 {
-                    let secs = session.metadata.updated_at;
-                    let now = std::time::SystemTime::now()
-                        .duration_since(std::time::UNIX_EPOCH)
-                        .map(|d| d.as_secs())
-                        .unwrap_or(secs as u64);
-                    let age = now.saturating_sub(secs as u64);
-                    if age < 60 {
-                        "just now".to_string()
-                    } else if age < 3600 {
-                        format!("{}m ago", age / 60)
-                    } else if age < 86400 {
-                        format!("{}h ago", age / 3600)
-                    } else {
-                        format!("{}d ago", age / 86400)
-                    }
-                } else {
-                    "unknown".to_string()
-                };
-                let msg_count = session.metadata.history_len;
-                let preview = if session.preview.is_empty() {
-                    "(empty)".to_string()
-                } else {
-                    session.preview.replace('\n', " ")
-                };
-                let workspace = Path::new(&session.metadata.cwd)
-                    .file_name()
-                    .and_then(|name| name.to_str())
-                    .filter(|name| !name.is_empty())
-                    .unwrap_or("-");
-                ListItem::new(vec![
-                    Line::from(format!(
-                        "{}  {}  {}  msgs={}",
-                        session.metadata.session_id, session.metadata.model, workspace, msg_count,
-                    )),
-                    Line::from(format!(
-                        "  {when}  {}/{}",
-                        session.metadata.provider, session.metadata.agent_mode,
-                    )),
-                    Line::from(format!("  {preview}")),
-                ])
-                .style(style)
-            })
-            .collect::<Vec<_>>()
-    };
-    f.render_widget(
-        List::new(items).block(Block::default().borders(Borders::LEFT | Borders::RIGHT)),
-        chunks[1],
-    );
-    let total = app.recent_threads.len();
-    let current = if total > 0 {
-        app.resume_picker_idx + 1
-    } else {
-        0
-    };
-    let pct = if total > 0 {
-        (current * 100) / total
-    } else {
-        0
-    };
-    let footer = format!(
-        "enter resume   esc exit   ctrl+c exit   ↑/↓ browse   {current} / {total} · {pct}%"
-    );
-    f.render_widget(
-        Paragraph::new(footer).alignment(Alignment::Center),
-        chunks[2],
-    );
-}
-
-fn resume_compaction_label(compaction: &crate::thread_store::CompactionRecord) -> String {
-    if compaction.compaction_count == 0 {
-        return "compact=0".to_string();
-    }
-    let mut parts = vec![format!("compact={}", compaction.compaction_count)];
-    if let Some(version) = compaction.boundary_version {
-        parts.push(format!("boundary=v{version}"));
-    }
-    if let (Some(start), Some(end)) = (compaction.replaced_start, compaction.replaced_end) {
-        parts.push(format!("range={start}..{end}"));
-    }
-    if let (Some(before), Some(after)) = (compaction.before_tokens, compaction.after_tokens) {
-        parts.push(format!("tokens={before}->{after}"));
-    }
-    parts.join(" ")
 }
 
 pub(super) fn render_model_picker_modal(f: &mut Frame, app: &TuiApp, area: Rect) {
@@ -1060,27 +934,4 @@ pub(super) fn render_openai_profile_label_editor_modal(
         app.openai_profile_label_cursor_offset(),
         chunks[1],
     ))
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn resume_compaction_label_includes_boundary_range_and_tokens() {
-        let label = resume_compaction_label(&crate::thread_store::CompactionRecord {
-            compaction_count: 2,
-            before_tokens: Some(12_000),
-            after_tokens: Some(4_000),
-            recent_file_count: Some(3),
-            boundary_version: Some(1),
-            replaced_start: Some(0),
-            replaced_end: Some(8),
-            metadata_owner: Some("runtime.compaction".to_string()),
-            recent_files: vec![],
-            summary: Some("summary".to_string()),
-        });
-
-        assert_eq!(label, "compact=2 boundary=v1 range=0..8 tokens=12000->4000");
-    }
 }

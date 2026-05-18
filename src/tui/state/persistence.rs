@@ -9,6 +9,8 @@ use serde_json::json;
 use super::{InteractionKind, StateDb, TranscriptTurn, TuiApp, state_db_status_error};
 use crate::thread_store::{ThreadRecorder, ThreadRuntimeState, ThreadStore};
 
+const RESUME_PICKER_THREAD_LIMIT: usize = 200;
+
 impl TuiApp {
     pub(super) fn refresh_recent_threads(&mut self) {
         let Some(state_db) = self.state_db.as_ref() else {
@@ -16,7 +18,8 @@ impl TuiApp {
             return;
         };
         self.recent_threads =
-            ThreadStore::list_recent_threads_for_db(state_db, 20).unwrap_or_default();
+            ThreadStore::list_recent_threads_for_db(state_db, RESUME_PICKER_THREAD_LIMIT)
+                .unwrap_or_default();
     }
 
     pub(super) fn refresh_recent_threads_for_resume_picker(&mut self) {
@@ -27,6 +30,11 @@ impl TuiApp {
                 .unwrap_or_default();
             self.recent_threads
                 .retain(|t| t.metadata.cwd == current_cwd);
+        }
+        let query = self.resume_search_query.trim().to_ascii_lowercase();
+        if !query.is_empty() {
+            self.recent_threads
+                .retain(|thread| resume_thread_matches_query(thread, query.as_str()));
         }
         self.recent_threads.sort_by(|a, b| {
             if self.resume_sort_by_created {
@@ -49,6 +57,24 @@ impl TuiApp {
 
     pub(crate) fn cycle_resume_sort(&mut self) {
         self.resume_sort_by_created = !self.resume_sort_by_created;
+        self.refresh_recent_threads_for_resume_picker();
+    }
+
+    pub(crate) fn push_resume_search_char(&mut self, c: char) {
+        self.resume_search_query.push(c);
+        self.resume_picker_idx = 0;
+        self.refresh_recent_threads_for_resume_picker();
+    }
+
+    pub(crate) fn pop_resume_search_char(&mut self) {
+        self.resume_search_query.pop();
+        self.resume_picker_idx = 0;
+        self.refresh_recent_threads_for_resume_picker();
+    }
+
+    pub(crate) fn clear_resume_search(&mut self) {
+        self.resume_search_query.clear();
+        self.resume_picker_idx = 0;
         self.refresh_recent_threads_for_resume_picker();
     }
 
@@ -252,4 +278,20 @@ impl TuiApp {
                 Some(state_db_status_error("turn write failed", err.to_string()));
         }
     }
+}
+
+fn resume_thread_matches_query(thread: &crate::thread_store::ThreadSummary, query: &str) -> bool {
+    let metadata = &thread.metadata;
+    [
+        thread.preview.as_str(),
+        metadata.session_id.as_str(),
+        metadata.cwd.as_str(),
+        metadata.branch.as_str(),
+        metadata.provider.as_str(),
+        metadata.model.as_str(),
+        metadata.agent_mode.as_str(),
+        metadata.bash_approval.as_str(),
+    ]
+    .into_iter()
+    .any(|value| value.to_ascii_lowercase().contains(query))
 }

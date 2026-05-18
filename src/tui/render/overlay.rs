@@ -58,7 +58,11 @@ pub(super) fn render_overlay(f: &mut Frame, app: &TuiApp, overlay: Overlay) -> O
             None
         }
         Overlay::ListPicker(kind) => {
-            let popup = bottom_picker_rect(f.area());
+            let popup = if kind == super::super::state::ListPickerKind::Resume {
+                centered_rect(96, 92, f.area())
+            } else {
+                bottom_picker_rect(f.area())
+            };
             f.render_widget(Clear, popup);
             super::super::list_picker::render_list_picker(f, app, kind, popup);
             None

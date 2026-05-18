@@ -849,6 +849,99 @@ fn resume_picker_refreshes_recent_threads_on_open() {
 }
 
 #[test]
+fn resume_picker_loads_more_than_legacy_twenty_thread_cap() {
+    let dir = tempdir().expect("tempdir");
+    let cm = ConfigManager {
+        path: dir.path().join("config.json"),
+    };
+    let mut app = TuiApp::new(cm).expect("app");
+    let state_db = StateDb::new_for_root_dir(dir.path().join(".rara")).expect("state db");
+    app.attach_state_db(std::sync::Arc::new(state_db));
+
+    for idx in 0..25 {
+        app.state_db
+            .as_ref()
+            .expect("state db")
+            .upsert_session(
+                format!("thread-{idx:02}").as_str(),
+                "/tmp/workspace",
+                "main",
+                "ollama",
+                "qwen3",
+                None,
+                "execute",
+                "always",
+                None,
+                &PersistedPromptRuntimeState::default(),
+                1,
+                0,
+                &PersistedCompactState::default(),
+            )
+            .expect("upsert thread");
+    }
+
+    app.resume_filter_cwd = false;
+    app.open_overlay(Overlay::ListPicker(ListPickerKind::Resume));
+
+    assert_eq!(app.recent_threads.len(), 25);
+}
+
+#[test]
+fn resume_picker_search_filters_and_clear_restores_threads() {
+    let dir = tempdir().expect("tempdir");
+    let cm = ConfigManager {
+        path: dir.path().join("config.json"),
+    };
+    let mut app = TuiApp::new(cm).expect("app");
+    let state_db = StateDb::new_for_root_dir(dir.path().join(".rara")).expect("state db");
+    app.attach_state_db(std::sync::Arc::new(state_db));
+
+    for (thread_id, branch, model) in [
+        ("thread-alpha", "feature/resume-search", "qwen3"),
+        ("thread-beta", "main", "gpt-5.2"),
+    ] {
+        app.state_db
+            .as_ref()
+            .expect("state db")
+            .upsert_session(
+                thread_id,
+                "/tmp/workspace",
+                branch,
+                "codex",
+                model,
+                None,
+                "execute",
+                "always",
+                None,
+                &PersistedPromptRuntimeState::default(),
+                1,
+                0,
+                &PersistedCompactState::default(),
+            )
+            .expect("upsert thread");
+    }
+
+    app.resume_filter_cwd = false;
+    app.open_overlay(Overlay::ListPicker(ListPickerKind::Resume));
+    assert_eq!(app.recent_threads.len(), 2);
+
+    for c in "resume-search".chars() {
+        app.push_resume_search_char(c);
+    }
+
+    assert_eq!(app.resume_search_query, "resume-search");
+    assert_eq!(app.resume_picker_idx, 0);
+    assert_eq!(app.recent_threads.len(), 1);
+    assert_eq!(app.recent_threads[0].metadata.session_id, "thread-alpha");
+
+    app.clear_resume_search();
+
+    assert!(app.resume_search_query.is_empty());
+    assert_eq!(app.resume_picker_idx, 0);
+    assert_eq!(app.recent_threads.len(), 2);
+}
+
+#[test]
 fn finalize_agent_stream_updates_latest_committed_turn_when_final_text_arrives_late() {
     let dir = tempdir().expect("tempdir");
     let cm = ConfigManager {

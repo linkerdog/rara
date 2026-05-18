@@ -699,6 +699,7 @@ pub struct TuiApp {
     pub resume_picker_idx: usize,
     pub resume_filter_cwd: bool,
     pub resume_sort_by_created: bool,
+    pub resume_search_query: String,
     pub committed_render_generation: u64,
     pub committed_render_cache: RefCell<CommittedTranscriptRenderCache>,
     pub transcript_scroll: usize,
