@@ -15,10 +15,10 @@
 //! ```
 
 use std::collections::HashMap;
-use std::io::{BufRead, BufReader, Write};
+use std::io::{BufRead, BufReader, Read, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 
 use anyhow::{Context, Result, anyhow, bail};
 use serde::{Deserialize, Serialize};
@@ -110,7 +110,7 @@ struct JsonRpcNotification {
 /// Manages LSP server processes and diagnostics cache.
 pub struct LspManager {
     servers: Mutex<HashMap<ServerKind, Option<LspConnection>>>,
-    diagnostics: Mutex<HashMap<PathBuf, Vec<Diagnostic>>>,
+    diagnostics: Arc<Mutex<HashMap<PathBuf, Vec<Diagnostic>>>>,
     workspace_root: PathBuf,
 }
 
@@ -127,7 +127,7 @@ impl LspManager {
     pub fn new(workspace_root: PathBuf) -> Self {
         Self {
             servers: Mutex::new(HashMap::new()),
-            diagnostics: Mutex::new(HashMap::new()),
+            diagnostics: Arc::new(Mutex::new(HashMap::new())),
             workspace_root,
         }
     }
@@ -221,11 +221,77 @@ impl LspManager {
             .with_context(|| format!("spawn {:?}", cmd))?;
 
         let stdout = child.stdout.take().unwrap();
+        let diags = Arc::clone(&self.diagnostics);
         let reader = std::thread::spawn(move || {
-            let reader = BufReader::new(stdout);
-            for line in reader.lines() {
-                if let Ok(line) = line {
-                    let _ = line; // parse notifications later
+            let mut reader = BufReader::new(stdout);
+            loop {
+                // Read Content-Length header
+                let mut header = String::new();
+                if reader.read_line(&mut header).is_err() {
+                    break;
+                }
+                let content_len: usize = match header
+                    .trim()
+                    .strip_prefix("Content-Length: ")
+                    .and_then(|s| s.trim().parse().ok())
+                {
+                    Some(len) => len,
+                    None => continue,
+                };
+                // Skip the \r\n separator line
+                let mut sep = String::new();
+                let _ = reader.read_line(&mut sep);
+                // Read the JSON body
+                let mut buf = vec![0u8; content_len];
+                if reader.read_exact(&mut buf).is_err() {
+                    break;
+                }
+                let body = String::from_utf8_lossy(&buf);
+                if let Ok(notif) = serde_json::from_str::<JsonRpcNotification>(&body) {
+                    if notif.method.as_deref() == Some("textDocument/publishDiagnostics") {
+                        if let Some(params) = &notif.params {
+                            if let Some(uri) = params["uri"].as_str() {
+                                let file_path = uri.strip_prefix("file://").unwrap_or(uri);
+                                let path = Path::new(file_path);
+                                let mut new_diags: Vec<Diagnostic> = vec![];
+                                if let Some(items) = params["diagnostics"].as_array() {
+                                    for d in items {
+                                        new_diags.push(Diagnostic {
+                                            file: file_path.to_string(),
+                                            line: d["range"]["start"]["line"].as_u64().unwrap_or(0)
+                                                as u32,
+                                            column: d["range"]["start"]["character"]
+                                                .as_u64()
+                                                .unwrap_or(0)
+                                                as u32,
+                                            severity: match d["severity"].as_u64() {
+                                                Some(1) => DiagnosticSeverity::Error,
+                                                Some(2) => DiagnosticSeverity::Warning,
+                                                Some(3) => DiagnosticSeverity::Information,
+                                                Some(4) => DiagnosticSeverity::Hint,
+                                                _ => DiagnosticSeverity::Information,
+                                            },
+                                            message: d["message"]
+                                                .as_str()
+                                                .unwrap_or("")
+                                                .to_string(),
+                                            code: d["code"]
+                                                .as_str()
+                                                .map(|s| s.to_string())
+                                                .or_else(|| {
+                                                    d["code"]["value"]
+                                                        .as_str()
+                                                        .map(|s| s.to_string())
+                                                }),
+                                        });
+                                    }
+                                }
+                                if let Ok(mut cache) = diags.lock() {
+                                    cache.insert(path.to_path_buf(), new_diags);
+                                }
+                            }
+                        }
+                    }
                 }
             }
         });
