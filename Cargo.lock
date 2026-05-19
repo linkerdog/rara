@@ -11996,6 +11996,7 @@ version = "0.0.1"
 dependencies = [
  "anyhow",
  "rara-config",
+ "serde",
  "tempfile",
 ]
 

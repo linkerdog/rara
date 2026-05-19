@@ -194,12 +194,14 @@ pub(crate) async fn initialize_rara_context_with_local_embedding_bootstrap(
     if let Ok(cwd) = std::env::current_dir() {
         file_hooks.discover_repo_hooks(&cwd);
     }
-    prompt_config.hook_prompt_text = file_hooks
+    prompt_config.hook_prompt_entries = file_hooks
         .hooks
         .values()
-        .map(|h| format!("## {}\n\n{}", h.phase.as_str(), h.body))
+        .map(|h| rara_instructions::HookPromptEntry {
+            phase: h.phase,
+            body: format!("## {}\n\n{}", h.phase.as_str(), h.body),
+        })
         .collect();
-
     let tool_manager = create_full_tool_manager(
         backend.clone(),
         embedding_backend.clone(),

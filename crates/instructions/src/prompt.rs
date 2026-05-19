@@ -6,6 +6,51 @@ use rara_config::RaraConfig;
 
 use crate::workspace::WorkspaceMemory;
 
+/// Agent lifecycle phase.  File-based hooks are tagged with this phase
+/// and only injected into the prompt when the assembler requests the
+/// matching phase.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
+pub enum HookLifecycle {
+    SessionStart,
+    UserPromptSubmit,
+    PreToolUse,
+    PostToolUse,
+    Stop,
+    PreCompact,
+}
+
+impl HookLifecycle {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::SessionStart => "SessionStart",
+            Self::UserPromptSubmit => "UserPromptSubmit",
+            Self::PreToolUse => "PreToolUse",
+            Self::PostToolUse => "PostToolUse",
+            Self::Stop => "Stop",
+            Self::PreCompact => "PreCompact",
+        }
+    }
+
+    /// Parse from Claude-style hook file names, e.g. "pre-tool-use" → PreToolUse.
+    pub fn from_filename(name: &str) -> Option<Self> {
+        match name {
+            "session-start" | "session_start" => Some(Self::SessionStart),
+            "user-prompt-submit" | "user_prompt_submit" => Some(Self::UserPromptSubmit),
+            "pre-tool-use" | "pre_tool_use" => Some(Self::PreToolUse),
+            "post-tool-use" | "post_tool_use" => Some(Self::PostToolUse),
+            "stop" => Some(Self::Stop),
+            _ => None,
+        }
+    }
+}
+
+/// One file-based hook entry, tagged with its lifecycle phase.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct HookPromptEntry {
+    pub phase: HookLifecycle,
+    pub body: String,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PromptMode {
     Execute,
@@ -169,7 +214,10 @@ pub struct PromptRuntimeConfig {
     pub compact_prompt: Option<String>,
     pub protocol_prompt_sources: Vec<PromptSource>,
     pub available_skills: Vec<PromptSkillSummary>,
-    pub hook_prompt_text: Vec<String>,
+    /// Hook prompt entries, each tagged with its lifecycle phase.
+    /// Populated at startup from `.claude/hooks/*.md`.
+    pub hook_prompt_entries: Vec<HookPromptEntry>,
+
     pub warnings: Vec<String>,
 }
 
@@ -198,13 +246,28 @@ impl PromptRuntimeConfig {
             compact_prompt,
             protocol_prompt_sources: Vec::new(),
             available_skills: Vec::new(),
-            hook_prompt_text: Vec::new(),
+            hook_prompt_entries: Vec::new(),
             warnings,
         }
     }
 
-    pub fn hooks_prompt(&self) -> String {
-        self.hook_prompt_text.join("\n\n")
+    /// Return hook prompt text, optionally filtered to a specific lifecycle
+    /// phase. When `phase` is `None`, returns all hooks.
+    pub fn hooks_prompt(&self, phase: Option<HookLifecycle>) -> String {
+        if let Some(phase) = phase {
+            self.hook_prompt_entries
+                .iter()
+                .filter(|e| e.phase == phase)
+                .map(|e| e.body.as_str())
+                .collect::<Vec<_>>()
+                .join("\n\n")
+        } else {
+            self.hook_prompt_entries
+                .iter()
+                .map(|e| e.body.as_str())
+                .collect::<Vec<_>>()
+                .join("\n\n")
+        }
     }
 
     pub fn as_sources(&self) -> Vec<PromptSource> {
