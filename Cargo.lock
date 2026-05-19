@@ -11912,6 +11912,7 @@ dependencies = [
  "portable-pty",
  "pulldown-cmark",
  "rand 0.10.1",
+ "rara-app-server",
  "rara-bedrock",
  "rara-config",
  "rara-file-search",
@@ -11953,6 +11954,14 @@ dependencies = [
  "urlencoding",
  "uuid",
  "walkdir",
+]
+
+[[package]]
+name = "rara-app-server"
+version = "0.0.1"
+dependencies = [
+ "serde",
+ "serde_json",
 ]
 
 [[package]]
