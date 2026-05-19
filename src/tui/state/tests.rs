@@ -1296,3 +1296,35 @@ fn clearing_slash_closes_palette() {
     assert_eq!(app.command_palette_idx, 0);
     assert!(app.bottom_pane.input.is_empty());
 }
+
+#[test]
+fn ralph_goal_sets_condition_from_objective() {
+    let goal = crate::tui::state::RalphGoal::new("run tests".into(), None);
+    assert_eq!(goal.objective, "run tests");
+    assert_eq!(goal.condition, Some("run tests".into()));
+    assert_eq!(goal.status, crate::tui::state::GoalStatus::Pursuing);
+    assert_eq!(goal.tokens_used, 0);
+}
+
+#[test]
+fn ralph_goal_condition_populated_after_construction() {
+    let mut goal = crate::tui::state::RalphGoal::new("test".into(), Some(100));
+    assert!(goal.condition.is_some());
+    // condition can be updated independently
+    goal.condition = Some("different condition".into());
+    assert_eq!(goal.condition, Some("different condition".into()));
+}
+
+#[test]
+fn ralph_goal_budget_defaults_to_none() {
+    let goal = crate::tui::state::RalphGoal::new("objective".into(), None);
+    assert!(goal.token_budget.is_none());
+    assert!(!goal.token_budget.is_some_and(|b| goal.tokens_used >= b));
+
+    let limited = crate::tui::state::RalphGoal::new("obj".into(), Some(0));
+    assert!(
+        limited
+            .token_budget
+            .is_some_and(|b| limited.tokens_used >= b)
+    );
+}
