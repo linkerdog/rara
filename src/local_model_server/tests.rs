@@ -535,6 +535,24 @@ fn fastembed_snapshot_selection_avoids_non_onnx_weights() {
 }
 
 #[test]
+fn fastembed_snapshot_selection_still_requires_external_data() {
+    let selected = selected_snapshot_files(
+        super::SnapshotRequiredFiles::FastEmbedBgeM3,
+        vec![
+            "config.json".to_string(),
+            "tokenizer.json".to_string(),
+            "onnx/model.onnx".to_string(),
+            "pytorch_model.bin".to_string(),
+        ],
+    );
+
+    assert!(!snapshot_has_minimum_model_files(
+        super::SnapshotRequiredFiles::FastEmbedBgeM3,
+        &selected
+    ));
+}
+
+#[test]
 fn ensure_managed_venv_creates_and_reuses_venv_with_pip() {
     let temp = tempfile::tempdir().expect("tempdir");
     let server = ensure_bundled_model_server(temp.path()).expect("install model server");

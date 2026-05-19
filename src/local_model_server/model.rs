@@ -81,8 +81,8 @@ pub(crate) fn prepare_local_embedding_model_snapshot(
         .filter(|name| !name.ends_with('/'))
         .collect();
     let files = selected_snapshot_files(required_files, available_files);
-    if files.is_empty() {
-        bail!("model repository has no downloadable files");
+    if !snapshot_has_minimum_model_files(required_files, &files) {
+        bail!("model repository is missing required files for profile");
     }
 
     let snapshot_path = cache_repo.pointer_path(&info.sha);
