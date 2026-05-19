@@ -5,6 +5,7 @@ use crate::context::{
     AssembledContext, AssembledTurnContext, ContextAssembler, RuntimeContextInputs,
     RuntimeInteractionInput,
 };
+use crate::prompt::{PromptSource, PromptSourceKind};
 use crate::protocol_sources::{PromptSourceRegistry, SkillSourceRegistry};
 use crate::tool_result::ToolResultProjectionPolicy;
 
@@ -128,15 +129,34 @@ impl Agent {
         self.skill_source_registry = Some(skill_source_registry);
     }
 
+    pub fn set_lsp_manager(&mut self, lsp_manager: std::sync::Arc<crate::lsp_manager::LspManager>) {
+        self.lsp_manager = Some(lsp_manager);
+    }
+
     pub fn prompt_config(&self) -> &PromptRuntimeConfig {
         &self.prompt_config
     }
 
     pub(crate) async fn refresh_protocol_prompt_sources_for_query(&mut self) {
-        let Some(registry) = self.prompt_source_registry.as_ref() else {
-            return;
-        };
-        self.prompt_config.protocol_prompt_sources = registry.list_prompt_sources_for_query().await;
+        self.prompt_config.protocol_prompt_sources =
+            if let Some(registry) = self.prompt_source_registry.as_ref() {
+                registry.list_prompt_sources_for_query().await
+            } else {
+                Vec::new()
+            };
+        if let Some(lsp_manager) = self.lsp_manager.as_ref() {
+            let summary = lsp_manager.diagnostics_summary();
+            if !summary.trim().is_empty() {
+                self.prompt_config
+                    .protocol_prompt_sources
+                    .push(PromptSource {
+                        kind: PromptSourceKind::ProtocolPromptSource,
+                        label: "LSP Diagnostics".to_string(),
+                        display_path: "lsp://workspace".to_string(),
+                        content: summary,
+                    });
+            }
+        }
     }
 
     pub(crate) async fn refresh_protocol_skill_sources_for_query(&mut self) {

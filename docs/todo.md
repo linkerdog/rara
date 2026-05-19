@@ -41,8 +41,9 @@ Active backlog only. Keep this file small and current.
 - [ ] Wire plugin hook registration into runtime startup
 
 ### LSP (Phase 1)
-- [ ] rust-analyzer bridge: lazy spawn, JSON-RPC handshake, diagnostics parsing
-- [ ] `lsp_diagnostics` tool: return cached diagnostics for a file
+- [x] LSP runtime wiring: shared manager, lazy server startup, diagnostics parsing, sidebar status
+- [x] `lsp_diagnostics` tool: return cached diagnostics for a file
+- [ ] Replace sleep-based LSP initialization with response-aware handshake handling
 
 ### File Splits (P0)
 - [ ] `tools/bash.rs` (2315 lines) → by tool group

@@ -26,6 +26,7 @@ pub(super) async fn rebuild_agent_with_progress(
         prompt_source_registry,
         skill_source_registry,
         hook_registry,
+        lsp_manager,
     ) = bootstrap.into_parts();
     let memory_handler = Arc::new(crate::protocol_sources::MemoryControlHandler::new(
         event_bus,
@@ -42,5 +43,6 @@ pub(super) async fn rebuild_agent_with_progress(
         skill_source_registry,
         hook_registry,
         memory_handler,
+        lsp_manager,
     })
 }

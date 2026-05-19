@@ -178,6 +178,20 @@ the LLM, not mediated through an MCP bridge.
 - Deduplicate and format diagnostic messages
 - Clear on agent turn boundary
 
+### Runtime status
+
+The runtime owns a per-workspace `LspManager` and shares it with the
+`lsp_diagnostics` tool and the TUI. The wide sidebar shows:
+
+- whether LSP is initialized, disabled, detected, idle, running, or missing;
+- detected server names for the current workspace markers;
+- the current cached diagnostic count;
+- the last startup or request error when one is available.
+
+Sidebar rendering must not spawn language-server availability checks. The
+status view only reports cached availability until a tool call needs to verify
+and start a server.
+
 ### Phase 3: Configuration (~50 lines)
 
 - Read `~/.rara/config.json` `lsp` section

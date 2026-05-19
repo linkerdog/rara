@@ -28,6 +28,7 @@ use crate::llm::{
     ContentBlock, EmbeddingBackend, EmbeddingInputKind, LlmBackend, LlmEmbeddingBackend,
     LlmStreamEvent, LlmTurnMetadata,
 };
+use crate::lsp_manager::LspManager;
 use crate::mcp_status::McpStatusSnapshot;
 use crate::memory_notice::{count_label, memory_notice};
 use crate::memory_store::MemoryStore;
@@ -206,6 +207,7 @@ pub struct Agent {
     prompt_config: PromptRuntimeConfig,
     prompt_source_registry: Option<Arc<PromptSourceRegistry>>,
     skill_source_registry: Option<Arc<SkillSourceRegistry>>,
+    lsp_manager: Option<Arc<LspManager>>,
     cancellation_token: Option<Arc<AtomicBool>>,
     last_interaction_time: std::time::Instant,
 }
@@ -316,6 +318,7 @@ impl Agent {
             prompt_config: PromptRuntimeConfig::default(),
             prompt_source_registry: None,
             skill_source_registry: None,
+            lsp_manager: None,
             cancellation_token: None,
             last_interaction_time: std::time::Instant::now(),
         }
