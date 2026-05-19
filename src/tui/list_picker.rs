@@ -61,6 +61,11 @@ impl ListPickerKind {
                 .recent_threads
                 .iter()
                 .filter(|s| &s.metadata.session_id != &app.snapshot.session_id)
+                .filter(|s| {
+                    !app.resume_filter_cwd
+                        || resume_workspace_label(&s.metadata.cwd)
+                            == resume_workspace_label(&app.snapshot.cwd)
+                })
                 .count(),
             Self::AuthMode => super::auth_mode_picker::AUTH_MODE_OPTION_COUNT,
             Self::ReasoningEffort => app.selected_codex_reasoning_options().len(),
@@ -304,6 +309,11 @@ impl ListPickerKind {
             .recent_threads
             .iter()
             .filter(|s| &s.metadata.session_id != current_id)
+            .filter(|s| {
+                !app.resume_filter_cwd
+                    || resume_workspace_label(&s.metadata.cwd)
+                        == resume_workspace_label(&app.snapshot.cwd)
+            })
             .collect();
         if summaries.is_empty() {
             return vec![ListItem::new("No threads available.")];
