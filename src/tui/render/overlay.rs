@@ -423,6 +423,8 @@ fn render_context_modal(f: &mut Frame, app: &TuiApp, area: Rect) {
     );
 }
 
+/// Bottom-anchored compact popup for list pickers (model, provider, etc.).
+/// OpenCode-style: anchored near the input area, not full-screen.
 fn bottom_picker_rect(area: Rect) -> Rect {
     // OpenCode-style bottom-anchored compact popup
     let width = area.width.min(76).max(32).clamp(10, area.width);
@@ -442,9 +444,13 @@ fn bottom_picker_rect(area: Rect) -> Rect {
 /// height (opencode style). Width and height are clamped so the popup
 /// never exceeds the visible area.
 fn popup_rect(area: Rect, max_width: u16, max_height_pct: u16) -> Rect {
-    let width = max_width.min(area.width.saturating_sub(4)).max(20);
+    let width = max_width
+        .min(area.width.saturating_sub(4))
+        .max(20.min(area.width));
     let max_height = (area.height as u32 * max_height_pct as u32 / 100) as u16;
-    let height = max_height.min(area.height.saturating_sub(4)).max(8);
+    let height = max_height
+        .min(area.height.saturating_sub(4))
+        .max(8.min(area.height));
     let top_offset = area.height / 4;
     let x = area
         .x
@@ -647,7 +653,7 @@ fn render_model_search(f: &mut Frame, app: &TuiApp, area: Rect) {
     let block = popup_block().title_top(Line::from(Span::styled(
         " Model Search ",
         Style::default()
-            .fg(BADGE_FG_DARK)
+            .fg(TEXT_ACCENT)
             .add_modifier(Modifier::BOLD),
     )));
     let inner = block.inner(area);
