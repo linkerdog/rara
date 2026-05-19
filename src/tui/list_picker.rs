@@ -62,9 +62,8 @@ impl ListPickerKind {
                 .iter()
                 .filter(|s| &s.metadata.session_id != &app.snapshot.session_id)
                 .filter(|s| {
-                    !app.resume_filter_cwd
-                        || resume_workspace_label(&s.metadata.cwd)
-                            == resume_workspace_label(&app.snapshot.cwd)
+                    resume_workspace_label(&s.metadata.cwd)
+                        == resume_workspace_label(&app.snapshot.cwd)
                 })
                 .count(),
             Self::AuthMode => super::auth_mode_picker::AUTH_MODE_OPTION_COUNT,
@@ -310,9 +309,7 @@ impl ListPickerKind {
             .iter()
             .filter(|s| &s.metadata.session_id != current_id)
             .filter(|s| {
-                !app.resume_filter_cwd
-                    || resume_workspace_label(&s.metadata.cwd)
-                        == resume_workspace_label(&app.snapshot.cwd)
+                resume_workspace_label(&s.metadata.cwd) == resume_workspace_label(&app.snapshot.cwd)
             })
             .collect();
         if summaries.is_empty() {
@@ -531,11 +528,6 @@ fn render_resume_picker(f: &mut Frame, app: &TuiApp, area: Rect) {
     } else {
         app.resume_search_query.clone()
     };
-    let filter_status = if app.resume_filter_cwd {
-        "filter=[cwd] all"
-    } else {
-        "filter=cwd [all]"
-    };
     let sort_status = if app.resume_sort_by_created {
         "sort=updated [created]"
     } else {
@@ -552,9 +544,7 @@ fn render_resume_picker(f: &mut Frame, app: &TuiApp, area: Rect) {
         Span::raw(query),
         Span::raw(format!("  showing {current}/{total}")),
     ]);
-    let status_line = Line::from(format!(
-        "{filter_status}  {sort_status}  tab cwd/all  left/right sort"
-    ));
+    let status_line = Line::from(format!("{sort_status}  left/right sort"));
 
     f.render_widget(
         Paragraph::new(vec![search_line, status_line]).block(
