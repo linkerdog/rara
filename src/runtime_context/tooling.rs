@@ -12,6 +12,7 @@ use rara_tools::search::{GlobTool, GrepTool};
 use rara_tools::tool::ToolManager;
 
 use crate::llm::{EmbeddingBackend, LlmBackend};
+use crate::lsp_manager::LspManager;
 use crate::mcp_tool_cache::McpToolCache;
 use crate::prompt::PromptRuntimeConfig;
 use crate::sandbox::SandboxManager;
@@ -27,6 +28,7 @@ use crate::tools::bash::{
 };
 use crate::tools::context::RetrieveSessionContextTool;
 use crate::tools::goal::{CreateGoalTool, GetGoalTool, UpdateGoalTool};
+use crate::tools::lsp::LspDiagnosticsTool;
 use crate::tools::mcp_tool_search::McpToolSearch;
 use crate::tools::pty::{
     PtyKillTool, PtyListTool, PtyReadTool, PtySessionStore, PtyStartTool, PtyStatusTool,
@@ -55,6 +57,7 @@ pub(super) fn create_full_tool_manager(
     sandbox_network_access: Arc<AtomicBool>,
     goal_handle: GoalHandle,
     mcp_tool_cache: McpToolCache,
+    lsp_manager: Arc<LspManager>,
 ) -> ToolManager {
     let mut tm = ToolManager::new();
     let vector_db_uri = vector_db_uri_for_workspace(&workspace);
@@ -118,6 +121,7 @@ pub(super) fn create_full_tool_manager(
     tm.register(Box::new(WebSearchTool::from_env()));
     tm.register(Box::new(GlobTool));
     tm.register(Box::new(GrepTool));
+    tm.register(Box::new(LspDiagnosticsTool::new(lsp_manager)));
     tm.register(Box::new(McpToolSearch::new(mcp_tool_cache)));
     tm.register(Box::new(EnterPlanModeTool));
     tm.register(Box::new(ExitPlanModeTool));

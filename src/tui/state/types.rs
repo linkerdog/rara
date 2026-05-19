@@ -21,6 +21,7 @@ use crate::context::{
 };
 use crate::control_tokens::{has_pending_internal_control_context, scrub_internal_control_tokens};
 use crate::hook_registry::HookRegistry;
+use crate::lsp_manager::LspManager;
 use crate::mcp_connection_manager::McpConnectionManager;
 use crate::mcp_tool_cache::McpToolCache;
 use crate::oauth::SavedCodexAuthMode;
@@ -388,6 +389,7 @@ pub struct RebuildSuccess {
     pub skill_source_registry: Arc<SkillSourceRegistry>,
     pub hook_registry: Arc<HookRegistry>,
     pub memory_handler: Arc<MemoryControlHandler>,
+    pub lsp_manager: Arc<LspManager>,
 }
 
 pub enum TuiEvent {
@@ -716,6 +718,7 @@ pub struct TuiApp {
     pub state_db_status: Option<String>,
     pub local_model_server: crate::local_model_server::LocalModelServerStatus,
     pub mcp_manager: Option<Arc<McpConnectionManager>>,
+    pub lsp_manager: Option<Arc<LspManager>>,
     pub prompt_source_registry: Option<Arc<PromptSourceRegistry>>,
     pub skill_source_registry: Option<Arc<SkillSourceRegistry>>,
     pub hook_registry: Option<Arc<HookRegistry>>,

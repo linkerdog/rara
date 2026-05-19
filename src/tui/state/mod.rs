@@ -346,6 +346,7 @@ impl TuiApp {
             state_db_status: None,
             local_model_server,
             mcp_manager: None,
+            lsp_manager: None,
             prompt_source_registry: None,
             skill_source_registry: None,
             hook_registry: None,

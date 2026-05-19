@@ -982,6 +982,7 @@ pub(crate) async fn finish_running_task_if_ready(
                 app.goal = app.goal_handle.read().unwrap().clone();
                 app.mcp_tool_cache = Some(rebuilt.mcp_tool_cache);
                 app.mcp_manager = Some(rebuilt.mcp_manager);
+                app.lsp_manager = Some(rebuilt.lsp_manager);
                 app.prompt_source_registry = Some(rebuilt.prompt_source_registry);
                 app.skill_source_registry = Some(rebuilt.skill_source_registry);
                 app.memory_handler = Some(rebuilt.memory_handler);

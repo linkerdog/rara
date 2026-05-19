@@ -314,6 +314,7 @@ async fn run_tui_command(
         prompt_source_registry,
         skill_source_registry,
         hook_registry,
+        lsp_manager,
     ) = bootstrap.into_parts();
     let resumed_thread_id = crate::tui::run_tui(
         agent,
@@ -327,6 +328,7 @@ async fn run_tui_command(
         prompt_source_registry,
         skill_source_registry,
         hook_registry,
+        lsp_manager,
         initialize_local_embeddings,
     )
     .await?;

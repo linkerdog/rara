@@ -24,6 +24,7 @@ use crate::local_model_server::{
     LocalModelServerEmbeddingBackend, LocalModelServerStatus, inspect_local_model_server_status,
     prepare_local_model_server_status_with_progress,
 };
+use crate::lsp_manager::LspManager;
 use crate::mcp_connection_manager::McpConnectionManager;
 use crate::mcp_tool_cache::McpToolCache;
 use crate::prompt::{PromptRuntimeConfig, PromptSkillSummary};
@@ -53,11 +54,12 @@ pub(crate) struct RuntimeBootstrap {
     pub goal_handle: GoalHandle,
     pub mcp_tool_cache: McpToolCache,
     pub mcp_manager: Arc<McpConnectionManager>,
+    pub lsp_manager: Arc<LspManager>,
 }
 
 impl RuntimeBootstrap {
     pub(crate) fn into_agent(self) -> Agent {
-        let (agent, _, _, _, _, _, _, _, _) = self.into_parts();
+        let (agent, _, _, _, _, _, _, _, _, _) = self.into_parts();
         agent
     }
 
@@ -73,6 +75,7 @@ impl RuntimeBootstrap {
         Arc<PromptSourceRegistry>,
         Arc<SkillSourceRegistry>,
         Arc<HookRegistry>,
+        Arc<LspManager>,
     ) {
         let mut agent = Agent::new_with_embedding_backend(
             self.tool_manager,
@@ -85,6 +88,7 @@ impl RuntimeBootstrap {
         agent.set_prompt_config(self.prompt_config);
         agent.set_prompt_source_registry(self.prompt_source_registry.clone());
         agent.set_skill_source_registry(self.skill_source_registry.clone());
+        agent.set_lsp_manager(self.lsp_manager.clone());
         (
             agent,
             self.warnings,
@@ -95,6 +99,7 @@ impl RuntimeBootstrap {
             self.prompt_source_registry,
             self.skill_source_registry,
             self.hook_registry,
+            self.lsp_manager,
         )
     }
 }
@@ -176,6 +181,7 @@ pub(crate) async fn initialize_rara_context_with_local_embedding_bootstrap(
     let goal_handle: GoalHandle = Arc::new(std::sync::RwLock::new(None));
     let mcp_tool_cache = McpToolCache::new();
     mcp_tool_cache.clear();
+    let lsp_manager = Arc::new(LspManager::new(workspace.root.clone()));
 
     let config_manager = crate::config::ConfigManager::new()?;
     let mcp_registry = config_manager
@@ -215,6 +221,7 @@ pub(crate) async fn initialize_rara_context_with_local_embedding_bootstrap(
         sandbox_network_access.clone(),
         goal_handle.clone(),
         mcp_tool_cache.clone(),
+        lsp_manager.clone(),
     );
     let mut warnings = prompt_config.warnings.clone();
     warnings.extend(embedding_warnings);
@@ -236,6 +243,7 @@ pub(crate) async fn initialize_rara_context_with_local_embedding_bootstrap(
         goal_handle,
         mcp_tool_cache,
         mcp_manager,
+        lsp_manager,
     })
 }
 

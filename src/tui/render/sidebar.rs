@@ -40,6 +40,8 @@ pub(crate) fn render_sidebar(f: &mut Frame, app: &TuiApp, area: Rect) {
     lines.push(Line::from(""));
     push_context_summary(&mut lines, app);
     lines.push(Line::from(""));
+    push_lsp_status(&mut lines, app);
+    lines.push(Line::from(""));
     if push_todo_section(&mut lines, app) {
         lines.push(Line::from(""));
     }
@@ -131,6 +133,90 @@ fn push_context_summary(lines: &mut Vec<Line<'static>>, app: &TuiApp) {
         context_sidebar_summary(snap),
         Style::default().fg(TEXT_MUTED),
     )));
+}
+
+fn push_lsp_status(lines: &mut Vec<Line<'static>>, app: &TuiApp) {
+    lines.push(Line::from(super::section_label("LSP", TEXT_SECONDARY)));
+    let Some(manager) = app.lsp_manager.as_ref() else {
+        lines.push(Line::from(Span::styled(
+            "not initialized",
+            Style::default().fg(TEXT_MUTED),
+        )));
+        return;
+    };
+
+    let snapshot = manager.status_snapshot();
+    if !snapshot.enabled {
+        lines.push(Line::from(Span::styled(
+            "disabled by RARA_LSP",
+            Style::default().fg(TEXT_MUTED),
+        )));
+        return;
+    }
+
+    let detected = snapshot
+        .servers
+        .iter()
+        .filter(|server| server.detected)
+        .collect::<Vec<_>>();
+    if detected.is_empty() {
+        lines.push(Line::from(Span::styled(
+            "no project server detected",
+            Style::default().fg(TEXT_MUTED),
+        )));
+        return;
+    }
+
+    let running = detected.iter().filter(|server| server.running).count();
+    let available = detected.iter().filter(|server| server.available).count();
+    let status = if running > 0 {
+        format!(
+            "{} running · {} diagnostics",
+            running, snapshot.diagnostic_count
+        )
+    } else if available > 0 {
+        format!("idle · {available} available")
+    } else if detected.iter().any(|server| !server.checked) {
+        "detected · not started".to_string()
+    } else {
+        "server missing".to_string()
+    };
+    lines.push(Line::from(Span::styled(
+        status,
+        Style::default().fg(TEXT_MUTED),
+    )));
+
+    for server in detected.iter().take(3) {
+        let marker = if server.running {
+            "[>]"
+        } else if server.available {
+            "[ ]"
+        } else if !server.checked {
+            "[?]"
+        } else {
+            "[!]"
+        };
+        let style = if server.running {
+            Style::default().fg(INTERACTION_SUB_AGENT)
+        } else if server.available {
+            Style::default().fg(TEXT_SECONDARY)
+        } else if !server.checked {
+            Style::default().fg(TEXT_MUTED)
+        } else {
+            Style::default().fg(STATUS_WARNING)
+        };
+        lines.push(Line::from(Span::styled(
+            format!("{marker} {}", server.name),
+            style,
+        )));
+    }
+
+    if let Some(error) = snapshot.last_error {
+        lines.push(Line::from(Span::styled(
+            format!("last error: {error}"),
+            Style::default().fg(STATUS_WARNING),
+        )));
+    }
 }
 
 fn push_todo_section(lines: &mut Vec<Line<'static>>, app: &TuiApp) -> bool {

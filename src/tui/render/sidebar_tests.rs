@@ -2,8 +2,8 @@ use ratatui::{layout::Rect, style::Color, text::Line};
 use tempfile::tempdir;
 
 use super::{
-    push_child_sessions, push_context_summary, push_model_badge, push_session_info,
-    push_todo_section,
+    push_child_sessions, push_context_summary, push_lsp_status, push_model_badge,
+    push_session_info, push_todo_section,
 };
 use crate::config::ConfigManager;
 use crate::context::TodoContextView;
@@ -327,6 +327,49 @@ fn push_context_summary_no_context_window() {
             .any(|l| l.to_string().contains("600 · 5 turns")),
         "shows current-turn history tokens without context window"
     );
+}
+
+#[test]
+fn push_lsp_status_reports_not_initialized() {
+    let temp = tempdir().unwrap();
+    let app = TuiApp::new(ConfigManager {
+        path: temp.path().join("config.json"),
+    })
+    .expect("build tui app");
+
+    let mut lines = Vec::new();
+    push_lsp_status(&mut lines, &app);
+
+    let text: String = lines
+        .iter()
+        .map(|l| l.to_string())
+        .collect::<Vec<_>>()
+        .join("\n");
+    assert!(text.contains("LSP"));
+    assert!(text.contains("not initialized"));
+}
+
+#[test]
+fn push_lsp_status_reports_no_detected_project_server() {
+    let temp = tempdir().unwrap();
+    let mut app = TuiApp::new(ConfigManager {
+        path: temp.path().join("config.json"),
+    })
+    .expect("build tui app");
+    app.lsp_manager = Some(std::sync::Arc::new(crate::lsp_manager::LspManager::new(
+        temp.path().to_path_buf(),
+    )));
+
+    let mut lines = Vec::new();
+    push_lsp_status(&mut lines, &app);
+
+    let text: String = lines
+        .iter()
+        .map(|l| l.to_string())
+        .collect::<Vec<_>>()
+        .join("\n");
+    assert!(text.contains("LSP"));
+    assert!(text.contains("no project server detected"));
 }
 
 #[test]

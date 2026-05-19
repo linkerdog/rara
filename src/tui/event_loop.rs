@@ -33,6 +33,7 @@ pub enum StartupResumeTarget {
 }
 
 use crate::hook_registry::HookRegistry;
+use crate::lsp_manager::LspManager;
 use crate::mcp_connection_manager::McpConnectionManager;
 use crate::protocol_sources::{PromptSourceRegistry, SkillSourceRegistry};
 
@@ -48,6 +49,7 @@ pub async fn run_tui(
     prompt_source_registry: Arc<PromptSourceRegistry>,
     skill_source_registry: Arc<SkillSourceRegistry>,
     hook_registry: Arc<crate::hook_registry::HookRegistry>,
+    lsp_manager: Arc<LspManager>,
     initialize_local_embeddings: bool,
 ) -> anyhow::Result<Option<String>> {
     enable_raw_mode()?;
@@ -62,6 +64,7 @@ pub async fn run_tui(
     app.prompt_source_registry = Some(prompt_source_registry);
     app.skill_source_registry = Some(skill_source_registry);
     app.hook_registry = Some(hook_registry);
+    app.lsp_manager = Some(lsp_manager);
     app.memory_handler = Some(Arc::new(
         crate::protocol_sources::MemoryControlHandler::new(event_bus.clone()),
     ));
