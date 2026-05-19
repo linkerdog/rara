@@ -8,12 +8,17 @@ use ratatui::{
 
 use super::super::super::custom_terminal::Frame;
 use super::super::helpers::badge;
+use super::super::spinner;
 use crate::tui::theme::{STATUS_INFO, TEXT_ACCENT, TEXT_MUTED};
 
 pub(super) fn render_activity_bar(f: &mut Frame, view: &super::view::ActivityView, area: Rect) {
     let mut spans: Vec<Span<'_>> = Vec::new();
     let bold = Style::default().add_modifier(Modifier::BOLD);
-    spans.push(Span::styled(view.label.as_str(), bold.fg(view.label_color)));
+
+    let elapsed = view.spinner_elapsed;
+    spans.push(spinner::spinner(view.spinner, elapsed));
+    spans.push(Span::raw(" "));
+    spans.push(Span::styled(view.label, bold.fg(view.label_color)));
 
     if view.plan_badge {
         spans.push(Span::raw(" "));
