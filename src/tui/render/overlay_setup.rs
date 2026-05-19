@@ -6,7 +6,7 @@ use ratatui::{
     style::{Modifier, Style},
     text::Line,
     widgets::{
-        Block, Borders, Cell, List, ListItem, ListState, Paragraph, Row, Table, TableState, Wrap,
+        Block, Cell, List, ListItem, ListState, Padding, Paragraph, Row, Table, TableState, Wrap,
     },
 };
 use secrecy::ExposeSecret;
@@ -80,16 +80,14 @@ pub(super) fn render_provider_picker_modal(f: &mut Frame, app: &TuiApp, area: Re
         Paragraph::new(intro)
             .block(
                 Block::default()
-                    .borders(Borders::ALL)
+                    .style(Style::default().bg(UI_ELEMENT_BG))
+                    .padding(Padding::horizontal(1))
                     .title(" Provider Menu "),
             )
             .wrap(Wrap { trim: false }),
         chunks[0],
     );
-    f.render_widget(
-        List::new(items).block(Block::default().borders(Borders::LEFT | Borders::RIGHT)),
-        chunks[1],
-    );
+    f.render_widget(List::new(items), chunks[1]);
     f.render_widget(
         Paragraph::new("number jump  up/down move  enter choose  esc close")
             .alignment(Alignment::Center),
@@ -256,15 +254,13 @@ pub(super) fn render_model_picker_modal(f: &mut Frame, app: &TuiApp, area: Rect)
     f.render_widget(
         Paragraph::new(help).block(
             Block::default()
-                .borders(Borders::ALL)
+                .style(Style::default().bg(UI_ELEMENT_BG))
+                .padding(Padding::horizontal(1))
                 .title(" Model Picker "),
         ),
         chunks[0],
     );
-    f.render_widget(
-        List::new(items).block(Block::default().borders(Borders::LEFT | Borders::RIGHT)),
-        chunks[1],
-    );
+    f.render_widget(List::new(items), chunks[1]);
     f.render_widget(
         Paragraph::new(if provider_label == "Codex" {
             "1-9 jump  Up/Down move  Enter choose level  Esc close"
@@ -303,7 +299,8 @@ fn render_openai_profile_manager_modal(f: &mut Frame, app: &TuiApp, area: Rect) 
         Paragraph::new(help)
             .block(
                 Block::default()
-                    .borders(Borders::ALL)
+                    .style(Style::default().bg(UI_ELEMENT_BG))
+                    .padding(Padding::horizontal(1))
                     .title(" Model Profiles "),
             )
             .wrap(Wrap { trim: false }),
@@ -336,7 +333,6 @@ fn render_openai_profile_manager_modal(f: &mut Frame, app: &TuiApp, area: Rect) 
         ],
     )
     .header(header)
-    .block(Block::default().borders(Borders::LEFT | Borders::RIGHT))
     .column_spacing(1)
     .highlight_symbol("› ")
     .row_highlight_style(
@@ -457,15 +453,13 @@ pub(super) fn render_openai_profile_picker_modal(f: &mut Frame, app: &TuiApp, ar
         ))
         .block(
             Block::default()
-                .borders(Borders::ALL)
+                .style(Style::default().bg(UI_ELEMENT_BG))
+                .padding(Padding::horizontal(1))
                 .title(" Endpoint Profiles "),
         ),
         chunks[0],
     );
-    f.render_widget(
-        List::new(items).block(Block::default().borders(Borders::LEFT | Borders::RIGHT)),
-        chunks[1],
-    );
+    f.render_widget(List::new(items), chunks[1]);
     f.render_widget(
         Paragraph::new("Up/Down move  Enter choose  Esc back").alignment(Alignment::Center),
         chunks[2],
@@ -527,16 +521,14 @@ pub(super) fn render_openai_endpoint_kind_picker_modal(f: &mut Frame, app: &TuiA
         Paragraph::new(intro)
             .block(
                 Block::default()
-                    .borders(Borders::ALL)
+                    .style(Style::default().bg(UI_ELEMENT_BG))
+                    .padding(Padding::horizontal(1))
                     .title(" Endpoint Kind "),
             )
             .wrap(Wrap { trim: false }),
         chunks[0],
     );
-    f.render_widget(
-        List::new(items).block(Block::default().borders(Borders::LEFT | Borders::RIGHT)),
-        chunks[1],
-    );
+    f.render_widget(List::new(items), chunks[1]);
     f.render_widget(
         Paragraph::new("1-4 jump  Up/Down move  Enter choose  Esc back")
             .alignment(Alignment::Center),
@@ -580,13 +572,10 @@ pub(super) fn render_reasoning_effort_picker_modal(f: &mut Frame, app: &TuiApp, 
         .split(area);
     f.render_widget(
         Paragraph::new("Select the reasoning level for the chosen Codex model. Enter persists both the model and the level.")
-            .block(Block::default().borders(Borders::ALL).title(title)),
+            .block(Block::default().style(Style::default().bg(UI_ELEMENT_BG)).padding(Padding::horizontal(1)).title(title)),
         chunks[0],
     );
-    f.render_widget(
-        List::new(items).block(Block::default().borders(Borders::LEFT | Borders::RIGHT)),
-        chunks[1],
-    );
+    f.render_widget(List::new(items), chunks[1]);
     f.render_widget(
         Paragraph::new("1-5 jump  Up/Down move  Enter apply  Esc back")
             .alignment(Alignment::Center),
@@ -659,13 +648,10 @@ pub(super) fn render_permission_picker_modal(f: &mut Frame, app: &TuiApp, area: 
         .split(area);
     f.render_widget(
         Paragraph::new("Choose how RARA handles file edits, commands, and network access. Press Enter to apply the selected mode.")
-            .block(Block::default().borders(Borders::ALL).title(title)),
+            .block(Block::default().style(Style::default().bg(UI_ELEMENT_BG)).padding(Padding::horizontal(1)).title(title)),
         chunks[0],
     );
-    f.render_widget(
-        List::new(items).block(Block::default().borders(Borders::LEFT | Borders::RIGHT)),
-        chunks[1],
-    );
+    f.render_widget(List::new(items), chunks[1]);
     f.render_widget(
         Paragraph::new("1-4 jump  Up/Down move  Enter apply  Esc back")
             .alignment(Alignment::Center),
@@ -697,10 +683,19 @@ pub(super) fn render_base_url_editor_modal(
         ])
         .split(area);
     let intro = Paragraph::new(intro_text)
-        .block(Block::default().borders(Borders::ALL).title(" Base URL "))
+        .block(
+            Block::default()
+                .style(Style::default().bg(UI_ELEMENT_BG))
+                .padding(Padding::horizontal(1))
+                .title(" Base URL "),
+        )
         .wrap(Wrap { trim: false });
-    let editor = Paragraph::new(app.base_url_input.as_str())
-        .block(Block::default().borders(Borders::ALL).title(" Value "));
+    let editor = Paragraph::new(app.base_url_input.as_str()).block(
+        Block::default()
+            .style(Style::default().bg(UI_ELEMENT_BG))
+            .padding(Padding::horizontal(1))
+            .title(" Value "),
+    );
     let footer =
         Paragraph::new("Enter save  Esc back to model picker").alignment(Alignment::Center);
     f.render_widget(intro, chunks[0]);
@@ -728,7 +723,12 @@ pub(super) fn render_skills_picker_modal(f: &mut Frame, app: &TuiApp, area: Rect
 
     f.render_widget(
         Paragraph::new(intro)
-            .block(Block::default().borders(Borders::ALL).title(title.as_str()))
+            .block(
+                Block::default()
+                    .style(Style::default().bg(UI_ELEMENT_BG))
+                    .padding(Padding::horizontal(1))
+                    .title(title.as_str()),
+            )
             .wrap(Wrap { trim: false }),
         chunks[0],
     );
@@ -762,11 +762,7 @@ pub(super) fn render_skills_picker_modal(f: &mut Frame, app: &TuiApp, area: Rect
         list_state.select(Some(app.skill_picker_idx));
     }
 
-    f.render_stateful_widget(
-        List::new(items).block(Block::default().borders(Borders::LEFT | Borders::RIGHT)),
-        chunks[1],
-        &mut list_state,
-    );
+    f.render_stateful_widget(List::new(items), chunks[1], &mut list_state);
 
     let footer = if app.skill_picker_entries.is_empty() {
         "Esc close"
@@ -794,7 +790,8 @@ pub(super) fn render_auth_mode_picker_modal(f: &mut Frame, app: &TuiApp, area: R
         Paragraph::new(view.intro)
             .block(
                 Block::default()
-                    .borders(Borders::ALL)
+                    .style(Style::default().bg(UI_ELEMENT_BG))
+                    .padding(Padding::horizontal(1))
                     .title(" Codex Login "),
             )
             .wrap(Wrap { trim: false }),
@@ -804,7 +801,8 @@ pub(super) fn render_auth_mode_picker_modal(f: &mut Frame, app: &TuiApp, area: R
     let body = Paragraph::new(view.lines.join("\n"))
         .block(
             Block::default()
-                .borders(Borders::LEFT | Borders::RIGHT)
+                .style(Style::default().bg(UI_ELEMENT_BG))
+                .padding(Padding::horizontal(1))
                 .title(" Details "),
         )
         .wrap(Wrap { trim: false });
@@ -848,10 +846,19 @@ pub(super) fn render_api_key_editor_modal(
         ])
         .split(area);
     let intro = Paragraph::new(intro_text)
-        .block(Block::default().borders(Borders::ALL).title(title))
+        .block(
+            Block::default()
+                .style(Style::default().bg(UI_ELEMENT_BG))
+                .padding(Padding::horizontal(1))
+                .title(title),
+        )
         .wrap(Wrap { trim: false });
-    let editor = Paragraph::new(app.api_key_input.as_str())
-        .block(Block::default().borders(Borders::ALL).title(" Value "));
+    let editor = Paragraph::new(app.api_key_input.as_str()).block(
+        Block::default()
+            .style(Style::default().bg(UI_ELEMENT_BG))
+            .padding(Padding::horizontal(1))
+            .title(" Value "),
+    );
     let footer = Paragraph::new(footer_text).alignment(Alignment::Center);
     f.render_widget(intro, chunks[0]);
     f.render_widget(editor, chunks[1]);
@@ -879,10 +886,19 @@ pub(super) fn render_model_name_editor_modal(
         ])
         .split(area);
     let intro = Paragraph::new(intro_text)
-        .block(Block::default().borders(Borders::ALL).title(" Model Name "))
+        .block(
+            Block::default()
+                .style(Style::default().bg(UI_ELEMENT_BG))
+                .padding(Padding::horizontal(1))
+                .title(" Model Name "),
+        )
         .wrap(Wrap { trim: false });
-    let editor = Paragraph::new(app.model_name_input.as_str())
-        .block(Block::default().borders(Borders::ALL).title(" Value "));
+    let editor = Paragraph::new(app.model_name_input.as_str()).block(
+        Block::default()
+            .style(Style::default().bg(UI_ELEMENT_BG))
+            .padding(Padding::horizontal(1))
+            .title(" Value "),
+    );
     let footer =
         Paragraph::new("Enter save  Esc back to model picker").alignment(Alignment::Center);
     f.render_widget(intro, chunks[0]);
@@ -919,12 +935,17 @@ pub(super) fn render_openai_profile_label_editor_modal(
     let intro = Paragraph::new(intro_text)
         .block(
             Block::default()
-                .borders(Borders::ALL)
+                .style(Style::default().bg(UI_ELEMENT_BG))
+                .padding(Padding::horizontal(1))
                 .title(" New Endpoint Profile "),
         )
         .wrap(Wrap { trim: false });
-    let editor = Paragraph::new(app.openai_profile_label_input.as_str())
-        .block(Block::default().borders(Borders::ALL).title(" Label "));
+    let editor = Paragraph::new(app.openai_profile_label_input.as_str()).block(
+        Block::default()
+            .style(Style::default().bg(UI_ELEMENT_BG))
+            .padding(Padding::horizontal(1))
+            .title(" Label "),
+    );
     let footer = Paragraph::new("Enter create  Esc back to profiles").alignment(Alignment::Center);
     f.render_widget(intro, chunks[0]);
     f.render_widget(editor, chunks[1]);

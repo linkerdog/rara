@@ -13,16 +13,16 @@ Type a message to start a task or run a local command.
 Start with:
   /help    browse built-in commands and runtime hints
   /model   choose provider first, then switch models
-  /status  i┌ Provider ────────────────────────────────────────────────────────────────┐
-  /quit    l│Select a provider family.                                                 │
-            └──────────────────────────────────────────────────────────────────────────┘
-Prompt ideas│   [1] Codex (current)                                                    │
-  · Explain │      Use Codex with browser login, device-code login, or a Codex API key.│
-  · Find the│   [2] DeepSeek                                                           │
-            │      Use DeepSeek with an API key and model list from api.deepseek.com.  │
-            │   [3] Kimi                                                               │
-Warning  War│      Use Moonshot Kimi with an API key from api.moonshot.cn.             │
-› Ask about │                                                                          │
+  /status  i  Provider
+  /quit    l  Select a provider family.
+
+Prompt ideas    [1] Codex (current)
+  · Explain        Use Codex with browser login, device-code login, or a Codex API key.
+  · Find the    [2] DeepSeek
+                   Use DeepSeek with an API key and model list from api.deepseek.com.
+                [3] Kimi
+Warning  War       Use Moonshot Kimi with an API key from api.moonshot.cn.
+› Ask about
                           1-9 jump  Up/Down/jk move  Enter apply  Esc back
 
                                                                        perm=auto approval=suggestion

@@ -1,12 +1,11 @@
 ---
 source: src/tui/render/tests.rs
-assertion_line: 592
 expression: rendered
 ---
-┌ API Key ─────────────────────────────────────────────────────────────────────────────────────────┐
-│Paste the API key for the selected OpenAI-compatible endpoint profile.                            │
-└──────────────────────────────────────────────────────────────────────────────────────────────────┘
-┌ Value ───────────────────────────────────────────────────────────────────────────────────────────┐
-│                                                                                                  │
-└──────────────────────────────────────────────────────────────────────────────────────────────────┘
+ API Key
+ Paste the API key for the selected OpenAI-compatible endpoint profile.
+
+ Value
+
+
                                 Enter save  Esc back to model picker

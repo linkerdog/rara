@@ -9,7 +9,7 @@ use ratatui::{
     layout::{Alignment, Constraint, Direction, Layout, Rect},
     style::{Modifier, Style},
     text::{Line, Span},
-    widgets::{Block, Borders, List, ListItem, ListState, Paragraph},
+    widgets::{Block, List, ListItem, ListState, Padding, Paragraph},
 };
 
 use super::app_event::AppEvent;
@@ -477,6 +477,16 @@ fn resume_compaction_detail(summary: &ThreadSummary) -> Option<String> {
 }
 
 // ---------------------------------------------------------------------------
+// Popup color-block helper (mirrors `popup_block()` in overlay.rs)
+// ---------------------------------------------------------------------------
+
+fn popup_block() -> Block<'static> {
+    Block::default()
+        .style(Style::default().bg(POPUP_BG))
+        .padding(Padding::horizontal(1))
+}
+
+// ---------------------------------------------------------------------------
 // Unified render — one function for all ListPicker variants
 // ---------------------------------------------------------------------------
 
@@ -488,6 +498,9 @@ pub fn render_list_picker(f: &mut Frame, app: &TuiApp, kind: ListPickerKind, are
 
     let items = kind.render_items(app);
 
+    let block = popup_block();
+    let inner = block.inner(area);
+    f.render_widget(block, area);
     let chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
@@ -495,17 +508,18 @@ pub fn render_list_picker(f: &mut Frame, app: &TuiApp, kind: ListPickerKind, are
             Constraint::Min(6),
             Constraint::Length(2),
         ])
-        .split(area);
+        .split(inner);
 
     f.render_widget(
-        Paragraph::new(kind.description())
-            .block(Block::default().borders(Borders::ALL).title(kind.title())),
+        Paragraph::new(kind.description()).block(
+            Block::default()
+                .style(Style::default().bg(UI_ELEMENT_BG))
+                .padding(Padding::horizontal(1))
+                .title(kind.title()),
+        ),
         chunks[0],
     );
-    f.render_widget(
-        List::new(items).block(Block::default().borders(Borders::LEFT | Borders::RIGHT)),
-        chunks[1],
-    );
+    f.render_widget(List::new(items), chunks[1]);
     f.render_widget(
         Paragraph::new(kind.help_text()).alignment(Alignment::Center),
         chunks[2],
@@ -514,6 +528,9 @@ pub fn render_list_picker(f: &mut Frame, app: &TuiApp, kind: ListPickerKind, are
 
 fn render_resume_picker(f: &mut Frame, app: &TuiApp, area: Rect) {
     let items = ListPickerKind::Resume.render_items(app);
+    let block = popup_block();
+    let inner = block.inner(area);
+    f.render_widget(block, area);
     let chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
@@ -521,7 +538,7 @@ fn render_resume_picker(f: &mut Frame, app: &TuiApp, area: Rect) {
             Constraint::Min(8),
             Constraint::Length(1),
         ])
-        .split(area);
+        .split(inner);
 
     let query = if app.resume_search_query.is_empty() {
         "type to filter".to_string()
@@ -549,7 +566,8 @@ fn render_resume_picker(f: &mut Frame, app: &TuiApp, area: Rect) {
     f.render_widget(
         Paragraph::new(vec![search_line, status_line]).block(
             Block::default()
-                .borders(Borders::ALL)
+                .style(Style::default().bg(UI_ELEMENT_BG))
+                .padding(Padding::horizontal(1))
                 .title(ListPickerKind::Resume.title()),
         ),
         chunks[0],
@@ -562,8 +580,7 @@ fn render_resume_picker(f: &mut Frame, app: &TuiApp, area: Rect) {
     f.render_stateful_widget(
         List::new(items)
             .highlight_style(Style::default().fg(TEXT_ACCENT))
-            .highlight_symbol("› ")
-            .block(Block::default().borders(Borders::LEFT | Borders::RIGHT)),
+            .highlight_symbol("› "),
         chunks[1],
         &mut state,
     );

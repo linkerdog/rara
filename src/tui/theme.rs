@@ -56,6 +56,11 @@ pub(crate) const UI_ELEMENT_BG: Color = NORD2;
 pub(crate) const UI_BORDER: Color = NORD3;
 pub(crate) const UI_BORDER_ACTIVE: Color = NORD8;
 
+// ── Popup / overlay surfaces ────────────────────────────────────
+pub(crate) const POPUP_BG: Color = NORD1;
+/// Full-screen dimmer behind centered popups (matches UI_BG).
+pub(crate) const POPUP_DIMMER_BG: Color = NORD0;
+
 // ── Text ────────────────────────────────────────────────────────
 pub(crate) const TEXT_PRIMARY: Color = NORD4;
 pub(crate) const TEXT_SECONDARY: Color = NORD3;
@@ -95,7 +100,6 @@ pub(crate) const INTERACTION_SUB_AGENT: Color = NORD13;
 
 // ── Pending interaction card background ───────────────────────────
 pub(crate) const PENDING_CARD_FG: Color = NORD5;
-pub(crate) const PENDING_CARD_BG: Color = NORD1;
 
 // ── Tool output ─────────────────────────────────────────────────
 pub(crate) const TOOL_STDERR_BG: Color = NORD11;
