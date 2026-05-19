@@ -92,8 +92,9 @@ impl<'a> ContextAssembler<'a> {
         if !memory_section.is_empty() {
             context_sections.push(memory_section);
         }
-        if !self.runtime.hooks_prompt().is_empty() {
-            context_sections.push(format!("## Hooks\n\n{}", self.runtime.hooks_prompt()));
+        let hooks_text = self.runtime.hooks_prompt(None);
+        if !hooks_text.is_empty() {
+            context_sections.push(format!("## Hooks\n\n{}", hooks_text));
         }
         if !context_sections.is_empty() {
             prompt.text.push_str("\n\n");

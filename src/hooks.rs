@@ -11,58 +11,18 @@ use std::collections::BTreeMap;
 use std::fs;
 use std::path::Path;
 
+/// Hook phases aligned with Claude Code's lifecycle events.
+use rara_instructions::HookLifecycle;
 use serde::Serialize;
 
-/// Hook phases aligned with Claude Code's lifecycle events.
-/// RARA may normalise Claude hook files into these phases.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize)]
-#[serde(rename_all = "snake_case")]
-pub enum HookPhase {
-    /// When a new session begins.
-    SessionStart,
-    /// When the user sends a prompt.
-    UserPromptSubmit,
-    /// Before a tool is executed.
-    PreToolUse,
-    /// After a tool completes.
-    PostToolUse,
-    /// When the session stops.
-    Stop,
-}
-
-impl HookPhase {
-    /// Parse from Claude-style hook file names, e.g. "pre-tool-use" → PreToolUse.
-    pub fn from_filename(name: &str) -> Option<Self> {
-        match name {
-            "session-start" | "session_start" => Some(Self::SessionStart),
-            "user-prompt-submit" | "user_prompt_submit" => Some(Self::UserPromptSubmit),
-            "pre-tool-use" | "pre_tool_use" => Some(Self::PreToolUse),
-            "post-tool-use" | "post_tool_use" => Some(Self::PostToolUse),
-            "stop" => Some(Self::Stop),
-            _ => None,
-        }
-    }
-
-    pub fn as_str(&self) -> &'static str {
-        match self {
-            Self::SessionStart => "session_start",
-            Self::UserPromptSubmit => "user_prompt_submit",
-            Self::PreToolUse => "pre_tool_use",
-            Self::PostToolUse => "post_tool_use",
-            Self::Stop => "stop",
-        }
-    }
-}
-
 /// A discovered and normalised hook declaration.
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, serde::Serialize)]
 pub struct HookDefinition {
-    /// Unique id derived from source path.
     pub id: String,
     /// Repository-relative source path.
     pub source_path: String,
     /// Declared hook phase.
-    pub phase: HookPhase,
+    pub phase: HookLifecycle,
     /// Whether the hook could be fully parsed.
     pub parse_status: HookParseStatus,
     /// Hook body / handler content.
@@ -83,7 +43,7 @@ pub struct HookRegistry {
     pub hooks: BTreeMap<String, HookDefinition>,
     pub load_warnings: Vec<String>,
     /// All hook phases that have at least one registered hook.
-    pub active_phases: Vec<HookPhase>,
+    pub active_phases: Vec<HookLifecycle>,
 }
 
 impl HookRegistry {
@@ -118,7 +78,7 @@ impl HookRegistry {
             let Some(stem) = path.file_stem().and_then(|s| s.to_str()) else {
                 continue;
             };
-            let Some(phase) = HookPhase::from_filename(stem) else {
+            let Some(phase) = HookLifecycle::from_filename(stem) else {
                 continue;
             };
 
@@ -174,7 +134,7 @@ impl HookRegistry {
     }
 
     fn refresh_active_phases(&mut self) {
-        let mut phases: Vec<HookPhase> = self
+        let mut phases: Vec<HookLifecycle> = self
             .hooks
             .values()
             .filter(|h| h.parse_status == HookParseStatus::Ok)
@@ -205,13 +165,14 @@ impl HookRegistry {
     }
 }
 
-fn phase_ordinal(phase: HookPhase) -> u8 {
+fn phase_ordinal(phase: HookLifecycle) -> u8 {
     match phase {
-        HookPhase::SessionStart => 0,
-        HookPhase::UserPromptSubmit => 1,
-        HookPhase::PreToolUse => 2,
-        HookPhase::PostToolUse => 3,
-        HookPhase::Stop => 4,
+        HookLifecycle::SessionStart => 0,
+        HookLifecycle::UserPromptSubmit => 1,
+        HookLifecycle::PreToolUse => 2,
+        HookLifecycle::PostToolUse => 3,
+        HookLifecycle::Stop => 4,
+        HookLifecycle::PreCompact => 5,
     }
 }
 
@@ -226,15 +187,18 @@ mod tests {
     #[test]
     fn parses_hook_phases_from_claude_filenames() {
         assert_eq!(
-            HookPhase::from_filename("pre-tool-use"),
-            Some(HookPhase::PreToolUse)
+            HookLifecycle::from_filename("pre-tool-use"),
+            Some(HookLifecycle::PreToolUse)
         );
         assert_eq!(
-            HookPhase::from_filename("session-start"),
-            Some(HookPhase::SessionStart)
+            HookLifecycle::from_filename("session-start"),
+            Some(HookLifecycle::SessionStart)
         );
-        assert_eq!(HookPhase::from_filename("stop"), Some(HookPhase::Stop));
-        assert_eq!(HookPhase::from_filename("unknown"), None);
+        assert_eq!(
+            HookLifecycle::from_filename("stop"),
+            Some(HookLifecycle::Stop)
+        );
+        assert_eq!(HookLifecycle::from_filename("unknown"), None);
     }
 
     #[test]
@@ -254,8 +218,8 @@ mod tests {
         registry.discover_from_dir(&hooks_dir);
 
         assert_eq!(registry.hooks.len(), 2);
-        assert!(registry.active_phases.contains(&HookPhase::PreToolUse));
-        assert!(registry.active_phases.contains(&HookPhase::Stop));
+        assert!(registry.active_phases.contains(&HookLifecycle::PreToolUse));
+        assert!(registry.active_phases.contains(&HookLifecycle::Stop));
     }
 
     #[test]
