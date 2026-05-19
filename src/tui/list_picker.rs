@@ -378,14 +378,13 @@ fn render_resume_summary_lines(
         Span::styled(preview, Style::default().add_modifier(Modifier::BOLD)),
     ]);
     let metadata = Line::from(format!(
-        "     {updated}  {}/{}  mode={} approval={}  cwd={} branch={} id={}  {counts}",
+        "     {updated}  {}/{}  mode={} approval={}  cwd={} branch={}  {counts}",
         metadata.provider,
         metadata.model,
         metadata.agent_mode,
         metadata.bash_approval,
         workspace,
         metadata.branch,
-        metadata.session_id
     ));
 
     let mut lines = vec![title, metadata];
@@ -677,7 +676,7 @@ mod tests {
         assert!(rendered.contains("[1] User: improve resume picker"));
         assert!(rendered.contains("updated unknown  codex/gpt-5.2"));
         assert!(rendered.contains("mode=execute approval=suggestion"));
-        assert!(rendered.contains("cwd=rara branch=feature/resume-picker id=thread-123"));
+        assert!(rendered.contains("cwd=rara branch=feature/resume-picker"));
         assert!(rendered.contains("hist=8 trans=5 compact=2"));
         assert!(rendered.contains("compact boundary=v1 recent_files=3 tokens=12000->4000"));
         assert!(!rendered.contains("compaction runs=2"));
