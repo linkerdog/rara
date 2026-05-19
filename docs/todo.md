@@ -18,10 +18,27 @@ Active backlog only. Keep this file small and current.
 ## Next Up (short-term, ready to implement)
 
 ### Memory (Phase 2–4)
-- [ ] `summary.md` index: auto-update on session file writes, 5KB retention cap
-- [ ] `search_memory`: rg + LanceDB merged search with native fallback
-- [ ] Context injection: load summary.md into system context every turn
-- [ ] Wire session file creation into runtime startup
+- [x] `summary.md` index: auto-update on session file writes, 5KB retention cap (#442)
+- [x] `search_memory`: rg + LanceDB merged search with native fallback (#442)
+- [x] Context injection: load summary.md into system context every turn (#442)
+- [x] Wire session file creation into runtime startup (#442)
+- [x] Claude-style one-line pointer index format (#442)
+- [x] Concurrent-safe writes: atomic temp-file + fs2 locking (#442)
+- [x] Codex-inspired read-path template with usage instructions (#442)
+- [x] Migrate `memory_files` to `rara-memory` crate (#442)
+- [ ] Write path: two-phase consolidation (Phase1 ad-hoc → Phase2 merge), git-baseline diffing
+- [ ] Wire `search_memory` tool → return real LanceDB results
+- [ ] Wire memory hooks (pre/post memory write, query)
+
+### Hooks
+- [x] File-based hook discovery + context injection (#442)
+- [x] File-hooks lifecycle spec (`docs/features/file-hooks.md`) (#442)
+- [x] Command hook execution: `run_command_hook` + `make_command_hook` (#444)
+- [x] Hook runtime startup + event bus subscription (#444)
+- [ ] Per-phase conditional hook injection
+- [ ] `PreToolUse` hook with input modification
+- [ ] Hook output injection into model context
+- [ ] Wire plugin hook registration into runtime startup
 
 ### LSP (Phase 1)
 - [ ] rust-analyzer bridge: lazy spawn, JSON-RPC handshake, diagnostics parsing
