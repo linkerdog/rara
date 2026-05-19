@@ -370,3 +370,17 @@ fn unix_timestamp_seconds() -> u64 {
         .as_secs()
 }
 
+/// Compute the new content string after applying `patch` to `record`.
+/// Returns the record's existing content when no content-related fields
+/// are set in the patch.
+pub(crate) fn apply_patch_to_content(record: &MemoryRecord, patch: &MemoryRecordPatch) -> String {
+    match &patch.content {
+        Some(c) if !c.trim().is_empty() => c.clone(),
+        Some(_) => record.content.clone(),
+        None => match &patch.title {
+            Some(t) => format!("{}\n\n{}", t, record.content),
+            None => record.content.clone(),
+        },
+    }
+}
+
