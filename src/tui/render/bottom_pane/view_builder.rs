@@ -208,6 +208,8 @@ pub(super) fn footer_summary_text(app: &TuiApp) -> String {
         parts.push(hint);
     }
 
+    parts.push(footer_permission_status(app));
+
     if shows_live_task_stats(app) {
         parts.push(format!(
             "tokens={}",
@@ -227,6 +229,14 @@ pub(super) fn footer_summary_text(app: &TuiApp) -> String {
     }
 
     parts.join("  ")
+}
+
+fn footer_permission_status(app: &TuiApp) -> String {
+    format!(
+        "perm={} approval={}",
+        app.permission_mode_label(),
+        app.bash_approval_mode_label()
+    )
 }
 
 fn shows_live_task_stats(app: &TuiApp) -> bool {

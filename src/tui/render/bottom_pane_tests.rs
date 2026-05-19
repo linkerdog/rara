@@ -18,7 +18,7 @@ use crate::tui::state::{
 use crate::tui::theme::STATUS_WARNING;
 
 #[test]
-fn footer_summary_text_is_empty_when_idle_and_no_repo_context() {
+fn footer_summary_text_reports_permission_and_approval_when_idle() {
     let temp = tempdir().unwrap();
     let mut app = TuiApp::new(ConfigManager {
         path: temp.path().join("config.json"),
@@ -31,11 +31,13 @@ fn footer_summary_text_is_empty_when_idle_and_no_repo_context() {
     };
 
     let rendered = footer_summary_text(&app);
-    assert_eq!(rendered, "");
+    assert_eq!(rendered, "perm=auto approval=suggestion");
+    assert!(!rendered.contains("tokens="));
+    assert!(!rendered.contains("ctx~="));
 }
 
 #[test]
-fn footer_summary_text_shows_tokens_only_while_busy() {
+fn footer_summary_text_shows_tokens_while_busy() {
     let temp = tempdir().unwrap();
     let mut app = TuiApp::new(ConfigManager {
         path: temp.path().join("config.json"),
@@ -51,7 +53,7 @@ fn footer_summary_text_shows_tokens_only_while_busy() {
     };
 
     let rendered = footer_summary_text(&app);
-    assert_eq!(rendered, "tokens=2.0k");
+    assert_eq!(rendered, "perm=auto approval=suggestion  tokens=2.0k");
     assert!(!rendered.contains("history="));
     assert!(!rendered.contains("local="));
     assert!(!rendered.contains("key="));

@@ -23,3 +23,6 @@ Prompt ideas:
 
 Warning  Warning: openai-compatible is missing an API key. Use /model to configure the current provi
 › Ask about the repo, request a code change, or type /help to browse commands.
+
+
+                                                                       perm=auto approval=suggestion
