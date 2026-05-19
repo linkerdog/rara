@@ -2,10 +2,10 @@
 source: src/tui/render/tests.rs
 expression: rendered
 ---
- API Key
- Paste the API key for the selected OpenAI-compatible endpoint profile.
+  API Key
+  Paste the API key for the selected OpenAI-compatible endpoint profile.
 
- Value
+  Value
 
 
                                 Enter save  Esc back to model picker

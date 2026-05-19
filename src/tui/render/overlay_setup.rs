@@ -48,6 +48,9 @@ fn wrapped_text_height(text: &str, area_width: u16) -> u16 {
 }
 
 pub(super) fn render_provider_picker_modal(f: &mut Frame, app: &TuiApp, area: Rect) {
+    let block = super::popup_block();
+    let inner = block.inner(area);
+    f.render_widget(block, area);
     let items = PROVIDER_FAMILIES
         .iter()
         .enumerate()
@@ -242,6 +245,9 @@ pub(super) fn render_model_picker_modal(f: &mut Frame, app: &TuiApp, area: Rect)
                 .unwrap_or("http://localhost:11434"),
         )
     };
+    let block = super::popup_block();
+    let inner = block.inner(area);
+    f.render_widget(block, area);
     let help_height = wrapped_text_height(help, area.width);
     let chunks = Layout::default()
         .direction(Direction::Vertical)

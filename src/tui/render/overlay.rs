@@ -83,31 +83,41 @@ pub(super) fn render_overlay(f: &mut Frame, app: &TuiApp, overlay: Overlay) -> O
             let popup = setup_flow_rect(f.area());
             render_dimmer(f, f.area());
             f.render_widget(Clear, popup);
-            render_base_url_editor_modal(f, app, popup)
+            let inner = popup_block().inner(popup);
+            f.render_widget(popup_block(), popup);
+            render_base_url_editor_modal(f, app, inner)
         }
         Overlay::ApiKeyEditor => {
             let popup = setup_flow_rect(f.area());
             render_dimmer(f, f.area());
             f.render_widget(Clear, popup);
-            render_api_key_editor_modal(f, app, popup)
+            let inner = popup_block().inner(popup);
+            f.render_widget(popup_block(), popup);
+            render_api_key_editor_modal(f, app, inner)
         }
         Overlay::ModelNameEditor => {
             let popup = setup_flow_rect(f.area());
             render_dimmer(f, f.area());
             f.render_widget(Clear, popup);
-            render_model_name_editor_modal(f, app, popup)
+            let inner = popup_block().inner(popup);
+            f.render_widget(popup_block(), popup);
+            render_model_name_editor_modal(f, app, inner)
         }
         Overlay::OpenAiProfileLabelEditor => {
             let popup = setup_flow_rect(f.area());
             render_dimmer(f, f.area());
             f.render_widget(Clear, popup);
-            render_openai_profile_label_editor_modal(f, app, popup)
+            let inner = popup_block().inner(popup);
+            f.render_widget(popup_block(), popup);
+            render_openai_profile_label_editor_modal(f, app, inner)
         }
         Overlay::SkillsPicker => {
             let popup = setup_flow_rect(f.area());
             render_dimmer(f, f.area());
             f.render_widget(Clear, popup);
-            render_skills_picker_modal(f, app, popup);
+            let inner = popup_block().inner(popup);
+            f.render_widget(popup_block(), popup);
+            render_skills_picker_modal(f, app, inner);
             None
         }
     }
@@ -470,7 +480,7 @@ fn render_dimmer(f: &mut Frame, area: Rect) {
 
 /// Styled block for popup content areas: solid panel background, no borders,
 /// 1-char horizontal padding (opencode color-block style).
-fn popup_block() -> Block<'static> {
+pub(crate) fn popup_block() -> Block<'static> {
     Block::default()
         .style(Style::default().bg(POPUP_BG))
         .padding(Padding::horizontal(1))
