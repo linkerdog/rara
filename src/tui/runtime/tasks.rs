@@ -809,6 +809,24 @@ pub(crate) async fn finish_running_task_if_ready(
                                 start_query_task(app, next_goal_prompt, agent);
                                 return Ok(());
                             }
+                            // Claude Code-style evaluator: check whether the
+                            // goal condition is satisfied.
+                            let condition = app
+                                .goal
+                                .as_ref()
+                                .and_then(|g| g.condition.clone())
+                                .unwrap_or_default();
+                            if !condition.is_empty() {
+                                // TODO: call evaluator LLM to get real yes/no.
+                                // Placeholder: always "not yet" so the loop
+                                // continues until the model marks complete.
+                                let eval_reason =
+                                    format!("no: goal not yet complete — {condition}");
+                                app.push_system(
+                                    eval_reason,
+                                    crate::tui::state::SystemMessageKind::Other,
+                                );
+                            }
                             // finalize_active_turn closes the current turn's transcript
                             // before start_query_task begins a new one.
                             app.finalize_active_turn();

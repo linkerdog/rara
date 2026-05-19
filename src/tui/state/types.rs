@@ -765,6 +765,9 @@ pub enum GoalStatus {
 pub struct RalphGoal {
     /// The objective text set by `/goal <objective>`.
     pub objective: String,
+    /// Condition string used by the evaluator to check completion.
+    /// Defaults to the objective if not explicitly set.
+    pub condition: Option<String>,
     /// Current lifecycle status.
     pub status: GoalStatus,
     /// Optional token budget (input tokens). None = unlimited.
@@ -780,7 +783,8 @@ pub struct RalphGoal {
 impl RalphGoal {
     pub fn new(objective: String, token_budget: Option<u32>) -> Self {
         Self {
-            objective,
+            objective: objective.clone(),
+            condition: Some(objective),
             status: GoalStatus::Pursuing,
             token_budget,
             tokens_used: 0,
