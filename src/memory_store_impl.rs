@@ -58,23 +58,16 @@ impl MemoryStore {
         self.insert_with_id(None, input).await
     }
 
-    pub async fn insert_with_id(
-        &self,
-        id: Option<String>,
-        input: NewMemoryRecord,
-    ) -> Result<MemoryRecord> {
-        let _timer = self.observability.start_timer(MemoryOperation::Write);
+    /// Shared record-construction logic for `insert_with_id` and `insert_text_only`.
+    /// Builds a `MemoryRecord` from input but does NOT persist it.
+    fn build_memory_record(id: String, input: NewMemoryRecord) -> Result<MemoryRecord> {
         let content = input.content.trim();
         if content.is_empty() {
             bail!("memory content must not be empty");
         }
-        let id = id
-            .map(|id| id.trim().to_string())
-            .filter(|id| !id.is_empty())
-            .unwrap_or_else(|| format!("memory-{}", uuid::Uuid::new_v4()));
         let importance = clamp_importance(input.importance);
         let now = unix_timestamp_seconds();
-        let record = MemoryRecord {
+        Ok(MemoryRecord {
             id,
             title: input
                 .title
@@ -91,7 +84,20 @@ impl MemoryStore {
             source_span: input.source_span,
             created_at_unix_seconds: now,
             updated_at_unix_seconds: now,
-        };
+        })
+    }
+
+    pub async fn insert_with_id(
+        &self,
+        id: Option<String>,
+        input: NewMemoryRecord,
+    ) -> Result<MemoryRecord> {
+        let _timer = self.observability.start_timer(MemoryOperation::Write);
+        let id = id
+            .map(|id| id.trim().to_string())
+            .filter(|id| !id.is_empty())
+            .unwrap_or_else(|| format!("memory-{}", uuid::Uuid::new_v4()));
+        let record = Self::build_memory_record(id, input)?;
         let vector = self
             .embedding_backend
             .embed(&record.content, EmbeddingInputKind::Document)
@@ -176,26 +182,38 @@ impl MemoryStore {
     pub async fn update(&self, id: &str, patch: MemoryRecordPatch) -> Result<MemoryRecord> {
         let _timer = self.observability.start_timer(MemoryOperation::Write);
         let normalized_patch = normalize_memory_record_patch(patch)?;
-        let updated = self.records.update(id, normalized_patch.clone()).await?;
-        if patch_requires_index_refresh(&normalized_patch) {
+        // Read existing record so we can embed the *new* content before
+        // writing to the file store.  This avoids inconsistency when the
+        // VDB upsert fails after the file store has already been updated.
+        let existing = self
+            .records
+            .get(id)
+            .await?
+            .ok_or_else(|| anyhow::anyhow!("MemoryStore::update: record not found: {id}"))?;
+        let new_content = apply_patch_to_content(&existing, &normalized_patch);
+        let index_key = match &normalized_patch.scope {
+            Some(s) => memory_scope_key(s).to_string(),
+            None => existing.index_scope_key(),
+        };
+        if patch_requires_index_refresh(&normalized_patch) && !new_content.is_empty() {
             let vector = self
                 .embedding_backend
-                .embed(&updated.content, EmbeddingInputKind::Document)
+                .embed(&new_content, EmbeddingInputKind::Document)
                 .await?;
             self.vdb
                 .upsert_turn(
                     EXPERIENCES_TABLE,
                     MemoryMetadata {
-                        id: Some(updated.id.clone()),
-                        session_id: updated.index_scope_key(),
+                        id: Some(id.to_string()),
+                        session_id: index_key,
                         turn_index: MEMORY_RECORD_INDEX_PLACEHOLDER,
-                        text: updated.content.clone(),
+                        text: new_content,
                     },
                     vector,
                 )
                 .await?;
         }
-        Ok(updated)
+        self.records.update(id, normalized_patch).await
     }
 
     pub async fn delete(&self, id: &str) -> Result<Option<MemoryRecord>> {
@@ -207,31 +225,10 @@ impl MemoryStore {
     /// Writes to JSON only, skips LanceDB vector index.
     pub async fn insert_text_only(&self, input: NewMemoryRecord) -> Result<MemoryRecord> {
         let _timer = self.observability.start_timer(MemoryOperation::Write);
-        let content = input.content.trim();
-        if content.is_empty() {
-            bail!("memory content must not be empty");
-        }
-        let id = format!("memory-{}", uuid::Uuid::new_v4());
-        let importance = clamp_importance(input.importance);
-        let now = unix_timestamp_seconds();
-        let record = MemoryRecord {
-            id,
-            title: input
-                .title
-                .filter(|title| !title.trim().is_empty())
-                .unwrap_or_else(|| title_from_content(content)),
-            content: content.to_string(),
-            labels: normalized_labels(input.labels),
-            importance,
-            pinned: input.pinned,
-            source: input.source,
-            scope: input.scope,
-            session_id: normalized_optional_id(input.session_id),
-            thread_id: normalized_optional_id(input.thread_id),
-            source_span: input.source_span,
-            created_at_unix_seconds: now,
-            updated_at_unix_seconds: now,
-        };
+        let record = Self::build_memory_record(
+            format!("memory-{}", uuid::Uuid::new_v4()),
+            input,
+        )?;
         self.records.upsert(&record).await?;
         Ok(record)
     }
