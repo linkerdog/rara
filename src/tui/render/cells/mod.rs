@@ -7,6 +7,7 @@ mod active_turn;
 #[path = "committed_turn.rs"]
 mod committed_turn;
 mod interaction_cells;
+mod lsp_diagnostics;
 mod message_cell;
 mod plan_cells;
 mod responding_cell;
@@ -20,6 +21,7 @@ pub(crate) use self::committed_turn::CommittedTurnCell;
 pub(crate) use self::interaction_cells::{
     CommittedInteractionCell, PendingInteractionCell, QueuedFollowUpCell, TerminalCell,
 };
+pub(crate) use self::lsp_diagnostics::LspDiagnosticsCell;
 pub(crate) use self::message_cell::MessageCell;
 pub(crate) use self::plan_cells::{
     PlanModeCell, PlanSummaryCell, PlanningSuggestionCell, planning_suggestion_text,

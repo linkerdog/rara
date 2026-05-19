@@ -444,6 +444,9 @@ fn apply_patch_targets(patch: &str) -> Vec<String> {
 }
 
 pub(super) fn format_tool_result(name: &str, content: &str) -> String {
+    if name == "lsp_diagnostics" {
+        return format!("lsp_diagnostics\n{}", content.trim());
+    }
     if matches!(name, "explore_agent" | "plan_agent" | "spawn_agent") {
         if let Ok(value) = serde_json::from_str::<serde_json::Value>(content) {
             let summary = value

@@ -699,6 +699,33 @@ fn formats_subagent_tool_result_with_returned_ids() {
 }
 
 #[test]
+fn formats_lsp_diagnostics_tool_result_as_parseable_payload() {
+    let rendered = format_tool_result(
+        "lsp_diagnostics",
+        &serde_json::to_string_pretty(&json!({
+            "file": "src/main.rs",
+            "diagnostics": [{
+                "file": "src/main.rs",
+                "line": 4,
+                "column": 8,
+                "severity": "Error",
+                "message": "cannot find value `x` in this scope",
+                "code": "E0425"
+            }],
+            "status": {
+                "diagnostic_count": 1,
+                "servers": [{ "running": true }]
+            }
+        }))
+        .unwrap(),
+    );
+
+    assert!(rendered.starts_with("lsp_diagnostics\n{"));
+    assert!(rendered.contains("\"diagnostics\""));
+    assert!(rendered.contains("\"E0425\""));
+}
+
+#[test]
 fn formats_replace_lines_tool_result_as_edit_summary() {
     let rendered = format_tool_result(
         "replace_lines",

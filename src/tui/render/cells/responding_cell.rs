@@ -7,7 +7,7 @@ use ratatui::{
 };
 
 use super::tool_progress::tool_progress_lines;
-use super::{HistoryCell, InteractionCompletionKind};
+use super::{HistoryCell, InteractionCompletionKind, LspDiagnosticsCell};
 use crate::tui::interaction_text::{
     pending_interaction_card_title, status_planning_suggestion_text,
 };
@@ -152,7 +152,13 @@ impl HistoryCell for RespondingCell<'_> {
                 role,
                 message,
                 max_lines,
-            } => prefixed_message_lines(role, message, *max_lines),
+            } => {
+                if let Some(cell) = LspDiagnosticsCell::from_message(message) {
+                    cell.display_lines(width)
+                } else {
+                    prefixed_message_lines(role, message, *max_lines)
+                }
+            }
             RespondingCellContent::Working(detail) => compact_message_lines(detail, 1),
         }
     }

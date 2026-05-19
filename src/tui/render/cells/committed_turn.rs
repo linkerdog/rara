@@ -8,7 +8,8 @@ use super::progress::{ProgressRole, progress_entry_message_lines, push_progress_
 use super::terminal::terminal_cell_from_entries;
 use super::user_startup::UserCell;
 use super::{
-    HistoryCell, InteractionCompletionKind, is_progress_stack_title, trim_trailing_empty_lines,
+    HistoryCell, InteractionCompletionKind, LspDiagnosticsCell, is_progress_stack_title,
+    trim_trailing_empty_lines,
 };
 use crate::tui::state::{TranscriptEntry, TranscriptEntryPayload};
 
@@ -106,6 +107,12 @@ fn push_ordered_committed_activity<'a>(
             entry.role.as_str(),
             "Tool" | "Tool Result" | "Tool Error" | "Tool Progress"
         ) {
+            if matches!(entry.role.as_str(), "Tool Result" | "Tool Error")
+                && let Some(cell) = LspDiagnosticsCell::from_message(&entry.message)
+            {
+                cells.push(Box::new(cell));
+                continue;
+            }
             cells.push(Box::new(MessageCell::new_tail(
                 &entry.role,
                 &entry.message,

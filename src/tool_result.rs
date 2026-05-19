@@ -104,6 +104,7 @@ impl ToolResultStore {
             "grep" => compact_grep(result),
             "web_fetch" => compact_web_fetch(input, result),
             "web_search" => compact_web_search(input, result),
+            "lsp_diagnostics" => compact_lsp_diagnostics(result),
             _ => compact_generic(&summary, result),
         };
         let full_rendered =
@@ -1216,6 +1217,21 @@ fn summarize_tool_result(tool_name: &str, input: &Value, result: &Value) -> Stri
                 "Replaced lines {start_line}-{end_line} in {path}: {inserted_lines} inserted line(s)."
             )
         }
+        "lsp_diagnostics" => {
+            let file = result
+                .get("file")
+                .and_then(Value::as_str)
+                .unwrap_or("<unknown>");
+            let total = result
+                .get("diagnostics")
+                .and_then(Value::as_array)
+                .map_or(0, Vec::len);
+            if let Some(error) = result.get("error").and_then(Value::as_str) {
+                format!("LSP diagnostics for {file} failed: {error}")
+            } else {
+                format!("LSP diagnostics for {file}: {total} diagnostic(s).")
+            }
+        }
         _ => {
             let keys = result
                 .as_object()
@@ -1225,6 +1241,10 @@ fn summarize_tool_result(tool_name: &str, input: &Value, result: &Value) -> Stri
             format!("Tool {tool_name} completed with {keys}.")
         }
     }
+}
+
+fn compact_lsp_diagnostics(result: &Value) -> String {
+    serde_json::to_string_pretty(result).unwrap_or_else(|_| result.to_string())
 }
 
 fn truncate_text(text: &str, max_chars: usize) -> String {
