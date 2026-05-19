@@ -1,6 +1,5 @@
 ---
 source: src/tui/render/tests.rs
-assertion_line: 1240
 expression: rendered
 ---
 ── RARA ──────────────────────────────────────────────────
@@ -21,3 +20,5 @@ Pr│DeepSeek/deepseek-v4-pro                                                  �
 Re│DeepSeek/deepseek-v4-preview                                              │
 › │Kimi/kimi-k2.6                                                            │
                      Up/Down/jk move  Enter apply  Esc back
+
+                                                   perm=auto approval=suggestion
