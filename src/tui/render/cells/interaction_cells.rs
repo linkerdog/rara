@@ -26,7 +26,6 @@ use crate::tui::state::{ActivePendingInteractionKind, TuiApp};
 use crate::tui::sub_agent_display::SUB_AGENT_QUESTION_COLOR;
 use crate::tui::terminal_event::TerminalStream;
 use crate::tui::theme::*;
-use crate::tui::theme::{PENDING_CARD_BG, PENDING_CARD_FG};
 
 pub(crate) struct TerminalCell {
     command: String,
@@ -267,7 +266,10 @@ impl ApprovalCell {
 
 impl HistoryCell for ApprovalCell {
     fn display_lines(&self, _width: u16) -> Vec<Line<'static>> {
-        let card_style = Style::default().fg(PENDING_CARD_FG).bg(PENDING_CARD_BG);
+        // Deliberately no special background: the card content (command output, etc.)
+        // renders on the main terminal background so text is always readable.
+        // The section label provides the only visual framing.
+        let card_style = Style::default().fg(PENDING_CARD_FG);
         let mut lines = vec![Line::from(section_label(self.title, self.color))];
         lines.extend(
             self.lines
