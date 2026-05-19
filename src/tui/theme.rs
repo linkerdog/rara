@@ -102,7 +102,6 @@ pub(crate) const INTERACTION_SUB_AGENT: Color = NORD13;
 pub(crate) const PENDING_CARD_FG: Color = NORD5;
 
 // ── Tool output ─────────────────────────────────────────────────
-pub(crate) const TOOL_STDERR_BG: Color = NORD11;
 pub(crate) const TOOL_STDERR_FG: Color = NORD6;
 
 // ── Diff view ───────────────────────────────────────────────────

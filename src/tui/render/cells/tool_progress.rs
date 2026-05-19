@@ -4,7 +4,7 @@ use ratatui::{
 };
 
 use crate::tui::render::display_width;
-use crate::tui::theme::{STATUS_WARNING, TEXT_SECONDARY, TOOL_STDERR_BG, TOOL_STDERR_FG};
+use crate::tui::theme::{STATUS_WARNING, TEXT_SECONDARY, TOOL_STDERR_FG};
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum ToolProgressStream {
@@ -237,7 +237,7 @@ fn styled_stderr_progress_line(text: &str, width: u16) -> Line<'static> {
     let padding = target_width.saturating_sub(display_width(&text));
     Line::from(Span::styled(
         format!("{text}{}", " ".repeat(padding)),
-        Style::default().fg(TOOL_STDERR_FG).bg(TOOL_STDERR_BG),
+        Style::default().fg(TOOL_STDERR_FG),
     ))
 }
 
@@ -300,9 +300,9 @@ mod tests {
         assert!(rendered_text.contains("err 3"));
         assert!(rendered_text.contains("err 4"));
         assert!(rendered.iter().all(|line| {
-            line.spans.iter().any(|span| {
-                span.style.fg == Some(TOOL_STDERR_FG) && span.style.bg == Some(TOOL_STDERR_BG)
-            })
+            line.spans
+                .iter()
+                .any(|span| span.style.fg == Some(TOOL_STDERR_FG))
         }));
     }
 
