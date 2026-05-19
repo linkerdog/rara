@@ -70,7 +70,7 @@ pub(super) fn render_provider_picker_modal(f: &mut Frame, app: &TuiApp, area: Re
         })
         .collect::<Vec<_>>();
     let intro = "Choose a provider family first, then continue into model selection or setup.";
-    let intro_height = wrapped_text_height(intro, area.width);
+    let intro_height = wrapped_text_height(intro, area.width.saturating_sub(2));
     let chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
@@ -248,7 +248,7 @@ pub(super) fn render_model_picker_modal(f: &mut Frame, app: &TuiApp, area: Rect)
     let block = super::popup_block();
     let inner = block.inner(area);
     f.render_widget(block, area);
-    let help_height = wrapped_text_height(help, area.width);
+    let help_height = wrapped_text_height(help, area.width.saturating_sub(2));
     let chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
@@ -292,7 +292,7 @@ fn render_openai_profile_manager_modal(f: &mut Frame, app: &TuiApp, area: Rect) 
         app.current_model_label(),
         api_key_status(&app.config),
     );
-    let help_height = wrapped_text_height(help.as_str(), area.width);
+    let help_height = wrapped_text_height(help.as_str(), area.width.saturating_sub(2));
     let chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
@@ -514,7 +514,7 @@ pub(super) fn render_openai_endpoint_kind_picker_modal(f: &mut Frame, app: &TuiA
         })
         .collect::<Vec<_>>();
     let intro = "Choose which OpenAI-compatible endpoint family to configure first.\nThe next steps will walk through the connection fields for that endpoint.";
-    let intro_height = wrapped_text_height(intro, area.width);
+    let intro_height = wrapped_text_height(intro, area.width.saturating_sub(2));
     let chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
@@ -679,7 +679,7 @@ pub(super) fn render_base_url_editor_modal(
     } else {
         "Edit the Ollama base URL for this provider.\nLeave it empty to clear the override. Default: http://localhost:11434"
     };
-    let intro_height = wrapped_text_height(intro_text, area.width);
+    let intro_height = wrapped_text_height(intro_text, area.width.saturating_sub(2));
     let chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
@@ -717,7 +717,7 @@ pub(super) fn render_base_url_editor_modal(
 pub(super) fn render_skills_picker_modal(f: &mut Frame, app: &TuiApp, area: Rect) {
     let title = format!(" Skills ({} loaded) ", app.skill_picker_entries.len());
     let intro = "Space toggle enable/disable  Esc close";
-    let intro_height = wrapped_text_height(intro, area.width);
+    let intro_height = wrapped_text_height(intro, area.width.saturating_sub(2));
     let chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
@@ -783,7 +783,7 @@ pub(super) fn render_skills_picker_modal(f: &mut Frame, app: &TuiApp, area: Rect
 
 pub(super) fn render_auth_mode_picker_modal(f: &mut Frame, app: &TuiApp, area: Rect) {
     let view = build_auth_mode_picker_view(app, is_ssh_session());
-    let intro_height = wrapped_text_height(view.intro.as_str(), area.width);
+    let intro_height = wrapped_text_height(view.intro.as_str(), area.width.saturating_sub(2));
     let chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
@@ -842,7 +842,7 @@ pub(super) fn render_api_key_editor_modal(
             "Enter save and rebuild  Esc back to login guide",
         ),
     };
-    let intro_height = wrapped_text_height(intro_text, area.width);
+    let intro_height = wrapped_text_height(intro_text, area.width.saturating_sub(2));
     let chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
@@ -882,7 +882,7 @@ pub(super) fn render_model_name_editor_modal(
     area: Rect,
 ) -> Option<(u16, u16)> {
     let intro_text = "Set the model name for the selected OpenAI-compatible endpoint profile.\nExample: gpt-4o-mini, kimi-k2.6, deepseek-chat, or any server-specific model id.";
-    let intro_height = wrapped_text_height(intro_text, area.width);
+    let intro_height = wrapped_text_height(intro_text, area.width.saturating_sub(2));
     let chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
@@ -929,7 +929,7 @@ pub(super) fn render_openai_profile_label_editor_modal(
         "Create a new {} endpoint profile.\nThis label is only used locally in the picker and status surfaces.",
         kind.label()
     );
-    let intro_height = wrapped_text_height(intro_text.as_str(), area.width);
+    let intro_height = wrapped_text_height(intro_text.as_str(), area.width.saturating_sub(2));
     let chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
