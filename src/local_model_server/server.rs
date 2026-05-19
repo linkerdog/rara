@@ -46,35 +46,36 @@ pub(crate) fn start_model_server(
 
             let mut health_ever_passed = false;
             let mut last_prepare_error: Option<anyhow::Error> = None;
+            let mut saw_model_loading = false;
             for _ in 0..STARTUP_HEALTH_ATTEMPTS {
                 if let Ok(health) = probe_health(host, port) {
                     health_ever_passed = true;
                     if health_identity_matches(&health, backend, model) {
+                        if health_model_ready(&health, backend) {
+                            return ready_model_server_status(server, backend, model, &endpoint);
+                        }
+                        if let Some(error_message) = health_preparation_error(&health, backend) {
+                            return LocalModelServerStatus {
+                                state: LocalModelServerState::Error,
+                                backend: backend.to_string(),
+                                model: model.to_string(),
+                                detail: format!(
+                                    "model server running at {endpoint}; model preparation failed: {error_message} (stderr log: {})",
+                                    stderr_log_path.display()
+                                ),
+                                server_path: Some(server.path.clone()),
+                                endpoint: Some(endpoint),
+                            };
+                        }
                         match prepare_model(host, port, backend, model_path) {
                             Ok(state) => {
-                                let (state_tag, detail) = if state == "ready" {
-                                    (
-                                        LocalModelServerState::Ready,
-                                        format!(
-                                            "started model server and prepared model at {endpoint}"
-                                        ),
-                                    )
+                                if state == "ready" {
+                                    return ready_model_server_status(
+                                        server, backend, model, &endpoint,
+                                    );
                                 } else {
-                                    (
-                                        LocalModelServerState::PreparingModel,
-                                        format!(
-                                            "started model server at {endpoint}; model is still loading"
-                                        ),
-                                    )
-                                };
-                                return LocalModelServerStatus {
-                                    state: state_tag,
-                                    backend: backend.to_string(),
-                                    model: model.to_string(),
-                                    detail,
-                                    server_path: Some(server.path.clone()),
-                                    endpoint: Some(endpoint),
-                                };
+                                    saw_model_loading = true;
+                                }
                             }
                             Err(err) => {
                                 last_prepare_error = Some(err);
@@ -97,6 +98,15 @@ pub(crate) fn start_model_server(
                     };
                 }
             }
+            if saw_model_loading {
+                return preparing_model_server_status(
+                    server,
+                    backend,
+                    model,
+                    &endpoint,
+                    &stderr_log_path,
+                );
+            }
             if let Some(err) = last_prepare_error {
                 return LocalModelServerStatus {
                     state: LocalModelServerState::Error,
@@ -113,41 +123,6 @@ pub(crate) fn start_model_server(
             }
 
             let stderr_hint = format!(" (stderr log: {})", stderr_log_path.display());
-            match prepare_model(host, port, backend, model_path) {
-                Ok(state) => {
-                    health_ever_passed = true;
-                    if state == "ready" {
-                        return LocalModelServerStatus {
-                            state: LocalModelServerState::Ready,
-                            backend: backend.to_string(),
-                            model: model.to_string(),
-                            detail: format!(
-                                "started model server and prepared model at {endpoint}"
-                            ),
-                            server_path: Some(server.path.clone()),
-                            endpoint: Some(endpoint),
-                        };
-                    }
-                    if let Ok(health) = probe_health(host, port) {
-                        if health_identity_matches(&health, backend, model) {
-                            return LocalModelServerStatus {
-                                state: LocalModelServerState::PreparingModel,
-                                backend: backend.to_string(),
-                                model: model.to_string(),
-                                detail: format!(
-                                    "started model server at {endpoint}; model is still loading"
-                                ),
-                                server_path: Some(server.path.clone()),
-                                endpoint: Some(endpoint),
-                            };
-                        }
-                    }
-                }
-                Err(err) => {
-                    last_prepare_error = Some(err);
-                }
-            }
-
             LocalModelServerStatus {
                 state: LocalModelServerState::Starting,
                 backend: backend.to_string(),
@@ -176,3 +151,38 @@ pub(crate) fn start_model_server(
     }
 }
 
+fn ready_model_server_status(
+    server: &BundledModelServer,
+    backend: &str,
+    model: &str,
+    endpoint: &str,
+) -> LocalModelServerStatus {
+    LocalModelServerStatus {
+        state: LocalModelServerState::Ready,
+        backend: backend.to_string(),
+        model: model.to_string(),
+        detail: format!("started model server and prepared model at {endpoint}"),
+        server_path: Some(server.path.clone()),
+        endpoint: Some(endpoint.to_string()),
+    }
+}
+
+fn preparing_model_server_status(
+    server: &BundledModelServer,
+    backend: &str,
+    model: &str,
+    endpoint: &str,
+    stderr_log_path: &Path,
+) -> LocalModelServerStatus {
+    LocalModelServerStatus {
+        state: LocalModelServerState::PreparingModel,
+        backend: backend.to_string(),
+        model: model.to_string(),
+        detail: format!(
+            "model files are available; waiting for model server at {endpoint} to load model (stderr log: {})",
+            stderr_log_path.display()
+        ),
+        server_path: Some(server.path.clone()),
+        endpoint: Some(endpoint.to_string()),
+    }
+}

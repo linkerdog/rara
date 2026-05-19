@@ -228,8 +228,6 @@ class FastEmbedBgeM3Backend(EmbeddingBackend):
     def load(self, model_path: str | None = None) -> None:
         if self.model is not None:
             return
-        if model_path is not None:
-            raise RuntimeError("FastEmbed local model paths are not supported")
         requested = os.environ.get("RARA_FASTEMBED_EMBEDDING_MODEL", FASTEMBED_MODEL_ID)
         if requested != FASTEMBED_MODEL_ID:
             raise RuntimeError(f"unsupported FastEmbed model: {requested}")
@@ -242,6 +240,10 @@ class FastEmbedBgeM3Backend(EmbeddingBackend):
         cache_dir = os.environ.get("RARA_MODEL_CACHE_DIR")
         if cache_dir:
             kwargs["cache_dir"] = cache_dir
+        local_model_path = _validated_local_model_path(model_path)
+        if local_model_path:
+            kwargs["specific_model_path"] = local_model_path
+            kwargs["local_files_only"] = True
         self.model = TextEmbedding(**kwargs)
         self.loaded_at = time.monotonic()
 
@@ -324,21 +326,6 @@ class ModelRegistry:
             "model": backend.model_id,
             "state": "ready",
         }
-
-    def start_background_preparation(self) -> None:
-        backend_name = self._platform_default_backend()
-
-        def _run() -> None:
-            try:
-                self.prepare_model(backend_name, None)
-            except Exception as exc:
-                print(
-                    f"[model-server] background model preparation failed: {exc}",
-                    file=sys.stderr,
-                )
-
-        t = threading.Thread(target=_run, daemon=True)
-        t.start()
 
     def status(self) -> dict[str, Any]:
         default_backend = self._platform_default_backend()
@@ -463,7 +450,6 @@ def main() -> int:
         raise RuntimeError("RARA model server only binds to loopback hosts")
     server = ThreadingHTTPServer((host, port), RequestHandler)
     print(f"RARA model server listening on {host}:{port}", flush=True)
-    REGISTRY.start_background_preparation()
     try:
         server.serve_forever()
     except KeyboardInterrupt:

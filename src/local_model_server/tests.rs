@@ -13,9 +13,10 @@ use super::{
     health_identity_matches, health_model_ready, local_cached_model_snapshot, metadata_path,
     model_snapshot_marker_path, prepare_local_model_server_status_inner,
     read_matching_model_snapshot_marker, requirements_marker_matches, requirements_marker_path,
-    reusable_server_status, selected_requirements_file, sha256_hex, snapshot_has_all_files,
-    snapshot_has_minimum_model_files, startup_lock_path, unix_timestamp_secs, venv_python_path,
-    write_file_atomically, write_model_snapshot_marker, write_server_metadata,
+    reusable_server_status, selected_requirements_file, selected_snapshot_files, sha256_hex,
+    snapshot_has_all_files, snapshot_has_minimum_model_files, startup_lock_path,
+    unix_timestamp_secs, venv_python_path, write_file_atomically, write_model_snapshot_marker,
+    write_server_metadata,
 };
 use crate::llm::{EmbeddingBackend, EmbeddingInputKind};
 
@@ -64,6 +65,20 @@ fn repairs_modified_model_server() {
     assert_eq!(
         fs::read(&repaired.path).expect("read repaired model server"),
         super::MODEL_SERVER
+    );
+}
+
+#[test]
+fn bundled_model_server_does_not_start_background_model_prepare() {
+    let source = std::str::from_utf8(super::MODEL_SERVER).expect("model server utf8");
+    let main_body = source
+        .split("def main()")
+        .nth(1)
+        .expect("model server main function");
+
+    assert!(
+        !main_body.contains("start_background_preparation"),
+        "Rust startup must provide the local snapshot path before the Python server loads a model"
     );
 }
 
@@ -473,6 +488,50 @@ fn snapshot_required_files_are_profile_driven() {
             "model.safetensors".to_string(),
         ]
     ));
+    assert!(!snapshot_has_minimum_model_files(
+        super::SnapshotRequiredFiles::FastEmbedBgeM3,
+        &[
+            "config.json".to_string(),
+            "tokenizer.json".to_string(),
+            "onnx/model.onnx".to_string(),
+        ]
+    ));
+    assert!(snapshot_has_minimum_model_files(
+        super::SnapshotRequiredFiles::FastEmbedBgeM3,
+        &[
+            "config.json".to_string(),
+            "tokenizer.json".to_string(),
+            "onnx/model.onnx".to_string(),
+            "onnx/model.onnx_data".to_string(),
+        ]
+    ));
+}
+
+#[test]
+fn fastembed_snapshot_selection_avoids_non_onnx_weights() {
+    let selected = selected_snapshot_files(
+        super::SnapshotRequiredFiles::FastEmbedBgeM3,
+        vec![
+            "config.json".to_string(),
+            "tokenizer.json".to_string(),
+            "tokenizer_config.json".to_string(),
+            "onnx/model.onnx".to_string(),
+            "onnx/model.onnx_data".to_string(),
+            "pytorch_model.bin".to_string(),
+            "model.safetensors".to_string(),
+        ],
+    );
+
+    assert_eq!(
+        selected,
+        vec![
+            "config.json".to_string(),
+            "tokenizer.json".to_string(),
+            "tokenizer_config.json".to_string(),
+            "onnx/model.onnx".to_string(),
+            "onnx/model.onnx_data".to_string(),
+        ]
+    );
 }
 
 #[test]

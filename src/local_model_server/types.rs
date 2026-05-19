@@ -31,24 +31,18 @@ pub(crate) const MODEL_REVISION: &str = "main";
 pub(crate) static ATOMIC_WRITE_COUNTER: AtomicU64 = AtomicU64::new(0);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum SnapshotPreparation {
-    RustManaged {
-        required_files: SnapshotRequiredFiles,
-    },
-    PythonManaged,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum SnapshotRequiredFiles {
     MlxQwen3,
+    FastEmbedBgeM3,
 }
 
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct LocalEmbeddingModelProfile {
+    id: &'static str,
     backend: &'static str,
     model: &'static str,
     revision: &'static str,
-    snapshot_preparation: SnapshotPreparation,
+    required_files: SnapshotRequiredFiles,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
