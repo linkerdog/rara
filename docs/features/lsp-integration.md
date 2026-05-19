@@ -95,6 +95,9 @@ Per-project override via `AGENTS.md` or `.rara/lsp.json`.
 |------|-----------|-------------|
 | `lsp_diagnostics` | `(file: Path)` → `Vec<Diagnostic>` | Current LSP diagnostics for a file |
 
+The tool result keeps a JSON payload in the transcript so the TUI can render it
+with a dedicated diagnostics cell instead of showing generic formatted JSON.
+
 ```rust
 struct Diagnostic {
     file: PathBuf,
@@ -192,6 +195,10 @@ The runtime owns a per-workspace `LspManager` and shares it with the
 Sidebar rendering must not spawn language-server availability checks. The
 status view only reports cached availability until a tool call needs to verify
 and start a server.
+
+`lsp_diagnostics` tool results render as a structured TUI cell with the target
+file, diagnostic count, severity, source location, optional diagnostic code,
+message preview, cached runtime count, and startup/request error when present.
 
 ### Phase 3: Configuration (~50 lines)
 

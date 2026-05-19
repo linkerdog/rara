@@ -21,12 +21,17 @@
   sending `initialized`; reader threads route response messages through a
   connection-local channel while keeping diagnostics notification handling in
   the shared cache.
+- `lsp_diagnostics` compact results keep their JSON payload parseable for the
+  TUI. The transcript renderer recognizes that payload and renders a dedicated
+  diagnostics cell instead of a generic text preview.
 
 ## Verification
 
 - `cargo fmt`
 - `cargo test lsp_manager -- --nocapture`
 - `cargo test push_lsp_status -- --nocapture`
+- `cargo test lsp_diagnostics -- --nocapture`
+- `cargo test formats_lsp_diagnostics_tool_result_as_parseable_payload -- --nocapture`
 - `cargo check -p rara`
 
 ## Follow-up
