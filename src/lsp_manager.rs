@@ -18,7 +18,9 @@ use std::collections::HashMap;
 use std::io::{BufRead, BufReader, Read, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
+use std::sync::mpsc::{Receiver, Sender};
 use std::sync::{Arc, Mutex};
+use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result, anyhow, bail};
 use serde::{Deserialize, Serialize};
@@ -129,6 +131,22 @@ struct JsonRpcNotification {
     id: Option<u64>,
 }
 
+#[derive(Deserialize, Debug)]
+struct JsonRpcResponse {
+    #[allow(dead_code)]
+    jsonrpc: String,
+    id: u64,
+    #[allow(dead_code)]
+    result: Option<serde_json::Value>,
+    error: Option<JsonRpcResponseError>,
+}
+
+#[derive(Deserialize, Debug)]
+struct JsonRpcResponseError {
+    code: i64,
+    message: String,
+}
+
 // ---------------------------------------------------------------------------
 // LspManager
 // ---------------------------------------------------------------------------
@@ -146,6 +164,7 @@ struct LspConnection {
     process: Child,
     _reader: std::thread::JoinHandle<()>,
     writer: std::process::ChildStdin,
+    response_rx: Receiver<JsonRpcResponse>,
     next_id: u64,
 }
 
@@ -281,8 +300,9 @@ impl LspManager {
         let stdout = child.stdout.take().unwrap();
         let diagnostics = self.diagnostics.clone();
         let workspace_root = self.workspace_root.clone();
+        let (response_tx, response_rx) = std::sync::mpsc::channel();
         let reader = std::thread::spawn(move || {
-            read_lsp_messages(stdout, diagnostics, workspace_root);
+            read_lsp_messages(stdout, diagnostics, workspace_root, response_tx);
         });
 
         let stdin = child.stdin.take().unwrap();
@@ -290,6 +310,7 @@ impl LspManager {
             process: child,
             _reader: reader,
             writer: stdin,
+            response_rx,
             next_id: 1,
         };
 
@@ -303,14 +324,17 @@ impl LspManager {
                 }
             }
         });
-        if let Err(err) = conn.send_request("initialize", init_params) {
+        let initialize_id = match conn.send_request("initialize", init_params) {
+            Ok(id) => id,
+            Err(err) => {
+                *self.last_error.lock().unwrap() = Some(err.to_string());
+                return Err(err);
+            }
+        };
+        if let Err(err) = conn.wait_for_response(initialize_id, Duration::from_secs(5)) {
             *self.last_error.lock().unwrap() = Some(err.to_string());
             return Err(err);
         }
-        // Per LSP spec, initialized must be sent AFTER the initialize
-        // response. Since we don't parse the response yet, sleep briefly
-        // to let the server process the request before notifying.
-        std::thread::sleep(std::time::Duration::from_millis(100));
         if let Err(err) = conn.send_notification("initialized", serde_json::json!({})) {
             *self.last_error.lock().unwrap() = Some(err.to_string());
             return Err(err);
@@ -368,11 +392,12 @@ impl Drop for LspConnection {
 }
 
 impl LspConnection {
-    fn send_request(&mut self, method: &str, params: serde_json::Value) -> Result<()> {
+    fn send_request(&mut self, method: &str, params: serde_json::Value) -> Result<u64> {
+        let id = self.next_id;
         self.next_id += 1;
         let req = JsonRpcRequest {
             jsonrpc: "2.0",
-            id: self.next_id,
+            id,
             method: method.to_string(),
             params,
         };
@@ -381,7 +406,7 @@ impl LspConnection {
         self.writer.write_all(header.as_bytes())?;
         self.writer.write_all(body.as_bytes())?;
         self.writer.flush()?;
-        Ok(())
+        Ok(id)
     }
 
     fn send_notification(&mut self, method: &str, params: serde_json::Value) -> Result<()> {
@@ -396,6 +421,32 @@ impl LspConnection {
         self.writer.write_all(body.as_bytes())?;
         self.writer.flush()?;
         Ok(())
+    }
+
+    fn wait_for_response(&self, id: u64, timeout: Duration) -> Result<()> {
+        let deadline = Instant::now() + timeout;
+        loop {
+            let now = Instant::now();
+            if now >= deadline {
+                bail!("timed out waiting for LSP response id {id}");
+            }
+            let remaining = deadline.saturating_duration_since(now);
+            let response = self
+                .response_rx
+                .recv_timeout(remaining)
+                .with_context(|| format!("wait for LSP response id {id}"))?;
+            if response.id != id {
+                continue;
+            }
+            if let Some(error) = response.error {
+                bail!(
+                    "LSP response id {id} failed with code {}: {}",
+                    error.code,
+                    error.message
+                );
+            }
+            return Ok(());
+        }
     }
 }
 
@@ -454,6 +505,7 @@ fn read_lsp_messages(
     stdout: impl Read,
     diagnostics: Arc<Mutex<HashMap<PathBuf, Vec<Diagnostic>>>>,
     workspace_root: PathBuf,
+    response_tx: Sender<JsonRpcResponse>,
 ) {
     let mut reader = BufReader::new(stdout);
     loop {
@@ -464,12 +516,33 @@ fn read_lsp_messages(
         if reader.read_exact(&mut body).is_err() {
             return;
         }
-        let Ok(notification) = serde_json::from_slice::<JsonRpcNotification>(&body) else {
-            continue;
+        handle_lsp_message(&body, &diagnostics, &workspace_root, &response_tx);
+    }
+}
+
+fn handle_lsp_message(
+    body: &[u8],
+    diagnostics: &Mutex<HashMap<PathBuf, Vec<Diagnostic>>>,
+    workspace_root: &Path,
+    response_tx: &Sender<JsonRpcResponse>,
+) {
+    let Ok(value) = serde_json::from_slice::<serde_json::Value>(body) else {
+        return;
+    };
+    let has_method = value.get("method").is_some();
+    let has_id = value.get("id").is_some();
+
+    if has_id && !has_method {
+        if let Ok(response) = serde_json::from_value::<JsonRpcResponse>(value) {
+            let _ = response_tx.send(response);
+        }
+    } else if has_method && !has_id {
+        let Ok(notification) = serde_json::from_value::<JsonRpcNotification>(value) else {
+            return;
         };
         if notification.method.as_deref() == Some("textDocument/publishDiagnostics")
             && let Some((path, file_diags)) =
-                parse_publish_diagnostics(notification.params, &workspace_root)
+                parse_publish_diagnostics(notification.params, workspace_root)
         {
             diagnostics.lock().unwrap().insert(path, file_diags);
         }
@@ -600,5 +673,32 @@ mod tests {
         let mut reader = BufReader::new(message.as_bytes());
 
         assert_eq!(read_content_length(&mut reader), Some(body.len()));
+    }
+
+    #[test]
+    fn routes_lsp_response_messages_to_response_channel() {
+        let diagnostics = Mutex::new(HashMap::new());
+        let (tx, rx) = std::sync::mpsc::channel();
+        let body = br#"{"jsonrpc":"2.0","id":7,"result":{"capabilities":{}}}"#;
+
+        handle_lsp_message(body, &diagnostics, Path::new("/repo"), &tx);
+
+        let response = rx.try_recv().unwrap();
+        assert_eq!(response.id, 7);
+        assert!(response.error.is_none());
+        assert!(diagnostics.lock().unwrap().is_empty());
+    }
+
+    #[test]
+    fn ignores_lsp_server_request_messages() {
+        let diagnostics = Mutex::new(HashMap::new());
+        let (tx, rx) = std::sync::mpsc::channel();
+        let body =
+            br#"{"jsonrpc":"2.0","id":9,"method":"window/workDoneProgress/create","params":{}}"#;
+
+        handle_lsp_message(body, &diagnostics, Path::new("/repo"), &tx);
+
+        assert!(rx.try_recv().is_err());
+        assert!(diagnostics.lock().unwrap().is_empty());
     }
 }

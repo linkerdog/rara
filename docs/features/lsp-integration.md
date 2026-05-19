@@ -167,7 +167,8 @@ the LLM, not mediated through an MCP bridge.
 ### Phase 1: Rust-Analyzer Bridge (~150 lines)
 
 - `LspManager` struct with lazy `rust-analyzer` spawn
-- JSON-RPC handshake (`initialize`, `initialized`)
+- Response-aware JSON-RPC handshake (`initialize`, then `initialized` after
+  the matching response)
 - `textDocument/didOpen`, `textDocument/didChange`, `textDocument/didSave`
 - Parse `textDocument/publishDiagnostics` notifications
 - `lsp_diagnostics` tool
