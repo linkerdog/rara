@@ -702,7 +702,7 @@ pub(crate) async fn finish_running_task_if_ready(
     }
     match completion {
         TaskCompletion::Query { agent, result } => {
-            let agent = agent;
+            let mut agent = agent;
             let query_started_in_plan_mode = matches!(
                 app.agent_execution_mode,
                 crate::agent::AgentExecutionMode::Plan
@@ -809,12 +809,11 @@ pub(crate) async fn finish_running_task_if_ready(
                                 start_query_task(app, next_goal_prompt, agent);
                                 return Ok(());
                             }
-                            // Claude Code-style evaluator: check whether the
-                            // goal condition is satisfied.
+                            // Evaluator: check whether the goal condition is satisfied.
                             let condition = app
                                 .goal
                                 .as_ref()
-                                .and_then(|g| g.condition.clone())
+                                .and_then(|g| g.condition.as_deref())
                                 .unwrap_or_default();
                             if !condition.is_empty() {
                                 // TODO: call evaluator LLM to get real yes/no.
@@ -823,9 +822,15 @@ pub(crate) async fn finish_running_task_if_ready(
                                 let eval_reason =
                                     format!("no: goal not yet complete — {condition}");
                                 app.push_system(
-                                    eval_reason,
+                                    eval_reason.clone(),
                                     crate::tui::state::SystemMessageKind::Other,
                                 );
+                                // Also push to agent history so the model
+                                // sees the evaluator's feedback on the next turn.
+                                agent.push_history_message(crate::agent::Message {
+                                    role: "system".into(),
+                                    content: serde_json::Value::String(eval_reason),
+                                });
                             }
                             // finalize_active_turn closes the current turn's transcript
                             // before start_query_task begins a new one.
