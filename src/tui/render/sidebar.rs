@@ -56,7 +56,21 @@ pub(crate) fn render_sidebar(f: &mut Frame, app: &TuiApp, area: Rect) {
 }
 
 fn push_session_info(lines: &mut Vec<Line<'static>>, app: &TuiApp) {
-    let title = "RARA".to_string();
+    let title = if app.snapshot.session_id.is_empty() {
+        "RARA".to_string()
+    } else {
+        // Shorten session id for display.
+        let session_id = &app.snapshot.session_id;
+        if session_id.len() > 14 {
+            format!(
+                "{}…{}",
+                &session_id[..8],
+                &session_id[session_id.len().saturating_sub(4)..]
+            )
+        } else {
+            session_id.clone()
+        }
+    };
 
     lines.push(Line::from(Span::styled(
         title,

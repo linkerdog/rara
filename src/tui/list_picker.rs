@@ -57,7 +57,11 @@ impl ListPickerKind {
             Self::Model => app.current_model_picker_len(),
             Self::OpenAiEndpointKind => super::state::openai_profile_setup_kinds().len(),
             Self::OpenAiProfile => app.selected_openai_profiles().len() + 1,
-            Self::Resume => app.recent_threads.len(),
+            Self::Resume => app
+                .recent_threads
+                .iter()
+                .filter(|s| &s.metadata.session_id != &app.snapshot.session_id)
+                .count(),
             Self::AuthMode => super::auth_mode_picker::AUTH_MODE_OPTION_COUNT,
             Self::ReasoningEffort => app.selected_codex_reasoning_options().len(),
             Self::ApprovalDecision => 4,
@@ -295,15 +299,21 @@ impl ListPickerKind {
     }
 
     fn render_resume_items(app: &TuiApp, selected: usize) -> Vec<ListItem<'static>> {
-        if app.recent_threads.is_empty() {
+        let current_id = &app.snapshot.session_id;
+        let summaries: Vec<&ThreadSummary> = app
+            .recent_threads
+            .iter()
+            .filter(|s| &s.metadata.session_id != current_id)
+            .collect();
+        if summaries.is_empty() {
             return vec![ListItem::new("No threads available.")];
         }
         let now = current_unix_time_secs();
-        app.recent_threads
+        summaries
             .iter()
             .enumerate()
             .map(|(idx, summary)| {
-                ListItem::new(render_resume_summary_lines(idx, summary, now))
+                ListItem::new(render_resume_summary_lines(idx, *summary, now))
                     .style(Self::selected_style(idx, selected))
             })
             .collect()
