@@ -24,10 +24,16 @@ impl TuiApp {
 
     pub(super) fn refresh_recent_threads_for_resume_picker(&mut self) {
         self.refresh_recent_threads();
-        if self.resume_filter_cwd {
-            let current_cwd = std::env::current_dir()
-                .map(|p| p.to_string_lossy().to_string())
-                .unwrap_or_default();
+        // Always filter to current cwd; fall back to all threads if nothing matches.
+        let current_cwd = std::env::current_dir()
+            .map(|p| p.to_string_lossy().to_string())
+            .unwrap_or_default();
+        let cwd_count = self
+            .recent_threads
+            .iter()
+            .filter(|t| t.metadata.cwd == current_cwd)
+            .count();
+        if cwd_count > 0 {
             self.recent_threads
                 .retain(|t| t.metadata.cwd == current_cwd);
         }
@@ -48,11 +54,6 @@ impl TuiApp {
         } else {
             self.resume_picker_idx.min(self.recent_threads.len() - 1)
         };
-    }
-
-    pub(crate) fn cycle_resume_filter(&mut self) {
-        self.resume_filter_cwd = !self.resume_filter_cwd;
-        self.refresh_recent_threads_for_resume_picker();
     }
 
     pub(crate) fn cycle_resume_sort(&mut self) {

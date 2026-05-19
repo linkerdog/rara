@@ -329,7 +329,6 @@ impl TuiApp {
             recent_commands: Vec::new(),
             recent_threads: Vec::new(),
             resume_picker_idx: 0,
-            resume_filter_cwd: true,
             resume_sort_by_created: false,
             resume_search_query: String::new(),
             committed_render_generation: 0,

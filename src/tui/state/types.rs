@@ -697,7 +697,6 @@ pub struct TuiApp {
     pub recent_commands: Vec<String>,
     pub recent_threads: Vec<ThreadSummary>,
     pub resume_picker_idx: usize,
-    pub resume_filter_cwd: bool,
     pub resume_sort_by_created: bool,
     pub resume_search_query: String,
     pub committed_render_generation: u64,

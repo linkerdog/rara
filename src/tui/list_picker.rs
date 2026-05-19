@@ -629,7 +629,7 @@ fn resume_picker_key_event(code: KeyCode) -> AppEvent {
         KeyCode::Esc => AppEvent::ClearResumeSearch,
         KeyCode::Up => AppEvent::MoveListPickerSelection(-1),
         KeyCode::Down => AppEvent::MoveListPickerSelection(1),
-        KeyCode::Tab => AppEvent::CycleResumeFilter,
+        KeyCode::Tab => AppEvent::CycleResumeSort,
         KeyCode::BackTab | KeyCode::Left | KeyCode::Right => AppEvent::CycleResumeSort,
         KeyCode::Backspace => AppEvent::Backspace,
         KeyCode::Enter => AppEvent::ApplyOverlaySelection,
@@ -709,7 +709,7 @@ mod tests {
         ));
         assert!(matches!(
             list_picker_key_event(ListPickerKind::Resume, KeyCode::Tab),
-            AppEvent::CycleResumeFilter
+            AppEvent::CycleResumeSort
         ));
     }
 }
