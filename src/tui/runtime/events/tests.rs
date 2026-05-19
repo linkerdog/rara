@@ -928,13 +928,13 @@ fn todo_write_events_render_as_compact_todo_transcript() {
     }))
     .expect("todo state");
 
-    assert!(
+    assert!(matches!(
         convert_agent_event(AgentEvent::ToolUse {
             name: crate::tools::todo::TODO_WRITE_TOOL_NAME.to_string(),
             input: json!({"todos": []}),
-        })
-        .is_none()
-    );
+        }),
+        Some(TuiEvent::UpdateTodo(_))
+    ));
     assert!(
         convert_agent_event(AgentEvent::ToolResult {
             name: crate::tools::todo::TODO_WRITE_TOOL_NAME.to_string(),
