@@ -66,3 +66,37 @@ that design language in RARA.
 - Command palette and model search still use `command_palette_rect` instead of
   the centered `popup_rect` — evaluate whether these should also become
   centered overlays
+
+## Follow-up: approval card readability (2026-05-20)
+
+### Problem
+`ApprovalCell` in `interaction_cells.rs` rendered command output lines with
+`PENDING_CARD_BG` (NORD1, #3B4252) background. On the main `UI_BG` (NORD0,
+#2E3440) this created only ~6% lightness difference — the card blended into
+the terminal background, making sandbox/permission command output hard to
+read.
+
+### Fix
+Removed `.bg(PENDING_CARD_BG)` from `card_style` in `ApprovalCell::display_lines()`.
+The approval card content now renders on the default terminal background with
+only foreground color styling. Removed now-unused `PENDING_CARD_BG` constant
+from `theme.rs`.
+
+## OpenCode color scheme observations
+
+OpenCode derives its palette from the terminal's ANSI color slots (not fixed
+hex values), constructing a 12-step grayscale ramp:
+
+| token | role | example (dark) |
+|-------|------|----------------|
+| background | main surface | #0a0a0a |
+| backgroundPanel | popup/dialog | #141414 |
+| backgroundElement | input fields | #1e1e1e |
+| backgroundMenu | dropdowns | #262626 |
+| text | primary content | #eeeeee |
+| textMuted | secondary | #808080 |
+
+Key insight: each surface level is 4–8 lightness units apart, forming a clear
+visual hierarchy. RARA's NORD palette has similar spacing but is blue-tinted
+(NORD0=#2E3440, NORD1=#3B4252, NORD2=#434C5E). Future work could explore a
+pure-grayscale ramp for deeper visual depth.
