@@ -57,7 +57,15 @@ impl ListPickerKind {
             Self::Model => app.current_model_picker_len(),
             Self::OpenAiEndpointKind => super::state::openai_profile_setup_kinds().len(),
             Self::OpenAiProfile => app.selected_openai_profiles().len() + 1,
-            Self::Resume => app.recent_threads.len(),
+            Self::Resume => app
+                .recent_threads
+                .iter()
+                .filter(|s| &s.metadata.session_id != &app.snapshot.session_id)
+                .filter(|s| {
+                    resume_workspace_label(&s.metadata.cwd)
+                        == resume_workspace_label(&app.snapshot.cwd)
+                })
+                .count(),
             Self::AuthMode => super::auth_mode_picker::AUTH_MODE_OPTION_COUNT,
             Self::ReasoningEffort => app.selected_codex_reasoning_options().len(),
             Self::ApprovalDecision => 4,
@@ -295,15 +303,24 @@ impl ListPickerKind {
     }
 
     fn render_resume_items(app: &TuiApp, selected: usize) -> Vec<ListItem<'static>> {
-        if app.recent_threads.is_empty() {
+        let current_id = &app.snapshot.session_id;
+        let summaries: Vec<&ThreadSummary> = app
+            .recent_threads
+            .iter()
+            .filter(|s| &s.metadata.session_id != current_id)
+            .filter(|s| {
+                resume_workspace_label(&s.metadata.cwd) == resume_workspace_label(&app.snapshot.cwd)
+            })
+            .collect();
+        if summaries.is_empty() {
             return vec![ListItem::new("No threads available.")];
         }
         let now = current_unix_time_secs();
-        app.recent_threads
+        summaries
             .iter()
             .enumerate()
             .map(|(idx, summary)| {
-                ListItem::new(render_resume_summary_lines(idx, summary, now))
+                ListItem::new(render_resume_summary_lines(idx, *summary, now))
                     .style(Self::selected_style(idx, selected))
             })
             .collect()
@@ -378,14 +395,13 @@ fn render_resume_summary_lines(
         Span::styled(preview, Style::default().add_modifier(Modifier::BOLD)),
     ]);
     let metadata = Line::from(format!(
-        "     {updated}  {}/{}  mode={} approval={}  cwd={} branch={} id={}  {counts}",
+        "     {updated}  {}/{}  mode={} approval={}  cwd={} branch={}  {counts}",
         metadata.provider,
         metadata.model,
         metadata.agent_mode,
         metadata.bash_approval,
         workspace,
         metadata.branch,
-        metadata.session_id
     ));
 
     let mut lines = vec![title, metadata];
@@ -512,11 +528,6 @@ fn render_resume_picker(f: &mut Frame, app: &TuiApp, area: Rect) {
     } else {
         app.resume_search_query.clone()
     };
-    let filter_status = if app.resume_filter_cwd {
-        "filter=[cwd] all"
-    } else {
-        "filter=cwd [all]"
-    };
     let sort_status = if app.resume_sort_by_created {
         "sort=updated [created]"
     } else {
@@ -533,9 +544,7 @@ fn render_resume_picker(f: &mut Frame, app: &TuiApp, area: Rect) {
         Span::raw(query),
         Span::raw(format!("  showing {current}/{total}")),
     ]);
-    let status_line = Line::from(format!(
-        "{filter_status}  {sort_status}  tab cwd/all  left/right sort"
-    ));
+    let status_line = Line::from(format!("{sort_status}  left/right sort"));
 
     f.render_widget(
         Paragraph::new(vec![search_line, status_line]).block(
@@ -620,7 +629,7 @@ fn resume_picker_key_event(code: KeyCode) -> AppEvent {
         KeyCode::Esc => AppEvent::ClearResumeSearch,
         KeyCode::Up => AppEvent::MoveListPickerSelection(-1),
         KeyCode::Down => AppEvent::MoveListPickerSelection(1),
-        KeyCode::Tab => AppEvent::CycleResumeFilter,
+        KeyCode::Tab => AppEvent::CycleResumeSort,
         KeyCode::BackTab | KeyCode::Left | KeyCode::Right => AppEvent::CycleResumeSort,
         KeyCode::Backspace => AppEvent::Backspace,
         KeyCode::Enter => AppEvent::ApplyOverlaySelection,
@@ -677,7 +686,7 @@ mod tests {
         assert!(rendered.contains("[1] User: improve resume picker"));
         assert!(rendered.contains("updated unknown  codex/gpt-5.2"));
         assert!(rendered.contains("mode=execute approval=suggestion"));
-        assert!(rendered.contains("cwd=rara branch=feature/resume-picker id=thread-123"));
+        assert!(rendered.contains("cwd=rara branch=feature/resume-picker"));
         assert!(rendered.contains("hist=8 trans=5 compact=2"));
         assert!(rendered.contains("compact boundary=v1 recent_files=3 tokens=12000->4000"));
         assert!(!rendered.contains("compaction runs=2"));
@@ -700,7 +709,7 @@ mod tests {
         ));
         assert!(matches!(
             list_picker_key_event(ListPickerKind::Resume, KeyCode::Tab),
-            AppEvent::CycleResumeFilter
+            AppEvent::CycleResumeSort
         ));
     }
 }
