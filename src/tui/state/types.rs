@@ -401,6 +401,8 @@ pub enum TuiEvent {
         stream: ToolOutputStream,
         chunk: String,
     },
+    /// Agent called todo_write — update the sidebar todo display.
+    UpdateTodo(crate::context::TodoContextView),
 }
 
 pub struct RunningTask {
