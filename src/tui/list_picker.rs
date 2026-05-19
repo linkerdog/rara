@@ -477,14 +477,7 @@ fn resume_compaction_detail(summary: &ThreadSummary) -> Option<String> {
 }
 
 // ---------------------------------------------------------------------------
-// Popup color-block helper (mirrors `popup_block()` in overlay.rs)
-// ---------------------------------------------------------------------------
-
-fn popup_block() -> Block<'static> {
-    Block::default()
-        .style(Style::default().bg(POPUP_BG))
-        .padding(Padding::horizontal(1))
-}
+use crate::tui::render::popup_block;
 
 // ---------------------------------------------------------------------------
 // Unified render — one function for all ListPicker variants
@@ -519,7 +512,10 @@ pub fn render_list_picker(f: &mut Frame, app: &TuiApp, kind: ListPickerKind, are
         ),
         chunks[0],
     );
-    f.render_widget(List::new(items), chunks[1]);
+    f.render_widget(
+        List::new(items).block(Block::default().padding(Padding::horizontal(1))),
+        chunks[1],
+    );
     f.render_widget(
         Paragraph::new(kind.help_text()).alignment(Alignment::Center),
         chunks[2],
@@ -579,6 +575,7 @@ fn render_resume_picker(f: &mut Frame, app: &TuiApp, area: Rect) {
     }
     f.render_stateful_widget(
         List::new(items)
+            .block(Block::default().padding(Padding::horizontal(1)))
             .highlight_style(Style::default().fg(TEXT_ACCENT))
             .highlight_symbol("› "),
         chunks[1],

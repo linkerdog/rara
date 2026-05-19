@@ -201,10 +201,12 @@ fn active_turn_cell_hides_background_stdout_label_and_pins_stderr() {
         .iter()
         .find(|line| line.to_string().contains("warning: retrying download"))
         .expect("stderr line should render");
-    assert!(stderr_line.spans.iter().any(|span| {
-        span.style.fg == Some(crate::tui::theme::TOOL_STDERR_FG)
-            && span.style.bg == Some(crate::tui::theme::TOOL_STDERR_BG)
-    }));
+    assert!(
+        stderr_line
+            .spans
+            .iter()
+            .any(|span| { span.style.fg == Some(crate::tui::theme::TOOL_STDERR_FG) })
+    );
 }
 
 #[test]

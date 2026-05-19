@@ -12,13 +12,13 @@ Type a message to start a task or run a local command.
     All Models
 St  Select a model across all providers.
 
-   Codex/gpt-4o
-   DeepSeek/deepseek-chat
-   DeepSeek/deepseek-reasoner
-   DeepSeek/deepseek-v4-flash
-Pr DeepSeek/deepseek-v4-pro
-Re DeepSeek/deepseek-v4-preview
-›  Kimi/kimi-k2.6
+    Codex/gpt-4o
+    DeepSeek/deepseek-chat
+    DeepSeek/deepseek-reasoner
+    DeepSeek/deepseek-v4-flash
+Pr  DeepSeek/deepseek-v4-pro
+Re  DeepSeek/deepseek-v4-preview
+›   Kimi/kimi-k2.6
                      Up/Down/jk move  Enter apply  Esc back
 
                                                    perm=auto approval=suggestion

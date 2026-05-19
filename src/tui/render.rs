@@ -22,6 +22,7 @@ pub(crate) use self::bottom_pane::desired_viewport_height;
 use self::bottom_pane::{desired_bottom_pane_height, render_bottom_pane};
 pub(crate) use self::cells::{ActiveCell, HistoryCell};
 use self::cells::{ActiveTurnCell, CommittedTurnCell, StartupCardCell};
+pub(crate) use self::overlay::popup_block;
 use self::overlay::render_overlay;
 use self::viewport::TranscriptViewport;
 use super::custom_terminal::Frame;

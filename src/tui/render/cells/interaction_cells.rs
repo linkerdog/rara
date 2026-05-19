@@ -180,11 +180,8 @@ impl HistoryCell for TerminalCell {
                 for (i, line) in stderr.iter().take(edge).enumerate() {
                     let prefix = if i == 0 { "  └ " } else { "    " };
                     lines.push(Line::from(vec![
-                        Span::styled(prefix, Style::default().fg(TOOL_STDERR_FG)),
-                        Span::styled(
-                            line.clone(),
-                            Style::default().bg(TOOL_STDERR_BG).fg(TOOL_STDERR_FG),
-                        ),
+                        Span::styled(prefix, Style::default().fg(TEXT_PRIMARY)),
+                        Span::styled(line.clone(), Style::default().fg(TOOL_STDERR_FG)),
                     ]));
                 }
                 let omitted = stderr_count - edge * 2;
@@ -192,28 +189,20 @@ impl HistoryCell for TerminalCell {
                     format!(
                         "      ... {omitted} more stderr line(s)  (showing {edge} + {edge} of {stderr_count})"
                     ),
-                    Style::default()
-                        .fg(TOOL_STDERR_FG)
-                        .bg(TOOL_STDERR_BG),
+                    Style::default().fg(TOOL_STDERR_FG),
                 )));
                 for line in stderr.iter().skip(stderr_count - edge) {
                     lines.push(Line::from(vec![
-                        Span::styled("    ", Style::default().fg(TOOL_STDERR_FG)),
-                        Span::styled(
-                            line.clone(),
-                            Style::default().bg(TOOL_STDERR_BG).fg(TOOL_STDERR_FG),
-                        ),
+                        Span::styled("    ", Style::default().fg(TEXT_PRIMARY)),
+                        Span::styled(line.clone(), Style::default().fg(TOOL_STDERR_FG)),
                     ]));
                 }
             } else {
                 for (i, line) in stderr.iter().enumerate() {
                     let prefix = if i == 0 { "  └ " } else { "    " };
                     lines.push(Line::from(vec![
-                        Span::styled(prefix, Style::default().fg(TOOL_STDERR_FG)),
-                        Span::styled(
-                            line.clone(),
-                            Style::default().bg(TOOL_STDERR_BG).fg(TOOL_STDERR_FG),
-                        ),
+                        Span::styled(prefix, Style::default().fg(TEXT_PRIMARY)),
+                        Span::styled(line.clone(), Style::default().fg(TOOL_STDERR_FG)),
                     ]));
                 }
             }
