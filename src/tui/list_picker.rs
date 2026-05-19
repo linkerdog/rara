@@ -9,7 +9,7 @@ use ratatui::{
     layout::{Alignment, Constraint, Direction, Layout, Rect},
     style::{Modifier, Style},
     text::{Line, Span},
-    widgets::{Block, Borders, List, ListItem, ListState, Paragraph},
+    widgets::{Block, List, ListItem, ListState, Padding, Paragraph},
 };
 
 use super::app_event::AppEvent;
@@ -498,14 +498,15 @@ pub fn render_list_picker(f: &mut Frame, app: &TuiApp, kind: ListPickerKind, are
         .split(area);
 
     f.render_widget(
-        Paragraph::new(kind.description())
-            .block(Block::default().borders(Borders::ALL).title(kind.title())),
+        Paragraph::new(kind.description()).block(
+            Block::default()
+                .style(Style::default().bg(UI_ELEMENT_BG))
+                .padding(Padding::horizontal(1))
+                .title(kind.title()),
+        ),
         chunks[0],
     );
-    f.render_widget(
-        List::new(items).block(Block::default().borders(Borders::LEFT | Borders::RIGHT)),
-        chunks[1],
-    );
+    f.render_widget(List::new(items), chunks[1]);
     f.render_widget(
         Paragraph::new(kind.help_text()).alignment(Alignment::Center),
         chunks[2],
@@ -549,7 +550,8 @@ fn render_resume_picker(f: &mut Frame, app: &TuiApp, area: Rect) {
     f.render_widget(
         Paragraph::new(vec![search_line, status_line]).block(
             Block::default()
-                .borders(Borders::ALL)
+                .style(Style::default().bg(UI_ELEMENT_BG))
+                .padding(Padding::horizontal(1))
                 .title(ListPickerKind::Resume.title()),
         ),
         chunks[0],
@@ -562,8 +564,7 @@ fn render_resume_picker(f: &mut Frame, app: &TuiApp, area: Rect) {
     f.render_stateful_widget(
         List::new(items)
             .highlight_style(Style::default().fg(TEXT_ACCENT))
-            .highlight_symbol("› ")
-            .block(Block::default().borders(Borders::LEFT | Borders::RIGHT)),
+            .highlight_symbol("› "),
         chunks[1],
         &mut state,
     );

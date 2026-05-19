@@ -6,7 +6,8 @@ use ratatui::{
     layout::{Alignment, Constraint, Direction, Flex, Layout, Rect},
     style::{Color, Modifier, Style},
     text::{Line, Span},
-    widgets::{Block, Borders, Clear, List, ListItem, ListState, Paragraph, Tabs, Wrap},
+    widgets::Padding,
+    widgets::{Block, Clear, List, ListItem, ListState, Paragraph, Tabs, Wrap},
 };
 
 use self::overlay_setup::{
@@ -28,7 +29,8 @@ use crate::tui::status_display::render_status_lines;
 pub(super) fn render_overlay(f: &mut Frame, app: &TuiApp, overlay: Overlay) -> Option<(u16, u16)> {
     match overlay {
         Overlay::Help(tab) => {
-            let popup = centered_rect(78, 70, f.area());
+            let popup = popup_rect(f.area(), 80, 60);
+            render_dimmer(f, f.area());
             f.render_widget(Clear, popup);
             render_help_modal(f, app, popup, tab);
             None
@@ -46,55 +48,64 @@ pub(super) fn render_overlay(f: &mut Frame, app: &TuiApp, overlay: Overlay) -> O
             None
         }
         Overlay::Status(tab) => {
-            let popup = centered_rect(78, 70, f.area());
+            let popup = popup_rect(f.area(), 80, 60);
+            render_dimmer(f, f.area());
             f.render_widget(Clear, popup);
             render_status_modal(f, app, popup, tab);
             None
         }
         Overlay::Context => {
-            let popup = centered_rect(78, 70, f.area());
+            let popup = popup_rect(f.area(), 80, 60);
+            render_dimmer(f, f.area());
             f.render_widget(Clear, popup);
             render_context_modal(f, app, popup);
             None
         }
         Overlay::ListPicker(kind) => {
             let popup = if kind == super::super::state::ListPickerKind::Resume {
-                centered_rect(96, 92, f.area())
+                popup_rect(f.area(), 96, 80)
             } else {
                 bottom_picker_rect(f.area())
             };
+            render_dimmer(f, f.area());
             f.render_widget(Clear, popup);
             super::super::list_picker::render_list_picker(f, app, kind, popup);
             None
         }
         Overlay::PermissionPicker => {
-            let popup = centered_rect(72, 70, f.area());
+            let popup = popup_rect(f.area(), 72, 60);
+            render_dimmer(f, f.area());
             f.render_widget(Clear, popup);
             render_permission_picker_modal(f, app, popup);
             None
         }
         Overlay::BaseUrlEditor => {
             let popup = setup_flow_rect(f.area());
+            render_dimmer(f, f.area());
             f.render_widget(Clear, popup);
             render_base_url_editor_modal(f, app, popup)
         }
         Overlay::ApiKeyEditor => {
             let popup = setup_flow_rect(f.area());
+            render_dimmer(f, f.area());
             f.render_widget(Clear, popup);
             render_api_key_editor_modal(f, app, popup)
         }
         Overlay::ModelNameEditor => {
             let popup = setup_flow_rect(f.area());
+            render_dimmer(f, f.area());
             f.render_widget(Clear, popup);
             render_model_name_editor_modal(f, app, popup)
         }
         Overlay::OpenAiProfileLabelEditor => {
             let popup = setup_flow_rect(f.area());
+            render_dimmer(f, f.area());
             f.render_widget(Clear, popup);
             render_openai_profile_label_editor_modal(f, app, popup)
         }
         Overlay::SkillsPicker => {
             let popup = setup_flow_rect(f.area());
+            render_dimmer(f, f.area());
             f.render_widget(Clear, popup);
             render_skills_picker_modal(f, app, popup);
             None
@@ -103,14 +114,17 @@ pub(super) fn render_overlay(f: &mut Frame, app: &TuiApp, overlay: Overlay) -> O
 }
 
 fn render_help_modal(f: &mut Frame, app: &TuiApp, area: Rect, tab: HelpTab) {
+    let block = popup_block();
+    let inner = block.inner(area);
+    f.render_widget(block, area);
     let chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
-            Constraint::Length(3),
+            Constraint::Length(2),
             Constraint::Min(10),
             Constraint::Length(2),
         ])
-        .split(area);
+        .split(inner);
     let titles = ["General", "Commands", "Runtime"]
         .into_iter()
         .map(Line::from)
@@ -122,7 +136,6 @@ fn render_help_modal(f: &mut Frame, app: &TuiApp, area: Rect, tab: HelpTab) {
     };
     f.render_widget(
         Tabs::new(titles)
-            .block(Block::default().borders(Borders::LEFT | Borders::RIGHT))
             .select(selected)
             .style(Style::default().fg(TEXT_SECONDARY))
             .highlight_style(help_selected_tab_style()),
@@ -132,7 +145,6 @@ fn render_help_modal(f: &mut Frame, app: &TuiApp, area: Rect, tab: HelpTab) {
         HelpTab::General => {
             f.render_widget(
                 Paragraph::new(panel_text("general", general_help_text()))
-                    .block(Block::default().borders(Borders::LEFT | Borders::RIGHT))
                     .wrap(Wrap { trim: false }),
                 chunks[1],
             );
@@ -147,8 +159,7 @@ fn render_help_modal(f: &mut Frame, app: &TuiApp, area: Rect, tab: HelpTab) {
             f.render_stateful_widget(
                 List::new(items)
                     .highlight_style(command_list_highlight_style())
-                    .highlight_symbol("› ")
-                    .block(Block::default().borders(Borders::LEFT | Borders::RIGHT)),
+                    .highlight_symbol("› "),
                 chunks[1],
                 &mut state,
             );
@@ -172,13 +183,11 @@ fn render_help_modal(f: &mut Frame, app: &TuiApp, area: Rect, tab: HelpTab) {
                 .split(inner[1]);
             f.render_widget(
                 Paragraph::new(panel_text("runtime", &status_runtime_text(app)))
-                    .block(Block::default().borders(Borders::LEFT | Borders::RIGHT))
                     .wrap(Wrap { trim: false }),
                 left[0],
             );
             f.render_widget(
                 Paragraph::new(panel_text("workspace", &status_workspace_text(app)))
-                    .block(Block::default().borders(Borders::LEFT | Borders::RIGHT))
                     .wrap(Wrap { trim: false }),
                 left[1],
             );
@@ -187,13 +196,11 @@ fn render_help_modal(f: &mut Frame, app: &TuiApp, area: Rect, tab: HelpTab) {
                     "prompt sources",
                     &status_prompt_sources_text(app),
                 ))
-                .block(Block::default().borders(Borders::LEFT | Borders::RIGHT))
                 .wrap(Wrap { trim: false }),
                 left[2],
             );
             f.render_widget(
                 Paragraph::new(panel_text("metrics", &status_metrics_text(app)))
-                    .block(Block::default().borders(Borders::RIGHT))
                     .wrap(Wrap { trim: false }),
                 right[0],
             );
@@ -206,7 +213,6 @@ fn render_help_modal(f: &mut Frame, app: &TuiApp, area: Rect, tab: HelpTab) {
                         recent_transcript_preview(app, 4)
                     ),
                 ))
-                .block(Block::default().borders(Borders::RIGHT))
                 .wrap(Wrap { trim: false }),
                 right[1],
             );
@@ -228,15 +234,12 @@ fn render_command_palette(f: &mut Frame, app: &TuiApp, area: Rect) {
     };
 
     let mut state = command_palette_list_state(app.command_palette_idx);
-    let block = Block::default()
-        .borders(Borders::ALL)
-        .border_style(Style::default().fg(TEXT_MUTED))
-        .title_top(Line::from(Span::styled(
-            " Command Palette ",
-            Style::default()
-                .fg(BADGE_FG_DARK)
-                .add_modifier(Modifier::BOLD),
-        )));
+    let block = popup_block().title_top(Line::from(Span::styled(
+        " Command Palette ",
+        Style::default()
+            .fg(TEXT_ACCENT)
+            .add_modifier(Modifier::BOLD),
+    )));
     let inner = block.inner(area);
     f.render_widget(block, area);
 
@@ -355,27 +358,26 @@ fn help_selected_tab_style() -> Style {
 
 fn render_status_modal(f: &mut Frame, app: &TuiApp, area: Rect, tab: StatusTab) {
     let lines = render_status_lines(app, tab);
+    let block = popup_block();
+    let inner = block.inner(area);
+    f.render_widget(block, area);
     let chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
-            Constraint::Length(3),
+            Constraint::Length(2),
             Constraint::Fill(1),
             Constraint::Length(1),
         ])
-        .split(area);
+        .split(inner);
     let titles = status_tab_titles();
     f.render_widget(
         Tabs::new(titles)
-            .block(Block::default().borders(Borders::LEFT | Borders::RIGHT))
             .select(status_tab_index(tab))
             .style(Style::default().fg(TEXT_SECONDARY))
             .highlight_style(help_selected_tab_style()),
         chunks[0],
     );
-    f.render_widget(
-        Paragraph::new(lines).block(Block::default().borders(Borders::LEFT | Borders::RIGHT)),
-        chunks[1],
-    );
+    f.render_widget(Paragraph::new(lines), chunks[1]);
     f.render_widget(
         Paragraph::new("Esc close  1 overview  2 config  3 context  <-> switch")
             .style(Style::default().fg(Color::DarkGray))
@@ -401,14 +403,16 @@ fn status_tab_index(tab: StatusTab) -> usize {
 
 fn render_context_modal(f: &mut Frame, app: &TuiApp, area: Rect) {
     let lines = render_context_lines(app, area.width);
+    let block = popup_block();
+    let inner = block.inner(area);
+    f.render_widget(block, area);
     let chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([Constraint::Min(8), Constraint::Length(2)])
-        .split(area);
+        .split(inner);
 
     f.render_widget(
         Paragraph::new(lines)
-            .block(Block::default().borders(Borders::LEFT | Borders::RIGHT))
             .wrap(Wrap { trim: false })
             .scroll((app.context_scroll, 0)),
         chunks[0],
@@ -419,8 +423,6 @@ fn render_context_modal(f: &mut Frame, app: &TuiApp, area: Rect) {
     );
 }
 
-/// Bottom-anchored compact popup for list pickers (model, provider, etc.).
-/// OpenCode-style: anchored near the input area, not full-screen.
 fn bottom_picker_rect(area: Rect) -> Rect {
     // OpenCode-style bottom-anchored compact popup
     let width = area.width.min(76).max(32).clamp(10, area.width);
@@ -434,25 +436,38 @@ fn bottom_picker_rect(area: Rect) -> Rect {
     Rect::new(x, y.max(area.y), width, height)
 }
 
-fn centered_rect(percent_x: u16, percent_y: u16, area: Rect) -> Rect {
-    let vertical = Layout::default()
-        .direction(Direction::Vertical)
-        .constraints([
-            Constraint::Percentage((100 - percent_y) / 2),
-            Constraint::Percentage(percent_y),
-            Constraint::Percentage((100 - percent_y) / 2),
-        ])
-        .split(area);
-    let horizontal = Layout::default()
-        .direction(Direction::Horizontal)
-        .constraints([
-            Constraint::Percentage((100 - percent_x) / 2),
-            Constraint::Percentage(percent_x),
-            Constraint::Percentage((100 - percent_x) / 2),
-        ])
-        .flex(Flex::Center)
-        .split(vertical[1]);
-    horizontal[1]
+/// Centered popup rect with adaptive sizing.
+///
+/// Horizontally centered; vertically offset from top by ~1/4 of screen
+/// height (opencode style). Width and height are clamped so the popup
+/// never exceeds the visible area.
+fn popup_rect(area: Rect, max_width: u16, max_height_pct: u16) -> Rect {
+    let width = max_width.min(area.width.saturating_sub(4)).max(20);
+    let max_height = (area.height as u32 * max_height_pct as u32 / 100) as u16;
+    let height = max_height.min(area.height.saturating_sub(4)).max(8);
+    let top_offset = area.height / 4;
+    let x = area
+        .x
+        .saturating_add((area.width.saturating_sub(width)) / 2);
+    let y = (area.y.saturating_add(top_offset))
+        .min(area.y.saturating_add(area.height.saturating_sub(height)));
+    Rect::new(x, y, width, height)
+}
+
+/// Fill the given area with the dimmer background behind popups.
+fn render_dimmer(f: &mut Frame, area: Rect) {
+    f.render_widget(
+        Paragraph::new("").style(Style::default().bg(POPUP_DIMMER_BG)),
+        area,
+    );
+}
+
+/// Styled block for popup content areas: solid panel background, no borders,
+/// 1-char horizontal padding (opencode color-block style).
+fn popup_block() -> Block<'static> {
+    Block::default()
+        .style(Style::default().bg(POPUP_BG))
+        .padding(Padding::horizontal(1))
 }
 
 fn setup_flow_rect(area: Rect) -> Rect {
@@ -629,15 +644,12 @@ fn render_model_search(f: &mut Frame, app: &TuiApp, area: Rect) {
         app.model_search_idx.min(filtered.len().saturating_sub(1)),
     ));
 
-    let block = Block::default()
-        .borders(Borders::ALL)
-        .border_style(Style::default().fg(TEXT_MUTED))
-        .title_top(Line::from(Span::styled(
-            " Model Search ",
-            Style::default()
-                .fg(BADGE_FG_DARK)
-                .add_modifier(Modifier::BOLD),
-        )));
+    let block = popup_block().title_top(Line::from(Span::styled(
+        " Model Search ",
+        Style::default()
+            .fg(BADGE_FG_DARK)
+            .add_modifier(Modifier::BOLD),
+    )));
     let inner = block.inner(area);
     f.render_widget(block, area);
 
