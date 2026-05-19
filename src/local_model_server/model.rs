@@ -3,9 +3,7 @@ pub(crate) fn prepare_local_embedding_model_snapshot(
     profile: &LocalEmbeddingModelProfile,
     progress: &Option<LocalProgressReporter>,
 ) -> Result<Option<PathBuf>> {
-    let SnapshotPreparation::RustManaged { required_files } = profile.snapshot_preparation else {
-        return Ok(None);
-    };
+    let required_files = profile.required_files;
     let model = profile.model;
 
     let cache_dir = default_local_model_cache_dir();
@@ -76,14 +74,15 @@ pub(crate) fn prepare_local_embedding_model_snapshot(
     let info = api_repo
         .info()
         .context("resolve model repository metadata")?;
-    let files: Vec<String> = info
+    let available_files: Vec<String> = info
         .siblings
         .into_iter()
         .map(|sibling| sibling.rfilename)
         .filter(|name| !name.ends_with('/'))
         .collect();
-    if files.is_empty() {
-        bail!("model repository has no downloadable files");
+    let files = selected_snapshot_files(required_files, available_files);
+    if !snapshot_has_minimum_model_files(required_files, &files) {
+        bail!("model repository is missing required files for profile");
     }
 
     let snapshot_path = cache_repo.pointer_path(&info.sha);
@@ -142,6 +141,30 @@ pub(crate) fn snapshot_has_all_files(snapshot_path: &Path, files: &[String]) -> 
     files
         .iter()
         .all(|filename| snapshot_path.join(filename).exists())
+}
+
+pub(crate) fn selected_snapshot_files(
+    required_files: SnapshotRequiredFiles,
+    available_files: Vec<String>,
+) -> Vec<String> {
+    match required_files {
+        SnapshotRequiredFiles::MlxQwen3 => available_files,
+        SnapshotRequiredFiles::FastEmbedBgeM3 => available_files
+            .into_iter()
+            .filter(|file| {
+                matches!(
+                    file.as_str(),
+                    "config.json"
+                        | "tokenizer.json"
+                        | "tokenizer_config.json"
+                        | "special_tokens_map.json"
+                        | "preprocessor_config.json"
+                        | "onnx/model.onnx"
+                        | "onnx/model.onnx_data"
+                )
+            })
+            .collect(),
+    }
 }
 
 pub(crate) fn local_cached_model_snapshot(
@@ -229,6 +252,13 @@ pub(crate) fn snapshot_has_minimum_model_files(
             let has_weights = files.iter().any(|file| file.ends_with(".safetensors"));
             has_config && has_tokenizer && has_weights
         }
+        SnapshotRequiredFiles::FastEmbedBgeM3 => {
+            let has_config = files.iter().any(|file| file == "config.json");
+            let has_tokenizer = files.iter().any(|file| file == "tokenizer.json");
+            let has_model = files.iter().any(|file| file == "onnx/model.onnx");
+            let has_external_data = files.iter().any(|file| file == "onnx/model.onnx_data");
+            has_config && has_tokenizer && has_model && has_external_data
+        }
     }
 }
 
@@ -288,4 +318,3 @@ pub(crate) fn cached_snapshot_under_cache(snapshot_path: &Path, cache_dir: &Path
     };
     Ok(snapshot == cache || snapshot.starts_with(cache))
 }
-

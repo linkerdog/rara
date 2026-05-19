@@ -57,7 +57,7 @@ Runtime artifacts are platform-specific:
 | Platform | Runtime | Artifact | Status |
 |---|---|---|---|
 | macOS Apple Silicon | `mlx_qwen3` | `mlx-community/Qwen3-Embedding-0.6B-4bit-DWQ` | First slice |
-| Linux / Windows / macOS Intel | `fastembed_bge_m3` | `BAAI/bge-m3` | First slice scaffold |
+| Linux / Windows / macOS Intel | `fastembed_bge_m3` | `BAAI/bge-m3` | First slice |
 
 The canonical model id, dimension, and embedding schema version should drive
 future LanceDB table identity. Runtime artifact names must not become the only
@@ -109,11 +109,13 @@ under the managed model-server runtime directory, not under the workspace:
 ~/.rara/runtime/model-server/venv/bin/python
 ```
 
-Dependency installation and model preparation are startup-managed background
+Dependency installation and model preparation are startup-managed initialization
 work, not separate user-facing commands. Startup should not block the TUI until
 the full model is ready, but it should begin preparation automatically when local
 embeddings are enabled and the required venv, packages, server process, or model
-artifact are missing.
+artifact are missing. The Python sidecar must not eagerly load a model at
+process start; Rust owns the prepare call so Rust-managed profiles can pass the
+validated local snapshot path.
 
 ### Embedding Backend Boundary
 
@@ -306,12 +308,11 @@ The canonical Rust consumer is `LocalModelServerEmbeddingBackend`.
 
 ### Model Preparation And Progress
 
-Model download ownership is split by runtime profile. Each profile declares
-whether Rust or Python owns model artifact preparation. The macOS MLX Qwen3
-profile is Rust-managed so startup can report byte progress and skip repeated
-network work after local cache state proves the snapshot is present. Portable
-FastEmbed/BGE-M3 is Python-managed for this slice and lets the Python backend
-stack resolve its package-level model cache.
+Model download ownership is Rust-managed for the default local embedding
+profiles. The macOS MLX Qwen3 profile prepares the full allowlisted Hugging
+Face snapshot. Portable FastEmbed/BGE-M3 prepares only the ONNX/tokenizer files
+needed by FastEmbed, avoiding unrelated PyTorch or Safetensors weights while
+still giving Rust ownership of download progress and cache reuse.
 
 - Rust creates or reuses the managed venv.
 - Rust-managed profiles prepare their Hugging Face snapshot in the RARA model
@@ -323,8 +324,6 @@ stack resolve its package-level model cache.
 - Rust asks the server to prepare a backend/model through a dedicated prepare
   API, passing a prepared local snapshot path only for Rust-managed profiles.
 - Python loads from the validated local snapshot path when one is provided.
-  Python-managed profiles such as portable FastEmbed perform their own model
-  resolution through the configured model cache.
 - Python exposes structured preparation progress.
 - Rust polls or subscribes to that progress and surfaces it in `/status` and
   startup status text.
@@ -373,6 +372,7 @@ Valid preparation states:
 | `prepared_stopped` | The managed Python runtime is prepared, but no reusable server is currently running |
 | `reusing_server` | Rust found and reused an existing healthy server |
 | `downloading` | Rust or Python is downloading model artifacts, depending on the runtime profile |
+| `loading` | The server process is alive and the selected model is being loaded into memory |
 | `ready` | Server and selected embedding model are ready |
 | `error` | Bootstrap, server startup, dependency install, or model preparation failed |
 
@@ -436,8 +436,10 @@ Valid preparation states:
   is asked to prepare the selected backend/model. A completed snapshot marker or
   complete local Hugging Face `refs/<revision>` snapshot lets later startups
   skip the Hugging Face metadata request and download path.
-- Portable FastEmbed model artifact resolution remains inside the Python
-  backend stack for this slice.
+- The Python sidecar must not start model preparation on its own at process
+  startup. Rust must initiate `/models/prepare` after snapshot preparation so a
+  Rust-managed profile cannot race with an eager Python load that lacks the
+  local snapshot path.
 - Local loopback embedding requests must bypass system proxy configuration.
 
 ## Validation Matrix
@@ -472,8 +474,8 @@ Valid preparation states:
   only execute that Python server command and should not reinstall dependencies.
 - If dependency installation fails, startup should delete the managed venv
   directory and report the install error instead of leaving a partial runtime.
-- Startup should prepare the server automatically; `/status` should report that
-  background preparation state rather than initiating it.
+- Startup should prepare the server automatically; `/status` should report the
+  current initialization state rather than initiating it.
 - TUI startup should not block first paint on local embedding bootstrap. A
   completed sidecar should be reused silently; an incomplete sidecar should show
   initialization progress and close that status surface when the rebuild task
@@ -508,3 +510,4 @@ Valid preparation states:
 ## Source Journals
 
 - `docs/journal/2026-05-12-local-embedding-sidecar.md`
+- `docs/journal/2026-05-19-local-embedding-prepare-race.md`

@@ -1,19 +1,19 @@
 pub(crate) fn default_embedding_profile() -> LocalEmbeddingModelProfile {
     if cfg!(all(target_os = "macos", target_arch = "aarch64")) {
         LocalEmbeddingModelProfile {
+            id: "qwen3-embedding-0.6b",
             backend: "mlx_qwen3",
             model: MLX_QWEN3_MODEL_ID,
             revision: MODEL_REVISION,
-            snapshot_preparation: SnapshotPreparation::RustManaged {
-                required_files: SnapshotRequiredFiles::MlxQwen3,
-            },
+            required_files: SnapshotRequiredFiles::MlxQwen3,
         }
     } else {
         LocalEmbeddingModelProfile {
+            id: "bge-m3-fastembed",
             backend: "fastembed_bge_m3",
             model: FASTEMBED_BGE_M3_MODEL_ID,
             revision: MODEL_REVISION,
-            snapshot_preparation: SnapshotPreparation::PythonManaged,
+            required_files: SnapshotRequiredFiles::FastEmbedBgeM3,
         }
     }
 }
@@ -24,7 +24,7 @@ pub(crate) fn default_embedding_backend() -> (&'static str, &'static str) {
 }
 
 pub(crate) fn embedding_profile_id() -> &'static str {
-    "qwen3-embedding-0.6b"
+    default_embedding_profile().id
 }
 
 pub(crate) fn venv_python_path(venv_dir: &Path) -> PathBuf {
@@ -150,4 +150,3 @@ pub(crate) fn requirements_marker_matches(path: &Path, expected_hash: &str) -> R
         .and_then(Value::as_str)
         .is_some_and(|hash| hash == expected_hash))
 }
-
