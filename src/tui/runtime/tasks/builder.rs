@@ -11,6 +11,11 @@ pub(super) async fn rebuild_agent_with_progress(
         &crate::config::ensure_rara_home_dir()?,
     );
     let event_bus = bootstrap.event_bus.clone();
+
+    // Start the hook runtime — registers command-type hooks found in `.claude/hooks/`
+    let hook_runtime = crate::hook_runtime::HookRuntime::new(event_bus.clone());
+    hook_runtime.start();
+
     let (
         agent,
         warnings,
