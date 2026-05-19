@@ -1328,3 +1328,20 @@ fn ralph_goal_budget_defaults_to_none() {
             .is_some_and(|b| limited.tokens_used >= b)
     );
 }
+
+#[test]
+fn todo_write_emit_update_on_empty_list_clears_sidebar() {
+    use serde_json::json;
+
+    use crate::todo::normalize_todo_write_input;
+
+    let empty = json!({"todos": []});
+    let state = normalize_todo_write_input(&empty).unwrap();
+    assert!(
+        state.items.is_empty(),
+        "empty todo_write input should produce empty state"
+    );
+    let view = crate::context::TodoContextView::from_state(Some(state));
+    assert_eq!(view.summary.total, 0);
+    assert!(view.items.is_empty());
+}

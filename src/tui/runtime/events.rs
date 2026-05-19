@@ -258,6 +258,9 @@ pub(super) fn apply_tui_event(app: &mut TuiApp, event: TuiEvent) {
                 Some(format!("streaming {name} output")),
             );
         }
+        TuiEvent::UpdateTodo(view) => {
+            app.snapshot.todo = view;
+        }
     }
 }
 
@@ -281,6 +284,16 @@ pub(super) fn convert_agent_event(event: AgentEvent) -> Option<TuiEvent> {
         }),
         AgentEvent::ToolUse { name, input } => {
             if name == crate::tools::todo::TODO_WRITE_TOOL_NAME {
+                match crate::todo::normalize_todo_write_input(&input) {
+                    Ok(state) => {
+                        return Some(TuiEvent::UpdateTodo(
+                            crate::context::TodoContextView::from_state(Some(state)),
+                        ));
+                    }
+                    Err(e) => {
+                        eprintln!("todo_write parse error: {e}");
+                    }
+                }
                 return None;
             }
             if let Some(event) = TerminalEvent::from_tool_use(&name, &input) {
