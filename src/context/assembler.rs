@@ -13,7 +13,7 @@ use crate::context::{
     TodoContextView, retrieval_candidates,
 };
 use crate::llm::{ContextBudget, LlmBackend};
-use crate::prompt::{self, EffectivePrompt, PromptMode, PromptRuntimeConfig};
+use crate::prompt::{self, EffectivePrompt, HookLifecycle, PromptMode, PromptRuntimeConfig};
 use crate::todo::TodoState;
 use crate::tool_result::{ToolResultProjectionPolicy, ToolResultProjectionReport};
 use crate::workspace::WorkspaceMemory;
@@ -77,28 +77,51 @@ impl AssembledContext {
 pub struct ContextAssembler<'a> {
     workspace: &'a WorkspaceMemory,
     runtime: &'a PromptRuntimeConfig,
+    hook_phase: Option<HookLifecycle>,
 }
 
 impl<'a> ContextAssembler<'a> {
     pub fn new(workspace: &'a WorkspaceMemory, runtime: &'a PromptRuntimeConfig) -> Self {
-        Self { workspace, runtime }
+        Self {
+            workspace,
+            runtime,
+            hook_phase: None,
+        }
+    }
+
+    /// Set the hook lifecycle phase so only matching hooks are injected.
+    pub fn with_hook_phase(mut self, phase: HookLifecycle) -> Self {
+        self.hook_phase = Some(phase);
+        self
     }
 
     pub fn assemble(&self, mode: PromptMode) -> AssembledContext {
         let mut prompt = prompt::build_effective_prompt(self.workspace, self.runtime, mode);
-        let mut context_sections = Vec::new();
+        let mut appended_sections: Vec<(&str, String)> = Vec::new();
         // Inject memory section (read-path instructions + summary)
         let memory_section = crate::memory_files::read_memory_section(&self.workspace.rara_dir);
         if !memory_section.is_empty() {
-            context_sections.push(memory_section);
+            appended_sections.push(("Memory", memory_section));
         }
-        let hooks_text = self.runtime.hooks_prompt(None);
+        let hooks_text = self.runtime.hooks_prompt(self.hook_phase);
         if !hooks_text.is_empty() {
-            context_sections.push(format!("## Hooks\n\n{}", hooks_text));
+            appended_sections.push(("Hooks", format!("## Hooks\n\n{}", hooks_text)));
         }
-        if !context_sections.is_empty() {
+        if !appended_sections.is_empty() {
+            let joined: Vec<String> = appended_sections
+                .iter()
+                .map(|(_, content)| content.clone())
+                .collect();
             prompt.text.push_str("\n\n");
-            prompt.text.push_str(&context_sections.join("\n\n"));
+            prompt.text.push_str(&joined.join("\n\n"));
+            for (label, content) in appended_sections {
+                prompt.sources.push(prompt::PromptSource {
+                    kind: prompt::PromptSourceKind::AppendSystemPrompt,
+                    label: format!("{} (injected)", label),
+                    display_path: "memory/hooks".to_string(),
+                    content,
+                });
+            }
         }
         AssembledContext {
             effective_prompt: prompt,
