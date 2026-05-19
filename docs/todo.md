@@ -43,7 +43,7 @@ Active backlog only. Keep this file small and current.
 ### LSP (Phase 1)
 - [x] LSP runtime wiring: shared manager, lazy server startup, diagnostics parsing, sidebar status
 - [x] `lsp_diagnostics` tool: return cached diagnostics for a file
-- [ ] Replace sleep-based LSP initialization with response-aware handshake handling
+- [x] Replace sleep-based LSP initialization with response-aware handshake handling
 
 ### File Splits (P0)
 - [ ] `tools/bash.rs` (2315 lines) → by tool group

@@ -17,15 +17,18 @@
   only after a tool call needs to detect or start a server.
 - `RARA_LSP=0`, `RARA_LSP=false`, and `RARA_LSP=off` disable the manager without
   removing the tool surface; the tool reports a structured error payload.
+- The initialize flow now waits for the matching JSON-RPC response before
+  sending `initialized`; reader threads route response messages through a
+  connection-local channel while keeping diagnostics notification handling in
+  the shared cache.
 
 ## Verification
 
 - `cargo fmt`
 - `cargo test lsp_manager -- --nocapture`
 - `cargo test push_lsp_status -- --nocapture`
+- `cargo check -p rara`
 
 ## Follow-up
 
-- Replace the initial sleep-based LSP initialize flow with response-aware
-  handshake handling.
 - Add config-file LSP server overrides after the config schema exists.
