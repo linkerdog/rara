@@ -425,16 +425,14 @@ fn push_todo_section_shows_progress_and_items() {
         .collect::<Vec<_>>()
         .join("\n");
     assert!(text.contains("Todo"));
+    assert!(text.contains("Todo"));
     assert!(text.contains("1 / 4 · 2 open"));
     assert!(text.contains("● Run focused regression test"));
-    assert!(text.contains("[>] Reproduce failing behavior"));
     assert!(text.contains("[x] Reproduce failing behavior"));
     assert!(text.contains("[>] Run focused regression test"));
     assert!(text.contains("[ ] Check nearby side effects"));
     assert!(text.contains("[-] Broader cleanup"));
 }
-
-// ── push_child_sessions ─────────────────────────────────────────────
 // Now shows "# Sub-agents" section header + each title (running).
 
 #[test]
