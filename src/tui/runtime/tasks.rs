@@ -987,7 +987,25 @@ pub(crate) async fn finish_running_task_if_ready(
                 app.skill_source_registry = Some(rebuilt.skill_source_registry);
                 app.memory_handler = Some(rebuilt.memory_handler);
                 app.hook_registry = Some(rebuilt.hook_registry);
-                app.hook_runtime = Some(rebuilt.hook_runtime);
+                app.hook_runtime = Some(rebuilt.hook_runtime.clone());
+                // Load and register plugin hooks from `.rara/plugins/`
+                if let (Ok(workspace_root), Some(hr)) =
+                    (std::env::current_dir(), app.hook_runtime.as_ref())
+                {
+                    let plugins_dir = workspace_root.join(".rara").join("plugins");
+                    if plugins_dir.is_dir() {
+                        let hr = hr.clone();
+                        let plugins_dir = plugins_dir.clone();
+                        tokio::spawn(async move {
+                            let _ = crate::plugin_middleware::register_plugin_hooks(
+                                &hr,
+                                &plugins_dir,
+                                "",
+                            )
+                            .await;
+                        });
+                    }
+                }
                 app.local_model_server = rebuilt.local_model_server;
                 app.config_manager.save(&app.config)?;
                 let is_bootstrap = app.setup_status.is_none();

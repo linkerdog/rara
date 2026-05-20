@@ -261,10 +261,14 @@ fn extract_description(content: &str) -> Option<String> {
 
 // -- Bundled System Skills ----------------------------------------
 
+// Reserved for bundled-skill activation (docs/todo.md: hooks + memory)
+#[allow(dead_code)]
 const SYSTEM_SKILL_VERIFY: &str = include_str!(concat!(
     env!("CARGO_MANIFEST_DIR"),
     "/../../assets/skills/verify/SKILL.md"
 ));
+// Reserved for bundled-skill activation (docs/todo.md: hooks + memory)
+#[allow(dead_code)]
 const SYSTEM_SKILL_VERIFIER_GENERIC: &str = include_str!(concat!(
     env!("CARGO_MANIFEST_DIR"),
     "/../../assets/skills/verifier-generic/SKILL.md"
