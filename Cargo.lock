@@ -10650,6 +10650,7 @@ dependencies = [
  "fs2",
  "futures",
  "lancedb",
+ "log",
  "rara-persistence",
  "serde",
  "tempfile",
