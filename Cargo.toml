@@ -101,7 +101,7 @@ uuid = { version = "1.11", features = ["v4"] }
 lancedb = "0.29"
 arrow-array = "58"
 arrow-schema = "58"
-lance-index = "0.29"
+lance-index = "6"
 futures = "0.3"
 eventsource-stream = "0.2.3"
 rusqlite = { version = "0.39", features = ["bundled"] }
