@@ -7,7 +7,8 @@ use tokio::sync::mpsc;
 use super::super::view_builder::{activity_status_line, footer_summary_text, should_show_spinner};
 use crate::config::ConfigManager;
 use crate::tui::render::bottom_pane::composer::{
-    composer_hint, composer_hint_line, wrapped_text_cursor_position, wrapped_text_rows,
+    composer_hint, composer_hint_line, desired_composer_height, wrapped_text_cursor_position,
+    wrapped_text_rows,
 };
 use crate::tui::state::{
     InteractionKind, PendingInteractionSnapshot, RunningTask, RuntimePhase, RuntimeSnapshot,
@@ -430,4 +431,25 @@ fn setting_goal_preserves_activity_status_label() {
     // Goal rendering is in render_activity_bar (badge), not in activity_status_line.
     let (label, _, _) = activity_status_line(&app);
     assert_eq!(label, "Ready");
+}
+
+#[test]
+fn composer_height_respects_40_percent_cap() {
+    let temp = tempfile::tempdir().unwrap();
+    let mut app = TuiApp::new(ConfigManager {
+        path: temp.path().join("config.json"),
+    })
+    .expect("build tui app");
+
+    app.bottom_pane
+        .input
+        .push_str("line1\nline2\nline3\nline4\nline5\nline6\nline7\nline8\nline9\nline10");
+
+    let w = 80;
+    let h = desired_composer_height(&app, w, 24);
+    assert!(h <= 10, "24-row terminal capped at 10, got {h}");
+    let h2 = desired_composer_height(&app, w, 80);
+    assert!(h2 <= 32, "80-row terminal capped at 32, got {h2}");
+    let h3 = desired_composer_height(&app, w, 5);
+    assert_eq!(h3, 3, "tiny terminal floors at 3");
 }
