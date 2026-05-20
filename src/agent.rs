@@ -77,11 +77,7 @@ pub enum BashApprovalDecision {
     Suggestion,
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
-pub struct Message {
-    pub role: String,
-    pub content: Value,
-}
+pub use rara_core::llm::types::Message;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum AgentOutputMode {

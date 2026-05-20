@@ -1,6 +1,9 @@
+// Re-export shared types from rara-core.
+pub use rara_core::llm::types::{ContentBlock, Message};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
+// Kept locally until field names are aligned with rara-core.
 #[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct LlmResponse {
     pub content: Vec<ContentBlock>,
@@ -16,23 +19,4 @@ pub struct TokenUsage {
     pub cache_hit_tokens: u32,
     #[serde(default)]
     pub cache_miss_tokens: u32,
-}
-
-#[derive(Debug, Serialize, Deserialize, Clone)]
-#[serde(tag = "type")]
-pub enum ContentBlock {
-    #[serde(rename = "text")]
-    Text { text: String },
-    #[serde(rename = "tool_use")]
-    ToolUse {
-        id: String,
-        name: String,
-        input: Value,
-    },
-    #[serde(rename = "provider_metadata")]
-    ProviderMetadata {
-        provider: String,
-        key: String,
-        value: Value,
-    },
 }
