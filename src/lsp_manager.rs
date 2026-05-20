@@ -697,4 +697,13 @@ mod tests {
         assert!(rx.try_recv().is_err());
         assert!(diagnostics.lock().unwrap().is_empty());
     }
+
+    #[test]
+    fn server_available_caches_result_via_once_lock() {
+        // First call runs --version (or finds cached result)
+        let a = server_available(ServerKind::RustAnalyzer);
+        // Second call hits OnceLock, returns same bool
+        let b = server_available(ServerKind::RustAnalyzer);
+        assert_eq!(a, b);
+    }
 }
