@@ -52,19 +52,23 @@ Choose 1–3 labels per memory:
 
 ## Output format
 
-Produce a JSON array — one object per memory:
+Produce a JSON object matching this schema:
 
 ```json
-[
-  {
-    "title": "Short summary",
-    "content": "The knowledge itself. Markdown supported.",
-    "labels": ["decision", "infrastructure"],
-    "importance": 0.8,
-    "source": "session_abc.md#L42",
-    "tags": "database postgres performance"
-  }
-]
+{
+  "producer": "subagent-A",
+  "nothing_new": false,
+  "entries": [
+    {
+      "title": "Short summary",
+      "content": "The knowledge itself. Markdown supported.",
+      "labels": ["decision", "infrastructure"],
+      "importance": 0.8,
+      "source": "session_abc.md#L42",
+      "tags": "database postgres performance"
+    }
+  ]
+}
 ```
 
 Keep the `content` concise but complete — 1 to 3 paragraphs usually.  If you
@@ -115,9 +119,9 @@ When two entries conflict:
 Each topic file gets ONE index line in MEMORY.md:
 
 ```
-★ [Title](topics/name.md) — One sentence summary tags:tag1 tag2
-· [Another](topics/foo.md) — Summary tags:tag1
-  [Minor](topics/bar.md) — Summary
+- ★ [Title](topics/name.md) — One sentence summary tags:tag1 tag2
+- · [Another](topics/foo.md) — Summary tags:tag1
+-   [Minor](topics/bar.md) — Summary
 ```
 
 - ★ for importance ≥ 0.8
@@ -155,7 +159,7 @@ MEMORY.md is a **pure index** — never add paragraphs or free-form text.
 Every line is a pointer:
 
 ```
-- [Title](topics/name.md) — One sentence summary tags:keyword1 keyword2
+- ★ [Title](topics/name.md) — One sentence summary tags:keyword1 keyword2
 ```
 
 - `★` prefix = critical (importance ≥ 0.8)

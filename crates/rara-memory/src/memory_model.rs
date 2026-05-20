@@ -59,9 +59,9 @@ impl MemoryEntry {
     /// A one-line pointer suitable for the `MEMORY.md` index.
     pub fn index_line(&self, topic_file: &str) -> String {
         let importance = match self.importance {
-            i if i >= 0.8 => "★",
-            i if i >= 0.5 => "·",
-            _ => " ",
+            i if i >= 0.8 => "- ★",
+            i if i >= 0.5 => "- ·",
+            _ => "-  ",
         };
         let tags = self
             .tags
@@ -82,12 +82,19 @@ impl MemoryEntry {
 /// Truncate content to at most `max_chars` characters, breaking at a word
 /// boundary.
 fn content_summary(content: &str, max_chars: usize) -> String {
-    if content.len() <= max_chars {
+    if content.chars().count() <= max_chars {
         return content.to_string();
     }
-    let end = content[..max_chars]
+    // Safe: use char_indices so we never split inside a multi-byte char.
+    let byte_end = content
+        .char_indices()
+        .take(max_chars)
+        .last()
+        .map(|(i, _c)| i)
+        .unwrap_or(0);
+    let end = content[..byte_end]
         .rfind(|c: char| c.is_whitespace())
-        .unwrap_or(max_chars);
+        .unwrap_or(byte_end);
     format!("{}…", &content[..end])
 }
 
