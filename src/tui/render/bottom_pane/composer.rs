@@ -194,7 +194,7 @@ pub(super) fn composer_cursor_position(
     (x, adjusted_y)
 }
 
-pub(super) fn desired_composer_height(app: &TuiApp, width: u16, rows: u16) -> u16 {
+pub(crate) fn desired_composer_height(app: &TuiApp, width: u16, rows: u16) -> u16 {
     let available_width = width.max(1);
     let content_rows = composer_content_line_count(app, available_width);
     let max_height = rows.saturating_sub(4).max(3);
