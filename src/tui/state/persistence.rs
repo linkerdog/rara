@@ -279,6 +279,39 @@ impl TuiApp {
                 Some(state_db_status_error("turn write failed", err.to_string()));
         }
     }
+
+    /// Realtime per-entry write to the live log (Claude Code style).
+    /// Called from push_entry so resume can recover partial turns.
+    pub(crate) fn record_entry_realtime(&self, entry: &PersistedTurnEntry) {
+        let Some(state_db) = self.state_db.as_ref() else {
+            return;
+        };
+        if self.snapshot.session_id.is_empty() {
+            return;
+        }
+        let root_dir = state_db.rollout_root();
+        if let Err(e) = rara_persistence::thread_turn_log::append_rollout_fragment(
+            &root_dir,
+            &self.snapshot.session_id,
+            entry,
+        ) {
+            eprintln!("live write failed: {e}");
+        }
+    }
+
+    /// Clear the live log after a turn is committed.
+    pub(crate) fn clear_live_log(&self) {
+        let Some(state_db) = self.state_db.as_ref() else {
+            return;
+        };
+        if self.snapshot.session_id.is_empty() {
+            return;
+        }
+        rara_persistence::thread_turn_log::clear_live_log(
+            &state_db.rollout_root(),
+            &self.snapshot.session_id,
+        );
+    }
 }
 
 fn resume_thread_matches_query(thread: &crate::thread_store::ThreadSummary, query: &str) -> bool {

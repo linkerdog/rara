@@ -99,3 +99,48 @@ fn sync_parent_dir_best_effort(parent: &Path) {
 
 #[cfg(not(unix))]
 fn sync_parent_dir_best_effort(_parent: &Path) {}
+
+const LIVE_LOG_FILE: &str = "live.jsonl";
+
+/// Append one entry to the per-session live log (realtime persistence).
+pub fn append_rollout_fragment(
+    root_dir: &Path,
+    session_id: &str,
+    entry: &PersistedTurnEntry,
+) -> Result<()> {
+    let dir = root_dir.join(session_id);
+    fs::create_dir_all(&dir)?;
+    let path = dir.join(LIVE_LOG_FILE);
+    let _lock = AdvisoryFileLock::acquire(path.with_extension("lock"))?;
+    let mut line = serde_json::to_vec(entry)?;
+    line.push(b'\n');
+    let mut file = OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(&path)
+        .with_context(|| format!("open live log {}", path.display()))?;
+    file.write_all(&line)?;
+    file.sync_data()?;
+    #[cfg(unix)]
+    sync_parent_dir_best_effort(&dir);
+    Ok(())
+}
+
+/// Remove the live log so resume doesn't load a stale partial turn.
+pub fn clear_live_log(root_dir: &Path, session_id: &str) {
+    let path = root_dir.join(session_id).join(LIVE_LOG_FILE);
+    let _ = fs::remove_file(path);
+}
+
+/// Read all entries from the live log, oldest first.
+pub fn load_live_entries(root_dir: &Path, session_id: &str) -> Vec<PersistedTurnEntry> {
+    let path = root_dir.join(session_id).join(LIVE_LOG_FILE);
+    let Ok(content) = fs::read_to_string(&path) else {
+        return Vec::new();
+    };
+    content
+        .lines()
+        .filter(|l| !l.trim().is_empty())
+        .filter_map(|l| serde_json::from_str::<PersistedTurnEntry>(l).ok())
+        .collect()
+}
