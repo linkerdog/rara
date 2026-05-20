@@ -115,13 +115,13 @@ fn lifecycle_for_event(event: &AgentEvent) -> Option<HookLifecycle> {
         AgentEvent::AgentStop { .. } => Some(HookLifecycle::Stop),
         AgentEvent::ToolUse { .. } => Some(HookLifecycle::PreToolUse),
         AgentEvent::ToolResult { .. } => Some(HookLifecycle::PostToolUse),
+        AgentEvent::MemoryAction { .. } => Some(HookLifecycle::PostMemoryWrite),
         AgentEvent::ModelRequest { .. } | AgentEvent::ModelResponse { .. } => None,
         AgentEvent::Status(_)
         | AgentEvent::AssistantText(_)
         | AgentEvent::AssistantDelta(_)
         | AgentEvent::AssistantThinkingDelta(_)
         | AgentEvent::ToolProgress { .. }
-        | AgentEvent::MemoryAction { .. }
         | AgentEvent::McpStatusUpdated(_)
         | AgentEvent::McpStatusLoadFailed { .. }
         | AgentEvent::TodoUpdated(_)

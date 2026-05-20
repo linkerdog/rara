@@ -987,6 +987,7 @@ pub(crate) async fn finish_running_task_if_ready(
                 app.skill_source_registry = Some(rebuilt.skill_source_registry);
                 app.memory_handler = Some(rebuilt.memory_handler);
                 app.hook_registry = Some(rebuilt.hook_registry);
+                app.hook_runtime = Some(rebuilt.hook_runtime);
                 app.local_model_server = rebuilt.local_model_server;
                 app.config_manager.save(&app.config)?;
                 let is_bootstrap = app.setup_status.is_none();

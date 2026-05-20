@@ -350,6 +350,7 @@ impl TuiApp {
             prompt_source_registry: None,
             skill_source_registry: None,
             hook_registry: None,
+            hook_runtime: None,
             memory_handler: None,
             provider_connection_status: std::collections::HashMap::new(),
             repo_context_task: None,

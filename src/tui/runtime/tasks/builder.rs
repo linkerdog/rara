@@ -42,6 +42,7 @@ pub(super) async fn rebuild_agent_with_progress(
         prompt_source_registry,
         skill_source_registry,
         hook_registry,
+        hook_runtime: Arc::new(hook_runtime),
         memory_handler,
         lsp_manager,
     })

@@ -271,6 +271,7 @@ pub enum HookLifecycle {
     UserPromptSubmit,
     PreToolUse,
     PostToolUse,
+    PostMemoryWrite,
     Stop,
     PreCompact,
 }
