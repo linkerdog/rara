@@ -11961,6 +11961,7 @@ dependencies = [
 name = "rara-app-server"
 version = "0.0.1"
 dependencies = [
+ "rara-instructions",
  "serde",
  "serde_json",
 ]
