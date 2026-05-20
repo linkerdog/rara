@@ -6,6 +6,7 @@ use std::time::Instant;
 use rara_state::state_db::StateDb;
 use rara_tools::tool::ToolOutputStream;
 use ratatui::text::Line;
+use serde::{Deserialize, Serialize};
 use tokio::sync::mpsc::UnboundedReceiver;
 use tokio::task::JoinHandle;
 
@@ -755,7 +756,7 @@ pub struct SkillPickerEntry {
 }
 
 /// Represents the lifecycle state of a ralph loop goal.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum GoalStatus {
     /// Agent is actively working toward the goal across turns.
     Pursuing,
@@ -768,7 +769,7 @@ pub enum GoalStatus {
 }
 
 /// Tracks a long-running objective that the agent autonomously works toward.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct RalphGoal {
     /// The objective text set by `/goal <objective>`.
     pub objective: String,
