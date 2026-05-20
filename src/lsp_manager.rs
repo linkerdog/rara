@@ -239,12 +239,12 @@ impl LspManager {
             .iter()
             .map(|kind| {
                 let detected = self.workspace_root.join(kind.detect_file()).exists();
-                let availability = server_available_cached(*kind);
+                let availability = server_available(*kind);
                 LspServerStatus {
                     name: kind.label().to_string(),
                     detected,
-                    checked: availability.is_some(),
-                    available: detected && availability.unwrap_or(false),
+                    checked: true,
+                    available: detected && availability,
                     running: servers.get(kind).is_some_and(Option::is_some),
                 }
             })
@@ -457,10 +457,6 @@ fn server_available(kind: ServerKind) -> bool {
         let cmd = kind.command()[0];
         Command::new(cmd).arg("--version").output().is_ok()
     })
-}
-
-fn server_available_cached(kind: ServerKind) -> Option<bool> {
-    server_availability_lock(kind).get().copied()
 }
 
 fn server_availability_lock(kind: ServerKind) -> &'static std::sync::OnceLock<bool> {
