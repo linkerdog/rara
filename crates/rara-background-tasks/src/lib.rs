@@ -143,34 +143,55 @@ impl BackgroundTaskStore {
         let (stop_tx, stop_rx) = oneshot::channel();
         self.tasks
             .lock()
-            .unwrap()
+            .unwrap_or_else(|e| e.into_inner())
             .insert(id.clone(), record.clone());
-        self.stop_signals.lock().unwrap().insert(id, stop_tx);
+        self.stop_signals
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .insert(id, stop_tx);
         Ok((record, stop_rx))
     }
 
     pub fn finish(&self, id: &str, status: BackgroundTaskStatus, exit_code: Option<i32>) {
-        if let Some(record) = self.tasks.lock().unwrap().get_mut(id) {
+        if let Some(record) = self
+            .tasks
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .get_mut(id)
+        {
             if !matches!(record.status, BackgroundTaskStatus::Killed) {
                 record.status = status;
             }
             record.exit_code = exit_code;
         }
-        self.stop_signals.lock().unwrap().remove(id);
+        self.stop_signals
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .remove(id);
     }
 
     pub fn get(&self, id: &str) -> Option<BackgroundTaskRecord> {
-        self.tasks.lock().unwrap().get(id).cloned()
+        self.tasks
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .get(id)
+            .cloned()
     }
 
     pub fn list(&self) -> Vec<BackgroundTaskRecord> {
-        let mut records: Vec<_> = self.tasks.lock().unwrap().values().cloned().collect();
+        let mut records: Vec<_> = self
+            .tasks
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .values()
+            .cloned()
+            .collect();
         records.sort_by(|left, right| left.id.cmp(&right.id));
         records
     }
 
     pub fn stop(&self, id: &str) -> Result<BackgroundTaskRecord, ToolError> {
-        let mut tasks = self.tasks.lock().unwrap();
+        let mut tasks = self.tasks.lock().unwrap_or_else(|e| e.into_inner());
         let record = tasks
             .get_mut(id)
             .ok_or_else(|| ToolError::InvalidInput(format!("unknown task id: {id}")))?;
@@ -181,7 +202,12 @@ impl BackgroundTaskStore {
         let stopped = record.clone();
         drop(tasks);
 
-        if let Some(stop) = self.stop_signals.lock().unwrap().remove(id) {
+        if let Some(stop) = self
+            .stop_signals
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .remove(id)
+        {
             let _ = stop.send(());
         }
         Ok(stopped)

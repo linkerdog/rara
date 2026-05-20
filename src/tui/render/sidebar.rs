@@ -229,7 +229,7 @@ fn push_todo_section(lines: &mut Vec<Line<'static>>, app: &TuiApp) -> bool {
     let open = todo.summary.pending + todo.summary.in_progress;
     lines.push(Line::from(Span::styled(
         format!(
-            "{}/{} done · {} open",
+            "{} / {} · {} open",
             todo.summary.completed, todo.summary.total, open
         ),
         Style::default().fg(TEXT_MUTED),
@@ -237,8 +237,8 @@ fn push_todo_section(lines: &mut Vec<Line<'static>>, app: &TuiApp) -> bool {
 
     if let Some(active) = todo.summary.active_item.as_deref() {
         lines.push(Line::from(Span::styled(
-            format!("Active: {active}"),
-            Style::default().fg(INTERACTION_SUB_AGENT),
+            format!("● {active}"),
+            Style::default().fg(STATUS_WARNING),
         )));
     }
 
@@ -251,7 +251,7 @@ fn push_todo_section(lines: &mut Vec<Line<'static>>, app: &TuiApp) -> bool {
 
     if todo.items.len() > 4 {
         lines.push(Line::from(Span::styled(
-            format!("... and {} more", todo.items.len() - 4),
+            format!("… {} more", todo.items.len() - 4),
             Style::default().fg(TEXT_MUTED),
         )));
     }
@@ -261,16 +261,16 @@ fn push_todo_section(lines: &mut Vec<Line<'static>>, app: &TuiApp) -> bool {
 
 fn todo_status_marker(status: &str) -> &'static str {
     match status {
-        "in_progress" => "[>]",
-        "completed" => "[x]",
-        "cancelled" => "[-]",
-        _ => "[ ]",
+        "in_progress" => "●",
+        "completed" => "☑",
+        "cancelled" => "✗",
+        _ => "☐",
     }
 }
 
 fn todo_status_style(status: &str) -> Style {
     match status {
-        "in_progress" => Style::default().fg(INTERACTION_SUB_AGENT),
+        "in_progress" => Style::default().fg(STATUS_WARNING),
         "completed" => Style::default().fg(STATUS_SUCCESS),
         "cancelled" => Style::default().fg(TEXT_MUTED),
         _ => Style::default().fg(TEXT_SECONDARY),

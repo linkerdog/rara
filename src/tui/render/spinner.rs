@@ -1,4 +1,3 @@
-
 //! Fixed-width activity spinner.
 //!
 //! Returns a 1-character Span whose glyph and color animate over time
