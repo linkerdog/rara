@@ -54,7 +54,10 @@ impl std::ops::AddAssign for TokenUsage {
     fn add_assign(&mut self, other: Self) {
         self.input_tokens += other.input_tokens;
         self.output_tokens += other.output_tokens;
-        merge_opt(&mut self.cache_read_input_tokens, other.cache_read_input_tokens);
+        merge_opt(
+            &mut self.cache_read_input_tokens,
+            other.cache_read_input_tokens,
+        );
         merge_opt(
             &mut self.cache_creation_input_tokens,
             other.cache_creation_input_tokens,
