@@ -146,7 +146,11 @@ fn completed_interaction_role(kind: InteractionKind, source: Option<&str>) -> &'
 }
 
 pub fn input_requests_command_palette(input: &str) -> bool {
-    input.trim_start().starts_with('/')
+    let trimmed = input.trim_start();
+    // Open the palette when the user types a bare '/' or the start of a
+    // command name.  Once a space (argument) appears, close it so Enter
+    // goes to Submit instead of ApplyOverlaySelection.
+    trimmed.starts_with('/') && !trimmed.contains(|c: char| c.is_whitespace())
 }
 
 pub(crate) fn contains_structured_planning_output(message: &str) -> bool {
