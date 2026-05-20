@@ -1,3 +1,4 @@
+use std::path::PathBuf;
 use std::sync::Arc;
 
 use rara_state::state_db::{
@@ -283,16 +284,12 @@ impl TuiApp {
     /// Realtime per-entry write to the live log (Claude Code style).
     /// Called from push_entry so resume can recover partial turns.
     pub(crate) fn record_entry_realtime(&self, entry: &PersistedTurnEntry) {
-        let Some(state_db) = self.state_db.as_ref() else {
+        let Some((root_dir, session_id)) = self.live_log_context() else {
             return;
         };
-        if self.snapshot.session_id.is_empty() {
-            return;
-        }
-        let root_dir = state_db.rollout_root();
         if let Err(e) = rara_persistence::thread_turn_log::append_rollout_fragment(
             &root_dir,
-            &self.snapshot.session_id,
+            &session_id,
             entry,
         ) {
             eprintln!("live write failed: {e}");
@@ -301,16 +298,19 @@ impl TuiApp {
 
     /// Clear the live log after a turn is committed.
     pub(crate) fn clear_live_log(&self) {
-        let Some(state_db) = self.state_db.as_ref() else {
+        let Some((root_dir, session_id)) = self.live_log_context() else {
             return;
         };
-        if self.snapshot.session_id.is_empty() {
-            return;
+        rara_persistence::thread_turn_log::clear_live_log(&root_dir, &session_id);
+    }
+
+    fn live_log_context(&self) -> Option<(PathBuf, String)> {
+        let state_db = self.state_db.as_ref()?;
+        let session_id = self.snapshot.session_id.clone();
+        if session_id.is_empty() {
+            return None;
         }
-        rara_persistence::thread_turn_log::clear_live_log(
-            &state_db.rollout_root(),
-            &self.snapshot.session_id,
-        );
+        Some((state_db.rollout_root(), session_id))
     }
 }
 

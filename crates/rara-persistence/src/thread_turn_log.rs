@@ -103,6 +103,9 @@ fn sync_parent_dir_best_effort(_parent: &Path) {}
 const LIVE_LOG_FILE: &str = "live.jsonl";
 
 /// Append one entry to the per-session live log (realtime persistence).
+///
+/// Uses buffered I/O without fsync (best-effort) — on crash the last few
+/// entries may not survive, but the committed turn log covers full turns.
 pub fn append_rollout_fragment(
     root_dir: &Path,
     session_id: &str,
@@ -111,7 +114,6 @@ pub fn append_rollout_fragment(
     let dir = root_dir.join(session_id);
     fs::create_dir_all(&dir)?;
     let path = dir.join(LIVE_LOG_FILE);
-    let _lock = AdvisoryFileLock::acquire(path.with_extension("lock"))?;
     let mut line = serde_json::to_vec(entry)?;
     line.push(b'\n');
     let mut file = OpenOptions::new()
@@ -120,27 +122,48 @@ pub fn append_rollout_fragment(
         .open(&path)
         .with_context(|| format!("open live log {}", path.display()))?;
     file.write_all(&line)?;
-    file.sync_data()?;
-    #[cfg(unix)]
-    sync_parent_dir_best_effort(&dir);
     Ok(())
 }
 
 /// Remove the live log so resume doesn't load a stale partial turn.
 pub fn clear_live_log(root_dir: &Path, session_id: &str) {
     let path = root_dir.join(session_id).join(LIVE_LOG_FILE);
-    let _ = fs::remove_file(path);
+    if let Err(e) = fs::remove_file(&path) {
+        if e.kind() != std::io::ErrorKind::NotFound {
+            eprintln!(
+                "failed to clear live log for session {session_id}: {e} (path: {})",
+                path.display()
+            );
+        }
+    }
 }
 
 /// Read all entries from the live log, oldest first.
 pub fn load_live_entries(root_dir: &Path, session_id: &str) -> Vec<PersistedTurnEntry> {
     let path = root_dir.join(session_id).join(LIVE_LOG_FILE);
-    let Ok(content) = fs::read_to_string(&path) else {
-        return Vec::new();
+    let file = match fs::File::open(&path) {
+        Ok(f) => f,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Vec::new(),
+        Err(e) => {
+            eprintln!("failed to open live log for {session_id}: {e}");
+            return Vec::new();
+        }
     };
-    content
-        .lines()
-        .filter(|l| !l.trim().is_empty())
-        .filter_map(|l| serde_json::from_str::<PersistedTurnEntry>(l).ok())
-        .collect()
+    let reader = BufReader::new(file);
+    let mut entries = Vec::new();
+    for (i, line_result) in reader.lines().enumerate() {
+        match line_result {
+            Ok(line) if line.trim().is_empty() => continue,
+            Ok(line) => match serde_json::from_str::<PersistedTurnEntry>(&line) {
+                Ok(entry) => entries.push(entry),
+                Err(e) => {
+                    eprintln!("parse error at live log line {i} for {session_id}: {e}");
+                }
+            },
+            Err(e) => {
+                eprintln!("i/o error at live log line {i} for {session_id}: {e}");
+            }
+        }
+    }
+    entries
 }
