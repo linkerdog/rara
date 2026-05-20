@@ -261,10 +261,10 @@ fn push_todo_section(lines: &mut Vec<Line<'static>>, app: &TuiApp) -> bool {
 
 fn todo_status_marker(status: &str) -> &'static str {
     match status {
-        "in_progress" => "●",
-        "completed" => "☑",
-        "cancelled" => "✗",
-        _ => "☐",
+        "in_progress" => "[>]",
+        "completed" => "[x]",
+        "cancelled" => "[-]",
+        _ => "[ ]",
     }
 }
 
