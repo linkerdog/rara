@@ -171,8 +171,9 @@ fn phase_ordinal(phase: HookLifecycle) -> u8 {
         HookLifecycle::UserPromptSubmit => 1,
         HookLifecycle::PreToolUse => 2,
         HookLifecycle::PostToolUse => 3,
-        HookLifecycle::Stop => 4,
-        HookLifecycle::PreCompact => 5,
+        HookLifecycle::PostMemoryWrite => 4,
+        HookLifecycle::Stop => 5,
+        HookLifecycle::PreCompact => 6,
     }
 }
 

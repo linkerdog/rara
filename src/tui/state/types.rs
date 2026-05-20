@@ -388,6 +388,7 @@ pub struct RebuildSuccess {
     pub prompt_source_registry: Arc<PromptSourceRegistry>,
     pub skill_source_registry: Arc<SkillSourceRegistry>,
     pub hook_registry: Arc<HookRegistry>,
+    pub hook_runtime: Arc<crate::hook_runtime::HookRuntime>,
     pub memory_handler: Arc<MemoryControlHandler>,
     pub lsp_manager: Arc<LspManager>,
 }
@@ -722,6 +723,7 @@ pub struct TuiApp {
     pub prompt_source_registry: Option<Arc<PromptSourceRegistry>>,
     pub skill_source_registry: Option<Arc<SkillSourceRegistry>>,
     pub hook_registry: Option<Arc<HookRegistry>>,
+    pub hook_runtime: Option<Arc<crate::hook_runtime::HookRuntime>>,
     pub memory_handler: Option<Arc<MemoryControlHandler>>,
     pub provider_connection_status: std::collections::HashMap<ProviderFamily, bool>,
     pub repo_context_task: Option<JoinHandle<(Option<String>, Option<String>)>>,

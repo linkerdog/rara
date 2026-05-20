@@ -15,6 +15,7 @@ pub enum HookLifecycle {
     UserPromptSubmit,
     PreToolUse,
     PostToolUse,
+    PostMemoryWrite,
     Stop,
     PreCompact,
 }
@@ -26,6 +27,7 @@ impl HookLifecycle {
             Self::UserPromptSubmit => "UserPromptSubmit",
             Self::PreToolUse => "PreToolUse",
             Self::PostToolUse => "PostToolUse",
+            Self::PostMemoryWrite => "PostMemoryWrite",
             Self::Stop => "Stop",
             Self::PreCompact => "PreCompact",
         }
