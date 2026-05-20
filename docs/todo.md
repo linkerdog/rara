@@ -1,5 +1,12 @@
 # TODO
 
+## Recently Completed (2026-05-20)
+
+- [x] TUI popup color-block redesign: replace wireframe Borders with panel bg (#455)
+- [x] TUI popup adaptive sizing: popup_rect with overflow clamp (#455)
+- [x] Approval/stderr readability: remove special backgrounds (#459)
+- [x] wrapped_text_height fix: account for block padding (#459)
+
 Active backlog only. Keep this file small and current.
 
 ## Recently Completed (2025-07-15..16)

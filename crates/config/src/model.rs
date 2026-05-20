@@ -21,7 +21,35 @@ use crate::provider_surface::{ConfigValueSource, EffectiveProviderSurface, Resol
 use crate::secrets::{deserialize_secret_option, serialize_secret_option};
 use crate::serde_helpers::{normalize_optional_string, normalize_reasoning_summary};
 
-#[derive(Debug, Serialize, Deserialize, Clone, Default)]
+/// Background memory consolidation (dream) settings.
+///
+/// Consolidation runs as a background sub-agent that reads session logs,
+/// extracts durable facts, and merges them into the project memory index.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(default)]
+pub struct MemoryConsolidationConfig {
+    /// Model name.  `"inherit"` (default) uses the main model.
+    #[serde(default = "default_consolidation_model")]
+    pub model: String,
+    /// Reasoning effort (low / medium / high).
+    #[serde(default = "default_consolidation_reasoning_effort")]
+    pub reasoning_effort: String,
+    /// Minimum hours since last consolidation before next is eligible.
+    pub min_hours_since_last: u64,
+    /// Minimum new touching sessions before triggering.
+    pub min_new_sessions: u64,
+    /// Minimum scan interval in minutes.
+    pub scan_interval_minutes: u64,
+}
+
+fn default_consolidation_model() -> String {
+    super::defaults::DEFAULT_CONSOLIDATION_MODEL.into()
+}
+
+fn default_consolidation_reasoning_effort() -> String {
+    super::defaults::DEFAULT_CONSOLIDATION_REASONING_EFFORT.into()
+}
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct ProviderConfigState {
     #[serde(
         default,
