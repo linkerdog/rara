@@ -264,6 +264,7 @@ fn rebuild_success(
             bus.clone(),
         )),
         hook_registry: Arc::new(crate::hook_registry::HookRegistry::new(bus.clone())),
+        hook_runtime: Arc::new(crate::hook_runtime::HookRuntime::new(bus.clone())),
         memory_handler: Arc::new(crate::protocol_sources::MemoryControlHandler::new(bus)),
         lsp_manager: Arc::new(crate::lsp_manager::LspManager::new(
             temp.path().to_path_buf(),
