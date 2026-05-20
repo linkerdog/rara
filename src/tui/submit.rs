@@ -52,6 +52,7 @@ pub(crate) async fn handle_submit(
             if let Some(command) = parse_local_command(&trimmed)
                 && matches!(command.kind, LocalCommandKind::Quit)
             {
+                save_before_quit(app);
                 return execute_local_command(command, app, agent_slot, oauth_manager).await;
             }
             app.push_notice(
@@ -71,7 +72,9 @@ pub(crate) async fn handle_submit(
         return Ok(false);
     }
     if let Some(command) = parse_local_command(&trimmed) {
-        if execute_local_command(command, app, agent_slot, oauth_manager).await? {
+        let should_quit = execute_local_command(command, app, agent_slot, oauth_manager).await?;
+        if should_quit {
+            save_before_quit(app);
             return Ok(true);
         }
     } else if trimmed.starts_with('/') {
@@ -82,6 +85,12 @@ pub(crate) async fn handle_submit(
         input_control::submit_user_prompt(app, agent_slot, trimmed);
     }
     Ok(false)
+}
+
+/// Persist the active turn and runtime state before quitting.
+fn save_before_quit(app: &mut TuiApp) {
+    app.finalize_active_turn();
+    app.persist_runtime_state();
 }
 
 pub(crate) fn apply_openai_model_picker_action(
