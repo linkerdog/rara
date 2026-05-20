@@ -146,7 +146,11 @@ fn completed_interaction_role(kind: InteractionKind, source: Option<&str>) -> &'
 }
 
 pub fn input_requests_command_palette(input: &str) -> bool {
-    input.trim_start().starts_with('/')
+    let trimmed = input.trim_start();
+    // Open the palette when the user types a bare '/' or the start of a
+    // command name.  Once a space (argument) appears, close it so Enter
+    // goes to Submit instead of ApplyOverlaySelection.
+    trimmed.starts_with('/') && !trimmed.contains(|c: char| c.is_whitespace())
 }
 
 pub(crate) fn contains_structured_planning_output(message: &str) -> bool {
@@ -1800,13 +1804,26 @@ impl TuiApp {
         self.overlay = Some(overlay);
     }
 
+    /// Pop the top overlay from the stack without user-visible side
+    /// effects (preserves input, does not cancel setups).  Used when
+    /// the overlay becomes irrelevant due to an input change rather
+    /// than an explicit user action.
+    fn hide_overlay(&mut self) {
+        self.overlay_stack.pop();
+        self.overlay = self.overlay_stack.last().copied();
+        self.command_palette_idx = 0;
+    }
+
+    /// Keep the command-palette overlay in sync with the current
+    /// input.  Opens the palette when the user starts typing `/`,
+    /// and auto-hides it when the input contains a space (i.e. the
+    /// command has arguments and the user intends to submit).
     pub fn sync_command_palette_with_input(&mut self) {
-        if input_requests_command_palette(self.bottom_pane.input.as_str()) {
-            if self.overlay.is_none() {
-                self.open_overlay(Overlay::CommandPalette);
-            }
-        } else if matches!(self.overlay, Some(Overlay::CommandPalette)) {
-            self.close_overlay();
+        let should_show = input_requests_command_palette(self.bottom_pane.input.as_str());
+        match (should_show, &self.overlay) {
+            (true, None) => self.open_overlay(Overlay::CommandPalette),
+            (false, Some(Overlay::CommandPalette)) => self.hide_overlay(),
+            _ => {}
         }
     }
 
@@ -2004,7 +2021,7 @@ impl TuiApp {
         self.persist_runtime_state();
     }
 
-    pub fn close_overlay(&mut self) {
+    pub fn dismiss_overlay(&mut self) {
         if matches!(
             self.overlay,
             Some(Overlay::BaseUrlEditor | Overlay::ApiKeyEditor | Overlay::ModelNameEditor)
@@ -2012,7 +2029,7 @@ impl TuiApp {
             self.cancel_openai_profile_setup();
         }
 
-        // When closing the command palette, clear the `/` input so
+        // When dismissing the command palette, clear the `/` input so
         // sync_command_palette_with_input won't immediately re-open it.
         if matches!(
             self.overlay,
@@ -2022,8 +2039,7 @@ impl TuiApp {
             self.command_palette_idx = 0;
         }
 
-        // Pop the current overlay from the stack and restore the previous one.
-        self.overlay_stack.pop();
+        self.hide_overlay();
         self.overlay = self.overlay_stack.last().copied();
     }
 }

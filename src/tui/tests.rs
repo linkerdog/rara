@@ -3347,7 +3347,7 @@ async fn deepseek_model_picker_shows_dynamic_models_after_list_load() {
         "after loading models, picker should show 2 models + 1 action"
     );
 
-    app.close_overlay();
+    app.dismiss_overlay();
     app.open_overlay(Overlay::ListPicker(ListPickerKind::Model));
     assert_eq!(
         ListPickerKind::Model.item_count(&app),

@@ -800,7 +800,7 @@ fn closing_auth_mode_picker_with_empty_stack_returns_to_none() {
     let mut app = TuiApp::new(cm).expect("app");
 
     app.open_overlay(Overlay::ListPicker(ListPickerKind::AuthMode));
-    app.close_overlay();
+    app.dismiss_overlay();
 
     // Stack-based back-navigation: closing the only overlay returns to None.
     assert!(app.overlay.is_none());
@@ -1265,7 +1265,7 @@ fn close_command_palette_clears_input_and_resets_idx() {
     app.command_palette_idx = 2;
 
     // Close the palette
-    app.close_overlay();
+    app.dismiss_overlay();
 
     // After close: input should be cleared, idx reset
     assert!(app.bottom_pane.input.is_empty(), "input should be cleared");
