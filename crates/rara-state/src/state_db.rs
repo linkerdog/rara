@@ -247,7 +247,64 @@ impl StateDb {
         tx.commit()?;
         Ok(())
     }
+    /// Persist a session goal so it survives restarts.
+    /// Uses separate INSERT (first time) + UPDATE (subsequent) so
+    /// created_at is never overwritten.
+    pub fn save_goal(&self, session_id: &str, goal: &serde_json::Value) -> Result<()> {
+        let conn = self.conn.lock().expect("state db mutex poisoned");
+        let now = epoch_seconds();
+        // Keep original created_at if this is an update, else use now.
+        let created: i64 = conn
+            .query_row(
+                "SELECT created_at FROM goals WHERE session_id = ?",
+                params![session_id],
+                |r| r.get(0),
+            )
+            .unwrap_or(now);
+        conn.execute(
+            "INSERT OR REPLACE INTO goals
+             (session_id, objective, condition, status, token_budget,
+              tokens_used, turns_completed, created_at, updated_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+            params![
+                session_id,
+                goal["objective"].as_str().unwrap_or(""),
+                goal["condition"].as_str(),
+                goal["status"].as_str().unwrap_or("Pursuing"),
+                goal["token_budget"].as_i64(),
+                goal["tokens_used"].as_i64().unwrap_or(0),
+                goal["turns_completed"].as_i64().unwrap_or(0),
+                created,
+                now,
+            ],
+        )?;
+        Ok(())
+    }
 
+    /// Load a previously saved goal for this session, if any.
+    pub fn load_goal(&self, session_id: &str) -> Option<serde_json::Value> {
+        let conn = self.conn.lock().expect("state db mutex poisoned");
+        let mut stmt = conn
+            .prepare(
+                "SELECT objective, condition, status, token_budget,
+                        tokens_used, turns_completed
+                 FROM goals WHERE session_id = ?",
+            )
+            .ok()?;
+        let row = stmt
+            .query_row(params![session_id], |row| {
+                Ok(serde_json::json!({
+                    "objective": row.get::<_, String>(0)?,
+                    "condition": row.get::<_, Option<String>>(1)?,
+                    "status": row.get::<_, String>(2).unwrap_or_else(|_| "Pursuing".into()),
+                    "token_budget": row.get::<_, Option<i64>>(3)?,
+                    "tokens_used": row.get::<_, i64>(4).unwrap_or(0),
+                    "turns_completed": row.get::<_, i64>(5).unwrap_or(0),
+                }))
+            })
+            .ok()?;
+        Some(row)
+    }
     pub fn replace_interactions(
         &self,
         session_id: &str,
@@ -972,6 +1029,18 @@ impl StateDb {
                 ON spawn_agent_edges(parent_session_id, agent_id);
             CREATE INDEX IF NOT EXISTS idx_spawn_agent_edges_child
                 ON spawn_agent_edges(child_session_id);
+
+            CREATE TABLE IF NOT EXISTS goals (
+                session_id TEXT PRIMARY KEY,
+                objective TEXT NOT NULL,
+                condition TEXT,
+                status TEXT NOT NULL DEFAULT 'Pursuing',
+                token_budget INTEGER,
+                tokens_used INTEGER NOT NULL DEFAULT 0,
+                turns_completed INTEGER NOT NULL DEFAULT 0,
+                created_at INTEGER NOT NULL,
+                updated_at INTEGER NOT NULL
+            );
             ",
         )?;
         ensure_column(&conn, "sessions", "plan_explanation", "TEXT")?;
