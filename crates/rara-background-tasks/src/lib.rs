@@ -16,7 +16,7 @@ use rara_tools::tool::{Tool, ToolError, ToolOutputStream};
 use serde::Serialize;
 use serde_json::Value;
 use tokio::fs;
-use tokio::io::{AsyncReadExt, AsyncSeekExt};
+use tokio::io::{AsyncReadExt, AsyncSeekExt, AsyncWriteExt};
 use tokio::sync::oneshot;
 use uuid::Uuid;
 
@@ -350,6 +350,124 @@ impl Tool for BackgroundTaskStopTool {
         }
         Ok(serde_json::json!({ "stopped": self.background_tasks.stop_all() }))
     }
+}
+
+pub fn kill_child_process_group(child_id: Option<u32>) {
+    #[cfg(unix)]
+    {
+        let Some(child_id) = child_id else {
+            return;
+        };
+        let process_group = -(child_id as libc::pid_t);
+        // Best-effort cancellation: the direct child may have already exited,
+        // but killing the group stops shell descendants that still hold pipes.
+        unsafe {
+            libc::kill(process_group, libc::SIGKILL);
+        }
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = child_id;
+    }
+}
+
+pub async fn read_stream_chunks<R>(
+    reader: R,
+    stream: BashStreamKind,
+    tx: tokio::sync::mpsc::Sender<(BashStreamKind, String)>,
+) -> Result<(), ToolError>
+where
+    R: tokio::io::AsyncRead + Unpin + Send + 'static,
+{
+    let mut reader = reader;
+    let mut buffer = [0_u8; 4096];
+    loop {
+        let read = reader.read(&mut buffer).await?;
+        if read == 0 {
+            break;
+        }
+        let chunk = String::from_utf8_lossy(&buffer[..read]).into_owned();
+        if tx.send((stream, chunk)).await.is_err() {
+            break;
+        }
+    }
+    Ok(())
+}
+
+pub async fn run_background_bash_task(
+    child: &mut tokio::process::Child,
+    record: &BackgroundTaskRecord,
+    mut stop_rx: oneshot::Receiver<()>,
+    process_group_id: Option<u32>,
+    sandbox_warning: Option<&str>,
+    cleanup_path: Option<&Path>,
+) -> Result<Option<i32>, ToolError> {
+    if let Some(parent) = record.output_path.parent() {
+        fs::create_dir_all(parent).await?;
+    }
+    fs::write(&record.output_path, "").await?;
+    if let Some(warning) = sandbox_warning {
+        append_background_output(&record.output_path, BashStreamKind::Stderr, warning).await?;
+    }
+
+    let stdout = child
+        .stdout
+        .take()
+        .ok_or_else(|| ToolError::ExecutionFailed("stdout pipe unavailable".into()))?;
+    let stderr = child
+        .stderr
+        .take()
+        .ok_or_else(|| ToolError::ExecutionFailed("stderr pipe unavailable".into()))?;
+    let (tx, mut rx) = tokio::sync::mpsc::channel(64);
+    let stdout_task = tokio::spawn(read_stream_chunks(
+        stdout,
+        BashStreamKind::Stdout,
+        tx.clone(),
+    ));
+    let stderr_task = tokio::spawn(read_stream_chunks(stderr, BashStreamKind::Stderr, tx));
+
+    let mut output_file = fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(&record.output_path)
+        .await?;
+    let mut stop_requested = false;
+    loop {
+        tokio::select! {
+            chunk = rx.recv() => {
+                let Some((stream, chunk)) = chunk else {
+                    break;
+                };
+                if !chunk.is_empty() {
+                    match stream {
+                        BashStreamKind::Stdout => output_file.write_all(chunk.as_bytes()).await?,
+                        BashStreamKind::Stderr => {
+                            output_file.write_all(b"[stderr] ").await?;
+                            output_file.write_all(chunk.as_bytes()).await?;
+                        }
+                    }
+                }
+            }
+            _ = &mut stop_rx, if !stop_requested => {
+                stop_requested = true;
+                kill_child_process_group(process_group_id);
+                let _ = child.start_kill();
+                output_file.write_all(b"[stderr] background task stop requested\n").await?;
+            }
+        }
+    }
+
+    let status = child.wait().await?;
+    stdout_task
+        .await
+        .map_err(|err| ToolError::ExecutionFailed(err.to_string()))??;
+    stderr_task
+        .await
+        .map_err(|err| ToolError::ExecutionFailed(err.to_string()))??;
+    if let Some(path) = cleanup_path {
+        let _ = fs::remove_file(path).await;
+    }
+    Ok(status.code())
 }
 
 // ---------------------------------------------------------------------------

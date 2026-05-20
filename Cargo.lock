@@ -11970,6 +11970,7 @@ name = "rara-background-tasks"
 version = "0.0.1"
 dependencies = [
  "async-trait",
+ "libc",
  "rara-tool-macros",
  "rara-tools",
  "serde",
