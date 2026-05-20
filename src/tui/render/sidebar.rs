@@ -8,11 +8,11 @@ use ratatui::{
     widgets::{Block, Borders, Paragraph, Wrap},
 };
 
+use crate::local_model_server::LocalModelServerState;
 use crate::tui::custom_terminal::Frame;
 use crate::tui::state::TuiApp;
 use crate::tui::status_display::context_sidebar_summary;
 use crate::tui::theme::*;
-use crate::local_model_server::LocalModelServerState;
 
 /// Width allocated to the sidebar when the terminal is wide enough.
 pub(crate) const SIDEBAR_WIDTH: u16 = 38;
@@ -240,7 +240,9 @@ fn push_local_model_section(lines: &mut Vec<Line<'static>>, app: &TuiApp) {
         LocalModelServerState::PreparedButStopped => {
             ("○ stopped", Style::default().fg(TEXT_SECONDARY))
         }
-        LocalModelServerState::SetupRequired => ("○ setup required", Style::default().fg(TEXT_MUTED)),
+        LocalModelServerState::SetupRequired => {
+            ("○ setup required", Style::default().fg(TEXT_MUTED))
+        }
         LocalModelServerState::Error => ("✗ error", Style::default().fg(STATUS_ERROR)),
     };
     lines.push(Line::from(Span::styled(marker, style)));
