@@ -10596,12 +10596,8 @@ dependencies = [
 name = "rara-core"
 version = "0.0.1"
 dependencies = [
- "async-trait",
- "rara-instructions",
- "rara-tools",
  "serde",
  "serde_json",
- "uuid",
 ]
 
 [[package]]

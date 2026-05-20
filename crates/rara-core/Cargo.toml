@@ -5,9 +5,5 @@ edition.workspace = true
 license.workspace = true
 
 [dependencies]
-rara-tools.path = "../rara-tools"
-rara-instructions.workspace = true
-async-trait.workspace = true
 serde.workspace = true
 serde_json.workspace = true
-uuid = { version = "1.11", features = ["v4"] }
