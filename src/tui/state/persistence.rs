@@ -1,3 +1,4 @@
+use std::path::PathBuf;
 use std::sync::Arc;
 
 use rara_state::state_db::{
@@ -278,6 +279,38 @@ impl TuiApp {
             self.state_db_status =
                 Some(state_db_status_error("turn write failed", err.to_string()));
         }
+    }
+
+    /// Realtime per-entry write to the live log (Claude Code style).
+    /// Called from push_entry so resume can recover partial turns.
+    pub(crate) fn record_entry_realtime(&self, entry: &PersistedTurnEntry) {
+        let Some((root_dir, session_id)) = self.live_log_context() else {
+            return;
+        };
+        if let Err(e) = rara_persistence::thread_turn_log::append_rollout_fragment(
+            &root_dir,
+            &session_id,
+            entry,
+        ) {
+            eprintln!("live write failed: {e}");
+        }
+    }
+
+    /// Clear the live log after a turn is committed.
+    pub(crate) fn clear_live_log(&self) {
+        let Some((root_dir, session_id)) = self.live_log_context() else {
+            return;
+        };
+        rara_persistence::thread_turn_log::clear_live_log(&root_dir, &session_id);
+    }
+
+    fn live_log_context(&self) -> Option<(PathBuf, String)> {
+        let state_db = self.state_db.as_ref()?;
+        let session_id = self.snapshot.session_id.clone();
+        if session_id.is_empty() {
+            return None;
+        }
+        Some((state_db.rollout_root(), session_id))
     }
 }
 
