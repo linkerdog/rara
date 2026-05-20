@@ -197,7 +197,10 @@ pub(super) fn composer_cursor_position(
 pub(super) fn desired_composer_height(app: &TuiApp, width: u16, rows: u16) -> u16 {
     let available_width = width.max(1);
     let content_rows = composer_content_line_count(app, available_width);
-    let max_height = rows.saturating_sub(4).max(3);
+    // Cap at 40% of terminal height (Codex style) so the transcript
+    // stays visible above a growing input.
+    // `.max(3)` keeps `clamp` safe even when rows < 7.
+    let max_height = ((rows as f64 * 0.4).ceil() as u16).clamp(3, rows.saturating_sub(4).max(3));
     content_rows.clamp(3, max_height)
 }
 
