@@ -19,6 +19,13 @@ pub const LEGACY_CODEX_MODEL: &str = "codex";
 pub const LEGACY_CODEX_MODEL_V1: &str = "gpt-5-codex";
 pub const LEGACY_CODEX_MODEL_V1_MINI: &str = "gpt-5-codex-mini";
 
+// ── Memory consolidation (dream) defaults ────────────────────────
+pub const DEFAULT_CONSOLIDATION_MODEL: &str = "inherit";
+pub const DEFAULT_CONSOLIDATION_REASONING_EFFORT: &str = "low";
+pub const DEFAULT_CONSOLIDATION_MIN_HOURS: u64 = 24;
+pub const DEFAULT_CONSOLIDATION_MIN_SESSIONS: u64 = 5;
+pub const DEFAULT_CONSOLIDATION_SCAN_INTERVAL_MINUTES: u64 = 10;
+
 pub fn should_reset_codex_base_url(url: Option<&str>) -> bool {
     url.map(str::trim)
         .is_none_or(|value| value.is_empty() || value == LEGACY_CODEX_BASE_URL)
