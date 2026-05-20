@@ -74,6 +74,11 @@ The current product direction is to make local inference a first-class path inst
   isolate the smallest possible boundary and add a concise `// SAFETY:`
   comment explaining the invariant that makes the block sound.
 
+- **Errors must surface.** Do not silently ignore errors. Use `log::warn!` for
+  non-fatal errors so they appear in the TUI alongside the conversation. A silent `let _ = fallible_call();` or `.ok()` discard is
+  only acceptable when the error carries zero diagnostic value AND the
+  caller has no recovery path. When in doubt, log it.
+
 - Dead code is not permitted in production source files. Use `#[cfg(test)]`
   for test-only helpers; remove all unreachable types, functions, and constants.
   One `#![allow(dead_code)]` on a module is acceptable only when the module
