@@ -1000,7 +1000,7 @@ pub(crate) async fn finish_running_task_if_ready(
                 if let Some(agent) = agent_slot.as_ref() {
                     app.sync_snapshot(agent);
                 }
-                app.close_overlay();
+                app.dismiss_overlay();
                 app.set_runtime_phase(RuntimePhase::BackendReady, Some("backend ready".into()));
                 app.push_system(
                     app.setup_status.clone().unwrap_or_default(),
@@ -1062,7 +1062,7 @@ pub(crate) async fn finish_running_task_if_ready(
                 app.setup_status = Some(saved_message.into());
                 app.bottom_pane.notice = app.setup_status.clone();
                 app.set_runtime_phase(RuntimePhase::OAuthSaved, Some("oauth token saved".into()));
-                app.close_overlay();
+                app.dismiss_overlay();
                 app.push_entry("Runtime", saved_message);
                 start_rebuild_task(app);
             }
@@ -1100,7 +1100,7 @@ pub(crate) async fn finish_running_task_if_ready(
                     RuntimePhase::OAuthSaved,
                     Some("google oauth token saved".into()),
                 );
-                app.close_overlay();
+                app.dismiss_overlay();
                 app.push_entry("Runtime", msg);
                 start_rebuild_task(app);
             }

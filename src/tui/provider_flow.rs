@@ -152,7 +152,7 @@ pub(super) fn open_provider_connection(app: &mut TuiApp) {
         app.bottom_pane.notice = Some(format!(
             "{label} is connected ✓  Run /model to change models, /connect again to reconfigure."
         ));
-        app.close_overlay();
+        app.dismiss_overlay();
         return;
     }
 

@@ -45,7 +45,7 @@ pub(crate) async fn dispatch_event(
             ) {
                 app.clear_resume_search();
             }
-            app.close_overlay();
+            app.dismiss_overlay();
         }
         AppEvent::CancelRunningTask => {
             input_control::handle_session_control(app, SessionControlRequest::CancelCurrentTurn);
@@ -258,7 +258,7 @@ pub(crate) async fn dispatch_event(
                     app.config.base_url.as_deref().unwrap_or("unset")
                 ));
                 if app.openai_setup_steps.is_empty() {
-                    app.close_overlay();
+                    app.dismiss_overlay();
                 } else {
                     app.advance_openai_profile_setup();
                 }
@@ -287,7 +287,7 @@ pub(crate) async fn dispatch_event(
                 app.config_manager.save(&app.config)?;
                 app.bottom_pane.notice = Some("Cleared API key for the current provider.".into());
                 if app.openai_setup_steps.is_empty() {
-                    app.close_overlay();
+                    app.dismiss_overlay();
                 } else {
                     app.advance_openai_profile_setup();
                 }
@@ -304,20 +304,20 @@ pub(crate) async fn dispatch_event(
                 if app.config.provider == "codex" {
                     app.bottom_pane.notice =
                         Some("Saved Codex API key. Rebuilding backend.".into());
-                    app.close_overlay();
+                    app.dismiss_overlay();
                     start_rebuild_task(app);
                 } else if was_deepseek {
                     app.bottom_pane.notice = Some("Saved DeepSeek API key. Loading models.".into());
-                    app.close_overlay();
+                    app.dismiss_overlay();
                     start_deepseek_model_list_task(app);
                 } else if was_kimi {
                     app.bottom_pane.notice = Some("Saved Kimi API key. Loading models.".into());
-                    app.close_overlay();
+                    app.dismiss_overlay();
                     start_kimi_model_list_task(app);
                 } else {
                     app.bottom_pane.notice = Some("Saved API key for the current provider.".into());
                     if app.openai_setup_steps.is_empty() {
-                        app.close_overlay();
+                        app.dismiss_overlay();
                     } else {
                         app.advance_openai_profile_setup();
                     }
@@ -337,7 +337,7 @@ pub(crate) async fn dispatch_event(
                     app.config.model.as_deref().unwrap_or("unset")
                 ));
                 if app.openai_setup_steps.is_empty() {
-                    app.close_overlay();
+                    app.dismiss_overlay();
                 } else {
                     app.advance_openai_profile_setup();
                 }
@@ -411,7 +411,7 @@ pub(crate) async fn dispatch_event(
             {
                 app.clear_resume_search();
             } else {
-                app.close_overlay();
+                app.dismiss_overlay();
             }
         }
 
@@ -436,7 +436,7 @@ pub(crate) async fn dispatch_event(
                         .iter()
                         .position(|p| p.model_id == preset.model_id && p.family == preset.family)
                     {
-                        app.close_overlay();
+                        app.dismiss_overlay();
                         app.model_search_query.clear();
                         app.select_unified_model(global_idx);
                     }
@@ -449,7 +449,7 @@ pub(crate) async fn dispatch_event(
                     // the composer input for CommandPalette to prevent immediate
                     // re-open via sync_command_palette_with_input.
                     let usage = spec.usage.to_string();
-                    app.close_overlay();
+                    app.dismiss_overlay();
                     app.bottom_pane.input = usage;
                     app.bottom_pane.input_cursor_offset = None;
                     if handle_submit(app, agent_slot, oauth_manager).await? {
@@ -469,7 +469,7 @@ pub(crate) async fn dispatch_event(
                         "Saved base URL: {}",
                         app.config.base_url.as_deref().unwrap_or("unset")
                     ));
-                    app.close_overlay();
+                    app.dismiss_overlay();
                 }
             }
             Some(Overlay::ListPicker(kind)) => {
@@ -580,7 +580,7 @@ pub(crate) async fn dispatch_event(
                                 }
                                 ProviderFamily::CandleLocal => {
                                     app.push_notice("Local models (alpha) are for preview only.");
-                                    app.close_overlay();
+                                    app.dismiss_overlay();
                                 }
                                 _ => {
                                     if preset.family == ProviderFamily::DeepSeek {
@@ -592,7 +592,7 @@ pub(crate) async fn dispatch_event(
                         }
                         ListPickerKind::AuthMode => match app.auth_mode_idx {
                             0 if !is_ssh_session() => {
-                                app.close_overlay();
+                                app.dismiss_overlay();
                                 start_oauth_task(
                                     app,
                                     Arc::clone(oauth_manager),
@@ -601,7 +601,7 @@ pub(crate) async fn dispatch_event(
                             }
                             0 => app.push_notice("Browser login unavailable in SSH/headless."),
                             1 => {
-                                app.close_overlay();
+                                app.dismiss_overlay();
                                 start_oauth_task(
                                     app,
                                     Arc::clone(oauth_manager),
@@ -640,7 +640,7 @@ pub(crate) async fn dispatch_event(
                                 .map(|session| session.metadata.session_id.clone())
                             {
                                 restore_thread_by_id(thread_id.as_str(), app, agent_slot)?;
-                                app.close_overlay();
+                                app.dismiss_overlay();
                             }
                         }
                         ListPickerKind::OpenAiEndpointKind => {
@@ -692,7 +692,7 @@ pub(crate) async fn dispatch_event(
                     apply_permission_mode(app, agent_slot, mode);
                     app.permission_mode = mode;
                     let label = mode.label();
-                    app.close_overlay();
+                    app.dismiss_overlay();
                     if !resume_pending_shell_approval_after_full_access(app, agent_slot) {
                         app.push_notice(format!("Permission mode: {label}."));
                     }
