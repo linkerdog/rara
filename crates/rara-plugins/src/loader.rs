@@ -7,6 +7,7 @@ use crate::types::{HookEvent, HookHandler, McpConfig, Plugin, RegisteredHook};
 
 /// Parsed hooks.json content.
 #[derive(Debug, Clone, Deserialize)]
+#[allow(non_snake_case)]
 struct HooksJson {
     #[serde(default)]
     Stop: Vec<MatcherGroup>,
