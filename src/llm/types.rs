@@ -1,8 +1,7 @@
-use serde::{Deserialize, Serialize};
-use serde_json::Value;
-
 // Re-export shared types from rara-core.
 pub use rara_core::llm::types::{ContentBlock, Message};
+use serde::{Deserialize, Serialize};
+use serde_json::Value;
 
 // Kept locally until field names are aligned with rara-core.
 #[derive(Debug, Deserialize, Serialize, Clone)]
