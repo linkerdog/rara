@@ -104,16 +104,12 @@ pub(super) fn render_composer(f: &mut Frame, app: &mut TuiApp, area: Rect) -> Op
             .alignment(Alignment::Left),
         chunks[1],
     );
-    let cursor = if app.bottom_pane.input.is_empty() {
-        None
-    } else {
-        Some(composer_cursor_position(
-            app.bottom_pane.input.as_str(),
-            app.composer_cursor_offset(),
-            chunks[0],
-            app.bottom_pane.composer_scroll,
-        ))
-    };
+    let cursor = Some(composer_cursor_position(
+        app.bottom_pane.input.as_str(),
+        app.composer_cursor_offset(),
+        chunks[0],
+        app.bottom_pane.composer_scroll,
+    ));
     cursor
 }
 
