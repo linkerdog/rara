@@ -19,7 +19,13 @@ pub(super) fn build_bottom_pane_view(app: &TuiApp, width: u16, _height: u16) -> 
 
 fn build_activity_view(app: &TuiApp, _width: u16) -> ActivityView {
     let (label, label_color, detail) = activity_status_line(app);
-    let animated = animated_activity_label(app, label);
+    let spinner = should_show_spinner(app, label);
+    let spinner_elapsed = app
+        .bottom_pane
+        .running_task
+        .as_ref()
+        .map(|task| task.started_at.elapsed())
+        .unwrap_or_default();
     let label_already_reflects_planning = matches!(
         app.active_pending_interaction().map(|item| item.kind),
         Some(
@@ -34,8 +40,10 @@ fn build_activity_view(app: &TuiApp, _width: u16) -> ActivityView {
     let goal_detail = app.goal.as_ref().map(goal_detail_text);
 
     ActivityView {
-        label: animated,
+        label,
         label_color,
+        spinner,
+        spinner_elapsed,
         detail,
         plan_badge,
         perm_badge,
@@ -172,23 +180,14 @@ pub(super) fn activity_status_line(app: &TuiApp) -> (&'static str, Color, String
     )
 }
 
-pub(super) fn animated_activity_label(app: &TuiApp, label: &str) -> String {
+pub(super) fn should_show_spinner(app: &TuiApp, label: &str) -> bool {
     if label.is_empty() {
-        return String::new();
+        return false;
     }
     let Some(task) = app.bottom_pane.running_task.as_ref() else {
-        return label.to_string();
+        return false;
     };
-    if !matches!(task.kind, TaskKind::Query | TaskKind::Rebuild) {
-        return label.to_string();
-    }
-
-    let dots = match (task.started_at.elapsed().as_millis() / 450) % 3 {
-        0 => ".",
-        1 => "..",
-        _ => "...",
-    };
-    format!("{label}{dots}")
+    matches!(task.kind, TaskKind::Query | TaskKind::Rebuild)
 }
 
 fn build_footer_view(app: &TuiApp) -> FooterView {

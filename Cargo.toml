@@ -18,6 +18,7 @@ members = [
     "crates/rara-tools",
     "crates/rara-plugins",
     "crates/rara-app-server",
+    "crates/rara-background-tasks",
 ]
 resolver = "2"
 
@@ -56,6 +57,7 @@ rara-tools = { path = "crates/rara-tools" }
 rara-plugins = { path = "crates/rara-plugins" }
 rara-app-server = { path = "crates/rara-app-server" }
 rara-state = { path = "crates/rara-state" }
+rara-background-tasks = { path = "crates/rara-background-tasks" }
 tokio = { version = "1.0", features = ["full"] }
 tokio-util = { version = "0.7", features = ["compat"] }
 clap = { version = "4.0", features = ["derive", "env"] }

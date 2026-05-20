@@ -158,6 +158,7 @@ pub(crate) fn answer_plan_approval(
         app.push_notice("Approval is still preparing. Try again.");
         return InputControlOutcome::Rejected;
     };
+    app.set_pending_plan_approval(false);
     start_plan_approval_resume_task(app, !approved, agent);
     InputControlOutcome::Answered
 }

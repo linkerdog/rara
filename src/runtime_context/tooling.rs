@@ -1,6 +1,9 @@
 use std::collections::HashMap;
 use std::sync::{Arc, OnceLock, atomic::AtomicBool};
 
+use rara_background_tasks::{
+    BackgroundTaskListTool, BackgroundTaskStatusTool, BackgroundTaskStopTool, BackgroundTaskStore,
+};
 use rara_memory::vectordb::VectorDB;
 use rara_tools::file::{
     FileReadState, ListFilesTool, MultiEditTool, ReadFileTool, ReplaceLinesTool, ReplaceTool,
@@ -22,10 +25,7 @@ use crate::tools::agent::{
     AgentTool, BackgroundSubAgentStore, ExploreAgentTool, PlanAgentTool, SubAgentListTool,
     SubAgentResumeTool, SubAgentStopTool, TeamCreateTool,
 };
-use crate::tools::bash::{
-    BackgroundTaskListTool, BackgroundTaskStatusTool, BackgroundTaskStopTool, BackgroundTaskStore,
-    BashTool,
-};
+use crate::tools::bash::BashTool;
 use crate::tools::context::RetrieveSessionContextTool;
 use crate::tools::goal::{CreateGoalTool, GetGoalTool, UpdateGoalTool};
 use crate::tools::lsp::LspDiagnosticsTool;

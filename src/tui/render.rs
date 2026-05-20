@@ -4,6 +4,7 @@ pub(crate) mod diff;
 mod helpers;
 mod overlay;
 mod sidebar;
+mod spinner;
 #[cfg(test)]
 mod tests;
 mod viewport;

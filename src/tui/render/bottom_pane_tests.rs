@@ -4,9 +4,7 @@ use ratatui::{layout::Rect, style::Color, text::Line};
 use tempfile::tempdir;
 use tokio::sync::mpsc;
 
-use super::super::view_builder::{
-    activity_status_line, animated_activity_label, footer_summary_text,
-};
+use super::super::view_builder::{activity_status_line, footer_summary_text, should_show_spinner};
 use crate::config::ConfigManager;
 use crate::tui::render::bottom_pane::composer::{
     composer_hint, composer_hint_line, wrapped_text_cursor_position, wrapped_text_rows,
@@ -372,7 +370,7 @@ async fn activity_status_line_hides_busy_progress_from_composer_bar() {
     let (label, _, detail) = activity_status_line(&app);
     assert_eq!(label, "Working");
     assert!(detail.contains("esc to interrupt"));
-    assert!(animated_activity_label(&app, label).starts_with("Working"));
+    assert!(should_show_spinner(&app, label));
 
     if let Some(task) = app.bottom_pane.running_task.take() {
         task.handle.abort();

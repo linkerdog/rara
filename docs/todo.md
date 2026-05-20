@@ -21,6 +21,7 @@ Active backlog only. Keep this file small and current.
 - [x] LSP spec: built-in tool design, 4-phase plan (#431)
 - [x] Memory Phase 1: file I/O with path-traversal protection (#432)
 - [x] Hook registry: remove `#[allow(dead_code)]`, already wired
+- [x] background-tasks extraction: moved run_background_bash_task, read_stream_chunks, kill_child_process_group to rara-background-tasks crate (bash.rs 2315→1859 lines)
 
 ## Next Up (short-term, ready to implement)
 
@@ -53,7 +54,7 @@ Active backlog only. Keep this file small and current.
 - [x] Replace sleep-based LSP initialization with response-aware handshake handling
 
 ### File Splits (P0)
-- [ ] `tools/bash.rs` (2315 lines) → by tool group
+- [ ] `tools/bash.rs` (1859 lines) → by tool group (partial: background-tasks extracted)
 - [ ] `tools/pty.rs` (1649 lines) → stream read/write
 - [ ] `tools/agent.rs` (1701 lines) → by tool group
 - [ ] `memory_store.rs` (1625 lines) → LanceDB + legacy

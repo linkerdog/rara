@@ -11913,6 +11913,7 @@ dependencies = [
  "pulldown-cmark",
  "rand 0.10.1",
  "rara-app-server",
+ "rara-background-tasks",
  "rara-bedrock",
  "rara-config",
  "rara-file-search",
@@ -11962,6 +11963,21 @@ version = "0.0.1"
 dependencies = [
  "serde",
  "serde_json",
+]
+
+[[package]]
+name = "rara-background-tasks"
+version = "0.0.1"
+dependencies = [
+ "async-trait",
+ "libc",
+ "rara-tool-macros",
+ "rara-tools",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "tokio",
+ "uuid",
 ]
 
 [[package]]

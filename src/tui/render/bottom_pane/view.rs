@@ -4,6 +4,8 @@
 // so individual render modules (activity, footer) never
 // read TuiApp state directly.
 
+use std::time::Duration;
+
 use ratatui::style::Color;
 
 /// Pre-computed data for one bottom-pane render frame.
@@ -13,8 +15,10 @@ pub(crate) struct BottomPaneView {
 }
 
 pub(crate) struct ActivityView {
-    pub(crate) label: String,
+    pub(crate) label: &'static str,
     pub(crate) label_color: Color,
+    pub(crate) spinner: bool,
+    pub(crate) spinner_elapsed: Duration,
     pub(crate) detail: String,
     pub(crate) plan_badge: bool,
     pub(crate) perm_badge: bool,

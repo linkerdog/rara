@@ -149,7 +149,7 @@ impl ListPickerKind {
                 .fg(TEXT_ACCENT)
                 .add_modifier(Modifier::BOLD)
         } else {
-            Style::default()
+            Style::default().fg(TEXT_PRIMARY)
         }
     }
 
@@ -187,7 +187,7 @@ impl ListPickerKind {
                 ]);
                 let desc_line = ratatui::text::Line::from(ratatui::text::Span::styled(
                     format!("      {}", desc),
-                    Style::default().fg(TEXT_MUTED),
+                    Style::default().fg(TEXT_SECONDARY),
                 ));
                 ListItem::new(vec![name_line, desc_line]).style(Self::selected_style(idx, selected))
             })

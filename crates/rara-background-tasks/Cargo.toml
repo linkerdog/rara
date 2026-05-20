@@ -1,0 +1,20 @@
+ [package]
+ name = "rara-background-tasks"
+ version.workspace = true
+ edition.workspace = true
+ license.workspace = true
+ 
+[dependencies]
+rara-tools.path = "../rara-tools"
+rara-tool-macros.path = "../tool-macros"
+serde.workspace = true
+serde_json.workspace = true
+tokio = { version = "1.0", features = ["fs", "io-util", "macros", "process", "rt", "sync"] }
+uuid = { version = "1.11", features = ["v4"] }
+async-trait.workspace = true
+
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
+
+[dev-dependencies]
+tempfile.workspace = true
