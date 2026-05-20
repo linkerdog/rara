@@ -95,7 +95,7 @@ impl TuiApp {
         self.state_db_status = Some(state_db_status_error("unavailable", error));
     }
 
-    pub(super) fn persist_runtime_state(&mut self) {
+    pub(crate) fn persist_runtime_state(&mut self) {
         let Some(state_db) = self.state_db.as_ref() else {
             return;
         };
