@@ -42,6 +42,7 @@ rmcp = { version = "1.7", features = ["client", "transport-child-process"] }
 codex-execpolicy = { git = "https://github.com/openai/codex", tag = "rust-v0.131.0" }
 codex-login = { git = "https://github.com/openai/codex", tag = "rust-v0.131.0" }
 codex-models-manager = { git = "https://github.com/openai/codex", tag = "rust-v0.131.0" }
+rara-instructions = { path = "crates/instructions" }
 
 [package]
 name = "rara"

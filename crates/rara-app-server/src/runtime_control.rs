@@ -265,16 +265,7 @@ pub enum MemoryScope {
 }
 
 /// Lifecycle phase for hooks declared through the app-server control plane.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
-pub enum HookLifecycle {
-    SessionStart,
-    UserPromptSubmit,
-    PreToolUse,
-    PostToolUse,
-    PostMemoryWrite,
-    Stop,
-    PreCompact,
-}
+pub use rara_instructions::HookLifecycle;
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "type", content = "payload", rename_all = "snake_case")]
