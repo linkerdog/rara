@@ -6,19 +6,19 @@ expression: rendered
 
 model · -                               /model to change
 dir   · /workspace/rara
-Ready.
-──
-Type a message to start a task or run a local command.
-    All Models
-St  Select a model across all providers.
-
-    Codex/gpt-4o
-    DeepSeek/deepseek-chat
-    DeepSeek/deepseek-reasoner
-    DeepSeek/deepseek-v4-flash
-Pr  DeepSeek/deepseek-v4-pro
-    DeepSeek/deepseek-v4-preview
-›   Kimi/kimi-k2.6
+Read  All Models
+──    Select a model across all providers.
+Type
+      Codex/gpt-4o
+Star  DeepSeek/deepseek-chat
+  /h  DeepSeek/deepseek-reasoner
+  /m  DeepSeek/deepseek-v4-flash
+  /s  DeepSeek/deepseek-v4-pro
+  /q  DeepSeek/deepseek-v4-preview
+      Kimi/kimi-k2.6
+Prom  Kimi/kimi-k2.5
+  Re  Kimi/kimi-k2-0905-preview
+› As  Kimi/kimi-k2-turbo-preview                                            s.
+      Kimi/kimi-k2-thinking
                      Up/Down/jk move  Enter apply  Esc back
-
-                                                   perm=auto approval=suggestion
+                                                                            tion
