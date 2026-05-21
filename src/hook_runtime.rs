@@ -10,6 +10,8 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
+use serde_json::Value;
+
 use crate::agent::AgentEvent;
 use crate::runtime_control::HookLifecycle;
 use crate::runtime_event_bus::RuntimeEventBus;
@@ -25,15 +27,18 @@ struct HookEntry {
 
 /// In-process hook dispatch runtime.
 ///
+pub type ToolModifier = Box<dyn Fn(&str, &Value) -> Option<Value> + Send + Sync>;
+
 /// Hooks are stored behind an `Arc<RwLock<HashMap<...>>>` so that the
 /// control-plane can register / unregister hooks while the dispatch
 /// loop is already running.
 pub struct HookRuntime {
     bus: Arc<RuntimeEventBus>,
     hooks: Arc<tokio::sync::RwLock<HashMap<String, HookEntry>>>,
+    tool_modifiers: Arc<std::sync::RwLock<Vec<(String, ToolModifier)>>>,
     /// Collected stdout from command hooks. Drained before each model turn
     /// and injected as system messages into the model context.
-    outputs: Arc<tokio::sync::Mutex<Vec<String>>>,
+    outputs: Arc<std::sync::Mutex<Vec<String>>>,
     started: AtomicBool,
 }
 
@@ -42,24 +47,55 @@ impl HookRuntime {
         Self {
             bus,
             hooks: Arc::new(tokio::sync::RwLock::new(HashMap::new())),
-            outputs: Arc::new(tokio::sync::Mutex::new(Vec::new())),
+            tool_modifiers: Arc::new(std::sync::RwLock::new(Vec::new())),
+            outputs: Arc::new(std::sync::Mutex::new(Vec::new())),
             started: AtomicBool::new(false),
         }
     }
 
     /// Push a hook output (typically command stdout) into the collection buffer.
-    pub async fn push_output(&self, text: String) {
-        self.outputs.lock().await.push(text);
+    pub fn push_output(&self, text: String) {
+        if let Ok(mut guard) = self.outputs.lock() {
+            guard.push(text);
+        }
     }
 
     /// Drain and return all collected hook outputs, clearing the buffer.
-    pub async fn drain_outputs(&self) -> Vec<String> {
-        std::mem::take(&mut *self.outputs.lock().await)
+    pub fn drain_outputs(&self) -> Vec<String> {
+        if let Ok(mut guard) = self.outputs.lock() {
+            std::mem::take(&mut *guard)
+        } else {
+            Vec::new()
+        }
     }
 
     /// Drain outputs synchronously (for use in non-async contexts).
     pub fn blocking_drain_outputs(&self) -> Vec<String> {
-        std::mem::take(&mut *self.outputs.blocking_lock())
+        if let Ok(mut guard) = self.outputs.lock() {
+            std::mem::take(&mut *guard)
+        } else {
+            Vec::new()
+        }
+    }
+
+    /// Register a PreToolUse modifier that can transform tool input.
+    pub fn register_tool_modifier(&self, name: String, modifier: ToolModifier) {
+        if let Ok(mut guard) = self.tool_modifiers.write() {
+            guard.push((name, modifier));
+        }
+    }
+
+    /// Run all registered tool modifiers against the given tool name and input.
+    /// Returns the final (possibly modified) input value.
+    pub fn modify_tool_input(&self, tool_name: &str, input: Value) -> Value {
+        let modifiers = self.tool_modifiers.read().unwrap();
+        let mut current = input;
+        for (_name, modifier) in modifiers.iter() {
+            if let Some(modified) = modifier(tool_name, &current) {
+                current = modified;
+            }
+        }
+        current
     }
 
     /// Register an in-process hook.  Safe to call while `start` is running.
@@ -318,6 +354,13 @@ pub(crate) fn set_global_hook_runtime(hr: Arc<HookRuntime>) {
 
 pub(crate) fn get_global_hook_runtime() -> Option<&'static Arc<HookRuntime>> {
     GLOBAL_HOOK_RUNTIME.get()
+}
+
+pub(crate) fn global_modify_tool_input(tool_name: &str, input: Value) -> Value {
+    match GLOBAL_HOOK_RUNTIME.get() {
+        Some(hr) => hr.modify_tool_input(tool_name, input),
+        None => input,
+    }
 }
 
 #[cfg(test)]

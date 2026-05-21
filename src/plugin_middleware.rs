@@ -77,7 +77,7 @@ pub async fn register_plugin_hooks(
                         );
                     }
                     if !result.stdout.trim().is_empty() {
-                        r.push_output(result.stdout).await;
+                        r.push_output(result.stdout);
                     }
                 });
             });
