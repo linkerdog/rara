@@ -712,6 +712,16 @@ impl Agent {
                 }
             }
             self.ensure_active_plan_step();
+            // Inject hook outputs as system messages before the model turn
+            if let Some(hr) = crate::hook_runtime::get_global_hook_runtime() {
+                let outputs = hr.blocking_drain_outputs();
+                for text in outputs {
+                    self.history.push(Message {
+                        role: "system".to_string(),
+                        content: Value::String(text),
+                    });
+                }
+            }
             let mut turn_output = self.run_model_turn(output_mode, report).await?;
             self.record_agent_turn_trace(&turn_output, *agentic_turns, None, None, false);
             self.last_query_plan_updated = turn_output.plan_updated;

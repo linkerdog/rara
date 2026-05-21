@@ -47,6 +47,7 @@ pub async fn register_plugin_hooks(
             let lifecycle = hook_event_to_lifecycle(rh.event);
 
             let plugin_name_for_callback = plugin_name.clone();
+            let runtime_for_output = runtime.clone();
             let callback = Box::new(move |event: &AgentEvent| {
                 let hook_event_name = match agent_event_to_hook_event(event) {
                     Some(e) => e.as_str().to_string(),
@@ -65,6 +66,7 @@ pub async fn register_plugin_hooks(
                 let h = hook.clone();
                 let pr = plugin_root.clone();
                 let pn = plugin_name_for_callback.clone();
+                let r = runtime_for_output.clone();
                 tokio::task::spawn(async move {
                     let result = execute_command_hook(&h, &pr, input).await;
                     if !result.ok {
@@ -73,6 +75,9 @@ pub async fn register_plugin_hooks(
                             result.exit_code.unwrap_or(-1),
                             result.stderr
                         );
+                    }
+                    if !result.stdout.trim().is_empty() {
+                        r.push_output(result.stdout).await;
                     }
                 });
             });
