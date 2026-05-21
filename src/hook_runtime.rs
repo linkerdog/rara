@@ -37,7 +37,7 @@ struct HookEntry {
 pub struct HookRuntime {
     bus: Arc<RuntimeEventBus>,
     hooks: Arc<tokio::sync::RwLock<HashMap<String, HookEntry>>>,
-    tool_modifiers: Arc<tokio::sync::RwLock<Vec<(String, ToolModifier)>>>,
+    tool_modifiers: Arc<std::sync::RwLock<Vec<(String, ToolModifier)>>>,
     started: AtomicBool,
 }
 
@@ -46,15 +46,17 @@ impl HookRuntime {
         Self {
             bus,
             hooks: Arc::new(tokio::sync::RwLock::new(HashMap::new())),
-            tool_modifiers: Arc::new(tokio::sync::RwLock::new(Vec::new())),
+            tool_modifiers: Arc::new(std::sync::RwLock::new(Vec::new())),
             started: AtomicBool::new(false),
         }
     }
 
     /// Register a PreToolUse modifier that can transform tool input.
     /// Called synchronously, safe to invoke while `start` is running.
-    pub async fn register_tool_modifier(&self, name: String, modifier: ToolModifier) {
-        self.tool_modifiers.write().await.push((name, modifier));
+    pub fn register_tool_modifier(&self, name: String, modifier: ToolModifier) {
+        if let Ok(mut guard) = self.tool_modifiers.write() {
+            guard.push((name, modifier));
+        }
     }
 
     /// Run all registered tool modifiers against the given tool name and input.
@@ -62,7 +64,7 @@ impl HookRuntime {
     /// Each modifier receives the tool name and the current input value.
     /// If a modifier returns `Some(v)`, `v` becomes the input for the next modifier.
     pub fn modify_tool_input(&self, tool_name: &str, input: Value) -> Value {
-        let modifiers = self.tool_modifiers.blocking_read();
+        let modifiers = self.tool_modifiers.read().unwrap();
         let mut current = input;
         for (_name, modifier) in modifiers.iter() {
             if let Some(modified) = modifier(tool_name, &current) {
