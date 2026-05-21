@@ -19,10 +19,6 @@ use crate::runtime_event_bus::RuntimeEventBus;
 /// A registered in-process hook combining a lifecycle trigger and a callback.
 type HookCallback = Box<dyn Fn(&AgentEvent) + Send + Sync>;
 
-/// A PreToolUse modifier that can return modified tool input.
-/// Returns `None` if no modification is needed, or `Some(modified_input)`.
-pub type ToolModifier = Box<dyn Fn(&str, &Value) -> Option<Value> + Send + Sync>;
-
 struct HookEntry {
     lifecycle: HookLifecycle,
     description: String,
@@ -31,6 +27,8 @@ struct HookEntry {
 
 /// In-process hook dispatch runtime.
 ///
+pub type ToolModifier = Box<dyn Fn(&str, &Value) -> Option<Value> + Send + Sync>;
+
 /// Hooks are stored behind an `Arc<RwLock<HashMap<...>>>` so that the
 /// control-plane can register / unregister hooks while the dispatch
 /// loop is already running.
@@ -38,6 +36,9 @@ pub struct HookRuntime {
     bus: Arc<RuntimeEventBus>,
     hooks: Arc<tokio::sync::RwLock<HashMap<String, HookEntry>>>,
     tool_modifiers: Arc<std::sync::RwLock<Vec<(String, ToolModifier)>>>,
+    /// Collected stdout from command hooks. Drained before each model turn
+    /// and injected as system messages into the model context.
+    outputs: Arc<std::sync::Mutex<Vec<String>>>,
     started: AtomicBool,
 }
 
@@ -47,12 +48,37 @@ impl HookRuntime {
             bus,
             hooks: Arc::new(tokio::sync::RwLock::new(HashMap::new())),
             tool_modifiers: Arc::new(std::sync::RwLock::new(Vec::new())),
+            outputs: Arc::new(std::sync::Mutex::new(Vec::new())),
             started: AtomicBool::new(false),
         }
     }
 
+    /// Push a hook output (typically command stdout) into the collection buffer.
+    pub fn push_output(&self, text: String) {
+        if let Ok(mut guard) = self.outputs.lock() {
+            guard.push(text);
+        }
+    }
+
+    /// Drain and return all collected hook outputs, clearing the buffer.
+    pub fn drain_outputs(&self) -> Vec<String> {
+        if let Ok(mut guard) = self.outputs.lock() {
+            std::mem::take(&mut *guard)
+        } else {
+            Vec::new()
+        }
+    }
+
+    /// Drain outputs synchronously (for use in non-async contexts).
+    pub fn blocking_drain_outputs(&self) -> Vec<String> {
+        if let Ok(mut guard) = self.outputs.lock() {
+            std::mem::take(&mut *guard)
+        } else {
+            Vec::new()
+        }
+    }
+
     /// Register a PreToolUse modifier that can transform tool input.
-    /// Called synchronously, safe to invoke while `start` is running.
     pub fn register_tool_modifier(&self, name: String, modifier: ToolModifier) {
         if let Ok(mut guard) = self.tool_modifiers.write() {
             guard.push((name, modifier));
@@ -61,8 +87,6 @@ impl HookRuntime {
 
     /// Run all registered tool modifiers against the given tool name and input.
     /// Returns the final (possibly modified) input value.
-    /// Each modifier receives the tool name and the current input value.
-    /// If a modifier returns `Some(v)`, `v` becomes the input for the next modifier.
     pub fn modify_tool_input(&self, tool_name: &str, input: Value) -> Value {
         let modifiers = self.tool_modifiers.read().unwrap();
         let mut current = input;
@@ -164,22 +188,7 @@ fn lifecycle_matches(lifecycle: &HookLifecycle, event: &AgentEvent) -> bool {
     lifecycle_for_event(event).as_ref() == Some(lifecycle)
 }
 
-/// Global hook runtime — avoids threading Arc<HookRuntime> through every
-/// Agent constructor. Set once by the builder, read by the agent loop.
-// ---------------------------------------------------------------------------
-
-static GLOBAL_HOOK_RUNTIME: std::sync::OnceLock<Arc<HookRuntime>> = std::sync::OnceLock::new();
-
-pub(crate) fn set_global_hook_runtime(hr: Arc<HookRuntime>) {
-    let _ = GLOBAL_HOOK_RUNTIME.set(hr);
-}
-
-pub(crate) fn global_modify_tool_input(tool_name: &str, input: Value) -> Value {
-    match GLOBAL_HOOK_RUNTIME.get() {
-        Some(hr) => hr.modify_tool_input(tool_name, input),
-        None => input,
-    }
-}
+/// Result of executing a command-type hook.
 #[derive(Debug, Clone)]
 pub struct HookRunResult {
     pub exit_code: Option<i32>,
@@ -330,6 +339,28 @@ pub fn make_command_hook(
         let input_json = "{}".to_string();
         spawn_command_hook(script_path.clone(), input_json, cwd.clone(), timeout_secs);
     })
+}
+
+// ---------------------------------------------------------------------------
+// Global hook runtime — avoids threading Arc<HookRuntime> through every
+// Agent constructor. Set once by the builder, read by the agent loop.
+// ---------------------------------------------------------------------------
+
+static GLOBAL_HOOK_RUNTIME: std::sync::OnceLock<Arc<HookRuntime>> = std::sync::OnceLock::new();
+
+pub(crate) fn set_global_hook_runtime(hr: Arc<HookRuntime>) {
+    let _ = GLOBAL_HOOK_RUNTIME.set(hr);
+}
+
+pub(crate) fn get_global_hook_runtime() -> Option<&'static Arc<HookRuntime>> {
+    GLOBAL_HOOK_RUNTIME.get()
+}
+
+pub(crate) fn global_modify_tool_input(tool_name: &str, input: Value) -> Value {
+    match GLOBAL_HOOK_RUNTIME.get() {
+        Some(hr) => hr.modify_tool_input(tool_name, input),
+        None => input,
+    }
 }
 
 #[cfg(test)]
