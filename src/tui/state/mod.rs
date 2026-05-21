@@ -1798,6 +1798,13 @@ impl TuiApp {
             self.skill_picker_idx = 0;
         }
         if matches!(overlay, Overlay::Context) {
+            // Auto-hide the command palette when opening a full-screen modal
+            // so Esc dismisses only the modal, not the stale palette underneath.
+            if !matches!(overlay, Overlay::CommandPalette | Overlay::ModelSearch) {
+                if matches!(self.overlay, Some(Overlay::CommandPalette)) {
+                    self.hide_overlay();
+                }
+            }
             self.context_scroll = 0;
         }
         self.overlay_stack.push(overlay);

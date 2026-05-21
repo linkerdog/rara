@@ -89,6 +89,11 @@ pub(crate) async fn handle_submit(
 
 /// Persist the active turn and runtime state before quitting.
 fn save_before_quit(app: &mut TuiApp) {
+    // Dismiss any open overlay (e.g. Command Palette) before quitting,
+    // so the quit phase transition is the last thing the user sees.
+    if app.overlay.is_some() {
+        app.dismiss_overlay();
+    }
     app.finalize_active_turn();
     app.persist_runtime_state();
 }

@@ -7,22 +7,22 @@ expression: rendered
 model · -                               /model to change
 dir   · <CWD>
 Ready.
-──
-Type a message to start a task or run a local command.
+──              Provider
+Type a message  Select a provider family.
 
-Start with:
-  /help    browse built-in commands and runtime hints
-  /model   choose provider first, then switch models
-  /status  i  Provider
-  /quit    l  Select a provider family.
-
-Prompt ideas     [1] Codex (current)
-  · Explain         Use Codex with browser login, device-code login, or a Codex API ke
-  · Find the     [2] DeepSeek
-                    Use DeepSeek with an API key and model list from api.deepseek.com.
-                 [3] Kimi
-  Warning  W        Use Moonshot Kimi with an API key from api.moonshot.cn.             .
-› Ask about
+Start with:        [1] Codex (current)
+  /help    bro        Use Codex with browser login, device-code login, or a Codex AP
+  /model   cho     [2] DeepSeek
+  /status  ins        Use DeepSeek with an API key and model list from api.deepseek.
+  /quit    lea     [3] Kimi
+                      Use Moonshot Kimi with an API key from api.moonshot.cn.
+Prompt ideas:      [4] OpenAI-compatible
+  · Explain th        Use OpenAI-compatible endpoint profiles such as Custom, Kimi,
+  · Find the m     [5] Gemini
+                      Use Google Gemini via AI Studio (API key) or Code Assist (OAut
+                 ● [6] Candle Local
+  Warning  War        Run local Candle models directly in-process.                    er.
+› Ask about th     [7] Ollama
+                      Use an external Ollama server and choose a local tag.
                           1-9 jump  Up/Down/jk move  Enter apply  Esc back
-
-                                                                       perm=auto approval=suggestion
+                                                                                      val=suggestion
