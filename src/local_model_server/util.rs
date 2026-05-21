@@ -311,3 +311,13 @@ pub(crate) fn set_private_file_permissions(path: &Path) -> Result<()> {
 pub(crate) fn set_private_file_permissions(_path: &Path) -> Result<()> {
     Ok(())
 }
+
+/// Check whether a process identified by `pid` has exited.
+/// Returns `true` if the pid is no longer running (or never existed).
+pub(crate) fn process_exited(pid: u32) -> bool {
+    use nix::sys::signal::kill;
+    use nix::unistd::Pid;
+    // Signal 0 (null signal) — does not actually send a signal, only
+    // checks whether the process exists and we have permission.
+    kill(Pid::from_raw(pid as i32), None).is_err()
+}

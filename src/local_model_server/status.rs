@@ -192,11 +192,48 @@ pub(crate) fn reusable_server_status(
         return None;
     }
     let endpoint = endpoint_url(&metadata.host, metadata.port);
-    let health = probe_health(&metadata.host, metadata.port).ok()?;
+    let health = match probe_health(&metadata.host, metadata.port) {
+        Ok(h) => h,
+        Err(_) => {
+            if process_exited(metadata.pid) {
+                return Some(LocalModelServerStatus {
+                    state: LocalModelServerState::Error,
+                    backend: backend.to_string(),
+                    model: model.to_string(),
+                    detail: format!(
+                        "model server process (pid {}) exited unexpectedly; \
+                         check stderr log at {}",
+                        metadata.pid,
+                        server.runtime_dir.join("model-server-stderr.log").display(),
+                    ),
+                    server_path: Some(server.path.clone()),
+                    endpoint: Some(endpoint),
+                });
+            }
+            return None;
+        }
+    };
     if !health_identity_matches(&health, backend, model) {
         return None;
     }
     if !health_model_ready(&health, backend) {
+        // Check if the process exited while we were polling — if so,
+        // report the crash instead of pretending it's still loading.
+        if process_exited(metadata.pid) {
+            return Some(LocalModelServerStatus {
+                state: LocalModelServerState::Error,
+                backend: backend.to_string(),
+                model: model.to_string(),
+                detail: format!(
+                    "model server process (pid {}) exited unexpectedly while loading model; \
+                     check stderr log at {}",
+                    metadata.pid,
+                    server.runtime_dir.join("model-server-stderr.log").display(),
+                ),
+                server_path: Some(server.path.clone()),
+                endpoint: Some(endpoint),
+            });
+        }
         if let Some(error_message) = health_preparation_error(&health, backend) {
             return Some(LocalModelServerStatus {
                 state: LocalModelServerState::Error,
