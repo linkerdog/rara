@@ -311,3 +311,18 @@ pub(crate) fn set_private_file_permissions(path: &Path) -> Result<()> {
 pub(crate) fn set_private_file_permissions(_path: &Path) -> Result<()> {
     Ok(())
 }
+
+/// Check whether a process identified by `pid` has exited.
+/// Returns `true` if the pid is no longer running (or never existed).
+pub(crate) fn process_exited(pid: u32) -> bool {
+    use std::process::Command;
+    let pid_str = pid.to_string();
+    Command::new("kill")
+        .arg("-0")
+        .arg(&pid_str)
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .status()
+        .map(|status| !status.success())
+        .unwrap_or(true)
+}
