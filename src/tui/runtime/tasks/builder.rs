@@ -13,7 +13,8 @@ pub(super) async fn rebuild_agent_with_progress(
     let event_bus = bootstrap.event_bus.clone();
 
     // Start the hook runtime — registers command-type hooks found in `.claude/hooks/`
-    let hook_runtime = crate::hook_runtime::HookRuntime::new(event_bus.clone());
+    let hook_runtime = Arc::new(crate::hook_runtime::HookRuntime::new(event_bus.clone()));
+    crate::hook_runtime::set_global_hook_runtime(hook_runtime.clone());
     hook_runtime.start();
 
     let (
@@ -42,7 +43,7 @@ pub(super) async fn rebuild_agent_with_progress(
         prompt_source_registry,
         skill_source_registry,
         hook_registry,
-        hook_runtime: Arc::new(hook_runtime),
+        hook_runtime,
         memory_handler,
         lsp_manager,
     })

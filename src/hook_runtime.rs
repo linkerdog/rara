@@ -10,12 +10,18 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
+use serde_json::Value;
+
 use crate::agent::AgentEvent;
 use crate::runtime_control::HookLifecycle;
 use crate::runtime_event_bus::RuntimeEventBus;
 
 /// A registered in-process hook combining a lifecycle trigger and a callback.
 type HookCallback = Box<dyn Fn(&AgentEvent) + Send + Sync>;
+
+/// A PreToolUse modifier that can return modified tool input.
+/// Returns `None` if no modification is needed, or `Some(modified_input)`.
+pub type ToolModifier = Box<dyn Fn(&str, &Value) -> Option<Value> + Send + Sync>;
 
 struct HookEntry {
     lifecycle: HookLifecycle,
@@ -31,6 +37,7 @@ struct HookEntry {
 pub struct HookRuntime {
     bus: Arc<RuntimeEventBus>,
     hooks: Arc<tokio::sync::RwLock<HashMap<String, HookEntry>>>,
+    tool_modifiers: Arc<tokio::sync::RwLock<Vec<(String, ToolModifier)>>>,
     started: AtomicBool,
 }
 
@@ -39,8 +46,30 @@ impl HookRuntime {
         Self {
             bus,
             hooks: Arc::new(tokio::sync::RwLock::new(HashMap::new())),
+            tool_modifiers: Arc::new(tokio::sync::RwLock::new(Vec::new())),
             started: AtomicBool::new(false),
         }
+    }
+
+    /// Register a PreToolUse modifier that can transform tool input.
+    /// Called synchronously, safe to invoke while `start` is running.
+    pub async fn register_tool_modifier(&self, name: String, modifier: ToolModifier) {
+        self.tool_modifiers.write().await.push((name, modifier));
+    }
+
+    /// Run all registered tool modifiers against the given tool name and input.
+    /// Returns the final (possibly modified) input value.
+    /// Each modifier receives the tool name and the current input value.
+    /// If a modifier returns `Some(v)`, `v` becomes the input for the next modifier.
+    pub fn modify_tool_input(&self, tool_name: &str, input: Value) -> Value {
+        let modifiers = self.tool_modifiers.blocking_read();
+        let mut current = input;
+        for (_name, modifier) in modifiers.iter() {
+            if let Some(modified) = modifier(tool_name, &current) {
+                current = modified;
+            }
+        }
+        current
     }
 
     /// Register an in-process hook.  Safe to call while `start` is running.
@@ -133,7 +162,22 @@ fn lifecycle_matches(lifecycle: &HookLifecycle, event: &AgentEvent) -> bool {
     lifecycle_for_event(event).as_ref() == Some(lifecycle)
 }
 
-/// Result of executing a command-type hook.
+/// Global hook runtime — avoids threading Arc<HookRuntime> through every
+/// Agent constructor. Set once by the builder, read by the agent loop.
+// ---------------------------------------------------------------------------
+
+static GLOBAL_HOOK_RUNTIME: std::sync::OnceLock<Arc<HookRuntime>> = std::sync::OnceLock::new();
+
+pub(crate) fn set_global_hook_runtime(hr: Arc<HookRuntime>) {
+    let _ = GLOBAL_HOOK_RUNTIME.set(hr);
+}
+
+pub(crate) fn global_modify_tool_input(tool_name: &str, input: Value) -> Value {
+    match GLOBAL_HOOK_RUNTIME.get() {
+        Some(hr) => hr.modify_tool_input(tool_name, input),
+        None => input,
+    }
+}
 #[derive(Debug, Clone)]
 pub struct HookRunResult {
     pub exit_code: Option<i32>,

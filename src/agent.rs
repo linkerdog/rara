@@ -616,14 +616,16 @@ impl Agent {
                         name: name.clone(),
                         input: input.clone(),
                     });
+                    let modified_input =
+                        crate::hook_runtime::global_modify_tool_input(name.as_str(), input.clone());
                     report(AgentEvent::ToolUse {
                         name: name.clone(),
-                        input: input.clone(),
+                        input: modified_input.clone(),
                     });
                     tool_calls.push(ToolCall {
                         id: id.clone(),
                         name: name.clone(),
-                        input: input.clone(),
+                        input: modified_input,
                     });
                 }
                 ContentBlock::ProviderMetadata {
