@@ -36,23 +36,27 @@ pub(crate) fn read_file_content(path: &str) -> Result<String, ToolError> {
     }
 }
 
-/// Return a path suggestion when a file is not found: look for a sibling
-/// with a different extension but the same stem, or the same file under
-/// the current working directory.
+/// Return a path suggestion when a file is not found: search siblings
+/// and then walk up the directory tree looking for a file with the same
+/// stem but different extension.
 fn find_similar_file(path: &str) -> Option<String> {
     let p = Path::new(path);
-    let parent = p.parent()?;
     let stem = p.file_stem()?.to_str()?;
-    // Check siblings: same stem, different extension.
-    if let Ok(entries) = fs::read_dir(parent) {
-        for entry in entries.flatten() {
-            let candidate = entry.path();
-            if candidate.file_stem().and_then(|s| s.to_str()) == Some(stem)
-                && candidate.extension() != p.extension()
-            {
-                return Some(candidate.display().to_string());
+    let ext = p.extension();
+    // Walk up from the original parent through ancestor directories.
+    let mut dir = p.parent();
+    while let Some(parent) = dir {
+        if let Ok(entries) = fs::read_dir(parent) {
+            for entry in entries.flatten() {
+                let candidate = entry.path();
+                if candidate.file_stem().and_then(|s| s.to_str()) == Some(stem)
+                    && candidate.extension() != ext
+                {
+                    return Some(candidate.display().to_string());
+                }
             }
         }
+        dir = parent.parent();
     }
     None
 }
@@ -233,7 +237,7 @@ impl ReadFileTool {
 
 #[tool_spec(
     name = "read_file",
-    description = "Read a file with Codex-style 1-based offset/limit windows. Defaults to the first 2000 lines and reports next_offset when more content remains.",
+    description = "Read a file with Codex-style 1-based offset/limit windows. Defaults to the first 2000 lines and reports next_offset when more content remains. When a file is not found, the tool suggests a sibling file with the same stem and a different extension (if one exists).",
     input_schema = {
         "type": "object",
         "properties": {
@@ -253,7 +257,22 @@ impl Tool for ReadFileTool {
             .as_str()
             .ok_or(ToolError::InvalidInput("path".into()))?;
         let window = read_file_window_from_input(&i)?;
-        let output = read_file_window(p, window).await?;
+        let output = match read_file_window(p, window).await {
+            Ok(o) => o,
+            Err(e) => {
+                // Only suggest when the file actually doesn't exist.
+                if let ToolError::Io(ref io_err) = e {
+                    if io_err.kind() == std::io::ErrorKind::NotFound {
+                        if let Some(suggestion) = find_similar_file(p) {
+                            return Err(ToolError::ExecutionFailed(format!(
+                                "{e}\n\n  A similar file was found: {suggestion}\n  Try reading that path instead."
+                            )));
+                        }
+                    }
+                }
+                return Err(e);
+            }
+        };
         if let Some(read_state) = &self.read_state {
             let full_content =
                 (!output.truncated && output.start_line == 1 && output.total_lines_exact)
