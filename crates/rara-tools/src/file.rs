@@ -36,27 +36,6 @@ pub(crate) fn read_file_content(path: &str) -> Result<String, ToolError> {
     }
 }
 
-/// Return a path suggestion when a file is not found: look for a sibling
-/// with a different extension but the same stem, or the same file under
-/// the current working directory.
-fn find_similar_file(path: &str) -> Option<String> {
-    let p = Path::new(path);
-    let parent = p.parent()?;
-    let stem = p.file_stem()?.to_str()?;
-    // Check siblings: same stem, different extension.
-    if let Ok(entries) = fs::read_dir(parent) {
-        for entry in entries.flatten() {
-            let candidate = entry.path();
-            if candidate.file_stem().and_then(|s| s.to_str()) == Some(stem)
-                && candidate.extension() != p.extension()
-            {
-                return Some(candidate.display().to_string());
-            }
-        }
-    }
-    None
-}
-
 #[derive(Debug, Default)]
 pub struct FileReadState {
     files: Mutex<HashMap<PathBuf, FileReadEntry>>,

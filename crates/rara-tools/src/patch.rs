@@ -621,10 +621,6 @@ fn is_opening_context(chars: &[char], pos: usize) -> bool {
     )
 }
 
-fn find_subsequence(haystack: &[String], needle: &[String]) -> Option<usize> {
-    seek_sequence(haystack, needle, 0, false)
-}
-
 fn write_text_file(path: &str, content: &str) -> Result<(), ToolError> {
     if let Some(parent) = Path::new(path).parent() {
         fs::create_dir_all(parent)?;
