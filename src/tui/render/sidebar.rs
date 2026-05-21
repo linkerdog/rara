@@ -8,6 +8,7 @@ use ratatui::{
     widgets::{Block, Borders, Paragraph, Wrap},
 };
 
+use crate::local_model_server::LocalModelServerState;
 use crate::tui::custom_terminal::Frame;
 use crate::tui::state::TuiApp;
 use crate::tui::status_display::context_sidebar_summary;
@@ -41,6 +42,8 @@ pub(crate) fn render_sidebar(f: &mut Frame, app: &TuiApp, area: Rect) {
     push_context_summary(&mut lines, app);
     lines.push(Line::from(""));
     push_lsp_status(&mut lines, app);
+    lines.push(Line::from(""));
+    push_local_model_section(&mut lines, app);
     lines.push(Line::from(""));
     if push_todo_section(&mut lines, app) {
         lines.push(Line::from(""));
@@ -215,6 +218,38 @@ fn push_lsp_status(lines: &mut Vec<Line<'static>>, app: &TuiApp) {
         lines.push(Line::from(Span::styled(
             format!("last error: {error}"),
             Style::default().fg(STATUS_WARNING),
+        )));
+    }
+}
+
+fn push_local_model_section(lines: &mut Vec<Line<'static>>, app: &TuiApp) {
+    let status = &app.local_model_server;
+    lines.push(Line::from(super::section_label(
+        "Local Model",
+        TEXT_SECONDARY,
+    )));
+    let (marker, style) = match status.state {
+        LocalModelServerState::Ready => ("● ready", Style::default().fg(STATUS_SUCCESS)),
+        LocalModelServerState::Starting
+        | LocalModelServerState::WaitingForServer
+        | LocalModelServerState::CreatingVenv
+        | LocalModelServerState::InstallingDependencies
+        | LocalModelServerState::PreparingModel => {
+            ("○ preparing …", Style::default().fg(STATUS_WARNING))
+        }
+        LocalModelServerState::PreparedButStopped => {
+            ("○ stopped", Style::default().fg(TEXT_SECONDARY))
+        }
+        LocalModelServerState::SetupRequired => {
+            ("○ setup required", Style::default().fg(TEXT_MUTED))
+        }
+        LocalModelServerState::Error => ("✗ error", Style::default().fg(STATUS_ERROR)),
+    };
+    lines.push(Line::from(Span::styled(marker, style)));
+    if !status.model.is_empty() {
+        lines.push(Line::from(Span::styled(
+            format!("  {}", status.model),
+            Style::default().fg(TEXT_MUTED),
         )));
     }
 }
