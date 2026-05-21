@@ -212,6 +212,13 @@ fn push_lsp_status(lines: &mut Vec<Line<'static>>, app: &TuiApp) {
             format!("{marker} {}", server.name),
             style,
         )));
+        // Add a hint below each server showing its current phase.
+        if !server.running {
+            lines.push(Line::from(Span::styled(
+                "    ready",
+                Style::default().fg(TEXT_MUTED),
+            )));
+        }
     }
 
     if let Some(error) = snapshot.last_error {
