@@ -3,7 +3,7 @@ use std::sync::Arc;
 use anyhow::Result;
 use rara_state::state_db::StateDb;
 
-use super::state::{TranscriptEntry, TranscriptTurn, TuiApp};
+use super::state::{GoalStatus, RalphGoal, TranscriptEntry, TranscriptTurn, TuiApp};
 use crate::agent::{
     Agent, BashApprovalMode, CompactBoundaryMetadata, CompletedInteraction, PendingApproval,
     PendingUserInput, PlanStep, PlanStepStatus, latest_compact_boundary_metadata,
@@ -200,6 +200,32 @@ pub(super) fn restore_thread_by_id(
         app.reset_transcript();
     }
     app.sync_snapshot(agent);
+
+    // Restore any persisted goal so it survives across sessions.
+    if let Some(db) = app.state_db.as_ref() {
+        if let Some(goal_json) = db.load_goal(thread_id) {
+            let objective = goal_json["objective"].as_str().unwrap_or("");
+            let budget: Option<u32> = goal_json["token_budget"].as_u64().map(|v| v as u32);
+            if !objective.is_empty() {
+                let mut goal = RalphGoal::new(objective.to_string(), budget);
+                if let Some(condition) = goal_json["condition"].as_str() {
+                    goal.condition = Some(condition.to_string());
+                }
+                goal.tokens_used = goal_json["tokens_used"].as_u64().unwrap_or(0) as u32;
+                goal.turns_completed = goal_json["turns_completed"].as_u64().unwrap_or(0) as u32;
+                if let Some(status) = goal_json["status"].as_str() {
+                    goal.status = match status {
+                        "Complete" => GoalStatus::Complete,
+                        "Paused" => GoalStatus::Paused,
+                        _ => GoalStatus::Pursuing,
+                    };
+                }
+                *app.goal_handle.write().unwrap() = Some(goal.clone());
+                app.goal = Some(goal);
+            }
+        }
+    }
+
     app.bottom_pane.notice = Some(format!("Resumed thread {thread_id}."));
     Ok(())
 }
