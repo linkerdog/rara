@@ -60,8 +60,9 @@ pub(crate) fn start_model_server(
                                 backend: backend.to_string(),
                                 model: model.to_string(),
                                 detail: format!(
-                                    "model server running at {endpoint}; model preparation failed: {error_message} (stderr log: {})",
-                                    stderr_log_path.display()
+                                    "model server running at {endpoint}; model preparation failed: {error_message} (stderr log: {})\nstderr tail:\n{}",
+                                    stderr_log_path.display(),
+                                    stderr_tail(&stderr_log_path)
                                 ),
                                 server_path: Some(server.path.clone()),
                                 endpoint: Some(endpoint),
@@ -90,8 +91,9 @@ pub(crate) fn start_model_server(
                         backend: backend.to_string(),
                         model: model.to_string(),
                         detail: format!(
-                            "model server process exited with {status} during startup (stderr log: {})",
-                            stderr_log_path.display()
+                            "model server process exited with {status} during startup (stderr log: {})\nstderr tail:\n{}",
+                            stderr_log_path.display(),
+                            stderr_tail(&stderr_log_path)
                         ),
                         server_path: Some(server.path.clone()),
                         endpoint: Some(endpoint),
@@ -113,9 +115,10 @@ pub(crate) fn start_model_server(
                     backend: backend.to_string(),
                     model: model.to_string(),
                     detail: format!(
-                        "failed to prepare model at {endpoint} after {} health checks: {err} (stderr log: {})",
+                        "failed to prepare model at {endpoint} after {} health checks: {err} (stderr log: {})\nstderr tail:\n{}",
                         STARTUP_HEALTH_ATTEMPTS,
-                        stderr_log_path.display()
+                        stderr_log_path.display(),
+                        stderr_tail(&stderr_log_path)
                     ),
                     server_path: Some(server.path.clone()),
                     endpoint: Some(endpoint),
@@ -149,6 +152,20 @@ pub(crate) fn start_model_server(
             endpoint: Some(endpoint),
         },
     }
+}
+
+/// Read the last 4 lines of the stderr log for diagnostic inclusion.
+fn stderr_tail(path: &std::path::Path) -> String {
+    std::fs::read_to_string(path)
+        .unwrap_or_default()
+        .lines()
+        .rev()
+        .take(4)
+        .collect::<Vec<_>>()
+        .into_iter()
+        .rev()
+        .collect::<Vec<_>>()
+        .join("\n")
 }
 
 fn ready_model_server_status(
