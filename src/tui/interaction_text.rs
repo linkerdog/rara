@@ -37,6 +37,21 @@ pub fn pending_interaction_hint_text(kind: ActivePendingInteractionKind) -> &'st
     }
 }
 
+pub fn pending_interaction_shortcut_text(
+    kind: ActivePendingInteractionKind,
+) -> Option<&'static str> {
+    match kind {
+        ActivePendingInteractionKind::PlanApproval => {
+            Some("1 start implementation  2 continue planning")
+        }
+        ActivePendingInteractionKind::ShellApproval => None,
+        ActivePendingInteractionKind::PlanningQuestion
+        | ActivePendingInteractionKind::ExplorationQuestion
+        | ActivePendingInteractionKind::SubAgentQuestion
+        | ActivePendingInteractionKind::RequestInput => Some("1/2/3 shortcut"),
+    }
+}
+
 pub fn status_plan_approval_text(app: &TuiApp) -> String {
     let _ = app;
     "Plan ready for implementation.\n\n1. Start implementation now\n2. Continue planning and refine the plan".to_string()
@@ -173,8 +188,8 @@ mod tests {
     use tempfile::tempdir;
 
     use super::{
-        pending_interaction_hint_text, shell_approval_text_lines, status_command_approval_text,
-        status_plan_approval_text,
+        pending_interaction_hint_text, pending_interaction_shortcut_text,
+        shell_approval_text_lines, status_command_approval_text, status_plan_approval_text,
     };
     use crate::config::ConfigManager;
     use crate::tools::bash::BashCommandInput;
@@ -210,6 +225,22 @@ mod tests {
                 crate::tui::state::ActivePendingInteractionKind::ShellApproval
             ),
             "approval required  up/down select  enter apply  1-4 shortcut"
+        );
+    }
+
+    #[test]
+    fn pending_interaction_shortcut_text_avoids_duplicate_shell_approval_footer() {
+        assert_eq!(
+            pending_interaction_shortcut_text(
+                crate::tui::state::ActivePendingInteractionKind::PlanApproval
+            ),
+            Some("1 start implementation  2 continue planning")
+        );
+        assert_eq!(
+            pending_interaction_shortcut_text(
+                crate::tui::state::ActivePendingInteractionKind::ShellApproval
+            ),
+            None
         );
     }
 

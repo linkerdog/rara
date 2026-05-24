@@ -22,7 +22,9 @@ use super::{
     is_progress_stack_title, is_renderable_system_message, ordered_exploration_agent_segments,
     trim_trailing_empty_lines,
 };
-use crate::tui::interaction_text::{pending_interaction_detail_text, shell_approval_text_lines};
+use crate::tui::interaction_text::{
+    pending_interaction_detail_text, pending_interaction_shortcut_text, shell_approval_text_lines,
+};
 use crate::tui::plan_display::should_show_updated_plan;
 use crate::tui::queued_input::queued_follow_up_sections;
 use crate::tui::render::{
@@ -344,7 +346,7 @@ impl ActiveCell for ActiveTurnCell<'_> {
         }
 
         if let Some(pending) = self.app.active_pending_interaction() {
-            let request_lines = match pending.kind {
+            let mut request_lines = match pending.kind {
                 ActivePendingInteractionKind::ShellApproval => {
                     shell_approval_text_lines(self.app, Some(self.app.approval_picker_idx))
                 }
@@ -353,6 +355,9 @@ impl ActiveCell for ActiveTurnCell<'_> {
                     .map(ToString::to_string)
                     .collect::<Vec<_>>(),
             };
+            if let Some(shortcut_text) = pending_interaction_shortcut_text(pending.kind) {
+                request_lines.push(shortcut_text.to_string());
+            }
             cells.push(Box::new(PendingInteractionCell::new(
                 pending.kind,
                 request_lines,

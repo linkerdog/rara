@@ -126,7 +126,10 @@ fn pending_interaction_hint_takes_priority_over_queued_follow_up() {
         });
 
     let hint = composer_hint(&app).to_string();
-    assert!(hint.contains("1 allow once"));
+    assert!(hint.contains("approval required"));
+    assert!(hint.contains("up/down select"));
+    assert!(hint.contains("enter apply"));
+    assert!(hint.contains("1-4 shortcut"));
     assert!(!hint.contains("queued follow-up"));
 }
 

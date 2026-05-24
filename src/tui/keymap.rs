@@ -135,14 +135,14 @@ pub(crate) fn map_key_to_event(key: KeyEvent, app: &TuiApp) -> AppEvent {
                     interaction.kind == super::state::ActivePendingInteractionKind::ShellApproval
                 })
             {
-                match code {
-                    KeyCode::Up | KeyCode::Char('k') => {
+                match (code, modifiers) {
+                    (KeyCode::Up | KeyCode::Char('k'), KeyModifiers::NONE) => {
                         return AppEvent::MoveApprovalSelection(-1);
                     }
-                    KeyCode::Down | KeyCode::Char('j') => {
+                    (KeyCode::Down | KeyCode::Char('j'), KeyModifiers::NONE) => {
                         return AppEvent::MoveApprovalSelection(1);
                     }
-                    KeyCode::Enter => {
+                    (KeyCode::Enter, KeyModifiers::NONE) => {
                         return AppEvent::SelectPendingOption(app.approval_picker_idx);
                     }
                     _ => {}

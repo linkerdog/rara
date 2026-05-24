@@ -910,6 +910,50 @@ fn pending_shell_approval_number_shortcuts_work_in_local_and_ssh() {
     }
 }
 
+#[test]
+fn pending_shell_approval_preserves_modifier_shortcuts() {
+    let temp = tempdir().expect("tempdir");
+    let mut app = TuiApp::new(ConfigManager {
+        path: temp.path().join("config.json"),
+    })
+    .expect("build tui app");
+    let bus = Arc::new(crate::runtime_event_bus::RuntimeEventBus::new(10));
+    app.event_bus = Some(bus.clone());
+    app.prompt_source_registry = Some(Arc::new(
+        crate::protocol_sources::PromptSourceRegistry::new(bus.clone()),
+    ));
+    app.skill_source_registry = Some(Arc::new(crate::protocol_sources::SkillSourceRegistry::new(
+        bus.clone(),
+    )));
+    app.hook_registry = Some(Arc::new(crate::hook_registry::HookRegistry::new(
+        bus.clone(),
+    )));
+    app.mcp_manager = Some(Arc::new(
+        crate::mcp_connection_manager::McpConnectionManager::new(
+            Arc::new(crate::config::McpRegistry::empty()),
+            bus.clone(),
+            crate::mcp_tool_cache::McpToolCache::new(),
+        ),
+    ));
+    app.memory_handler = Some(Arc::new(
+        crate::protocol_sources::MemoryControlHandler::new(bus.clone()),
+    ));
+
+    add_pending_shell_approval(&mut app);
+
+    assert!(matches!(
+        map_key_to_event(shifted_key(KeyCode::Enter), &app),
+        AppEvent::InsertNewline
+    ));
+    assert!(matches!(
+        map_key_to_event(
+            KeyEvent::new(KeyCode::Char('j'), KeyModifiers::CONTROL),
+            &app
+        ),
+        AppEvent::InsertNewline
+    ));
+}
+
 #[tokio::test]
 async fn pending_shell_approval_card_selection_clamps_with_navigation() {
     let temp = tempdir().expect("tempdir");
