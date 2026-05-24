@@ -10669,6 +10669,7 @@ dependencies = [
  "log",
  "rara-persistence",
  "serde",
+ "serde_json",
  "tempfile",
  "tokio",
 ]
