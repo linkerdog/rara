@@ -192,6 +192,7 @@ fn active_turn_cell_renders_shell_approval_as_interaction_card() {
             }),
             source: None,
         });
+    app.approval_picker_idx = 1;
 
     let rendered = ActiveTurnCell::new(&app, Some(Path::new(".")))
         .display_lines(100)
@@ -205,7 +206,12 @@ fn active_turn_cell_renders_shell_approval_as_interaction_card() {
     assert!(rendered.contains("Command:"));
     assert!(rendered.contains("Working directory:"));
     assert!(rendered.contains("bash ./scripts/migrate.sh"));
-    assert!(rendered.contains("1. Allow once"));
+    assert!(rendered.contains("> 2. Allow matching prefix"));
+    assert!(rendered.contains("1. Allow once - run only this command now"));
+    assert!(
+        !rendered
+            .contains("approval required  1 allow once  2 allow prefix  3 allow session  4 deny")
+    );
     assert!(!rendered.contains("Tool Progress"));
     assert!(!rendered.contains("background task stdout"));
 }

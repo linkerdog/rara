@@ -22,9 +22,7 @@ use super::{
     is_progress_stack_title, is_renderable_system_message, ordered_exploration_agent_segments,
     trim_trailing_empty_lines,
 };
-use crate::tui::interaction_text::{
-    pending_interaction_detail_text, pending_interaction_shortcut_text,
-};
+use crate::tui::interaction_text::{pending_interaction_detail_text, shell_approval_text_lines};
 use crate::tui::plan_display::should_show_updated_plan;
 use crate::tui::queued_input::queued_follow_up_sections;
 use crate::tui::render::{
@@ -32,7 +30,8 @@ use crate::tui::render::{
     compact_summary_text, current_turn_exploration_summary_from_entries, current_turn_tool_summary,
 };
 use crate::tui::state::{
-    RuntimePhase, TranscriptEntryPayload, TuiApp, contains_structured_planning_output,
+    ActivePendingInteractionKind, RuntimePhase, TranscriptEntryPayload, TuiApp,
+    contains_structured_planning_output,
 };
 
 pub(crate) struct ActiveTurnCell<'a> {
@@ -345,11 +344,15 @@ impl ActiveCell for ActiveTurnCell<'_> {
         }
 
         if let Some(pending) = self.app.active_pending_interaction() {
-            let mut request_lines = pending_interaction_detail_text(self.app, pending.kind)
-                .lines()
-                .map(ToString::to_string)
-                .collect::<Vec<_>>();
-            request_lines.push(pending_interaction_shortcut_text(pending.kind).to_string());
+            let request_lines = match pending.kind {
+                ActivePendingInteractionKind::ShellApproval => {
+                    shell_approval_text_lines(self.app, Some(self.app.approval_picker_idx))
+                }
+                _ => pending_interaction_detail_text(self.app, pending.kind)
+                    .lines()
+                    .map(ToString::to_string)
+                    .collect::<Vec<_>>(),
+            };
             cells.push(Box::new(PendingInteractionCell::new(
                 pending.kind,
                 request_lines,

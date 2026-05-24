@@ -1502,6 +1502,10 @@ impl TuiApp {
 
     pub fn sync_snapshot(&mut self, agent: &Agent) {
         let runtime_context = agent.shared_runtime_context();
+        let existing_pending_approval_id = self
+            .pending_command_approval()
+            .and_then(|item| item.approval.as_ref())
+            .map(|approval| approval.tool_use_id.clone());
         let existing_plan_completion = self
             .completed_interaction(InteractionKind::PlanApproval)
             .cloned();
@@ -1559,6 +1563,13 @@ impl TuiApp {
                 }),
                 source: None,
             });
+        }
+        let current_pending_approval_id = agent
+            .pending_approval
+            .as_ref()
+            .map(|pending| pending.tool_use_id.clone());
+        if current_pending_approval_id != existing_pending_approval_id {
+            self.approval_picker_idx = 0;
         }
         let mut completed_interactions = Vec::new();
         if let Some(item) = agent.completed_user_input.as_ref() {

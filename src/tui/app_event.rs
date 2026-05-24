@@ -24,6 +24,7 @@ pub enum AppEvent {
     FinishTranscriptSelection(ScreenPosition),
     ScrollContext(i32),
     MoveCommandSelection(i32),
+    MoveApprovalSelection(i32),
     MovePermissionSelection(i32),
     SetPermissionSelection(usize),
     MoveSkillsSelection(i32),

@@ -197,6 +197,15 @@ pub(crate) async fn dispatch_event(
             };
             kind.set_idx(app, idx);
         }
+        AppEvent::MoveApprovalSelection(delta) => {
+            if app.active_pending_interaction().is_some_and(|interaction| {
+                interaction.kind == ActivePendingInteractionKind::ShellApproval
+            }) {
+                let max_idx = app.active_pending_option_count().saturating_sub(1) as i32;
+                let next = (app.approval_picker_idx as i32 + delta).clamp(0, max_idx);
+                app.approval_picker_idx = next as usize;
+            }
+        }
         AppEvent::MovePermissionSelection(delta) => {
             let max_idx = 3i32;
             let next = (app.permission_picker_idx as i32 + delta).clamp(0, max_idx);
@@ -665,15 +674,6 @@ pub(crate) async fn dispatch_event(
                                     Some(format!("Selected endpoint profile: {label}"));
                                 app.open_overlay(Overlay::ListPicker(ListPickerKind::Model));
                             }
-                        }
-                        ListPickerKind::ApprovalDecision => {
-                            let selection = match app.approval_picker_idx {
-                                0 => ShellApprovalDecision::Once,
-                                1 => ShellApprovalDecision::Prefix,
-                                2 => ShellApprovalDecision::Always,
-                                _ => ShellApprovalDecision::Suggestion,
-                            };
-                            input_control::answer_shell_approval(app, agent_slot, selection);
                         }
                     }
                 }

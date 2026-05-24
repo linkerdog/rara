@@ -130,6 +130,24 @@ pub(crate) fn map_key_to_event(key: KeyEvent, app: &TuiApp) -> AppEvent {
             {
                 return AppEvent::SelectPendingOption(index);
             }
+            if app.bottom_pane.input.is_empty()
+                && app.active_pending_interaction().is_some_and(|interaction| {
+                    interaction.kind == super::state::ActivePendingInteractionKind::ShellApproval
+                })
+            {
+                match code {
+                    KeyCode::Up | KeyCode::Char('k') => {
+                        return AppEvent::MoveApprovalSelection(-1);
+                    }
+                    KeyCode::Down | KeyCode::Char('j') => {
+                        return AppEvent::MoveApprovalSelection(1);
+                    }
+                    KeyCode::Enter => {
+                        return AppEvent::SelectPendingOption(app.approval_picker_idx);
+                    }
+                    _ => {}
+                }
+            }
 
             match (code, modifiers) {
                 (KeyCode::Esc, _) if app.is_busy() => AppEvent::CancelRunningTask,

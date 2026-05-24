@@ -260,11 +260,25 @@ impl HistoryCell for ApprovalCell {
         // The section label provides the only visual framing.
         let card_style = Style::default().fg(PENDING_CARD_FG);
         let mut lines = vec![Line::from(section_label(self.title, self.color))];
-        lines.extend(
-            self.lines
-                .iter()
-                .map(|line| Line::from(Span::styled(format!("  {line}"), card_style))),
-        );
+        lines.extend(self.lines.iter().map(|line| {
+            if let Some(selected) = line.strip_prefix("> ") {
+                return Line::from(vec![
+                    Span::raw("  "),
+                    Span::styled(
+                        "> ",
+                        Style::default().fg(self.color).add_modifier(Modifier::BOLD),
+                    ),
+                    Span::styled(
+                        selected.to_string(),
+                        Style::default()
+                            .fg(TEXT_PRIMARY)
+                            .add_modifier(Modifier::BOLD),
+                    ),
+                ]);
+            }
+
+            Line::from(Span::styled(format!("  {line}"), card_style))
+        }));
         lines
     }
 }
