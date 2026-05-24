@@ -4,8 +4,7 @@ use super::command::parse_local_command;
 use super::input_control;
 use super::runtime::execute_local_command;
 use super::state::{
-    ActivePendingInteractionKind, ListPickerKind, LocalCommandKind, OpenAiModelPickerAction,
-    Overlay, TuiApp,
+    ActivePendingInteractionKind, LocalCommandKind, OpenAiModelPickerAction, TuiApp,
 };
 use crate::agent::Agent;
 
@@ -23,8 +22,9 @@ pub(crate) async fn handle_submit(
                 ActivePendingInteractionKind::ShellApproval
             )
         {
-            app.approval_picker_idx = 0;
-            app.open_overlay(Overlay::ListPicker(ListPickerKind::ApprovalDecision));
+            app.push_notice(
+                "Approval pending. Use Up/Down and Enter, or press 1-4 to choose an option.",
+            );
             return Ok(false);
         }
         // Lightweight feedback so the user knows Enter was received.

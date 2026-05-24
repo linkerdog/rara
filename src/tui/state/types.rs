@@ -76,7 +76,6 @@ pub enum ListPickerKind {
     Resume,
     AuthMode,
     ReasoningEffort,
-    ApprovalDecision,
     UnifiedModel,
 }
 

@@ -63,8 +63,8 @@ The terminal UI gives you a full development environment:
 - **Slash commands** — `/model` to switch providers, `/status` for runtime
   state, `/context` for prompt diagnostics, `/help` for available commands.
   All slash commands work during agent rebuild.
-- **Approval picker** — when a shell command needs approval, press Enter on an
-  empty composer to choose Once / Prefix / Always / Suggestion.
+- **Approval card** — when a shell command needs approval, use Up/Down plus
+  Enter, or press `1`-`4`, directly on the transcript card.
 - **Follow-up queuing** — type ahead while the agent is busy; your messages
   queue and process in order.
 

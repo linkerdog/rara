@@ -16,7 +16,7 @@ approve unrelated segments joined with shell control operators.
 
 ## Non-Goals
 
-- Replacing the current approval UI.
+- Adding a second modal approval surface on top of the transcript approval card.
 - Implementing a full shell parser.
 - Granting external protocol adapters direct approval authority.
 - Completing the larger auditable permission and sandbox-bypass rule system.
@@ -69,6 +69,19 @@ RARA remains the authority for evaluating whether a bash request is allowed:
 This keeps future ACP/Wire approval surfaces compatible with the local TUI while
 preserving one centralized approval boundary.
 
+## TUI Surface
+
+The local TUI presents a pending shell approval as one transcript card. That
+card is the canonical local approval surface:
+
+- the card renders the full command context and the four approval choices;
+- when the composer is empty, Up/Down or `j`/`k` move the selected approval
+  choice on the card;
+- `Enter` applies the selected choice directly from the card;
+- numeric shortcuts `1` through `4` remain valid direct-selection shortcuts;
+- the TUI must not open a second picker or modal for the same pending shell
+  approval.
+
 ## Contracts
 
 - A read-only multi-segment shell command may run without approval in suggestion
@@ -84,6 +97,8 @@ preserving one centralized approval boundary.
 - Exact-command fallback must only replay the same full command summary.
 - Plan mode remains stricter: non-read-only bash is rejected instead of entering
   the normal shell approval flow.
+- The local TUI must keep shell approval on a single actionable transcript card
+  instead of duplicating the same decision through an additional picker surface.
 
 ## Validation Matrix
 
@@ -95,6 +110,8 @@ preserving one centralized approval boundary.
   reusable prefix.
 - Agent-loop tests cover the real suggestion-mode regression where an approved
   `git push` prefix must not allow `git push && rm -rf target`.
+- TUI tests cover shell approval card navigation, direct `Enter` selection, and
+  render output without duplicated approval-choice summaries.
 
 ## Open Risks
 
@@ -108,3 +125,4 @@ preserving one centralized approval boundary.
 ## Source Journals
 
 - `docs/journal/2026-05-04-shell-approval-segments.md`
+- `docs/journal/2026-05-24-shell-approval-card-selection.md`

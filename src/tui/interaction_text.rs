@@ -28,7 +28,7 @@ pub fn pending_interaction_hint_text(kind: ActivePendingInteractionKind) -> &'st
             "plan ready  1 start implementation  2 continue planning"
         }
         ActivePendingInteractionKind::ShellApproval => {
-            "approval required  1 allow once  2 allow prefix  3 allow session  4 deny"
+            "approval required  up/down select  enter apply  1-4 shortcut"
         }
         ActivePendingInteractionKind::PlanningQuestion
         | ActivePendingInteractionKind::ExplorationQuestion
@@ -37,22 +37,24 @@ pub fn pending_interaction_hint_text(kind: ActivePendingInteractionKind) -> &'st
     }
 }
 
-pub fn status_plan_approval_text(app: &TuiApp) -> String {
-    let _ = app;
-    "Plan ready for implementation.\n\n1. Start implementation now\n2. Continue planning and refine the plan".to_string()
-}
-
-pub fn pending_interaction_shortcut_text(kind: ActivePendingInteractionKind) -> &'static str {
+pub fn pending_interaction_shortcut_text(
+    kind: ActivePendingInteractionKind,
+) -> Option<&'static str> {
     match kind {
-        ActivePendingInteractionKind::PlanApproval => "1 start implementation  2 continue planning",
-        ActivePendingInteractionKind::ShellApproval => {
-            "1 allow once  2 allow prefix  3 allow session  4 deny"
+        ActivePendingInteractionKind::PlanApproval => {
+            Some("1 start implementation  2 continue planning")
         }
+        ActivePendingInteractionKind::ShellApproval => None,
         ActivePendingInteractionKind::PlanningQuestion
         | ActivePendingInteractionKind::ExplorationQuestion
         | ActivePendingInteractionKind::SubAgentQuestion
-        | ActivePendingInteractionKind::RequestInput => "1/2/3 shortcut",
+        | ActivePendingInteractionKind::RequestInput => Some("1/2/3 shortcut"),
     }
+}
+
+pub fn status_plan_approval_text(app: &TuiApp) -> String {
+    let _ = app;
+    "Plan ready for implementation.\n\n1. Start implementation now\n2. Continue planning and refine the plan".to_string()
 }
 
 pub fn pending_interaction_detail_text(app: &TuiApp, kind: ActivePendingInteractionKind) -> String {
@@ -118,11 +120,15 @@ pub fn status_request_user_input_text(app: &TuiApp) -> String {
 }
 
 pub fn status_command_approval_text(app: &TuiApp) -> String {
+    shell_approval_text_lines(app, None).join("\n")
+}
+
+pub fn shell_approval_text_lines(app: &TuiApp, selected: Option<usize>) -> Vec<String> {
     let Some(interaction) = app.pending_command_approval() else {
-        return "No pending shell approval.".to_string();
+        return vec!["No pending shell approval.".to_string()];
     };
     let Some(approval) = interaction.approval.as_ref() else {
-        return "No pending shell approval.".to_string();
+        return vec!["No pending shell approval.".to_string()];
     };
 
     let cwd = approval
@@ -143,10 +149,38 @@ pub fn status_command_approval_text(app: &TuiApp) -> String {
         "disabled unless already allowed by the sandbox"
     };
 
-    format!(
-        "Review this shell command before RARA runs it.\n\nCommand:\n  {}\n\nWorking directory:\n  {}\n\nNetwork access: {}\nEnvironment overrides: {}\nMatching prefix: {}\n\n1. Allow once - run only this command now\n2. Allow matching prefix - trust commands that start with `{}` for this session\n3. Allow for this session - stop asking for shell commands until the session changes\n4. Deny - do not run the command",
-        approval.command, cwd, network, env_count, prefix, prefix,
-    )
+    let option_line = |index: usize, text: String| match selected {
+        Some(selected_idx) if selected_idx == index => format!("> {text}"),
+        _ => format!("  {text}"),
+    };
+
+    vec![
+        "Review this shell command before RARA runs it.".to_string(),
+        String::new(),
+        "Command:".to_string(),
+        format!("  {}", approval.command),
+        String::new(),
+        "Working directory:".to_string(),
+        format!("  {cwd}"),
+        String::new(),
+        format!("Network access: {network}"),
+        format!("Environment overrides: {env_count}"),
+        format!("Matching prefix: {prefix}"),
+        String::new(),
+        option_line(0, "1. Allow once - run only this command now".to_string()),
+        option_line(
+            1,
+            format!(
+                "2. Allow matching prefix - trust commands that start with `{prefix}` for this session"
+            ),
+        ),
+        option_line(
+            2,
+            "3. Allow for this session - stop asking for shell commands until the session changes"
+                .to_string(),
+        ),
+        option_line(3, "4. Deny - do not run the command".to_string()),
+    ]
 }
 
 #[cfg(test)]
@@ -154,7 +188,8 @@ mod tests {
     use tempfile::tempdir;
 
     use super::{
-        pending_interaction_hint_text, status_command_approval_text, status_plan_approval_text,
+        pending_interaction_hint_text, pending_interaction_shortcut_text,
+        shell_approval_text_lines, status_command_approval_text, status_plan_approval_text,
     };
     use crate::config::ConfigManager;
     use crate::tools::bash::BashCommandInput;
@@ -189,7 +224,23 @@ mod tests {
             pending_interaction_hint_text(
                 crate::tui::state::ActivePendingInteractionKind::ShellApproval
             ),
-            "approval required  1 allow once  2 allow prefix  3 allow session  4 deny"
+            "approval required  up/down select  enter apply  1-4 shortcut"
+        );
+    }
+
+    #[test]
+    fn pending_interaction_shortcut_text_avoids_duplicate_shell_approval_footer() {
+        assert_eq!(
+            pending_interaction_shortcut_text(
+                crate::tui::state::ActivePendingInteractionKind::PlanApproval
+            ),
+            Some("1 start implementation  2 continue planning")
+        );
+        assert_eq!(
+            pending_interaction_shortcut_text(
+                crate::tui::state::ActivePendingInteractionKind::ShellApproval
+            ),
+            None
         );
     }
 
@@ -230,5 +281,41 @@ mod tests {
         assert!(!rendered.contains("1. yes"));
         assert!(!rendered.contains("3. on"));
         assert!(!rendered.contains("4. no"));
+    }
+
+    #[test]
+    fn shell_approval_text_lines_mark_selected_option_only_in_card_mode() {
+        let temp = tempdir().unwrap();
+        let mut app = TuiApp::new(ConfigManager {
+            path: temp.path().join("config.json"),
+        })
+        .expect("app");
+        app.snapshot
+            .pending_interactions
+            .push(PendingInteractionSnapshot {
+                kind: InteractionKind::Approval,
+                title: "Pending Approval".into(),
+                summary: "cargo check".into(),
+                options: Vec::new(),
+                note: None,
+                approval: Some(PendingApprovalSnapshot {
+                    tool_use_id: "toolu_123".into(),
+                    command: "cargo check".into(),
+                    allow_net: false,
+                    payload: BashCommandInput {
+                        command: Some("cargo check".into()),
+                        cwd: Some("/repo".into()),
+                        ..Default::default()
+                    },
+                }),
+                source: None,
+            });
+
+        let selected = shell_approval_text_lines(&app, Some(2)).join("\n");
+        assert!(selected.contains("> 3. Allow for this session"));
+        assert!(!selected.contains("> 1. Allow once"));
+
+        let plain = shell_approval_text_lines(&app, None).join("\n");
+        assert!(!plain.contains("> 3. Allow for this session"));
     }
 }

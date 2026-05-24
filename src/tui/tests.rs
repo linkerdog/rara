@@ -404,6 +404,57 @@ async fn submit_numeric_input_handles_pending_shell_approval() {
 }
 
 #[tokio::test]
+async fn empty_submit_keeps_shell_approval_on_card_surface() {
+    let temp = tempdir().expect("tempdir");
+    let mut app = TuiApp::new(ConfigManager {
+        path: temp.path().join("config.json"),
+    })
+    .expect("build tui app");
+    let bus = Arc::new(crate::runtime_event_bus::RuntimeEventBus::new(10));
+    app.event_bus = Some(bus.clone());
+    app.prompt_source_registry = Some(Arc::new(
+        crate::protocol_sources::PromptSourceRegistry::new(bus.clone()),
+    ));
+    app.skill_source_registry = Some(Arc::new(crate::protocol_sources::SkillSourceRegistry::new(
+        bus.clone(),
+    )));
+    app.hook_registry = Some(Arc::new(crate::hook_registry::HookRegistry::new(
+        bus.clone(),
+    )));
+    app.mcp_manager = Some(Arc::new(
+        crate::mcp_connection_manager::McpConnectionManager::new(
+            Arc::new(crate::config::McpRegistry::empty()),
+            bus.clone(),
+            crate::mcp_tool_cache::McpToolCache::new(),
+        ),
+    ));
+    app.memory_handler = Some(Arc::new(
+        crate::protocol_sources::MemoryControlHandler::new(bus.clone()),
+    ));
+
+    add_pending_shell_approval(&mut app);
+
+    let mut agent_slot = None;
+    let oauth_manager = Arc::new(
+        crate::oauth::OAuthManager::new_for_config_dir(temp.path().join(".rara"))
+            .expect("oauth manager"),
+    );
+    let should_quit = super::handle_submit(&mut app, &mut agent_slot, &oauth_manager)
+        .await
+        .expect("submit");
+
+    assert!(!should_quit);
+    assert!(app.overlay.is_none());
+    assert_eq!(app.approval_picker_idx, 0);
+    assert!(
+        app.bottom_pane
+            .notice
+            .as_deref()
+            .is_some_and(|value| value.contains("Up/Down and Enter"))
+    );
+}
+
+#[tokio::test]
 async fn plain_submit_queues_while_shell_approval_is_pending() {
     let temp = tempdir().expect("tempdir");
     let mut app = TuiApp::new(ConfigManager {
@@ -844,7 +895,125 @@ fn pending_shell_approval_number_shortcuts_work_in_local_and_ssh() {
             map_key_to_event(key(KeyCode::Char('4')), &app),
             AppEvent::SelectPendingOption(3)
         ));
+        assert!(matches!(
+            map_key_to_event(key(KeyCode::Down), &app),
+            AppEvent::MoveApprovalSelection(1)
+        ));
+        assert!(matches!(
+            map_key_to_event(key(KeyCode::Char('k')), &app),
+            AppEvent::MoveApprovalSelection(-1)
+        ));
+        assert!(matches!(
+            map_key_to_event(key(KeyCode::Enter), &app),
+            AppEvent::SelectPendingOption(0)
+        ));
     }
+}
+
+#[test]
+fn pending_shell_approval_preserves_modifier_shortcuts() {
+    let temp = tempdir().expect("tempdir");
+    let mut app = TuiApp::new(ConfigManager {
+        path: temp.path().join("config.json"),
+    })
+    .expect("build tui app");
+    let bus = Arc::new(crate::runtime_event_bus::RuntimeEventBus::new(10));
+    app.event_bus = Some(bus.clone());
+    app.prompt_source_registry = Some(Arc::new(
+        crate::protocol_sources::PromptSourceRegistry::new(bus.clone()),
+    ));
+    app.skill_source_registry = Some(Arc::new(crate::protocol_sources::SkillSourceRegistry::new(
+        bus.clone(),
+    )));
+    app.hook_registry = Some(Arc::new(crate::hook_registry::HookRegistry::new(
+        bus.clone(),
+    )));
+    app.mcp_manager = Some(Arc::new(
+        crate::mcp_connection_manager::McpConnectionManager::new(
+            Arc::new(crate::config::McpRegistry::empty()),
+            bus.clone(),
+            crate::mcp_tool_cache::McpToolCache::new(),
+        ),
+    ));
+    app.memory_handler = Some(Arc::new(
+        crate::protocol_sources::MemoryControlHandler::new(bus.clone()),
+    ));
+
+    add_pending_shell_approval(&mut app);
+
+    assert!(matches!(
+        map_key_to_event(shifted_key(KeyCode::Enter), &app),
+        AppEvent::InsertNewline
+    ));
+    assert!(matches!(
+        map_key_to_event(
+            KeyEvent::new(KeyCode::Char('j'), KeyModifiers::CONTROL),
+            &app
+        ),
+        AppEvent::InsertNewline
+    ));
+}
+
+#[tokio::test]
+async fn pending_shell_approval_card_selection_clamps_with_navigation() {
+    let temp = tempdir().expect("tempdir");
+    let mut app = TuiApp::new(ConfigManager {
+        path: temp.path().join("config.json"),
+    })
+    .expect("build tui app");
+    let bus = Arc::new(crate::runtime_event_bus::RuntimeEventBus::new(10));
+    app.event_bus = Some(bus.clone());
+    app.prompt_source_registry = Some(Arc::new(
+        crate::protocol_sources::PromptSourceRegistry::new(bus.clone()),
+    ));
+    app.skill_source_registry = Some(Arc::new(crate::protocol_sources::SkillSourceRegistry::new(
+        bus.clone(),
+    )));
+    app.hook_registry = Some(Arc::new(crate::hook_registry::HookRegistry::new(
+        bus.clone(),
+    )));
+    app.mcp_manager = Some(Arc::new(
+        crate::mcp_connection_manager::McpConnectionManager::new(
+            Arc::new(crate::config::McpRegistry::empty()),
+            bus.clone(),
+            crate::mcp_tool_cache::McpToolCache::new(),
+        ),
+    ));
+    app.memory_handler = Some(Arc::new(
+        crate::protocol_sources::MemoryControlHandler::new(bus.clone()),
+    ));
+
+    add_pending_shell_approval(&mut app);
+
+    let oauth_manager = Arc::new(
+        crate::oauth::OAuthManager::new_for_config_dir(temp.path().join(".rara"))
+            .expect("oauth manager"),
+    );
+    let mut agent_slot = None;
+
+    for _ in 0..6 {
+        dispatch_event(
+            AppEvent::MoveApprovalSelection(1),
+            &mut app,
+            &mut agent_slot,
+            &oauth_manager,
+        )
+        .await
+        .expect("move selection down");
+    }
+    assert_eq!(app.approval_picker_idx, 3);
+
+    for _ in 0..6 {
+        dispatch_event(
+            AppEvent::MoveApprovalSelection(-1),
+            &mut app,
+            &mut agent_slot,
+            &oauth_manager,
+        )
+        .await
+        .expect("move selection up");
+    }
+    assert_eq!(app.approval_picker_idx, 0);
 }
 
 #[test]
@@ -3446,43 +3615,43 @@ fn mouse_wheel_with_status_overlay_routes_to_noop() {
         Some(UiEvent::App(AppEvent::Noop)) => {}
         event => panic!("unexpected event: {event:?}"),
     }
+}
 
-    #[test]
-    fn mouse_wheel_with_context_overlay_routes_to_scroll_context() {
-        let temp = tempdir().expect("tempdir");
-        let mut app = TuiApp::new(ConfigManager {
-            path: temp.path().join("config.json"),
-        })
-        .expect("build tui app");
-        let bus = Arc::new(crate::runtime_event_bus::RuntimeEventBus::new(10));
-        app.event_bus = Some(bus.clone());
-        app.prompt_source_registry = Some(Arc::new(
-            crate::protocol_sources::PromptSourceRegistry::new(bus.clone()),
-        ));
-        app.skill_source_registry = Some(Arc::new(
-            crate::protocol_sources::SkillSourceRegistry::new(bus.clone()),
-        ));
-        app.hook_registry = Some(Arc::new(crate::hook_registry::HookRegistry::new(
+#[test]
+fn mouse_wheel_with_context_overlay_routes_to_scroll_context() {
+    let temp = tempdir().expect("tempdir");
+    let mut app = TuiApp::new(ConfigManager {
+        path: temp.path().join("config.json"),
+    })
+    .expect("build tui app");
+    let bus = Arc::new(crate::runtime_event_bus::RuntimeEventBus::new(10));
+    app.event_bus = Some(bus.clone());
+    app.prompt_source_registry = Some(Arc::new(
+        crate::protocol_sources::PromptSourceRegistry::new(bus.clone()),
+    ));
+    app.skill_source_registry = Some(Arc::new(crate::protocol_sources::SkillSourceRegistry::new(
+        bus.clone(),
+    )));
+    app.hook_registry = Some(Arc::new(crate::hook_registry::HookRegistry::new(
+        bus.clone(),
+    )));
+    app.mcp_manager = Some(Arc::new(
+        crate::mcp_connection_manager::McpConnectionManager::new(
+            Arc::new(crate::config::McpRegistry::empty()),
             bus.clone(),
-        )));
-        app.mcp_manager = Some(Arc::new(
-            crate::mcp_connection_manager::McpConnectionManager::new(
-                Arc::new(crate::config::McpRegistry::empty()),
-                bus.clone(),
-                crate::mcp_tool_cache::McpToolCache::new(),
-            ),
-        ));
-        app.memory_handler = Some(Arc::new(
-            crate::protocol_sources::MemoryControlHandler::new(bus.clone()),
-        ));
+            crate::mcp_tool_cache::McpToolCache::new(),
+        ),
+    ));
+    app.memory_handler = Some(Arc::new(
+        crate::protocol_sources::MemoryControlHandler::new(bus.clone()),
+    ));
 
-        app.open_overlay(Overlay::Context);
+    app.open_overlay(Overlay::Context);
 
-        match translate_event(mouse_scroll(MouseEventKind::ScrollUp), &app) {
-            Some(UiEvent::App(AppEvent::ScrollContext(delta))) => {
-                assert!((-15..=0).contains(&delta), "delta {delta} out of range");
-            }
-            event => panic!("unexpected event: {event:?}"),
+    match translate_event(mouse_scroll(MouseEventKind::ScrollUp), &app) {
+        Some(UiEvent::App(AppEvent::ScrollContext(delta))) => {
+            assert!((-15..=0).contains(&delta), "delta {delta} out of range");
         }
+        event => panic!("unexpected event: {event:?}"),
     }
 }
