@@ -99,7 +99,7 @@ pub(crate) const BADGE_FG_LIGHT: Color = NORD0;
 pub(crate) const INTERACTION_SUB_AGENT: Color = NORD13;
 
 // ── Pending interaction card background ───────────────────────────
-pub(crate) const PENDING_CARD_FG: Color = NORD5;
+pub(crate) const PENDING_CARD_FG: Color = NORD4;
 
 // ── Tool output ─────────────────────────────────────────────────
 pub(crate) const TOOL_STDERR_FG: Color = NORD6;
