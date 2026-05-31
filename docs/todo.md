@@ -72,7 +72,7 @@ Active backlog only. Keep this file small and current.
 
 ### Features
 - [ ] `rara resume --last`: restore last session after exit
-- [ ] Embedding dimension consistency: detect + rebuild on mismatch
+- [x] Embedding dimension consistency: detect + rebuild on mismatch
 - [ ] Sidebar status update: `app.local_model_server` after bootstrap
 
 ### Specs to Write

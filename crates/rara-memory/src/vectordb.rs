@@ -148,6 +148,14 @@ impl VectorDB {
         let Some(table) = self.open_table_if_exists(table_name).await? else {
             return Ok(Vec::new());
         };
+        if let Err(e) = validate_table_vector_dim(&table, query_vector.len()).await {
+            log::warn!(
+                "LanceDB table {table_name} vector dimension mismatch; \
+                 skipping search, table will be rebuilt on next write. \
+                 Error: {e}"
+            );
+            return Ok(Vec::new());
+        }
         let batches = table
             .query()
             .nearest_to(query_vector)?
