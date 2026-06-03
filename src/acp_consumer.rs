@@ -15,13 +15,13 @@ use crate::runtime_event_bus::RuntimeEventBus;
 
 /// Subscribes to RuntimeEventBus and yields ACP SessionNotification
 /// for each AgentEvent. The caller sends notifications to the ACP client.
-#[allow(dead_code)]
+#[allow(dead_code)] // TODO: ACP peer lifecycle — activate when ACP integration is wired in.
 pub struct AcpConsumer {
     rx: tokio::sync::broadcast::Receiver<AgentEvent>,
     session_id: SessionId,
 }
 
-#[allow(dead_code)]
+#[allow(dead_code)] // TODO: ACP peer channel — activate when ACP integration is wired in.
 impl AcpConsumer {
     pub fn new(event_bus: Arc<RuntimeEventBus>, session_id: SessionId) -> Self {
         Self {
