@@ -127,19 +127,6 @@ impl FileReadState {
             ));
         }
 
-        let metadata = fs::metadata(&key)?;
-        let modified = metadata.modified()?;
-        if modified > entry.modified {
-            if let Some(content) = &entry.content {
-                if read_file_content(&key.display().to_string())? == *content {
-                    return Ok(());
-                }
-            }
-            return Err(ToolError::ExecutionFailed(
-                "File has been modified since read, either by the user or by a formatter. Read it again before attempting to write it.".into(),
-            ));
-        }
-
         if let Some(content) = &entry.content {
             let current = read_file_content(&key.display().to_string())?;
             if current != *content {
