@@ -414,7 +414,7 @@ where
     /// Gets the current cursor position.
     ///
     /// This is the position of the cursor after the last draw call.
-    #[allow(dead_code)]
+    #[allow(dead_code)] // TODO: terminal restart — activate when custom terminal features are wired in.
     pub fn get_cursor_position(&mut self) -> io::Result<Position> {
         self.backend.get_cursor_position()
     }
