@@ -303,7 +303,11 @@ pub struct MemorySearchHit {
 /// Phase 1: grep across all `.md` files in the memory directory.
 /// Phase 2: LanceDB / embedding-based retrieval (placeholder).
 /// Results are merged and deduplicated by snippet prefix.
-pub fn search_memory(query: &str, rara_home: &Path) -> Result<Vec<MemorySearchHit>> {
+pub async fn search_memory(
+    query: &str,
+    rara_home: &Path,
+    db: Option<&crate::vectordb::VectorDB>,
+) -> Result<Vec<MemorySearchHit>> {
     let mut results = Vec::new();
 
     // 1. rg across all memory files
@@ -312,7 +316,7 @@ pub fn search_memory(query: &str, rara_home: &Path) -> Result<Vec<MemorySearchHi
     }
 
     // 2. LanceDB / embedding results (placeholder for Phase 2)
-    let embedding_hits = search_lancedb(query, rara_home);
+    let embedding_hits = search_lancedb(db, query).await;
 
     // 3. Merge and deduplicate
     Ok(merge_memory_results(results, embedding_hits))
@@ -359,11 +363,32 @@ pub fn rg_search_memory(
     Ok(results)
 }
 
-pub fn search_lancedb(_query: &str, _rara_home: &Path) -> Vec<MemorySearchHit> {
-    // Placeholder: LanceDB / embedding-based retrieval
-    Vec::new()
+/// LanceDB full-text search for memory entries.
+///
+/// Attempts to open the memory LanceDB index and run a full-text
+/// query, falling back to an empty result set when the index is
+/// unavailable or the query fails.
+pub async fn search_lancedb(
+    db: Option<&crate::vectordb::VectorDB>,
+    query: &str,
+) -> Vec<MemorySearchHit> {
+    let Some(db) = db else {
+        return Vec::new();
+    };
+    match db
+        .full_text_search_with_metadata("memory_codex", query, 20)
+        .await
+    {
+        Ok(hits) => hits
+            .into_iter()
+            .map(|h| MemorySearchHit {
+                path: h.metadata.session_id,
+                snippet: h.metadata.text,
+            })
+            .collect(),
+        Err(_) => Vec::new(),
+    }
 }
-
 /// Merges text and embedding results, deduplicating by snippet prefix.
 pub fn merge_memory_results(
     text: Vec<MemorySearchHit>,
