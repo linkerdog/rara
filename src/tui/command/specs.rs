@@ -1,5 +1,5 @@
 // Spec constants reserved for inline command palette.
-#![allow(dead_code)]
+
 use crate::tui::state::{CommandSpec, LocalCommand, LocalCommandKind, TuiApp};
 
 pub const COMMAND_SPECS: [CommandSpec; 24] = [
