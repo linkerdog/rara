@@ -1,5 +1,5 @@
 // Items reserved for thread store persistence.
-#![allow(dead_code)]
+// NOTE: module-level dead_code kept — large storage crate.
 use std::collections::BTreeMap;
 use std::fs;
 use std::io::Write;

@@ -1,5 +1,5 @@
 // Agent tool items reserved for subagent and team features.
-#![allow(dead_code)]
+// NOTE: dead_code retained — context types shared across sub-agents.
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::{

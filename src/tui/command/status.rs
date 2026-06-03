@@ -1,5 +1,5 @@
 // Status items reserved for inline TUI command surfaces.
-#![allow(dead_code)]
+
 use rara_observability::{LatencyPercentiles, memory_latency_snapshot};
 use time::{OffsetDateTime, format_description};
 

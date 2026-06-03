@@ -1,5 +1,4 @@
 // Items reserved for planned overlay migration.
-#![allow(dead_code)]
 
 use ratatui::{
     layout::{Alignment, Constraint, Direction, Layout, Rect},

@@ -1,3 +1,5 @@
+//! MCP server status tracking — planned for MCP support.
+//! Scaffolding; not yet wired into the runtime.
 use std::collections::BTreeMap;
 use std::path::PathBuf;
 
