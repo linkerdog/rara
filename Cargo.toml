@@ -74,7 +74,7 @@ thiserror = "2.0"
 time = { version = "0.3", features = ["formatting"] }
 owo-colors = "4.0"
 indicatif = "0.18"
-tiktoken-rs = "0.11"
+tiktoken-rs = "0.12"
 open = "5.0"
 rand = "0.10"
 libc = "0.2"
