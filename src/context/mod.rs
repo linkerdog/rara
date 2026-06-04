@@ -4,6 +4,7 @@
 //! lightweight enough for branches that only need `mod context;` to compile.
 
 mod assembler;
+mod budget_assembly;
 mod assembly_view;
 mod compaction_view;
 mod file_search_provider;

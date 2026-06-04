@@ -130,7 +130,7 @@ pub(crate) fn map_key_to_event(key: KeyEvent, app: &TuiApp) -> AppEvent {
             {
                 return AppEvent::SelectPendingOption(index);
             }
-            // Shell approval: Enter always selects, even with text in composer.
+            // Shell approval: Enter always selects, even with text in the composer.
             // j/k navigation requires empty composer so regular typing works.
             if app.active_pending_interaction().is_some_and(|interaction| {
                 interaction.kind == super::state::ActivePendingInteractionKind::ShellApproval
