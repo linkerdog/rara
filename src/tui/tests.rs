@@ -896,6 +896,14 @@ fn pending_shell_approval_number_shortcuts_work_in_local_and_ssh() {
             AppEvent::SelectPendingOption(3)
         ));
         assert!(matches!(
+            map_key_to_event(key(KeyCode::F(2)), &app),
+            AppEvent::SelectPendingOption(1)
+        ));
+        assert!(matches!(
+            map_key_to_event(key(KeyCode::F(4)), &app),
+            AppEvent::SelectPendingOption(3)
+        ));
+        assert!(matches!(
             map_key_to_event(key(KeyCode::Down), &app),
             AppEvent::MoveApprovalSelection(1)
         ));

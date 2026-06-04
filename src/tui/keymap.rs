@@ -148,12 +148,8 @@ pub(crate) fn map_key_to_event(key: KeyEvent, app: &TuiApp) -> AppEvent {
                         }
                         _ => {}
                     }
-                    for (i, digit) in ['1', '2', '3', '4'].into_iter().enumerate() {
-                        if code == KeyCode::Char(digit) && modifiers.is_empty()
-                            || matches!(code, KeyCode::F(1..=4))
-                        {
-                            return AppEvent::SelectPendingOption(i);
-                        }
+                    if let KeyCode::F(num @ 1..=4) = code {
+                        return AppEvent::SelectPendingOption((num - 1) as usize);
                     }
                 }
             }
