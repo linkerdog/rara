@@ -6,7 +6,7 @@ license.workspace = true
 
 [dependencies]
 anyhow.workspace = true
-aws-config = { version = "1.8.17", features = ["behavior-version-latest"] }
-aws-sdk-bedrockruntime = { version = "1.132", features = ["behavior-version-latest"] }
+aws-config = { version = "1.8.18", features = ["behavior-version-latest"] }
+aws-sdk-bedrockruntime = { version = "1.133", features = ["behavior-version-latest"] }
 aws-smithy-types = "1.4"
 serde_json.workspace = true
