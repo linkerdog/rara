@@ -306,8 +306,21 @@ impl<'a> ContextAssembler<'a> {
             retrieval,
             observability,
         }
+    }
 }
-    fn test_workspace() -> WorkspaceMemory {
+
+include!("budget_assembly.rs");
+
+#[cfg(test)]
+mod tests {
+    use std::path::PathBuf;
+
+    use serde_json::json;
+
+    use super::*;
+    use crate::context::RETRIEVED_WORKSPACE_MEMORY_KIND;
+
+    pub(super) fn test_workspace() -> WorkspaceMemory {
         WorkspaceMemory::from_paths(PathBuf::from("/repo"), PathBuf::from("/repo/.rara"))
     }
 
@@ -774,30 +787,5 @@ impl<'a> ContextAssembler<'a> {
 
         assert_eq!(budget.workspace_prompt_budget, 250);
         assert_eq!(budget.remaining_input_budget, Some(675));
-    }
-
-    #[test]
-    fn budget_for_passthrough_uses_backend_budget() {
-        let workspace = test_workspace();
-        let runtime = PromptRuntimeConfig::from_config(&RaraConfig::default());
-        let budget = ContextBudget {
-            context_window_tokens: 200_000,
-            reserved_output_tokens: 4_096,
-            compact_threshold_tokens: 190_000,
-        };
-        let backend = BudgetBackend {
-            budget: Some(budget),
-        };
-
-        let result = ContextAssembler::new(&workspace, &runtime).budget_for(
-            &backend,
-            &[Message {
-                role: "user".to_string(),
-                content: json!([{"type":"text","text":"hello"}]),
-            }],
-            &[json!({"name":"read_file"})],
-        );
-
-        assert_eq!(result, Some(budget));
     }
 }

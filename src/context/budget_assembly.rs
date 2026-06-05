@@ -1,10 +1,4 @@
-//! Token budget calculation for context assembly.
-use serde_json::Value;
-use crate::agent::{Message, PlanStepStatus};
-use crate::context::assembler::ContextAssembler;
-use crate::context::RuntimeInteractionInput;
-use crate::llm::{ContextBudget, LlmBackend};
-
+impl<'a> ContextAssembler<'a> {
     pub fn budget_for(
         &self,
         backend: &dyn LlmBackend,
@@ -114,16 +108,13 @@ pub(crate) fn estimate_text_tokens(text: &str) -> usize {
 }
 
 #[cfg(test)]
-mod tests {
-    use std::path::PathBuf;
-
+mod budget_tests {
     use anyhow::Result;
     use async_trait::async_trait;
     use rara_config::RaraConfig;
     use serde_json::json;
 
     use super::*;
-    use crate::context::RETRIEVED_WORKSPACE_MEMORY_KIND;
     use crate::llm::{ContentBlock, LlmResponse};
 
     struct BudgetBackend {
@@ -154,3 +145,29 @@ mod tests {
             self.budget
         }
     }
+
+    #[test]
+    fn budget_for_passthrough_uses_backend_budget() {
+        let workspace = tests::test_workspace();
+        let runtime = PromptRuntimeConfig::from_config(&RaraConfig::default());
+        let budget = ContextBudget {
+            context_window_tokens: 200_000,
+            reserved_output_tokens: 4_096,
+            compact_threshold_tokens: 190_000,
+        };
+        let backend = BudgetBackend {
+            budget: Some(budget),
+        };
+
+        let result = ContextAssembler::new(&workspace, &runtime).budget_for(
+            &backend,
+            &[Message {
+                role: "user".to_string(),
+                content: json!([{"type":"text","text":"hello"}]),
+            }],
+            &[json!({"name":"read_file"})],
+        );
+
+        assert_eq!(result, Some(budget));
+    }
+}
