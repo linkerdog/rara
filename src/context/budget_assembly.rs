@@ -1,3 +1,5 @@
+// Included from assembler.rs; do not register this file with `mod budget_assembly`.
+
 impl<'a> ContextAssembler<'a> {
     pub fn budget_for(
         &self,
