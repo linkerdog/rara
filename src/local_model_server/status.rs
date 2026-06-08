@@ -195,9 +195,6 @@ pub(crate) fn reusable_server_status(
     let health = match probe_health(&metadata.host, metadata.port) {
         Ok(h) => h,
         Err(_) => {
-            if process_exited(metadata.pid) {
-                return None;
-            }
             return None;
         }
     };
@@ -205,8 +202,8 @@ pub(crate) fn reusable_server_status(
         return None;
     }
     if !health_model_ready(&health, backend) {
-        // Check if the process exited while we were polling — if so,
-        // report the crash instead of pretending it's still loading.
+        // If the process exited while we were polling, treat metadata
+        // as stale so the caller can recover.
         if process_exited(metadata.pid) {
             return None;
         }

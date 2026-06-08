@@ -315,6 +315,33 @@ fn stale_metadata_with_wrong_hash_is_not_reused() {
 }
 
 #[test]
+fn stale_metadata_with_exited_pid_is_not_reused() {
+    let temp = tempfile::tempdir().expect("tempdir");
+    let server = ensure_bundled_model_server(temp.path()).expect("install model server");
+    let (backend, model) = super::default_embedding_backend();
+
+    // Create a known-dead PID by spawning a short-lived process.
+    let mut child = std::process::Command::new("true").spawn().expect("spawn");
+    let dead_pid = child.id();
+    child.wait().expect("wait");
+
+    let metadata = ModelServerMetadata {
+        pid: dead_pid,
+        host: "127.0.0.1".to_string(),
+        port: 9,
+        component_sha256: server.sha256.clone(),
+        profile: super::embedding_profile_id().to_string(),
+        started_at: unix_timestamp_secs(),
+    };
+    write_server_metadata(&metadata_path(&server.runtime_dir), &metadata).expect("write metadata");
+
+    assert!(
+        reusable_server_status(&server, backend, model).is_none(),
+        "metadata with exited PID should not be reused"
+    );
+}
+
+#[test]
 fn startup_lock_allows_only_one_owner() {
     let temp = tempfile::tempdir().expect("tempdir");
     let lock_path = startup_lock_path(temp.path());
