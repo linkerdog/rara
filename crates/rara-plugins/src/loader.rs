@@ -1,5 +1,5 @@
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 use serde::Deserialize;
 
@@ -26,6 +26,7 @@ struct HooksJson {
 #[derive(Debug, Clone, Deserialize)]
 struct MatcherGroup {
     #[serde(default)]
+    #[allow(dead_code)]
     matcher: Option<String>,
     hooks: Vec<HookHandler>,
 }

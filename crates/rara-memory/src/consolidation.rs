@@ -10,7 +10,9 @@
 use std::fs;
 use std::io::Write;
 use std::path::{Path, PathBuf};
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+#[cfg(feature = "tokio")]
+use std::time::Duration;
+use std::time::{SystemTime, UNIX_EPOCH};
 
 use fs2::FileExt;
 
@@ -43,8 +45,7 @@ const LOCK_FILE: &str = ".consolidation.lock";
 const RAW_DIR: &str = "raw_memories";
 /// Sub-directory for topic files.
 const TOPICS_DIR: &str = "topics";
-/// The MEMORY.md index file.
-const INDEX_FILE: &str = "MEMORY.md";
+const _INDEX_FILE: &str = "MEMORY.md";
 
 // ---------------------------------------------------------------------------
 // Lock
