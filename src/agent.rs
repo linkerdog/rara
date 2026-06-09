@@ -174,6 +174,8 @@ pub struct Agent {
     pub total_output_tokens: u32,
     pub total_cache_hit_tokens: u32,
     pub total_cache_miss_tokens: u32,
+    pub aux_total_cache_hit_tokens: u32,
+    pub aux_total_cache_miss_tokens: u32,
     pub tool_result_store: ToolResultStore,
     pub max_turns: Option<usize>,
     pub execution_mode: AgentExecutionMode,
@@ -210,6 +212,14 @@ pub struct Agent {
 }
 
 impl Agent {
+    /// Accumulate subagent (auxiliary model) cache statistics.
+    /// Called by consolidation and other subagent completion
+    /// handlers to split cache reporting between main and aux models.
+    pub fn accumulate_aux_cache(&mut self, hit: u32, miss: u32) {
+        self.aux_total_cache_hit_tokens += hit;
+        self.aux_total_cache_miss_tokens += miss;
+    }
+
     pub fn new(
         tool_manager: ToolManager,
         llm_backend: Arc<dyn LlmBackend>,
@@ -282,6 +292,8 @@ impl Agent {
             total_output_tokens: 0,
             total_cache_hit_tokens: 0,
             total_cache_miss_tokens: 0,
+            aux_total_cache_hit_tokens: 0,
+            aux_total_cache_miss_tokens: 0,
             tool_result_store: ToolResultStore::new(
                 default_tool_result_store_dir().unwrap_or_else(|_| {
                     std::env::temp_dir().join(format!("rara-tool-results-{}", Uuid::new_v4()))
