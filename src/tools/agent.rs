@@ -414,7 +414,10 @@ impl SubAgentKind {
                     "- Group facts by topic, write concise topic files with level-2 headings.\n",
                     "- Prefer updating existing files over creating duplicates.\n",
                     "- Do not delegate to another agent or spawn sub-agents.\n",
-                    "- Do not modify files outside the memory directory.\n",
+                    "- IMPORTANT: only read/write files inside the memory directory.\n",
+                    "  Never modify files outside the memory directory —\n",
+                    "  MEMORY.md, topics/, and sessions/ are all under it.\n",
+                    "  Session files under sessions/ are read-only inputs.\n",
                     "- Report a brief summary of what you changed."
                 )
             }
