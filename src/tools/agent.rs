@@ -33,10 +33,11 @@ use crate::thread_store::{ThreadRecorder, ThreadRuntimeLineage, ThreadRuntimeSta
 use crate::workspace::WorkspaceMemory;
 
 #[derive(Clone, Copy, Debug)]
-enum SubAgentKind {
+pub(crate) enum SubAgentKind {
     General,
     Explore,
     Plan,
+    Consolidate,
 }
 
 /// Maps Claude Code agent config tool names to RARA internal tool names.
@@ -344,6 +345,7 @@ impl SubAgentKind {
             SubAgentKind::General => "done",
             SubAgentKind::Explore => "explored",
             SubAgentKind::Plan => "planned",
+            SubAgentKind::Consolidate => "completed consolidation",
         }
     }
 
@@ -401,13 +403,30 @@ impl SubAgentKind {
                     "- End with exactly one of: <proposed_plan>, <request_user_input>, or <continue_inspection/>."
                 )
             }
+            SubAgentKind::Consolidate => {
+                concat!(
+                    "## Sub-Agent Role\n",
+                    "- You are a memory consolidation agent.\n",
+                    "- Read the listed session files and distill durable knowledge.\n",
+                    "- Write topic files under `topics/` and update the `MEMORY.md` index.\n",
+                    "- MEMORY.md is an index — one line per topic under 150 characters.\n",
+                    "- Do not write memory content directly into MEMORY.md.\n",
+                    "- Group facts by topic, write concise topic files with level-2 headings.\n",
+                    "- Prefer updating existing files over creating duplicates.\n",
+                    "- Do not delegate to another agent or spawn sub-agents.\n",
+                    "- Do not modify files outside the memory directory.\n",
+                    "- Report a brief summary of what you changed."
+                )
+            }
         }
     }
 
     fn execution_mode(self) -> AgentExecutionMode {
         match self {
             SubAgentKind::Plan => AgentExecutionMode::Plan,
-            SubAgentKind::General | SubAgentKind::Explore => AgentExecutionMode::Execute,
+            SubAgentKind::General | SubAgentKind::Explore | SubAgentKind::Consolidate => {
+                AgentExecutionMode::Execute
+            }
         }
     }
 
@@ -416,11 +435,12 @@ impl SubAgentKind {
             SubAgentKind::Plan => 200,
             SubAgentKind::General => 100,
             SubAgentKind::Explore => 100,
+            SubAgentKind::Consolidate => 200,
         }
     }
 
     fn read_only(self) -> bool {
-        !matches!(self, SubAgentKind::General)
+        matches!(self, SubAgentKind::Explore | SubAgentKind::Plan)
     }
 
     fn label(self) -> &'static str {
@@ -428,6 +448,7 @@ impl SubAgentKind {
             SubAgentKind::General => "general",
             SubAgentKind::Explore => "explore",
             SubAgentKind::Plan => "plan",
+            SubAgentKind::Consolidate => "consolidate",
         }
     }
 }
@@ -1231,20 +1252,20 @@ struct TeamTask {
     kind: SubAgentKind,
 }
 
-struct SubAgentResult {
+pub(crate) struct SubAgentResult {
     agent_id: String,
     session_id: String,
-    status: &'static str,
+    pub(crate) status: &'static str,
     summary: String,
     persistence_error: Option<String>,
     plan: Option<Vec<PlanStep>>,
     plan_explanation: Option<String>,
     request_user_input: Option<PendingUserInput>,
-    total_input_tokens: u32,
-    total_output_tokens: u32,
+    pub(crate) total_input_tokens: u32,
+    pub(crate) total_output_tokens: u32,
 }
 
-async fn run_sub_agent(
+pub(crate) async fn run_sub_agent(
     kind: SubAgentKind,
     agent_id: &str,
     definition: Option<&AgentDefinition>,
@@ -1437,7 +1458,7 @@ fn build_read_only_tool_manager() -> ToolManager {
     tool_manager
 }
 
-fn build_subagent_tool_manager(kind: SubAgentKind) -> ToolManager {
+pub(crate) fn build_subagent_tool_manager(kind: SubAgentKind) -> ToolManager {
     if kind.read_only() {
         build_read_only_tool_manager()
     } else {
@@ -1541,7 +1562,7 @@ fn validate_agent_id_label(value: &str) -> Option<String> {
     (!label.is_empty()).then_some(label)
 }
 
-fn append_subagent_prompt(
+pub(crate) fn append_subagent_prompt(
     mut prompt_config: PromptRuntimeConfig,
     appended_instructions: &str,
 ) -> PromptRuntimeConfig {

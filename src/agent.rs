@@ -165,6 +165,7 @@ pub struct Agent {
     pub vdb: Arc<VectorDB>,
     pub memory_store: Arc<MemoryStore>,
     pub session_manager: Arc<SessionManager>,
+    pub consolidation_scheduler: rara_memory::consolidation::ConsolidationScheduler,
     state_db: Option<Arc<StateDb>>,
     pub workspace: Arc<WorkspaceMemory>,
     pub history: Vec<Message>,
@@ -255,6 +256,16 @@ impl Agent {
                     }
                 },
             );
+        let memory_root = if let Some(rara_dir) = session_manager.storage_dir.parent() {
+            rara_dir.join("memory")
+        } else {
+            workspace.root.join(".rara").join("memory")
+        };
+        let consolidation_config = rara_memory::consolidation::ConsolidationConfig::default();
+        let consolidation_scheduler = rara_memory::consolidation::ConsolidationScheduler::new(
+            memory_root,
+            consolidation_config,
+        );
         Self {
             tool_manager,
             llm_backend,
@@ -262,6 +273,7 @@ impl Agent {
             vdb,
             memory_store,
             session_manager,
+            consolidation_scheduler,
             state_db,
             workspace,
             history: Vec::new(),
@@ -382,7 +394,61 @@ impl Agent {
             .run_agent_loop_with_limit(output_mode, &mut report, &mut agentic_turns)
             .await
         {
-            Ok(()) => {}
+            Ok(()) => {
+                // Post-turn consolidation check (fire-and-forget).
+                let sessions = self.consolidation_scheduler.check();
+                if sessions.is_some() {
+                    let prompt_config = self.prompt_config.clone();
+                    let llm_backend = self.llm_backend.clone();
+                    let embedding_backend = self.embedding_backend.clone();
+                    let vdb = self.vdb.clone();
+                    let session_manager = self.session_manager.clone();
+                    let workspace = self.workspace.clone();
+                    let scheduler = self.consolidation_scheduler.clone();
+                    std::thread::spawn(move || {
+                        let rt = tokio::runtime::Builder::new_current_thread()
+                            .enable_all()
+                            .build()
+                            .expect("consolidation runtime");
+                        rt.block_on(async move {
+                            let Some(sessions) = sessions else { return };
+                            let Some(mut lock) = scheduler.acquire_lock() else {
+                                return;
+                            };
+                            let prompt =
+                                rara_memory::dream_prompts::build_consolidation_prompt(&sessions);
+                            eprintln!(
+                                "consolidation: {} sessions ready, dispatching subagent",
+                                sessions.len()
+                            );
+                            let result = crate::tools::agent::run_sub_agent(
+                                crate::tools::agent::SubAgentKind::Consolidate,
+                                &uuid::Uuid::new_v4().to_string(),
+                                None,
+                                Some("consolidation"),
+                                None,
+                                &prompt,
+                                None,
+                                None,
+                                llm_backend,
+                                embedding_backend,
+                                vdb,
+                                session_manager,
+                                workspace,
+                                prompt_config,
+                            )
+                            .await;
+                            match result {
+                                Ok(r) => {
+                                    lock.commit();
+                                    eprintln!("consolidation complete: status={}", r.status)
+                                }
+                                Err(e) => eprintln!("consolidation subagent failed: {e}"),
+                            }
+                        });
+                    });
+                }
+            }
             Err(err) => {
                 if self
                     .try_continue_after_recoverable_runtime_error(
@@ -689,6 +755,10 @@ impl Agent {
             .await
     }
 
+    /// Post-turn consolidation check (Claude Code style).
+    ///
+    /// Checks whether memory consolidation is due.  When sessions are
+    /// ready, acquires the lock and dispatches a Consolidate subagent
     async fn run_agent_loop_with_limit<F>(
         &mut self,
         output_mode: AgentOutputMode,
