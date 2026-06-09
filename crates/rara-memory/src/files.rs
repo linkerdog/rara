@@ -470,8 +470,8 @@ mod tests {
             .unwrap_or(false)
     }
 
-    #[test]
-    fn search_memory_returns_rg_hits() {
+    #[tokio::test]
+    async fn search_memory_returns_rg_hits() {
         if !rg_available() {
             return; // skip when rg is not installed
         }
@@ -481,7 +481,7 @@ mod tests {
         let session_path = rara_home.join("memory").join("sessions").join("test.md");
         fs::write(&session_path, "remember: use cargo fmt before commit").unwrap();
 
-        let hits = search_memory("cargo fmt", &rara_home).unwrap();
+        let hits = search_memory("cargo fmt", &rara_home, None).await.unwrap();
         assert!(hits.iter().any(|h| h.snippet.contains("cargo fmt")));
     }
 }
