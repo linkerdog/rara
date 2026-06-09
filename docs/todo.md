@@ -74,7 +74,6 @@ Active backlog only. Keep this file small and current.
 - [ ] `tui/custom_terminal.rs`: add scaffolding comment per AGENTS.md
 
 ### Features
-- [ ] `rara resume --last`: restore last session after exit
 - [x] Embedding dimension consistency: detect + rebuild on mismatch
 - [ ] Sidebar status update: `app.local_model_server` after bootstrap
 
@@ -134,7 +133,7 @@ Active backlog only. Keep this file small and current.
 - [x] Concurrent-safe writes: atomic temp-file + fs2 locking for shared memory files.
 - [ ] Wire `search_memory` tool → return real LanceDB results instead of placeholder empty.
 - [ ] Wire memory hooks (pre/post memory write, query).
-
+- [x] CLI: `rara resume <THREAD_ID>`, `rara thread <THREAD_ID>`, `rara threads` (#537)
 ## Model Support
 
 - [x] uv venv --python 3.14 --seed for managed Python venv.
