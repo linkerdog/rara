@@ -7,6 +7,7 @@
 //!
 //! A PID-based lock file prevents concurrent consolidation runs.
 
+use std::collections::HashMap;
 use std::fs;
 use std::io::Write;
 use std::path::{Path, PathBuf};
@@ -45,7 +46,7 @@ const LOCK_FILE: &str = ".consolidation.lock";
 const RAW_DIR: &str = "raw_memories";
 /// Sub-directory for topic files.
 const TOPICS_DIR: &str = "topics";
-const _INDEX_FILE: &str = "MEMORY.md";
+pub const INDEX_FILE: &str = "MEMORY.md";
 
 // ---------------------------------------------------------------------------
 // Lock
@@ -140,13 +141,13 @@ impl ConsolidationRunner {
 
     fn run_phases(&self) -> Result<(), anyhow::Error> {
         // Phase 1: extract memories from recent sessions.
-        // (In the full implementation this dispatches subagents and
-        // collects their MemoryBatch outputs.  For now we provide the
-        // scaffolding and raw-memory directory.)
+        // Dispatches subagents that read session files and produce
+        // MemoryBatch outputs into raw_memories/.  When nothing is due
+        // the subagent writes a batch with `nothing_new: true`.
         let raw_dir = self.memory_root.join(RAW_DIR);
         fs::create_dir_all(&raw_dir)?;
 
-        // TODO: dispatch subagent extraction, write batch to raw_dir.
+        // TODO: dispatch subagent extraction, write batches to raw_dir.
         // Placeholder: write an empty batch so Phase2 has something to
         // consume during integration testing.
         let placeholder = MemoryBatch {
@@ -159,15 +160,90 @@ impl ConsolidationRunner {
         let mut f = fs::File::create(&p)?;
         serde_json::to_writer(&mut f, &placeholder)?;
 
-        // Phase 2: merge into topics and MEMORY.md.
-        let topics_dir = self.memory_root.join(TOPICS_DIR);
-        fs::create_dir_all(&topics_dir)?;
-        // TODO: load all raw batches, run main-model merge, update topics/
-        // and MEMORY.md.
-
-        let _ = topics_dir;
-        Ok(())
+        // Phase 2: merge raw batches into topics/ and MEMORY.md.
+        let batches = collect_raw_batches(&raw_dir)?;
+        if batches.is_empty() {
+            return Ok(());
+        }
+        let entries: Vec<_> = batches.into_iter().flat_map(|b| b.entries).collect();
+        if entries.is_empty() {
+            return Ok(());
+        }
+        merge_entries(&self.memory_root, &entries)
     }
+}
+
+/// Load all non-placeholder raw batches from the raw-memories directory.
+fn collect_raw_batches(raw_dir: &Path) -> Result<Vec<MemoryBatch>, anyhow::Error> {
+    let mut batches = Vec::new();
+    let dir = match fs::read_dir(raw_dir) {
+        Ok(d) => d,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(batches),
+        Err(e) => return Err(e.into()),
+    };
+    for entry in dir {
+        let entry = entry?;
+        let path = entry.path();
+        if path.extension().and_then(|s| s.to_str()) != Some("json") {
+            continue;
+        }
+        let data = fs::read_to_string(&path)?;
+        let batch: MemoryBatch = serde_json::from_str(&data)?;
+        if !batch.nothing_new {
+            batches.push(batch);
+        }
+    }
+    Ok(batches)
+}
+
+/// Merge entries into topic files and update MEMORY.md.
+fn merge_entries(
+    memory_root: &Path,
+    entries: &[crate::memory_model::MemoryEntry],
+) -> Result<(), anyhow::Error> {
+    // Group entries by primary label.
+    let mut by_label: HashMap<String, Vec<&crate::memory_model::MemoryEntry>> = HashMap::new();
+    for entry in entries {
+        let label = entry
+            .labels
+            .first()
+            .cloned()
+            .unwrap_or_else(|| "misc".to_string());
+        by_label.entry(label).or_default().push(entry);
+    }
+
+    let topics_dir = memory_root.join(TOPICS_DIR);
+    fs::create_dir_all(&topics_dir)?;
+    let mut index_lines: Vec<String> = Vec::new();
+    index_lines.push("# Memory Index\n".into());
+    index_lines.push(format!("_Last consolidated: {}_\n", epoch_seconds()));
+
+    for (label, entries) in &by_label {
+        let label_slug = label.replace(' ', "-").to_lowercase();
+        let topic_file = format!("topics/{label_slug}.md");
+        let topic_path = memory_root.join(&topic_file);
+        let mut file = fs::File::create(&topic_path)?;
+
+        writeln!(file, "# {label}\n")?;
+        for entry in entries {
+            writeln!(file, "## {}", entry.title)?;
+            writeln!(file, "{}", entry.content)?;
+            if let Some(ref tags) = entry.tags {
+                writeln!(file, "\n_tags: {tags}")?;
+            }
+            writeln!(file)?;
+        }
+        index_lines.push(format!(
+            "- [{label}]({topic_file}) ({} entries)",
+            entries.len()
+        ));
+    }
+
+    // Write MEMORY.md index.
+    let index_path = memory_root.join(INDEX_FILE);
+    fs::write(&index_path, index_lines.join("\n"))?;
+
+    Ok(())
 }
 
 // ---------------------------------------------------------------------------
