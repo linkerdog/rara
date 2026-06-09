@@ -1266,6 +1266,8 @@ pub(crate) struct SubAgentResult {
     request_user_input: Option<PendingUserInput>,
     pub(crate) total_input_tokens: u32,
     pub(crate) total_output_tokens: u32,
+    pub(crate) total_cache_hit_tokens: u32,
+    pub(crate) total_cache_miss_tokens: u32,
 }
 
 pub(crate) async fn run_sub_agent(
@@ -1359,6 +1361,8 @@ pub(crate) async fn run_sub_agent(
         session_id: sub.session_id.clone(),
         total_input_tokens: sub.total_input_tokens,
         total_output_tokens: sub.total_output_tokens,
+        total_cache_hit_tokens: sub.total_cache_hit_tokens,
+        total_cache_miss_tokens: sub.total_cache_miss_tokens,
         status,
         summary,
         persistence_error,
