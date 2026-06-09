@@ -1268,6 +1268,34 @@ impl Agent {
                             self.todo_state = Some(state.clone());
                             report(AgentEvent::TodoUpdated(state));
                         }
+                        // Accumulate subagent (auxiliary model) cache statistics.
+                        if matches!(
+                            tool_name.as_str(),
+                            "spawn_agent" | "explore_agent" | "plan_agent" | "team_create"
+                        ) {
+                            let (hit, miss) = if tool_name == "team_create" {
+                                // team_create nests results under "team_results[*]".
+                                result["team_results"]
+                                    .as_array()
+                                    .map(|results| {
+                                        results.iter().fold((0, 0), |(h, m), res| {
+                                            (
+                                                h + res["cache_hit_tokens"].as_u64().unwrap_or(0)
+                                                    as u32,
+                                                m + res["cache_miss_tokens"].as_u64().unwrap_or(0)
+                                                    as u32,
+                                            )
+                                        })
+                                    })
+                                    .unwrap_or((0, 0))
+                            } else {
+                                (
+                                    result["cache_hit_tokens"].as_u64().unwrap_or(0) as u32,
+                                    result["cache_miss_tokens"].as_u64().unwrap_or(0) as u32,
+                                )
+                            };
+                            self.accumulate_aux_cache(hit, miss);
+                        }
                         let result_text = self.tool_result_store.compact_result(
                             &tool_name,
                             &tool_id,

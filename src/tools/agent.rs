@@ -269,6 +269,8 @@ pub struct SubagentProgress {
     pub tool_use_total: Option<usize>,
     pub total_input_tokens: usize,
     pub total_output_tokens: usize,
+    pub total_cache_hit_tokens: usize,
+    pub total_cache_miss_tokens: usize,
     pub activity: Vec<String>,
     pub is_backgrounded: bool,
     pub subagent_name: String,
@@ -281,6 +283,8 @@ impl SubagentProgress {
             tool_use_total: None,
             total_input_tokens: 0,
             total_output_tokens: 0,
+            total_cache_hit_tokens: 0,
+            total_cache_miss_tokens: 0,
             activity: Vec::new(),
             is_backgrounded: false,
             subagent_name: name.into(),
@@ -561,6 +565,8 @@ impl AgentTool {
             "name": name,
             "status": result.status,
             "summary": result.summary,
+            "cache_hit_tokens": result.total_cache_hit_tokens,
+            "cache_miss_tokens": result.total_cache_miss_tokens,
             "persistence_error": result.persistence_error,
             "request_user_input": result
                 .request_user_input
@@ -665,6 +671,8 @@ impl ExploreAgentTool {
             "session_id": result.session_id,
             "status": result.status,
             "summary": result.summary,
+            "cache_hit_tokens": result.total_cache_hit_tokens,
+            "cache_miss_tokens": result.total_cache_miss_tokens,
             "persistence_error": result.persistence_error,
             "request_user_input": result
                 .request_user_input
@@ -769,6 +777,8 @@ impl PlanAgentTool {
             "session_id": result.session_id,
             "status": result.status,
             "summary": result.summary,
+            "cache_hit_tokens": result.total_cache_hit_tokens,
+            "cache_miss_tokens": result.total_cache_miss_tokens,
             "persistence_error": result.persistence_error,
             "plan": result
                 .plan
@@ -971,6 +981,8 @@ impl BackgroundSubAgentStore {
             Ok(result) => {
                 record.progress.total_input_tokens = result.total_input_tokens as usize;
                 record.progress.total_output_tokens = result.total_output_tokens as usize;
+                record.progress.total_cache_hit_tokens = result.total_cache_hit_tokens as usize;
+                record.progress.total_cache_miss_tokens = result.total_cache_miss_tokens as usize;
                 record.status = result.status;
                 record.summary = Some(result.summary);
                 record.persistence_error = result.persistence_error;
@@ -1536,6 +1548,8 @@ fn serialize_team_result(name: &str, result: SubAgentResult) -> Value {
         "name": name,
         "status": result.status,
         "summary": result.summary,
+        "cache_hit_tokens": result.total_cache_hit_tokens,
+        "cache_miss_tokens": result.total_cache_miss_tokens,
         "persistence_error": result.persistence_error,
         "plan": result.plan.as_ref().map(|steps| serialize_plan_steps(steps)),
         "plan_explanation": result.plan_explanation,
