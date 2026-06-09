@@ -1,171 +1,91 @@
-//! Dream consolidation prompts.
-//!
-//! Phase 1 subagents read session / team files and emit `MemoryBatch`
-//! (one `MemoryEntry` per durable fact).  Phase 2 merge reads the
-//! batches and updates `topics/` + `MEMORY.md`.
-//!
-//! These prompts are injected into the respective agent turns at
-//! consolidation time.  They are not part of the default system prompt.
+/// Prompt for the consolidation subagent.
+///
+/// The subagent is given a list of recent session files and asked to
+/// extract durable memories.  It reads the sessions, decides what to
+/// keep / update / delete, writes topic files under [`super::consolidation::TOPICS_DIR`],
+/// and rebuilds the [`super::consolidation::INDEX_FILE`] index.
+pub const CONSOLIDATION_PROMPT: &str = r#"
+You are a memory consolidation agent.  Your job is to read the provided
+session files and distill the durable knowledge into the project's
+memory directory.
 
-/// Prompt for a **Phase 1 subagent** that extracts durable memories
-/// from a bundle of source files (sessions, team contributions, etc.).
-pub const PHASE1_EXTRACTION_PROMPT: &str = r#"
-You are a memory extraction agent.  Your ONLY job is to read the provided
-source documents and extract durable memories — one per independently-useful
-fact, decision, insight, procedure, or experience.
+## Goal
+
+1. Read the listed session files.
+2. Identify facts, decisions, insights, procedures, and experiences
+   that are worth remembering beyond this conversation.
+3. Write them into topic files under the `topics/` directory.
+4. Update `MEMORY.md` — a one-line-per-topic index file.
+
+## Memory directory layout
+
+```
+MEMORY.md           ← index file (one line per topic)
+topics/             ← topic files (one .md file per topic)
+team/               ← team-contributed memory (do not touch)
+sessions/           ← session logs (read-only)
+```
+
+## MEMORY.md rules
+
+- **MEMORY.md is an index, not a memory.** Each line should be one
+  topic pointer under 150 characters.  Never write memory content
+  directly into MEMORY.md.
+- Point to the topic file: `- [Topic Title](topics/topic-slug.md) — One-line summary`
+- Keep topics sorted alphabetically.
+- If you add a new topic file, add its index line.
+- If you remove all content from a topic file (because the
+  information is obsolete), delete the file and remove its line.
+- If a topic file already exists, read it first, then edit.
+
+## Topic file rules
+
+- **File name**: lower-case kebab (`topics/agent-loop.md`).
+- **Title**: a level-1 heading followed by a blank line.
+- **Content**: one durable fact per section (`## Fact Title`).
+- Prepend newer / higher-value facts at the top.
+- When a new fact **replaces** an old one, remove the old and add
+  `(updated)` after the title.
+- When a new fact **refines** an old one, add a sub-heading.
+- Keep content concise: 1–3 paragraphs per fact.
 
 ## What to extract
 
-A memory is ONE durable thing worth keeping.  It should stand on its own,
-readable without the conversation that produced it.  Prefer:
-- Decisions with rationale and trade-offs
-- Insights or realizations that changed future behavior
-- Procedures and workflows that will be reused
-- Important facts and reference data
-- Experiences that taught a lasting lesson
+Prefer memories that:
+- Capture a **decision** with rationale and trade-offs
+- Describe a **procedure** or workflow that will be reused
+- Record an **insight** or discovery
+- Document an important **fact** or reference
+- Summarize a significant **experience** or incident
 
 ## What to skip
 
-- Transient status updates ("still debugging X")
-- Task-completion markers ("done with the refactor")
-- Content that is already in the source code or AGENTS.md
-- Near-duplicates of facts you've already extracted
+- Transient status updates, debug notes, "still working on X"
+- Task-completion markers
+- Content already captured in AGENTS.md, README, or source code
+- Near-duplicates of existing facts (update instead of creating a new one)
 
-## Importance scoring
+## Procedure
 
-Use this scale (default 0.5):
+1. Read the listed session files.
+2. Make a working list of what to keep, update, delete.
+3. Write / edit topic files under `topics/`.
+4. Update `MEMORY.md` to reflect the new state.
+5. Report a brief summary of what you changed.
+"#;
 
-| Score     | Meaning    | When to use
-|-----------|------------|-------------
-| 0.8 – 1.0 | Critical   | Architectural decisions, breakthrough discoveries, production incidents, security-critical knowledge
-| 0.5 – 0.7 | Useful     | Standard decisions, good insights, project learnings, reusable workflows
-| 0.1 – 0.4 | Background | Reference info, minor details, casual notes, "nice to know"
+use crate::consolidation::SessionInfo;
 
-## Labels
-
-Choose 1–3 labels per memory:
-- `insight`   : key learnings, realizations, "aha" moments
-- `decision`  : choices with rationale and trade-offs
-- `fact`      : important data points, reference information
-- `procedure` : how-to knowledge, workflows, step-by-step guides
-- `experience`: events, conversations, outcomes
-
-## Output format
-
-Produce a JSON object matching this schema:
-
-```json
-{
-  "producer": "subagent-A",
-  "nothing_new": false,
-  "entries": [
-    {
-      "title": "Short summary",
-      "content": "The knowledge itself. Markdown supported.",
-      "labels": ["decision", "infrastructure"],
-      "importance": 0.8,
-      "source": "session_abc.md#L42",
-      "tags": "database postgres performance"
+/// Build the full consolidation prompt with the session file list.
+pub fn build_consolidation_prompt(sessions: &[SessionInfo]) -> String {
+    let mut prompt = String::from(CONSOLIDATION_PROMPT);
+    prompt.push_str("\n## Sessions to process\n\n");
+    for s in sessions {
+        prompt.push_str(&format!(
+            "- `{}` (modified {})\n",
+            s.path.display(),
+            s.mtime_secs
+        ));
     }
-  ]
+    prompt
 }
-```
-
-Keep the `content` concise but complete — 1 to 3 paragraphs usually.  If you
-found NO new durable information, set `nothing_new: true` and return an empty
-entries array.
-"#;
-
-/// Prompt for the **Phase 2 merge** agent.  It reads all Phase 1
-/// subagent batches and updates the project memory.
-pub const PHASE2_MERGE_PROMPT: &str = r#"
-You are a memory merge agent.  You are given a set of extracted memory
-entries from multiple subagents that read recent session logs and team
-contributions.  Your job is to merge these into the project memory.
-
-## Input
-
-1. `raw_memories/<ts>.jsonl` — Phase 1 extraction batches
-2. `topics/` — existing topic files
-3. `MEMORY.md` — the current index file
-4. `team/` — team-contributed memory files (if any)
-
-## Merge rules
-
-### Clustering
-
-Group related entries by topic.  Use existing topic files where the new
-entries naturally extend an existing subject.  Create new topic files
-only when entries clearly form a new subject.
-
-### Merging into existing topics
-
-When merging new facts into an existing topic:
-- Prepend newer/higher-importance content at the top
-- If a new entry **replaces** an old one, remove the old content and
-  add a `(updated)` note inline
-- If a new entry **refines** an old one, add a sub-heading
-- Never silently overwrite — the reader should see evolution
-
-### Conflict resolution
-
-When two entries conflict:
-- Prefer the one with higher **importance** score
-- If equal importance, prefer **more recent** (by created date)
-- Mark the lowered entry as `(deprecated)` — do NOT delete it
-
-### MEMORY.md index update
-
-Each topic file gets ONE index line in MEMORY.md:
-
-```
-- ★ [Title](topics/name.md) — One sentence summary tags:tag1 tag2
-- · [Another](topics/foo.md) — Summary tags:tag1
--   [Minor](topics/bar.md) — Summary
-```
-
-- ★ for importance ≥ 0.8
-- · for importance ≥ 0.5
-- ` ` for lower
-
-### Team memory
-
-Team-contributed files under `team/` are treated as pre-extracted
-memories.  Don't re-extract them — merge their content directly into
-the appropriate topic files.
-
-## Down-weighting and pruning
-
-- If an entry ≤ 0.4 importance and no one has referenced it for 90 days,
-  move it to a `(legacy)` section at the bottom of the topic file.
-- If an entry ≤ 0.2 importance, you may remove it entirely from the
-  topic file (but keep it in LanceDB for archival search).
-- When removing from topic, remove its index line from MEMORY.md.
-
-## Output
-
-Update the following files (use the file-writing tools):
-1. `topics/*.md` — updated topic files
-2. `MEMORY.md` — updated index
-3. Optionally, `topics/_deleted.md` — list of removed entries for audit
-"#;
-
-/// Brief prompt appended to the consolidation agent's system message
-/// that explains the MEMORY.md format the agent must maintain.
-pub const MEMORY_INDEX_FORMAT_PROMPT: &str = r#"
-## MEMORY.md index format
-
-MEMORY.md is a **pure index** — never add paragraphs or free-form text.
-Every line is a pointer:
-
-```
-- ★ [Title](topics/name.md) — One sentence summary tags:keyword1 keyword2
-```
-
-- `★` prefix = critical (importance ≥ 0.8)
-- `·` prefix = useful (importance ≥ 0.5)
-- ` ` prefix = background (importance < 0.5)
-
-No other formatting.  The file is parsed by tooling that expects this exact
-schema.
-"#;
