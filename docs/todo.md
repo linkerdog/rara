@@ -34,7 +34,10 @@ Active backlog only. Keep this file small and current.
 - [x] Concurrent-safe writes: atomic temp-file + fs2 locking (#442)
 - [x] Codex-inspired read-path template with usage instructions (#442)
 - [x] Migrate `memory_files` to `rara-memory` crate (#442)
-- [ ] Write path: two-phase consolidation (Phase1 ad-hoc → Phase2 merge), git-baseline diffing
+- [x] CC-style consolidation: scheduler + lock + subagent dispatch (#537)
+- [ ] Consolidation tool restriction: limit write and edit tools to the memory directory
+- [ ] Consolidation DreamTask UI: task panel entry with progress + abort
+- [ ] Consolidation inline message: "Improved N files" in conversation
 - [ ] Wire `search_memory` tool → return real LanceDB results
 - [ ] Wire memory hooks (pre/post memory write, query)
 
