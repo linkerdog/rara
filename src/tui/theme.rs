@@ -11,42 +11,32 @@
 // Many constants are reserved for planned rendering features (Markdown
 // syntax highlighting, diff views, phase badges, etc.). The full palette
 // is kept here as a single source of truth.
-#![allow(dead_code)]
 use ratatui::style::Color;
 
-// ── Nord palette (reference) ────────────────────────────────────
 // See https://www.nordtheme.com/docs/colors-and-palettes
-#[allow(dead_code)]
+#[allow(dead_code)] // Nord palette — reserved for future UI use
 pub(crate) const NORD0: Color = Color::Rgb(0x2E, 0x34, 0x40); // Polar Night (darkest bg)
-#[allow(dead_code)]
 pub(crate) const NORD1: Color = Color::Rgb(0x3B, 0x42, 0x52); // Polar Night
-#[allow(dead_code)]
+#[allow(dead_code)] // Nord palette — reserved for future UI use
 pub(crate) const NORD2: Color = Color::Rgb(0x43, 0x4C, 0x5E); // Polar Night
-#[allow(dead_code)]
+#[allow(dead_code)] // Nord palette — reserved for future UI use
 pub(crate) const NORD3: Color = Color::Rgb(0x4C, 0x56, 0x6A); // Polar Night (lightest bg)
-#[allow(dead_code)]
+#[allow(dead_code)] // Nord palette — reserved for future UI use
 pub(crate) const NORD4: Color = Color::Rgb(0xD8, 0xDE, 0xE9); // Snow Storm (darkest fg)
-#[allow(dead_code)]
+#[allow(dead_code)] // Nord palette — reserved for future UI use
 pub(crate) const NORD5: Color = Color::Rgb(0xE5, 0xE9, 0xF0); // Snow Storm
-#[allow(dead_code)]
+#[allow(dead_code)] // Nord palette — reserved for future UI use
 pub(crate) const NORD6: Color = Color::Rgb(0xEC, 0xEF, 0xF4); // Snow Storm (brightest fg)
-#[allow(dead_code)]
 pub(crate) const NORD7: Color = Color::Rgb(0x8F, 0xBC, 0xBB); // Frost (green-cyan)
-#[allow(dead_code)]
 pub(crate) const NORD8: Color = Color::Rgb(0x88, 0xC0, 0xD0); // Frost (cyan)
-#[allow(dead_code)]
 pub(crate) const NORD9: Color = Color::Rgb(0x81, 0xA1, 0xC1); // Frost (blue-gray)
-#[allow(dead_code)]
+#[allow(dead_code)] // Nord palette — reserved for future UI use
 pub(crate) const NORD10: Color = Color::Rgb(0x5E, 0x81, 0xAC); // Frost (dark blue)
-#[allow(dead_code)]
 pub(crate) const NORD11: Color = Color::Rgb(0xBF, 0x61, 0x6A); // Aurora (red)
-#[allow(dead_code)]
 pub(crate) const NORD12: Color = Color::Rgb(0xD0, 0x87, 0x70); // Aurora (orange)
-#[allow(dead_code)]
 pub(crate) const NORD13: Color = Color::Rgb(0xEB, 0xCB, 0x8B); // Aurora (yellow)
-#[allow(dead_code)]
 pub(crate) const NORD14: Color = Color::Rgb(0xA3, 0xBE, 0x8C); // Aurora (green)
-#[allow(dead_code)]
+#[allow(dead_code)] // Nord palette — reserved for future UI use
 pub(crate) const NORD15: Color = Color::Rgb(0xB4, 0x8E, 0xAD); // Aurora (purple)
 
 // ── UI surface colors ───────────────────────────────────────────

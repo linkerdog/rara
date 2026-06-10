@@ -1,6 +1,6 @@
 //! Google OAuth PKCE flow for Gemini Code Assist.
 // Some items reserved for future OAuth flows.
-#![allow(dead_code)]
+#![allow(dead_code)] // FIXME(#546): audit 20+ items individually per handle-unused-code skill
 use std::io::{Read, Write};
 use std::net::{SocketAddr, TcpListener};
 use std::path::{Path, PathBuf};
