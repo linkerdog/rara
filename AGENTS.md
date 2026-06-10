@@ -81,9 +81,9 @@ The current product direction is to make local inference a first-class path inst
 
 - Dead code is not permitted in production source files. Use `#[cfg(test)]`
   for test-only helpers; remove all unreachable types, functions, and constants.
-  One `#![allow(dead_code)]` on a module is acceptable only when the module
-  documents a reserved palette or namespace with a comment linking to the
-  planned activation milestone in `docs/todo.md`.
+- `#![allow(dead_code)]` at module level is not permitted — it silently
+  hides real dead code.  Every intentionally-unused item must carry its own
+  `#[allow(dead_code)]` with a comment explaining why and when it activates.
 - Adding `#[allow(dead_code)]` to an individual item requires a comment
   explaining why the item is intentionally unused and when it will be activated.
 - File-size violations detected in review (source files exceeding 800 lines
