@@ -742,7 +742,7 @@ pub(crate) async fn finish_running_task_if_ready(
                     // or the budget is exhausted.  Single no-tool turns (analysis/planning)
                     // are allowed; the budget gate prevents infinite loops.
                     let prior_total_input_tokens = app.snapshot.total_input_tokens;
-                    let agent_had_tools = agent.last_turn_had_tool_calls();
+                    let _agent_had_tools = agent.last_turn_had_tool_calls();
                     let should_auto_continue_goal = !finished_plan_turn
                         && app
                             .goal_handle
@@ -753,7 +753,7 @@ pub(crate) async fn finish_running_task_if_ready(
                         && !app.has_pending_plan_approval();
                     // Always account goal turn usage, even when we suppress
                     // continuation (no-tool-call turns still consume budget).
-                    let goal_is_pursuing = !finished_plan_turn
+                    let _goal_is_pursuing = !finished_plan_turn
                         && app
                             .goal_handle
                             .read()
