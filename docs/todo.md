@@ -132,7 +132,7 @@ Active backlog only. Keep this file small and current.
 - [x] Implement session/global memory files with summary-driven retrieval (Phase 2 of spec).
 - [x] Wire `memory_summary` summary index into context assembler.
 - [x] Concurrent-safe writes: atomic temp-file + fs2 locking for shared memory files.
-- [ ] Wire `search_memory` tool → register SearchMemoryTool (function layer done, rg + LanceDB) instead of placeholder empty.
+- [ ] Wire memory hooks (pre/post memory write, query).
 - [ ] Wire memory hooks (pre/post memory write, query).
 - [x] CLI: `rara resume <THREAD_ID>`, `rara thread <THREAD_ID>`, `rara threads` (#537)
 ## Model Support
