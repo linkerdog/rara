@@ -56,7 +56,7 @@ fn retained_history_budget(threshold: usize, force: bool) -> usize {
         .max(1)
 }
 
-#[allow(dead_code)]
+#[allow(dead_code)] // Reserved compact strategy
 fn ensure_api_round_boundary_range(history: &[Message], from: usize, up_to: usize) -> Result<()> {
     let groups = group_history_by_api_round(history);
     let is_boundary = |idx: usize| {

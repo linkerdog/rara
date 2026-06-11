@@ -123,20 +123,20 @@ struct JsonRpcRequest {
 
 #[derive(Deserialize, Debug)]
 struct JsonRpcNotification {
-    #[allow(dead_code)]
+    #[allow(dead_code)] // Serde deserialization field
     jsonrpc: String,
     method: Option<String>,
     params: Option<serde_json::Value>,
-    #[allow(dead_code)]
+    #[allow(dead_code)] // Serde deserialization field
     id: Option<u64>,
 }
 
 #[derive(Deserialize, Debug)]
 struct JsonRpcResponse {
-    #[allow(dead_code)]
+    #[allow(dead_code)] // Serde deserialization field
     jsonrpc: String,
     id: u64,
-    #[allow(dead_code)]
+    #[allow(dead_code)] // Serde deserialization field
     result: Option<serde_json::Value>,
     error: Option<JsonRpcResponseError>,
 }

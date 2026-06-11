@@ -1,5 +1,7 @@
 //! Google OAuth PKCE flow for Gemini Code Assist.
-// Some items reserved for future OAuth flows.
+// FIXME(#546): superseded by codex-login integration.
+// The public API types are still live; the bespoke impl methods are dead.
+// Audit and delete the dead items, then remove this module-level allow..
 #![allow(dead_code)] // FIXME(#546): audit 20+ items individually per handle-unused-code skill
 use std::io::{Read, Write};
 use std::net::{SocketAddr, TcpListener};

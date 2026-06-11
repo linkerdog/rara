@@ -10,9 +10,10 @@ use crate::config::{
     McpRegistry, McpServerConfig, McpServerScope, McpServerTransport, SourcedMcpServerConfig,
 };
 
+/// MCP connection lifecycle states.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
-#[allow(dead_code)]
+#[allow(dead_code)] // Reserved variants: Configured, Connected, Refreshing will activate with MCP lifecycle UI
 pub enum McpConnectionState {
     Configured,
     Connecting,
