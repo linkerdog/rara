@@ -579,6 +579,7 @@ fn diff_buffers(a: &Buffer, b: &Buffer) -> Vec<DrawCommand> {
     // Cells from the current buffer to skip due to preceding multi-width characters taking
     // their place (the skipped cells should be blank anyway), or due to per-cell-skipping:
     let mut to_skip: usize = 0;
+    #[allow(deprecated)] // Cell::skip deprecated in ratatui 0.30; CellDiffOption not available yet
     for (i, (current, previous)) in next_buffer.iter().zip(previous_buffer.iter()).enumerate() {
         if !current.skip && (current != previous || invalidated > 0) && to_skip == 0 {
             let (x, y) = a.pos_of(i);
