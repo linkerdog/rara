@@ -67,9 +67,10 @@ Active backlog only. Keep this file small and current.
 - [ ] `context/assembler.rs` (916 lines) → budget + assembly
 
 ### Dead Code Cleanup
-- [ ] `runtime_control.rs`: consolidate 40+ individual `#[allow(dead_code)]` to module-level
-- [ ] `hook_registry.rs`: remove `#[allow(dead_code)]` from `all_hooks`
-- [ ] `acp_consumer.rs`: add scaffolding comment per AGENTS.md
+- [ ] `runtime_control.rs`: audit 40+ `#[allow(dead_code)]` — classify each using handle-unused-code skill
+- [x] `hook_registry.rs`: remove `#[allow(dead_code)]` from `all_hooks` (#532)
+- [ ] `google_oauth.rs`: audit 20+ items hidden by `#![allow(dead_code)]`, classify individually
+- [x] `theme.rs`: remove module-level `#![allow]`, add per-item `// Nord palette` comments
 - [ ] `mcp_status.rs`: add scaffolding comment per AGENTS.md
 - [ ] `tui/custom_terminal.rs`: add scaffolding comment per AGENTS.md
 

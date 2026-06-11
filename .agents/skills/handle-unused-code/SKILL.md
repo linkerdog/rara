@@ -105,7 +105,7 @@ all items.  Each item must stand on its own.
 // If the item is reserved for future use:
 /// Reserved hook level — will be activated with plugin system (docs/todo.md).
 #[allow(dead_code)]
-pub const PostToolUse: HookLevel = HookLevel::new("post_tool_use");
+pub const POST_TOOL_USE: HookLevel = HookLevel::new("post_tool_use");
 
 // If the item is genuinely dead (no plans, no references):
 // Just delete it.
