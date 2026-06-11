@@ -38,7 +38,7 @@ Active backlog only. Keep this file small and current.
 - [ ] Consolidation tool restriction: limit write and edit tools to the memory directory
 - [ ] Consolidation DreamTask UI: task panel entry with progress + abort
 - [ ] Consolidation inline message: "Improved N files" in conversation
-- [ ] Wire `search_memory` tool → return real LanceDB results
+- [ ] Wire `search_memory` tool → register SearchMemoryTool (function layer done, rg + LanceDB)
 - [ ] Wire memory hooks (pre/post memory write, query)
 
 ### Hooks
@@ -46,8 +46,8 @@ Active backlog only. Keep this file small and current.
 - [x] File-hooks lifecycle spec (`docs/features/file-hooks.md`) (#442)
 - [x] Command hook execution: `run_command_hook` + `make_command_hook` (#444)
 - [x] Hook runtime startup + event bus subscription (#444)
-- [ ] Per-phase conditional hook injection
-- [ ] `PreToolUse` hook with input modification
+- [ ] Per-phase conditional hook injection (execution disabled — needs sandbox policy)
+- [ ] `PreToolUse` hook with input modification (execution disabled)
 - [ ] Hook output injection into model context
 - [ ] Wire plugin hook registration into runtime startup
 
@@ -132,7 +132,7 @@ Active backlog only. Keep this file small and current.
 - [x] Implement session/global memory files with summary-driven retrieval (Phase 2 of spec).
 - [x] Wire `memory_summary` summary index into context assembler.
 - [x] Concurrent-safe writes: atomic temp-file + fs2 locking for shared memory files.
-- [ ] Wire `search_memory` tool → return real LanceDB results instead of placeholder empty.
+- [ ] Wire `search_memory` tool → register SearchMemoryTool (function layer done, rg + LanceDB) instead of placeholder empty.
 - [ ] Wire memory hooks (pre/post memory write, query).
 - [x] CLI: `rara resume <THREAD_ID>`, `rara thread <THREAD_ID>`, `rara threads` (#537)
 ## Model Support
