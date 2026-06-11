@@ -38,7 +38,7 @@ impl From<ShellApprovalDecision> for BashApprovalDecision {
     }
 }
 
-#[allow(dead_code)]
+#[allow(dead_code)] // ACP protocol type — reserved for future lifecycle events
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct RuntimeControlEvent {
     pub event_id: String,
@@ -47,7 +47,7 @@ pub struct RuntimeControlEvent {
     pub event: RuntimeEvent,
 }
 
-#[allow(dead_code)]
+#[allow(dead_code)] // ACP protocol type — reserved for future lifecycle events
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "type", content = "payload", rename_all = "snake_case")]
 pub enum RuntimeEvent {
@@ -68,7 +68,7 @@ pub enum RuntimeEvent {
     Error(ErrorEvent),
 }
 
-#[allow(dead_code)]
+#[allow(dead_code)] // ACP protocol type — reserved for future lifecycle events
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "type", content = "payload", rename_all = "snake_case")]
 pub enum SessionEvent {
@@ -98,7 +98,7 @@ pub enum SessionEvent {
     },
 }
 
-#[allow(dead_code)]
+#[allow(dead_code)] // ACP protocol type — reserved for future lifecycle events
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "type", content = "payload", rename_all = "snake_case")]
 pub enum InputEvent {
@@ -107,7 +107,7 @@ pub enum InputEvent {
     PendingInputAnswered,
 }
 
-#[allow(dead_code)]
+#[allow(dead_code)] // ACP protocol type — reserved for future lifecycle events
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "type", content = "payload", rename_all = "snake_case")]
 pub enum AssistantEvent {
@@ -116,7 +116,7 @@ pub enum AssistantEvent {
     ThinkingDelta(String),
 }
 
-#[allow(dead_code)]
+#[allow(dead_code)] // ACP protocol type — reserved for future lifecycle events
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ToolStream {
@@ -142,7 +142,7 @@ impl From<ToolStream> for ToolOutputStream {
     }
 }
 
-#[allow(dead_code)]
+#[allow(dead_code)] // ACP protocol type — reserved for future lifecycle events
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "type", content = "payload", rename_all = "snake_case")]
 pub enum ToolEvent {
@@ -162,7 +162,7 @@ pub enum ToolEvent {
     },
 }
 
-#[allow(dead_code)]
+#[allow(dead_code)] // ACP protocol type — reserved for future lifecycle events
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "type", content = "payload", rename_all = "snake_case")]
 pub enum ApprovalEvent {
@@ -170,7 +170,7 @@ pub enum ApprovalEvent {
     Answered { approval_id: String, approved: bool },
 }
 
-#[allow(dead_code)]
+#[allow(dead_code)] // ACP protocol type — reserved for future lifecycle events
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "type", content = "payload", rename_all = "snake_case")]
 pub enum PlanEvent {
@@ -179,7 +179,7 @@ pub enum PlanEvent {
     Continued,
 }
 
-#[allow(dead_code)]
+#[allow(dead_code)] // ACP protocol type — reserved for future lifecycle events
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "type", content = "payload", rename_all = "snake_case")]
 pub enum PromptSourceEvent {
@@ -189,7 +189,7 @@ pub enum PromptSourceEvent {
     Dropped { source_id: String, reason: String },
 }
 
-#[allow(dead_code)]
+#[allow(dead_code)] // ACP protocol type — reserved for future lifecycle events
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "type", content = "payload", rename_all = "snake_case")]
 pub enum SkillEvent {
@@ -200,7 +200,7 @@ pub enum SkillEvent {
     Failed { source_id: String, reason: String },
 }
 
-#[allow(dead_code)]
+#[allow(dead_code)] // ACP protocol type — reserved for future lifecycle events
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "type", content = "payload", rename_all = "snake_case")]
 pub enum McpEvent {
@@ -222,7 +222,7 @@ pub enum McpEvent {
     ConfigurationRefreshed,
 }
 
-#[allow(dead_code)]
+#[allow(dead_code)] // ACP protocol type — reserved for future lifecycle events
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "type", content = "payload", rename_all = "snake_case")]
 pub enum MemoryEvent {
@@ -255,14 +255,14 @@ pub enum MemoryEvent {
     SelectionUpdated,
 }
 
-#[allow(dead_code)]
+#[allow(dead_code)] // ACP protocol type — reserved for future lifecycle events
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct MemoryLabelSummary {
     pub label: String,
     pub count: usize,
 }
 
-#[allow(dead_code)]
+#[allow(dead_code)] // ACP protocol type — reserved for future lifecycle events
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct MemoryRecordSummary {
     pub id: String,
@@ -276,7 +276,7 @@ pub struct MemoryRecordSummary {
     pub thread_id: Option<String>,
 }
 
-#[allow(dead_code)]
+#[allow(dead_code)] // ACP protocol type — reserved for future lifecycle events
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "type", content = "payload", rename_all = "snake_case")]
 pub enum HookEvent {
@@ -293,7 +293,7 @@ pub enum HookEvent {
     },
 }
 
-#[allow(dead_code)]
+#[allow(dead_code)] // ACP protocol type — reserved for future lifecycle events
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "type", content = "payload", rename_all = "snake_case")]
 pub enum ContextEvent {
@@ -302,28 +302,28 @@ pub enum ContextEvent {
     ObservabilityUpdated { view: ContextObservabilityView },
 }
 
-#[allow(dead_code)]
+#[allow(dead_code)] // ACP protocol type — reserved for future lifecycle events
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "type", content = "payload", rename_all = "snake_case")]
 pub enum TodoEvent {
     Updated { state: TodoState },
 }
 
-#[allow(dead_code)]
+#[allow(dead_code)] // ACP protocol type — reserved for future lifecycle events
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "type", content = "payload", rename_all = "snake_case")]
 pub enum WarningEvent {
     RuntimeWarning { message: String },
 }
 
-#[allow(dead_code)]
+#[allow(dead_code)] // ACP protocol type — reserved for future lifecycle events
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "type", content = "payload", rename_all = "snake_case")]
 pub enum ErrorEvent {
     RuntimeError { message: String, recoverable: bool },
 }
 
-#[allow(dead_code)]
+#[allow(dead_code)] // ACP protocol type — reserved for future lifecycle events
 pub fn agent_event_to_runtime_event(event: AgentEvent) -> RuntimeEvent {
     match event {
         AgentEvent::Status(message) => RuntimeEvent::Session(SessionEvent::Status { message }),
@@ -393,7 +393,7 @@ pub fn agent_event_to_runtime_event(event: AgentEvent) -> RuntimeEvent {
     }
 }
 
-#[allow(dead_code)]
+#[allow(dead_code)] // ACP protocol type — reserved for future lifecycle events
 pub fn wrap_agent_event(
     event_id: impl Into<String>,
     sequence: u64,

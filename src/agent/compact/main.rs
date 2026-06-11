@@ -27,7 +27,7 @@ impl Agent {
         Ok(self.compact_state.last_compaction_before_tokens.is_some())
     }
 
-    #[allow(dead_code)]
+    #[allow(dead_code)] // Reserved compression variant
     pub async fn compact_range_now_with_reporter<F>(
         &mut self,
         from: usize,

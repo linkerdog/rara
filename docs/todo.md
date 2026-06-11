@@ -148,6 +148,11 @@ Active backlog only. Keep this file small and current.
 - [ ] Design subagent context budget as a first-class property.
 - [ ] Subagent restart/reconnect semantics.
 - [ ] Claude plugin runtime integration (long-term).
+- [x] `runtime_control.rs`: add per-item comments to 22 `#[allow(dead_code)]` ACP types
+- [x] `google_oauth.rs`: add FIXME comment documenting superseded-by-codex-login status
+- [x] `mcp_status.rs`: add comment to unused enum variants
+- [x] `file_search_provider.rs`: add scaffolding comment per AGENTS.md
+- [x] `acp_consumer.rs`: add scaffolding comment per AGENTS.md
 
 ## Spec Hygiene
 
