@@ -35,7 +35,7 @@ Active backlog only. Keep this file small and current.
 - [x] Codex-inspired read-path template with usage instructions (#442)
 - [x] Migrate `memory_files` to `rara-memory` crate (#442)
 - [x] CC-style consolidation: scheduler + lock + subagent dispatch (#537)
-- [ ] Consolidation tool restriction: add path-check callback to ToolManager
+- [ ] Consolidation tool restriction: add allowed_root to WriteFileTool (needs Tool trait changes)
 - [ ] Consolidation DreamTask UI: TUI task panel entry + progress + abort
 - [ ] Consolidation inline message: "Improved N files" in conversation
 - [ ] Wire `search_memory` tool → register SearchMemoryTool (function layer done, rg + LanceDB)
