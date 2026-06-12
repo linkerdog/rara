@@ -292,7 +292,7 @@ pub fn condense_old_entries(content: &str) -> String {
 }
 
 /// A single search hit from memory files.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize)]
 pub struct MemorySearchHit {
     pub path: String,
     pub snippet: String,

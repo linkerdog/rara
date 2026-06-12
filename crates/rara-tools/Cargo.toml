@@ -7,6 +7,7 @@ license.workspace = true
 [dependencies]
 rara-tool-macros = { path = "../tool-macros" }
 rara-file-search = { path = "../file-search" }
+rara-memory = { path = "../rara-memory" }
 anyhow.workspace = true
 async-trait.workspace = true
 glob = "0.3"

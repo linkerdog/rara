@@ -1,6 +1,7 @@
 #![allow(unused_imports)]
 
 pub mod file;
+pub mod memory;
 pub mod patch;
 pub mod planning;
 pub mod search;
