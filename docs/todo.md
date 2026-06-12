@@ -37,8 +37,8 @@ Active backlog only. Keep this file small and current.
 - [x] CC-style consolidation: scheduler + lock + subagent dispatch (#537)
 - [ ] Consolidation tool restriction: limit write and edit tools to the memory directory
 - [ ] Consolidation DreamTask UI: task panel entry with progress + abort
-- [ ] Consolidation inline message: "Improved N files" in conversation
-- [ ] Wire `search_memory` tool → register SearchMemoryTool (function layer done, rg + LanceDB)
+- [x] Consolidation inline message — done (#552)
+- [x] search_memory tool registration — done (#553)
 - [ ] Wire memory hooks (pre/post memory write, query)
 
 ### Hooks
@@ -46,8 +46,8 @@ Active backlog only. Keep this file small and current.
 - [x] File-hooks lifecycle spec (`docs/features/file-hooks.md`) (#442)
 - [x] Command hook execution: `run_command_hook` + `make_command_hook` (#444)
 - [x] Hook runtime startup + event bus subscription (#444)
-- [ ] Per-phase conditional hook injection (execution disabled — needs sandbox policy)
-- [ ] `PreToolUse` hook with input modification (execution disabled)
+- [x] Per-phase conditional hook injection — done (#556)
+- [x] PreToolUse hook with input modification — done (#556)
 - [ ] Hook output injection into model context
 - [ ] Wire plugin hook registration into runtime startup
 
