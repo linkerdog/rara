@@ -10837,6 +10837,7 @@ dependencies = [
  "async-trait",
  "glob",
  "rara-file-search",
+ "rara-memory",
  "rara-tool-macros",
  "regex",
  "serde",
