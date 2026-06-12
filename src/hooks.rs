@@ -180,8 +180,9 @@ fn phase_ordinal(phase: HookLifecycle) -> u8 {
         HookLifecycle::PreToolUse => 2,
         HookLifecycle::PostToolUse => 3,
         HookLifecycle::PostMemoryWrite => 4,
-        HookLifecycle::Stop => 5,
-        HookLifecycle::PreCompact => 6,
+        HookLifecycle::MemoryQuery => 5,
+        HookLifecycle::Stop => 6,
+        HookLifecycle::PreCompact => 7,
     }
 }
 
