@@ -35,19 +35,19 @@ Active backlog only. Keep this file small and current.
 - [x] Codex-inspired read-path template with usage instructions (#442)
 - [x] Migrate `memory_files` to `rara-memory` crate (#442)
 - [x] CC-style consolidation: scheduler + lock + subagent dispatch (#537)
-- [ ] Consolidation tool restriction: limit write and edit tools to the memory directory
-- [ ] Consolidation DreamTask UI: task panel entry with progress + abort
-- [x] Consolidation inline message — done (#552)
-- [x] search_memory tool registration — done (#553)
-- [ ] Wire memory hooks (pre/post memory write, query)
+- [ ] Consolidation tool restriction: add path-check callback to ToolManager
+- [ ] Consolidation DreamTask UI: TUI task panel entry + progress + abort
+- [ ] Consolidation inline message: "Improved N files" in conversation
+- [ ] Wire `search_memory` tool → register SearchMemoryTool (function layer done, rg + LanceDB)
+- [ ] Wire memory hooks: add MemoryQuery lifecycle + trigger in SearchMemoryTool
 
 ### Hooks
 - [x] File-based hook discovery + context injection (#442)
 - [x] File-hooks lifecycle spec (`docs/features/file-hooks.md`) (#442)
 - [x] Command hook execution: `run_command_hook` + `make_command_hook` (#444)
 - [x] Hook runtime startup + event bus subscription (#444)
-- [x] Per-phase conditional hook injection — done (#556)
-- [x] PreToolUse hook with input modification — done (#556)
+- [ ] Per-phase conditional hook injection (execution disabled — needs sandbox policy)
+- [ ] `PreToolUse` hook with input modification (execution disabled)
 - [ ] Hook output injection into model context
 - [ ] Wire plugin hook registration into runtime startup
 
@@ -130,8 +130,8 @@ Active backlog only. Keep this file small and current.
 - [x] Implement session/global memory files with summary-driven retrieval (Phase 2 of spec).
 - [x] Wire `memory_summary` summary index into context assembler.
 - [x] Concurrent-safe writes: atomic temp-file + fs2 locking for shared memory files.
-- [ ] Wire memory hooks (pre/post memory write, query).
-- [ ] Wire memory hooks (pre/post memory write, query).
+- [ ] Wire memory hooks: add MemoryQuery lifecycle + trigger in SearchMemoryTool.
+- [ ] Wire memory hooks: add MemoryQuery lifecycle + trigger in SearchMemoryTool.
 - [x] CLI: `rara resume <THREAD_ID>`, `rara thread <THREAD_ID>`, `rara threads` (#537)
 ## Model Support
 
