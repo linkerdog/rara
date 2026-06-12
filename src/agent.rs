@@ -24,6 +24,8 @@ use crate::context::{
     AgentTurnTraceView, FileSearchCandidateProvider, RetrievalCandidate, RetrievedMemoryCandidate,
 };
 use crate::control_tokens::scrub_internal_control_tokens;
+use crate::hook_registry::HookRegistry;
+use crate::hooks::{HookSandbox, run_sandboxed_hook};
 use crate::llm::{
     ContentBlock, EmbeddingBackend, EmbeddingInputKind, LlmBackend, LlmEmbeddingBackend,
     LlmStreamEvent, LlmTurnMetadata,
@@ -190,6 +192,8 @@ pub struct Agent {
     pub completed_approval: Option<CompletedInteraction>,
     pub approved_bash_prefixes: Vec<String>,
     pub compact_state: CompactState,
+    pub hook_registry: Option<Arc<HookRegistry>>,
+    pub hook_sandbox: Option<HookSandbox>,
     pub retrieved_memory_candidates: Vec<RetrievedMemoryCandidate>,
     pub file_search_candidates: Vec<RetrievalCandidate>,
     pub mcp_resource_candidates: Vec<RetrievalCandidate>,
@@ -212,6 +216,12 @@ pub struct Agent {
 }
 
 impl Agent {
+    /// Configure hook execution context. Called after construction.
+    pub fn set_hook_context(&mut self, registry: Arc<HookRegistry>, sandbox: HookSandbox) {
+        self.hook_registry = Some(registry);
+        self.hook_sandbox = Some(sandbox);
+    }
+
     /// Accumulate subagent (auxiliary model) cache statistics.
     /// Called by consolidation and other subagent completion
     /// handlers to split cache reporting between main and aux models.
@@ -322,6 +332,8 @@ impl Agent {
             completed_approval: None,
             approved_bash_prefixes: Vec::new(),
             compact_state: CompactState::default(),
+            hook_registry: None,
+            hook_sandbox: None,
             retrieved_memory_candidates: Vec::new(),
             file_search_candidates: Vec::new(),
             mcp_resource_candidates: Vec::new(),
