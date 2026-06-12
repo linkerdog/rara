@@ -89,6 +89,10 @@ impl RuntimeBootstrap {
         agent.set_prompt_source_registry(self.prompt_source_registry.clone());
         agent.set_skill_source_registry(self.skill_source_registry.clone());
         agent.set_lsp_manager(self.lsp_manager.clone());
+        agent.set_hook_context(
+            self.hook_registry.clone(),
+            crate::hooks::HookSandbox::default(),
+        );
         (
             agent,
             self.warnings,
