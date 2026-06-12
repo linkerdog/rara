@@ -35,19 +35,20 @@ Active backlog only. Keep this file small and current.
 - [x] Codex-inspired read-path template with usage instructions (#442)
 - [x] Migrate `memory_files` to `rara-memory` crate (#442)
 - [x] CC-style consolidation: scheduler + lock + subagent dispatch (#537)
+
 - [ ] Consolidation tool restriction: add allowed_root to WriteFileTool (needs Tool trait changes)
 - [ ] Consolidation DreamTask UI: TUI task panel entry + progress + abort
-- [ ] Consolidation inline message: "Improved N files" in conversation
-- [ ] Wire `search_memory` tool → register SearchMemoryTool (function layer done, rg + LanceDB)
-- [ ] Wire memory hooks: add MemoryQuery lifecycle + trigger in SearchMemoryTool
+- [x] Consolidation inline message (#552)
+- [x] search_memory tool registration (#553)
+- [x] MemoryQuery hook lifecycle + SearchMemoryTool callback slot (#559)
 
 ### Hooks
 - [x] File-based hook discovery + context injection (#442)
 - [x] File-hooks lifecycle spec (`docs/features/file-hooks.md`) (#442)
 - [x] Command hook execution: `run_command_hook` + `make_command_hook` (#444)
 - [x] Hook runtime startup + event bus subscription (#444)
-- [ ] Per-phase conditional hook injection (execution disabled — needs sandbox policy)
-- [ ] `PreToolUse` hook with input modification (execution disabled)
+- [x] Per-phase conditional hook injection (#556)
+- [x] PreToolUse hook (#556)
 - [ ] Hook output injection into model context
 - [ ] Wire plugin hook registration into runtime startup
 
@@ -130,9 +131,8 @@ Active backlog only. Keep this file small and current.
 - [x] Implement session/global memory files with summary-driven retrieval (Phase 2 of spec).
 - [x] Wire `memory_summary` summary index into context assembler.
 - [x] Concurrent-safe writes: atomic temp-file + fs2 locking for shared memory files.
-- [ ] Wire memory hooks: add MemoryQuery lifecycle + trigger in SearchMemoryTool.
-- [ ] Wire memory hooks: add MemoryQuery lifecycle + trigger in SearchMemoryTool.
 - [x] CLI: `rara resume <THREAD_ID>`, `rara thread <THREAD_ID>`, `rara threads` (#537)
+
 ## Model Support
 
 - [x] uv venv --python 3.14 --seed for managed Python venv.
