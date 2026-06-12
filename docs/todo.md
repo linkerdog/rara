@@ -66,14 +66,12 @@ Active backlog only. Keep this file small and current.
 - [ ] `tui/render.rs` (990 lines) → move to existing submodules
 - [ ] `context/assembler.rs` (916 lines) → budget + assembly
 
-### Dead Code Cleanup
-- [ ] `runtime_control.rs`: audit 40+ `#[allow(dead_code)]` — classify each using handle-unused-code skill
+- [x] `runtime_control.rs`: add per-item comments to 22 `#[allow(dead_code)]` ACP types (#547)
 - [x] `hook_registry.rs`: remove `#[allow(dead_code)]` from `all_hooks` (#532)
-- [ ] `google_oauth.rs`: audit 20+ items hidden by `#![allow(dead_code)]`, classify individually
-- [x] `theme.rs`: remove module-level `#![allow]`, add per-item `// Nord palette` comments
-- [ ] `mcp_status.rs`: add scaffolding comment per AGENTS.md
-- [ ] `tui/custom_terminal.rs`: add scaffolding comment per AGENTS.md
-
+- [x] `google_oauth.rs`: documented as technical debt — 21 items to delete after OAuth migration (#551)
+- [x] `theme.rs`: remove module-level `#![allow]`, add per-item `// Nord palette` comments (#545)
+- [x] `mcp_status.rs`: add scaffolding comment per AGENTS.md (#547)
+- [x] `tui/custom_terminal.rs`: add `#[allow(deprecated)]` for Cell::skip (#549)
 ### Features
 - [x] Embedding dimension consistency: detect + rebuild on mismatch
 - [ ] Sidebar status update: `app.local_model_server` after bootstrap
