@@ -6,7 +6,7 @@
 
 use std::collections::BTreeMap;
 use std::fs;
-use std::io::Write;
+use std::io::{BufReader, Read, Write};
 use std::path::Path;
 use std::process::{Command, Stdio};
 use std::time::{Duration, Instant};
@@ -285,6 +285,8 @@ impl HookOutcome {
 ///
 /// Shells out to `bash -c <hook.body>` with limited environment,
 /// no network, and a hard timeout.  stdin receives the input JSON.
+/// stdout and stderr are read concurrently via background threads
+/// to prevent pipe deadlock when hook output exceeds ~64KB.
 pub fn run_sandboxed_hook(
     hook: &HookDefinition,
     sandbox: &HookSandbox,
@@ -297,29 +299,40 @@ pub fn run_sandboxed_hook(
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
-        // No network access (not enforced at process level, but hooks
-        // are expected to be local scripts that don't need it).
         .spawn()?;
 
+    // Write input then close stdin.
     if let Some(mut stdin) = child.stdin.take() {
         let _ = stdin.write_all(input_json.as_bytes());
     }
-    // stdin is dropped here — closes the pipe so the hook sees EOF.
 
+    // Background threads consume stdout/stderr to avoid pipe deadlock.
+    let child_stdout = child.stdout.take().expect("stdout pipe");
+    let child_stderr = child.stderr.take().expect("stderr pipe");
+
+    let (stdout_tx, stdout_rx) = std::sync::mpsc::channel();
+    let (stderr_tx, stderr_rx) = std::sync::mpsc::channel();
+
+    std::thread::spawn(move || {
+        let mut r = std::io::BufReader::new(child_stdout);
+        let mut buf = Vec::new();
+        let _ = std::io::Read::read_to_end(&mut r, &mut buf);
+        let _ = stdout_tx.send(buf);
+    });
+    std::thread::spawn(move || {
+        let mut r = std::io::BufReader::new(child_stderr);
+        let mut buf = Vec::new();
+        let _ = std::io::Read::read_to_end(&mut r, &mut buf);
+        let _ = stderr_tx.send(buf);
+    });
+
+    // Wait with timeout.
     let start = Instant::now();
-    let mut output: Option<std::process::Output> = None;
-
-    // Busy-wait with timeout — single-threaded, acceptable for <1s hooks.
+    let status;
     loop {
         match child.try_wait()? {
-            Some(status) => {
-                // Child exited — collect remaining output.
-                let o = child.wait_with_output()?;
-                output = Some(std::process::Output {
-                    status,
-                    stdout: o.stdout,
-                    stderr: o.stderr,
-                });
+            Some(s) => {
+                status = s;
                 break;
             }
             None => {
@@ -338,18 +351,13 @@ pub fn run_sandboxed_hook(
         }
     }
 
-    if output.is_none() {
-        return Err(std::io::Error::new(
-            std::io::ErrorKind::Other,
-            "hook process did not produce output after wait",
-        ));
-    }
-    let output = output.unwrap();
+    let stdout = String::from_utf8_lossy(&stdout_rx.recv().unwrap_or_default()).into_owned();
+    let stderr = String::from_utf8_lossy(&stderr_rx.recv().unwrap_or_default()).into_owned();
 
     Ok(HookOutcome {
-        stdout: String::from_utf8_lossy(&output.stdout).into_owned(),
-        stderr: String::from_utf8_lossy(&output.stderr).into_owned(),
-        exit_code: output.status.code(),
+        stdout,
+        stderr,
+        exit_code: status.code(),
         timed_out: false,
     })
 }
