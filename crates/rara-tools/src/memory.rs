@@ -14,6 +14,10 @@ use crate::tool::{Tool, ToolError};
 pub struct SearchMemoryTool {
     pub rara_home: PathBuf,
     pub vdb: Option<Arc<VectorDB>>,
+    /// Optional MemoryQuery hook callback.
+    /// Invoked with the search query before the actual search.
+    /// Wired at registration time in tooling.rs.
+    pub hook_callback: Option<Arc<dyn Fn(&str) + Send + Sync>>,
 }
 
 #[tool_spec(
@@ -36,6 +40,13 @@ impl Tool for SearchMemoryTool {
         let query = input["query"]
             .as_str()
             .ok_or_else(|| ToolError::InvalidInput("missing 'query' field".into()))?;
+
+        // MemoryQuery hook: notify hooks before search (non-blocking).
+        if let Some(ref cb) = self.hook_callback {
+            let cb = cb.clone();
+            let q = query.to_owned();
+            let _ = tokio::task::spawn_blocking(move || cb(&q)).await;
+        }
 
         let hits = search_memory(query, &self.rara_home, self.vdb.as_deref())
             .await

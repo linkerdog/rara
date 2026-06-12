@@ -125,6 +125,7 @@ pub(super) fn create_full_tool_manager(
     tm.register(Box::new(SearchMemoryTool {
         rara_home: workspace.rara_dir.clone(),
         vdb: Some(vdb.clone()),
+        hook_callback: None, // TODO: wire MemoryQuery hooks
     }));
     tm.register(Box::new(LspDiagnosticsTool::new(lsp_manager)));
     tm.register(Box::new(McpToolSearch::new(mcp_tool_cache)));
