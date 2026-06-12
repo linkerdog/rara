@@ -146,6 +146,14 @@ impl HookRegistry {
         self.active_phases = phases;
     }
 
+    /// Return all hooks registered for a given lifecycle phase.
+    pub fn hooks_for_phase(&self, phase: HookLifecycle) -> Vec<&HookDefinition> {
+        self.hooks
+            .values()
+            .filter(|h| h.parse_status == HookParseStatus::Ok && h.phase == phase)
+            .collect()
+    }
+
     /// For /context and /status: list each hook with phase, path, and parse status.
     pub fn status_lines(&self) -> Vec<String> {
         let mut lines = Vec::new();

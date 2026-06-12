@@ -80,4 +80,18 @@ impl HookRegistry {
     pub async fn all_hooks(&self) -> Vec<HookEntry> {
         self.hooks.read().await.values().cloned().collect()
     }
+
+    /// Return hooks registered for a given lifecycle phase (non-async).
+    pub fn hooks_for_phase(&self, phase: HookLifecycle) -> Vec<HookEntry> {
+        self.hooks
+            .try_read()
+            .map(|guard| {
+                guard
+                    .values()
+                    .filter(|h| h.lifecycle == phase)
+                    .cloned()
+                    .collect()
+            })
+            .unwrap_or_default()
+    }
 }

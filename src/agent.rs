@@ -10,6 +10,7 @@ mod tests;
 use std::sync::{Arc, atomic::AtomicBool};
 
 use anyhow::{Context, Result};
+use rara_instructions::HookLifecycle;
 use rara_memory::vectordb::VectorDB;
 use rara_persistence::redaction::redact_secrets;
 use rara_state::state_db::StateDb;
@@ -24,7 +25,9 @@ use crate::context::{
     AgentTurnTraceView, FileSearchCandidateProvider, RetrievalCandidate, RetrievedMemoryCandidate,
 };
 use crate::control_tokens::scrub_internal_control_tokens;
-use crate::hook_registry::HookRegistry;
+use crate::hooks::HookDefinition;
+use crate::hooks::HookParseStatus;
+use crate::hooks::HookRegistry;
 use crate::hooks::{HookSandbox, run_sandboxed_hook};
 use crate::llm::{
     ContentBlock, EmbeddingBackend, EmbeddingInputKind, LlmBackend, LlmEmbeddingBackend,
@@ -192,7 +195,7 @@ pub struct Agent {
     pub completed_approval: Option<CompletedInteraction>,
     pub approved_bash_prefixes: Vec<String>,
     pub compact_state: CompactState,
-    pub hook_registry: Option<Arc<HookRegistry>>,
+    pub hook_registry: Option<Arc<crate::hooks::HookRegistry>>,
     pub hook_sandbox: Option<HookSandbox>,
     pub retrieved_memory_candidates: Vec<RetrievedMemoryCandidate>,
     pub file_search_candidates: Vec<RetrievalCandidate>,
@@ -217,7 +220,11 @@ pub struct Agent {
 
 impl Agent {
     /// Configure hook execution context. Called after construction.
-    pub fn set_hook_context(&mut self, registry: Arc<HookRegistry>, sandbox: HookSandbox) {
+    pub fn set_hook_context(
+        &mut self,
+        registry: Arc<crate::hooks::HookRegistry>,
+        sandbox: HookSandbox,
+    ) {
         self.hook_registry = Some(registry);
         self.hook_sandbox = Some(sandbox);
     }
@@ -1247,6 +1254,40 @@ impl Agent {
                 });
                 tool_results.push(tool_result_message(&tool_id, error_text, true));
                 continue;
+            }
+            // PreToolUse hook: run registered hooks that can allow/block.
+            if let (Some(registry), Some(sandbox)) = (&self.hook_registry, &self.hook_sandbox) {
+                let hooks = registry.hooks_for_phase(HookLifecycle::PreToolUse);
+                let mut blocked = false;
+                if !hooks.is_empty() {
+                    let input = serde_json::json!({
+                        "tool_name": tool_name,
+                        "tool_input": tool_input
+                    });
+                    let input_str = input.to_string();
+                    for hook in &hooks {
+                        match run_sandboxed_hook(hook, sandbox, &input_str) {
+                            Ok(outcome) if !outcome.allows() => {
+                                let msg = format!("tool {} blocked by hook {}", tool_name, hook.id);
+                                tool_results.push(tool_result_message(&tool_id, msg, true));
+                                if !outcome.stderr.is_empty() {
+                                    eprintln!("hook {}: {}", hook.id, outcome.stderr);
+                                }
+                                blocked = true;
+                                break;
+                            }
+                            Err(e) => {
+                                eprintln!("hook {} failed: {}", hook.id, e);
+                                blocked = true;
+                                break;
+                            }
+                            _ => {}
+                        }
+                    }
+                }
+                if blocked {
+                    continue;
+                }
             }
             if let Some(tool) = self.tool_manager.get_tool(&tool_name) {
                 self.inspection_progress
