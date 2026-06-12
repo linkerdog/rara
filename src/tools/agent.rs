@@ -1271,7 +1271,7 @@ pub(crate) struct SubAgentResult {
     agent_id: String,
     session_id: String,
     pub(crate) status: &'static str,
-    summary: String,
+    pub(crate) summary: String,
     persistence_error: Option<String>,
     plan: Option<Vec<PlanStep>>,
     plan_explanation: Option<String>,

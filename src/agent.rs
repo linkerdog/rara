@@ -451,7 +451,16 @@ impl Agent {
                             )
                             .await;
                             match result {
-                                Ok(r) => eprintln!("consolidation complete: status={}", r.status),
+                                Ok(r) => {
+                                    if r.summary.is_empty() {
+                                        eprintln!(
+                                            "📝 consolidation complete — status={}",
+                                            r.status
+                                        );
+                                    } else {
+                                        eprintln!("📝 consolidation: {}", r.summary);
+                                    }
+                                }
                                 Err(e) => eprintln!("consolidation subagent failed: {e}"),
                             }
                         });
