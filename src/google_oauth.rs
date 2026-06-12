@@ -1,8 +1,11 @@
 //! Google OAuth PKCE flow for Gemini Code Assist.
-// FIXME(#546): superseded by codex-login integration.
-// The public API types are still live; the bespoke impl methods are dead.
-// Audit and delete the dead items, then remove this module-level allow..
-#![allow(dead_code)] // FIXME(#546): audit 20+ items individually per handle-unused-code skill
+//!
+//! DEPRECATED: superseded by codex-login integration (#546).
+//! The public API types (GoogleCredential, GoogleOAuthManager) are still
+//! live and consumed from src/tui/runtime/tasks/google_oauth.rs.
+//! All other items (21+ struct fields, helper types, PKCE methods) are
+//! dead — deleted when the OAuth TUI is fully migrated to codex-login.
+#![allow(dead_code)] // technical debt: 21 items to delete after OAuth migration
 use std::io::{Read, Write};
 use std::net::{SocketAddr, TcpListener};
 use std::path::{Path, PathBuf};
