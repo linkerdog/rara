@@ -35,11 +35,11 @@ Active backlog only. Keep this file small and current.
 - [x] Codex-inspired read-path template with usage instructions (#442)
 - [x] Migrate `memory_files` to `rara-memory` crate (#442)
 - [x] CC-style consolidation: scheduler + lock + subagent dispatch (#537)
-- [ ] Consolidation tool restriction: limit write and edit tools to the memory directory
-- [ ] Consolidation DreamTask UI: task panel entry with progress + abort
+- [ ] Consolidation tool restriction: add path-check callback to ToolManager
+- [ ] Consolidation DreamTask UI: TUI task panel entry + progress + abort
 - [ ] Consolidation inline message: "Improved N files" in conversation
 - [ ] Wire `search_memory` tool → register SearchMemoryTool (function layer done, rg + LanceDB)
-- [ ] Wire memory hooks (pre/post memory write, query)
+- [ ] Wire memory hooks: add MemoryQuery lifecycle + trigger in SearchMemoryTool
 
 ### Hooks
 - [x] File-based hook discovery + context injection (#442)
@@ -130,8 +130,8 @@ Active backlog only. Keep this file small and current.
 - [x] Implement session/global memory files with summary-driven retrieval (Phase 2 of spec).
 - [x] Wire `memory_summary` summary index into context assembler.
 - [x] Concurrent-safe writes: atomic temp-file + fs2 locking for shared memory files.
-- [ ] Wire memory hooks (pre/post memory write, query).
-- [ ] Wire memory hooks (pre/post memory write, query).
+- [ ] Wire memory hooks: add MemoryQuery lifecycle + trigger in SearchMemoryTool.
+- [ ] Wire memory hooks: add MemoryQuery lifecycle + trigger in SearchMemoryTool.
 - [x] CLI: `rara resume <THREAD_ID>`, `rara thread <THREAD_ID>`, `rara threads` (#537)
 ## Model Support
 
