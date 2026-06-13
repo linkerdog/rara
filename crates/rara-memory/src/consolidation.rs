@@ -144,6 +144,28 @@ impl ConsolidationScheduler {
         Some(sessions)
     }
 
+    /// Human-readable consolidation status for TUI display.
+    pub fn status(&self) -> String {
+        let last = self.read_last_consolidated_at();
+        let now = epoch_seconds();
+        match last {
+            None => "no consolidation has run yet".into(),
+            Some(ts) => {
+                let secs = now.saturating_sub(ts);
+                let ago = if secs < 60 {
+                    format!("{}s ago", secs)
+                } else if secs < 3600 {
+                    format!("{}m ago", secs / 60)
+                } else if secs < 86400 {
+                    format!("{}h ago", secs / 3600)
+                } else {
+                    format!("{}d ago", secs / 86400)
+                };
+                format!("last consolidation: {}", ago)
+            }
+        }
+    }
+
     /// Acquire the consolidation lock.
     pub fn acquire_lock(&self) -> Option<ConsolidationLock> {
         ConsolidationLock::acquire(&self.memory_root)

@@ -39,8 +39,13 @@ pub(super) async fn execute_local_command(
         LocalCommandKind::Skills => "skills",
         LocalCommandKind::Permissions => "permissions",
         LocalCommandKind::Goal => "goal",
+        LocalCommandKind::Dream => "dream",
     });
     match command.kind {
+        LocalCommandKind::Dream => {
+            // handled in the full async dispatch below
+            return Ok(false);
+        }
         LocalCommandKind::Approval => {
             if app.is_busy() {
                 app.push_notice("A task is already running. Wait for it to finish.");
@@ -202,6 +207,15 @@ pub(super) async fn execute_local_command(
             app.set_runtime_phase(RuntimePhase::LocalCommand, Some("opening status".into()));
             app.open_overlay(Overlay::Status(StatusTab::Overview));
         }
+        LocalCommandKind::Dream => {
+            let summary = agent_slot
+                .as_mut()
+                .unwrap()
+                .consolidation_scheduler
+                .status();
+            app.set_runtime_phase(RuntimePhase::LocalCommand, Some("dream".into()));
+        }
+
         LocalCommandKind::Goal => {
             app.set_runtime_phase(
                 RuntimePhase::LocalCommand,

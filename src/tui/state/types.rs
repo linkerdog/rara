@@ -167,6 +167,7 @@ pub enum LocalCommandKind {
     Permissions,
     Logout,
     Review,
+    Dream,
     Goal,
     Quit,
     Skills,
