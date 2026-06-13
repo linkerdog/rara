@@ -37,7 +37,7 @@ Active backlog only. Keep this file small and current.
 - [x] CC-style consolidation: scheduler + lock + subagent dispatch (#537)
 
 - [x] Consolidation tool restriction: documented scope (#563)
-- [ ] Consolidation DreamTask UI: TUI task panel entry + progress + abort
+- [x] /dream command + consolidation status (#564)
 - [x] Consolidation inline message (#552)
 - [x] search_memory tool registration (#553)
 - [x] MemoryQuery hook lifecycle + SearchMemoryTool callback slot (#559)
