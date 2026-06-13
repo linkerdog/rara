@@ -311,7 +311,7 @@ impl<'a> ContextAssembler<'a> {
 
 // Keep budget helpers in the assembler module so private context assembly
 // helpers remain shared without registering budget_assembly as a Rust module.
-include!("budget_assembly.rs");
+include!("../budget_assembly.rs");
 
 #[cfg(test)]
 mod tests {
