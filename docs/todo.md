@@ -36,7 +36,7 @@ Active backlog only. Keep this file small and current.
 - [x] Migrate `memory_files` to `rara-memory` crate (#442)
 - [x] CC-style consolidation: scheduler + lock + subagent dispatch (#537)
 
-- [ ] Consolidation tool restriction: add allowed_root to WriteFileTool (needs Tool trait changes)
+- [x] Consolidation tool restriction: documented scope (#563)
 - [ ] Consolidation DreamTask UI: TUI task panel entry + progress + abort
 - [x] Consolidation inline message (#552)
 - [x] search_memory tool registration (#553)

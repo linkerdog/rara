@@ -471,14 +471,18 @@ impl Agent {
                             .await;
                             match result {
                                 Ok(r) => {
-                                    if r.summary.is_empty() {
-                                        eprintln!(
-                                            "📝 consolidation complete — status={}",
-                                            r.status
-                                        );
+                                    let line = if r.summary.is_empty() {
+                                        format!(
+                                            "📝 consolidation complete — status={} (cache: {}/{} hit/miss)",
+                                            r.status, r.total_cache_hit_tokens, r.total_cache_miss_tokens
+                                        )
                                     } else {
-                                        eprintln!("📝 consolidation: {}", r.summary);
-                                    }
+                                        format!(
+                                            "📝 consolidation: {} (cache: {}/{} hit/miss)",
+                                            r.summary, r.total_cache_hit_tokens, r.total_cache_miss_tokens
+                                        )
+                                    };
+                                    eprintln!("{}", line);
                                 }
                                 Err(e) => eprintln!("consolidation subagent failed: {e}"),
                             }
