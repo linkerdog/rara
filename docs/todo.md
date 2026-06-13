@@ -65,7 +65,7 @@ Active backlog only. Keep this file small and current.
 - [ ] `thread_store.rs` (1568 lines) → read/write separation
 - [ ] `agent.rs` (1339 lines) → tool/plan/history
 - [ ] `tui/render.rs` (990 lines) → move to existing submodules
-- [ ] `context/assembler.rs` (916 lines) → budget + assembly
+- [x] context/assembler.rs → assembler/mod.rs directory (#561)
 
 - [x] `runtime_control.rs`: add per-item comments to 22 `#[allow(dead_code)]` ACP types (#547)
 - [x] `hook_registry.rs`: remove `#[allow(dead_code)]` from `all_hooks` (#532)
@@ -105,7 +105,6 @@ Active backlog only. Keep this file small and current.
 ## Plugins / Extension Runtime
 
 - [x] Add `rara-plugins` crate for Claude Code plugin discovery.
-- [ ] Wire plugin hook registration into runtime startup.
 - [ ] Fix plugin lifecycle parity: `SessionEnd` mapping, matcher evaluation, hook stdout/stderr.
 - [ ] Add `rara plugin install/list/remove` CLI commands.
 
@@ -157,4 +156,3 @@ Active backlog only. Keep this file small and current.
 - [x] Memory spec: `docs/features/session-global-memory.md`
 - [x] LSP spec: `docs/features/lsp-integration.md`
 - [ ] Hooks/plugin lifecycle spec
-- [ ] Subagent context optimization spec
