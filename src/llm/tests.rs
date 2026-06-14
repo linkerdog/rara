@@ -17,7 +17,8 @@ use super::openai_compatible::{
     to_openai_messages_for_endpoint,
 };
 use super::shared::{
-    extract_message_text, model_context_budget, parse_tool_arguments, should_bypass_proxy,
+    context_budget_from_window, extract_message_text, model_context_budget, parse_tool_arguments,
+    should_bypass_proxy,
 };
 use crate::agent::Message;
 use crate::config::OpenAiEndpointKind;
@@ -2413,6 +2414,7 @@ fn prefers_explicit_num_ctx_override_for_ollama_options() {
 fn derives_context_budget_for_codex_like_models() {
     let budget = model_context_budget("gpt-5.1-codex").expect("budget");
     assert_eq!(budget.context_window_tokens, 200_000);
+    assert_eq!(budget.reserved_output_tokens, 20_000);
     assert!(budget.compact_threshold_tokens < budget.context_window_tokens);
 }
 
@@ -2420,12 +2422,27 @@ fn derives_context_budget_for_codex_like_models() {
 fn derives_context_budget_for_deepseek_v4_models() {
     let budget = model_context_budget("deepseek-v4-preview").expect("budget");
     assert_eq!(budget.context_window_tokens, 1_048_576);
+    assert_eq!(budget.reserved_output_tokens, 32_768);
     assert!(budget.compact_threshold_tokens > 900_000);
 }
 
 #[test]
 fn does_not_infer_deepseek_long_context_from_unlisted_versions() {
     assert!(model_context_budget("deepseek-v3").is_none());
+}
+
+#[test]
+fn context_budget_scales_reserved_output_by_window_size() {
+    let small = context_budget_from_window(8_192);
+    let medium = context_budget_from_window(128_000);
+    let large = context_budget_from_window(1_048_576);
+
+    assert_eq!(small.reserved_output_tokens, 1365);
+    assert_eq!(small.compact_threshold_tokens, 6315);
+    assert_eq!(medium.reserved_output_tokens, 16_000);
+    assert_eq!(medium.compact_threshold_tokens, 107_904);
+    assert_eq!(large.reserved_output_tokens, 32_768);
+    assert_eq!(large.compact_threshold_tokens, 1_007_616);
 }
 
 #[test]
