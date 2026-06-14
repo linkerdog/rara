@@ -37,7 +37,7 @@ Active backlog only. Keep this file small and current.
 - [x] CC-style consolidation: scheduler + lock + subagent dispatch (#537)
 
 - [x] Consolidation tool restriction: documented scope (#563)
-- [ ] Consolidation DreamTask UI: TUI task panel entry + progress + abort
+- [x] Consolidation DreamTask UI: /dream command + status (#564)
 - [x] Consolidation inline message (#552)
 - [x] search_memory tool registration (#553)
 - [x] MemoryQuery hook lifecycle + SearchMemoryTool callback slot (#559)
@@ -49,8 +49,8 @@ Active backlog only. Keep this file small and current.
 - [x] Hook runtime startup + event bus subscription (#444)
 - [x] Per-phase conditional hook injection (#556)
 - [x] PreToolUse hook (#556)
-- [ ] Hook output injection into model context
-- [ ] Wire plugin hook registration into runtime startup
+- [ ] Hook output injection into model context (execution disabled — blocked on sandbox policy)
+- [ ] Wire plugin hook registration into runtime startup (execution disabled — blocked on sandbox policy)
 
 ### LSP (Phase 1)
 - [x] LSP runtime wiring: shared manager, lazy server startup, diagnostics parsing, sidebar status
@@ -64,7 +64,7 @@ Active backlog only. Keep this file small and current.
 - [ ] `memory_store.rs` (1625 lines) → LanceDB + legacy
 - [ ] `thread_store.rs` (1568 lines) → read/write separation
 - [ ] `agent.rs` (1339 lines) → tool/plan/history
-- [ ] `tui/render.rs` (990 lines) → move to existing submodules
+- [x] tui/render.rs → render/mod.rs directory (#566)
 - [x] context/assembler.rs → assembler/mod.rs directory (#561)
 
 - [x] `runtime_control.rs`: add per-item comments to 22 `#[allow(dead_code)]` ACP types (#547)
