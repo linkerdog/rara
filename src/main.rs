@@ -30,6 +30,7 @@ mod memory_files;
 mod memory_notice;
 mod memory_store;
 mod oauth;
+mod plugin_cli;
 mod plugin_middleware;
 mod print_consumer;
 mod prompt;

@@ -12,7 +12,7 @@ Active backlog only. Keep this file small and current.
 ## Execution Plan (2026-06-14)
 
 1. Finish plugin/runtime status correctness before adding more plugin surface.
-2. Add `rara plugin install/list/remove` once runtime registration is observable.
+2. Add `rara plugin install/list/remove` once runtime registration is observable. (done)
 3. Improve TUI live feedback: thinking collapse/summary, then live bash transcript.
 4. Close context/embedding correctness: canonical vector schema, rebuild on mismatch,
    model-aware budgeting, project `AGENTS.md` memory injection.
@@ -115,7 +115,7 @@ Active backlog only. Keep this file small and current.
 
 - [x] Add `rara-plugins` crate for Claude Code plugin discovery.
 - [x] Fix plugin lifecycle parity: SessionEnd mapping added (#568. SessionEnd=9 last)
-- [ ] Add `rara plugin install/list/remove` CLI commands.
+- [x] Add `rara plugin install/list/remove` CLI commands.
 
 ## TUI / Composer / Status
 
