@@ -37,7 +37,7 @@ Active backlog only. Keep this file small and current.
 - [x] CC-style consolidation: scheduler + lock + subagent dispatch (#537)
 
 - [x] Consolidation tool restriction: documented scope (#563)
-- [ ] Consolidation DreamTask UI: TUI task panel entry + progress + abort
+- [x] Consolidation DreamTask UI: /dream command + status (#564)
 - [x] Consolidation inline message (#552)
 - [x] search_memory tool registration (#553)
 - [x] MemoryQuery hook lifecycle + SearchMemoryTool callback slot (#559)
@@ -49,7 +49,7 @@ Active backlog only. Keep this file small and current.
 - [x] Hook runtime startup + event bus subscription (#444)
 - [x] Per-phase conditional hook injection (#556)
 - [x] PreToolUse hook (#556)
-- [ ] Hook output injection into model context
+- [ ] Hook output injection into model context (blocked on sandbox policy)
 - [ ] Wire plugin hook registration into runtime startup
 
 ### LSP (Phase 1)
