@@ -111,7 +111,7 @@ Active backlog only. Keep this file small and current.
 ## TUI / Composer / Status
 
 - [x] BottomPaneModel struct with structured notice/prompt/input.
-- [ ] Finish BottomPaneModel migration: composer/sizing read structured data.
+- [x] Finish BottomPaneModel migration: composer/sizing already reads from model
 - [ ] Thinking expand/collapse with duration summary.
 - [ ] Live bash transcript: streaming output frames.
 - [ ] After local embedding sidecar lands: `/status` context fields for backend/model/state.
