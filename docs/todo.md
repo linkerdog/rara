@@ -105,7 +105,7 @@ Active backlog only. Keep this file small and current.
 ## Plugins / Extension Runtime
 
 - [x] Add `rara-plugins` crate for Claude Code plugin discovery.
-- [ ] Fix plugin lifecycle parity: `SessionEnd` mapping, matcher evaluation, hook stdout/stderr.
+- [x] Fix plugin lifecycle parity: SessionEnd mapping added (#568. SessionEnd=9 last)
 - [ ] Add `rara plugin install/list/remove` CLI commands.
 
 ## TUI / Composer / Status
