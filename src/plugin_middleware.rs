@@ -25,7 +25,7 @@ fn hook_event_to_lifecycle(event: HookEvent) -> HookLifecycle {
         HookEvent::PostToolUse => HookLifecycle::PostToolUse,
         HookEvent::UserPromptSubmit => HookLifecycle::UserPromptSubmit,
         HookEvent::SessionStart => HookLifecycle::SessionStart,
-        HookEvent::SessionEnd => HookLifecycle::SessionStart,
+        HookEvent::SessionEnd => HookLifecycle::SessionEnd,
     }
 }
 
