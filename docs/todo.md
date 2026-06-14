@@ -9,6 +9,15 @@
 
 Active backlog only. Keep this file small and current.
 
+## Execution Plan (2026-06-14)
+
+1. Finish plugin/runtime status correctness before adding more plugin surface.
+2. Add `rara plugin install/list/remove` once runtime registration is observable.
+3. Improve TUI live feedback: thinking collapse/summary, then live bash transcript.
+4. Close context/embedding correctness: canonical vector schema, rebuild on mismatch,
+   model-aware budgeting, project `AGENTS.md` memory injection.
+5. Split P0 large files only after the behavior surfaces above have tests.
+
 ## Recently Completed (2025-07-15..16)
 
 - [x] uv venv: replace manual Python discovery with `uv venv --python 3.14 --seed` (#423)
@@ -50,7 +59,7 @@ Active backlog only. Keep this file small and current.
 - [x] Per-phase conditional hook injection (#556)
 - [x] PreToolUse hook (#556)
 - [ ] Hook output injection into model context (blocked on sandbox policy)
-- [ ] Wire plugin hook registration into runtime startup
+- [x] Wire plugin hook registration into runtime startup/status panel
 
 ### LSP (Phase 1)
 - [x] LSP runtime wiring: shared manager, lazy server startup, diagnostics parsing, sidebar status
@@ -75,7 +84,7 @@ Active backlog only. Keep this file small and current.
 - [x] `tui/custom_terminal.rs`: add `#[allow(deprecated)]` for Cell::skip (#549)
 ### Features
 - [x] Embedding dimension consistency: detect + rebuild on mismatch
-- [ ] Sidebar status update: `app.local_model_server` after bootstrap
+- [x] Sidebar status update: `app.local_model_server` after bootstrap
 
 ### Specs to Write
 - [x] Hooks/plugin lifecycle spec — `docs/features/file-hooks.md`
@@ -115,7 +124,7 @@ Active backlog only. Keep this file small and current.
 - [ ] Thinking expand/collapse with duration summary.
 - [ ] Live bash transcript: streaming output frames.
 - [ ] After local embedding sidecar lands: `/status` context fields for backend/model/state.
-- [ ] Plugin hook registration feed into TUI runtime status panel.
+- [x] Plugin hook registration feed into TUI runtime status panel.
 
 ## Context / Embeddings
 

@@ -34,6 +34,27 @@ pub async fn register_plugin_hooks(
     user_plugins_dir: &PathBuf,
     session_id: &str,
 ) -> usize {
+    let runtime = runtime.clone();
+    let user_plugins_dir = user_plugins_dir.clone();
+    let session_id = session_id.to_string();
+    match tokio::task::spawn_blocking(move || {
+        register_plugin_hooks_blocking(&runtime, &user_plugins_dir, &session_id)
+    })
+    .await
+    {
+        Ok(count) => count,
+        Err(err) => {
+            eprintln!("plugin hook registration task failed: {err}");
+            0
+        }
+    }
+}
+
+fn register_plugin_hooks_blocking(
+    runtime: &Arc<HookRuntime>,
+    user_plugins_dir: &PathBuf,
+    session_id: &str,
+) -> usize {
     let plugins = discover_plugins(user_plugins_dir);
     let mut registered = 0usize;
 
@@ -82,14 +103,12 @@ pub async fn register_plugin_hooks(
                 });
             });
 
-            runtime
-                .register(
-                    format!("{}-{}", plugin_name, rh.event.as_str()),
-                    lifecycle,
-                    format!("plugin hook: {}", plugin_name),
-                    callback,
-                )
-                .await;
+            runtime.register(
+                format!("{}-{}", plugin_name, rh.event.as_str()),
+                lifecycle,
+                format!("plugin hook: {}", plugin_name),
+                callback,
+            );
 
             registered += 1;
         }

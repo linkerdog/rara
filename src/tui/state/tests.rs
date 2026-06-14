@@ -216,6 +216,42 @@ fn sync_snapshot_reports_effective_network_access_for_pending_approval() {
     assert!(approval.allow_net);
 }
 
+#[tokio::test]
+async fn sync_snapshot_reports_registered_runtime_hooks() {
+    let dir = tempdir().expect("tempdir");
+    let root = dir.path().to_path_buf();
+    let rara_dir = root.join(".rara");
+    std::fs::create_dir_all(rara_dir.join("rollouts")).expect("rollouts");
+    std::fs::create_dir_all(rara_dir.join("sessions")).expect("sessions");
+    let mut app = TuiApp::new(ConfigManager {
+        path: root.join("config.json"),
+    })
+    .expect("app");
+    let agent = Agent::new(
+        ToolManager::new(),
+        std::sync::Arc::new(MockLlm),
+        std::sync::Arc::new(VectorDB::new(&rara_dir.join("lancedb").to_string_lossy())),
+        std::sync::Arc::new(SessionManager {
+            storage_dir: rara_dir.join("rollouts"),
+            legacy_storage_dir: rara_dir.join("sessions"),
+        }),
+        std::sync::Arc::new(WorkspaceMemory::from_paths(root, rara_dir)),
+    );
+    let bus = std::sync::Arc::new(crate::runtime_event_bus::RuntimeEventBus::new(4));
+    let runtime = std::sync::Arc::new(crate::hook_runtime::HookRuntime::new(bus));
+    runtime.register(
+        "plugin-pre-tool".into(),
+        crate::runtime_control::HookLifecycle::PreToolUse,
+        "plugin hook".into(),
+        Box::new(|_| {}),
+    );
+    app.hook_runtime = Some(runtime);
+
+    app.sync_snapshot(&agent);
+
+    assert_eq!(app.snapshot.extension_hook_count, 1);
+}
+
 #[test]
 fn parse_repo_slug_supports_common_github_remote_forms() {
     assert_eq!(
