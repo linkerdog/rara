@@ -1,4 +1,6 @@
 use std::collections::HashMap;
+use std::fs;
+use std::io::Write;
 use std::path::PathBuf;
 use std::sync::Arc;
 
@@ -26,6 +28,45 @@ const TEXT_COLUMN: &str = "text";
 const VECTOR_COLUMN: &str = "vector";
 const VECTOR_DISTANCE_COLUMN: &str = "_distance";
 const FTS_SCORE_COLUMN: &str = "_score";
+const VECTOR_STORE_SCHEMA_VERSION: u32 = 1;
+const VECTOR_TABLE_SCHEMA_VERSION: u32 = 1;
+
+#[derive(Debug, serde::Serialize, serde::Deserialize, Clone, PartialEq, Eq)]
+struct VectorStoreSchemaMetadata {
+    schema_version: u32,
+    tables: HashMap<String, VectorTableSchemaMetadata>,
+}
+
+impl Default for VectorStoreSchemaMetadata {
+    fn default() -> Self {
+        Self {
+            schema_version: VECTOR_STORE_SCHEMA_VERSION,
+            tables: HashMap::new(),
+        }
+    }
+}
+
+#[derive(Debug, serde::Serialize, serde::Deserialize, Clone, PartialEq, Eq)]
+struct VectorTableSchemaMetadata {
+    vector_dimension: usize,
+    vector_schema_version: u32,
+}
+
+impl VectorTableSchemaMetadata {
+    fn new(vector_dimension: usize) -> Self {
+        Self {
+            vector_dimension,
+            vector_schema_version: VECTOR_TABLE_SCHEMA_VERSION,
+        }
+    }
+}
+
+#[derive(Debug, PartialEq, Eq)]
+enum VectorTableMetadataStatus {
+    Current,
+    Missing,
+    Rebuild(String),
+}
 
 #[derive(Debug, serde::Serialize, serde::Deserialize, Clone, PartialEq, Eq)]
 pub struct MemoryMetadata {
@@ -55,6 +96,7 @@ pub struct MemorySearchHit {
 pub struct VectorDB {
     uri: String,
     write_lock_path: PathBuf,
+    schema_metadata_path: PathBuf,
     db: OnceCell<Connection>,
     fts_indexed_tables: Mutex<HashMap<String, Arc<OnceCell<()>>>>,
 }
@@ -64,6 +106,7 @@ impl VectorDB {
         Self {
             uri: uri.to_string(),
             write_lock_path: PathBuf::from(format!("{uri}.lock")),
+            schema_metadata_path: PathBuf::from(format!("{uri}.schema.json")),
             db: OnceCell::new(),
             fts_indexed_tables: Mutex::new(HashMap::new()),
         }
@@ -215,7 +258,23 @@ impl VectorDB {
         let db = self.db().await?;
         match self.open_table_if_exists(table_name).await? {
             Some(table) => match validate_table_vector_dim(&table, vector_dim).await {
-                Ok(()) => return Ok(table),
+                Ok(()) => match self.table_metadata_status(table_name, vector_dim)? {
+                    VectorTableMetadataStatus::Current => return Ok(table),
+                    VectorTableMetadataStatus::Missing => {
+                        self.record_table_schema_metadata(table_name, vector_dim)?;
+                        return Ok(table);
+                    }
+                    VectorTableMetadataStatus::Rebuild(reason) => {
+                        log::warn!(
+                            "LanceDB vector schema metadata mismatch for table {table_name}; \
+                             dropping and recreating. {reason}"
+                        );
+                        db.drop_table(table_name, &[]).await.with_context(|| {
+                            format!("drop mismatched LanceDB table {table_name}")
+                        })?;
+                        self.fts_indexed_tables.lock().await.remove(table_name);
+                    }
+                },
                 Err(e) => {
                     log::warn!(
                         "LanceDB vector dimension mismatch for table {table_name}; \
@@ -229,10 +288,13 @@ impl VectorDB {
             },
             None => {}
         }
-        db.create_empty_table(table_name, memory_schema(vector_dim))
+        let table = db
+            .create_empty_table(table_name, memory_schema(vector_dim))
             .execute()
             .await
-            .with_context(|| format!("create LanceDB table {table_name}"))
+            .with_context(|| format!("create LanceDB table {table_name}"))?;
+        self.record_table_schema_metadata(table_name, vector_dim)?;
+        Ok(table)
     }
 
     async fn open_table_if_exists(&self, table_name: &str) -> Result<Option<Table>> {
@@ -276,6 +338,82 @@ impl VectorDB {
             })
             .await
             .map(|_| ())
+    }
+
+    fn read_schema_metadata(&self) -> Result<Option<VectorStoreSchemaMetadata>> {
+        if !self.schema_metadata_path.exists() {
+            return Ok(None);
+        }
+        let raw = fs::read_to_string(&self.schema_metadata_path)
+            .with_context(|| format!("read {}", self.schema_metadata_path.display()))?;
+        let metadata = serde_json::from_str(&raw)
+            .with_context(|| format!("parse {}", self.schema_metadata_path.display()))?;
+        Ok(Some(metadata))
+    }
+
+    fn write_schema_metadata(&self, metadata: &VectorStoreSchemaMetadata) -> Result<()> {
+        if let Some(parent) = self.schema_metadata_path.parent() {
+            fs::create_dir_all(parent).with_context(|| format!("create {}", parent.display()))?;
+        }
+        let tmp_path = self.schema_metadata_path.with_extension("schema.json.tmp");
+        let mut file = fs::File::create(&tmp_path)
+            .with_context(|| format!("create {}", tmp_path.display()))?;
+        serde_json::to_writer_pretty(&mut file, metadata)
+            .with_context(|| format!("write {}", tmp_path.display()))?;
+        file.write_all(b"\n")
+            .with_context(|| format!("finish {}", tmp_path.display()))?;
+        file.sync_all()
+            .with_context(|| format!("sync {}", tmp_path.display()))?;
+        fs::rename(&tmp_path, &self.schema_metadata_path).with_context(|| {
+            format!(
+                "replace {} with {}",
+                self.schema_metadata_path.display(),
+                tmp_path.display()
+            )
+        })?;
+        Ok(())
+    }
+
+    fn table_metadata_status(
+        &self,
+        table_name: &str,
+        vector_dim: usize,
+    ) -> Result<VectorTableMetadataStatus> {
+        let Some(metadata) = self.read_schema_metadata()? else {
+            return Ok(VectorTableMetadataStatus::Missing);
+        };
+        if metadata.schema_version != VECTOR_STORE_SCHEMA_VERSION {
+            return Ok(VectorTableMetadataStatus::Rebuild(format!(
+                "expected store schema version {}, got {}",
+                VECTOR_STORE_SCHEMA_VERSION, metadata.schema_version
+            )));
+        }
+        let Some(table) = metadata.tables.get(table_name) else {
+            return Ok(VectorTableMetadataStatus::Missing);
+        };
+        if table.vector_schema_version != VECTOR_TABLE_SCHEMA_VERSION {
+            return Ok(VectorTableMetadataStatus::Rebuild(format!(
+                "expected table schema version {}, got {}",
+                VECTOR_TABLE_SCHEMA_VERSION, table.vector_schema_version
+            )));
+        }
+        if table.vector_dimension != vector_dim {
+            return Ok(VectorTableMetadataStatus::Rebuild(format!(
+                "expected vector dimension {}, got {}",
+                vector_dim, table.vector_dimension
+            )));
+        }
+        Ok(VectorTableMetadataStatus::Current)
+    }
+
+    fn record_table_schema_metadata(&self, table_name: &str, vector_dim: usize) -> Result<()> {
+        let mut metadata = self.read_schema_metadata()?.unwrap_or_default();
+        metadata.schema_version = VECTOR_STORE_SCHEMA_VERSION;
+        metadata.tables.insert(
+            table_name.to_string(),
+            VectorTableSchemaMetadata::new(vector_dim),
+        );
+        self.write_schema_metadata(&metadata)
     }
 }
 
@@ -598,7 +736,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn lancedb_memory_upsert_reports_dimension_mismatch_without_deleting_existing_row() {
+    async fn lancedb_memory_upsert_records_vector_schema_metadata() {
         let temp = tempfile::tempdir().expect("tempdir");
         let db = VectorDB::new(temp.path().to_str().expect("utf8 path"));
 
@@ -615,25 +753,115 @@ mod tests {
         .await
         .expect("insert original memory");
 
-        let err = db
-            .upsert_turn(
-                "experiences",
-                MemoryMetadata {
-                    id: Some("memory-a".to_string()),
-                    session_id: "project".to_string(),
-                    turn_index: 1,
-                    text: "Wrong dimension replacement".to_string(),
-                },
-                vec![1.0, 0.0, 0.0, 0.0],
-            )
+        let raw =
+            fs::read_to_string(&db.schema_metadata_path).expect("read vector schema metadata file");
+        let metadata: VectorStoreSchemaMetadata =
+            serde_json::from_str(&raw).expect("parse vector schema metadata");
+        assert_eq!(metadata.schema_version, VECTOR_STORE_SCHEMA_VERSION);
+        assert_eq!(
+            metadata.tables.get("experiences"),
+            Some(&VectorTableSchemaMetadata::new(3))
+        );
+    }
+
+    #[tokio::test]
+    async fn lancedb_memory_upsert_rebuilds_dimension_mismatch_and_updates_metadata() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let db = VectorDB::new(temp.path().to_str().expect("utf8 path"));
+
+        db.upsert_turn(
+            "experiences",
+            MemoryMetadata {
+                id: Some("memory-a".to_string()),
+                session_id: "project".to_string(),
+                turn_index: 1,
+                text: "Original memory".to_string(),
+            },
+            vec![1.0, 0.0, 0.0],
+        )
+        .await
+        .expect("insert original memory");
+
+        db.upsert_turn(
+            "experiences",
+            MemoryMetadata {
+                id: Some("memory-a".to_string()),
+                session_id: "project".to_string(),
+                turn_index: 1,
+                text: "Replacement memory".to_string(),
+            },
+            vec![1.0, 0.0, 0.0, 0.0],
+        )
+        .await
+        .expect("dimension mismatch should rebuild table");
+
+        let stale_hits = db
+            .search_with_metadata("experiences", vec![1.0, 0.0, 0.0], 1)
             .await
-            .expect_err("dimension mismatch should fail");
-        assert!(err.to_string().contains("vector dimension mismatch"));
+            .expect("stale dimension search");
+        assert!(stale_hits.is_empty());
+
+        let hits = db
+            .search_with_metadata("experiences", vec![1.0, 0.0, 0.0, 0.0], 1)
+            .await
+            .expect("vector search");
+        assert_eq!(hits[0].0.text, "Replacement memory");
+
+        let raw =
+            fs::read_to_string(&db.schema_metadata_path).expect("read vector schema metadata file");
+        let metadata: VectorStoreSchemaMetadata =
+            serde_json::from_str(&raw).expect("parse vector schema metadata");
+        assert_eq!(
+            metadata.tables.get("experiences"),
+            Some(&VectorTableSchemaMetadata::new(4))
+        );
+    }
+
+    #[tokio::test]
+    async fn lancedb_memory_upsert_rebuilds_schema_metadata_mismatch() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let db = VectorDB::new(temp.path().to_str().expect("utf8 path"));
+
+        db.upsert_turn(
+            "experiences",
+            MemoryMetadata {
+                id: Some("memory-a".to_string()),
+                session_id: "project".to_string(),
+                turn_index: 1,
+                text: "Original memory".to_string(),
+            },
+            vec![1.0, 0.0, 0.0],
+        )
+        .await
+        .expect("insert original memory");
+
+        let mut metadata = db
+            .read_schema_metadata()
+            .expect("read metadata")
+            .expect("metadata exists");
+        metadata
+            .tables
+            .insert("experiences".to_string(), VectorTableSchemaMetadata::new(2));
+        db.write_schema_metadata(&metadata)
+            .expect("write mismatched metadata");
+
+        db.upsert_turn(
+            "experiences",
+            MemoryMetadata {
+                id: Some("memory-a".to_string()),
+                session_id: "project".to_string(),
+                turn_index: 1,
+                text: "Schema metadata replacement".to_string(),
+            },
+            vec![1.0, 0.0, 0.0],
+        )
+        .await
+        .expect("schema metadata mismatch should rebuild table");
 
         let hits = db
             .search_with_metadata("experiences", vec![1.0, 0.0, 0.0], 1)
             .await
             .expect("vector search");
-        assert_eq!(hits[0].0.text, "Original memory");
+        assert_eq!(hits[0].0.text, "Schema metadata replacement");
     }
 }
