@@ -344,18 +344,33 @@ impl VectorDB {
         if !self.schema_metadata_path.exists() {
             return Ok(None);
         }
-        let raw = fs::read_to_string(&self.schema_metadata_path)
-            .with_context(|| format!("read {}", self.schema_metadata_path.display()))?;
-        let metadata = serde_json::from_str(&raw)
-            .with_context(|| format!("parse {}", self.schema_metadata_path.display()))?;
-        Ok(Some(metadata))
+        let raw = match fs::read_to_string(&self.schema_metadata_path) {
+            Ok(raw) => raw,
+            Err(err) => {
+                log::warn!(
+                    "Failed to read vector schema metadata file {}: {err}",
+                    self.schema_metadata_path.display()
+                );
+                return Ok(None);
+            }
+        };
+        match serde_json::from_str(&raw) {
+            Ok(metadata) => Ok(Some(metadata)),
+            Err(err) => {
+                log::warn!(
+                    "Failed to parse vector schema metadata file {}: {err}",
+                    self.schema_metadata_path.display()
+                );
+                Ok(None)
+            }
+        }
     }
 
     fn write_schema_metadata(&self, metadata: &VectorStoreSchemaMetadata) -> Result<()> {
         if let Some(parent) = self.schema_metadata_path.parent() {
             fs::create_dir_all(parent).with_context(|| format!("create {}", parent.display()))?;
         }
-        let tmp_path = self.schema_metadata_path.with_extension("schema.json.tmp");
+        let tmp_path = self.schema_metadata_path.with_extension("tmp");
         let mut file = fs::File::create(&tmp_path)
             .with_context(|| format!("create {}", tmp_path.display()))?;
         serde_json::to_writer_pretty(&mut file, metadata)
@@ -863,5 +878,47 @@ mod tests {
             .await
             .expect("vector search");
         assert_eq!(hits[0].0.text, "Schema metadata replacement");
+    }
+
+    #[tokio::test]
+    async fn lancedb_memory_upsert_recovers_corrupt_schema_metadata() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let db = VectorDB::new(temp.path().to_str().expect("utf8 path"));
+
+        db.upsert_turn(
+            "experiences",
+            MemoryMetadata {
+                id: Some("memory-a".to_string()),
+                session_id: "project".to_string(),
+                turn_index: 1,
+                text: "Original memory".to_string(),
+            },
+            vec![1.0, 0.0, 0.0],
+        )
+        .await
+        .expect("insert original memory");
+        fs::write(&db.schema_metadata_path, "{not json").expect("corrupt schema metadata");
+
+        db.upsert_turn(
+            "experiences",
+            MemoryMetadata {
+                id: Some("memory-b".to_string()),
+                session_id: "project".to_string(),
+                turn_index: 2,
+                text: "Recovery memory".to_string(),
+            },
+            vec![0.0, 1.0, 0.0],
+        )
+        .await
+        .expect("corrupt schema metadata should not block write");
+
+        let raw =
+            fs::read_to_string(&db.schema_metadata_path).expect("read vector schema metadata file");
+        let metadata: VectorStoreSchemaMetadata =
+            serde_json::from_str(&raw).expect("parse vector schema metadata");
+        assert_eq!(
+            metadata.tables.get("experiences"),
+            Some(&VectorTableSchemaMetadata::new(3))
+        );
     }
 }
