@@ -7,8 +7,8 @@
 //! against the current set of registered hooks.
 
 use std::collections::HashMap;
-use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, RwLock};
 
 use serde_json::Value;
 
@@ -34,7 +34,7 @@ pub type ToolModifier = Box<dyn Fn(&str, &Value) -> Option<Value> + Send + Sync>
 /// loop is already running.
 pub struct HookRuntime {
     bus: Arc<RuntimeEventBus>,
-    hooks: Arc<tokio::sync::RwLock<HashMap<String, HookEntry>>>,
+    hooks: Arc<RwLock<HashMap<String, HookEntry>>>,
     tool_modifiers: Arc<std::sync::RwLock<Vec<(String, ToolModifier)>>>,
     /// Collected stdout from command hooks. Drained before each model turn
     /// and injected as system messages into the model context.
@@ -46,7 +46,7 @@ impl HookRuntime {
     pub fn new(bus: Arc<RuntimeEventBus>) -> Self {
         Self {
             bus,
-            hooks: Arc::new(tokio::sync::RwLock::new(HashMap::new())),
+            hooks: Arc::new(RwLock::new(HashMap::new())),
             tool_modifiers: Arc::new(std::sync::RwLock::new(Vec::new())),
             outputs: Arc::new(std::sync::Mutex::new(Vec::new())),
             started: AtomicBool::new(false),
@@ -99,31 +99,41 @@ impl HookRuntime {
     }
 
     /// Register an in-process hook.  Safe to call while `start` is running.
-    pub async fn register(
+    pub fn register(
         &self,
         hook_id: String,
         lifecycle: HookLifecycle,
         description: String,
         callback: HookCallback,
     ) {
-        self.hooks.write().await.insert(
-            hook_id,
-            HookEntry {
-                lifecycle,
-                description,
-                callback,
-            },
-        );
+        self.hooks
+            .write()
+            .expect("hook runtime registry lock poisoned")
+            .insert(
+                hook_id,
+                HookEntry {
+                    lifecycle,
+                    description,
+                    callback,
+                },
+            );
     }
 
     /// Unregister a previously declared hook by id.
-    pub async fn unregister(&self, hook_id: &str) -> bool {
-        self.hooks.write().await.remove(hook_id).is_some()
+    pub fn unregister(&self, hook_id: &str) -> bool {
+        self.hooks
+            .write()
+            .expect("hook runtime registry lock poisoned")
+            .remove(hook_id)
+            .is_some()
     }
 
     /// Return the number of registered hooks.
-    pub async fn hook_count(&self) -> usize {
-        self.hooks.read().await.len()
+    pub fn hook_count(&self) -> usize {
+        self.hooks
+            .read()
+            .expect("hook runtime registry lock poisoned")
+            .len()
     }
 
     /// Start the hook dispatch loop on a dedicated Tokio task.
@@ -143,7 +153,7 @@ impl HookRuntime {
             loop {
                 match rx.recv().await {
                     Ok(event) => {
-                        let guard = hooks.read().await;
+                        let guard = hooks.read().expect("hook runtime registry lock poisoned");
                         for entry in guard.values() {
                             if lifecycle_matches(&entry.lifecycle, &event) {
                                 (entry.callback)(&event);
@@ -422,21 +432,19 @@ mod tests {
         let bus = Arc::new(RuntimeEventBus::new(4));
         let runtime = HookRuntime::new(bus);
 
-        assert_eq!(runtime.hook_count().await, 0);
+        assert_eq!(runtime.hook_count(), 0);
 
-        runtime
-            .register(
-                "hook-1".into(),
-                HookLifecycle::SessionStart,
-                "test hook".into(),
-                Box::new(|_| {}),
-            )
-            .await;
-        assert_eq!(runtime.hook_count().await, 1);
+        runtime.register(
+            "hook-1".into(),
+            HookLifecycle::SessionStart,
+            "test hook".into(),
+            Box::new(|_| {}),
+        );
+        assert_eq!(runtime.hook_count(), 1);
 
-        assert!(runtime.unregister("hook-1").await);
-        assert_eq!(runtime.hook_count().await, 0);
+        assert!(runtime.unregister("hook-1"));
+        assert_eq!(runtime.hook_count(), 0);
 
-        assert!(!runtime.unregister("hook-1").await);
+        assert!(!runtime.unregister("hook-1"));
     }
 }

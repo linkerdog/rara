@@ -1603,6 +1603,11 @@ impl TuiApp {
             );
         }
         let ext_counts = discover_extension_counts(&runtime_context.cwd);
+        let runtime_hook_count = self
+            .hook_runtime
+            .as_ref()
+            .map(|runtime| runtime.hook_count())
+            .unwrap_or(0);
         self.snapshot = RuntimeSnapshot {
             cwd: runtime_context.cwd,
             branch: runtime_context.branch,
@@ -1678,7 +1683,7 @@ impl TuiApp {
                 scopes.sort();
                 scopes
             },
-            extension_hook_count: ext_counts.0,
+            extension_hook_count: ext_counts.0.max(runtime_hook_count),
             extension_agent_count: ext_counts.1,
         };
         self.agent_execution_mode = agent.execution_mode;
