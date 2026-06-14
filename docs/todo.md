@@ -128,8 +128,8 @@ Active backlog only. Keep this file small and current.
 
 ## Context / Embeddings
 
-- [ ] Record canonical embedding dimension/schema version next to each vector store.
-- [ ] Auto-rebuild vector store on dimension mismatch.
+- [x] Record canonical embedding dimension/schema version next to each vector store.
+- [x] Auto-rebuild vector store on dimension mismatch.
 - [ ] Make context budgeting model-aware instead of one fixed heuristic.
 - [ ] Turn compaction into an explicit runtime lifecycle event.
 - [ ] Read project-level AGENTS.md → `project_memory` → inject into context.
