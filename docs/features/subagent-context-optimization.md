@@ -136,10 +136,13 @@ of pretending the in-memory registry is durable.
   durable states are clearly separated.
 - Summary-only return paths require enough structure to preserve validation
   evidence and changed-file provenance.
+- Concurrent workspace modifications by multiple active subagents can lead to
+  race conditions or conflicting file writes if write-enabled tools are
+  permitted without workspace isolation or write coordination.
 
 ## Source Journals
 
-- `context-architecture.md` — parent/child thread model and staged rollout.
-- `subagent-and-aux-compression.md` — progress tracking and compression
+- `docs/journal/context-architecture.md` — parent/child thread model and staged rollout.
+- `docs/journal/subagent-and-aux-compression.md` — progress tracking and compression
   background.
-- `subagent-claude-compat.md` — Claude-compatible agent definition direction.
+- `docs/journal/subagent-claude-compat.md` — Claude-compatible agent definition direction.
