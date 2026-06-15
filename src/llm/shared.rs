@@ -475,23 +475,25 @@ pub(super) fn context_budget_from_window(context_window_tokens: usize) -> Contex
 }
 
 fn reserved_output_tokens_for_window(context_window_tokens: usize) -> usize {
-    if context_window_tokens <= 32_768 {
-        return (context_window_tokens / 6).clamp(1024, 4096);
-    }
-    if context_window_tokens <= 128_000 {
-        return (context_window_tokens / 8).clamp(4096, 16_384);
-    }
-    (context_window_tokens / 10).clamp(16_384, 32_768)
+    let reserved = if context_window_tokens <= 32_768 {
+        (context_window_tokens / 6).clamp(1024, 4096)
+    } else if context_window_tokens <= 128_000 {
+        (context_window_tokens / 8).clamp(4096, 16_384)
+    } else {
+        (context_window_tokens / 10).clamp(16_384, 32_768)
+    };
+    reserved.min(context_window_tokens / 2)
 }
 
 fn compaction_slack_tokens_for_window(context_window_tokens: usize) -> usize {
-    if context_window_tokens <= 32_768 {
-        return (context_window_tokens / 16).clamp(512, 2048);
-    }
-    if context_window_tokens <= 128_000 {
-        return (context_window_tokens / 24).clamp(2048, 4096);
-    }
-    (context_window_tokens / 32).clamp(4096, 8192)
+    let slack = if context_window_tokens <= 32_768 {
+        (context_window_tokens / 16).clamp(512, 2048)
+    } else if context_window_tokens <= 128_000 {
+        (context_window_tokens / 24).clamp(2048, 4096)
+    } else {
+        (context_window_tokens / 32).clamp(4096, 8192)
+    };
+    slack.min(context_window_tokens / 4)
 }
 
 const OPENAI_LONG_CONTEXT_WINDOW_TOKENS: usize = 200_000;

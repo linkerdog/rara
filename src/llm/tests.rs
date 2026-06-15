@@ -2433,10 +2433,13 @@ fn does_not_infer_deepseek_long_context_from_unlisted_versions() {
 
 #[test]
 fn context_budget_scales_reserved_output_by_window_size() {
+    let micro = context_budget_from_window(1_024);
     let small = context_budget_from_window(8_192);
     let medium = context_budget_from_window(128_000);
     let large = context_budget_from_window(1_048_576);
 
+    assert_eq!(micro.reserved_output_tokens, 512);
+    assert_eq!(micro.compact_threshold_tokens, 256);
     assert_eq!(small.reserved_output_tokens, 1365);
     assert_eq!(small.compact_threshold_tokens, 6315);
     assert_eq!(medium.reserved_output_tokens, 16_000);
