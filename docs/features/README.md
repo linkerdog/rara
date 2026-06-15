@@ -60,6 +60,8 @@ future appserver integrations can use.
   invalidation, ordering, and shared observability contract.
 - `thread-goals.md`: persistent `/goal` runtime, tool, continuation, budget,
   and compact TUI contracts aligned with Codex 0.130.
+- `subagent-context-optimization.md`: bounded parent/child subagent context
+  inheritance, child budget, result summary, and restart/reconnect contracts.
 
 ## App Server Architecture
 
