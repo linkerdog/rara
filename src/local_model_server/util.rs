@@ -151,10 +151,13 @@ pub(crate) fn post_json(
 }
 
 pub(crate) fn model_server_http_client(timeout: Duration) -> Result<reqwest::blocking::Client> {
-    reqwest::blocking::Client::builder()
-        .timeout(timeout)
-        .no_proxy()
-        .build()
+    let handle = std::thread::spawn(move || {
+        reqwest::blocking::Client::builder()
+            .timeout(timeout)
+            .no_proxy()
+            .build()
+    });
+    handle.join().map_err(|_| anyhow::anyhow!("failed to spawn client thread"))?
         .context("build model server HTTP client")
 }
 
