@@ -151,11 +151,16 @@ pub(crate) fn post_json(
 }
 
 pub(crate) fn model_server_http_client(timeout: Duration) -> Result<reqwest::blocking::Client> {
-    reqwest::blocking::Client::builder()
-        .timeout(timeout)
-        .no_proxy()
-        .build()
-        .context("build model server HTTP client")
+    // Build on a dedicated OS thread to avoid tokio runtime shutdown conflicts.
+    std::thread::spawn(move || {
+        reqwest::blocking::Client::builder()
+            .timeout(timeout)
+            .no_proxy()
+            .build()
+            .context("build model server HTTP client")
+    })
+    .join()
+    .unwrap_or_else(|e| Err(anyhow::anyhow!("thread panicked building HTTP client: {e:?}")))
 }
 
 pub(crate) fn model_server_url(host: &str, port: u16, path: &str) -> Result<reqwest::Url> {
