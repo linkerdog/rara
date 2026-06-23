@@ -150,12 +150,21 @@ pub(crate) fn post_json(
     response.json().context("parse model server POST response")
 }
 
-pub(crate) fn model_server_http_client(timeout: Duration) -> Result<reqwest::blocking::Client> {
-    reqwest::blocking::Client::builder()
-        .timeout(timeout)
-        .no_proxy()
-        .build()
-        .context("build model server HTTP client")
+use std::sync::OnceLock;
+
+/// Returns a cached blocking HTTP client, built lazily on first access.
+/// The client is built on the calling thread but held for the lifetime of
+/// the process, so its internal tokio runtime is torn down only at exit
+/// (outside any async context).
+pub(crate) fn model_server_http_client(timeout: Duration) -> Result<&'static reqwest::blocking::Client> {
+    static CLIENT: OnceLock<reqwest::blocking::Client> = OnceLock::new();
+    CLIENT.get_or_try_init(|| {
+        reqwest::blocking::Client::builder()
+            .timeout(timeout)
+            .no_proxy()
+            .build()
+            .context("build model server HTTP client")
+    })
 }
 
 pub(crate) fn model_server_url(host: &str, port: u16, path: &str) -> Result<reqwest::Url> {
