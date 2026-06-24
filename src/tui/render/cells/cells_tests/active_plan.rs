@@ -37,8 +37,8 @@ fn active_turn_cell_renders_plan_approval_as_interaction_card() {
     assert_snapshot!("active_turn_cell_plan_approval", rendered);
     assert!(rendered.contains("# Awaiting Approval"));
     assert!(rendered.contains("Updated Plan"));
-    assert!(rendered.contains("1. Start implementation now"));
-    assert!(rendered.contains("2. Continue planning and refine the plan"));
+    assert!(rendered.contains("Responding via dock"));
+    assert!(!rendered.contains("1. Start implementation now"));
     assert!(rendered.contains("Generalize instruction discovery"));
 }
 
@@ -207,12 +207,11 @@ fn active_turn_cell_renders_shell_approval_as_interaction_card() {
         .join("\n");
 
     assert!(rendered.contains("# Shell Approval"));
-    assert!(rendered.contains("Review this shell command before RARA runs it."));
-    assert!(rendered.contains("Command:"));
-    assert!(rendered.contains("Working directory:"));
-    assert!(rendered.contains("bash ./scripts/migrate.sh"));
-    assert!(rendered.contains("> 2. Allow matching prefix"));
-    assert!(rendered.contains("1. Allow once - run only this command now"));
+    assert!(rendered.contains("Responding via dock"));
+    // Detail text (Command:, Working directory:, options) now rendered in dock panel.
+    assert!(!rendered.contains("Command:"));
+    assert!(!rendered.contains("bash ./scripts/migrate.sh"));
+    assert!(!rendered.contains("1. Allow once"));
     assert!(
         !rendered
             .contains("approval required  1 allow once  2 allow prefix  3 allow session  4 deny")
@@ -262,7 +261,7 @@ fn active_turn_cell_renders_queued_follow_up_without_hiding_shell_approval() {
         .join("\n");
 
     assert!(rendered.contains("# Shell Approval"));
-    assert!(rendered.contains("1. Allow once"));
+    assert!(rendered.contains("Responding via dock"));
     assert!(rendered.contains("# Queued"));
     assert!(rendered.contains("after turn"));
     assert!(!rendered.contains("Queued follow-up messages"));
@@ -517,8 +516,9 @@ fn active_turn_cell_labels_delegated_plan_questions() {
         .join("\n");
 
     assert!(rendered.contains("# Planning Question"));
-    assert!(rendered.contains("from:"));
-    assert!(rendered.contains("plan_agent"));
+    assert!(rendered.contains("Responding via dock"));
+    // Detail text now rendered in dock panel.
+    assert!(!rendered.contains("plan_agent"));
     assert!(rendered.contains("Which discovery strategy should we keep?"));
 }
 
