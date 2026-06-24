@@ -18,18 +18,36 @@ const TOOL_MESSAGE_MAX_LINES: usize = 5;
 pub(crate) struct CommittedTurnCell<'a> {
     entries: &'a [TranscriptEntry],
     cwd: Option<&'a Path>,
+    thinking_collapsed: bool,
+    thinking_duration: Option<std::time::Duration>,
 }
 
 impl<'a> CommittedTurnCell<'a> {
-    pub(crate) fn new(entries: &'a [TranscriptEntry], cwd: Option<&'a Path>) -> Self {
-        Self { entries, cwd }
+    pub(crate) fn new(
+        entries: &'a [TranscriptEntry],
+        cwd: Option<&'a Path>,
+        thinking_collapsed: bool,
+        thinking_duration: Option<std::time::Duration>,
+    ) -> Self {
+        Self {
+            entries,
+            cwd,
+            thinking_collapsed,
+            thinking_duration,
+        }
     }
 }
 
 impl HistoryCell for CommittedTurnCell<'_> {
     fn display_lines(&self, width: u16) -> Vec<Line<'static>> {
         let mut cells: Vec<Box<dyn HistoryCell + '_>> = Vec::new();
-        push_ordered_committed_activity(&mut cells, self.entries, self.cwd);
+        push_ordered_committed_activity(
+            &mut cells,
+            self.entries,
+            self.cwd,
+            self.thinking_collapsed,
+            self.thinking_duration,
+        );
 
         let mut lines = Vec::new();
         let mut previous_was_progress_stack_title = false;
@@ -54,20 +72,29 @@ fn push_ordered_committed_activity<'a>(
     cells: &mut Vec<Box<dyn HistoryCell + 'a>>,
     entries: &'a [TranscriptEntry],
     cwd: Option<&'a Path>,
+    thinking_collapsed: bool,
+    thinking_duration: Option<std::time::Duration>,
 ) {
     let mut pending_progress: Option<(ProgressRole, Vec<String>)> = None;
 
-    let flush_progress =
-        |cells: &mut Vec<Box<dyn HistoryCell + 'a>>,
-         pending_progress: &mut Option<(ProgressRole, Vec<String>)>| {
-            if let Some((role, messages)) = pending_progress.take() {
-                push_progress_group(cells, role, messages, false);
-            }
-        };
+    let flush_progress = |cells: &mut Vec<Box<dyn HistoryCell + 'a>>,
+                          pending_progress: &mut Option<(ProgressRole, Vec<String>)>,
+                          thinking_duration: Option<std::time::Duration>| {
+        if let Some((role, messages)) = pending_progress.take() {
+            push_progress_group(
+                cells,
+                role,
+                messages,
+                false,
+                thinking_collapsed,
+                thinking_duration,
+            );
+        }
+    };
 
     for entry in entries {
         if entry.role == "You" {
-            flush_progress(cells, &mut pending_progress);
+            flush_progress(cells, &mut pending_progress, thinking_duration);
             cells.push(Box::new(UserCell::new(entry.message.clone())));
             continue;
         }
@@ -82,13 +109,13 @@ fn push_ordered_committed_activity<'a>(
             {
                 last_messages.extend(messages);
             } else {
-                flush_progress(cells, &mut pending_progress);
+                flush_progress(cells, &mut pending_progress, thinking_duration);
                 pending_progress = Some((role, messages));
             }
             continue;
         }
 
-        flush_progress(cells, &mut pending_progress);
+        flush_progress(cells, &mut pending_progress, thinking_duration);
 
         if let Some(cell) = terminal_cell_from_entries(std::iter::once(entry)) {
             cells.push(Box::new(cell));
@@ -144,5 +171,5 @@ fn push_ordered_committed_activity<'a>(
         }
     }
 
-    flush_progress(cells, &mut pending_progress);
+    flush_progress(cells, &mut pending_progress, thinking_duration);
 }

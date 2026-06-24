@@ -298,6 +298,7 @@ impl TuiApp {
             overlay,
             overlay_stack: Vec::new(),
             sidebar_visible: true,
+            thinking_collapsed: false,
             config: cfg,
             config_manager: cm,
             setup_status: None,

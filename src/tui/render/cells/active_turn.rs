@@ -175,7 +175,14 @@ impl ActiveCell for ActiveTurnCell<'_> {
                         cells.push(Box::new(ExploringCell::new(summary, turn_live)));
                     }
                     OrderedActiveSegment::Progress(role, messages) => {
-                        push_progress_group(&mut cells, *role, messages.clone(), turn_live);
+                        push_progress_group(
+                            &mut cells,
+                            *role,
+                            messages.clone(),
+                            turn_live,
+                            self.app.thinking_collapsed,
+                            None,
+                        );
                     }
                     OrderedActiveSegment::Agent(message) => {
                         cells.push(Box::new(MessageCell::new(
@@ -202,11 +209,20 @@ impl ActiveCell for ActiveTurnCell<'_> {
                     ProgressRole::Thinking => {}
                 }
             }
+            let thinking_dur = self
+                .app
+                .active_live
+                .thinking_started_at
+                .map(|start| start.elapsed());
+            // Live streaming thinking is always expanded (tail mode).
+            // The toggle only affects committed (finalized) thinking blocks.
             push_live_events(
                 &mut cells,
                 live_events,
                 streaming_thinking_lines.filter(|_| has_live_thinking),
                 true,
+                false,
+                thinking_dur,
             );
         }
 
@@ -217,7 +233,14 @@ impl ActiveCell for ActiveTurnCell<'_> {
             .then(|| explicit_progress_entry_groups(current_turn.iter().copied()));
         if let Some(groups) = explicit_progress_groups.as_ref() {
             for (role, messages) in groups {
-                push_progress_group(&mut cells, *role, messages.clone(), turn_live);
+                push_progress_group(
+                    &mut cells,
+                    *role,
+                    messages.clone(),
+                    turn_live,
+                    self.app.thinking_collapsed,
+                    None,
+                );
             }
         }
         let has_explicit_progress_groups = explicit_progress_groups
