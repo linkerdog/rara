@@ -812,13 +812,26 @@ fn dynamic_system_prompt_sections(
         .iter()
         .find(|source| matches!(source.kind, PromptSourceKind::LocalMemory))
         .map(|memory| format!("## {}\n{}", memory.label, memory.content));
+
+    let project_context_block = match (instruction_block, memory_block) {
+        (None, None) => None,
+        (Some(instructions), None) => Some(format!(
+            "## Project Context\n\n### Project Instructions\n\n{instructions}"
+        )),
+        (None, Some(memory)) => Some(format!(
+            "## Project Context\n\n### Session Memory\n\n{memory}"
+        )),
+        (Some(instructions), Some(memory)) => Some(format!(
+            "## Project Context\n\n### Project Instructions\n\n{instructions}\n\n### Session Memory\n\n{memory}"
+        )),
+    };
+
     let protocol_prompt_sources_block = render_protocol_prompt_sources_section(sources);
     let skills_block = render_available_skills_section(available_skills);
     let language_prompt = crate::languages::get_language_prompt(&cwd);
 
     vec![
-        PromptSection::optional("instructions", instruction_block),
-        PromptSection::optional("memory", memory_block),
+        PromptSection::optional("project_context", project_context_block),
         PromptSection::optional("protocol_prompt_sources", protocol_prompt_sources_block),
         PromptSection::optional("skills", skills_block),
         PromptSection::optional("language_best_practices", language_prompt),
