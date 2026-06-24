@@ -32,7 +32,15 @@ pub(crate) fn desired_viewport_height(app: &TuiApp, width: u16, rows: u16) -> u1
 
 pub(crate) fn desired_bottom_pane_height(app: &TuiApp, width: u16, rows: u16) -> u16 {
     let composer_rows = composer::desired_composer_height(app, width, rows);
-    let total = composer_rows.saturating_add(2);
+    let panel_rows = if app
+        .active_pending_interaction()
+        .is_some_and(|p| p.kind != super::super::state::ActivePendingInteractionKind::RequestInput)
+    {
+        5
+    } else {
+        0
+    };
+    let total = composer_rows.saturating_add(2).saturating_add(panel_rows);
     let max = rows.max(1);
     let min = 5.min(max);
     total.clamp(min, max)
@@ -61,17 +69,67 @@ pub(super) fn render_bottom_pane(
     };
     f.render_widget(Block::default().style(style), area);
 
-    let composer_height = area.height.saturating_sub(2).max(3);
-    let chunks = Layout::default()
-        .direction(Direction::Vertical)
-        .constraints([
+    let has_panel = view.interaction_panel.is_some();
+    let composer_height = area
+        .height
+        .saturating_sub(2 + if has_panel { 5 } else { 0 })
+        .max(3);
+    let constraints = if has_panel {
+        vec![
+            Constraint::Length(1),
+            Constraint::Length(5),
+            Constraint::Length(composer_height),
+            Constraint::Length(1),
+        ]
+    } else {
+        vec![
             Constraint::Length(1),
             Constraint::Length(composer_height),
             Constraint::Length(1),
-        ])
+        ]
+    };
+    let chunks = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints(constraints)
         .split(area);
     activity::render_activity_bar(f, &view.activity, chunks[0]);
-    let cursor = composer::render_composer(f, app, chunks[1]);
-    footer::render_footer(f, &view.footer, chunks[2]);
+    let composer_idx = if has_panel { 2 } else { 1 };
+    let footer_idx = composer_idx + 1;
+    if let Some(panel) = &view.interaction_panel {
+        render_interaction_panel(f, panel, chunks[1]);
+    }
+    let cursor = composer::render_composer(f, app, chunks[composer_idx]);
+    footer::render_footer(f, &view.footer, chunks[footer_idx]);
     cursor
+}
+
+fn render_interaction_panel(f: &mut Frame, panel: &view::InteractionPanelView, area: Rect) {
+    use ratatui::text::Line;
+    use ratatui::widgets::{Paragraph, Wrap};
+
+    let mut lines: Vec<Line<'static>> = Vec::new();
+    lines.push(Line::from(format!("  ⚠  {}", panel.title)));
+    lines.push(Line::from(""));
+    for line in panel.detail.lines() {
+        lines.push(Line::from(format!("  {}", line)));
+    }
+    lines.push(Line::from(""));
+    // Action buttons
+    let button_line: String = panel
+        .actions
+        .iter()
+        .enumerate()
+        .map(|(i, a)| {
+            let prefix = if i == panel.selected { "▸" } else { " " };
+            format!("{}[{}] {}", prefix, a.key, a.label)
+        })
+        .collect::<Vec<_>>()
+        .join("    ");
+    lines.push(Line::from(format!("  {}", button_line)));
+
+    let block = Block::default().style(Style::default().fg(Color::White).bg(Color::DarkGray));
+    let para = Paragraph::new(lines)
+        .block(block)
+        .wrap(Wrap { trim: false });
+    f.render_widget(para, area);
 }
