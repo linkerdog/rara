@@ -13,9 +13,9 @@ Active backlog only. Keep this file small and current.
 
 1. Finish plugin/runtime status correctness before adding more plugin surface.
 2. Add `rara plugin install/list/remove` once runtime registration is observable. (done)
-3. Improve TUI live feedback: thinking collapse/summary, then live bash transcript.
-4. Close context/embedding correctness: canonical vector schema, rebuild on mismatch,
-   model-aware budgeting, project `AGENTS.md` memory injection.
+3. Improve TUI live feedback: thinking collapse/summary (✅ done #590), then live bash transcript.
+4. Close context/embedding correctness: project_context merge (✅ done #589), canonical vector schema,
+   model-aware budgeting.
 5. Split P0 large files only after the behavior surfaces above have tests.
 
 ## Recently Completed (2025-07-15..16)
@@ -88,7 +88,9 @@ Active backlog only. Keep this file small and current.
 
 ### Specs to Write
 - [x] Hooks/plugin lifecycle spec — `docs/features/file-hooks.md`
-- [ ] Subagent context optimization spec
+- [x] Subagent context optimization spec — covered by project_context design
+- [ ] Compaction as explicit runtime lifecycle event
+- [ ] Model-aware context budget — token limits per model window
 
 ## Runtime Control Plane / ACP / Wire
 
@@ -145,7 +147,7 @@ Active backlog only. Keep this file small and current.
 
 - [x] uv venv --python 3.14 --seed for managed Python venv.
 - [ ] Add explicit embedding controls: enable/disable, provider override.
-- [ ] Claude-style inline `/model` command surface for runtime switching.
+- [x] Claude-style inline `/model` command surface for runtime switching.
 - [ ] Add `/status` context fields for model/provider/thread/retrieval/memory/workspace.
 
 ## Agent / Tools
@@ -153,6 +155,7 @@ Active backlog only. Keep this file small and current.
 - [ ] Refactor ~7 large methods out of `impl TuiApp` to enable file split.
 - [ ] Design subagent context budget as a first-class property.
 - [ ] Subagent restart/reconnect semantics.
+- [ ] Tool result compression — auto-truncate long outputs with summary, align with Claude Code.
 - [ ] Claude plugin runtime integration (long-term).
 - [x] `runtime_control.rs`: add per-item comments to 22 `#[allow(dead_code)]` ACP types
 - [x] `google_oauth.rs`: add FIXME comment documenting superseded-by-codex-login status
