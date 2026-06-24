@@ -260,19 +260,23 @@ fn build_interaction_panel(app: &TuiApp) -> Option<InteractionPanelView> {
             detail: pending_interaction_detail_text(app, pending.kind),
             actions: vec![
                 InteractionAction {
-                    key: "D",
-                    label: "Deny",
+                    key: "Enter",
+                    label: "Allow Once",
+                },
+                InteractionAction {
+                    key: "P",
+                    label: "Allow Prefix",
                 },
                 InteractionAction {
                     key: "A",
                     label: "Allow Always",
                 },
                 InteractionAction {
-                    key: "Enter",
-                    label: "Allow Once",
+                    key: "D",
+                    label: "Deny",
                 },
             ],
-            selected: 0,
+            selected: app.approval_picker_idx,
         }),
         ActivePendingInteractionKind::PlanApproval
         | ActivePendingInteractionKind::PlanningQuestion => Some(InteractionPanelView {
@@ -288,7 +292,7 @@ fn build_interaction_panel(app: &TuiApp) -> Option<InteractionPanelView> {
                     label: "Start Implementation",
                 },
             ],
-            selected: 0,
+            selected: app.approval_picker_idx,
         }),
         _ => None,
     }

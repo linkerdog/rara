@@ -26,8 +26,7 @@ pub(super) fn render_composer(f: &mut Frame, app: &mut TuiApp, area: Rect) -> Op
         .split(area);
     let hide_input_for_approval = app
         .active_pending_interaction()
-        .is_some_and(|p| p.kind != ActivePendingInteractionKind::RequestInput)
-        && !app.bottom_pane.input.is_empty();
+        .is_some_and(|p| p.kind != ActivePendingInteractionKind::RequestInput);
 
     let composer_lines = if hide_input_for_approval {
         // Show a single-line status when approval dock is active above.
