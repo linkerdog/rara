@@ -884,7 +884,9 @@ fn render_environment_context(cwd: &str, branch: &str) -> String {
         .unwrap_or_else(|| "unknown".to_string());
 
     format!(
-        "<environment_context>\n  <cwd>{}</cwd>\n  <shell>{}</shell>\n  <git_branch>{}</git_branch>\n</environment_context>",
+        "<environment_context>\n  <cwd>{}</cwd>\n  <shell>{}</shell>\n  <git_branch>{}</git_branch>\n  \
+         Note: This is a snapshot at conversation start and will not update.\n\
+         </environment_context>",
         escape_xml_text(cwd),
         escape_xml_text(&shell),
         escape_xml_text(branch),
