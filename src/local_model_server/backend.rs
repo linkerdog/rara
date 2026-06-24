@@ -189,6 +189,30 @@ pub(crate) fn inspect_local_model_server_status(rara_home: &Path) -> LocalModelS
     prepare_local_model_server_status_inner(rara_home, BootstrapMode::InspectOnly, None)
 }
 
+/// Inspect the local model server status from a synchronous context that may itself be running
+/// inside a Tokio runtime.
+///
+/// `inspect_local_model_server_status` uses a `reqwest::blocking` client, which spins up and drops
+/// its own Tokio runtime. Dropping a runtime while inside the async context of a multi-threaded
+/// runtime panics ("Cannot drop a runtime in a context where blocking is not allowed"). When called
+/// from inside a runtime we therefore hop onto a dedicated OS thread that has no runtime entered;
+/// outside a runtime we probe directly.
+pub(crate) fn inspect_local_model_server_status_off_runtime(
+    rara_home: &Path,
+) -> LocalModelServerStatus {
+    if tokio::runtime::Handle::try_current().is_ok() {
+        let rara_home = rara_home.to_path_buf();
+        std::thread::scope(|scope| {
+            scope
+                .spawn(|| inspect_local_model_server_status(&rara_home))
+                .join()
+                .expect("local model server status probe thread panicked")
+        })
+    } else {
+        inspect_local_model_server_status(rara_home)
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum BootstrapMode {
     Automatic,

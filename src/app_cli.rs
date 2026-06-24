@@ -296,7 +296,8 @@ async fn run_tui_command(
     oauth_manager: OAuthManager,
     startup_resume: StartupResumeTarget,
 ) -> Result<()> {
-    let initialize_local_embeddings = should_initialize_local_embeddings_on_tui_startup(config)?;
+    let initialize_local_embeddings =
+        should_initialize_local_embeddings_on_tui_startup(config).await?;
     let bootstrap = if initialize_local_embeddings {
         runtime_context::initialize_rara_context_with_local_embedding_bootstrap(
             config,
@@ -343,12 +344,18 @@ async fn run_tui_command(
     Ok(())
 }
 
-fn should_initialize_local_embeddings_on_tui_startup(config: &RaraConfig) -> Result<bool> {
+async fn should_initialize_local_embeddings_on_tui_startup(config: &RaraConfig) -> Result<bool> {
     if !runtime_context::config_requires_local_embedding_sidecar(config) {
         return Ok(false);
     }
     let rara_home = ensure_rara_home_dir()?;
-    let status = crate::local_model_server::inspect_local_model_server_status(&rara_home);
+    // `inspect_local_model_server_status` uses a `reqwest::blocking` client, which spins up and
+    // drops its own Tokio runtime. Dropping a runtime inside the async context would panic, so run
+    // the blocking probe on a dedicated blocking thread where that is allowed.
+    let status = tokio::task::spawn_blocking(move || {
+        crate::local_model_server::inspect_local_model_server_status(&rara_home)
+    })
+    .await?;
     Ok(!matches!(
         status.state,
         crate::local_model_server::LocalModelServerState::Ready
