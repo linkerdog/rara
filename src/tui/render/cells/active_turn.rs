@@ -381,10 +381,31 @@ impl ActiveCell for ActiveTurnCell<'_> {
             if let Some(shortcut_text) = pending_interaction_shortcut_text(pending.kind) {
                 request_lines.push(shortcut_text.to_string());
             }
-            cells.push(Box::new(PendingInteractionCell::new(
+            // Skip transcript rendering for interaction kinds that have a dock
+            // panel rendered above the composer.  ShellApproval and plan
+            // interactions now show action buttons in the dock instead of
+            // numbered options in the transcript.
+            let shows_dock = matches!(
                 pending.kind,
-                request_lines,
-            )));
+                ActivePendingInteractionKind::ShellApproval
+                    | ActivePendingInteractionKind::PlanApproval
+                    | ActivePendingInteractionKind::PlanningQuestion
+            );
+            if !shows_dock {
+                cells.push(Box::new(PendingInteractionCell::new(
+                    pending.kind,
+                    request_lines,
+                )));
+            } else {
+                // Still render a compact status line so the transcript has
+                // a record of the interaction being pending.
+                cells.push(Box::new(PendingInteractionCell::new(
+                    pending.kind,
+                    vec![format!(
+                        "Responding via dock — use keys shown above the input."
+                    )],
+                )));
+            }
         }
 
         let queued_sections = queued_follow_up_sections(
