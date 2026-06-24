@@ -127,7 +127,7 @@ fn render_interaction_panel(f: &mut Frame, panel: &view::InteractionPanelView, a
         .join("    ");
     lines.push(Line::from(format!("  {}", button_line)));
 
-    let block = Block::default().style(Style::default().fg(Color::White).bg(Color::DarkGray));
+    let block = Block::default();
     let para = Paragraph::new(lines)
         .block(block)
         .wrap(Wrap { trim: false });

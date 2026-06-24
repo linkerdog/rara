@@ -98,7 +98,7 @@ fn active_turn_cell_renders_pending_approval_without_transcript_entries() {
         .join("\n");
 
     assert!(rendered.contains("# Shell Approval"));
-    assert!(rendered.contains("git diff origin/main -- src/context/assembler.rs"));
+    assert!(rendered.contains("Responding via dock"));
     assert!(!rendered.contains("resuming after approval"));
 }
 
