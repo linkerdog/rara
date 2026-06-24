@@ -4,6 +4,7 @@ use std::sync::Arc;
 use super::super::state::{
     GoalStatus, HelpTab, ListPickerKind, LocalCommand, LocalCommandKind, Overlay, PermissionMode,
     PickerIntent, RalphGoal, RuntimePhase, StatusTab, SystemMessageKind, TuiApp,
+    UnifiedModelPreset,
 };
 use super::tasks::{start_compact_task, start_rebuild_task, start_review_task};
 use crate::agent::{Agent, AgentEvent, AgentExecutionMode, BashApprovalMode};
@@ -404,13 +405,48 @@ fn parse_goal_token_budget(input: &str) -> Option<u32> {
 }
 
 fn handle_model_command(arg: Option<&str>, app: &mut TuiApp) -> anyhow::Result<()> {
-    if arg.map(str::trim).filter(|arg| !arg.is_empty()).is_some() {
-        app.push_notice("/model does not accept arguments. Use the interactive menu.");
-    }
+    let query = arg.map(str::trim).filter(|a| !a.is_empty());
 
-    app.model_picker_idx = app.selected_unified_preset_idx();
-    app.open_overlay(Overlay::ModelSearch);
-    app.bottom_pane.notice = Some("Switch active model across all connected providers.".into());
+    if let Some(query) = query {
+        let presets = app.all_unified_model_presets();
+        let query_lower = query.to_lowercase();
+
+        let matches: Vec<(usize, &UnifiedModelPreset)> = presets
+            .iter()
+            .enumerate()
+            .filter(|(_, p)| {
+                p.model_id.to_lowercase().contains(&query_lower)
+                    || p.model_label.to_lowercase().contains(&query_lower)
+            })
+            .collect();
+
+        match matches.len() {
+            1 => {
+                let (idx, preset) = matches[0];
+                app.push_notice(format!(
+                    "Switching to {} ({})",
+                    preset.model_label, preset.provider_label
+                ));
+                app.select_unified_model(idx);
+            }
+            0 => {
+                app.push_notice(format!("No model matching \"{query}\" found."));
+                app.model_picker_idx = app.selected_unified_preset_idx();
+                app.open_overlay(Overlay::ModelSearch);
+            }
+            _ => {
+                app.push_notice(format!(
+                    "Multiple models match \"{query}\" — opening picker."
+                ));
+                app.model_picker_idx = app.selected_unified_preset_idx();
+                app.open_overlay(Overlay::ModelSearch);
+            }
+        }
+    } else {
+        app.model_picker_idx = app.selected_unified_preset_idx();
+        app.open_overlay(Overlay::ModelSearch);
+        app.bottom_pane.notice = Some("Switch active model across all connected providers.".into());
+    }
     Ok(())
 }
 

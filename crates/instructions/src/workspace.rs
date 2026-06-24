@@ -86,6 +86,25 @@ impl WorkspaceMemory {
         available
     }
 
+    pub fn memory_file_size(&self) -> Option<u64> {
+        let path = self.rara_dir.join("memory.md");
+        fs::metadata(&path).ok().map(|m| m.len())
+    }
+
+    pub fn memory_notice_text(&self, num_candidates: usize) -> String {
+        let nc = num_candidates;
+        let count_label = if nc == 1 { "candidate" } else { "candidates" };
+        let mut parts = vec![format!("queried workspace memory: {nc} {count_label}")];
+        if self.has_memory_file_cached() {
+            if let Some(size) = self.memory_file_size() {
+                parts.push(format!("memory.md {:.1} KB loaded", size as f64 / 1024.0));
+            } else {
+                parts.push("memory.md loaded".to_string());
+            }
+        }
+        parts.join(", ")
+    }
+
     pub fn discover_instructions(&self) -> Vec<String> {
         self.discover_prompt_sources()
             .into_iter()

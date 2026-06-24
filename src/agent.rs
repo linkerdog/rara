@@ -35,7 +35,7 @@ use crate::llm::{
 };
 use crate::lsp_manager::LspManager;
 use crate::mcp_status::McpStatusSnapshot;
-use crate::memory_notice::{count_label, memory_notice};
+use crate::memory_notice::memory_notice;
 use crate::memory_store::MemoryStore;
 use crate::prompt::{self, PromptMode, PromptRuntimeConfig};
 use crate::protocol_sources::{PromptSourceRegistry, SkillSourceRegistry};
@@ -411,11 +411,10 @@ impl Agent {
         });
         self.refresh_memory_retrieval_candidates().await;
         report(AgentEvent::MemoryAction {
-            message: memory_notice(format!(
-                "queried workspace memory: {} {}",
-                self.retrieved_memory_candidates.len(),
-                count_label("candidate", self.retrieved_memory_candidates.len())
-            )),
+            message: memory_notice(
+                self.workspace
+                    .memory_notice_text(self.retrieved_memory_candidates.len()),
+            ),
         });
         self.refresh_file_search_candidates();
         self.refresh_protocol_prompt_sources_for_query().await;
