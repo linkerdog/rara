@@ -57,6 +57,9 @@ pub(crate) async fn dispatch_event(
         AppEvent::ToggleSidebar => {
             app.sidebar_visible = !app.sidebar_visible;
         }
+        AppEvent::ToggleThinking => {
+            app.thinking_collapsed = !app.thinking_collapsed;
+        }
         AppEvent::SubmitComposer => {
             app.bottom_pane.expand_large_paste();
             if resume_pending_shell_approval_after_full_access(app, agent_slot) {

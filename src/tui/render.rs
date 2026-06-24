@@ -197,7 +197,13 @@ fn committed_transcript_lines(app: &TuiApp, width: u16) -> Vec<Line<'static>> {
     let cwd = (!app.snapshot.cwd.is_empty()).then(|| Path::new(app.snapshot.cwd.as_str()));
     let mut lines = Vec::new();
     for turn in &app.committed_turns {
-        let mut turn_lines = committed_turn_lines(turn.entries.as_slice(), cwd, width);
+        let mut turn_lines = committed_turn_lines(
+            turn.entries.as_slice(),
+            cwd,
+            width,
+            app.thinking_collapsed,
+            turn.thinking_duration,
+        );
         if turn_lines.is_empty() {
             continue;
         }
@@ -239,16 +245,20 @@ fn turn_divider_line(width: u16) -> Line<'static> {
 pub fn committed_turn_cell<'a>(
     entries: &'a [TranscriptEntry],
     cwd: Option<&'a Path>,
+    thinking_collapsed: bool,
+    thinking_duration: Option<std::time::Duration>,
 ) -> CommittedTurnCell<'a> {
-    CommittedTurnCell::new(entries, cwd)
+    CommittedTurnCell::new(entries, cwd, thinking_collapsed, thinking_duration)
 }
 
 pub(crate) fn committed_turn_lines(
     entries: &[TranscriptEntry],
     cwd: Option<&Path>,
     width: u16,
+    thinking_collapsed: bool,
+    thinking_duration: Option<std::time::Duration>,
 ) -> Vec<Line<'static>> {
-    committed_turn_cell(entries, cwd).display_lines(width)
+    committed_turn_cell(entries, cwd, thinking_collapsed, thinking_duration).display_lines(width)
 }
 
 pub fn active_turn_cell<'a>(app: &'a TuiApp) -> ActiveTurnCell<'a> {

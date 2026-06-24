@@ -48,7 +48,7 @@ fn committed_turn_does_not_truncate_agent_response() {
         },
     ];
 
-    let rendered = committed_turn_cell(entries.as_slice(), Some(Path::new(".")))
+    let rendered = committed_turn_cell(entries.as_slice(), Some(Path::new(".")), false, None)
         .display_lines(100)
         .into_iter()
         .map(|line| line.to_string())
@@ -67,6 +67,7 @@ fn keeps_history_reserve_once_transcript_exists() {
     })
     .expect("build tui app");
     app.committed_turns.push(TranscriptTurn {
+        thinking_duration: None,
         entries: vec![TranscriptEntry {
             role: "You".into(),
             message: "Earlier prompt".into(),
@@ -111,6 +112,7 @@ fn transcript_render_stays_above_bottom_pane() {
     })
     .expect("build tui app");
     app.committed_turns.push(TranscriptTurn {
+        thinking_duration: None,
         entries: vec![
             TranscriptEntry {
                 role: "You".into(),
@@ -247,6 +249,7 @@ fn renderable_transcript_lines_include_committed_and_active_turns() {
     })
     .expect("build tui app");
     app.committed_turns.push(TranscriptTurn {
+        thinking_duration: None,
         entries: vec![
             TranscriptEntry {
                 role: "You".into(),
@@ -287,6 +290,7 @@ fn renderable_transcript_lines_insert_turn_dividers_between_rounds() {
     .expect("build tui app");
     app.committed_turns = vec![
         TranscriptTurn {
+            thinking_duration: None,
             entries: vec![TranscriptEntry {
                 role: "You".into(),
                 message: "First prompt".into(),
@@ -294,6 +298,7 @@ fn renderable_transcript_lines_insert_turn_dividers_between_rounds() {
             }],
         },
         TranscriptTurn {
+            thinking_duration: None,
             entries: vec![TranscriptEntry {
                 role: "Agent".into(),
                 message: "Second reply".into(),
@@ -393,7 +398,10 @@ fn effective_height_includes_final_row_at_bottom_sticky() {
             payload: None,
         })
         .collect();
-    app.restore_committed_turns(vec![TranscriptTurn { entries }]);
+    app.restore_committed_turns(vec![TranscriptTurn {
+        thinking_duration: None,
+        entries,
+    }]);
 
     let viewport = transcript_viewport(&app, 80, 5);
     let (visible_lines, _inner) = viewport.visible_window(80, 5);
@@ -420,6 +428,7 @@ fn renderable_transcript_lines_cache_is_invalidated_when_committed_turns_change(
     })
     .expect("build tui app");
     app.restore_committed_turns(vec![TranscriptTurn {
+        thinking_duration: None,
         entries: vec![TranscriptEntry {
             role: "Agent".into(),
             message: "First answer".into(),
@@ -435,6 +444,7 @@ fn renderable_transcript_lines_cache_is_invalidated_when_committed_turns_change(
     assert!(first.contains("First answer"));
 
     app.restore_committed_turns(vec![TranscriptTurn {
+        thinking_duration: None,
         entries: vec![TranscriptEntry {
             role: "Agent".into(),
             message: "Second answer".into(),
@@ -459,6 +469,7 @@ fn transcript_viewport_is_independent_from_overlay_state() {
     })
     .expect("build tui app");
     app.committed_turns.push(TranscriptTurn {
+        thinking_duration: None,
         entries: vec![
             TranscriptEntry {
                 role: "You".into(),
@@ -505,6 +516,7 @@ fn transcript_viewport_keeps_manual_scroll_when_overlay_opens() {
     })
     .expect("build tui app");
     app.committed_turns.push(TranscriptTurn {
+        thinking_duration: None,
         entries: vec![
             TranscriptEntry {
                 role: "You".into(),

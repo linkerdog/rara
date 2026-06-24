@@ -50,4 +50,5 @@ pub enum AppEvent {
     CancelRunningTask,
     ClearComposer,
     ToggleSidebar,
+    ToggleThinking,
 }

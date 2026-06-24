@@ -142,10 +142,14 @@ impl TuiApp {
         } else {
             std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."))
         };
+        let is_first_delta = self.agent_thinking_stream.is_none();
         let stream = self
             .agent_thinking_stream
             .get_or_insert_with(|| super::AgentMarkdownStreamState::new(cwd));
         stream.push_delta(delta);
+        if is_first_delta {
+            self.active_live.thinking_started_at = Some(std::time::Instant::now());
+        }
         self.reset_transcript_scroll_if_following_tail();
     }
 
@@ -340,7 +344,8 @@ impl TuiApp {
             self.clear_active_live_sections();
             return;
         }
-        let turn = std::mem::take(&mut self.active_turn);
+        let mut turn = std::mem::take(&mut self.active_turn);
+        turn.thinking_duration = self.active_live.thinking_started_at.map(|s| s.elapsed());
         let ordinal = self.committed_turns.len();
         self.persist_turn(ordinal, &turn);
         self.committed_turns.push(turn);
