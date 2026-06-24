@@ -10,9 +10,7 @@ use ratatui::{
 use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 
 use super::super::super::custom_terminal::Frame;
-use super::super::super::interaction_text::{
-    pending_interaction_card_title, pending_interaction_detail_text, pending_interaction_hint_text,
-};
+use super::super::super::interaction_text::pending_interaction_hint_text;
 use super::super::super::queued_input::{pending_follow_up_hint, queued_follow_up_hint};
 use super::super::super::state::char_offset_to_byte_index;
 use super::super::super::state::{ActivePendingInteractionKind, GoalStatus, TaskKind, TuiApp};
@@ -26,22 +24,22 @@ pub(super) fn render_composer(f: &mut Frame, app: &mut TuiApp, area: Rect) -> Op
         .direction(Direction::Vertical)
         .constraints([Constraint::Min(2), Constraint::Length(1)])
         .split(area);
-    let composer_lines = if let Some(pending) = app.active_pending_interaction()
-        && pending.kind != ActivePendingInteractionKind::RequestInput
-        && !app.bottom_pane.input.is_empty()
-    {
-        // When a non-input interaction (ShellApproval, PlanApproval, etc.) is
-        // active and the user has typed text, replace the composer display
-        // with the interaction status so the input text doesn't visually
-        // conflict with the approval prompt. The typed text is preserved in
-        // the input buffer and will be submitted as a queued follow-up.
+    let hide_input_for_approval = app
+        .active_pending_interaction()
+        .is_some_and(|p| p.kind != ActivePendingInteractionKind::RequestInput)
+        && !app.bottom_pane.input.is_empty();
+
+    let composer_lines = if hide_input_for_approval {
+        // Show a single-line status when approval dock is active above.
+        let pending = app.active_pending_interaction().unwrap();
         vec![Line::from(vec![Span::styled(
             format!(
-                "› {} — {}",
-                pending_interaction_card_title(pending.kind),
-                pending_interaction_detail_text(app, pending.kind),
+                "› {} — use ↑↓ or keys to respond",
+                super::super::super::interaction_text::pending_interaction_card_title(pending.kind),
             ),
-            Style::default().fg(TEXT_MUTED),
+            Style::default()
+                .fg(TEXT_MUTED)
+                .add_modifier(Modifier::ITALIC),
         )])]
     } else if app.bottom_pane.input.is_empty() {
         vec![Line::from(vec![
@@ -123,22 +121,16 @@ pub(super) fn render_composer(f: &mut Frame, app: &mut TuiApp, area: Rect) -> Op
             .alignment(Alignment::Left),
         chunks[1],
     );
-    let hide_input_for_approval = app
-        .active_pending_interaction()
-        .is_some_and(|p| p.kind != ActivePendingInteractionKind::RequestInput)
-        && !app.bottom_pane.input.is_empty();
-
-    if hide_input_for_approval {
-        // Don't render a visible cursor while approval options are shown.
-        return None;
-    }
-
-    let cursor = Some(composer_cursor_position(
-        app.bottom_pane.input.as_str(),
-        app.composer_cursor_offset(),
-        chunks[0],
-        app.bottom_pane.composer_scroll,
-    ));
+    let cursor = if hide_input_for_approval {
+        None
+    } else {
+        Some(composer_cursor_position(
+            app.bottom_pane.input.as_str(),
+            app.composer_cursor_offset(),
+            chunks[0],
+            app.bottom_pane.composer_scroll,
+        ))
+    };
     cursor
 }
 
