@@ -5,7 +5,9 @@ use super::super::super::state::{
     ActivePendingInteractionKind, GoalStatus, PendingInteractionSnapshot, RalphGoal, RuntimePhase,
     TaskKind, TuiApp,
 };
-use super::view::{ActivityView, BottomPaneView, FooterView};
+use super::view::{
+    ActivityView, BottomPaneView, FooterView, InteractionAction, InteractionPanelView,
+};
 use crate::tui::theme::{
     INTERACTION_SUB_AGENT, STATUS_INFO, STATUS_READY, STATUS_SUCCESS, STATUS_WARNING, TEXT_ACCENT,
 };
@@ -13,6 +15,7 @@ use crate::tui::theme::{
 pub(super) fn build_bottom_pane_view(app: &TuiApp, width: u16, _height: u16) -> BottomPaneView {
     BottomPaneView {
         activity: build_activity_view(app, width),
+        interaction_panel: build_interaction_panel(app),
         footer: build_footer_view(app),
     }
 }
@@ -246,4 +249,51 @@ fn shows_live_task_stats(app: &TuiApp) -> bool {
                 | RuntimePhase::ProcessingResponse
                 | RuntimePhase::RunningTool
         )
+}
+
+fn build_interaction_panel(app: &TuiApp) -> Option<InteractionPanelView> {
+    let pending = app.active_pending_interaction()?;
+
+    match pending.kind {
+        ActivePendingInteractionKind::ShellApproval => Some(InteractionPanelView {
+            title: "Permission Required",
+            detail: pending_interaction_detail_text(app, pending.kind),
+            actions: vec![
+                InteractionAction {
+                    key: "D",
+                    label: "Deny",
+                },
+                InteractionAction {
+                    key: "A",
+                    label: "Allow Always",
+                },
+                InteractionAction {
+                    key: "Enter",
+                    label: "Allow Once",
+                },
+            ],
+            selected: 0,
+        }),
+        ActivePendingInteractionKind::PlanApproval
+        | ActivePendingInteractionKind::PlanningQuestion => Some(InteractionPanelView {
+            title: "Planning Question",
+            detail: pending_interaction_detail_text(app, pending.kind),
+            actions: vec![
+                InteractionAction {
+                    key: "Enter",
+                    label: "Continue Plan",
+                },
+                InteractionAction {
+                    key: "I",
+                    label: "Start Implementation",
+                },
+            ],
+            selected: 0,
+        }),
+        _ => None,
+    }
+}
+
+fn pending_interaction_detail_text(app: &TuiApp, kind: ActivePendingInteractionKind) -> String {
+    super::super::super::interaction_text::pending_interaction_detail_text(app, kind)
 }
