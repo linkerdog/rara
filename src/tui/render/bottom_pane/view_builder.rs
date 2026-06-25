@@ -260,19 +260,19 @@ fn build_interaction_panel(app: &TuiApp) -> Option<InteractionPanelView> {
             detail: compact_shell_approval_detail(app),
             actions: vec![
                 InteractionAction {
-                    key: "Enter",
-                    label: "Allow Once",
+                    key: "1",
+                    label: "Allow once",
                 },
                 InteractionAction {
-                    key: "P",
-                    label: "Allow Prefix",
+                    key: "2",
+                    label: "Allow matching prefix",
                 },
                 InteractionAction {
-                    key: "A",
-                    label: "Allow Always",
+                    key: "3",
+                    label: "Allow for this session",
                 },
                 InteractionAction {
-                    key: "D",
+                    key: "4",
                     label: "Deny",
                 },
             ],
