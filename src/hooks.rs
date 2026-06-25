@@ -176,7 +176,7 @@ impl HookRegistry {
 fn phase_ordinal(phase: HookLifecycle) -> u8 {
     match phase {
         HookLifecycle::SessionStart => 0,
-        HookLifecycle::SessionEnd => 8,
+        HookLifecycle::SessionEnd => 9,
         HookLifecycle::UserPromptSubmit => 1,
         HookLifecycle::PreToolUse => 2,
         HookLifecycle::PostToolUse => 3,
@@ -184,6 +184,7 @@ fn phase_ordinal(phase: HookLifecycle) -> u8 {
         HookLifecycle::MemoryQuery => 5,
         HookLifecycle::Stop => 6,
         HookLifecycle::PreCompact => 7,
+        HookLifecycle::PostCompact => 8,
     }
 }
 

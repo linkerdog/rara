@@ -89,7 +89,7 @@ Active backlog only. Keep this file small and current.
 ### Specs to Write
 - [x] Hooks/plugin lifecycle spec — `docs/features/file-hooks.md`
 - [x] Subagent context optimization spec — covered by project_context design
-- [ ] Compaction as explicit runtime lifecycle event
+- [x] Compaction as explicit runtime lifecycle event — `/compact` command + PreCompact/PostCompact hook phases
 - [ ] Model-aware context budget — token limits per model window
 
 ## Runtime Control Plane / ACP / Wire
