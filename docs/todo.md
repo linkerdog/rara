@@ -13,7 +13,7 @@ Active backlog only. Keep this file small and current.
 
 1. Finish plugin/runtime status correctness before adding more plugin surface.
 2. Add `rara plugin install/list/remove` once runtime registration is observable. (done)
-3. Improve TUI live feedback: thinking collapse/summary (✅ done #590), then live bash transcript.
+3. Improve TUI live feedback: thinking collapse/summary (✅ done #590), live bash transcript (✅ already streaming via ToolProgressEvent).
 4. Close context/embedding correctness: project_context merge (✅ done #589), canonical vector schema,
    model-aware budgeting.
 5. Split P0 large files only after the behavior surfaces above have tests.

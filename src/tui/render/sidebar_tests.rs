@@ -3,7 +3,7 @@ use tempfile::tempdir;
 
 use super::{
     push_child_sessions, push_context_summary, push_lsp_status, push_model_badge,
-    push_session_info, push_todo_section,
+    push_plan_section, push_session_info,
 };
 use crate::config::ConfigManager;
 use crate::context::TodoContextView;
@@ -373,61 +373,29 @@ fn push_lsp_status_reports_no_detected_project_server() {
 }
 
 #[test]
-fn push_todo_section_shows_progress_and_items() {
+fn push_plan_section_shows_progress_and_items() {
     let temp = tempdir().unwrap();
     let mut app = TuiApp::new(ConfigManager {
         path: temp.path().join("config.json"),
     })
     .expect("build tui app");
-    app.snapshot = RuntimeSnapshot {
-        todo: TodoContextView {
-            summary: TodoSummary {
-                total: 4,
-                pending: 1,
-                in_progress: 1,
-                completed: 1,
-                cancelled: 1,
-                active_item: Some("Run focused regression test".into()),
-            },
-            updated_at: Some(1_777_584_000),
-            items: vec![
-                (
-                    "todo-1".into(),
-                    "completed".into(),
-                    "Reproduce failing behavior".into(),
-                ),
-                (
-                    "todo-2".into(),
-                    "in_progress".into(),
-                    "Run focused regression test".into(),
-                ),
-                (
-                    "todo-3".into(),
-                    "pending".into(),
-                    "Check nearby side effects".into(),
-                ),
-                (
-                    "todo-4".into(),
-                    "cancelled".into(),
-                    "Broader cleanup".into(),
-                ),
-            ],
-        },
-        ..RuntimeSnapshot::default()
-    };
+    app.snapshot.plan_steps = vec![
+        ("done".into(), "Reproduce failing behavior".into()),
+        ("in_progress".into(), "Run focused regression test".into()),
+        ("pending".into(), "Check nearby side effects".into()),
+        ("cancelled".into(), "Broader cleanup".into()),
+    ];
 
     let mut lines = Vec::new();
-    assert!(push_todo_section(&mut lines, &app));
+    assert!(push_plan_section(&mut lines, &app));
 
     let text: String = lines
         .iter()
         .map(|l| l.to_string())
         .collect::<Vec<_>>()
         .join("\n");
-    assert!(text.contains("Todo"));
-    assert!(text.contains("Todo"));
-    assert!(text.contains("1 / 4 · 2 open"));
-    assert!(text.contains("● Run focused regression test"));
+    assert!(text.contains("Plan"));
+    assert!(text.contains("1/4 done"));
     assert!(text.contains("[x] Reproduce failing behavior"));
     assert!(text.contains("[>] Run focused regression test"));
     assert!(text.contains("[ ] Check nearby side effects"));

@@ -10,7 +10,7 @@ use ratatui::{
 
 use crate::local_model_server::LocalModelServerState;
 use crate::tui::custom_terminal::Frame;
-use crate::tui::state::TuiApp;
+use crate::tui::state::{GoalStatus, TuiApp};
 use crate::tui::status_display::context_sidebar_summary;
 use crate::tui::theme::*;
 
@@ -45,7 +45,7 @@ pub(crate) fn render_sidebar(f: &mut Frame, app: &TuiApp, area: Rect) {
     lines.push(Line::from(""));
     push_local_model_section(&mut lines, app);
     lines.push(Line::from(""));
-    if push_todo_section(&mut lines, app) {
+    if push_plan_section(&mut lines, app) {
         lines.push(Line::from(""));
     }
     push_child_sessions(&mut lines, app);
@@ -261,62 +261,69 @@ fn push_local_model_section(lines: &mut Vec<Line<'static>>, app: &TuiApp) {
     }
 }
 
-fn push_todo_section(lines: &mut Vec<Line<'static>>, app: &TuiApp) -> bool {
-    let todo = &app.snapshot.todo;
-    if todo.summary.total == 0 {
+fn push_plan_section(lines: &mut Vec<Line<'static>>, app: &TuiApp) -> bool {
+    let plan_steps = &app.snapshot.plan_steps;
+    let goal = &app.goal;
+    if plan_steps.is_empty() && goal.is_none() {
         return false;
     }
-
-    lines.push(Line::from(super::section_label("Todo", TEXT_SECONDARY)));
-    let open = todo.summary.pending + todo.summary.in_progress;
-    lines.push(Line::from(Span::styled(
-        format!(
-            "{} / {} · {} open",
-            todo.summary.completed, todo.summary.total, open
-        ),
-        Style::default().fg(TEXT_MUTED),
-    )));
-
-    if let Some(active) = todo.summary.active_item.as_deref() {
+    lines.push(Line::from(super::section_label("Plan", TEXT_SECONDARY)));
+    if let Some(goal) = goal.as_ref() {
+        let mark = match goal.status {
+            GoalStatus::Pursuing => "\u{1f3af}",
+            GoalStatus::Complete => "\u{2705}",
+            GoalStatus::Paused => "\u{23f8}",
+            GoalStatus::BudgetLimited => "\u{23f1}",
+        };
+        let style = match goal.status {
+            GoalStatus::Pursuing => STATUS_WARNING,
+            GoalStatus::Complete => STATUS_SUCCESS,
+            _ => TEXT_MUTED,
+        };
         lines.push(Line::from(Span::styled(
-            format!("● {active}"),
-            Style::default().fg(STATUS_WARNING),
+            format!("{} {}", mark, goal.objective),
+            Style::default().fg(style),
         )));
+        if goal.tokens_used > 0 {
+            lines.push(Line::from(Span::styled(
+                format!(
+                    "  {} tokens, {} turns",
+                    goal.tokens_used, goal.turns_completed
+                ),
+                Style::default().fg(TEXT_MUTED),
+            )));
+        }
     }
-
-    for (_, status, content) in todo.items.iter().take(4) {
+    if !plan_steps.is_empty() {
+        let total = plan_steps.len();
+        let done = plan_steps
+            .iter()
+            .filter(|(status, _)| status == "done")
+            .count();
         lines.push(Line::from(Span::styled(
-            format!("{} {}", todo_status_marker(status), content.trim()),
-            todo_status_style(status),
-        )));
-    }
-
-    if todo.items.len() > 4 {
-        lines.push(Line::from(Span::styled(
-            format!("… {} more", todo.items.len() - 4),
+            format!("{}/{} done", done, total),
             Style::default().fg(TEXT_MUTED),
         )));
+        for (st, d) in plan_steps.iter().take(8) {
+            let (m, s) = match st.as_str() {
+                "done" => ("[x]", STATUS_SUCCESS),
+                "in_progress" => ("[>]", STATUS_WARNING),
+                "cancelled" => ("[-]", TEXT_MUTED),
+                _ => ("[ ]", TEXT_SECONDARY),
+            };
+            lines.push(Line::from(Span::styled(
+                format!("{} {}", m, d.trim()),
+                Style::default().fg(s),
+            )));
+        }
+        if plan_steps.len() > 8 {
+            lines.push(Line::from(Span::styled(
+                format!("... {} more", plan_steps.len() - 8),
+                Style::default().fg(TEXT_MUTED),
+            )));
+        }
     }
-
     true
-}
-
-fn todo_status_marker(status: &str) -> &'static str {
-    match status {
-        "in_progress" => "[>]",
-        "completed" => "[x]",
-        "cancelled" => "[-]",
-        _ => "[ ]",
-    }
-}
-
-fn todo_status_style(status: &str) -> Style {
-    match status {
-        "in_progress" => Style::default().fg(STATUS_WARNING),
-        "completed" => Style::default().fg(STATUS_SUCCESS),
-        "cancelled" => Style::default().fg(TEXT_MUTED),
-        _ => Style::default().fg(TEXT_SECONDARY),
-    }
 }
 
 fn push_child_sessions(lines: &mut Vec<Line<'static>>, app: &TuiApp) {
