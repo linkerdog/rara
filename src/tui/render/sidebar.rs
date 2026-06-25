@@ -295,13 +295,11 @@ fn push_plan_section(lines: &mut Vec<Line<'static>>, app: &TuiApp) -> bool {
         }
     }
     if !plan_steps.is_empty() {
-        let (done, total) = plan_steps.iter().fold((0, 0), |(d, t), (s, _)| {
-            if s == "done" {
-                (d + 1, t + 1)
-            } else {
-                (d, t + 1)
-            }
-        });
+        let total = plan_steps.len();
+        let done = plan_steps
+            .iter()
+            .filter(|(status, _)| status == "done")
+            .count();
         lines.push(Line::from(Span::styled(
             format!("{}/{} done", done, total),
             Style::default().fg(TEXT_MUTED),
