@@ -265,11 +265,11 @@ fn build_interaction_panel(app: &TuiApp) -> Option<InteractionPanelView> {
                 },
                 InteractionAction {
                     key: "2",
-                    label: "Allow matching prefix",
+                    label: "Allow prefix",
                 },
                 InteractionAction {
                     key: "3",
-                    label: "Allow for this session",
+                    label: "Allow always",
                 },
                 InteractionAction {
                     key: "4",

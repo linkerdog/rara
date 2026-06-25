@@ -298,6 +298,12 @@ fn push_plan_section(lines: &mut Vec<Line<'static>>, app: &TuiApp) -> bool {
                 Style::default().fg(s),
             )));
         }
+        if todo_items.items.len() > 4 {
+            lines.push(Line::from(Span::styled(
+                format!("... {} more", todo_items.items.len() - 4),
+                Style::default().fg(TEXT_MUTED),
+            )));
+        }
         return true;
     }
     lines.push(Line::from(super::section_label("Plan", TEXT_SECONDARY)));
