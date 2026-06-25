@@ -264,8 +264,47 @@ fn push_local_model_section(lines: &mut Vec<Line<'static>>, app: &TuiApp) {
 fn push_plan_section(lines: &mut Vec<Line<'static>>, app: &TuiApp) -> bool {
     let plan_steps = &app.snapshot.plan_steps;
     let goal = &app.goal;
+
+    // Fall back to todo items when there's no plan or goal.
     if plan_steps.is_empty() && goal.is_none() {
-        return false;
+        let todo_items = &app.snapshot.todo;
+        if todo_items.items.is_empty() {
+            return false;
+        }
+        lines.push(Line::from(super::section_label("Todo", TEXT_SECONDARY)));
+        let open = todo_items.summary.pending + todo_items.summary.in_progress;
+        lines.push(Line::from(Span::styled(
+            format!(
+                "{}/{} · {open} open",
+                todo_items.summary.completed, todo_items.summary.total
+            ),
+            Style::default().fg(TEXT_MUTED),
+        )));
+        for (_, status, content) in todo_items.items.iter().take(4) {
+            let m = match status.as_str() {
+                "completed" => "[x]",
+                "in_progress" => "[>]",
+                "cancelled" => "[-]",
+                _ => "[ ]",
+            };
+            let s = match status.as_str() {
+                "completed" => STATUS_SUCCESS,
+                "in_progress" => STATUS_WARNING,
+                "cancelled" => TEXT_MUTED,
+                _ => TEXT_SECONDARY,
+            };
+            lines.push(Line::from(Span::styled(
+                format!("{m} {content}"),
+                Style::default().fg(s),
+            )));
+        }
+        if todo_items.items.len() > 4 {
+            lines.push(Line::from(Span::styled(
+                format!("... {} more", todo_items.items.len() - 4),
+                Style::default().fg(TEXT_MUTED),
+            )));
+        }
+        return true;
     }
     lines.push(Line::from(super::section_label("Plan", TEXT_SECONDARY)));
     if let Some(goal) = goal.as_ref() {

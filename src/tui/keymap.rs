@@ -210,6 +210,26 @@ pub(crate) fn map_key_to_event(key: KeyEvent, app: &TuiApp) -> AppEvent {
                 {
                     AppEvent::SelectPendingOption(1)
                 }
+                (KeyCode::Char('1'), _)
+                    if app.bottom_pane.input.is_empty() && app.has_pending_approval() =>
+                {
+                    AppEvent::SetPermissionSelection(0)
+                }
+                (KeyCode::Char('2'), _)
+                    if app.bottom_pane.input.is_empty() && app.has_pending_approval() =>
+                {
+                    AppEvent::SetPermissionSelection(1)
+                }
+                (KeyCode::Char('3'), _)
+                    if app.bottom_pane.input.is_empty() && app.has_pending_approval() =>
+                {
+                    AppEvent::SetPermissionSelection(2)
+                }
+                (KeyCode::Char('4'), _)
+                    if app.bottom_pane.input.is_empty() && app.has_pending_approval() =>
+                {
+                    AppEvent::SetPermissionSelection(3)
+                }
                 (KeyCode::Backspace, _) => AppEvent::Backspace,
                 (KeyCode::Delete, _) | (KeyCode::Char('d'), KeyModifiers::CONTROL) => {
                     AppEvent::DeleteForward

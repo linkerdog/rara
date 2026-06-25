@@ -257,22 +257,22 @@ fn build_interaction_panel(app: &TuiApp) -> Option<InteractionPanelView> {
     match pending.kind {
         ActivePendingInteractionKind::ShellApproval => Some(InteractionPanelView {
             title: "Permission Required",
-            detail: pending_interaction_detail_text(app, pending.kind),
+            detail: compact_shell_approval_detail(app),
             actions: vec![
                 InteractionAction {
-                    key: "Enter",
-                    label: "Allow Once",
+                    key: "1",
+                    label: "Allow once",
                 },
                 InteractionAction {
-                    key: "P",
-                    label: "Allow Prefix",
+                    key: "2",
+                    label: "Allow prefix",
                 },
                 InteractionAction {
-                    key: "A",
-                    label: "Allow Always",
+                    key: "3",
+                    label: "Allow always",
                 },
                 InteractionAction {
-                    key: "D",
+                    key: "4",
                     label: "Deny",
                 },
             ],
@@ -281,7 +281,7 @@ fn build_interaction_panel(app: &TuiApp) -> Option<InteractionPanelView> {
         ActivePendingInteractionKind::PlanApproval
         | ActivePendingInteractionKind::PlanningQuestion => Some(InteractionPanelView {
             title: "Planning Question",
-            detail: pending_interaction_detail_text(app, pending.kind),
+            detail: compact_shell_approval_detail(app),
             actions: vec![
                 InteractionAction {
                     key: "Enter",
@@ -296,6 +296,19 @@ fn build_interaction_panel(app: &TuiApp) -> Option<InteractionPanelView> {
         }),
         _ => None,
     }
+}
+
+fn compact_shell_approval_detail(app: &TuiApp) -> String {
+    app.pending_command_approval()
+        .and_then(|i| i.approval.as_ref())
+        .map(|a| {
+            format!(
+                "{}\n  cwd: {}",
+                a.command,
+                a.payload.cwd.as_deref().unwrap_or(".")
+            )
+        })
+        .unwrap_or_default()
 }
 
 fn pending_interaction_detail_text(app: &TuiApp, kind: ActivePendingInteractionKind) -> String {
