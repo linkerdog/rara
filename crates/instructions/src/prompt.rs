@@ -20,6 +20,7 @@ pub enum HookLifecycle {
     MemoryQuery,
     Stop,
     PreCompact,
+    PostCompact,
 }
 
 impl HookLifecycle {
@@ -34,6 +35,7 @@ impl HookLifecycle {
             Self::MemoryQuery => "MemoryQuery",
             Self::Stop => "Stop",
             Self::PreCompact => "PreCompact",
+            Self::PostCompact => "PostCompact",
         }
     }
 
@@ -46,6 +48,8 @@ impl HookLifecycle {
             "pre-tool-use" | "pre_tool_use" => Some(Self::PreToolUse),
             "post-tool-use" | "post_tool_use" => Some(Self::PostToolUse),
             "memory-query" | "memory_query" => Some(Self::MemoryQuery),
+            "pre-compact" | "pre_compact" => Some(Self::PreCompact),
+            "post-compact" | "post_compact" => Some(Self::PostCompact),
             "stop" => Some(Self::Stop),
             _ => None,
         }
