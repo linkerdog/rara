@@ -74,13 +74,6 @@ impl Default for PersistedMemoryRecordFile {
     }
 }
 
-#[derive(Debug, serde::Deserialize)]
-#[serde(untagged)]
-enum PersistedMemoryRecordEnvelope {
-    Versioned(PersistedMemoryRecordFile),
-    Legacy(Vec<MemoryRecord>),
-}
-
 #[derive(Debug, Default)]
 struct MemoryRecordCache {
     state: Option<MemoryRecordFileState>,
@@ -180,4 +173,3 @@ impl MemoryRecordFileStore {
             .context("join memory record delete task")?
     }
 }
-
