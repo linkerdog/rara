@@ -94,6 +94,7 @@ pub struct AgentDefinition {
     /// Max tool-calling turns. 0 = system default.
     #[serde(default)]
     pub max_turns: usize,
+    pub token_budget: Option<i64>,
     /// Permission mode (e.g. "acceptEdits", "default").
     #[serde(default)]
     pub permission_mode: Option<String>,
@@ -223,6 +224,7 @@ pub fn resolve_agent(name: &str, registry: &AgentRegistry) -> Option<AgentDefini
 fn builtin_agent_definition(name: &str) -> Option<AgentDefinition> {
     match name {
         "general" => Some(AgentDefinition {
+            token_budget: None,
             name: "general".into(),
             description: "No-tool reasoning sub-agent".into(),
             tools: vec![],
@@ -235,6 +237,7 @@ fn builtin_agent_definition(name: &str) -> Option<AgentDefinition> {
             system_prompt: String::new(),
         }),
         "explore" => Some(AgentDefinition {
+            token_budget: None,
             name: "explore".into(),
             description: "Read-only repository inspection sub-agent".into(),
             tools: vec!["Read".into(), "Glob".into(), "Grep".into()],
@@ -247,6 +250,7 @@ fn builtin_agent_definition(name: &str) -> Option<AgentDefinition> {
             system_prompt: String::new(),
         }),
         "plan" => Some(AgentDefinition {
+            token_budget: None,
             name: "plan".into(),
             description: "Read-only planning sub-agent".into(),
             tools: vec!["Read".into(), "Glob".into(), "Grep".into()],
@@ -1687,6 +1691,7 @@ fn persisted_pending_interactions(request: Option<&PendingUserInput>) -> Vec<Per
 
 fn resolve_kind_definition(kind: SubAgentKind) -> AgentDefinition {
     builtin_agent_definition(kind.label()).unwrap_or(AgentDefinition {
+        token_budget: None,
         name: kind.label().to_string(),
         description: kind.label().to_string(),
         model: None,
@@ -1702,6 +1707,7 @@ fn resolve_kind_definition(kind: SubAgentKind) -> AgentDefinition {
 
 fn resolve_spawn_agent_definition(name: &str) -> AgentDefinition {
     builtin_agent_definition(name).unwrap_or(AgentDefinition {
+        token_budget: None,
         name: name.to_string(),
         description: name.to_string(),
         model: None,

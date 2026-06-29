@@ -1146,6 +1146,7 @@ fn tool_manager_retain_filters_tools_by_name() {
 #[test]
 fn filtered_tool_manager_respects_tools_whitelist() {
     let definition = AgentDefinition {
+        token_budget: None,
         name: "custom".into(),
         description: "custom".into(),
         tools: vec!["Grep".into(), "Read".into()],
@@ -1167,6 +1168,7 @@ fn filtered_tool_manager_respects_tools_whitelist() {
 #[test]
 fn filtered_tool_manager_respects_disallowed_tools_blacklist() {
     let definition = AgentDefinition {
+        token_budget: None,
         name: "custom".into(),
         description: "custom".into(),
         tools: vec![],
@@ -1188,6 +1190,7 @@ fn filtered_tool_manager_respects_disallowed_tools_blacklist() {
 #[test]
 fn filtered_tool_manager_disallowed_takes_precedence_over_tools() {
     let definition = AgentDefinition {
+        token_budget: None,
         name: "custom".into(),
         description: "custom".into(),
         tools: vec!["Grep".into(), "Read".into()],
