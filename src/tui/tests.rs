@@ -3410,8 +3410,11 @@ fn codex_chatgpt_auth_store_sets_chatgpt_base_url_before_model_flow() {
             }),
             last_refresh: None,
             agent_identity: None,
+            personal_access_token: None,
+            bedrock_api_key: None,
         },
         codex_login::AuthCredentialsStoreMode::File,
+        codex_login::AuthKeyringBackendKind::default(),
     )
     .expect("save auth");
 
