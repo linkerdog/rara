@@ -414,6 +414,7 @@ impl SessionManager {
                 child_session_id: child_session_id.to_string(),
                 status: status.to_string(),
                 summary: summary.map(str::to_string),
+                token_budget: None,
             },
         )?;
         Ok(())

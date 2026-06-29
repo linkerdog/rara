@@ -549,14 +549,15 @@ impl StateDb {
             tx.execute(
                 "INSERT INTO spawn_agent_edges (
                     parent_session_id, event_id, agent_id, name, child_session_id,
-                    status, summary, recorded_at, updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    status, summary, token_budget, recorded_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(parent_session_id, event_id) DO UPDATE SET
                     agent_id = excluded.agent_id,
                     name = excluded.name,
                     child_session_id = excluded.child_session_id,
                     status = excluded.status,
                     summary = excluded.summary,
+                    token_budget = excluded.token_budget,
                     recorded_at = excluded.recorded_at,
                     updated_at = excluded.updated_at",
                 params![
@@ -567,6 +568,7 @@ impl StateDb {
                     edge.child_session_id,
                     edge.status,
                     edge.summary,
+                    edge.token_budget,
                     edge.recorded_at,
                     now
                 ],
@@ -583,7 +585,7 @@ impl StateDb {
         let conn = self.conn.lock().expect("state db mutex poisoned");
         let mut stmt = conn.prepare(
             "SELECT parent_session_id, event_id, agent_id, name, child_session_id,
-                    status, summary, recorded_at
+                    status, summary, token_budget, recorded_at
              FROM spawn_agent_edges
              WHERE parent_session_id = ?
              ORDER BY COALESCE(recorded_at, 0) ASC, event_id ASC",
@@ -597,7 +599,8 @@ impl StateDb {
                 child_session_id: row.get(4)?,
                 status: row.get(5)?,
                 summary: row.get(6)?,
-                recorded_at: row.get(7)?,
+                token_budget: row.get(7)?,
+                recorded_at: row.get(8)?,
             })
         })?;
         let mut edges = Vec::new();
@@ -1014,6 +1017,7 @@ impl StateDb {
                 child_session_id TEXT NOT NULL,
                 status TEXT NOT NULL,
                 summary TEXT,
+                token_budget INTEGER,
                 recorded_at INTEGER,
                 updated_at INTEGER NOT NULL,
                 UNIQUE(parent_session_id, event_id)
@@ -1052,6 +1056,7 @@ impl StateDb {
             "TEXT NOT NULL DEFAULT 'fresh'",
         )?;
         ensure_column(&conn, "sessions", "forked_from_thread_id", "TEXT")?;
+        ensure_column(&conn, "spawn_agent_edges", "token_budget", "INTEGER")?;
         ensure_column(
             &conn,
             "sessions",
@@ -1166,6 +1171,7 @@ fn spawn_agent_edges_from_events(
                 child_session_id,
                 status,
                 summary,
+                token_budget,
             } = event
             else {
                 return None;
@@ -1178,6 +1184,7 @@ fn spawn_agent_edges_from_events(
                 child_session_id: child_session_id.clone(),
                 status: status.clone(),
                 summary: summary.clone(),
+                token_budget: *token_budget,
                 recorded_at: *recorded_at,
             })
         })
