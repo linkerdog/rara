@@ -1,7 +1,7 @@
 use std::path::Path;
 
 use anyhow::Result;
-use codex_login::{AuthCredentialsStoreMode, AuthManager};
+use codex_login::{AuthCredentialsStoreMode, AuthKeyringBackendKind, AuthManager};
 use codex_models_manager::bundled_models_response;
 use codex_models_manager::manager::{ModelsManager, RefreshStrategy, StaticModelsManager};
 
@@ -32,6 +32,9 @@ pub async fn load_codex_model_catalog(
         codex_home.to_path_buf(),
         false,
         AuthCredentialsStoreMode::File,
+        None,
+        None,
+        AuthKeyringBackendKind::default(),
         None,
     )
     .await;

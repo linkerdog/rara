@@ -8,11 +8,11 @@ use std::sync::atomic::{AtomicBool, Ordering};
 
 use agent_client_protocol::{
     Agent as AcpRoleAgent, Client, ConnectionTo, Dispatch, Responder, Result as AcpResult,
-    schema::{
+    schema::v1::{
         AgentCapabilities, AuthenticateRequest, AuthenticateResponse, CancelNotification,
-        ContentChunk, InitializeRequest, InitializeResponse, NewSessionRequest, NewSessionResponse,
-        PromptRequest, PromptResponse, SessionId, SessionNotification, SessionUpdate, StopReason,
-        TextContent,
+        ContentBlock as AcpContentBlock, ContentChunk, InitializeRequest, InitializeResponse,
+        NewSessionRequest, NewSessionResponse, PromptRequest, PromptResponse, SessionId,
+        SessionNotification, SessionUpdate, StopReason, TextContent,
     },
 };
 use rara_tools::tool::{ToolManager, ToolProgressEvent};
@@ -285,9 +285,7 @@ impl RaraAcpAgent {
                 crate::runtime_control::RuntimeEvent::Assistant(
                     crate::runtime_control::AssistantEvent::TextDelta(text),
                 ) => {
-                    let chunk = ContentChunk::new(
-                        agent_client_protocol::schema::ContentBlock::Text(TextContent::new(text)),
-                    );
+                    let chunk = ContentChunk::new(AcpContentBlock::Text(TextContent::new(text)));
                     let _ = cx_for_report.send_notification(SessionNotification::new(
                         sid_for_report.clone(),
                         SessionUpdate::AgentMessageChunk(chunk),
@@ -297,9 +295,7 @@ impl RaraAcpAgent {
                     crate::runtime_control::ToolEvent::Result { name, content, .. },
                 ) => {
                     let label = format!("\n[Tool result: {name}]\n{}\n", content);
-                    let chunk = ContentChunk::new(
-                        agent_client_protocol::schema::ContentBlock::Text(TextContent::new(label)),
-                    );
+                    let chunk = ContentChunk::new(AcpContentBlock::Text(TextContent::new(label)));
                     let _ = cx_for_report.send_notification(SessionNotification::new(
                         sid_for_report.clone(),
                         SessionUpdate::AgentMessageChunk(chunk),
@@ -334,11 +330,11 @@ impl RaraAcpAgent {
 }
 
 /// Extract plain text from ACP content blocks.
-fn extract_prompt_text(prompt: &[agent_client_protocol::schema::ContentBlock]) -> String {
+fn extract_prompt_text(prompt: &[AcpContentBlock]) -> String {
     prompt
         .iter()
         .filter_map(|block| {
-            if let agent_client_protocol::schema::ContentBlock::Text(text) = block {
+            if let AcpContentBlock::Text(text) = block {
                 Some(text.text.as_str())
             } else {
                 None
