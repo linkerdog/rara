@@ -154,7 +154,7 @@ Active backlog only. Keep this file small and current.
 
 - [ ] Refactor ~7 large methods out of `impl TuiApp` to enable file split.
 - [ ] Design subagent context budget as a first-class property.
-- [ ] Subagent restart/reconnect semantics.
+- [ ] Subagent restart/reconnect semantics — built-in agent capability, not a separate tool. All agents should reconnect to existing sessions on interruption.
 - [ ] Tool result compression — auto-truncate long outputs with summary, align with Claude Code.
 - [ ] Claude plugin runtime integration (long-term).
 - [x] `runtime_control.rs`: add per-item comments to 22 `#[allow(dead_code)]` ACP types
