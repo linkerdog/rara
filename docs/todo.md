@@ -90,7 +90,7 @@ Active backlog only. Keep this file small and current.
 - [x] Hooks/plugin lifecycle spec — `docs/features/file-hooks.md`
 - [x] Subagent context optimization spec — covered by project_context design
 - [x] Compaction as explicit runtime lifecycle event — `/compact` command + PreCompact/PostCompact hook phases
-- [ ] Model-aware context budget — token limits per model window
+- [x] Model-aware context budget — CompactState.context_window_tokens per model
 
 ## Runtime Control Plane / ACP / Wire
 
@@ -132,8 +132,8 @@ Active backlog only. Keep this file small and current.
 
 - [x] Record canonical embedding dimension/schema version next to each vector store.
 - [x] Auto-rebuild vector store on dimension mismatch.
-- [ ] Make context budgeting model-aware instead of one fixed heuristic.
-- [ ] Turn compaction into an explicit runtime lifecycle event.
+- [x] Make context budgeting model-aware — CompactState.context_window_tokens
+- [x] Turn compaction into an explicit runtime lifecycle event — /compact command + PreCompact/PostCompact hooks
 - [ ] Read project-level AGENTS.md → `project_memory` → inject into context.
 
 ## Memory
@@ -155,7 +155,7 @@ Active backlog only. Keep this file small and current.
 - [ ] Refactor ~7 large methods out of `impl TuiApp` to enable file split.
 - [ ] Design subagent context budget as a first-class property.
 - [ ] Subagent restart/reconnect semantics — built-in agent capability, not a separate tool. All agents should reconnect to existing sessions on interruption.
-- [ ] Tool result compression — auto-truncate long outputs with summary, align with Claude Code.
+- [x] Tool result compression — ToolResultProjectionPolicy + model_preview_bash_output head-tail truncation
 - [ ] Claude plugin runtime integration (long-term).
 - [x] `runtime_control.rs`: add per-item comments to 22 `#[allow(dead_code)]` ACP types
 - [x] `google_oauth.rs`: add FIXME comment documenting superseded-by-codex-login status
