@@ -34,10 +34,8 @@ Active backlog only. Keep this file small and current.
 
 ## Agent / Subagent
 
-- [x] Agent team mode — team_create, sub_agent_list/stop/resume, StructuredResult aggregation
-
 - [x] Subagent token_budget field (PR #601)
-- [x] Subagent restart/reconnect — sub_agent_resume with parent-sidechain replay
+- [ ] Subagent restart/reconnect — built-in capability, not a separate tool
 - [x] Subagent context budget design — token_budget on AgentDefinition
 
 ## Hooks

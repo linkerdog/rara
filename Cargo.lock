@@ -2008,7 +2008,7 @@ dependencies = [
  "codex-utils-absolute-path",
  "codex-utils-path-uri",
  "inventory",
- "rmcp",
+ "rmcp 1.8.0",
  "schemars 0.8.22",
  "serde",
  "serde_json",
@@ -7092,9 +7092,9 @@ dependencies = [
 
 [[package]]
 name = "indicatif"
-version = "0.18.4"
+version = "0.18.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "25470f23803092da7d239834776d653104d551bc4d7eacaf31e6837854b8e9eb"
+checksum = "993f007684f2e9727160da8b960ec161264703bfd1af084fd2e34d040c9a0dd4"
 dependencies = [
  "console",
  "portable-atomic",
@@ -11103,7 +11103,7 @@ name = "rara-mcp-client"
 version = "0.0.1"
 dependencies = [
  "anyhow",
- "rmcp",
+ "rmcp 2.0.0",
  "serde_json",
  "tokio",
 ]
@@ -11615,8 +11615,30 @@ dependencies = [
  "futures",
  "pastey",
  "pin-project-lite",
+ "rmcp-macros 1.8.0",
+ "schemars 1.2.1",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.18",
+ "tokio",
+ "tokio-util",
+ "tracing",
+]
+
+[[package]]
+name = "rmcp"
+version = "2.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d52d21e5b342699bc4de690e6104fc4e43255e4e8420ff0f2cbb963aac09da6f"
+dependencies = [
+ "async-trait",
+ "base64 0.22.1",
+ "chrono",
+ "futures",
+ "pastey",
+ "pin-project-lite",
  "process-wrap",
- "rmcp-macros",
+ "rmcp-macros 2.0.0",
  "schemars 1.2.1",
  "serde",
  "serde_json",
@@ -11632,6 +11654,19 @@ name = "rmcp-macros"
 version = "1.8.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1aad0035b69380782d78ea95b508327e6deaa2235909053e596eea8f27b5e1d5"
+dependencies = [
+ "darling 0.23.0",
+ "proc-macro2",
+ "quote",
+ "serde_json",
+ "syn 2.0.118",
+]
+
+[[package]]
+name = "rmcp-macros"
+version = "2.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6c68cec74c5b3ac73ff46375ae49e161637bda80bba70f0d5db641583bb308ee"
 dependencies = [
  "darling 0.23.0",
  "proc-macro2",

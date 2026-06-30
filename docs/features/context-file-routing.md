@@ -1,6 +1,6 @@
 # Context File Routing
 
-**Status**: spec
+**Status**: done
 **Date**: 2026-05-07
 **Depends on**: `crates/file-search`, `docs/features/memory-selection.md`
 
@@ -226,6 +226,9 @@ This produces a deterministic list that survives repeated calls.
 ---
 
 ## References
+
+> **Note**: The integration point diagram above shows architectural relationships, not
+> literal function signatures. For current API contracts, see the respective source files.
 
 - `crates/file-search/src/lib.rs` — fuzzy file search engine
 - `docs/features/memory-selection.md` — candidate selection pipeline
