@@ -1,10 +1,5 @@
 
 impl LocalModelServerEmbeddingBackend {
-    pub(crate) fn new(rara_home: PathBuf) -> Result<Self> {
-        let status = prepare_local_model_server_status(&rara_home);
-        Self::from_initial_status(rara_home, status)
-    }
-
     pub(crate) fn from_initial_status(
         rara_home: PathBuf,
         status: LocalModelServerStatus,
@@ -174,10 +169,6 @@ pub(crate) fn ensure_bundled_model_server(rara_home: &Path) -> Result<BundledMod
     })
 }
 
-pub(crate) fn prepare_local_model_server_status(rara_home: &Path) -> LocalModelServerStatus {
-    prepare_local_model_server_status_with_progress(rara_home, None)
-}
-
 pub(crate) fn prepare_local_model_server_status_with_progress(
     rara_home: &Path,
     progress: Option<LocalProgressReporter>,
@@ -218,4 +209,3 @@ pub(crate) enum BootstrapMode {
     Automatic,
     InspectOnly,
 }
-

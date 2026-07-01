@@ -11,10 +11,15 @@ use rara_observability::{MemoryObservability, MemoryOperation, global_memory_obs
 use rara_persistence::atomic_file;
 use rara_persistence::file_lock::AdvisoryFileLock;
 
-use crate::llm::{EmbeddingBackend, EmbeddingInputKind, LlmBackend, LlmEmbeddingBackend};
+use crate::llm::{EmbeddingBackend, EmbeddingInputKind, LlmBackend};
+#[cfg(test)]
+use crate::llm::LlmEmbeddingBackend;
 
 const EXPERIENCES_TABLE: &str = "experiences";
 const DEFAULT_IMPORTANCE: f32 = 0.5;
+/// Reserved for automatic memory cleanup protection; see
+/// docs/journal/2026-05-05-memory-retention.md.
+#[allow(dead_code)]
 const HIGH_IMPORTANCE_RETENTION_THRESHOLD: f32 = 0.8;
 const MEMORY_RECORD_INDEX_PLACEHOLDER: u32 = 0;
 const MEMORY_RECORDS_FILE_VERSION: u32 = 1;
@@ -103,6 +108,9 @@ pub enum MemoryPromotionTarget {
         thread_id: String,
         source_span: Option<MemorySourceSpan>,
     },
+    /// Reserved for session-context promotion; the promotion path is tracked in
+    /// docs/journal/2026-05-09-memory-scope-promotion-rules.md.
+    #[allow(dead_code)]
     Session {
         session_id: String,
         source_span: Option<MemorySourceSpan>,
