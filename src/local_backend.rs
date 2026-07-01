@@ -133,7 +133,7 @@ impl LlmBackend for LocalLlmBackend {
     fn model_label(&self) -> Option<String> {
         match self.runtime.lock() {
             Ok(runtime) => Some(runtime.spec.model_id().to_string()),
-            Err(_) => None,
+            Err(err) => Some(err.into_inner().spec.model_id().to_string()),
         }
     }
 
