@@ -108,7 +108,7 @@ fn forward_event_to_bus(
 }
 
 fn forward_lifecycle_event_to_bus(
-    bus: &Arc<RuntimeEventBus>,
+    bus: &RuntimeEventBus,
     event: AgentEvent,
     provenance: &RuntimeProvenance,
 ) {
@@ -118,7 +118,7 @@ fn forward_lifecycle_event_to_bus(
 }
 
 fn forward_task_result_lifecycle<T>(
-    bus: &Arc<RuntimeEventBus>,
+    bus: &RuntimeEventBus,
     provenance: &RuntimeProvenance,
     result: &anyhow::Result<T>,
 ) {

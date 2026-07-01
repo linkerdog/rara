@@ -673,10 +673,14 @@ impl Agent {
             })
             .await?;
 
-        let response_usage = response.usage.clone().unwrap_or_default();
+        let output_tokens = response
+            .usage
+            .as_ref()
+            .map(|usage| usage.output_tokens)
+            .unwrap_or(0);
         report(AgentEvent::ModelResponse {
             model: model_label,
-            output_tokens: response_usage.output_tokens,
+            output_tokens,
             finish_reason: response.stop_reason.clone(),
         });
 
