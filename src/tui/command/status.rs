@@ -1,7 +1,7 @@
 // Status items reserved for inline TUI command surfaces.
 
 use rara_observability::{LatencyPercentiles, memory_latency_snapshot};
-use time::{OffsetDateTime, format_description};
+use time::OffsetDateTime;
 
 use crate::config::RaraConfig;
 use crate::context::{CacheStatus, RetrievalCandidateContextEntry, RetrievalProviderStatus};
@@ -398,10 +398,8 @@ fn render_todo_context(app: &TuiApp) -> String {
 }
 
 fn format_unix_timestamp_utc(timestamp: i64) -> String {
-    let format = format_description::parse_borrowed::<2>(
-        "[year]-[month]-[day] [hour]:[minute]:[second] UTC",
-    )
-    .expect("static timestamp format should be valid");
+    let format =
+        time::macros::format_description!("[year]-[month]-[day] [hour]:[minute]:[second] UTC");
 
     OffsetDateTime::from_unix_timestamp(timestamp)
         .ok()
