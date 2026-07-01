@@ -121,11 +121,7 @@ fn format_thread_summary_lines(thread: &ThreadSummary) -> Vec<String> {
 
 fn format_thread_snapshot(thread: &ThreadSnapshot) -> String {
     let workspace = workspace_label(&thread.metadata.cwd);
-    let turn_count = thread
-        .rollout_items
-        .iter()
-        .filter(|item| matches!(item, crate::thread_store::RolloutItem::Turn(_)))
-        .count();
+    let rollout = rollout_summary(thread);
     let interaction_count = thread.interactions.len();
     let plan_step_count = thread.plan_steps.len();
     let recent_files = if thread.compaction.recent_files.is_empty() {
@@ -145,17 +141,33 @@ fn format_thread_snapshot(thread: &ThreadSnapshot) -> String {
             "mode={}\n",
             "approval={}\n",
             "origin={}\n",
+            "is_fork={}\n",
             "forked_from={}\n",
+            "lineage_kind={}\n",
+            "lineage_source={}\n",
+            "provenance={}\n",
             "created_at={}\n",
             "updated_at={}\n",
             "history_messages={}\n",
             "transcript_entries={}\n",
             "turns={}\n",
+            "turn_ordinals={}\n",
             "plan_steps={}\n",
             "interactions={}\n",
+            "rollout_compactions={}\n",
+            "rollout_compaction_indexes={}\n",
+            "rollout_plan_snapshots={}\n",
+            "rollout_plan_snapshot_steps={}\n",
+            "rollout_plan_snapshot_explanations={}\n",
+            "rollout_interactions={}\n",
+            "rollout_interaction_statuses={}\n",
+            "rollout_spawn_agents={}\n",
+            "rollout_last_spawn={}\n",
             "compactions={}\n",
             "compaction_before_tokens={}\n",
             "compaction_after_tokens={}\n",
+            "compaction_replaced_range={}\n",
+            "compaction_metadata_owner={}\n",
             "compaction_boundary_version={}\n",
             "compaction_recent_files={}\n"
         ),
@@ -168,18 +180,32 @@ fn format_thread_snapshot(thread: &ThreadSnapshot) -> String {
         thread.metadata.agent_mode,
         thread.metadata.bash_approval,
         thread.metadata.origin_kind,
+        thread.is_fork(),
         thread
             .metadata
             .forked_from_thread_id
             .as_deref()
             .unwrap_or("-"),
+        thread.lineage().0,
+        thread.lineage().1.unwrap_or("-"),
+        thread.provenance_description(),
         thread.metadata.created_at,
         thread.metadata.updated_at,
         thread.history.len(),
         thread.metadata.transcript_len,
-        turn_count,
+        rollout.turn_count,
+        rollout.turn_ordinals,
         plan_step_count,
         interaction_count,
+        rollout.compaction_count,
+        rollout.compaction_indexes,
+        rollout.plan_state_count,
+        rollout.plan_state_step_count,
+        rollout.plan_state_explanation_count,
+        rollout.interaction_count,
+        rollout.interaction_statuses,
+        rollout.spawn_agent_count,
+        rollout.last_spawn_agent,
         thread.compaction.compaction_count,
         thread
             .compaction
@@ -191,6 +217,8 @@ fn format_thread_snapshot(thread: &ThreadSnapshot) -> String {
             .after_tokens
             .map(|value| value.to_string())
             .unwrap_or_else(|| "-".to_string()),
+        compaction_replaced_range(&thread.compaction),
+        thread.compaction.metadata_owner.as_deref().unwrap_or("-"),
         thread
             .compaction
             .boundary_version
@@ -198,6 +226,98 @@ fn format_thread_snapshot(thread: &ThreadSnapshot) -> String {
             .unwrap_or_else(|| "-".to_string()),
         recent_files,
     )
+}
+
+#[derive(Default)]
+struct RolloutSummary {
+    turn_count: usize,
+    turn_ordinals: String,
+    compaction_count: usize,
+    compaction_indexes: String,
+    plan_state_count: usize,
+    plan_state_step_count: usize,
+    plan_state_explanation_count: usize,
+    interaction_count: usize,
+    interaction_statuses: String,
+    spawn_agent_count: usize,
+    last_spawn_agent: String,
+}
+
+fn rollout_summary(thread: &ThreadSnapshot) -> RolloutSummary {
+    let mut summary = RolloutSummary {
+        turn_ordinals: "-".to_string(),
+        compaction_indexes: "-".to_string(),
+        interaction_statuses: "-".to_string(),
+        last_spawn_agent: "-".to_string(),
+        ..RolloutSummary::default()
+    };
+    let mut turn_ordinals = Vec::new();
+    let mut compaction_indexes = Vec::new();
+    let mut interaction_statuses = Vec::new();
+    for item in &thread.rollout_items {
+        match item {
+            crate::thread_store::RolloutItem::Compaction(record) => {
+                summary.compaction_count += 1;
+                compaction_indexes.push(record.compaction_count.to_string());
+            }
+            crate::thread_store::RolloutItem::PlanState { explanation, steps } => {
+                summary.plan_state_count += 1;
+                summary.plan_state_step_count += steps.len();
+                if explanation
+                    .as_deref()
+                    .is_some_and(|value| !value.trim().is_empty())
+                {
+                    summary.plan_state_explanation_count += 1;
+                }
+            }
+            crate::thread_store::RolloutItem::Interaction(interaction) => {
+                summary.interaction_count += 1;
+                interaction_statuses.push(format!("{}:{}", interaction.kind, interaction.status));
+            }
+            crate::thread_store::RolloutItem::SpawnAgent {
+                event_id,
+                agent_id,
+                name,
+                child_session_id,
+                status,
+                summary: spawn_summary,
+            } => {
+                summary.spawn_agent_count += 1;
+                summary.last_spawn_agent = format!(
+                    "event={} agent={} child={} name=\"{}\" status={} summary=\"{}\"",
+                    event_id,
+                    agent_id,
+                    child_session_id,
+                    name.as_deref().unwrap_or("-"),
+                    status,
+                    spawn_summary.as_deref().unwrap_or("-")
+                );
+            }
+            crate::thread_store::RolloutItem::Turn(turn) => {
+                summary.turn_count += 1;
+                turn_ordinals.push(turn.summary.ordinal.to_string());
+            }
+        }
+    }
+    if !turn_ordinals.is_empty() {
+        summary.turn_ordinals = turn_ordinals.join(",");
+    }
+    if !compaction_indexes.is_empty() {
+        summary.compaction_indexes = compaction_indexes.join(",");
+    }
+    if !interaction_statuses.is_empty() {
+        summary.interaction_statuses = interaction_statuses.join(",");
+    }
+    summary
+}
+
+fn compaction_replaced_range(compaction: &crate::thread_store::CompactionRecord) -> String {
+    match (compaction.replaced_start, compaction.replaced_end) {
+        (Some(start), Some(end)) => format!("{start}..{end}"),
+        (Some(start), None) => format!("{start}.."),
+        (None, Some(end)) => format!("..{end}"),
+        (None, None) => "-".to_string(),
+    }
 }
 
 fn workspace_label(cwd: &str) -> &str {
@@ -210,14 +330,18 @@ fn workspace_label(cwd: &str) -> &str {
 
 #[cfg(test)]
 mod tests {
+    use rara_persistence::thread_data::{PersistedTurnEntry, PersistedTurnSummary};
     use rara_state::state_db::PersistedInteraction;
 
-    use super::{format_distilled_memories, format_recent_threads, format_thread_snapshot};
+    use super::{
+        compaction_replaced_range, format_distilled_memories, format_recent_threads,
+        format_thread_snapshot,
+    };
     use crate::memory_store::{MemoryLabel, MemoryRecord, MemoryScope, MemorySource};
     use crate::thread_store::{
-        CompactionRecord, RolloutItem, ThreadHistorySource, ThreadMaterializationProvenance,
-        ThreadMetadata, ThreadMetadataSource, ThreadNonTurnRolloutSource, ThreadSnapshot,
-        ThreadSummary,
+        CompactionRecord, RolloutItem, RolloutTurnItem, ThreadHistorySource,
+        ThreadMaterializationProvenance, ThreadMetadata, ThreadMetadataSource,
+        ThreadNonTurnRolloutSource, ThreadSnapshot, ThreadSummary,
     };
 
     fn metadata() -> ThreadMetadata {
@@ -276,6 +400,9 @@ mod tests {
                 compaction_count: 3,
                 before_tokens: Some(1200),
                 after_tokens: Some(400),
+                replaced_start: Some(2),
+                replaced_end: Some(5),
+                metadata_owner: Some("thread-recorder".to_string()),
                 recent_files: vec!["src/main.rs".to_string(), "src/thread_store.rs".to_string()],
                 boundary_version: Some(2),
                 summary: Some("kept the runtime checkpoint".to_string()),
@@ -290,23 +417,78 @@ mod tests {
                 summary: "approved".to_string(),
                 payload: None,
             }],
-            rollout_items: vec![RolloutItem::Interaction(PersistedInteraction {
-                kind: "approval".to_string(),
-                status: "completed".to_string(),
-                title: "Approval".to_string(),
-                summary: "approved".to_string(),
-                payload: None,
-            })],
+            rollout_items: vec![
+                RolloutItem::Interaction(PersistedInteraction {
+                    kind: "approval".to_string(),
+                    status: "completed".to_string(),
+                    title: "Approval".to_string(),
+                    summary: "approved".to_string(),
+                    payload: None,
+                }),
+                RolloutItem::Compaction(CompactionRecord {
+                    compaction_count: 4,
+                    ..Default::default()
+                }),
+                RolloutItem::Turn(RolloutTurnItem {
+                    summary: PersistedTurnSummary {
+                        ordinal: 7,
+                        event_count: 2,
+                        artifact_path: "thread-123/turns.jsonl".to_string(),
+                        preview: "ran a command".to_string(),
+                        updated_at: 1_713_955_200,
+                    },
+                    entries: Vec::<PersistedTurnEntry>::new(),
+                }),
+                RolloutItem::SpawnAgent {
+                    event_id: "evt-1".to_string(),
+                    agent_id: "agent-1".to_string(),
+                    name: Some("plan reviewer".to_string()),
+                    child_session_id: "child-1".to_string(),
+                    status: "completed".to_string(),
+                    summary: Some("checked warning cleanup".to_string()),
+                },
+            ],
         });
 
         assert!(output.contains("Thread thread-123"));
         assert!(output.contains("provider=codex"));
         assert!(output.contains("origin=fresh"));
+        assert!(output.contains("is_fork=false"));
         assert!(output.contains("forked_from=-"));
+        assert!(output.contains("lineage_kind=fresh"));
+        assert!(output.contains("provenance=metadata=StateDb fallback"));
         assert!(output.contains("workspace=rara"));
         assert!(output.contains("interactions=1"));
+        assert!(output.contains("turn_ordinals=7"));
+        assert!(output.contains("rollout_compaction_indexes=4"));
+        assert!(output.contains("rollout_interactions=1"));
+        assert!(output.contains("rollout_interaction_statuses=approval:completed"));
+        assert!(output.contains("rollout_spawn_agents=1"));
+        assert!(output.contains(
+            "rollout_last_spawn=event=evt-1 agent=agent-1 child=child-1 name=\"plan reviewer\" status=completed summary=\"checked warning cleanup\""
+        ));
         assert!(output.contains("compactions=3"));
+        assert!(output.contains("compaction_replaced_range=2..5"));
+        assert!(output.contains("compaction_metadata_owner=thread-recorder"));
         assert!(output.contains("compaction_recent_files=src/main.rs, src/thread_store.rs"));
+    }
+
+    #[test]
+    fn compaction_replaced_range_uses_standard_rust_range_notation() {
+        assert_eq!(
+            compaction_replaced_range(&CompactionRecord {
+                replaced_start: Some(2),
+                ..Default::default()
+            }),
+            "2.."
+        );
+        assert_eq!(
+            compaction_replaced_range(&CompactionRecord {
+                replaced_end: Some(5),
+                ..Default::default()
+            }),
+            "..5"
+        );
     }
 
     #[test]
