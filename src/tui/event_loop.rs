@@ -151,7 +151,6 @@ pub async fn run_tui(
                 match maybe_event {
                     Some(Ok(event)) => match translate_event(event, app) {
                         Some(UiEvent::App(event)) => {
-                            let _commands = super::app_command::commands_for_event(&event);
                             if dispatch_event(event, app, agent_slot, &oauth_manager).await? {
                                 if let Some(task) = app.bottom_pane.running_task.take() {
                                     task.handle.abort();
