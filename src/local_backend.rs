@@ -133,12 +133,7 @@ impl LlmBackend for LocalLlmBackend {
     fn model_label(&self) -> Option<String> {
         match self.runtime.lock() {
             Ok(runtime) => Some(runtime.spec.model_id().to_string()),
-            Err(err) => {
-                eprintln!(
-                    "Warning: local model runtime mutex poisoned while reading model label: {err}"
-                );
-                None
-            }
+            Err(_) => None,
         }
     }
 
