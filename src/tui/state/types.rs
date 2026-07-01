@@ -128,16 +128,6 @@ pub struct UnifiedModelPreset {
 }
 
 impl PermissionMode {
-    pub fn cycle(self) -> Self {
-        match self {
-            Self::Auto => Self::AcceptEdits,
-            Self::AcceptEdits => Self::ReadOnly,
-            Self::ReadOnly => Self::FullAccess,
-            Self::Custom => Self::Auto,
-            Self::FullAccess => Self::Auto,
-        }
-    }
-
     pub fn label(self) -> &'static str {
         match self {
             Self::Auto => "auto",
@@ -224,9 +214,15 @@ pub enum RuntimePhase {
     OAuthExchangingToken,
     OAuthDeviceCodePrompt,
     OAuthPollingDeviceCode,
+    /// Reserved for granular OAuth status rendering (docs/todo.md).
+    #[allow(dead_code)]
     OAuthVerifying,
+    /// Reserved for granular OAuth status rendering (docs/todo.md).
+    #[allow(dead_code)]
     OAuthSuccess,
     OAuthSaved,
+    /// Reserved for granular OAuth status rendering (docs/todo.md).
+    #[allow(dead_code)]
     OAuthError,
     Failed,
 }
@@ -339,6 +335,8 @@ pub enum TaskKind {
     Compact,
     Rebuild,
     OAuth,
+    /// Reserved for Gemini Code Assist OAuth connection from the TUI (docs/todo.md).
+    #[allow(dead_code)]
     GoogleOAuth,
     DeepSeekModels,
     KimiModels,
@@ -366,6 +364,8 @@ pub enum TaskCompletion {
         mode: OAuthLoginMode,
         result: anyhow::Result<secrecy::SecretString>,
     },
+    /// Reserved for Gemini Code Assist OAuth connection from the TUI (docs/todo.md).
+    #[allow(dead_code)]
     GoogleOAuth {
         mode: OAuthLoginMode,
         result: anyhow::Result<crate::google_oauth::GoogleCredential>,
@@ -604,6 +604,12 @@ impl AgentMarkdownStreamState {
             .extend(self.collector.commit_complete_lines());
         self.display_lines = self.committed_lines.clone();
         self.display_lines.extend(self.collector.preview_lines());
+    }
+
+    pub(crate) fn finalize_display_lines(&mut self) {
+        self.committed_lines
+            .extend(self.collector.finalize_and_drain());
+        self.display_lines = self.committed_lines.clone();
     }
 }
 

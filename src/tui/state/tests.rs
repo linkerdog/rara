@@ -69,6 +69,23 @@ fn agent_markdown_stream_sanitizes_terminal_controls() {
 }
 
 #[test]
+fn agent_markdown_stream_finalize_commits_partial_line() {
+    let mut stream = AgentMarkdownStreamState::new(std::path::PathBuf::from("."));
+
+    stream.push_delta("Partial answer without newline");
+    stream.finalize_display_lines();
+
+    let rendered = stream
+        .display_lines
+        .iter()
+        .map(|line| line.to_string())
+        .collect::<Vec<_>>()
+        .join("\n");
+    assert!(rendered.contains("Partial answer without newline"));
+    assert_eq!(stream.display_lines.len(), 1);
+}
+
+#[test]
 fn prioritizes_active_pending_interaction_in_ui_order() {
     let dir = tempdir().expect("tempdir");
     let cm = ConfigManager {
