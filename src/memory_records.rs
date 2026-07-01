@@ -17,6 +17,9 @@ impl MemoryRecord {
         }
     }
 
+    /// Reserved for automatic memory cleanup once retention enforcement is
+    /// wired; see docs/journal/2026-05-05-memory-retention.md.
+    #[allow(dead_code)]
     pub fn is_protected_from_automatic_cleanup(&self) -> bool {
         self.pinned
             || self.source == MemorySource::UserCreated
@@ -129,6 +132,9 @@ impl MemoryRecordFileStore {
             .context("join memory record get task")?
     }
 
+    /// Reserved for the durable memory pinning API; see
+    /// docs/features/memory-records.md.
+    #[allow(dead_code)]
     async fn set_pinned(&self, id: &str, pinned: bool) -> Result<MemoryRecord> {
         let path = self.path.clone();
         let lock_path = self.lock_path.clone();

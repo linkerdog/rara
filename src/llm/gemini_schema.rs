@@ -97,6 +97,7 @@ pub fn sanitize_gemini_schema(schema: &Value) -> Value {
 ///
 /// If the input is empty or invalid, returns a minimal `{type: "object",
 /// properties: {}}` schema.
+#[cfg(test)]
 pub fn sanitize_gemini_tool_parameters(parameters: &Value) -> Value {
     let cleaned = sanitize_gemini_schema(parameters);
     if cleaned.is_null() || cleaned.as_object().is_none_or(|o| o.is_empty()) {

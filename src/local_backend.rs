@@ -47,10 +47,6 @@ struct GenerationResult {
 }
 
 impl LocalLlmBackend {
-    pub fn from_config(config: &RaraConfig) -> Result<Self> {
-        Self::from_config_with_progress(config, None)
-    }
-
     pub fn from_config_with_progress(
         config: &RaraConfig,
         progress: Option<LocalProgressReporter>,

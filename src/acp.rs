@@ -30,9 +30,6 @@ use crate::runtime_control::{
 };
 use crate::runtime_event_bus::RuntimeEventBus;
 
-/// Maximum agentic turns per ACP prompt to prevent infinite loops.
-const MAX_ACP_TURNS: usize = 15;
-
 /// ACP agent state shared across request handlers.
 pub struct RaraAcpAgent {
     pub llm_backend: Arc<dyn LlmBackend>,
