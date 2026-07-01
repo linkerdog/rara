@@ -7,10 +7,6 @@ use crate::llm::{ContextBudget, is_context_window_error};
 use crate::session::PersistedCompactionEvent;
 
 impl Agent {
-    pub async fn compact_if_needed(&mut self) -> Result<()> {
-        self.compact_if_needed_with_reporter(|_| {}).await
-    }
-
     pub async fn compact_if_needed_with_reporter<F>(&mut self, mut report: F) -> Result<()>
     where
         F: FnMut(AgentEvent) + Send,

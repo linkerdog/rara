@@ -2,8 +2,8 @@ use std::sync::atomic::Ordering;
 
 use anyhow::{Result, anyhow};
 
-use crate::agent::{Agent, AgentEvent, AgentExecutionMode, AgentOutputMode, BashApprovalDecision};
-use crate::runtime_control::{InputControlRequest, SessionControlRequest, ShellApprovalDecision};
+use crate::agent::{Agent, AgentEvent, AgentOutputMode, BashApprovalDecision};
+use crate::runtime_control::{InputControlRequest, SessionControlRequest};
 
 impl Agent {
     /// Handle a session control request.
@@ -49,23 +49,12 @@ impl Agent {
                     .await?;
             }
             InputControlRequest::AnswerPlanApproval { approved } => {
-                if *approved {
-                    self.set_execution_mode(AgentExecutionMode::Execute);
-                    self.query_with_mode_and_events(
-                        "Plan approved. Proceed with implementation.".to_string(),
-                        AgentOutputMode::Silent,
-                        report,
-                    )
-                    .await?;
-                } else {
-                    self.query_with_mode_and_events(
-                        "Plan rejected. Please revise the plan or suggest an alternative."
-                            .to_string(),
-                        AgentOutputMode::Silent,
-                        report,
-                    )
-                    .await?;
-                }
+                self.resume_after_plan_approval_with_events(
+                    !*approved,
+                    AgentOutputMode::Silent,
+                    report,
+                )
+                .await?;
             }
             InputControlRequest::AnswerShellApproval { decision } => {
                 let decision = BashApprovalDecision::from(*decision);

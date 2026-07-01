@@ -117,6 +117,7 @@ impl Tool for SkillTool {
     }
 }
 
+#[tokio::test]
 async fn list_returns_scopes_and_skills() {
     let mut manager = SkillManager::new();
     manager.load_warnings = vec!["test warning".into()];

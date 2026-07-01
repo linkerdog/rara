@@ -197,7 +197,6 @@ pub(crate) async fn initialize_rara_context_with_local_embedding_bootstrap(
     let mcp_manager = Arc::new(McpConnectionManager::new(
         mcp_registry.clone(),
         event_bus.clone(),
-        mcp_tool_cache.clone(),
     ));
 
     // Discover file-based hooks and inject into prompt config

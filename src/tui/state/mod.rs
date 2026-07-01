@@ -1672,7 +1672,6 @@ impl TuiApp {
             context_observability: runtime_context.observability,
             assembly_entries: runtime_context.assembly.entries,
             // ── Extensions ──────────────────────────────────────
-            // ── Extensions ──────────────────────────────────────
             extension_skill_count: agent.prompt_config().available_skills.len(),
             extension_skill_scopes: {
                 let mut scopes: Vec<String> = agent
@@ -1688,6 +1687,7 @@ impl TuiApp {
             },
             extension_hook_count: ext_counts.0.max(runtime_hook_count),
             extension_agent_count: ext_counts.1,
+            extension_agent_status_lines: ext_counts.2,
         };
         self.agent_execution_mode = agent.execution_mode;
         self.bash_approval_mode = agent.bash_approval_mode;
@@ -2070,13 +2070,19 @@ impl TuiApp {
     }
 }
 
-fn discover_extension_counts(cwd: &str) -> (usize, usize) {
+fn discover_extension_counts(cwd: &str) -> (usize, usize, Vec<String>) {
     let root = std::path::Path::new(cwd);
     let mut hr = crate::hooks::HookRegistry::new();
     let mut ar = crate::agents_ext::AgentRegistry::new();
     hr.discover_repo_hooks(root);
     ar.discover_repo_agents(root);
-    (hr.hooks.len(), ar.agents.len())
+    let agent_count = ar.agents.len();
+    let agent_status_lines = if agent_count == 0 {
+        Vec::new()
+    } else {
+        ar.status_lines()
+    };
+    (hr.hooks.len(), agent_count, agent_status_lines)
 }
 
 mod helpers;
