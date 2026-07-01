@@ -140,6 +140,9 @@ pub fn search_context_shards(
     Ok(hits)
 }
 
+/// Reserved for manual/control-plane session shard promotion. Will be activated
+/// by the periodic promotion scheduler tracked in docs/features/memory-records.md.
+#[allow(dead_code)]
 pub fn load_session_context_checkpoints(
     root_dir: &Path,
     session_id: &str,

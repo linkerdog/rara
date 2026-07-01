@@ -2,7 +2,7 @@ use std::fs;
 use std::io::Write;
 use std::path::PathBuf;
 
-use anyhow::{Context, Result, anyhow};
+use anyhow::{Context, Result};
 use rara_persistence::atomic_file;
 use rara_persistence::thread_data::PersistedStructuredRolloutEvent;
 use rara_persistence::thread_rollout_log;
@@ -131,13 +131,6 @@ impl SessionManager {
         Ok(())
     }
 
-    pub fn thread_transcript_recorder(
-        &self,
-        session_id: &str,
-    ) -> session_transcript::ThreadTranscriptRecorder {
-        session_transcript::ThreadTranscriptRecorder::main(&self.storage_dir, session_id)
-    }
-
     pub fn save_session_context_checkpoint(
         &self,
         session_id: &str,
@@ -163,6 +156,10 @@ impl SessionManager {
         session_context::search_context_shards(&self.storage_dir, query, query_vector, limit)
     }
 
+    /// Reserved for manual or control-plane-triggered session shard promotion.
+    /// Will be activated by the periodic promotion scheduler tracked in
+    /// docs/features/memory-records.md.
+    #[allow(dead_code)]
     pub async fn promote_session_context_memories(
         &self,
         memory_store: &MemoryStore,
@@ -217,6 +214,10 @@ impl SessionManager {
         Ok(memories)
     }
 
+    /// Reserved for scheduler-style session shard promotion policy checks.
+    /// Will be activated by the periodic promotion scheduler tracked in
+    /// docs/features/memory-records.md.
+    #[allow(dead_code)]
     pub fn plan_session_context_memory_promotion(
         &self,
         session_id: &str,
@@ -228,6 +229,10 @@ impl SessionManager {
         Ok(policy.evaluate(session_id.to_string(), trigger, checkpoints.len()))
     }
 
+    /// Reserved for scheduler-style session shard promotion execution.
+    /// Will be activated by the periodic promotion scheduler tracked in
+    /// docs/features/memory-records.md.
+    #[allow(dead_code)]
     pub async fn promote_session_context_memories_with_policy(
         &self,
         memory_store: &MemoryStore,
@@ -303,10 +308,12 @@ impl SessionManager {
         }
     }
 
+    #[cfg(test)]
     pub fn load_thread_history(&self, thread_id: &str) -> Result<Vec<Message>> {
         Ok(self.load_thread_history_migration(thread_id)?.history)
     }
 
+    #[cfg(test)]
     pub fn load_thread_history_migration(
         &self,
         thread_id: &str,
@@ -357,7 +364,7 @@ impl SessionManager {
         } else {
             let legacy = self.legacy_session_history_path(thread_id);
             if !legacy.exists() {
-                return Err(anyhow!("Thread not found locally"));
+                return Err(anyhow::anyhow!("Thread not found locally"));
             }
             let content = fs::read_to_string(&legacy)?;
             let history: Vec<Message> = serde_json::from_str(&content)?;
@@ -365,10 +372,6 @@ impl SessionManager {
             (history, PersistedThreadHistorySource::LegacyBackfilled)
         };
         Ok(PersistedThreadHistoryMigration { history, source })
-    }
-
-    pub fn load_session(&self, session_id: &str) -> Result<Vec<Message>> {
-        self.load_thread_history(session_id)
     }
 
     pub fn save_compaction_event(
@@ -420,6 +423,7 @@ impl SessionManager {
         Ok(())
     }
 
+    #[cfg(test)]
     pub fn load_compaction_events(
         &self,
         session_id: &str,
@@ -427,6 +431,7 @@ impl SessionManager {
         Ok(self.load_compaction_events_migration(session_id)?.events)
     }
 
+    #[cfg(test)]
     pub fn load_compaction_events_migration(
         &self,
         session_id: &str,
@@ -485,26 +490,16 @@ impl SessionManager {
         })
     }
 
-    pub fn get_context(
-        &self,
-        session_id: &str,
-        turn_index: usize,
-        window: usize,
-    ) -> Result<Vec<Message>> {
-        let history = self.load_thread_history(session_id)?;
-        let start = turn_index.saturating_sub(window);
-        let end = (turn_index + window + 1).min(history.len());
-        Ok(history[start..end].to_vec())
-    }
-
     fn session_history_path(&self, session_id: &str) -> PathBuf {
         self.storage_dir.join(session_id).join("history.json")
     }
 
+    #[cfg(test)]
     fn legacy_session_history_path(&self, session_id: &str) -> PathBuf {
         self.legacy_storage_dir.join(format!("{}.json", session_id))
     }
 
+    #[cfg(test)]
     fn session_compaction_events_path(&self, session_id: &str) -> PathBuf {
         self.storage_dir.join(session_id).join("compactions.json")
     }
@@ -517,6 +512,7 @@ impl SessionManager {
         thread_rollout_log::append_rollout_event_line(&self.storage_dir, session_id, &event)
     }
 
+    #[cfg(test)]
     fn backfill_legacy_thread_history(&self, thread_id: &str, history: &[Message]) -> Result<()> {
         if history.is_empty() {
             return Ok(());
@@ -539,6 +535,7 @@ impl SessionManager {
         Ok(())
     }
 
+    #[cfg(test)]
     fn backfill_legacy_compaction_events(
         &self,
         session_id: &str,
@@ -581,6 +578,7 @@ impl SessionManager {
         Ok(())
     }
 
+    #[cfg(test)]
     fn load_structured_rollout_events(
         &self,
         session_id: &str,
@@ -589,6 +587,9 @@ impl SessionManager {
     }
 }
 
+/// Reserved for manual session shard promotion. Will be activated by the
+/// periodic promotion scheduler tracked in docs/features/memory-records.md.
+#[allow(dead_code)]
 fn session_context_promotion_markdown(
     session_id: &str,
     checkpoints: &[session_context::SessionContextCheckpoint],
@@ -618,6 +619,7 @@ fn sync_parent_dir_best_effort(parent: &std::path::Path) {
 #[cfg(not(unix))]
 fn sync_parent_dir_best_effort(_parent: &std::path::Path) {}
 
+#[cfg(test)]
 fn transcript_is_shorter_than_snapshot_prefix(
     session_manager: &SessionManager,
     thread_id: &str,
