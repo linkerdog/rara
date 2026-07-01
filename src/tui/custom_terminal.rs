@@ -175,8 +175,6 @@ where
     /// Last known position of the cursor. Used to find the new area when the viewport is inlined
     /// and the terminal resized.
     pub last_known_cursor_pos: Position,
-    /// Count of visible history rows rendered above the viewport in inline mode.
-    visible_history_rows: u16,
 }
 
 impl<B> Drop for Terminal<B>
@@ -214,7 +212,6 @@ where
             viewport_area: Rect::new(0, cursor_pos.y, 0, 0),
             last_known_screen_size: screen_size,
             last_known_cursor_pos: cursor_pos,
-            visible_history_rows: 0,
         })
     }
 
@@ -247,11 +244,6 @@ where
         &mut self.buffers[1 - self.current]
     }
 
-    /// Gets the backend
-    pub const fn backend(&self) -> &B {
-        &self.backend
-    }
-
     /// Gets the backend as a mutable reference
     pub fn backend_mut(&mut self) -> &mut B {
         &mut self.backend
@@ -282,7 +274,6 @@ where
         self.current_buffer_mut().resize(area);
         self.previous_buffer_mut().resize(area);
         self.viewport_area = area;
-        self.visible_history_rows = self.visible_history_rows.min(area.top());
     }
 
     /// Queries the backend for size and resizes if it doesn't match the previous size.
@@ -428,44 +419,7 @@ where
         Ok(())
     }
 
-    /// Clear the terminal and force a full redraw on the next draw call.
-    pub fn clear(&mut self) -> io::Result<()> {
-        if self.viewport_area.is_empty() {
-            return Ok(());
-        }
-        self.backend
-            .set_cursor_position(self.viewport_area.as_position())?;
-        self.backend.clear_region(ClearType::AfterCursor)?;
-        // Reset the back buffer to make sure the next update will redraw everything.
-        self.previous_buffer_mut().reset();
-        Ok(())
-    }
-
-    /// Force the next draw pass to repaint the entire viewport by resetting the
-    /// diff buffer. Call this after operations that move screen content outside of
-    /// ratatui's knowledge (e.g., Zellij-mode scrolling via raw newlines), since
-    /// the diff buffer's assumptions about what is currently displayed are invalid.
-    pub fn invalidate_viewport(&mut self) {
-        self.previous_buffer_mut().reset();
-    }
-
     // ---- helpers (pub(super)) ------------------------------------------------
-
-    /// Clear terminal scrollback (if supported) and force a full redraw.
-    pub fn clear_scrollback(&mut self) -> io::Result<()> {
-        if self.viewport_area.is_empty() {
-            return Ok(());
-        }
-        let home = Position { x: 0, y: 0 };
-        // Use an explicit cursor-home around scrollback purge for terminals that
-        // are sensitive to inline viewport cursor placement (e.g. Terminal.app).
-        self.set_cursor_position(home)?;
-        queue!(self.backend, Clear(crossterm::terminal::ClearType::Purge))?;
-        self.set_cursor_position(home)?;
-        std::io::Write::flush(&mut self.backend)?;
-        self.previous_buffer_mut().reset();
-        Ok(())
-    }
 
     /// Clear the entire visible screen (not just the viewport) and force a full redraw.
     pub fn clear_visible_screen(&mut self) -> io::Result<()> {
@@ -477,39 +431,8 @@ where
         self.backend.clear_region(ClearType::All)?;
         self.set_cursor_position(home)?;
         std::io::Write::flush(&mut self.backend)?;
-        self.visible_history_rows = 0;
         self.previous_buffer_mut().reset();
         Ok(())
-    }
-
-    /// Hard-reset scrollback + visible screen using an explicit ANSI sequence.
-    ///
-    /// Some terminals behave more reliably when purge + clear are emitted as a
-    /// single ANSI sequence instead of separate backend commands.
-    pub fn clear_scrollback_and_visible_screen_ansi(&mut self) -> io::Result<()> {
-        if self.viewport_area.is_empty() {
-            return Ok(());
-        }
-
-        // Reset scroll region + style state, home cursor, clear screen, purge scrollback.
-        // The order matches the common shell `clear && printf '\\e[3J'` behavior.
-        write!(self.backend, "\x1b[r\x1b[0m\x1b[H\x1b[2J\x1b[3J\x1b[H")?;
-        std::io::Write::flush(&mut self.backend)?;
-        self.last_known_cursor_pos = Position { x: 0, y: 0 };
-        self.visible_history_rows = 0;
-        self.previous_buffer_mut().reset();
-        Ok(())
-    }
-
-    pub fn visible_history_rows(&self) -> u16 {
-        self.visible_history_rows
-    }
-
-    pub(crate) fn note_history_rows_inserted(&mut self, inserted_rows: u16) {
-        self.visible_history_rows = self
-            .visible_history_rows
-            .saturating_add(inserted_rows)
-            .min(self.viewport_area.top());
     }
 
     /// Clears the inactive buffer and swaps it with the current buffer
@@ -759,101 +682,7 @@ impl ModifierDiff {
 
 #[cfg(test)]
 mod tests {
-    use std::io::{self, Write};
-
-    use ratatui::{
-        backend::{Backend, ClearType, WindowSize},
-        layout::{Position, Rect, Size},
-        style::Style,
-    };
-
-    use super::{Terminal, display_width};
-
-    /// Minimal backend for testing Terminal state transitions.
-    /// Captures written bytes, reports a fixed size and cursor position.
-    struct StateTestBackend {
-        inner: Vec<u8>,
-        screen_size: Size,
-        cursor_pos: Position,
-    }
-
-    impl StateTestBackend {
-        fn new(width: u16, height: u16) -> Self {
-            Self {
-                inner: Vec::new(),
-                screen_size: Size::new(width, height),
-                cursor_pos: Position { x: 0, y: 0 },
-            }
-        }
-    }
-
-    impl Write for StateTestBackend {
-        fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
-            self.inner.write(buf)
-        }
-
-        fn flush(&mut self) -> io::Result<()> {
-            self.inner.flush()
-        }
-    }
-
-    impl Backend for StateTestBackend {
-        type Error = io::Error;
-
-        fn size(&self) -> io::Result<Size> {
-            Ok(self.screen_size)
-        }
-
-        fn get_cursor_position(&mut self) -> io::Result<Position> {
-            Ok(self.cursor_pos)
-        }
-
-        fn set_cursor_position<P: Into<Position>>(&mut self, position: P) -> io::Result<()> {
-            self.cursor_pos = position.into();
-            Ok(())
-        }
-
-        fn hide_cursor(&mut self) -> io::Result<()> {
-            Ok(())
-        }
-
-        fn show_cursor(&mut self) -> io::Result<()> {
-            Ok(())
-        }
-
-        fn clear_region(&mut self, _clear_type: ClearType) -> io::Result<()> {
-            Ok(())
-        }
-
-        fn clear(&mut self) -> io::Result<()> {
-            Ok(())
-        }
-
-        fn window_size(&mut self) -> io::Result<WindowSize> {
-            Ok(WindowSize {
-                columns_rows: self.screen_size,
-                pixels: Size::new(0, 0),
-            })
-        }
-
-        fn draw<'a, I>(&mut self, _content: I) -> io::Result<()>
-        where
-            I: Iterator<Item = (u16, u16, &'a ratatui::buffer::Cell)>,
-        {
-            Ok(())
-        }
-
-        fn flush(&mut self) -> io::Result<()> {
-            Ok(())
-        }
-    }
-
-    fn make_test_terminal(width: u16, height: u16) -> Terminal<StateTestBackend> {
-        let backend = StateTestBackend::new(width, height);
-        let mut terminal = Terminal::new(backend).expect("create test terminal");
-        terminal.set_viewport_area(Rect::new(0, height.saturating_sub(5), width, 5));
-        terminal
-    }
+    use super::display_width;
 
     #[test]
     fn display_width_ignores_osc_sequences() {
@@ -871,72 +700,5 @@ mod tests {
     fn display_width_ignores_csi_sequences() {
         let text = "\x1b[31mred\x1b[0m";
         assert_eq!(display_width(text), 3);
-    }
-
-    #[test]
-    fn invalidate_viewport_resets_previous_buffer() {
-        let mut terminal = make_test_terminal(80, 24);
-        // viewport area: x=0, y=19, w=80, h=5
-        let top = terminal.viewport_area.y;
-
-        // Write into the current buffer at viewport-relative (0,0) = absolute (0, top).
-        terminal
-            .current_buffer_mut()
-            .set_string(0, top, "old-content", Style::default());
-
-        // Swap to simulate a completed draw pass.
-        terminal.swap_buffers();
-
-        // Now the "previous" buffer has "old-content". Write fresh content.
-        terminal
-            .current_buffer_mut()
-            .set_string(0, top, "new-content", Style::default());
-
-        // Before invalidation, diff would see both buffers have content.
-        let cell_before = terminal
-            .previous_buffer()
-            .cell(Position { x: 0, y: top })
-            .unwrap();
-        assert_eq!(cell_before.symbol(), "o");
-
-        terminal.invalidate_viewport();
-
-        // After invalidation, previous buffer is reset — diff will treat it as empty.
-        let cell_after = terminal
-            .previous_buffer()
-            .cell(Position { x: 0, y: top })
-            .unwrap();
-        assert_eq!(cell_after.symbol(), " ");
-    }
-
-    #[test]
-    fn note_history_rows_inserted_tracks_and_clamps() {
-        let mut terminal = make_test_terminal(80, 24);
-        // viewport_area: y=19, height=5 → top is 19
-
-        assert_eq!(terminal.visible_history_rows(), 0);
-
-        terminal.note_history_rows_inserted(5);
-        assert_eq!(terminal.visible_history_rows(), 5);
-
-        // Insert more — should clamp to viewport top (19)
-        terminal.note_history_rows_inserted(20);
-        assert_eq!(terminal.visible_history_rows(), 19);
-    }
-
-    #[test]
-    fn set_viewport_area_clamps_visible_history_rows() {
-        let mut terminal = make_test_terminal(80, 24);
-        // viewport_area: y=19 → top=19. Insert some history.
-        terminal.note_history_rows_inserted(5);
-        assert_eq!(terminal.visible_history_rows(), 5);
-
-        // Shrink viewport (raise the top) — visible_history_rows clamps to the new top.
-        terminal.set_viewport_area(Rect::new(0, 22, 80, 2));
-        assert_eq!(terminal.visible_history_rows(), 5);
-
-        // Grow viewport (lower the top) — visible_history_rows stays at 5.
-        terminal.note_history_rows_inserted(20);
-        assert_eq!(terminal.visible_history_rows(), 22); // clamped to top=22
     }
 }

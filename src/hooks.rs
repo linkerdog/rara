@@ -153,24 +153,6 @@ impl HookRegistry {
             .filter(|h| h.parse_status == HookParseStatus::Ok && h.phase == phase)
             .collect()
     }
-
-    /// For /context and /status: list each hook with phase, path, and parse status.
-    pub fn status_lines(&self) -> Vec<String> {
-        let mut lines = Vec::new();
-        for hook in self.hooks.values() {
-            let status = match hook.parse_status {
-                HookParseStatus::Ok => "ok",
-                HookParseStatus::ParseError => "parse_error",
-            };
-            lines.push(format!(
-                "  {}  {}  {}  (disabled)",
-                hook.phase.as_str(),
-                hook.source_path,
-                status
-            ));
-        }
-        lines
-    }
 }
 
 fn phase_ordinal(phase: HookLifecycle) -> u8 {
@@ -273,7 +255,6 @@ impl Default for HookSandbox {
 
 /// Outcome of a hook execution.
 pub struct HookOutcome {
-    pub stdout: String,
     pub stderr: String,
     pub exit_code: Option<i32>,
     pub timed_out: bool,
@@ -318,7 +299,7 @@ pub fn run_sandboxed_hook(
     // stdin is dropped here — closes the pipe so the hook sees EOF.
 
     let start = Instant::now();
-    let mut output: Option<std::process::Output> = None;
+    let output: std::process::Output;
 
     // Busy-wait with timeout — single-threaded, acceptable for <1s hooks.
     loop {
@@ -326,11 +307,11 @@ pub fn run_sandboxed_hook(
             Some(status) => {
                 // Child exited — collect remaining output.
                 let o = child.wait_with_output()?;
-                output = Some(std::process::Output {
+                output = std::process::Output {
                     status,
                     stdout: o.stdout,
                     stderr: o.stderr,
-                });
+                };
                 break;
             }
             None => {
@@ -338,7 +319,6 @@ pub fn run_sandboxed_hook(
                     let _ = child.kill();
                     let _ = child.wait();
                     return Ok(HookOutcome {
-                        stdout: String::new(),
                         stderr: format!("hook {} timed out after {:?}", hook.id, sandbox.timeout),
                         exit_code: None,
                         timed_out: true,
@@ -349,16 +329,7 @@ pub fn run_sandboxed_hook(
         }
     }
 
-    if output.is_none() {
-        return Err(std::io::Error::new(
-            std::io::ErrorKind::Other,
-            "hook process did not produce output after wait",
-        ));
-    }
-    let output = output.unwrap();
-
     Ok(HookOutcome {
-        stdout: String::from_utf8_lossy(&output.stdout).into_owned(),
         stderr: String::from_utf8_lossy(&output.stderr).into_owned(),
         exit_code: output.status.code(),
         timed_out: false,

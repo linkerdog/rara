@@ -2332,8 +2332,6 @@ async fn deepseek_provider_family_prompts_for_api_key_before_model_list() {
         crate::protocol_sources::MemoryControlHandler::new(bus.clone()),
     ));
 
-    let oauth_manager = crate::oauth::OAuthManager::new_for_config_dir(temp.path().join(".rara"))
-        .expect("oauth manager");
     app.provider_picker_idx = provider_family_idx(ProviderFamily::DeepSeek);
 
     open_provider_family_overlay(&mut app);
@@ -3045,8 +3043,6 @@ async fn codex_provider_family_routes_to_auth_picker_without_saved_login() {
         crate::protocol_sources::MemoryControlHandler::new(bus.clone()),
     ));
 
-    let oauth_manager = crate::oauth::OAuthManager::new_for_config_dir(temp.path().join(".rara"))
-        .expect("oauth manager");
     app.provider_picker_idx = 0;
 
     assert_eq!(app.selected_provider_family(), ProviderFamily::Codex);
@@ -3539,7 +3535,7 @@ async fn deepseek_model_picker_shows_dynamic_models_after_list_load() {
 #[test]
 fn mouse_wheel_with_no_overlay_routes_to_scroll_transcript() {
     let temp = tempdir().expect("tempdir");
-    let mut app = TuiApp::new(ConfigManager {
+    let app = TuiApp::new(ConfigManager {
         path: temp.path().join("config.json"),
     })
     .expect("build tui app");

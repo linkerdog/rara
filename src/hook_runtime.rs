@@ -21,21 +21,16 @@ type HookCallback = Box<dyn Fn(&AgentEvent) + Send + Sync>;
 
 struct HookEntry {
     lifecycle: HookLifecycle,
-    description: String,
     callback: HookCallback,
 }
 
 /// In-process hook dispatch runtime.
 ///
-pub type ToolModifier = Box<dyn Fn(&str, &Value) -> Option<Value> + Send + Sync>;
-
 /// Hooks are stored behind an `Arc<RwLock<HashMap<...>>>` so that the
-/// control-plane can register / unregister hooks while the dispatch
-/// loop is already running.
+/// control-plane can register hooks while the dispatch loop is already running.
 pub struct HookRuntime {
     bus: Arc<RuntimeEventBus>,
     hooks: Arc<RwLock<HashMap<String, HookEntry>>>,
-    tool_modifiers: Arc<std::sync::RwLock<Vec<(String, ToolModifier)>>>,
     /// Collected stdout from command hooks. Drained before each model turn
     /// and injected as system messages into the model context.
     outputs: Arc<std::sync::Mutex<Vec<String>>>,
@@ -47,7 +42,6 @@ impl HookRuntime {
         Self {
             bus,
             hooks: Arc::new(RwLock::new(HashMap::new())),
-            tool_modifiers: Arc::new(std::sync::RwLock::new(Vec::new())),
             outputs: Arc::new(std::sync::Mutex::new(Vec::new())),
             started: AtomicBool::new(false),
         }
@@ -60,15 +54,6 @@ impl HookRuntime {
         }
     }
 
-    /// Drain and return all collected hook outputs, clearing the buffer.
-    pub fn drain_outputs(&self) -> Vec<String> {
-        if let Ok(mut guard) = self.outputs.lock() {
-            std::mem::take(&mut *guard)
-        } else {
-            Vec::new()
-        }
-    }
-
     /// Drain outputs synchronously (for use in non-async contexts).
     pub fn blocking_drain_outputs(&self) -> Vec<String> {
         if let Ok(mut guard) = self.outputs.lock() {
@@ -78,34 +63,16 @@ impl HookRuntime {
         }
     }
 
-    /// Register a PreToolUse modifier that can transform tool input.
-    pub fn register_tool_modifier(&self, name: String, modifier: ToolModifier) {
-        if let Ok(mut guard) = self.tool_modifiers.write() {
-            guard.push((name, modifier));
-        }
-    }
-
-    /// Run all registered tool modifiers against the given tool name and input.
-    /// Returns the final (possibly modified) input value.
-    pub fn modify_tool_input(&self, tool_name: &str, input: Value) -> Value {
-        let modifiers = self.tool_modifiers.read().unwrap();
-        let mut current = input;
-        for (_name, modifier) in modifiers.iter() {
-            if let Some(modified) = modifier(tool_name, &current) {
-                current = modified;
-            }
-        }
-        current
+    pub fn modify_tool_input(
+        &self,
+        _tool_name: &str,
+        input: serde_json::Value,
+    ) -> serde_json::Value {
+        input
     }
 
     /// Register an in-process hook.  Safe to call while `start` is running.
-    pub fn register(
-        &self,
-        hook_id: String,
-        lifecycle: HookLifecycle,
-        description: String,
-        callback: HookCallback,
-    ) {
+    pub fn register(&self, hook_id: String, lifecycle: HookLifecycle, callback: HookCallback) {
         self.hooks
             .write()
             .expect("hook runtime registry lock poisoned")
@@ -113,19 +80,9 @@ impl HookRuntime {
                 hook_id,
                 HookEntry {
                     lifecycle,
-                    description,
                     callback,
                 },
             );
-    }
-
-    /// Unregister a previously declared hook by id.
-    pub fn unregister(&self, hook_id: &str) -> bool {
-        self.hooks
-            .write()
-            .expect("hook runtime registry lock poisoned")
-            .remove(hook_id)
-            .is_some()
     }
 
     /// Return the number of registered hooks.
@@ -196,159 +153,6 @@ fn lifecycle_for_event(event: &AgentEvent) -> Option<HookLifecycle> {
 
 fn lifecycle_matches(lifecycle: &HookLifecycle, event: &AgentEvent) -> bool {
     lifecycle_for_event(event).as_ref() == Some(lifecycle)
-}
-
-/// Result of executing a command-type hook.
-#[derive(Debug, Clone)]
-pub struct HookRunResult {
-    pub exit_code: Option<i32>,
-    pub stdout: String,
-    pub stderr: String,
-    pub error: Option<String>,
-    pub duration_ms: u64,
-}
-
-/// Spawn a background thread that executes `script_path` as a hook,
-/// writing `input_json` to stdin.  Uses a separate stdin-writer thread
-/// to avoid pipe-buffer deadlock.  Kills the child on timeout.
-fn spawn_command_hook(
-    script_path: std::path::PathBuf,
-    input_json: String,
-    cwd: std::path::PathBuf,
-    timeout_secs: u64,
-) {
-    std::thread::spawn(move || {
-        let result = run_command_hook(&script_path, &input_json, &cwd, timeout_secs);
-        match result {
-            Some(ref r) if r.error.is_some() => {
-                eprintln!(
-                    "command hook failed {}: {} ({}ms)",
-                    script_path.display(),
-                    r.error.as_ref().unwrap(),
-                    r.duration_ms
-                );
-            }
-            Some(ref r) => {
-                eprintln!(
-                    "command hook {} exit={:?} {}ms ({}b stdout)",
-                    script_path.display(),
-                    r.exit_code,
-                    r.duration_ms,
-                    r.stdout.len()
-                );
-            }
-            None => {}
-        }
-    });
-}
-
-/// Execute a shell script as a hook, feeding `input_json` to stdin.
-///
-/// The script runs with `cwd` set to the workspace root and a timeout of
-/// `timeout_secs`.  If the script doesn't exist, returns `None`.
-/// On timeout the child process is killed and the wait thread is joined.
-pub fn run_command_hook(
-    script_path: &std::path::Path,
-    input_json: &str,
-    cwd: &std::path::Path,
-    timeout_secs: u64,
-) -> Option<HookRunResult> {
-    use std::io::Write;
-    use std::process::{Command, Stdio};
-
-    if !script_path.exists() {
-        return None;
-    }
-    let started = std::time::Instant::now();
-
-    let mut child = match Command::new(script_path)
-        .current_dir(cwd)
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()
-    {
-        Ok(c) => c,
-        Err(e) => {
-            return Some(HookRunResult {
-                exit_code: None,
-                stdout: String::new(),
-                stderr: String::new(),
-                error: Some(e.to_string()),
-                duration_ms: started.elapsed().as_millis() as u64,
-            });
-        }
-    };
-
-    // Write stdin in a separate thread to avoid deadlock when input exceeds
-    // the pipe buffer and the child is also writing to stdout/stderr.
-    if let Some(mut stdin) = child.stdin.take() {
-        let stdin_bytes: Vec<u8> = input_json.as_bytes().to_vec();
-        std::thread::spawn(move || {
-            let _ = stdin.write_all(&stdin_bytes);
-            // stdin is dropped here, closing the pipe
-        });
-    }
-
-    // Remember the child PID so we can kill it on timeout.
-    let child_id = child.id();
-
-    let (tx, rx) = std::sync::mpsc::channel();
-    let wait_thread = std::thread::spawn(move || {
-        let output = child.wait_with_output();
-        let _ = tx.send(output);
-    });
-
-    match rx.recv_timeout(std::time::Duration::from_secs(timeout_secs)) {
-        Ok(Ok(output)) => {
-            let _ = wait_thread.join();
-            Some(HookRunResult {
-                exit_code: output.status.code(),
-                stdout: String::from_utf8_lossy(&output.stdout).to_string(),
-                stderr: String::from_utf8_lossy(&output.stderr).to_string(),
-                error: None,
-                duration_ms: started.elapsed().as_millis() as u64,
-            })
-        }
-        Ok(Err(e)) => {
-            let _ = wait_thread.join();
-            Some(HookRunResult {
-                exit_code: None,
-                stdout: String::new(),
-                stderr: String::new(),
-                error: Some(e.to_string()),
-                duration_ms: started.elapsed().as_millis() as u64,
-            })
-        }
-        Err(_timeout) => {
-            // Kill the child process so the wait thread can join
-            let _ = std::process::Command::new("kill")
-                .arg(child_id.to_string())
-                .output();
-            let _ = wait_thread.join();
-            Some(HookRunResult {
-                exit_code: None,
-                stdout: String::new(),
-                stderr: String::new(),
-                error: Some(format!("hook timed out after {timeout_secs}s")),
-                duration_ms: started.elapsed().as_millis() as u64,
-            })
-        }
-    }
-}
-
-/// Build a `HookCallback` that spawns `script_path` as a fire-and-forget
-/// command-type hook in a background thread.  The dispatch loop is never
-/// blocked.
-pub fn make_command_hook(
-    script_path: std::path::PathBuf,
-    cwd: std::path::PathBuf,
-    timeout_secs: u64,
-) -> HookCallback {
-    Box::new(move |_event: &AgentEvent| {
-        let input_json = "{}".to_string();
-        spawn_command_hook(script_path.clone(), input_json, cwd.clone(), timeout_secs);
-    })
 }
 
 // ---------------------------------------------------------------------------
@@ -428,7 +232,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_register_and_unregister() {
+    async fn test_registers_hooks() {
         let bus = Arc::new(RuntimeEventBus::new(4));
         let runtime = HookRuntime::new(bus);
 
@@ -437,14 +241,8 @@ mod tests {
         runtime.register(
             "hook-1".into(),
             HookLifecycle::SessionStart,
-            "test hook".into(),
             Box::new(|_| {}),
         );
         assert_eq!(runtime.hook_count(), 1);
-
-        assert!(runtime.unregister("hook-1"));
-        assert_eq!(runtime.hook_count(), 0);
-
-        assert!(!runtime.unregister("hook-1"));
     }
 }

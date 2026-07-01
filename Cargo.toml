@@ -71,7 +71,7 @@ reqwest = { version = "0.13", features = ["blocking", "json", "stream"] }
 async-trait = "0.1"
 anyhow = "1.0"
 thiserror = "2.0"
-time = { version = "0.3", features = ["formatting"] }
+time = { version = "0.3", features = ["formatting", "macros"] }
 owo-colors = "4.0"
 indicatif = "0.18"
 tiktoken-rs = "0.12"

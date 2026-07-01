@@ -837,7 +837,7 @@ impl ScopedEnvGuard {
 
     fn set(vars: &[(&str, &str)]) -> Self {
         let keys: Vec<&str> = vars.iter().map(|(k, _)| *k).collect();
-        let mut guard = Self::remove(&keys);
+        let guard = Self::remove(&keys);
         for (k, v) in vars {
             unsafe { std::env::set_var(k, v) };
         }

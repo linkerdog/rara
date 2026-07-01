@@ -529,6 +529,7 @@ fn indexes_spawn_agent_edges_for_listing_queries() -> Result<()> {
                 child_session_id: "child-1".to_string(),
                 status: "done".to_string(),
                 summary: Some("Finished.".to_string()),
+                token_budget: None,
             },
         ],
     )?;
@@ -562,6 +563,7 @@ fn indexes_spawn_agent_edges_for_listing_queries() -> Result<()> {
             child_session_id: "child-1".to_string(),
             status: "done".to_string(),
             summary: Some("Finished.".to_string()),
+            token_budget: None,
         }],
     )?;
     let id_after_noop_sync: i64 = {

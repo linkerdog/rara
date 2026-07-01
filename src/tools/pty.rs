@@ -112,7 +112,7 @@ impl PtySessionStore {
         let idle_cutoff = Duration::from_secs(PTY_IDLE_PRUNE_SECS);
 
         // Collect (id, last_read, has_exited) for all sessions
-        let mut meta: Vec<(String, Instant, bool)> = sessions
+        let meta: Vec<(String, Instant, bool)> = sessions
             .iter()
             .map(|(id, s)| {
                 let exited = !matches!(

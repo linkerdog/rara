@@ -19,9 +19,7 @@ use crate::runtime_event_bus::RuntimeEventBus;
 /// A stored hook declaration.
 #[derive(Clone, Debug)]
 pub struct HookEntry {
-    pub id: String,
     pub lifecycle: HookLifecycle,
-    pub description: String,
 }
 
 /// Registry of control-plane-declared hooks.
@@ -47,12 +45,10 @@ impl HookRegistry {
             HookControlRequest::Declare {
                 hook_id,
                 lifecycle,
-                description,
+                description: _,
             } => {
                 let entry = HookEntry {
-                    id: hook_id.clone(),
                     lifecycle: lifecycle.clone(),
-                    description: description.clone(),
                 };
                 self.hooks.write().await.insert(hook_id.clone(), entry);
                 let _ = self
@@ -74,24 +70,5 @@ impl HookRegistry {
                 }
             }
         }
-    }
-
-    /// Return a snapshot of all registered hooks.
-    pub async fn all_hooks(&self) -> Vec<HookEntry> {
-        self.hooks.read().await.values().cloned().collect()
-    }
-
-    /// Return hooks registered for a given lifecycle phase (non-async).
-    pub fn hooks_for_phase(&self, phase: HookLifecycle) -> Vec<HookEntry> {
-        self.hooks
-            .try_read()
-            .map(|guard| {
-                guard
-                    .values()
-                    .filter(|h| h.lifecycle == phase)
-                    .cloned()
-                    .collect()
-            })
-            .unwrap_or_default()
     }
 }
