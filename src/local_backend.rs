@@ -130,6 +130,13 @@ fn report_progress(progress: &Option<LocalProgressReporter>, message: String) {
 
 #[async_trait]
 impl LlmBackend for LocalLlmBackend {
+    fn model_label(&self) -> Option<String> {
+        self.runtime
+            .lock()
+            .ok()
+            .map(|runtime| runtime.spec.model_id().to_string())
+    }
+
     async fn ask(&self, messages: &[Message], tools: &[Value]) -> Result<LlmResponse> {
         let runtime = Arc::clone(&self.runtime);
         let messages = messages.to_vec();

@@ -123,6 +123,10 @@ impl LlmTurnMetadata {
 
 #[async_trait]
 pub trait LlmBackend: Send + Sync {
+    fn model_label(&self) -> Option<String> {
+        None
+    }
+
     async fn ask(&self, messages: &[Message], tools: &[Value]) -> Result<LlmResponse>;
     async fn ask_with_context(
         &self,

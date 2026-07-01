@@ -12,9 +12,10 @@ use tempfile::tempdir;
 use tokio::sync::{Mutex, mpsc};
 
 use super::{
-    emit_query_heartbeat, finish_running_task_if_ready, goal_budget_limit_prompt,
-    goal_continuation_prompt, merge_rebuilt_agent, request_running_task_cancellation,
-    start_oauth_task, start_query_task, try_start_queued_follow_up,
+    emit_query_heartbeat, finish_running_task_if_ready, forward_task_result_lifecycle,
+    goal_budget_limit_prompt, goal_continuation_prompt, merge_rebuilt_agent,
+    request_running_task_cancellation, start_oauth_task, start_query_task,
+    try_start_queued_follow_up,
 };
 use crate::agent::{
     Agent, AgentExecutionMode, BashApprovalMode, Message, PlanStep, PlanStepStatus,
@@ -24,6 +25,10 @@ use crate::llm::{ContentBlock, LlmBackend, LlmResponse, TokenUsage};
 use crate::local_model_server::{LocalModelServerState, LocalModelServerStatus};
 use crate::oauth::OAuthManager;
 use crate::prompt::PromptRuntimeConfig;
+use crate::runtime_control::{
+    ErrorEvent, RuntimeControllerKind, RuntimeEvent, RuntimeProvenance, SessionEvent,
+};
+use crate::runtime_event_bus::RuntimeEventBus;
 use crate::session::SessionManager;
 use crate::tui::state::{
     OAuthLoginMode, RalphGoal, RebuildSuccess, RunningTask, RuntimePhase, TaskCompletion, TaskKind,
@@ -32,6 +37,63 @@ use crate::tui::state::{
 use crate::workspace::WorkspaceMemory;
 
 struct PlainAnswerBackend;
+
+#[test]
+fn lifecycle_helper_publishes_turn_finished_for_success() {
+    let bus = Arc::new(RuntimeEventBus::new(8));
+    let mut control = bus.subscribe_control();
+    let provenance = RuntimeProvenance::local_tui("session-1");
+
+    forward_task_result_lifecycle(&bus, &provenance, &Ok::<_, anyhow::Error>(()));
+
+    let event = control.try_recv().expect("control event");
+    assert_eq!(event.provenance.controller, RuntimeControllerKind::LocalTui);
+    assert!(matches!(
+        event.event,
+        RuntimeEvent::Session(SessionEvent::TurnFinished {
+            reason: Some(reason)
+        }) if reason == "turn complete"
+    ));
+}
+
+#[test]
+fn lifecycle_helper_publishes_turn_finished_for_cancellation() {
+    let bus = Arc::new(RuntimeEventBus::new(8));
+    let mut control = bus.subscribe_control();
+    let provenance = RuntimeProvenance::local_tui("session-1");
+
+    forward_task_result_lifecycle::<()>(
+        &bus,
+        &provenance,
+        &Err(anyhow::anyhow!("cancelled by user")),
+    );
+
+    let event = control.try_recv().expect("control event");
+    assert!(matches!(
+        event.event,
+        RuntimeEvent::Session(SessionEvent::TurnFinished {
+            reason: Some(reason)
+        }) if reason == "cancelled by user"
+    ));
+}
+
+#[test]
+fn lifecycle_helper_publishes_runtime_error_for_failure() {
+    let bus = Arc::new(RuntimeEventBus::new(8));
+    let mut control = bus.subscribe_control();
+    let provenance = RuntimeProvenance::local_tui("session-1");
+
+    forward_task_result_lifecycle::<()>(&bus, &provenance, &Err(anyhow::anyhow!("backend failed")));
+
+    let event = control.try_recv().expect("control event");
+    assert!(matches!(
+        event.event,
+        RuntimeEvent::Error(ErrorEvent::RuntimeError {
+            message,
+            recoverable: false,
+        }) if message == "backend failed"
+    ));
+}
 
 #[test]
 fn goal_continuation_prompt_contains_budget_and_completion_audit() {

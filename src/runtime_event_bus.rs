@@ -38,13 +38,6 @@ impl RuntimeEventBus {
         }
     }
 
-    /// Push an event to all active subscribers with runtime provenance.
-    /// Returns the number of raw and structured subscribers that received the
-    /// event (may be 0).
-    pub fn send(&self, event: AgentEvent) -> usize {
-        self.send_with_provenance(event, RuntimeProvenance::runtime(None))
-    }
-
     /// Push an event with explicit provenance for protocol-ready subscribers.
     pub fn send_with_provenance(&self, event: AgentEvent, provenance: RuntimeProvenance) -> usize {
         let raw_receivers = self.raw_sender.receiver_count();
@@ -155,7 +148,13 @@ mod tests {
         let mut control = bus.subscribe_control();
 
         assert_eq!(bus.receiver_count(), 2);
-        assert_eq!(bus.send(AgentEvent::AssistantDelta("hello".to_string())), 2);
+        assert_eq!(
+            bus.send_with_provenance(
+                AgentEvent::AssistantDelta("hello".to_string()),
+                RuntimeProvenance::runtime(None),
+            ),
+            2
+        );
 
         assert!(matches!(
             raw.try_recv().expect("raw event"),
@@ -173,10 +172,22 @@ mod tests {
     fn unsubscribed_events_do_not_advance_control_sequence() {
         let bus = RuntimeEventBus::new(8);
 
-        assert_eq!(bus.send(AgentEvent::Status("ignored".to_string())), 0);
+        assert_eq!(
+            bus.send_with_provenance(
+                AgentEvent::Status("ignored".to_string()),
+                RuntimeProvenance::runtime(None),
+            ),
+            0
+        );
 
         let mut raw = bus.subscribe();
-        assert_eq!(bus.send(AgentEvent::Status("raw only".to_string())), 1);
+        assert_eq!(
+            bus.send_with_provenance(
+                AgentEvent::Status("raw only".to_string()),
+                RuntimeProvenance::runtime(None),
+            ),
+            1
+        );
         assert!(matches!(
             raw.try_recv().expect("raw event"),
             AgentEvent::Status(message) if message == "raw only"
@@ -184,7 +195,13 @@ mod tests {
         drop(raw);
 
         let mut control = bus.subscribe_control();
-        assert_eq!(bus.send(AgentEvent::Status("first control".to_string())), 1);
+        assert_eq!(
+            bus.send_with_provenance(
+                AgentEvent::Status("first control".to_string()),
+                RuntimeProvenance::runtime(None),
+            ),
+            1
+        );
 
         let event = control.try_recv().expect("control event");
         assert_eq!(event.sequence, 1);

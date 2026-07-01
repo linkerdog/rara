@@ -41,6 +41,10 @@ impl OllamaBackend {
 
 #[async_trait]
 impl LlmBackend for OllamaBackend {
+    fn model_label(&self) -> Option<String> {
+        Some(self.model.clone())
+    }
+
     async fn ask(&self, messages: &[Message], tools: &[Value]) -> Result<LlmResponse> {
         let endpoint = format!("{}/api/chat", self.base_url.trim_end_matches('/'));
         let mut body = json!({
