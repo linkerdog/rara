@@ -153,6 +153,16 @@ fn forward_optional_task_result_lifecycle<T>(
     }
 }
 
+fn forward_optional_lifecycle_event_to_bus(
+    bus: &Option<Arc<RuntimeEventBus>>,
+    event: AgentEvent,
+    provenance: &RuntimeProvenance,
+) {
+    if let Some(bus) = bus.as_ref() {
+        forward_lifecycle_event_to_bus(bus, event, provenance);
+    }
+}
+
 fn merge_rebuilt_agent(mut rebuilt: Agent, previous: Agent) -> Agent {
     let previous_prompt_config = previous.prompt_config().clone();
     rebuilt.session_id = previous.session_id;
@@ -407,6 +417,11 @@ pub(super) fn start_compact_task(app: &mut TuiApp, mut agent: Agent) {
         let tx = sender.clone();
         let lifecycle_bus = bus.clone();
         let lifecycle_provenance = event_provenance.clone();
+        forward_optional_lifecycle_event_to_bus(
+            &lifecycle_bus,
+            AgentEvent::AgentStart,
+            &lifecycle_provenance,
+        );
         let result = agent
             .compact_now_with_reporter(move |event| {
                 forward_event_to_bus(&bus, &event, &event_provenance);
@@ -449,6 +464,11 @@ pub(super) fn start_review_task(app: &mut TuiApp, prompt: String, mut agent: Age
         let tx = sender.clone();
         let lifecycle_bus = bus.clone();
         let lifecycle_provenance = event_provenance.clone();
+        forward_optional_lifecycle_event_to_bus(
+            &lifecycle_bus,
+            AgentEvent::AgentStart,
+            &lifecycle_provenance,
+        );
         let result = agent
             .query_with_mode_and_events(prompt, AgentOutputMode::Silent, move |event| {
                 forward_event_to_bus(&bus, &event, &event_provenance);

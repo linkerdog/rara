@@ -12,9 +12,9 @@ use tempfile::tempdir;
 use tokio::sync::{Mutex, mpsc};
 
 use super::{
-    emit_query_heartbeat, finish_running_task_if_ready, forward_task_result_lifecycle,
-    goal_budget_limit_prompt, goal_continuation_prompt, merge_rebuilt_agent,
-    request_running_task_cancellation, start_oauth_task, start_query_task,
+    emit_query_heartbeat, finish_running_task_if_ready, forward_optional_lifecycle_event_to_bus,
+    forward_task_result_lifecycle, goal_budget_limit_prompt, goal_continuation_prompt,
+    merge_rebuilt_agent, request_running_task_cancellation, start_oauth_task, start_query_task,
     try_start_queued_follow_up,
 };
 use crate::agent::{
@@ -93,6 +93,31 @@ fn lifecycle_helper_publishes_runtime_error_for_failure() {
             recoverable: false,
         }) if message == "backend failed"
     ));
+}
+
+#[test]
+fn optional_lifecycle_helper_publishes_turn_started_when_bus_exists() {
+    let bus = Arc::new(RuntimeEventBus::new(8));
+    let mut control = bus.subscribe_control();
+    let provenance = RuntimeProvenance::local_tui("session-1");
+
+    forward_optional_lifecycle_event_to_bus(
+        &Some(bus),
+        crate::agent::AgentEvent::AgentStart,
+        &provenance,
+    );
+    forward_optional_lifecycle_event_to_bus(
+        &None,
+        crate::agent::AgentEvent::AgentStart,
+        &provenance,
+    );
+
+    let event = control.try_recv().expect("control event");
+    assert!(matches!(
+        event.event,
+        RuntimeEvent::Session(SessionEvent::TurnStarted)
+    ));
+    assert!(control.try_recv().is_err());
 }
 
 #[test]
