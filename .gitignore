@@ -1,6 +1,7 @@
 /target
 **/*.rs.bk
 .rara/
+.idea/
 data/lancedb
 .DS_Store
 .tmp-pr-*
