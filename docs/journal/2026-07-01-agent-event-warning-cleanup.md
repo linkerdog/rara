@@ -34,7 +34,19 @@ cargo test --locked lifecycle_helper_publishes
 cargo test --locked runtime_event_bus::tests::
 ```
 
-## Follow-Ups
+## TUI Palette Cleanup
 
-- Continue warning cleanup in the TUI command/event palettes and related state
-  display fields.
+The follow-up warning cleanup removed the unused `AppCommand` translation layer
+instead of keeping a partially wired command abstraction. The active event loop
+continues to dispatch `AppEvent` directly.
+
+The remaining TUI command/event palette entries and context display fields are
+kept as explicit item-level reservations tied to `docs/todo.md` milestones,
+rather than silently hidden behind module-level allowances.
+
+Additional validation:
+
+```bash
+cargo fmt
+cargo check --locked --workspace --all-targets
+```

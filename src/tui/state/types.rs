@@ -157,6 +157,9 @@ pub enum LocalCommandKind {
     Permissions,
     Logout,
     Review,
+    /// Reserved for `/dream` command help while consolidation execution is
+    /// still tracked as follow-up work (docs/todo.md).
+    #[allow(dead_code)]
     Dream,
     Goal,
     Quit,
@@ -192,10 +195,14 @@ pub struct TerminalDiagnosticsView {
 }
 
 pub struct CommandSpec {
+    /// Reserved for grouped command palette/help rendering (docs/todo.md).
+    #[allow(dead_code)]
     pub category: &'static str,
     pub name: &'static str,
     pub usage: &'static str,
     pub summary: &'static str,
+    /// Reserved for command detail panes and picker descriptions (docs/todo.md).
+    #[allow(dead_code)]
     pub detail: &'static str,
 }
 
@@ -264,9 +271,15 @@ pub struct RuntimeSnapshot {
     pub prompt_base_kind: String,
     pub prompt_section_keys: Vec<String>,
     pub prompt_source_entries: Vec<PromptSourceContextEntry>,
+    /// Reserved for compact `/status` prompt-source summaries; rich context
+    /// surfaces currently read `prompt_source_entries` directly (docs/todo.md).
+    #[allow(dead_code)]
     pub prompt_source_status_lines: Vec<String>,
     pub prompt_append_system_prompt: Option<String>,
     pub prompt_warnings: Vec<String>,
+    /// Reserved for the next `/context` retrieval-source display pass; current
+    /// UI reads `retrieval_orchestration` instead (docs/todo.md).
+    #[allow(dead_code)]
     pub retrieval_source_entries: Vec<RetrievalSourceContextEntry>,
     pub retrieval_orchestration: crate::context::RetrievalOrchestrationView,
     pub memory_selection: crate::context::MemorySelectionContextView,
@@ -483,6 +496,10 @@ pub struct TranscriptEntry {
 #[derive(Clone, Debug)]
 pub enum TranscriptEntryPayload {
     Terminal(TerminalEvent),
+    /// Reserved for semantic transcript filtering and future per-kind system
+    /// rendering; current committed cells only need to know it is system text
+    /// (docs/todo.md).
+    #[allow(dead_code)]
     System(SystemMessageKind),
 }
 

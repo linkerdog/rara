@@ -78,9 +78,6 @@ Active backlog only. Keep this file small and current.
 
 - [ ] Explicit embedding controls: enable/disable, provider override (low priority)
 - [ ] `/status` context fields for model/provider/thread/retrieval/memory/workspace
-- [ ] Continue warning cleanup for the TUI command/event palettes and related
-      state display fields (see
-      docs/journal/2026-07-01-agent-event-warning-cleanup.md).
 - [ ] Decide the Gemini AI Studio runtime path: either wire `provider=gemini`
       to the native `GeminiBackend::new` API-key backend or remove that native
       API-key path in favor of the current OpenAI-compatible endpoint.
