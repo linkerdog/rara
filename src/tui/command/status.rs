@@ -398,8 +398,10 @@ fn render_todo_context(app: &TuiApp) -> String {
 }
 
 fn format_unix_timestamp_utc(timestamp: i64) -> String {
-    let format = format_description::parse("[year]-[month]-[day] [hour]:[minute]:[second] UTC")
-        .expect("static timestamp format should be valid");
+    let format = format_description::parse_borrowed::<2>(
+        "[year]-[month]-[day] [hour]:[minute]:[second] UTC",
+    )
+    .expect("static timestamp format should be valid");
 
     OffsetDateTime::from_unix_timestamp(timestamp)
         .ok()

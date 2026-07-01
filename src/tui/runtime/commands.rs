@@ -43,10 +43,6 @@ pub(super) async fn execute_local_command(
         LocalCommandKind::Dream => "dream",
     });
     match command.kind {
-        LocalCommandKind::Dream => {
-            // handled in the full async dispatch below
-            return Ok(false);
-        }
         LocalCommandKind::Approval => {
             if app.is_busy() {
                 app.push_notice("A task is already running. Wait for it to finish.");
@@ -214,7 +210,7 @@ pub(super) async fn execute_local_command(
                 .unwrap()
                 .consolidation_scheduler
                 .status();
-            app.set_runtime_phase(RuntimePhase::LocalCommand, Some("dream".into()));
+            app.set_runtime_phase(RuntimePhase::LocalCommand, Some(summary));
         }
 
         LocalCommandKind::Goal => {

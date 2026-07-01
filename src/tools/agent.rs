@@ -73,8 +73,7 @@ pub(super) fn agent_tool_to_config_name(name: &str) -> &str {
     }
 }
 
-/// Agent definition matching Claude Code .claude/agents/*.md format.
-
+// Agent definition matching Claude Code .claude/agents/*.md format.
 include!("agent_def.rs");
 
 /// Progress tracking for a subagent (Claude Code AgentProgress compatible).
