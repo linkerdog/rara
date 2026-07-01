@@ -104,6 +104,10 @@ fn extract_system_prompt(messages: &[Message]) -> (Vec<String>, Vec<Message>) {
 
 #[async_trait]
 impl LlmBackend for BedrockBackend {
+    fn model_label(&self) -> Option<String> {
+        Some(self.client.model_id().to_string())
+    }
+
     async fn ask(&self, messages: &[Message], tools: &[Value]) -> Result<LlmResponse> {
         let (system, messages) = extract_system_prompt(messages);
         let response = self

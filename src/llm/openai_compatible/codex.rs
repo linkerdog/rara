@@ -142,6 +142,10 @@ impl CodexBackend {
 
 #[async_trait]
 impl LlmBackend for CodexBackend {
+    fn model_label(&self) -> Option<String> {
+        Some(self.model.clone())
+    }
+
     async fn ask(&self, m: &[Message], t: &[Value]) -> Result<LlmResponse> {
         self.ask_responses_streaming(
             self.model.as_str(),

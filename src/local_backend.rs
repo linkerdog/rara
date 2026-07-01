@@ -130,6 +130,18 @@ fn report_progress(progress: &Option<LocalProgressReporter>, message: String) {
 
 #[async_trait]
 impl LlmBackend for LocalLlmBackend {
+    fn model_label(&self) -> Option<String> {
+        match self.runtime.lock() {
+            Ok(runtime) => Some(runtime.spec.model_id().to_string()),
+            Err(err) => {
+                eprintln!(
+                    "Warning: local model runtime mutex poisoned while reading model label: {err}"
+                );
+                None
+            }
+        }
+    }
+
     async fn ask(&self, messages: &[Message], tools: &[Value]) -> Result<LlmResponse> {
         let runtime = Arc::clone(&self.runtime);
         let messages = messages.to_vec();

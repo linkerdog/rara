@@ -649,6 +649,14 @@ impl Agent {
             Agent::prepend_memory_context_to_latest_user_message(&mut messages, memory_context);
         }
 
+        let model_label = self.model_event_label();
+        report(AgentEvent::ModelRequest {
+            model: model_label.clone(),
+            // Provider token usage is only available after the response.
+            // RuntimeControl documents 0 here as the unknown-count sentinel.
+            input_tokens: 0,
+        });
+
         let mut streamed_any_text_delta = false;
         let mut streamed_any_reasoning_delta = false;
         let response = self
@@ -666,6 +674,17 @@ impl Agent {
                 }
             })
             .await?;
+
+        let output_tokens = response
+            .usage
+            .as_ref()
+            .map(|usage| usage.output_tokens)
+            .unwrap_or(0);
+        report(AgentEvent::ModelResponse {
+            model: model_label,
+            output_tokens,
+            finish_reason: response.stop_reason.clone(),
+        });
 
         if let Some(usage) = &response.usage {
             self.total_input_tokens += usage.input_tokens;
@@ -780,6 +799,13 @@ impl Agent {
         } else {
             metadata
         }
+    }
+
+    fn model_event_label(&self) -> String {
+        self.llm_backend
+            .model_label()
+            .filter(|model| !model.trim().is_empty())
+            .unwrap_or_else(|| "unknown".to_string())
     }
 
     async fn run_agent_loop<F>(

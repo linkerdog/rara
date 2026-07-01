@@ -25,7 +25,7 @@ use super::super::state::{
 use super::events::{
     apply_tui_event, convert_agent_event, format_error_chain, format_memory_event_notice,
 };
-use crate::agent::{Agent, AgentOutputMode, BashApprovalDecision};
+use crate::agent::{Agent, AgentEvent, AgentOutputMode, BashApprovalDecision};
 use crate::runtime_control::RuntimeProvenance;
 use crate::runtime_event_bus::RuntimeEventBus;
 
@@ -97,13 +97,59 @@ fn classify_system_warning(warning: &str, default_kind: SystemMessageKind) -> Sy
 /// Avoids the clone cost when nobody is listening (the common TUI-only case).
 fn forward_event_to_bus(
     bus: &Option<Arc<RuntimeEventBus>>,
-    event: &crate::agent::AgentEvent,
+    event: &AgentEvent,
     provenance: &RuntimeProvenance,
 ) {
     if let Some(bus) = bus.as_ref()
         && bus.receiver_count() > 0
     {
         bus.send_with_provenance(event.clone(), provenance.clone());
+    }
+}
+
+fn forward_lifecycle_event_to_bus(
+    bus: &RuntimeEventBus,
+    event: AgentEvent,
+    provenance: &RuntimeProvenance,
+) {
+    if bus.receiver_count() > 0 {
+        bus.send_with_provenance(event, provenance.clone());
+    }
+}
+
+fn forward_task_result_lifecycle<T>(
+    bus: &RuntimeEventBus,
+    provenance: &RuntimeProvenance,
+    result: &anyhow::Result<T>,
+) {
+    let event = match result {
+        Ok(_) => AgentEvent::AgentStop {
+            reason: "turn complete".to_string(),
+        },
+        Err(err) => {
+            let message = format_error_chain(err);
+            if message.contains("cancelled by user") {
+                AgentEvent::AgentStop {
+                    reason: "cancelled by user".to_string(),
+                }
+            } else {
+                AgentEvent::AgentError {
+                    message,
+                    recoverable: false,
+                }
+            }
+        }
+    };
+    forward_lifecycle_event_to_bus(bus, event, provenance);
+}
+
+fn forward_optional_task_result_lifecycle<T>(
+    bus: &Option<Arc<RuntimeEventBus>>,
+    provenance: &RuntimeProvenance,
+    result: &anyhow::Result<T>,
+) {
+    if let Some(bus) = bus.as_ref() {
+        forward_task_result_lifecycle(bus, provenance, result);
     }
 }
 
@@ -231,7 +277,7 @@ pub(super) fn start_input_control_task(
     agent.set_full_access_mode(app.permission_mode == PermissionMode::FullAccess);
     sync_bash_prefixes_from_config(app, &mut agent);
     agent.set_cancellation_token(Some(cancellation_token.clone()));
-    let _ = bus.send(crate::agent::AgentEvent::AgentStart);
+    forward_lifecycle_event_to_bus(&bus, AgentEvent::AgentStart, &event_provenance);
     let handle = tokio::spawn(async move {
         let tx = sender.clone();
         let provenance =
@@ -243,6 +289,8 @@ pub(super) fn start_input_control_task(
         };
 
         let bus_arg = Some(bus.clone());
+        let lifecycle_bus = bus.clone();
+        let lifecycle_provenance = event_provenance.clone();
         let result = crate::control_plane::dispatch(
             envelope,
             &mcp_manager,
@@ -311,6 +359,7 @@ pub(super) fn start_input_control_task(
         .await;
 
         let result = result.map_err(|e| anyhow::anyhow!("{e}"));
+        forward_task_result_lifecycle(&lifecycle_bus, &lifecycle_provenance, &result);
         TaskCompletion::Query { agent, result }
     });
 
@@ -356,6 +405,8 @@ pub(super) fn start_compact_task(app: &mut TuiApp, mut agent: Agent) {
 
     let handle = tokio::spawn(async move {
         let tx = sender.clone();
+        let lifecycle_bus = bus.clone();
+        let lifecycle_provenance = event_provenance.clone();
         let result = agent
             .compact_now_with_reporter(move |event| {
                 forward_event_to_bus(&bus, &event, &event_provenance);
@@ -364,6 +415,7 @@ pub(super) fn start_compact_task(app: &mut TuiApp, mut agent: Agent) {
                 }
             })
             .await;
+        forward_optional_task_result_lifecycle(&lifecycle_bus, &lifecycle_provenance, &result);
         TaskCompletion::Compact { agent, result }
     });
 
@@ -395,6 +447,8 @@ pub(super) fn start_review_task(app: &mut TuiApp, prompt: String, mut agent: Age
 
     let handle = tokio::spawn(async move {
         let tx = sender.clone();
+        let lifecycle_bus = bus.clone();
+        let lifecycle_provenance = event_provenance.clone();
         let result = agent
             .query_with_mode_and_events(prompt, AgentOutputMode::Silent, move |event| {
                 forward_event_to_bus(&bus, &event, &event_provenance);
@@ -403,6 +457,7 @@ pub(super) fn start_review_task(app: &mut TuiApp, prompt: String, mut agent: Age
                 }
             })
             .await;
+        forward_optional_task_result_lifecycle(&lifecycle_bus, &lifecycle_provenance, &result);
         TaskCompletion::Query { agent, result }
     });
 

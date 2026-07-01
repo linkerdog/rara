@@ -125,6 +125,63 @@ impl LlmBackend for RecoverableRuntimeErrorBackend {
 }
 
 #[tokio::test]
+async fn emits_model_request_and_response_events() {
+    let backend = Arc::new(
+        SequencedBackend::new(vec![LlmResponse {
+            content: vec![ContentBlock::Text {
+                text: "done".to_string(),
+            }],
+            stop_reason: Some("end_turn".to_string()),
+            usage: Some(TokenUsage {
+                input_tokens: 11,
+                output_tokens: 22,
+                ..TokenUsage::default()
+            }),
+        }])
+        .with_model_label("test-model"),
+    );
+
+    let (_temp, session_manager, workspace, rara_dir) = test_runtime_storage();
+    let mut agent = Agent::new(
+        ToolManager::new(),
+        backend,
+        Arc::new(VectorDB::new(&rara_dir.join("lancedb").to_string_lossy())),
+        session_manager,
+        workspace,
+    );
+
+    let mut events = Vec::new();
+    agent
+        .query_with_mode_and_events(
+            "hello".to_string(),
+            super::super::AgentOutputMode::Silent,
+            |event| events.push(event),
+        )
+        .await
+        .expect("query should succeed");
+
+    assert!(events.iter().any(|event| {
+        matches!(
+            event,
+            AgentEvent::ModelRequest {
+                model,
+                input_tokens: 0
+            } if model == "test-model"
+        )
+    }));
+    assert!(events.iter().any(|event| {
+        matches!(
+            event,
+            AgentEvent::ModelResponse {
+                model,
+                output_tokens: 22,
+                finish_reason: Some(reason)
+            } if model == "test-model" && reason == "end_turn"
+        )
+    }));
+}
+
+#[tokio::test]
 async fn appends_continuation_after_tool_result() {
     let backend = Arc::new(SequencedBackend::new(vec![
         LlmResponse {

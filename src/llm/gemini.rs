@@ -169,6 +169,10 @@ impl GeminiBackend {
 
 #[async_trait]
 impl LlmBackend for GeminiBackend {
+    fn model_label(&self) -> Option<String> {
+        Some(self.model.clone())
+    }
+
     async fn ask(&self, messages: &[Message], tools: &[Value]) -> Result<LlmResponse> {
         let body = build_gemini_request(messages, tools)?;
         let res = self.send_gemini_request(&body, false).await?;

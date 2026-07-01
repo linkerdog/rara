@@ -44,6 +44,7 @@ pub(super) struct SequencedBackend {
     responses: Mutex<Vec<LlmResponse>>,
     observed_messages: Mutex<Vec<Vec<Message>>>,
     observed_tools: Mutex<Vec<Vec<String>>>,
+    model_label: Mutex<Option<String>>,
 }
 
 impl SequencedBackend {
@@ -52,7 +53,13 @@ impl SequencedBackend {
             responses: Mutex::new(responses),
             observed_messages: Mutex::new(Vec::new()),
             observed_tools: Mutex::new(Vec::new()),
+            model_label: Mutex::new(None),
         }
+    }
+
+    pub(super) fn with_model_label(self, model_label: impl Into<String>) -> Self {
+        *self.model_label.lock().expect("lock") = Some(model_label.into());
+        self
     }
 
     pub(super) fn observed_tools(&self) -> Vec<Vec<String>> {
@@ -86,6 +93,10 @@ pub(super) fn test_runtime_storage() -> (
 
 #[async_trait]
 impl LlmBackend for SequencedBackend {
+    fn model_label(&self) -> Option<String> {
+        self.model_label.lock().expect("lock").clone()
+    }
+
     async fn ask(&self, messages: &[Message], tools: &[Value]) -> Result<LlmResponse> {
         self.observed_messages
             .lock()

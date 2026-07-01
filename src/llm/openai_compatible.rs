@@ -403,6 +403,10 @@ pub async fn fetch_model_context_window(
 
 #[async_trait]
 impl LlmBackend for OpenAiCompatibleBackend {
+    fn model_label(&self) -> Option<String> {
+        Some(self.model.clone())
+    }
+
     async fn ask(&self, messages: &[Message], tools: &[Value]) -> Result<LlmResponse> {
         self.ask_with_context(messages, tools, LlmTurnMetadata::default())
             .await
