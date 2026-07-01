@@ -1,5 +1,3 @@
-// Items reserved for thread store persistence.
-// NOTE: module-level dead_code kept — large storage crate.
 use std::collections::BTreeMap;
 use std::fs;
 use std::io::Write;
@@ -345,12 +343,6 @@ impl<'a> ThreadStore<'a> {
         }
     }
 
-    pub fn latest_thread_id(&self) -> Result<Option<String>> {
-        Ok(self
-            .latest_thread_summary()?
-            .map(|thread| thread.metadata.session_id))
-    }
-
     pub fn latest_thread_summary(&self) -> Result<Option<ThreadSummary>> {
         Ok(self.list_recent_threads(1)?.into_iter().next())
     }
@@ -373,10 +365,17 @@ impl<'a> ThreadStore<'a> {
         })
     }
 
+    /// Reserved portable export boundary for external thread inspection.
+    /// This is part of the thread contract documented in docs/features/threads.md.
+    #[allow(dead_code)]
     pub fn export_thread_markdown(&self, session_id: &str) -> Result<String> {
         Ok(format_thread_markdown(&self.load_thread(session_id)?))
     }
 
+    /// Reserved compatibility path for one-record thread distillation.
+    /// The active product path is `distill_thread_memories`; this remains part
+    /// of the thread contract documented in docs/features/memory-records.md.
+    #[allow(dead_code)]
     pub async fn distill_thread_summary(
         &self,
         memory_store: &MemoryStore,
@@ -1205,6 +1204,10 @@ impl<'a> ThreadRecorder<'a> {
         self.rollout_recorder(session_id).append_event(item)
     }
 
+    /// Reserved explicit durability barrier for transcript/event persistence.
+    /// The session transcript contract documents both flush and shutdown
+    /// boundaries in docs/features/session-transcript.md.
+    #[allow(dead_code)]
     pub fn flush(&self, session_id: &str) -> Result<()> {
         self.rollout_recorder(session_id).flush()
     }
@@ -1380,6 +1383,10 @@ fn format_thread_markdown(thread: &ThreadSnapshot) -> String {
     lines.join("\n")
 }
 
+/// Reserved compatibility formatter for summary-style thread distillation.
+/// Activated through `distill_thread_summary` when callers need the legacy
+/// one-record path documented in docs/features/memory-records.md.
+#[allow(dead_code)]
 fn thread_summary_memory_record(thread: &ThreadSnapshot) -> Option<NewMemoryRecord> {
     let summary = thread
         .compaction
