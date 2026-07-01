@@ -367,10 +367,6 @@ fn report_local_embedding_progress(
     }
 }
 
-pub(crate) async fn build_backend(config: &RaraConfig) -> Result<Box<dyn LlmBackend>> {
-    build_backend_with_progress(config, None).await
-}
-
 pub(crate) async fn build_backend_with_progress(
     config: &RaraConfig,
     progress: Option<LocalProgressReporter>,
