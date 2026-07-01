@@ -205,12 +205,12 @@ pub(super) async fn execute_local_command(
             app.open_overlay(Overlay::Status(StatusTab::Overview));
         }
         LocalCommandKind::Dream => {
-            let summary = agent_slot
-                .as_mut()
-                .unwrap()
-                .consolidation_scheduler
-                .status();
-            app.set_runtime_phase(RuntimePhase::LocalCommand, Some(summary));
+            if let Some(agent) = agent_slot.as_mut() {
+                let summary = agent.consolidation_scheduler.status();
+                app.set_runtime_phase(RuntimePhase::LocalCommand, Some(summary));
+            } else {
+                app.push_notice("Memory consolidation is not available until an agent is ready.");
+            }
         }
 
         LocalCommandKind::Goal => {
@@ -923,6 +923,36 @@ command = "docs-server"
         assert_eq!(
             app.bottom_pane.notice.as_deref(),
             Some("A goal already exists. Use /goal clear before setting a new goal.")
+        );
+    }
+
+    #[tokio::test]
+    async fn dream_command_without_agent_reports_unavailable() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let mut app = TuiApp::new(ConfigManager {
+            path: dir.path().join("config.json"),
+        })
+        .expect("app");
+        let oauth_manager = Arc::new(
+            OAuthManager::new_for_config_dir(dir.path().join("oauth")).expect("oauth manager"),
+        );
+        let mut agent_slot = None;
+
+        execute_local_command(
+            LocalCommand {
+                kind: LocalCommandKind::Dream,
+                arg: None,
+            },
+            &mut app,
+            &mut agent_slot,
+            &oauth_manager,
+        )
+        .await
+        .expect("dream command should be handled");
+
+        assert_eq!(
+            app.bottom_pane.notice.as_deref(),
+            Some("Memory consolidation is not available until an agent is ready.")
         );
     }
 
