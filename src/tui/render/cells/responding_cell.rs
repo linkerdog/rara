@@ -16,7 +16,7 @@ use crate::tui::plan_display::updated_plan_lines;
 use crate::tui::queued_input::{
     QueuedFollowUpSection, pending_follow_up_heading, queued_follow_up_heading,
 };
-use crate::tui::render::diff::render_patch_preview;
+use crate::tui::render::diff::render_message_diff_preview;
 use crate::tui::render::{
     formatted_message_lines, prefixed_message_lines, rendered_markdown_lines,
     startup_card_inner_width, truncate_for_startup_card, truncate_path_middle,
@@ -154,6 +154,9 @@ impl HistoryCell for RespondingCell<'_> {
             } => {
                 if let Some(cell) = LspDiagnosticsCell::from_message(message) {
                     cell.display_lines(width)
+                } else if let Some(lines) = render_message_diff_preview(Some(role), message, width)
+                {
+                    lines
                 } else {
                     prefixed_message_lines(role, message, *max_lines)
                 }

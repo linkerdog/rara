@@ -4,13 +4,9 @@
 // ratatui::style::Color values so that the color palette can be
 // changed in one place and the visual hierarchy stays consistent.
 //
-// The palette is based on the Nord color scheme (matching OpenCode's
-// default dark theme) extended with semantic tokens for UI, Markdown,
-// and syntax highlighting.
-//
-// Many constants are reserved for planned rendering features (Markdown
-// syntax highlighting, diff views, phase badges, etc.). The full palette
-// is kept here as a single source of truth.
+// The palette is based on the Nord color scheme. Keep this module limited to
+// tokens that the current renderer consumes; a future configurable theme system
+// should introduce a real token schema instead of unused static constants.
 use ratatui::style::Color;
 
 // See https://www.nordtheme.com/docs/colors-and-palettes
@@ -40,15 +36,11 @@ pub(crate) const NORD14: Color = Color::Rgb(0xA3, 0xBE, 0x8C); // Aurora (green)
 pub(crate) const NORD15: Color = Color::Rgb(0xB4, 0x8E, 0xAD); // Aurora (purple)
 
 // ── UI surface colors ───────────────────────────────────────────
-pub(crate) const UI_BG: Color = NORD0;
-pub(crate) const UI_PANEL_BG: Color = NORD1;
 pub(crate) const UI_ELEMENT_BG: Color = NORD2;
-pub(crate) const UI_BORDER: Color = NORD3;
-pub(crate) const UI_BORDER_ACTIVE: Color = NORD8;
 
 // ── Popup / overlay surfaces ────────────────────────────────────
 pub(crate) const POPUP_BG: Color = NORD1;
-/// Full-screen dimmer behind centered popups (matches UI_BG).
+/// Full-screen dimmer behind centered popups.
 pub(crate) const POPUP_DIMMER_BG: Color = NORD0;
 
 // ── Text ────────────────────────────────────────────────────────
@@ -66,7 +58,6 @@ pub(crate) const ROLE_PREFIX: Color = NORD8;
 // ── Progress phases ─────────────────────────────────────────────
 pub(crate) const PHASE_EXPLORING: Color = NORD13;
 pub(crate) const PHASE_EXPLORED: Color = NORD13;
-pub(crate) const PHASE_THINKING: Color = NORD9;
 pub(crate) const PHASE_PLANNING: Color = NORD8;
 pub(crate) const PHASE_RUNNING: Color = NORD13;
 pub(crate) const PHASE_RAN: Color = NORD7;
@@ -83,7 +74,6 @@ pub(crate) const SURFACE_BOTTOM_PANE_BG: Color = Color::Reset;
 
 // ── Badge / section label ───────────────────────────────────────
 pub(crate) const BADGE_FG_DARK: Color = NORD6;
-pub(crate) const BADGE_FG_LIGHT: Color = NORD0;
 
 // ── Interaction ─────────────────────────────────────────────────
 pub(crate) const INTERACTION_SUB_AGENT: Color = NORD13;
@@ -101,28 +91,16 @@ pub(crate) const DIFF_DEL_BG: Color = Color::Rgb(58, 26, 26);
 pub(crate) const DIFF_DEL_FG: Color = NORD11;
 pub(crate) const DIFF_HUNK_BG: Color = NORD1;
 pub(crate) const DIFF_HUNK_FG: Color = NORD3;
-pub(crate) const DIFF_CONTEXT_BG: Color = NORD0;
 pub(crate) const DIFF_CONTEXT_FG: Color = NORD4;
-pub(crate) const DIFF_HIGHLIGHT_BG: Color = NORD2;
 
 // ── Markdown ────────────────────────────────────────────────────
 pub(crate) const MD_HEADING: Color = NORD8;
 pub(crate) const MD_LINK: Color = NORD9;
 pub(crate) const MD_CODE: Color = NORD14;
-pub(crate) const MD_CODE_BLOCK: Color = NORD5;
 pub(crate) const MD_BLOCK_QUOTE: Color = NORD3;
 pub(crate) const MD_LIST_BULLET: Color = NORD8;
 pub(crate) const MD_BOLD: Color = NORD6;
 pub(crate) const MD_ITALIC: Color = NORD4;
-
-// ── Syntax ──────────────────────────────────────────────────────
-pub(crate) const SYNTAX_COMMENT: Color = NORD3;
-pub(crate) const SYNTAX_KEYWORD: Color = NORD9;
-pub(crate) const SYNTAX_FUNCTION: Color = NORD8;
-pub(crate) const SYNTAX_VARIABLE: Color = NORD4;
-pub(crate) const SYNTAX_STRING: Color = NORD14;
-pub(crate) const SYNTAX_NUMBER: Color = NORD15;
-pub(crate) const SYNTAX_TYPE: Color = NORD7;
 
 // ── Budget bar segments ─────────────────────────────────────────
 pub(crate) const BUDGET_SYSTEM: Color = NORD9;

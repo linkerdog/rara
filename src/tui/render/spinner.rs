@@ -5,20 +5,12 @@
 
 use std::time::Duration;
 
-use ratatui::{
-    style::{Color, Style},
-    text::Span,
-};
+use ratatui::{style::Style, text::Span};
+
+use crate::tui::theme::{NORD7, NORD8, NORD9, NORD12, NORD13, NORD14};
 
 // Nord palette reference: https://www.nordtheme.com/docs/colors-and-palettes
-const SHIMMER_COLORS: &[Color] = &[
-    Color::Rgb(0x88, 0xC0, 0xD0), // NORD8  – frost cyan
-    Color::Rgb(0x8F, 0xBC, 0xBB), // NORD7  – frost green-cyan
-    Color::Rgb(0xA3, 0xBE, 0x8C), // NORD14 – aurora green
-    Color::Rgb(0xEB, 0xCB, 0x8B), // NORD13 – aurora yellow
-    Color::Rgb(0xD0, 0x87, 0x70), // NORD12 – aurora orange
-    Color::Rgb(0x81, 0xA1, 0xC1), // NORD9  – frost blue-gray
-];
+const SHIMMER_COLORS: &[ratatui::style::Color] = &[NORD8, NORD7, NORD14, NORD13, NORD12, NORD9];
 
 /// Fixed-width 1-character spinner.
 ///
