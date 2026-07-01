@@ -68,6 +68,8 @@ pub fn pending_interaction_detail_text(app: &TuiApp, kind: ActivePendingInteract
     }
 }
 
+/// Reserved for status-panel pending interaction summaries tracked by docs/todo.md.
+#[allow(dead_code)]
 pub fn status_active_pending_interaction_text(app: &TuiApp) -> Option<(&'static str, String)> {
     let pending = app.active_pending_interaction()?;
     let title = pending_interaction_section_title(pending.kind);

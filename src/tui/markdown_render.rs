@@ -85,6 +85,7 @@ struct LinkState {
     local_target_display: Option<String>,
 }
 
+#[cfg(test)]
 pub(crate) fn render_markdown_text(input: &str) -> Text<'static> {
     render_markdown_text_with_width(input, None)
 }
