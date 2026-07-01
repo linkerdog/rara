@@ -13,8 +13,3 @@ pub(crate) fn total_visual_rows(lines: &[Line<'_>], width: u16) -> usize {
         .map(|line| line.width().max(1).div_ceil(wrap_width))
         .sum()
 }
-
-/// Sum of visual rows, clamped to at least 1.
-pub(crate) fn wrapped_line_count(lines: &[Line<'_>], width: u16) -> u16 {
-    total_visual_rows(lines, width).max(1) as u16
-}
