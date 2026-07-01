@@ -29,9 +29,10 @@ use crate::hooks::HookDefinition;
 use crate::hooks::HookParseStatus;
 use crate::hooks::HookRegistry;
 use crate::hooks::{HookSandbox, run_sandboxed_hook};
+#[cfg(test)]
+use crate::llm::LlmEmbeddingBackend;
 use crate::llm::{
-    ContentBlock, EmbeddingBackend, EmbeddingInputKind, LlmBackend, LlmEmbeddingBackend,
-    LlmStreamEvent, LlmTurnMetadata,
+    ContentBlock, EmbeddingBackend, EmbeddingInputKind, LlmBackend, LlmStreamEvent, LlmTurnMetadata,
 };
 use crate::lsp_manager::LspManager;
 use crate::mcp_status::McpStatusSnapshot;
@@ -236,6 +237,7 @@ impl Agent {
         self.aux_total_cache_miss_tokens += miss;
     }
 
+    #[cfg(test)]
     pub fn new(
         tool_manager: ToolManager,
         llm_backend: Arc<dyn LlmBackend>,

@@ -68,6 +68,7 @@ pub struct RuntimeInteractionInput {
 }
 
 impl AssembledContext {
+    #[cfg(test)]
     pub fn system_prompt(&self) -> &str {
         &self.effective_prompt.text
     }
@@ -89,7 +90,9 @@ impl<'a> ContextAssembler<'a> {
         }
     }
 
-    /// Set the hook lifecycle phase so only matching hooks are injected.
+    /// Reserved for per-phase file-hook injection; docs/features/file-hooks.md
+    /// tracks the follow-up beyond the current all-hooks-every-turn behavior.
+    #[allow(dead_code)]
     pub fn with_hook_phase(mut self, phase: HookLifecycle) -> Self {
         self.hook_phase = Some(phase);
         self
@@ -131,10 +134,6 @@ impl<'a> ContextAssembler<'a> {
 
     pub fn effective_prompt(&self, mode: PromptMode) -> EffectivePrompt {
         self.assemble(mode).effective_prompt
-    }
-
-    pub fn system_prompt(&self, mode: PromptMode) -> String {
-        self.assemble(mode).effective_prompt.text
     }
 
     pub fn compact_instruction(&self) -> String {

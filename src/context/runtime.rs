@@ -6,10 +6,19 @@ use crate::tool_result::{ToolResultProjectionPolicy, ToolResultProjectionReport}
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CacheStatus {
     /// Content was served from the in-memory cache (mtime unchanged).
+    /// Reserved until WorkspaceMemory cache signals are wired into /context;
+    /// tracked in docs/journal/2026-05-01-cache-status-context.md.
+    #[allow(dead_code)]
     Hit,
     /// Content was re-read from disk (mtime changed or first read).
+    /// Reserved until WorkspaceMemory cache signals are wired into /context;
+    /// tracked in docs/journal/2026-05-01-cache-status-context.md.
+    #[allow(dead_code)]
     Miss,
     /// Cache does not apply (non-file source, e.g. append-system-prompt).
+    /// Reserved for non-file /context entries once cache status is fully wired;
+    /// tracked in docs/journal/2026-05-01-cache-status-context.md.
+    #[allow(dead_code)]
     NoCache,
 }
 

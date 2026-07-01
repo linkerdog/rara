@@ -1,4 +1,5 @@
 impl MemoryStore {
+    #[cfg(test)]
     pub fn new(backend: Arc<dyn LlmBackend>, vdb: Arc<VectorDB>) -> Self {
         let embedding_backend: Arc<dyn EmbeddingBackend> =
             Arc::new(LlmEmbeddingBackend::new(backend.clone()));
@@ -20,7 +21,8 @@ impl MemoryStore {
         }
     }
 
-    pub fn new_with_record_path(
+    #[cfg(test)]
+    pub(crate) fn new_with_record_path(
         backend: Arc<dyn LlmBackend>,
         vdb: Arc<VectorDB>,
         record_path: PathBuf,
@@ -35,7 +37,8 @@ impl MemoryStore {
         )
     }
 
-    pub fn new_with_embedding_backend_and_record_path(
+    #[cfg(test)]
+    pub(crate) fn new_with_embedding_backend_and_record_path(
         llm_backend: Arc<dyn LlmBackend>,
         embedding_backend: Arc<dyn EmbeddingBackend>,
         vdb: Arc<VectorDB>,
@@ -174,6 +177,9 @@ impl MemoryStore {
         self.records.get(id).await
     }
 
+    /// Reserved for the memory-record pinning API documented in
+    /// docs/features/memory-records.md.
+    #[allow(dead_code)]
     pub async fn set_pinned(&self, id: &str, pinned: bool) -> Result<MemoryRecord> {
         let _timer = self.observability.start_timer(MemoryOperation::Write);
         self.records.set_pinned(id, pinned).await
@@ -234,6 +240,9 @@ impl MemoryStore {
     }
 
     /// Returns the most recent records for a scope. No embedding required.
+    /// Reserved for the memory-record listing API documented in
+    /// docs/features/memory-records.md.
+    #[allow(dead_code)]
     pub async fn list_recent(
         &self,
         scope: Option<MemoryScope>,
@@ -262,4 +271,3 @@ impl MemoryStore {
         Ok(self.records.load_map().await?.len())
     }
 }
-

@@ -24,6 +24,9 @@ pub struct CodexModelOption {
     pub is_default: bool,
 }
 
+/// Reserved for the Codex model picker refresh path; docs/todo.md tracks
+/// whether the active provider/model flow should wire this loader.
+#[allow(dead_code)]
 pub async fn load_codex_model_catalog(
     codex_home: &Path,
     refresh_strategy: RefreshStrategy,

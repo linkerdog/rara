@@ -10,6 +10,9 @@ use crate::protocol_sources::{PromptSourceRegistry, SkillSourceRegistry};
 use crate::tool_result::ToolResultProjectionPolicy;
 
 impl Agent {
+    /// Reserved for the prompt-runtime compatibility API documented in
+    /// docs/features/prompt-runtime.md.
+    #[allow(dead_code)]
     pub fn assemble_context(&self) -> AssembledContext {
         self.context_assembler().assemble({
             match self.execution_mode {
@@ -103,10 +106,17 @@ impl Agent {
         policy
     }
 
+    /// Reserved for prompt-runtime callers that need only the assembled system
+    /// prompt; docs/features/prompt-runtime.md keeps this as the compatibility
+    /// boundary.
+    #[allow(dead_code)]
     pub fn build_system_prompt(&self) -> String {
         self.assemble_context().effective_prompt.text
     }
 
+    /// Reserved for prompt-runtime callers that need source/provenance details
+    /// from the effective prompt; see docs/features/prompt-runtime.md.
+    #[allow(dead_code)]
     pub fn effective_prompt(&self) -> prompt::EffectivePrompt {
         self.assemble_context().effective_prompt
     }
