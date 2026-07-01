@@ -925,24 +925,6 @@ async fn read_output_tail(path: &Path, max_bytes: usize) -> Result<String, ToolE
     Ok(String::from_utf8_lossy(&bytes).into_owned())
 }
 
-fn parse_pty_dimension(value: Option<&Value>, default: u16, name: &str) -> Result<u16, ToolError> {
-    let Some(value) = value else {
-        return Ok(default);
-    };
-    let Some(value) = value.as_u64() else {
-        return Err(ToolError::InvalidInput(format!(
-            "{name} must be an integer"
-        )));
-    };
-    if value == 0 || value > u16::MAX as u64 {
-        return Err(ToolError::InvalidInput(format!(
-            "{name} must be between 1 and {}",
-            u16::MAX
-        )));
-    }
-    Ok(value as u16)
-}
-
 #[cfg(test)]
 mod tests {
     use tempfile::tempdir;
@@ -961,15 +943,6 @@ mod tests {
         let output = read_output_tail(&path, 4).await.expect("tail");
 
         assert_eq!(output, "tail");
-    }
-
-    #[test]
-    fn parse_pty_dimension_rejects_overflowing_values() {
-        let value = json!(u16::MAX as u64 + 1);
-
-        let err = parse_pty_dimension(Some(&value), 24, "rows").expect_err("overflow rejected");
-
-        assert!(matches!(err, ToolError::InvalidInput(_)));
     }
 
     #[test]

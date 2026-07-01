@@ -255,7 +255,6 @@ fn rebuild_success(
         mcp_manager: Arc::new(crate::mcp_connection_manager::McpConnectionManager::new(
             Arc::new(crate::config::McpRegistry::empty()),
             bus.clone(),
-            crate::mcp_tool_cache::McpToolCache::new(),
         )),
         prompt_source_registry: Arc::new(crate::protocol_sources::PromptSourceRegistry::new(
             bus.clone(),
@@ -397,7 +396,6 @@ fn browser_oauth_is_rejected_before_task_start_in_ssh() {
         crate::mcp_connection_manager::McpConnectionManager::new(
             Arc::new(crate::config::McpRegistry::empty()),
             bus.clone(),
-            crate::mcp_tool_cache::McpToolCache::new(),
         ),
     ));
     app.memory_handler = Some(Arc::new(
@@ -564,7 +562,6 @@ async fn queued_follow_ups_start_as_one_multiline_turn() {
         crate::mcp_connection_manager::McpConnectionManager::new(
             Arc::new(crate::config::McpRegistry::empty()),
             bus.clone(),
-            crate::mcp_tool_cache::McpToolCache::new(),
         ),
     ));
     app.memory_handler = Some(Arc::new(
@@ -630,7 +627,6 @@ async fn queued_follow_up_starts_after_query_failure() {
         crate::mcp_connection_manager::McpConnectionManager::new(
             Arc::new(crate::config::McpRegistry::empty()),
             bus.clone(),
-            crate::mcp_tool_cache::McpToolCache::new(),
         ),
     ));
     app.memory_handler = Some(Arc::new(
@@ -676,7 +672,6 @@ async fn queued_follow_up_starts_after_query_cancellation() {
         crate::mcp_connection_manager::McpConnectionManager::new(
             Arc::new(crate::config::McpRegistry::empty()),
             bus.clone(),
-            crate::mcp_tool_cache::McpToolCache::new(),
         ),
     ));
     app.memory_handler = Some(Arc::new(
@@ -728,7 +723,6 @@ async fn plan_turn_completion_keeps_plan_mode_after_plain_answer() {
         crate::mcp_connection_manager::McpConnectionManager::new(
             Arc::new(crate::config::McpRegistry::empty()),
             bus.clone(),
-            crate::mcp_tool_cache::McpToolCache::new(),
         ),
     ));
     app.memory_handler = Some(Arc::new(
@@ -807,7 +801,6 @@ async fn agent_driven_plan_mode_auto_approves_and_resumes_execution() {
         crate::mcp_connection_manager::McpConnectionManager::new(
             Arc::new(crate::config::McpRegistry::empty()),
             bus.clone(),
-            crate::mcp_tool_cache::McpToolCache::new(),
         ),
     ));
     app.memory_handler = Some(Arc::new(
@@ -892,7 +885,6 @@ async fn exit_plan_mode_stops_for_plan_approval() {
         crate::mcp_connection_manager::McpConnectionManager::new(
             Arc::new(crate::config::McpRegistry::empty()),
             bus.clone(),
-            crate::mcp_tool_cache::McpToolCache::new(),
         ),
     ));
     app.memory_handler = Some(Arc::new(
@@ -963,7 +955,6 @@ async fn query_heartbeat_preserves_running_tool_phase() {
         crate::mcp_connection_manager::McpConnectionManager::new(
             Arc::new(crate::config::McpRegistry::empty()),
             bus.clone(),
-            crate::mcp_tool_cache::McpToolCache::new(),
         ),
     ));
     app.memory_handler = Some(Arc::new(
@@ -1019,7 +1010,6 @@ async fn query_cancellation_sets_running_task_token() {
         crate::mcp_connection_manager::McpConnectionManager::new(
             Arc::new(crate::config::McpRegistry::empty()),
             bus.clone(),
-            crate::mcp_tool_cache::McpToolCache::new(),
         ),
     ));
     app.memory_handler = Some(Arc::new(

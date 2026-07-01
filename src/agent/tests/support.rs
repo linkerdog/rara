@@ -2,9 +2,8 @@ use std::sync::{Arc, Mutex};
 
 use anyhow::Result;
 use async_trait::async_trait;
-use rara_memory::vectordb::VectorDB;
 use rara_tool_macros::tool_spec;
-use rara_tools::tool::{Tool, ToolError, ToolManager};
+use rara_tools::tool::{Tool, ToolError};
 use serde_json::{Value, json};
 use tempfile::tempdir;
 
@@ -38,34 +37,6 @@ impl Tool for StubTool {
 impl Tool for StubBashTool {
     async fn call(&self, _input: Value) -> Result<Value, ToolError> {
         Ok(json!({ "stdout": "ok\n", "stderr": "", "exit_code": 0 }))
-    }
-}
-
-pub(super) struct ListFilesStub;
-
-#[tool_spec(
-    name = "list_files",
-    description = "Return a simple list result",
-    input_schema = { "type": "object" }
-)]
-#[async_trait]
-impl Tool for ListFilesStub {
-    async fn call(&self, _input: Value) -> Result<Value, ToolError> {
-        Ok(json!({ "path": ".", "entries": [] }))
-    }
-}
-
-pub(super) struct PlanAgentStub;
-
-#[tool_spec(
-    name = "plan_agent",
-    description = "Return a delegated planning result",
-    input_schema = { "type": "object" }
-)]
-#[async_trait]
-impl Tool for PlanAgentStub {
-    async fn call(&self, _input: Value) -> Result<Value, ToolError> {
-        Ok(json!({ "status": "ok", "summary": "delegated inspection complete" }))
     }
 }
 
@@ -141,14 +112,4 @@ impl LlmBackend for SequencedBackend {
     async fn summarize(&self, _messages: &[Message], _instruction: &str) -> Result<String> {
         Ok("summary".to_string())
     }
-}
-
-pub(super) fn empty_agent(backend: Arc<dyn LlmBackend>) -> crate::agent::Agent {
-    crate::agent::Agent::new(
-        ToolManager::new(),
-        backend,
-        Arc::new(VectorDB::new("data/lancedb")),
-        Arc::new(SessionManager::new().expect("session manager")),
-        Arc::new(WorkspaceMemory::new().expect("workspace memory")),
-    )
 }

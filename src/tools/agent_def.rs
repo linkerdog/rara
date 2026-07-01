@@ -4,6 +4,9 @@ pub struct AgentDefinition {
     /// Canonical name (also the file stem).
     pub name: String,
     /// Short description for /agents listing.
+    /// Reserved for the future /agents listing surface
+    /// (docs/features/subagent-claude-compat.md).
+    #[allow(dead_code)]
     pub description: String,
     /// Allowed tools (Claude Code display names). Empty = all tools.
     #[serde(default)]
@@ -18,15 +21,26 @@ pub struct AgentDefinition {
     /// Max tool-calling turns. 0 = system default.
     #[serde(default)]
     pub max_turns: usize,
+    /// Reserved for per-agent context budgets.
+    /// Will be activated with subagent budget enforcement
+    /// (docs/features/subagent-claude-compat.md).
+    #[allow(dead_code)]
     pub token_budget: Option<i64>,
     /// Permission mode (e.g. "acceptEdits", "default").
+    /// Reserved for per-agent permission overrides.
+    /// Will be activated with subagent permission-mode resolution
+    /// (docs/features/subagent-claude-compat.md).
     #[serde(default)]
+    #[allow(dead_code)]
     pub permission_mode: Option<String>,
     /// Whether plan approval is required before action.
     #[serde(default)]
     pub plan_mode_required: bool,
     /// Hidden from /agents listing (Claude Code compat).
+    /// Reserved for the future /agents listing surface
+    /// (docs/features/subagent-claude-compat.md).
     #[serde(default)]
+    #[allow(dead_code)]
     pub hidden: bool,
     /// System prompt — body after frontmatter `---`.
     #[serde(default, skip_deserializing)]
@@ -189,4 +203,3 @@ fn builtin_agent_definition(name: &str) -> Option<AgentDefinition> {
         _ => None,
     }
 }
-

@@ -18,7 +18,6 @@ use tokio::sync::RwLock;
 
 use crate::config::{McpRegistry, SourcedMcpServerConfig};
 use crate::mcp_status::McpConnectionState;
-use crate::mcp_tool_cache::McpToolCache;
 use crate::runtime_control::{McpControlRequest, McpEvent, RuntimeEvent};
 use crate::runtime_event_bus::RuntimeEventBus;
 
@@ -52,21 +51,15 @@ pub struct McpConnectionManager {
     registry: Arc<McpRegistry>,
     event_bus: Arc<RuntimeEventBus>,
     entries: RwLock<Vec<(String, McpServerEntry)>>,
-    tool_cache: McpToolCache,
 }
 
 impl McpConnectionManager {
     /// Create a new manager from the current MCP registry and event bus.
-    pub fn new(
-        registry: Arc<McpRegistry>,
-        event_bus: Arc<RuntimeEventBus>,
-        tool_cache: McpToolCache,
-    ) -> Self {
+    pub fn new(registry: Arc<McpRegistry>, event_bus: Arc<RuntimeEventBus>) -> Self {
         Self {
             registry,
             event_bus,
             entries: RwLock::new(Vec::new()),
-            tool_cache,
         }
     }
 

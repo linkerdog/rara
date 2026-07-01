@@ -57,22 +57,6 @@ pub(super) fn agent_tool_to_internal_name(name: &str) -> &str {
     }
 }
 
-/// Reverse mapping from RARA internal tool name to Claude Code config name.
-pub(super) fn agent_tool_to_config_name(name: &str) -> &str {
-    match name {
-        "bash" => "Bash",
-        "read_file" => "Read",
-        "write_file" => "Write",
-        "apply_patch" => "Edit",
-        "glob" => "Glob",
-        "grep" => "Grep",
-        "web_search" => "WebSearch",
-        "web_fetch" => "WebFetch",
-        "spawn_agent" => "Task",
-        n => n,
-    }
-}
-
 // Agent definition matching Claude Code .claude/agents/*.md format.
 include!("agent_def.rs");
 
@@ -86,7 +70,15 @@ pub struct SubagentProgress {
     pub total_cache_hit_tokens: usize,
     pub total_cache_miss_tokens: usize,
     pub activity: Vec<String>,
+    /// Reserved for background subagent UI state.
+    /// Will be activated with queued background subagent messages
+    /// (docs/features/subagent-and-aux-compression.md).
+    #[allow(dead_code)]
     pub is_backgrounded: bool,
+    /// Reserved for background subagent progress labels.
+    /// Will be activated with queued background subagent messages
+    /// (docs/features/subagent-and-aux-compression.md).
+    #[allow(dead_code)]
     pub subagent_name: String,
 }
 
@@ -105,6 +97,10 @@ impl SubagentProgress {
         }
     }
 
+    /// Reserved for per-tool subagent activity summaries.
+    /// Will be activated with subagent progress tracking
+    /// (docs/features/subagent-and-aux-compression.md).
+    #[allow(dead_code)]
     pub fn record_activity(&mut self, desc: impl Into<String>) {
         let s = desc.into();
         self.activity.push(s);
@@ -327,15 +323,16 @@ impl AgentTool {
         let name = i["name"]
             .as_str()
             .ok_or(ToolError::InvalidInput("name".into()))?;
-        if validate_agent_id_label(name).is_none() {
+        let Some(agent_label) = validate_agent_id_label(name) else {
             return Err(ToolError::InvalidInput(
                 "name must normalize to a non-empty agent id label".into(),
             ));
-        }
+        };
         let instruction = i["instruction"]
             .as_str()
             .ok_or(ToolError::InvalidInput("instruction".into()))?;
         let agent_id = next_subagent_id(SubAgentKind::General, Some(name));
+        let definition = resolve_spawn_agent_definition(&self.workspace.root, &agent_label);
         if i.get("run_in_background")
             .and_then(Value::as_bool)
             .unwrap_or(false)
@@ -344,7 +341,7 @@ impl AgentTool {
                 kind: SubAgentKind::General,
                 agent_id,
                 name: Some(name.to_string()),
-                definition: resolve_spawn_agent_definition(name),
+                definition,
                 parent_session_id: parent_session_id.map(str::to_string),
                 instruction: instruction.to_string(),
                 backend: self.backend.clone(),
@@ -359,7 +356,7 @@ impl AgentTool {
         let result = run_sub_agent(
             SubAgentKind::General,
             &agent_id,
-            None,
+            Some(&definition),
             Some(name),
             parent_session_id,
             instruction,
@@ -1134,7 +1131,14 @@ pub(crate) async fn run_sub_agent(
     } else {
         kind.execution_mode()
     });
-    sub.set_prompt_config(append_subagent_prompt(prompt_config, kind.append_prompt()));
+    let appended_prompt = match definition
+        .map(|d| d.system_prompt.trim())
+        .filter(|prompt| !prompt.is_empty())
+    {
+        Some(system_prompt) => format!("{}\n\n{}", kind.append_prompt(), system_prompt),
+        None => kind.append_prompt().to_string(),
+    };
+    sub.set_prompt_config(append_subagent_prompt(prompt_config, &appended_prompt));
 
     let def_max_turns = definition
         .and_then(|d| {
@@ -1515,8 +1519,14 @@ fn resolve_kind_definition(kind: SubAgentKind) -> AgentDefinition {
     })
 }
 
-fn resolve_spawn_agent_definition(name: &str) -> AgentDefinition {
-    builtin_agent_definition(name).unwrap_or(AgentDefinition {
+fn resolve_spawn_agent_definition(workspace_root: &Path, normalized_name: &str) -> AgentDefinition {
+    let registry = load_agent_definitions(workspace_root);
+    resolve_agent(normalized_name, &registry)
+        .unwrap_or_else(|| fallback_spawn_agent_definition(normalized_name))
+}
+
+fn fallback_spawn_agent_definition(name: &str) -> AgentDefinition {
+    AgentDefinition {
         token_budget: None,
         name: name.to_string(),
         description: name.to_string(),
@@ -1528,7 +1538,7 @@ fn resolve_spawn_agent_definition(name: &str) -> AgentDefinition {
         permission_mode: None,
         hidden: false,
         system_prompt: String::new(),
-    })
+    }
 }
 
 fn build_filtered_tool_manager(kind: SubAgentKind, definition: &AgentDefinition) -> ToolManager {

@@ -281,6 +281,7 @@ pub struct RuntimeSnapshot {
     pub extension_skill_scopes: Vec<String>,
     pub extension_hook_count: usize,
     pub extension_agent_count: usize,
+    pub extension_agent_status_lines: Vec<String>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
