@@ -1,12 +1,12 @@
 //! Durable session and global memory files under `~/.rara/memory/`.
 //!
 //! Implements `docs/features/session-global-memory.md`:
-//! session-scoped `.md` files, global `MEMORY.md`, `summary.md` index,
+//! session-scoped `.md` files, global `MEMORY.md`, `memory_summary.md` index,
 //! concurrent-safe writes via atomic temp-file + rename, and a unified
 //! `search_memory` that merges file grep + LanceDB results.
 //!
 //! Concurrent model: every write to a memory file uses atomic
-//! temp-file + rename.  Writes that rewrite an entire file (summary.md)
+//! temp-file + rename.  Writes that rewrite an entire file (memory_summary.md)
 //! additionally acquire a `fs2` exclusive lock so that parallel agents
 //! serialise their index updates.
 
@@ -78,7 +78,7 @@ pub fn atomic_write(path: &Path, content: &str) -> std::io::Result<()> {
 }
 
 /// Acquires an exclusive lock on `lock_path` (via `fs2`), runs `f`, and
-/// releases the lock.  Used to serialise summary.md updates across
+/// releases the lock.  Used to serialise memory_summary.md updates across
 /// concurrent agents.
 pub fn with_file_lock<F, R>(lock_path: &Path, f: F) -> Result<R>
 where
@@ -156,12 +156,34 @@ pub fn validate_memory_path(path: &Path) -> Result<()> {
 }
 
 /// Returns the path to the memory summary index file.
+///
+/// On first access after upgrading from an older release, automatically
+/// renames the legacy `summary.md` (and `summary.lock`) to the canonical
+/// `memory_summary.md` names when the new file does not already exist.
 pub fn summary_path(rara_home: &Path) -> Result<PathBuf> {
     let dir = ensure_memory_dir(rara_home)?;
-    Ok(dir.join("summary.md"))
+    let new_path = dir.join("memory_summary.md");
+    let old_path = dir.join("summary.md");
+
+    if old_path.exists() && !new_path.exists() {
+        if let Err(e) = fs::rename(&old_path, &new_path) {
+            log::warn!(
+                "failed to migrate {} → {}: {e}",
+                old_path.display(),
+                new_path.display()
+            );
+        }
+    }
+
+    let old_lock = dir.join("summary.lock");
+    if old_lock.exists() {
+        let _ = fs::remove_file(&old_lock);
+    }
+
+    Ok(new_path)
 }
 
-/// Maximum size for summary.md before condensing old entries.
+/// Maximum size for memory_summary.md before condensing old entries.
 pub const SUMMARY_MAX_BYTES: u64 = 5 * 1024;
 
 /// Maximum lines to read into context.
@@ -182,7 +204,7 @@ summary below, asks for prior context, or is ambiguous and could depend on
 earlier project decisions. If unsure, do a quick memory pass.
 
 **Memory layout**:
-- `summary.md` (provided below; do NOT open again) — index of session pointers
+- `memory_summary.md` (provided below; do NOT open again) — index of session pointers
 - `global.md` — global project preferences and conventions
 - `sessions/<id>.md` — per-session summaries of key decisions and outcomes
 
@@ -218,12 +240,12 @@ pub fn read_memory_section(rara_home: &Path) -> String {
 /// - [Session abc123](sessions/abc123.md) — Refactored auth module
 /// ```
 ///
-/// Acquires an exclusive lock on `summary.lock`, so concurrent agents
+/// Acquires an exclusive lock on `memory_summary.lock`, so concurrent agents
 /// serialise their index updates.
 pub fn update_summary(rara_home: &Path, session_id: &str, topics: &str) -> Result<()> {
     let path = summary_path(rara_home)?;
     validate_memory_path(&path)?;
-    let lock_path = path.with_extension("summary.lock");
+    let lock_path = path.with_extension("memory_summary.lock");
 
     with_file_lock(&lock_path, || {
         let mut content = if path.exists() {
@@ -292,7 +314,7 @@ pub fn condense_old_entries(content: &str) -> String {
 }
 
 /// A single search hit from memory files.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize)]
 pub struct MemorySearchHit {
     pub path: String,
     pub snippet: String,
@@ -303,7 +325,11 @@ pub struct MemorySearchHit {
 /// Phase 1: grep across all `.md` files in the memory directory.
 /// Phase 2: LanceDB / embedding-based retrieval (placeholder).
 /// Results are merged and deduplicated by snippet prefix.
-pub fn search_memory(query: &str, rara_home: &Path) -> Result<Vec<MemorySearchHit>> {
+pub async fn search_memory(
+    query: &str,
+    rara_home: &Path,
+    db: Option<&crate::vectordb::VectorDB>,
+) -> Result<Vec<MemorySearchHit>> {
     let mut results = Vec::new();
 
     // 1. rg across all memory files
@@ -312,7 +338,7 @@ pub fn search_memory(query: &str, rara_home: &Path) -> Result<Vec<MemorySearchHi
     }
 
     // 2. LanceDB / embedding results (placeholder for Phase 2)
-    let embedding_hits = search_lancedb(query, rara_home);
+    let embedding_hits = search_lancedb(db, query).await;
 
     // 3. Merge and deduplicate
     Ok(merge_memory_results(results, embedding_hits))
@@ -359,11 +385,32 @@ pub fn rg_search_memory(
     Ok(results)
 }
 
-pub fn search_lancedb(_query: &str, _rara_home: &Path) -> Vec<MemorySearchHit> {
-    // Placeholder: LanceDB / embedding-based retrieval
-    Vec::new()
+/// LanceDB full-text search for memory entries.
+///
+/// Attempts to open the memory LanceDB index and run a full-text
+/// query, falling back to an empty result set when the index is
+/// unavailable or the query fails.
+pub async fn search_lancedb(
+    db: Option<&crate::vectordb::VectorDB>,
+    query: &str,
+) -> Vec<MemorySearchHit> {
+    let Some(db) = db else {
+        return Vec::new();
+    };
+    match db
+        .full_text_search_with_metadata("memory_codex", query, 20)
+        .await
+    {
+        Ok(hits) => hits
+            .into_iter()
+            .map(|h| MemorySearchHit {
+                path: h.metadata.session_id,
+                snippet: h.metadata.text,
+            })
+            .collect(),
+        Err(_) => Vec::new(),
+    }
 }
-
 /// Merges text and embedding results, deduplicating by snippet prefix.
 pub fn merge_memory_results(
     text: Vec<MemorySearchHit>,
@@ -445,8 +492,8 @@ mod tests {
             .unwrap_or(false)
     }
 
-    #[test]
-    fn search_memory_returns_rg_hits() {
+    #[tokio::test]
+    async fn search_memory_returns_rg_hits() {
         if !rg_available() {
             return; // skip when rg is not installed
         }
@@ -456,7 +503,7 @@ mod tests {
         let session_path = rara_home.join("memory").join("sessions").join("test.md");
         fs::write(&session_path, "remember: use cargo fmt before commit").unwrap();
 
-        let hits = search_memory("cargo fmt", &rara_home).unwrap();
+        let hits = search_memory("cargo fmt", &rara_home, None).await.unwrap();
         assert!(hits.iter().any(|h| h.snippet.contains("cargo fmt")));
     }
 }

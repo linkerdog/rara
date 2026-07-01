@@ -1,5 +1,5 @@
 // Items reserved for thread store persistence.
-#![allow(dead_code)]
+// NOTE: module-level dead_code kept — large storage crate.
 use std::collections::BTreeMap;
 use std::fs;
 use std::io::Write;
@@ -562,6 +562,7 @@ impl<'a> ThreadStore<'a> {
                     metadata_owner,
                     recent_files,
                     summary,
+                    ..
                 } => push_rollout_item(
                     &mut ordered_rollout_items,
                     &mut rollout_order,
@@ -639,6 +640,7 @@ impl<'a> ThreadStore<'a> {
                     child_session_id,
                     status,
                     summary,
+                    ..
                 } => {
                     push_rollout_item(
                         &mut ordered_rollout_items,
@@ -990,6 +992,7 @@ impl<'a> ThreadStore<'a> {
                     metadata_owner,
                     recent_files,
                     summary,
+                    ..
                 } => Some(PersistedCompactionEvent {
                     event_index,
                     before_tokens,

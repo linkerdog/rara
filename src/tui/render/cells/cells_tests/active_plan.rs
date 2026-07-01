@@ -9,6 +9,7 @@ fn active_turn_cell_renders_plan_approval_as_interaction_card() {
     .expect("build tui app");
     app.agent_execution_mode = crate::agent::AgentExecutionMode::Plan;
     app.active_turn = TranscriptTurn {
+        thinking_duration: None,
         entries: vec![TranscriptEntry {
             role: "You".into(),
             message: "Review the codebase and propose changes".into(),
@@ -36,8 +37,8 @@ fn active_turn_cell_renders_plan_approval_as_interaction_card() {
     assert_snapshot!("active_turn_cell_plan_approval", rendered);
     assert!(rendered.contains("# Awaiting Approval"));
     assert!(rendered.contains("Updated Plan"));
-    assert!(rendered.contains("1. Start implementation now"));
-    assert!(rendered.contains("2. Continue planning and refine the plan"));
+    assert!(rendered.contains("Responding via dock"));
+    assert!(!rendered.contains("1. Start implementation now"));
     assert!(rendered.contains("Generalize instruction discovery"));
 }
 
@@ -50,6 +51,7 @@ fn active_turn_cell_renders_updated_plan_checklist() {
     .expect("build tui app");
     app.agent_execution_mode = crate::agent::AgentExecutionMode::Plan;
     app.active_turn = TranscriptTurn {
+        thinking_duration: None,
         entries: vec![TranscriptEntry {
             role: "You".into(),
             message: "Improve the plan rendering".into(),
@@ -92,6 +94,7 @@ fn active_turn_cell_hides_stale_updated_plan_after_plan_turn_finishes() {
     })
     .expect("build tui app");
     app.active_turn = TranscriptTurn {
+        thinking_duration: None,
         entries: vec![TranscriptEntry {
             role: "You".into(),
             message: "Implement the approved fix".into(),
@@ -121,6 +124,7 @@ fn active_turn_cell_hides_stale_exploring_after_live_phase_finishes() {
     .expect("build tui app");
     app.runtime_phase = RuntimePhase::Idle;
     app.active_turn = TranscriptTurn {
+        thinking_duration: None,
         entries: vec![
             TranscriptEntry {
                 role: "You".into(),
@@ -154,6 +158,7 @@ fn active_turn_cell_renders_shell_approval_as_interaction_card() {
     })
     .expect("build tui app");
     app.active_turn = TranscriptTurn {
+        thinking_duration: None,
         entries: vec![
             TranscriptEntry {
                 role: "You".into(),
@@ -202,12 +207,11 @@ fn active_turn_cell_renders_shell_approval_as_interaction_card() {
         .join("\n");
 
     assert!(rendered.contains("# Shell Approval"));
-    assert!(rendered.contains("Review this shell command before RARA runs it."));
-    assert!(rendered.contains("Command:"));
-    assert!(rendered.contains("Working directory:"));
-    assert!(rendered.contains("bash ./scripts/migrate.sh"));
-    assert!(rendered.contains("> 2. Allow matching prefix"));
-    assert!(rendered.contains("1. Allow once - run only this command now"));
+    assert!(rendered.contains("Responding via dock"));
+    // Detail text (Command:, Working directory:, options) now rendered in dock panel.
+    assert!(!rendered.contains("Command:"));
+    assert!(!rendered.contains("bash ./scripts/migrate.sh"));
+    assert!(!rendered.contains("1. Allow once"));
     assert!(
         !rendered
             .contains("approval required  1 allow once  2 allow prefix  3 allow session  4 deny")
@@ -224,6 +228,7 @@ fn active_turn_cell_renders_queued_follow_up_without_hiding_shell_approval() {
     })
     .expect("build tui app");
     app.active_turn = TranscriptTurn {
+        thinking_duration: None,
         entries: vec![TranscriptEntry {
             role: "You".into(),
             message: "Run a shell command".into(),
@@ -256,7 +261,7 @@ fn active_turn_cell_renders_queued_follow_up_without_hiding_shell_approval() {
         .join("\n");
 
     assert!(rendered.contains("# Shell Approval"));
-    assert!(rendered.contains("1. Allow once"));
+    assert!(rendered.contains("Responding via dock"));
     assert!(rendered.contains("# Queued"));
     assert!(rendered.contains("after turn"));
     assert!(!rendered.contains("Queued follow-up messages"));
@@ -271,6 +276,7 @@ fn active_turn_cell_does_not_render_completed_plan_decision() {
     })
     .expect("build tui app");
     app.active_turn = TranscriptTurn {
+        thinking_duration: None,
         entries: vec![TranscriptEntry {
             role: "You".into(),
             message: "Review the codebase and propose changes".into(),
@@ -303,6 +309,7 @@ fn active_turn_cell_does_not_render_completed_shell_approval_while_live() {
     })
     .expect("build tui app");
     app.active_turn = TranscriptTurn {
+        thinking_duration: None,
         entries: vec![
             TranscriptEntry {
                 role: "You".into(),
@@ -348,6 +355,7 @@ fn active_turn_cell_falls_back_to_previous_completion_when_shell_approval_is_liv
     })
     .expect("build tui app");
     app.active_turn = TranscriptTurn {
+        thinking_duration: None,
         entries: vec![
             TranscriptEntry {
                 role: "You".into(),
@@ -397,6 +405,7 @@ fn active_turn_cell_keeps_streaming_response_without_responding_card() {
     })
     .expect("build tui app");
     app.active_turn = TranscriptTurn {
+        thinking_duration: None,
         entries: vec![
             TranscriptEntry {
                 role: "You".into(),
@@ -438,6 +447,7 @@ fn active_turn_cell_does_not_repeat_stale_plan_decision_from_snapshot() {
     })
     .expect("build tui app");
     app.active_turn = TranscriptTurn {
+        thinking_duration: None,
         entries: vec![TranscriptEntry {
             role: "You".into(),
             message: "Approve the plan".into(),
@@ -452,6 +462,7 @@ fn active_turn_cell_does_not_repeat_stale_plan_decision_from_snapshot() {
     );
     app.finalize_active_turn();
     app.active_turn = TranscriptTurn {
+        thinking_duration: None,
         entries: vec![TranscriptEntry {
             role: "You".into(),
             message: "Continue with the next task".into(),
@@ -477,6 +488,7 @@ fn active_turn_cell_labels_delegated_plan_questions() {
     })
     .expect("build tui app");
     app.active_turn = TranscriptTurn {
+        thinking_duration: None,
         entries: vec![TranscriptEntry {
             role: "You".into(),
             message: "Review the codebase and propose changes".into(),
@@ -504,9 +516,8 @@ fn active_turn_cell_labels_delegated_plan_questions() {
         .join("\n");
 
     assert!(rendered.contains("# Planning Question"));
-    assert!(rendered.contains("from:"));
-    assert!(rendered.contains("plan_agent"));
-    assert!(rendered.contains("Which discovery strategy should we keep?"));
+    assert!(rendered.contains("Responding via dock"));
+    // Detail text now rendered in dock panel.
 }
 
 #[test]
@@ -517,6 +528,7 @@ fn active_turn_cell_labels_delegated_completed_questions() {
     })
     .expect("build tui app");
     app.active_turn = TranscriptTurn {
+        thinking_duration: None,
         entries: vec![TranscriptEntry {
             role: "You".into(),
             message: "Review the codebase and propose changes".into(),

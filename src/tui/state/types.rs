@@ -167,6 +167,7 @@ pub enum LocalCommandKind {
     Permissions,
     Logout,
     Review,
+    Dream,
     Goal,
     Quit,
     Skills,
@@ -280,6 +281,7 @@ pub struct RuntimeSnapshot {
     pub extension_skill_scopes: Vec<String>,
     pub extension_hook_count: usize,
     pub extension_agent_count: usize,
+    pub extension_agent_status_lines: Vec<String>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -526,6 +528,7 @@ impl TranscriptEntry {
 #[derive(Clone, Default)]
 pub struct TranscriptTurn {
     pub entries: Vec<TranscriptEntry>,
+    pub thinking_duration: Option<std::time::Duration>,
 }
 
 #[derive(Default)]
@@ -643,6 +646,9 @@ impl ActiveLiveEvent {
 #[derive(Default)]
 pub struct ActiveLiveSections {
     pub events: Vec<ActiveLiveEvent>,
+    /// Timestamp of the first Thinking event in the current agent turn,
+    /// used to display how long the model spent thinking.
+    pub thinking_started_at: Option<std::time::Instant>,
     pub exploration_actions: Vec<String>,
     pub exploration_notes: Vec<String>,
     pub planning_actions: Vec<String>,
@@ -664,6 +670,9 @@ pub struct TuiApp {
     /// Whether the sidebar is visible in wide-screen mode.
     /// Toggled with Ctrl+B.
     pub sidebar_visible: bool,
+    /// Whether thinking blocks globally appear collapsed (first lines + duration)
+    /// or fully expanded. Toggled with Alt+T. Default: expanded.
+    pub thinking_collapsed: bool,
     pub config: RaraConfig,
     pub config_manager: ConfigManager,
     pub setup_status: Option<String>,

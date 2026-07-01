@@ -1,5 +1,5 @@
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 use serde::Deserialize;
 
@@ -26,6 +26,7 @@ struct HooksJson {
 #[derive(Debug, Clone, Deserialize)]
 struct MatcherGroup {
     #[serde(default)]
+    #[allow(dead_code)]
     matcher: Option<String>,
     hooks: Vec<HookHandler>,
 }
@@ -259,7 +260,7 @@ mod tests {
 
         let plugin = load_plugin(dir.path()).unwrap();
         assert_eq!(plugin.name, "test-plugin");
-        assert_eq!(plugin.version.unwrap(), "1.0.0");
+        assert_eq!(plugin.version.as_deref(), Some("1.0.0"));
         assert_eq!(plugin.hooks.len(), 1);
 
         let registered = registered_hooks_for_plugin(&plugin);

@@ -5,7 +5,9 @@ use super::super::super::state::{
     ActivePendingInteractionKind, GoalStatus, PendingInteractionSnapshot, RalphGoal, RuntimePhase,
     TaskKind, TuiApp,
 };
-use super::view::{ActivityView, BottomPaneView, FooterView};
+use super::view::{
+    ActivityView, BottomPaneView, FooterView, InteractionAction, InteractionPanelView,
+};
 use crate::tui::theme::{
     INTERACTION_SUB_AGENT, STATUS_INFO, STATUS_READY, STATUS_SUCCESS, STATUS_WARNING, TEXT_ACCENT,
 };
@@ -13,6 +15,7 @@ use crate::tui::theme::{
 pub(super) fn build_bottom_pane_view(app: &TuiApp, width: u16, _height: u16) -> BottomPaneView {
     BottomPaneView {
         activity: build_activity_view(app, width),
+        interaction_panel: build_interaction_panel(app),
         footer: build_footer_view(app),
     }
 }
@@ -246,4 +249,64 @@ fn shows_live_task_stats(app: &TuiApp) -> bool {
                 | RuntimePhase::ProcessingResponse
                 | RuntimePhase::RunningTool
         )
+}
+
+fn build_interaction_panel(app: &TuiApp) -> Option<InteractionPanelView> {
+    let pending = app.active_pending_interaction()?;
+
+    match pending.kind {
+        ActivePendingInteractionKind::ShellApproval => Some(InteractionPanelView {
+            title: "Permission Required",
+            detail: compact_shell_approval_detail(app),
+            actions: vec![
+                InteractionAction {
+                    key: "1",
+                    label: "Allow once",
+                },
+                InteractionAction {
+                    key: "2",
+                    label: "Allow prefix",
+                },
+                InteractionAction {
+                    key: "3",
+                    label: "Allow always",
+                },
+                InteractionAction {
+                    key: "4",
+                    label: "Deny",
+                },
+            ],
+            selected: app.approval_picker_idx,
+        }),
+        ActivePendingInteractionKind::PlanApproval
+        | ActivePendingInteractionKind::PlanningQuestion => Some(InteractionPanelView {
+            title: "Planning Question",
+            detail: compact_shell_approval_detail(app),
+            actions: vec![
+                InteractionAction {
+                    key: "Enter",
+                    label: "Continue Plan",
+                },
+                InteractionAction {
+                    key: "I",
+                    label: "Start Implementation",
+                },
+            ],
+            selected: app.approval_picker_idx,
+        }),
+        _ => None,
+    }
+}
+
+fn compact_shell_approval_detail(app: &TuiApp) -> String {
+    app.pending_command_approval()
+        .and_then(|i| i.approval.as_ref())
+        .map(|a| {
+            format!(
+                "{}\n  cwd: {}",
+                a.command,
+                a.payload.cwd.as_deref().unwrap_or(".")
+            )
+        })
+        .unwrap_or_default()
 }

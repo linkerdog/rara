@@ -5,9 +5,8 @@
 
 use std::sync::Arc;
 
-use agent_client_protocol::schema::SessionId;
-use agent_client_protocol::schema::{
-    ContentChunk, SessionNotification, SessionUpdate, TextContent,
+use agent_client_protocol::schema::v1::{
+    ContentBlock, ContentChunk, SessionId, SessionNotification, SessionUpdate, TextContent,
 };
 
 use crate::agent::AgentEvent;
@@ -15,13 +14,13 @@ use crate::runtime_event_bus::RuntimeEventBus;
 
 /// Subscribes to RuntimeEventBus and yields ACP SessionNotification
 /// for each AgentEvent. The caller sends notifications to the ACP client.
-#[allow(dead_code)]
+#[allow(dead_code)] // TODO: ACP peer lifecycle — activate when ACP integration is wired in.
 pub struct AcpConsumer {
     rx: tokio::sync::broadcast::Receiver<AgentEvent>,
     session_id: SessionId,
 }
 
-#[allow(dead_code)]
+#[allow(dead_code)] // TODO: ACP peer channel — activate when ACP integration is wired in.
 impl AcpConsumer {
     pub fn new(event_bus: Arc<RuntimeEventBus>, session_id: SessionId) -> Self {
         Self {
@@ -36,9 +35,7 @@ impl AcpConsumer {
         match self.rx.recv().await {
             // Text deltas: stream as AgentMessageChunk
             Ok(AgentEvent::AssistantDelta(text)) => {
-                let chunk = ContentChunk::new(agent_client_protocol::schema::ContentBlock::Text(
-                    TextContent::new(text),
-                ));
+                let chunk = ContentChunk::new(ContentBlock::Text(TextContent::new(text)));
                 Some(SessionNotification::new(
                     self.session_id.clone(),
                     SessionUpdate::AgentMessageChunk(chunk),
@@ -46,9 +43,7 @@ impl AcpConsumer {
             }
             // Full text messages: also stream as chunk
             Ok(AgentEvent::AssistantText(text)) => {
-                let chunk = ContentChunk::new(agent_client_protocol::schema::ContentBlock::Text(
-                    TextContent::new(text),
-                ));
+                let chunk = ContentChunk::new(ContentBlock::Text(TextContent::new(text)));
                 Some(SessionNotification::new(
                     self.session_id.clone(),
                     SessionUpdate::AgentMessageChunk(chunk),
@@ -56,9 +51,7 @@ impl AcpConsumer {
             }
             // Thinking delta: stream as chunk
             Ok(AgentEvent::AssistantThinkingDelta(chunk)) => {
-                let content = ContentChunk::new(agent_client_protocol::schema::ContentBlock::Text(
-                    TextContent::new(chunk),
-                ));
+                let content = ContentChunk::new(ContentBlock::Text(TextContent::new(chunk)));
                 Some(SessionNotification::new(
                     self.session_id.clone(),
                     SessionUpdate::AgentMessageChunk(content),
@@ -67,9 +60,7 @@ impl AcpConsumer {
             // Tool use: emit as notification chunk
             Ok(AgentEvent::ToolUse { name, input: _ }) => {
                 let label = format!("[Tool: {name}]\n");
-                let chunk = ContentChunk::new(agent_client_protocol::schema::ContentBlock::Text(
-                    TextContent::new(label),
-                ));
+                let chunk = ContentChunk::new(ContentBlock::Text(TextContent::new(label)));
                 Some(SessionNotification::new(
                     self.session_id.clone(),
                     SessionUpdate::AgentMessageChunk(chunk),
@@ -87,9 +78,7 @@ impl AcpConsumer {
                     "[Tool result"
                 };
                 let label = format!("{prefix}: {name}]\n{content}\n");
-                let chunk = ContentChunk::new(agent_client_protocol::schema::ContentBlock::Text(
-                    TextContent::new(label),
-                ));
+                let chunk = ContentChunk::new(ContentBlock::Text(TextContent::new(label)));
                 Some(SessionNotification::new(
                     self.session_id.clone(),
                     SessionUpdate::AgentMessageChunk(chunk),
@@ -97,9 +86,8 @@ impl AcpConsumer {
             }
             // Status events: emit as chunk with prefix
             Ok(AgentEvent::Status(message)) => {
-                let chunk = ContentChunk::new(agent_client_protocol::schema::ContentBlock::Text(
-                    TextContent::new(format!("[{message}]")),
-                ));
+                let chunk =
+                    ContentChunk::new(ContentBlock::Text(TextContent::new(format!("[{message}]"))));
                 Some(SessionNotification::new(
                     self.session_id.clone(),
                     SessionUpdate::AgentMessageChunk(chunk),
@@ -109,9 +97,9 @@ impl AcpConsumer {
             Ok(_) => None,
             Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => {
                 // If we lagged, emit a truncation notice.
-                let chunk = ContentChunk::new(agent_client_protocol::schema::ContentBlock::Text(
-                    TextContent::new("\n[output truncated: receiver lagged]\n".to_string()),
-                ));
+                let chunk = ContentChunk::new(ContentBlock::Text(TextContent::new(
+                    "\n[output truncated: receiver lagged]\n".to_string(),
+                )));
                 Some(SessionNotification::new(
                     self.session_id.clone(),
                     SessionUpdate::AgentMessageChunk(chunk),

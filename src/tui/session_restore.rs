@@ -185,7 +185,10 @@ pub(super) fn restore_thread_by_id(
                     .into_iter()
                     .map(|entry| TranscriptEntry::new(entry.role, entry.message))
                     .collect::<Vec<_>>();
-                turns.push(TranscriptTurn { entries });
+                turns.push(TranscriptTurn {
+                    thinking_duration: None,
+                    entries,
+                });
             }
             RolloutItem::Turn(_)
             | RolloutItem::Compaction(_)

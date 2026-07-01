@@ -89,6 +89,8 @@ pub enum PersistedStructuredRolloutEvent {
         child_session_id: String,
         status: String,
         summary: Option<String>,
+        #[serde(default)]
+        token_budget: Option<i64>,
     },
 }
 
@@ -235,6 +237,7 @@ pub struct PersistedSpawnAgentEdge {
     pub child_session_id: String,
     pub status: String,
     pub summary: Option<String>,
+    pub token_budget: Option<i64>,
     pub recorded_at: Option<i64>,
 }
 

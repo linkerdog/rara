@@ -30,14 +30,9 @@ pub(crate) use self::responding_cell::RespondingCell;
 pub(crate) use self::summary_cells::{ExploringCell, PlanningCell, RunningCell};
 pub(crate) use self::thinking_cells::ThinkingBlockCell;
 pub(crate) use self::user_startup::{StartupCardCell, UserCell};
-use super::wrapped_history_line_count;
 
 pub(crate) trait HistoryCell {
     fn display_lines(&self, width: u16) -> Vec<Line<'static>>;
-
-    fn desired_height(&self, width: u16) -> u16 {
-        wrapped_history_line_count(self.display_lines(width).as_slice(), width)
-    }
 }
 
 pub(crate) trait ActiveCell {

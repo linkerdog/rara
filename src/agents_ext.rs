@@ -168,6 +168,7 @@ impl AgentRegistry {
         if lines.is_empty() {
             lines.push("  (none)".to_string());
         }
+        lines.sort();
         lines
     }
 }

@@ -1,7 +1,7 @@
 // Status items reserved for inline TUI command surfaces.
-#![allow(dead_code)]
+
 use rara_observability::{LatencyPercentiles, memory_latency_snapshot};
-use time::{OffsetDateTime, format_description};
+use time::OffsetDateTime;
 
 use crate::config::RaraConfig;
 use crate::context::{CacheStatus, RetrievalCandidateContextEntry, RetrievalProviderStatus};
@@ -398,8 +398,8 @@ fn render_todo_context(app: &TuiApp) -> String {
 }
 
 fn format_unix_timestamp_utc(timestamp: i64) -> String {
-    let format = format_description::parse("[year]-[month]-[day] [hour]:[minute]:[second] UTC")
-        .expect("static timestamp format should be valid");
+    let format =
+        time::macros::format_description!("[year]-[month]-[day] [hour]:[minute]:[second] UTC");
 
     OffsetDateTime::from_unix_timestamp(timestamp)
         .ok()
@@ -407,6 +407,8 @@ fn format_unix_timestamp_utc(timestamp: i64) -> String {
         .unwrap_or_else(|| "invalid timestamp".to_string())
 }
 
+/// Reserved for the richer `/status` context tab tracked in docs/todo.md.
+#[allow(dead_code)]
 pub fn status_context_text(app: &TuiApp) -> String {
     let prompt_warnings = if app.snapshot.prompt_warnings.is_empty() {
         None
@@ -662,6 +664,8 @@ pub fn status_workspace_text(app: &TuiApp) -> String {
     )
 }
 
+/// Reserved for the richer `/status` resources tab tracked in docs/todo.md.
+#[allow(dead_code)]
 pub fn status_resources_text(app: &TuiApp) -> String {
     let cache = if is_local_provider(&app.config.provider) {
         crate::local_backend::default_local_model_cache_dir()
@@ -823,87 +827,6 @@ pub fn status_prompt_sources_text(app: &TuiApp) -> String {
     }
 }
 
-pub fn download_status_text(app: &TuiApp) -> Option<String> {
-    if !matches!(
-        app.runtime_phase,
-        crate::tui::state::RuntimePhase::RebuildingBackend
-            | crate::tui::state::RuntimePhase::BackendReady
-    ) {
-        return None;
-    }
-
-    let cache = if is_local_provider(&app.config.provider) {
-        crate::local_backend::default_local_model_cache_dir()
-            .display()
-            .to_string()
-    } else {
-        "-".to_string()
-    };
-    let stage = app.runtime_phase_detail.as_deref().unwrap_or("waiting");
-    let current_stage = infer_download_stage(stage);
-    let steps = [
-        ("setup", "Prepare request"),
-        ("cache", "Resolve cache"),
-        ("manifest", "Resolve manifest"),
-        ("artifact", "Fetch tokenizer/config"),
-        ("weights", "Fetch weights"),
-        ("runtime", "Initialize runtime"),
-        ("ready", "Model ready"),
-    ]
-    .into_iter()
-    .enumerate()
-    .map(|(idx, (key, label))| {
-        let marker = if key == current_stage {
-            ">"
-        } else if download_stage_index(key) < download_stage_index(current_stage) {
-            "x"
-        } else {
-            " "
-        };
-        format!("[{marker}] {}. {label}", idx + 1)
-    })
-    .collect::<Vec<_>>()
-    .join("\n");
-    Some(format!(
-        "model={}\ncurrent={}\ncache={}\n\nsteps:\n{}",
-        app.current_model_label(),
-        stage,
-        cache,
-        steps,
-    ))
-}
-
-fn infer_download_stage(detail: &str) -> &'static str {
-    if detail.starts_with("Ready") {
-        "ready"
-    } else if detail.starts_with("Initializing") {
-        "runtime"
-    } else if detail.starts_with("Fetching weights") {
-        "weights"
-    } else if detail.starts_with("Fetching tokenizer") || detail.starts_with("Fetching config") {
-        "artifact"
-    } else if detail.starts_with("Resolving manifest") {
-        "manifest"
-    } else if detail.starts_with("Resolving cache") {
-        "cache"
-    } else {
-        "setup"
-    }
-}
-
-fn download_stage_index(stage: &str) -> usize {
-    match stage {
-        "setup" => 0,
-        "cache" => 1,
-        "manifest" => 2,
-        "artifact" => 3,
-        "weights" => 4,
-        "runtime" => 5,
-        "ready" => 6,
-        _ => 0,
-    }
-}
-
 pub fn recent_transcript_preview(app: &TuiApp, limit: usize) -> String {
     let mut entries = app
         .committed_turns
@@ -921,28 +844,6 @@ pub fn recent_transcript_preview(app: &TuiApp, limit: usize) -> String {
         .collect::<Vec<_>>()
         .into_iter()
         .rev()
-        .map(|entry| {
-            let first_line = entry.message.lines().next().unwrap_or("").trim();
-            let preview = if first_line.is_empty() {
-                "(empty)"
-            } else {
-                first_line
-            };
-            format!("{}: {preview}", entry.role)
-        })
-        .collect::<Vec<_>>()
-        .join("\n")
-}
-
-pub fn current_turn_preview(app: &TuiApp, limit: usize) -> String {
-    if app.active_turn.entries.is_empty() {
-        return "No active turn yet.".to_string();
-    }
-
-    app.active_turn
-        .entries
-        .iter()
-        .take(limit)
         .map(|entry| {
             let first_line = entry.message.lines().next().unwrap_or("").trim();
             let preview = if first_line.is_empty() {

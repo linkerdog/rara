@@ -8,7 +8,7 @@ license.workspace = true
 anyhow.workspace = true
 rara-config = { path = "../config" }
 url = "2.5"
-uuid = { version = "1.11", features = ["v4"] }
+uuid = { version = "1.23", features = ["v4"] }
 
 [dev-dependencies]
 tempfile.workspace = true

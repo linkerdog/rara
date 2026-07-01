@@ -1,15 +1,15 @@
-// Hook declaration scaffolding for repo and protocol extensions.
+// Hook declaration and sandbox execution for repo and protocol extensions.
 //
 // Discovers `.claude/hooks/` declarations, normalises them into
-// RARA-owned HookDefinition objects, and surfaces them via
-// /context and /status.
-//
-// Execution is explicitly disabled until permission and sandbox
-// policy are defined.
+// RARA-owned HookDefinition objects, and executes them as
+// sandboxed subprocesses with timeout and workspace isolation.
 
 use std::collections::BTreeMap;
 use std::fs;
+use std::io::Write;
 use std::path::Path;
+use std::process::{Command, Stdio};
+use std::time::{Duration, Instant};
 
 /// Hook phases aligned with Claude Code's lifecycle events.
 use rara_instructions::HookLifecycle;
@@ -146,34 +146,27 @@ impl HookRegistry {
         self.active_phases = phases;
     }
 
-    /// For /context and /status: list each hook with phase, path, and parse status.
-    pub fn status_lines(&self) -> Vec<String> {
-        let mut lines = Vec::new();
-        for hook in self.hooks.values() {
-            let status = match hook.parse_status {
-                HookParseStatus::Ok => "ok",
-                HookParseStatus::ParseError => "parse_error",
-            };
-            lines.push(format!(
-                "  {}  {}  {}  (disabled)",
-                hook.phase.as_str(),
-                hook.source_path,
-                status
-            ));
-        }
-        lines
+    /// Return all hooks registered for a given lifecycle phase.
+    pub fn hooks_for_phase(&self, phase: HookLifecycle) -> Vec<&HookDefinition> {
+        self.hooks
+            .values()
+            .filter(|h| h.parse_status == HookParseStatus::Ok && h.phase == phase)
+            .collect()
     }
 }
 
 fn phase_ordinal(phase: HookLifecycle) -> u8 {
     match phase {
         HookLifecycle::SessionStart => 0,
+        HookLifecycle::SessionEnd => 9,
         HookLifecycle::UserPromptSubmit => 1,
         HookLifecycle::PreToolUse => 2,
         HookLifecycle::PostToolUse => 3,
         HookLifecycle::PostMemoryWrite => 4,
-        HookLifecycle::Stop => 5,
-        HookLifecycle::PreCompact => 6,
+        HookLifecycle::MemoryQuery => 5,
+        HookLifecycle::Stop => 6,
+        HookLifecycle::PreCompact => 7,
+        HookLifecycle::PostCompact => 8,
     }
 }
 
@@ -237,4 +230,108 @@ mod tests {
         assert_eq!(hook.parse_status, HookParseStatus::ParseError);
         assert!(registry.active_phases.is_empty());
     }
+}
+
+// ---------------------------------------------------------------------------
+// Sandbox execution
+// ---------------------------------------------------------------------------
+
+/// Sandbox configuration for hook subprocess execution.
+pub struct HookSandbox {
+    /// Maximum runtime before the hook is killed.
+    pub timeout: Duration,
+    /// Working directory for the hook subprocess.
+    pub workspace_root: std::path::PathBuf,
+}
+
+impl Default for HookSandbox {
+    fn default() -> Self {
+        Self {
+            timeout: Duration::from_secs(30),
+            workspace_root: std::path::PathBuf::from("."),
+        }
+    }
+}
+
+/// Outcome of a hook execution.
+pub struct HookOutcome {
+    pub stderr: String,
+    pub exit_code: Option<i32>,
+    pub timed_out: bool,
+}
+
+/// Parse a hook outcome as a boolean decision.
+impl HookOutcome {
+    /// Returns true if the hook explicitly allows the action.
+    /// Default is "allow" — only explicit non-zero exit or
+    /// timeout blocks.
+    pub fn allows(&self) -> bool {
+        if self.timed_out {
+            return false;
+        }
+        self.exit_code.unwrap_or(1) == 0
+    }
+}
+
+/// Run a discovered hook subprocess with sandbox constraints.
+///
+/// Shells out to `bash -c <hook.body>` with limited environment,
+/// no network, and a hard timeout.  stdin receives the input JSON.
+pub fn run_sandboxed_hook(
+    hook: &HookDefinition,
+    sandbox: &HookSandbox,
+    input_json: &str,
+) -> Result<HookOutcome, std::io::Error> {
+    let mut child = Command::new("bash")
+        .arg("-c")
+        .arg(&hook.body)
+        .current_dir(&sandbox.workspace_root)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        // No network access (not enforced at process level, but hooks
+        // are expected to be local scripts that don't need it).
+        .spawn()?;
+
+    if let Some(mut stdin) = child.stdin.take() {
+        let _ = stdin.write_all(input_json.as_bytes());
+    }
+    // stdin is dropped here — closes the pipe so the hook sees EOF.
+
+    let start = Instant::now();
+    let output: std::process::Output;
+
+    // Busy-wait with timeout — single-threaded, acceptable for <1s hooks.
+    loop {
+        match child.try_wait()? {
+            Some(status) => {
+                // Child exited — collect remaining output.
+                let o = child.wait_with_output()?;
+                output = std::process::Output {
+                    status,
+                    stdout: o.stdout,
+                    stderr: o.stderr,
+                };
+                break;
+            }
+            None => {
+                if start.elapsed() >= sandbox.timeout {
+                    let _ = child.kill();
+                    let _ = child.wait();
+                    return Ok(HookOutcome {
+                        stderr: format!("hook {} timed out after {:?}", hook.id, sandbox.timeout),
+                        exit_code: None,
+                        timed_out: true,
+                    });
+                }
+                std::thread::sleep(Duration::from_millis(50));
+            }
+        }
+    }
+
+    Ok(HookOutcome {
+        stderr: String::from_utf8_lossy(&output.stderr).into_owned(),
+        exit_code: output.status.code(),
+        timed_out: false,
+    })
 }

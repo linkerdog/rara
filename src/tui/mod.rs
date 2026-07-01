@@ -3,7 +3,6 @@ mod app_event;
 mod auth_mode_picker;
 mod clipboard;
 mod command;
-mod constants;
 mod context_display;
 mod custom_terminal;
 mod display_sanitize;

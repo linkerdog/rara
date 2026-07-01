@@ -130,22 +130,27 @@ pub(crate) fn map_key_to_event(key: KeyEvent, app: &TuiApp) -> AppEvent {
             {
                 return AppEvent::SelectPendingOption(index);
             }
-            if app.bottom_pane.input.is_empty()
-                && app.active_pending_interaction().is_some_and(|interaction| {
-                    interaction.kind == super::state::ActivePendingInteractionKind::ShellApproval
-                })
-            {
-                match (code, modifiers) {
-                    (KeyCode::Up | KeyCode::Char('k'), KeyModifiers::NONE) => {
-                        return AppEvent::MoveApprovalSelection(-1);
+            // Shell approval: Enter always selects, even with text in the composer.
+            // j/k navigation requires empty composer so regular typing works.
+            if app.active_pending_interaction().is_some_and(|interaction| {
+                interaction.kind == super::state::ActivePendingInteractionKind::ShellApproval
+            }) {
+                if code == KeyCode::Enter && modifiers.is_empty() {
+                    return AppEvent::SelectPendingOption(app.approval_picker_idx);
+                }
+                if app.bottom_pane.input.is_empty() {
+                    match (code, modifiers) {
+                        (KeyCode::Up | KeyCode::Char('k'), KeyModifiers::NONE) => {
+                            return AppEvent::MoveApprovalSelection(-1);
+                        }
+                        (KeyCode::Down | KeyCode::Char('j'), KeyModifiers::NONE) => {
+                            return AppEvent::MoveApprovalSelection(1);
+                        }
+                        _ => {}
                     }
-                    (KeyCode::Down | KeyCode::Char('j'), KeyModifiers::NONE) => {
-                        return AppEvent::MoveApprovalSelection(1);
+                    if let KeyCode::F(num @ 1..=4) = code {
+                        return AppEvent::SelectPendingOption((num - 1) as usize);
                     }
-                    (KeyCode::Enter, KeyModifiers::NONE) => {
-                        return AppEvent::SelectPendingOption(app.approval_picker_idx);
-                    }
-                    _ => {}
                 }
             }
 
@@ -205,11 +210,32 @@ pub(crate) fn map_key_to_event(key: KeyEvent, app: &TuiApp) -> AppEvent {
                 {
                     AppEvent::SelectPendingOption(1)
                 }
+                (KeyCode::Char('1'), _)
+                    if app.bottom_pane.input.is_empty() && app.has_pending_approval() =>
+                {
+                    AppEvent::SetPermissionSelection(0)
+                }
+                (KeyCode::Char('2'), _)
+                    if app.bottom_pane.input.is_empty() && app.has_pending_approval() =>
+                {
+                    AppEvent::SetPermissionSelection(1)
+                }
+                (KeyCode::Char('3'), _)
+                    if app.bottom_pane.input.is_empty() && app.has_pending_approval() =>
+                {
+                    AppEvent::SetPermissionSelection(2)
+                }
+                (KeyCode::Char('4'), _)
+                    if app.bottom_pane.input.is_empty() && app.has_pending_approval() =>
+                {
+                    AppEvent::SetPermissionSelection(3)
+                }
                 (KeyCode::Backspace, _) => AppEvent::Backspace,
                 (KeyCode::Delete, _) | (KeyCode::Char('d'), KeyModifiers::CONTROL) => {
                     AppEvent::DeleteForward
                 }
                 (KeyCode::Char('b'), KeyModifiers::CONTROL) => AppEvent::ToggleSidebar,
+                (KeyCode::Char('t'), KeyModifiers::ALT) => AppEvent::ToggleThinking,
                 (KeyCode::Char(c), _) => AppEvent::InputChar(c),
                 _ => AppEvent::Noop,
             }

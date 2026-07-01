@@ -79,7 +79,7 @@ impl FileSearchCandidateProvider {
     ///
     /// Each candidate carries provenance, budget, and a stable order
     /// (score descending, path ascending).
-    #[allow(dead_code)]
+    #[allow(dead_code)] // TODO: file search provider — activate when file search context is wired in.
     pub fn context_candidates(
         &self,
         query: &str,

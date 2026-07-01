@@ -12,6 +12,7 @@ use crate::config::{
     ensure_rara_home_dir,
 };
 use crate::oauth::{OAuthManager, SavedCodexAuthMode};
+use crate::plugin_cli::{PluginCommands, run_plugin_command};
 use crate::print_consumer::PrintConsumer;
 use crate::runtime_context;
 use crate::thread_cli;
@@ -102,6 +103,9 @@ enum Commands {
     /// List, show, or select models
     #[command(subcommand)]
     Models(ModelsCommands),
+    /// Install, list, or remove workspace plugins
+    #[command(subcommand)]
+    Plugin(PluginCommands),
     Ask {
         prompt: String,
     },
@@ -158,6 +162,7 @@ pub(crate) async fn run_cli() -> Result<()> {
         Commands::Acp => run_acp_command(&config).await?,
         Commands::Connect(args) => run_connect_command(&config, args)?,
         Commands::Models(cmd) => run_models_command(&config, cmd)?,
+        Commands::Plugin(cmd) => run_plugin_command(cmd)?,
         Commands::Ask { prompt } => run_ask_command(&config, prompt).await?,
         Commands::Fork { thread_id } => thread_cli::run_fork_command(&thread_id)?,
         Commands::Distill { thread_id } => run_distill_command(&config, &thread_id).await?,
@@ -291,7 +296,8 @@ async fn run_tui_command(
     oauth_manager: OAuthManager,
     startup_resume: StartupResumeTarget,
 ) -> Result<()> {
-    let initialize_local_embeddings = should_initialize_local_embeddings_on_tui_startup(config)?;
+    let initialize_local_embeddings =
+        should_initialize_local_embeddings_on_tui_startup(config).await?;
     let bootstrap = if initialize_local_embeddings {
         runtime_context::initialize_rara_context_with_local_embedding_bootstrap(
             config,
@@ -338,12 +344,18 @@ async fn run_tui_command(
     Ok(())
 }
 
-fn should_initialize_local_embeddings_on_tui_startup(config: &RaraConfig) -> Result<bool> {
+async fn should_initialize_local_embeddings_on_tui_startup(config: &RaraConfig) -> Result<bool> {
     if !runtime_context::config_requires_local_embedding_sidecar(config) {
         return Ok(false);
     }
     let rara_home = ensure_rara_home_dir()?;
-    let status = crate::local_model_server::inspect_local_model_server_status(&rara_home);
+    // `inspect_local_model_server_status` uses a `reqwest::blocking` client, which spins up and
+    // drops its own Tokio runtime. Dropping a runtime inside the async context would panic, so run
+    // the blocking probe on a dedicated blocking thread where that is allowed.
+    let status = tokio::task::spawn_blocking(move || {
+        crate::local_model_server::inspect_local_model_server_status(&rara_home)
+    })
+    .await?;
     Ok(!matches!(
         status.state,
         crate::local_model_server::LocalModelServerState::Ready
@@ -368,6 +380,7 @@ fn startup_resume_target_for_command(command: &Commands) -> Option<StartupResume
         Commands::Acp
         | Commands::Connect(..)
         | Commands::Models(..)
+        | Commands::Plugin(..)
         | Commands::Ask { .. }
         | Commands::Distill { .. }
         | Commands::Fork { .. }
@@ -787,6 +800,31 @@ mod tests {
         }
     }
 
+    #[test]
+    fn clap_parses_plugin_install() {
+        let cli = Cli::try_parse_from(["rara", "plugin", "install", "../my-plugin", "--force"])
+            .expect("parse plugin install");
+        match cli.command.expect("command") {
+            Commands::Plugin(PluginCommands::Install(args)) => {
+                assert_eq!(args.source, std::path::PathBuf::from("../my-plugin"));
+                assert!(args.force);
+            }
+            other => panic!("unexpected command: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn clap_parses_plugin_remove() {
+        let cli = Cli::try_parse_from(["rara", "plugin", "remove", "test-plugin"])
+            .expect("parse plugin remove");
+        match cli.command.expect("command") {
+            Commands::Plugin(PluginCommands::Remove(args)) => {
+                assert_eq!(args.name, "test-plugin");
+            }
+            other => panic!("unexpected command: {other:?}"),
+        }
+    }
+
     // --- parse_endpoint_kind ---
 
     #[test]
@@ -949,6 +987,9 @@ mod tests {
                 ModelsListArgs { kind: None }
             )))
             .is_none()
+        );
+        assert!(
+            startup_resume_target_for_command(&Commands::Plugin(PluginCommands::List)).is_none()
         );
     }
 }

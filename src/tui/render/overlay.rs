@@ -339,6 +339,7 @@ fn command_palette_item(spec: &CommandSpec) -> ListItem<'static> {
     ]))
 }
 
+#[cfg(test)]
 fn command_palette_line(spec: &CommandSpec) -> Line<'static> {
     let name_span = Span::styled(
         format!("{:<11}", spec.usage),

@@ -9,6 +9,7 @@ use rara_tools::file::{
     FileReadState, ListFilesTool, MultiEditTool, ReadFileTool, ReplaceLinesTool, ReplaceTool,
     WriteFileTool,
 };
+use rara_tools::memory::SearchMemoryTool;
 use rara_tools::patch::ApplyPatchTool;
 use rara_tools::planning::{EnterPlanModeTool, ExitPlanModeTool};
 use rara_tools::search::{GlobTool, GrepTool};
@@ -121,6 +122,11 @@ pub(super) fn create_full_tool_manager(
     tm.register(Box::new(WebSearchTool::from_env()));
     tm.register(Box::new(GlobTool));
     tm.register(Box::new(GrepTool));
+    tm.register(Box::new(SearchMemoryTool {
+        rara_home: workspace.rara_dir.clone(),
+        vdb: Some(vdb.clone()),
+        hook_callback: None, // TODO: wire MemoryQuery hooks
+    }));
     tm.register(Box::new(LspDiagnosticsTool::new(lsp_manager)));
     tm.register(Box::new(McpToolSearch::new(mcp_tool_cache)));
     tm.register(Box::new(EnterPlanModeTool));

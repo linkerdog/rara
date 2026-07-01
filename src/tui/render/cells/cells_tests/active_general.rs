@@ -11,6 +11,7 @@ fn active_turn_cell_keeps_sections_in_stable_order() {
     app.runtime_phase = RuntimePhase::RunningTool;
     app.runtime_phase_detail = Some("waiting for tool output".into());
     app.active_turn = TranscriptTurn {
+        thinking_duration: None,
         entries: vec![
             TranscriptEntry {
                 role: "You".into(),
@@ -97,7 +98,7 @@ fn active_turn_cell_renders_pending_approval_without_transcript_entries() {
         .join("\n");
 
     assert!(rendered.contains("# Shell Approval"));
-    assert!(rendered.contains("git diff origin/main -- src/context/assembler.rs"));
+    assert!(rendered.contains("Responding via dock"));
     assert!(!rendered.contains("resuming after approval"));
 }
 
@@ -111,6 +112,7 @@ fn active_turn_cell_renders_progress_sections_as_compact_stack() {
     app.agent_execution_mode = crate::agent::AgentExecutionMode::Plan;
     app.runtime_phase = RuntimePhase::RunningTool;
     app.active_turn = TranscriptTurn {
+        thinking_duration: None,
         entries: vec![TranscriptEntry {
             role: "You".into(),
             message: "Inspect the codebase".into(),
@@ -158,6 +160,7 @@ fn active_turn_cell_hides_background_stdout_label_and_pins_stderr() {
     .expect("build tui app");
     app.runtime_phase = RuntimePhase::RunningTool;
     app.active_turn = TranscriptTurn {
+        thinking_duration: None,
         entries: vec![
             TranscriptEntry {
                 role: "You".into(),
@@ -218,6 +221,7 @@ fn active_turn_cell_renders_terminal_result_as_terminal_cell() {
     .expect("build tui app");
     app.runtime_phase = RuntimePhase::RunningTool;
     app.active_turn = TranscriptTurn {
+        thinking_duration: None,
         entries: vec![
             TranscriptEntry {
                 role: "You".into(),
@@ -260,6 +264,7 @@ fn active_turn_cell_renders_typed_terminal_event_as_terminal_cell() {
     .expect("build tui app");
     app.runtime_phase = RuntimePhase::RunningTool;
     app.active_turn = TranscriptTurn {
+        thinking_duration: None,
         entries: vec![
             TranscriptEntry {
                 role: "You".into(),
@@ -344,6 +349,7 @@ fn active_turn_cell_keeps_exploration_notes_inside_exploring_block() {
     app.runtime_phase = RuntimePhase::RunningTool;
     app.runtime_phase_detail = Some("waiting for model response · 12s elapsed".into());
     app.active_turn = TranscriptTurn {
+        thinking_duration: None,
         entries: vec![
             TranscriptEntry { role: "You".into(), message: "Review this repository".into(), payload: None },
             TranscriptEntry { role: "Tool".into(), message: "read_file src/main.rs".into(), payload: None },
@@ -385,6 +391,7 @@ fn active_turn_cell_uses_stateful_live_exploration_sections() {
     app.runtime_phase = RuntimePhase::RunningTool;
     app.runtime_phase_detail = Some("waiting for model response · 20s elapsed".into());
     app.active_turn = TranscriptTurn {
+        thinking_duration: None,
         entries: vec![TranscriptEntry {
             role: "You".into(),
             message: "Inspect the repository".into(),
@@ -420,6 +427,7 @@ fn active_turn_cell_compacts_live_response_when_process_sections_exist() {
     app.runtime_phase = RuntimePhase::RunningTool;
     app.runtime_phase_detail = Some("waiting for model response".into());
     app.active_turn = TranscriptTurn {
+        thinking_duration: None,
         entries: vec![
             TranscriptEntry { role: "You".into(), message: "Inspect the repository".into(), payload: None },
             TranscriptEntry { role: "Agent".into(), message: "I have inspected the repository structure.\nI checked the runtime boundary.\nI checked the prompt assembly path.\nNext I will inspect the persistence layer.\nThen I will verify the restore contract."
@@ -452,6 +460,7 @@ fn active_turn_cell_appends_long_live_exploration_events() {
     .expect("build tui app");
     app.runtime_phase = RuntimePhase::RunningTool;
     app.active_turn = TranscriptTurn {
+        thinking_duration: None,
         entries: vec![TranscriptEntry {
             role: "You".into(),
             message: "Inspect the repository".into(),
@@ -491,6 +500,7 @@ fn active_turn_cell_appends_long_live_planning_events() {
     .expect("build tui app");
     app.runtime_phase = RuntimePhase::ProcessingResponse;
     app.active_turn = TranscriptTurn {
+        thinking_duration: None,
         entries: vec![TranscriptEntry {
             role: "You".into(),
             message: "Refine the plan".into(),
@@ -530,6 +540,7 @@ fn active_turn_cell_appends_long_live_running_events() {
     .expect("build tui app");
     app.runtime_phase = RuntimePhase::RunningTool;
     app.active_turn = TranscriptTurn {
+        thinking_duration: None,
         entries: vec![TranscriptEntry {
             role: "You".into(),
             message: "Run the checks".into(),
@@ -568,6 +579,7 @@ fn active_turn_cell_updated_plan_snapshot() {
     app.runtime_phase = RuntimePhase::ProcessingResponse;
     app.runtime_phase_detail = Some("waiting for model response · 3s elapsed".into());
     app.active_turn = TranscriptTurn {
+        thinking_duration: None,
         entries: vec![TranscriptEntry {
             role: "You".into(),
             message: "Read the local codebase and propose the next refactor".into(),
@@ -614,6 +626,7 @@ fn active_turn_cell_hides_structured_plan_response_once_plan_card_exists() {
     app.agent_execution_mode = crate::agent::AgentExecutionMode::Plan;
     app.runtime_phase = RuntimePhase::ProcessingResponse;
     app.active_turn = TranscriptTurn {
+        thinking_duration: None,
         entries: vec![
             TranscriptEntry { role: "You".into(), message: "Plan the next refactor".into(), payload: None },
             TranscriptEntry { role: "Agent".into(), message: "<proposed_plan>\n- [completed] Inspect the auth flow\n- [in_progress] Reuse codex_login\n- [pending] Add auth picker snapshots\n</proposed_plan>\nPrefer direct auth reuse before expanding more TUI flows.".into(), payload: None },
@@ -649,6 +662,7 @@ fn active_turn_cell_prefers_inline_plan_artifact_over_preamble_before_snapshot_s
     app.agent_execution_mode = crate::agent::AgentExecutionMode::Plan;
     app.runtime_phase = RuntimePhase::ProcessingResponse;
     app.active_turn = TranscriptTurn {
+        thinking_duration: None,
         entries: vec![
             TranscriptEntry { role: "You".into(), message: "Review the codebase and propose changes".into(), payload: None },
             TranscriptEntry { role: "Agent".into(), message: "I reviewed the current implementation.\nHere is the concise plan.\n<proposed_plan>\n- [completed] Inspect the runtime entrypoint\n- [pending] Tighten the render path\n</proposed_plan>\nKeep the diff narrow and reviewable.".into(), payload: None },
@@ -680,6 +694,7 @@ fn active_turn_cell_suppresses_planning_chatter_when_exploring() {
     app.agent_execution_mode = crate::agent::AgentExecutionMode::Plan;
     app.runtime_phase = RuntimePhase::ProcessingResponse;
     app.active_turn = TranscriptTurn {
+        thinking_duration: None,
         entries: vec![
             TranscriptEntry {
                 role: "You".into(),
@@ -720,6 +735,7 @@ fn active_turn_cell_uses_planning_sidecar_for_non_structured_plan_output() {
     app.agent_execution_mode = crate::agent::AgentExecutionMode::Plan;
     app.runtime_phase = RuntimePhase::ProcessingResponse;
     app.active_turn = TranscriptTurn {
+        thinking_duration: None,
         entries: vec![
             TranscriptEntry {
                 role: "You".into(),
@@ -755,6 +771,7 @@ fn active_turn_cell_uses_explicit_sidecar_entries_when_live_state_is_empty() {
     .expect("build tui app");
     app.runtime_phase = RuntimePhase::ProcessingResponse;
     app.active_turn = TranscriptTurn {
+        thinking_duration: None,
         entries: vec![
             TranscriptEntry {
                 role: "You".into(),
@@ -803,6 +820,7 @@ fn active_turn_cell_preserves_exploration_agent_exploration_order() {
     .expect("build tui app");
     app.runtime_phase = RuntimePhase::RunningTool;
     app.active_turn = TranscriptTurn {
+        thinking_duration: None,
         entries: vec![
             TranscriptEntry {
                 role: "You".into(),
@@ -859,6 +877,7 @@ fn active_turn_cell_preserves_duplicate_restored_exploration_segments() {
     .expect("build tui app");
     app.runtime_phase = RuntimePhase::RunningTool;
     app.active_turn = TranscriptTurn {
+        thinking_duration: None,
         entries: vec![
             TranscriptEntry {
                 role: "You".into(),
@@ -914,6 +933,7 @@ fn active_turn_cell_preserves_agent_then_exploration_order() {
     .expect("build tui app");
     app.runtime_phase = RuntimePhase::RunningTool;
     app.active_turn = TranscriptTurn {
+        thinking_duration: None,
         entries: vec![
             TranscriptEntry {
                 role: "You".into(),
@@ -958,6 +978,7 @@ fn active_turn_cell_preserves_interleaved_agent_and_progress_output() {
     .expect("build tui app");
     app.runtime_phase = RuntimePhase::RunningTool;
     app.active_turn = TranscriptTurn {
+        thinking_duration: None,
         entries: vec![
             TranscriptEntry {
                 role: "You".into(),
@@ -1028,6 +1049,7 @@ fn active_turn_cell_uses_lightweight_busy_response_when_not_streaming() {
     app.runtime_phase = RuntimePhase::ProcessingResponse;
     app.runtime_phase_detail = Some("waiting for model response · 2s elapsed".into());
     app.active_turn = TranscriptTurn {
+        thinking_duration: None,
         entries: vec![
             TranscriptEntry {
                 role: "You".into(),
@@ -1067,6 +1089,7 @@ fn active_turn_cell_shows_live_thinking_stream() {
     app.runtime_phase = RuntimePhase::ProcessingResponse;
     app.runtime_phase_detail = Some("thinking".into());
     app.active_turn = TranscriptTurn {
+        thinking_duration: None,
         entries: vec![TranscriptEntry {
             role: "You".into(),
             message: "Review this repository".into(),
@@ -1094,6 +1117,7 @@ fn active_turn_cell_flattens_thinking_and_running_events_in_order() {
     .expect("build tui app");
     app.runtime_phase = RuntimePhase::RunningTool;
     app.active_turn = TranscriptTurn {
+        thinking_duration: None,
         entries: vec![TranscriptEntry {
             role: "You".into(),
             message: "Run a long task".into(),
@@ -1137,6 +1161,7 @@ fn active_turn_cell_places_streaming_thinking_after_latest_progress_event() {
     .expect("build tui app");
     app.runtime_phase = RuntimePhase::ProcessingResponse;
     app.active_turn = TranscriptTurn {
+        thinking_duration: None,
         entries: vec![TranscriptEntry {
             role: "You".into(),
             message: "Run a long task".into(),
@@ -1176,6 +1201,7 @@ fn active_turn_cell_places_streaming_thinking_after_latest_exploration_event() {
     .expect("build tui app");
     app.runtime_phase = RuntimePhase::ProcessingResponse;
     app.active_turn = TranscriptTurn {
+        thinking_duration: None,
         entries: vec![TranscriptEntry {
             role: "You".into(),
             message: "Inspect before reasoning again".into(),
@@ -1215,6 +1241,7 @@ fn active_turn_cell_groups_consecutive_thinking_events_with_stream() {
     .expect("build tui app");
     app.runtime_phase = RuntimePhase::ProcessingResponse;
     app.active_turn = TranscriptTurn {
+        thinking_duration: None,
         entries: vec![TranscriptEntry {
             role: "You".into(),
             message: "Reason about a task".into(),
@@ -1249,6 +1276,7 @@ fn active_turn_cell_preserves_flushed_thinking_leading_indentation() {
     .expect("build tui app");
     app.runtime_phase = RuntimePhase::RunningTool;
     app.active_turn = TranscriptTurn {
+        thinking_duration: None,
         entries: vec![TranscriptEntry {
             role: "You".into(),
             message: "Inspect thinking formatting".into(),
@@ -1278,6 +1306,7 @@ fn active_turn_cell_preserves_repeated_progress_events_when_interleaved() {
     .expect("build tui app");
     app.runtime_phase = RuntimePhase::RunningTool;
     app.active_turn = TranscriptTurn {
+        thinking_duration: None,
         entries: vec![TranscriptEntry {
             role: "You".into(),
             message: "Run checks".into(),
@@ -1315,6 +1344,7 @@ fn active_turn_cell_groups_consecutive_exploration_events_only() {
     .expect("build tui app");
     app.runtime_phase = RuntimePhase::RunningTool;
     app.active_turn = TranscriptTurn {
+        thinking_duration: None,
         entries: vec![TranscriptEntry {
             role: "You".into(),
             message: "Inspect and run checks".into(),
@@ -1363,6 +1393,7 @@ fn active_turn_cell_preserves_consecutive_duplicate_progress_events() {
     .expect("build tui app");
     app.runtime_phase = RuntimePhase::RunningTool;
     app.active_turn = TranscriptTurn {
+        thinking_duration: None,
         entries: vec![TranscriptEntry {
             role: "You".into(),
             message: "Run checks".into(),
@@ -1397,6 +1428,7 @@ fn active_turn_cell_shows_live_thinking_tail_without_cloning_full_body() {
     .expect("build tui app");
     app.runtime_phase = RuntimePhase::ProcessingResponse;
     app.active_turn = TranscriptTurn {
+        thinking_duration: None,
         entries: vec![TranscriptEntry {
             role: "You".into(),
             message: "Review this repository".into(),
@@ -1428,6 +1460,7 @@ fn active_turn_cell_renders_live_response_as_lightweight_message() {
     app.runtime_phase = RuntimePhase::ProcessingResponse;
     app.runtime_phase_detail = Some("waiting for model response".into());
     app.active_turn = TranscriptTurn {
+        thinking_duration: None,
         entries: vec![
             TranscriptEntry {
                 role: "You".into(),
@@ -1466,6 +1499,7 @@ fn active_turn_cell_prefers_responding_over_tool_result_while_processing_respons
     app.runtime_phase = RuntimePhase::ProcessingResponse;
     app.runtime_phase_detail = Some("waiting for model output".into());
     app.active_turn = TranscriptTurn {
+        thinking_duration: None,
         entries: vec![
             TranscriptEntry {
                 role: "You".into(),
@@ -1502,6 +1536,7 @@ fn active_turn_cell_prefers_responding_over_system_notice_while_sending_prompt()
     app.runtime_phase = RuntimePhase::SendingPrompt;
     app.runtime_phase_detail = Some("sending prompt to provider".into());
     app.active_turn = TranscriptTurn {
+        thinking_duration: None,
         entries: vec![
             TranscriptEntry {
                 role: "You".into(),
@@ -1537,6 +1572,7 @@ fn active_turn_cell_shows_planning_section_for_plan_agent() {
     app.runtime_phase = RuntimePhase::RunningTool;
     app.runtime_phase_detail = Some("plan_agent {\"instruction\":\"refine the plan\"}".into());
     app.active_turn = TranscriptTurn {
+        thinking_duration: None,
         entries: vec![TranscriptEntry {
             role: "You".into(),
             message: "Plan the refactor".into(),
@@ -1568,6 +1604,7 @@ fn active_turn_cell_renders_device_code_prompt_system_message() {
     app.runtime_phase = RuntimePhase::OAuthPollingDeviceCode;
     app.runtime_phase_detail = Some("Waiting for device-code confirmation.".into());
     app.active_turn = TranscriptTurn {
+        thinking_duration: None,
         entries: vec![
             TranscriptEntry { role: "Runtime".into(), message: "Starting Codex device-code login flow.".into(), payload: None },
             TranscriptEntry { role: "System".into(), message: "Open this URL in a browser and enter the one-time code:\nhttps://example.test\n\nCode: ABCD".into(), payload: Some(crate::tui::state::TranscriptEntryPayload::System(crate::tui::state::SystemMessageKind::OAuthPrompt)) },

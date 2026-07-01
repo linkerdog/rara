@@ -462,15 +462,38 @@ pub(super) fn should_bypass_proxy(base_url: &str) -> bool {
 }
 
 pub(super) fn context_budget_from_window(context_window_tokens: usize) -> ContextBudget {
-    let reserved_output_tokens = (context_window_tokens / 8).clamp(1024, 16384);
+    let reserved_output_tokens = reserved_output_tokens_for_window(context_window_tokens);
+    let compaction_slack_tokens = compaction_slack_tokens_for_window(context_window_tokens);
     let compact_threshold_tokens = context_window_tokens
         .saturating_sub(reserved_output_tokens)
-        .saturating_sub(2048);
+        .saturating_sub(compaction_slack_tokens);
     ContextBudget {
         context_window_tokens,
         reserved_output_tokens,
         compact_threshold_tokens,
     }
+}
+
+fn reserved_output_tokens_for_window(context_window_tokens: usize) -> usize {
+    let reserved = if context_window_tokens <= 32_768 {
+        (context_window_tokens / 6).clamp(1024, 4096)
+    } else if context_window_tokens <= 128_000 {
+        (context_window_tokens / 8).clamp(4096, 16_384)
+    } else {
+        (context_window_tokens / 10).clamp(16_384, 32_768)
+    };
+    reserved.min(context_window_tokens / 2)
+}
+
+fn compaction_slack_tokens_for_window(context_window_tokens: usize) -> usize {
+    let slack = if context_window_tokens <= 32_768 {
+        (context_window_tokens / 16).clamp(512, 2048)
+    } else if context_window_tokens <= 128_000 {
+        (context_window_tokens / 24).clamp(2048, 4096)
+    } else {
+        (context_window_tokens / 32).clamp(4096, 8192)
+    };
+    slack.min(context_window_tokens / 4)
 }
 
 const OPENAI_LONG_CONTEXT_WINDOW_TOKENS: usize = 200_000;

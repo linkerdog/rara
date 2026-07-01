@@ -216,6 +216,41 @@ fn sync_snapshot_reports_effective_network_access_for_pending_approval() {
     assert!(approval.allow_net);
 }
 
+#[tokio::test]
+async fn sync_snapshot_reports_registered_runtime_hooks() {
+    let dir = tempdir().expect("tempdir");
+    let root = dir.path().to_path_buf();
+    let rara_dir = root.join(".rara");
+    std::fs::create_dir_all(rara_dir.join("rollouts")).expect("rollouts");
+    std::fs::create_dir_all(rara_dir.join("sessions")).expect("sessions");
+    let mut app = TuiApp::new(ConfigManager {
+        path: root.join("config.json"),
+    })
+    .expect("app");
+    let agent = Agent::new(
+        ToolManager::new(),
+        std::sync::Arc::new(MockLlm),
+        std::sync::Arc::new(VectorDB::new(&rara_dir.join("lancedb").to_string_lossy())),
+        std::sync::Arc::new(SessionManager {
+            storage_dir: rara_dir.join("rollouts"),
+            legacy_storage_dir: rara_dir.join("sessions"),
+        }),
+        std::sync::Arc::new(WorkspaceMemory::from_paths(root, rara_dir)),
+    );
+    let bus = std::sync::Arc::new(crate::runtime_event_bus::RuntimeEventBus::new(4));
+    let runtime = std::sync::Arc::new(crate::hook_runtime::HookRuntime::new(bus));
+    runtime.register(
+        "plugin-pre-tool".into(),
+        crate::runtime_control::HookLifecycle::PreToolUse,
+        Box::new(|_| {}),
+    );
+    app.hook_runtime = Some(runtime);
+
+    app.sync_snapshot(&agent);
+
+    assert_eq!(app.snapshot.extension_hook_count, 1);
+}
+
 #[test]
 fn parse_repo_slug_supports_common_github_remote_forms() {
     assert_eq!(
@@ -946,6 +981,7 @@ fn finalize_agent_stream_updates_latest_committed_turn_when_final_text_arrives_l
     };
     let mut app = TuiApp::new(cm).expect("app");
     app.committed_turns.push(TranscriptTurn {
+        thinking_duration: None,
         entries: vec![
             TranscriptEntry {
                 role: "You".into(),
@@ -1139,6 +1175,7 @@ fn finalize_agent_stream_replaces_earlier_agent_entries_in_active_turn() {
     };
     let mut app = TuiApp::new(cm).expect("app");
     app.active_turn = TranscriptTurn {
+        thinking_duration: None,
         entries: vec![
             TranscriptEntry {
                 role: "You".into(),
@@ -1186,12 +1223,15 @@ fn restore_committed_turns_sets_inserted_counter_to_match() {
     // Simulate session resume: restore N turns that were already on screen.
     let turns = vec![
         TranscriptTurn {
+            thinking_duration: None,
             entries: vec![TranscriptEntry::new("You", "hello")],
         },
         TranscriptTurn {
+            thinking_duration: None,
             entries: vec![TranscriptEntry::new("Agent", "hi there")],
         },
         TranscriptTurn {
+            thinking_duration: None,
             entries: vec![TranscriptEntry::new("You", "bye")],
         },
     ];

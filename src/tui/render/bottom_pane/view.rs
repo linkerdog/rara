@@ -11,7 +11,21 @@ use ratatui::style::Color;
 /// Pre-computed data for one bottom-pane render frame.
 pub(crate) struct BottomPaneView {
     pub(crate) activity: ActivityView,
+    /// Approval / question panel rendered above the composer.
+    pub(crate) interaction_panel: Option<InteractionPanelView>,
     pub(crate) footer: FooterView,
+}
+
+pub(crate) struct InteractionPanelView {
+    pub(crate) title: &'static str,
+    pub(crate) detail: String,
+    pub(crate) actions: Vec<InteractionAction>,
+    pub(crate) selected: usize,
+}
+
+pub(crate) struct InteractionAction {
+    pub(crate) key: &'static str,
+    pub(crate) label: &'static str,
 }
 
 pub(crate) struct ActivityView {

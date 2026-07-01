@@ -148,11 +148,23 @@ fn load_records_sync(path: &Path) -> Result<Vec<MemoryRecord>> {
         }
     };
     let reader = BufReader::new(file);
-    match serde_json::from_reader::<_, PersistedMemoryRecordEnvelope>(reader) {
-        Ok(PersistedMemoryRecordEnvelope::Versioned(file)) => Ok(file.records),
-        Ok(PersistedMemoryRecordEnvelope::Legacy(records)) => Ok(records),
-        Err(err) if err.is_eof() => Ok(Vec::new()),
-        Err(err) => Err(err).with_context(|| format!("parse memory records {}", path.display())),
+    let value = match serde_json::from_reader::<_, serde_json::Value>(reader) {
+        Ok(value) => value,
+        Err(err) if err.is_eof() => return Ok(Vec::new()),
+        Err(err) => {
+            return Err(err).with_context(|| format!("parse memory records {}", path.display()));
+        }
+    };
+    match value {
+        serde_json::Value::Array(records) => serde_json::from_value(records.into()).with_context(
+            || format!("parse legacy memory records {}", path.display()),
+        ),
+        serde_json::Value::Object(file) => {
+            let file: PersistedMemoryRecordFile = serde_json::from_value(file.into())
+                .with_context(|| format!("parse versioned memory records {}", path.display()))?;
+            Ok(file.records)
+        }
+        _ => bail!("memory records file must be an object or array: {}", path.display()),
     }
 }
 
@@ -383,4 +395,3 @@ pub(crate) fn apply_patch_to_content(record: &MemoryRecord, patch: &MemoryRecord
         },
     }
 }
-

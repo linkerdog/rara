@@ -47,6 +47,7 @@ pub(crate) fn start_model_server(
             let mut health_ever_passed = false;
             let mut last_prepare_error: Option<anyhow::Error> = None;
             let mut saw_model_loading = false;
+            let marker_path = model_snapshot_marker_path(&server.runtime_dir);
             for _ in 0..STARTUP_HEALTH_ATTEMPTS {
                 if let Ok(health) = probe_health(host, port) {
                     health_ever_passed = true;
@@ -55,6 +56,9 @@ pub(crate) fn start_model_server(
                             return ready_model_server_status(server, backend, model, &endpoint);
                         }
                         if let Some(error_message) = health_preparation_error(&health, backend) {
+                            if let Err(e) = std::fs::remove_file(&marker_path) {
+                                eprintln!("warn: failed to remove model snapshot marker: {e}");
+                            }
                             return LocalModelServerStatus {
                                 state: LocalModelServerState::Error,
                                 backend: backend.to_string(),
@@ -110,6 +114,9 @@ pub(crate) fn start_model_server(
                 );
             }
             if let Some(err) = last_prepare_error {
+                if let Err(e) = std::fs::remove_file(&marker_path) {
+                    eprintln!("warn: failed to remove model snapshot marker: {e}");
+                }
                 return LocalModelServerStatus {
                     state: LocalModelServerState::Error,
                     backend: backend.to_string(),

@@ -18,7 +18,7 @@ use super::{
     BackgroundSubAgentStore, SubAgentKind, SubagentProgress, TEAM_CREATE_CONCURRENCY_LIMIT,
     append_subagent_prompt, build_filtered_tool_manager, build_read_only_tool_manager,
     build_subagent_tool_manager, latest_assistant_text_from_history, parse_team_task_kind,
-    resolve_kind_definition, resolve_spawn_agent_definition,
+    resolve_kind_definition, resolve_spawn_agent_definition, validate_agent_id_label,
 };
 use crate::agent::Message;
 use crate::llm::{ContentBlock, EmbeddingBackend, LlmBackend, LlmResponse, MockLlm};
@@ -1146,6 +1146,7 @@ fn tool_manager_retain_filters_tools_by_name() {
 #[test]
 fn filtered_tool_manager_respects_tools_whitelist() {
     let definition = AgentDefinition {
+        token_budget: None,
         name: "custom".into(),
         description: "custom".into(),
         tools: vec!["Grep".into(), "Read".into()],
@@ -1167,6 +1168,7 @@ fn filtered_tool_manager_respects_tools_whitelist() {
 #[test]
 fn filtered_tool_manager_respects_disallowed_tools_blacklist() {
     let definition = AgentDefinition {
+        token_budget: None,
         name: "custom".into(),
         description: "custom".into(),
         tools: vec![],
@@ -1188,6 +1190,7 @@ fn filtered_tool_manager_respects_disallowed_tools_blacklist() {
 #[test]
 fn filtered_tool_manager_disallowed_takes_precedence_over_tools() {
     let definition = AgentDefinition {
+        token_budget: None,
         name: "custom".into(),
         description: "custom".into(),
         tools: vec!["Grep".into(), "Read".into()],
@@ -1226,15 +1229,75 @@ fn resolve_kind_definition_explore_no_plan_mode() {
 
 #[test]
 fn resolve_spawn_agent_definition_resolves_builtin() {
-    let def = resolve_spawn_agent_definition("Explore");
-    assert_eq!(def.name, "Explore");
+    let temp = tempdir().expect("tempdir");
+    let def = resolve_spawn_agent_definition(temp.path(), "explore");
+    assert_eq!(def.name, "explore");
 }
 
 #[test]
 fn resolve_spawn_agent_definition_falls_back_for_unknown() {
-    let def = resolve_spawn_agent_definition("unknown-agent");
+    let temp = tempdir().expect("tempdir");
+    let def = resolve_spawn_agent_definition(temp.path(), "unknown-agent");
     assert_eq!(def.name, "unknown-agent");
     assert!(!def.plan_mode_required);
+}
+
+#[test]
+fn resolve_spawn_agent_definition_loads_workspace_agent() {
+    let temp = tempdir().expect("tempdir");
+    let agents_dir = temp.path().join(".claude").join("agents");
+    std::fs::create_dir_all(&agents_dir).expect("agents dir");
+    std::fs::write(
+        agents_dir.join("code-reviewer.md"),
+        r#"---
+name: code-reviewer
+description: Reviews code changes
+tools: [Read, Grep]
+disallowedTools: [Bash]
+maxTurns: 7
+planModeRequired: true
+---
+
+Review the assigned change and report concrete findings.
+"#,
+    )
+    .expect("agent definition");
+
+    let def = resolve_spawn_agent_definition(temp.path(), "code-reviewer");
+
+    assert_eq!(def.name, "code-reviewer");
+    assert_eq!(def.description, "Reviews code changes");
+    assert_eq!(def.tools, vec!["Read", "Grep"]);
+    assert_eq!(def.disallowed_tools, vec!["Bash"]);
+    assert_eq!(def.max_turns, 7);
+    assert!(def.plan_mode_required);
+    assert!(def.system_prompt.contains("Review the assigned change"));
+}
+
+#[test]
+fn spawn_agent_definition_lookup_uses_normalized_label() {
+    let temp = tempdir().expect("tempdir");
+    let agents_dir = temp.path().join(".claude").join("agents");
+    std::fs::create_dir_all(&agents_dir).expect("agents dir");
+    std::fs::write(
+        agents_dir.join("code-reviewer.md"),
+        r#"---
+name: code-reviewer
+description: Reviews code changes
+tools: [Read]
+---
+
+Review the assigned change.
+"#,
+    )
+    .expect("agent definition");
+
+    let label = validate_agent_id_label("Code Reviewer").expect("label");
+    let def = resolve_spawn_agent_definition(temp.path(), &label);
+
+    assert_eq!(label, "code-reviewer");
+    assert_eq!(def.name, "code-reviewer");
+    assert_eq!(def.tools, vec!["Read"]);
 }
 
 #[test]

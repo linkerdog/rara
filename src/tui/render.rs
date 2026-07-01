@@ -197,7 +197,13 @@ fn committed_transcript_lines(app: &TuiApp, width: u16) -> Vec<Line<'static>> {
     let cwd = (!app.snapshot.cwd.is_empty()).then(|| Path::new(app.snapshot.cwd.as_str()));
     let mut lines = Vec::new();
     for turn in &app.committed_turns {
-        let mut turn_lines = committed_turn_lines(turn.entries.as_slice(), cwd, width);
+        let mut turn_lines = committed_turn_lines(
+            turn.entries.as_slice(),
+            cwd,
+            width,
+            app.thinking_collapsed,
+            turn.thinking_duration,
+        );
         if turn_lines.is_empty() {
             continue;
         }
@@ -239,16 +245,20 @@ fn turn_divider_line(width: u16) -> Line<'static> {
 pub fn committed_turn_cell<'a>(
     entries: &'a [TranscriptEntry],
     cwd: Option<&'a Path>,
+    thinking_collapsed: bool,
+    thinking_duration: Option<std::time::Duration>,
 ) -> CommittedTurnCell<'a> {
-    CommittedTurnCell::new(entries, cwd)
+    CommittedTurnCell::new(entries, cwd, thinking_collapsed, thinking_duration)
 }
 
 pub(crate) fn committed_turn_lines(
     entries: &[TranscriptEntry],
     cwd: Option<&Path>,
     width: u16,
+    thinking_collapsed: bool,
+    thinking_duration: Option<std::time::Duration>,
 ) -> Vec<Line<'static>> {
-    committed_turn_cell(entries, cwd).display_lines(width)
+    committed_turn_cell(entries, cwd, thinking_collapsed, thinking_duration).display_lines(width)
 }
 
 pub fn active_turn_cell<'a>(app: &'a TuiApp) -> ActiveTurnCell<'a> {
@@ -265,18 +275,6 @@ pub fn startup_card_cell(app: &TuiApp) -> StartupCardCell {
 
 pub(crate) fn startup_card_lines(app: &TuiApp, width: u16) -> Vec<Line<'static>> {
     startup_card_cell(app).display_lines(width)
-}
-
-fn current_turn_exploration_summary(
-    app: &TuiApp,
-    current_turn: &[&TranscriptEntry],
-    prefer_live_label: bool,
-) -> Option<String> {
-    current_turn_exploration_summary_from_entries(
-        current_turn,
-        app.is_busy() && prefer_live_label,
-        app.runtime_phase_detail.as_deref(),
-    )
 }
 
 pub(crate) fn current_turn_exploration_summary_from_entries(
@@ -772,39 +770,6 @@ fn bulleted_markdown_message_lines(
         Span::styled("• ", Style::default().add_modifier(Modifier::DIM)),
         Span::raw("  "),
     );
-    if hidden_count > 0 {
-        lines.push(Line::from(Span::styled(
-            format!("  ... {} more line(s)", hidden_count),
-            Style::default().fg(Color::DarkGray),
-        )));
-    }
-    lines.extend(prefix_lines(
-        tail.to_vec(),
-        Span::raw("  "),
-        Span::raw("  "),
-    ));
-    lines
-}
-
-fn markdown_message_lines(
-    role: &str,
-    message: &str,
-    max_lines: usize,
-    cwd: Option<&Path>,
-) -> Vec<Line<'static>> {
-    let mut rendered = Vec::new();
-    super::markdown::append_markdown(message, None, cwd, &mut rendered);
-    let rendered_len = rendered.len();
-
-    if rendered.is_empty() {
-        return vec![Line::from(role.to_string())];
-    }
-
-    let mut lines = vec![Line::from(role.to_string())];
-    let hidden_count = truncated_line_count(rendered_len, max_lines);
-    let (head, tail) = head_tail_line_window(rendered.as_slice(), max_lines);
-    let prefixed = prefix_lines(head.to_vec(), Span::raw("  "), Span::raw("  "));
-    lines.extend(prefixed);
     if hidden_count > 0 {
         lines.push(Line::from(Span::styled(
             format!("  ... {} more line(s)", hidden_count),

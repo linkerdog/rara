@@ -1,5 +1,5 @@
 // Agent tool items reserved for subagent and team features.
-#![allow(dead_code)]
+// NOTE: dead_code retained — context types shared across sub-agents.
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::{
@@ -33,10 +33,11 @@ use crate::thread_store::{ThreadRecorder, ThreadRuntimeLineage, ThreadRuntimeSta
 use crate::workspace::WorkspaceMemory;
 
 #[derive(Clone, Copy, Debug)]
-enum SubAgentKind {
+pub(crate) enum SubAgentKind {
     General,
     Explore,
     Plan,
+    Consolidate,
 }
 
 /// Maps Claude Code agent config tool names to RARA internal tool names.
@@ -56,210 +57,8 @@ pub(super) fn agent_tool_to_internal_name(name: &str) -> &str {
     }
 }
 
-/// Reverse mapping from RARA internal tool name to Claude Code config name.
-pub(super) fn agent_tool_to_config_name(name: &str) -> &str {
-    match name {
-        "bash" => "Bash",
-        "read_file" => "Read",
-        "write_file" => "Write",
-        "apply_patch" => "Edit",
-        "glob" => "Glob",
-        "grep" => "Grep",
-        "web_search" => "WebSearch",
-        "web_fetch" => "WebFetch",
-        "spawn_agent" => "Task",
-        n => n,
-    }
-}
-
-/// Agent definition matching Claude Code .claude/agents/*.md format.
-#[derive(Clone, Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct AgentDefinition {
-    /// Canonical name (also the file stem).
-    pub name: String,
-    /// Short description for /agents listing.
-    pub description: String,
-    /// Allowed tools (Claude Code display names). Empty = all tools.
-    #[serde(default)]
-    pub tools: Vec<String>,
-    /// Blocked tools. Takes precedence over `tools`.
-    #[serde(default)]
-    pub disallowed_tools: Vec<String>,
-    /// Model override. None / "inherit" = use parent model.  
-    /// If the specified model is unavailable, fall back to session default.
-    #[serde(default)]
-    pub model: Option<String>,
-    /// Max tool-calling turns. 0 = system default.
-    #[serde(default)]
-    pub max_turns: usize,
-    /// Permission mode (e.g. "acceptEdits", "default").
-    #[serde(default)]
-    pub permission_mode: Option<String>,
-    /// Whether plan approval is required before action.
-    #[serde(default)]
-    pub plan_mode_required: bool,
-    /// Hidden from /agents listing (Claude Code compat).
-    #[serde(default)]
-    pub hidden: bool,
-    /// System prompt — body after frontmatter `---`.
-    #[serde(default, skip_deserializing)]
-    pub system_prompt: String,
-}
-
-/// Loaded agent definition registry.
-pub type AgentRegistry = HashMap<String, AgentDefinition>;
-
-/// Load agent definitions from `.claude/agents/**/*.md`.
-///
-/// Each .md file must contain a YAML frontmatter block delimited by `---`.
-/// The body after the closing `---` becomes `AgentDefinition::system_prompt`.
-///
-/// Built-in agents (general/explore/plan) are always available and do not
-/// require a .claude/agents/ file.  Custom definitions can override built-in
-/// names or define net new agents.
-/// Load agent definitions from `.claude/agents/` in the workspace root
-/// and `~/.claude/agents/*.md` (global config).  Workspace definitions
-/// take precedence when names collide.
-pub fn load_agent_definitions(workspace_root: &Path) -> AgentRegistry {
-    let mut registry = AgentRegistry::new();
-
-    // 1. Home-directory agents (lower precedence)
-    if let Some(home) = std::env::var_os("HOME").map(PathBuf::from) {
-        scan_agents_dir(&home.join(".claude").join("agents"), &mut registry);
-    }
-
-    // 2. Workspace agents (higher precedence — overwrites home)
-    scan_agents_dir(
-        &workspace_root.join(".claude").join("agents"),
-        &mut registry,
-    );
-
-    registry
-}
-
-fn scan_agents_dir(agents_dir: &Path, registry: &mut AgentRegistry) {
-    if !agents_dir.exists() || !agents_dir.is_dir() {
-        return;
-    }
-
-    let walker = walkdir::WalkDir::new(agents_dir)
-        .max_depth(4)
-        .follow_links(false)
-        .sort_by_file_name();
-
-    for entry in walker.into_iter().filter_map(|e| e.ok()) {
-        if !entry.file_type().is_file() {
-            continue;
-        }
-        let path = entry.path();
-        if path.extension().is_none_or(|e| e != "md") {
-            continue;
-        }
-
-        let content = match std::fs::read_to_string(path) {
-            Ok(c) => c,
-            Err(_) => continue,
-        };
-
-        let name = path
-            .file_stem()
-            .and_then(|s| s.to_str())
-            .unwrap_or("")
-            .to_string();
-        if name.is_empty() {
-            continue;
-        }
-
-        let (frontmatter, body) = split_frontmatter(&content);
-        let mut def: AgentDefinition = match serde_yaml::from_str(&frontmatter) {
-            Ok(d) => d,
-            Err(_) => continue,
-        };
-
-        if def.name.is_empty() {
-            def.name = name.clone();
-        }
-
-        // disallowedTools > tools
-        if !def.disallowed_tools.is_empty() {
-            def.tools.retain(|t| !def.disallowed_tools.contains(t));
-        }
-
-        def.system_prompt = body.trim().to_string();
-        registry.insert(def.name.clone(), def);
-    }
-}
-
-/// Split a .md file into (yaml_frontmatter, markdown_body).  
-fn split_frontmatter(content: &str) -> (String, String) {
-    let trimmed = content.trim_start();
-    if !trimmed.starts_with("---") {
-        return (String::new(), content.to_string());
-    }
-    let after_first = &trimmed[3..];
-    if let Some(end) = after_first.find("\n---") {
-        let yaml = after_first[..end].trim().to_string();
-        let body = after_first[end + 4..].trim().to_string();
-        (yaml, body)
-    } else if let Some(end) = after_first.find("---") {
-        let yaml = after_first[..end].trim().to_string();
-        let body = after_first[end + 3..].trim().to_string();
-        (yaml, body)
-    } else {
-        (String::new(), content.to_string())
-    }
-}
-
-/// Resolve a named agent to its definition. Checks built-ins first, then registry.
-pub fn resolve_agent(name: &str, registry: &AgentRegistry) -> Option<AgentDefinition> {
-    match registry.get(name) {
-        Some(d) => Some(d.clone()),
-        None => builtin_agent_definition(name),
-    }
-}
-
-fn builtin_agent_definition(name: &str) -> Option<AgentDefinition> {
-    match name {
-        "general" => Some(AgentDefinition {
-            name: "general".into(),
-            description: "No-tool reasoning sub-agent".into(),
-            tools: vec![],
-            disallowed_tools: vec![],
-            model: None,
-            max_turns: 0,
-            permission_mode: None,
-            plan_mode_required: false,
-            hidden: false,
-            system_prompt: String::new(),
-        }),
-        "explore" => Some(AgentDefinition {
-            name: "explore".into(),
-            description: "Read-only repository inspection sub-agent".into(),
-            tools: vec!["Read".into(), "Glob".into(), "Grep".into()],
-            disallowed_tools: vec!["Write".into(), "Edit".into(), "Bash".into()],
-            model: None,
-            max_turns: 50,
-            permission_mode: None,
-            plan_mode_required: false,
-            hidden: false,
-            system_prompt: String::new(),
-        }),
-        "plan" => Some(AgentDefinition {
-            name: "plan".into(),
-            description: "Read-only planning sub-agent".into(),
-            tools: vec!["Read".into(), "Glob".into(), "Grep".into()],
-            disallowed_tools: vec!["Write".into(), "Edit".into(), "Bash".into()],
-            model: None,
-            max_turns: 30,
-            permission_mode: None,
-            plan_mode_required: true,
-            hidden: false,
-            system_prompt: String::new(),
-        }),
-        _ => None,
-    }
-}
+// Agent definition matching Claude Code .claude/agents/*.md format.
+include!("agent_def.rs");
 
 /// Progress tracking for a subagent (Claude Code AgentProgress compatible).
 #[derive(Clone, Debug)]
@@ -268,8 +67,18 @@ pub struct SubagentProgress {
     pub tool_use_total: Option<usize>,
     pub total_input_tokens: usize,
     pub total_output_tokens: usize,
+    pub total_cache_hit_tokens: usize,
+    pub total_cache_miss_tokens: usize,
     pub activity: Vec<String>,
+    /// Reserved for background subagent UI state.
+    /// Will be activated with queued background subagent messages
+    /// (docs/features/subagent-and-aux-compression.md).
+    #[allow(dead_code)]
     pub is_backgrounded: bool,
+    /// Reserved for background subagent progress labels.
+    /// Will be activated with queued background subagent messages
+    /// (docs/features/subagent-and-aux-compression.md).
+    #[allow(dead_code)]
     pub subagent_name: String,
 }
 
@@ -280,12 +89,18 @@ impl SubagentProgress {
             tool_use_total: None,
             total_input_tokens: 0,
             total_output_tokens: 0,
+            total_cache_hit_tokens: 0,
+            total_cache_miss_tokens: 0,
             activity: Vec::new(),
             is_backgrounded: false,
             subagent_name: name.into(),
         }
     }
 
+    /// Reserved for per-tool subagent activity summaries.
+    /// Will be activated with subagent progress tracking
+    /// (docs/features/subagent-and-aux-compression.md).
+    #[allow(dead_code)]
     pub fn record_activity(&mut self, desc: impl Into<String>) {
         let s = desc.into();
         self.activity.push(s);
@@ -344,6 +159,7 @@ impl SubAgentKind {
             SubAgentKind::General => "done",
             SubAgentKind::Explore => "explored",
             SubAgentKind::Plan => "planned",
+            SubAgentKind::Consolidate => "completed consolidation",
         }
     }
 
@@ -401,13 +217,33 @@ impl SubAgentKind {
                     "- End with exactly one of: <proposed_plan>, <request_user_input>, or <continue_inspection/>."
                 )
             }
+            SubAgentKind::Consolidate => {
+                concat!(
+                    "## Sub-Agent Role\n",
+                    "- You are a memory consolidation agent.\n",
+                    "- Read the listed session files and distill durable knowledge.\n",
+                    "- Write topic files under `topics/` and update the `MEMORY.md` index.\n",
+                    "- MEMORY.md is an index — one line per topic under 150 characters.\n",
+                    "- Do not write memory content directly into MEMORY.md.\n",
+                    "- Group facts by topic, write concise topic files with level-2 headings.\n",
+                    "- Prefer updating existing files over creating duplicates.\n",
+                    "- Do not delegate to another agent or spawn sub-agents.\n",
+                    "- IMPORTANT: only read/write files inside the memory directory.\n",
+                    "  Never modify files outside the memory directory —\n",
+                    "  MEMORY.md, topics/, and sessions/ are all under it.\n",
+                    "  Session files under sessions/ are read-only inputs.\n",
+                    "- Report a brief summary of what you changed."
+                )
+            }
         }
     }
 
     fn execution_mode(self) -> AgentExecutionMode {
         match self {
             SubAgentKind::Plan => AgentExecutionMode::Plan,
-            SubAgentKind::General | SubAgentKind::Explore => AgentExecutionMode::Execute,
+            SubAgentKind::General | SubAgentKind::Explore | SubAgentKind::Consolidate => {
+                AgentExecutionMode::Execute
+            }
         }
     }
 
@@ -416,11 +252,12 @@ impl SubAgentKind {
             SubAgentKind::Plan => 200,
             SubAgentKind::General => 100,
             SubAgentKind::Explore => 100,
+            SubAgentKind::Consolidate => 200,
         }
     }
 
     fn read_only(self) -> bool {
-        !matches!(self, SubAgentKind::General)
+        matches!(self, SubAgentKind::Explore | SubAgentKind::Plan)
     }
 
     fn label(self) -> &'static str {
@@ -428,6 +265,7 @@ impl SubAgentKind {
             SubAgentKind::General => "general",
             SubAgentKind::Explore => "explore",
             SubAgentKind::Plan => "plan",
+            SubAgentKind::Consolidate => "consolidate",
         }
     }
 }
@@ -485,15 +323,16 @@ impl AgentTool {
         let name = i["name"]
             .as_str()
             .ok_or(ToolError::InvalidInput("name".into()))?;
-        if validate_agent_id_label(name).is_none() {
+        let Some(agent_label) = validate_agent_id_label(name) else {
             return Err(ToolError::InvalidInput(
                 "name must normalize to a non-empty agent id label".into(),
             ));
-        }
+        };
         let instruction = i["instruction"]
             .as_str()
             .ok_or(ToolError::InvalidInput("instruction".into()))?;
         let agent_id = next_subagent_id(SubAgentKind::General, Some(name));
+        let definition = resolve_spawn_agent_definition(&self.workspace.root, &agent_label);
         if i.get("run_in_background")
             .and_then(Value::as_bool)
             .unwrap_or(false)
@@ -502,7 +341,7 @@ impl AgentTool {
                 kind: SubAgentKind::General,
                 agent_id,
                 name: Some(name.to_string()),
-                definition: resolve_spawn_agent_definition(name),
+                definition,
                 parent_session_id: parent_session_id.map(str::to_string),
                 instruction: instruction.to_string(),
                 backend: self.backend.clone(),
@@ -517,7 +356,7 @@ impl AgentTool {
         let result = run_sub_agent(
             SubAgentKind::General,
             &agent_id,
-            None,
+            Some(&definition),
             Some(name),
             parent_session_id,
             instruction,
@@ -537,6 +376,8 @@ impl AgentTool {
             "name": name,
             "status": result.status,
             "summary": result.summary,
+            "cache_hit_tokens": result.total_cache_hit_tokens,
+            "cache_miss_tokens": result.total_cache_miss_tokens,
             "persistence_error": result.persistence_error,
             "request_user_input": result
                 .request_user_input
@@ -641,6 +482,8 @@ impl ExploreAgentTool {
             "session_id": result.session_id,
             "status": result.status,
             "summary": result.summary,
+            "cache_hit_tokens": result.total_cache_hit_tokens,
+            "cache_miss_tokens": result.total_cache_miss_tokens,
             "persistence_error": result.persistence_error,
             "request_user_input": result
                 .request_user_input
@@ -745,6 +588,8 @@ impl PlanAgentTool {
             "session_id": result.session_id,
             "status": result.status,
             "summary": result.summary,
+            "cache_hit_tokens": result.total_cache_hit_tokens,
+            "cache_miss_tokens": result.total_cache_miss_tokens,
             "persistence_error": result.persistence_error,
             "plan": result
                 .plan
@@ -947,6 +792,8 @@ impl BackgroundSubAgentStore {
             Ok(result) => {
                 record.progress.total_input_tokens = result.total_input_tokens as usize;
                 record.progress.total_output_tokens = result.total_output_tokens as usize;
+                record.progress.total_cache_hit_tokens = result.total_cache_hit_tokens as usize;
+                record.progress.total_cache_miss_tokens = result.total_cache_miss_tokens as usize;
                 record.status = result.status;
                 record.summary = Some(result.summary);
                 record.persistence_error = result.persistence_error;
@@ -1231,20 +1078,22 @@ struct TeamTask {
     kind: SubAgentKind,
 }
 
-struct SubAgentResult {
+pub(crate) struct SubAgentResult {
     agent_id: String,
     session_id: String,
-    status: &'static str,
-    summary: String,
+    pub(crate) status: &'static str,
+    pub(crate) summary: String,
     persistence_error: Option<String>,
     plan: Option<Vec<PlanStep>>,
     plan_explanation: Option<String>,
     request_user_input: Option<PendingUserInput>,
-    total_input_tokens: u32,
-    total_output_tokens: u32,
+    pub(crate) total_input_tokens: u32,
+    pub(crate) total_output_tokens: u32,
+    pub(crate) total_cache_hit_tokens: u32,
+    pub(crate) total_cache_miss_tokens: u32,
 }
 
-async fn run_sub_agent(
+pub(crate) async fn run_sub_agent(
     kind: SubAgentKind,
     agent_id: &str,
     definition: Option<&AgentDefinition>,
@@ -1282,7 +1131,14 @@ async fn run_sub_agent(
     } else {
         kind.execution_mode()
     });
-    sub.set_prompt_config(append_subagent_prompt(prompt_config, kind.append_prompt()));
+    let appended_prompt = match definition
+        .map(|d| d.system_prompt.trim())
+        .filter(|prompt| !prompt.is_empty())
+    {
+        Some(system_prompt) => format!("{}\n\n{}", kind.append_prompt(), system_prompt),
+        None => kind.append_prompt().to_string(),
+    };
+    sub.set_prompt_config(append_subagent_prompt(prompt_config, &appended_prompt));
 
     let def_max_turns = definition
         .and_then(|d| {
@@ -1335,6 +1191,8 @@ async fn run_sub_agent(
         session_id: sub.session_id.clone(),
         total_input_tokens: sub.total_input_tokens,
         total_output_tokens: sub.total_output_tokens,
+        total_cache_hit_tokens: sub.total_cache_hit_tokens,
+        total_cache_miss_tokens: sub.total_cache_miss_tokens,
         status,
         summary,
         persistence_error,
@@ -1437,7 +1295,7 @@ fn build_read_only_tool_manager() -> ToolManager {
     tool_manager
 }
 
-fn build_subagent_tool_manager(kind: SubAgentKind) -> ToolManager {
+pub(crate) fn build_subagent_tool_manager(kind: SubAgentKind) -> ToolManager {
     if kind.read_only() {
         build_read_only_tool_manager()
     } else {
@@ -1508,6 +1366,8 @@ fn serialize_team_result(name: &str, result: SubAgentResult) -> Value {
         "name": name,
         "status": result.status,
         "summary": result.summary,
+        "cache_hit_tokens": result.total_cache_hit_tokens,
+        "cache_miss_tokens": result.total_cache_miss_tokens,
         "persistence_error": result.persistence_error,
         "plan": result.plan.as_ref().map(|steps| serialize_plan_steps(steps)),
         "plan_explanation": result.plan_explanation,
@@ -1541,7 +1401,7 @@ fn validate_agent_id_label(value: &str) -> Option<String> {
     (!label.is_empty()).then_some(label)
 }
 
-fn append_subagent_prompt(
+pub(crate) fn append_subagent_prompt(
     mut prompt_config: PromptRuntimeConfig,
     appended_instructions: &str,
 ) -> PromptRuntimeConfig {
@@ -1645,6 +1505,7 @@ fn persisted_pending_interactions(request: Option<&PendingUserInput>) -> Vec<Per
 
 fn resolve_kind_definition(kind: SubAgentKind) -> AgentDefinition {
     builtin_agent_definition(kind.label()).unwrap_or(AgentDefinition {
+        token_budget: None,
         name: kind.label().to_string(),
         description: kind.label().to_string(),
         model: None,
@@ -1658,8 +1519,15 @@ fn resolve_kind_definition(kind: SubAgentKind) -> AgentDefinition {
     })
 }
 
-fn resolve_spawn_agent_definition(name: &str) -> AgentDefinition {
-    builtin_agent_definition(name).unwrap_or(AgentDefinition {
+fn resolve_spawn_agent_definition(workspace_root: &Path, normalized_name: &str) -> AgentDefinition {
+    let registry = load_agent_definitions(workspace_root);
+    resolve_agent(normalized_name, &registry)
+        .unwrap_or_else(|| fallback_spawn_agent_definition(normalized_name))
+}
+
+fn fallback_spawn_agent_definition(name: &str) -> AgentDefinition {
+    AgentDefinition {
+        token_budget: None,
         name: name.to_string(),
         description: name.to_string(),
         model: None,
@@ -1670,7 +1538,7 @@ fn resolve_spawn_agent_definition(name: &str) -> AgentDefinition {
         permission_mode: None,
         hidden: false,
         system_prompt: String::new(),
-    })
+    }
 }
 
 fn build_filtered_tool_manager(kind: SubAgentKind, definition: &AgentDefinition) -> ToolManager {

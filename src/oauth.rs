@@ -4,8 +4,8 @@ use std::sync::{Arc, Mutex};
 
 use anyhow::{Result, anyhow};
 use codex_login::{
-    AuthCredentialsStoreMode, AuthDotJson, CLIENT_ID, DeviceCode as CodexDeviceCode,
-    LoginServer as CodexLoginServer, ServerOptions,
+    AuthCredentialsStoreMode, AuthDotJson, AuthKeyringBackendKind, CLIENT_ID,
+    DeviceCode as CodexDeviceCode, LoginServer as CodexLoginServer, ServerOptions,
     complete_device_code_login as codex_complete_device_code_login, load_auth_dot_json,
     login_with_api_key as codex_login_with_api_key, logout as codex_logout,
     request_device_code as codex_request_device_code, run_login_server as codex_run_login_server,
@@ -45,7 +45,6 @@ impl BrowserLoginSession {
 
 #[derive(Clone)]
 pub struct OAuthManager {
-    pub config_dir: PathBuf,
     codex_home: PathBuf,
     legacy_codex_home: PathBuf,
     saved_auth_available: Arc<Mutex<Option<bool>>>,
@@ -64,19 +63,10 @@ impl OAuthManager {
         std::fs::create_dir_all(&codex_home)?;
         std::fs::create_dir_all(&legacy_codex_home)?;
         Ok(Self {
-            config_dir,
             codex_home,
             legacy_codex_home,
             saved_auth_available: Arc::new(Mutex::new(None)),
         })
-    }
-
-    pub fn codex_issuer(&self) -> &'static str {
-        ISSUER
-    }
-
-    pub fn client_id(&self) -> &'static str {
-        CLIENT_ID
     }
 
     pub fn start_browser_login(&self, open_browser: bool) -> Result<BrowserLoginSession> {
@@ -109,15 +99,28 @@ impl OAuthManager {
     }
 
     pub fn save_api_key(&self, api_key: &str) -> Result<SecretString> {
-        codex_login_with_api_key(&self.codex_home, api_key, AuthCredentialsStoreMode::File)?;
+        codex_login_with_api_key(
+            &self.codex_home,
+            api_key,
+            AuthCredentialsStoreMode::File,
+            AuthKeyringBackendKind::default(),
+        )?;
         self.set_saved_auth_cache(true);
         self.load_saved_credential()
     }
 
     pub fn clear_saved_auth(&self) -> Result<bool> {
-        let mut removed = codex_logout(&self.codex_home, AuthCredentialsStoreMode::File)?;
+        let mut removed = codex_logout(
+            &self.codex_home,
+            AuthCredentialsStoreMode::File,
+            AuthKeyringBackendKind::default(),
+        )?;
         if self.legacy_codex_home != self.codex_home {
-            removed |= codex_logout(&self.legacy_codex_home, AuthCredentialsStoreMode::File)?;
+            removed |= codex_logout(
+                &self.legacy_codex_home,
+                AuthCredentialsStoreMode::File,
+                AuthKeyringBackendKind::default(),
+            )?;
         }
         self.clear_saved_auth_cache();
         Ok(removed)
@@ -128,7 +131,12 @@ impl OAuthManager {
             return Ok(cached);
         }
         for home in self.auth_homes_in_read_order() {
-            let Some(auth) = load_auth_dot_json(home, AuthCredentialsStoreMode::File)? else {
+            let Some(auth) = load_auth_dot_json(
+                home,
+                AuthCredentialsStoreMode::File,
+                AuthKeyringBackendKind::default(),
+            )?
+            else {
                 continue;
             };
             let has_api_key = auth
@@ -161,7 +169,12 @@ impl OAuthManager {
 
     pub fn saved_auth_mode(&self) -> Result<Option<SavedCodexAuthMode>> {
         for home in self.auth_homes_in_read_order() {
-            let Some(auth) = load_auth_dot_json(home, AuthCredentialsStoreMode::File)? else {
+            let Some(auth) = load_auth_dot_json(
+                home,
+                AuthCredentialsStoreMode::File,
+                AuthKeyringBackendKind::default(),
+            )?
+            else {
                 continue;
             };
             if let Some(mode) = detect_saved_auth_mode(&auth) {
@@ -177,6 +190,8 @@ impl OAuthManager {
             CLIENT_ID.to_string(),
             None,
             AuthCredentialsStoreMode::File,
+            AuthKeyringBackendKind::default(),
+            None,
         );
         options.issuer = ISSUER.to_string();
         options.open_browser = open_browser;
@@ -185,7 +200,12 @@ impl OAuthManager {
 
     pub fn load_saved_credential(&self) -> Result<SecretString> {
         for home in self.auth_homes_in_read_order() {
-            let Some(auth) = load_auth_dot_json(home, AuthCredentialsStoreMode::File)? else {
+            let Some(auth) = load_auth_dot_json(
+                home,
+                AuthCredentialsStoreMode::File,
+                AuthKeyringBackendKind::default(),
+            )?
+            else {
                 continue;
             };
             match detect_saved_auth_mode(&auth) {
@@ -318,9 +338,13 @@ mod tests {
 
         assert_eq!(stored.expose_secret(), "sk-test-123");
 
-        let auth = load_auth_dot_json(auth_path(&manager), AuthCredentialsStoreMode::File)
-            .expect("load auth")
-            .expect("auth file");
+        let auth = load_auth_dot_json(
+            auth_path(&manager),
+            AuthCredentialsStoreMode::File,
+            AuthKeyringBackendKind::default(),
+        )
+        .expect("load auth")
+        .expect("auth file");
         assert_eq!(auth.openai_api_key.as_deref(), Some("sk-test-123"));
         assert!(auth.tokens.is_none());
     }
@@ -344,8 +368,11 @@ mod tests {
                 }),
                 last_refresh: None,
                 agent_identity: None,
+                personal_access_token: None,
+                bedrock_api_key: None,
             },
             AuthCredentialsStoreMode::File,
+            AuthKeyringBackendKind::default(),
         )
         .expect("save auth");
 
@@ -369,8 +396,11 @@ mod tests {
                 }),
                 last_refresh: None,
                 agent_identity: None,
+                personal_access_token: None,
+                bedrock_api_key: None,
             },
             AuthCredentialsStoreMode::File,
+            AuthKeyringBackendKind::default(),
         )
         .expect("save token auth");
 
@@ -392,8 +422,11 @@ mod tests {
                 tokens: None,
                 last_refresh: None,
                 agent_identity: None,
+                personal_access_token: None,
+                bedrock_api_key: None,
             },
             AuthCredentialsStoreMode::File,
+            AuthKeyringBackendKind::default(),
         )
         .expect("save auth");
 
@@ -417,8 +450,12 @@ mod tests {
         let removed = manager.clear_saved_auth().expect("clear auth");
         assert!(removed);
 
-        let auth = load_auth_dot_json(auth_path(&manager), AuthCredentialsStoreMode::File)
-            .expect("load auth after logout");
+        let auth = load_auth_dot_json(
+            auth_path(&manager),
+            AuthCredentialsStoreMode::File,
+            AuthKeyringBackendKind::default(),
+        )
+        .expect("load auth after logout");
         assert!(auth.is_none());
     }
 
@@ -449,8 +486,11 @@ mod tests {
                 }),
                 last_refresh: None,
                 agent_identity: None,
+                personal_access_token: None,
+                bedrock_api_key: None,
             },
             AuthCredentialsStoreMode::File,
+            AuthKeyringBackendKind::default(),
         )
         .expect("save token auth");
 
@@ -477,8 +517,11 @@ mod tests {
                 }),
                 last_refresh: None,
                 agent_identity: None,
+                personal_access_token: None,
+                bedrock_api_key: None,
             },
             AuthCredentialsStoreMode::File,
+            AuthKeyringBackendKind::default(),
         )
         .expect("save auth");
 
@@ -507,8 +550,11 @@ mod tests {
                 tokens: None,
                 last_refresh: None,
                 agent_identity: None,
+                personal_access_token: None,
+                bedrock_api_key: None,
             },
             AuthCredentialsStoreMode::File,
+            AuthKeyringBackendKind::default(),
         )
         .expect("save auth");
 
@@ -531,8 +577,11 @@ mod tests {
                 tokens: None,
                 last_refresh: None,
                 agent_identity: None,
+                personal_access_token: None,
+                bedrock_api_key: None,
             },
             AuthCredentialsStoreMode::File,
+            AuthKeyringBackendKind::default(),
         )
         .expect("save legacy auth");
         codex_login::save_auth(
@@ -543,8 +592,11 @@ mod tests {
                 tokens: None,
                 last_refresh: None,
                 agent_identity: None,
+                personal_access_token: None,
+                bedrock_api_key: None,
             },
             AuthCredentialsStoreMode::File,
+            AuthKeyringBackendKind::default(),
         )
         .expect("save official auth");
 
@@ -568,8 +620,11 @@ mod tests {
                 tokens: None,
                 last_refresh: None,
                 agent_identity: None,
+                personal_access_token: None,
+                bedrock_api_key: None,
             },
             AuthCredentialsStoreMode::File,
+            AuthKeyringBackendKind::default(),
         )
         .expect("save legacy auth");
 

@@ -18,6 +18,8 @@ use super::state::{ListPickerKind, TuiApp};
 use super::theme::*;
 use crate::thread_store::ThreadSummary;
 
+const AUTH_MODE_ITEM_COUNT: usize = 4;
+
 impl ListPickerKind {
     /// Return the 0-based index of the highlighted item.
     pub fn idx(self, app: &TuiApp) -> usize {
@@ -64,7 +66,7 @@ impl ListPickerKind {
                         == resume_workspace_label(&app.snapshot.cwd)
                 })
                 .count(),
-            Self::AuthMode => super::auth_mode_picker::AUTH_MODE_OPTION_COUNT,
+            Self::AuthMode => AUTH_MODE_ITEM_COUNT,
             Self::ReasoningEffort => app.selected_codex_reasoning_options().len(),
             Self::UnifiedModel => app.all_unified_model_presets().len(),
         }
