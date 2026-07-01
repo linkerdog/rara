@@ -87,22 +87,22 @@ impl FileReadState {
         let mut files = self.files.lock().expect("file read state lock");
         // Never downgrade: partial reads must not overwrite existing
         // full-read entries (same mtime).
-        if is_partial {
-            if let Some(existing) = files.get(&key) {
-                if !existing.is_partial && existing.modified == modified {
-                    return Ok(());
-                }
-            }
+        if is_partial
+            && let Some(existing) = files.get(&key)
+            && !existing.is_partial
+            && existing.modified == modified
+        {
+            return Ok(());
         }
         // Sub-range reads are not partial under the new semantics,
         // but they don't carry full content.  Don't let a sub-range read
         // overwrite a previously cached full read with the same mtime.
-        if content.is_none() {
-            if let Some(existing) = files.get(&key) {
-                if existing.content.is_some() && existing.modified == modified {
-                    return Ok(());
-                }
-            }
+        if content.is_none()
+            && let Some(existing) = files.get(&key)
+            && existing.content.is_some()
+            && existing.modified == modified
+        {
+            return Ok(());
         }
         let entry = FileReadEntry {
             modified,
@@ -248,14 +248,13 @@ impl Tool for ReadFileTool {
             Ok(o) => o,
             Err(e) => {
                 // Only suggest when the file actually doesn't exist.
-                if let ToolError::Io(ref io_err) = e {
-                    if io_err.kind() == std::io::ErrorKind::NotFound {
-                        if let Some(suggestion) = find_similar_file(p) {
-                            return Err(ToolError::ExecutionFailed(format!(
-                                "{e}\n\n  A similar file was found: {suggestion}\n  Try reading that path instead."
-                            )));
-                        }
-                    }
+                if let ToolError::Io(ref io_err) = e
+                    && io_err.kind() == std::io::ErrorKind::NotFound
+                    && let Some(suggestion) = find_similar_file(p)
+                {
+                    return Err(ToolError::ExecutionFailed(format!(
+                        "{e}\n\n  A similar file was found: {suggestion}\n  Try reading that path instead."
+                    )));
                 }
                 return Err(e);
             }

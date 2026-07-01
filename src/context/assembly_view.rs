@@ -8,6 +8,9 @@ use crate::context::{
 };
 use crate::prompt::EffectivePrompt;
 
+#[allow(clippy::too_many_arguments)]
+// Context assembly is the reporting boundary that combines already-built
+// runtime views; a parameter struct would duplicate the caller's context bag.
 pub(crate) fn assemble_context_view(
     effective_prompt: &EffectivePrompt,
     plan_explanation: Option<&str>,

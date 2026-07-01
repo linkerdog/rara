@@ -8,21 +8,18 @@ pub(crate) fn prepare_local_embedding_model_snapshot(
 
     let cache_dir = default_local_model_cache_dir();
     let marker_path = model_snapshot_marker_path(runtime_dir);
-    if let Some(marker) =
-        read_matching_model_snapshot_marker(&marker_path, model, profile.revision)?
+    if let Some(marker) = read_matching_model_snapshot_marker(&marker_path, model, profile.revision)?
+        && cached_snapshot_under_cache(&marker.snapshot_path, &cache_dir)?
+        && snapshot_has_all_files(&marker.snapshot_path, &marker.files)
     {
-        if cached_snapshot_under_cache(&marker.snapshot_path, &cache_dir)?
-            && snapshot_has_all_files(&marker.snapshot_path, &marker.files)
-        {
-            report_progress(
-                progress,
-                format!(
-                    "Model · already available at {}",
-                    marker.snapshot_path.display()
-                ),
-            );
-            return Ok(Some(marker.snapshot_path));
-        }
+        report_progress(
+            progress,
+            format!(
+                "Model · already available at {}",
+                marker.snapshot_path.display()
+            ),
+        );
+        return Ok(Some(marker.snapshot_path));
     }
 
     let repo = Repo::with_revision(

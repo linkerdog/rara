@@ -63,6 +63,9 @@ impl RuntimeBootstrap {
         agent
     }
 
+    #[allow(clippy::type_complexity)]
+    // Bootstrap teardown returns the initialized runtime handles without
+    // introducing another wrapper around RuntimeBootstrap itself.
     pub(crate) fn into_parts(
         self,
     ) -> (

@@ -23,6 +23,9 @@ use crate::runtime_control::{RuntimeControlEnvelope, RuntimeControlEvent, Runtim
 /// - Prompt/Skill source requests → respective registries
 /// - Memory requests → `MemoryControlHandler`
 /// - Session/Input requests → `Agent` (when provided)
+#[allow(clippy::too_many_arguments)]
+// The dispatch entrypoint is the explicit dependency boundary for protocol
+// adapters; grouping these references would hide the routed subsystems.
 pub async fn dispatch<F>(
     envelope: RuntimeControlEnvelope,
     mcp_manager: &McpConnectionManager,

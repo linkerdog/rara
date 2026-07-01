@@ -27,11 +27,11 @@ impl TuiDownloadProgress {
     }
 
     fn emit(&mut self, force: bool) {
-        let percent = if self.total == 0 {
-            0
-        } else {
-            self.current.saturating_mul(100) / self.total
-        };
+        let percent = self
+            .current
+            .saturating_mul(100)
+            .checked_div(self.total)
+            .unwrap_or(0);
         if !force && self.last_percent == Some(percent) {
             return;
         }
@@ -83,4 +83,3 @@ pub(crate) fn format_bytes(bytes: usize) -> String {
         format!("{bytes}B")
     }
 }
-

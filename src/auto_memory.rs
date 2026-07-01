@@ -91,7 +91,7 @@ impl AutoMemoryService {
     ) {
         let session_id = agent.session_id.clone();
         let completed_turns = app.committed_turns.len() as u64;
-        if completed_turns == 0 || completed_turns % EXTRACTION_INTERVAL != 0 {
+        if completed_turns == 0 || !completed_turns.is_multiple_of(EXTRACTION_INTERVAL) {
             return;
         }
 

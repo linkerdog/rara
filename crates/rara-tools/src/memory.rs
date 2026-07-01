@@ -9,6 +9,8 @@ use serde_json::{Value, json};
 
 use crate::tool::{Tool, ToolError};
 
+pub type MemoryQueryHook = Arc<dyn Fn(&str) + Send + Sync>;
+
 /// Search project memory using ripgrep text search and LanceDB vector search.
 #[derive(Clone)]
 pub struct SearchMemoryTool {
@@ -17,7 +19,7 @@ pub struct SearchMemoryTool {
     /// Optional MemoryQuery hook callback.
     /// Invoked with the search query before the actual search.
     /// Wired at registration time in tooling.rs.
-    pub hook_callback: Option<Arc<dyn Fn(&str) + Send + Sync>>,
+    pub hook_callback: Option<MemoryQueryHook>,
 }
 
 #[tool_spec(

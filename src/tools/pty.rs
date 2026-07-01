@@ -162,20 +162,23 @@ impl PtySessionStore {
 
         let pruned = to_prune.len();
         drop(sessions);
-        if !to_prune.is_empty() {
-            if let Ok(sessions) = self.sessions.lock() {
-                for id in &to_prune {
-                    if let Some(session) = sessions.get(id) {
-                        if let Ok(mut status) = session.status.lock() {
-                            *status = PtySessionStatus::Killed;
-                        }
-                    }
+        if !to_prune.is_empty()
+            && let Ok(sessions) = self.sessions.lock()
+        {
+            for id in &to_prune {
+                if let Some(session) = sessions.get(id)
+                    && let Ok(mut status) = session.status.lock()
+                {
+                    *status = PtySessionStatus::Killed;
                 }
             }
         }
         pruned
     }
 
+    #[allow(clippy::too_many_arguments)]
+    // PTY start keeps the process launch parameters explicit at the spawn
+    // boundary.
     fn start(
         &self,
         command: String,

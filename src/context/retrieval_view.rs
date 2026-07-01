@@ -7,6 +7,8 @@ use crate::context::{
 use crate::prompt::PromptSource;
 use crate::workspace::WorkspaceMemory;
 
+#[allow(clippy::too_many_arguments)]
+// Retrieval status needs all provider inputs to produce a single ordered view.
 pub(crate) fn retrieval_source_entries(
     workspace: &WorkspaceMemory,
     prompt_sources: &[PromptSource],

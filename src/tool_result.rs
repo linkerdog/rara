@@ -204,7 +204,7 @@ pub fn enforce_tool_result_batch_budget(mut messages: Vec<Message>) -> Vec<Messa
         return messages;
     }
 
-    candidates.sort_by(|left, right| right.chars.cmp(&left.chars));
+    candidates.sort_by_key(|candidate| std::cmp::Reverse(candidate.chars));
     for candidate in candidates {
         if total_chars <= TOOL_RESULT_BATCH_BUDGET {
             break;
@@ -406,13 +406,12 @@ fn microcompact_cleared_tool_result(tool_name: &str, original_content: &str) -> 
         format!("tool={tool_name}"),
         "reason=older compactable tool results exceeded the per-request projection budget; original transcript remains unchanged".to_string(),
     ];
-    if tool_name == "read_file" {
-        if let Some(meta) = original_content
+    if tool_name == "read_file"
+        && let Some(meta) = original_content
             .lines()
             .find(|l| l.starts_with("[file size]"))
-        {
-            lines.push(meta.to_string());
-        }
+    {
+        lines.push(meta.to_string());
     }
     lines.join("\n")
 }
@@ -578,14 +577,11 @@ fn read_file_metadata_line(result: &Value) -> String {
                 .unwrap_or(0)
         )
     } else {
-        format!(
-            "{}",
-            result
-                .get("observed_lines")
-                .and_then(Value::as_u64)
-                .map(|n| format!("{n}+"))
-                .unwrap_or_else(|| "?".to_string())
-        )
+        result
+            .get("observed_lines")
+            .and_then(Value::as_u64)
+            .map(|n| format!("{n}+"))
+            .unwrap_or_else(|| "?".to_string())
     };
     format!(
         "[file size] start_line={start}, end_line={end}, next_offset={next}, total_lines={total}"

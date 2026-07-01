@@ -528,6 +528,7 @@ fn command_palette_rect(area: Rect, app: &TuiApp) -> Rect {
 }
 
 #[cfg(test)]
+#[allow(clippy::items_after_test_module)]
 mod tests {
     use ratatui::widgets::StatefulWidget;
     use ratatui::{buffer::Buffer, layout::Rect};

@@ -2,9 +2,9 @@ use std::sync::OnceLock;
 use std::time::Duration;
 
 use super::*;
-use super::*;
 
 #[cfg(test)]
+#[allow(clippy::module_inception)]
 mod tests {
     use serde_json::{Map, Value, json};
 

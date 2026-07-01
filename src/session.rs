@@ -397,6 +397,8 @@ impl SessionManager {
         Ok(())
     }
 
+    #[allow(clippy::too_many_arguments)]
+    // Spawn-agent persistence mirrors the rollout event fields written to disk.
     pub fn save_spawn_agent_event(
         &self,
         session_id: &str,

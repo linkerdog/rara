@@ -1330,7 +1330,7 @@ fn close_command_palette_clears_input_and_resets_idx() {
         app.command_palette_idx, 0,
         "command_palette_idx should reset to 0"
     );
-    assert!(matches!(app.overlay, None), "overlay should be closed");
+    assert!(app.overlay.is_none(), "overlay should be closed");
 }
 
 /// Clearing the slash prefix should close the palette and reset idx.
@@ -1349,7 +1349,7 @@ fn clearing_slash_closes_palette() {
 
     // Backspace to clear the slash — sync fires and closes the palette
     app.backspace_active_input();
-    assert!(matches!(app.overlay, None));
+    assert!(app.overlay.is_none());
     assert_eq!(app.command_palette_idx, 0);
     assert!(app.bottom_pane.input.is_empty());
 }

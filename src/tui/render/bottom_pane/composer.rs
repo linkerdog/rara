@@ -120,7 +120,7 @@ pub(super) fn render_composer(f: &mut Frame, app: &mut TuiApp, area: Rect) -> Op
             .alignment(Alignment::Left),
         chunks[1],
     );
-    let cursor = if hide_input_for_approval {
+    if hide_input_for_approval {
         None
     } else {
         Some(composer_cursor_position(
@@ -129,8 +129,7 @@ pub(super) fn render_composer(f: &mut Frame, app: &mut TuiApp, area: Rect) -> Op
             chunks[0],
             app.bottom_pane.composer_scroll,
         ))
-    };
-    cursor
+    }
 }
 
 pub(super) fn composer_hint(app: &TuiApp) -> Line<'static> {

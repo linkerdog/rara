@@ -1093,6 +1093,9 @@ pub(crate) struct SubAgentResult {
     pub(crate) total_cache_miss_tokens: u32,
 }
 
+#[allow(clippy::too_many_arguments)]
+// Sub-agent execution is called from multiple tool entrypoints with explicit
+// runtime handles; grouping them would obscure the execution boundary.
 pub(crate) async fn run_sub_agent(
     kind: SubAgentKind,
     agent_id: &str,
@@ -1126,7 +1129,7 @@ pub(crate) async fn run_sub_agent(
         sub.session_id = session_id;
     }
     sub.set_cancellation_token(cancellation_token);
-    sub.set_execution_mode(if definition.map_or(false, |d| d.plan_mode_required) {
+    sub.set_execution_mode(if definition.is_some_and(|d| d.plan_mode_required) {
         AgentExecutionMode::Plan
     } else {
         kind.execution_mode()
@@ -1202,6 +1205,8 @@ pub(crate) async fn run_sub_agent(
     })
 }
 
+#[allow(clippy::too_many_arguments)]
+// Persistence mirrors the spawn-agent rollout edge fields.
 fn persist_subagent_edge(
     session_manager: &SessionManager,
     workspace: &WorkspaceMemory,

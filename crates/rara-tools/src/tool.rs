@@ -128,6 +128,12 @@ impl ToolManager {
     }
 }
 
+impl Default for ToolManager {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

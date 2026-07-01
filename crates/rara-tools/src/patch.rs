@@ -115,15 +115,13 @@ impl Tool for ApplyPatchTool {
         // Pre-read enforcement: every Update or Delete must target a file
         // that was fully read in this conversation and hasn't been modified
         // since.  Add ops (new files) are exempt.
-        if !dry_run {
-            if let Some(read_state) = &self.read_state {
-                for op in &ops {
-                    match op {
-                        PatchOp::Update { path, .. } | PatchOp::Delete { path } => {
-                            read_state.validate_existing_edit(path)?;
-                        }
-                        _ => {}
+        if !dry_run && let Some(read_state) = &self.read_state {
+            for op in &ops {
+                match op {
+                    PatchOp::Update { path, .. } | PatchOp::Delete { path } => {
+                        read_state.validate_existing_edit(path)?;
                     }
+                    _ => {}
                 }
             }
         }

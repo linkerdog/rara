@@ -48,14 +48,14 @@ impl HookRegistry {
                 description: _,
             } => {
                 let entry = HookEntry {
-                    lifecycle: lifecycle.clone(),
+                    lifecycle: *lifecycle,
                 };
                 self.hooks.write().await.insert(hook_id.clone(), entry);
                 let _ = self
                     .event_bus
                     .publish_control(RuntimeEvent::Hook(HookEvent::Declared {
                         hook_id: hook_id.clone(),
-                        lifecycle: lifecycle.clone(),
+                        lifecycle: *lifecycle,
                     }));
             }
             HookControlRequest::QueryHooks => {
@@ -65,7 +65,7 @@ impl HookRegistry {
                         self.event_bus
                             .publish_control(RuntimeEvent::Hook(HookEvent::Declared {
                                 hook_id: hook_id.clone(),
-                                lifecycle: entry.lifecycle.clone(),
+                                lifecycle: entry.lifecycle,
                             }));
                 }
             }

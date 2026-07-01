@@ -41,8 +41,10 @@ impl TodoStatus {
 
 impl TodoState {
     pub fn summary(&self) -> TodoSummary {
-        let mut summary = TodoSummary::default();
-        summary.total = self.items.len();
+        let mut summary = TodoSummary {
+            total: self.items.len(),
+            ..Default::default()
+        };
         for item in &self.items {
             match item.status {
                 TodoStatus::Pending => summary.pending += 1,

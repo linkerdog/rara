@@ -931,9 +931,7 @@ fn parse_plan_step_line(line: &str) -> Option<PlanStep> {
         .or_else(|| line.strip_prefix("* ["))
         .or_else(|| line.strip_prefix("• ["))
     {
-        let Some((status, step)) = rest.split_once("] ") else {
-            return None;
-        };
+        let (status, step) = rest.split_once("] ")?;
         let status = match status.trim() {
             "pending" => PlanStepStatus::Pending,
             "in_progress" => PlanStepStatus::InProgress,

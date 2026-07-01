@@ -41,7 +41,7 @@ impl Agent {
     }
 
     pub(super) fn prepend_memory_context_to_latest_user_message(
-        messages: &mut Vec<Message>,
+        messages: &mut [Message],
         memory_context: String,
     ) {
         let Some(message) = messages

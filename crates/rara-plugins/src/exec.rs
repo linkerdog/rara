@@ -111,11 +111,10 @@ pub async fn execute_command_hook(
 
     // If stdout contains JSON with "continue": false, treat as blocking
     // even if exit code is 0 (Claude Code compatibility)
-    let ok = if let Some(parsed) = serde_json::from_str::<serde_json::Value>(&stdout).ok() {
+    let ok = if let Ok(parsed) = serde_json::from_str::<serde_json::Value>(&stdout) {
         parsed
             .get("continue")
             .and_then(|v| v.as_bool())
-            .map(|c| c)
             .unwrap_or(ok)
     } else {
         ok
