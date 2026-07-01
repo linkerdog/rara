@@ -105,11 +105,6 @@ impl PromptSourceRegistry {
         }
     }
 
-    pub async fn handle_control(&self, request: &PromptSourceControlRequest) {
-        self.handle_control_with_provenance(request, RuntimeProvenance::runtime(None))
-            .await;
-    }
-
     /// Handle a prompt source control request while explicitly recording the
     /// provenance of the runtime-control envelope that carried it.
     pub async fn handle_control_with_provenance(
@@ -160,60 +155,6 @@ impl PromptSourceRegistry {
         }
     }
 
-    /// Decrement remaining turns for turn-limited sources.
-    /// Sources whose remaining turns reach 0 are removed.
-    pub async fn advance_turn(&self) {
-        let mut sources = self.sources.write().await;
-        let mut expired = Vec::new();
-        for (id, entry) in sources.iter_mut() {
-            if let Some(ref mut remaining) = entry.remaining_turns {
-                if *remaining <= 1 {
-                    expired.push(id.clone());
-                } else {
-                    *remaining -= 1;
-                }
-            }
-        }
-        for id in &expired {
-            sources.remove(id);
-            let _ = self.event_bus.publish_control(RuntimeEvent::PromptSource(
-                PromptSourceEvent::Dropped {
-                    source_id: id.clone(),
-                    reason: "turn limit expired".into(),
-                },
-            ));
-        }
-    }
-
-    /// Return all registered sources (for prompt assembly).
-    pub async fn list_sources(&self) -> Vec<PromptSourceRegistration> {
-        self.sources
-            .read()
-            .await
-            .values()
-            .map(|e| e.registration.clone())
-            .collect()
-    }
-
-    /// Return all registered sources with provenance and remaining lifetime.
-    pub async fn list_source_snapshots(&self) -> Vec<ProtocolPromptSourceSnapshot> {
-        self.sources
-            .read()
-            .await
-            .values()
-            .map(ProtocolPromptSourceSnapshot::from)
-            .collect()
-    }
-
-    /// Return active protocol sources in the prompt-runtime source format.
-    pub async fn list_prompt_sources(&self) -> Vec<PromptSource> {
-        self.list_source_snapshots()
-            .await
-            .iter()
-            .map(ProtocolPromptSourceSnapshot::to_prompt_source)
-            .collect()
-    }
-
     /// Atomically snapshot active prompt sources for one query and advance
     /// turn-limited lifetimes under the same registry lock.
     pub async fn list_prompt_sources_for_query(&self) -> Vec<PromptSource> {
@@ -259,6 +200,9 @@ impl PromptSourceRegistry {
 #[derive(Clone, Debug)]
 pub struct SkillSourceEntry {
     pub source_id: String,
+    /// Reserved for protocol skill ordering. Will be activated when external
+    /// skill roots are merged into local skill discovery (docs/features/runtime-control-plane.md).
+    #[allow(dead_code)]
     pub precedence_hint: Option<i32>,
 }
 
@@ -707,13 +651,7 @@ mod tests {
             )
             .await;
 
-        let snapshots = registry.list_source_snapshots().await;
-        assert_eq!(snapshots.len(), 1);
-        assert_eq!(snapshots[0].registration.source_id, "protocol-source-1");
-        assert_eq!(snapshots[0].provenance, provenance);
-        assert_eq!(snapshots[0].remaining_turns, Some(2));
-
-        let prompt_sources = registry.list_prompt_sources().await;
+        let prompt_sources = registry.list_prompt_sources_for_query().await;
         assert_eq!(prompt_sources.len(), 1);
         assert_eq!(
             prompt_sources[0].kind,
@@ -731,6 +669,17 @@ mod tests {
             prompt_sources[0].content,
             "Protocol context should keep provenance."
         );
+
+        let second_query_sources = registry.list_prompt_sources_for_query().await;
+        assert_eq!(
+            second_query_sources.len(),
+            1,
+            "Turns(2) sources should remain available for a second query"
+        );
+        assert_eq!(
+            second_query_sources[0].display_path,
+            "protocol:acp:acp:protocol-source-1"
+        );
     }
 
     #[tokio::test]
@@ -740,16 +689,17 @@ mod tests {
         let registry = PromptSourceRegistry::new(bus);
 
         registry
-            .handle_control(&PromptSourceControlRequest::Register(
-                PromptSourceRegistration {
+            .handle_control_with_provenance(
+                &PromptSourceControlRequest::Register(PromptSourceRegistration {
                     source_id: "protocol-source-1".to_string(),
                     scope: crate::runtime_control::SourceScope::Protocol,
                     layer: crate::runtime_control::SourceLayer::User,
                     budget_hint_tokens: Some(128),
                     lifetime: PromptSourceLifetime::Turns(1),
                     content: "Protocol context should emit lifecycle events.".to_string(),
-                },
-            ))
+                }),
+                RuntimeProvenance::runtime(None),
+            )
             .await;
         let registered = events.recv().await.expect("registered event");
         assert!(matches!(

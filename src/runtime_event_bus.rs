@@ -80,6 +80,9 @@ impl RuntimeEventBus {
     ///
     /// Past events are not replayed. Use the embedded sequence and event id to
     /// preserve stream order and adapter acknowledgements.
+    /// Reserved for external structured event subscribers as specified in
+    /// docs/features/runtime-control-plane.md.
+    #[allow(dead_code)]
     pub fn subscribe_control(&self) -> broadcast::Receiver<RuntimeControlEvent> {
         self.control_sender.subscribe()
     }

@@ -34,8 +34,9 @@ pub(super) async fn rebuild_agent_with_progress(
         hook_registry,
         lsp_manager,
     ) = bootstrap.into_parts();
-    let memory_handler = Arc::new(crate::protocol_sources::MemoryControlHandler::new(
+    let memory_handler = Arc::new(crate::protocol_sources::MemoryControlHandler::with_store(
         event_bus,
+        agent.memory_store.clone(),
     ));
     Ok(RebuildSuccess {
         agent,

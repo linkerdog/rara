@@ -11,8 +11,8 @@ use crate::memory_store::{MemoryLabel, MemoryScope, MemorySource, MemoryStore, N
 use crate::prompt::PromptRuntimeConfig;
 use crate::protocol_sources::PromptSourceRegistry;
 use crate::runtime_control::{
-    PromptSourceControlRequest, PromptSourceLifetime, PromptSourceRegistration, SourceLayer,
-    SourceScope,
+    PromptSourceControlRequest, PromptSourceLifetime, PromptSourceRegistration, RuntimeProvenance,
+    SourceLayer, SourceScope,
 };
 use crate::runtime_event_bus::RuntimeEventBus;
 
@@ -432,16 +432,17 @@ async fn protocol_prompt_registry_feeds_prompt_runtime_for_query() {
     );
     let registry = Arc::new(PromptSourceRegistry::new(Arc::new(RuntimeEventBus::new(8))));
     registry
-        .handle_control(&PromptSourceControlRequest::Register(
-            PromptSourceRegistration {
+        .handle_control_with_provenance(
+            &PromptSourceControlRequest::Register(PromptSourceRegistration {
                 source_id: "editor-selection".to_string(),
                 scope: SourceScope::Protocol,
                 layer: SourceLayer::User,
                 budget_hint_tokens: Some(64),
                 lifetime: PromptSourceLifetime::Turns(1),
                 content: "The active editor selection is src/main.rs.".to_string(),
-            },
-        ))
+            }),
+            RuntimeProvenance::runtime(None),
+        )
         .await;
     agent.set_prompt_source_registry(registry.clone());
 
@@ -472,7 +473,7 @@ async fn protocol_prompt_registry_feeds_prompt_runtime_for_query() {
             })
     );
     assert!(
-        registry.list_prompt_sources().await.is_empty(),
+        registry.list_prompt_sources_for_query().await.is_empty(),
         "turn-limited source should be consumed after one user query"
     );
     assert!(
