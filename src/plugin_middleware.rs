@@ -106,7 +106,6 @@ fn register_plugin_hooks_blocking(
             runtime.register(
                 format!("{}-{}", plugin_name, rh.event.as_str()),
                 lifecycle,
-                format!("plugin hook: {}", plugin_name),
                 callback,
             );
 

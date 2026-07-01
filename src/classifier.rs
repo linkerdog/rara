@@ -49,73 +49,6 @@ pub struct AutoPermissionResponse {
     pub matched_rule: Option<String>,
 }
 
-// ── Background Task Status Classifier ──────────────────────────────────────────
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct BackgroundTaskClassifyRequest {
-    /// The command that was run
-    pub command: String,
-    /// The task status: running, completed, killed
-    pub status: String,
-    /// Tail of the task's output (last ~2KB)
-    pub output_tail: String,
-    /// How long the task has been running
-    pub elapsed: Option<String>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-#[serde(rename_all = "snake_case")]
-pub enum BackgroundTaskState {
-    /// Task is actively producing output
-    Working,
-    /// Task appears stuck waiting for something
-    Blocked,
-    /// Task completed successfully
-    Done,
-    /// Task failed with an error
-    Failed,
-}
-
-impl std::fmt::Display for BackgroundTaskState {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::Working => write!(f, "working"),
-            Self::Blocked => write!(f, "blocked"),
-            Self::Done => write!(f, "done"),
-            Self::Failed => write!(f, "failed"),
-        }
-    }
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-#[serde(rename_all = "snake_case")]
-pub enum BackgroundTaskTempo {
-    Active,
-    Idle,
-    Blocked,
-}
-
-impl std::fmt::Display for BackgroundTaskTempo {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::Active => write!(f, "active"),
-            Self::Idle => write!(f, "idle"),
-            Self::Blocked => write!(f, "blocked"),
-        }
-    }
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct BackgroundTaskClassifyResponse {
-    pub state: BackgroundTaskState,
-    pub tempo: BackgroundTaskTempo,
-    /// One-line status description
-    pub detail: String,
-    /// What the user needs to do to unblock (only filled when Blocked)
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub needs: Option<String>,
-}
-
 // ── Transcript Projection Helpers ──────────────────────────────────────────────
 
 /// Build a classifier prompt from the conversation messages, excluding assistant
@@ -185,29 +118,6 @@ pub fn build_classifier_messages(
     result
 }
 
-/// Build a classifier message for background task status evaluation.
-pub fn build_background_task_message(
-    request: &BackgroundTaskClassifyRequest,
-) -> crate::agent::Message {
-    let mut parts = vec![
-        format!("Command: {}", request.command),
-        format!("Status: {}", request.status),
-    ];
-
-    if let Some(ref elapsed) = request.elapsed {
-        parts.push(format!("Elapsed: {}", elapsed));
-    }
-
-    if !request.output_tail.is_empty() {
-        parts.push(format!("Recent output:\n{}", request.output_tail));
-    }
-
-    crate::agent::Message {
-        role: "user".into(),
-        content: Value::String(parts.join("\n")),
-    }
-}
-
 fn extract_text_content(content: &Value) -> Option<String> {
     if let Some(text) = content.as_str() {
         return Some(text.to_string());
@@ -235,16 +145,6 @@ pub fn parse_auto_permission_response(
     raw: &str,
 ) -> Result<AutoPermissionResponse, serde_json::Error> {
     if let Ok(resp) = serde_json::from_str::<AutoPermissionResponse>(raw) {
-        return Ok(resp);
-    }
-    serde_json::from_str(clean_json_response(raw))
-}
-
-/// Parse BackgroundTaskClassifyResponse from classifier LLM output.
-pub fn parse_background_task_response(
-    raw: &str,
-) -> Result<BackgroundTaskClassifyResponse, serde_json::Error> {
-    if let Ok(resp) = serde_json::from_str::<BackgroundTaskClassifyResponse>(raw) {
         return Ok(resp);
     }
     serde_json::from_str(clean_json_response(raw))
@@ -328,39 +228,5 @@ mod tests {
         let raw = "```json\n{\"decision\": \"ask\", \"reason\": \"network request\"}\n```";
         let resp = parse_auto_permission_response(raw).unwrap();
         assert_eq!(resp.decision, AutoPermissionDecision::Ask);
-    }
-
-    #[test]
-    fn test_parse_background_task_working() {
-        let raw = r#"{"state": "working", "tempo": "active", "detail": "Building in progress"}"#;
-        let resp = parse_background_task_response(raw).unwrap();
-        assert_eq!(resp.state, BackgroundTaskState::Working);
-        assert_eq!(resp.tempo, BackgroundTaskTempo::Active);
-    }
-
-    #[test]
-    fn test_parse_background_task_blocked() {
-        let raw = r#"{"state": "blocked", "tempo": "blocked", "detail": "Waiting for input", "needs": "Provide SSH passphrase"}"#;
-        let resp = parse_background_task_response(raw).unwrap();
-        assert_eq!(resp.state, BackgroundTaskState::Blocked);
-        assert_eq!(resp.tempo, BackgroundTaskTempo::Blocked);
-        assert_eq!(resp.needs, Some("Provide SSH passphrase".to_string()));
-    }
-
-    #[test]
-    fn test_build_background_task_message() {
-        let request = BackgroundTaskClassifyRequest {
-            command: "cargo build --release".to_string(),
-            status: "running".to_string(),
-            output_tail: "   Compiling rara v0.0.1\n   Compiling ...".to_string(),
-            elapsed: Some("30s".to_string()),
-        };
-
-        let msg = build_background_task_message(&request);
-        let prompt = msg.content.as_str().unwrap();
-        assert!(prompt.contains("cargo build --release"));
-        assert!(prompt.contains("running"));
-        assert!(prompt.contains("30s"));
-        assert!(prompt.contains("Compiling rara"));
     }
 }

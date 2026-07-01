@@ -1417,26 +1417,6 @@ Rules:
         Ok(crate::classifier::parse_auto_permission_response(&raw)?)
     }
 
-    /// Classify a background task's current state using the auxiliary model.
-    async fn classify_background_task(
-        &self,
-        request: &crate::classifier::BackgroundTaskClassifyRequest,
-    ) -> Result<crate::classifier::BackgroundTaskClassifyResponse> {
-        let instructions = "\
-You are a process observer. Given a command and its recent output tail,
-classify its state. Output exactly one JSON object with fields:
-- \"state\": \"working\", \"blocked\", \"done\", or \"failed\"
-- \"tempo\": \"active\", \"idle\", or \"blocked\"
-- \"detail\": one-line status description
-- \"needs\": what the user should do to unblock (only when state is \"blocked\", omit otherwise)
-        ";
-
-        let message = crate::classifier::build_background_task_message(request);
-
-        let raw = self.llm_backend.classify(instructions, &[message]).await?;
-        Ok(crate::classifier::parse_background_task_response(&raw)?)
-    }
-
     fn tool_call_context(&self) -> ToolCallContext {
         let context = ToolCallContext::default().with_session_id(self.session_id.clone());
         match self.cancellation_token.as_ref() {

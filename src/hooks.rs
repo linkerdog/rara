@@ -153,24 +153,6 @@ impl HookRegistry {
             .filter(|h| h.parse_status == HookParseStatus::Ok && h.phase == phase)
             .collect()
     }
-
-    /// For /context and /status: list each hook with phase, path, and parse status.
-    pub fn status_lines(&self) -> Vec<String> {
-        let mut lines = Vec::new();
-        for hook in self.hooks.values() {
-            let status = match hook.parse_status {
-                HookParseStatus::Ok => "ok",
-                HookParseStatus::ParseError => "parse_error",
-            };
-            lines.push(format!(
-                "  {}  {}  {}  (disabled)",
-                hook.phase.as_str(),
-                hook.source_path,
-                status
-            ));
-        }
-        lines
-    }
 }
 
 fn phase_ordinal(phase: HookLifecycle) -> u8 {
@@ -273,7 +255,6 @@ impl Default for HookSandbox {
 
 /// Outcome of a hook execution.
 pub struct HookOutcome {
-    pub stdout: String,
     pub stderr: String,
     pub exit_code: Option<i32>,
     pub timed_out: bool,
@@ -338,7 +319,6 @@ pub fn run_sandboxed_hook(
                     let _ = child.kill();
                     let _ = child.wait();
                     return Ok(HookOutcome {
-                        stdout: String::new(),
                         stderr: format!("hook {} timed out after {:?}", hook.id, sandbox.timeout),
                         exit_code: None,
                         timed_out: true,
@@ -350,7 +330,6 @@ pub fn run_sandboxed_hook(
     }
 
     Ok(HookOutcome {
-        stdout: String::from_utf8_lossy(&output.stdout).into_owned(),
         stderr: String::from_utf8_lossy(&output.stderr).into_owned(),
         exit_code: output.status.code(),
         timed_out: false,

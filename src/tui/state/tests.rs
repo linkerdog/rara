@@ -242,7 +242,6 @@ async fn sync_snapshot_reports_registered_runtime_hooks() {
     runtime.register(
         "plugin-pre-tool".into(),
         crate::runtime_control::HookLifecycle::PreToolUse,
-        "plugin hook".into(),
         Box::new(|_| {}),
     );
     app.hook_runtime = Some(runtime);

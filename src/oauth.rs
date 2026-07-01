@@ -45,7 +45,6 @@ impl BrowserLoginSession {
 
 #[derive(Clone)]
 pub struct OAuthManager {
-    pub config_dir: PathBuf,
     codex_home: PathBuf,
     legacy_codex_home: PathBuf,
     saved_auth_available: Arc<Mutex<Option<bool>>>,
@@ -64,19 +63,10 @@ impl OAuthManager {
         std::fs::create_dir_all(&codex_home)?;
         std::fs::create_dir_all(&legacy_codex_home)?;
         Ok(Self {
-            config_dir,
             codex_home,
             legacy_codex_home,
             saved_auth_available: Arc::new(Mutex::new(None)),
         })
-    }
-
-    pub fn codex_issuer(&self) -> &'static str {
-        ISSUER
-    }
-
-    pub fn client_id(&self) -> &'static str {
-        CLIENT_ID
     }
 
     pub fn start_browser_login(&self, open_browser: bool) -> Result<BrowserLoginSession> {
