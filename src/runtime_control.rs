@@ -89,6 +89,8 @@ pub enum SessionEvent {
     },
     ModelRequest {
         model: String,
+        /// Estimated input tokens for the outgoing request. A value of 0 means
+        /// the provider cannot report the count until the matching response.
         input_tokens: u32,
     },
     ModelResponse {

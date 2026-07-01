@@ -652,6 +652,8 @@ impl Agent {
         let model_label = self.model_event_label();
         report(AgentEvent::ModelRequest {
             model: model_label.clone(),
+            // Provider token usage is only available after the response.
+            // RuntimeControl documents 0 here as the unknown-count sentinel.
             input_tokens: 0,
         });
 
