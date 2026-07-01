@@ -277,18 +277,6 @@ pub(crate) fn startup_card_lines(app: &TuiApp, width: u16) -> Vec<Line<'static>>
     startup_card_cell(app).display_lines(width)
 }
 
-fn current_turn_exploration_summary(
-    app: &TuiApp,
-    current_turn: &[&TranscriptEntry],
-    prefer_live_label: bool,
-) -> Option<String> {
-    current_turn_exploration_summary_from_entries(
-        current_turn,
-        app.is_busy() && prefer_live_label,
-        app.runtime_phase_detail.as_deref(),
-    )
-}
-
 pub(crate) fn current_turn_exploration_summary_from_entries(
     current_turn: &[&TranscriptEntry],
     _show_live_detail: bool,
@@ -782,39 +770,6 @@ fn bulleted_markdown_message_lines(
         Span::styled("• ", Style::default().add_modifier(Modifier::DIM)),
         Span::raw("  "),
     );
-    if hidden_count > 0 {
-        lines.push(Line::from(Span::styled(
-            format!("  ... {} more line(s)", hidden_count),
-            Style::default().fg(Color::DarkGray),
-        )));
-    }
-    lines.extend(prefix_lines(
-        tail.to_vec(),
-        Span::raw("  "),
-        Span::raw("  "),
-    ));
-    lines
-}
-
-fn markdown_message_lines(
-    role: &str,
-    message: &str,
-    max_lines: usize,
-    cwd: Option<&Path>,
-) -> Vec<Line<'static>> {
-    let mut rendered = Vec::new();
-    super::markdown::append_markdown(message, None, cwd, &mut rendered);
-    let rendered_len = rendered.len();
-
-    if rendered.is_empty() {
-        return vec![Line::from(role.to_string())];
-    }
-
-    let mut lines = vec![Line::from(role.to_string())];
-    let hidden_count = truncated_line_count(rendered_len, max_lines);
-    let (head, tail) = head_tail_line_window(rendered.as_slice(), max_lines);
-    let prefixed = prefix_lines(head.to_vec(), Span::raw("  "), Span::raw("  "));
-    lines.extend(prefixed);
     if hidden_count > 0 {
         lines.push(Line::from(Span::styled(
             format!("  ... {} more line(s)", hidden_count),

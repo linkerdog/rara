@@ -310,7 +310,3 @@ fn compact_shell_approval_detail(app: &TuiApp) -> String {
         })
         .unwrap_or_default()
 }
-
-fn pending_interaction_detail_text(app: &TuiApp, kind: ActivePendingInteractionKind) -> String {
-    super::super::super::interaction_text::pending_interaction_detail_text(app, kind)
-}

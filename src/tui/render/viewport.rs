@@ -77,11 +77,6 @@ impl TranscriptViewport {
         }
     }
 
-    pub(crate) fn update_lines(&mut self, lines: Vec<Line<'static>>, width: u16) {
-        self.layout = LineLayout::compute(&lines, usize::from(width));
-        self.lines = lines;
-    }
-
     /// O(log n) scroll window using pre-computed row boundaries.
     pub(crate) fn visible_window(&self, _width: u16, height: u16) -> (Vec<Line<'static>>, u16) {
         if self.lines.is_empty() || height == 0 {
