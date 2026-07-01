@@ -14,7 +14,7 @@ serde_json = "1"
 arrow-array = "58"
 arrow-schema = "58"
 futures = "0.3"
-lancedb = "0.29"
+lancedb = "0.30"
 tokio = { version = "1", features = ["sync"] }
 
 [dev-dependencies]
