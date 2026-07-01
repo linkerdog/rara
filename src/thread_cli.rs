@@ -284,7 +284,7 @@ fn rollout_summary(thread: &ThreadSnapshot) -> RolloutSummary {
             } => {
                 summary.spawn_agent_count += 1;
                 summary.last_spawn_agent = format!(
-                    "event={} agent={} child={} name={} status={} summary={}",
+                    "event={} agent={} child={} name=\"{}\" status={} summary=\"{}\"",
                     event_id,
                     agent_id,
                     child_session_id,
@@ -314,8 +314,8 @@ fn rollout_summary(thread: &ThreadSnapshot) -> RolloutSummary {
 fn compaction_replaced_range(compaction: &crate::thread_store::CompactionRecord) -> String {
     match (compaction.replaced_start, compaction.replaced_end) {
         (Some(start), Some(end)) => format!("{start}..{end}"),
-        (Some(start), None) => format!("{start}..-"),
-        (None, Some(end)) => format!("-..{end}"),
+        (Some(start), None) => format!("{start}.."),
+        (None, Some(end)) => format!("..{end}"),
         (None, None) => "-".to_string(),
     }
 }
@@ -333,7 +333,10 @@ mod tests {
     use rara_persistence::thread_data::{PersistedTurnEntry, PersistedTurnSummary};
     use rara_state::state_db::PersistedInteraction;
 
-    use super::{format_distilled_memories, format_recent_threads, format_thread_snapshot};
+    use super::{
+        compaction_replaced_range, format_distilled_memories, format_recent_threads,
+        format_thread_snapshot,
+    };
     use crate::memory_store::{MemoryLabel, MemoryRecord, MemoryScope, MemorySource};
     use crate::thread_store::{
         CompactionRecord, RolloutItem, RolloutTurnItem, ThreadHistorySource,
@@ -436,6 +439,14 @@ mod tests {
                     },
                     entries: Vec::<PersistedTurnEntry>::new(),
                 }),
+                RolloutItem::SpawnAgent {
+                    event_id: "evt-1".to_string(),
+                    agent_id: "agent-1".to_string(),
+                    name: Some("plan reviewer".to_string()),
+                    child_session_id: "child-1".to_string(),
+                    status: "completed".to_string(),
+                    summary: Some("checked warning cleanup".to_string()),
+                },
             ],
         });
 
@@ -452,10 +463,32 @@ mod tests {
         assert!(output.contains("rollout_compaction_indexes=4"));
         assert!(output.contains("rollout_interactions=1"));
         assert!(output.contains("rollout_interaction_statuses=approval:completed"));
+        assert!(output.contains("rollout_spawn_agents=1"));
+        assert!(output.contains(
+            "rollout_last_spawn=event=evt-1 agent=agent-1 child=child-1 name=\"plan reviewer\" status=completed summary=\"checked warning cleanup\""
+        ));
         assert!(output.contains("compactions=3"));
         assert!(output.contains("compaction_replaced_range=2..5"));
         assert!(output.contains("compaction_metadata_owner=thread-recorder"));
         assert!(output.contains("compaction_recent_files=src/main.rs, src/thread_store.rs"));
+    }
+
+    #[test]
+    fn compaction_replaced_range_uses_standard_rust_range_notation() {
+        assert_eq!(
+            compaction_replaced_range(&CompactionRecord {
+                replaced_start: Some(2),
+                ..Default::default()
+            }),
+            "2.."
+        );
+        assert_eq!(
+            compaction_replaced_range(&CompactionRecord {
+                replaced_end: Some(5),
+                ..Default::default()
+            }),
+            "..5"
+        );
     }
 
     #[test]

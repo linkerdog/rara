@@ -14,6 +14,9 @@ more of the materialized thread data:
 - `ThreadStore::export_thread_markdown`, `ThreadStore::distill_thread_summary`,
   `ThreadRecorder::flush`, and the summary-record formatter remain as reserved
   contract boundaries with item-level dead-code rationale.
+- `src/thread_store.rs` was split into focused `types`, `format`, and
+  `recorder` submodules so the main materialization file stays under the
+  project source-file size limit.
 
 ## Background
 
@@ -33,6 +36,7 @@ which extracts multiple durable memory records from loaded thread markdown.
 cargo fmt
 cargo check --locked --workspace --all-targets
 cargo test --locked thread_cli::tests::
+cargo test --locked thread_store::tests::
 ```
 
 ## Follow-Ups
