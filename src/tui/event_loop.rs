@@ -66,7 +66,10 @@ pub async fn run_tui(
     app.hook_registry = Some(hook_registry);
     app.lsp_manager = Some(lsp_manager);
     app.memory_handler = Some(Arc::new(
-        crate::protocol_sources::MemoryControlHandler::new(event_bus.clone()),
+        crate::protocol_sources::MemoryControlHandler::with_store(
+            event_bus,
+            agent.memory_store.clone(),
+        ),
     ));
     app.sandbox_network_access
         .store(false, std::sync::atomic::Ordering::Relaxed);
