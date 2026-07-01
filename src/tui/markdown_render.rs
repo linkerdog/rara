@@ -15,6 +15,10 @@ use self::local_links::{
     is_local_path_like_link, render_local_link_target, should_render_link_destination,
 };
 use crate::tui::highlight::highlight_code_to_lines;
+use crate::tui::theme::{
+    MD_BLOCK_QUOTE, MD_BOLD, MD_CODE, MD_HEADING, MD_ITALIC, MD_LINK, MD_LIST_BULLET, TEXT_MUTED,
+    TEXT_SECONDARY,
+};
 
 #[derive(Default)]
 struct MarkdownStyles {
@@ -40,23 +44,23 @@ struct MarkdownStyles {
 impl MarkdownStyles {
     fn new() -> Self {
         Self {
-            h1: Style::new().bold().underlined(),
-            h2: Style::new().bold(),
-            h3: Style::new().bold().italic(),
-            h4: Style::new().italic(),
-            h5: Style::new().italic(),
-            h6: Style::new().italic(),
-            code: Style::new().cyan(),
-            emphasis: Style::new().italic(),
-            strong: Style::new().bold(),
+            h1: Style::new().fg(MD_HEADING).bold().underlined(),
+            h2: Style::new().fg(MD_HEADING).bold(),
+            h3: Style::new().fg(MD_HEADING).bold().italic(),
+            h4: Style::new().fg(MD_HEADING).italic(),
+            h5: Style::new().fg(MD_HEADING).italic(),
+            h6: Style::new().fg(MD_HEADING).italic(),
+            code: Style::new().fg(MD_CODE),
+            emphasis: Style::new().fg(MD_ITALIC).italic(),
+            strong: Style::new().fg(MD_BOLD).bold(),
             strikethrough: Style::new().crossed_out(),
-            ordered_list_marker: Style::new().light_blue(),
-            unordered_list_marker: Style::new(),
-            link: Style::new().cyan().underlined(),
-            blockquote: Style::new().green(),
-            code_block_lang_tag: Style::new().dark_gray(),
+            ordered_list_marker: Style::new().fg(MD_LIST_BULLET),
+            unordered_list_marker: Style::new().fg(MD_LIST_BULLET),
+            link: Style::new().fg(MD_LINK).underlined(),
+            blockquote: Style::new().fg(MD_BLOCK_QUOTE),
+            code_block_lang_tag: Style::new().fg(TEXT_SECONDARY),
             task_list_marker: Style::new().bold(),
-            footnote: Style::new(),
+            footnote: Style::new().fg(TEXT_MUTED),
         }
     }
 }

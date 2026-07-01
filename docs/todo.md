@@ -21,6 +21,11 @@ Active backlog only. Keep this file small and current.
 ## TUI / UX
 
 - [ ] Refactor ~7 large methods out of `impl TuiApp` to enable file split.
+- [ ] Introduce an opencode-style configurable TUI theme token schema instead
+      of static unused palette constants. Wire markdown, diff, syntax
+      highlighting, picker, and overlay renderers through semantic theme tokens;
+      for syntax highlighting, define how the app theme maps to or selects the
+      active `syntect` theme.
 - [x] Sidebar Plan replaces Todo (PR #597)
 - [x] Approval dock above composer (PR #591, #594, #599)
 - [x] Mouse text selection — drag-select + clipboard copy

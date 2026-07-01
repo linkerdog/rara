@@ -16,7 +16,7 @@ use crate::tui::plan_display::updated_plan_lines;
 use crate::tui::queued_input::{
     QueuedFollowUpSection, pending_follow_up_heading, queued_follow_up_heading,
 };
-use crate::tui::render::diff::render_patch_preview;
+use crate::tui::render::diff::render_message_diff_preview;
 use crate::tui::render::{
     formatted_message_lines, prefixed_message_lines, prefixed_tail_message_lines,
     rendered_markdown_lines, section_label,
@@ -73,17 +73,7 @@ impl<'a> MessageCell<'a> {
 
 impl HistoryCell for MessageCell<'_> {
     fn display_lines(&self, width: u16) -> Vec<Line<'static>> {
-        if self.message.contains("*** Begin Patch") {
-            let mut lines = Vec::new();
-            if !self.role.is_empty() {
-                lines.push(Line::from(vec![Span::styled(
-                    self.role.to_string(),
-                    Style::default()
-                        .fg(TEXT_SECONDARY)
-                        .add_modifier(Modifier::ITALIC),
-                )]));
-            }
-            lines.extend(render_patch_preview(self.message, width));
+        if let Some(lines) = render_message_diff_preview(Some(self.role), self.message, width) {
             return lines;
         }
         if matches!(self.window, MessageWindow::Tail) {

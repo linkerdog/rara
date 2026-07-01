@@ -256,6 +256,60 @@ fn active_turn_cell_renders_terminal_result_as_terminal_cell() {
 }
 
 #[test]
+fn active_turn_cell_renders_latest_tool_result_diff_preview() {
+    let temp = tempdir().unwrap();
+    let mut app = TuiApp::new(ConfigManager {
+        path: temp.path().join("config.json"),
+    })
+    .expect("build tui app");
+    app.runtime_phase = RuntimePhase::RunningTool;
+    app.active_turn = TranscriptTurn {
+        thinking_duration: None,
+        entries: vec![
+            TranscriptEntry {
+                role: "You".into(),
+                message: "Edit the file".into(),
+                payload: None,
+            },
+            TranscriptEntry {
+                role: "Tool".into(),
+                message: "replace src/main.rs".into(),
+                payload: None,
+            },
+            TranscriptEntry {
+                role: "Tool Result".into(),
+                message: [
+                    "replace src/main.rs",
+                    "replacements=1 line_delta=0",
+                    "diff:",
+                    "*** Begin Patch",
+                    "*** Update File: src/main.rs",
+                    "@@",
+                    "-old",
+                    "+new",
+                    "*** End Patch",
+                ]
+                .join("\n"),
+                payload: None,
+            },
+        ],
+    };
+
+    let rendered = ActiveTurnCell::new(&app, Some(Path::new(".")))
+        .display_lines(100)
+        .into_iter()
+        .map(|line| line.to_string())
+        .collect::<Vec<_>>()
+        .join("\n");
+
+    assert!(rendered.contains("Tool Result"));
+    assert!(rendered.contains("replace src/main.rs"));
+    assert!(rendered.contains("Edited src/main.rs"));
+    assert!(rendered.contains("- old"));
+    assert!(rendered.contains("+ new"));
+}
+
+#[test]
 fn active_turn_cell_renders_typed_terminal_event_as_terminal_cell() {
     let temp = tempdir().unwrap();
     let mut app = TuiApp::new(ConfigManager {
