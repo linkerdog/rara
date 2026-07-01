@@ -193,7 +193,10 @@ impl TuiApp {
         let fallback = self
             .agent_markdown_stream
             .take()
-            .map(|stream| stream.sanitized_raw_text())
+            .map(|mut stream| {
+                stream.finalize_display_lines();
+                stream.sanitized_raw_text()
+            })
             .filter(|text| !text.is_empty());
         let Some(message) = final_message.or(fallback) else {
             return;

@@ -121,6 +121,8 @@ pub(super) fn codex_auth_is_available(app: &TuiApp, oauth_manager: &OAuthManager
     oauth_manager.has_saved_auth().is_ok_and(|saved| saved)
 }
 
+/// Reserved for wiring Codex model catalog refresh into active picker flow (docs/todo.md).
+#[allow(dead_code)]
 pub(super) async fn refresh_codex_model_picker(
     app: &mut TuiApp,
     oauth_manager: &OAuthManager,

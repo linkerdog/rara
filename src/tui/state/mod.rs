@@ -1000,6 +1000,8 @@ impl TuiApp {
             .unwrap_or(0);
     }
 
+    /// Reserved for wiring Codex model catalog refresh into active picker flow (docs/todo.md).
+    #[allow(dead_code)]
     pub fn set_codex_model_options(&mut self, options: Vec<CodexModelOption>) {
         self.codex_model_options = options;
         self.model_picker_idx = self.selected_preset_idx();
@@ -1100,10 +1102,6 @@ impl TuiApp {
             .as_deref()
             .is_none_or(|value| value.trim().is_empty());
         missing_api || missing_base_url || missing_model
-    }
-
-    pub fn openai_endpoint_kind_count(&self) -> usize {
-        openai_profile_setup_kinds().len()
     }
 
     pub fn selected_openai_setup_kind(&self) -> OpenAiEndpointKind {

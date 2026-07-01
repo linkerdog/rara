@@ -238,6 +238,8 @@ impl OAuthManager {
         self.clear_saved_auth_cache();
     }
 
+    /// Reserved for Codex model catalog refresh wiring (docs/todo.md).
+    #[allow(dead_code)]
     pub fn codex_home(&self) -> &Path {
         self.codex_home.as_path()
     }

@@ -541,6 +541,8 @@ pub(super) fn start_oauth_task(
     oauth::start_oauth_task(app, oauth_manager, mode);
 }
 
+/// Reserved for Gemini Code Assist OAuth connection from the TUI (docs/todo.md).
+#[allow(dead_code)]
 pub(super) fn start_google_oauth_task(
     app: &mut TuiApp,
     oauth_manager: Arc<crate::google_oauth::GoogleOAuthManager>,

@@ -81,6 +81,9 @@ Active backlog only. Keep this file small and current.
 - [ ] Wire Codex model catalog refresh into the active TUI provider/model
       selection flow, or remove the catalog loader and stored
       `codex_model_options` state if Codex presets stay static.
+- [ ] Wire Gemini Code Assist OAuth login into the TUI provider connection
+      flow, or remove the Google OAuth task surface if Gemini remains API-key
+      only in the terminal UI.
 
 ## Long-term
 

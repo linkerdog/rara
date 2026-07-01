@@ -21,11 +21,6 @@ impl MarkdownStreamCollector {
         }
     }
 
-    pub fn clear(&mut self) {
-        self.buffer.clear();
-        self.committed_line_count = 0;
-    }
-
     pub fn push_delta(&mut self, delta: &str) {
         self.buffer.push_str(delta);
     }
@@ -73,10 +68,15 @@ impl MarkdownStreamCollector {
     }
 
     pub fn finalize_and_drain(&mut self) -> Vec<Line<'static>> {
+        if self.buffer.is_empty() {
+            return Vec::new();
+        }
+
         let mut source = self.buffer.clone();
         if !source.ends_with('\n') {
             source.push('\n');
         }
+
         let mut rendered = Vec::new();
         markdown::append_markdown(&source, self.width, Some(self.cwd.as_path()), &mut rendered);
         let out = if self.committed_line_count >= rendered.len() {
@@ -84,7 +84,9 @@ impl MarkdownStreamCollector {
         } else {
             rendered[self.committed_line_count..].to_vec()
         };
-        self.clear();
+
+        self.buffer.clear();
+        self.committed_line_count = 0;
         out
     }
 }
@@ -107,13 +109,6 @@ mod tests {
     }
 
     #[test]
-    fn finalize_commits_partial_line() {
-        let mut collector = MarkdownStreamCollector::new(None, &test_cwd());
-        collector.push_delta("Partial");
-        assert_eq!(collector.finalize_and_drain().len(), 1);
-    }
-
-    #[test]
     fn preview_only_returns_uncommitted_tail() {
         let mut collector = MarkdownStreamCollector::new(None, &test_cwd());
         collector.push_delta("Hello\nWorld");
@@ -121,5 +116,14 @@ mod tests {
         assert_eq!(committed.len(), 1);
         let preview = collector.preview_lines();
         assert_eq!(preview.len(), 1);
+    }
+
+    #[test]
+    fn finalize_commits_partial_line() {
+        let mut collector = MarkdownStreamCollector::new(None, &test_cwd());
+        collector.push_delta("Line without newline");
+        let out = collector.finalize_and_drain();
+        assert_eq!(out.len(), 1);
+        assert!(collector.preview_lines().is_empty());
     }
 }
