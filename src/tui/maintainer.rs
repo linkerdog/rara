@@ -39,10 +39,6 @@ impl TuiMaintainer {
         self.agent.as_ref()
     }
 
-    pub(super) fn agent_mut(&mut self) -> &mut Option<Agent> {
-        &mut self.agent
-    }
-
     /// Split borrow so callers that need independent `&mut TuiApp` and
     /// `&mut Option<Agent>` can still use them while the maintainer
     /// owns both.
