@@ -7,7 +7,6 @@ use std::sync::Arc;
 
 use super::state::{LocalCommand, OAuthLoginMode, TuiApp};
 use crate::agent::{Agent, BashApprovalDecision};
-use crate::google_oauth::GoogleOAuthManager;
 use crate::oauth::OAuthManager;
 
 pub async fn execute_local_command(
@@ -58,25 +57,10 @@ pub fn start_oauth_task(app: &mut TuiApp, oauth_manager: Arc<OAuthManager>, mode
     tasks::start_oauth_task(app, oauth_manager, mode);
 }
 
-pub fn start_google_oauth_task(
-    app: &mut TuiApp,
-    oauth_manager: Arc<GoogleOAuthManager>,
-    mode: OAuthLoginMode,
-) {
-    tasks::start_google_oauth_task(app, oauth_manager, mode);
-}
-
 pub fn start_deepseek_model_list_task(app: &mut TuiApp) {
     tasks::start_deepseek_model_list_task(app);
 }
 
 pub fn start_kimi_model_list_task(app: &mut TuiApp) {
     tasks::start_kimi_model_list_task(app);
-}
-
-pub async fn finish_running_task_if_ready(
-    app: &mut TuiApp,
-    agent_slot: &mut Option<Agent>,
-) -> anyhow::Result<()> {
-    tasks::finish_running_task_if_ready(app, agent_slot).await
 }

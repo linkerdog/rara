@@ -20,6 +20,7 @@ pub enum HookLifecycle {
     MemoryQuery,
     Stop,
     PreCompact,
+    PostCompact,
 }
 
 impl HookLifecycle {
@@ -34,6 +35,7 @@ impl HookLifecycle {
             Self::MemoryQuery => "MemoryQuery",
             Self::Stop => "Stop",
             Self::PreCompact => "PreCompact",
+            Self::PostCompact => "PostCompact",
         }
     }
 
@@ -46,6 +48,8 @@ impl HookLifecycle {
             "pre-tool-use" | "pre_tool_use" => Some(Self::PreToolUse),
             "post-tool-use" | "post_tool_use" => Some(Self::PostToolUse),
             "memory-query" | "memory_query" => Some(Self::MemoryQuery),
+            "pre-compact" | "pre_compact" => Some(Self::PreCompact),
+            "post-compact" | "post_compact" => Some(Self::PostCompact),
             "stop" => Some(Self::Stop),
             _ => None,
         }
@@ -812,13 +816,26 @@ fn dynamic_system_prompt_sections(
         .iter()
         .find(|source| matches!(source.kind, PromptSourceKind::LocalMemory))
         .map(|memory| format!("## {}\n{}", memory.label, memory.content));
+
+    let project_context_block = match (instruction_block, memory_block) {
+        (None, None) => None,
+        (Some(instructions), None) => Some(format!(
+            "## Project Context\n\n### Project Instructions\n\n{instructions}"
+        )),
+        (None, Some(memory)) => Some(format!(
+            "## Project Context\n\n### Session Memory\n\n{memory}"
+        )),
+        (Some(instructions), Some(memory)) => Some(format!(
+            "## Project Context\n\n### Project Instructions\n\n{instructions}\n\n### Session Memory\n\n{memory}"
+        )),
+    };
+
     let protocol_prompt_sources_block = render_protocol_prompt_sources_section(sources);
     let skills_block = render_available_skills_section(available_skills);
     let language_prompt = crate::languages::get_language_prompt(&cwd);
 
     vec![
-        PromptSection::optional("instructions", instruction_block),
-        PromptSection::optional("memory", memory_block),
+        PromptSection::optional("project_context", project_context_block),
         PromptSection::optional("protocol_prompt_sources", protocol_prompt_sources_block),
         PromptSection::optional("skills", skills_block),
         PromptSection::optional("language_best_practices", language_prompt),
@@ -871,7 +888,12 @@ fn render_environment_context(cwd: &str, branch: &str) -> String {
         .unwrap_or_else(|| "unknown".to_string());
 
     format!(
-        "<environment_context>\n  <cwd>{}</cwd>\n  <shell>{}</shell>\n  <git_branch>{}</git_branch>\n</environment_context>",
+        "<environment_context>\n  \
+         <cwd>{}</cwd>\n  \
+         <shell>{}</shell>\n  \
+         <git_branch>{}</git_branch>\n  \
+         Note: This is a snapshot at conversation start and will not update.\n\
+         </environment_context>",
         escape_xml_text(cwd),
         escape_xml_text(&shell),
         escape_xml_text(branch),

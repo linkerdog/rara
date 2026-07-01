@@ -282,7 +282,9 @@ impl TuiApp {
     }
 
     /// Realtime per-entry write to the live log (Claude Code style).
-    /// Called from push_entry so resume can recover partial turns.
+    /// Will be called from push_entry so resume can recover partial turns.
+    /// Reserved for restoring partial-turn resume recovery (docs/todo.md).
+    #[allow(dead_code)]
     pub(crate) fn record_entry_realtime(&self, entry: &PersistedTurnEntry) {
         let Some((root_dir, session_id)) = self.live_log_context() else {
             return;
@@ -297,6 +299,8 @@ impl TuiApp {
     }
 
     /// Clear the live log after a turn is committed.
+    /// Reserved for restoring partial-turn resume recovery (docs/todo.md).
+    #[allow(dead_code)]
     pub(crate) fn clear_live_log(&self) {
         let Some((root_dir, session_id)) = self.live_log_context() else {
             return;

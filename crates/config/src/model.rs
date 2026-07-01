@@ -9,11 +9,12 @@ use secrecy::{ExposeSecret, SecretString};
 use serde::{Deserialize, Serialize};
 
 use crate::defaults::{
-    DEFAULT_CODEX_BASE_URL, DEFAULT_CODEX_MODEL, DEFAULT_DEEPSEEK_BASE_URL, DEFAULT_DEEPSEEK_MODEL,
-    DEFAULT_GEMINI_BASE_URL, DEFAULT_KIMI_BASE_URL, DEFAULT_KIMI_MODEL,
-    DEFAULT_OPENAI_COMPATIBLE_BASE_URL, DEFAULT_OPENAI_COMPATIBLE_MODEL,
-    DEFAULT_OPENROUTER_BASE_URL, DEFAULT_OPENROUTER_MODEL, DEFAULT_REASONING_SUMMARY,
-    should_apply_codex_base_url, should_reset_codex_model,
+    DEFAULT_CODEX_BASE_URL, DEFAULT_CODEX_MODEL, DEFAULT_CONSOLIDATION_MIN_HOURS,
+    DEFAULT_CONSOLIDATION_MIN_SESSIONS, DEFAULT_CONSOLIDATION_SCAN_INTERVAL_MINUTES,
+    DEFAULT_DEEPSEEK_BASE_URL, DEFAULT_DEEPSEEK_MODEL, DEFAULT_GEMINI_BASE_URL,
+    DEFAULT_KIMI_BASE_URL, DEFAULT_KIMI_MODEL, DEFAULT_OPENAI_COMPATIBLE_BASE_URL,
+    DEFAULT_OPENAI_COMPATIBLE_MODEL, DEFAULT_OPENROUTER_BASE_URL, DEFAULT_OPENROUTER_MODEL,
+    DEFAULT_REASONING_SUMMARY, should_apply_codex_base_url, should_reset_codex_model,
 };
 use crate::mcp::{McpRegistry, load_mcp_registry};
 use crate::migration::migrate_reasoning_summary;
@@ -25,7 +26,7 @@ use crate::serde_helpers::{normalize_optional_string, normalize_reasoning_summar
 ///
 /// Consolidation runs as a background sub-agent that reads session logs,
 /// extracts durable facts, and merges them into the project memory index.
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(default)]
 pub struct MemoryConsolidationConfig {
     /// Model name.  `"inherit"` (default) uses the main model.
@@ -40,6 +41,24 @@ pub struct MemoryConsolidationConfig {
     pub min_new_sessions: u64,
     /// Minimum scan interval in minutes.
     pub scan_interval_minutes: u64,
+}
+
+impl Default for MemoryConsolidationConfig {
+    fn default() -> Self {
+        Self {
+            model: default_consolidation_model(),
+            reasoning_effort: default_consolidation_reasoning_effort(),
+            min_hours_since_last: DEFAULT_CONSOLIDATION_MIN_HOURS,
+            min_new_sessions: DEFAULT_CONSOLIDATION_MIN_SESSIONS,
+            scan_interval_minutes: DEFAULT_CONSOLIDATION_SCAN_INTERVAL_MINUTES,
+        }
+    }
+}
+
+impl MemoryConsolidationConfig {
+    pub fn is_default(&self) -> bool {
+        *self == Self::default()
+    }
 }
 
 fn default_consolidation_model() -> String {
@@ -209,6 +228,8 @@ pub struct RaraConfig {
         skip_serializing_if = "SandboxWorkspaceWriteConfig::is_default"
     )]
     pub sandbox_workspace_write: SandboxWorkspaceWriteConfig,
+    #[serde(default, skip_serializing_if = "MemoryConsolidationConfig::is_default")]
+    pub memory_consolidation: MemoryConsolidationConfig,
 }
 
 impl RaraConfig {

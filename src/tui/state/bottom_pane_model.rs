@@ -62,12 +62,6 @@ impl BottomPaneModel {
 
     // ── Paste-burst ──────────────────────────────────────────────────
 
-    /// Whether the composer is currently in a paste burst — i.e. chars are
-    /// being accumulated rather than applied one at a time.
-    pub fn is_in_paste_burst(&self) -> bool {
-        self.paste_burst_buffer.is_some()
-    }
-
     /// Absorb a full paste chunk into the burst buffer rather than inserting
     /// char-by-char through the normal input path.
     pub fn handle_paste_burst_chunk(&mut self, chunk: &str) {
@@ -144,14 +138,6 @@ impl BottomPaneModel {
         }
         // Also handle legacy single-entry format for safety
         self.large_paste_counter = 0;
-    }
-
-    pub fn has_queued_follow_up_messages(&self) -> bool {
-        !self.queued_follow_up_messages.is_empty()
-    }
-
-    pub fn has_pending_follow_up_messages(&self) -> bool {
-        !self.pending_follow_up_messages.is_empty()
     }
 }
 

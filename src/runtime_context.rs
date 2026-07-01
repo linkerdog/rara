@@ -141,7 +141,8 @@ pub(crate) async fn initialize_rara_context_with_local_embedding_bootstrap(
         local_embedding_bootstrap,
         embedding_progress,
         &mut embedding_warnings,
-    )?;
+    )
+    .await?;
 
     let workspace = Arc::new(WorkspaceMemory::new()?);
     let vdb = Arc::new(VectorDB::new(&vector_db_uri_for_workspace(&workspace)));
@@ -196,7 +197,6 @@ pub(crate) async fn initialize_rara_context_with_local_embedding_bootstrap(
     let mcp_manager = Arc::new(McpConnectionManager::new(
         mcp_registry.clone(),
         event_bus.clone(),
-        mcp_tool_cache.clone(),
     ));
 
     // Discover file-based hooks and inject into prompt config
@@ -289,7 +289,7 @@ pub(crate) fn config_requires_local_embedding_sidecar(config: &RaraConfig) -> bo
     )
 }
 
-fn build_embedding_backends(
+async fn build_embedding_backends(
     config: &RaraConfig,
     chat_backend: Arc<dyn LlmBackend>,
     bootstrap: LocalEmbeddingBootstrap,
@@ -304,7 +304,17 @@ fn build_embedding_backends(
         }
         EmbeddingRoute::LocalModelServer => {
             let rara_home = ensure_rara_home_dir()?;
-            let status = local_model_server_status_for_bootstrap(&rara_home, bootstrap, &progress);
+            // `local_model_server_status_for_bootstrap` uses a `reqwest::blocking` client, which
+            // spins up and drops its own Tokio runtime. Dropping a runtime inside the async context
+            // would panic, so run the probe on a blocking thread where that is allowed.
+            let status = {
+                let rara_home = rara_home.clone();
+                tokio::task::spawn_blocking(move || {
+                    local_model_server_status_for_bootstrap(&rara_home, bootstrap, &progress)
+                })
+                .await
+                .context("join local model server bootstrap status")?
+            };
             if status.state == crate::local_model_server::LocalModelServerState::Error {
                 warnings.push(format!(
                     "local embedding backend bootstrap reported: {}",
@@ -355,10 +365,6 @@ fn report_local_embedding_progress(
     if let Some(callback) = progress {
         callback(message.into());
     }
-}
-
-pub(crate) async fn build_backend(config: &RaraConfig) -> Result<Box<dyn LlmBackend>> {
-    build_backend_with_progress(config, None).await
 }
 
 pub(crate) async fn build_backend_with_progress(

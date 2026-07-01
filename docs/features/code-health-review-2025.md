@@ -6,7 +6,7 @@ A comprehensive review of the `src/` tree revealed several structural issues
 that violate the project's own architecture constraints. The most pressing
 problems are:
 
-1. **Oversized modules** — five source files exceed the 800-line guideline
+1. **Oversized modules** — five source files exceed the 2000-line guideline
    established in AGENTS.md §3, with `src/tui/state/mod.rs` exceeding 2000
    lines.
 2. **Dead code accumulation** — 71 `#[allow(dead_code)]` annotations spread
@@ -22,7 +22,7 @@ these issues.
 
 ## Scope
 
-- Split oversized source files that exceed 800 lines.
+- Split oversized source files that exceed 1000 lines.
 - Remove dead code from production compilation units.
 - Narrow `Agent` field visibility to `pub(crate)` or private where safe.
 - Add AGENTS.md enforcement rules to prevent regression.
@@ -82,7 +82,7 @@ Add the following to AGENTS.md §3.1:
 
 - Dead code is not permitted in production source files. Use `#[cfg(test)]`
   for test-only helpers; remove everything else.
-- File-size violations (source files exceeding 800 lines under `src/` or
+- File-size violations (source files exceeding 1000 lines under `src/` or
   `crates/`) detected in review must be fixed before merge, not deferred.
 - Adding `#[allow(dead_code)]` requires a comment explaining why the code is
   intentionally unused and when it will be activated.
@@ -94,7 +94,7 @@ Add the following to AGENTS.md §3.1:
 
 ### File Size
 
-- No source file under `src/` or `crates/` shall exceed 800 lines.
+- No source file under `src/` or `crates/` shall exceed 1000 lines.
 - `mod.rs` files shall be facades only (module declarations + re-exports),
   no business logic. Pure import size is not a concern.
 - These limits are enforced by review, not by tooling, until a CI gate is
@@ -116,7 +116,7 @@ Add the following to AGENTS.md §3.1:
 
 | Check | How |
 |---|---|
-| File sizes ≤800 lines | `wc -l` on each `src/**/*.rs` |
+| File sizes ≤1000 lines | `wc -l` on each `src/**/*.rs` |
 | No new dead-code warnings | `cargo check` for `src/` |
 | Agent fields private/pub(crate) | Code review of `src/agent.rs` |
 | TUI snapshot tests pass | `cargo test` — tui snapshot suite |

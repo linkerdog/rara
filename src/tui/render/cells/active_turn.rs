@@ -175,7 +175,14 @@ impl ActiveCell for ActiveTurnCell<'_> {
                         cells.push(Box::new(ExploringCell::new(summary, turn_live)));
                     }
                     OrderedActiveSegment::Progress(role, messages) => {
-                        push_progress_group(&mut cells, *role, messages.clone(), turn_live);
+                        push_progress_group(
+                            &mut cells,
+                            *role,
+                            messages.clone(),
+                            turn_live,
+                            self.app.thinking_collapsed,
+                            None,
+                        );
                     }
                     OrderedActiveSegment::Agent(message) => {
                         cells.push(Box::new(MessageCell::new(
@@ -202,11 +209,20 @@ impl ActiveCell for ActiveTurnCell<'_> {
                     ProgressRole::Thinking => {}
                 }
             }
+            let thinking_dur = self
+                .app
+                .active_live
+                .thinking_started_at
+                .map(|start| start.elapsed());
+            // Live streaming thinking is always expanded (tail mode).
+            // The toggle only affects committed (finalized) thinking blocks.
             push_live_events(
                 &mut cells,
                 live_events,
                 streaming_thinking_lines.filter(|_| has_live_thinking),
                 true,
+                false,
+                thinking_dur,
             );
         }
 
@@ -217,7 +233,14 @@ impl ActiveCell for ActiveTurnCell<'_> {
             .then(|| explicit_progress_entry_groups(current_turn.iter().copied()));
         if let Some(groups) = explicit_progress_groups.as_ref() {
             for (role, messages) in groups {
-                push_progress_group(&mut cells, *role, messages.clone(), turn_live);
+                push_progress_group(
+                    &mut cells,
+                    *role,
+                    messages.clone(),
+                    turn_live,
+                    self.app.thinking_collapsed,
+                    None,
+                );
             }
         }
         let has_explicit_progress_groups = explicit_progress_groups
@@ -358,10 +381,31 @@ impl ActiveCell for ActiveTurnCell<'_> {
             if let Some(shortcut_text) = pending_interaction_shortcut_text(pending.kind) {
                 request_lines.push(shortcut_text.to_string());
             }
-            cells.push(Box::new(PendingInteractionCell::new(
+            // Skip transcript rendering for interaction kinds that have a dock
+            // panel rendered above the composer.  ShellApproval and plan
+            // interactions now show action buttons in the dock instead of
+            // numbered options in the transcript.
+            let shows_dock = matches!(
                 pending.kind,
-                request_lines,
-            )));
+                ActivePendingInteractionKind::ShellApproval
+                    | ActivePendingInteractionKind::PlanApproval
+                    | ActivePendingInteractionKind::PlanningQuestion
+            );
+            if !shows_dock {
+                cells.push(Box::new(PendingInteractionCell::new(
+                    pending.kind,
+                    request_lines,
+                )));
+            } else {
+                // Still render a compact status line so the transcript has
+                // a record of the interaction being pending.
+                cells.push(Box::new(PendingInteractionCell::new(
+                    pending.kind,
+                    vec![format!(
+                        "Responding via dock — use keys shown above the input."
+                    )],
+                )));
+            }
         }
 
         let queued_sections = queued_follow_up_sections(

@@ -40,16 +40,6 @@ impl PlanStepKind {
     }
 }
 
-pub(crate) fn status_plan_text(app: &TuiApp) -> String {
-    if !should_show_updated_plan(app) {
-        return "No active structured plan.".to_string();
-    }
-    updated_plan_text(
-        app.snapshot.plan_steps.as_slice(),
-        app.snapshot.plan_explanation.as_deref(),
-    )
-}
-
 pub(crate) fn should_show_updated_plan(app: &TuiApp) -> bool {
     if app.snapshot.plan_steps.is_empty() {
         return false;
@@ -61,6 +51,7 @@ pub(crate) fn should_show_updated_plan(app: &TuiApp) -> bool {
     ) || app.has_pending_plan_approval()
 }
 
+#[cfg(test)]
 pub(crate) fn updated_plan_text(steps: &[(String, String)], explanation: Option<&str>) -> String {
     if steps.is_empty() {
         return "No structured plan captured yet.".to_string();

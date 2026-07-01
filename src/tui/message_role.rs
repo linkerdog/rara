@@ -22,25 +22,6 @@ pub(crate) enum MessageRole {
 }
 
 impl MessageRole {
-    fn as_str(self) -> &'static str {
-        match self {
-            Self::User => "You",
-            Self::Agent => "Agent",
-            Self::System => "System",
-            Self::Runtime => "Runtime",
-            Self::Responding => "Responding",
-            Self::Tool => "Tool",
-            Self::ToolResult => "Tool Result",
-            Self::ToolError => "Tool Error",
-            Self::ToolProgress => "Tool Progress",
-            Self::Exploring => "Exploring",
-            Self::Planning => "Planning",
-            Self::Running => "Running",
-            Self::Thinking => "Thinking",
-            Self::Todo => "Todo",
-        }
-    }
-
     pub(crate) fn try_from_str(role: &str) -> Option<Self> {
         match role {
             "You" => Some(Self::User),

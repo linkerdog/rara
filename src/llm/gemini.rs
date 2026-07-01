@@ -27,6 +27,9 @@ const AI_STUDIO_ENDPOINT: &str = "https://generativelanguage.googleapis.com/v1be
 #[derive(Debug, Clone)]
 pub enum GeminiAuthMode {
     /// Google AI Studio — API key in query param or Bearer.
+    /// Reserved until docs/todo.md decides whether `provider=gemini` uses this
+    /// native API-key backend or the current OpenAI-compatible endpoint.
+    #[allow(dead_code)]
     ApiKey(String),
     /// Google Code Assist — OAuth access token.
     OAuth { oauth: GoogleOAuthManager },
@@ -42,6 +45,9 @@ pub struct GeminiBackend {
 }
 
 impl GeminiBackend {
+    /// Reserved for the native Gemini AI Studio API-key backend; docs/todo.md
+    /// tracks whether `provider=gemini` should wire this path.
+    #[allow(dead_code)]
     pub fn new(api_key: String, model: String) -> Result<Self> {
         Ok(Self {
             auth: GeminiAuthMode::ApiKey(api_key),

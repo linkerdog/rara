@@ -10,6 +10,7 @@
 //! terminal side effects. Raw payloads may still be persisted elsewhere when
 //! needed; this module defines the display contract only.
 
+#[cfg(test)]
 use ratatui::text::{Line, Span};
 
 pub(crate) fn sanitize_display_text(input: &str) -> String {
@@ -44,6 +45,7 @@ pub(crate) fn sanitize_display_line(input: &str) -> String {
         .to_string()
 }
 
+#[cfg(test)]
 pub(crate) fn sanitize_display_line_segments(line: &Line<'_>) -> Line<'static> {
     let spans = line
         .spans

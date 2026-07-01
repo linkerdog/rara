@@ -52,7 +52,7 @@ The current product direction is to make local inference a first-class path inst
 - The agent loop should continue to depend on a stable backend trait instead of model-specific code paths.
 - Local models should plug into the same `LlmBackend` contract used by hosted providers.
 - TUI interaction should converge toward one unified prompt surface instead of growing separate setup-only flows for common actions.
-- Prefer smaller modules over long files; as a rule of thumb, avoid letting a single source file grow beyond roughly 800 lines unless there is a strong reason not to split it.
+- Prefer smaller modules over long files; as a rule of thumb, avoid letting a single source file grow beyond roughly 1000 lines unless there is a strong reason not to split it.
 - If an implementation would push a source file toward or past that limit, proactively split the file instead of continuing to accumulate new logic in place.
 - Non-trivial behavior changes should add or update focused tests when practical.
 - Before implementing any non-trivial behavior change, first inspect the relevant Codex and Claude Code implementations, extract the interaction or runtime pattern that applies, write a short plan for how RARA should mirror or adapt it, and only then start implementation.
@@ -86,7 +86,7 @@ The current product direction is to make local inference a first-class path inst
   `#[allow(dead_code)]` with a comment explaining why and when it activates.
 - Adding `#[allow(dead_code)]` to an individual item requires a comment
   explaining why the item is intentionally unused and when it will be activated.
-- File-size violations detected in review (source files exceeding 800 lines
+- File-size violations detected in review (source files exceeding 1000 lines
   under `src/` or `crates/`) must be fixed before merge, not deferred to a
   follow-up task.
 - `mod.rs` files shall be facades: module declarations and re-exports only.

@@ -5,7 +5,9 @@ use crate::context::assembler::latest_user_request;
 use crate::context::{
     RETRIEVED_THREAD_CONTEXT_KIND, RETRIEVED_WORKSPACE_MEMORY_KIND, RetrievedMemoryCandidate,
 };
-use crate::llm::{EmbeddingBackend, EmbeddingInputKind, LlmBackend, LlmEmbeddingBackend};
+use crate::llm::{EmbeddingBackend, EmbeddingInputKind};
+#[cfg(test)]
+use crate::llm::{LlmBackend, LlmEmbeddingBackend};
 use crate::memory_store::{MemoryRecordSearchHit, MemoryStore};
 use crate::session::SessionManager;
 use crate::session_context::SessionContextSearchHit;
@@ -21,6 +23,7 @@ pub(crate) struct MemoryRetrievalOrchestrator {
 }
 
 impl MemoryRetrievalOrchestrator {
+    #[cfg(test)]
     pub(crate) fn new(
         backend: Arc<dyn LlmBackend>,
         session_manager: Arc<SessionManager>,

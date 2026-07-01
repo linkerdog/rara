@@ -74,7 +74,6 @@ async fn busy_submit_queues_follow_up_message() {
         crate::mcp_connection_manager::McpConnectionManager::new(
             Arc::new(crate::config::McpRegistry::empty()),
             bus.clone(),
-            crate::mcp_tool_cache::McpToolCache::new(),
         ),
     ));
     app.memory_handler = Some(Arc::new(
@@ -149,7 +148,6 @@ fn status_overlay_shortcuts_switch_tabs() {
         crate::mcp_connection_manager::McpConnectionManager::new(
             Arc::new(crate::config::McpRegistry::empty()),
             bus.clone(),
-            crate::mcp_tool_cache::McpToolCache::new(),
         ),
     ));
     app.memory_handler = Some(Arc::new(
@@ -200,7 +198,6 @@ fn context_overlay_scroll_keybindings() {
         crate::mcp_connection_manager::McpConnectionManager::new(
             Arc::new(crate::config::McpRegistry::empty()),
             bus.clone(),
-            crate::mcp_tool_cache::McpToolCache::new(),
         ),
     ));
     app.memory_handler = Some(Arc::new(
@@ -260,7 +257,6 @@ fn context_scroll_direction_is_top_down() {
         crate::mcp_connection_manager::McpConnectionManager::new(
             Arc::new(crate::config::McpRegistry::empty()),
             bus.clone(),
-            crate::mcp_tool_cache::McpToolCache::new(),
         ),
     ));
     app.memory_handler = Some(Arc::new(
@@ -321,7 +317,6 @@ async fn pending_plan_approval_blocks_plain_submit() {
         crate::mcp_connection_manager::McpConnectionManager::new(
             Arc::new(crate::config::McpRegistry::empty()),
             bus.clone(),
-            crate::mcp_tool_cache::McpToolCache::new(),
         ),
     ));
     app.memory_handler = Some(Arc::new(
@@ -373,7 +368,6 @@ async fn submit_numeric_input_handles_pending_shell_approval() {
         crate::mcp_connection_manager::McpConnectionManager::new(
             Arc::new(crate::config::McpRegistry::empty()),
             bus.clone(),
-            crate::mcp_tool_cache::McpToolCache::new(),
         ),
     ));
     app.memory_handler = Some(Arc::new(
@@ -425,7 +419,6 @@ async fn empty_submit_keeps_shell_approval_on_card_surface() {
         crate::mcp_connection_manager::McpConnectionManager::new(
             Arc::new(crate::config::McpRegistry::empty()),
             bus.clone(),
-            crate::mcp_tool_cache::McpToolCache::new(),
         ),
     ));
     app.memory_handler = Some(Arc::new(
@@ -476,7 +469,6 @@ async fn plain_submit_queues_while_shell_approval_is_pending() {
         crate::mcp_connection_manager::McpConnectionManager::new(
             Arc::new(crate::config::McpRegistry::empty()),
             bus.clone(),
-            crate::mcp_tool_cache::McpToolCache::new(),
         ),
     ));
     app.memory_handler = Some(Arc::new(
@@ -528,7 +520,6 @@ async fn esc_cancels_busy_query_without_overlay() {
         crate::mcp_connection_manager::McpConnectionManager::new(
             Arc::new(crate::config::McpRegistry::empty()),
             bus.clone(),
-            crate::mcp_tool_cache::McpToolCache::new(),
         ),
     ));
     app.memory_handler = Some(Arc::new(
@@ -581,7 +572,6 @@ async fn busy_submit_allows_quit_command() {
         crate::mcp_connection_manager::McpConnectionManager::new(
             Arc::new(crate::config::McpRegistry::empty()),
             bus.clone(),
-            crate::mcp_tool_cache::McpToolCache::new(),
         ),
     ));
     app.memory_handler = Some(Arc::new(
@@ -645,7 +635,6 @@ async fn slash_palette_model_selection_opens_provider_picker_in_local_and_ssh() 
             crate::mcp_connection_manager::McpConnectionManager::new(
                 Arc::new(crate::config::McpRegistry::empty()),
                 bus.clone(),
-                crate::mcp_tool_cache::McpToolCache::new(),
             ),
         ));
         app.memory_handler = Some(Arc::new(
@@ -705,7 +694,6 @@ fn provider_picker_number_keys_cover_current_provider_families() {
         crate::mcp_connection_manager::McpConnectionManager::new(
             Arc::new(crate::config::McpRegistry::empty()),
             bus.clone(),
-            crate::mcp_tool_cache::McpToolCache::new(),
         ),
     ));
     app.memory_handler = Some(Arc::new(
@@ -745,7 +733,6 @@ fn auth_mode_picker_prefers_selection_navigation() {
         crate::mcp_connection_manager::McpConnectionManager::new(
             Arc::new(crate::config::McpRegistry::empty()),
             bus.clone(),
-            crate::mcp_tool_cache::McpToolCache::new(),
         ),
     ));
     app.memory_handler = Some(Arc::new(
@@ -878,7 +865,6 @@ fn pending_shell_approval_number_shortcuts_work_in_local_and_ssh() {
             crate::mcp_connection_manager::McpConnectionManager::new(
                 Arc::new(crate::config::McpRegistry::empty()),
                 bus.clone(),
-                crate::mcp_tool_cache::McpToolCache::new(),
             ),
         ));
         app.memory_handler = Some(Arc::new(
@@ -940,7 +926,6 @@ fn pending_shell_approval_preserves_modifier_shortcuts() {
         crate::mcp_connection_manager::McpConnectionManager::new(
             Arc::new(crate::config::McpRegistry::empty()),
             bus.clone(),
-            crate::mcp_tool_cache::McpToolCache::new(),
         ),
     ));
     app.memory_handler = Some(Arc::new(
@@ -984,7 +969,6 @@ async fn pending_shell_approval_card_selection_clamps_with_navigation() {
         crate::mcp_connection_manager::McpConnectionManager::new(
             Arc::new(crate::config::McpRegistry::empty()),
             bus.clone(),
-            crate::mcp_tool_cache::McpToolCache::new(),
         ),
     ));
     app.memory_handler = Some(Arc::new(
@@ -1046,7 +1030,6 @@ fn pending_shell_approval_does_not_render_as_request_input() {
         crate::mcp_connection_manager::McpConnectionManager::new(
             Arc::new(crate::config::McpRegistry::empty()),
             bus.clone(),
-            crate::mcp_tool_cache::McpToolCache::new(),
         ),
     ));
     app.memory_handler = Some(Arc::new(
@@ -1086,7 +1069,6 @@ async fn full_access_permission_picker_resumes_pending_shell_approval_in_local_a
             crate::mcp_connection_manager::McpConnectionManager::new(
                 Arc::new(crate::config::McpRegistry::empty()),
                 bus.clone(),
-                crate::mcp_tool_cache::McpToolCache::new(),
             ),
         ));
         app.memory_handler = Some(Arc::new(
@@ -1149,7 +1131,6 @@ async fn always_shell_approval_promotes_full_access_for_follow_up_commands() {
         crate::mcp_connection_manager::McpConnectionManager::new(
             Arc::new(crate::config::McpRegistry::empty()),
             bus.clone(),
-            crate::mcp_tool_cache::McpToolCache::new(),
         ),
     ));
     app.memory_handler = Some(Arc::new(
@@ -1208,7 +1189,6 @@ async fn full_access_mode_resumes_stale_pending_shell_approval_from_shortcuts() 
             crate::mcp_connection_manager::McpConnectionManager::new(
                 Arc::new(crate::config::McpRegistry::empty()),
                 bus.clone(),
-                crate::mcp_tool_cache::McpToolCache::new(),
             ),
         ));
         app.memory_handler = Some(Arc::new(
@@ -1257,7 +1237,6 @@ async fn full_access_mode_does_not_resume_shell_approval_behind_active_plan_appr
         crate::mcp_connection_manager::McpConnectionManager::new(
             Arc::new(crate::config::McpRegistry::empty()),
             bus.clone(),
-            crate::mcp_tool_cache::McpToolCache::new(),
         ),
     ));
     app.memory_handler = Some(Arc::new(
@@ -1314,7 +1293,6 @@ fn request_input_shortcuts_match_advertised_three_options() {
         crate::mcp_connection_manager::McpConnectionManager::new(
             Arc::new(crate::config::McpRegistry::empty()),
             bus.clone(),
-            crate::mcp_tool_cache::McpToolCache::new(),
         ),
     ));
     app.memory_handler = Some(Arc::new(
@@ -1356,7 +1334,6 @@ fn plain_input_does_not_treat_s_as_setup_shortcut() {
         crate::mcp_connection_manager::McpConnectionManager::new(
             Arc::new(crate::config::McpRegistry::empty()),
             bus.clone(),
-            crate::mcp_tool_cache::McpToolCache::new(),
         ),
     ));
     app.memory_handler = Some(Arc::new(
@@ -1393,7 +1370,6 @@ fn shift_enter_inserts_newline_in_main_composer() {
         crate::mcp_connection_manager::McpConnectionManager::new(
             Arc::new(crate::config::McpRegistry::empty()),
             bus.clone(),
-            crate::mcp_tool_cache::McpToolCache::new(),
         ),
     ));
     app.memory_handler = Some(Arc::new(
@@ -1432,7 +1408,6 @@ fn arrow_keys_and_home_end_map_to_composer_cursor_events() {
         crate::mcp_connection_manager::McpConnectionManager::new(
             Arc::new(crate::config::McpRegistry::empty()),
             bus.clone(),
-            crate::mcp_tool_cache::McpToolCache::new(),
         ),
     ));
     app.memory_handler = Some(Arc::new(
@@ -1489,7 +1464,6 @@ fn empty_composer_uses_up_down_for_input_history_when_available() {
         crate::mcp_connection_manager::McpConnectionManager::new(
             Arc::new(crate::config::McpRegistry::empty()),
             bus.clone(),
-            crate::mcp_tool_cache::McpToolCache::new(),
         ),
     ));
     app.memory_handler = Some(Arc::new(
@@ -1530,7 +1504,6 @@ fn empty_composer_keeps_vim_keys_for_transcript_scroll() {
         crate::mcp_connection_manager::McpConnectionManager::new(
             Arc::new(crate::config::McpRegistry::empty()),
             bus.clone(),
-            crate::mcp_tool_cache::McpToolCache::new(),
         ),
     ));
     app.memory_handler = Some(Arc::new(
@@ -1571,7 +1544,6 @@ fn input_history_navigation_recalls_previous_submissions_and_restores_draft() {
         crate::mcp_connection_manager::McpConnectionManager::new(
             Arc::new(crate::config::McpRegistry::empty()),
             bus.clone(),
-            crate::mcp_tool_cache::McpToolCache::new(),
         ),
     ));
     app.memory_handler = Some(Arc::new(
@@ -1622,7 +1594,6 @@ fn input_history_navigation_starts_from_non_empty_draft_at_start() {
         crate::mcp_connection_manager::McpConnectionManager::new(
             Arc::new(crate::config::McpRegistry::empty()),
             bus.clone(),
-            crate::mcp_tool_cache::McpToolCache::new(),
         ),
     ));
     app.memory_handler = Some(Arc::new(
@@ -1666,7 +1637,6 @@ fn input_history_keeps_recent_entries_bounded() {
         crate::mcp_connection_manager::McpConnectionManager::new(
             Arc::new(crate::config::McpRegistry::empty()),
             bus.clone(),
-            crate::mcp_tool_cache::McpToolCache::new(),
         ),
     ));
     app.memory_handler = Some(Arc::new(
@@ -1710,7 +1680,6 @@ fn input_history_navigation_keeps_multiline_cursor_movement_for_unrecalled_text(
         crate::mcp_connection_manager::McpConnectionManager::new(
             Arc::new(crate::config::McpRegistry::empty()),
             bus.clone(),
-            crate::mcp_tool_cache::McpToolCache::new(),
         ),
     ));
     app.memory_handler = Some(Arc::new(
@@ -1753,7 +1722,6 @@ fn mouse_wheel_scrolls_transcript() {
         crate::mcp_connection_manager::McpConnectionManager::new(
             Arc::new(crate::config::McpRegistry::empty()),
             bus.clone(),
-            crate::mcp_tool_cache::McpToolCache::new(),
         ),
     ));
     app.memory_handler = Some(Arc::new(
@@ -1797,7 +1765,6 @@ fn mouse_wheel_with_command_palette_routes_to_move_command_selection() {
         crate::mcp_connection_manager::McpConnectionManager::new(
             Arc::new(crate::config::McpRegistry::empty()),
             bus.clone(),
-            crate::mcp_tool_cache::McpToolCache::new(),
         ),
     ));
     app.memory_handler = Some(Arc::new(
@@ -1843,7 +1810,6 @@ async fn composer_supports_mid_input_insertion_and_backspace() {
         crate::mcp_connection_manager::McpConnectionManager::new(
             Arc::new(crate::config::McpRegistry::empty()),
             bus.clone(),
-            crate::mcp_tool_cache::McpToolCache::new(),
         ),
     ));
     app.memory_handler = Some(Arc::new(
@@ -1911,7 +1877,6 @@ async fn paste_inserts_at_current_cursor_offset() {
         crate::mcp_connection_manager::McpConnectionManager::new(
             Arc::new(crate::config::McpRegistry::empty()),
             bus.clone(),
-            crate::mcp_tool_cache::McpToolCache::new(),
         ),
     ));
     app.memory_handler = Some(Arc::new(
@@ -1949,7 +1914,6 @@ async fn paste_normalizes_crlf_and_cr_newlines() {
         crate::mcp_connection_manager::McpConnectionManager::new(
             Arc::new(crate::config::McpRegistry::empty()),
             bus.clone(),
-            crate::mcp_tool_cache::McpToolCache::new(),
         ),
     ));
     app.memory_handler = Some(Arc::new(
@@ -2070,7 +2034,6 @@ fn crossterm_paste_event_uses_paste_channel() {
         crate::mcp_connection_manager::McpConnectionManager::new(
             Arc::new(crate::config::McpRegistry::empty()),
             bus.clone(),
-            crate::mcp_tool_cache::McpToolCache::new(),
         ),
     ));
     app.memory_handler = Some(Arc::new(
@@ -2105,7 +2068,6 @@ async fn composer_supports_vertical_cursor_navigation_across_lines() {
         crate::mcp_connection_manager::McpConnectionManager::new(
             Arc::new(crate::config::McpRegistry::empty()),
             bus.clone(),
-            crate::mcp_tool_cache::McpToolCache::new(),
         ),
     ));
     app.memory_handler = Some(Arc::new(
@@ -2186,7 +2148,6 @@ async fn openai_model_picker_delete_row_removes_active_profile() {
         crate::mcp_connection_manager::McpConnectionManager::new(
             Arc::new(crate::config::McpRegistry::empty()),
             bus.clone(),
-            crate::mcp_tool_cache::McpToolCache::new(),
         ),
     ));
     app.memory_handler = Some(Arc::new(
@@ -2261,7 +2222,6 @@ async fn openai_model_picker_space_activates_selected_profile_and_starts_setup_w
         crate::mcp_connection_manager::McpConnectionManager::new(
             Arc::new(crate::config::McpRegistry::empty()),
             bus.clone(),
-            crate::mcp_tool_cache::McpToolCache::new(),
         ),
     ));
     app.memory_handler = Some(Arc::new(
@@ -2325,15 +2285,12 @@ async fn deepseek_provider_family_prompts_for_api_key_before_model_list() {
         crate::mcp_connection_manager::McpConnectionManager::new(
             Arc::new(crate::config::McpRegistry::empty()),
             bus.clone(),
-            crate::mcp_tool_cache::McpToolCache::new(),
         ),
     ));
     app.memory_handler = Some(Arc::new(
         crate::protocol_sources::MemoryControlHandler::new(bus.clone()),
     ));
 
-    let oauth_manager = crate::oauth::OAuthManager::new_for_config_dir(temp.path().join(".rara"))
-        .expect("oauth manager");
     app.provider_picker_idx = provider_family_idx(ProviderFamily::DeepSeek);
 
     open_provider_family_overlay(&mut app);
@@ -2363,7 +2320,6 @@ async fn deepseek_api_key_save_starts_model_catalog_task() {
         crate::mcp_connection_manager::McpConnectionManager::new(
             Arc::new(crate::config::McpRegistry::empty()),
             bus.clone(),
-            crate::mcp_tool_cache::McpToolCache::new(),
         ),
     ));
     app.memory_handler = Some(Arc::new(
@@ -2423,7 +2379,6 @@ async fn deepseek_model_picker_enter_without_api_key_opens_api_key_editor() {
         crate::mcp_connection_manager::McpConnectionManager::new(
             Arc::new(crate::config::McpRegistry::empty()),
             bus.clone(),
-            crate::mcp_tool_cache::McpToolCache::new(),
         ),
     ));
     app.memory_handler = Some(Arc::new(
@@ -2477,7 +2432,6 @@ async fn deepseek_model_picker_api_key_action_opens_editor_even_when_key_exists(
         crate::mcp_connection_manager::McpConnectionManager::new(
             Arc::new(crate::config::McpRegistry::empty()),
             bus.clone(),
-            crate::mcp_tool_cache::McpToolCache::new(),
         ),
     ));
     app.memory_handler = Some(Arc::new(
@@ -2533,7 +2487,6 @@ async fn openai_model_picker_edit_shortcut_starts_wizard_for_selected_profile() 
         crate::mcp_connection_manager::McpConnectionManager::new(
             Arc::new(crate::config::McpRegistry::empty()),
             bus.clone(),
-            crate::mcp_tool_cache::McpToolCache::new(),
         ),
     ));
     app.memory_handler = Some(Arc::new(
@@ -2602,7 +2555,6 @@ async fn openai_profile_edit_wizard_keeps_existing_api_key_when_blank() {
         crate::mcp_connection_manager::McpConnectionManager::new(
             Arc::new(crate::config::McpRegistry::empty()),
             bus.clone(),
-            crate::mcp_tool_cache::McpToolCache::new(),
         ),
     ));
     app.memory_handler = Some(Arc::new(
@@ -2680,7 +2632,6 @@ async fn openai_model_picker_create_shortcut_opens_endpoint_kind_picker() {
         crate::mcp_connection_manager::McpConnectionManager::new(
             Arc::new(crate::config::McpRegistry::empty()),
             bus.clone(),
-            crate::mcp_tool_cache::McpToolCache::new(),
         ),
     ));
     app.memory_handler = Some(Arc::new(
@@ -2731,7 +2682,6 @@ async fn selecting_custom_endpoint_kind_prompts_for_profile_label() {
         crate::mcp_connection_manager::McpConnectionManager::new(
             Arc::new(crate::config::McpRegistry::empty()),
             bus.clone(),
-            crate::mcp_tool_cache::McpToolCache::new(),
         ),
     ));
     app.memory_handler = Some(Arc::new(
@@ -2789,7 +2739,6 @@ async fn selecting_openai_profile_from_picker_switches_active_profile() {
         crate::mcp_connection_manager::McpConnectionManager::new(
             Arc::new(crate::config::McpRegistry::empty()),
             bus.clone(),
-            crate::mcp_tool_cache::McpToolCache::new(),
         ),
     ));
     app.memory_handler = Some(Arc::new(
@@ -2858,7 +2807,6 @@ async fn saving_openai_profile_label_creates_new_openrouter_profile() {
         crate::mcp_connection_manager::McpConnectionManager::new(
             Arc::new(crate::config::McpRegistry::empty()),
             bus.clone(),
-            crate::mcp_tool_cache::McpToolCache::new(),
         ),
     ));
     app.memory_handler = Some(Arc::new(
@@ -2939,7 +2887,6 @@ async fn save_api_key_input_allows_clearing_openai_compatible_credentials() {
         crate::mcp_connection_manager::McpConnectionManager::new(
             Arc::new(crate::config::McpRegistry::empty()),
             bus.clone(),
-            crate::mcp_tool_cache::McpToolCache::new(),
         ),
     ));
     app.memory_handler = Some(Arc::new(
@@ -2998,7 +2945,6 @@ fn codex_auth_detection_uses_saved_auth_storage() {
         crate::mcp_connection_manager::McpConnectionManager::new(
             Arc::new(crate::config::McpRegistry::empty()),
             bus.clone(),
-            crate::mcp_tool_cache::McpToolCache::new(),
         ),
     ));
     app.memory_handler = Some(Arc::new(
@@ -3038,15 +2984,12 @@ async fn codex_provider_family_routes_to_auth_picker_without_saved_login() {
         crate::mcp_connection_manager::McpConnectionManager::new(
             Arc::new(crate::config::McpRegistry::empty()),
             bus.clone(),
-            crate::mcp_tool_cache::McpToolCache::new(),
         ),
     ));
     app.memory_handler = Some(Arc::new(
         crate::protocol_sources::MemoryControlHandler::new(bus.clone()),
     ));
 
-    let oauth_manager = crate::oauth::OAuthManager::new_for_config_dir(temp.path().join(".rara"))
-        .expect("oauth manager");
     app.provider_picker_idx = 0;
 
     assert_eq!(app.selected_provider_family(), ProviderFamily::Codex);
@@ -3080,7 +3023,6 @@ async fn codex_provider_family_routes_to_model_picker_with_saved_login() {
         crate::mcp_connection_manager::McpConnectionManager::new(
             Arc::new(crate::config::McpRegistry::empty()),
             bus.clone(),
-            crate::mcp_tool_cache::McpToolCache::new(),
         ),
     ));
     app.memory_handler = Some(Arc::new(
@@ -3123,7 +3065,6 @@ async fn codex_provider_family_uses_saved_codex_provider_state() {
         crate::mcp_connection_manager::McpConnectionManager::new(
             Arc::new(crate::config::McpRegistry::empty()),
             bus.clone(),
-            crate::mcp_tool_cache::McpToolCache::new(),
         ),
     ));
     app.memory_handler = Some(Arc::new(
@@ -3170,7 +3111,6 @@ async fn codex_model_picker_opens_reasoning_level_overlay_before_rebuild() {
         crate::mcp_connection_manager::McpConnectionManager::new(
             Arc::new(crate::config::McpRegistry::empty()),
             bus.clone(),
-            crate::mcp_tool_cache::McpToolCache::new(),
         ),
     ));
     app.memory_handler = Some(Arc::new(
@@ -3248,7 +3188,6 @@ async fn codex_model_picker_applies_single_reasoning_level_without_overlay() {
         crate::mcp_connection_manager::McpConnectionManager::new(
             Arc::new(crate::config::McpRegistry::empty()),
             bus.clone(),
-            crate::mcp_tool_cache::McpToolCache::new(),
         ),
     ));
     app.memory_handler = Some(Arc::new(
@@ -3324,7 +3263,6 @@ fn codex_auth_store_is_synced_into_config_before_model_flow() {
         crate::mcp_connection_manager::McpConnectionManager::new(
             Arc::new(crate::config::McpRegistry::empty()),
             bus.clone(),
-            crate::mcp_tool_cache::McpToolCache::new(),
         ),
     ));
     app.memory_handler = Some(Arc::new(
@@ -3385,7 +3323,6 @@ fn codex_chatgpt_auth_store_sets_chatgpt_base_url_before_model_flow() {
         crate::mcp_connection_manager::McpConnectionManager::new(
             Arc::new(crate::config::McpRegistry::empty()),
             bus.clone(),
-            crate::mcp_tool_cache::McpToolCache::new(),
         ),
     ));
     app.memory_handler = Some(Arc::new(
@@ -3410,8 +3347,11 @@ fn codex_chatgpt_auth_store_sets_chatgpt_base_url_before_model_flow() {
             }),
             last_refresh: None,
             agent_identity: None,
+            personal_access_token: None,
+            bedrock_api_key: None,
         },
         codex_login::AuthCredentialsStoreMode::File,
+        codex_login::AuthKeyringBackendKind::default(),
     )
     .expect("save auth");
 
@@ -3457,7 +3397,6 @@ async fn save_api_key_input_sets_codex_defaults_before_rebuild() {
         crate::mcp_connection_manager::McpConnectionManager::new(
             Arc::new(crate::config::McpRegistry::empty()),
             bus.clone(),
-            crate::mcp_tool_cache::McpToolCache::new(),
         ),
     ));
     app.memory_handler = Some(Arc::new(
@@ -3536,7 +3475,7 @@ async fn deepseek_model_picker_shows_dynamic_models_after_list_load() {
 #[test]
 fn mouse_wheel_with_no_overlay_routes_to_scroll_transcript() {
     let temp = tempdir().expect("tempdir");
-    let mut app = TuiApp::new(ConfigManager {
+    let app = TuiApp::new(ConfigManager {
         path: temp.path().join("config.json"),
     })
     .expect("build tui app");
@@ -3610,7 +3549,6 @@ fn mouse_wheel_with_status_overlay_routes_to_noop() {
         crate::mcp_connection_manager::McpConnectionManager::new(
             Arc::new(crate::config::McpRegistry::empty()),
             bus.clone(),
-            crate::mcp_tool_cache::McpToolCache::new(),
         ),
     ));
     app.memory_handler = Some(Arc::new(
@@ -3647,7 +3585,6 @@ fn mouse_wheel_with_context_overlay_routes_to_scroll_context() {
         crate::mcp_connection_manager::McpConnectionManager::new(
             Arc::new(crate::config::McpRegistry::empty()),
             bus.clone(),
-            crate::mcp_tool_cache::McpToolCache::new(),
         ),
     ));
     app.memory_handler = Some(Arc::new(

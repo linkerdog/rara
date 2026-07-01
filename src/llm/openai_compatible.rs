@@ -993,6 +993,7 @@ fn normalize_deepseek_reasoning_effort(
     }
 }
 
+#[cfg(test)]
 pub(super) fn to_openai_messages(messages: &[Message]) -> Vec<Value> {
     to_openai_messages_for_endpoint(messages, OpenAiEndpointKind::Custom)
 }

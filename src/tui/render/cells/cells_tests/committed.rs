@@ -46,7 +46,7 @@ fn committed_turn_cell_keeps_user_summary_and_agent_sections_in_order() {
         },
     ];
 
-    let rendered = CommittedTurnCell::new(entries.as_slice(), Some(Path::new(".")))
+    let rendered = CommittedTurnCell::new(entries.as_slice(), Some(Path::new(".")), false, None)
         .display_lines(100)
         .into_iter()
         .map(|line| line.to_string())
@@ -83,7 +83,7 @@ fn committed_turn_cell_ignores_routine_system_notices() {
         },
     ];
 
-    let rendered = CommittedTurnCell::new(entries.as_slice(), Some(Path::new(".")))
+    let rendered = CommittedTurnCell::new(entries.as_slice(), Some(Path::new(".")), false, None)
         .display_lines(100)
         .into_iter()
         .map(|line| line.to_string())
@@ -117,7 +117,7 @@ fn committed_turn_cell_renders_memory_action_notices() {
         },
     ];
 
-    let rendered = CommittedTurnCell::new(entries.as_slice(), Some(Path::new(".")))
+    let rendered = CommittedTurnCell::new(entries.as_slice(), Some(Path::new(".")), false, None)
         .display_lines(100)
         .into_iter()
         .map(|line| line.to_string())
@@ -148,7 +148,7 @@ fn committed_turn_cell_renders_materialized_sidecar_sections() {
         TranscriptEntry { role: "Agent".into(), message: "Here is the final recommendation.".into(), payload: None },
     ];
 
-    let rendered = CommittedTurnCell::new(entries.as_slice(), Some(Path::new(".")))
+    let rendered = CommittedTurnCell::new(entries.as_slice(), Some(Path::new(".")), false, None)
         .display_lines(100)
         .into_iter()
         .map(|line| line.to_string())
@@ -204,7 +204,7 @@ fn committed_turn_cell_keeps_progress_segments_and_terminal_output() {
         },
     ];
 
-    let rendered = CommittedTurnCell::new(entries.as_slice(), Some(Path::new(".")))
+    let rendered = CommittedTurnCell::new(entries.as_slice(), Some(Path::new(".")), false, None)
         .display_lines(100)
         .into_iter()
         .map(|line| line.to_string())
@@ -254,7 +254,7 @@ fn committed_turn_cell_preserves_interleaved_agent_and_progress_output() {
         },
     ];
 
-    let rendered = CommittedTurnCell::new(entries.as_slice(), Some(Path::new(".")))
+    let rendered = CommittedTurnCell::new(entries.as_slice(), Some(Path::new(".")), false, None)
         .display_lines(100)
         .into_iter()
         .map(|line| line.to_string())
@@ -325,7 +325,7 @@ fn committed_turn_cell_appends_adjacent_progress_entries() {
         },
     ];
 
-    let rendered = CommittedTurnCell::new(entries.as_slice(), Some(Path::new(".")))
+    let rendered = CommittedTurnCell::new(entries.as_slice(), Some(Path::new(".")), false, None)
         .display_lines(100)
         .into_iter()
         .map(|line| line.to_string())
@@ -365,7 +365,7 @@ fn committed_turn_cell_places_completion_records_before_final_agent_message() {
         },
     ];
 
-    let rendered = CommittedTurnCell::new(entries.as_slice(), Some(Path::new(".")))
+    let rendered = CommittedTurnCell::new(entries.as_slice(), Some(Path::new(".")), false, None)
         .display_lines(100)
         .into_iter()
         .map(|line| line.to_string())
@@ -412,7 +412,7 @@ fn committed_turn_cell_preserves_completion_record_order() {
         },
     ];
 
-    let rendered = CommittedTurnCell::new(entries.as_slice(), Some(Path::new(".")))
+    let rendered = CommittedTurnCell::new(entries.as_slice(), Some(Path::new(".")), false, None)
         .display_lines(100)
         .into_iter()
         .map(|line| line.to_string())
@@ -441,7 +441,7 @@ fn committed_turn_cell_renders_terminal_result_as_terminal_cell() {
         TranscriptEntry { role: "Agent".into(), message: "The background test task completed.".into(), payload: None },
     ];
 
-    let rendered = CommittedTurnCell::new(entries.as_slice(), Some(Path::new(".")))
+    let rendered = CommittedTurnCell::new(entries.as_slice(), Some(Path::new(".")), false, None)
         .display_lines(100)
         .into_iter()
         .map(|line| line.to_string())
@@ -473,7 +473,7 @@ fn committed_turn_cell_renders_terminal_result_with_inline_output_path() {
         },
     ];
 
-    let rendered = CommittedTurnCell::new(entries.as_slice(), Some(Path::new(".")))
+    let rendered = CommittedTurnCell::new(entries.as_slice(), Some(Path::new(".")), false, None)
         .display_lines(100)
         .into_iter()
         .map(|line| line.to_string())
@@ -508,7 +508,7 @@ fn committed_turn_cell_shows_tail_for_long_tool_messages() {
         },
     ];
 
-    let rendered = CommittedTurnCell::new(entries.as_slice(), Some(Path::new(".")))
+    let rendered = CommittedTurnCell::new(entries.as_slice(), Some(Path::new(".")), false, None)
         .display_lines(100)
         .into_iter()
         .map(|line| line.to_string())
@@ -526,6 +526,47 @@ fn committed_turn_cell_shows_tail_for_long_tool_messages() {
     assert!(hidden_idx < first_visible_tail);
     assert!(first_visible_tail < final_tail);
     assert!(final_tail < agent);
+}
+
+#[test]
+fn committed_turn_cell_renders_tool_result_diff_preview() {
+    let entries = vec![
+        TranscriptEntry {
+            role: "You".into(),
+            message: "Edit the file".into(),
+            payload: None,
+        },
+        TranscriptEntry {
+            role: "Tool Result".into(),
+            message: [
+                "replace src/main.rs",
+                "replacements=1 line_delta=0",
+                "diff:",
+                "*** Begin Patch",
+                "*** Update File: src/main.rs",
+                "@@",
+                "-old",
+                "+new",
+                "*** End Patch",
+            ]
+            .join("\n"),
+            payload: None,
+        },
+    ];
+
+    let rendered = CommittedTurnCell::new(entries.as_slice(), Some(Path::new(".")), false, None)
+        .display_lines(100)
+        .into_iter()
+        .map(|line| line.to_string())
+        .collect::<Vec<_>>()
+        .join("\n");
+
+    assert!(rendered.contains("Tool Result"));
+    assert!(rendered.contains("replace src/main.rs"));
+    assert!(rendered.contains("Edited src/main.rs"));
+    assert!(rendered.contains("- old"));
+    assert!(rendered.contains("+ new"));
+    assert!(!rendered.contains("earlier line(s)"));
 }
 
 #[test]
@@ -553,7 +594,7 @@ fn committed_turn_cell_renders_typed_terminal_event_as_terminal_cell() {
         },
     ];
 
-    let rendered = CommittedTurnCell::new(entries.as_slice(), Some(Path::new(".")))
+    let rendered = CommittedTurnCell::new(entries.as_slice(), Some(Path::new(".")), false, None)
         .display_lines(100)
         .into_iter()
         .map(|line| line.to_string())
@@ -593,7 +634,7 @@ fn committed_turn_cell_keeps_final_agent_response_when_system_notice_arrives_aft
         },
     ];
 
-    let rendered = CommittedTurnCell::new(entries.as_slice(), Some(Path::new(".")))
+    let rendered = CommittedTurnCell::new(entries.as_slice(), Some(Path::new(".")), false, None)
         .display_lines(100)
         .into_iter()
         .map(|line| line.to_string())

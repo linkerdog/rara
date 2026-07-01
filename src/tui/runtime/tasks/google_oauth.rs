@@ -8,6 +8,8 @@ use crate::tui::state::{
     OAuthLoginMode, RunningTask, RuntimePhase, TaskCompletion, TaskKind, TuiApp, TuiEvent,
 };
 
+/// Reserved for Gemini Code Assist OAuth connection from the TUI (docs/todo.md).
+#[allow(dead_code)]
 pub(crate) fn start_google_oauth_task(
     app: &mut TuiApp,
     oauth_manager: Arc<GoogleOAuthManager>,
@@ -56,6 +58,8 @@ pub(crate) fn start_google_oauth_task(
     });
 }
 
+/// Reserved for Gemini Code Assist OAuth connection from the TUI (docs/todo.md).
+#[allow(dead_code)]
 pub(super) async fn run_google_oauth_login(
     oauth_manager: Arc<GoogleOAuthManager>,
     mode: OAuthLoginMode,

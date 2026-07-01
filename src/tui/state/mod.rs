@@ -280,7 +280,9 @@ impl TuiApp {
             .map(std::path::Path::to_path_buf)
             .unwrap_or_else(|| std::path::PathBuf::from("."));
         let local_model_server =
-            crate::local_model_server::inspect_local_model_server_status(&local_model_server_home);
+            crate::local_model_server::inspect_local_model_server_status_off_runtime(
+                &local_model_server_home,
+            );
         let mut app = Self {
             bottom_pane: BottomPaneModel {
                 input: String::new(),
@@ -296,6 +298,7 @@ impl TuiApp {
             overlay,
             overlay_stack: Vec::new(),
             sidebar_visible: true,
+            thinking_collapsed: false,
             config: cfg,
             config_manager: cm,
             setup_status: None,
@@ -997,6 +1000,8 @@ impl TuiApp {
             .unwrap_or(0);
     }
 
+    /// Reserved for wiring Codex model catalog refresh into active picker flow (docs/todo.md).
+    #[allow(dead_code)]
     pub fn set_codex_model_options(&mut self, options: Vec<CodexModelOption>) {
         self.codex_model_options = options;
         self.model_picker_idx = self.selected_preset_idx();
@@ -1097,10 +1102,6 @@ impl TuiApp {
             .as_deref()
             .is_none_or(|value| value.trim().is_empty());
         missing_api || missing_base_url || missing_model
-    }
-
-    pub fn openai_endpoint_kind_count(&self) -> usize {
-        openai_profile_setup_kinds().len()
     }
 
     pub fn selected_openai_setup_kind(&self) -> OpenAiEndpointKind {
@@ -1669,7 +1670,6 @@ impl TuiApp {
             context_observability: runtime_context.observability,
             assembly_entries: runtime_context.assembly.entries,
             // ── Extensions ──────────────────────────────────────
-            // ── Extensions ──────────────────────────────────────
             extension_skill_count: agent.prompt_config().available_skills.len(),
             extension_skill_scopes: {
                 let mut scopes: Vec<String> = agent
@@ -1685,6 +1685,7 @@ impl TuiApp {
             },
             extension_hook_count: ext_counts.0.max(runtime_hook_count),
             extension_agent_count: ext_counts.1,
+            extension_agent_status_lines: ext_counts.2,
         };
         self.agent_execution_mode = agent.execution_mode;
         self.bash_approval_mode = agent.bash_approval_mode;
@@ -2067,13 +2068,19 @@ impl TuiApp {
     }
 }
 
-fn discover_extension_counts(cwd: &str) -> (usize, usize) {
+fn discover_extension_counts(cwd: &str) -> (usize, usize, Vec<String>) {
     let root = std::path::Path::new(cwd);
     let mut hr = crate::hooks::HookRegistry::new();
     let mut ar = crate::agents_ext::AgentRegistry::new();
     hr.discover_repo_hooks(root);
     ar.discover_repo_agents(root);
-    (hr.hooks.len(), ar.agents.len())
+    let agent_count = ar.agents.len();
+    let agent_status_lines = if agent_count == 0 {
+        Vec::new()
+    } else {
+        ar.status_lines()
+    };
+    (hr.hooks.len(), agent_count, agent_status_lines)
 }
 
 mod helpers;

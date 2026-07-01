@@ -89,11 +89,16 @@ pub(super) fn push_progress_group<'a>(
     role: ProgressRole,
     messages: Vec<String>,
     active: bool,
+    collapsed: bool,
+    duration: Option<std::time::Duration>,
 ) {
     match role {
-        ProgressRole::Thinking => {
-            cells.push(Box::new(ThinkingBlockCell::new(&messages.join("\n"), 4)))
-        }
+        ProgressRole::Thinking => cells.push(Box::new(ThinkingBlockCell::new(
+            &messages.join("\n"),
+            4,
+            collapsed,
+            duration,
+        ))),
         ProgressRole::Exploring => cells.push(Box::new(ExploringCell::new(
             compact_summary_lines(messages.as_slice(), 4, "more exploration step(s)"),
             active,
@@ -114,6 +119,8 @@ pub(super) fn push_live_events<'a>(
     events: &[crate::tui::state::ActiveLiveEvent],
     streaming_thinking_lines: Option<&'a [Line<'static>]>,
     active: bool,
+    collapsed: bool,
+    thinking_duration: Option<std::time::Duration>,
 ) {
     let mut thinking_messages = Vec::new();
     let mut exploration_actions = Vec::new();
@@ -136,7 +143,13 @@ pub(super) fn push_live_events<'a>(
                 thinking_messages.push(event.message().to_string());
             }
             ProgressRole::Exploring => {
-                push_live_thinking_group(cells, &mut thinking_messages, None);
+                push_live_thinking_group(
+                    cells,
+                    &mut thinking_messages,
+                    None,
+                    collapsed,
+                    thinking_duration,
+                );
                 push_live_planning_group(cells, &mut planning_actions, &mut planning_notes, active);
                 push_live_running_group(cells, &mut running_actions, active);
                 if event.is_note() {
@@ -146,7 +159,13 @@ pub(super) fn push_live_events<'a>(
                 }
             }
             ProgressRole::Planning => {
-                push_live_thinking_group(cells, &mut thinking_messages, None);
+                push_live_thinking_group(
+                    cells,
+                    &mut thinking_messages,
+                    None,
+                    collapsed,
+                    thinking_duration,
+                );
                 push_live_exploration_group(
                     cells,
                     &mut exploration_actions,
@@ -161,7 +180,13 @@ pub(super) fn push_live_events<'a>(
                 }
             }
             ProgressRole::Running => {
-                push_live_thinking_group(cells, &mut thinking_messages, None);
+                push_live_thinking_group(
+                    cells,
+                    &mut thinking_messages,
+                    None,
+                    collapsed,
+                    thinking_duration,
+                );
                 push_live_exploration_group(
                     cells,
                     &mut exploration_actions,
@@ -182,13 +207,21 @@ pub(super) fn push_live_events<'a>(
     );
     push_live_planning_group(cells, &mut planning_actions, &mut planning_notes, active);
     push_live_running_group(cells, &mut running_actions, active);
-    push_live_thinking_group(cells, &mut thinking_messages, streaming_thinking_lines);
+    push_live_thinking_group(
+        cells,
+        &mut thinking_messages,
+        streaming_thinking_lines,
+        collapsed,
+        thinking_duration,
+    );
 }
 
 pub(super) fn push_live_thinking_group<'a>(
     cells: &mut Vec<Box<dyn HistoryCell + 'a>>,
     messages: &mut Vec<String>,
     stream_lines: Option<&'a [Line<'static>]>,
+    collapsed: bool,
+    duration: Option<std::time::Duration>,
 ) {
     if messages.is_empty() && stream_lines.is_none_or(|lines| lines.is_empty()) {
         return;
@@ -197,6 +230,8 @@ pub(super) fn push_live_thinking_group<'a>(
         std::mem::take(messages).join("\n"),
         stream_lines,
         4,
+        collapsed,
+        duration,
     )));
 }
 

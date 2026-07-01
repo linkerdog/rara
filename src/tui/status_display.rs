@@ -114,6 +114,12 @@ fn render_overview_status(app: &TuiApp, lines: &mut Vec<Line<'static>>) {
         &snap.extension_agent_count.to_string(),
         Color::DarkGray,
     );
+    for line in &snap.extension_agent_status_lines {
+        lines.push(Line::from(Span::styled(
+            line.clone(),
+            Style::default().fg(Color::DarkGray),
+        )));
+    }
 }
 
 fn render_config_status(app: &TuiApp, lines: &mut Vec<Line<'static>>) {
@@ -415,7 +421,7 @@ mod tests {
 
     use super::render_status_lines;
     use crate::config::ConfigManager;
-    use crate::tui::state::{StatusTab, TuiApp};
+    use crate::tui::state::{RuntimeSnapshot, StatusTab, TuiApp};
 
     #[test]
     fn overview_status_reports_local_embedding_component() {
@@ -434,5 +440,31 @@ mod tests {
         assert!(rendered.contains("Local Embeddings"));
         assert!(rendered.contains("setup_required"));
         assert!(rendered.contains("embedding"));
+    }
+
+    #[test]
+    fn overview_status_reports_agent_extension_details() {
+        let temp = tempdir().expect("tempdir");
+        let mut app = TuiApp::new(ConfigManager {
+            path: temp.path().join("config.json"),
+        })
+        .expect("app");
+        app.snapshot = RuntimeSnapshot {
+            extension_agent_count: 1,
+            extension_agent_status_lines: vec![
+                "  code-reviewer  .claude/agents/code-reviewer.md  ok  (disabled)".to_string(),
+            ],
+            ..RuntimeSnapshot::default()
+        };
+
+        let rendered = render_status_lines(&app, StatusTab::Overview)
+            .into_iter()
+            .map(|line| line.to_string())
+            .collect::<Vec<_>>()
+            .join("\n");
+
+        assert!(rendered.contains("agents"));
+        assert!(rendered.contains("code-reviewer"));
+        assert!(rendered.contains(".claude/agents/code-reviewer.md"));
     }
 }

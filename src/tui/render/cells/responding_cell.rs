@@ -16,11 +16,10 @@ use crate::tui::plan_display::updated_plan_lines;
 use crate::tui::queued_input::{
     QueuedFollowUpSection, pending_follow_up_heading, queued_follow_up_heading,
 };
-use crate::tui::render::diff::render_patch_preview;
+use crate::tui::render::diff::render_message_diff_preview;
 use crate::tui::render::{
-    display_width, formatted_message_lines, prefixed_message_lines, rendered_markdown_lines,
-    section_label, startup_card_inner_width, truncate_for_startup_card, truncate_path_middle,
-    with_border,
+    formatted_message_lines, prefixed_message_lines, rendered_markdown_lines,
+    startup_card_inner_width, truncate_for_startup_card, truncate_path_middle,
 };
 use crate::tui::state::{ActivePendingInteractionKind, TuiApp};
 use crate::tui::sub_agent_display::SUB_AGENT_QUESTION_COLOR;
@@ -155,6 +154,9 @@ impl HistoryCell for RespondingCell<'_> {
             } => {
                 if let Some(cell) = LspDiagnosticsCell::from_message(message) {
                     cell.display_lines(width)
+                } else if let Some(lines) = render_message_diff_preview(Some(role), message, width)
+                {
+                    lines
                 } else {
                     prefixed_message_lines(role, message, *max_lines)
                 }
@@ -264,31 +266,5 @@ fn compact_markdown_message_lines(
         )));
     }
 
-    lines
-}
-
-fn responding_card_lines(
-    title: &'static str,
-    mut body_lines: Vec<Line<'static>>,
-    width: u16,
-) -> Vec<Line<'static>> {
-    if body_lines.is_empty() {
-        body_lines.push(Line::from(String::new()));
-    }
-
-    let available_inner_width = usize::from(width.saturating_sub(4).max(1));
-    let inner_width = body_lines
-        .iter()
-        .map(|line| {
-            line.iter()
-                .map(|span| display_width(span.content.as_ref()))
-                .sum::<usize>()
-        })
-        .max()
-        .unwrap_or(1)
-        .clamp(1, available_inner_width.max(1));
-
-    let mut lines = vec![Line::from(section_label(title, PHASE_PLANNING))];
-    lines.extend(with_border(body_lines, inner_width));
     lines
 }

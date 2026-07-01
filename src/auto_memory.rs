@@ -508,6 +508,7 @@ mod tests {
 
     fn transcript_turn(user: &str, assistant: &str) -> TranscriptTurn {
         TranscriptTurn {
+            thinking_duration: None,
             entries: vec![
                 TranscriptEntry::new("You", user),
                 TranscriptEntry::new("Agent", assistant),

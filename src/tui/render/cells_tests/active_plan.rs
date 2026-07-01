@@ -9,6 +9,7 @@ fn active_turn_cell_renders_plan_approval_as_interaction_card() {
     .expect("build tui app");
     app.agent_execution_mode = crate::agent::AgentExecutionMode::Plan;
     app.active_turn = TranscriptTurn {
+        thinking_duration: None,
         entries: vec![TranscriptEntry {
             role: "You".into(),
             message: "Review the codebase and propose changes".into(),
@@ -50,6 +51,7 @@ fn active_turn_cell_renders_updated_plan_checklist() {
     .expect("build tui app");
     app.agent_execution_mode = crate::agent::AgentExecutionMode::Plan;
     app.active_turn = TranscriptTurn {
+        thinking_duration: None,
         entries: vec![TranscriptEntry {
             role: "You".into(),
             message: "Improve the plan rendering".into(),
@@ -92,6 +94,7 @@ fn active_turn_cell_hides_stale_updated_plan_after_plan_turn_finishes() {
     })
     .expect("build tui app");
     app.active_turn = TranscriptTurn {
+        thinking_duration: None,
         entries: vec![TranscriptEntry {
             role: "You".into(),
             message: "Implement the approved fix".into(),
@@ -121,6 +124,7 @@ fn active_turn_cell_hides_stale_exploring_after_live_phase_finishes() {
     .expect("build tui app");
     app.runtime_phase = RuntimePhase::Idle;
     app.active_turn = TranscriptTurn {
+        thinking_duration: None,
         entries: vec![
             TranscriptEntry {
                 role: "You".into(),
@@ -154,6 +158,7 @@ fn active_turn_cell_renders_shell_approval_as_interaction_card() {
     })
     .expect("build tui app");
     app.active_turn = TranscriptTurn {
+        thinking_duration: None,
         entries: vec![
             TranscriptEntry {
                 role: "You".into(),
@@ -218,6 +223,7 @@ fn active_turn_cell_renders_queued_follow_up_without_hiding_shell_approval() {
     })
     .expect("build tui app");
     app.active_turn = TranscriptTurn {
+        thinking_duration: None,
         entries: vec![TranscriptEntry {
             role: "You".into(),
             message: "Run a shell command".into(),
@@ -265,6 +271,7 @@ fn active_turn_cell_does_not_render_completed_plan_decision() {
     })
     .expect("build tui app");
     app.active_turn = TranscriptTurn {
+        thinking_duration: None,
         entries: vec![TranscriptEntry {
             role: "You".into(),
             message: "Review the codebase and propose changes".into(),
@@ -297,6 +304,7 @@ fn active_turn_cell_does_not_render_completed_shell_approval_while_live() {
     })
     .expect("build tui app");
     app.active_turn = TranscriptTurn {
+        thinking_duration: None,
         entries: vec![
             TranscriptEntry {
                 role: "You".into(),
@@ -342,6 +350,7 @@ fn active_turn_cell_falls_back_to_previous_completion_when_shell_approval_is_liv
     })
     .expect("build tui app");
     app.active_turn = TranscriptTurn {
+        thinking_duration: None,
         entries: vec![
             TranscriptEntry {
                 role: "You".into(),
@@ -391,6 +400,7 @@ fn active_turn_cell_keeps_streaming_response_without_responding_card() {
     })
     .expect("build tui app");
     app.active_turn = TranscriptTurn {
+        thinking_duration: None,
         entries: vec![
             TranscriptEntry {
                 role: "You".into(),
@@ -432,6 +442,7 @@ fn active_turn_cell_does_not_repeat_stale_plan_decision_from_snapshot() {
     })
     .expect("build tui app");
     app.active_turn = TranscriptTurn {
+        thinking_duration: None,
         entries: vec![TranscriptEntry {
             role: "You".into(),
             message: "Approve the plan".into(),
@@ -446,6 +457,7 @@ fn active_turn_cell_does_not_repeat_stale_plan_decision_from_snapshot() {
     );
     app.finalize_active_turn();
     app.active_turn = TranscriptTurn {
+        thinking_duration: None,
         entries: vec![TranscriptEntry {
             role: "You".into(),
             message: "Continue with the next task".into(),
@@ -471,6 +483,7 @@ fn active_turn_cell_labels_delegated_plan_questions() {
     })
     .expect("build tui app");
     app.active_turn = TranscriptTurn {
+        thinking_duration: None,
         entries: vec![TranscriptEntry {
             role: "You".into(),
             message: "Review the codebase and propose changes".into(),
@@ -511,6 +524,7 @@ fn active_turn_cell_labels_delegated_completed_questions() {
     })
     .expect("build tui app");
     app.active_turn = TranscriptTurn {
+        thinking_duration: None,
         entries: vec![TranscriptEntry {
             role: "You".into(),
             message: "Review the codebase and propose changes".into(),

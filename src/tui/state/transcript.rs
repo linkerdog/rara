@@ -112,17 +112,6 @@ impl TuiApp {
         self.reset_transcript_scroll_if_following_tail();
     }
 
-    pub fn append_to_latest_entry(&mut self, role: &'static str, delta: &str) {
-        if let Some(last) = self.active_turn.entries.last_mut()
-            && last.role == role
-        {
-            last.message.push_str(delta);
-            self.reset_transcript_scroll_if_following_tail();
-            return;
-        }
-        self.push_entry(role, delta.to_string());
-    }
-
     pub fn append_agent_delta(&mut self, delta: &str) {
         let cwd = if !self.snapshot.cwd.is_empty() {
             PathBuf::from(self.snapshot.cwd.as_str())
@@ -142,10 +131,14 @@ impl TuiApp {
         } else {
             std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."))
         };
+        let is_first_delta = self.agent_thinking_stream.is_none();
         let stream = self
             .agent_thinking_stream
             .get_or_insert_with(|| super::AgentMarkdownStreamState::new(cwd));
         stream.push_delta(delta);
+        if is_first_delta {
+            self.active_live.thinking_started_at = Some(std::time::Instant::now());
+        }
         self.reset_transcript_scroll_if_following_tail();
     }
 
@@ -189,7 +182,10 @@ impl TuiApp {
         let fallback = self
             .agent_markdown_stream
             .take()
-            .map(|stream| stream.sanitized_raw_text())
+            .map(|mut stream| {
+                stream.finalize_display_lines();
+                stream.sanitized_raw_text()
+            })
             .filter(|text| !text.is_empty());
         let Some(message) = final_message.or(fallback) else {
             return;
@@ -303,13 +299,6 @@ impl TuiApp {
             + self.active_turn.entries.len()
     }
 
-    pub fn committed_entry_count(&self) -> usize {
-        self.committed_turns
-            .iter()
-            .map(|turn| turn.entries.len())
-            .sum()
-    }
-
     fn materialize_active_live_entries(&mut self) {
         if !self.active_live.events.is_empty() {
             for event in &self.active_live.events {
@@ -340,7 +329,8 @@ impl TuiApp {
             self.clear_active_live_sections();
             return;
         }
-        let turn = std::mem::take(&mut self.active_turn);
+        let mut turn = std::mem::take(&mut self.active_turn);
+        turn.thinking_duration = self.active_live.thinking_started_at.map(|s| s.elapsed());
         let ordinal = self.committed_turns.len();
         self.persist_turn(ordinal, &turn);
         self.committed_turns.push(turn);
@@ -466,6 +456,7 @@ impl TuiApp {
         self.bottom_pane.pending_follow_up_messages.len()
     }
 
+    #[cfg(test)]
     pub fn queued_follow_up_preview(&self) -> Option<&str> {
         self.bottom_pane
             .pending_follow_up_messages
@@ -517,6 +508,7 @@ impl TuiApp {
         self.queued_follow_up_count()
     }
 
+    #[cfg(test)]
     pub fn pop_queued_follow_up_message(&mut self) -> Option<String> {
         if self.bottom_pane.queued_follow_up_messages.is_empty() {
             None
@@ -565,6 +557,7 @@ impl TuiApp {
         self.bottom_pane.queued_follow_up_messages.extend(released);
     }
 
+    #[cfg(test)]
     pub fn queue_planning_suggestion(&mut self, prompt: impl Into<String>) {
         self.bottom_pane.pending_planning_suggestion = Some(prompt.into());
         self.bottom_pane.notice = Some(
@@ -572,10 +565,6 @@ impl TuiApp {
                 .into(),
         );
         self.transcript_scroll = 0;
-    }
-
-    pub fn take_pending_planning_suggestion(&mut self) -> Option<String> {
-        self.bottom_pane.pending_planning_suggestion.take()
     }
 
     pub fn clear_pending_planning_suggestion(&mut self) {

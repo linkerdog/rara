@@ -69,6 +69,23 @@ fn agent_markdown_stream_sanitizes_terminal_controls() {
 }
 
 #[test]
+fn agent_markdown_stream_finalize_commits_partial_line() {
+    let mut stream = AgentMarkdownStreamState::new(std::path::PathBuf::from("."));
+
+    stream.push_delta("Partial answer without newline");
+    stream.finalize_display_lines();
+
+    let rendered = stream
+        .display_lines
+        .iter()
+        .map(|line| line.to_string())
+        .collect::<Vec<_>>()
+        .join("\n");
+    assert!(rendered.contains("Partial answer without newline"));
+    assert_eq!(stream.display_lines.len(), 1);
+}
+
+#[test]
 fn prioritizes_active_pending_interaction_in_ui_order() {
     let dir = tempdir().expect("tempdir");
     let cm = ConfigManager {
@@ -242,7 +259,6 @@ async fn sync_snapshot_reports_registered_runtime_hooks() {
     runtime.register(
         "plugin-pre-tool".into(),
         crate::runtime_control::HookLifecycle::PreToolUse,
-        "plugin hook".into(),
         Box::new(|_| {}),
     );
     app.hook_runtime = Some(runtime);
@@ -982,6 +998,7 @@ fn finalize_agent_stream_updates_latest_committed_turn_when_final_text_arrives_l
     };
     let mut app = TuiApp::new(cm).expect("app");
     app.committed_turns.push(TranscriptTurn {
+        thinking_duration: None,
         entries: vec![
             TranscriptEntry {
                 role: "You".into(),
@@ -1175,6 +1192,7 @@ fn finalize_agent_stream_replaces_earlier_agent_entries_in_active_turn() {
     };
     let mut app = TuiApp::new(cm).expect("app");
     app.active_turn = TranscriptTurn {
+        thinking_duration: None,
         entries: vec![
             TranscriptEntry {
                 role: "You".into(),
@@ -1222,12 +1240,15 @@ fn restore_committed_turns_sets_inserted_counter_to_match() {
     // Simulate session resume: restore N turns that were already on screen.
     let turns = vec![
         TranscriptTurn {
+            thinking_duration: None,
             entries: vec![TranscriptEntry::new("You", "hello")],
         },
         TranscriptTurn {
+            thinking_duration: None,
             entries: vec![TranscriptEntry::new("Agent", "hi there")],
         },
         TranscriptTurn {
+            thinking_duration: None,
             entries: vec![TranscriptEntry::new("You", "bye")],
         },
     ];

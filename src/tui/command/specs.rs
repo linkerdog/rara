@@ -104,9 +104,9 @@ pub const COMMAND_SPECS: [CommandSpec; 24] = [
     CommandSpec {
         category: "Setup",
         name: "model",
-        usage: "/model",
-        summary: "Alias for /models.",
-        detail: "Open the unified model picker. This lets you browse all available models from every connected provider and switch the active model immediately.",
+        usage: "/model [name]",
+        summary: "Switch to a model by name, or open the unified model picker if no name is given.",
+        detail: "Switch directly to a model when a name is given, e.g. /model gpt-4o or /model claude-sonnet-4. The name is matched case-insensitively against model IDs and labels. Without an argument, opens the unified model picker so you can browse all available models from every connected provider and switch the active model immediately.",
     },
     CommandSpec {
         category: "Setup",
@@ -139,9 +139,9 @@ pub const COMMAND_SPECS: [CommandSpec; 24] = [
     CommandSpec {
         category: "Setup",
         name: "models",
-        usage: "/models",
-        summary: "List and switch models across all connected providers in <provider>/<model> format.",
-        detail: "Open the unified model picker. This lets you browse all available models from every connected provider and switch the active model immediately.",
+        usage: "/models [name]",
+        summary: "Switch to a model by name, or open the unified model picker.",
+        detail: "Switch directly to a model when a name is given, e.g. /models gpt-4o or /models claude-sonnet-4. The name is matched case-insensitively against model IDs and labels. Without an argument, opens the unified model picker so you can browse all available models from every connected provider and switch the active model immediately.",
     },
     CommandSpec {
         category: "Session",
@@ -219,14 +219,12 @@ pub fn matching_commands(query: &str) -> Vec<&'static CommandSpec> {
     candidates.into_iter().map(|(_, spec)| spec).collect()
 }
 
-pub fn command_spec_by_index(query: &str, index: usize) -> Option<&'static CommandSpec> {
-    matching_commands(query).get(index).copied()
-}
-
+#[cfg(test)]
 pub fn command_spec_by_name(name: &str) -> Option<&'static CommandSpec> {
     COMMAND_SPECS.iter().find(|spec| spec.name == name)
 }
 
+#[cfg(test)]
 pub fn recommended_commands(app: &TuiApp) -> Vec<&'static CommandSpec> {
     let names = if app.is_busy() {
         vec!["context", "help", "status"]
@@ -239,13 +237,6 @@ pub fn recommended_commands(app: &TuiApp) -> Vec<&'static CommandSpec> {
         n
     };
     names
-        .iter()
-        .filter_map(|name| command_spec_by_name(name))
-        .collect()
-}
-
-pub fn recent_command_specs(app: &TuiApp) -> Vec<&'static CommandSpec> {
-    app.recent_commands
         .iter()
         .filter_map(|name| command_spec_by_name(name))
         .collect()
@@ -267,10 +258,6 @@ pub fn palette_command_by_index(
     index: usize,
 ) -> Option<&'static CommandSpec> {
     palette_commands(app, query).get(index).copied()
-}
-
-pub fn command_detail_text(spec: &CommandSpec) -> String {
-    format!("{}\n\n{}\n\n{}", spec.usage, spec.summary, spec.detail)
 }
 
 pub fn general_help_text() -> &'static str {
@@ -313,6 +300,7 @@ fn subsequence_match(haystack: &str, needle: &str) -> bool {
     current.is_none()
 }
 
+#[cfg(test)]
 pub fn help_text() -> String {
     let mut specs = COMMAND_SPECS.iter().collect::<Vec<_>>();
     specs.sort_by_key(|spec| spec.name);
@@ -322,22 +310,9 @@ pub fn help_text() -> String {
         .collect::<Vec<_>>()
         .join("\n");
     format!(
-        "Built-in commands:\n{}\n\nCompaction:\n  /compact   summarize older conversation history now\n\nThreads:\n  /resume    reopen a recent local thread\n\nModes:\n  /permissions   cycle permission presets (auto, accept-edits, read-only, full-access)\n  /plan      enter planning mode for the current task\n  Agent may call enter_plan_mode automatically\n  /approval  toggle bash approval mode\n\nAuth:\n  /login     open the provider auth picker\n  /logout    clear the saved provider credential\n\nEditing:\n  apply_patch    preferred for editing existing files\n  replace_lines  use for verified large line-range edits\n  write_file     use for new files or full rewrites\n  replace        simple fallback for unique string replacement\n\nKeyboard:\n  Enter submit\n  Shift+Enter insert newline\n  Esc close current overlay\n\nExit:\n  /quit\n  /exit\n\nModel switching:\n  /model\n\nProvider URL:\n  /base-url",
+        "Built-in commands:\n{}\n\nCompaction:\n  /compact   summarize older conversation history now\n\nThreads:\n  /resume    reopen a recent local thread\n\nModes:\n  /permissions   cycle permission presets (auto, accept-edits, read-only, full-access)\n  /plan      enter planning mode for the current task\n  Agent may call enter_plan_mode automatically\n  /approval  toggle bash approval mode\n\nAuth:\n  /login     open the provider auth picker\n  /logout    clear the saved provider credential\n\nEditing:\n  apply_patch    preferred for editing existing files\n  replace_lines  use for verified large line-range edits\n  write_file     use for new files or full rewrites\n  replace        simple fallback for unique string replacement\n\nKeyboard:\n  Enter submit\n  Shift+Enter insert newline\n  Esc close current overlay\n\nExit:\n  /quit\n  /exit\n\nModel switching:\n  /model [name]\n  /models [name]  switch model by name, or open picker\n\nProvider URL:\n  /base-url",
         commands
     )
-}
-
-pub fn quick_actions_text() -> &'static str {
-    "/permissions  cycle permission presets\n\
-     /approval    toggle bash approval mode\n\
-     /base-url    open the provider URL editor\n\
-     /clear       reset the visible transcript\n\
-     /context     inspect effective runtime context\n\
-     /help        browse commands and keyboard hints\n\
-     /model       open guided model switching\n\
-     /plan        enter planning mode for the current task\n\
-     /status      inspect runtime and workspace\n\
-     /quit        leave the TUI"
 }
 
 #[cfg(test)]

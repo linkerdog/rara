@@ -29,13 +29,14 @@ use crate::hooks::HookDefinition;
 use crate::hooks::HookParseStatus;
 use crate::hooks::HookRegistry;
 use crate::hooks::{HookSandbox, run_sandboxed_hook};
+#[cfg(test)]
+use crate::llm::LlmEmbeddingBackend;
 use crate::llm::{
-    ContentBlock, EmbeddingBackend, EmbeddingInputKind, LlmBackend, LlmEmbeddingBackend,
-    LlmStreamEvent, LlmTurnMetadata,
+    ContentBlock, EmbeddingBackend, EmbeddingInputKind, LlmBackend, LlmStreamEvent, LlmTurnMetadata,
 };
 use crate::lsp_manager::LspManager;
 use crate::mcp_status::McpStatusSnapshot;
-use crate::memory_notice::{count_label, memory_notice};
+use crate::memory_notice::memory_notice;
 use crate::memory_store::MemoryStore;
 use crate::prompt::{self, PromptMode, PromptRuntimeConfig};
 use crate::protocol_sources::{PromptSourceRegistry, SkillSourceRegistry};
@@ -207,7 +208,6 @@ pub struct Agent {
     file_search_provider: FileSearchCandidateProvider,
     inspection_progress: InspectionProgress,
     last_query_plan_updated: bool,
-    last_turn_had_tool_calls: bool,
     recent_tool_calls: Vec<(String, String)>,
     pending_plan_exit_tool_id: Option<String>,
     prompt_config: PromptRuntimeConfig,
@@ -237,6 +237,7 @@ impl Agent {
         self.aux_total_cache_miss_tokens += miss;
     }
 
+    #[cfg(test)]
     pub fn new(
         tool_manager: ToolManager,
         llm_backend: Arc<dyn LlmBackend>,
@@ -351,7 +352,6 @@ impl Agent {
             file_search_provider: FileSearchCandidateProvider::new(root, true),
             inspection_progress: InspectionProgress::default(),
             last_query_plan_updated: false,
-            last_turn_had_tool_calls: false,
             recent_tool_calls: Vec::new(),
             pending_plan_exit_tool_id: None,
             prompt_config: PromptRuntimeConfig::default(),
@@ -411,11 +411,10 @@ impl Agent {
         });
         self.refresh_memory_retrieval_candidates().await;
         report(AgentEvent::MemoryAction {
-            message: memory_notice(format!(
-                "queried workspace memory: {} {}",
-                self.retrieved_memory_candidates.len(),
-                count_label("candidate", self.retrieved_memory_candidates.len())
-            )),
+            message: memory_notice(
+                self.workspace
+                    .memory_notice_text(self.retrieved_memory_candidates.len()),
+            ),
         });
         self.refresh_file_search_candidates();
         self.refresh_protocol_prompt_sources_for_query().await;
@@ -836,7 +835,6 @@ impl Agent {
             let mut turn_output = self.run_model_turn(output_mode, report).await?;
             self.record_agent_turn_trace(&turn_output, *agentic_turns, None, None, false);
             self.last_query_plan_updated = turn_output.plan_updated;
-            self.last_turn_had_tool_calls = !turn_output.tool_calls.is_empty();
             if !turn_output.tool_calls.is_empty() {
                 // Detect repeated tool calls — both within a single turn
                 // and across consecutive turns.
@@ -1416,26 +1414,6 @@ Rules:
         );
         let raw = self.llm_backend.classify(instructions, &messages).await?;
         Ok(crate::classifier::parse_auto_permission_response(&raw)?)
-    }
-
-    /// Classify a background task's current state using the auxiliary model.
-    async fn classify_background_task(
-        &self,
-        request: &crate::classifier::BackgroundTaskClassifyRequest,
-    ) -> Result<crate::classifier::BackgroundTaskClassifyResponse> {
-        let instructions = "\
-You are a process observer. Given a command and its recent output tail,
-classify its state. Output exactly one JSON object with fields:
-- \"state\": \"working\", \"blocked\", \"done\", or \"failed\"
-- \"tempo\": \"active\", \"idle\", or \"blocked\"
-- \"detail\": one-line status description
-- \"needs\": what the user should do to unblock (only when state is \"blocked\", omit otherwise)
-        ";
-
-        let message = crate::classifier::build_background_task_message(request);
-
-        let raw = self.llm_backend.classify(instructions, &[message]).await?;
-        Ok(crate::classifier::parse_background_task_response(&raw)?)
     }
 
     fn tool_call_context(&self) -> ToolCallContext {

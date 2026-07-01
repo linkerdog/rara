@@ -96,6 +96,92 @@ pub(crate) fn render_patch_preview(patch: &str, width: u16) -> Vec<Line<'static>
     lines
 }
 
+pub(crate) fn render_message_diff_preview(
+    role: Option<&str>,
+    message: &str,
+    width: u16,
+) -> Option<Vec<Line<'static>>> {
+    let split = split_message_diff(message)?;
+    let mut lines = Vec::new();
+
+    if let Some(role) = role.filter(|role| !role.is_empty()) {
+        lines.push(Line::from(vec![Span::styled(
+            role.to_string(),
+            Style::default()
+                .fg(TEXT_SECONDARY)
+                .add_modifier(Modifier::ITALIC),
+        )]));
+    }
+
+    for line in split.prefix_lines {
+        if line.trim().is_empty() {
+            continue;
+        }
+        lines.push(Line::from(format!("  {line}")));
+    }
+
+    if split.had_diff_label {
+        lines.push(Line::from(vec![
+            Span::raw("  "),
+            Span::styled(
+                "diff:",
+                Style::default()
+                    .fg(PHASE_PLANNING)
+                    .add_modifier(Modifier::BOLD),
+            ),
+        ]));
+    }
+
+    lines.extend(render_patch_preview(&split.patch, width));
+    Some(lines)
+}
+
+struct MessageDiff {
+    prefix_lines: Vec<String>,
+    patch: String,
+    had_diff_label: bool,
+}
+
+fn split_message_diff(message: &str) -> Option<MessageDiff> {
+    let mut prefix_lines = Vec::new();
+    let mut patch_lines = Vec::new();
+    let mut found_diff_label = false;
+
+    for line in message.lines() {
+        if !found_diff_label && line.trim_start() == "diff:" {
+            found_diff_label = true;
+            continue;
+        }
+        if found_diff_label {
+            patch_lines.push(line.trim_start().to_string());
+        } else {
+            prefix_lines.push(line.to_string());
+        }
+    }
+
+    if found_diff_label {
+        let patch = patch_lines.join("\n");
+        if patch.trim().is_empty() {
+            return None;
+        }
+        return Some(MessageDiff {
+            prefix_lines,
+            patch,
+            had_diff_label: true,
+        });
+    }
+
+    if message.contains("*** Begin Patch") {
+        return Some(MessageDiff {
+            prefix_lines: Vec::new(),
+            patch: message.to_string(),
+            had_diff_label: false,
+        });
+    }
+
+    None
+}
+
 fn render_raw_patch_preview(patch: &str, width: u16) -> Vec<Line<'static>> {
     let content_width = usize::from(width).saturating_sub(2).max(20);
     let mut lines = Vec::new();
@@ -309,9 +395,9 @@ fn push_wrapped_diff_line(
         ),
         DiffLineType::Context => (
             " ",
-            Style::default().fg(TEXT_SECONDARY),
+            Style::default().fg(DIFF_CONTEXT_FG),
             None,
-            Style::default().fg(TEXT_MUTED),
+            Style::default().fg(DIFF_CONTEXT_FG),
         ),
     };
 

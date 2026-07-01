@@ -24,7 +24,23 @@ pub(super) fn render_composer(f: &mut Frame, app: &mut TuiApp, area: Rect) -> Op
         .direction(Direction::Vertical)
         .constraints([Constraint::Min(2), Constraint::Length(1)])
         .split(area);
-    let composer_lines = if app.bottom_pane.input.is_empty() {
+    let hide_input_for_approval = app
+        .active_pending_interaction()
+        .is_some_and(|p| p.kind != ActivePendingInteractionKind::RequestInput);
+
+    let composer_lines = if hide_input_for_approval {
+        // Show a single-line status when approval dock is active above.
+        let pending = app.active_pending_interaction().unwrap();
+        vec![Line::from(vec![Span::styled(
+            format!(
+                "› {} — use ↑↓ or keys to respond",
+                super::super::super::interaction_text::pending_interaction_card_title(pending.kind),
+            ),
+            Style::default()
+                .fg(TEXT_MUTED)
+                .add_modifier(Modifier::ITALIC),
+        )])]
+    } else if app.bottom_pane.input.is_empty() {
         vec![Line::from(vec![
             Span::styled(
                 "› ",
@@ -104,12 +120,16 @@ pub(super) fn render_composer(f: &mut Frame, app: &mut TuiApp, area: Rect) -> Op
             .alignment(Alignment::Left),
         chunks[1],
     );
-    let cursor = Some(composer_cursor_position(
-        app.bottom_pane.input.as_str(),
-        app.composer_cursor_offset(),
-        chunks[0],
-        app.bottom_pane.composer_scroll,
-    ));
+    let cursor = if hide_input_for_approval {
+        None
+    } else {
+        Some(composer_cursor_position(
+            app.bottom_pane.input.as_str(),
+            app.composer_cursor_offset(),
+            chunks[0],
+            app.bottom_pane.composer_scroll,
+        ))
+    };
     cursor
 }
 

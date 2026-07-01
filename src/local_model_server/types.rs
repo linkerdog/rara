@@ -50,7 +50,13 @@ pub(crate) enum LocalModelServerState {
     Ready,
     Starting,
     WaitingForServer,
+    /// Reserved for finer-grained local embedding setup progress in
+    /// docs/features/local-embedding-runtimes.md.
+    #[allow(dead_code)]
     CreatingVenv,
+    /// Reserved for finer-grained local embedding setup progress in
+    /// docs/features/local-embedding-runtimes.md.
+    #[allow(dead_code)]
     InstallingDependencies,
     PreparingModel,
     PreparedButStopped,

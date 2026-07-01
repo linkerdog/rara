@@ -1,6 +1,6 @@
 use ratatui::{
     style::{Color, Modifier, Style},
-    text::{Line, Span},
+    text::Span,
 };
 use unicode_width::UnicodeWidthStr;
 
@@ -72,31 +72,6 @@ pub(crate) fn startup_card_inner_width(width: u16) -> Option<usize> {
     Some(std::cmp::min(width.saturating_sub(4) as usize, 56))
 }
 
-/// Lightweight container — adds a thin top rule above content instead of a heavy border box.
-pub(crate) fn with_border(lines: Vec<Line<'static>>, inner_width: usize) -> Vec<Line<'static>> {
-    let mut out = Vec::with_capacity(lines.len() + 2);
-    let top_rule = format!("──{}", "─".repeat(inner_width.saturating_sub(2)));
-    out.push(Line::from(Span::styled(
-        top_rule,
-        Style::default().fg(TEXT_MUTED),
-    )));
-
-    for line in lines {
-        let used_width = line
-            .iter()
-            .map(|span| display_width(span.content.as_ref()))
-            .sum::<usize>();
-        let mut spans = Vec::with_capacity(line.spans.len() + 3);
-        spans.push(Span::from("  "));
-        spans.extend(line);
-        if used_width < inner_width {
-            spans.push(Span::from(" ".repeat(inner_width - used_width)));
-        }
-        out.push(Line::from(spans));
-    }
-    out
-}
-
 pub(crate) fn badge<'a>(label: &'a str, value: &'a str, color: Color) -> Span<'a> {
     let fg = match color {
         Color::Black
@@ -119,8 +94,4 @@ pub(crate) fn badge<'a>(label: &'a str, value: &'a str, color: Color) -> Span<'a
 /// Lightweight section label — colored foreground, no heavy background badge.
 pub(crate) fn section_label(title: &str, color: Color) -> Span<'static> {
     Span::styled(format!("# {title}"), Style::default().fg(color))
-}
-
-pub(crate) fn wrapped_history_line_count(lines: &[Line<'static>], width: u16) -> u16 {
-    crate::tui::layout_utils::wrapped_line_count(lines, width)
 }

@@ -1,7 +1,10 @@
+#[cfg(test)]
 use super::command::api_key_status;
+#[cfg(test)]
 use super::state::{ProviderFamily, TuiApp};
 
 /// Check whether a saved Google OAuth credential exists.
+#[cfg(test)]
 fn google_oauth_has_saved_auth() -> bool {
     crate::config::ensure_rara_home_dir()
         .ok()
@@ -9,14 +12,17 @@ fn google_oauth_has_saved_auth() -> bool {
         .unwrap_or(false)
 }
 
+#[cfg(test)]
 pub(crate) struct AuthModePickerView {
     pub(crate) intro: String,
     pub(crate) lines: Vec<String>,
     pub(crate) footer: &'static str,
 }
 
+#[cfg(test)]
 pub(crate) const AUTH_MODE_OPTION_COUNT: usize = 4;
 
+#[cfg(test)]
 pub(crate) fn build_auth_mode_picker_view(app: &TuiApp, ssh_session: bool) -> AuthModePickerView {
     let family = app.selected_provider_family();
     let is_gemini = family == ProviderFamily::Gemini;
