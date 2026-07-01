@@ -3,8 +3,8 @@ use super::command::api_key_status;
 #[cfg(test)]
 use super::state::{ProviderFamily, TuiApp};
 
-#[cfg(test)]
 /// Check whether a saved Google OAuth credential exists.
+#[cfg(test)]
 fn google_oauth_has_saved_auth() -> bool {
     crate::config::ensure_rara_home_dir()
         .ok()
@@ -19,6 +19,7 @@ pub(crate) struct AuthModePickerView {
     pub(crate) footer: &'static str,
 }
 
+#[cfg(test)]
 pub(crate) const AUTH_MODE_OPTION_COUNT: usize = 4;
 
 #[cfg(test)]
