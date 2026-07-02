@@ -188,7 +188,7 @@ pub(super) fn create_full_tool_manager(
         prompt_config: prompt_config.clone(),
         background_subagents: background_subagents.clone(),
         task_list_id: task_list_id.clone(),
-        agent_definitions,
+        agent_definitions: agent_definitions.clone(),
     }));
     tm.register(Box::new(ExploreAgentTool {
         backend: backend.clone(),
@@ -199,6 +199,7 @@ pub(super) fn create_full_tool_manager(
         prompt_config: prompt_config.clone(),
         background_subagents: background_subagents.clone(),
         task_list_id: task_list_id.clone(),
+        agent_definitions: agent_definitions.clone(),
     }));
     tm.register(Box::new(PlanAgentTool {
         backend: backend.clone(),
@@ -209,6 +210,7 @@ pub(super) fn create_full_tool_manager(
         prompt_config: prompt_config.clone(),
         background_subagents: background_subagents.clone(),
         task_list_id: task_list_id.clone(),
+        agent_definitions: agent_definitions.clone(),
     }));
     tm.register(Box::new(TeamCreateTool {
         backend,
@@ -218,6 +220,7 @@ pub(super) fn create_full_tool_manager(
         workspace,
         prompt_config,
         task_list_id,
+        agent_definitions,
     }));
     tm.register(Box::new(SubAgentResumeTool {
         background_subagents: background_subagents.clone(),

@@ -16,6 +16,7 @@ use crate::config::{ConfigManager, OpenAiEndpointKind, RaraConfig};
 use crate::config::{DEFAULT_CODEX_BASE_URL, DEFAULT_CODEX_MODEL};
 use crate::llm::MockLlm;
 use crate::session::SessionManager;
+use crate::tools::agent::{AgentDefinitionCache, AgentDefinitionLoadRecord};
 use crate::tools::bash::BashCommandInput;
 use crate::tui::command::palette_commands;
 use crate::workspace::WorkspaceMemory;
@@ -332,6 +333,60 @@ Reloaded prompt.
             .extension_agent_status_lines
             .iter()
             .any(|line| line.contains("status-cache-after"))
+    );
+}
+
+#[test]
+fn sync_snapshot_counts_only_repo_agent_definition_records() {
+    let dir = tempdir().expect("tempdir");
+    let root = dir.path().join("workspace");
+    let rara_dir = root.join(".rara");
+    std::fs::create_dir_all(rara_dir.join("rollouts")).expect("rollouts");
+    std::fs::create_dir_all(rara_dir.join("sessions")).expect("sessions");
+    let home_root = dir.path().join("home");
+    let mut app = TuiApp::new(ConfigManager {
+        path: root.join("config.json"),
+    })
+    .expect("app");
+    let mut agent = Agent::new(
+        ToolManager::new(),
+        std::sync::Arc::new(MockLlm),
+        std::sync::Arc::new(VectorDB::new(&rara_dir.join("lancedb").to_string_lossy())),
+        std::sync::Arc::new(SessionManager {
+            storage_dir: rara_dir.join("rollouts"),
+            legacy_storage_dir: rara_dir.join("sessions"),
+        }),
+        std::sync::Arc::new(WorkspaceMemory::from_paths(root.clone(), rara_dir)),
+    );
+    agent.agent_definitions = AgentDefinitionCache::from_records_for_test(vec![
+        AgentDefinitionLoadRecord {
+            id: "repo-agent".to_string(),
+            source_path: root.join(".rara").join("agents").join("repo-agent.md"),
+            definition: None,
+            error: Some("parse error".to_string()),
+        },
+        AgentDefinitionLoadRecord {
+            id: "home-agent".to_string(),
+            source_path: home_root.join(".rara").join("agents").join("home-agent.md"),
+            definition: None,
+            error: Some("parse error".to_string()),
+        },
+    ]);
+
+    app.sync_snapshot(&agent);
+
+    assert_eq!(app.snapshot.extension_agent_count, 1);
+    assert!(
+        app.snapshot
+            .extension_agent_status_lines
+            .iter()
+            .any(|line| line.contains("repo-agent"))
+    );
+    assert!(
+        !app.snapshot
+            .extension_agent_status_lines
+            .iter()
+            .any(|line| line.contains("home-agent"))
     );
 }
 

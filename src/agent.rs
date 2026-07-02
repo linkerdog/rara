@@ -261,6 +261,7 @@ impl Agent {
         )
     }
 
+    #[cfg(test)]
     pub fn new_with_embedding_backend(
         tool_manager: ToolManager,
         llm_backend: Arc<dyn LlmBackend>,
@@ -268,6 +269,27 @@ impl Agent {
         vdb: Arc<VectorDB>,
         session_manager: Arc<SessionManager>,
         workspace: Arc<WorkspaceMemory>,
+    ) -> Self {
+        let agent_definitions = AgentDefinitionCache::load(workspace.root.clone());
+        Self::new_with_embedding_backend_and_agent_definitions(
+            tool_manager,
+            llm_backend,
+            embedding_backend,
+            vdb,
+            session_manager,
+            workspace,
+            agent_definitions,
+        )
+    }
+
+    pub fn new_with_embedding_backend_and_agent_definitions(
+        tool_manager: ToolManager,
+        llm_backend: Arc<dyn LlmBackend>,
+        embedding_backend: Arc<dyn EmbeddingBackend>,
+        vdb: Arc<VectorDB>,
+        session_manager: Arc<SessionManager>,
+        workspace: Arc<WorkspaceMemory>,
+        agent_definitions: AgentDefinitionCache,
     ) -> Self {
         let root = workspace.root.clone();
         let memory_store = Arc::new(MemoryStore::new_with_embedding_backend(
@@ -341,7 +363,7 @@ impl Agent {
             pending_approval: None,
             todo_state: None,
             task_list_id: DEFAULT_TASK_LIST_ID.to_string(),
-            agent_definitions: AgentDefinitionCache::load(root.clone()),
+            agent_definitions,
             completed_user_input: None,
             completed_approval: None,
             approved_bash_prefixes: Vec::new(),
@@ -446,6 +468,7 @@ impl Agent {
                     let workspace = self.workspace.clone();
                     let scheduler = self.consolidation_scheduler.clone();
                     let task_list_id = self.task_list_id.clone();
+                    let agent_definitions = self.agent_definitions.clone();
                     std::thread::spawn(move || {
                         let rt = tokio::runtime::Builder::new_current_thread()
                             .enable_all()
@@ -478,6 +501,7 @@ impl Agent {
                                 workspace,
                                 prompt_config,
                                 task_list_id,
+                                agent_definitions,
                             )
                             .await;
                             match result {

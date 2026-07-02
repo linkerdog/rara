@@ -412,6 +412,7 @@ async fn team_create_runs_real_subagents_in_order() {
         session_manager: Arc::new(
             SessionManager::new_for_rara_dir(rara_dir.clone()).expect("session manager"),
         ),
+        agent_definitions: test_agent_definition_cache(&root),
         workspace: Arc::new(WorkspaceMemory::from_paths(root, rara_dir)),
         prompt_config: PromptRuntimeConfig::default(),
         task_list_id: test_task_list_id(),
@@ -466,6 +467,7 @@ async fn team_create_validates_all_tasks_before_running_subagents() {
         session_manager: Arc::new(
             SessionManager::new_for_rara_dir(rara_dir.clone()).expect("session manager"),
         ),
+        agent_definitions: test_agent_definition_cache(&root),
         workspace: Arc::new(WorkspaceMemory::from_paths(root, rara_dir)),
         prompt_config: PromptRuntimeConfig::default(),
         task_list_id: test_task_list_id(),
@@ -508,6 +510,7 @@ async fn team_create_rejects_non_string_kind_before_running_subagents() {
         session_manager: Arc::new(
             SessionManager::new_for_rara_dir(rara_dir.clone()).expect("session manager"),
         ),
+        agent_definitions: test_agent_definition_cache(&root),
         workspace: Arc::new(WorkspaceMemory::from_paths(root, rara_dir)),
         prompt_config: PromptRuntimeConfig::default(),
         task_list_id: test_task_list_id(),
@@ -549,6 +552,7 @@ async fn team_create_rejects_unstable_explicit_name_before_running_subagents() {
         session_manager: Arc::new(
             SessionManager::new_for_rara_dir(rara_dir.clone()).expect("session manager"),
         ),
+        agent_definitions: test_agent_definition_cache(&root),
         workspace: Arc::new(WorkspaceMemory::from_paths(root, rara_dir)),
         prompt_config: PromptRuntimeConfig::default(),
         task_list_id: test_task_list_id(),
@@ -629,6 +633,7 @@ async fn team_create_limits_concurrent_subagents() {
         session_manager: Arc::new(
             SessionManager::new_for_rara_dir(rara_dir.clone()).expect("session manager"),
         ),
+        agent_definitions: test_agent_definition_cache(&root),
         workspace: Arc::new(WorkspaceMemory::from_paths(root, rara_dir)),
         prompt_config: PromptRuntimeConfig::default(),
         task_list_id: test_task_list_id(),
@@ -665,6 +670,7 @@ async fn team_create_writes_parent_scoped_sidechain_transcripts() {
         session_manager: Arc::new(
             SessionManager::new_for_rara_dir(rara_dir.clone()).expect("session manager"),
         ),
+        agent_definitions: test_agent_definition_cache(&root),
         workspace: Arc::new(WorkspaceMemory::from_paths(root, rara_dir.clone())),
         prompt_config: PromptRuntimeConfig::default(),
         task_list_id: test_task_list_id(),
@@ -928,6 +934,7 @@ async fn background_subagent_resume_returns_completed_summary_without_inline_sid
             &rara_dir.join("lancedb").display().to_string(),
         )),
         session_manager,
+        agent_definitions: test_agent_definition_cache(&root),
         workspace: Arc::new(WorkspaceMemory::from_paths(root, rara_dir.clone())),
         prompt_config: PromptRuntimeConfig::default(),
         task_list_id: test_task_list_id(),
@@ -1001,6 +1008,7 @@ async fn background_subagent_stop_marks_running_task_cancelled() {
         session_manager: Arc::new(
             SessionManager::new_for_rara_dir(rara_dir.clone()).expect("session manager"),
         ),
+        agent_definitions: test_agent_definition_cache(&root),
         workspace: Arc::new(WorkspaceMemory::from_paths(root, rara_dir)),
         prompt_config: PromptRuntimeConfig::default(),
         task_list_id: test_task_list_id(),
@@ -1097,9 +1105,10 @@ async fn background_plan_agent_resume_returns_plan_state() {
             &rara_dir.join("lancedb").display().to_string(),
         )),
         session_manager: Arc::new(
-            SessionManager::new_for_rara_dir(rara_dir).expect("session manager"),
+            SessionManager::new_for_rara_dir(rara_dir.clone()).expect("session manager"),
         ),
-        workspace: Arc::new(WorkspaceMemory::from_paths(root, temp.path().join(".rara"))),
+        agent_definitions: test_agent_definition_cache(&root),
+        workspace: Arc::new(WorkspaceMemory::from_paths(root, rara_dir)),
         prompt_config: PromptRuntimeConfig::default(),
         task_list_id: test_task_list_id(),
         background_subagents: background_subagents.clone(),
@@ -1157,6 +1166,7 @@ async fn plan_agent_writes_parent_scoped_sidechain_transcript() {
         session_manager: Arc::new(
             SessionManager::new_for_rara_dir(rara_dir.clone()).expect("session manager"),
         ),
+        agent_definitions: test_agent_definition_cache(&root),
         workspace: Arc::new(WorkspaceMemory::from_paths(root, rara_dir.clone())),
         prompt_config: PromptRuntimeConfig::default(),
         task_list_id: test_task_list_id(),
@@ -1234,6 +1244,7 @@ async fn subagent_without_parent_context_does_not_write_sidechain() {
         session_manager: Arc::new(
             SessionManager::new_for_rara_dir(rara_dir.clone()).expect("session manager"),
         ),
+        agent_definitions: test_agent_definition_cache(&root),
         workspace: Arc::new(WorkspaceMemory::from_paths(root, rara_dir.clone())),
         prompt_config: PromptRuntimeConfig::default(),
         task_list_id: test_task_list_id(),
@@ -1279,6 +1290,7 @@ async fn subagent_returns_result_when_sidechain_persistence_fails() {
         session_manager: Arc::new(
             SessionManager::new_for_rara_dir(rara_dir.clone()).expect("session manager"),
         ),
+        agent_definitions: test_agent_definition_cache(&root),
         workspace: Arc::new(WorkspaceMemory::from_paths(root, rara_dir)),
         prompt_config: PromptRuntimeConfig::default(),
         task_list_id: test_task_list_id(),
@@ -1325,6 +1337,7 @@ async fn team_create_rejects_too_many_tasks() {
         session_manager: Arc::new(
             SessionManager::new_for_rara_dir(rara_dir.clone()).expect("session manager"),
         ),
+        agent_definitions: test_agent_definition_cache(&root),
         workspace: Arc::new(WorkspaceMemory::from_paths(root, rara_dir)),
         prompt_config: PromptRuntimeConfig::default(),
         task_list_id: test_task_list_id(),

@@ -73,7 +73,7 @@ struct AgentDefinitionCacheState {
 /// `.claude/agents`.
 #[derive(Clone, Debug)]
 pub struct AgentDefinitionCache {
-    state: Arc<RwLock<AgentDefinitionCacheState>>,
+    state: Arc<AgentDefinitionCacheState>,
 }
 
 impl AgentDefinitionCache {
@@ -81,27 +81,28 @@ impl AgentDefinitionCache {
         let workspace_root = workspace_root.into();
         let state = load_agent_definition_cache_state(&workspace_root);
         Self {
-            state: Arc::new(RwLock::new(state)),
+            state: Arc::new(state),
         }
     }
 
     pub fn resolve(&self, name: &str) -> Option<AgentDefinition> {
-        match self.state.read() {
-            Ok(state) => resolve_agent(name, &state.registry),
-            Err(err) => {
-                log::warn!("failed to read agent definition cache: {err}");
-                builtin_agent_definition(name)
-            }
-        }
+        resolve_agent(name, &self.state.registry)
     }
 
     pub fn records(&self) -> Vec<AgentDefinitionLoadRecord> {
-        match self.state.read() {
-            Ok(state) => state.records.clone(),
-            Err(err) => {
-                log::warn!("failed to read agent definition cache records: {err}");
-                Vec::new()
+        self.state.records.clone()
+    }
+
+    #[cfg(test)]
+    pub fn from_records_for_test(records: Vec<AgentDefinitionLoadRecord>) -> Self {
+        let mut registry = AgentRegistry::new();
+        for record in &records {
+            if let Some(definition) = &record.definition {
+                registry.insert(definition.name.clone(), definition.clone());
             }
+        }
+        Self {
+            state: Arc::new(AgentDefinitionCacheState { registry, records }),
         }
     }
 }
@@ -118,10 +119,7 @@ fn load_agent_definition_cache_state(workspace_root: &Path) -> AgentDefinitionCa
                 log::warn!(
                     "failed to load agent definition {}: {}",
                     record.source_path.display(),
-                    record
-                        .error
-                        .clone()
-                        .unwrap_or_else(|| "parse error".to_string())
+                    record.error.as_deref().unwrap_or("parse error")
                 );
             }
         }

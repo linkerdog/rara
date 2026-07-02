@@ -82,15 +82,15 @@ impl RuntimeBootstrap {
         Arc<HookRegistry>,
         Arc<LspManager>,
     ) {
-        let mut agent = Agent::new_with_embedding_backend(
+        let mut agent = Agent::new_with_embedding_backend_and_agent_definitions(
             self.tool_manager,
             self.backend,
             self.embedding_backend,
             self.vdb,
             self.session_manager,
             self.workspace,
+            self.agent_definitions,
         );
-        agent.agent_definitions = self.agent_definitions;
         agent.set_prompt_config(self.prompt_config);
         agent.set_prompt_source_registry(self.prompt_source_registry.clone());
         agent.set_skill_source_registry(self.skill_source_registry.clone());
