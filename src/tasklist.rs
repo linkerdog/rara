@@ -19,7 +19,7 @@ impl TaskListStore {
 
     pub fn list_tasks(&self, task_list_id: &str) -> Result<Vec<TaskRecord>> {
         let task_list_dir = self.task_list_dir(task_list_id);
-        if !task_list_dir.is_dir() {
+        if !is_real_directory(&task_list_dir) {
             return Ok(Vec::new());
         }
 
@@ -31,10 +31,10 @@ impl TaskListStore {
                 format!("read task list directory entry {}", task_list_dir.display())
             })?;
             let path = entry.path();
-            if !is_task_file(&path) {
+            let Some(task_id) = task_id_from_path(&path) else {
                 continue;
-            }
-            match read_task_file(&path) {
+            };
+            match read_task_file(&path, &task_id) {
                 Ok(task) => tasks.push(task),
                 Err(err) => log::warn!("Failed to read task file {}: {err}", path.display()),
             }
@@ -52,10 +52,10 @@ impl TaskListStore {
         let path = self
             .task_list_dir(task_list_id)
             .join(format!("{task_id}.json"));
-        if !path.is_file() {
+        if !is_real_file(&path) {
             return Ok(None);
         }
-        read_task_file(&path).map(Some)
+        read_task_file(&path, task_id).map(Some)
     }
 
     fn task_list_dir(&self, task_list_id: &str) -> PathBuf {
@@ -164,21 +164,45 @@ pub fn is_valid_task_id(task_id: &str) -> bool {
         && !Path::new(task_id).is_absolute()
 }
 
-fn read_task_file(path: &Path) -> Result<TaskRecord> {
+fn read_task_file(path: &Path, expected_task_id: &str) -> Result<TaskRecord> {
     let bytes = fs::read(path).with_context(|| format!("read task file {}", path.display()))?;
-    serde_json::from_slice(&bytes).with_context(|| format!("parse task file {}", path.display()))
+    let task: TaskRecord = serde_json::from_slice(&bytes)
+        .with_context(|| format!("parse task file {}", path.display()))?;
+    anyhow::ensure!(
+        is_valid_task_id(&task.id) && task.id == expected_task_id,
+        "task id '{}' does not match file id '{}'",
+        task.id,
+        expected_task_id
+    );
+    Ok(task)
 }
 
-fn is_task_file(path: &Path) -> bool {
-    path.is_file()
-        && path
-            .extension()
-            .and_then(|extension| extension.to_str())
-            .is_some_and(|extension| extension.eq_ignore_ascii_case("json"))
-        && path
-            .file_name()
-            .and_then(|name| name.to_str())
-            .is_none_or(|name| !name.starts_with('.'))
+fn task_id_from_path(path: &Path) -> Option<String> {
+    if !is_real_file(path) {
+        return None;
+    }
+    let file_name = path.file_name()?.to_str()?;
+    if file_name.starts_with('.') {
+        return None;
+    }
+    let extension = path.extension()?.to_str()?;
+    if !extension.eq_ignore_ascii_case("json") {
+        return None;
+    }
+    let task_id = path.file_stem()?.to_str()?;
+    is_valid_task_id(task_id).then(|| task_id.to_string())
+}
+
+fn is_real_directory(path: &Path) -> bool {
+    fs::symlink_metadata(path)
+        .map(|metadata| metadata.file_type().is_dir())
+        .unwrap_or(false)
+}
+
+fn is_real_file(path: &Path) -> bool {
+    fs::symlink_metadata(path)
+        .map(|metadata| metadata.file_type().is_file())
+        .unwrap_or(false)
 }
 
 fn normalize_task_list_id(task_list_id: &str) -> String {
@@ -356,6 +380,112 @@ mod tests {
                 "task id {task_id:?} should be rejected by the store"
             );
         }
+    }
+
+    #[test]
+    fn list_tasks_skips_task_files_with_mismatched_ids() {
+        let temp = tempdir().expect("tempdir");
+        let list_dir = temp.path().join(DEFAULT_TASK_LIST_ID);
+        fs::create_dir_all(&list_dir).expect("task list dir");
+        write_task(
+            &list_dir,
+            "1",
+            json!({
+                "id": "2",
+                "subject": "Mismatched task id",
+                "status": "pending"
+            }),
+        );
+
+        let store = TaskListStore::new(temp.path());
+        let tasks = store
+            .list_tasks(DEFAULT_TASK_LIST_ID)
+            .expect("mismatched ids should be skipped");
+
+        assert!(tasks.is_empty());
+    }
+
+    #[test]
+    fn get_task_rejects_task_file_with_mismatched_id() {
+        let temp = tempdir().expect("tempdir");
+        let list_dir = temp.path().join(DEFAULT_TASK_LIST_ID);
+        fs::create_dir_all(&list_dir).expect("task list dir");
+        write_task(
+            &list_dir,
+            "1",
+            json!({
+                "id": "2",
+                "subject": "Mismatched task id",
+                "status": "pending"
+            }),
+        );
+
+        let store = TaskListStore::new(temp.path());
+        let err = store
+            .get_task(DEFAULT_TASK_LIST_ID, "1")
+            .expect_err("mismatched task id should fail direct reads");
+
+        assert!(err.to_string().contains("does not match file id"));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn list_tasks_does_not_follow_symlinked_task_list_directory() {
+        use std::os::unix::fs::symlink;
+
+        let temp = tempdir().expect("tempdir");
+        let outside = temp.path().join("outside");
+        fs::create_dir_all(&outside).expect("outside dir");
+        write_task(
+            &outside,
+            "1",
+            json!({
+                "id": "1",
+                "subject": "Outside task",
+                "status": "pending"
+            }),
+        );
+        symlink(&outside, temp.path().join(DEFAULT_TASK_LIST_ID)).expect("symlink task list");
+
+        let store = TaskListStore::new(temp.path());
+        let tasks = store
+            .list_tasks(DEFAULT_TASK_LIST_ID)
+            .expect("symlinked list dir should be ignored");
+
+        assert!(tasks.is_empty());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn task_reads_do_not_follow_symlinked_task_files() {
+        use std::os::unix::fs::symlink;
+
+        let temp = tempdir().expect("tempdir");
+        let list_dir = temp.path().join(DEFAULT_TASK_LIST_ID);
+        let outside = temp.path().join("outside");
+        fs::create_dir_all(&list_dir).expect("task list dir");
+        fs::create_dir_all(&outside).expect("outside dir");
+        write_task(
+            &outside,
+            "1",
+            json!({
+                "id": "1",
+                "subject": "Outside task",
+                "status": "pending"
+            }),
+        );
+        symlink(outside.join("1.json"), list_dir.join("1.json")).expect("symlink task file");
+
+        let store = TaskListStore::new(temp.path());
+        let tasks = store
+            .list_tasks(DEFAULT_TASK_LIST_ID)
+            .expect("symlinked task file should be skipped");
+        let task = store
+            .get_task(DEFAULT_TASK_LIST_ID, "1")
+            .expect("symlinked task file should not be read");
+
+        assert!(tasks.is_empty());
+        assert!(task.is_none());
     }
 
     fn write_task(dir: &Path, id: &str, task: serde_json::Value) {

@@ -29,6 +29,7 @@ The shared task store is a file-backed workspace artifact:
 `task_list_id` is sanitized to an ASCII path segment and defaults to `default`. Each task is one JSON file so later write-side tools can update individual tasks without rewriting a whole task list. The first implementation is read-only and therefore does not need locks yet.
 
 `task_id` is treated as an identifier, not a path. Read tools reject empty task IDs, absolute paths, directory separators, and parent-directory traversal fragments before joining with the task-list directory.
+Task-list reads do not follow symlinks: task-list IDs must resolve to real directories, task files must be real files, and each task JSON `id` must match the `<task_id>.json` filename.
 
 The runtime registers one shared `TaskListStore` during tool manager construction and passes it to both read tools. Missing task-list directories are valid and return an empty list.
 
@@ -96,6 +97,7 @@ Missing tasks return `{ "task": null }`.
 
 - Store tests cover sorted file loading, `blockedBy` alias parsing, `activeForm` alias parsing, sanitized task-list IDs, and completed-blocker filtering.
 - Store tests cover path-like `task_id` rejection and file-vs-directory task-list handling.
+- Store tests cover symlink rejection for task-list directories and task files, plus JSON id and filename consistency.
 - Tool tests cover `task_list` summary output, `task_get` detail output, missing tasks, strict schemas, and invalid `task_id` rejection.
 - Workspace checks should run `cargo test tasklist`, `cargo test tools::tasklist::tests`, `cargo check --locked --workspace --all-targets`, and `cargo clippy --locked --workspace --all-targets -- -D warnings`.
 
