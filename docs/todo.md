@@ -51,8 +51,9 @@ Active backlog only. Keep this file small and current.
       task store so teams/subagents can coordinate beyond session-local `todo_write`.
 - [x] Unify `.rara/agents` parsing for execution and `/status` discovery so
       `AgentDefinition` and `ImportedAgentProfile` cannot drift.
-- [ ] Cache Claude-style agent definitions at runtime construction time and
-      expose an explicit reload path instead of scanning on each `spawn_agent`.
+- [x] Cache Claude-style agent definitions at runtime construction time and
+      refresh them through runtime rebuild instead of scanning on each
+      `spawn_agent`.
 - [ ] Implement remaining Claude-compatible `AgentDefinition` metadata:
       `token_budget`, `permission_mode`, `hidden`, and description/listing
       behavior.

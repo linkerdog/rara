@@ -15,12 +15,12 @@ use tempfile::tempdir;
 use tokio::time::{Duration, sleep};
 
 use super::{
-    AgentDefinition, BACKGROUND_SUBAGENT_COMPLETED_RETENTION, BackgroundSubAgentRecord,
-    BackgroundSubAgentStore, SubAgentKind, SubagentProgress, TEAM_CREATE_CONCURRENCY_LIMIT,
-    append_subagent_prompt, build_filtered_tool_manager, build_read_only_tool_manager,
-    build_subagent_tool_manager, home_dir_from_vars, latest_assistant_text_from_history,
-    parse_team_task_kind, resolve_kind_definition, resolve_spawn_agent_definition,
-    validate_agent_id_label,
+    AgentDefinition, AgentDefinitionCache, BACKGROUND_SUBAGENT_COMPLETED_RETENTION,
+    BackgroundSubAgentRecord, BackgroundSubAgentStore, SubAgentKind, SubagentProgress,
+    TEAM_CREATE_CONCURRENCY_LIMIT, append_subagent_prompt, build_filtered_tool_manager,
+    build_read_only_tool_manager, build_subagent_tool_manager, home_dir_from_vars,
+    latest_assistant_text_from_history, parse_team_task_kind, resolve_kind_definition,
+    resolve_spawn_agent_definition, validate_agent_id_label,
 };
 use crate::agent::Message;
 use crate::llm::{ContentBlock, EmbeddingBackend, LlmBackend, LlmResponse, MockLlm};
@@ -73,6 +73,10 @@ fn test_task_store() -> Arc<TaskListStore> {
 
 fn test_task_list_id() -> String {
     DEFAULT_TASK_LIST_ID.to_string()
+}
+
+fn test_agent_definition_cache(root: &std::path::Path) -> AgentDefinitionCache {
+    AgentDefinitionCache::load(root)
 }
 
 fn record_peak(current: usize, peak: &AtomicUsize) {
@@ -585,10 +589,11 @@ async fn spawn_agent_rejects_name_that_normalizes_empty_before_running_subagent(
         session_manager: Arc::new(
             SessionManager::new_for_rara_dir(rara_dir.clone()).expect("session manager"),
         ),
-        workspace: Arc::new(WorkspaceMemory::from_paths(root, rara_dir)),
+        workspace: Arc::new(WorkspaceMemory::from_paths(root.clone(), rara_dir)),
         prompt_config: PromptRuntimeConfig::default(),
         task_list_id: test_task_list_id(),
         background_subagents: Arc::new(BackgroundSubAgentStore::default()),
+        agent_definitions: test_agent_definition_cache(&root),
     };
 
     let err = tool
@@ -750,10 +755,11 @@ async fn spawn_agent_writes_parent_scoped_sidechain_transcript() {
         session_manager: Arc::new(
             SessionManager::new_for_rara_dir(rara_dir.clone()).expect("session manager"),
         ),
-        workspace: Arc::new(WorkspaceMemory::from_paths(root, rara_dir.clone())),
+        workspace: Arc::new(WorkspaceMemory::from_paths(root.clone(), rara_dir.clone())),
         prompt_config: PromptRuntimeConfig::default(),
         task_list_id: test_task_list_id(),
         background_subagents: Arc::new(BackgroundSubAgentStore::default()),
+        agent_definitions: test_agent_definition_cache(&root),
     };
 
     let mut progress = |_| {};
@@ -853,10 +859,11 @@ Custom reviewer prompt from workspace definition.
         session_manager: Arc::new(
             SessionManager::new_for_rara_dir(rara_dir.clone()).expect("session manager"),
         ),
-        workspace: Arc::new(WorkspaceMemory::from_paths(root, rara_dir)),
+        workspace: Arc::new(WorkspaceMemory::from_paths(root.clone(), rara_dir)),
         prompt_config: PromptRuntimeConfig::default(),
         task_list_id: test_task_list_id(),
         background_subagents: Arc::new(BackgroundSubAgentStore::default()),
+        agent_definitions: test_agent_definition_cache(&root),
     };
 
     let mut progress = |_| {};
@@ -1472,14 +1479,16 @@ fn resolve_kind_definition_explore_no_plan_mode() {
 #[test]
 fn resolve_spawn_agent_definition_resolves_builtin() {
     let temp = tempdir().expect("tempdir");
-    let def = resolve_spawn_agent_definition(temp.path(), "explore");
+    let cache = test_agent_definition_cache(temp.path());
+    let def = resolve_spawn_agent_definition(&cache, "explore");
     assert_eq!(def.name, "explore");
 }
 
 #[test]
 fn resolve_spawn_agent_definition_falls_back_for_unknown() {
     let temp = tempdir().expect("tempdir");
-    let def = resolve_spawn_agent_definition(temp.path(), "unknown-agent");
+    let cache = test_agent_definition_cache(temp.path());
+    let def = resolve_spawn_agent_definition(&cache, "unknown-agent");
     assert_eq!(def.name, "unknown-agent");
     assert!(!def.plan_mode_required);
 }
@@ -1505,7 +1514,8 @@ Review the assigned change and report concrete findings.
     )
     .expect("agent definition");
 
-    let def = resolve_spawn_agent_definition(temp.path(), "code-reviewer");
+    let cache = test_agent_definition_cache(temp.path());
+    let def = resolve_spawn_agent_definition(&cache, "code-reviewer");
 
     assert_eq!(def.name, "code-reviewer");
     assert_eq!(def.description, "Reviews code changes");
@@ -1549,7 +1559,8 @@ RARA prompt.
     )
     .expect("rara agent definition");
 
-    let def = resolve_spawn_agent_definition(temp.path(), "helper");
+    let cache = test_agent_definition_cache(temp.path());
+    let def = resolve_spawn_agent_definition(&cache, "helper");
 
     assert_eq!(def.description, "RARA helper");
     assert_eq!(def.tools, vec!["Read", "Grep"]);
@@ -1572,7 +1583,8 @@ Review the change.
     )
     .expect("agent definition");
 
-    let def = resolve_spawn_agent_definition(temp.path(), "reviewer");
+    let cache = test_agent_definition_cache(temp.path());
+    let def = resolve_spawn_agent_definition(&cache, "reviewer");
 
     assert_eq!(def.name, "reviewer");
     assert_eq!(def.description, "");
@@ -1595,12 +1607,54 @@ Help with the task.
     )
     .expect("agent definition");
 
-    let def = resolve_spawn_agent_definition(temp.path(), "helper");
+    let cache = test_agent_definition_cache(temp.path());
+    let def = resolve_spawn_agent_definition(&cache, "helper");
 
     assert_eq!(def.name, "helper");
     assert_eq!(def.description, "");
     assert!(def.tools.is_empty());
     assert_eq!(def.system_prompt, "Help with the task.");
+}
+
+#[test]
+fn agent_definition_cache_refreshes_on_new_runtime_cache() {
+    let temp = tempdir().expect("tempdir");
+    let agents_dir = temp.path().join(".rara").join("agents");
+    std::fs::create_dir_all(&agents_dir).expect("agents dir");
+    std::fs::write(
+        agents_dir.join("helper.md"),
+        r#"---
+name: helper
+description: Initial helper
+---
+
+Initial prompt.
+"#,
+    )
+    .expect("agent definition");
+    let cache = test_agent_definition_cache(temp.path());
+    let first = resolve_spawn_agent_definition(&cache, "helper");
+    assert_eq!(first.description, "Initial helper");
+
+    std::fs::write(
+        agents_dir.join("helper.md"),
+        r#"---
+name: helper
+description: Reloaded helper
+---
+
+Reloaded prompt.
+"#,
+    )
+    .expect("updated agent definition");
+
+    let stale = resolve_spawn_agent_definition(&cache, "helper");
+    assert_eq!(stale.description, "Initial helper");
+
+    let reloaded_cache = test_agent_definition_cache(temp.path());
+    let reloaded = resolve_spawn_agent_definition(&reloaded_cache, "helper");
+    assert_eq!(reloaded.description, "Reloaded helper");
+    assert_eq!(reloaded.system_prompt, "Reloaded prompt.");
 }
 
 #[test]
@@ -1630,7 +1684,8 @@ Review the assigned change.
     .expect("agent definition");
 
     let label = validate_agent_id_label("Code Reviewer").expect("label");
-    let def = resolve_spawn_agent_definition(temp.path(), &label);
+    let cache = test_agent_definition_cache(temp.path());
+    let def = resolve_spawn_agent_definition(&cache, &label);
 
     assert_eq!(label, "code-reviewer");
     assert_eq!(def.name, "code-reviewer");

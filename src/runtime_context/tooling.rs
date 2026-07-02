@@ -25,8 +25,8 @@ use crate::skill::SkillManager;
 use crate::tasklist::DEFAULT_TASK_LIST_ID;
 use crate::tasklist::TaskListStore;
 use crate::tools::agent::{
-    AgentTool, BackgroundSubAgentStore, ExploreAgentTool, PlanAgentTool, SubAgentListTool,
-    SubAgentResumeTool, SubAgentStopTool, TeamCreateTool,
+    AgentDefinitionCache, AgentTool, BackgroundSubAgentStore, ExploreAgentTool, PlanAgentTool,
+    SubAgentListTool, SubAgentResumeTool, SubAgentStopTool, TeamCreateTool,
 };
 use crate::tools::bash::BashTool;
 use crate::tools::context::RetrieveSessionContextTool;
@@ -65,6 +65,7 @@ pub(super) fn create_full_tool_manager(
     goal_handle: GoalHandle,
     mcp_tool_cache: McpToolCache,
     lsp_manager: Arc<LspManager>,
+    agent_definitions: AgentDefinitionCache,
 ) -> ToolManager {
     let mut tm = ToolManager::new();
     let vector_db_uri = vector_db_uri_for_workspace(&workspace);
@@ -187,6 +188,7 @@ pub(super) fn create_full_tool_manager(
         prompt_config: prompt_config.clone(),
         background_subagents: background_subagents.clone(),
         task_list_id: task_list_id.clone(),
+        agent_definitions,
     }));
     tm.register(Box::new(ExploreAgentTool {
         backend: backend.clone(),

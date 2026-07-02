@@ -41,7 +41,7 @@ cargo clippy --locked --workspace --all-targets -- -D warnings
 
 ## Follow-Ups
 
-- Cache agent definitions at runtime construction time and add an explicit
-  reload path.
+- Cache agent definitions at runtime construction time and refresh them through
+  runtime rebuild.
 - Add end-to-end `spawn_agent` coverage for prompt body, tool filtering,
   `maxTurns`, and `planModeRequired`.

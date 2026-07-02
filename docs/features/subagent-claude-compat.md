@@ -71,9 +71,9 @@ pub struct AgentDefinition {
 }
 ```
 
-### Loading
+### Loading And Runtime Cache
 
-`load_agent_definitions()` scans:
+`AgentDefinitionCache::load()` scans:
 1. Built-in agents (General, Explore, Plan) — hardcoded in RARA.
 2. `~/.claude/agents/*.md` files in the user home.
 3. `~/.rara/agents/*.md` files in the user home.
@@ -84,6 +84,15 @@ Resolves conflicts by loading lower-precedence roots first. Workspace agents
 override user agents, and `.rara/agents` overrides `.claude/agents` at the same
 scope. Built-in agents are always available as "general", "explore", "plan"
 when no custom definition with the requested name is loaded.
+
+The cache is constructed with the runtime and shared by the `spawn_agent`
+tool and `/status` extension summary. Running `spawn_agent` must resolve
+against the cached registry instead of scanning the filesystem on every call.
+After editing `.rara/agents` or `.claude/agents`, the existing runtime keeps
+its previous snapshot until the runtime is rebuilt. RARA intentionally does
+not expose a dedicated `/reload-agents` command; this follows Claude Code's
+pattern of refreshing agent definitions through existing runtime/plugin
+refresh boundaries rather than adding an agent-only slash command.
 
 ### Subagent Execution Changes
 
@@ -165,7 +174,7 @@ TUI subagent sidebar shows:
 ## Implementation Plan
 
 1. Add `AgentDefinition` struct and YAML parsing.
-2. Add `load_agent_definitions()` scanning `.rara/agents/` with
+2. Add `AgentDefinitionCache::load()` scanning `.rara/agents/` with
    `.claude/agents/` compatibility.
 3. Extend `SubAgentKind` → `AgentDefinition` mapping.
 4. Add tool filtering to subagent spawning.

@@ -34,6 +34,7 @@ use crate::sandbox::SandboxManager;
 use crate::session::SessionManager;
 use crate::shell_env::capture_shell_environment_snapshot;
 use crate::skill::SkillScope;
+use crate::tools::agent::AgentDefinitionCache;
 use crate::tui::state::GoalHandle;
 use crate::workspace::WorkspaceMemory;
 
@@ -55,6 +56,7 @@ pub(crate) struct RuntimeBootstrap {
     pub mcp_tool_cache: McpToolCache,
     pub mcp_manager: Arc<McpConnectionManager>,
     pub lsp_manager: Arc<LspManager>,
+    pub agent_definitions: AgentDefinitionCache,
 }
 
 impl RuntimeBootstrap {
@@ -88,6 +90,7 @@ impl RuntimeBootstrap {
             self.session_manager,
             self.workspace,
         );
+        agent.agent_definitions = self.agent_definitions;
         agent.set_prompt_config(self.prompt_config);
         agent.set_prompt_source_registry(self.prompt_source_registry.clone());
         agent.set_skill_source_registry(self.skill_source_registry.clone());
@@ -215,6 +218,7 @@ pub(crate) async fn initialize_rara_context_with_local_embedding_bootstrap(
             body: format!("## {}\n\n{}", h.phase.as_str(), h.body),
         })
         .collect();
+    let agent_definitions = AgentDefinitionCache::load(workspace.root.clone());
     let tool_manager = create_full_tool_manager(
         backend.clone(),
         embedding_backend.clone(),
@@ -229,6 +233,7 @@ pub(crate) async fn initialize_rara_context_with_local_embedding_bootstrap(
         goal_handle.clone(),
         mcp_tool_cache.clone(),
         lsp_manager.clone(),
+        agent_definitions.clone(),
     );
     let mut warnings = prompt_config.warnings.clone();
     warnings.extend(embedding_warnings);
@@ -251,6 +256,7 @@ pub(crate) async fn initialize_rara_context_with_local_embedding_bootstrap(
         mcp_tool_cache,
         mcp_manager,
         lsp_manager,
+        agent_definitions,
     })
 }
 

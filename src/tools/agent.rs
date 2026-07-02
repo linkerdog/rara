@@ -3,7 +3,7 @@
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::{
-    Arc, Mutex,
+    Arc, Mutex, RwLock,
     atomic::{AtomicBool, Ordering},
 };
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
@@ -286,6 +286,7 @@ pub struct AgentTool {
     pub prompt_config: PromptRuntimeConfig,
     pub background_subagents: Arc<BackgroundSubAgentStore>,
     pub task_list_id: String,
+    pub agent_definitions: AgentDefinitionCache,
 }
 
 #[tool_spec(
@@ -340,7 +341,7 @@ impl AgentTool {
             .as_str()
             .ok_or(ToolError::InvalidInput("instruction".into()))?;
         let agent_id = next_subagent_id(SubAgentKind::General, Some(name));
-        let definition = resolve_spawn_agent_definition(&self.workspace.root, &agent_label);
+        let definition = resolve_spawn_agent_definition(&self.agent_definitions, &agent_label);
         if i.get("run_in_background")
             .and_then(Value::as_bool)
             .unwrap_or(false)
@@ -1598,9 +1599,12 @@ fn resolve_kind_definition(kind: SubAgentKind) -> AgentDefinition {
     })
 }
 
-fn resolve_spawn_agent_definition(workspace_root: &Path, normalized_name: &str) -> AgentDefinition {
-    let registry = load_agent_definitions(workspace_root);
-    resolve_agent(normalized_name, &registry)
+fn resolve_spawn_agent_definition(
+    cache: &AgentDefinitionCache,
+    normalized_name: &str,
+) -> AgentDefinition {
+    cache
+        .resolve(normalized_name)
         .unwrap_or_else(|| fallback_spawn_agent_definition(normalized_name))
 }
 

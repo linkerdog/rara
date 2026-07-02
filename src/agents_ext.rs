@@ -9,7 +9,7 @@ use std::path::Path;
 
 use serde::Serialize;
 
-use crate::tools::agent::{AgentDefinitionLoadRecord, discover_workspace_agent_definition_records};
+use crate::tools::agent::AgentDefinitionLoadRecord;
 
 /// A Claude-compatible imported agent definition, normalised into
 /// a RARA-owned profile object.
@@ -52,11 +52,12 @@ impl AgentRegistry {
         }
     }
 
-    /// Discover agent profiles from a repository root directory.
-    pub fn discover_repo_agents(&mut self, repo_root: &Path) {
-        for record in discover_workspace_agent_definition_records(repo_root) {
-            self.insert_record(record, repo_root);
+    pub fn from_records(records: Vec<AgentDefinitionLoadRecord>, repo_root: &Path) -> Self {
+        let mut registry = Self::new();
+        for record in records {
+            registry.insert_record(record, repo_root);
         }
+        registry
     }
 
     /// For /context and /status: list each discovered agent with path and status.
@@ -122,6 +123,13 @@ mod tests {
 
     use super::*;
 
+    fn discover_repo_agents(repo_root: &Path) -> AgentRegistry {
+        AgentRegistry::from_records(
+            crate::tools::agent::discover_workspace_agent_definition_records(repo_root),
+            repo_root,
+        )
+    }
+
     #[test]
     fn discovers_agents_from_directory() {
         let dir = tempdir().expect("tempdir");
@@ -152,8 +160,7 @@ Generate unit tests for new code paths.
         )
         .expect("write");
 
-        let mut registry = AgentRegistry::new();
-        registry.discover_repo_agents(dir.path());
+        let registry = discover_repo_agents(dir.path());
 
         assert_eq!(registry.agents.len(), 2);
 
@@ -172,8 +179,7 @@ Generate unit tests for new code paths.
         fs::create_dir_all(&agents_dir).expect("mkdir");
         fs::write(agents_dir.join("empty.md"), "").expect("write");
 
-        let mut registry = AgentRegistry::new();
-        registry.discover_repo_agents(dir.path());
+        let registry = discover_repo_agents(dir.path());
 
         let agent = registry.agents.get("empty").expect("empty agent");
         assert_eq!(agent.parse_status, AgentParseStatus::ParseError);
@@ -210,8 +216,7 @@ RARA prompt.
         )
         .expect("write");
 
-        let mut registry = AgentRegistry::new();
-        registry.discover_repo_agents(dir.path());
+        let registry = discover_repo_agents(dir.path());
 
         let agent = registry.agents.get("helper").expect("helper");
         assert_eq!(agent.label, "helper");
@@ -237,8 +242,7 @@ Review prompt.
         )
         .expect("write");
 
-        let mut registry = AgentRegistry::new();
-        registry.discover_repo_agents(dir.path());
+        let registry = discover_repo_agents(dir.path());
 
         assert!(!registry.agents.contains_key("reviewer-file"));
         let agent = registry

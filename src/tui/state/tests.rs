@@ -270,6 +270,72 @@ async fn sync_snapshot_reports_registered_runtime_hooks() {
 }
 
 #[test]
+fn sync_snapshot_uses_cached_agent_definition_records() {
+    let dir = tempdir().expect("tempdir");
+    let root = dir.path().to_path_buf();
+    let rara_dir = root.join(".rara");
+    std::fs::create_dir_all(rara_dir.join("rollouts")).expect("rollouts");
+    std::fs::create_dir_all(rara_dir.join("sessions")).expect("sessions");
+    let agents_dir = rara_dir.join("agents");
+    std::fs::create_dir_all(&agents_dir).expect("agents");
+    let agent_path = agents_dir.join("status-cache-test.md");
+    std::fs::write(
+        &agent_path,
+        r#"---
+name: status-cache-before
+description: Cached before sync.
+---
+
+Cached prompt.
+"#,
+    )
+    .expect("agent definition");
+    let mut app = TuiApp::new(ConfigManager {
+        path: root.join("config.json"),
+    })
+    .expect("app");
+    let agent = Agent::new(
+        ToolManager::new(),
+        std::sync::Arc::new(MockLlm),
+        std::sync::Arc::new(VectorDB::new(&rara_dir.join("lancedb").to_string_lossy())),
+        std::sync::Arc::new(SessionManager {
+            storage_dir: rara_dir.join("rollouts"),
+            legacy_storage_dir: rara_dir.join("sessions"),
+        }),
+        std::sync::Arc::new(WorkspaceMemory::from_paths(root, rara_dir)),
+    );
+    std::fs::write(
+        &agent_path,
+        r#"---
+name: status-cache-after
+description: Should require a runtime rebuild.
+---
+
+Reloaded prompt.
+"#,
+    )
+    .expect("updated agent definition");
+
+    app.sync_snapshot(&agent);
+
+    assert!(
+        app.snapshot
+            .extension_agent_status_lines
+            .iter()
+            .any(|line| {
+                line.contains("status-cache-before")
+                    && line.contains(".rara/agents/status-cache-test.md")
+            })
+    );
+    assert!(
+        !app.snapshot
+            .extension_agent_status_lines
+            .iter()
+            .any(|line| line.contains("status-cache-after"))
+    );
+}
+
+#[test]
 fn parse_repo_slug_supports_common_github_remote_forms() {
     assert_eq!(
         parse_repo_slug("git@github.com:hawkingrei/rara.git").as_deref(),

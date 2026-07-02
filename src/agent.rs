@@ -49,6 +49,7 @@ use crate::tool_result::{
     default_tool_result_store_dir, enforce_tool_result_batch_budget,
     project_tool_results_for_context, repair_tool_result_history,
 };
+use crate::tools::agent::{AgentDefinitionCache, AgentDefinitionLoadRecord};
 use crate::tools::bash::BashCommandInput;
 use crate::tools::todo::TODO_WRITE_TOOL_NAME;
 use crate::workspace::WorkspaceMemory;
@@ -194,6 +195,7 @@ pub struct Agent {
     pub pending_approval: Option<PendingApproval>,
     pub todo_state: Option<TodoState>,
     pub task_list_id: String,
+    pub agent_definitions: AgentDefinitionCache,
     pub completed_user_input: Option<CompletedInteraction>,
     pub completed_approval: Option<CompletedInteraction>,
     pub approved_bash_prefixes: Vec<String>,
@@ -339,6 +341,7 @@ impl Agent {
             pending_approval: None,
             todo_state: None,
             task_list_id: DEFAULT_TASK_LIST_ID.to_string(),
+            agent_definitions: AgentDefinitionCache::load(root.clone()),
             completed_user_input: None,
             completed_approval: None,
             approved_bash_prefixes: Vec::new(),
@@ -369,6 +372,10 @@ impl Agent {
     pub async fn query(&mut self, prompt: String) -> Result<()> {
         self.query_with_mode(prompt, AgentOutputMode::Terminal)
             .await
+    }
+
+    pub fn agent_definition_records(&self) -> Vec<AgentDefinitionLoadRecord> {
+        self.agent_definitions.records()
     }
 
     pub async fn query_with_mode(
