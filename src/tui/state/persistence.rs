@@ -322,14 +322,15 @@ impl TuiApp {
         let Some((root_dir, session_id)) = self.live_log_context() else {
             return true;
         };
-        let cleared = rara_persistence::thread_turn_log::clear_live_log(&root_dir, &session_id);
-        if !cleared {
+        if let Err(err) = rara_persistence::thread_turn_log::clear_live_log(&root_dir, &session_id)
+        {
             self.state_db_status = Some(state_db_status_error(
                 "live log clear failed",
-                format!("session {session_id}"),
+                err.to_string(),
             ));
+            return false;
         }
-        cleared
+        true
     }
 
     fn live_log_context(&self) -> Option<(PathBuf, String)> {

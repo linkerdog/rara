@@ -146,18 +146,12 @@ pub fn replace_live_entries(
 }
 
 /// Remove the live log so resume doesn't load a stale partial turn.
-pub fn clear_live_log(root_dir: &Path, session_id: &str) -> bool {
+pub fn clear_live_log(root_dir: &Path, session_id: &str) -> Result<()> {
     let path = root_dir.join(session_id).join(LIVE_LOG_FILE);
     match fs::remove_file(&path) {
-        Ok(()) => true,
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => true,
-        Err(e) => {
-            log::error!(
-                "failed to clear live log for session {session_id}: {e} (path: {})",
-                path.display()
-            );
-            false
-        }
+        Ok(()) => Ok(()),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(e) => Err(e).with_context(|| format!("clear live log {}", path.display())),
     }
 }
 
