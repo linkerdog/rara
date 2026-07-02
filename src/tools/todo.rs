@@ -11,7 +11,7 @@ pub struct TodoWriteTool;
 
 #[tool_spec(
     name = "todo_write",
-    description = "Create or replace the session todo list for complex multi-step execution. Use this proactively once work has multiple concrete steps or verification work worth tracking; do not use it for trivial one-step tasks or to request plan approval. Re-send the full working set whenever statuses, order, blockers, or validation steps change. Keep at most one item in_progress, update statuses promptly, and prefer concrete execution items such as reproducing a bug, running a focused test, or final verification. Do not mark an item completed until the underlying implementation or validation is actually done.",
+    description = "Create or replace the session todo list for complex multi-step execution. Use this proactively once work has multiple concrete steps or verification work worth tracking; do not use it for trivial one-step tasks or to request plan approval. Re-send the full working set whenever statuses, order, blockers, or validation steps change. Keep at most one item in_progress, update statuses promptly, and provide both content (imperative) and activeForm (present continuous label shown while in progress) for each item. Prefer concrete execution items such as reproducing a bug, running a focused test, or final verification. Do not mark an item completed until the underlying implementation or validation is actually done.",
     input_schema = {
         "type": "object",
         "properties": {
@@ -29,13 +29,17 @@ pub struct TodoWriteTool;
                             "type": "string",
                             "description": "Short imperative task description. Prefer concrete work items such as 'Reproduce failing behavior' or 'Run focused regression test'."
                         },
+                        "activeForm": {
+                            "type": "string",
+                            "description": "Present continuous label shown while this item is in_progress, such as 'Running focused tests'."
+                        },
                         "status": {
                             "type": "string",
                             "enum": ["pending", "in_progress", "completed", "cancelled"],
                             "description": "Current task status. Keep at most one item in_progress, and do not mark completed until the relevant implementation or verification work is actually done."
                         }
                     },
-                    "required": ["content", "status"],
+                    "required": ["content", "status", "activeForm"],
                     "additionalProperties": false
                 }
             }
@@ -66,8 +70,8 @@ mod tests {
         let result = tool
             .call(json!({
                 "todos": [
-                    {"content": "Implement todo_write", "status": "in_progress"},
-                    {"content": "Run tests", "status": "pending"}
+                    {"content": "Implement todo_write", "activeForm": "Implementing todo_write", "status": "in_progress"},
+                    {"content": "Run tests", "activeForm": "Running tests", "status": "pending"}
                 ]
             }))
             .await
@@ -85,6 +89,13 @@ mod tests {
         let schema = TodoWriteTool.input_schema();
 
         assert_eq!(schema["additionalProperties"], false);
+        assert!(
+            schema["properties"]["todos"]["items"]["required"]
+                .as_array()
+                .expect("required fields")
+                .iter()
+                .any(|field| field == "activeForm")
+        );
         assert_eq!(
             schema["properties"]["todos"]["items"]["additionalProperties"],
             false
@@ -98,12 +109,15 @@ mod tests {
         assert!(description.contains("multiple concrete steps"));
         assert!(description.contains("verification work worth tracking"));
         assert!(description.contains("Re-send the full working set"));
+        assert!(description.contains("activeForm"));
+        assert!(description.contains("present continuous"));
         assert!(description.contains("running a focused test"));
         assert!(description.contains("underlying implementation or validation"));
 
         let schema = tool.input_schema().to_string();
         assert!(schema.contains("entire working set"));
         assert!(schema.contains("Reproduce failing behavior"));
+        assert!(schema.contains("Running focused tests"));
         assert!(schema.contains("relevant implementation or verification work"));
     }
 }

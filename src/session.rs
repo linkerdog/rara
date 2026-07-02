@@ -995,6 +995,7 @@ mod tests {
             items: vec![crate::todo::TodoItem {
                 id: "todo-1".to_string(),
                 content: "Implement todo runtime".to_string(),
+                active_form: None,
                 status: crate::todo::TodoStatus::InProgress,
                 updated_at: 42,
             }],

@@ -332,7 +332,11 @@ fn todo_summary_line(app: &TuiApp) -> String {
     if summary.total == 0 {
         return "none".to_string();
     }
-    let active = summary.active_item.as_deref().unwrap_or("-");
+    let active = summary
+        .active_label
+        .as_deref()
+        .or(summary.active_item.as_deref())
+        .unwrap_or("-");
     format!(
         "{} total, {} pending, {} in_progress, {} completed, {} cancelled, active={}",
         summary.total,
