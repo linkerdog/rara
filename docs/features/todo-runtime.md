@@ -77,6 +77,10 @@ label used while the item is `in_progress`, matching Claude Code's `activeForm` 
 JSON stores the Rust-style `active_form` field, while `todo_write` accepts both `activeForm` and
 `active_form` for compatibility.
 
+Runtime summaries keep `active_item` as the canonical active `content` value so callers can match it
+back to a todo item. Display surfaces that want the present-continuous label should use the separate
+`active_label` summary field, which falls back to `content` when `active_form` is absent.
+
 ### 3) Tool Surface
 
 RARA should expose a dedicated todo tool, aligned with Claude Code's `TodoWrite` concept but adapted

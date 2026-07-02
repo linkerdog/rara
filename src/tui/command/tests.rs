@@ -555,6 +555,7 @@ fn status_context_text_includes_prompt_sources_and_plan_state() {
                 completed: 1,
                 cancelled: 0,
                 active_item: Some("Wire todo state into /context".into()),
+                active_label: None,
             },
             updated_at: Some(1_777_584_000),
             items: vec![
@@ -623,6 +624,7 @@ fn status_runtime_text_reports_todo_summary() {
                 completed: 0,
                 cancelled: 0,
                 active_item: Some("Run focused tests".into()),
+                active_label: Some("Running focused tests".into()),
             },
             updated_at: Some(1_777_584_000),
             items: vec![
@@ -639,7 +641,7 @@ fn status_runtime_text_reports_todo_summary() {
 
     let rendered = status_runtime_text(&app);
     assert!(rendered.contains(
-        "todo=2 total, 1 pending, 1 in_progress, 0 completed, 0 cancelled, active=Run focused tests"
+        "todo=2 total, 1 pending, 1 in_progress, 0 completed, 0 cancelled, active=Running focused tests"
     ));
 }
 

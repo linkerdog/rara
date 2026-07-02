@@ -53,11 +53,11 @@ impl TodoState {
                 TodoStatus::InProgress => {
                     summary.in_progress += 1;
                     if summary.active_item.is_none() {
-                        summary.active_item = Some(
+                        summary.active_item = Some(item.content.clone());
+                        summary.active_label = Some(
                             item.active_form
-                                .as_deref()
-                                .unwrap_or(&item.content)
-                                .to_string(),
+                                .clone()
+                                .unwrap_or_else(|| item.content.clone()),
                         );
                     }
                 }
@@ -77,6 +77,8 @@ pub struct TodoSummary {
     pub completed: usize,
     pub cancelled: usize,
     pub active_item: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub active_label: Option<String>,
 }
 
 pub fn normalize_todo_write_input(input: &Value) -> Result<TodoState> {
@@ -111,11 +113,18 @@ pub fn normalize_todo_write_input(input: &Value) -> Result<TodoState> {
         }
         let active_form = object
             .get("activeForm")
-            .or_else(|| object.get("active_form"))
             .and_then(Value::as_str)
             .map(str::trim)
             .filter(|active_form| !active_form.is_empty())
-            .map(str::to_string);
+            .map(str::to_string)
+            .or_else(|| {
+                object
+                    .get("active_form")
+                    .and_then(Value::as_str)
+                    .map(str::trim)
+                    .filter(|active_form| !active_form.is_empty())
+                    .map(str::to_string)
+            });
         let id = object
             .get("id")
             .and_then(Value::as_str)
@@ -152,7 +161,7 @@ pub fn format_todo_update(state: &TodoState) -> String {
         "Todo Updated: {} total, {} pending, {} in progress, {} completed, {} cancelled",
         summary.total, summary.pending, summary.in_progress, summary.completed, summary.cancelled
     )];
-    if let Some(active) = summary.active_item {
+    if let Some(active) = summary.active_label.or(summary.active_item) {
         lines.push(format!("Active: {active}"));
     }
     for item in state.items.iter().take(8) {
@@ -209,6 +218,10 @@ mod tests {
         assert_eq!(state.items[1].id, "verify");
         assert_eq!(
             state.summary().active_item.as_deref(),
+            Some("Inspect planning runtime")
+        );
+        assert_eq!(
+            state.summary().active_label.as_deref(),
             Some("Inspecting planning runtime")
         );
     }
@@ -230,6 +243,38 @@ mod tests {
         assert_eq!(state.items[1].active_form, None);
         assert_eq!(
             state.summary().active_item.as_deref(),
+            Some("Inspect planning runtime")
+        );
+        assert_eq!(
+            state.summary().active_label.as_deref(),
+            Some("Inspecting planning runtime")
+        );
+    }
+
+    #[test]
+    fn active_form_falls_back_to_snake_case_after_empty_camel_case() {
+        let state = normalize_todo_write_input(&json!({
+            "todos": [
+                {
+                    "content": "Inspect planning runtime",
+                    "activeForm": "",
+                    "active_form": "Inspecting planning runtime",
+                    "status": "in_progress"
+                }
+            ]
+        }))
+        .expect("todo input should normalize");
+
+        assert_eq!(
+            state.items[0].active_form.as_deref(),
+            Some("Inspecting planning runtime")
+        );
+        assert_eq!(
+            state.summary().active_item.as_deref(),
+            Some("Inspect planning runtime")
+        );
+        assert_eq!(
+            state.summary().active_label.as_deref(),
             Some("Inspecting planning runtime")
         );
     }

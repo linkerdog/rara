@@ -458,6 +458,10 @@ async fn todo_write_updates_session_state_and_emits_event() {
         Some("Implement todo runtime")
     );
     assert_eq!(
+        state.summary().active_label.as_deref(),
+        Some("Implement todo runtime")
+    );
+    assert_eq!(
         session_manager
             .load_todo_state("todo-session")
             .expect("todo state should load"),
