@@ -8,13 +8,14 @@ RARA has a session-scoped `todo_write` checklist for the current agent turn, but
 
 - A workspace-local shared task store under `.rara/tasks`.
 - Read-only `task_list` and `task_get` tools that expose Claude-compatible summary and detail shapes.
+- A `task_create` tool that creates pending tasks safely in the shared task store.
 - Field compatibility for `blockedBy` and `activeForm` in stored task JSON.
-- Documentation of the write-side follow-up work before enabling task mutation.
+- Documentation of the remaining update-side follow-up work before enabling task mutation.
 
 ## Non-Goals
 
-- Implementing `task_create` or `task_update` in the first slice.
-- Claiming, ownership conflict resolution, file locks, or task watchers.
+- Implementing `task_update`.
+- Claiming, ownership conflict resolution, dependency mutation, or task watchers.
 - Replacing session-scoped `todo_write`.
 - Syncing shared tasks to GitHub issues, external trackers, or transcript todos.
 
@@ -26,7 +27,7 @@ The shared task store is a file-backed workspace artifact:
 .rara/tasks/<task_list_id>/<task_id>.json
 ```
 
-`task_list_id` is sanitized to an ASCII path segment and defaults to `default`. Each task is one JSON file so later write-side tools can update individual tasks without rewriting a whole task list. The first implementation is read-only and therefore does not need locks yet.
+`task_list_id` is sanitized to an ASCII path segment and defaults to `default`. Each task is one JSON file so later write-side tools can update individual tasks without rewriting a whole task list. `task_create` holds a per-task-list `.lock` file while assigning the next numeric task id and atomically writing the new task file.
 
 `task_id` is treated as an identifier, not a path. Read tools reject empty task IDs, absolute paths, directory separators, and parent-directory traversal fragments before joining with the task-list directory.
 Task-list reads do not follow symlinks: task-list IDs must resolve to real directories, task files must be real files, and each task JSON `id` must match the `<task_id>.json` filename.
@@ -93,17 +94,49 @@ Completed blockers are filtered from `blockedBy` in summary output so available 
 
 Missing tasks return `{ "task": null }`.
 
+`task_create` accepts:
+
+```json
+{
+  "subject": "Implement shared task creation",
+  "description": "Create pending tasks in the shared task store.",
+  "activeForm": "Implementing shared task creation",
+  "metadata": {
+    "source": "agent"
+  }
+}
+```
+
+Created tasks always start as:
+
+- `status`: `pending`
+- `owner`: absent
+- `blocks`: `[]`
+- `blockedBy`: `[]`
+
+`task_create` returns:
+
+```json
+{
+  "task": {
+    "id": "1",
+    "subject": "Implement shared task creation"
+  }
+}
+```
+
 ## Validation Matrix
 
 - Store tests cover sorted file loading, `blockedBy` alias parsing, `activeForm` alias parsing, sanitized task-list IDs, and completed-blocker filtering.
 - Store tests cover path-like `task_id` rejection and file-vs-directory task-list handling.
 - Store tests cover symlink rejection for task-list directories and task files, plus JSON id and filename consistency.
-- Tool tests cover `task_list` summary output, `task_get` detail output, missing tasks, strict schemas, and invalid `task_id` rejection.
+- Store tests cover `task_create` id allocation, pending defaults, atomic file readability, and symlinked task-list rejection.
+- Tool tests cover `task_create` output, strict schemas, empty required-field rejection, `task_list` summary output, `task_get` detail output, missing tasks, and invalid `task_id` rejection.
 - Workspace checks should run `cargo test tasklist`, `cargo test tools::tasklist::tests`, `cargo check --locked --workspace --all-targets`, and `cargo clippy --locked --workspace --all-targets -- -D warnings`.
 
 ## Open Risks
 
-- Write-side tools need file locking, stale-read checks, and conflict handling before multiple agents can safely claim or update tasks.
+- `task_update` still needs stale-read checks and conflict handling before multiple agents can safely claim or update tasks.
 - Team and subagent runtime state still needs a task-list-id propagation contract.
 - TUI rendering for shared tasks is intentionally deferred until the write contract exists.
 

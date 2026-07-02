@@ -37,7 +37,7 @@ use crate::tools::pty::{
     PtyStopTool, PtyWriteTool,
 };
 use crate::tools::skill::SkillTool;
-use crate::tools::tasklist::{TaskGetTool, TaskListTool};
+use crate::tools::tasklist::{TaskCreateTool, TaskGetTool, TaskListTool};
 use crate::tools::todo::TodoWriteTool;
 use crate::tools::vector::{RememberExperienceTool, RetrieveExperienceTool};
 use crate::tools::web::{WebFetchTool, WebSearchTool};
@@ -138,6 +138,9 @@ pub(super) fn create_full_tool_manager(
     tm.register(Box::new(EnterPlanModeTool));
     tm.register(Box::new(ExitPlanModeTool));
     tm.register(Box::new(TodoWriteTool));
+    tm.register(Box::new(TaskCreateTool {
+        store: task_list_store.clone(),
+    }));
     tm.register(Box::new(TaskListTool {
         store: task_list_store.clone(),
     }));
