@@ -38,10 +38,6 @@ impl From<ShellApprovalDecision> for BashApprovalDecision {
     }
 }
 
-#[allow(dead_code)] // ACP protocol type — reserved for future lifecycle events
-#[allow(clippy::large_enum_variant)]
-// RuntimeEvent is the serialized control-plane protocol; boxing a single
-// variant would complicate consumers and wire compatibility for little gain.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct RuntimeControlEvent {
     pub event_id: String,

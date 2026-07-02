@@ -131,7 +131,7 @@ pub fn clear_live_log(root_dir: &Path, session_id: &str) {
     if let Err(e) = fs::remove_file(&path)
         && e.kind() != std::io::ErrorKind::NotFound
     {
-        eprintln!(
+        log::error!(
             "failed to clear live log for session {session_id}: {e} (path: {})",
             path.display()
         );

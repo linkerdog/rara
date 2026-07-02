@@ -4,8 +4,7 @@ use std::time::Duration;
 use super::*;
 
 #[cfg(test)]
-#[allow(clippy::module_inception)]
-mod tests {
+mod compact_cases {
     use serde_json::{Map, Value, json};
 
     use super::main::{build_compact_plan, group_history_by_api_round, read_file_line_range};

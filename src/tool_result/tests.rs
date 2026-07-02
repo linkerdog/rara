@@ -1,6 +1,5 @@
 #[cfg(test)]
-#[allow(clippy::module_inception)]
-mod tests {
+mod projection_cases {
     use serde_json::json;
 
     use crate::agent::Message;
