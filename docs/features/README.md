@@ -62,6 +62,8 @@ future appserver integrations can use.
   and compact TUI contracts aligned with Codex 0.130.
 - `subagent-context-optimization.md`: bounded parent/child subagent context
   inheritance, child budget, result summary, and restart/reconnect contracts.
+- `shared-task-lists.md`: workspace-local shared task store and
+  Claude-compatible read tools for future subagent/team coordination.
 
 ## App Server Architecture
 

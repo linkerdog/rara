@@ -58,6 +58,16 @@ Active backlog only. Keep this file small and current.
       `.rara/agents` definitions affect prompt body, tool filtering,
       `maxTurns`, and `planModeRequired`.
 
+## Shared Task Lists
+
+- [x] Add read-only `task_list` and `task_get` tools backed by
+      `.rara/tasks/<task_list_id>/<task_id>.json`.
+- [ ] Add write-side `task_create` and `task_update` tools with file locking,
+      stale-read protection, owner/claim semantics, and dependency updates.
+- [ ] Propagate task-list IDs through team and subagent runtime state so agents
+      coordinate on the same shared task list without an explicit tool input.
+- [ ] Add shared task watcher/TUI surfaces after mutation semantics are stable.
+
 ## Planning Control Plane
 
 - [ ] Replace boolean plan approval handling with an explicit decision enum:
