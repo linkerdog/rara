@@ -49,6 +49,12 @@ pub(crate) const TEXT_SECONDARY: Color = NORD3;
 pub(crate) const TEXT_ACCENT: Color = NORD8;
 pub(crate) const TEXT_MUTED: Color = NORD2;
 
+// ── Picker overlays ────────────────────────────────────────────
+pub(crate) const PICKER_ITEM_FG: Color = NORD4;
+pub(crate) const PICKER_ITEM_MUTED_FG: Color = NORD3;
+pub(crate) const PICKER_HIGHLIGHT_FG: Color = NORD6;
+pub(crate) const PICKER_HIGHLIGHT_BG: Color = NORD10;
+
 // ── Message roles ───────────────────────────────────────────────
 pub(crate) const ROLE_USER: Color = NORD9;
 pub(crate) const ROLE_AGENT: Color = NORD8;

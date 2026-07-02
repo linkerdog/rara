@@ -29,6 +29,8 @@ Active backlog only. Keep this file small and current.
       highlighting, picker, and overlay renderers through semantic theme tokens;
       for syntax highlighting, define how the app theme maps to or selects the
       active `syntect` theme.
+- [x] Keep generic setup/list picker selected items visible when the selection
+      moves past the first viewport.
 - [x] Sidebar Plan replaces Todo (PR #597)
 - [x] Approval dock above composer (PR #591, #594, #599)
 - [x] Mouse text selection — drag-select + clipboard copy

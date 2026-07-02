@@ -646,10 +646,7 @@ pub(crate) async fn dispatch_event(
                             start_rebuild_task(app);
                         }
                         ListPickerKind::Resume => {
-                            if let Some(thread_id) = app
-                                .recent_threads
-                                .get(app.resume_picker_idx)
-                                .map(|session| session.metadata.session_id.clone())
+                            if let Some(thread_id) = list_picker::selected_resumable_thread_id(app)
                             {
                                 restore_thread_by_id(thread_id.as_str(), app, agent_slot)?;
                                 app.dismiss_overlay();
