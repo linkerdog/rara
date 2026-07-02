@@ -41,6 +41,7 @@ use crate::memory_store::MemoryStore;
 use crate::prompt::{self, PromptMode, PromptRuntimeConfig};
 use crate::protocol_sources::{PromptSourceRegistry, SkillSourceRegistry};
 use crate::session::SessionManager;
+use crate::tasklist::DEFAULT_TASK_LIST_ID;
 use crate::thread_store::ThreadRecorder;
 use crate::todo::TodoState;
 use crate::tool_result::{
@@ -192,6 +193,7 @@ pub struct Agent {
     pub pending_user_input: Option<PendingUserInput>,
     pub pending_approval: Option<PendingApproval>,
     pub todo_state: Option<TodoState>,
+    pub task_list_id: String,
     pub completed_user_input: Option<CompletedInteraction>,
     pub completed_approval: Option<CompletedInteraction>,
     pub approved_bash_prefixes: Vec<String>,
@@ -336,6 +338,7 @@ impl Agent {
             pending_user_input: None,
             pending_approval: None,
             todo_state: None,
+            task_list_id: DEFAULT_TASK_LIST_ID.to_string(),
             completed_user_input: None,
             completed_approval: None,
             approved_bash_prefixes: Vec::new(),
@@ -435,6 +438,7 @@ impl Agent {
                     let session_manager = self.session_manager.clone();
                     let workspace = self.workspace.clone();
                     let scheduler = self.consolidation_scheduler.clone();
+                    let task_list_id = self.task_list_id.clone();
                     std::thread::spawn(move || {
                         let rt = tokio::runtime::Builder::new_current_thread()
                             .enable_all()
@@ -466,6 +470,7 @@ impl Agent {
                                 session_manager,
                                 workspace,
                                 prompt_config,
+                                task_list_id,
                             )
                             .await;
                             match result {

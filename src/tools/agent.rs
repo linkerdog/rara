@@ -29,7 +29,9 @@ use crate::llm::{EmbeddingBackend, LlmBackend};
 use crate::prompt::PromptRuntimeConfig;
 use crate::session::SessionManager;
 use crate::session_transcript::{self, TranscriptScope};
+use crate::tasklist::TaskListStore;
 use crate::thread_store::{ThreadRecorder, ThreadRuntimeLineage, ThreadRuntimeState};
+use crate::tools::tasklist::{TaskCreateTool, TaskGetTool, TaskListTool, TaskUpdateTool};
 use crate::workspace::WorkspaceMemory;
 
 #[derive(Clone, Copy, Debug)]
@@ -52,6 +54,10 @@ pub(super) fn agent_tool_to_internal_name(name: &str) -> &str {
         "Grep" => "grep",
         "WebSearch" => "web_search",
         "WebFetch" => "web_fetch",
+        "TaskCreate" => "task_create",
+        "TaskList" => "task_list",
+        "TaskGet" => "task_get",
+        "TaskUpdate" => "task_update",
         "Task" | "spawn_agent" => "spawn_agent",
         n => n,
     }
@@ -132,7 +138,7 @@ macro_rules! strict_read_only_subagent_prompt {
             "- Do not run shell commands, scripts, redirection, heredocs, or any workaround that changes filesystem, process, network, git, or repository state.\n",
             "- Bash, PTY, editing, patching, and agent-spawning tools are intentionally unavailable.\n",
             // Keep this prompt list synchronized with build_read_only_tool_manager().
-            "- Use only the read-only repository inspection tools available to you: read_file, list_files, glob, grep.\n",
+            "- Use only the read-only repository inspection tools available to you: read_file, list_files, glob, grep, task_list, task_get.\n",
             "- If the assigned instruction requires mutation, report the limitation and provide the evidence-backed findings or plan instead of attempting a workaround."
         )
     };
@@ -168,11 +174,12 @@ impl SubAgentKind {
             SubAgentKind::General => {
                 concat!(
                     "## Sub-Agent Role\n",
-                    "- You are a no-tool reasoning sub-agent.\n",
+                    "- You are a shared-task worker sub-agent.\n",
                     "- Treat the assigned instruction as the complete task contract.\n",
                     "- Honor every constraint in the assigned instruction, including workspace, branch, network, and output limits.\n",
                     "- Stay inside the current workspace unless the assigned instruction explicitly allows another path.\n",
                     "- You do not have repository, shell, editing, patching, or browser tools in this role.\n",
+                    "- You may use shared task-list tools to inspect, claim, update, or complete project tasks.\n",
                     "- If the assigned instruction requires inspection or mutation, report the limitation and answer only from the provided instruction/context.\n",
                     "- Do not delegate to another agent or spawn sub-agents; complete the assigned work directly."
                 )
@@ -278,11 +285,12 @@ pub struct AgentTool {
     pub workspace: Arc<WorkspaceMemory>,
     pub prompt_config: PromptRuntimeConfig,
     pub background_subagents: Arc<BackgroundSubAgentStore>,
+    pub task_list_id: String,
 }
 
 #[tool_spec(
     name = "spawn_agent",
-    description = "Spawn a no-tool reasoning sub-agent. It cannot inspect files, run shell commands, edit files, or spawn other agents; use explore_agent or plan_agent for read-only repository inspection.",
+    description = "Spawn a shared-task worker sub-agent. It cannot inspect files, run shell commands, edit files, or spawn other agents; it can inspect and update shared task-list entries. Use explore_agent or plan_agent for read-only repository inspection.",
     input_schema = {
         "type": "object",
         "properties": {
@@ -350,6 +358,7 @@ impl AgentTool {
                 session_manager: self.session_manager.clone(),
                 workspace: self.workspace.clone(),
                 prompt_config: self.prompt_config.clone(),
+                task_list_id: self.task_list_id.clone(),
             })?;
             return Ok(task.to_json());
         }
@@ -368,6 +377,7 @@ impl AgentTool {
             self.session_manager.clone(),
             self.workspace.clone(),
             self.prompt_config.clone(),
+            self.task_list_id.clone(),
         )
         .await?;
         Ok(json!({
@@ -395,6 +405,7 @@ pub struct ExploreAgentTool {
     pub workspace: Arc<WorkspaceMemory>,
     pub prompt_config: PromptRuntimeConfig,
     pub background_subagents: Arc<BackgroundSubAgentStore>,
+    pub task_list_id: String,
 }
 
 #[tool_spec(
@@ -457,6 +468,7 @@ impl ExploreAgentTool {
                 session_manager: self.session_manager.clone(),
                 workspace: self.workspace.clone(),
                 prompt_config: self.prompt_config.clone(),
+                task_list_id: self.task_list_id.clone(),
             })?;
             return Ok(task.to_json());
         }
@@ -475,6 +487,7 @@ impl ExploreAgentTool {
             self.session_manager.clone(),
             self.workspace.clone(),
             self.prompt_config.clone(),
+            self.task_list_id.clone(),
         )
         .await?;
         Ok(json!({
@@ -501,6 +514,7 @@ pub struct PlanAgentTool {
     pub workspace: Arc<WorkspaceMemory>,
     pub prompt_config: PromptRuntimeConfig,
     pub background_subagents: Arc<BackgroundSubAgentStore>,
+    pub task_list_id: String,
 }
 
 #[tool_spec(
@@ -563,6 +577,7 @@ impl PlanAgentTool {
                 session_manager: self.session_manager.clone(),
                 workspace: self.workspace.clone(),
                 prompt_config: self.prompt_config.clone(),
+                task_list_id: self.task_list_id.clone(),
             })?;
             return Ok(task.to_json());
         }
@@ -581,6 +596,7 @@ impl PlanAgentTool {
             self.session_manager.clone(),
             self.workspace.clone(),
             self.prompt_config.clone(),
+            self.task_list_id.clone(),
         )
         .await?;
         Ok(json!({
@@ -611,6 +627,7 @@ pub struct TeamCreateTool {
     pub session_manager: Arc<SessionManager>,
     pub workspace: Arc<WorkspaceMemory>,
     pub prompt_config: PromptRuntimeConfig,
+    pub task_list_id: String,
 }
 
 const BACKGROUND_SUBAGENT_COMPLETED_RETENTION: usize = 64;
@@ -639,6 +656,7 @@ struct BackgroundSubAgentStart {
     session_manager: Arc<SessionManager>,
     workspace: Arc<WorkspaceMemory>,
     prompt_config: PromptRuntimeConfig,
+    task_list_id: String,
 }
 
 #[derive(Clone, Debug)]
@@ -720,6 +738,7 @@ impl BackgroundSubAgentStore {
                 start.session_manager,
                 start.workspace,
                 start.prompt_config,
+                start.task_list_id,
             )
             .await;
             store.finish(&agent_id, result);
@@ -1039,6 +1058,7 @@ impl TeamCreateTool {
             let session_manager = self.session_manager.clone();
             let workspace = self.workspace.clone();
             let prompt_config = self.prompt_config.clone();
+            let task_list_id = self.task_list_id.clone();
             let parent_session_id = parent_session_id.map(str::to_string);
             let agent_id = next_subagent_id(task.kind, Some(&task.name));
 
@@ -1058,6 +1078,7 @@ impl TeamCreateTool {
                     session_manager,
                     workspace,
                     prompt_config,
+                    task_list_id,
                 )
                 .await?;
                 Ok::<_, ToolError>(serialize_team_result(&task.name, result))
@@ -1111,11 +1132,12 @@ pub(crate) async fn run_sub_agent(
     session_manager: Arc<SessionManager>,
     workspace: Arc<WorkspaceMemory>,
     prompt_config: PromptRuntimeConfig,
+    task_list_id: String,
 ) -> Result<SubAgentResult, ToolError> {
     let tool_manager = if let Some(def) = definition {
-        build_filtered_tool_manager(kind, def)
+        build_filtered_tool_manager(kind, def, workspace.rara_dir.join("tasks"), &task_list_id)
     } else {
-        build_subagent_tool_manager(kind)
+        build_subagent_tool_manager(kind, workspace.rara_dir.join("tasks"), &task_list_id)
     };
     let mut sub = Agent::new_with_embedding_backend(
         tool_manager,
@@ -1142,6 +1164,7 @@ pub(crate) async fn run_sub_agent(
         None => kind.append_prompt().to_string(),
     };
     sub.set_prompt_config(append_subagent_prompt(prompt_config, &appended_prompt));
+    sub.task_list_id = task_list_id;
 
     let def_max_turns = definition
         .and_then(|d| {
@@ -1290,21 +1313,54 @@ fn persist_subagent_runtime_state(
     Ok(())
 }
 
-fn build_read_only_tool_manager() -> ToolManager {
+fn build_read_only_tool_manager(
+    task_store: Arc<TaskListStore>,
+    default_task_list_id: &str,
+) -> ToolManager {
     // Keep this registration set synchronized with strict_read_only_subagent_prompt!().
     let mut tool_manager = ToolManager::new();
     tool_manager.register(Box::new(ReadFileTool::default()));
     tool_manager.register(Box::new(ListFilesTool));
     tool_manager.register(Box::new(GlobTool));
     tool_manager.register(Box::new(GrepTool));
+    tool_manager.register(Box::new(TaskListTool {
+        store: task_store.clone(),
+        default_task_list_id: default_task_list_id.to_string(),
+    }));
+    tool_manager.register(Box::new(TaskGetTool {
+        store: task_store,
+        default_task_list_id: default_task_list_id.to_string(),
+    }));
     tool_manager
 }
 
-pub(crate) fn build_subagent_tool_manager(kind: SubAgentKind) -> ToolManager {
+pub(crate) fn build_subagent_tool_manager(
+    kind: SubAgentKind,
+    task_root: PathBuf,
+    default_task_list_id: &str,
+) -> ToolManager {
+    let task_store = Arc::new(TaskListStore::new(task_root));
     if kind.read_only() {
-        build_read_only_tool_manager()
+        build_read_only_tool_manager(task_store, default_task_list_id)
     } else {
-        ToolManager::new()
+        let mut tool_manager = ToolManager::new();
+        tool_manager.register(Box::new(TaskCreateTool {
+            store: task_store.clone(),
+            default_task_list_id: default_task_list_id.to_string(),
+        }));
+        tool_manager.register(Box::new(TaskListTool {
+            store: task_store.clone(),
+            default_task_list_id: default_task_list_id.to_string(),
+        }));
+        tool_manager.register(Box::new(TaskUpdateTool {
+            store: task_store.clone(),
+            default_task_list_id: default_task_list_id.to_string(),
+        }));
+        tool_manager.register(Box::new(TaskGetTool {
+            store: task_store,
+            default_task_list_id: default_task_list_id.to_string(),
+        }));
+        tool_manager
     }
 }
 
@@ -1546,8 +1602,13 @@ fn fallback_spawn_agent_definition(name: &str) -> AgentDefinition {
     }
 }
 
-fn build_filtered_tool_manager(kind: SubAgentKind, definition: &AgentDefinition) -> ToolManager {
-    let mut tm = build_subagent_tool_manager(kind);
+fn build_filtered_tool_manager(
+    kind: SubAgentKind,
+    definition: &AgentDefinition,
+    task_root: PathBuf,
+    default_task_list_id: &str,
+) -> ToolManager {
+    let mut tm = build_subagent_tool_manager(kind, task_root, default_task_list_id);
 
     if !definition.tools.is_empty() {
         let allowed: std::collections::HashSet<&str> = definition

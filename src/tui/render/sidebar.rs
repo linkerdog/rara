@@ -269,7 +269,7 @@ fn push_plan_section(lines: &mut Vec<Line<'static>>, app: &TuiApp) -> bool {
     if plan_steps.is_empty() && goal.is_none() {
         let todo_items = &app.snapshot.todo;
         if todo_items.items.is_empty() {
-            return false;
+            return push_shared_tasks_section(lines, app);
         }
         lines.push(Line::from(super::section_label("Todo", TEXT_SECONDARY)));
         let open = todo_items.summary.pending + todo_items.summary.in_progress;
@@ -361,6 +361,57 @@ fn push_plan_section(lines: &mut Vec<Line<'static>>, app: &TuiApp) -> bool {
                 Style::default().fg(TEXT_MUTED),
             )));
         }
+    }
+    true
+}
+
+fn push_shared_tasks_section(lines: &mut Vec<Line<'static>>, app: &TuiApp) -> bool {
+    let tasks = &app.snapshot.shared_tasks;
+    if tasks.items.is_empty() || tasks.items.iter().all(|item| item.status == "completed") {
+        return false;
+    }
+    lines.push(Line::from(super::section_label(
+        "Shared Tasks",
+        TEXT_SECONDARY,
+    )));
+    let open = tasks.pending + tasks.in_progress;
+    lines.push(Line::from(Span::styled(
+        format!(
+            "{}/{} · {open} open · {} ready",
+            tasks.completed, tasks.total, tasks.unblocked
+        ),
+        Style::default().fg(TEXT_MUTED),
+    )));
+    for item in tasks
+        .items
+        .iter()
+        .filter(|item| item.status != "completed")
+        .take(4)
+    {
+        let marker = match item.status.as_str() {
+            "in_progress" => "[>]",
+            _ => "[ ]",
+        };
+        let color = match item.status.as_str() {
+            "in_progress" => STATUS_WARNING,
+            _ => TEXT_SECONDARY,
+        };
+        lines.push(Line::from(Span::styled(
+            format!("{marker} {}", item.subject),
+            Style::default().fg(color),
+        )));
+    }
+    let hidden = tasks
+        .items
+        .iter()
+        .filter(|item| item.status != "completed")
+        .count()
+        .saturating_sub(4);
+    if hidden > 0 {
+        lines.push(Line::from(Span::styled(
+            format!("... {hidden} more"),
+            Style::default().fg(TEXT_MUTED),
+        )));
     }
     true
 }

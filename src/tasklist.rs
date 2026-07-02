@@ -2,6 +2,7 @@ use std::collections::{BTreeMap, HashSet};
 use std::fs::{self, OpenOptions};
 use std::io::{ErrorKind, Write};
 use std::path::{Path, PathBuf};
+use std::time::{SystemTime, UNIX_EPOCH};
 
 use anyhow::{Context, Result};
 use fs2::FileExt;
@@ -78,6 +79,8 @@ impl TaskListStore {
                 active_form: input.active_form,
                 owner: None,
                 status: TaskStatus::Pending,
+                revision: 1,
+                updated_at: unix_timestamp_secs(),
                 blocks: Vec::new(),
                 blocked_by: Vec::new(),
                 metadata: input.metadata,
@@ -125,6 +128,8 @@ impl TaskListStore {
                     success: true,
                     task_id: task_id.to_string(),
                     updated_fields: vec!["deleted".to_string()],
+                    revision: None,
+                    updated_at: None,
                     status_change: None,
                     error: None,
                 });
@@ -133,6 +138,15 @@ impl TaskListStore {
             let Some(mut task) = self.get_task_from_dir(&task_list_dir, task_id)? else {
                 return Ok(TaskUpdateOutcome::not_found(task_id));
             };
+            if let Some(expected_revision) = update.expected_revision
+                && task.revision != expected_revision
+            {
+                return Ok(TaskUpdateOutcome::stale(
+                    task_id,
+                    task.revision,
+                    task.updated_at,
+                ));
+            }
             let old_status = task.status.clone();
             let mut updated_fields = Vec::new();
 
@@ -154,6 +168,19 @@ impl TaskListStore {
                 "activeForm",
                 &mut updated_fields,
             );
+            if let Some(conflict) = apply_owner_claim_update(
+                &mut task.owner,
+                update.claim_owner.as_deref(),
+                update.release_owner.as_deref(),
+                &mut updated_fields,
+            ) {
+                return Ok(TaskUpdateOutcome::conflict(
+                    task_id,
+                    task.revision,
+                    task.updated_at,
+                    conflict,
+                ));
+            }
             apply_optional_text_update(&mut task.owner, update.owner, "owner", &mut updated_fields);
 
             if let Some(status) = update.status
@@ -176,7 +203,10 @@ impl TaskListStore {
                 &update.add_blocked_by,
                 &mut updated_fields,
             )?;
-            self.write_task_file(&task_list_dir, &task)?;
+            if !updated_fields.is_empty() {
+                bump_task_revision(&mut task);
+                self.write_task_file(&task_list_dir, &task)?;
+            }
 
             updated_fields.sort();
             updated_fields.dedup();
@@ -188,6 +218,8 @@ impl TaskListStore {
                     from: old_status,
                     to: task.status,
                 }),
+                revision: Some(task.revision),
+                updated_at: Some(task.updated_at),
                 error: None,
             })
         })();
@@ -327,7 +359,9 @@ impl TaskListStore {
             let blocked = related_tasks
                 .get_mut(blocked_id)
                 .expect("dependency task was loaded");
-            push_unique(&mut blocked.blocked_by, task_id.to_string());
+            if push_unique(&mut blocked.blocked_by, task_id.to_string()) {
+                bump_task_revision(blocked);
+            }
             push_unique(&mut task.blocks, blocked_id.clone());
         }
         if !add_blocks.is_empty() {
@@ -338,7 +372,9 @@ impl TaskListStore {
             let blocker = related_tasks
                 .get_mut(blocker_id)
                 .expect("dependency task was loaded");
-            push_unique(&mut blocker.blocks, task_id.to_string());
+            if push_unique(&mut blocker.blocks, task_id.to_string()) {
+                bump_task_revision(blocker);
+            }
             push_unique(&mut task.blocked_by, blocker_id.clone());
         }
         if !add_blocked_by.is_empty() {
@@ -414,10 +450,13 @@ pub struct NewTaskRecord {
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct TaskUpdate {
+    pub expected_revision: Option<u64>,
     pub subject: Option<String>,
     pub description: Option<String>,
     pub active_form: Option<Option<String>>,
     pub owner: Option<Option<String>>,
+    pub claim_owner: Option<String>,
+    pub release_owner: Option<String>,
     pub status: Option<TaskStatus>,
     pub metadata: BTreeMap<String, serde_json::Value>,
     pub add_blocks: Vec<String>,
@@ -432,9 +471,13 @@ pub struct TaskUpdateOutcome {
     pub task_id: String,
     pub updated_fields: Vec<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub error: Option<String>,
+    pub revision: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub updated_at: Option<u64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub status_change: Option<StatusChange>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
 }
 
 impl TaskUpdateOutcome {
@@ -443,7 +486,33 @@ impl TaskUpdateOutcome {
             success: false,
             task_id: task_id.to_string(),
             updated_fields: Vec::new(),
+            revision: None,
+            updated_at: None,
             error: Some("Task not found".to_string()),
+            status_change: None,
+        }
+    }
+
+    fn stale(task_id: &str, current_revision: u64, updated_at: u64) -> Self {
+        Self {
+            success: false,
+            task_id: task_id.to_string(),
+            updated_fields: Vec::new(),
+            revision: Some(current_revision),
+            updated_at: Some(updated_at),
+            error: Some("Task revision mismatch".to_string()),
+            status_change: None,
+        }
+    }
+
+    fn conflict(task_id: &str, current_revision: u64, updated_at: u64, error: String) -> Self {
+        Self {
+            success: false,
+            task_id: task_id.to_string(),
+            updated_fields: Vec::new(),
+            revision: Some(current_revision),
+            updated_at: Some(updated_at),
+            error: Some(error),
             status_change: None,
         }
     }
@@ -467,6 +536,10 @@ pub struct TaskRecord {
     #[serde(default)]
     pub owner: Option<String>,
     pub status: TaskStatus,
+    #[serde(default)]
+    pub revision: u64,
+    #[serde(default, rename = "updatedAt")]
+    pub updated_at: u64,
     #[serde(default)]
     pub blocks: Vec<String>,
     #[serde(default, alias = "blockedBy")]
@@ -511,6 +584,45 @@ fn apply_optional_text_update(
     }
 }
 
+fn apply_owner_claim_update(
+    owner: &mut Option<String>,
+    claim_owner: Option<&str>,
+    release_owner: Option<&str>,
+    updated_fields: &mut Vec<String>,
+) -> Option<String> {
+    if let Some(claim_owner) = claim_owner {
+        match owner.as_deref() {
+            Some(existing) if existing != claim_owner => {
+                return Some(format!("Task already owned by {existing}"));
+            }
+            Some(_) => {}
+            None => {
+                *owner = Some(claim_owner.to_string());
+                updated_fields.push("owner".to_string());
+            }
+        }
+    }
+
+    if let Some(release_owner) = release_owner {
+        match owner.as_deref() {
+            Some(existing) if existing != release_owner => {
+                return Some(format!("Task is owned by {existing}, not {release_owner}"));
+            }
+            Some(_) => {
+                *owner = None;
+                updated_fields.push("owner".to_string());
+            }
+            None => {}
+        }
+    }
+    None
+}
+
+fn bump_task_revision(task: &mut TaskRecord) {
+    task.revision = task.revision.saturating_add(1);
+    task.updated_at = unix_timestamp_secs();
+}
+
 fn merge_metadata(
     target: &mut BTreeMap<String, serde_json::Value>,
     updates: BTreeMap<String, serde_json::Value>,
@@ -524,10 +636,19 @@ fn merge_metadata(
     }
 }
 
-fn push_unique(values: &mut Vec<String>, value: String) {
+fn push_unique(values: &mut Vec<String>, value: String) -> bool {
     if !values.iter().any(|existing| existing == &value) {
         values.push(value);
+        return true;
     }
+    false
+}
+
+fn unix_timestamp_secs() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|duration| duration.as_secs())
+        .unwrap_or_default()
 }
 
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
@@ -536,6 +657,8 @@ pub struct TaskListEntry {
     pub id: String,
     pub subject: String,
     pub status: TaskStatus,
+    pub revision: u64,
+    pub updated_at: u64,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub owner: Option<String>,
     pub blocked_by: Vec<String>,
@@ -553,6 +676,8 @@ impl TaskListEntry {
             id: task.id.clone(),
             subject: task.subject.clone(),
             status: task.status.clone(),
+            revision: task.revision,
+            updated_at: task.updated_at,
             owner: task.owner.clone(),
             blocked_by,
         }
@@ -566,6 +691,10 @@ pub struct TaskDetails {
     pub subject: String,
     pub description: String,
     pub status: TaskStatus,
+    pub revision: u64,
+    pub updated_at: u64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub owner: Option<String>,
     pub blocks: Vec<String>,
     pub blocked_by: Vec<String>,
 }
@@ -577,6 +706,9 @@ impl From<TaskRecord> for TaskDetails {
             subject: task.subject,
             description: task.description,
             status: task.status,
+            revision: task.revision,
+            updated_at: task.updated_at,
+            owner: task.owner,
             blocks: task.blocks,
             blocked_by: task.blocked_by,
         }
@@ -606,7 +738,7 @@ pub fn is_valid_task_id(task_id: &str) -> bool {
 
 fn read_task_file(path: &Path, expected_task_id: &str) -> Result<TaskRecord> {
     let bytes = fs::read(path).with_context(|| format!("read task file {}", path.display()))?;
-    let task: TaskRecord = serde_json::from_slice(&bytes)
+    let mut task: TaskRecord = serde_json::from_slice(&bytes)
         .with_context(|| format!("parse task file {}", path.display()))?;
     anyhow::ensure!(
         is_valid_task_id(&task.id) && task.id == expected_task_id,
@@ -614,6 +746,9 @@ fn read_task_file(path: &Path, expected_task_id: &str) -> Result<TaskRecord> {
         task.id,
         expected_task_id
     );
+    if task.revision == 0 {
+        task.revision = 1;
+    }
     Ok(task)
 }
 
@@ -844,6 +979,7 @@ mod tests {
             .expect("task should update");
 
         assert!(outcome.success);
+        assert_eq!(outcome.revision, Some(2));
         assert_eq!(
             outcome.status_change.as_ref().map(|change| &change.to),
             Some(&TaskStatus::InProgress)
@@ -856,8 +992,179 @@ mod tests {
         assert_eq!(task.description, "Update a shared task.");
         assert_eq!(task.active_form.as_deref(), Some("Updating safe task"));
         assert_eq!(task.owner.as_deref(), Some("agent-a"));
+        assert_eq!(task.revision, 2);
         assert_eq!(task.metadata["keep"], "yes");
         assert!(!task.metadata.contains_key("drop"));
+    }
+
+    #[test]
+    fn update_task_rejects_stale_expected_revision() {
+        let temp = tempdir().expect("tempdir");
+        let store = TaskListStore::new(temp.path());
+        store
+            .create_task(DEFAULT_TASK_LIST_ID, new_task("Keep original subject"))
+            .expect("task should be created");
+        store
+            .update_task(
+                DEFAULT_TASK_LIST_ID,
+                "1",
+                TaskUpdate {
+                    subject: Some("First update".to_string()),
+                    expected_revision: Some(1),
+                    ..TaskUpdate::default()
+                },
+            )
+            .expect("first update should work");
+
+        let outcome = store
+            .update_task(
+                DEFAULT_TASK_LIST_ID,
+                "1",
+                TaskUpdate {
+                    subject: Some("Stale update".to_string()),
+                    expected_revision: Some(1),
+                    ..TaskUpdate::default()
+                },
+            )
+            .expect("stale update should return outcome");
+
+        assert!(!outcome.success);
+        assert_eq!(outcome.revision, Some(2));
+        assert_eq!(outcome.error.as_deref(), Some("Task revision mismatch"));
+        let task = store
+            .get_task(DEFAULT_TASK_LIST_ID, "1")
+            .expect("task should load")
+            .expect("task should exist");
+        assert_eq!(task.subject, "First update");
+        assert_eq!(task.revision, 2);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn update_task_noop_does_not_write_task_file() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let temp = tempdir().expect("tempdir");
+        let list_dir = temp.path().join(DEFAULT_TASK_LIST_ID);
+        let store = TaskListStore::new(temp.path());
+        store
+            .create_task(DEFAULT_TASK_LIST_ID, new_task("No-op update"))
+            .expect("task should be created");
+
+        fs::set_permissions(&list_dir, fs::Permissions::from_mode(0o555))
+            .expect("make task list read-only");
+        let outcome = store.update_task(
+            DEFAULT_TASK_LIST_ID,
+            "1",
+            TaskUpdate {
+                expected_revision: Some(1),
+                ..TaskUpdate::default()
+            },
+        );
+        fs::set_permissions(&list_dir, fs::Permissions::from_mode(0o755))
+            .expect("restore task list permissions");
+        let outcome = outcome.expect("no-op update should not need a file write");
+
+        assert!(outcome.success);
+        assert!(outcome.updated_fields.is_empty());
+        assert_eq!(outcome.revision, Some(1));
+    }
+
+    #[test]
+    fn update_task_claim_owner_rejects_conflicting_claim() {
+        let temp = tempdir().expect("tempdir");
+        let store = TaskListStore::new(temp.path());
+        store
+            .create_task(DEFAULT_TASK_LIST_ID, new_task("Claim task"))
+            .expect("task should be created");
+
+        let claimed = store
+            .update_task(
+                DEFAULT_TASK_LIST_ID,
+                "1",
+                TaskUpdate {
+                    claim_owner: Some("agent-a".to_string()),
+                    expected_revision: Some(1),
+                    ..TaskUpdate::default()
+                },
+            )
+            .expect("claim should work");
+        let conflict = store
+            .update_task(
+                DEFAULT_TASK_LIST_ID,
+                "1",
+                TaskUpdate {
+                    claim_owner: Some("agent-b".to_string()),
+                    expected_revision: claimed.revision,
+                    ..TaskUpdate::default()
+                },
+            )
+            .expect("conflict should return outcome");
+
+        assert!(!conflict.success);
+        assert_eq!(
+            conflict.error.as_deref(),
+            Some("Task already owned by agent-a")
+        );
+        let task = store
+            .get_task(DEFAULT_TASK_LIST_ID, "1")
+            .expect("task should load")
+            .expect("task should exist");
+        assert_eq!(task.owner.as_deref(), Some("agent-a"));
+    }
+
+    #[test]
+    fn update_task_release_owner_requires_matching_owner() {
+        let temp = tempdir().expect("tempdir");
+        let store = TaskListStore::new(temp.path());
+        store
+            .create_task(DEFAULT_TASK_LIST_ID, new_task("Release task"))
+            .expect("task should be created");
+        let claimed = store
+            .update_task(
+                DEFAULT_TASK_LIST_ID,
+                "1",
+                TaskUpdate {
+                    claim_owner: Some("agent-a".to_string()),
+                    ..TaskUpdate::default()
+                },
+            )
+            .expect("claim should work");
+
+        let wrong_release = store
+            .update_task(
+                DEFAULT_TASK_LIST_ID,
+                "1",
+                TaskUpdate {
+                    release_owner: Some("agent-b".to_string()),
+                    expected_revision: claimed.revision,
+                    ..TaskUpdate::default()
+                },
+            )
+            .expect("wrong release should return outcome");
+        assert!(!wrong_release.success);
+        assert_eq!(
+            wrong_release.error.as_deref(),
+            Some("Task is owned by agent-a, not agent-b")
+        );
+
+        let released = store
+            .update_task(
+                DEFAULT_TASK_LIST_ID,
+                "1",
+                TaskUpdate {
+                    release_owner: Some("agent-a".to_string()),
+                    expected_revision: claimed.revision,
+                    ..TaskUpdate::default()
+                },
+            )
+            .expect("release should work");
+        assert!(released.success);
+        let task = store
+            .get_task(DEFAULT_TASK_LIST_ID, "1")
+            .expect("task should load")
+            .expect("task should exist");
+        assert!(task.owner.is_none());
     }
 
     #[test]
@@ -1218,6 +1525,8 @@ mod tests {
             active_form: None,
             owner: None,
             status,
+            revision: 1,
+            updated_at: 0,
             blocks: Vec::new(),
             blocked_by: blocked_by.into_iter().map(str::to_string).collect(),
             metadata: BTreeMap::new(),

@@ -348,6 +348,30 @@ fn todo_summary_line(app: &TuiApp) -> String {
     )
 }
 
+fn shared_task_summary_line(app: &TuiApp) -> String {
+    let tasks = &app.snapshot.shared_tasks;
+    if let Some(error) = tasks.error.as_deref() {
+        return format!(
+            "list={} error={}",
+            tasks.task_list_id,
+            truncate_preview(error, 80)
+        );
+    }
+    if tasks.total == 0 {
+        return format!("list={} none", tasks.task_list_id);
+    }
+    format!(
+        "list={} {} total, {} pending, {} in_progress, {} completed, {} unblocked, {} owned",
+        tasks.task_list_id,
+        tasks.total,
+        tasks.pending,
+        tasks.in_progress,
+        tasks.completed,
+        tasks.unblocked,
+        tasks.owned,
+    )
+}
+
 fn render_todo_context(app: &TuiApp) -> String {
     let summary = &app.snapshot.todo.summary;
     if summary.total == 0 {
@@ -398,6 +422,64 @@ fn render_todo_context(app: &TuiApp) -> String {
         summary.completed,
         summary.cancelled,
         items,
+    )
+}
+
+fn render_shared_tasks_context(app: &TuiApp) -> String {
+    let tasks = &app.snapshot.shared_tasks;
+    if let Some(error) = tasks.error.as_deref() {
+        return format!(
+            "Shared Tasks\n  list: {}\n  error: {}",
+            tasks.task_list_id,
+            truncate_preview(error, 120)
+        );
+    }
+    if tasks.total == 0 {
+        return format!(
+            "Shared Tasks\n  list: {}\n  tasks: none",
+            tasks.task_list_id
+        );
+    }
+    let rendered_items = tasks
+        .items
+        .iter()
+        .take(8)
+        .map(|task| {
+            let owner = task.owner.as_deref().unwrap_or("-");
+            let blockers = if task.blocked_by.is_empty() {
+                "-".to_string()
+            } else {
+                task.blocked_by.join(",")
+            };
+            format!(
+                "    - [{}] #{} rev={} owner={} blockedBy={} {}",
+                task.status,
+                task.id,
+                task.revision,
+                owner,
+                blockers,
+                truncate_preview(task.subject.as_str(), 90)
+            )
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+    let omitted = tasks.items.len().saturating_sub(8);
+    let omitted = if omitted == 0 {
+        String::new()
+    } else {
+        format!("\n    ... {omitted} more")
+    };
+    format!(
+        "Shared Tasks\n  list: {}\n  total: {}  pending: {}  in_progress: {}  completed: {}  unblocked: {}  owned: {}\n  tasks:\n{}{}",
+        tasks.task_list_id,
+        tasks.total,
+        tasks.pending,
+        tasks.in_progress,
+        tasks.completed,
+        tasks.unblocked,
+        tasks.owned,
+        rendered_items,
+        omitted,
     )
 }
 
@@ -514,6 +596,7 @@ pub fn status_context_text(app: &TuiApp) -> String {
             plan_lines
         ),
         render_todo_context(app),
+        render_shared_tasks_context(app),
         format!("Pending\n{}", pending_interactions),
         render_context_assembly_entries(app, "stable_instructions", "Stable Instructions"),
         render_context_assembly_entries(
@@ -609,7 +692,7 @@ pub fn status_runtime_text(app: &TuiApp) -> String {
         crate::local_model_server::LocalModelServerState::Error => "error",
     };
     format!(
-        "provider={}\nendpoint_profile={}\nendpoint_kind={}\nmodel={}\nmodel_source={}\nauxiliary_model={}\nauxiliary_model_source={}\nauxiliary_route={}\nbase_url={}\nbase_url_source={}\nrevision={}\nrevision_source={}\nagent_mode={}\nbash_approval={}\nmode={}\napi_key={}\napi_key_source={}\ncodex_auth_mode={}\ncodex_endpoint_kind={}\nthinking={}\nreasoning_summary={}\nreasoning_summary_source={}\nreasoning_effort={}\nreasoning_effort_source={}\ntodo={}\nembedding_state={}\nembedding_backend={}\nembedding_model={}\nembedding_detail={}\ndevice={}\ndtype={}\nterminal_name={}\nterminal_user_agent={}\nterminal_term={}\nterminal_term_program={}\nterminal_multiplexer={}\nterminal_remote={}\nterminal_history_mode={}\nterminal_focused={}\nterminal_width_columns={}\nphase={}\ndetail={}",
+        "provider={}\nendpoint_profile={}\nendpoint_kind={}\nmodel={}\nmodel_source={}\nauxiliary_model={}\nauxiliary_model_source={}\nauxiliary_route={}\nbase_url={}\nbase_url_source={}\nrevision={}\nrevision_source={}\nagent_mode={}\nbash_approval={}\nmode={}\napi_key={}\napi_key_source={}\ncodex_auth_mode={}\ncodex_endpoint_kind={}\nthinking={}\nreasoning_summary={}\nreasoning_summary_source={}\nreasoning_effort={}\nreasoning_effort_source={}\ntodo={}\nshared_tasks={}\nembedding_state={}\nembedding_backend={}\nembedding_model={}\nembedding_detail={}\ndevice={}\ndtype={}\nterminal_name={}\nterminal_user_agent={}\nterminal_term={}\nterminal_term_program={}\nterminal_multiplexer={}\nterminal_remote={}\nterminal_history_mode={}\nterminal_focused={}\nterminal_width_columns={}\nphase={}\ndetail={}",
         surface.provider,
         endpoint_profile,
         endpoint_kind,
@@ -637,6 +720,7 @@ pub fn status_runtime_text(app: &TuiApp) -> String {
             .display_or(reasoning_effort_label.as_str()),
         surface.reasoning_effort.source.label(),
         todo_summary_line(app),
+        shared_task_summary_line(app),
         embedding_state,
         app.local_model_server.backend,
         app.local_model_server.model,

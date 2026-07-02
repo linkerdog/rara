@@ -163,6 +163,7 @@ impl TuiApp {
                 None
             },
             todo: runtime_context.todo,
+            shared_tasks: runtime_context.shared_tasks,
             prompt_base_kind: runtime_context.prompt.base_prompt_kind,
             prompt_section_keys: runtime_context.prompt.section_keys,
             prompt_source_entries: runtime_context.prompt.source_entries,
