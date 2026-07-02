@@ -95,6 +95,124 @@ impl TaskListStore {
         result
     }
 
+    pub fn update_task(
+        &self,
+        task_list_id: &str,
+        task_id: &str,
+        update: TaskUpdate,
+    ) -> Result<TaskUpdateOutcome> {
+        let task_id = task_id.trim();
+        if !is_valid_task_id(task_id) {
+            anyhow::bail!("invalid task id '{task_id}'");
+        }
+        let task_list_dir = self.prepare_task_list_dir(task_list_id)?;
+        let lock_file = open_lock_file(&task_list_dir)?;
+        lock_file
+            .lock_exclusive()
+            .with_context(|| format!("lock task list directory {}", task_list_dir.display()))?;
+
+        let result = (|| {
+            if update.delete {
+                let task_path = task_list_dir.join(format!("{task_id}.json"));
+                if !is_real_file(&task_path) {
+                    return Ok(TaskUpdateOutcome::not_found(task_id));
+                }
+                fs::remove_file(&task_path)
+                    .with_context(|| format!("delete task file {}", task_path.display()))?;
+                self.remove_task_references(&task_list_dir, task_id)?;
+                sync_parent_dir_best_effort(&task_list_dir);
+                return Ok(TaskUpdateOutcome {
+                    success: true,
+                    task_id: task_id.to_string(),
+                    updated_fields: vec!["deleted".to_string()],
+                    status_change: None,
+                    error: None,
+                });
+            }
+
+            let Some(mut task) = self.get_task_from_dir(&task_list_dir, task_id)? else {
+                return Ok(TaskUpdateOutcome::not_found(task_id));
+            };
+            let old_status = task.status.clone();
+            let mut updated_fields = Vec::new();
+
+            apply_text_update(
+                &mut task.subject,
+                update.subject,
+                "subject",
+                &mut updated_fields,
+            );
+            apply_text_update(
+                &mut task.description,
+                update.description,
+                "description",
+                &mut updated_fields,
+            );
+            apply_optional_text_update(
+                &mut task.active_form,
+                update.active_form,
+                "activeForm",
+                &mut updated_fields,
+            );
+            apply_optional_text_update(&mut task.owner, update.owner, "owner", &mut updated_fields);
+
+            if let Some(status) = update.status
+                && task.status != status
+            {
+                task.status = status;
+                updated_fields.push("status".to_string());
+            }
+
+            if !update.metadata.is_empty() {
+                merge_metadata(&mut task.metadata, update.metadata);
+                updated_fields.push("metadata".to_string());
+            }
+
+            for blocked_task_id in &update.add_blocks {
+                self.ensure_dependency_can_be_added(&task_list_dir, task_id, blocked_task_id)?;
+            }
+            for blocker_task_id in &update.add_blocked_by {
+                self.ensure_dependency_can_be_added(&task_list_dir, blocker_task_id, task_id)?;
+            }
+
+            self.write_task_file(&task_list_dir, &task)?;
+
+            if !update.add_blocks.is_empty() {
+                for blocked_task_id in update.add_blocks {
+                    self.add_dependency(&task_list_dir, task_id, &blocked_task_id)?;
+                }
+                updated_fields.push("blocks".to_string());
+            }
+            if !update.add_blocked_by.is_empty() {
+                for blocker_task_id in update.add_blocked_by {
+                    self.add_dependency(&task_list_dir, &blocker_task_id, task_id)?;
+                }
+                updated_fields.push("blockedBy".to_string());
+            }
+
+            updated_fields.sort();
+            updated_fields.dedup();
+            Ok(TaskUpdateOutcome {
+                success: true,
+                task_id: task_id.to_string(),
+                updated_fields,
+                status_change: (old_status != task.status).then_some(StatusChange {
+                    from: old_status,
+                    to: task.status,
+                }),
+                error: None,
+            })
+        })();
+
+        if let Err(err) = lock_file.unlock() {
+            log::warn!(
+                "Failed to unlock task list directory {}: {err}",
+                task_list_dir.display()
+            );
+        }
+        result
+    }
+
     fn task_list_dir(&self, task_list_id: &str) -> PathBuf {
         self.root.join(normalize_task_list_id(task_list_id))
     }
@@ -143,6 +261,23 @@ impl TaskListStore {
         if fs::symlink_metadata(&path).is_ok() {
             anyhow::bail!("task file {} already exists", path.display());
         }
+        self.write_task_file_at_path(task_list_dir, task, path)
+    }
+
+    fn write_task_file(&self, task_list_dir: &Path, task: &TaskRecord) -> Result<()> {
+        let path = task_list_dir.join(format!("{}.json", task.id));
+        if !is_real_file(&path) {
+            anyhow::bail!("task file {} is not a real file", path.display());
+        }
+        self.write_task_file_at_path(task_list_dir, task, path)
+    }
+
+    fn write_task_file_at_path(
+        &self,
+        task_list_dir: &Path,
+        task: &TaskRecord,
+        path: PathBuf,
+    ) -> Result<()> {
         let tmp_path = task_list_dir.join(format!(".{}.json.tmp-{}", task.id, Uuid::new_v4()));
         let result = (|| {
             let mut file = fs::File::create(&tmp_path)
@@ -162,6 +297,79 @@ impl TaskListStore {
         sync_parent_dir_best_effort(task_list_dir);
         Ok(())
     }
+
+    fn get_task_from_dir(&self, task_list_dir: &Path, task_id: &str) -> Result<Option<TaskRecord>> {
+        let path = task_list_dir.join(format!("{task_id}.json"));
+        if !is_real_file(&path) {
+            return Ok(None);
+        }
+        read_task_file(&path, task_id).map(Some)
+    }
+
+    fn add_dependency(
+        &self,
+        task_list_dir: &Path,
+        blocker_id: &str,
+        blocked_id: &str,
+    ) -> Result<()> {
+        self.ensure_dependency_can_be_added(task_list_dir, blocker_id, blocked_id)?;
+        let Some(mut blocker) = self.get_task_from_dir(task_list_dir, blocker_id)? else {
+            anyhow::bail!("blocking task '{blocker_id}' not found");
+        };
+        let Some(mut blocked) = self.get_task_from_dir(task_list_dir, blocked_id)? else {
+            anyhow::bail!("blocked task '{blocked_id}' not found");
+        };
+        push_unique(&mut blocker.blocks, blocked_id.to_string());
+        push_unique(&mut blocked.blocked_by, blocker_id.to_string());
+        self.write_task_file(task_list_dir, &blocker)?;
+        self.write_task_file(task_list_dir, &blocked)?;
+        Ok(())
+    }
+
+    fn ensure_dependency_can_be_added(
+        &self,
+        task_list_dir: &Path,
+        blocker_id: &str,
+        blocked_id: &str,
+    ) -> Result<()> {
+        if !is_valid_task_id(blocker_id)
+            || !is_valid_task_id(blocked_id)
+            || blocker_id == blocked_id
+        {
+            anyhow::bail!("invalid task dependency '{blocker_id}' -> '{blocked_id}'");
+        }
+        if self.get_task_from_dir(task_list_dir, blocker_id)?.is_none() {
+            anyhow::bail!("blocking task '{blocker_id}' not found");
+        }
+        if self.get_task_from_dir(task_list_dir, blocked_id)?.is_none() {
+            anyhow::bail!("blocked task '{blocked_id}' not found");
+        }
+        Ok(())
+    }
+
+    fn remove_task_references(&self, task_list_dir: &Path, task_id: &str) -> Result<()> {
+        for entry in fs::read_dir(task_list_dir)
+            .with_context(|| format!("read task list directory {}", task_list_dir.display()))?
+        {
+            let entry = entry.with_context(|| {
+                format!("read task list directory entry {}", task_list_dir.display())
+            })?;
+            let Some(other_id) = task_id_from_path(&entry.path()) else {
+                continue;
+            };
+            let Some(mut task) = self.get_task_from_dir(task_list_dir, &other_id)? else {
+                continue;
+            };
+            let old_blocks_len = task.blocks.len();
+            let old_blocked_by_len = task.blocked_by.len();
+            task.blocks.retain(|id| id != task_id);
+            task.blocked_by.retain(|id| id != task_id);
+            if task.blocks.len() != old_blocks_len || task.blocked_by.len() != old_blocked_by_len {
+                self.write_task_file(task_list_dir, &task)?;
+            }
+        }
+        Ok(())
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -170,6 +378,50 @@ pub struct NewTaskRecord {
     pub description: String,
     pub active_form: Option<String>,
     pub metadata: BTreeMap<String, serde_json::Value>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct TaskUpdate {
+    pub subject: Option<String>,
+    pub description: Option<String>,
+    pub active_form: Option<Option<String>>,
+    pub owner: Option<Option<String>>,
+    pub status: Option<TaskStatus>,
+    pub metadata: BTreeMap<String, serde_json::Value>,
+    pub add_blocks: Vec<String>,
+    pub add_blocked_by: Vec<String>,
+    pub delete: bool,
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct TaskUpdateOutcome {
+    pub success: bool,
+    pub task_id: String,
+    pub updated_fields: Vec<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub status_change: Option<StatusChange>,
+}
+
+impl TaskUpdateOutcome {
+    fn not_found(task_id: &str) -> Self {
+        Self {
+            success: false,
+            task_id: task_id.to_string(),
+            updated_fields: Vec::new(),
+            error: Some("Task not found".to_string()),
+            status_change: None,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct StatusChange {
+    pub from: TaskStatus,
+    pub to: TaskStatus,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -197,6 +449,53 @@ pub enum TaskStatus {
     Pending,
     InProgress,
     Completed,
+}
+
+fn apply_text_update(
+    target: &mut String,
+    update: Option<String>,
+    field_name: &str,
+    updated_fields: &mut Vec<String>,
+) {
+    if let Some(update) = update
+        && *target != update
+    {
+        *target = update;
+        updated_fields.push(field_name.to_string());
+    }
+}
+
+fn apply_optional_text_update(
+    target: &mut Option<String>,
+    update: Option<Option<String>>,
+    field_name: &str,
+    updated_fields: &mut Vec<String>,
+) {
+    if let Some(update) = update
+        && *target != update
+    {
+        *target = update;
+        updated_fields.push(field_name.to_string());
+    }
+}
+
+fn merge_metadata(
+    target: &mut BTreeMap<String, serde_json::Value>,
+    updates: BTreeMap<String, serde_json::Value>,
+) {
+    for (key, value) in updates {
+        if value.is_null() {
+            target.remove(&key);
+        } else {
+            target.insert(key, value);
+        }
+    }
+}
+
+fn push_unique(values: &mut Vec<String>, value: String) {
+    if !values.iter().any(|existing| existing == &value) {
+        values.push(value);
+    }
 }
 
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
@@ -483,6 +782,161 @@ mod tests {
             loaded.active_form.as_deref(),
             Some("Implementing task_create")
         );
+    }
+
+    #[test]
+    fn update_task_changes_fields_and_metadata() {
+        let temp = tempdir().expect("tempdir");
+        let store = TaskListStore::new(temp.path());
+        store
+            .create_task(DEFAULT_TASK_LIST_ID, new_task("Create safe task"))
+            .expect("task should be created");
+
+        let outcome = store
+            .update_task(
+                DEFAULT_TASK_LIST_ID,
+                "1",
+                TaskUpdate {
+                    subject: Some("Update safe task".to_string()),
+                    description: Some("Update a shared task.".to_string()),
+                    active_form: Some(Some("Updating safe task".to_string())),
+                    owner: Some(Some("agent-a".to_string())),
+                    status: Some(TaskStatus::InProgress),
+                    metadata: BTreeMap::from([
+                        ("keep".to_string(), json!("yes")),
+                        ("drop".to_string(), serde_json::Value::Null),
+                    ]),
+                    ..TaskUpdate::default()
+                },
+            )
+            .expect("task should update");
+
+        assert!(outcome.success);
+        assert_eq!(
+            outcome.status_change.as_ref().map(|change| &change.to),
+            Some(&TaskStatus::InProgress)
+        );
+        let task = store
+            .get_task(DEFAULT_TASK_LIST_ID, "1")
+            .expect("task should load")
+            .expect("task should exist");
+        assert_eq!(task.subject, "Update safe task");
+        assert_eq!(task.description, "Update a shared task.");
+        assert_eq!(task.active_form.as_deref(), Some("Updating safe task"));
+        assert_eq!(task.owner.as_deref(), Some("agent-a"));
+        assert_eq!(task.metadata["keep"], "yes");
+        assert!(!task.metadata.contains_key("drop"));
+    }
+
+    #[test]
+    fn update_task_adds_bidirectional_dependencies() {
+        let temp = tempdir().expect("tempdir");
+        let store = TaskListStore::new(temp.path());
+        store
+            .create_task(DEFAULT_TASK_LIST_ID, new_task("Prepare dependency"))
+            .expect("first task should be created");
+        store
+            .create_task(DEFAULT_TASK_LIST_ID, new_task("Use dependency"))
+            .expect("second task should be created");
+
+        let outcome = store
+            .update_task(
+                DEFAULT_TASK_LIST_ID,
+                "2",
+                TaskUpdate {
+                    add_blocked_by: vec!["1".to_string()],
+                    ..TaskUpdate::default()
+                },
+            )
+            .expect("dependency should update");
+
+        assert_eq!(outcome.updated_fields, vec!["blockedBy"]);
+        let blocker = store
+            .get_task(DEFAULT_TASK_LIST_ID, "1")
+            .expect("blocker should load")
+            .expect("blocker should exist");
+        let blocked = store
+            .get_task(DEFAULT_TASK_LIST_ID, "2")
+            .expect("blocked should load")
+            .expect("blocked should exist");
+        assert_eq!(blocker.blocks, vec!["2"]);
+        assert_eq!(blocked.blocked_by, vec!["1"]);
+    }
+
+    #[test]
+    fn update_task_delete_removes_task_and_dependency_references() {
+        let temp = tempdir().expect("tempdir");
+        let store = TaskListStore::new(temp.path());
+        store
+            .create_task(DEFAULT_TASK_LIST_ID, new_task("Prepare dependency"))
+            .expect("first task should be created");
+        store
+            .create_task(DEFAULT_TASK_LIST_ID, new_task("Use dependency"))
+            .expect("second task should be created");
+        store
+            .update_task(
+                DEFAULT_TASK_LIST_ID,
+                "2",
+                TaskUpdate {
+                    add_blocked_by: vec!["1".to_string()],
+                    ..TaskUpdate::default()
+                },
+            )
+            .expect("dependency should update");
+
+        let outcome = store
+            .update_task(
+                DEFAULT_TASK_LIST_ID,
+                "1",
+                TaskUpdate {
+                    delete: true,
+                    ..TaskUpdate::default()
+                },
+            )
+            .expect("task should delete");
+
+        assert!(outcome.success);
+        assert_eq!(outcome.updated_fields, vec!["deleted"]);
+        assert!(
+            store
+                .get_task(DEFAULT_TASK_LIST_ID, "1")
+                .expect("deleted task read should be valid")
+                .is_none()
+        );
+        let remaining = store
+            .get_task(DEFAULT_TASK_LIST_ID, "2")
+            .expect("remaining task should load")
+            .expect("remaining task should exist");
+        assert!(remaining.blocked_by.is_empty());
+    }
+
+    #[test]
+    fn update_task_missing_dependency_does_not_write_field_updates() {
+        let temp = tempdir().expect("tempdir");
+        let store = TaskListStore::new(temp.path());
+        store
+            .create_task(DEFAULT_TASK_LIST_ID, new_task("Keep original subject"))
+            .expect("task should be created");
+
+        let err = store
+            .update_task(
+                DEFAULT_TASK_LIST_ID,
+                "1",
+                TaskUpdate {
+                    subject: Some("Do not persist this".to_string()),
+                    add_blocks: vec!["2".to_string()],
+                    ..TaskUpdate::default()
+                },
+            )
+            .expect_err("missing dependency should fail");
+
+        assert!(err.to_string().contains("blocked task '2' not found"));
+        let task = store
+            .get_task(DEFAULT_TASK_LIST_ID, "1")
+            .expect("task should load")
+            .expect("task should exist");
+        assert_eq!(task.subject, "Keep original subject");
+        assert!(task.blocks.is_empty());
     }
 
     #[cfg(unix)]

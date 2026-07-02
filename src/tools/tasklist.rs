@@ -7,8 +7,8 @@ use serde::Deserialize;
 use serde_json::Value;
 
 use crate::tasklist::{
-    DEFAULT_TASK_LIST_ID, NewTaskRecord, TaskDetails, TaskListStore, is_valid_task_id,
-    task_list_entries,
+    DEFAULT_TASK_LIST_ID, NewTaskRecord, TaskDetails, TaskListStore, TaskStatus, TaskUpdate,
+    is_valid_task_id, task_list_entries,
 };
 
 pub struct TaskCreateTool {
@@ -16,6 +16,10 @@ pub struct TaskCreateTool {
 }
 
 pub struct TaskListTool {
+    pub store: Arc<TaskListStore>,
+}
+
+pub struct TaskUpdateTool {
     pub store: Arc<TaskListStore>,
 }
 
@@ -45,6 +49,31 @@ struct TaskCreateInput {
     description: String,
     #[serde(default, alias = "activeForm")]
     active_form: Option<String>,
+    #[serde(default)]
+    metadata: serde_json::Map<String, Value>,
+    #[serde(default, alias = "taskListId")]
+    task_list_id: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct TaskUpdateInput {
+    #[serde(alias = "taskId")]
+    task_id: String,
+    #[serde(default)]
+    subject: Option<String>,
+    #[serde(default)]
+    description: Option<String>,
+    #[serde(default, alias = "activeForm")]
+    active_form: Option<String>,
+    #[serde(default)]
+    owner: Option<String>,
+    #[serde(default)]
+    status: Option<String>,
+    #[serde(default, alias = "addBlocks")]
+    add_blocks: Vec<String>,
+    #[serde(default, alias = "addBlockedBy")]
+    add_blocked_by: Vec<String>,
     #[serde(default)]
     metadata: serde_json::Map<String, Value>,
     #[serde(default, alias = "taskListId")]
@@ -122,6 +151,98 @@ impl Tool for TaskCreateTool {
                 "subject": task.subject,
             }
         }))
+    }
+}
+
+#[tool_spec(
+    name = "task_update",
+    description = "Update a shared project task. Use task_get first to inspect the latest task state. Supports status changes including deleted, subject, description, activeForm, owner, metadata merge/delete, addBlocks, and addBlockedBy.",
+    input_schema = {
+        "type": "object",
+        "properties": {
+            "task_id": {
+                "type": "string",
+                "description": "Task identifier from task_list or task_get."
+            },
+            "taskId": {
+                "type": "string",
+                "description": "Claude-compatible alias for task_id. Do not send together with task_id."
+            },
+            "subject": {
+                "type": "string",
+                "description": "New imperative task title."
+            },
+            "description": {
+                "type": "string",
+                "description": "New task description."
+            },
+            "activeForm": {
+                "type": "string",
+                "description": "Present continuous label shown while this task is in_progress."
+            },
+            "active_form": {
+                "type": "string",
+                "description": "RARA-compatible alias for activeForm. Do not send together with activeForm."
+            },
+            "owner": {
+                "type": "string",
+                "description": "New task owner. Send an empty string to clear the owner."
+            },
+            "status": {
+                "type": "string",
+                "enum": ["pending", "in_progress", "completed", "deleted"],
+                "description": "New task status. Use deleted to permanently remove the task."
+            },
+            "addBlocks": {
+                "type": "array",
+                "items": {"type": "string"},
+                "description": "Task IDs that cannot start until this task completes."
+            },
+            "addBlockedBy": {
+                "type": "array",
+                "items": {"type": "string"},
+                "description": "Task IDs that must complete before this task can start."
+            },
+            "metadata": {
+                "type": "object",
+                "description": "Metadata keys to merge into the task. Set a key to null to delete it.",
+                "additionalProperties": true
+            },
+            "task_list_id": {
+                "type": "string",
+                "description": "Optional shared task list id. Defaults to the workspace default task list. Do not send together with taskListId."
+            },
+            "taskListId": {
+                "type": "string",
+                "description": "Claude-compatible alias for task_list_id. Do not send together with task_list_id."
+            }
+        },
+        "additionalProperties": false
+    }
+)]
+#[async_trait]
+impl Tool for TaskUpdateTool {
+    async fn call(&self, input: Value) -> Result<Value, ToolError> {
+        let input = parse_task_update_input(input)?;
+        let task_id = input.task_id.trim().to_string();
+        if !is_valid_task_id(&task_id) {
+            return Err(ToolError::InvalidInput(
+                "task_update requires a valid, non-empty task_id without path traversal characters"
+                    .to_string(),
+            ));
+        }
+        let task_list_id = input.task_list_id().to_string();
+        let update = normalize_task_update(input)?;
+        let store = self.store.clone();
+        let outcome =
+            tokio::task::spawn_blocking(move || store.update_task(&task_list_id, &task_id, update))
+                .await
+                .map_err(|err| {
+                    ToolError::ExecutionFailed(format!("spawn task_update worker: {err}"))
+                })?
+                .map_err(|err| ToolError::ExecutionFailed(err.to_string()))?;
+
+        serde_json::to_value(outcome).map_err(|err| ToolError::ExecutionFailed(err.to_string()))
     }
 }
 
@@ -219,6 +340,16 @@ impl TaskCreateInput {
     }
 }
 
+impl TaskUpdateInput {
+    fn task_list_id(&self) -> &str {
+        self.task_list_id
+            .as_deref()
+            .map(str::trim)
+            .filter(|task_list_id| !task_list_id.is_empty())
+            .unwrap_or(DEFAULT_TASK_LIST_ID)
+    }
+}
+
 impl TaskGetInput {
     fn task_list_id(&self) -> &str {
         self.task_list_id
@@ -230,6 +361,13 @@ impl TaskGetInput {
 }
 
 fn parse_task_create_input(input: Value) -> Result<TaskCreateInput, ToolError> {
+    reject_alias_conflict(&input, "activeForm", "active_form")?;
+    reject_alias_conflict(&input, "taskListId", "task_list_id")?;
+    serde_json::from_value(input).map_err(|err| ToolError::InvalidInput(err.to_string()))
+}
+
+fn parse_task_update_input(input: Value) -> Result<TaskUpdateInput, ToolError> {
+    reject_alias_conflict(&input, "taskId", "task_id")?;
     reject_alias_conflict(&input, "activeForm", "active_form")?;
     reject_alias_conflict(&input, "taskListId", "task_list_id")?;
     serde_json::from_value(input).map_err(|err| ToolError::InvalidInput(err.to_string()))
@@ -261,13 +399,63 @@ fn normalize_optional_text(value: Option<&str>) -> Option<String> {
         .map(str::to_string)
 }
 
+fn normalize_task_update(input: TaskUpdateInput) -> Result<TaskUpdate, ToolError> {
+    let status = match input.status.as_deref().map(str::trim) {
+        None | Some("") => None,
+        Some("pending") => Some(TaskStatus::Pending),
+        Some("in_progress") => Some(TaskStatus::InProgress),
+        Some("completed") => Some(TaskStatus::Completed),
+        Some("deleted") => None,
+        Some(other) => {
+            return Err(ToolError::InvalidInput(format!(
+                "task_update received invalid status '{other}'"
+            )));
+        }
+    };
+    let delete = input.status.as_deref().map(str::trim) == Some("deleted");
+
+    Ok(TaskUpdate {
+        subject: normalize_optional_text(input.subject.as_deref()),
+        description: normalize_optional_text(input.description.as_deref()),
+        active_form: input
+            .active_form
+            .as_deref()
+            .map(|value| normalize_optional_text(Some(value))),
+        owner: input
+            .owner
+            .as_deref()
+            .map(|value| normalize_optional_text(Some(value))),
+        status,
+        metadata: input.metadata.into_iter().collect(),
+        add_blocks: normalize_task_ids(input.add_blocks, "addBlocks")?,
+        add_blocked_by: normalize_task_ids(input.add_blocked_by, "addBlockedBy")?,
+        delete,
+    })
+}
+
+fn normalize_task_ids(values: Vec<String>, field_name: &str) -> Result<Vec<String>, ToolError> {
+    let mut task_ids = Vec::new();
+    for value in values {
+        let task_id = value.trim();
+        if !is_valid_task_id(task_id) {
+            return Err(ToolError::InvalidInput(format!(
+                "task_update received invalid task id in {field_name}"
+            )));
+        }
+        if !task_ids.iter().any(|existing| existing == task_id) {
+            task_ids.push(task_id.to_string());
+        }
+    }
+    Ok(task_ids)
+}
+
 fn reject_alias_conflict(input: &Value, left: &str, right: &str) -> Result<(), ToolError> {
     let Some(object) = input.as_object() else {
         return Ok(());
     };
     if object.contains_key(left) && object.contains_key(right) {
         return Err(ToolError::InvalidInput(format!(
-            "task_create accepts either {left} or {right}, not both"
+            "task tools accept either {left} or {right}, not both"
         )));
     }
     Ok(())
@@ -389,6 +577,114 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn task_update_changes_status_owner_and_metadata() {
+        let temp = tempdir().expect("tempdir");
+        let tool = tool_update(temp.path());
+        tool.store
+            .create_task(
+                DEFAULT_TASK_LIST_ID,
+                NewTaskRecord {
+                    subject: "Implement task_update".to_string(),
+                    description: "Update shared task files.".to_string(),
+                    active_form: None,
+                    metadata: Default::default(),
+                },
+            )
+            .expect("task should be created");
+
+        let output = tool
+            .call(json!({
+                "taskId": "1",
+                "status": "in_progress",
+                "owner": "agent-a",
+                "metadata": {"priority": "high"}
+            }))
+            .await
+            .expect("task_update should work");
+
+        assert_eq!(output["success"], true);
+        assert_eq!(output["taskId"], "1");
+        assert_eq!(
+            output["updatedFields"],
+            json!(["metadata", "owner", "status"])
+        );
+        assert_eq!(output["statusChange"]["from"], "pending");
+        assert_eq!(output["statusChange"]["to"], "in_progress");
+
+        let task = tool
+            .store
+            .get_task(DEFAULT_TASK_LIST_ID, "1")
+            .expect("task should load")
+            .expect("task should exist");
+        assert_eq!(task.status, TaskStatus::InProgress);
+        assert_eq!(task.owner.as_deref(), Some("agent-a"));
+        assert_eq!(task.metadata["priority"], "high");
+    }
+
+    #[tokio::test]
+    async fn task_update_deletes_task_with_deleted_status() {
+        let temp = tempdir().expect("tempdir");
+        let tool = tool_update(temp.path());
+        tool.store
+            .create_task(
+                DEFAULT_TASK_LIST_ID,
+                NewTaskRecord {
+                    subject: "Remove obsolete task".to_string(),
+                    description: "Delete a shared task file.".to_string(),
+                    active_form: None,
+                    metadata: Default::default(),
+                },
+            )
+            .expect("task should be created");
+
+        let output = tool
+            .call(json!({
+                "task_id": "1",
+                "status": "deleted"
+            }))
+            .await
+            .expect("task_update should delete task");
+
+        assert_eq!(output["success"], true);
+        assert_eq!(output["updatedFields"], json!(["deleted"]));
+        assert!(
+            tool.store
+                .get_task(DEFAULT_TASK_LIST_ID, "1")
+                .expect("deleted task read should be valid")
+                .is_none()
+        );
+    }
+
+    #[tokio::test]
+    async fn task_update_rejects_alias_conflicts_and_invalid_dependency_ids() {
+        let temp = tempdir().expect("tempdir");
+        let tool = tool_update(temp.path());
+
+        let alias_err = tool
+            .call(json!({
+                "taskId": "1",
+                "task_id": "1",
+                "status": "pending"
+            }))
+            .await
+            .expect_err("mixed task id aliases should fail");
+        let dependency_err = tool
+            .call(json!({
+                "task_id": "1",
+                "addBlocks": ["../secret"]
+            }))
+            .await
+            .expect_err("invalid dependency id should fail");
+
+        assert!(alias_err.to_string().contains("either taskId or task_id"));
+        assert!(
+            dependency_err
+                .to_string()
+                .contains("invalid task id in addBlocks")
+        );
+    }
+
+    #[tokio::test]
     async fn task_list_returns_summary_entries() {
         let temp = tempdir().expect("tempdir");
         let list_dir = temp.path().join(DEFAULT_TASK_LIST_ID);
@@ -467,6 +763,7 @@ mod tests {
         let temp = tempdir().expect("tempdir");
         let task_create_schema = TaskCreateTool::input_schema(&tool_create(temp.path()));
         let task_list_schema = TaskListTool::input_schema(&tool_list());
+        let task_update_schema = TaskUpdateTool::input_schema(&tool_update(temp.path()));
         let task_get_schema = TaskGetTool::input_schema(&tool_get());
 
         assert_eq!(
@@ -491,6 +788,18 @@ mod tests {
         );
         assert!(task_list_schema["properties"].get("task_list_id").is_some());
         assert!(task_list_schema["properties"].get("taskListId").is_some());
+        assert_eq!(
+            task_update_schema.get("additionalProperties"),
+            Some(&json!(false))
+        );
+        assert!(task_update_schema["properties"].get("task_id").is_some());
+        assert!(task_update_schema["properties"].get("taskId").is_some());
+        assert!(task_update_schema["properties"].get("activeForm").is_some());
+        assert!(
+            task_update_schema["properties"]
+                .get("active_form")
+                .is_some()
+        );
         assert_eq!(
             task_get_schema.get("additionalProperties"),
             Some(&json!(false))
@@ -523,6 +832,12 @@ mod tests {
         let temp = tempdir().expect("tempdir");
         TaskListTool {
             store: Arc::new(TaskListStore::new(temp.path())),
+        }
+    }
+
+    fn tool_update(path: &std::path::Path) -> TaskUpdateTool {
+        TaskUpdateTool {
+            store: Arc::new(TaskListStore::new(path)),
         }
     }
 

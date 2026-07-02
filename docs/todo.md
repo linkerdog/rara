@@ -65,8 +65,10 @@ Active backlog only. Keep this file small and current.
 - [x] Add read-only `task_list` and `task_get` tools backed by
       `.rara/tasks/<task_list_id>/<task_id>.json`.
 - [x] Add `task_create` with file locking and atomic pending-task writes.
-- [ ] Add `task_update` with stale-read protection, owner/claim semantics,
-      and dependency updates.
+- [x] Add `task_update` with field, status, metadata, dependency, and delete
+      mutations under the task-list lock.
+- [ ] Add revision or timestamp based stale-read protection for `task_update`.
+- [ ] Add owner/claim semantics that reject conflicting concurrent claims.
 - [ ] Propagate task-list IDs through team and subagent runtime state so agents
       coordinate on the same shared task list without an explicit tool input.
 - [ ] Add shared task watcher/TUI surfaces after mutation semantics are stable.

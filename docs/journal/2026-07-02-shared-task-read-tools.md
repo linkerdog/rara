@@ -21,10 +21,17 @@ The first slice is intentionally read-only. It lets agents inspect shared work w
 
 ## Remaining Work
 
-- Add `task_update` with stale-read checks, dependency updates, and ownership semantics.
+- Add revision or timestamp based stale-read checks for `task_update`.
+- Add explicit owner claim semantics instead of treating owner as a plain field update.
 - Propagate task-list IDs through team and subagent runtime state.
 - Add watcher/TUI surfaces once mutation semantics exist.
 
 ## Task Create Follow-Up
 
 The next slice added `task_create` as the first write-side task tool. It creates pending tasks with no owner and empty dependency lists, assigns the next numeric task id while holding a task-list `.lock` file, and writes the task JSON atomically. This keeps task creation compatible with the existing `task_list` and `task_get` read tools without introducing update, claim, or dependency mutation semantics yet.
+
+## Task Update Follow-Up
+
+This slice added `task_update` as the first mutation tool for existing shared tasks. The tool updates subject, description, `activeForm`, owner, status, metadata, dependency edges, and deletion while holding the task-list `.lock` file. Dependency updates maintain both sides of the `blocks` / `blockedBy` edge, and deletion removes stale references from remaining tasks.
+
+The implementation intentionally keeps owner as a plain field update for now. It does not yet require a caller-supplied revision or last-read timestamp, so concurrent claim/update conflict prevention remains follow-up work before this can be treated as a full multi-agent coordination primitive.
