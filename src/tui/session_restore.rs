@@ -198,7 +198,11 @@ pub(super) fn restore_thread_by_id(
         }
     }
     let rollout_root = state_db.rollout_root();
-    app.restore_committed_turns(turns);
+    if !turns.is_empty() {
+        app.restore_committed_turns(turns);
+    } else {
+        app.reset_transcript();
+    }
     let live_entries =
         rara_persistence::thread_turn_log::load_live_entries(&rollout_root, thread_id);
     if !live_entries.is_empty() {
@@ -514,6 +518,9 @@ mod tests {
         })
         .expect("restored app");
         restored_app.attach_state_db(state_db);
+        restored_app.bottom_pane.pending_planning_suggestion =
+            Some("stale planning suggestion".to_string());
+        restored_app.queue_follow_up_message("stale queued follow-up");
 
         restore_thread_by_id(
             original_agent.session_id.as_str(),
@@ -611,6 +618,13 @@ mod tests {
 
         assert_eq!(restored_app.committed_turns.len(), 0);
         assert_eq!(restored_app.active_turn.entries.len(), 2);
+        assert!(
+            restored_app
+                .bottom_pane
+                .pending_planning_suggestion
+                .is_none()
+        );
+        assert!(restored_app.pop_queued_follow_up_message().is_none());
         assert_eq!(restored_app.active_turn.entries[0].role, "You");
         assert_eq!(
             restored_app.active_turn.entries[0].message,
