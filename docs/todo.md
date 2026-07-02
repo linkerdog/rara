@@ -20,7 +20,7 @@ Active backlog only. Keep this file small and current.
 
 ## TUI / UX
 
-- [ ] Refactor ~7 large methods out of `impl TuiApp` to enable file split.
+- [x] Refactor ~7 large methods out of `impl TuiApp` to enable file split.
 - [ ] Restore Claude Code-style realtime transcript live-log writes from
       `push_entry` and clear the live log after turn commit so resume can
       recover partial turns after restart.
