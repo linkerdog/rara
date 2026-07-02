@@ -1,9 +1,13 @@
 use std::collections::{BTreeMap, HashSet};
-use std::fs;
+use std::fs::{self, OpenOptions};
+use std::io::{ErrorKind, Write};
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
+use fs2::FileExt;
+use rara_persistence::atomic_file;
 use serde::{Deserialize, Serialize};
+use uuid::Uuid;
 
 pub const DEFAULT_TASK_LIST_ID: &str = "default";
 
@@ -58,9 +62,114 @@ impl TaskListStore {
         read_task_file(&path, task_id).map(Some)
     }
 
+    pub fn create_task(&self, task_list_id: &str, input: NewTaskRecord) -> Result<TaskRecord> {
+        let task_list_dir = self.prepare_task_list_dir(task_list_id)?;
+        let lock_file = open_lock_file(&task_list_dir)?;
+        lock_file
+            .lock_exclusive()
+            .with_context(|| format!("lock task list directory {}", task_list_dir.display()))?;
+
+        let result = (|| {
+            let next_id = self.next_task_id_in_dir(&task_list_dir)?;
+            let task = TaskRecord {
+                id: next_id,
+                subject: input.subject,
+                description: input.description,
+                active_form: input.active_form,
+                owner: None,
+                status: TaskStatus::Pending,
+                blocks: Vec::new(),
+                blocked_by: Vec::new(),
+                metadata: input.metadata,
+            };
+            self.write_new_task_file(&task_list_dir, &task)?;
+            Ok(task)
+        })();
+
+        if let Err(err) = lock_file.unlock() {
+            log::warn!(
+                "Failed to unlock task list directory {}: {err}",
+                task_list_dir.display()
+            );
+        }
+        result
+    }
+
     fn task_list_dir(&self, task_list_id: &str) -> PathBuf {
         self.root.join(normalize_task_list_id(task_list_id))
     }
+
+    fn prepare_task_list_dir(&self, task_list_id: &str) -> Result<PathBuf> {
+        fs::create_dir_all(&self.root)
+            .with_context(|| format!("create task root directory {}", self.root.display()))?;
+        if !is_real_directory(&self.root) {
+            anyhow::bail!(
+                "task root path {} is not a real directory",
+                self.root.display()
+            );
+        }
+        let task_list_dir = self.task_list_dir(task_list_id);
+        if task_list_dir.exists() && !is_real_directory(&task_list_dir) {
+            anyhow::bail!(
+                "task list path {} is not a real directory",
+                task_list_dir.display()
+            );
+        }
+        fs::create_dir_all(&task_list_dir)
+            .with_context(|| format!("create task list directory {}", task_list_dir.display()))?;
+        Ok(task_list_dir)
+    }
+
+    fn next_task_id_in_dir(&self, task_list_dir: &Path) -> Result<String> {
+        let mut highest_id = 0u64;
+        for entry in fs::read_dir(task_list_dir)
+            .with_context(|| format!("read task list directory {}", task_list_dir.display()))?
+        {
+            let entry = entry.with_context(|| {
+                format!("read task list directory entry {}", task_list_dir.display())
+            })?;
+            let Some(task_id) = task_id_from_path(&entry.path()) else {
+                continue;
+            };
+            if let Ok(id) = task_id.parse::<u64>() {
+                highest_id = highest_id.max(id);
+            }
+        }
+        Ok((highest_id + 1).to_string())
+    }
+
+    fn write_new_task_file(&self, task_list_dir: &Path, task: &TaskRecord) -> Result<()> {
+        let path = task_list_dir.join(format!("{}.json", task.id));
+        if fs::symlink_metadata(&path).is_ok() {
+            anyhow::bail!("task file {} already exists", path.display());
+        }
+        let tmp_path = task_list_dir.join(format!(".{}.json.tmp-{}", task.id, Uuid::new_v4()));
+        let result = (|| {
+            let mut file = fs::File::create(&tmp_path)
+                .with_context(|| format!("create temporary task file {}", tmp_path.display()))?;
+            let content = serde_json::to_vec_pretty(task).context("serialize task")?;
+            file.write_all(&content)
+                .with_context(|| format!("write temporary task file {}", tmp_path.display()))?;
+            file.sync_all()
+                .with_context(|| format!("sync temporary task file {}", tmp_path.display()))?;
+            atomic_file::replace_file(&tmp_path, &path)
+                .with_context(|| format!("replace task file {}", path.display()))
+        })();
+        if result.is_err() {
+            let _ = fs::remove_file(&tmp_path);
+        }
+        result?;
+        sync_parent_dir_best_effort(task_list_dir);
+        Ok(())
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct NewTaskRecord {
+    pub subject: String,
+    pub description: String,
+    pub active_form: Option<String>,
+    pub metadata: BTreeMap<String, serde_json::Value>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -205,6 +314,45 @@ fn is_real_file(path: &Path) -> bool {
         .unwrap_or(false)
 }
 
+fn open_lock_file(task_list_dir: &Path) -> Result<fs::File> {
+    let lock_path = task_list_dir.join(".lock");
+    match OpenOptions::new()
+        .read(true)
+        .write(true)
+        .create_new(true)
+        .open(&lock_path)
+    {
+        Ok(file) => Ok(file),
+        Err(err) if err.kind() == ErrorKind::AlreadyExists => {
+            if !is_real_file(&lock_path) {
+                anyhow::bail!(
+                    "task list lock path {} is not a real file",
+                    lock_path.display()
+                );
+            }
+            OpenOptions::new()
+                .read(true)
+                .write(true)
+                .open(&lock_path)
+                .with_context(|| format!("open task list lock file {}", lock_path.display()))
+        }
+        Err(err) => {
+            Err(err).with_context(|| format!("create task list lock file {}", lock_path.display()))
+        }
+    }
+}
+
+fn sync_parent_dir_best_effort(path: &Path) {
+    if let Ok(dir) = fs::File::open(path)
+        && let Err(err) = dir.sync_all()
+    {
+        log::warn!(
+            "Failed to sync task list directory {}: {err}",
+            path.display()
+        );
+    }
+}
+
 fn normalize_task_list_id(task_list_id: &str) -> String {
     let normalized = task_list_id
         .trim()
@@ -282,6 +430,77 @@ mod tests {
                 .collect::<Vec<_>>(),
             vec!["2", "10"]
         );
+    }
+
+    #[test]
+    fn create_task_allocates_next_numeric_id_and_writes_pending_task() {
+        let temp = tempdir().expect("tempdir");
+        let list_dir = temp.path().join(DEFAULT_TASK_LIST_ID);
+        fs::create_dir_all(&list_dir).expect("task list dir");
+        write_task(
+            &list_dir,
+            "2",
+            json!({
+                "id": "2",
+                "subject": "Existing task",
+                "status": "completed"
+            }),
+        );
+        write_task(
+            &list_dir,
+            "custom",
+            json!({
+                "id": "custom",
+                "subject": "Non-numeric task",
+                "status": "pending"
+            }),
+        );
+
+        let store = TaskListStore::new(temp.path());
+        let task = store
+            .create_task(
+                DEFAULT_TASK_LIST_ID,
+                NewTaskRecord {
+                    subject: "Implement task_create".to_string(),
+                    description: "Create shared task files.".to_string(),
+                    active_form: Some("Implementing task_create".to_string()),
+                    metadata: BTreeMap::new(),
+                },
+            )
+            .expect("task should be created");
+
+        assert_eq!(task.id, "3");
+        assert_eq!(task.status, TaskStatus::Pending);
+        assert_eq!(task.blocks, Vec::<String>::new());
+        assert_eq!(task.blocked_by, Vec::<String>::new());
+
+        let loaded = store
+            .get_task(DEFAULT_TASK_LIST_ID, "3")
+            .expect("created task should load")
+            .expect("created task should exist");
+        assert_eq!(loaded.subject, "Implement task_create");
+        assert_eq!(
+            loaded.active_form.as_deref(),
+            Some("Implementing task_create")
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn create_task_rejects_symlinked_task_list_directory() {
+        use std::os::unix::fs::symlink;
+
+        let temp = tempdir().expect("tempdir");
+        let store = TaskListStore::new(temp.path());
+        let outside = temp.path().join("outside");
+        fs::create_dir_all(&outside).expect("outside dir");
+        symlink(&outside, temp.path().join(DEFAULT_TASK_LIST_ID)).expect("symlink task list");
+
+        let err = store
+            .create_task(DEFAULT_TASK_LIST_ID, new_task("Create safe task"))
+            .expect_err("symlinked task list directory should fail");
+
+        assert!(err.to_string().contains("is not a real directory"));
     }
 
     #[test]
@@ -494,6 +713,15 @@ mod tests {
             serde_json::to_vec_pretty(&task).expect("serialize task"),
         )
         .expect("write task");
+    }
+
+    fn new_task(subject: &str) -> NewTaskRecord {
+        NewTaskRecord {
+            subject: subject.to_string(),
+            description: "Create a shared task.".to_string(),
+            active_form: None,
+            metadata: BTreeMap::new(),
+        }
     }
 
     fn task(id: &str, status: TaskStatus, blocked_by: Vec<&str>) -> TaskRecord {

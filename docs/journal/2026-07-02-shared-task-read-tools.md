@@ -21,6 +21,10 @@ The first slice is intentionally read-only. It lets agents inspect shared work w
 
 ## Remaining Work
 
-- Add write-side `task_create` and `task_update` tools with locks, stale-read checks, and ownership semantics.
+- Add `task_update` with stale-read checks, dependency updates, and ownership semantics.
 - Propagate task-list IDs through team and subagent runtime state.
 - Add watcher/TUI surfaces once mutation semantics exist.
+
+## Task Create Follow-Up
+
+The next slice added `task_create` as the first write-side task tool. It creates pending tasks with no owner and empty dependency lists, assigns the next numeric task id while holding a task-list `.lock` file, and writes the task JSON atomically. This keeps task creation compatible with the existing `task_list` and `task_get` read tools without introducing update, claim, or dependency mutation semantics yet.

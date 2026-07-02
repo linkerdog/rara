@@ -7,8 +7,13 @@ use serde::Deserialize;
 use serde_json::Value;
 
 use crate::tasklist::{
-    DEFAULT_TASK_LIST_ID, TaskDetails, TaskListStore, is_valid_task_id, task_list_entries,
+    DEFAULT_TASK_LIST_ID, NewTaskRecord, TaskDetails, TaskListStore, is_valid_task_id,
+    task_list_entries,
 };
+
+pub struct TaskCreateTool {
+    pub store: Arc<TaskListStore>,
+}
 
 pub struct TaskListTool {
     pub store: Arc<TaskListStore>,
@@ -31,6 +36,93 @@ struct TaskGetInput {
     task_id: String,
     #[serde(default, alias = "taskListId")]
     task_list_id: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct TaskCreateInput {
+    subject: String,
+    description: String,
+    #[serde(default, alias = "activeForm")]
+    active_form: Option<String>,
+    #[serde(default)]
+    metadata: serde_json::Map<String, Value>,
+    #[serde(default, alias = "taskListId")]
+    task_list_id: Option<String>,
+}
+
+#[tool_spec(
+    name = "task_create",
+    description = "Create a new shared project task with pending status. Use this for non-trivial multi-step work after checking task_list to avoid duplicates. New tasks include subject, description, optional activeForm, empty dependencies, no owner, and are readable through task_list and task_get.",
+    input_schema = {
+        "type": "object",
+        "properties": {
+            "subject": {
+                "type": "string",
+                "description": "Brief actionable task title in imperative form."
+            },
+            "description": {
+                "type": "string",
+                "description": "What needs to be done."
+            },
+            "activeForm": {
+                "type": "string",
+                "description": "Optional present continuous label shown while this task is in_progress, such as 'Fixing authentication bug'."
+            },
+            "active_form": {
+                "type": "string",
+                "description": "RARA-compatible alias for activeForm. Do not send together with activeForm."
+            },
+            "metadata": {
+                "type": "object",
+                "description": "Optional metadata to attach to the task.",
+                "additionalProperties": true
+            },
+            "task_list_id": {
+                "type": "string",
+                "description": "Optional shared task list id. Defaults to the workspace default task list. Do not send together with taskListId."
+            },
+            "taskListId": {
+                "type": "string",
+                "description": "Claude-compatible alias for task_list_id. Do not send together with task_list_id."
+            }
+        },
+        "required": ["subject", "description"],
+        "additionalProperties": false
+    }
+)]
+#[async_trait]
+impl Tool for TaskCreateTool {
+    async fn call(&self, input: Value) -> Result<Value, ToolError> {
+        let input = parse_task_create_input(input)?;
+        let subject = normalize_required_text(&input.subject, "subject")?;
+        let description = normalize_required_text(&input.description, "description")?;
+        let active_form = normalize_optional_text(input.active_form.as_deref());
+        let task_list_id = input.task_list_id().to_string();
+        let store = self.store.clone();
+        let metadata = input.metadata.into_iter().collect();
+        let task = tokio::task::spawn_blocking(move || {
+            store.create_task(
+                &task_list_id,
+                NewTaskRecord {
+                    subject,
+                    description,
+                    active_form,
+                    metadata,
+                },
+            )
+        })
+        .await
+        .map_err(|err| ToolError::ExecutionFailed(format!("spawn task_create worker: {err}")))?
+        .map_err(|err| ToolError::ExecutionFailed(err.to_string()))?;
+
+        Ok(serde_json::json!({
+            "task": {
+                "id": task.id,
+                "subject": task.subject,
+            }
+        }))
+    }
 }
 
 #[tool_spec(
@@ -117,6 +209,16 @@ impl TaskListInput {
     }
 }
 
+impl TaskCreateInput {
+    fn task_list_id(&self) -> &str {
+        self.task_list_id
+            .as_deref()
+            .map(str::trim)
+            .filter(|task_list_id| !task_list_id.is_empty())
+            .unwrap_or(DEFAULT_TASK_LIST_ID)
+    }
+}
+
 impl TaskGetInput {
     fn task_list_id(&self) -> &str {
         self.task_list_id
@@ -127,6 +229,12 @@ impl TaskGetInput {
     }
 }
 
+fn parse_task_create_input(input: Value) -> Result<TaskCreateInput, ToolError> {
+    reject_alias_conflict(&input, "activeForm", "active_form")?;
+    reject_alias_conflict(&input, "taskListId", "task_list_id")?;
+    serde_json::from_value(input).map_err(|err| ToolError::InvalidInput(err.to_string()))
+}
+
 fn parse_task_list_input(input: Value) -> Result<TaskListInput, ToolError> {
     let input = empty_object_for_null(input);
     serde_json::from_value(input).map_err(|err| ToolError::InvalidInput(err.to_string()))
@@ -134,6 +242,35 @@ fn parse_task_list_input(input: Value) -> Result<TaskListInput, ToolError> {
 
 fn parse_task_get_input(input: Value) -> Result<TaskGetInput, ToolError> {
     serde_json::from_value(input).map_err(|err| ToolError::InvalidInput(err.to_string()))
+}
+
+fn normalize_required_text(value: &str, field_name: &str) -> Result<String, ToolError> {
+    let value = value.trim();
+    if value.is_empty() {
+        return Err(ToolError::InvalidInput(format!(
+            "task_create requires a non-empty {field_name}"
+        )));
+    }
+    Ok(value.to_string())
+}
+
+fn normalize_optional_text(value: Option<&str>) -> Option<String> {
+    value
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string)
+}
+
+fn reject_alias_conflict(input: &Value, left: &str, right: &str) -> Result<(), ToolError> {
+    let Some(object) = input.as_object() else {
+        return Ok(());
+    };
+    if object.contains_key(left) && object.contains_key(right) {
+        return Err(ToolError::InvalidInput(format!(
+            "task_create accepts either {left} or {right}, not both"
+        )));
+    }
+    Ok(())
 }
 
 fn empty_object_for_null(input: Value) -> Value {
@@ -153,6 +290,103 @@ mod tests {
 
     use super::*;
     use crate::tasklist::DEFAULT_TASK_LIST_ID;
+
+    #[tokio::test]
+    async fn task_create_writes_pending_task() {
+        let temp = tempdir().expect("tempdir");
+        let tool = TaskCreateTool {
+            store: Arc::new(TaskListStore::new(temp.path())),
+        };
+
+        let output = tool
+            .call(json!({
+                "subject": "Implement task_create",
+                "description": "Create shared task files.",
+                "activeForm": "Implementing task_create",
+                "metadata": {"source": "test"}
+            }))
+            .await
+            .expect("task_create should work");
+
+        assert_eq!(output["task"]["id"], "1");
+        assert_eq!(output["task"]["subject"], "Implement task_create");
+
+        let task = tool
+            .store
+            .get_task(DEFAULT_TASK_LIST_ID, "1")
+            .expect("task should load")
+            .expect("task should exist");
+        assert_eq!(task.status, crate::tasklist::TaskStatus::Pending);
+        assert_eq!(
+            task.active_form.as_deref(),
+            Some("Implementing task_create")
+        );
+        assert_eq!(task.metadata["source"], "test");
+    }
+
+    #[tokio::test]
+    async fn task_create_rejects_empty_required_fields() {
+        let temp = tempdir().expect("tempdir");
+        let tool = tool_create(temp.path());
+
+        let subject_err = tool
+            .call(json!({
+                "subject": " ",
+                "description": "Create shared task files."
+            }))
+            .await
+            .expect_err("empty subject should fail");
+        let description_err = tool
+            .call(json!({
+                "subject": "Implement task_create",
+                "description": " "
+            }))
+            .await
+            .expect_err("empty description should fail");
+
+        assert!(subject_err.to_string().contains("non-empty subject"));
+        assert!(
+            description_err
+                .to_string()
+                .contains("non-empty description")
+        );
+    }
+
+    #[tokio::test]
+    async fn task_create_rejects_alias_conflicts() {
+        let temp = tempdir().expect("tempdir");
+        let tool = tool_create(temp.path());
+
+        let active_form_err = tool
+            .call(json!({
+                "subject": "Implement task_create",
+                "description": "Create shared task files.",
+                "activeForm": "Implementing task_create",
+                "active_form": "Implementing task_create"
+            }))
+            .await
+            .expect_err("mixed activeForm aliases should fail");
+        let task_list_id_err = tool
+            .call(json!({
+                "subject": "Implement task_create",
+                "description": "Create shared task files.",
+                "taskListId": "default",
+                "task_list_id": "default"
+            }))
+            .await
+            .expect_err("mixed task list aliases should fail");
+
+        assert!(
+            active_form_err
+                .to_string()
+                .contains("either activeForm or active_form")
+        );
+        assert!(
+            task_list_id_err
+                .to_string()
+                .contains("either taskListId or task_list_id")
+        );
+    }
 
     #[tokio::test]
     async fn task_list_returns_summary_entries() {
@@ -230,9 +464,27 @@ mod tests {
 
     #[test]
     fn task_tool_schemas_are_strict() {
+        let temp = tempdir().expect("tempdir");
+        let task_create_schema = TaskCreateTool::input_schema(&tool_create(temp.path()));
         let task_list_schema = TaskListTool::input_schema(&tool_list());
         let task_get_schema = TaskGetTool::input_schema(&tool_get());
 
+        assert_eq!(
+            task_create_schema.get("additionalProperties"),
+            Some(&json!(false))
+        );
+        assert!(task_create_schema["properties"].get("activeForm").is_some());
+        assert!(
+            task_create_schema["properties"]
+                .get("active_form")
+                .is_some()
+        );
+        assert!(
+            task_create_schema["properties"]
+                .get("task_list_id")
+                .is_some()
+        );
+        assert!(task_create_schema["properties"].get("taskListId").is_some());
         assert_eq!(
             task_list_schema.get("additionalProperties"),
             Some(&json!(false))
@@ -258,6 +510,12 @@ mod tests {
                 .expect_err("invalid task id should fail");
 
             assert!(err.to_string().contains("without path traversal"));
+        }
+    }
+
+    fn tool_create(path: &std::path::Path) -> TaskCreateTool {
+        TaskCreateTool {
+            store: Arc::new(TaskListStore::new(path)),
         }
     }
 
