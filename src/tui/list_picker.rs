@@ -125,10 +125,11 @@ impl ListPickerKind {
     fn selected_style(idx: usize, selected: usize) -> Style {
         if idx == selected {
             Style::default()
-                .fg(TEXT_ACCENT)
+                .fg(PICKER_HIGHLIGHT_FG)
+                .bg(PICKER_HIGHLIGHT_BG)
                 .add_modifier(Modifier::BOLD)
         } else {
-            Style::default().fg(TEXT_PRIMARY)
+            Style::default().fg(PICKER_ITEM_FG)
         }
     }
 
@@ -149,10 +150,7 @@ impl ListPickerKind {
                     .cloned()
                     .unwrap_or(false);
                 let status_indicator = if connected {
-                    ratatui::text::Span::styled(
-                        " ● ",
-                        Style::default().fg(ratatui::style::Color::Green),
-                    )
+                    ratatui::text::Span::styled(" ● ", Style::default().fg(STATUS_SUCCESS))
                 } else {
                     ratatui::text::Span::raw("   ")
                 };
@@ -166,7 +164,7 @@ impl ListPickerKind {
                 ]);
                 let desc_line = ratatui::text::Line::from(ratatui::text::Span::styled(
                     format!("      {}", desc),
-                    Style::default().fg(TEXT_SECONDARY),
+                    Style::default().fg(PICKER_ITEM_MUTED_FG),
                 ));
                 ListItem::new(vec![name_line, desc_line]).style(Self::selected_style(idx, selected))
             })
@@ -246,17 +244,20 @@ impl ListPickerKind {
             .collect()
     }
 
-    fn render_auth_mode_items(_selected: usize) -> Vec<ListItem<'static>> {
-        vec![
-            ListItem::new(ratatui::text::Line::from(
-                "Browser Login (browser-based OAuth)",
-            )),
-            ListItem::new(ratatui::text::Line::from(
-                "Device Code Login (headless/SSH)",
-            )),
-            ListItem::new(ratatui::text::Line::from("API Key")),
-            ListItem::new(ratatui::text::Line::from("Sign Out")),
+    fn render_auth_mode_items(selected: usize) -> Vec<ListItem<'static>> {
+        [
+            "Browser Login (browser-based OAuth)",
+            "Device Code Login (headless/SSH)",
+            "API Key",
+            "Sign Out",
         ]
+        .into_iter()
+        .enumerate()
+        .map(|(idx, label)| {
+            ListItem::new(ratatui::text::Line::from(label))
+                .style(Self::selected_style(idx, selected))
+        })
+        .collect()
     }
 
     fn render_reasoning_effort_items(app: &TuiApp, selected: usize) -> Vec<ListItem<'static>> {
@@ -469,6 +470,7 @@ pub fn render_list_picker(f: &mut Frame, app: &TuiApp, kind: ListPickerKind, are
     }
 
     let items = kind.render_items(app);
+    let mut state = list_picker_state(kind.idx(app), items.len());
 
     let block = popup_block();
     let inner = block.inner(area);
@@ -491,9 +493,13 @@ pub fn render_list_picker(f: &mut Frame, app: &TuiApp, kind: ListPickerKind, are
         ),
         chunks[0],
     );
-    f.render_widget(
-        List::new(items).block(Block::default().padding(Padding::horizontal(1))),
+    f.render_stateful_widget(
+        List::new(items)
+            .block(Block::default().padding(Padding::horizontal(1)))
+            .highlight_style(list_picker_highlight_style())
+            .highlight_symbol("› "),
         chunks[1],
+        &mut state,
     );
     f.render_widget(
         Paragraph::new(kind.help_text()).alignment(Alignment::Center),
@@ -555,7 +561,7 @@ fn render_resume_picker(f: &mut Frame, app: &TuiApp, area: Rect) {
     f.render_stateful_widget(
         List::new(items)
             .block(Block::default().padding(Padding::horizontal(1)))
-            .highlight_style(Style::default().fg(TEXT_ACCENT))
+            .highlight_style(list_picker_highlight_style())
             .highlight_symbol("› "),
         chunks[1],
         &mut state,
@@ -570,6 +576,21 @@ fn render_resume_picker(f: &mut Frame, app: &TuiApp, area: Rect) {
         Paragraph::new(footer).alignment(Alignment::Center),
         chunks[2],
     );
+}
+
+fn list_picker_state(selected: usize, item_count: usize) -> ListState {
+    let mut state = ListState::default();
+    if item_count > 0 {
+        state.select(Some(selected.min(item_count.saturating_sub(1))));
+    }
+    state
+}
+
+fn list_picker_highlight_style() -> Style {
+    Style::default()
+        .fg(PICKER_HIGHLIGHT_FG)
+        .bg(PICKER_HIGHLIGHT_BG)
+        .add_modifier(Modifier::BOLD)
 }
 
 // ---------------------------------------------------------------------------
@@ -633,6 +654,8 @@ fn resume_picker_key_event(code: KeyCode) -> AppEvent {
 
 #[cfg(test)]
 mod tests {
+    use ratatui::{buffer::Buffer, widgets::StatefulWidget};
+
     use super::*;
     use crate::thread_store::{CompactionRecord, ThreadMetadata};
 
@@ -704,5 +727,23 @@ mod tests {
             list_picker_key_event(ListPickerKind::Resume, KeyCode::Tab),
             AppEvent::CycleResumeSort
         ));
+    }
+
+    #[test]
+    fn list_picker_state_scrolls_to_selected_item() {
+        let items = (0..20)
+            .map(|idx| ListItem::new(format!("item {idx}")))
+            .collect::<Vec<_>>();
+        let area = Rect::new(0, 0, 20, 5);
+        let mut buffer = Buffer::empty(area);
+        let mut state = list_picker_state(15, items.len());
+
+        List::new(items)
+            .highlight_style(list_picker_highlight_style())
+            .highlight_symbol("› ")
+            .render(area, &mut buffer, &mut state);
+
+        assert!(state.offset() > 0);
+        assert_eq!(state.selected(), Some(15));
     }
 }
