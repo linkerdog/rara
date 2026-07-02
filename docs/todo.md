@@ -47,7 +47,7 @@ Active backlog only. Keep this file small and current.
 - [x] Subagent token_budget field (PR #601)
 - [ ] Subagent restart/reconnect — built-in capability, not a separate tool
 - [x] Subagent context budget design — token_budget on AgentDefinition
-- [ ] Unify `.claude/agents` parsing for execution and `/status` discovery so
+- [x] Unify `.rara/agents` parsing for execution and `/status` discovery so
       `AgentDefinition` and `ImportedAgentProfile` cannot drift.
 - [ ] Cache Claude-style agent definitions at runtime construction time and
       expose an explicit reload path instead of scanning on each `spawn_agent`.
@@ -55,7 +55,7 @@ Active backlog only. Keep this file small and current.
       `token_budget`, `permission_mode`, `hidden`, and description/listing
       behavior.
 - [ ] Add an end-to-end `spawn_agent` regression test proving custom
-      `.claude/agents` definitions affect prompt body, tool filtering,
+      `.rara/agents` definitions affect prompt body, tool filtering,
       `maxTurns`, and `planModeRequired`.
 
 ## Planning Control Plane

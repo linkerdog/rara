@@ -57,7 +57,7 @@ pub(super) fn agent_tool_to_internal_name(name: &str) -> &str {
     }
 }
 
-// Agent definition matching Claude Code .claude/agents/*.md format.
+// Agent definition matching RARA .rara/agents/*.md files with Claude-compatible frontmatter.
 include!("agent_def.rs");
 
 /// Progress tracking for a subagent (Claude Code AgentProgress compatible).

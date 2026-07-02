@@ -10,7 +10,7 @@ The initial target is compatibility with:
 - repo context files that describe local project rules, conventions, and active
   workspace facts;
 - native RARA skills under `.agents/skills/`;
-- Claude-style agent definitions under `.claude/agents/`;
+- Claude-compatible agent definitions under `.rara/agents/`;
 - Claude-style lifecycle hooks under `.claude/hooks/`.
 
 This document defines discovery, precedence, compatibility boundaries, and a
@@ -35,7 +35,8 @@ not a byte-for-byte clone of Claude Code runtime semantics.
 
 That means:
 
-- RARA may normalize Claude agent files into RARA-owned imported-agent objects;
+- RARA may normalize Claude-format agent files into RARA-owned imported-agent
+  objects;
 - RARA may normalize Claude hook declarations into RARA-owned hook-definition
   objects;
 - actual execution still has to respect RARA thread, context, sandbox, and tool
@@ -116,7 +117,8 @@ invented as an unowned prompt prefix.
 The first rollout should not:
 
 - execute arbitrary hook files on discovery;
-- treat imported Claude agents as first-class RARA child threads immediately;
+- treat imported Claude-compatible agents as first-class RARA child threads
+  immediately;
 - merge all extension types into one generic opaque plugin loader;
 - introduce a marketplace or remote-install protocol.
 
@@ -151,9 +153,14 @@ They remain the authoritative skill format for direct runtime use.
 
 ### Imported Agent Definitions
 
-Claude-style repo-local agents live under:
+RARA-native repo-local agents live under:
 
-- `.claude/agents/*.md`
+- `.rara/agents/*.md`
+
+These files use the same frontmatter-plus-body format as Claude Code's
+`.claude/agents/*.md` files. RARA may still import `.claude/agents/*.md` as a
+legacy compatibility path, but `.rara/agents` is the canonical RARA location and
+has higher precedence for same-name definitions.
 
 RARA should treat these as **importable agent profiles**, not as raw prompt
 files.
@@ -165,13 +172,15 @@ as:
   - `id`
   - `label`
   - `source_path`
-  - `source_kind = "claude_agent"`
+  - `source_kind = "rara_agent"`
   - `prompt_body`
   - `tools_policy`
   - `description`
+  - `parse_status`
 
-The first cut may leave `tools_policy` partially inferred or unknown, but the
-object boundary should exist.
+The status projection and runtime execution path should share the same
+Claude-compatible parser so `ImportedAgentProfile` cannot drift from
+`AgentDefinition`.
 
 ### Imported Hook Definitions
 
@@ -207,6 +216,7 @@ RARA should distinguish:
 The initial repository-scoped roots are:
 
 - `<workspace>/.agents/skills/`
+- `<workspace>/.rara/agents/`
 - `<workspace>/.claude/agents/`
 - `<workspace>/.claude/hooks/`
 
@@ -249,12 +259,12 @@ See [Verify Skill](verify-skill.md) for the detailed verification contract.
 
 ### Imported Agents
 
-Imported Claude agents should remain in their own namespace and should not
+Imported RARA agents should remain in their own namespace and should not
 silently override native RARA skills or built-in sub-agent kinds.
 
 That means:
 
-- a Claude agent named `planner` should not replace RARA's built-in planning
+- an imported agent named `planner` should not replace RARA's built-in planning
   mode;
 - collisions should be surfaced as compatibility warnings or namespace-qualified
   entries.
@@ -275,7 +285,7 @@ Once discovery lands, `/status` or equivalent debug surfaces should be able to
 show:
 
 - discovered native skills;
-- discovered imported Claude agents;
+- discovered imported RARA/Claude-compatible agents;
 - discovered imported Claude hooks;
 - source path;
 - precedence or override status;
@@ -291,7 +301,8 @@ debuggable.
 
 Deliver:
 
-- discovery of `.agents/skills/`, `.claude/agents/`, `.claude/hooks/`;
+- discovery of `.agents/skills/`, `.rara/agents/`, `.claude/agents/`,
+  `.claude/hooks/`;
 - normalized metadata objects;
 - source-aware status reporting;
 - precedence/override visibility.
@@ -305,7 +316,7 @@ Do not yet:
 
 Deliver:
 
-- map imported Claude agents into explicit RARA agent profiles;
+- map imported Claude-compatible agents into explicit RARA agent profiles;
 - allow opt-in invocation through a RARA-owned delegation/runtime surface;
 - keep parent/child thread contracts owned by `ThreadStore`, not by imported
   file formats.
@@ -349,7 +360,8 @@ Imported extensions must not bypass RARA-owned runtime boundaries.
 
 That means:
 
-- imported Claude agents still run through RARA sub-agent/thread contracts;
+- imported Claude-compatible agents still run through RARA sub-agent/thread
+  contracts;
 - imported hooks still operate through RARA lifecycle events;
 - repo context and repo-local skills still enter through source discovery and
   context assembly instead of bypassing prompt ownership;

@@ -452,7 +452,7 @@ mod tests {
         app.snapshot = RuntimeSnapshot {
             extension_agent_count: 1,
             extension_agent_status_lines: vec![
-                "  code-reviewer  .claude/agents/code-reviewer.md  ok  (disabled)".to_string(),
+                "  code-reviewer  .rara/agents/code-reviewer.md  ok  (disabled)".to_string(),
             ],
             ..RuntimeSnapshot::default()
         };
@@ -465,6 +465,6 @@ mod tests {
 
         assert!(rendered.contains("agents"));
         assert!(rendered.contains("code-reviewer"));
-        assert!(rendered.contains(".claude/agents/code-reviewer.md"));
+        assert!(rendered.contains(".rara/agents/code-reviewer.md"));
     }
 }

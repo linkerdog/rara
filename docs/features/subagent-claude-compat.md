@@ -3,7 +3,7 @@
 ## Summary
 
 Extend RARA's subagent system (`src/tools/agent.rs`) to support
-Claude Code-compatible agent definitions loaded from `.claude/agents/`
+Claude Code-compatible agent definitions loaded from `.rara/agents/`
 with tool permission scoping, progress tracking, and task resume.
 
 This makes RARA's subagent behavior consistent with Claude Code's
@@ -14,7 +14,9 @@ infrastructure.
 
 ### Agent Definition Format
 
-Compatible with Claude Code's `.claude/agents/*.md` frontmatter.
+Compatible with Claude Code's `.claude/agents/*.md` frontmatter. RARA's
+canonical project-local location is `.rara/agents/*.md`; `.claude/agents/*.md`
+is a legacy compatibility import path.
 The YAML frontmatter block defines the agent:
 
 ```markdown
@@ -37,8 +39,8 @@ You are a code reviewer. When reviewing code, check for:
 Report findings with file:line references.
 ```
 
-RARA reads the frontmatter block only (ignores the markdown body for now;
-the body can serve as the default system prompt for the subagent).
+RARA reads the frontmatter block and uses the markdown body as the default
+system prompt for the subagent.
 
 ### `AgentDefinition` Type
 
@@ -73,11 +75,15 @@ pub struct AgentDefinition {
 
 `load_agent_definitions()` scans:
 1. Built-in agents (General, Explore, Plan) — hardcoded in RARA.
-2. `.claude/agents/*.md` files in the workspace root.
-3. `~/.claude/agents/*.md` files in the user home.
+2. `~/.claude/agents/*.md` files in the user home.
+3. `~/.rara/agents/*.md` files in the user home.
+4. `.claude/agents/*.md` files in the workspace root.
+5. `.rara/agents/*.md` files in the workspace root.
 
-Resolves conflicts: project agents override user agents, built-in agents
-are always available as "general", "explore", "plan".
+Resolves conflicts by loading lower-precedence roots first. Workspace agents
+override user agents, and `.rara/agents` overrides `.claude/agents` at the same
+scope. Built-in agents are always available as "general", "explore", "plan"
+when no custom definition with the requested name is loaded.
 
 ### Subagent Execution Changes
 
@@ -159,7 +165,8 @@ TUI subagent sidebar shows:
 ## Implementation Plan
 
 1. Add `AgentDefinition` struct and YAML parsing.
-2. Add `load_agent_definitions()` scanning `.claude/agents/`.
+2. Add `load_agent_definitions()` scanning `.rara/agents/` with
+   `.claude/agents/` compatibility.
 3. Extend `SubAgentKind` → `AgentDefinition` mapping.
 4. Add tool filtering to subagent spawning.
 5. Add `SubagentProgress` tracking.

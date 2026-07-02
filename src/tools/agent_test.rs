@@ -17,8 +17,9 @@ use super::{
     AgentDefinition, BACKGROUND_SUBAGENT_COMPLETED_RETENTION, BackgroundSubAgentRecord,
     BackgroundSubAgentStore, SubAgentKind, SubagentProgress, TEAM_CREATE_CONCURRENCY_LIMIT,
     append_subagent_prompt, build_filtered_tool_manager, build_read_only_tool_manager,
-    build_subagent_tool_manager, latest_assistant_text_from_history, parse_team_task_kind,
-    resolve_kind_definition, resolve_spawn_agent_definition, validate_agent_id_label,
+    build_subagent_tool_manager, home_dir_from_vars, latest_assistant_text_from_history,
+    parse_team_task_kind, resolve_kind_definition, resolve_spawn_agent_definition,
+    validate_agent_id_label,
 };
 use crate::agent::Message;
 use crate::llm::{ContentBlock, EmbeddingBackend, LlmBackend, LlmResponse, MockLlm};
@@ -1245,7 +1246,7 @@ fn resolve_spawn_agent_definition_falls_back_for_unknown() {
 #[test]
 fn resolve_spawn_agent_definition_loads_workspace_agent() {
     let temp = tempdir().expect("tempdir");
-    let agents_dir = temp.path().join(".claude").join("agents");
+    let agents_dir = temp.path().join(".rara").join("agents");
     std::fs::create_dir_all(&agents_dir).expect("agents dir");
     std::fs::write(
         agents_dir.join("code-reviewer.md"),
@@ -1275,9 +1276,104 @@ Review the assigned change and report concrete findings.
 }
 
 #[test]
+fn rara_agent_definition_overrides_legacy_claude_definition() {
+    let temp = tempdir().expect("tempdir");
+    let claude_agents_dir = temp.path().join(".claude").join("agents");
+    std::fs::create_dir_all(&claude_agents_dir).expect("claude agents dir");
+    std::fs::write(
+        claude_agents_dir.join("helper.md"),
+        r#"---
+name: helper
+description: Legacy helper
+tools: [Read]
+---
+
+Legacy prompt.
+"#,
+    )
+    .expect("legacy agent definition");
+
+    let rara_agents_dir = temp.path().join(".rara").join("agents");
+    std::fs::create_dir_all(&rara_agents_dir).expect("rara agents dir");
+    std::fs::write(
+        rara_agents_dir.join("helper.md"),
+        r#"---
+name: helper
+description: RARA helper
+tools: [Read, Grep]
+---
+
+RARA prompt.
+"#,
+    )
+    .expect("rara agent definition");
+
+    let def = resolve_spawn_agent_definition(temp.path(), "helper");
+
+    assert_eq!(def.description, "RARA helper");
+    assert_eq!(def.tools, vec!["Read", "Grep"]);
+    assert_eq!(def.system_prompt, "RARA prompt.");
+}
+
+#[test]
+fn agent_definition_uses_filename_when_frontmatter_omits_name() {
+    let temp = tempdir().expect("tempdir");
+    let agents_dir = temp.path().join(".rara").join("agents");
+    std::fs::create_dir_all(&agents_dir).expect("agents dir");
+    std::fs::write(
+        agents_dir.join("reviewer.md"),
+        r#"---
+tools: [Read]
+---
+
+Review the change.
+"#,
+    )
+    .expect("agent definition");
+
+    let def = resolve_spawn_agent_definition(temp.path(), "reviewer");
+
+    assert_eq!(def.name, "reviewer");
+    assert_eq!(def.description, "");
+    assert_eq!(def.tools, vec!["Read"]);
+    assert_eq!(def.system_prompt, "Review the change.");
+}
+
+#[test]
+fn agent_definition_accepts_empty_frontmatter() {
+    let temp = tempdir().expect("tempdir");
+    let agents_dir = temp.path().join(".rara").join("agents");
+    std::fs::create_dir_all(&agents_dir).expect("agents dir");
+    std::fs::write(
+        agents_dir.join("helper.md"),
+        r#"---
+---
+
+Help with the task.
+"#,
+    )
+    .expect("agent definition");
+
+    let def = resolve_spawn_agent_definition(temp.path(), "helper");
+
+    assert_eq!(def.name, "helper");
+    assert_eq!(def.description, "");
+    assert!(def.tools.is_empty());
+    assert_eq!(def.system_prompt, "Help with the task.");
+}
+
+#[test]
+fn agent_home_dir_falls_back_to_userprofile() {
+    let home = home_dir_from_vars(None, Some(std::ffi::OsString::from("C:\\Users\\rara")))
+        .expect("home fallback");
+
+    assert_eq!(home, std::path::PathBuf::from("C:\\Users\\rara"));
+}
+
+#[test]
 fn spawn_agent_definition_lookup_uses_normalized_label() {
     let temp = tempdir().expect("tempdir");
-    let agents_dir = temp.path().join(".claude").join("agents");
+    let agents_dir = temp.path().join(".rara").join("agents");
     std::fs::create_dir_all(&agents_dir).expect("agents dir");
     std::fs::write(
         agents_dir.join("code-reviewer.md"),
