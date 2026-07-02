@@ -217,6 +217,10 @@ impl Tool for TaskCreateTool {
                 "description": "Claude-compatible alias for task_list_id. Do not send together with task_list_id."
             }
         },
+        "oneOf": [
+            {"required": ["task_id"]},
+            {"required": ["taskId"]}
+        ],
         "additionalProperties": false
     }
 )]
@@ -794,6 +798,13 @@ mod tests {
         );
         assert!(task_update_schema["properties"].get("task_id").is_some());
         assert!(task_update_schema["properties"].get("taskId").is_some());
+        assert_eq!(
+            task_update_schema.get("oneOf"),
+            Some(&json!([
+                {"required": ["task_id"]},
+                {"required": ["taskId"]}
+            ]))
+        );
         assert!(task_update_schema["properties"].get("activeForm").is_some());
         assert!(
             task_update_schema["properties"]

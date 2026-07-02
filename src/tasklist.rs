@@ -114,12 +114,12 @@ impl TaskListStore {
         let result = (|| {
             if update.delete {
                 let task_path = task_list_dir.join(format!("{task_id}.json"));
-                if !is_real_file(&task_path) {
+                let Some(task) = self.get_task_from_dir(&task_list_dir, task_id)? else {
                     return Ok(TaskUpdateOutcome::not_found(task_id));
-                }
+                };
+                self.remove_known_task_references(&task_list_dir, task_id, &task)?;
                 fs::remove_file(&task_path)
                     .with_context(|| format!("delete task file {}", task_path.display()))?;
-                self.remove_task_references(&task_list_dir, task_id)?;
                 sync_parent_dir_best_effort(&task_list_dir);
                 return Ok(TaskUpdateOutcome {
                     success: true,
@@ -168,27 +168,15 @@ impl TaskListStore {
                 updated_fields.push("metadata".to_string());
             }
 
-            for blocked_task_id in &update.add_blocks {
-                self.ensure_dependency_can_be_added(&task_list_dir, task_id, blocked_task_id)?;
-            }
-            for blocker_task_id in &update.add_blocked_by {
-                self.ensure_dependency_can_be_added(&task_list_dir, blocker_task_id, task_id)?;
-            }
-
+            self.apply_dependency_updates(
+                &task_list_dir,
+                task_id,
+                &mut task,
+                &update.add_blocks,
+                &update.add_blocked_by,
+                &mut updated_fields,
+            )?;
             self.write_task_file(&task_list_dir, &task)?;
-
-            if !update.add_blocks.is_empty() {
-                for blocked_task_id in update.add_blocks {
-                    self.add_dependency(&task_list_dir, task_id, &blocked_task_id)?;
-                }
-                updated_fields.push("blocks".to_string());
-            }
-            if !update.add_blocked_by.is_empty() {
-                for blocker_task_id in update.add_blocked_by {
-                    self.add_dependency(&task_list_dir, &blocker_task_id, task_id)?;
-                }
-                updated_fields.push("blockedBy".to_string());
-            }
 
             updated_fields.sort();
             updated_fields.dedup();
@@ -306,67 +294,111 @@ impl TaskListStore {
         read_task_file(&path, task_id).map(Some)
     }
 
-    fn add_dependency(
+    fn apply_dependency_updates(
         &self,
         task_list_dir: &Path,
-        blocker_id: &str,
-        blocked_id: &str,
+        task_id: &str,
+        task: &mut TaskRecord,
+        add_blocks: &[String],
+        add_blocked_by: &[String],
+        updated_fields: &mut Vec<String>,
     ) -> Result<()> {
-        self.ensure_dependency_can_be_added(task_list_dir, blocker_id, blocked_id)?;
-        let Some(mut blocker) = self.get_task_from_dir(task_list_dir, blocker_id)? else {
-            anyhow::bail!("blocking task '{blocker_id}' not found");
-        };
-        let Some(mut blocked) = self.get_task_from_dir(task_list_dir, blocked_id)? else {
-            anyhow::bail!("blocked task '{blocked_id}' not found");
-        };
-        push_unique(&mut blocker.blocks, blocked_id.to_string());
-        push_unique(&mut blocked.blocked_by, blocker_id.to_string());
-        self.write_task_file(task_list_dir, &blocker)?;
-        self.write_task_file(task_list_dir, &blocked)?;
+        let mut related_tasks = BTreeMap::new();
+        for blocked_id in add_blocks {
+            self.ensure_valid_dependency(task_id, blocked_id)?;
+            if !related_tasks.contains_key(blocked_id) {
+                related_tasks.insert(
+                    blocked_id.clone(),
+                    self.load_dependency_task(task_list_dir, blocked_id, "blocked")?,
+                );
+            }
+        }
+        for blocker_id in add_blocked_by {
+            self.ensure_valid_dependency(blocker_id, task_id)?;
+            if !related_tasks.contains_key(blocker_id) {
+                related_tasks.insert(
+                    blocker_id.clone(),
+                    self.load_dependency_task(task_list_dir, blocker_id, "blocking")?,
+                );
+            }
+        }
+
+        for blocked_id in add_blocks {
+            let blocked = related_tasks
+                .get_mut(blocked_id)
+                .expect("dependency task was loaded");
+            push_unique(&mut blocked.blocked_by, task_id.to_string());
+            push_unique(&mut task.blocks, blocked_id.clone());
+        }
+        if !add_blocks.is_empty() {
+            updated_fields.push("blocks".to_string());
+        }
+
+        for blocker_id in add_blocked_by {
+            let blocker = related_tasks
+                .get_mut(blocker_id)
+                .expect("dependency task was loaded");
+            push_unique(&mut blocker.blocks, task_id.to_string());
+            push_unique(&mut task.blocked_by, blocker_id.clone());
+        }
+        if !add_blocked_by.is_empty() {
+            updated_fields.push("blockedBy".to_string());
+        }
+
+        for related_task in related_tasks.values() {
+            self.write_task_file(task_list_dir, related_task)?;
+        }
         Ok(())
     }
 
-    fn ensure_dependency_can_be_added(
-        &self,
-        task_list_dir: &Path,
-        blocker_id: &str,
-        blocked_id: &str,
-    ) -> Result<()> {
+    fn ensure_valid_dependency(&self, blocker_id: &str, blocked_id: &str) -> Result<()> {
         if !is_valid_task_id(blocker_id)
             || !is_valid_task_id(blocked_id)
             || blocker_id == blocked_id
         {
             anyhow::bail!("invalid task dependency '{blocker_id}' -> '{blocked_id}'");
         }
-        if self.get_task_from_dir(task_list_dir, blocker_id)?.is_none() {
-            anyhow::bail!("blocking task '{blocker_id}' not found");
-        }
-        if self.get_task_from_dir(task_list_dir, blocked_id)?.is_none() {
-            anyhow::bail!("blocked task '{blocked_id}' not found");
-        }
         Ok(())
     }
 
-    fn remove_task_references(&self, task_list_dir: &Path, task_id: &str) -> Result<()> {
-        for entry in fs::read_dir(task_list_dir)
-            .with_context(|| format!("read task list directory {}", task_list_dir.display()))?
-        {
-            let entry = entry.with_context(|| {
-                format!("read task list directory entry {}", task_list_dir.display())
-            })?;
-            let Some(other_id) = task_id_from_path(&entry.path()) else {
+    fn load_dependency_task(
+        &self,
+        task_list_dir: &Path,
+        task_id: &str,
+        role: &str,
+    ) -> Result<TaskRecord> {
+        self.get_task_from_dir(task_list_dir, task_id)?
+            .with_context(|| format!("{role} task '{task_id}' not found"))
+    }
+
+    fn remove_known_task_references(
+        &self,
+        task_list_dir: &Path,
+        task_id: &str,
+        task: &TaskRecord,
+    ) -> Result<()> {
+        let mut related_tasks = BTreeMap::new();
+        for related_id in task.blocked_by.iter().chain(task.blocks.iter()) {
+            if !is_valid_task_id(related_id) || related_id == task_id {
+                log::warn!(
+                    "Skipping invalid task dependency reference '{related_id}' while deleting task '{task_id}'"
+                );
                 continue;
-            };
-            let Some(mut task) = self.get_task_from_dir(task_list_dir, &other_id)? else {
-                continue;
-            };
-            let old_blocks_len = task.blocks.len();
-            let old_blocked_by_len = task.blocked_by.len();
-            task.blocks.retain(|id| id != task_id);
-            task.blocked_by.retain(|id| id != task_id);
-            if task.blocks.len() != old_blocks_len || task.blocked_by.len() != old_blocked_by_len {
-                self.write_task_file(task_list_dir, &task)?;
             }
+            if related_tasks.contains_key(related_id) {
+                continue;
+            }
+            if let Some(related_task) = self.get_task_from_dir(task_list_dir, related_id)? {
+                related_tasks.insert(related_id.clone(), related_task);
+            }
+        }
+
+        for related_task in related_tasks.values_mut() {
+            related_task.blocks.retain(|id| id != task_id);
+            related_task.blocked_by.retain(|id| id != task_id);
+        }
+        for related_task in related_tasks.values() {
+            self.write_task_file(task_list_dir, related_task)?;
         }
         Ok(())
     }
