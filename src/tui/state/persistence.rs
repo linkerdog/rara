@@ -300,22 +300,19 @@ impl TuiApp {
         let Some((root_dir, session_id)) = self.live_log_context() else {
             return;
         };
-        if !rara_persistence::thread_turn_log::clear_live_log(&root_dir, &session_id) {
-            log::warn!("live transcript rewrite skipped for session {session_id}: clear failed");
-            return;
-        }
-        for entry in entries.iter().map(|entry| PersistedTurnEntry {
-            role: entry.role.clone(),
-            message: entry.message.clone(),
-        }) {
-            if let Err(err) = rara_persistence::thread_turn_log::append_rollout_fragment(
-                &root_dir,
-                &session_id,
-                &entry,
-            ) {
-                log::warn!("live transcript rewrite failed for session {session_id}: {err}");
-                return;
-            }
+        let entries = entries
+            .iter()
+            .map(|entry| PersistedTurnEntry {
+                role: entry.role.clone(),
+                message: entry.message.clone(),
+            })
+            .collect::<Vec<_>>();
+        if let Err(err) = rara_persistence::thread_turn_log::replace_live_entries(
+            &root_dir,
+            &session_id,
+            &entries,
+        ) {
+            log::warn!("live transcript rewrite failed for session {session_id}: {err}");
         }
     }
 
