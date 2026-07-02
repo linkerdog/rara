@@ -370,7 +370,7 @@ pub(crate) fn context_sidebar_summary(snap: &crate::tui::state::RuntimeSnapshot)
     let token_label = format_token_count(used);
     let mut parts = vec![token_label];
     if let Some(window) = snap.context_window_tokens {
-        parts.push(format!("{}", format_token_count(window)));
+        parts.push(format_token_count(window));
     }
     if snap.history_len > 0 {
         parts.push(format!("{} turns", snap.history_len));

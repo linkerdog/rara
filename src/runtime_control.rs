@@ -38,7 +38,6 @@ impl From<ShellApprovalDecision> for BashApprovalDecision {
     }
 }
 
-#[allow(dead_code)] // ACP protocol type — reserved for future lifecycle events
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct RuntimeControlEvent {
     pub event_id: String,
@@ -48,6 +47,9 @@ pub struct RuntimeControlEvent {
 }
 
 #[allow(dead_code)] // ACP protocol type — reserved for future lifecycle events
+#[allow(clippy::large_enum_variant)]
+// RuntimeEvent is the serialized control-plane protocol; boxing one variant
+// would complicate consumers and wire compatibility for little gain.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "type", content = "payload", rename_all = "snake_case")]
 pub enum RuntimeEvent {
@@ -69,6 +71,9 @@ pub enum RuntimeEvent {
 }
 
 #[allow(dead_code)] // ACP protocol type — reserved for future lifecycle events
+#[allow(clippy::enum_variant_names)]
+// The suffix keeps context lifecycle variants self-describing in serialized
+// RuntimeEvent streams.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "type", content = "payload", rename_all = "snake_case")]
 pub enum SessionEvent {
@@ -101,6 +106,9 @@ pub enum SessionEvent {
 }
 
 #[allow(dead_code)] // ACP protocol type — reserved for future lifecycle events
+#[allow(clippy::enum_variant_names)]
+// The suffix keeps context lifecycle variants self-describing in serialized
+// RuntimeEvent streams.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "type", content = "payload", rename_all = "snake_case")]
 pub enum InputEvent {
@@ -110,6 +118,9 @@ pub enum InputEvent {
 }
 
 #[allow(dead_code)] // ACP protocol type — reserved for future lifecycle events
+#[allow(clippy::enum_variant_names)]
+// The suffix keeps context lifecycle variants self-describing in serialized
+// RuntimeEvent streams.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "type", content = "payload", rename_all = "snake_case")]
 pub enum AssistantEvent {
@@ -296,6 +307,9 @@ pub enum HookEvent {
 }
 
 #[allow(dead_code)] // ACP protocol type — reserved for future lifecycle events
+#[allow(clippy::enum_variant_names)]
+// The suffix keeps context lifecycle variants self-describing in serialized
+// RuntimeEvent streams.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "type", content = "payload", rename_all = "snake_case")]
 pub enum ContextEvent {

@@ -256,8 +256,8 @@ impl VectorDB {
 
     async fn open_or_create_table(&self, table_name: &str, vector_dim: usize) -> Result<Table> {
         let db = self.db().await?;
-        match self.open_table_if_exists(table_name).await? {
-            Some(table) => match validate_table_vector_dim(&table, vector_dim).await {
+        if let Some(table) = self.open_table_if_exists(table_name).await? {
+            match validate_table_vector_dim(&table, vector_dim).await {
                 Ok(()) => match self.table_metadata_status(table_name, vector_dim)? {
                     VectorTableMetadataStatus::Current => return Ok(table),
                     VectorTableMetadataStatus::Missing => {
@@ -285,8 +285,7 @@ impl VectorDB {
                         .with_context(|| format!("drop mismatched LanceDB table {table_name}"))?;
                     self.fts_indexed_tables.lock().await.remove(table_name);
                 }
-            },
-            None => {}
+            }
         }
         let table = db
             .create_empty_table(table_name, memory_schema(vector_dim))

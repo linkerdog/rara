@@ -288,23 +288,21 @@ pub(super) async fn execute_local_command(
                         Ok((objective_clean, budget)) => {
                             app.goal = Some(RalphGoal::new(objective_clean.clone(), budget));
                             *app.goal_handle.write().unwrap() = app.goal.clone();
-                            if let Some(db) = app.state_db.as_ref() {
-                                if let Some(ref goal) = app.goal {
-                                    match serde_json::to_value(goal) {
-                                        Ok(v) => {
-                                            if let Err(e) =
-                                                db.save_goal(&app.snapshot.session_id, &v)
-                                            {
-                                                app.push_notice(format!(
-                                                    "Goal saved but persistence failed: {e}"
-                                                ));
-                                            }
-                                        }
-                                        Err(e) => {
+                            if let Some(db) = app.state_db.as_ref()
+                                && let Some(ref goal) = app.goal
+                            {
+                                match serde_json::to_value(goal) {
+                                    Ok(v) => {
+                                        if let Err(e) = db.save_goal(&app.snapshot.session_id, &v) {
                                             app.push_notice(format!(
-                                                "Goal saved but serialisation failed: {e}"
+                                                "Goal saved but persistence failed: {e}"
                                             ));
                                         }
+                                    }
+                                    Err(e) => {
+                                        app.push_notice(format!(
+                                            "Goal saved but serialisation failed: {e}"
+                                        ));
                                     }
                                 }
                             }

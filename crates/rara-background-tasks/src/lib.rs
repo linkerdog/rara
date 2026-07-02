@@ -94,6 +94,17 @@ pub struct BackgroundTaskRecord {
     pub network_access: bool,
 }
 
+#[derive(Debug, Clone)]
+pub struct BackgroundTaskStart {
+    pub command: String,
+    pub program: Option<String>,
+    pub args: Vec<String>,
+    pub cwd: Option<String>,
+    pub sandboxed: bool,
+    pub sandbox_backend: String,
+    pub network_access: bool,
+}
+
 // ---------------------------------------------------------------------------
 // Task store
 // ---------------------------------------------------------------------------
@@ -117,28 +128,22 @@ impl BackgroundTaskStore {
 
     pub fn start_record(
         &self,
-        command: String,
-        program: Option<String>,
-        args: Vec<String>,
-        cwd: Option<String>,
-        sandboxed: bool,
-        sandbox_backend: String,
-        network_access: bool,
+        start: BackgroundTaskStart,
     ) -> Result<(BackgroundTaskRecord, oneshot::Receiver<()>), ToolError> {
         let id = format!("bash-{}", Uuid::new_v4());
         let output_path = self.dir.join(format!("{id}.log"));
         let record = BackgroundTaskRecord {
             id: id.clone(),
-            command,
-            program,
-            args,
-            cwd,
+            command: start.command,
+            program: start.program,
+            args: start.args,
+            cwd: start.cwd,
             output_path,
             status: BackgroundTaskStatus::Running,
             exit_code: None,
-            sandboxed,
-            sandbox_backend,
-            network_access,
+            sandboxed: start.sandboxed,
+            sandbox_backend: start.sandbox_backend,
+            network_access: start.network_access,
         };
         let (stop_tx, stop_rx) = oneshot::channel();
         self.tasks
@@ -504,6 +509,18 @@ pub async fn run_background_bash_task(
 mod tests {
     use super::*;
 
+    fn test_start(command: &str) -> BackgroundTaskStart {
+        BackgroundTaskStart {
+            command: command.to_string(),
+            program: None,
+            args: Vec::new(),
+            cwd: None,
+            sandboxed: false,
+            sandbox_backend: String::new(),
+            network_access: false,
+        }
+    }
+
     #[tokio::test]
     async fn read_output_tail_returns_only_requested_suffix() {
         let dir = tempfile::TempDir::new().unwrap();
@@ -526,17 +543,7 @@ mod tests {
         let dir = tempfile::TempDir::new().unwrap();
         let store = BackgroundTaskStore::new(dir.path().to_path_buf()).unwrap();
 
-        let (record, stop_rx) = store
-            .start_record(
-                "echo hi".into(),
-                None,
-                vec![],
-                None,
-                false,
-                String::new(),
-                false,
-            )
-            .unwrap();
+        let (record, stop_rx) = store.start_record(test_start("echo hi")).unwrap();
         assert_eq!(record.status, BackgroundTaskStatus::Running);
 
         let stored = store.get(&record.id).unwrap();
@@ -556,28 +563,8 @@ mod tests {
         let dir = tempfile::TempDir::new().unwrap();
         let store = BackgroundTaskStore::new(dir.path().to_path_buf()).unwrap();
 
-        let (r1, rx1) = store
-            .start_record(
-                "cmd1".into(),
-                None,
-                vec![],
-                None,
-                false,
-                String::new(),
-                false,
-            )
-            .unwrap();
-        let (r2, rx2) = store
-            .start_record(
-                "cmd2".into(),
-                None,
-                vec![],
-                None,
-                false,
-                String::new(),
-                false,
-            )
-            .unwrap();
+        let (r1, rx1) = store.start_record(test_start("cmd1")).unwrap();
+        let (r2, rx2) = store.start_record(test_start("cmd2")).unwrap();
 
         store.finish(&r1.id, BackgroundTaskStatus::Completed, Some(0));
         drop(rx1);

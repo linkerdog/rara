@@ -227,10 +227,10 @@ impl SandboxManager {
             Self::append_ro_bind(&mut args, &root);
         }
 
-        if let Ok(resolv_conf) = fs::metadata("/etc/resolv.conf") {
-            if resolv_conf.is_file() {
-                Self::append_ro_bind(&mut args, Path::new("/etc/resolv.conf"));
-            }
+        if let Ok(resolv_conf) = fs::metadata("/etc/resolv.conf")
+            && resolv_conf.is_file()
+        {
+            Self::append_ro_bind(&mut args, Path::new("/etc/resolv.conf"));
         }
 
         Self::append_mount_target_parent_dirs(&mut args, cwd_path);

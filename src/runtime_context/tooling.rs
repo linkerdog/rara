@@ -45,6 +45,9 @@ use crate::workspace::WorkspaceMemory;
 
 static BACKGROUND_SUBAGENTS: OnceLock<Arc<BackgroundSubAgentStore>> = OnceLock::new();
 
+#[allow(clippy::too_many_arguments)]
+// Tool manager construction is the runtime bootstrap composition point; the
+// explicit arguments document which subsystems each tool may receive.
 pub(super) fn create_full_tool_manager(
     backend: Arc<dyn LlmBackend>,
     embedding_backend: Arc<dyn EmbeddingBackend>,

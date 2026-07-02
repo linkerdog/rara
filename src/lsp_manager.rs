@@ -272,10 +272,8 @@ impl LspManager {
         for kind in all_server_kinds() {
             if kind.extensions().contains(&ext.as_str()) {
                 let detect = self.workspace_root.join(kind.detect_file());
-                if detect.exists() {
-                    if server_available(kind) {
-                        return Ok(kind);
-                    }
+                if detect.exists() && server_available(kind) {
+                    return Ok(kind);
                 }
             }
         }

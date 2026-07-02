@@ -11,6 +11,8 @@ use crate::context::{
 };
 use crate::prompt::PromptSource;
 
+#[allow(clippy::too_many_arguments)]
+// Memory selection scores several independent runtime sources in one pass.
 pub(crate) fn memory_selection(
     prompt_sources: &[PromptSource],
     plan_explanation: Option<&str>,

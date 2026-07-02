@@ -836,16 +836,16 @@ impl Agent {
     {
         let mut plan_exit_repair_attempts = 0usize;
         loop {
-            if let Some(max) = self.max_turns {
-                if *agentic_turns >= max {
-                    self.last_agent_turn_trace.loop_outcome = Some("stopped".to_string());
-                    self.last_agent_turn_trace.continuation_phase =
-                        Some("max_turns_reached".to_string());
-                    report(AgentEvent::Status(format!(
-                        "Agent reached max-turns limit ({max})",
-                    )));
-                    break;
-                }
+            if let Some(max) = self.max_turns
+                && *agentic_turns >= max
+            {
+                self.last_agent_turn_trace.loop_outcome = Some("stopped".to_string());
+                self.last_agent_turn_trace.continuation_phase =
+                    Some("max_turns_reached".to_string());
+                report(AgentEvent::Status(format!(
+                    "Agent reached max-turns limit ({max})",
+                )));
+                break;
             }
             self.ensure_active_plan_step();
             // Inject hook outputs as system messages before the model turn
@@ -885,9 +885,10 @@ impl Agent {
                 }
                 self.recent_tool_calls = candidates;
                 if dup_count >= 2 || identical_calls_within_turn >= 1 {
-                    report(AgentEvent::Status(format!(
-                        "Repeated tool call pattern detected. Consider re-evaluating the approach.",
-                    )));
+                    report(AgentEvent::Status(
+                        "Repeated tool call pattern detected. Consider re-evaluating the approach."
+                            .to_string(),
+                    ));
                 }
             }
             if turn_output

@@ -45,6 +45,9 @@ pub struct RaraAcpAgent {
 }
 
 impl RaraAcpAgent {
+    #[allow(clippy::too_many_arguments)]
+    // ACP session wiring owns the runtime dependencies explicitly; grouping
+    // them would duplicate RuntimeContext without reducing call-site risk.
     pub fn new(
         llm_backend: Arc<dyn LlmBackend>,
         tool_manager: Arc<ToolManager>,
@@ -239,12 +242,12 @@ impl RaraAcpAgent {
             // Forward to RuntimeEventBus for other subscribers.
             let _ = bus.send_with_provenance(
                 match &control_event.event {
-                    crate::runtime_control::RuntimeEvent::Session(se) => match se {
-                        crate::runtime_control::SessionEvent::Status { message } => {
-                            crate::agent::AgentEvent::Status(message.clone())
-                        }
-                        _ => return,
-                    },
+                    crate::runtime_control::RuntimeEvent::Session(
+                        crate::runtime_control::SessionEvent::Status { message },
+                    ) => crate::agent::AgentEvent::Status(message.clone()),
+                    crate::runtime_control::RuntimeEvent::Session(_) => {
+                        return;
+                    }
                     crate::runtime_control::RuntimeEvent::Assistant(ae) => match ae {
                         crate::runtime_control::AssistantEvent::TextDelta(text) => {
                             crate::agent::AgentEvent::AssistantDelta(text.clone())

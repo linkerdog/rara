@@ -160,9 +160,9 @@ pub(super) fn compact_live_response_message(message: &str) -> Option<String> {
     )
 }
 
-pub(super) fn parse_render_plan_block(
-    message: &str,
-) -> Option<(Vec<(String, String)>, Option<String>)> {
+type RenderPlanBlock = (Vec<(String, String)>, Option<String>);
+
+pub(super) fn parse_render_plan_block(message: &str) -> Option<RenderPlanBlock> {
     let (start_tag, end_tag, start, end) = find_render_plan_block_bounds(message)
         .or_else(|| find_render_legacy_plan_block_bounds(message))?;
     if end <= start {
@@ -224,9 +224,7 @@ pub(super) fn parse_render_plan_step_line(line: &str) -> Option<(String, String)
         .or_else(|| line.strip_prefix("* ["))
         .or_else(|| line.strip_prefix("• ["))
     {
-        let Some((status, rest)) = step.split_once(']') else {
-            return None;
-        };
+        let (status, rest) = step.split_once(']')?;
         let step = rest.trim();
         return (!step.is_empty()).then(|| (status.trim().to_string(), step.to_string()));
     }

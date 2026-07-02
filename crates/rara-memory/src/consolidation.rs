@@ -127,10 +127,10 @@ impl ConsolidationScheduler {
         let now = epoch_seconds();
 
         // Time gate.
-        if let Some(ts) = last {
-            if now.saturating_sub(ts) < self.config.min_hours_since_last * 3600 {
-                return None;
-            }
+        if let Some(ts) = last
+            && now.saturating_sub(ts) < self.config.min_hours_since_last * 3600
+        {
+            return None;
         }
 
         // Gather sessions.
@@ -199,10 +199,10 @@ impl ConsolidationScheduler {
             let meta = fs::metadata(&path).ok()?;
             let mtime = meta.modified().ok()?;
             let mtime_secs = mtime.duration_since(UNIX_EPOCH).ok()?.as_secs();
-            if let Some(since) = since {
-                if mtime_secs <= since {
-                    return None;
-                }
+            if let Some(since) = since
+                && mtime_secs <= since
+            {
+                return None;
             }
             Some(SessionInfo { path, mtime_secs })
         })

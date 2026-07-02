@@ -122,13 +122,12 @@ impl BedrockConverseClient {
             builder = builder.set_system(Some(system_blocks));
         }
 
-        if !tools.is_empty() {
-            if let Ok(tool_config) = ToolConfiguration::builder()
+        if !tools.is_empty()
+            && let Ok(tool_config) = ToolConfiguration::builder()
                 .set_tools(Some(to_bedrock_tools(tools)))
                 .build()
-            {
-                builder = builder.tool_config(tool_config);
-            }
+        {
+            builder = builder.tool_config(tool_config);
         }
 
         builder = builder.inference_config(
@@ -312,10 +311,8 @@ fn from_bedrock_response(
     let mut content = Vec::new();
     for block in message.content {
         match block {
-            BedrockContentBlock::Text(text) => {
-                if !text.trim().is_empty() {
-                    content.push(BedrockResponseContent::Text(text));
-                }
+            BedrockContentBlock::Text(text) if !text.trim().is_empty() => {
+                content.push(BedrockResponseContent::Text(text));
             }
             BedrockContentBlock::ToolUse(tool_use) => {
                 content.push(BedrockResponseContent::ToolUse {

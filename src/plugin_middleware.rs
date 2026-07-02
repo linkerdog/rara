@@ -1,6 +1,6 @@
 //! Bridge between `rara-plugins` and RARA's `HookRuntime`.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use rara_plugins::{HookEvent, HookInput, discover_plugins, execute_command_hook};
@@ -31,11 +31,11 @@ fn hook_event_to_lifecycle(event: HookEvent) -> HookLifecycle {
 
 pub async fn register_plugin_hooks(
     runtime: &Arc<HookRuntime>,
-    user_plugins_dir: &PathBuf,
+    user_plugins_dir: &Path,
     session_id: &str,
 ) -> usize {
     let runtime = runtime.clone();
-    let user_plugins_dir = user_plugins_dir.clone();
+    let user_plugins_dir = user_plugins_dir.to_path_buf();
     let session_id = session_id.to_string();
     match tokio::task::spawn_blocking(move || {
         register_plugin_hooks_blocking(&runtime, &user_plugins_dir, &session_id)
@@ -52,14 +52,14 @@ pub async fn register_plugin_hooks(
 
 fn register_plugin_hooks_blocking(
     runtime: &Arc<HookRuntime>,
-    user_plugins_dir: &PathBuf,
+    user_plugins_dir: &Path,
     session_id: &str,
 ) -> usize {
     let plugins = discover_plugins(user_plugins_dir);
     let mut registered = 0usize;
 
     for plugin in &plugins {
-        let registered_hooks = rara_plugins::loader::registered_hooks_for_plugin(&plugin);
+        let registered_hooks = rara_plugins::loader::registered_hooks_for_plugin(plugin);
         for rh in &registered_hooks {
             let hook = rh.handler.clone();
             let plugin_name = rh.plugin_name.clone();

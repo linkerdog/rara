@@ -10,9 +10,9 @@ use std::time::Instant;
 
 use async_trait::async_trait;
 use rara_background_tasks::{
-    BackgroundTaskListTool, BackgroundTaskRecord, BackgroundTaskState, BackgroundTaskStatus,
-    BackgroundTaskStatusTool, BackgroundTaskStopTool, BackgroundTaskStore, BashStreamKind,
-    append_background_output, read_output_tail,
+    BackgroundTaskListTool, BackgroundTaskRecord, BackgroundTaskStart, BackgroundTaskState,
+    BackgroundTaskStatus, BackgroundTaskStatusTool, BackgroundTaskStopTool, BackgroundTaskStore,
+    BashStreamKind, append_background_output, read_output_tail,
 };
 use rara_tool_macros::tool_spec;
 use rara_tools::tool::{Tool, ToolCallContext, ToolError, ToolOutputStream, ToolProgressEvent};
@@ -589,23 +589,23 @@ impl Tool for BashTool {
 
         let sandbox_perm = request.sandbox_permissions;
         if request.run_in_background {
-            let (record, stop_rx) = self.background_tasks.start_record(
-                request.summary(),
-                request
+            let (record, stop_rx) = self.background_tasks.start_record(BackgroundTaskStart {
+                command: request.summary(),
+                program: request
                     .program
                     .as_deref()
                     .filter(|v| !v.trim().is_empty())
                     .map(String::from),
-                request.args.clone(),
-                request
+                args: request.args.clone(),
+                cwd: request
                     .cwd
                     .as_ref()
                     .filter(|d| !d.trim().is_empty())
                     .cloned(),
-                wrapped.sandboxed,
-                wrapped.sandbox_backend.clone(),
-                wrapped.network_access,
-            )?;
+                sandboxed: wrapped.sandboxed,
+                sandbox_backend: wrapped.sandbox_backend.clone(),
+                network_access: wrapped.network_access,
+            })?;
             spawn_background_bash_task(
                 child,
                 wrapped,

@@ -261,13 +261,13 @@ pub(crate) fn existing_file_matches(path: &Path, expected_hash: &str) -> Result<
 }
 
 pub(crate) fn write_file_atomically(path: &Path, content: &[u8]) -> Result<()> {
-    if let Ok(metadata) = fs::symlink_metadata(path) {
-        if metadata.file_type().is_symlink() {
-            bail!(
-                "refusing to overwrite symlinked model server: {}",
-                path.display()
-            );
-        }
+    if let Ok(metadata) = fs::symlink_metadata(path)
+        && metadata.file_type().is_symlink()
+    {
+        bail!(
+            "refusing to overwrite symlinked model server: {}",
+            path.display()
+        );
     }
 
     let file_name = path

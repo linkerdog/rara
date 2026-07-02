@@ -255,7 +255,7 @@ impl MemoryStore {
             .filter(|r| scope.as_ref().is_none_or(|s| &r.scope == s))
             .cloned()
             .collect();
-        records.sort_by(|a, b| b.created_at_unix_seconds.cmp(&a.created_at_unix_seconds));
+        records.sort_by_key(|record| std::cmp::Reverse(record.created_at_unix_seconds));
         records.truncate(limit);
         Ok(records)
     }

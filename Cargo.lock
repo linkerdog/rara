@@ -11024,6 +11024,7 @@ version = "0.0.1"
 dependencies = [
  "anyhow",
  "fs2",
+ "log",
  "regex",
  "serde",
  "serde_json",

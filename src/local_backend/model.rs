@@ -1,4 +1,4 @@
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result, anyhow};
 use candle::{DType, Device};
@@ -22,6 +22,9 @@ pub(super) enum LocalModelSpec {
     Qwen3_8B,
 }
 
+#[allow(clippy::large_enum_variant)]
+// Candle model structs own large weight/state handles; boxing only selected
+// variants would add indirection to the hot generation path.
 pub(super) enum LocalTextModel {
     Gemma4(Gemma4TextModel),
     Gemma4Multimodal(Gemma4Model),
@@ -216,10 +219,10 @@ fn remap_multimodal_gemma4_text_tensor(name: &str) -> String {
 
 pub(super) fn build_hf_api(
     config: &RaraConfig,
-    cache_dir: &PathBuf,
+    cache_dir: &Path,
 ) -> Result<hf_hub::api::sync::Api> {
     let mut builder = ApiBuilder::new()
-        .with_cache_dir(cache_dir.clone())
+        .with_cache_dir(cache_dir.to_path_buf())
         .with_progress(true)
         .with_retries(3);
     if let Some(token) = config

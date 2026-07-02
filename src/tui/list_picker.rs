@@ -60,7 +60,7 @@ impl ListPickerKind {
             Self::Resume => app
                 .recent_threads
                 .iter()
-                .filter(|s| &s.metadata.session_id != &app.snapshot.session_id)
+                .filter(|s| s.metadata.session_id != app.snapshot.session_id)
                 .filter(|s| {
                     resume_workspace_label(&s.metadata.cwd)
                         == resume_workspace_label(&app.snapshot.cwd)
@@ -299,7 +299,7 @@ impl ListPickerKind {
             .iter()
             .enumerate()
             .map(|(idx, summary)| {
-                ListItem::new(render_resume_summary_lines(idx, *summary, now))
+                ListItem::new(render_resume_summary_lines(idx, summary, now))
                     .style(Self::selected_style(idx, selected))
             })
             .collect()

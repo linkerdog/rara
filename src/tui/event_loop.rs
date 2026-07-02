@@ -37,6 +37,9 @@ use crate::lsp_manager::LspManager;
 use crate::mcp_connection_manager::McpConnectionManager;
 use crate::protocol_sources::{PromptSourceRegistry, SkillSourceRegistry};
 
+#[allow(clippy::too_many_arguments)]
+// TUI startup is the boundary where RuntimeBootstrap handles are handed to the
+// terminal loop; keeping them explicit avoids hidden global state.
 pub async fn run_tui(
     agent: Agent,
     goal_handle: GoalHandle,

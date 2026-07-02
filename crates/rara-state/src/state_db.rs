@@ -68,6 +68,9 @@ impl StateDb {
         self.root_dir.join("rollouts")
     }
 
+    #[allow(clippy::too_many_arguments)]
+    // This mirrors the persisted session row schema; grouping it now would only
+    // add a second DTO around the existing persistence DTOs.
     pub fn upsert_session(
         &self,
         session_id: &str,
@@ -102,6 +105,8 @@ impl StateDb {
         )
     }
 
+    #[allow(clippy::too_many_arguments)]
+    // This is the schema-level write boundary for session metadata and lineage.
     pub fn upsert_session_with_lineage(
         &self,
         session_id: &str,
@@ -460,6 +465,8 @@ impl StateDb {
         Ok(migration)
     }
 
+    #[allow(clippy::too_many_arguments)]
+    // Compaction rollout rows are written as append-only event fields.
     pub fn append_compaction_rollout_event(
         &self,
         session_id: &str,
@@ -484,6 +491,8 @@ impl StateDb {
         )
     }
 
+    #[allow(clippy::too_many_arguments)]
+    // This preserves the explicit persisted compaction event column mapping.
     pub fn append_compaction_rollout_event_with_metadata(
         &self,
         session_id: &str,
@@ -1112,14 +1121,14 @@ fn canonical_rollout_events_for_legacy_migration(
         .iter()
         .any(|event| matches!(event, PersistedStructuredRolloutEvent::Interaction { .. }));
 
-    if !saw_plan_state {
-        if let Some((explanation, steps)) = legacy_runtime_plan_state(&migration.runtime_rollout) {
-            events.push(PersistedStructuredRolloutEvent::PlanState {
-                recorded_at: None,
-                explanation,
-                steps,
-            });
-        }
+    if !saw_plan_state
+        && let Some((explanation, steps)) = legacy_runtime_plan_state(&migration.runtime_rollout)
+    {
+        events.push(PersistedStructuredRolloutEvent::PlanState {
+            recorded_at: None,
+            explanation,
+            steps,
+        });
     }
     if !saw_interaction {
         events.extend(

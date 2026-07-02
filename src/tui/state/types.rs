@@ -361,6 +361,9 @@ pub enum OAuthLoginMode {
     DeviceCode,
 }
 
+#[allow(clippy::large_enum_variant)]
+// TaskCompletion carries task-specific results across the async join boundary;
+// boxing individual variants would complicate every completion handler.
 pub enum TaskCompletion {
     Query {
         agent: Agent,

@@ -165,14 +165,15 @@ pub fn summary_path(rara_home: &Path) -> Result<PathBuf> {
     let new_path = dir.join("memory_summary.md");
     let old_path = dir.join("summary.md");
 
-    if old_path.exists() && !new_path.exists() {
-        if let Err(e) = fs::rename(&old_path, &new_path) {
-            log::warn!(
-                "failed to migrate {} → {}: {e}",
-                old_path.display(),
-                new_path.display()
-            );
-        }
+    if old_path.exists()
+        && !new_path.exists()
+        && let Err(e) = fs::rename(&old_path, &new_path)
+    {
+        log::warn!(
+            "failed to migrate {} → {}: {e}",
+            old_path.display(),
+            new_path.display()
+        );
     }
 
     let old_lock = dir.join("summary.lock");

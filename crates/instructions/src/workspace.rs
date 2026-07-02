@@ -145,16 +145,16 @@ impl WorkspaceMemory {
             }
             // Collect .rara/rules/*.md from this directory (if present).
             let rules_dir = dir.join(RULES_DIR_NAME);
-            if rules_dir.is_dir() {
-                if let Ok(entries) = fs::read_dir(&rules_dir) {
-                    for entry in entries.flatten() {
-                        let path = entry.path();
-                        let file_name = entry.file_name();
-                        if file_name.to_str().is_some_and(|n| n.ends_with(".md")) {
-                            if let Some(content) = self.cached_file_content(&path) {
-                                sources.push(self.make_rules_source(&path, &rules_dir, content));
-                            }
-                        }
+            if rules_dir.is_dir()
+                && let Ok(entries) = fs::read_dir(&rules_dir)
+            {
+                for entry in entries.flatten() {
+                    let path = entry.path();
+                    let file_name = entry.file_name();
+                    if file_name.to_str().is_some_and(|n| n.ends_with(".md"))
+                        && let Some(content) = self.cached_file_content(&path)
+                    {
+                        sources.push(self.make_rules_source(&path, &rules_dir, content));
                     }
                 }
             }
@@ -223,10 +223,11 @@ impl WorkspaceMemory {
         let cwd = self.root.display().to_string();
         let marker = self.git_head_marker();
         let mut cache = self.cache.lock().expect("workspace cache poisoned");
-        if let Some(cached) = cache.env_info.as_ref() {
-            if cached.cwd == cwd && cached.git_head_marker == marker {
-                return (cached.cwd.clone(), cached.branch.clone());
-            }
+        if let Some(cached) = cache.env_info.as_ref()
+            && cached.cwd == cwd
+            && cached.git_head_marker == marker
+        {
+            return (cached.cwd.clone(), cached.branch.clone());
         }
 
         let branch = self.read_git_branch();
@@ -243,10 +244,10 @@ impl WorkspaceMemory {
             .ok()
             .and_then(|meta| meta.modified().ok());
         let mut cache = self.cache.lock().expect("workspace cache poisoned");
-        if let Some(cached) = cache.prompt_files.get(path) {
-            if cached.modified == modified {
-                return Some(cached.content.clone());
-            }
+        if let Some(cached) = cache.prompt_files.get(path)
+            && cached.modified == modified
+        {
+            return Some(cached.content.clone());
         }
 
         let content = fs::read_to_string(path).ok()?;

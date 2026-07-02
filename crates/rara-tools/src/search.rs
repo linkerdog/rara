@@ -26,10 +26,11 @@ impl Tool for GlobTool {
             .as_str()
             .ok_or(ToolError::InvalidInput("pattern".into()))?;
         let mut matches = Vec::new();
-        for entry in glob(p).map_err(|e| ToolError::InvalidInput(e.to_string()))? {
-            if let Ok(path) = entry {
-                matches.push(path.display().to_string());
-            }
+        for path in glob(p)
+            .map_err(|e| ToolError::InvalidInput(e.to_string()))?
+            .flatten()
+        {
+            matches.push(path.display().to_string());
         }
         Ok(json!({ "matches": matches }))
     }
@@ -69,40 +70,40 @@ impl Tool for GrepTool {
             .filter_entry(|entry| include_ignored || !is_ignored_path(entry.path()))
             .filter_map(|e| e.ok())
         {
-            if entry.file_type().is_file() {
-                if let Ok(c) = fs::read_to_string(entry.path()) {
-                    if context_lines > 0 {
-                        let all_lines: Vec<&str> = c.lines().collect();
-                        for (line_idx, line) in all_lines.iter().enumerate() {
-                            if re.is_match(line) {
-                                let mut entry_json = json!({
-                                    "file": entry.path().display().to_string(),
-                                    "line": line_idx + 1,
-                                    "content": line.trim()
-                                });
-                                let start = line_idx.saturating_sub(context_lines);
-                                let end = (line_idx + context_lines + 1).min(all_lines.len());
-                                let context: Vec<serde_json::Value> = (start..end)
-                                    .map(|i| {
-                                        json!({
-                                            "line": i + 1,
-                                            "text": all_lines[i]
-                                        })
+            if entry.file_type().is_file()
+                && let Ok(c) = fs::read_to_string(entry.path())
+            {
+                if context_lines > 0 {
+                    let all_lines: Vec<&str> = c.lines().collect();
+                    for (line_idx, line) in all_lines.iter().enumerate() {
+                        if re.is_match(line) {
+                            let mut entry_json = json!({
+                                "file": entry.path().display().to_string(),
+                                "line": line_idx + 1,
+                                "content": line.trim()
+                            });
+                            let start = line_idx.saturating_sub(context_lines);
+                            let end = (line_idx + context_lines + 1).min(all_lines.len());
+                            let context: Vec<serde_json::Value> = (start..end)
+                                .map(|i| {
+                                    json!({
+                                        "line": i + 1,
+                                        "text": all_lines[i]
                                     })
-                                    .collect();
-                                entry_json["context"] = json!(context);
-                                results.push(entry_json);
-                            }
+                                })
+                                .collect();
+                            entry_json["context"] = json!(context);
+                            results.push(entry_json);
                         }
-                    } else {
-                        for (line_idx, line) in c.lines().enumerate() {
-                            if re.is_match(line) {
-                                results.push(json!({
-                                    "file": entry.path().display().to_string(),
-                                    "line": line_idx + 1,
-                                    "content": line.trim()
-                                }));
-                            }
+                    }
+                } else {
+                    for (line_idx, line) in c.lines().enumerate() {
+                        if re.is_match(line) {
+                            results.push(json!({
+                                "file": entry.path().display().to_string(),
+                                "line": line_idx + 1,
+                                "content": line.trim()
+                            }));
                         }
                     }
                 }

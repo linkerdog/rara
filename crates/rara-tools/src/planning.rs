@@ -35,30 +35,6 @@ impl Tool for EnterPlanModeTool {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::{EXIT_PLAN_MODE_TOOL_NAME, ExitPlanModeTool};
-    use crate::tool::Tool;
-
-    #[test]
-    fn exit_plan_mode_schema_accepts_structured_proposed_plan() {
-        let tool = ExitPlanModeTool;
-        let schema = tool.input_schema();
-
-        assert_eq!(tool.name(), EXIT_PLAN_MODE_TOOL_NAME);
-        assert_eq!(schema["required"][0], "proposed_plan");
-        assert_eq!(
-            schema["properties"]["proposed_plan"]["required"],
-            serde_json::json!(["summary", "steps", "validation"])
-        );
-        assert_eq!(
-            schema["properties"]["proposed_plan"]["properties"]["steps"]["items"]["properties"]["status"]
-                ["enum"],
-            serde_json::json!(["pending", "in_progress", "completed"])
-        );
-    }
-}
-
 #[tool_spec(
     name = EXIT_PLAN_MODE_TOOL_NAME,
     description = "Submit a concrete implementation plan for structured user approval. Prefer passing the plan in the proposed_plan argument. If structured tool arguments are unavailable, this same assistant response must emit a complete <proposed_plan>...</proposed_plan> block before calling this tool.",
@@ -118,5 +94,29 @@ impl Tool for ExitPlanModeTool {
                 "If rejected or continued, refine the plan and call exit_plan_mode again only after emitting an updated complete <proposed_plan>...</proposed_plan> block."
             ]
         }))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{EXIT_PLAN_MODE_TOOL_NAME, ExitPlanModeTool};
+    use crate::tool::Tool;
+
+    #[test]
+    fn exit_plan_mode_schema_accepts_structured_proposed_plan() {
+        let tool = ExitPlanModeTool;
+        let schema = tool.input_schema();
+
+        assert_eq!(tool.name(), EXIT_PLAN_MODE_TOOL_NAME);
+        assert_eq!(schema["required"][0], "proposed_plan");
+        assert_eq!(
+            schema["properties"]["proposed_plan"]["required"],
+            serde_json::json!(["summary", "steps", "validation"])
+        );
+        assert_eq!(
+            schema["properties"]["proposed_plan"]["properties"]["steps"]["items"]["properties"]["status"]
+                ["enum"],
+            serde_json::json!(["pending", "in_progress", "completed"])
+        );
     }
 }

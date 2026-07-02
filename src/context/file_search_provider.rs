@@ -178,7 +178,7 @@ fn estimate_file_token_budget(path: &Path) -> usize {
 
 #[cfg(test)]
 mod tests {
-    use {super::*, tempfile};
+    use super::*;
 
     #[test]
     fn display_path_strips_root() {

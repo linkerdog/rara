@@ -173,8 +173,8 @@ impl ThreadTranscriptRecorder {
         start_idx: usize,
     ) -> Result<Vec<SessionTranscriptEntry>> {
         let mut appended = Vec::new();
-        for idx in start_idx..history.len() {
-            let entry = message_entry(&self.scope, idx, &history[idx]);
+        for (idx, message) in history.iter().enumerate().skip(start_idx) {
+            let entry = message_entry(&self.scope, idx, message);
             self.append_entry(&entry)?;
             appended.push(entry);
         }

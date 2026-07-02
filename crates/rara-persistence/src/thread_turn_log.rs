@@ -128,13 +128,13 @@ pub fn append_rollout_fragment(
 /// Remove the live log so resume doesn't load a stale partial turn.
 pub fn clear_live_log(root_dir: &Path, session_id: &str) {
     let path = root_dir.join(session_id).join(LIVE_LOG_FILE);
-    if let Err(e) = fs::remove_file(&path) {
-        if e.kind() != std::io::ErrorKind::NotFound {
-            eprintln!(
-                "failed to clear live log for session {session_id}: {e} (path: {})",
-                path.display()
-            );
-        }
+    if let Err(e) = fs::remove_file(&path)
+        && e.kind() != std::io::ErrorKind::NotFound
+    {
+        log::error!(
+            "failed to clear live log for session {session_id}: {e} (path: {})",
+            path.display()
+        );
     }
 }
 

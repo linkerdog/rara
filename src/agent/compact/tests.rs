@@ -2,10 +2,9 @@ use std::sync::OnceLock;
 use std::time::Duration;
 
 use super::*;
-use super::*;
 
 #[cfg(test)]
-mod tests {
+mod compact_cases {
     use serde_json::{Map, Value, json};
 
     use super::main::{build_compact_plan, group_history_by_api_round, read_file_line_range};
