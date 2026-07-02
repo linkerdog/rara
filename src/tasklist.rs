@@ -19,7 +19,7 @@ impl TaskListStore {
 
     pub fn list_tasks(&self, task_list_id: &str) -> Result<Vec<TaskRecord>> {
         let task_list_dir = self.task_list_dir(task_list_id);
-        if !task_list_dir.exists() {
+        if !task_list_dir.is_dir() {
             return Ok(Vec::new());
         }
 
@@ -45,14 +45,14 @@ impl TaskListStore {
 
     pub fn get_task(&self, task_list_id: &str, task_id: &str) -> Result<Option<TaskRecord>> {
         let task_id = task_id.trim();
-        if task_id.is_empty() {
+        if !is_valid_task_id(task_id) {
             return Ok(None);
         }
 
         let path = self
             .task_list_dir(task_list_id)
             .join(format!("{task_id}.json"));
-        if !path.exists() {
+        if !path.is_file() {
             return Ok(None);
         }
         read_task_file(&path).map(Some)
@@ -153,6 +153,15 @@ pub fn task_list_entries(tasks: &[TaskRecord]) -> Vec<TaskListEntry> {
         .iter()
         .map(|task| TaskListEntry::from_task(task, &completed_task_ids))
         .collect()
+}
+
+pub fn is_valid_task_id(task_id: &str) -> bool {
+    let task_id = task_id.trim();
+    !task_id.is_empty()
+        && !task_id.contains('/')
+        && !task_id.contains('\\')
+        && !task_id.contains("..")
+        && !Path::new(task_id).is_absolute()
 }
 
 fn read_task_file(path: &Path) -> Result<TaskRecord> {
@@ -318,6 +327,35 @@ mod tests {
 
         assert_eq!(tasks.len(), 1);
         assert_eq!(tasks[0].id, "1");
+    }
+
+    #[test]
+    fn list_tasks_returns_empty_when_list_path_is_not_directory() {
+        let temp = tempdir().expect("tempdir");
+        fs::write(temp.path().join(DEFAULT_TASK_LIST_ID), b"not a directory").expect("write file");
+
+        let store = TaskListStore::new(temp.path());
+        let tasks = store
+            .list_tasks(DEFAULT_TASK_LIST_ID)
+            .expect("file path should be treated as no task list");
+
+        assert!(tasks.is_empty());
+    }
+
+    #[test]
+    fn get_task_rejects_path_like_ids() {
+        let temp = tempdir().expect("tempdir");
+        let store = TaskListStore::new(temp.path());
+
+        for task_id in ["../secret", "nested/task", "nested\\task", "/tmp/task"] {
+            let task = store
+                .get_task(DEFAULT_TASK_LIST_ID, task_id)
+                .expect("invalid task id should not hit the filesystem");
+            assert!(
+                task.is_none(),
+                "task id {task_id:?} should be rejected by the store"
+            );
+        }
     }
 
     fn write_task(dir: &Path, id: &str, task: serde_json::Value) {

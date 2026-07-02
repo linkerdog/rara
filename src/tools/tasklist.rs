@@ -6,7 +6,9 @@ use rara_tools::tool::{Tool, ToolError};
 use serde::Deserialize;
 use serde_json::Value;
 
-use crate::tasklist::{DEFAULT_TASK_LIST_ID, TaskDetails, TaskListStore, task_list_entries};
+use crate::tasklist::{
+    DEFAULT_TASK_LIST_ID, TaskDetails, TaskListStore, is_valid_task_id, task_list_entries,
+};
 
 pub struct TaskListTool {
     pub store: Arc<TaskListStore>,
@@ -65,7 +67,7 @@ impl Tool for TaskListTool {
         "properties": {
             "task_id": {
                 "type": "string",
-                "description": "Task identifier from task_list."
+                "description": "Task identifier from task_list. Must be a single task id, not a path."
             },
             "task_list_id": {
                 "type": "string",
@@ -81,9 +83,10 @@ impl Tool for TaskGetTool {
     async fn call(&self, input: Value) -> Result<Value, ToolError> {
         let input = parse_task_get_input(input)?;
         let task_id = input.task_id.trim();
-        if task_id.is_empty() {
+        if !is_valid_task_id(task_id) {
             return Err(ToolError::InvalidInput(
-                "task_get requires a non-empty task_id".to_string(),
+                "task_get requires a valid, non-empty task_id without path traversal characters"
+                    .to_string(),
             ));
         }
 
@@ -230,14 +233,17 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn task_get_rejects_empty_task_id() {
+    async fn task_get_rejects_invalid_task_id() {
         let tool = tool_get();
-        let err = tool
-            .call(json!({ "task_id": " " }))
-            .await
-            .expect_err("empty task id should fail");
 
-        assert!(err.to_string().contains("non-empty task_id"));
+        for task_id in [" ", "../secret", "nested/task", "nested\\task", "/tmp/task"] {
+            let err = tool
+                .call(json!({ "task_id": task_id }))
+                .await
+                .expect_err("invalid task id should fail");
+
+            assert!(err.to_string().contains("without path traversal"));
+        }
     }
 
     fn tool_list() -> TaskListTool {
