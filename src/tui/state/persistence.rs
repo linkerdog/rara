@@ -300,7 +300,10 @@ impl TuiApp {
         let Some((root_dir, session_id)) = self.live_log_context() else {
             return;
         };
-        rara_persistence::thread_turn_log::clear_live_log(&root_dir, &session_id);
+        if !rara_persistence::thread_turn_log::clear_live_log(&root_dir, &session_id) {
+            log::warn!("live transcript rewrite skipped for session {session_id}: clear failed");
+            return;
+        }
         for entry in entries.iter().map(|entry| PersistedTurnEntry {
             role: entry.role.clone(),
             message: entry.message.clone(),

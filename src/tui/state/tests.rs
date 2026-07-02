@@ -1300,6 +1300,38 @@ fn active_turn_entries_write_and_clear_live_log() {
     assert_eq!(turn_records[0].entries.len(), 2);
 }
 
+#[test]
+fn reset_transcript_clears_live_log() {
+    let dir = tempdir().expect("tempdir");
+    let state_db = StateDb::new_for_root_dir(dir.path().join(".rara")).expect("state db");
+    let mut app = TuiApp::new(ConfigManager {
+        path: dir.path().join("config.json"),
+    })
+    .expect("app");
+    app.attach_state_db(std::sync::Arc::new(state_db));
+    app.snapshot.session_id = "live-reset-session".to_string();
+
+    app.push_entry("You", "clear me");
+    assert_eq!(
+        thread_turn_log::load_live_entries(
+            &app.state_db.as_ref().unwrap().rollout_root(),
+            "live-reset-session"
+        )
+        .len(),
+        1
+    );
+
+    app.reset_transcript();
+
+    assert!(
+        thread_turn_log::load_live_entries(
+            &app.state_db.as_ref().unwrap().rollout_root(),
+            "live-reset-session"
+        )
+        .is_empty()
+    );
+}
+
 // ── Command palette selection persistence ──────────────────────────
 
 /// Typing more characters while the palette is open should NOT reset

@@ -232,6 +232,7 @@ impl TuiApp {
     pub fn reset_transcript(&mut self) {
         self.committed_turns.clear();
         self.active_turn.entries.clear();
+        self.clear_live_log();
         self.invalidate_committed_render_cache();
         self.transcript_scroll = 0;
         self.agent_markdown_stream = None;
@@ -358,6 +359,7 @@ impl TuiApp {
     pub fn restore_committed_turns(&mut self, turns: Vec<TranscriptTurn>) {
         self.committed_turns = turns;
         self.active_turn.entries.clear();
+        self.clear_live_log();
         self.invalidate_committed_render_cache();
         self.transcript_scroll = 0;
         self.agent_markdown_stream = None;
