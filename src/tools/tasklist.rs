@@ -41,7 +41,11 @@ struct TaskGetInput {
         "properties": {
             "task_list_id": {
                 "type": "string",
-                "description": "Optional shared task list id. Defaults to the workspace default task list."
+                "description": "Optional shared task list id. Defaults to the workspace default task list. Do not send together with taskListId."
+            },
+            "taskListId": {
+                "type": "string",
+                "description": "Claude-compatible alias for task_list_id. Do not send together with task_list_id."
             }
         },
         "additionalProperties": false
@@ -71,7 +75,11 @@ impl Tool for TaskListTool {
             },
             "task_list_id": {
                 "type": "string",
-                "description": "Optional shared task list id. Defaults to the workspace default task list."
+                "description": "Optional shared task list id. Defaults to the workspace default task list. Do not send together with taskListId."
+            },
+            "taskListId": {
+                "type": "string",
+                "description": "Claude-compatible alias for task_list_id. Do not send together with task_list_id."
             }
         },
         "required": ["task_id"],
@@ -222,14 +230,21 @@ mod tests {
 
     #[test]
     fn task_tool_schemas_are_strict() {
+        let task_list_schema = TaskListTool::input_schema(&tool_list());
+        let task_get_schema = TaskGetTool::input_schema(&tool_get());
+
         assert_eq!(
-            TaskListTool::input_schema(&tool_list()).get("additionalProperties"),
+            task_list_schema.get("additionalProperties"),
             Some(&json!(false))
         );
+        assert!(task_list_schema["properties"].get("task_list_id").is_some());
+        assert!(task_list_schema["properties"].get("taskListId").is_some());
         assert_eq!(
-            TaskGetTool::input_schema(&tool_get()).get("additionalProperties"),
+            task_get_schema.get("additionalProperties"),
             Some(&json!(false))
         );
+        assert!(task_get_schema["properties"].get("task_list_id").is_some());
+        assert!(task_get_schema["properties"].get("taskListId").is_some());
     }
 
     #[tokio::test]

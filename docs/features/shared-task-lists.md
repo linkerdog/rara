@@ -32,6 +32,8 @@ The shared task store is a file-backed workspace artifact:
 
 The runtime registers one shared `TaskListStore` during tool manager construction and passes it to both read tools. Missing task-list directories are valid and return an empty list.
 
+Tool schemas expose both RARA snake_case `task_list_id` and Claude-compatible camelCase `taskListId`. Callers should send only one of the two names.
+
 ## Contracts
 
 Task files use this minimum shape:
