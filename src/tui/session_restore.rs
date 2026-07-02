@@ -197,10 +197,15 @@ pub(super) fn restore_thread_by_id(
             | RolloutItem::SpawnAgent { .. } => {}
         }
     }
-    if !turns.is_empty() {
-        app.restore_committed_turns(turns);
-    } else {
-        app.reset_transcript();
+    let rollout_root = state_db.rollout_root();
+    app.restore_committed_turns(turns);
+    let live_entries =
+        rara_persistence::thread_turn_log::load_live_entries(&rollout_root, thread_id);
+    if !live_entries.is_empty() {
+        app.active_turn.entries = live_entries
+            .into_iter()
+            .map(|entry| TranscriptEntry::new(entry.role, entry.message))
+            .collect();
     }
     app.sync_snapshot(agent);
 
@@ -259,7 +264,7 @@ mod tests {
     use std::fs;
 
     use rara_memory::vectordb::VectorDB;
-    use rara_state::state_db::StateDb;
+    use rara_state::state_db::{PersistedTurnEntry, StateDb};
     use rara_tools::tool::ToolManager;
     use serde_json::json;
     use tempfile::tempdir;
@@ -520,6 +525,102 @@ mod tests {
         let restored_agent = restored_slot.expect("restored agent");
         assert_eq!(restored_agent.session_id, "session-without-history");
         assert_eq!(restored_app.snapshot.session_id, "session-without-history");
+    }
+
+    #[test]
+    fn restore_session_recovers_live_active_turn_entries() {
+        let temp = tempdir().expect("tempdir");
+        let root = temp.path().join("repo");
+        let rara_dir = root.join(".rara");
+        fs::create_dir_all(rara_dir.join("rollouts")).expect("rollouts");
+        fs::create_dir_all(rara_dir.join("sessions")).expect("sessions");
+        fs::create_dir_all(rara_dir.join("tool-results")).expect("tool results");
+
+        let session_manager = Arc::new(crate::session::SessionManager {
+            storage_dir: rara_dir.join("rollouts"),
+            legacy_storage_dir: rara_dir.join("sessions"),
+        });
+        let workspace = Arc::new(WorkspaceMemory::from_paths(root.clone(), rara_dir.clone()));
+        let backend = Arc::new(MockLlm);
+        let mut original_agent = Agent::new(
+            ToolManager::new(),
+            backend.clone(),
+            Arc::new(VectorDB::new(
+                &rara_dir.join("lancedb").display().to_string(),
+            )),
+            session_manager.clone(),
+            workspace.clone(),
+        );
+        original_agent.session_id = "session-live-active-turn".to_string();
+        original_agent.history.push(Message {
+            role: "user".to_string(),
+            content: json!([{"type":"text","text":"recover active turn"}]),
+        });
+        session_manager
+            .save_session(&original_agent.session_id, &original_agent.history)
+            .expect("save session");
+
+        let state_db = Arc::new(StateDb::new_for_root_dir(rara_dir.clone()).expect("state db"));
+        let mut original_app = TuiApp::new(ConfigManager {
+            path: temp.path().join("config.json"),
+        })
+        .expect("app");
+        original_app.attach_state_db(state_db.clone());
+        original_app.sync_snapshot(&original_agent);
+        rara_persistence::thread_turn_log::append_rollout_fragment(
+            &state_db.rollout_root(),
+            &original_agent.session_id,
+            &PersistedTurnEntry {
+                role: "You".to_string(),
+                message: "recover active turn".to_string(),
+            },
+        )
+        .expect("write live user entry");
+        rara_persistence::thread_turn_log::append_rollout_fragment(
+            &state_db.rollout_root(),
+            &original_agent.session_id,
+            &PersistedTurnEntry {
+                role: "Agent".to_string(),
+                message: "partial answer".to_string(),
+            },
+        )
+        .expect("write live agent entry");
+
+        let restored_agent = Agent::new(
+            ToolManager::new(),
+            backend,
+            Arc::new(VectorDB::new(
+                &rara_dir.join("lancedb").display().to_string(),
+            )),
+            session_manager,
+            workspace,
+        );
+        let mut restored_slot = Some(restored_agent);
+        let mut restored_app = TuiApp::new(ConfigManager {
+            path: temp.path().join("config-restored.json"),
+        })
+        .expect("restored app");
+        restored_app.attach_state_db(state_db);
+
+        restore_thread_by_id(
+            original_agent.session_id.as_str(),
+            &mut restored_app,
+            &mut restored_slot,
+        )
+        .expect("restore thread");
+
+        assert_eq!(restored_app.committed_turns.len(), 0);
+        assert_eq!(restored_app.active_turn.entries.len(), 2);
+        assert_eq!(restored_app.active_turn.entries[0].role, "You");
+        assert_eq!(
+            restored_app.active_turn.entries[0].message,
+            "recover active turn"
+        );
+        assert_eq!(restored_app.active_turn.entries[1].role, "Agent");
+        assert_eq!(
+            restored_app.active_turn.entries[1].message,
+            "partial answer"
+        );
     }
 
     #[test]

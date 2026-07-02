@@ -1,4 +1,5 @@
 use rara_memory::vectordb::VectorDB;
+use rara_persistence::thread_turn_log;
 use rara_state::state_db::{PersistedCompactState, PersistedPromptRuntimeState, StateDb};
 use rara_tools::tool::ToolManager;
 use tempfile::tempdir;
@@ -1257,6 +1258,46 @@ fn restore_committed_turns_sets_inserted_counter_to_match() {
 
     assert_eq!(app.committed_turns.len(), n);
     assert_eq!(app.active_turn.entries.len(), 0);
+}
+
+#[test]
+fn active_turn_entries_write_and_clear_live_log() {
+    let dir = tempdir().expect("tempdir");
+    let state_db = StateDb::new_for_root_dir(dir.path().join(".rara")).expect("state db");
+    let mut app = TuiApp::new(ConfigManager {
+        path: dir.path().join("config.json"),
+    })
+    .expect("app");
+    app.attach_state_db(std::sync::Arc::new(state_db));
+    app.snapshot.session_id = "live-entry-session".to_string();
+
+    app.push_entry("You", "hello");
+    app.push_entry("Agent", "hi");
+
+    let live_entries = thread_turn_log::load_live_entries(
+        &app.state_db.as_ref().unwrap().rollout_root(),
+        "live-entry-session",
+    );
+    assert_eq!(live_entries.len(), 2);
+    assert_eq!(live_entries[0].role, "You");
+    assert_eq!(live_entries[0].message, "hello");
+    assert_eq!(live_entries[1].role, "Agent");
+    assert_eq!(live_entries[1].message, "hi");
+
+    app.finalize_active_turn();
+
+    let live_entries = thread_turn_log::load_live_entries(
+        &app.state_db.as_ref().unwrap().rollout_root(),
+        "live-entry-session",
+    );
+    assert!(live_entries.is_empty());
+    let turn_records = thread_turn_log::load_turn_records(
+        &app.state_db.as_ref().unwrap().rollout_root(),
+        "live-entry-session",
+    )
+    .expect("turn records");
+    assert_eq!(turn_records.len(), 1);
+    assert_eq!(turn_records[0].entries.len(), 2);
 }
 
 // ── Command palette selection persistence ──────────────────────────

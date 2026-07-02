@@ -1,6 +1,7 @@
 use std::path::PathBuf;
 
 use rara_persistence::redaction::redact_secrets;
+use rara_state::state_db::PersistedTurnEntry;
 use ratatui::text::Line;
 
 use super::{
@@ -92,23 +93,32 @@ impl TuiApp {
         if role == "You" && !self.active_turn.entries.is_empty() {
             self.commit_active_turn();
         }
-        self.active_turn
-            .entries
-            .push(TranscriptEntry::new(role, message));
+        let entry = TranscriptEntry::new(role, message);
+        self.record_entry_realtime(&PersistedTurnEntry {
+            role: entry.role.clone(),
+            message: entry.message.clone(),
+        });
+        self.active_turn.entries.push(entry);
         self.reset_transcript_scroll_if_following_tail();
     }
 
     pub fn push_terminal_event(&mut self, event: TerminalEvent) {
-        self.active_turn
-            .entries
-            .push(TranscriptEntry::terminal_event(event));
+        let entry = TranscriptEntry::terminal_event(event);
+        self.record_entry_realtime(&PersistedTurnEntry {
+            role: entry.role.clone(),
+            message: entry.message.clone(),
+        });
+        self.active_turn.entries.push(entry);
         self.reset_transcript_scroll_if_following_tail();
     }
 
     pub fn push_system(&mut self, message: impl Into<String>, kind: SystemMessageKind) {
-        self.active_turn
-            .entries
-            .push(TranscriptEntry::system(message, kind));
+        let entry = TranscriptEntry::system(message, kind);
+        self.record_entry_realtime(&PersistedTurnEntry {
+            role: entry.role.clone(),
+            message: entry.message.clone(),
+        });
+        self.active_turn.entries.push(entry);
         self.reset_transcript_scroll_if_following_tail();
     }
 
@@ -198,6 +208,7 @@ impl TuiApp {
         }
 
         if Self::replace_current_agent_segment_message(&mut self.active_turn, message.clone()) {
+            self.replace_live_log_entries(&self.active_turn.entries);
             self.reset_transcript_scroll_if_following_tail();
             return;
         }
@@ -334,6 +345,7 @@ impl TuiApp {
         let ordinal = self.committed_turns.len();
         self.persist_turn(ordinal, &turn);
         self.committed_turns.push(turn);
+        self.clear_live_log();
         self.invalidate_committed_render_cache();
         self.reset_transcript_scroll_if_following_tail();
         self.clear_active_live_sections();

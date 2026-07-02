@@ -7,7 +7,9 @@ use rara_state::state_db::{
 };
 use serde_json::json;
 
-use super::{InteractionKind, StateDb, TranscriptTurn, TuiApp, state_db_status_error};
+use super::{
+    InteractionKind, StateDb, TranscriptEntry, TranscriptTurn, TuiApp, state_db_status_error,
+};
 use crate::thread_store::{ThreadRecorder, ThreadRuntimeState, ThreadStore};
 
 const RESUME_PICKER_THREAD_LIMIT: usize = 200;
@@ -281,10 +283,6 @@ impl TuiApp {
         }
     }
 
-    /// Realtime per-entry write to the live log (Claude Code style).
-    /// Will be called from push_entry so resume can recover partial turns.
-    /// Reserved for restoring partial-turn resume recovery (docs/todo.md).
-    #[allow(dead_code)]
     pub(crate) fn record_entry_realtime(&self, entry: &PersistedTurnEntry) {
         let Some((root_dir, session_id)) = self.live_log_context() else {
             return;
@@ -294,13 +292,30 @@ impl TuiApp {
             &session_id,
             entry,
         ) {
-            eprintln!("live write failed: {e}");
+            log::warn!("live transcript write failed for session {session_id}: {e}");
         }
     }
 
-    /// Clear the live log after a turn is committed.
-    /// Reserved for restoring partial-turn resume recovery (docs/todo.md).
-    #[allow(dead_code)]
+    pub(crate) fn replace_live_log_entries(&self, entries: &[TranscriptEntry]) {
+        let Some((root_dir, session_id)) = self.live_log_context() else {
+            return;
+        };
+        rara_persistence::thread_turn_log::clear_live_log(&root_dir, &session_id);
+        for entry in entries.iter().map(|entry| PersistedTurnEntry {
+            role: entry.role.clone(),
+            message: entry.message.clone(),
+        }) {
+            if let Err(err) = rara_persistence::thread_turn_log::append_rollout_fragment(
+                &root_dir,
+                &session_id,
+                &entry,
+            ) {
+                log::warn!("live transcript rewrite failed for session {session_id}: {err}");
+                return;
+            }
+        }
+    }
+
     pub(crate) fn clear_live_log(&self) {
         let Some((root_dir, session_id)) = self.live_log_context() else {
             return;
