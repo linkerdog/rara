@@ -53,6 +53,7 @@ The minimum model is:
     {
       "id": "todo-1",
       "content": "Inspect the command parser",
+      "active_form": "Inspecting the command parser",
       "status": "in_progress",
       "updated_at": 1777584000
     }
@@ -70,6 +71,15 @@ Valid item status values:
 
 At most one item should be `in_progress` unless the runtime later gains explicit parallel-agent todo
 ownership.
+
+`content` is the stable imperative checklist label. `active_form` is an optional present-continuous
+label used while the item is `in_progress`, matching Claude Code's `activeForm` tool input. Runtime
+JSON stores the Rust-style `active_form` field, while `todo_write` accepts both `activeForm` and
+`active_form` for compatibility.
+
+Runtime summaries keep `active_item` as the canonical active `content` value so callers can match it
+back to a todo item. Display surfaces that want the present-continuous label should use the separate
+`active_label` summary field, which falls back to `content` when `active_form` is absent.
 
 ### 3) Tool Surface
 
@@ -89,6 +99,8 @@ contract:
 - use `todo_write` proactively for complex multi-step execution, not for trivial one-step work;
 - resend the full working set when statuses, blockers, order, or validation work changes;
 - keep at most one `in_progress` item unless multi-agent ownership exists later;
+- provide `content` and `activeForm` for each new tool call so the static checklist and active
+  progress label remain distinct;
 - prefer concrete execution items such as bug reproduction, focused tests, or final verification;
 - do not treat implementation as effectively complete while the relevant verification item is still
   pending or failing.
@@ -177,7 +189,7 @@ The first runtime slice implements Claude-style write semantics without automati
 conversion:
 
 - `todo_write` accepts a complete replacement list and normalizes item ids, statuses, timestamps,
-  and the single-`in_progress` invariant.
+  optional `activeForm`/`active_form` labels, and the single-`in_progress` invariant.
 - Successful writes update `Agent.todo_state`, atomically persist
   `.rara/sessions/<session_id>/todo.json`, and restore that state when the session is resumed.
 - Runtime context exposes todo state as structured data so future `/context`, compaction, and
