@@ -7,8 +7,8 @@ use tempfile::tempdir;
 use super::{
     ActivePendingInteractionKind, AgentMarkdownStreamState, InteractionKind, ListPickerKind,
     Overlay, PROVIDER_FAMILIES, PendingInteractionSnapshot, ProviderFamily, RuntimeSnapshot,
-    TranscriptEntry, TranscriptTurn, TuiApp, input_requests_command_palette, parse_repo_slug,
-    state_db_status_error,
+    SystemMessageKind, TranscriptEntry, TranscriptTurn, TuiApp, input_requests_command_palette,
+    parse_repo_slug, state_db_status_error,
 };
 use crate::agent::{Agent, PendingApproval};
 use crate::codex_model_catalog::{CodexModelOption, CodexReasoningOption};
@@ -1298,6 +1298,72 @@ fn active_turn_entries_write_and_clear_live_log() {
     .expect("turn records");
     assert_eq!(turn_records.len(), 1);
     assert_eq!(turn_records[0].entries.len(), 2);
+}
+
+#[test]
+fn push_system_redacts_live_log_entries() {
+    let dir = tempdir().expect("tempdir");
+    let state_db = StateDb::new_for_root_dir(dir.path().join(".rara")).expect("state db");
+    let mut app = TuiApp::new(ConfigManager {
+        path: dir.path().join("config.json"),
+    })
+    .expect("app");
+    app.attach_state_db(std::sync::Arc::new(state_db));
+    app.snapshot.session_id = "live-redaction-session".to_string();
+
+    app.push_system(
+        "token=supersecretvalue Authorization: Bearer abcdefghijklmnopqrstuvwxyz",
+        SystemMessageKind::Other,
+    );
+
+    let live_entries = thread_turn_log::load_live_entries(
+        &app.state_db.as_ref().unwrap().rollout_root(),
+        "live-redaction-session",
+    );
+    assert_eq!(live_entries.len(), 1);
+    assert!(live_entries[0].message.contains("[REDACTED_SECRET]"));
+    assert!(!live_entries[0].message.contains("supersecretvalue"));
+    assert!(
+        !live_entries[0]
+            .message
+            .contains("abcdefghijklmnopqrstuvwxyz")
+    );
+}
+
+#[test]
+fn active_turn_commit_keeps_live_log_when_turn_persist_fails() {
+    let dir = tempdir().expect("tempdir");
+    let state_db = StateDb::new_for_root_dir(dir.path().join(".rara")).expect("state db");
+    let mut app = TuiApp::new(ConfigManager {
+        path: dir.path().join("config.json"),
+    })
+    .expect("app");
+    app.attach_state_db(std::sync::Arc::new(state_db));
+    app.snapshot.session_id = "live-persist-failure-session".to_string();
+
+    app.push_entry("You", "keep me");
+    app.push_entry("Agent", "until canonical write succeeds");
+    let rollout_root = app.state_db.as_ref().unwrap().rollout_root();
+    let session_dir = rollout_root.join("live-persist-failure-session");
+    std::fs::create_dir(session_dir.join("turns.jsonl")).expect("turns path directory");
+
+    app.finalize_active_turn();
+
+    let live_entries =
+        thread_turn_log::load_live_entries(&rollout_root, "live-persist-failure-session");
+    assert_eq!(live_entries.len(), 2);
+    assert!(app.committed_turns.is_empty());
+    assert_eq!(app.active_turn.entries.len(), 2);
+    assert_eq!(app.active_turn.entries[0].message, "keep me");
+    assert_eq!(
+        app.active_turn.entries[1].message,
+        "until canonical write succeeds"
+    );
+    assert!(
+        app.state_db_status
+            .as_deref()
+            .is_some_and(|status| status.contains("turn write failed"))
+    );
 }
 
 #[test]

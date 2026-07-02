@@ -113,7 +113,7 @@ impl TuiApp {
     }
 
     pub fn push_system(&mut self, message: impl Into<String>, kind: SystemMessageKind) {
-        let entry = TranscriptEntry::system(message, kind);
+        let entry = TranscriptEntry::system(redact_secrets(message.into()), kind);
         self.record_entry_realtime(&PersistedTurnEntry {
             role: entry.role.clone(),
             message: entry.message.clone(),
@@ -341,10 +341,15 @@ impl TuiApp {
             self.clear_active_live_sections();
             return;
         }
-        let mut turn = std::mem::take(&mut self.active_turn);
-        turn.thinking_duration = self.active_live.thinking_started_at.map(|s| s.elapsed());
+        self.active_turn.thinking_duration =
+            self.active_live.thinking_started_at.map(|s| s.elapsed());
         let ordinal = self.committed_turns.len();
-        self.persist_turn(ordinal, &turn);
+        let turn_to_persist = self.active_turn.clone();
+        if !self.persist_turn(ordinal, &turn_to_persist) {
+            self.clear_active_live_sections();
+            return;
+        }
+        let turn = std::mem::take(&mut self.active_turn);
         self.committed_turns.push(turn);
         self.clear_live_log();
         self.invalidate_committed_render_cache();

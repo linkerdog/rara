@@ -261,12 +261,12 @@ impl TuiApp {
         self.state_db_status = Some(state_db_status);
     }
 
-    pub(super) fn persist_turn(&mut self, ordinal: usize, turn: &TranscriptTurn) {
+    pub(super) fn persist_turn(&mut self, ordinal: usize, turn: &TranscriptTurn) -> bool {
         let Some(state_db) = self.state_db.as_ref() else {
-            return;
+            return true;
         };
         if self.snapshot.session_id.is_empty() {
-            return;
+            return true;
         }
         let recorder = ThreadRecorder::new(state_db);
         let entries = turn
@@ -280,7 +280,9 @@ impl TuiApp {
         if let Err(err) = recorder.persist_turn(&self.snapshot.session_id, ordinal, &entries) {
             self.state_db_status =
                 Some(state_db_status_error("turn write failed", err.to_string()));
+            return false;
         }
+        true
     }
 
     pub(crate) fn record_entry_realtime(&self, entry: &PersistedTurnEntry) {
