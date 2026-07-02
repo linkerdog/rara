@@ -22,6 +22,7 @@ use crate::prompt::PromptRuntimeConfig;
 use crate::sandbox::SandboxManager;
 use crate::session::SessionManager;
 use crate::skill::SkillManager;
+use crate::tasklist::TaskListStore;
 use crate::tools::agent::{
     AgentTool, BackgroundSubAgentStore, ExploreAgentTool, PlanAgentTool, SubAgentListTool,
     SubAgentResumeTool, SubAgentStopTool, TeamCreateTool,
@@ -36,6 +37,7 @@ use crate::tools::pty::{
     PtyStopTool, PtyWriteTool,
 };
 use crate::tools::skill::SkillTool;
+use crate::tools::tasklist::{TaskGetTool, TaskListTool};
 use crate::tools::todo::TodoWriteTool;
 use crate::tools::vector::{RememberExperienceTool, RetrieveExperienceTool};
 use crate::tools::web::{WebFetchTool, WebSearchTool};
@@ -72,6 +74,7 @@ pub(super) fn create_full_tool_manager(
     let pty_sessions = Arc::new(
         PtySessionStore::new(workspace.rara_dir.join("pty-sessions")).expect("pty session store"),
     );
+    let task_list_store = Arc::new(TaskListStore::new(workspace.rara_dir.join("tasks")));
     let background_subagents = BACKGROUND_SUBAGENTS
         .get_or_init(|| Arc::new(BackgroundSubAgentStore::default()))
         .clone();
@@ -135,6 +138,12 @@ pub(super) fn create_full_tool_manager(
     tm.register(Box::new(EnterPlanModeTool));
     tm.register(Box::new(ExitPlanModeTool));
     tm.register(Box::new(TodoWriteTool));
+    tm.register(Box::new(TaskListTool {
+        store: task_list_store.clone(),
+    }));
+    tm.register(Box::new(TaskGetTool {
+        store: task_list_store,
+    }));
     tm.register(Box::new(RememberExperienceTool {
         llm_backend: backend.clone(),
         embedding_backend: embedding_backend.clone(),

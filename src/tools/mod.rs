@@ -7,6 +7,7 @@ pub mod lsp;
 pub mod mcp_tool_search;
 pub mod pty;
 pub mod skill;
+pub mod tasklist;
 pub mod todo;
 pub mod vector;
 pub mod web;
