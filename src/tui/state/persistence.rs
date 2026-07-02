@@ -318,11 +318,18 @@ impl TuiApp {
         }
     }
 
-    pub(crate) fn clear_live_log(&self) {
+    pub(crate) fn clear_live_log(&mut self) -> bool {
         let Some((root_dir, session_id)) = self.live_log_context() else {
-            return;
+            return true;
         };
-        rara_persistence::thread_turn_log::clear_live_log(&root_dir, &session_id);
+        let cleared = rara_persistence::thread_turn_log::clear_live_log(&root_dir, &session_id);
+        if !cleared {
+            self.state_db_status = Some(state_db_status_error(
+                "live log clear failed",
+                format!("session {session_id}"),
+            ));
+        }
+        cleared
     }
 
     fn live_log_context(&self) -> Option<(PathBuf, String)> {
