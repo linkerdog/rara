@@ -11,8 +11,8 @@ use arrow_array::{
     Array, FixedSizeListArray, Float32Array, RecordBatch, RecordBatchIterator, StringArray,
     UInt32Array,
 };
-use arrow_schema::{DataType, Field, Schema, SchemaRef};
 use futures::TryStreamExt;
+use lancedb::arrow::arrow_schema::{DataType, Field, Schema, SchemaRef};
 use lancedb::index::Index;
 use lancedb::index::scalar::FtsIndexBuilder;
 use lancedb::index::scalar::FullTextSearchQuery;
