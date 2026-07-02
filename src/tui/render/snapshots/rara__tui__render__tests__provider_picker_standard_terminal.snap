@@ -10,19 +10,19 @@ Ready.
 ──              Provider
 Type a message  Select a provider family.
 
-Start with:        [1] Codex (current)
-  /help    bro        Use Codex with browser login, device-code login, or a Codex AP
-  /model   cho     [2] DeepSeek
-  /status  ins        Use DeepSeek with an API key and model list from api.deepseek.
-  /quit    lea     [3] Kimi
-                      Use Moonshot Kimi with an API key from api.moonshot.cn.
-Prompt ideas:      [4] OpenAI-compatible
-  · Explain th        Use OpenAI-compatible endpoint profiles such as Custom, Kimi,
-  · Find the m     [5] Gemini
-                      Use Google Gemini via AI Studio (API key) or Code Assist (OAut
-                 ● [6] Candle Local
-  Warning  War        Run local Candle models directly in-process.                    er.
-› Ask about th     [7] Ollama
-                      Use an external Ollama server and choose a local tag.
+Start with:     ›    [1] Codex (current)
+  /help    bro          Use Codex with browser login, device-code login, or a Codex
+  /model   cho       [2] DeepSeek
+  /status  ins          Use DeepSeek with an API key and model list from api.deepsee
+  /quit    lea       [3] Kimi
+                        Use Moonshot Kimi with an API key from api.moonshot.cn.
+Prompt ideas:        [4] OpenAI-compatible
+  · Explain th          Use OpenAI-compatible endpoint profiles such as Custom, Kimi
+  · Find the m       [5] Gemini
+                        Use Google Gemini via AI Studio (API key) or Code Assist (OA
+                   ● [6] Candle Local
+  Warning  War          Run local Candle models directly in-process.                  er.
+› Ask about th       [7] Ollama
+                        Use an external Ollama server and choose a local tag.
                           1-9 jump  Up/Down/jk move  Enter apply  Esc back
                                                                                       val=suggestion

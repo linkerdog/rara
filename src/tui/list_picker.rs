@@ -57,15 +57,7 @@ impl ListPickerKind {
             Self::Model => app.current_model_picker_len(),
             Self::OpenAiEndpointKind => super::state::openai_profile_setup_kinds().len(),
             Self::OpenAiProfile => app.selected_openai_profiles().len() + 1,
-            Self::Resume => app
-                .recent_threads
-                .iter()
-                .filter(|s| s.metadata.session_id != app.snapshot.session_id)
-                .filter(|s| {
-                    resume_workspace_label(&s.metadata.cwd)
-                        == resume_workspace_label(&app.snapshot.cwd)
-                })
-                .count(),
+            Self::Resume => resumable_threads(app).len(),
             Self::AuthMode => AUTH_MODE_ITEM_COUNT,
             Self::ReasoningEffort => app.selected_codex_reasoning_options().len(),
             Self::UnifiedModel => app.all_unified_model_presets().len(),
@@ -283,15 +275,7 @@ impl ListPickerKind {
     }
 
     fn render_resume_items(app: &TuiApp, selected: usize) -> Vec<ListItem<'static>> {
-        let current_id = &app.snapshot.session_id;
-        let summaries: Vec<&ThreadSummary> = app
-            .recent_threads
-            .iter()
-            .filter(|s| &s.metadata.session_id != current_id)
-            .filter(|s| {
-                resume_workspace_label(&s.metadata.cwd) == resume_workspace_label(&app.snapshot.cwd)
-            })
-            .collect();
+        let summaries = resumable_threads(app);
         if summaries.is_empty() {
             return vec![ListItem::new("No threads available.")];
         }
@@ -353,6 +337,23 @@ impl ListPickerKind {
         }
         items
     }
+}
+
+pub(crate) fn selected_resumable_thread_id(app: &TuiApp) -> Option<String> {
+    resumable_threads(app)
+        .get(app.resume_picker_idx)
+        .map(|summary| summary.metadata.session_id.clone())
+}
+
+pub(crate) fn resumable_threads(app: &TuiApp) -> Vec<&ThreadSummary> {
+    app.recent_threads
+        .iter()
+        .filter(|summary| summary.metadata.session_id != app.snapshot.session_id)
+        .filter(|summary| {
+            resume_workspace_label(&summary.metadata.cwd)
+                == resume_workspace_label(&app.snapshot.cwd)
+        })
+        .collect()
 }
 
 fn render_resume_summary_lines(
@@ -531,7 +532,7 @@ fn render_resume_picker(f: &mut Frame, app: &TuiApp, area: Rect) {
     } else {
         "sort=[updated] created"
     };
-    let total = app.recent_threads.len();
+    let total = resumable_threads(app).len();
     let current = if total == 0 {
         0
     } else {
@@ -554,10 +555,7 @@ fn render_resume_picker(f: &mut Frame, app: &TuiApp, area: Rect) {
         chunks[0],
     );
 
-    let mut state = ListState::default();
-    if total > 0 {
-        state.select(Some(app.resume_picker_idx));
-    }
+    let mut state = list_picker_state(app.resume_picker_idx, total);
     f.render_stateful_widget(
         List::new(items)
             .block(Block::default().padding(Padding::horizontal(1)))
@@ -655,8 +653,10 @@ fn resume_picker_key_event(code: KeyCode) -> AppEvent {
 #[cfg(test)]
 mod tests {
     use ratatui::{buffer::Buffer, widgets::StatefulWidget};
+    use tempfile::tempdir;
 
     use super::*;
+    use crate::config::ConfigManager;
     use crate::thread_store::{CompactionRecord, ThreadMetadata};
 
     #[test]
@@ -745,5 +745,51 @@ mod tests {
 
         assert!(state.offset() > 0);
         assert_eq!(state.selected(), Some(15));
+    }
+
+    #[test]
+    fn selected_resumable_thread_id_uses_rendered_resume_items() {
+        let temp = tempdir().expect("tempdir");
+        let mut app = TuiApp::new(ConfigManager {
+            path: temp.path().join("config.json"),
+        })
+        .expect("app");
+        app.snapshot.session_id = "current-thread".to_string();
+        app.snapshot.cwd = "/tmp/workspaces/rara".to_string();
+        app.recent_threads = vec![
+            thread_summary("current-thread", "/tmp/workspaces/rara"),
+            thread_summary("other-workspace", "/tmp/workspaces/other"),
+            thread_summary("resumable-thread", "/var/tmp/rara"),
+        ];
+        app.resume_picker_idx = 0;
+
+        assert_eq!(
+            selected_resumable_thread_id(&app).as_deref(),
+            Some("resumable-thread")
+        );
+        assert_eq!(ListPickerKind::Resume.item_count(&app), 1);
+    }
+
+    fn thread_summary(session_id: &str, cwd: &str) -> ThreadSummary {
+        ThreadSummary {
+            metadata: ThreadMetadata {
+                session_id: session_id.to_string(),
+                cwd: cwd.to_string(),
+                branch: "main".to_string(),
+                provider: "codex".to_string(),
+                model: "gpt-5.2".to_string(),
+                base_url: None,
+                agent_mode: "execute".to_string(),
+                bash_approval: "suggestion".to_string(),
+                created_at: 0,
+                origin_kind: "direct".to_string(),
+                forked_from_thread_id: None,
+                history_len: 1,
+                transcript_len: 1,
+                updated_at: 0,
+            },
+            preview: format!("User: {session_id}"),
+            compaction: CompactionRecord::default(),
+        }
     }
 }
