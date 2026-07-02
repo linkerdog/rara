@@ -327,6 +327,7 @@ mod tests {
             items: vec![TodoItem {
                 id: "todo-1".to_string(),
                 content: "Restore todo state".to_string(),
+                active_form: None,
                 status: TodoStatus::InProgress,
                 updated_at: 42,
             }],

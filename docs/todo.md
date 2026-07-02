@@ -47,6 +47,8 @@ Active backlog only. Keep this file small and current.
 - [x] Subagent token_budget field (PR #601)
 - [ ] Subagent restart/reconnect — built-in capability, not a separate tool
 - [x] Subagent context budget design — token_budget on AgentDefinition
+- [ ] Add shared TaskList/TaskGet runtime tools backed by a `.rara/tasks/<task_list_id>/`
+      task store so teams/subagents can coordinate beyond session-local `todo_write`.
 - [x] Unify `.rara/agents` parsing for execution and `/status` discovery so
       `AgentDefinition` and `ImportedAgentProfile` cannot drift.
 - [ ] Cache Claude-style agent definitions at runtime construction time and

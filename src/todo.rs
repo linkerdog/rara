@@ -15,6 +15,8 @@ pub struct TodoState {
 pub struct TodoItem {
     pub id: String,
     pub content: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub active_form: Option<String>,
     pub status: TodoStatus,
     pub updated_at: i64,
 }
@@ -51,7 +53,12 @@ impl TodoState {
                 TodoStatus::InProgress => {
                     summary.in_progress += 1;
                     if summary.active_item.is_none() {
-                        summary.active_item = Some(item.content.clone());
+                        summary.active_item = Some(
+                            item.active_form
+                                .as_deref()
+                                .unwrap_or(&item.content)
+                                .to_string(),
+                        );
                     }
                 }
                 TodoStatus::Completed => summary.completed += 1,
@@ -102,6 +109,13 @@ pub fn normalize_todo_write_input(input: &Value) -> Result<TodoState> {
         if status == TodoStatus::InProgress {
             in_progress_count += 1;
         }
+        let active_form = object
+            .get("activeForm")
+            .or_else(|| object.get("active_form"))
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|active_form| !active_form.is_empty())
+            .map(str::to_string);
         let id = object
             .get("id")
             .and_then(Value::as_str)
@@ -115,6 +129,7 @@ pub fn normalize_todo_write_input(input: &Value) -> Result<TodoState> {
         items.push(TodoItem {
             id,
             content: content.to_string(),
+            active_form,
             status,
             updated_at,
         });
@@ -182,8 +197,8 @@ mod tests {
     fn normalizes_todo_write_input() {
         let state = normalize_todo_write_input(&json!({
             "todos": [
-                {"content": "Inspect planning runtime", "status": "in_progress"},
-                {"id": "verify", "content": "Run focused tests", "status": "pending"}
+                {"content": "Inspect planning runtime", "activeForm": "Inspecting planning runtime", "status": "in_progress"},
+                {"id": "verify", "content": "Run focused tests", "activeForm": "Running focused tests", "status": "pending"}
             ]
         }))
         .expect("todo input should normalize");
@@ -194,7 +209,28 @@ mod tests {
         assert_eq!(state.items[1].id, "verify");
         assert_eq!(
             state.summary().active_item.as_deref(),
-            Some("Inspect planning runtime")
+            Some("Inspecting planning runtime")
+        );
+    }
+
+    #[test]
+    fn active_form_is_optional_and_snake_case_compatible() {
+        let state = normalize_todo_write_input(&json!({
+            "todos": [
+                {"content": "Inspect planning runtime", "active_form": "Inspecting planning runtime", "status": "in_progress"},
+                {"content": "Run focused tests", "status": "pending"}
+            ]
+        }))
+        .expect("todo input should normalize");
+
+        assert_eq!(
+            state.items[0].active_form.as_deref(),
+            Some("Inspecting planning runtime")
+        );
+        assert_eq!(state.items[1].active_form, None);
+        assert_eq!(
+            state.summary().active_item.as_deref(),
+            Some("Inspecting planning runtime")
         );
     }
 
