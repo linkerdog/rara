@@ -1156,12 +1156,13 @@ pub(crate) async fn run_sub_agent(
     } else {
         kind.execution_mode()
     });
+    let role_prompt = subagent_role_prompt(kind, definition);
     let appended_prompt = match definition
         .map(|d| d.system_prompt.trim())
         .filter(|prompt| !prompt.is_empty())
     {
-        Some(system_prompt) => format!("{}\n\n{}", kind.append_prompt(), system_prompt),
-        None => kind.append_prompt().to_string(),
+        Some(system_prompt) => format!("{role_prompt}\n\n{system_prompt}"),
+        None => role_prompt,
     };
     sub.set_prompt_config(append_subagent_prompt(prompt_config, &appended_prompt));
     sub.task_list_id = task_list_id;
@@ -1362,6 +1363,23 @@ pub(crate) fn build_subagent_tool_manager(
         }));
         tool_manager
     }
+}
+
+fn build_custom_spawn_agent_tool_manager(
+    task_root: PathBuf,
+    default_task_list_id: &str,
+) -> ToolManager {
+    let task_store = Arc::new(TaskListStore::new(task_root));
+    let mut tool_manager = build_read_only_tool_manager(task_store.clone(), default_task_list_id);
+    tool_manager.register(Box::new(TaskCreateTool {
+        store: task_store.clone(),
+        default_task_list_id: default_task_list_id.to_string(),
+    }));
+    tool_manager.register(Box::new(TaskUpdateTool {
+        store: task_store,
+        default_task_list_id: default_task_list_id.to_string(),
+    }));
+    tool_manager
 }
 
 fn normalize_team_tasks(tasks: &[Value]) -> Result<Vec<TeamTask>, ToolError> {
@@ -1586,6 +1604,25 @@ fn resolve_spawn_agent_definition(workspace_root: &Path, normalized_name: &str) 
         .unwrap_or_else(|| fallback_spawn_agent_definition(normalized_name))
 }
 
+fn subagent_role_prompt(kind: SubAgentKind, definition: Option<&AgentDefinition>) -> String {
+    if matches!(kind, SubAgentKind::General) && definition.is_some_and(|d| !d.tools.is_empty()) {
+        return concat!(
+            "## Sub-Agent Role\n",
+            "- You are a custom workspace sub-agent.\n",
+            "- Treat the assigned instruction as the complete task contract.\n",
+            "- Honor every constraint in the assigned instruction, including workspace, branch, network, and output limits.\n",
+            "- Stay inside the current workspace unless the assigned instruction explicitly allows another path.\n",
+            "- Repository inspection is allowed only through the read-only tools exposed to you.\n",
+            "- You may use shared task-list tools to inspect, claim, update, or complete project tasks when they are exposed.\n",
+            "- You do not have shell, editing, patching, browser, or agent-spawning tools in this role.\n",
+            "- If the assigned instruction requires unavailable tools, report the limitation and answer from the available context.\n",
+            "- Do not delegate to another agent or spawn sub-agents; complete the assigned work directly."
+        )
+        .to_string();
+    }
+    kind.append_prompt().to_string()
+}
+
 fn fallback_spawn_agent_definition(name: &str) -> AgentDefinition {
     AgentDefinition {
         token_budget: None,
@@ -1608,7 +1645,11 @@ fn build_filtered_tool_manager(
     task_root: PathBuf,
     default_task_list_id: &str,
 ) -> ToolManager {
-    let mut tm = build_subagent_tool_manager(kind, task_root, default_task_list_id);
+    let mut tm = if matches!(kind, SubAgentKind::General) && !definition.tools.is_empty() {
+        build_custom_spawn_agent_tool_manager(task_root, default_task_list_id)
+    } else {
+        build_subagent_tool_manager(kind, task_root, default_task_list_id)
+    };
 
     if !definition.tools.is_empty() {
         let allowed: std::collections::HashSet<&str> = definition

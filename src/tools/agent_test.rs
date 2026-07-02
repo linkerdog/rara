@@ -1,6 +1,6 @@
 use std::path::PathBuf;
 use std::sync::{
-    Arc,
+    Arc, Mutex,
     atomic::{AtomicUsize, Ordering},
 };
 
@@ -47,6 +47,17 @@ struct PeakBackend {
 struct PlanStateBackend;
 
 struct SlowBackend;
+
+#[derive(Default)]
+struct ObservedModelRequest {
+    messages: Vec<Message>,
+    tool_names: Vec<String>,
+}
+
+struct DefinitionRegressionBackend {
+    calls: Arc<AtomicUsize>,
+    observed: Arc<Mutex<Vec<ObservedModelRequest>>>,
+}
 
 fn mock_embedding_backend() -> Arc<dyn EmbeddingBackend> {
     Arc::new(MockLlm)
@@ -189,6 +200,65 @@ impl LlmBackend for SlowBackend {
 
     async fn summarize(&self, _messages: &[Message], _instruction: &str) -> anyhow::Result<String> {
         Ok("summary".to_string())
+    }
+}
+
+#[async_trait]
+impl LlmBackend for DefinitionRegressionBackend {
+    async fn ask(
+        &self,
+        messages: &[Message],
+        tools: &[serde_json::Value],
+    ) -> anyhow::Result<LlmResponse> {
+        self.calls.fetch_add(1, Ordering::SeqCst);
+        self.observed
+            .lock()
+            .expect("observed requests lock")
+            .push(ObservedModelRequest {
+                messages: messages.to_vec(),
+                tool_names: tool_schema_names(tools),
+            });
+        Ok(LlmResponse {
+            content: vec![ContentBlock::ToolUse {
+                id: "read-fixture".to_string(),
+                name: "read_file".to_string(),
+                input: json!({ "path": "fixture.txt" }),
+            }],
+            stop_reason: Some("tool_use".to_string()),
+            usage: None,
+        })
+    }
+
+    async fn embed(&self, _text: &str) -> anyhow::Result<Vec<f32>> {
+        Ok(vec![0.0; 4])
+    }
+
+    async fn summarize(&self, _messages: &[Message], _instruction: &str) -> anyhow::Result<String> {
+        Ok("summary".to_string())
+    }
+}
+
+fn tool_schema_names(tools: &[serde_json::Value]) -> Vec<String> {
+    tools
+        .iter()
+        .filter_map(|tool| tool.get("name").and_then(serde_json::Value::as_str))
+        .map(str::to_string)
+        .collect()
+}
+
+fn message_text(message: &Message) -> String {
+    match &message.content {
+        serde_json::Value::String(text) => text.clone(),
+        serde_json::Value::Array(parts) => parts
+            .iter()
+            .filter_map(|part| {
+                part.get("text")
+                    .and_then(serde_json::Value::as_str)
+                    .map(str::to_string)
+            })
+            .collect::<Vec<_>>()
+            .join("\n"),
+        value => value.to_string(),
     }
 }
 
@@ -743,6 +813,94 @@ async fn spawn_agent_writes_parent_scoped_sidechain_transcript() {
         Some("parent-session")
     );
     assert!(!child.history.is_empty());
+}
+
+#[tokio::test]
+async fn spawn_agent_definition_affects_prompt_tools_max_turns_and_plan_mode() {
+    let temp = tempdir().expect("tempdir");
+    let root = temp.path().join("workspace");
+    let rara_dir = temp.path().join(".rara-runtime");
+    let agents_dir = root.join(".rara").join("agents");
+    std::fs::create_dir_all(&agents_dir).expect("agents dir");
+    std::fs::write(root.join("fixture.txt"), "fixture contents").expect("fixture file");
+    std::fs::write(
+        agents_dir.join("code-reviewer.md"),
+        r#"---
+name: code-reviewer
+description: Reviews code changes
+tools: [Read, Grep]
+disallowedTools: [Bash]
+maxTurns: 1
+planModeRequired: true
+---
+
+Custom reviewer prompt from workspace definition.
+"#,
+    )
+    .expect("agent definition");
+
+    let calls = Arc::new(AtomicUsize::new(0));
+    let observed = Arc::new(Mutex::new(Vec::new()));
+    let tool = AgentTool {
+        backend: Arc::new(DefinitionRegressionBackend {
+            calls: calls.clone(),
+            observed: observed.clone(),
+        }),
+        embedding_backend: mock_embedding_backend(),
+        vdb: Arc::new(VectorDB::new(
+            &rara_dir.join("lancedb").display().to_string(),
+        )),
+        session_manager: Arc::new(
+            SessionManager::new_for_rara_dir(rara_dir.clone()).expect("session manager"),
+        ),
+        workspace: Arc::new(WorkspaceMemory::from_paths(root, rara_dir)),
+        prompt_config: PromptRuntimeConfig::default(),
+        task_list_id: test_task_list_id(),
+        background_subagents: Arc::new(BackgroundSubAgentStore::default()),
+    };
+
+    let mut progress = |_| {};
+    let result = tool
+        .call_with_context_events(
+            json!({
+                "name": "Code Reviewer",
+                "instruction": "Inspect fixture.txt and report findings."
+            }),
+            ToolCallContext::default().with_session_id("parent-session"),
+            &mut progress,
+        )
+        .await
+        .expect("spawn_agent result");
+
+    assert_eq!(result["status"], "done");
+    assert_eq!(
+        calls.load(Ordering::SeqCst),
+        1,
+        "maxTurns: 1 should stop after the first tool-calling turn"
+    );
+    let observed = observed.lock().expect("observed requests lock");
+    let request = observed.first().expect("captured model request");
+    let system_prompt = request
+        .messages
+        .iter()
+        .find(|message| message.role == "system")
+        .map(message_text)
+        .expect("system prompt");
+    assert!(system_prompt.contains("Planning mode is active."));
+    assert!(system_prompt.contains("You are a custom workspace sub-agent."));
+    assert!(system_prompt.contains(
+        "Repository inspection is allowed only through the read-only tools exposed to you."
+    ));
+    assert!(!system_prompt.contains("You do not have repository"));
+    assert!(!system_prompt.contains("answer only from the provided instruction/context"));
+    assert!(system_prompt.contains("Custom reviewer prompt from workspace definition."));
+
+    let mut tool_names = request.tool_names.clone();
+    tool_names.sort();
+    assert_eq!(
+        tool_names,
+        vec!["grep".to_string(), "read_file".to_string()]
+    );
 }
 
 #[tokio::test]
