@@ -176,16 +176,14 @@ impl TuiApp {
             assembly_entries: runtime_context.assembly.entries,
             extension_skill_count: agent.prompt_config().available_skills.len(),
             extension_skill_scopes: {
-                let mut scopes: Vec<String> = agent
+                agent
                     .prompt_config()
                     .available_skills
                     .iter()
                     .map(|s| s.scope.clone())
                     .collect::<BTreeSet<_>>()
                     .into_iter()
-                    .collect();
-                scopes.sort();
-                scopes
+                    .collect()
             },
             extension_hook_count: ext_counts.0.max(runtime_hook_count),
             extension_agent_count: ext_counts.1,

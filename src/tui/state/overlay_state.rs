@@ -113,9 +113,7 @@ impl TuiApp {
         if matches!(overlay, Overlay::Context) {
             // Auto-hide the command palette when opening a full-screen modal
             // so Esc dismisses only the modal, not the stale palette underneath.
-            if !matches!(overlay, Overlay::CommandPalette | Overlay::ModelSearch)
-                && matches!(self.overlay, Some(Overlay::CommandPalette))
-            {
+            if matches!(self.overlay, Some(Overlay::CommandPalette)) {
                 self.hide_overlay();
             }
             self.context_scroll = 0;
@@ -163,6 +161,5 @@ impl TuiApp {
         }
 
         self.hide_overlay();
-        self.overlay = self.overlay_stack.last().copied();
     }
 }
