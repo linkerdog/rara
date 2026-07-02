@@ -56,7 +56,7 @@ Active backlog only. Keep this file small and current.
 - [ ] Implement remaining Claude-compatible `AgentDefinition` metadata:
       `token_budget`, `permission_mode`, `hidden`, and description/listing
       behavior.
-- [ ] Add an end-to-end `spawn_agent` regression test proving custom
+- [x] Add an end-to-end `spawn_agent` regression test proving custom
       `.rara/agents` definitions affect prompt body, tool filtering,
       `maxTurns`, and `planModeRequired`.
 
