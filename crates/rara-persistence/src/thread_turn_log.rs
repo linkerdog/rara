@@ -125,16 +125,33 @@ pub fn append_rollout_fragment(
     Ok(())
 }
 
+/// Replace the live log with the current active-turn entries.
+pub fn replace_live_entries(
+    root_dir: &Path,
+    session_id: &str,
+    entries: &[PersistedTurnEntry],
+) -> Result<()> {
+    let dir = root_dir.join(session_id);
+    fs::create_dir_all(&dir)?;
+    let path = dir.join(LIVE_LOG_FILE);
+    let tmp_path = dir.join("live.jsonl.tmp");
+    let mut data = Vec::new();
+    for entry in entries {
+        serde_json::to_writer(&mut data, entry)?;
+        data.push(b'\n');
+    }
+    fs::write(&tmp_path, data).with_context(|| format!("write live log {}", tmp_path.display()))?;
+    crate::atomic_file::replace_file(&tmp_path, &path)
+        .with_context(|| format!("replace live log {}", path.display()))
+}
+
 /// Remove the live log so resume doesn't load a stale partial turn.
-pub fn clear_live_log(root_dir: &Path, session_id: &str) {
+pub fn clear_live_log(root_dir: &Path, session_id: &str) -> Result<()> {
     let path = root_dir.join(session_id).join(LIVE_LOG_FILE);
-    if let Err(e) = fs::remove_file(&path)
-        && e.kind() != std::io::ErrorKind::NotFound
-    {
-        log::error!(
-            "failed to clear live log for session {session_id}: {e} (path: {})",
-            path.display()
-        );
+    match fs::remove_file(&path) {
+        Ok(()) => Ok(()),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(e) => Err(e).with_context(|| format!("clear live log {}", path.display())),
     }
 }
 

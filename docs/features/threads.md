@@ -100,6 +100,11 @@ Current backend slice:
 - Committed TUI turns are appended to per-session `turns.jsonl` through
   `ThreadRecorder`; `ThreadStore` prefers that log and only falls back to
   `StateDb` turn rows for older sessions.
+- In-progress TUI turns are written entry-by-entry to per-session `live.jsonl`.
+  The TUI clears that live log immediately after committing a full turn to
+  `turns.jsonl`; resume loads any remaining live entries back into the active
+  turn so an interrupted process can recover partial transcript output without
+  treating it as a committed turn.
 - Runtime compaction writes also go through `ThreadRecorder`, so manual/auto
   compaction and fork replay share the same structured rollout event boundary.
 - `export_thread_markdown(session_id) -> String` renders a portable markdown

@@ -10853,6 +10853,7 @@ dependencies = [
  "lance-index",
  "lancedb",
  "libc",
+ "log",
  "nix 0.31.3",
  "nom 8.0.0",
  "open",

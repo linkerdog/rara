@@ -7,7 +7,9 @@ use rara_state::state_db::{
 };
 use serde_json::json;
 
-use super::{InteractionKind, StateDb, TranscriptTurn, TuiApp, state_db_status_error};
+use super::{
+    InteractionKind, StateDb, TranscriptEntry, TranscriptTurn, TuiApp, state_db_status_error,
+};
 use crate::thread_store::{ThreadRecorder, ThreadRuntimeState, ThreadStore};
 
 const RESUME_PICKER_THREAD_LIMIT: usize = 200;
@@ -259,12 +261,12 @@ impl TuiApp {
         self.state_db_status = Some(state_db_status);
     }
 
-    pub(super) fn persist_turn(&mut self, ordinal: usize, turn: &TranscriptTurn) {
+    pub(super) fn persist_turn(&mut self, ordinal: usize, turn: &TranscriptTurn) -> bool {
         let Some(state_db) = self.state_db.as_ref() else {
-            return;
+            return true;
         };
         if self.snapshot.session_id.is_empty() {
-            return;
+            return true;
         }
         let recorder = ThreadRecorder::new(state_db);
         let entries = turn
@@ -278,13 +280,11 @@ impl TuiApp {
         if let Err(err) = recorder.persist_turn(&self.snapshot.session_id, ordinal, &entries) {
             self.state_db_status =
                 Some(state_db_status_error("turn write failed", err.to_string()));
+            return false;
         }
+        true
     }
 
-    /// Realtime per-entry write to the live log (Claude Code style).
-    /// Will be called from push_entry so resume can recover partial turns.
-    /// Reserved for restoring partial-turn resume recovery (docs/todo.md).
-    #[allow(dead_code)]
     pub(crate) fn record_entry_realtime(&self, entry: &PersistedTurnEntry) {
         let Some((root_dir, session_id)) = self.live_log_context() else {
             return;
@@ -294,18 +294,43 @@ impl TuiApp {
             &session_id,
             entry,
         ) {
-            eprintln!("live write failed: {e}");
+            log::warn!("live transcript write failed for session {session_id}: {e}");
         }
     }
 
-    /// Clear the live log after a turn is committed.
-    /// Reserved for restoring partial-turn resume recovery (docs/todo.md).
-    #[allow(dead_code)]
-    pub(crate) fn clear_live_log(&self) {
+    pub(crate) fn replace_live_log_entries(&self, entries: &[TranscriptEntry]) {
         let Some((root_dir, session_id)) = self.live_log_context() else {
             return;
         };
-        rara_persistence::thread_turn_log::clear_live_log(&root_dir, &session_id);
+        let entries = entries
+            .iter()
+            .map(|entry| PersistedTurnEntry {
+                role: entry.role.clone(),
+                message: entry.message.clone(),
+            })
+            .collect::<Vec<_>>();
+        if let Err(err) = rara_persistence::thread_turn_log::replace_live_entries(
+            &root_dir,
+            &session_id,
+            &entries,
+        ) {
+            log::warn!("live transcript rewrite failed for session {session_id}: {err}");
+        }
+    }
+
+    pub(crate) fn clear_live_log(&mut self) -> bool {
+        let Some((root_dir, session_id)) = self.live_log_context() else {
+            return true;
+        };
+        if let Err(err) = rara_persistence::thread_turn_log::clear_live_log(&root_dir, &session_id)
+        {
+            self.state_db_status = Some(state_db_status_error(
+                "live log clear failed",
+                err.to_string(),
+            ));
+            return false;
+        }
+        true
     }
 
     fn live_log_context(&self) -> Option<(PathBuf, String)> {

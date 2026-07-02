@@ -1,6 +1,7 @@
 use std::path::PathBuf;
 
 use rara_persistence::redaction::redact_secrets;
+use rara_state::state_db::PersistedTurnEntry;
 use ratatui::text::Line;
 
 use super::{
@@ -92,23 +93,32 @@ impl TuiApp {
         if role == "You" && !self.active_turn.entries.is_empty() {
             self.commit_active_turn();
         }
-        self.active_turn
-            .entries
-            .push(TranscriptEntry::new(role, message));
+        let entry = TranscriptEntry::new(role, message);
+        self.record_entry_realtime(&PersistedTurnEntry {
+            role: entry.role.clone(),
+            message: entry.message.clone(),
+        });
+        self.active_turn.entries.push(entry);
         self.reset_transcript_scroll_if_following_tail();
     }
 
     pub fn push_terminal_event(&mut self, event: TerminalEvent) {
-        self.active_turn
-            .entries
-            .push(TranscriptEntry::terminal_event(event));
+        let entry = TranscriptEntry::terminal_event(event);
+        self.record_entry_realtime(&PersistedTurnEntry {
+            role: entry.role.clone(),
+            message: entry.message.clone(),
+        });
+        self.active_turn.entries.push(entry);
         self.reset_transcript_scroll_if_following_tail();
     }
 
     pub fn push_system(&mut self, message: impl Into<String>, kind: SystemMessageKind) {
-        self.active_turn
-            .entries
-            .push(TranscriptEntry::system(message, kind));
+        let entry = TranscriptEntry::system(redact_secrets(message.into()), kind);
+        self.record_entry_realtime(&PersistedTurnEntry {
+            role: entry.role.clone(),
+            message: entry.message.clone(),
+        });
+        self.active_turn.entries.push(entry);
         self.reset_transcript_scroll_if_following_tail();
     }
 
@@ -198,6 +208,7 @@ impl TuiApp {
         }
 
         if Self::replace_current_agent_segment_message(&mut self.active_turn, message.clone()) {
+            self.replace_live_log_entries(&self.active_turn.entries);
             self.reset_transcript_scroll_if_following_tail();
             return;
         }
@@ -221,6 +232,7 @@ impl TuiApp {
     pub fn reset_transcript(&mut self) {
         self.committed_turns.clear();
         self.active_turn.entries.clear();
+        self.clear_live_log();
         self.invalidate_committed_render_cache();
         self.transcript_scroll = 0;
         self.agent_markdown_stream = None;
@@ -329,11 +341,17 @@ impl TuiApp {
             self.clear_active_live_sections();
             return;
         }
-        let mut turn = std::mem::take(&mut self.active_turn);
-        turn.thinking_duration = self.active_live.thinking_started_at.map(|s| s.elapsed());
+        self.active_turn.thinking_duration =
+            self.active_live.thinking_started_at.map(|s| s.elapsed());
         let ordinal = self.committed_turns.len();
-        self.persist_turn(ordinal, &turn);
+        let turn_to_persist = self.active_turn.clone();
+        if !self.persist_turn(ordinal, &turn_to_persist) {
+            self.clear_active_live_sections();
+            return;
+        }
+        let turn = std::mem::take(&mut self.active_turn);
         self.committed_turns.push(turn);
+        self.clear_live_log();
         self.invalidate_committed_render_cache();
         self.reset_transcript_scroll_if_following_tail();
         self.clear_active_live_sections();
@@ -346,6 +364,7 @@ impl TuiApp {
     pub fn restore_committed_turns(&mut self, turns: Vec<TranscriptTurn>) {
         self.committed_turns = turns;
         self.active_turn.entries.clear();
+        self.clear_live_log();
         self.invalidate_committed_render_cache();
         self.transcript_scroll = 0;
         self.agent_markdown_stream = None;
