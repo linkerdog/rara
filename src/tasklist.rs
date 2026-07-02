@@ -144,7 +144,7 @@ impl TaskListStore {
             anyhow::bail!("task file {} already exists", path.display());
         }
         let tmp_path = task_list_dir.join(format!(".{}.json.tmp-{}", task.id, Uuid::new_v4()));
-        {
+        let result = (|| {
             let mut file = fs::File::create(&tmp_path)
                 .with_context(|| format!("create temporary task file {}", tmp_path.display()))?;
             let content = serde_json::to_vec_pretty(task).context("serialize task")?;
@@ -152,11 +152,13 @@ impl TaskListStore {
                 .with_context(|| format!("write temporary task file {}", tmp_path.display()))?;
             file.sync_all()
                 .with_context(|| format!("sync temporary task file {}", tmp_path.display()))?;
-        }
-        if let Err(err) = atomic_file::replace_file(&tmp_path, &path) {
+            atomic_file::replace_file(&tmp_path, &path)
+                .with_context(|| format!("replace task file {}", path.display()))
+        })();
+        if result.is_err() {
             let _ = fs::remove_file(&tmp_path);
-            return Err(err).with_context(|| format!("replace task file {}", path.display()));
         }
+        result?;
         sync_parent_dir_best_effort(task_list_dir);
         Ok(())
     }
@@ -341,8 +343,13 @@ fn open_lock_file(task_list_dir: &Path) -> Result<fs::File> {
 }
 
 fn sync_parent_dir_best_effort(path: &Path) {
-    if let Ok(dir) = fs::File::open(path) {
-        let _ = dir.sync_all();
+    if let Ok(dir) = fs::File::open(path)
+        && let Err(err) = dir.sync_all()
+    {
+        log::warn!(
+            "Failed to sync task list directory {}: {err}",
+            path.display()
+        );
     }
 }
 

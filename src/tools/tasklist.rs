@@ -99,18 +99,22 @@ impl Tool for TaskCreateTool {
         let description = normalize_required_text(&input.description, "description")?;
         let active_form = normalize_optional_text(input.active_form.as_deref());
         let task_list_id = input.task_list_id().to_string();
-        let task = self
-            .store
-            .create_task(
+        let store = self.store.clone();
+        let metadata = input.metadata.into_iter().collect();
+        let task = tokio::task::spawn_blocking(move || {
+            store.create_task(
                 &task_list_id,
                 NewTaskRecord {
                     subject,
                     description,
                     active_form,
-                    metadata: input.metadata.into_iter().collect(),
+                    metadata,
                 },
             )
-            .map_err(|err| ToolError::ExecutionFailed(err.to_string()))?;
+        })
+        .await
+        .map_err(|err| ToolError::ExecutionFailed(format!("spawn task_create worker: {err}")))?
+        .map_err(|err| ToolError::ExecutionFailed(err.to_string()))?;
 
         Ok(serde_json::json!({
             "task": {
@@ -226,6 +230,8 @@ impl TaskGetInput {
 }
 
 fn parse_task_create_input(input: Value) -> Result<TaskCreateInput, ToolError> {
+    reject_alias_conflict(&input, "activeForm", "active_form")?;
+    reject_alias_conflict(&input, "taskListId", "task_list_id")?;
     serde_json::from_value(input).map_err(|err| ToolError::InvalidInput(err.to_string()))
 }
 
@@ -253,6 +259,18 @@ fn normalize_optional_text(value: Option<&str>) -> Option<String> {
         .map(str::trim)
         .filter(|value| !value.is_empty())
         .map(str::to_string)
+}
+
+fn reject_alias_conflict(input: &Value, left: &str, right: &str) -> Result<(), ToolError> {
+    let Some(object) = input.as_object() else {
+        return Ok(());
+    };
+    if object.contains_key(left) && object.contains_key(right) {
+        return Err(ToolError::InvalidInput(format!(
+            "task_create accepts either {left} or {right}, not both"
+        )));
+    }
+    Ok(())
 }
 
 fn empty_object_for_null(input: Value) -> Value {
@@ -308,7 +326,8 @@ mod tests {
 
     #[tokio::test]
     async fn task_create_rejects_empty_required_fields() {
-        let tool = tool_create();
+        let temp = tempdir().expect("tempdir");
+        let tool = tool_create(temp.path());
 
         let subject_err = tool
             .call(json!({
@@ -330,6 +349,42 @@ mod tests {
             description_err
                 .to_string()
                 .contains("non-empty description")
+        );
+    }
+
+    #[tokio::test]
+    async fn task_create_rejects_alias_conflicts() {
+        let temp = tempdir().expect("tempdir");
+        let tool = tool_create(temp.path());
+
+        let active_form_err = tool
+            .call(json!({
+                "subject": "Implement task_create",
+                "description": "Create shared task files.",
+                "activeForm": "Implementing task_create",
+                "active_form": "Implementing task_create"
+            }))
+            .await
+            .expect_err("mixed activeForm aliases should fail");
+        let task_list_id_err = tool
+            .call(json!({
+                "subject": "Implement task_create",
+                "description": "Create shared task files.",
+                "taskListId": "default",
+                "task_list_id": "default"
+            }))
+            .await
+            .expect_err("mixed task list aliases should fail");
+
+        assert!(
+            active_form_err
+                .to_string()
+                .contains("either activeForm or active_form")
+        );
+        assert!(
+            task_list_id_err
+                .to_string()
+                .contains("either taskListId or task_list_id")
         );
     }
 
@@ -409,7 +464,8 @@ mod tests {
 
     #[test]
     fn task_tool_schemas_are_strict() {
-        let task_create_schema = TaskCreateTool::input_schema(&tool_create());
+        let temp = tempdir().expect("tempdir");
+        let task_create_schema = TaskCreateTool::input_schema(&tool_create(temp.path()));
         let task_list_schema = TaskListTool::input_schema(&tool_list());
         let task_get_schema = TaskGetTool::input_schema(&tool_get());
 
@@ -457,10 +513,9 @@ mod tests {
         }
     }
 
-    fn tool_create() -> TaskCreateTool {
-        let temp = tempdir().expect("tempdir");
+    fn tool_create(path: &std::path::Path) -> TaskCreateTool {
         TaskCreateTool {
-            store: Arc::new(TaskListStore::new(temp.path())),
+            store: Arc::new(TaskListStore::new(path)),
         }
     }
 

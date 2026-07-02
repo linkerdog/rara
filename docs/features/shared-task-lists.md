@@ -28,13 +28,14 @@ The shared task store is a file-backed workspace artifact:
 ```
 
 `task_list_id` is sanitized to an ASCII path segment and defaults to `default`. Each task is one JSON file so later write-side tools can update individual tasks without rewriting a whole task list. `task_create` holds a per-task-list `.lock` file while assigning the next numeric task id and atomically writing the new task file.
+Because task creation performs blocking file I/O and file locking, the async tool wrapper must run the store write on a blocking worker instead of directly on the Tokio executor.
 
 `task_id` is treated as an identifier, not a path. Read tools reject empty task IDs, absolute paths, directory separators, and parent-directory traversal fragments before joining with the task-list directory.
 Task-list reads do not follow symlinks: task-list IDs must resolve to real directories, task files must be real files, and each task JSON `id` must match the `<task_id>.json` filename.
 
 The runtime registers one shared `TaskListStore` during tool manager construction and passes it to both read tools. Missing task-list directories are valid and return an empty list.
 
-Tool schemas expose both RARA snake_case `task_list_id` and Claude-compatible camelCase `taskListId`. Callers should send only one of the two names.
+Tool schemas expose both RARA snake_case `task_list_id` and Claude-compatible camelCase `taskListId`. Callers should send only one of the two names. `task_create` also exposes both `activeForm` and `active_form`; sending both aliases in the same call is invalid.
 
 ## Contracts
 
