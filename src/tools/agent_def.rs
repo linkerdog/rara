@@ -2,10 +2,12 @@
 #[serde(rename_all = "camelCase")]
 pub struct AgentDefinition {
     /// Canonical name (also the file stem).
+    #[serde(default)]
     pub name: String,
     /// Short description for /agents listing.
     /// Reserved for the future /agents listing surface
     /// (docs/features/subagent-claude-compat.md).
+    #[serde(default)]
     #[allow(dead_code)]
     pub description: String,
     /// Allowed tools (Claude Code display names). Empty = all tools.
@@ -50,35 +52,94 @@ pub struct AgentDefinition {
 /// Loaded agent definition registry.
 pub type AgentRegistry = HashMap<String, AgentDefinition>;
 
-/// Load agent definitions from `.claude/agents/**/*.md`.
+#[derive(Clone, Debug)]
+pub struct AgentDefinitionLoadRecord {
+    pub id: String,
+    pub source_path: PathBuf,
+    pub definition: Option<AgentDefinition>,
+    pub error: Option<String>,
+}
+
+/// Load Claude-compatible agent definitions from RARA and compatibility roots.
 ///
 /// Each .md file must contain a YAML frontmatter block delimited by `---`.
 /// The body after the closing `---` becomes `AgentDefinition::system_prompt`.
 ///
 /// Built-in agents (general/explore/plan) are always available and do not
-/// require a .claude/agents/ file.  Custom definitions can override built-in
-/// names or define net new agents.
-/// Load agent definitions from `.claude/agents/` in the workspace root
-/// and `~/.claude/agents/*.md` (global config).  Workspace definitions
-/// take precedence when names collide.
+/// require an agent definition file. Custom definitions can override built-in
+/// names or define net new agents. RARA-native `.rara/agents` roots take
+/// precedence over legacy Claude `.claude/agents` compatibility roots.
 pub fn load_agent_definitions(workspace_root: &Path) -> AgentRegistry {
     let mut registry = AgentRegistry::new();
 
-    // 1. Home-directory agents (lower precedence)
-    if let Some(home) = std::env::var_os("HOME").map(PathBuf::from) {
-        scan_agents_dir(&home.join(".claude").join("agents"), &mut registry);
+    for record in discover_agent_definition_records(workspace_root) {
+        match record.definition {
+            Some(definition) => {
+                registry.insert(definition.name.clone(), definition);
+            }
+            None => {
+                log::warn!(
+                    "failed to load agent definition {}: {}",
+                    record.source_path.display(),
+                    record.error.unwrap_or_else(|| "parse error".to_string())
+                );
+            }
+        }
     }
-
-    // 2. Workspace agents (higher precedence — overwrites home)
-    scan_agents_dir(
-        &workspace_root.join(".claude").join("agents"),
-        &mut registry,
-    );
 
     registry
 }
 
-fn scan_agents_dir(agents_dir: &Path, registry: &mut AgentRegistry) {
+pub fn discover_agent_definition_records(workspace_root: &Path) -> Vec<AgentDefinitionLoadRecord> {
+    let mut records = Vec::new();
+    for dir in agent_definition_dirs(workspace_root) {
+        scan_agent_records_dir(&dir, &mut records);
+    }
+    records
+}
+
+pub fn discover_workspace_agent_definition_records(
+    workspace_root: &Path,
+) -> Vec<AgentDefinitionLoadRecord> {
+    let mut records = Vec::new();
+    for dir in workspace_agent_definition_dirs(workspace_root) {
+        scan_agent_records_dir(&dir, &mut records);
+    }
+    records
+}
+
+fn agent_definition_dirs(workspace_root: &Path) -> Vec<PathBuf> {
+    let mut dirs = Vec::new();
+    if let Some(home) = home_dir_from_env() {
+        dirs.extend(agent_definition_dirs_for_root(&home));
+    }
+    dirs.extend(workspace_agent_definition_dirs(workspace_root));
+    dirs
+}
+
+fn home_dir_from_env() -> Option<PathBuf> {
+    home_dir_from_vars(std::env::var_os("HOME"), std::env::var_os("USERPROFILE"))
+}
+
+pub(super) fn home_dir_from_vars(
+    home: Option<std::ffi::OsString>,
+    userprofile: Option<std::ffi::OsString>,
+) -> Option<PathBuf> {
+    home.or(userprofile).map(PathBuf::from)
+}
+
+fn workspace_agent_definition_dirs(workspace_root: &Path) -> Vec<PathBuf> {
+    agent_definition_dirs_for_root(workspace_root)
+}
+
+fn agent_definition_dirs_for_root(root: &Path) -> Vec<PathBuf> {
+    vec![
+        root.join(".claude").join("agents"),
+        root.join(".rara").join("agents"),
+    ]
+}
+
+fn scan_agent_records_dir(agents_dir: &Path, records: &mut Vec<AgentDefinitionLoadRecord>) {
     if !agents_dir.exists() || !agents_dir.is_dir() {
         return;
     }
@@ -97,28 +158,59 @@ fn scan_agents_dir(agents_dir: &Path, registry: &mut AgentRegistry) {
             continue;
         }
 
-        let content = match std::fs::read_to_string(path) {
-            Ok(c) => c,
-            Err(_) => continue,
-        };
-
-        let name = path
+        let id = path
             .file_stem()
             .and_then(|s| s.to_str())
             .unwrap_or("")
             .to_string();
-        if name.is_empty() {
+        if id.is_empty() {
+            continue;
+        }
+
+        let content = match std::fs::read_to_string(path) {
+            Ok(c) => c,
+            Err(err) => {
+                records.push(AgentDefinitionLoadRecord {
+                    id,
+                    source_path: path.to_path_buf(),
+                    definition: None,
+                    error: Some(format!("read error: {err}")),
+                });
+                continue;
+            }
+        };
+
+        if content.trim().is_empty() {
+            records.push(AgentDefinitionLoadRecord {
+                id,
+                source_path: path.to_path_buf(),
+                definition: None,
+                error: Some("empty file".to_string()),
+            });
             continue;
         }
 
         let (frontmatter, body) = split_frontmatter(&content);
-        let mut def: AgentDefinition = match serde_yaml::from_str(&frontmatter) {
+        let frontmatter_yaml = if frontmatter.trim().is_empty() {
+            "{}"
+        } else {
+            frontmatter.as_str()
+        };
+        let mut def: AgentDefinition = match serde_yaml::from_str(frontmatter_yaml) {
             Ok(d) => d,
-            Err(_) => continue,
+            Err(err) => {
+                records.push(AgentDefinitionLoadRecord {
+                    id,
+                    source_path: path.to_path_buf(),
+                    definition: None,
+                    error: Some(format!("frontmatter parse error: {err}")),
+                });
+                continue;
+            }
         };
 
         if def.name.is_empty() {
-            def.name = name.clone();
+            def.name = id.clone();
         }
 
         // disallowedTools > tools
@@ -127,7 +219,12 @@ fn scan_agents_dir(agents_dir: &Path, registry: &mut AgentRegistry) {
         }
 
         def.system_prompt = body.trim().to_string();
-        registry.insert(def.name.clone(), def);
+        records.push(AgentDefinitionLoadRecord {
+            id,
+            source_path: path.to_path_buf(),
+            definition: Some(def),
+            error: None,
+        });
     }
 }
 
