@@ -1,3 +1,4 @@
+use std::path::PathBuf;
 use std::sync::{
     Arc,
     atomic::{AtomicUsize, Ordering},
@@ -26,6 +27,7 @@ use crate::llm::{ContentBlock, EmbeddingBackend, LlmBackend, LlmResponse, MockLl
 use crate::prompt::PromptRuntimeConfig;
 use crate::session::SessionManager;
 use crate::session_transcript::{load_transcript, model_visible_messages};
+use crate::tasklist::{DEFAULT_TASK_LIST_ID, TaskListStore};
 use crate::thread_store::{ThreadMetadataSource, ThreadStore};
 use crate::tools::agent::{
     AgentTool, ExploreAgentTool, PlanAgentTool, SubAgentResumeTool, SubAgentStopTool,
@@ -48,6 +50,18 @@ struct SlowBackend;
 
 fn mock_embedding_backend() -> Arc<dyn EmbeddingBackend> {
     Arc::new(MockLlm)
+}
+
+fn test_task_root() -> PathBuf {
+    std::env::temp_dir().join(format!("rara-agent-test-{}", uuid::Uuid::new_v4()))
+}
+
+fn test_task_store() -> Arc<TaskListStore> {
+    Arc::new(TaskListStore::new(test_task_root()))
+}
+
+fn test_task_list_id() -> String {
+    DEFAULT_TASK_LIST_ID.to_string()
 }
 
 fn record_peak(current: usize, peak: &AtomicUsize) {
@@ -180,12 +194,16 @@ impl LlmBackend for SlowBackend {
 
 #[test]
 fn read_only_subagent_manager_excludes_mutating_and_agent_tools() {
-    let manager = build_read_only_tool_manager();
+    let manager = build_read_only_tool_manager(test_task_store(), DEFAULT_TASK_LIST_ID);
     assert!(manager.get_tool("read_file").is_some());
     assert!(manager.get_tool("list_files").is_some());
     assert!(manager.get_tool("glob").is_some());
     assert!(manager.get_tool("grep").is_some());
     assert!(manager.get_tool("search_files").is_none());
+    assert!(manager.get_tool("task_list").is_some());
+    assert!(manager.get_tool("task_get").is_some());
+    assert!(manager.get_tool("task_create").is_none());
+    assert!(manager.get_tool("task_update").is_none());
     assert!(manager.get_tool("write_file").is_none());
     assert!(manager.get_tool("apply_patch").is_none());
     assert!(manager.get_tool("bash").is_none());
@@ -204,11 +222,19 @@ fn read_only_subagent_manager_excludes_mutating_and_agent_tools() {
 
 #[test]
 fn general_subagent_manager_does_not_expose_recursive_agent_tools() {
-    let manager = build_subagent_tool_manager(SubAgentKind::General);
+    let manager = build_subagent_tool_manager(
+        SubAgentKind::General,
+        test_task_root(),
+        DEFAULT_TASK_LIST_ID,
+    );
     assert!(manager.get_tool("spawn_agent").is_none());
     assert!(manager.get_tool("explore_agent").is_none());
     assert!(manager.get_tool("plan_agent").is_none());
     assert!(manager.get_tool("team_create").is_none());
+    assert!(manager.get_tool("task_list").is_some());
+    assert!(manager.get_tool("task_get").is_some());
+    assert!(manager.get_tool("task_create").is_some());
+    assert!(manager.get_tool("task_update").is_some());
     assert!(manager.get_tool("bash").is_none());
     assert!(manager.get_tool("pty_start").is_none());
 }
@@ -236,11 +262,12 @@ fn subagent_prompt_requires_instruction_constraints_and_workspace_boundary() {
 }
 
 #[test]
-fn general_subagent_prompt_declares_no_tool_access() {
+fn general_subagent_prompt_declares_shared_task_worker_access() {
     let prompt = SubAgentKind::General.append_prompt();
 
-    assert!(prompt.contains("no-tool reasoning sub-agent"));
+    assert!(prompt.contains("shared-task worker sub-agent"));
     assert!(prompt.contains("do not have repository, shell, editing, patching, or browser tools"));
+    assert!(prompt.contains("shared task-list tools"));
     assert!(prompt.contains("answer only from the provided instruction/context"));
 }
 
@@ -313,6 +340,7 @@ async fn team_create_runs_real_subagents_in_order() {
         ),
         workspace: Arc::new(WorkspaceMemory::from_paths(root, rara_dir)),
         prompt_config: PromptRuntimeConfig::default(),
+        task_list_id: test_task_list_id(),
     };
 
     let result = tool
@@ -366,6 +394,7 @@ async fn team_create_validates_all_tasks_before_running_subagents() {
         ),
         workspace: Arc::new(WorkspaceMemory::from_paths(root, rara_dir)),
         prompt_config: PromptRuntimeConfig::default(),
+        task_list_id: test_task_list_id(),
     };
 
     let err = tool
@@ -407,6 +436,7 @@ async fn team_create_rejects_non_string_kind_before_running_subagents() {
         ),
         workspace: Arc::new(WorkspaceMemory::from_paths(root, rara_dir)),
         prompt_config: PromptRuntimeConfig::default(),
+        task_list_id: test_task_list_id(),
     };
 
     let err = tool
@@ -447,6 +477,7 @@ async fn team_create_rejects_unstable_explicit_name_before_running_subagents() {
         ),
         workspace: Arc::new(WorkspaceMemory::from_paths(root, rara_dir)),
         prompt_config: PromptRuntimeConfig::default(),
+        task_list_id: test_task_list_id(),
     };
 
     let err = tool
@@ -486,6 +517,7 @@ async fn spawn_agent_rejects_name_that_normalizes_empty_before_running_subagent(
         ),
         workspace: Arc::new(WorkspaceMemory::from_paths(root, rara_dir)),
         prompt_config: PromptRuntimeConfig::default(),
+        task_list_id: test_task_list_id(),
         background_subagents: Arc::new(BackgroundSubAgentStore::default()),
     };
 
@@ -524,6 +556,7 @@ async fn team_create_limits_concurrent_subagents() {
         ),
         workspace: Arc::new(WorkspaceMemory::from_paths(root, rara_dir)),
         prompt_config: PromptRuntimeConfig::default(),
+        task_list_id: test_task_list_id(),
     };
     let tasks = (0..8)
         .map(|idx| json!({ "kind": "general", "instruction": format!("task {idx}") }))
@@ -559,6 +592,7 @@ async fn team_create_writes_parent_scoped_sidechain_transcripts() {
         ),
         workspace: Arc::new(WorkspaceMemory::from_paths(root, rara_dir.clone())),
         prompt_config: PromptRuntimeConfig::default(),
+        task_list_id: test_task_list_id(),
     };
 
     let mut progress = |_| {};
@@ -648,6 +682,7 @@ async fn spawn_agent_writes_parent_scoped_sidechain_transcript() {
         ),
         workspace: Arc::new(WorkspaceMemory::from_paths(root, rara_dir.clone())),
         prompt_config: PromptRuntimeConfig::default(),
+        task_list_id: test_task_list_id(),
         background_subagents: Arc::new(BackgroundSubAgentStore::default()),
     };
 
@@ -730,6 +765,7 @@ async fn background_subagent_resume_returns_completed_summary_without_inline_sid
         session_manager,
         workspace: Arc::new(WorkspaceMemory::from_paths(root, rara_dir.clone())),
         prompt_config: PromptRuntimeConfig::default(),
+        task_list_id: test_task_list_id(),
         background_subagents: background_subagents.clone(),
     };
     let resume = SubAgentResumeTool {
@@ -802,6 +838,7 @@ async fn background_subagent_stop_marks_running_task_cancelled() {
         ),
         workspace: Arc::new(WorkspaceMemory::from_paths(root, rara_dir)),
         prompt_config: PromptRuntimeConfig::default(),
+        task_list_id: test_task_list_id(),
         background_subagents: background_subagents.clone(),
     };
     let stop = SubAgentStopTool {
@@ -899,6 +936,7 @@ async fn background_plan_agent_resume_returns_plan_state() {
         ),
         workspace: Arc::new(WorkspaceMemory::from_paths(root, temp.path().join(".rara"))),
         prompt_config: PromptRuntimeConfig::default(),
+        task_list_id: test_task_list_id(),
         background_subagents: background_subagents.clone(),
     };
     let resume = SubAgentResumeTool {
@@ -956,6 +994,7 @@ async fn plan_agent_writes_parent_scoped_sidechain_transcript() {
         ),
         workspace: Arc::new(WorkspaceMemory::from_paths(root, rara_dir.clone())),
         prompt_config: PromptRuntimeConfig::default(),
+        task_list_id: test_task_list_id(),
         background_subagents: Arc::new(BackgroundSubAgentStore::default()),
     };
 
@@ -1032,6 +1071,7 @@ async fn subagent_without_parent_context_does_not_write_sidechain() {
         ),
         workspace: Arc::new(WorkspaceMemory::from_paths(root, rara_dir.clone())),
         prompt_config: PromptRuntimeConfig::default(),
+        task_list_id: test_task_list_id(),
         background_subagents: Arc::new(BackgroundSubAgentStore::default()),
     };
 
@@ -1076,6 +1116,7 @@ async fn subagent_returns_result_when_sidechain_persistence_fails() {
         ),
         workspace: Arc::new(WorkspaceMemory::from_paths(root, rara_dir)),
         prompt_config: PromptRuntimeConfig::default(),
+        task_list_id: test_task_list_id(),
         background_subagents: Arc::new(BackgroundSubAgentStore::default()),
     };
 
@@ -1121,6 +1162,7 @@ async fn team_create_rejects_too_many_tasks() {
         ),
         workspace: Arc::new(WorkspaceMemory::from_paths(root, rara_dir)),
         prompt_config: PromptRuntimeConfig::default(),
+        task_list_id: test_task_list_id(),
     };
 
     let tasks = (0..9)
@@ -1136,7 +1178,7 @@ async fn team_create_rejects_too_many_tasks() {
 
 #[test]
 fn tool_manager_retain_filters_tools_by_name() {
-    let mut manager = build_read_only_tool_manager();
+    let mut manager = build_read_only_tool_manager(test_task_store(), DEFAULT_TASK_LIST_ID);
     assert!(manager.get_tool("grep").is_some());
     assert!(manager.get_tool("glob").is_some());
     manager.retain(|name| name == "grep");
@@ -1159,11 +1201,42 @@ fn filtered_tool_manager_respects_tools_whitelist() {
         hidden: false,
         system_prompt: String::new(),
     };
-    let manager = build_filtered_tool_manager(SubAgentKind::Explore, &definition);
+    let manager = build_filtered_tool_manager(
+        SubAgentKind::Explore,
+        &definition,
+        test_task_root(),
+        DEFAULT_TASK_LIST_ID,
+    );
     assert!(manager.get_tool("grep").is_some());
     assert!(manager.get_tool("read_file").is_some());
     assert!(manager.get_tool("glob").is_none());
     assert!(manager.get_tool("list_files").is_none());
+}
+
+#[test]
+fn filtered_tool_manager_maps_task_tool_aliases() {
+    let definition = AgentDefinition {
+        token_budget: None,
+        name: "custom".into(),
+        description: "custom".into(),
+        tools: vec!["TaskList".into(), "TaskGet".into()],
+        disallowed_tools: vec![],
+        model: None,
+        max_turns: 0,
+        plan_mode_required: false,
+        permission_mode: None,
+        hidden: false,
+        system_prompt: String::new(),
+    };
+    let manager = build_filtered_tool_manager(
+        SubAgentKind::Explore,
+        &definition,
+        test_task_root(),
+        DEFAULT_TASK_LIST_ID,
+    );
+    assert!(manager.get_tool("task_list").is_some());
+    assert!(manager.get_tool("task_get").is_some());
+    assert!(manager.get_tool("read_file").is_none());
 }
 
 #[test]
@@ -1181,7 +1254,12 @@ fn filtered_tool_manager_respects_disallowed_tools_blacklist() {
         hidden: false,
         system_prompt: String::new(),
     };
-    let manager = build_filtered_tool_manager(SubAgentKind::Explore, &definition);
+    let manager = build_filtered_tool_manager(
+        SubAgentKind::Explore,
+        &definition,
+        test_task_root(),
+        DEFAULT_TASK_LIST_ID,
+    );
     assert!(manager.get_tool("read_file").is_some());
     assert!(manager.get_tool("list_files").is_some());
     assert!(manager.get_tool("grep").is_none());
@@ -1203,7 +1281,12 @@ fn filtered_tool_manager_disallowed_takes_precedence_over_tools() {
         hidden: false,
         system_prompt: String::new(),
     };
-    let manager = build_filtered_tool_manager(SubAgentKind::Explore, &definition);
+    let manager = build_filtered_tool_manager(
+        SubAgentKind::Explore,
+        &definition,
+        test_task_root(),
+        DEFAULT_TASK_LIST_ID,
+    );
     assert!(
         manager.get_tool("read_file").is_some(),
         "Read should be allowed"

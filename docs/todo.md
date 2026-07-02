@@ -47,7 +47,7 @@ Active backlog only. Keep this file small and current.
 - [x] Subagent token_budget field (PR #601)
 - [ ] Subagent restart/reconnect — built-in capability, not a separate tool
 - [x] Subagent context budget design — token_budget on AgentDefinition
-- [ ] Add shared TaskList/TaskGet runtime tools backed by a `.rara/tasks/<task_list_id>/`
+- [x] Add shared TaskList/TaskGet runtime tools backed by a `.rara/tasks/<task_list_id>/`
       task store so teams/subagents can coordinate beyond session-local `todo_write`.
 - [x] Unify `.rara/agents` parsing for execution and `/status` discovery so
       `AgentDefinition` and `ImportedAgentProfile` cannot drift.
@@ -67,11 +67,16 @@ Active backlog only. Keep this file small and current.
 - [x] Add `task_create` with file locking and atomic pending-task writes.
 - [x] Add `task_update` with field, status, metadata, dependency, and delete
       mutations under the task-list lock.
-- [ ] Add revision or timestamp based stale-read protection for `task_update`.
-- [ ] Add owner/claim semantics that reject conflicting concurrent claims.
-- [ ] Propagate task-list IDs through team and subagent runtime state so agents
+- [x] Add revision or timestamp based stale-read protection for `task_update`.
+- [x] Add owner/claim semantics that reject conflicting concurrent claims.
+- [x] Propagate task-list IDs through team and subagent runtime state so agents
       coordinate on the same shared task list without an explicit tool input.
-- [ ] Add shared task watcher/TUI surfaces after mutation semantics are stable.
+- [x] Add snapshot-backed shared task status and TUI surfaces after mutation
+      semantics are stable.
+- [ ] Add a live filesystem watcher for shared task files if cross-process task
+      changes need to update the TUI without a new runtime snapshot.
+- [ ] Add a user-facing command for switching the active shared task list during
+      a TUI session.
 
 ## Planning Control Plane
 

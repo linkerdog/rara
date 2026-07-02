@@ -3,10 +3,11 @@ use std::time::Duration;
 use super::*;
 use crate::context::{
     AssembledContext, AssembledTurnContext, ContextAssembler, RuntimeContextInputs,
-    RuntimeInteractionInput,
+    RuntimeInteractionInput, SharedTaskContextView,
 };
 use crate::prompt::{PromptSource, PromptSourceKind};
 use crate::protocol_sources::{PromptSourceRegistry, SkillSourceRegistry};
+use crate::tasklist::TaskListStore;
 use crate::tool_result::ToolResultProjectionPolicy;
 
 impl Agent {
@@ -66,6 +67,7 @@ impl Agent {
                 .collect(),
             plan_explanation: self.plan_explanation.clone(),
             todo_state: self.todo_state.clone(),
+            shared_tasks: self.shared_task_context_view(),
             compact_state: self.compact_state.clone(),
             history: &self.history,
             vdb_uri: self.vdb.uri(),
@@ -79,6 +81,20 @@ impl Agent {
             tool_result_projection_policy: self.tool_result_projection_policy(),
             tool_result_projection_report: self.last_tool_result_projection_report.clone(),
             agent_turn_trace: self.last_agent_turn_trace.clone(),
+        }
+    }
+
+    fn shared_task_context_view(&self) -> SharedTaskContextView {
+        let store = TaskListStore::new(self.workspace.rara_dir.join("tasks"));
+        match store.list_tasks(&self.task_list_id) {
+            Ok(tasks) => SharedTaskContextView::from_tasks(self.task_list_id.clone(), tasks),
+            Err(err) => {
+                log::warn!(
+                    "Failed to read shared task list '{}': {err}",
+                    self.task_list_id
+                );
+                SharedTaskContextView::from_error(self.task_list_id.clone(), err.to_string())
+            }
         }
     }
 

@@ -22,6 +22,7 @@ use crate::prompt::PromptRuntimeConfig;
 use crate::sandbox::SandboxManager;
 use crate::session::SessionManager;
 use crate::skill::SkillManager;
+use crate::tasklist::DEFAULT_TASK_LIST_ID;
 use crate::tasklist::TaskListStore;
 use crate::tools::agent::{
     AgentTool, BackgroundSubAgentStore, ExploreAgentTool, PlanAgentTool, SubAgentListTool,
@@ -75,6 +76,7 @@ pub(super) fn create_full_tool_manager(
         PtySessionStore::new(workspace.rara_dir.join("pty-sessions")).expect("pty session store"),
     );
     let task_list_store = Arc::new(TaskListStore::new(workspace.rara_dir.join("tasks")));
+    let task_list_id = DEFAULT_TASK_LIST_ID.to_string();
     let background_subagents = BACKGROUND_SUBAGENTS
         .get_or_init(|| Arc::new(BackgroundSubAgentStore::default()))
         .clone();
@@ -140,15 +142,19 @@ pub(super) fn create_full_tool_manager(
     tm.register(Box::new(TodoWriteTool));
     tm.register(Box::new(TaskCreateTool {
         store: task_list_store.clone(),
+        default_task_list_id: task_list_id.clone(),
     }));
     tm.register(Box::new(TaskListTool {
         store: task_list_store.clone(),
+        default_task_list_id: task_list_id.clone(),
     }));
     tm.register(Box::new(TaskUpdateTool {
         store: task_list_store.clone(),
+        default_task_list_id: task_list_id.clone(),
     }));
     tm.register(Box::new(TaskGetTool {
         store: task_list_store,
+        default_task_list_id: task_list_id.clone(),
     }));
     tm.register(Box::new(RememberExperienceTool {
         llm_backend: backend.clone(),
@@ -180,6 +186,7 @@ pub(super) fn create_full_tool_manager(
         workspace: workspace.clone(),
         prompt_config: prompt_config.clone(),
         background_subagents: background_subagents.clone(),
+        task_list_id: task_list_id.clone(),
     }));
     tm.register(Box::new(ExploreAgentTool {
         backend: backend.clone(),
@@ -189,6 +196,7 @@ pub(super) fn create_full_tool_manager(
         workspace: workspace.clone(),
         prompt_config: prompt_config.clone(),
         background_subagents: background_subagents.clone(),
+        task_list_id: task_list_id.clone(),
     }));
     tm.register(Box::new(PlanAgentTool {
         backend: backend.clone(),
@@ -198,6 +206,7 @@ pub(super) fn create_full_tool_manager(
         workspace: workspace.clone(),
         prompt_config: prompt_config.clone(),
         background_subagents: background_subagents.clone(),
+        task_list_id: task_list_id.clone(),
     }));
     tm.register(Box::new(TeamCreateTool {
         backend,
@@ -206,6 +215,7 @@ pub(super) fn create_full_tool_manager(
         session_manager,
         workspace,
         prompt_config,
+        task_list_id,
     }));
     tm.register(Box::new(SubAgentResumeTool {
         background_subagents: background_subagents.clone(),

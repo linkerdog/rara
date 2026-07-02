@@ -36,6 +36,6 @@ pub use self::runtime::{
     RETRIEVED_WORKSPACE_MEMORY_KIND, RetrievalBudgetContextView, RetrievalCandidate,
     RetrievalCandidateContextEntry, RetrievalContextView, RetrievalObservationView,
     RetrievalOrchestrationView, RetrievalProviderStatus, RetrievalSourceContextEntry,
-    RetrievalSourceRef, RetrievedMemoryCandidate, SharedRuntimeContext, TodoContextView,
-    is_retrieved_memory_kind,
+    RetrievalSourceRef, RetrievedMemoryCandidate, SharedRuntimeContext, SharedTaskContextItem,
+    SharedTaskContextView, TodoContextView, is_retrieved_memory_kind,
 };

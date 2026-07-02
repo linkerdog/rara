@@ -8,7 +8,9 @@ use super::{
     status_prompt_sources_text, status_resources_text, status_runtime_text,
 };
 use crate::config::{ConfigManager, OpenAiEndpointKind};
-use crate::context::{PromptSourceContextEntry, TodoContextView};
+use crate::context::{
+    PromptSourceContextEntry, SharedTaskContextItem, SharedTaskContextView, TodoContextView,
+};
 use crate::todo::TodoSummary;
 use crate::tui::state::{LocalCommandKind, RuntimeSnapshot, TuiApp};
 
@@ -643,6 +645,65 @@ fn status_runtime_text_reports_todo_summary() {
     assert!(rendered.contains(
         "todo=2 total, 1 pending, 1 in_progress, 0 completed, 0 cancelled, active=Running focused tests"
     ));
+}
+
+#[test]
+fn status_runtime_text_reports_shared_task_summary() {
+    let dir = tempdir().expect("tempdir");
+    let cm = ConfigManager {
+        path: dir.path().join("config.json"),
+    };
+    let mut app = TuiApp::new(cm).expect("app");
+    app.snapshot.shared_tasks = SharedTaskContextView {
+        task_list_id: "default".into(),
+        total: 3,
+        pending: 1,
+        in_progress: 1,
+        completed: 1,
+        unblocked: 2,
+        owned: 1,
+        items: Vec::new(),
+        error: None,
+    };
+
+    let rendered = status_runtime_text(&app);
+    assert!(rendered.contains(
+        "shared_tasks=list=default 3 total, 1 pending, 1 in_progress, 1 completed, 2 unblocked, 1 owned"
+    ));
+}
+
+#[test]
+fn status_context_text_reports_shared_task_items() {
+    let dir = tempdir().expect("tempdir");
+    let cm = ConfigManager {
+        path: dir.path().join("config.json"),
+    };
+    let mut app = TuiApp::new(cm).expect("app");
+    app.snapshot.shared_tasks = SharedTaskContextView {
+        task_list_id: "default".into(),
+        total: 1,
+        pending: 1,
+        in_progress: 0,
+        completed: 0,
+        unblocked: 1,
+        owned: 1,
+        items: vec![SharedTaskContextItem {
+            id: "1".into(),
+            subject: "Wire shared task status".into(),
+            status: "pending".into(),
+            revision: 7,
+            owner: Some("agent-a".into()),
+            blocked_by: Vec::new(),
+        }],
+        error: None,
+    };
+
+    let rendered = status_context_text(&app);
+    assert!(rendered.contains("Shared Tasks"));
+    assert!(rendered.contains("list: default"));
+    assert!(
+        rendered.contains("[pending] #1 rev=7 owner=agent-a blockedBy=- Wire shared task status")
+    );
 }
 
 #[test]

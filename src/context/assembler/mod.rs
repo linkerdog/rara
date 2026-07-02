@@ -10,7 +10,7 @@ use crate::context::{
     ContextCompactionObservationView, ContextObservabilityView, MicrocompactProjectionContextView,
     PlanContextView, PromptContextView, RetrievalCandidate, RetrievalContextView,
     RetrievalObservationView, RetrievalRequest, RetrievedMemoryCandidate, SharedRuntimeContext,
-    TodoContextView, retrieval_candidates,
+    SharedTaskContextView, TodoContextView, retrieval_candidates,
 };
 use crate::llm::{ContextBudget, LlmBackend};
 use crate::prompt::{self, EffectivePrompt, HookLifecycle, PromptMode, PromptRuntimeConfig};
@@ -44,6 +44,7 @@ pub struct RuntimeContextInputs<'a> {
     pub plan_steps: Vec<(PlanStepStatus, String)>,
     pub plan_explanation: Option<String>,
     pub todo_state: Option<TodoState>,
+    pub shared_tasks: SharedTaskContextView,
     pub compact_state: CompactState,
     pub history: &'a [Message],
     pub vdb_uri: &'a str,
@@ -301,6 +302,7 @@ impl<'a> ContextAssembler<'a> {
                 inputs.plan_explanation,
             ),
             todo: TodoContextView::from_state(inputs.todo_state),
+            shared_tasks: inputs.shared_tasks,
             compaction,
             retrieval,
             observability,
@@ -375,6 +377,7 @@ mod tests {
                 plan_steps: vec![(PlanStepStatus::Pending, "inspect bootstrap".to_string())],
                 plan_explanation: Some("Keep one assembly path.".to_string()),
                 todo_state: None,
+                shared_tasks: SharedTaskContextView::default(),
                 compact_state: crate::agent::CompactState {
                     estimated_history_tokens: 1234,
                     context_window_tokens: Some(8192),
@@ -471,6 +474,7 @@ mod tests {
                 plan_steps: vec![(PlanStepStatus::Pending, "inspect bootstrap".to_string())],
                 plan_explanation: Some("Keep one assembly path.".to_string()),
                 todo_state: None,
+                shared_tasks: SharedTaskContextView::default(),
                 compact_state: crate::agent::CompactState {
                     estimated_history_tokens: 1234,
                     context_window_tokens: Some(8192),
@@ -560,6 +564,7 @@ mod tests {
                 plan_steps: Vec::new(),
                 plan_explanation: None,
                 todo_state: None,
+                shared_tasks: SharedTaskContextView::default(),
                 compact_state: crate::agent::CompactState {
                     estimated_history_tokens: 1234,
                     context_window_tokens: Some(1_500),
@@ -642,6 +647,7 @@ mod tests {
                 plan_steps: Vec::new(),
                 plan_explanation: None,
                 todo_state: None,
+                shared_tasks: SharedTaskContextView::default(),
                 compact_state: crate::agent::CompactState {
                     context_window_tokens: Some(200_000),
                     compact_threshold_tokens: 190_000,
@@ -722,6 +728,7 @@ mod tests {
                 plan_steps: vec![(PlanStepStatus::Pending, "inspect bootstrap".to_string())],
                 plan_explanation: Some("Keep one assembly path.".to_string()),
                 todo_state: None,
+                shared_tasks: SharedTaskContextView::default(),
                 compact_state: crate::agent::CompactState {
                     context_window_tokens: Some(8_192),
                     compact_threshold_tokens: 7_000,

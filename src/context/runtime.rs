@@ -1,5 +1,6 @@
 use crate::agent::{CompactState, PlanStepStatus};
 use crate::prompt::{EffectivePrompt, PromptSource};
+use crate::tasklist::{TaskRecord, TaskStatus};
 use crate::todo::{TodoState, TodoSummary};
 use crate::tool_result::{ToolResultProjectionPolicy, ToolResultProjectionReport};
 
@@ -172,6 +173,91 @@ impl TodoContextView {
     }
 }
 
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct SharedTaskContextView {
+    pub task_list_id: String,
+    pub total: usize,
+    pub pending: usize,
+    pub in_progress: usize,
+    pub completed: usize,
+    pub unblocked: usize,
+    pub owned: usize,
+    pub items: Vec<SharedTaskContextItem>,
+    pub error: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SharedTaskContextItem {
+    pub id: String,
+    pub subject: String,
+    pub status: String,
+    pub revision: u64,
+    pub owner: Option<String>,
+    pub blocked_by: Vec<String>,
+}
+
+impl SharedTaskContextView {
+    pub fn from_tasks(task_list_id: String, tasks: Vec<TaskRecord>) -> Self {
+        let completed_ids = tasks
+            .iter()
+            .filter(|task| task.status == TaskStatus::Completed)
+            .map(|task| task.id.clone())
+            .collect::<std::collections::HashSet<_>>();
+        let mut view = Self {
+            task_list_id,
+            total: tasks.len(),
+            pending: 0,
+            in_progress: 0,
+            completed: 0,
+            unblocked: 0,
+            owned: 0,
+            items: Vec::new(),
+            error: None,
+        };
+        for task in tasks {
+            match task.status {
+                TaskStatus::Pending => view.pending += 1,
+                TaskStatus::InProgress => view.in_progress += 1,
+                TaskStatus::Completed => view.completed += 1,
+            }
+            if task.owner.is_some() {
+                view.owned += 1;
+            }
+            let active_blockers = task
+                .blocked_by
+                .iter()
+                .filter(|task_id| !completed_ids.contains(*task_id))
+                .cloned()
+                .collect::<Vec<_>>();
+            if task.status != TaskStatus::Completed && active_blockers.is_empty() {
+                view.unblocked += 1;
+            }
+            view.items.push(SharedTaskContextItem {
+                id: task.id,
+                subject: task.subject,
+                status: match task.status {
+                    TaskStatus::Pending => "pending",
+                    TaskStatus::InProgress => "in_progress",
+                    TaskStatus::Completed => "completed",
+                }
+                .to_string(),
+                revision: task.revision,
+                owner: task.owner,
+                blocked_by: active_blockers,
+            });
+        }
+        view
+    }
+
+    pub fn from_error(task_list_id: String, error: String) -> Self {
+        Self {
+            task_list_id,
+            error: Some(error),
+            ..Self::default()
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ContextBudgetView {
     pub context_window_tokens: Option<usize>,
@@ -283,6 +369,7 @@ pub struct SharedRuntimeContext {
     pub prompt: PromptContextView,
     pub plan: PlanContextView,
     pub todo: TodoContextView,
+    pub shared_tasks: SharedTaskContextView,
     pub compaction: CompactionContextView,
     pub retrieval: RetrievalContextView,
     pub observability: ContextObservabilityView,

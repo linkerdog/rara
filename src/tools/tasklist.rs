@@ -13,18 +13,22 @@ use crate::tasklist::{
 
 pub struct TaskCreateTool {
     pub store: Arc<TaskListStore>,
+    pub default_task_list_id: String,
 }
 
 pub struct TaskListTool {
     pub store: Arc<TaskListStore>,
+    pub default_task_list_id: String,
 }
 
 pub struct TaskUpdateTool {
     pub store: Arc<TaskListStore>,
+    pub default_task_list_id: String,
 }
 
 pub struct TaskGetTool {
     pub store: Arc<TaskListStore>,
+    pub default_task_list_id: String,
 }
 
 #[derive(Debug, Deserialize)]
@@ -60,6 +64,8 @@ struct TaskCreateInput {
 struct TaskUpdateInput {
     #[serde(alias = "taskId")]
     task_id: String,
+    #[serde(default, alias = "expectedRevision")]
+    expected_revision: Option<u64>,
     #[serde(default)]
     subject: Option<String>,
     #[serde(default)]
@@ -68,6 +74,10 @@ struct TaskUpdateInput {
     active_form: Option<String>,
     #[serde(default)]
     owner: Option<String>,
+    #[serde(default, alias = "claimOwner")]
+    claim_owner: Option<String>,
+    #[serde(default, alias = "releaseOwner")]
+    release_owner: Option<String>,
     #[serde(default)]
     status: Option<String>,
     #[serde(default, alias = "addBlocks")]
@@ -127,7 +137,7 @@ impl Tool for TaskCreateTool {
         let subject = normalize_required_text(&input.subject, "subject")?;
         let description = normalize_required_text(&input.description, "description")?;
         let active_form = normalize_optional_text(input.active_form.as_deref());
-        let task_list_id = input.task_list_id().to_string();
+        let task_list_id = input.task_list_id(&self.default_task_list_id).to_string();
         let store = self.store.clone();
         let metadata = input.metadata.into_iter().collect();
         let task = tokio::task::spawn_blocking(move || {
@@ -168,6 +178,16 @@ impl Tool for TaskCreateTool {
                 "type": "string",
                 "description": "Claude-compatible alias for task_id. Do not send together with task_id."
             },
+            "expectedRevision": {
+                "type": "integer",
+                "minimum": 1,
+                "description": "Task revision observed from task_get or task_list. If it no longer matches, the update returns success=false without writing."
+            },
+            "expected_revision": {
+                "type": "integer",
+                "minimum": 1,
+                "description": "RARA-compatible alias for expectedRevision."
+            },
             "subject": {
                 "type": "string",
                 "description": "New imperative task title."
@@ -187,6 +207,22 @@ impl Tool for TaskCreateTool {
             "owner": {
                 "type": "string",
                 "description": "New task owner. Send an empty string to clear the owner."
+            },
+            "claimOwner": {
+                "type": "string",
+                "description": "Claim the task for this owner only when it is currently unowned or already owned by the same value. Do not send with owner or releaseOwner."
+            },
+            "claim_owner": {
+                "type": "string",
+                "description": "RARA-compatible alias for claimOwner."
+            },
+            "releaseOwner": {
+                "type": "string",
+                "description": "Release the task only when the current owner matches this value. Do not send with owner or claimOwner."
+            },
+            "release_owner": {
+                "type": "string",
+                "description": "RARA-compatible alias for releaseOwner."
             },
             "status": {
                 "type": "string",
@@ -235,7 +271,7 @@ impl Tool for TaskUpdateTool {
                     .to_string(),
             ));
         }
-        let task_list_id = input.task_list_id().to_string();
+        let task_list_id = input.task_list_id(&self.default_task_list_id).to_string();
         let update = normalize_task_update(input)?;
         let store = self.store.clone();
         let outcome =
@@ -274,7 +310,7 @@ impl Tool for TaskListTool {
         let input = parse_task_list_input(input)?;
         let tasks = self
             .store
-            .list_tasks(input.task_list_id())
+            .list_tasks(input.task_list_id(&self.default_task_list_id))
             .map_err(|err| ToolError::ExecutionFailed(err.to_string()))?;
         Ok(serde_json::json!({ "tasks": task_list_entries(&tasks) }))
     }
@@ -317,7 +353,7 @@ impl Tool for TaskGetTool {
 
         let task = self
             .store
-            .get_task(input.task_list_id(), task_id)
+            .get_task(input.task_list_id(&self.default_task_list_id), task_id)
             .map_err(|err| ToolError::ExecutionFailed(err.to_string()))?
             .map(TaskDetails::from);
         Ok(serde_json::json!({ "task": task }))
@@ -325,42 +361,42 @@ impl Tool for TaskGetTool {
 }
 
 impl TaskListInput {
-    fn task_list_id(&self) -> &str {
+    fn task_list_id<'a>(&'a self, default_task_list_id: &'a str) -> &'a str {
         self.task_list_id
             .as_deref()
             .map(str::trim)
             .filter(|task_list_id| !task_list_id.is_empty())
-            .unwrap_or(DEFAULT_TASK_LIST_ID)
+            .unwrap_or(default_task_list_id)
     }
 }
 
 impl TaskCreateInput {
-    fn task_list_id(&self) -> &str {
+    fn task_list_id<'a>(&'a self, default_task_list_id: &'a str) -> &'a str {
         self.task_list_id
             .as_deref()
             .map(str::trim)
             .filter(|task_list_id| !task_list_id.is_empty())
-            .unwrap_or(DEFAULT_TASK_LIST_ID)
+            .unwrap_or(default_task_list_id)
     }
 }
 
 impl TaskUpdateInput {
-    fn task_list_id(&self) -> &str {
+    fn task_list_id<'a>(&'a self, default_task_list_id: &'a str) -> &'a str {
         self.task_list_id
             .as_deref()
             .map(str::trim)
             .filter(|task_list_id| !task_list_id.is_empty())
-            .unwrap_or(DEFAULT_TASK_LIST_ID)
+            .unwrap_or(default_task_list_id)
     }
 }
 
 impl TaskGetInput {
-    fn task_list_id(&self) -> &str {
+    fn task_list_id<'a>(&'a self, default_task_list_id: &'a str) -> &'a str {
         self.task_list_id
             .as_deref()
             .map(str::trim)
             .filter(|task_list_id| !task_list_id.is_empty())
-            .unwrap_or(DEFAULT_TASK_LIST_ID)
+            .unwrap_or(default_task_list_id)
     }
 }
 
@@ -372,7 +408,10 @@ fn parse_task_create_input(input: Value) -> Result<TaskCreateInput, ToolError> {
 
 fn parse_task_update_input(input: Value) -> Result<TaskUpdateInput, ToolError> {
     reject_alias_conflict(&input, "taskId", "task_id")?;
+    reject_alias_conflict(&input, "expectedRevision", "expected_revision")?;
     reject_alias_conflict(&input, "activeForm", "active_form")?;
+    reject_alias_conflict(&input, "claimOwner", "claim_owner")?;
+    reject_alias_conflict(&input, "releaseOwner", "release_owner")?;
     reject_alias_conflict(&input, "taskListId", "task_list_id")?;
     serde_json::from_value(input).map_err(|err| ToolError::InvalidInput(err.to_string()))
 }
@@ -404,6 +443,16 @@ fn normalize_optional_text(value: Option<&str>) -> Option<String> {
 }
 
 fn normalize_task_update(input: TaskUpdateInput) -> Result<TaskUpdate, ToolError> {
+    if input.owner.is_some() && (input.claim_owner.is_some() || input.release_owner.is_some()) {
+        return Err(ToolError::InvalidInput(
+            "task_update accepts owner or claimOwner/releaseOwner, not both".to_string(),
+        ));
+    }
+    if input.claim_owner.is_some() && input.release_owner.is_some() {
+        return Err(ToolError::InvalidInput(
+            "task_update accepts claimOwner or releaseOwner, not both".to_string(),
+        ));
+    }
     let status = match input.status.as_deref().map(str::trim) {
         None | Some("") => None,
         Some("pending") => Some(TaskStatus::Pending),
@@ -419,6 +468,7 @@ fn normalize_task_update(input: TaskUpdateInput) -> Result<TaskUpdate, ToolError
     let delete = input.status.as_deref().map(str::trim) == Some("deleted");
 
     Ok(TaskUpdate {
+        expected_revision: input.expected_revision,
         subject: normalize_optional_text(input.subject.as_deref()),
         description: normalize_optional_text(input.description.as_deref()),
         active_form: input
@@ -429,6 +479,8 @@ fn normalize_task_update(input: TaskUpdateInput) -> Result<TaskUpdate, ToolError
             .owner
             .as_deref()
             .map(|value| normalize_optional_text(Some(value))),
+        claim_owner: normalize_optional_text(input.claim_owner.as_deref()),
+        release_owner: normalize_optional_text(input.release_owner.as_deref()),
         status,
         metadata: input.metadata.into_iter().collect(),
         add_blocks: normalize_task_ids(input.add_blocks, "addBlocks")?,
@@ -488,6 +540,7 @@ mod tests {
         let temp = tempdir().expect("tempdir");
         let tool = TaskCreateTool {
             store: Arc::new(TaskListStore::new(temp.path())),
+            default_task_list_id: DEFAULT_TASK_LIST_ID.to_string(),
         };
 
         let output = tool
@@ -514,6 +567,35 @@ mod tests {
             Some("Implementing task_create")
         );
         assert_eq!(task.metadata["source"], "test");
+    }
+
+    #[tokio::test]
+    async fn task_create_uses_tool_default_task_list_id() {
+        let temp = tempdir().expect("tempdir");
+        let tool = TaskCreateTool {
+            store: Arc::new(TaskListStore::new(temp.path())),
+            default_task_list_id: "team-a".to_string(),
+        };
+
+        tool.call(json!({
+            "subject": "Create team task",
+            "description": "Create a task in the tool default list."
+        }))
+        .await
+        .expect("task_create should use default task list id");
+
+        assert!(
+            tool.store
+                .get_task("team-a", "1")
+                .expect("team task should load")
+                .is_some()
+        );
+        assert!(
+            tool.store
+                .get_task(DEFAULT_TASK_LIST_ID, "1")
+                .expect("default task lookup should work")
+                .is_none()
+        );
     }
 
     #[tokio::test]
@@ -614,6 +696,7 @@ mod tests {
         );
         assert_eq!(output["statusChange"]["from"], "pending");
         assert_eq!(output["statusChange"]["to"], "in_progress");
+        assert_eq!(output["revision"], 2);
 
         let task = tool
             .store
@@ -623,6 +706,83 @@ mod tests {
         assert_eq!(task.status, TaskStatus::InProgress);
         assert_eq!(task.owner.as_deref(), Some("agent-a"));
         assert_eq!(task.metadata["priority"], "high");
+    }
+
+    #[tokio::test]
+    async fn task_update_claims_owner_with_expected_revision() {
+        let temp = tempdir().expect("tempdir");
+        let tool = tool_update(temp.path());
+        tool.store
+            .create_task(
+                DEFAULT_TASK_LIST_ID,
+                NewTaskRecord {
+                    subject: "Claim through tool".to_string(),
+                    description: "Claim a shared task file.".to_string(),
+                    active_form: None,
+                    metadata: Default::default(),
+                },
+            )
+            .expect("task should be created");
+
+        let output = tool
+            .call(json!({
+                "task_id": "1",
+                "expectedRevision": 1,
+                "claimOwner": "agent-a"
+            }))
+            .await
+            .expect("task_update should claim task");
+
+        assert_eq!(output["success"], true);
+        assert_eq!(output["updatedFields"], json!(["owner"]));
+        assert_eq!(output["revision"], 2);
+        let task = tool
+            .store
+            .get_task(DEFAULT_TASK_LIST_ID, "1")
+            .expect("task should load")
+            .expect("task should exist");
+        assert_eq!(task.owner.as_deref(), Some("agent-a"));
+    }
+
+    #[tokio::test]
+    async fn task_update_reports_stale_expected_revision() {
+        let temp = tempdir().expect("tempdir");
+        let tool = tool_update(temp.path());
+        tool.store
+            .create_task(
+                DEFAULT_TASK_LIST_ID,
+                NewTaskRecord {
+                    subject: "Reject stale update".to_string(),
+                    description: "Reject a stale shared task update.".to_string(),
+                    active_form: None,
+                    metadata: Default::default(),
+                },
+            )
+            .expect("task should be created");
+        tool.store
+            .update_task(
+                DEFAULT_TASK_LIST_ID,
+                "1",
+                TaskUpdate {
+                    subject: Some("Current subject".to_string()),
+                    expected_revision: Some(1),
+                    ..TaskUpdate::default()
+                },
+            )
+            .expect("first update should work");
+
+        let output = tool
+            .call(json!({
+                "task_id": "1",
+                "expectedRevision": 1,
+                "subject": "Stale subject"
+            }))
+            .await
+            .expect("stale update should return outcome");
+
+        assert_eq!(output["success"], false);
+        assert_eq!(output["revision"], 2);
+        assert_eq!(output["error"], "Task revision mismatch");
     }
 
     #[tokio::test]
@@ -716,6 +876,7 @@ mod tests {
 
         let tool = TaskListTool {
             store: Arc::new(TaskListStore::new(temp.path())),
+            default_task_list_id: DEFAULT_TASK_LIST_ID.to_string(),
         };
         let output = tool.call(json!({})).await.expect("task_list should work");
 
@@ -744,6 +905,7 @@ mod tests {
 
         let tool = TaskGetTool {
             store: Arc::new(TaskListStore::new(temp.path())),
+            default_task_list_id: DEFAULT_TASK_LIST_ID.to_string(),
         };
         let output = tool
             .call(json!({ "task_id": "2" }))
@@ -798,6 +960,12 @@ mod tests {
         );
         assert!(task_update_schema["properties"].get("task_id").is_some());
         assert!(task_update_schema["properties"].get("taskId").is_some());
+        assert!(
+            task_update_schema["properties"]
+                .get("expectedRevision")
+                .is_some()
+        );
+        assert!(task_update_schema["properties"].get("claimOwner").is_some());
         assert_eq!(
             task_update_schema.get("oneOf"),
             Some(&json!([
@@ -836,6 +1004,7 @@ mod tests {
     fn tool_create(path: &std::path::Path) -> TaskCreateTool {
         TaskCreateTool {
             store: Arc::new(TaskListStore::new(path)),
+            default_task_list_id: DEFAULT_TASK_LIST_ID.to_string(),
         }
     }
 
@@ -843,12 +1012,14 @@ mod tests {
         let temp = tempdir().expect("tempdir");
         TaskListTool {
             store: Arc::new(TaskListStore::new(temp.path())),
+            default_task_list_id: DEFAULT_TASK_LIST_ID.to_string(),
         }
     }
 
     fn tool_update(path: &std::path::Path) -> TaskUpdateTool {
         TaskUpdateTool {
             store: Arc::new(TaskListStore::new(path)),
+            default_task_list_id: DEFAULT_TASK_LIST_ID.to_string(),
         }
     }
 
@@ -856,6 +1027,7 @@ mod tests {
         let temp = tempdir().expect("tempdir");
         TaskGetTool {
             store: Arc::new(TaskListStore::new(temp.path())),
+            default_task_list_id: DEFAULT_TASK_LIST_ID.to_string(),
         }
     }
 

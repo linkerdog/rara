@@ -6,7 +6,7 @@ use super::{
     push_plan_section, push_session_info,
 };
 use crate::config::ConfigManager;
-use crate::context::TodoContextView;
+use crate::context::{SharedTaskContextItem, SharedTaskContextView, TodoContextView};
 use crate::todo::TodoSummary;
 use crate::tui::state::{
     InteractionKind, PendingInteractionSnapshot, RuntimeSnapshot, TranscriptEntry, TranscriptTurn,
@@ -142,6 +142,58 @@ fn push_session_info_short_session_id_not_truncated() {
         .collect::<Vec<_>>()
         .join("\n");
     assert!(text.contains("abc"), "short id should appear as-is");
+}
+
+#[test]
+fn push_plan_section_falls_back_to_shared_tasks_when_local_todo_is_empty() {
+    let temp = tempdir().unwrap();
+    let mut app = TuiApp::new(ConfigManager {
+        path: temp.path().join("config.json"),
+    })
+    .expect("build tui app");
+    app.snapshot = RuntimeSnapshot {
+        shared_tasks: SharedTaskContextView {
+            task_list_id: "default".into(),
+            total: 3,
+            pending: 1,
+            in_progress: 1,
+            completed: 1,
+            unblocked: 2,
+            owned: 1,
+            items: vec![
+                SharedTaskContextItem {
+                    id: "task-a".into(),
+                    subject: "Claim next shared task".into(),
+                    status: "in_progress".into(),
+                    revision: 2,
+                    owner: Some("agent-a".into()),
+                    blocked_by: Vec::new(),
+                },
+                SharedTaskContextItem {
+                    id: "task-b".into(),
+                    subject: "Review shared task output".into(),
+                    status: "pending".into(),
+                    revision: 1,
+                    owner: None,
+                    blocked_by: Vec::new(),
+                },
+            ],
+            error: None,
+        },
+        ..RuntimeSnapshot::default()
+    };
+
+    let mut lines = Vec::new();
+    assert!(push_plan_section(&mut lines, &app));
+    let text: String = lines
+        .iter()
+        .map(|l| l.to_string())
+        .collect::<Vec<_>>()
+        .join("\n");
+    assert!(text.contains("Shared Tasks"));
+    assert!(text.contains("1/3 · 2 open · 2 ready"));
+    assert!(text.contains("[>] Claim next shared task"));
+    assert!(text.contains("[ ] Review shared task output"));
 }
 
 // ── push_model_badge ────────────────────────────────────────────────
