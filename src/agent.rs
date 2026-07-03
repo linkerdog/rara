@@ -186,6 +186,8 @@ pub struct Agent {
     pub aux_total_cache_miss_tokens: u32,
     pub tool_result_store: ToolResultStore,
     pub max_turns: Option<usize>,
+    pub token_budget: Option<u32>,
+    pub token_budget_exhausted: bool,
     pub execution_mode: AgentExecutionMode,
     pub bash_approval_mode: BashApprovalMode,
     pub full_access_mode: bool,
@@ -355,6 +357,8 @@ impl Agent {
             }),
             execution_mode: AgentExecutionMode::Execute,
             max_turns: None,
+            token_budget: None,
+            token_budget_exhausted: false,
             bash_approval_mode: BashApprovalMode::Always,
             full_access_mode: false,
             current_plan: Vec::new(),
@@ -880,6 +884,19 @@ impl Agent {
                     Some("max_turns_reached".to_string());
                 report(AgentEvent::Status(format!(
                     "Agent reached max-turns limit ({max})",
+                )));
+                break;
+            }
+            if let Some(budget) = self.token_budget
+                && self.total_model_tokens() >= budget
+            {
+                self.token_budget_exhausted = true;
+                self.last_agent_turn_trace.loop_outcome = Some("stopped".to_string());
+                self.last_agent_turn_trace.continuation_phase =
+                    Some("token_budget_exhausted".to_string());
+                report(AgentEvent::Status(format!(
+                    "Agent reached token budget ({}/{budget})",
+                    self.total_model_tokens()
                 )));
                 break;
             }

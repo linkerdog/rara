@@ -19,11 +19,12 @@ use super::{
     BackgroundSubAgentRecord, BackgroundSubAgentStore, SubAgentKind, SubagentProgress,
     TEAM_CREATE_CONCURRENCY_LIMIT, append_subagent_prompt, build_filtered_tool_manager,
     build_read_only_tool_manager, build_subagent_tool_manager, home_dir_from_vars,
-    latest_assistant_text_from_history, parse_agent_permission_mode, parse_team_task_kind,
-    resolve_kind_definition, resolve_spawn_agent_definition, validate_agent_id_label,
+    latest_assistant_text_from_history, parse_agent_permission_mode, parse_agent_token_budget,
+    parse_team_task_kind, resolve_kind_definition, resolve_spawn_agent_definition,
+    validate_agent_id_label,
 };
 use crate::agent::Message;
-use crate::llm::{ContentBlock, EmbeddingBackend, LlmBackend, LlmResponse, MockLlm};
+use crate::llm::{ContentBlock, EmbeddingBackend, LlmBackend, LlmResponse, MockLlm, TokenUsage};
 use crate::prompt::PromptRuntimeConfig;
 use crate::session::SessionManager;
 use crate::session_transcript::{load_transcript, model_visible_messages};
@@ -57,6 +58,10 @@ struct ObservedModelRequest {
 struct DefinitionRegressionBackend {
     calls: Arc<AtomicUsize>,
     observed: Arc<Mutex<Vec<ObservedModelRequest>>>,
+}
+
+struct BudgetedToolBackend {
+    calls: Arc<AtomicUsize>,
 }
 
 fn mock_embedding_backend() -> Arc<dyn EmbeddingBackend> {
@@ -231,6 +236,49 @@ impl LlmBackend for DefinitionRegressionBackend {
             stop_reason: Some("tool_use".to_string()),
             usage: None,
         })
+    }
+
+    async fn embed(&self, _text: &str) -> anyhow::Result<Vec<f32>> {
+        Ok(vec![0.0; 4])
+    }
+
+    async fn summarize(&self, _messages: &[Message], _instruction: &str) -> anyhow::Result<String> {
+        Ok("summary".to_string())
+    }
+}
+
+#[async_trait]
+impl LlmBackend for BudgetedToolBackend {
+    async fn ask(
+        &self,
+        _messages: &[Message],
+        _tools: &[serde_json::Value],
+    ) -> anyhow::Result<LlmResponse> {
+        let call = self.calls.fetch_add(1, Ordering::SeqCst);
+        if call == 0 {
+            Ok(LlmResponse {
+                content: vec![ContentBlock::ToolUse {
+                    id: "read-fixture".to_string(),
+                    name: "read_file".to_string(),
+                    input: json!({ "path": "fixture.txt" }),
+                }],
+                stop_reason: Some("tool_use".to_string()),
+                usage: Some(TokenUsage {
+                    input_tokens: 8,
+                    output_tokens: 7,
+                    cache_hit_tokens: 0,
+                    cache_miss_tokens: 0,
+                }),
+            })
+        } else {
+            Ok(LlmResponse {
+                content: vec![ContentBlock::Text {
+                    text: "second model turn should not run".to_string(),
+                }],
+                stop_reason: Some("end_turn".to_string()),
+                usage: Some(TokenUsage::default()),
+            })
+        }
     }
 
     async fn embed(&self, _text: &str) -> anyhow::Result<Vec<f32>> {
@@ -914,6 +962,94 @@ Custom reviewer prompt from workspace definition.
         tool_names,
         vec!["grep".to_string(), "read_file".to_string()]
     );
+}
+
+#[tokio::test]
+async fn spawn_agent_definition_token_budget_stops_after_budget_exhaustion() {
+    let temp = tempdir().expect("tempdir");
+    let root = temp.path().join("workspace");
+    let rara_dir = temp.path().join(".rara-runtime");
+    let agents_dir = root.join(".rara").join("agents");
+    std::fs::create_dir_all(&agents_dir).expect("agents dir");
+    std::fs::write(root.join("fixture.txt"), "fixture contents").expect("fixture file");
+    std::fs::write(
+        agents_dir.join("budget-reviewer.md"),
+        r#"---
+name: budget-reviewer
+description: Reviews with a token budget
+tools: [Read]
+tokenBudget: 10
+---
+
+Review with a small budget.
+"#,
+    )
+    .expect("agent definition");
+
+    let calls = Arc::new(AtomicUsize::new(0));
+    let tool = AgentTool {
+        backend: Arc::new(BudgetedToolBackend {
+            calls: calls.clone(),
+        }),
+        embedding_backend: mock_embedding_backend(),
+        vdb: Arc::new(VectorDB::new(
+            &rara_dir.join("lancedb").display().to_string(),
+        )),
+        session_manager: Arc::new(
+            SessionManager::new_for_rara_dir(rara_dir.clone()).expect("session manager"),
+        ),
+        workspace: Arc::new(WorkspaceMemory::from_paths(root.clone(), rara_dir.clone())),
+        prompt_config: PromptRuntimeConfig::default(),
+        task_list_id: test_task_list_id(),
+        background_subagents: Arc::new(BackgroundSubAgentStore::default()),
+        agent_definitions: test_agent_definition_cache(&root),
+    };
+
+    let mut progress = |_| {};
+    let result = tool
+        .call_with_context_events(
+            json!({
+                "name": "Budget Reviewer",
+                "instruction": "Inspect fixture.txt and report findings."
+            }),
+            ToolCallContext::default().with_session_id("parent-session"),
+            &mut progress,
+        )
+        .await
+        .expect("spawn_agent result");
+
+    assert_eq!(calls.load(Ordering::SeqCst), 1);
+    assert_eq!(result["status"], "budget_limited");
+    assert_eq!(result["token_budget"], 10);
+    assert_eq!(result["token_budget_exhausted"], true);
+    assert!(
+        result["summary"]
+            .as_str()
+            .expect("summary")
+            .contains("Token budget exhausted: 15 / 10 tokens")
+    );
+
+    let events =
+        thread_rollout_log::load_rollout_events(&rara_dir.join("rollouts"), "parent-session")
+            .expect("rollout events");
+    assert!(matches!(
+        events.as_slice(),
+        [PersistedStructuredRolloutEvent::SpawnAgent {
+            status,
+            token_budget: Some(10),
+            ..
+        }] if status == "budget_limited"
+    ));
+}
+
+#[test]
+fn agent_token_budget_rejects_invalid_values() {
+    let zero = parse_agent_token_budget(0).expect_err("zero should fail");
+    assert!(matches!(zero, ToolError::InvalidInput(message) if message.contains("positive")));
+
+    let oversized =
+        parse_agent_token_budget(i64::from(u32::MAX) + 1).expect_err("oversized should fail");
+    assert!(matches!(oversized, ToolError::InvalidInput(message) if message.contains("maximum")));
 }
 
 #[tokio::test]

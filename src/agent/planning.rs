@@ -158,6 +158,16 @@ impl Agent {
         };
     }
 
+    pub fn set_token_budget(&mut self, token_budget: Option<u32>) {
+        self.token_budget = token_budget;
+        self.token_budget_exhausted = false;
+    }
+
+    pub fn total_model_tokens(&self) -> u32 {
+        self.total_input_tokens
+            .saturating_add(self.total_output_tokens)
+    }
+
     pub fn execution_mode_label(&self) -> &'static str {
         match self.execution_mode {
             AgentExecutionMode::Execute => "execute",

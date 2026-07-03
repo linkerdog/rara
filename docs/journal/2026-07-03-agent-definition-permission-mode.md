@@ -44,4 +44,5 @@ git diff --check
 
 ## Follow-Ups
 
-- Implement `AgentDefinition.token_budget` enforcement.
+- `AgentDefinition.token_budget` enforcement landed in
+  `docs/journal/2026-07-03-agent-definition-token-budget.md`.

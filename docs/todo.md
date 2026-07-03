@@ -58,7 +58,7 @@ Active backlog only. Keep this file small and current.
       repo-local agent listing/status behavior.
 - [x] Apply Claude-compatible `AgentDefinition.permission_mode` to subagent
       execution policy.
-- [ ] Implement remaining Claude-compatible `AgentDefinition` execution
+- [x] Implement remaining Claude-compatible `AgentDefinition` execution
       metadata: `token_budget`.
 - [x] Add an end-to-end `spawn_agent` regression test proving custom
       `.rara/agents` definitions affect prompt body, tool filtering,

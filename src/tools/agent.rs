@@ -34,8 +34,11 @@ use crate::thread_store::{ThreadRecorder, ThreadRuntimeLineage, ThreadRuntimeSta
 use crate::tools::tasklist::{TaskCreateTool, TaskGetTool, TaskListTool, TaskUpdateTool};
 use crate::workspace::WorkspaceMemory;
 
+#[path = "agent_budget.rs"]
+mod agent_budget;
 #[path = "agent_permission.rs"]
 mod agent_permission;
+use agent_budget::{agent_token_budget, parse_agent_token_budget};
 use agent_permission::{agent_permission_mode, parse_agent_permission_mode};
 
 #[derive(Clone, Copy, Debug)]
@@ -395,6 +398,8 @@ impl AgentTool {
             "summary": result.summary,
             "cache_hit_tokens": result.total_cache_hit_tokens,
             "cache_miss_tokens": result.total_cache_miss_tokens,
+            "token_budget": result.token_budget,
+            "token_budget_exhausted": result.token_budget_exhausted,
             "persistence_error": result.persistence_error,
             "request_user_input": result
                 .request_user_input
@@ -1130,6 +1135,8 @@ pub(crate) struct SubAgentResult {
     pub(crate) total_output_tokens: u32,
     pub(crate) total_cache_hit_tokens: u32,
     pub(crate) total_cache_miss_tokens: u32,
+    pub(crate) token_budget: Option<u32>,
+    pub(crate) token_budget_exhausted: bool,
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -1154,6 +1161,7 @@ pub(crate) async fn run_sub_agent(
     agent_definitions: AgentDefinitionCache,
 ) -> Result<SubAgentResult, ToolError> {
     let permission_mode = agent_permission_mode(definition)?;
+    let token_budget = agent_token_budget(definition)?;
     let tool_manager = if let Some(def) = definition {
         build_filtered_tool_manager(kind, def, workspace.rara_dir.join("tasks"), &task_list_id)
     } else {
@@ -1185,6 +1193,7 @@ pub(crate) async fn run_sub_agent(
     });
     sub.set_bash_approval_mode(permission_mode.bash_approval_mode(plan_required));
     sub.set_full_access_mode(permission_mode.full_access_mode(plan_required));
+    sub.set_token_budget(token_budget);
     let role_prompt = subagent_role_prompt(kind, definition);
     let appended_prompt = match definition
         .map(|d| d.system_prompt.trim())
@@ -1224,8 +1233,18 @@ pub(crate) async fn run_sub_agent(
         })?
         .map_err(|e| ToolError::ExecutionFailed(e.to_string()))?;
 
-    let status = kind.result_status();
-    let summary = latest_assistant_text(&sub).unwrap_or_else(|| "Sub-agent finished.".to_string());
+    let status = if sub.token_budget_exhausted {
+        "budget_limited"
+    } else {
+        kind.result_status()
+    };
+    let mut summary =
+        latest_assistant_text(&sub).unwrap_or_else(|| "Sub-agent finished.".to_string());
+    if sub.token_budget_exhausted {
+        let budget = sub.token_budget.unwrap_or_default();
+        let used = sub.total_model_tokens();
+        summary = format!("Token budget exhausted: {used} / {budget} tokens. {summary}");
+    }
 
     let persistence_error = parent_session_id.and_then(|parent_session_id| {
         persist_subagent_edge(
@@ -1237,6 +1256,7 @@ pub(crate) async fn run_sub_agent(
             &sub,
             status,
             &summary,
+            token_budget,
         )
         .err()
         .map(|err| err.to_string())
@@ -1251,6 +1271,8 @@ pub(crate) async fn run_sub_agent(
         total_cache_miss_tokens: sub.total_cache_miss_tokens,
         status,
         summary,
+        token_budget,
+        token_budget_exhausted: sub.token_budget_exhausted,
         persistence_error,
         plan: (!sub.current_plan.is_empty()).then_some(sub.current_plan.clone()),
         plan_explanation: sub.plan_explanation.clone(),
@@ -1269,6 +1291,7 @@ fn persist_subagent_edge(
     sub: &Agent,
     status: &str,
     summary: &str,
+    token_budget: Option<u32>,
 ) -> anyhow::Result<()> {
     write_subagent_sidechain(session_manager, parent_session_id, agent_id, sub)?;
     persist_subagent_runtime_state(session_manager, workspace, parent_session_id, sub)?;
@@ -1280,6 +1303,7 @@ fn persist_subagent_edge(
         &sub.session_id,
         status,
         Some(summary),
+        token_budget,
     )
 }
 
@@ -1476,6 +1500,8 @@ fn serialize_team_result(name: &str, result: SubAgentResult) -> Value {
         "summary": result.summary,
         "cache_hit_tokens": result.total_cache_hit_tokens,
         "cache_miss_tokens": result.total_cache_miss_tokens,
+        "token_budget": result.token_budget,
+        "token_budget_exhausted": result.token_budget_exhausted,
         "persistence_error": result.persistence_error,
         "plan": result.plan.as_ref().map(|steps| serialize_plan_steps(steps)),
         "plan_explanation": result.plan_explanation,
