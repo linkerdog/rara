@@ -19,8 +19,8 @@ use super::{
     BackgroundSubAgentRecord, BackgroundSubAgentStore, SubAgentKind, SubagentProgress,
     TEAM_CREATE_CONCURRENCY_LIMIT, append_subagent_prompt, build_filtered_tool_manager,
     build_read_only_tool_manager, build_subagent_tool_manager, home_dir_from_vars,
-    latest_assistant_text_from_history, parse_team_task_kind, resolve_kind_definition,
-    resolve_spawn_agent_definition, validate_agent_id_label,
+    latest_assistant_text_from_history, parse_agent_permission_mode, parse_team_task_kind,
+    resolve_kind_definition, resolve_spawn_agent_definition, validate_agent_id_label,
 };
 use crate::agent::Message;
 use crate::llm::{ContentBlock, EmbeddingBackend, LlmBackend, LlmResponse, MockLlm};
@@ -1384,7 +1384,8 @@ fn filtered_tool_manager_respects_tools_whitelist() {
         &definition,
         test_task_root(),
         DEFAULT_TASK_LIST_ID,
-    );
+    )
+    .expect("filtered manager");
     assert!(manager.get_tool("grep").is_some());
     assert!(manager.get_tool("read_file").is_some());
     assert!(manager.get_tool("glob").is_none());
@@ -1411,7 +1412,8 @@ fn filtered_tool_manager_maps_task_tool_aliases() {
         &definition,
         test_task_root(),
         DEFAULT_TASK_LIST_ID,
-    );
+    )
+    .expect("filtered manager");
     assert!(manager.get_tool("task_list").is_some());
     assert!(manager.get_tool("task_get").is_some());
     assert!(manager.get_tool("read_file").is_none());
@@ -1437,7 +1439,8 @@ fn filtered_tool_manager_respects_disallowed_tools_blacklist() {
         &definition,
         test_task_root(),
         DEFAULT_TASK_LIST_ID,
-    );
+    )
+    .expect("filtered manager");
     assert!(manager.get_tool("read_file").is_some());
     assert!(manager.get_tool("list_files").is_some());
     assert!(manager.get_tool("grep").is_none());
@@ -1464,7 +1467,8 @@ fn filtered_tool_manager_disallowed_takes_precedence_over_tools() {
         &definition,
         test_task_root(),
         DEFAULT_TASK_LIST_ID,
-    );
+    )
+    .expect("filtered manager");
     assert!(
         manager.get_tool("read_file").is_some(),
         "Read should be allowed"
@@ -1472,6 +1476,119 @@ fn filtered_tool_manager_disallowed_takes_precedence_over_tools() {
     assert!(
         manager.get_tool("grep").is_none(),
         "Grep should be blocked by disallowed_tools"
+    );
+}
+
+#[test]
+fn filtered_tool_manager_permission_mode_plan_forces_read_only_tools() {
+    let definition = AgentDefinition {
+        token_budget: None,
+        name: "custom".into(),
+        description: "custom".into(),
+        tools: vec![],
+        disallowed_tools: vec![],
+        model: None,
+        max_turns: 0,
+        plan_mode_required: false,
+        permission_mode: Some("plan".into()),
+        hidden: false,
+        system_prompt: String::new(),
+    };
+
+    let manager = build_filtered_tool_manager(
+        SubAgentKind::General,
+        &definition,
+        test_task_root(),
+        DEFAULT_TASK_LIST_ID,
+    )
+    .expect("filtered manager");
+
+    assert!(manager.get_tool("read_file").is_some());
+    assert!(manager.get_tool("task_get").is_some());
+    assert!(manager.get_tool("task_create").is_none());
+    assert!(manager.get_tool("task_update").is_none());
+}
+
+#[test]
+fn filtered_tool_manager_rejects_unknown_permission_mode() {
+    let definition = AgentDefinition {
+        token_budget: None,
+        name: "custom".into(),
+        description: "custom".into(),
+        tools: vec![],
+        disallowed_tools: vec![],
+        model: None,
+        max_turns: 0,
+        plan_mode_required: false,
+        permission_mode: Some("surprise".into()),
+        hidden: false,
+        system_prompt: String::new(),
+    };
+
+    let err = match build_filtered_tool_manager(
+        SubAgentKind::General,
+        &definition,
+        test_task_root(),
+        DEFAULT_TASK_LIST_ID,
+    ) {
+        Ok(_) => panic!("invalid permission mode should fail"),
+        Err(err) => err,
+    };
+
+    assert!(
+        matches!(err, ToolError::InvalidInput(message) if message.contains("permissionMode")
+            && message.contains("readOnly")
+            && message.contains("fullAccess"))
+    );
+}
+
+#[test]
+fn agent_permission_mode_maps_runtime_permissions() {
+    assert_eq!(
+        parse_agent_permission_mode("acceptEdits")
+            .expect("acceptEdits")
+            .bash_approval_mode(false),
+        crate::agent::BashApprovalMode::Suggestion
+    );
+    assert!(
+        !parse_agent_permission_mode("acceptEdits")
+            .expect("acceptEdits")
+            .full_access_mode(false)
+    );
+
+    let plan = parse_agent_permission_mode("plan").expect("plan");
+    assert!(plan.requires_plan_mode());
+    assert_eq!(
+        plan.bash_approval_mode(true),
+        crate::agent::BashApprovalMode::Suggestion
+    );
+
+    let bypass = parse_agent_permission_mode("bypassPermissions").expect("bypass");
+    assert_eq!(
+        bypass.bash_approval_mode(false),
+        crate::agent::BashApprovalMode::Always
+    );
+    assert!(bypass.full_access_mode(false));
+    assert!(!bypass.full_access_mode(true));
+}
+
+#[test]
+fn agent_permission_mode_accepts_case_insensitive_aliases() {
+    assert!(
+        parse_agent_permission_mode("Plan")
+            .expect("Plan")
+            .requires_plan_mode()
+    );
+    assert!(
+        parse_agent_permission_mode("BYPASSPERMISSIONS")
+            .expect("BYPASSPERMISSIONS")
+            .full_access_mode(false)
+    );
+    assert_eq!(
+        parse_agent_permission_mode("acceptedits")
+            .expect("acceptedits")
+            .bash_approval_mode(false),
+        crate::agent::BashApprovalMode::Suggestion
     );
 }
 
