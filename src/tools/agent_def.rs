@@ -20,10 +20,7 @@ pub struct AgentDefinition {
     /// Max tool-calling turns. 0 = system default.
     #[serde(default)]
     pub max_turns: usize,
-    /// Reserved for per-agent context budgets.
-    /// Will be activated with subagent budget enforcement
-    /// (docs/features/subagent-claude-compat.md).
-    #[allow(dead_code)]
+    /// Positive token budget for spawned subagent execution.
     pub token_budget: Option<i64>,
     /// Claude-compatible permission mode override for spawned subagents.
     #[serde(default)]

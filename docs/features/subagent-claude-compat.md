@@ -116,6 +116,14 @@ are parsed ASCII case-insensitively:
 Invalid `permissionMode` values fail the `spawn_agent` request before creating
 a subagent.
 
+`tokenBudget` is an optional positive token budget for a spawned subagent. RARA
+counts model input and output tokens reported by the provider. Cache hit and
+miss counters remain visible in telemetry but are not added to the budget total.
+When a budgeted subagent reaches or exceeds its budget, RARA stops before
+starting another model turn, returns `status: "budget_limited"`, and persists
+the budget on the parent spawn-agent edge. Invalid non-positive or oversized
+values fail the `spawn_agent` request before creating a subagent.
+
 ### Subagent Execution Changes
 
 **Before** (current):

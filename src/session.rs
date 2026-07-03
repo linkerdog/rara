@@ -408,6 +408,7 @@ impl SessionManager {
         child_session_id: &str,
         status: &str,
         summary: Option<&str>,
+        token_budget: Option<u32>,
     ) -> Result<()> {
         self.append_rollout_event(
             session_id,
@@ -419,7 +420,7 @@ impl SessionManager {
                 child_session_id: child_session_id.to_string(),
                 status: status.to_string(),
                 summary: summary.map(str::to_string),
-                token_budget: None,
+                token_budget: token_budget.map(i64::from),
             },
         )?;
         Ok(())

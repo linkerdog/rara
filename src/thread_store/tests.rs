@@ -107,6 +107,7 @@ fn load_thread_aggregates_history_state_and_rollout_items() -> Result<()> {
         "child-session-1",
         "done",
         Some("Child completed."),
+        Some(4096),
     )?;
 
     let store = ThreadStore::new(&session_manager, &state_db);
@@ -117,6 +118,7 @@ fn load_thread_aggregates_history_state_and_rollout_items() -> Result<()> {
     assert_eq!(spawn_edges.len(), 1);
     assert_eq!(spawn_edges[0].agent_id, "worker-1");
     assert_eq!(spawn_edges[0].child_session_id, "child-session-1");
+    assert_eq!(spawn_edges[0].token_budget, Some(4096));
     assert_eq!(
         snapshot.provenance.metadata_source,
         ThreadMetadataSource::StateDb
