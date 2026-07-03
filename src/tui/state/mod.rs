@@ -205,6 +205,7 @@ impl TuiApp {
     pub fn new(cm: ConfigManager) -> anyhow::Result<Self> {
         let mut cfg = cm.load()?;
         cfg.apply_provider_environment_defaults();
+        crate::tui::theme::install_config(&cfg.tui.theme);
         let overlay = None;
         let startup_notice = startup_warning_for_config(&cfg);
         let provider_picker_idx = selected_provider_family_idx_for_config(&cfg);

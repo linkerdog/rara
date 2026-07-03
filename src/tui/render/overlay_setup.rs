@@ -11,7 +11,7 @@ use unicode_width::UnicodeWidthChar;
 use super::Frame;
 use crate::tui::render::bottom_pane::composer::editor_cursor_position;
 use crate::tui::state::{PermissionMode, ProviderFamily, TuiApp};
-use crate::tui::theme::*;
+use crate::tui::theme::{ThemeToken, theme_color};
 
 fn wrapped_text_height(text: &str, area_width: u16) -> u16 {
     let width = area_width.saturating_sub(2).max(1) as usize;
@@ -71,7 +71,7 @@ pub(super) fn render_permission_picker_modal(f: &mut Frame, app: &TuiApp, area: 
                     && idx == app.permission_picker_idx);
             let style = if idx == app.permission_picker_idx {
                 Style::default()
-                    .fg(TEXT_ACCENT)
+                    .fg(theme_color(ThemeToken::TextAccent))
                     .add_modifier(Modifier::BOLD)
             } else {
                 Style::default()
@@ -101,7 +101,12 @@ pub(super) fn render_permission_picker_modal(f: &mut Frame, app: &TuiApp, area: 
         .split(area);
     f.render_widget(
         Paragraph::new("Choose how RARA handles file edits, commands, and network access. Press Enter to apply the selected mode.")
-            .block(Block::default().style(Style::default().bg(UI_ELEMENT_BG)).padding(Padding::horizontal(1)).title(title)),
+            .block(
+                Block::default()
+                    .style(element_bg())
+                    .padding(Padding::horizontal(1))
+                    .title(title),
+            ),
         chunks[0],
     );
     f.render_widget(List::new(items), chunks[1]);
@@ -138,14 +143,14 @@ pub(super) fn render_base_url_editor_modal(
     let intro = Paragraph::new(intro_text)
         .block(
             Block::default()
-                .style(Style::default().bg(UI_ELEMENT_BG))
+                .style(element_bg())
                 .padding(Padding::horizontal(1))
                 .title(" Base URL "),
         )
         .wrap(Wrap { trim: false });
     let editor = Paragraph::new(app.base_url_input.as_str()).block(
         Block::default()
-            .style(Style::default().bg(UI_ELEMENT_BG))
+            .style(element_bg())
             .padding(Padding::horizontal(1))
             .title(" Value "),
     );
@@ -178,7 +183,7 @@ pub(super) fn render_skills_picker_modal(f: &mut Frame, app: &TuiApp, area: Rect
         Paragraph::new(intro)
             .block(
                 Block::default()
-                    .style(Style::default().bg(UI_ELEMENT_BG))
+                    .style(element_bg())
                     .padding(Padding::horizontal(1))
                     .title(title.as_str()),
             )
@@ -198,7 +203,7 @@ pub(super) fn render_skills_picker_modal(f: &mut Frame, app: &TuiApp, area: Rect
                 let check = if entry.enabled { "✔" } else { "✗" };
                 let style = if selected {
                     Style::default()
-                        .fg(TEXT_ACCENT)
+                        .fg(theme_color(ThemeToken::TextAccent))
                         .add_modifier(Modifier::BOLD)
                 } else {
                     Style::default()
@@ -262,14 +267,14 @@ pub(super) fn render_api_key_editor_modal(
     let intro = Paragraph::new(intro_text)
         .block(
             Block::default()
-                .style(Style::default().bg(UI_ELEMENT_BG))
+                .style(element_bg())
                 .padding(Padding::horizontal(1))
                 .title(title),
         )
         .wrap(Wrap { trim: false });
     let editor = Paragraph::new(app.api_key_input.as_str()).block(
         Block::default()
-            .style(Style::default().bg(UI_ELEMENT_BG))
+            .style(element_bg())
             .padding(Padding::horizontal(1))
             .title(" Value "),
     );
@@ -302,14 +307,14 @@ pub(super) fn render_model_name_editor_modal(
     let intro = Paragraph::new(intro_text)
         .block(
             Block::default()
-                .style(Style::default().bg(UI_ELEMENT_BG))
+                .style(element_bg())
                 .padding(Padding::horizontal(1))
                 .title(" Model Name "),
         )
         .wrap(Wrap { trim: false });
     let editor = Paragraph::new(app.model_name_input.as_str()).block(
         Block::default()
-            .style(Style::default().bg(UI_ELEMENT_BG))
+            .style(element_bg())
             .padding(Padding::horizontal(1))
             .title(" Value "),
     );
@@ -349,14 +354,14 @@ pub(super) fn render_openai_profile_label_editor_modal(
     let intro = Paragraph::new(intro_text)
         .block(
             Block::default()
-                .style(Style::default().bg(UI_ELEMENT_BG))
+                .style(element_bg())
                 .padding(Padding::horizontal(1))
                 .title(" New Endpoint Profile "),
         )
         .wrap(Wrap { trim: false });
     let editor = Paragraph::new(app.openai_profile_label_input.as_str()).block(
         Block::default()
-            .style(Style::default().bg(UI_ELEMENT_BG))
+            .style(element_bg())
             .padding(Padding::horizontal(1))
             .title(" Label "),
     );
@@ -369,4 +374,8 @@ pub(super) fn render_openai_profile_label_editor_modal(
         app.openai_profile_label_cursor_offset(),
         chunks[1],
     ))
+}
+
+fn element_bg() -> Style {
+    Style::default().bg(theme_color(ThemeToken::UiElementBg))
 }

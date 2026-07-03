@@ -10,7 +10,7 @@ use syntect::{
     parsing::SyntaxReference,
     util::LinesWithEndings,
 };
-use two_face::theme::EmbeddedThemeName;
+use two_face::theme::{EmbeddedLazyThemeSet, EmbeddedThemeName};
 
 static SYNTAX_SET: OnceLock<syntect::parsing::SyntaxSet> = OnceLock::new();
 static THEME: OnceLock<RwLock<Theme>> = OnceLock::new();
@@ -26,13 +26,37 @@ fn syntax_set() -> &'static syntect::parsing::SyntaxSet {
 }
 
 fn theme_lock() -> &'static RwLock<Theme> {
-    THEME.get_or_init(|| {
-        RwLock::new(
-            two_face::theme::extra()
-                .get(EmbeddedThemeName::CatppuccinMocha)
-                .clone(),
-        )
-    })
+    THEME.get_or_init(|| RwLock::new(default_syntax_theme()))
+}
+
+fn default_syntax_theme() -> Theme {
+    two_face::theme::extra()
+        .get(EmbeddedThemeName::CatppuccinMocha)
+        .clone()
+}
+
+pub(crate) fn install_syntax_theme(name: Option<&str>) {
+    let theme = name
+        .and_then(|name| {
+            let trimmed = name.trim();
+            if trimmed.is_empty() {
+                return None;
+            }
+            EmbeddedLazyThemeSet::theme_names()
+                .iter()
+                .copied()
+                .find(|candidate| candidate.as_name().eq_ignore_ascii_case(trimmed))
+                .map(|theme_name| two_face::theme::extra().get(theme_name).clone())
+                .or_else(|| {
+                    log::warn!("unknown syntax theme `{trimmed}`, using default syntax theme");
+                    None
+                })
+        })
+        .unwrap_or_else(default_syntax_theme);
+    match theme_lock().write() {
+        Ok(mut active) => *active = theme,
+        Err(poisoned) => *poisoned.into_inner() = theme,
+    }
 }
 
 fn current_syntax_theme() -> Theme {

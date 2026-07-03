@@ -190,6 +190,48 @@ impl SandboxWorkspaceWriteConfig {
     }
 }
 
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(default)]
+pub struct TuiConfig {
+    #[serde(default, skip_serializing_if = "TuiThemeConfig::is_default")]
+    pub theme: TuiThemeConfig,
+}
+
+impl TuiConfig {
+    pub fn is_default(&self) -> bool {
+        *self == Self::default()
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(default)]
+pub struct TuiThemeConfig {
+    pub name: String,
+    pub syntax_theme: Option<String>,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub tokens: BTreeMap<String, String>,
+}
+
+impl Default for TuiThemeConfig {
+    fn default() -> Self {
+        Self {
+            name: default_tui_theme_name(),
+            syntax_theme: None,
+            tokens: BTreeMap::new(),
+        }
+    }
+}
+
+impl TuiThemeConfig {
+    pub fn is_default(&self) -> bool {
+        *self == Self::default()
+    }
+}
+
+fn default_tui_theme_name() -> String {
+    "nord".to_string()
+}
+
 #[derive(Debug, Serialize, Deserialize, Clone, Default)]
 pub struct RaraConfig {
     pub provider: String,
@@ -230,6 +272,8 @@ pub struct RaraConfig {
     pub sandbox_workspace_write: SandboxWorkspaceWriteConfig,
     #[serde(default, skip_serializing_if = "MemoryConsolidationConfig::is_default")]
     pub memory_consolidation: MemoryConsolidationConfig,
+    #[serde(default, skip_serializing_if = "TuiConfig::is_default")]
+    pub tui: TuiConfig,
 }
 
 impl RaraConfig {
@@ -1084,6 +1128,50 @@ mod tests {
         assert!(!config.sandbox_workspace_write.network_access);
         let json = serde_json::to_string(&config).expect("serialize config");
         assert!(json.contains("sandbox_workspace_write"));
+    }
+
+    #[test]
+    fn loads_tui_theme_config() {
+        let config: RaraConfig = serde_json::from_str(
+            r##"{
+                "provider": "codex",
+                "tui": {
+                    "theme": {
+                        "name": "nord",
+                        "syntax_theme": "Nord",
+                        "tokens": {
+                            "text.accent": "#88c0d0",
+                            "picker.highlight.bg": "ansi:12"
+                        }
+                    }
+                }
+            }"##,
+        )
+        .expect("deserialize config");
+
+        assert_eq!(config.tui.theme.name, "nord");
+        assert_eq!(config.tui.theme.syntax_theme.as_deref(), Some("Nord"));
+        assert_eq!(
+            config
+                .tui
+                .theme
+                .tokens
+                .get("text.accent")
+                .map(String::as_str),
+            Some("#88c0d0")
+        );
+        assert_eq!(
+            config
+                .tui
+                .theme
+                .tokens
+                .get("picker.highlight.bg")
+                .map(String::as_str),
+            Some("ansi:12")
+        );
+
+        let json = serde_json::to_string(&config).expect("serialize config");
+        assert!(json.contains("\"tui\""));
     }
 
     #[test]

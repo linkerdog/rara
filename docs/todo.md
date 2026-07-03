@@ -24,7 +24,7 @@ Active backlog only. Keep this file small and current.
 - [x] Restore Claude Code-style realtime transcript live-log writes from
       `push_entry` and clear the live log after turn commit so resume can
       recover partial turns after restart.
-- [ ] Introduce an opencode-style configurable TUI theme token schema instead
+- [x] Introduce an opencode-style configurable TUI theme token schema instead
       of static unused palette constants. Wire markdown, diff, syntax
       highlighting, picker, and overlay renderers through semantic theme tokens;
       for syntax highlighting, define how the app theme maps to or selects the

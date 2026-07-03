@@ -15,10 +15,7 @@ use self::local_links::{
     is_local_path_like_link, render_local_link_target, should_render_link_destination,
 };
 use crate::tui::highlight::highlight_code_to_lines;
-use crate::tui::theme::{
-    MD_BLOCK_QUOTE, MD_BOLD, MD_CODE, MD_HEADING, MD_ITALIC, MD_LINK, MD_LIST_BULLET, TEXT_MUTED,
-    TEXT_SECONDARY,
-};
+use crate::tui::theme::{ThemeToken, theme_color};
 
 #[derive(Default)]
 struct MarkdownStyles {
@@ -44,23 +41,43 @@ struct MarkdownStyles {
 impl MarkdownStyles {
     fn new() -> Self {
         Self {
-            h1: Style::new().fg(MD_HEADING).bold().underlined(),
-            h2: Style::new().fg(MD_HEADING).bold(),
-            h3: Style::new().fg(MD_HEADING).bold().italic(),
-            h4: Style::new().fg(MD_HEADING).italic(),
-            h5: Style::new().fg(MD_HEADING).italic(),
-            h6: Style::new().fg(MD_HEADING).italic(),
-            code: Style::new().fg(MD_CODE),
-            emphasis: Style::new().fg(MD_ITALIC).italic(),
-            strong: Style::new().fg(MD_BOLD).bold(),
+            h1: Style::new()
+                .fg(theme_color(ThemeToken::MarkdownHeading))
+                .bold()
+                .underlined(),
+            h2: Style::new()
+                .fg(theme_color(ThemeToken::MarkdownHeading))
+                .bold(),
+            h3: Style::new()
+                .fg(theme_color(ThemeToken::MarkdownHeading))
+                .bold()
+                .italic(),
+            h4: Style::new()
+                .fg(theme_color(ThemeToken::MarkdownHeading))
+                .italic(),
+            h5: Style::new()
+                .fg(theme_color(ThemeToken::MarkdownHeading))
+                .italic(),
+            h6: Style::new()
+                .fg(theme_color(ThemeToken::MarkdownHeading))
+                .italic(),
+            code: Style::new().fg(theme_color(ThemeToken::MarkdownCode)),
+            emphasis: Style::new()
+                .fg(theme_color(ThemeToken::MarkdownItalic))
+                .italic(),
+            strong: Style::new()
+                .fg(theme_color(ThemeToken::MarkdownBold))
+                .bold(),
             strikethrough: Style::new().crossed_out(),
-            ordered_list_marker: Style::new().fg(MD_LIST_BULLET),
-            unordered_list_marker: Style::new().fg(MD_LIST_BULLET),
-            link: Style::new().fg(MD_LINK).underlined(),
-            blockquote: Style::new().fg(MD_BLOCK_QUOTE),
-            code_block_lang_tag: Style::new().fg(TEXT_SECONDARY),
+            ordered_list_marker: Style::new().fg(theme_color(ThemeToken::MarkdownListBullet)),
+            unordered_list_marker: Style::new().fg(theme_color(ThemeToken::MarkdownListBullet)),
+            link: Style::new()
+                .fg(theme_color(ThemeToken::MarkdownLink))
+                .underlined(),
+            blockquote: Style::new().fg(theme_color(ThemeToken::MarkdownBlockQuote)),
+            code_block_lang_tag: Style::new().fg(theme_color(ThemeToken::TextSecondary)),
             task_list_marker: Style::new().bold(),
-            footnote: Style::new().fg(TEXT_MUTED),
+            footnote: Style::new().fg(theme_color(ThemeToken::TextMuted)),
         }
     }
 }

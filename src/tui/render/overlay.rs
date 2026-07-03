@@ -1,10 +1,10 @@
-use crate::tui::theme::*;
+use crate::tui::theme::{ThemeToken, theme_color, token_bg, token_fg};
 #[path = "overlay_setup.rs"]
 mod overlay_setup;
 
 use ratatui::{
     layout::{Alignment, Constraint, Direction, Flex, Layout, Rect},
-    style::{Color, Modifier, Style},
+    style::{Modifier, Style},
     text::{Line, Span},
     widgets::Padding,
     widgets::{Block, Clear, List, ListItem, ListState, Paragraph, Tabs, Wrap},
@@ -147,7 +147,7 @@ fn render_help_modal(f: &mut Frame, app: &TuiApp, area: Rect, tab: HelpTab) {
     f.render_widget(
         Tabs::new(titles)
             .select(selected)
-            .style(Style::default().fg(TEXT_SECONDARY))
+            .style(token_fg(ThemeToken::TextSecondary))
             .highlight_style(help_selected_tab_style()),
         chunks[0],
     );
@@ -247,7 +247,7 @@ fn render_command_palette(f: &mut Frame, app: &TuiApp, area: Rect) {
     let block = popup_block().title_top(Line::from(Span::styled(
         " Command Palette ",
         Style::default()
-            .fg(TEXT_ACCENT)
+            .fg(theme_color(ThemeToken::TextAccent))
             .add_modifier(Modifier::BOLD),
     )));
     let inner = block.inner(area);
@@ -265,12 +265,12 @@ fn render_command_palette(f: &mut Frame, app: &TuiApp, area: Rect) {
 
     // ── Search bar ───────────────────────────────────────────────
     let search_text = if query.is_empty() {
-        Span::styled("  Type to search…", Style::default().fg(TEXT_MUTED))
+        Span::styled("  Type to search…", token_fg(ThemeToken::TextMuted))
     } else {
         Span::styled(
             format!("  /{}", query),
             Style::default()
-                .fg(BADGE_FG_DARK)
+                .fg(theme_color(ThemeToken::BadgeFgDark))
                 .add_modifier(Modifier::BOLD),
         )
     };
@@ -297,8 +297,8 @@ fn render_command_palette(f: &mut Frame, app: &TuiApp, area: Rect) {
     };
     let hints = "↑↓ navigate  ↵ select  Esc close";
     let footer_line = Line::from(vec![
-        Span::styled(count_text, Style::default().fg(TEXT_MUTED)),
-        Span::styled(format!("    {hints}"), Style::default().fg(TEXT_MUTED)),
+        Span::styled(count_text, token_fg(ThemeToken::TextMuted)),
+        Span::styled(format!("    {hints}"), token_fg(ThemeToken::TextMuted)),
     ]);
     f.render_widget(Paragraph::new(footer_line), chunks[2]);
 }
@@ -335,7 +335,7 @@ fn command_palette_item(spec: &CommandSpec) -> ListItem<'static> {
             format!("{full_name:<12}"),
             Style::default().add_modifier(Modifier::BOLD),
         ),
-        Span::styled(spec.summary, Style::default().fg(TEXT_MUTED)),
+        Span::styled(spec.summary, token_fg(ThemeToken::TextMuted)),
     ]))
 }
 
@@ -345,7 +345,7 @@ fn command_palette_line(spec: &CommandSpec) -> Line<'static> {
         format!("{:<11}", spec.usage),
         Style::default().add_modifier(Modifier::BOLD),
     );
-    let summary_span = Span::styled(spec.summary, Style::default().fg(TEXT_MUTED));
+    let summary_span = Span::styled(spec.summary, token_fg(ThemeToken::TextMuted));
     Line::from(vec![name_span, summary_span])
 }
 
@@ -355,15 +355,15 @@ fn panel_text(title: &str, body: &str) -> String {
 
 fn command_list_highlight_style() -> Style {
     Style::default()
-        .fg(BADGE_FG_DARK)
-        .bg(TEXT_SECONDARY)
+        .fg(theme_color(ThemeToken::OverlayHighlightFg))
+        .bg(theme_color(ThemeToken::OverlayHighlightBg))
         .add_modifier(Modifier::BOLD)
 }
 
 fn help_selected_tab_style() -> Style {
     Style::default()
-        .fg(BADGE_FG_DARK)
-        .bg(TEXT_SECONDARY)
+        .fg(theme_color(ThemeToken::OverlayHighlightFg))
+        .bg(theme_color(ThemeToken::OverlayHighlightBg))
         .add_modifier(Modifier::BOLD)
 }
 
@@ -384,14 +384,14 @@ fn render_status_modal(f: &mut Frame, app: &TuiApp, area: Rect, tab: StatusTab) 
     f.render_widget(
         Tabs::new(titles)
             .select(status_tab_index(tab))
-            .style(Style::default().fg(TEXT_SECONDARY))
+            .style(token_fg(ThemeToken::TextSecondary))
             .highlight_style(help_selected_tab_style()),
         chunks[0],
     );
     f.render_widget(Paragraph::new(lines), chunks[1]);
     f.render_widget(
         Paragraph::new("Esc close  1 overview  2 config  3 context  <-> switch")
-            .style(Style::default().fg(Color::DarkGray))
+            .style(token_fg(ThemeToken::TextMuted))
             .alignment(Alignment::Center),
         chunks[2],
     );
@@ -468,7 +468,7 @@ fn popup_rect(area: Rect, max_width: u16, max_height_pct: u16) -> Rect {
 /// Fill the given area with the dimmer background behind popups.
 fn render_dimmer(f: &mut Frame, area: Rect) {
     f.render_widget(
-        Paragraph::new("").style(Style::default().bg(POPUP_DIMMER_BG)),
+        Paragraph::new("").style(token_bg(ThemeToken::PopupDimmerBg)),
         area,
     );
 }
@@ -477,7 +477,7 @@ fn render_dimmer(f: &mut Frame, area: Rect) {
 /// 1-char horizontal padding (opencode color-block style).
 pub(crate) fn popup_block() -> Block<'static> {
     Block::default()
-        .style(Style::default().bg(POPUP_BG))
+        .style(token_bg(ThemeToken::PopupBg))
         .padding(Padding::horizontal(1))
 }
 
@@ -659,7 +659,7 @@ fn render_model_search(f: &mut Frame, app: &TuiApp, area: Rect) {
     let block = popup_block().title_top(Line::from(Span::styled(
         " Model Search ",
         Style::default()
-            .fg(TEXT_ACCENT)
+            .fg(theme_color(ThemeToken::TextAccent))
             .add_modifier(Modifier::BOLD),
     )));
     let inner = block.inner(area);
@@ -676,12 +676,12 @@ fn render_model_search(f: &mut Frame, app: &TuiApp, area: Rect) {
 
     // Search input
     let search_text = if query.is_empty() {
-        Span::styled("  Type to filter models…", Style::default().fg(TEXT_MUTED))
+        Span::styled("  Type to filter models…", token_fg(ThemeToken::TextMuted))
     } else {
         Span::styled(
             format!("  {}", query),
             Style::default()
-                .fg(BADGE_FG_DARK)
+                .fg(theme_color(ThemeToken::BadgeFgDark))
                 .add_modifier(Modifier::BOLD),
         )
     };
@@ -697,12 +697,12 @@ fn render_model_search(f: &mut Frame, app: &TuiApp, area: Rect) {
             );
             let family = Span::styled(
                 p.provider_label.as_str(),
-                Style::default().fg(TEXT_SECONDARY),
+                token_fg(ThemeToken::TextSecondary),
             );
             let window = if let Some(tokens) = p.context_window {
                 Span::styled(
                     format!("  · {: >4.0} K", tokens as f64 / 1000.0),
-                    Style::default().fg(TEXT_MUTED),
+                    token_fg(ThemeToken::TextMuted),
                 )
             } else {
                 Span::raw("")
@@ -715,7 +715,7 @@ fn render_model_search(f: &mut Frame, app: &TuiApp, area: Rect) {
         List::new(items)
             .highlight_style(
                 Style::default()
-                    .fg(TEXT_ACCENT)
+                    .fg(theme_color(ThemeToken::TextAccent))
                     .add_modifier(Modifier::BOLD),
             )
             .highlight_symbol("›  "),
@@ -729,7 +729,7 @@ fn render_model_search(f: &mut Frame, app: &TuiApp, area: Rect) {
             "{} models  ↑↓ navigate  ↵ select  Esc close",
             filtered.len()
         ),
-        Style::default().fg(TEXT_MUTED),
+        token_fg(ThemeToken::TextMuted),
     )]);
     f.render_widget(Paragraph::new(footer), chunks[2]);
 }

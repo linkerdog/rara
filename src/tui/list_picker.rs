@@ -15,7 +15,7 @@ use ratatui::{
 use super::app_event::AppEvent;
 use super::custom_terminal::Frame;
 use super::state::{ListPickerKind, TuiApp};
-use super::theme::*;
+use super::theme::{ThemeToken, theme_color};
 use crate::thread_store::ThreadSummary;
 
 const AUTH_MODE_ITEM_COUNT: usize = 4;
@@ -117,11 +117,11 @@ impl ListPickerKind {
     fn selected_style(idx: usize, selected: usize) -> Style {
         if idx == selected {
             Style::default()
-                .fg(PICKER_HIGHLIGHT_FG)
-                .bg(PICKER_HIGHLIGHT_BG)
+                .fg(theme_color(ThemeToken::PickerHighlightFg))
+                .bg(theme_color(ThemeToken::PickerHighlightBg))
                 .add_modifier(Modifier::BOLD)
         } else {
-            Style::default().fg(PICKER_ITEM_FG)
+            Style::default().fg(theme_color(ThemeToken::PickerItemFg))
         }
     }
 
@@ -142,7 +142,10 @@ impl ListPickerKind {
                     .cloned()
                     .unwrap_or(false);
                 let status_indicator = if connected {
-                    ratatui::text::Span::styled(" ● ", Style::default().fg(STATUS_SUCCESS))
+                    ratatui::text::Span::styled(
+                        " ● ",
+                        Style::default().fg(theme_color(ThemeToken::StatusSuccess)),
+                    )
                 } else {
                     ratatui::text::Span::raw("   ")
                 };
@@ -156,7 +159,7 @@ impl ListPickerKind {
                 ]);
                 let desc_line = ratatui::text::Line::from(ratatui::text::Span::styled(
                     format!("      {}", desc),
-                    Style::default().fg(PICKER_ITEM_MUTED_FG),
+                    Style::default().fg(theme_color(ThemeToken::PickerItemMutedFg)),
                 ));
                 ListItem::new(vec![name_line, desc_line]).style(Self::selected_style(idx, selected))
             })
@@ -488,7 +491,7 @@ pub fn render_list_picker(f: &mut Frame, app: &TuiApp, kind: ListPickerKind, are
     f.render_widget(
         Paragraph::new(kind.description()).block(
             Block::default()
-                .style(Style::default().bg(UI_ELEMENT_BG))
+                .style(Style::default().bg(theme_color(ThemeToken::UiElementBg)))
                 .padding(Padding::horizontal(1))
                 .title(kind.title()),
         ),
@@ -548,7 +551,7 @@ fn render_resume_picker(f: &mut Frame, app: &TuiApp, area: Rect) {
     f.render_widget(
         Paragraph::new(vec![search_line, status_line]).block(
             Block::default()
-                .style(Style::default().bg(UI_ELEMENT_BG))
+                .style(Style::default().bg(theme_color(ThemeToken::UiElementBg)))
                 .padding(Padding::horizontal(1))
                 .title(ListPickerKind::Resume.title()),
         ),
@@ -586,8 +589,8 @@ fn list_picker_state(selected: usize, item_count: usize) -> ListState {
 
 fn list_picker_highlight_style() -> Style {
     Style::default()
-        .fg(PICKER_HIGHLIGHT_FG)
-        .bg(PICKER_HIGHLIGHT_BG)
+        .fg(theme_color(ThemeToken::PickerHighlightFg))
+        .bg(theme_color(ThemeToken::PickerHighlightBg))
         .add_modifier(Modifier::BOLD)
 }
 
