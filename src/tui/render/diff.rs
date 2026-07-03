@@ -4,7 +4,7 @@ use ratatui::{
 };
 
 use crate::tui::render::display_width;
-use crate::tui::theme::{ThemeToken, theme_color};
+use crate::tui::theme::{ThemeToken, theme_color, token_fg};
 
 const MAX_DIFF_LINES: usize = 80;
 
@@ -413,10 +413,6 @@ fn push_wrapped_diff_line(
             Line::from(spans)
         })
         .collect()
-}
-
-fn token_fg(token: ThemeToken) -> Style {
-    Style::default().fg(theme_color(token))
 }
 
 fn wrap_plain_text(text: &str, width: usize) -> Vec<String> {

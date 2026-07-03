@@ -25,6 +25,8 @@ pub(crate) enum ThemeToken {
     PickerItemMutedFg,
     PickerHighlightFg,
     PickerHighlightBg,
+    OverlayHighlightFg,
+    OverlayHighlightBg,
     RoleUser,
     RoleAgent,
     RoleSystem,
@@ -79,6 +81,8 @@ const THEME_TOKENS: &[ThemeToken] = &[
     ThemeToken::PickerItemMutedFg,
     ThemeToken::PickerHighlightFg,
     ThemeToken::PickerHighlightBg,
+    ThemeToken::OverlayHighlightFg,
+    ThemeToken::OverlayHighlightBg,
     ThemeToken::RoleUser,
     ThemeToken::RoleAgent,
     ThemeToken::RoleSystem,
@@ -135,6 +139,8 @@ impl ThemeToken {
             Self::PickerItemMutedFg => "picker.item.muted.fg",
             Self::PickerHighlightFg => "picker.highlight.fg",
             Self::PickerHighlightBg => "picker.highlight.bg",
+            Self::OverlayHighlightFg => "overlay.highlight.fg",
+            Self::OverlayHighlightBg => "overlay.highlight.bg",
             Self::RoleUser => "role.user",
             Self::RoleAgent => "role.agent",
             Self::RoleSystem => "role.system",
@@ -191,6 +197,8 @@ impl ThemeToken {
             Self::PickerItemMutedFg => PICKER_ITEM_MUTED_FG,
             Self::PickerHighlightFg => PICKER_HIGHLIGHT_FG,
             Self::PickerHighlightBg => PICKER_HIGHLIGHT_BG,
+            Self::OverlayHighlightFg => OVERLAY_HIGHLIGHT_FG,
+            Self::OverlayHighlightBg => OVERLAY_HIGHLIGHT_BG,
             Self::RoleUser => ROLE_USER,
             Self::RoleAgent => ROLE_AGENT,
             Self::RoleSystem => ROLE_SYSTEM,
@@ -287,6 +295,14 @@ pub(crate) fn theme_color(token: ThemeToken) -> Color {
     }
 }
 
+pub(crate) fn token_fg(token: ThemeToken) -> ratatui::style::Style {
+    ratatui::style::Style::default().fg(theme_color(token))
+}
+
+pub(crate) fn token_bg(token: ThemeToken) -> ratatui::style::Style {
+    ratatui::style::Style::default().bg(theme_color(token))
+}
+
 pub(crate) fn parse_color_value(value: &str) -> Option<Color> {
     let value = value.trim();
     if value.eq_ignore_ascii_case("reset") {
@@ -302,7 +318,7 @@ pub(crate) fn parse_color_value(value: &str) -> Option<Color> {
 }
 
 fn parse_hex_color(hex: &str) -> Option<Color> {
-    if hex.len() != 6 {
+    if hex.len() != 6 || !hex.is_ascii() {
         return None;
     }
     let r = u8::from_str_radix(&hex[0..2], 16).ok()?;
@@ -377,6 +393,10 @@ pub(crate) const PICKER_ITEM_FG: Color = NORD4;
 pub(crate) const PICKER_ITEM_MUTED_FG: Color = NORD3;
 pub(crate) const PICKER_HIGHLIGHT_FG: Color = NORD6;
 pub(crate) const PICKER_HIGHLIGHT_BG: Color = NORD10;
+
+// ── Overlay highlights ─────────────────────────────────────────
+pub(crate) const OVERLAY_HIGHLIGHT_FG: Color = NORD6;
+pub(crate) const OVERLAY_HIGHLIGHT_BG: Color = NORD3;
 
 // ── Message roles ───────────────────────────────────────────────
 pub(crate) const ROLE_USER: Color = NORD9;
@@ -456,6 +476,7 @@ mod tests {
         assert_eq!(parse_color_value("reset"), Some(Color::Reset));
         assert_eq!(parse_color_value("light_blue"), Some(Color::LightBlue));
         assert_eq!(parse_color_value("not-a-color"), None);
+        assert_eq!(parse_color_value("#한글"), None);
     }
 
     #[test]

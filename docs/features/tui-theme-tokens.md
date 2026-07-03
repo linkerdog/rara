@@ -59,7 +59,8 @@ name. Unknown names fall back to the existing `CatppuccinMocha` default.
 ## Contracts
 
 - Token keys are stable dotted strings such as `text.accent`,
-  `picker.highlight.bg`, `diff.add.fg`, and `markdown.code`.
+  `picker.highlight.bg`, `overlay.highlight.bg`, `diff.add.fg`, and
+  `markdown.code`.
 - A hyphen in config keys is accepted as a dot separator, so
   `picker-highlight-bg` maps to `picker.highlight.bg`.
 - Underscores remain significant for token names such as

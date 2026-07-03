@@ -1,4 +1,4 @@
-use crate::tui::theme::{ThemeToken, theme_color};
+use crate::tui::theme::{ThemeToken, theme_color, token_bg, token_fg};
 #[path = "overlay_setup.rs"]
 mod overlay_setup;
 
@@ -355,15 +355,15 @@ fn panel_text(title: &str, body: &str) -> String {
 
 fn command_list_highlight_style() -> Style {
     Style::default()
-        .fg(theme_color(ThemeToken::BadgeFgDark))
-        .bg(theme_color(ThemeToken::TextSecondary))
+        .fg(theme_color(ThemeToken::OverlayHighlightFg))
+        .bg(theme_color(ThemeToken::OverlayHighlightBg))
         .add_modifier(Modifier::BOLD)
 }
 
 fn help_selected_tab_style() -> Style {
     Style::default()
-        .fg(theme_color(ThemeToken::BadgeFgDark))
-        .bg(theme_color(ThemeToken::TextSecondary))
+        .fg(theme_color(ThemeToken::OverlayHighlightFg))
+        .bg(theme_color(ThemeToken::OverlayHighlightBg))
         .add_modifier(Modifier::BOLD)
 }
 
@@ -732,12 +732,4 @@ fn render_model_search(f: &mut Frame, app: &TuiApp, area: Rect) {
         token_fg(ThemeToken::TextMuted),
     )]);
     f.render_widget(Paragraph::new(footer), chunks[2]);
-}
-
-fn token_fg(token: ThemeToken) -> Style {
-    Style::default().fg(theme_color(token))
-}
-
-fn token_bg(token: ThemeToken) -> Style {
-    Style::default().bg(theme_color(token))
 }
