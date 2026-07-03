@@ -94,6 +94,11 @@ not expose a dedicated `/reload-agents` command; this follows Claude Code's
 pattern of refreshing agent definitions through existing runtime/plugin
 refresh boundaries rather than adding an agent-only slash command.
 
+The `/status` extension summary only lists repo-local agent definition records.
+Definitions with `hidden: true` are omitted from listing/status surfaces while
+remaining valid for direct `spawn_agent` resolution. Visible definitions include
+their frontmatter `description` in the status line when present.
+
 ### Subagent Execution Changes
 
 **Before** (current):

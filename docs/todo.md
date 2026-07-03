@@ -54,9 +54,10 @@ Active backlog only. Keep this file small and current.
 - [x] Cache Claude-style agent definitions at runtime construction time and
       refresh them through runtime rebuild instead of scanning on each
       `spawn_agent`.
-- [ ] Implement remaining Claude-compatible `AgentDefinition` metadata:
-      `token_budget`, `permission_mode`, `hidden`, and description/listing
-      behavior.
+- [x] Apply Claude-compatible `hidden` and `description` metadata to
+      repo-local agent listing/status behavior.
+- [ ] Implement remaining Claude-compatible `AgentDefinition` execution
+      metadata: `token_budget` and `permission_mode`.
 - [x] Add an end-to-end `spawn_agent` regression test proving custom
       `.rara/agents` definitions affect prompt body, tool filtering,
       `maxTurns`, and `planModeRequired`.

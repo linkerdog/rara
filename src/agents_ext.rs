@@ -68,10 +68,15 @@ impl AgentRegistry {
                 AgentParseStatus::Ok => "ok",
                 AgentParseStatus::ParseError => "parse_error",
             };
-            lines.push(format!(
+            let mut line = format!(
                 "  {}  {}  {}  (disabled)",
                 agent.id, agent.source_path, status
-            ));
+            );
+            if agent.parse_status == AgentParseStatus::Ok && !agent.description.trim().is_empty() {
+                line.push_str("  - ");
+                line.push_str(agent.description.trim());
+            }
+            lines.push(line);
         }
         if lines.is_empty() {
             lines.push("  (none)".to_string());
@@ -90,6 +95,9 @@ impl AgentRegistry {
             .to_string();
         let profile = match record.definition {
             Some(definition) => {
+                if definition.hidden {
+                    return;
+                }
                 let id = definition.name.clone();
                 ImportedAgentProfile {
                     id: id.clone(),
@@ -170,6 +178,12 @@ Generate unit tests for new code paths.
         assert_eq!(reviewer.parse_status, AgentParseStatus::Ok);
         assert!(reviewer.description.contains("Reviews pull requests"));
         assert_eq!(reviewer.source_path, ".rara/agents/code-reviewer.md");
+        assert!(
+            registry
+                .status_lines()
+                .iter()
+                .any(|line| line.contains("Reviews pull requests for correctness and style."))
+        );
     }
 
     #[test]
@@ -253,5 +267,44 @@ Review prompt.
         assert_eq!(agent.label, "canonical-reviewer");
         assert_eq!(agent.source_path, ".rara/agents/reviewer-file.md");
         assert_eq!(agent.parse_status, AgentParseStatus::Ok);
+    }
+
+    #[test]
+    fn discover_repo_agents_hides_hidden_definitions() {
+        let dir = tempdir().expect("tempdir");
+        let agents_dir = dir.path().join(".rara").join("agents");
+        fs::create_dir_all(&agents_dir).expect("mkdir");
+        fs::write(
+            agents_dir.join("visible.md"),
+            r#"---
+name: visible
+description: Visible agent.
+---
+
+Visible prompt.
+"#,
+        )
+        .expect("write visible");
+        fs::write(
+            agents_dir.join("internal.md"),
+            r#"---
+name: internal
+description: Internal agent.
+hidden: true
+---
+
+Internal prompt.
+"#,
+        )
+        .expect("write hidden");
+
+        let registry = discover_repo_agents(dir.path());
+
+        assert!(registry.agents.contains_key("visible"));
+        assert!(!registry.agents.contains_key("internal"));
+        let status_lines = registry.status_lines().join("\n");
+        assert!(status_lines.contains("visible"));
+        assert!(!status_lines.contains("internal"));
+        assert!(!status_lines.contains("Internal agent."));
     }
 }
