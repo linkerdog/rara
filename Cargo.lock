@@ -6667,7 +6667,7 @@ dependencies = [
  "libc",
  "percent-encoding",
  "pin-project-lite",
- "socket2 0.6.4",
+ "socket2 0.5.10",
  "system-configuration",
  "tokio",
  "tower-service",
@@ -10282,7 +10282,7 @@ checksum = "95c589f335db0f6aaa168a7cd27b1fc6920f5e1470c804f814d9cd6e62a0f70b"
 dependencies = [
  "env_logger",
  "log",
- "rand 0.10.1",
+ "rand 0.10.2",
 ]
 
 [[package]]
@@ -10298,7 +10298,7 @@ dependencies = [
  "quinn-udp",
  "rustc-hash 2.1.2",
  "rustls 0.23.41",
- "socket2 0.6.4",
+ "socket2 0.5.10",
  "thiserror 2.0.18",
  "tokio",
  "tracing",
@@ -10336,7 +10336,7 @@ dependencies = [
  "cfg_aliases 0.2.1",
  "libc",
  "once_cell",
- "socket2 0.6.4",
+ "socket2 0.5.10",
  "tracing",
  "windows-sys 0.60.2",
 ]
@@ -10730,9 +10730,9 @@ dependencies = [
 
 [[package]]
 name = "rand"
-version = "0.10.1"
+version = "0.10.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d2e8e8bcc7961af1fdac401278c6a831614941f6164ee3bf4ce61b7edb162207"
+checksum = "c7f5fa3a058cd35567ef9bfa5e75732bee0f9e4c55fa90477bef2dfcdbc4be80"
 dependencies = [
  "chacha20 0.10.1",
  "getrandom 0.4.3",
@@ -10866,7 +10866,7 @@ dependencies = [
  "owo-colors",
  "portable-pty",
  "pulldown-cmark",
- "rand 0.10.1",
+ "rand 0.10.2",
  "rara-app-server",
  "rara-background-tasks",
  "rara-bedrock",
@@ -10995,7 +10995,7 @@ name = "rara-mcp-client"
 version = "0.0.1"
 dependencies = [
  "anyhow",
- "rmcp 2.0.0",
+ "rmcp 2.1.0",
  "serde_json",
  "tokio",
 ]
@@ -11560,9 +11560,9 @@ dependencies = [
 
 [[package]]
 name = "rmcp"
-version = "2.0.0"
+version = "2.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d52d21e5b342699bc4de690e6104fc4e43255e4e8420ff0f2cbb963aac09da6f"
+checksum = "f00a32c3b81b7b254076a65abd5ab2551209146713ba38f73818657e865e9433"
 dependencies = [
  "async-trait",
  "base64 0.22.1",
@@ -11571,7 +11571,7 @@ dependencies = [
  "pastey",
  "pin-project-lite",
  "process-wrap",
- "rmcp-macros 2.0.0",
+ "rmcp-macros 2.1.0",
  "schemars 1.2.1",
  "serde",
  "serde_json",
@@ -11597,9 +11597,9 @@ dependencies = [
 
 [[package]]
 name = "rmcp-macros"
-version = "2.0.0"
+version = "2.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6c68cec74c5b3ac73ff46375ae49e161637bda80bba70f0d5db641583bb308ee"
+checksum = "2ee70afb7956da9f30d5348a2539b5eb90d9038f834463657ab717076ac3b1ad"
 dependencies = [
  "darling 0.23.0",
  "proc-macro2",
