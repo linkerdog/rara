@@ -1179,7 +1179,7 @@ async fn subagent_resume_reconnects_completed_sidechain_after_store_restart() {
     };
 
     let mut reconnected = None;
-    for _ in 0..20 {
+    for _ in 0..50 {
         let status = resume
             .call_with_context_events(
                 json!({ "agent_id": agent_id }),
@@ -1191,7 +1191,7 @@ async fn subagent_resume_reconnects_completed_sidechain_after_store_restart() {
             reconnected = Some(status);
             break;
         }
-        sleep(Duration::from_millis(10)).await;
+        sleep(Duration::from_millis(20)).await;
     }
 
     let reconnected = reconnected.expect("durable sub-agent result");

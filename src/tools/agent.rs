@@ -1008,13 +1008,22 @@ impl Tool for SubAgentListTool {
             .into_iter()
             .collect::<Vec<_>>();
         if let Some(parent_session_id) = context.session_id() {
-            let live_ids = agents
+            let mut live_ids = agents
                 .iter()
                 .map(|record| record.agent_id.clone())
                 .collect::<std::collections::HashSet<_>>();
-            for record in durable_subagent_records(&self.session_manager, parent_session_id)? {
-                if !live_ids.contains(&record.agent_id) {
-                    agents.push(record);
+            match durable_subagent_records(&self.session_manager, parent_session_id) {
+                Ok(records) => {
+                    for record in records {
+                        if live_ids.insert(record.agent_id.clone()) {
+                            agents.push(record);
+                        }
+                    }
+                }
+                Err(err) => {
+                    log::warn!(
+                        "failed to retrieve durable sub-agent records for parent session {parent_session_id}: {err}"
+                    );
                 }
             }
         }
