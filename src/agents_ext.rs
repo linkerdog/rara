@@ -96,6 +96,7 @@ impl AgentRegistry {
         let profile = match record.definition {
             Some(definition) => {
                 if definition.hidden {
+                    self.agents.remove(&definition.name);
                     return;
                 }
                 let id = definition.name.clone();
@@ -306,5 +307,44 @@ Internal prompt.
         assert!(status_lines.contains("visible"));
         assert!(!status_lines.contains("internal"));
         assert!(!status_lines.contains("Internal agent."));
+    }
+
+    #[test]
+    fn hidden_definition_removes_lower_precedence_visible_definition() {
+        let dir = tempdir().expect("tempdir");
+        let legacy_agents_dir = dir.path().join(".claude").join("agents");
+        fs::create_dir_all(&legacy_agents_dir).expect("mkdir legacy");
+        fs::write(
+            legacy_agents_dir.join("helper.md"),
+            r#"---
+name: helper
+description: Legacy visible helper.
+---
+
+Legacy prompt.
+"#,
+        )
+        .expect("write legacy");
+        let rara_agents_dir = dir.path().join(".rara").join("agents");
+        fs::create_dir_all(&rara_agents_dir).expect("mkdir rara");
+        fs::write(
+            rara_agents_dir.join("helper.md"),
+            r#"---
+name: helper
+description: Hidden RARA helper.
+hidden: true
+---
+
+Hidden prompt.
+"#,
+        )
+        .expect("write hidden");
+
+        let registry = discover_repo_agents(dir.path());
+
+        assert!(!registry.agents.contains_key("helper"));
+        let status_lines = registry.status_lines().join("\n");
+        assert!(!status_lines.contains("helper"));
+        assert!(!status_lines.contains("Legacy visible helper."));
     }
 }
