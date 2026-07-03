@@ -19,7 +19,9 @@ pub(super) fn handle_pending_option_submit(
     };
     match interaction.kind {
         ActivePendingInteractionKind::PlanApproval => {
-            input_control::answer_plan_approval(app, agent_slot, index == 0);
+            if let Some(decision) = input_control::plan_approval_decision_for_index(index) {
+                input_control::answer_plan_approval(app, agent_slot, decision);
+            }
             true
         }
         ActivePendingInteractionKind::ShellApproval => {

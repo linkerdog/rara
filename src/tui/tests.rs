@@ -342,8 +342,43 @@ async fn pending_plan_approval_blocks_plain_submit() {
         app.bottom_pane
             .notice
             .as_deref()
-            .is_some_and(|value| value.contains("Press 1 to start implementation"))
+            .is_some_and(|value| value.contains("approval actions above the input"))
     );
+}
+
+#[test]
+fn pending_plan_approval_number_shortcuts_work_in_local_and_ssh() {
+    for ssh in [false, true] {
+        let _ssh_env = super::terminal_ui::test_env::set_ssh_session(ssh);
+        let temp = tempdir().expect("tempdir");
+        let mut app = TuiApp::new(ConfigManager {
+            path: temp.path().join("config.json"),
+        })
+        .expect("build tui app");
+        app.set_pending_plan_approval(true);
+
+        assert_eq!(app.active_pending_option_count(), 3);
+        assert!(matches!(
+            map_key_to_event(key(KeyCode::Char('1')), &app),
+            AppEvent::SelectPendingOption(0)
+        ));
+        assert!(matches!(
+            map_key_to_event(key(KeyCode::Char('2')), &app),
+            AppEvent::SelectPendingOption(1)
+        ));
+        assert!(matches!(
+            map_key_to_event(key(KeyCode::Char('3')), &app),
+            AppEvent::SelectPendingOption(2)
+        ));
+        assert!(matches!(
+            map_key_to_event(key(KeyCode::Down), &app),
+            AppEvent::MoveApprovalSelection(1)
+        ));
+        assert!(matches!(
+            map_key_to_event(key(KeyCode::Enter), &app),
+            AppEvent::SelectPendingOption(0)
+        ));
+    }
 }
 
 #[tokio::test]
@@ -394,6 +429,101 @@ async fn submit_numeric_input_handles_pending_shell_approval() {
             .notice
             .as_deref()
             .is_some_and(|value| value.contains("Approval is still preparing"))
+    );
+}
+
+#[tokio::test]
+async fn plan_approval_reject_clears_pending_without_starting_task() {
+    let temp = tempdir().expect("tempdir");
+    let mut app = TuiApp::new(ConfigManager {
+        path: temp.path().join("config.json"),
+    })
+    .expect("build tui app");
+    let bus = Arc::new(crate::runtime_event_bus::RuntimeEventBus::new(10));
+    app.event_bus = Some(bus.clone());
+    app.prompt_source_registry = Some(Arc::new(
+        crate::protocol_sources::PromptSourceRegistry::new(bus.clone()),
+    ));
+    app.skill_source_registry = Some(Arc::new(crate::protocol_sources::SkillSourceRegistry::new(
+        bus.clone(),
+    )));
+    app.hook_registry = Some(Arc::new(crate::hook_registry::HookRegistry::new(
+        bus.clone(),
+    )));
+    app.mcp_manager = Some(Arc::new(
+        crate::mcp_connection_manager::McpConnectionManager::new(
+            Arc::new(crate::config::McpRegistry::empty()),
+            bus.clone(),
+        ),
+    ));
+    app.memory_handler = Some(Arc::new(
+        crate::protocol_sources::MemoryControlHandler::new(bus.clone()),
+    ));
+
+    add_pending_plan_approval(&mut app);
+
+    let oauth_manager = Arc::new(
+        crate::oauth::OAuthManager::new_for_config_dir(temp.path().join(".rara"))
+            .expect("oauth manager"),
+    );
+    let mut agent_slot = Some(test_agent_for_pending_approval(&temp));
+
+    dispatch_event(
+        AppEvent::SelectPendingOption(2),
+        &mut app,
+        &mut agent_slot,
+        &oauth_manager,
+    )
+    .await
+    .expect("reject plan");
+
+    assert!(!app.has_pending_plan_approval());
+    assert!(app.bottom_pane.running_task.is_none());
+    assert!(agent_slot.is_some());
+    assert_eq!(app.agent_execution_mode_label(), "execute");
+    assert_eq!(
+        app.completed_interaction(InteractionKind::PlanApproval)
+            .map(|interaction| interaction.summary.as_str()),
+        Some("Rejected. Implementation cancelled.")
+    );
+}
+
+#[tokio::test]
+async fn invalid_plan_approval_selection_keeps_pending_with_notice() {
+    let temp = tempdir().expect("tempdir");
+    let mut app = TuiApp::new(ConfigManager {
+        path: temp.path().join("config.json"),
+    })
+    .expect("build tui app");
+
+    add_pending_plan_approval(&mut app);
+
+    let oauth_manager = Arc::new(
+        crate::oauth::OAuthManager::new_for_config_dir(temp.path().join(".rara"))
+            .expect("oauth manager"),
+    );
+    let mut agent_slot = Some(test_agent_for_pending_approval(&temp));
+
+    dispatch_event(
+        AppEvent::SelectPendingOption(3),
+        &mut app,
+        &mut agent_slot,
+        &oauth_manager,
+    )
+    .await
+    .expect("reject invalid plan selection");
+
+    assert!(app.has_pending_plan_approval());
+    assert!(agent_slot.is_some());
+    assert!(
+        app.bottom_pane
+            .notice
+            .as_deref()
+            .is_some_and(|value| value.contains("Invalid plan approval option"))
+    );
+    assert!(
+        app.completed_interaction(InteractionKind::PlanApproval)
+            .is_none()
     );
 }
 

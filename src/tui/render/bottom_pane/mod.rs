@@ -110,22 +110,31 @@ fn render_interaction_panel(f: &mut Frame, panel: &view::InteractionPanelView, a
     let mut lines: Vec<Line<'static>> = Vec::new();
     lines.push(Line::from(format!("  ⚠  {}", panel.title)));
     lines.push(Line::from(""));
-    for line in panel.detail.lines() {
-        lines.push(Line::from(format!("  {}", line)));
-    }
-    lines.push(Line::from(""));
-    // Action buttons
-    let button_line: String = panel
-        .actions
-        .iter()
-        .enumerate()
-        .map(|(i, a)| {
+    if panel.detail.is_empty() {
+        for (i, action) in panel.actions.iter().enumerate() {
             let prefix = if i == panel.selected { "▸" } else { " " };
-            format!("{}[{}] {}", prefix, a.key, a.label)
-        })
-        .collect::<Vec<_>>()
-        .join("    ");
-    lines.push(Line::from(format!("  {}", button_line)));
+            lines.push(Line::from(format!(
+                "  {prefix}{} {}",
+                action.key, action.label
+            )));
+        }
+    } else {
+        for line in panel.detail.lines() {
+            lines.push(Line::from(format!("  {}", line)));
+        }
+        lines.push(Line::from(""));
+        let button_line: String = panel
+            .actions
+            .iter()
+            .enumerate()
+            .map(|(i, a)| {
+                let prefix = if i == panel.selected { "▸" } else { " " };
+                format!("{}[{}] {}", prefix, a.key, a.label)
+            })
+            .collect::<Vec<_>>()
+            .join("    ");
+        lines.push(Line::from(format!("  {}", button_line)));
+    }
 
     let block = Block::default();
     let para = Paragraph::new(lines)

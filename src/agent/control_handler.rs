@@ -3,7 +3,7 @@ use std::sync::atomic::Ordering;
 use anyhow::{Result, anyhow};
 
 use crate::agent::{Agent, AgentEvent, AgentOutputMode, BashApprovalDecision};
-use crate::runtime_control::{InputControlRequest, SessionControlRequest};
+use crate::runtime_control::{InputControlRequest, PlanApprovalDecision, SessionControlRequest};
 
 impl Agent {
     /// Handle a session control request.
@@ -48,14 +48,28 @@ impl Agent {
                 self.query_with_mode_and_events(answer.clone(), AgentOutputMode::Silent, report)
                     .await?;
             }
-            InputControlRequest::AnswerPlanApproval { approved } => {
-                self.resume_after_plan_approval_with_events(
-                    !*approved,
-                    AgentOutputMode::Silent,
-                    report,
-                )
-                .await?;
-            }
+            InputControlRequest::AnswerPlanApproval { decision, feedback } => match decision {
+                PlanApprovalDecision::Approve => {
+                    self.resume_after_plan_approval_with_events(
+                        false,
+                        AgentOutputMode::Silent,
+                        report,
+                    )
+                    .await?;
+                }
+                PlanApprovalDecision::ContinuePlanning => {
+                    self.resume_after_plan_approval_with_feedback_events(
+                        true,
+                        feedback.as_deref(),
+                        AgentOutputMode::Silent,
+                        report,
+                    )
+                    .await?;
+                }
+                PlanApprovalDecision::Reject => {
+                    self.reject_pending_plan_approval(feedback.as_deref())?;
+                }
+            },
             InputControlRequest::AnswerShellApproval { decision } => {
                 let decision = BashApprovalDecision::from(*decision);
                 self.answer_pending_approval_with_events(decision, AgentOutputMode::Silent, report)

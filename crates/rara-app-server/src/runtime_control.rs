@@ -111,11 +111,30 @@ pub enum SessionControlRequest {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "type", content = "payload", rename_all = "snake_case")]
 pub enum InputControlRequest {
-    SubmitUserPrompt { prompt: String },
-    AnswerPendingInput { answer: String },
-    AnswerPlanApproval { approved: bool },
-    AnswerShellApproval { decision: ShellApprovalDecision },
-    SubmitFollowUp { prompt: String },
+    SubmitUserPrompt {
+        prompt: String,
+    },
+    AnswerPendingInput {
+        answer: String,
+    },
+    AnswerPlanApproval {
+        decision: PlanApprovalDecision,
+        feedback: Option<String>,
+    },
+    AnswerShellApproval {
+        decision: ShellApprovalDecision,
+    },
+    SubmitFollowUp {
+        prompt: String,
+    },
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum PlanApprovalDecision {
+    Approve,
+    ContinuePlanning,
+    Reject,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]

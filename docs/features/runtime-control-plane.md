@@ -141,7 +141,7 @@ The first typed request set should include these families.
 
 - submit user prompt;
 - answer pending request input;
-- answer plan approval;
+- answer plan approval with an explicit decision;
 - answer shell approval;
 - submit follow-up while a turn is running.
 
@@ -164,7 +164,9 @@ intents:
 - regular composer submit -> `SubmitUserPrompt`;
 - busy-turn follow-up -> `SubmitFollowUp`;
 - pending request-user-input answer -> `AnswerPendingInput`;
-- plan approval choice -> `AnswerPlanApproval`;
+- plan approval choice -> `AnswerPlanApproval { decision, feedback }`, where
+  `decision` is `approve`, `continue_planning`, or `reject`, and optional
+  `feedback` gives the agent revision or rejection context;
 - shell approval choice -> `AnswerShellApproval`;
 - busy-turn cancel from local `Esc` or protocol cancel -> `CancelCurrentTurn`.
 

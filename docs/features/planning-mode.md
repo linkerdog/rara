@@ -113,12 +113,19 @@ Allowed transitions:
 - `execute -> planning`: user runs `/plan` or the model calls `enter_plan_mode`.
 - `planning -> plan_ready`: model emits `<proposed_plan>` and calls `exit_plan_mode`.
 - `plan_ready -> plan_approved`: user approves the plan.
-- `plan_ready -> plan_revising`: user asks to continue planning or edits/rejects the plan with feedback.
+- `plan_ready -> plan_revising`: user asks to continue planning or sends the
+  plan back with feedback.
 - `plan_revising -> plan_ready`: model updates the plan and calls `exit_plan_mode` again.
 - `plan_approved -> execute`: runtime injects the approved-plan tool result and resumes the agent loop.
 - `plan_ready -> plan_rejected`: user cancels the implementation request.
 
 User imperative text such as "continue", "implement", or "go ahead" must not skip `plan_ready -> plan_approved`; approval must come from the structured TUI interaction.
+
+The control-plane decision is explicit: `AnswerPlanApproval` carries one of
+`approve`, `continue_planning`, or `reject`. `approve` resumes execution with
+the saved plan, `continue_planning` keeps the agent in planning mode and asks it
+to revise the plan, and `reject` clears the pending plan approval without
+starting implementation.
 
 ### Runtime Persistence
 

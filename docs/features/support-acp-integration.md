@@ -76,7 +76,7 @@ Required intent mapping:
 | submit a prompt | `InputControlRequest::SubmitUserPrompt` |
 | submit while a turn is busy | `InputControlRequest::SubmitFollowUp` |
 | answer a request-input prompt | `InputControlRequest::AnswerPendingInput` |
-| approve or deny a plan | `InputControlRequest::AnswerPlanApproval` |
+| approve, continue, or reject a plan | `InputControlRequest::AnswerPlanApproval` |
 | approve or deny a shell command | `InputControlRequest::AnswerShellApproval` |
 | cancel the current turn | `SessionControlRequest::CancelCurrentTurn` |
 | request preemption | `SessionControlRequest::InterruptCurrentTurn` |

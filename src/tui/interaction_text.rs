@@ -25,7 +25,7 @@ pub fn pending_interaction_card_title(kind: ActivePendingInteractionKind) -> &'s
 pub fn pending_interaction_hint_text(kind: ActivePendingInteractionKind) -> &'static str {
     match kind {
         ActivePendingInteractionKind::PlanApproval => {
-            "plan ready  1 start implementation  2 continue planning"
+            "plan ready  1 approve  2 keep planning  3 reject"
         }
         ActivePendingInteractionKind::ShellApproval => {
             "approval required  up/down select  enter apply  1-4 shortcut"
@@ -41,9 +41,7 @@ pub fn pending_interaction_shortcut_text(
     kind: ActivePendingInteractionKind,
 ) -> Option<&'static str> {
     match kind {
-        ActivePendingInteractionKind::PlanApproval => {
-            Some("1 start implementation  2 continue planning")
-        }
+        ActivePendingInteractionKind::PlanApproval => None,
         ActivePendingInteractionKind::ShellApproval => None,
         ActivePendingInteractionKind::PlanningQuestion
         | ActivePendingInteractionKind::ExplorationQuestion
@@ -54,7 +52,7 @@ pub fn pending_interaction_shortcut_text(
 
 pub fn status_plan_approval_text(app: &TuiApp) -> String {
     let _ = app;
-    "Plan ready for implementation.\n\n1. Start implementation now\n2. Continue planning and refine the plan".to_string()
+    "Plan ready for review.\n\n1 approve\n2 keep planning\n3 reject".to_string()
 }
 
 pub fn pending_interaction_detail_text(app: &TuiApp, kind: ActivePendingInteractionKind) -> String {
@@ -208,9 +206,10 @@ mod tests {
         .expect("app");
 
         let rendered = status_plan_approval_text(&app);
-        assert!(rendered.contains("Plan ready for implementation."));
-        assert!(rendered.contains("1. Start implementation now"));
-        assert!(rendered.contains("2. Continue planning and refine the plan"));
+        assert!(rendered.contains("Plan ready for review."));
+        assert!(rendered.contains("1 approve"));
+        assert!(rendered.contains("2 keep planning"));
+        assert!(rendered.contains("3 reject"));
         assert!(!rendered.contains("1. yes"));
     }
 
@@ -220,7 +219,7 @@ mod tests {
             pending_interaction_hint_text(
                 crate::tui::state::ActivePendingInteractionKind::PlanApproval
             ),
-            "plan ready  1 start implementation  2 continue planning"
+            "plan ready  1 approve  2 keep planning  3 reject"
         );
         assert_eq!(
             pending_interaction_hint_text(
@@ -236,7 +235,7 @@ mod tests {
             pending_interaction_shortcut_text(
                 crate::tui::state::ActivePendingInteractionKind::PlanApproval
             ),
-            Some("1 start implementation  2 continue planning")
+            None
         );
         assert_eq!(
             pending_interaction_shortcut_text(

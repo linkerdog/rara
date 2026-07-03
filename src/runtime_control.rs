@@ -1,10 +1,11 @@
 pub use rara_app_server::runtime_control::{
     ApprovalControlRequest, HookControlRequest, HookLifecycle, InputControlRequest,
     McpControlRequest, MemoryControlRequest, MemoryRecordControlPatch, MemoryScope,
-    OutputSubscriptionRequest, PromptSourceControlRequest, PromptSourceLifetime,
-    PromptSourceRegistration, RuntimeControlEnvelope, RuntimeControlRequest, RuntimeControllerKind,
-    RuntimeProvenance, RuntimeSourceAuthorship, RuntimeSourceTrust, SessionControlRequest,
-    ShellApprovalDecision, SkillSourceControlRequest, SourceLayer, SourceScope,
+    OutputSubscriptionRequest, PlanApprovalDecision, PromptSourceControlRequest,
+    PromptSourceLifetime, PromptSourceRegistration, RuntimeControlEnvelope, RuntimeControlRequest,
+    RuntimeControllerKind, RuntimeProvenance, RuntimeSourceAuthorship, RuntimeSourceTrust,
+    SessionControlRequest, ShellApprovalDecision, SkillSourceControlRequest, SourceLayer,
+    SourceScope,
 };
 use rara_tools::tool::ToolOutputStream;
 use serde::{Deserialize, Serialize};
