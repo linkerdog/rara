@@ -14,9 +14,11 @@ top of the existing parent-scoped sidechain transcript contract.
   - preallocated child `session_id`;
   - `status = running`;
   - parent session metadata when available.
-- `subagent_list` lists live in-process background sub-agents.
+- `subagent_list` lists live in-process background sub-agents and current-thread
+  persisted completed sub-agent edges after runtime restart.
 - `subagent_resume` returns the current status or completed summary for a
-  background sub-agent.
+  background sub-agent, including completed persisted sidechain results after
+  runtime restart.
 - `subagent_stop` marks a running background sub-agent as `cancelled` and sets
   the model cancellation token.
 
@@ -29,8 +31,9 @@ rollouts/<parent_session_id>/subagents/agent-<agent_id>.jsonl
 
 ## Boundaries
 
-- This is not a cross-process task registry.
-- Restart/reattach after the RARA process exits remains future work.
+- This is not a cross-process task registry for still-running tasks.
+- Restart/reattach after the RARA process exits is supported only for completed
+  persisted sub-agent results.
 - `team_create` remains a synchronous aggregation tool.
 - Completed background sub-agents still persist the same sidechain transcript
   and spawn-edge event as foreground sub-agents.
