@@ -489,6 +489,45 @@ async fn plan_approval_reject_clears_pending_without_starting_task() {
 }
 
 #[tokio::test]
+async fn invalid_plan_approval_selection_keeps_pending_with_notice() {
+    let temp = tempdir().expect("tempdir");
+    let mut app = TuiApp::new(ConfigManager {
+        path: temp.path().join("config.json"),
+    })
+    .expect("build tui app");
+
+    add_pending_plan_approval(&mut app);
+
+    let oauth_manager = Arc::new(
+        crate::oauth::OAuthManager::new_for_config_dir(temp.path().join(".rara"))
+            .expect("oauth manager"),
+    );
+    let mut agent_slot = Some(test_agent_for_pending_approval(&temp));
+
+    dispatch_event(
+        AppEvent::SelectPendingOption(3),
+        &mut app,
+        &mut agent_slot,
+        &oauth_manager,
+    )
+    .await
+    .expect("reject invalid plan selection");
+
+    assert!(app.has_pending_plan_approval());
+    assert!(agent_slot.is_some());
+    assert!(
+        app.bottom_pane
+            .notice
+            .as_deref()
+            .is_some_and(|value| value.contains("Invalid plan approval option"))
+    );
+    assert!(
+        app.completed_interaction(InteractionKind::PlanApproval)
+            .is_none()
+    );
+}
+
+#[tokio::test]
 async fn empty_submit_keeps_shell_approval_on_card_surface() {
     let temp = tempdir().expect("tempdir");
     let mut app = TuiApp::new(ConfigManager {

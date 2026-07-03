@@ -231,6 +231,8 @@ pub(crate) async fn dispatch_event(
                         if let Some(decision) = input_control::plan_approval_decision_for_index(idx)
                         {
                             input_control::answer_plan_approval(app, agent_slot, decision);
+                        } else {
+                            app.push_notice("Invalid plan approval option.");
                         }
                     }
                     ActivePendingInteractionKind::ShellApproval => {

@@ -164,8 +164,9 @@ intents:
 - regular composer submit -> `SubmitUserPrompt`;
 - busy-turn follow-up -> `SubmitFollowUp`;
 - pending request-user-input answer -> `AnswerPendingInput`;
-- plan approval choice -> `AnswerPlanApproval { decision }`, where
-  `decision` is `approve`, `continue_planning`, or `reject`;
+- plan approval choice -> `AnswerPlanApproval { decision, feedback }`, where
+  `decision` is `approve`, `continue_planning`, or `reject`, and optional
+  `feedback` gives the agent revision or rejection context;
 - shell approval choice -> `AnswerShellApproval`;
 - busy-turn cancel from local `Esc` or protocol cancel -> `CancelCurrentTurn`.
 

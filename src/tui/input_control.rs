@@ -159,8 +159,6 @@ pub(crate) fn answer_plan_approval(
         app.push_notice("Approval is still preparing. Try again.");
         return InputControlOutcome::Rejected;
     };
-    app.set_pending_plan_approval(false);
-
     let (summary, notice) = match decision {
         PlanApprovalDecision::Approve => (
             "Approved. Starting implementation.",
@@ -175,12 +173,6 @@ pub(crate) fn answer_plan_approval(
             "Plan rejected. Implementation cancelled.",
         ),
     };
-    app.record_completed_interaction(
-        InteractionKind::PlanApproval,
-        "Plan Decision",
-        summary,
-        None,
-    );
 
     if decision == PlanApprovalDecision::Reject {
         let mut agent = agent;
@@ -189,6 +181,13 @@ pub(crate) fn answer_plan_approval(
             *agent_slot = Some(agent);
             return InputControlOutcome::Rejected;
         }
+        app.set_pending_plan_approval(false);
+        app.record_completed_interaction(
+            InteractionKind::PlanApproval,
+            "Plan Decision",
+            summary,
+            None,
+        );
         app.set_agent_execution_mode(agent.execution_mode);
         app.bottom_pane.notice = Some(notice.to_string());
         app.set_runtime_phase(RuntimePhase::Idle, Some("plan cancelled".into()));
@@ -196,6 +195,13 @@ pub(crate) fn answer_plan_approval(
         return InputControlOutcome::Answered;
     }
 
+    app.set_pending_plan_approval(false);
+    app.record_completed_interaction(
+        InteractionKind::PlanApproval,
+        "Plan Decision",
+        summary,
+        None,
+    );
     start_plan_approval_resume_task(app, decision, agent);
     InputControlOutcome::Answered
 }

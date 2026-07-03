@@ -101,8 +101,9 @@ fn activity_status_line_prefers_pending_interactions() {
 
     let (label, _, detail) = activity_status_line(&app);
     assert_eq!(label, "Plan Approval");
-    assert!(detail.contains("start implementation"));
-    assert!(detail.contains("continue planning"));
+    assert!(detail.contains("approve"));
+    assert!(detail.contains("keep planning"));
+    assert!(detail.contains("reject"));
 }
 
 #[test]
