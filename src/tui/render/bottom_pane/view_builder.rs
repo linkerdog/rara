@@ -106,7 +106,7 @@ pub(super) fn activity_status_line(app: &TuiApp) -> (&'static str, Color, String
         };
         let detail = match pending.kind {
             ActivePendingInteractionKind::PlanApproval => {
-                "choose whether to start implementation or continue planning".to_string()
+                "approve, keep planning, or reject the proposed plan".to_string()
             }
             ActivePendingInteractionKind::ShellApproval => app
                 .pending_command_approval()
@@ -278,10 +278,31 @@ fn build_interaction_panel(app: &TuiApp) -> Option<InteractionPanelView> {
             ],
             selected: app.approval_picker_idx,
         }),
-        ActivePendingInteractionKind::PlanApproval
-        | ActivePendingInteractionKind::PlanningQuestion => Some(InteractionPanelView {
+        ActivePendingInteractionKind::PlanApproval => Some(InteractionPanelView {
+            title: "Plan Approval",
+            detail: String::new(),
+            actions: vec![
+                InteractionAction {
+                    key: "1",
+                    label: "approve",
+                },
+                InteractionAction {
+                    key: "2",
+                    label: "keep planning",
+                },
+                InteractionAction {
+                    key: "3",
+                    label: "reject",
+                },
+            ],
+            selected: app.approval_picker_idx,
+        }),
+        ActivePendingInteractionKind::PlanningQuestion => Some(InteractionPanelView {
             title: "Planning Question",
-            detail: compact_shell_approval_detail(app),
+            detail: app
+                .pending_request_input()
+                .map(|interaction| interaction.title.clone())
+                .unwrap_or_default(),
             actions: vec![
                 InteractionAction {
                     key: "Enter",

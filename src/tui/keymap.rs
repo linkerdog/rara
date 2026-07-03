@@ -130,10 +130,14 @@ pub(crate) fn map_key_to_event(key: KeyEvent, app: &TuiApp) -> AppEvent {
             {
                 return AppEvent::SelectPendingOption(index);
             }
-            // Shell approval: Enter always selects, even with text in the composer.
+            // Approval cards: Enter always selects, even with text in the composer.
             // j/k navigation requires empty composer so regular typing works.
             if app.active_pending_interaction().is_some_and(|interaction| {
-                interaction.kind == super::state::ActivePendingInteractionKind::ShellApproval
+                matches!(
+                    interaction.kind,
+                    super::state::ActivePendingInteractionKind::ShellApproval
+                        | super::state::ActivePendingInteractionKind::PlanApproval
+                )
             }) {
                 if code == KeyCode::Enter && modifiers.is_empty() {
                     return AppEvent::SelectPendingOption(app.approval_picker_idx);
@@ -148,7 +152,11 @@ pub(crate) fn map_key_to_event(key: KeyEvent, app: &TuiApp) -> AppEvent {
                         }
                         _ => {}
                     }
-                    if let KeyCode::F(num @ 1..=4) = code {
+                    if app.active_pending_interaction().is_some_and(|interaction| {
+                        interaction.kind
+                            == super::state::ActivePendingInteractionKind::ShellApproval
+                    }) && let KeyCode::F(num @ 1..=4) = code
+                    {
                         return AppEvent::SelectPendingOption((num - 1) as usize);
                     }
                 }

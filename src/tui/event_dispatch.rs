@@ -202,7 +202,11 @@ pub(crate) async fn dispatch_event(
         }
         AppEvent::MoveApprovalSelection(delta) => {
             if app.active_pending_interaction().is_some_and(|interaction| {
-                interaction.kind == ActivePendingInteractionKind::ShellApproval
+                matches!(
+                    interaction.kind,
+                    ActivePendingInteractionKind::ShellApproval
+                        | ActivePendingInteractionKind::PlanApproval
+                )
             }) {
                 let max_idx = app.active_pending_option_count().saturating_sub(1) as i32;
                 let next = (app.approval_picker_idx as i32 + delta).clamp(0, max_idx);
@@ -224,8 +228,9 @@ pub(crate) async fn dispatch_event(
             if let Some(interaction) = app.active_pending_interaction() {
                 match interaction.kind {
                     ActivePendingInteractionKind::PlanApproval => {
-                        if let 0 | 1 = idx {
-                            input_control::answer_plan_approval(app, agent_slot, idx == 0);
+                        if let Some(decision) = input_control::plan_approval_decision_for_index(idx)
+                        {
+                            input_control::answer_plan_approval(app, agent_slot, decision);
                         }
                     }
                     ActivePendingInteractionKind::ShellApproval => {

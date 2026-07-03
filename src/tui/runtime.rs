@@ -45,8 +45,12 @@ pub fn start_pending_approval_task(
     tasks::start_pending_approval_task(app, selection, agent);
 }
 
-pub fn start_plan_approval_resume_task(app: &mut TuiApp, continue_planning: bool, agent: Agent) {
-    tasks::start_plan_approval_resume_task(app, continue_planning, agent);
+pub fn start_plan_approval_resume_task(
+    app: &mut TuiApp,
+    decision: crate::runtime_control::PlanApprovalDecision,
+    agent: Agent,
+) {
+    tasks::start_plan_approval_resume_task(app, decision, agent);
 }
 
 pub fn start_rebuild_task(app: &mut TuiApp) {

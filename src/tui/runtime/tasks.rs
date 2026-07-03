@@ -532,17 +532,26 @@ pub(super) fn start_pending_approval_task(
 
 pub(super) fn start_plan_approval_resume_task(
     app: &mut TuiApp,
-    continue_planning: bool,
+    decision: crate::runtime_control::PlanApprovalDecision,
     agent: Agent,
 ) {
-    let notice = if continue_planning {
-        "Continuing plan refinement."
-    } else {
-        "Plan approved. Continuing with implementation."
+    let (notice, phase_detail) = match decision {
+        crate::runtime_control::PlanApprovalDecision::Approve => (
+            "Plan approved. Continuing with implementation.",
+            "resuming approved plan",
+        ),
+        crate::runtime_control::PlanApprovalDecision::ContinuePlanning => {
+            ("Continuing plan refinement.", "resuming plan refinement")
+        }
+        crate::runtime_control::PlanApprovalDecision::Reject => (
+            "Plan rejected. Implementation cancelled.",
+            "cancelling plan",
+        ),
     };
 
     let request = crate::runtime_control::InputControlRequest::AnswerPlanApproval {
-        approved: !continue_planning,
+        decision,
+        feedback: None,
     };
 
     start_input_control_task(
@@ -551,17 +560,15 @@ pub(super) fn start_plan_approval_resume_task(
         request,
         notice.to_string(),
         RuntimePhase::ProcessingResponse,
-        Some(if continue_planning {
-            "resuming plan refinement".into()
-        } else {
-            "resuming approved plan".into()
-        }),
+        Some(phase_detail.into()),
     );
 }
 
 fn start_automatic_plan_implementation_task(app: &mut TuiApp, agent: Agent) {
-    let request =
-        crate::runtime_control::InputControlRequest::AnswerPlanApproval { approved: true };
+    let request = crate::runtime_control::InputControlRequest::AnswerPlanApproval {
+        decision: crate::runtime_control::PlanApprovalDecision::Approve,
+        feedback: None,
+    };
 
     start_input_control_task(
         app,

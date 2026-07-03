@@ -143,7 +143,7 @@ impl TuiApp {
             return 0;
         };
         match pending.kind {
-            ActivePendingInteractionKind::PlanApproval => 2,
+            ActivePendingInteractionKind::PlanApproval => 3,
             ActivePendingInteractionKind::ShellApproval => 4,
             ActivePendingInteractionKind::PlanningQuestion
             | ActivePendingInteractionKind::ExplorationQuestion

@@ -1,6 +1,7 @@
 use crate::agent::{Agent, BashApprovalDecision};
 use crate::runtime_control::{
-    InputEvent, RuntimeEvent, SessionControlRequest, SessionEvent, ShellApprovalDecision,
+    InputEvent, PlanApprovalDecision, RuntimeEvent, SessionControlRequest, SessionEvent,
+    ShellApprovalDecision,
 };
 use crate::tui::runtime::{
     request_running_task_cancellation, start_input_control_task, start_pending_approval_task,
@@ -148,7 +149,7 @@ pub(crate) fn answer_pending_input(
 pub(crate) fn answer_plan_approval(
     app: &mut TuiApp,
     agent_slot: &mut Option<Agent>,
-    approved: bool,
+    decision: PlanApprovalDecision,
 ) -> InputControlOutcome {
     if !app.has_pending_plan_approval() {
         app.push_notice("No pending plan approval.");
@@ -159,8 +160,53 @@ pub(crate) fn answer_plan_approval(
         return InputControlOutcome::Rejected;
     };
     app.set_pending_plan_approval(false);
-    start_plan_approval_resume_task(app, !approved, agent);
+
+    let (summary, notice) = match decision {
+        PlanApprovalDecision::Approve => (
+            "Approved. Starting implementation.",
+            "Plan approved. Continuing with implementation.",
+        ),
+        PlanApprovalDecision::ContinuePlanning => (
+            "Sent back for more planning.",
+            "Continuing plan refinement.",
+        ),
+        PlanApprovalDecision::Reject => (
+            "Rejected. Implementation cancelled.",
+            "Plan rejected. Implementation cancelled.",
+        ),
+    };
+    app.record_completed_interaction(
+        InteractionKind::PlanApproval,
+        "Plan Decision",
+        summary,
+        None,
+    );
+
+    if decision == PlanApprovalDecision::Reject {
+        let mut agent = agent;
+        if let Err(err) = agent.reject_pending_plan_approval(None) {
+            app.push_notice(format!("Failed to record plan rejection: {err}"));
+            *agent_slot = Some(agent);
+            return InputControlOutcome::Rejected;
+        }
+        app.set_agent_execution_mode(agent.execution_mode);
+        app.bottom_pane.notice = Some(notice.to_string());
+        app.set_runtime_phase(RuntimePhase::Idle, Some("plan cancelled".into()));
+        *agent_slot = Some(agent);
+        return InputControlOutcome::Answered;
+    }
+
+    start_plan_approval_resume_task(app, decision, agent);
     InputControlOutcome::Answered
+}
+
+pub(crate) fn plan_approval_decision_for_index(index: usize) -> Option<PlanApprovalDecision> {
+    match index {
+        0 => Some(PlanApprovalDecision::Approve),
+        1 => Some(PlanApprovalDecision::ContinuePlanning),
+        2 => Some(PlanApprovalDecision::Reject),
+        _ => None,
+    }
 }
 
 pub(crate) fn answer_shell_approval(

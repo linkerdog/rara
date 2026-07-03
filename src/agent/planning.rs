@@ -428,6 +428,25 @@ impl Agent {
         &mut self,
         continue_planning: bool,
         output_mode: AgentOutputMode,
+        report: F,
+    ) -> Result<()>
+    where
+        F: FnMut(AgentEvent) + Send,
+    {
+        self.resume_after_plan_approval_with_feedback_events(
+            continue_planning,
+            None,
+            output_mode,
+            report,
+        )
+        .await
+    }
+
+    pub async fn resume_after_plan_approval_with_feedback_events<F>(
+        &mut self,
+        continue_planning: bool,
+        feedback: Option<&str>,
+        output_mode: AgentOutputMode,
         mut report: F,
     ) -> Result<()>
     where
@@ -443,9 +462,16 @@ impl Agent {
                 "Continuing plan refinement from the current plan state.".to_string(),
             ));
             if let Some(tool_id) = pending_plan_exit_tool_id {
+                let feedback = feedback
+                    .map(str::trim)
+                    .filter(|value| !value.is_empty())
+                    .map(|value| format!("\nUser feedback: {value}"))
+                    .unwrap_or_default();
                 self.push_history_message(tool_result_message(
                     &tool_id,
-                    "User chose to continue planning. Revise the plan and call exit_plan_mode again when it is ready for approval.".to_string(),
+                    format!(
+                        "User chose to continue planning. Revise the plan and call exit_plan_mode again when it is ready for approval.{feedback}"
+                    ),
                     false,
                 ));
             }
@@ -475,6 +501,26 @@ impl Agent {
         }
 
         self.run_agent_loop(output_mode, &mut report).await
+    }
+
+    pub fn reject_pending_plan_approval(&mut self, feedback: Option<&str>) -> Result<()> {
+        self.pending_user_input = None;
+        self.pending_approval = None;
+        let pending_plan_exit_tool_id = self.pending_plan_exit_tool_id.take();
+        self.execution_mode = AgentExecutionMode::Execute;
+        if let Some(tool_id) = pending_plan_exit_tool_id {
+            let feedback = feedback
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .map(|value| format!("\nUser feedback: {value}"))
+                .unwrap_or_default();
+            self.push_history_message(tool_result_message(
+                &tool_id,
+                format!("User rejected the plan. Do not start implementation.{feedback}"),
+                true,
+            ));
+        }
+        self.checkpoint_session()
     }
 
     pub(super) fn capture_plan_from_text(&mut self, text: &str) -> Result<bool> {
