@@ -216,7 +216,7 @@ pub(super) fn create_full_tool_manager(
         backend,
         embedding_backend,
         vdb,
-        session_manager,
+        session_manager: session_manager.clone(),
         workspace,
         prompt_config,
         task_list_id,
@@ -224,9 +224,11 @@ pub(super) fn create_full_tool_manager(
     }));
     tm.register(Box::new(SubAgentResumeTool {
         background_subagents: background_subagents.clone(),
+        session_manager: session_manager.clone(),
     }));
     tm.register(Box::new(SubAgentListTool {
         background_subagents: background_subagents.clone(),
+        session_manager: session_manager.clone(),
     }));
     tm.register(Box::new(SubAgentStopTool {
         background_subagents,

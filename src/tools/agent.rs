@@ -38,8 +38,11 @@ use crate::workspace::WorkspaceMemory;
 mod agent_budget;
 #[path = "agent_permission.rs"]
 mod agent_permission;
+#[path = "agent_reconnect.rs"]
+mod agent_reconnect;
 use agent_budget::{agent_token_budget, parse_agent_token_budget};
 use agent_permission::{agent_permission_mode, parse_agent_permission_mode};
+use agent_reconnect::{durable_subagent_record, durable_subagent_records};
 
 #[derive(Clone, Copy, Debug)]
 pub(crate) enum SubAgentKind {
@@ -688,7 +691,7 @@ struct BackgroundSubAgentRecord {
     progress: SubagentProgress,
     kind: &'static str,
     parent_session_id: Option<String>,
-    status: &'static str,
+    status: String,
     summary: Option<String>,
     error: Option<String>,
     persistence_error: Option<String>,
@@ -713,7 +716,7 @@ impl BackgroundSubAgentStore {
             ),
             kind: start.kind.label(),
             parent_session_id: start.parent_session_id.clone(),
-            status: "running",
+            status: "running".to_string(),
             summary: None,
             error: None,
             persistence_error: None,
@@ -802,7 +805,7 @@ impl BackgroundSubAgentStore {
         if record.status != "running" {
             return Ok(record.clone());
         }
-        record.status = "cancelled";
+        record.status = "cancelled".to_string();
         record.finished_at = Some(unix_timestamp_secs());
         let stopped = record.clone();
         let token = inner.cancellations.remove(agent_id);
@@ -834,7 +837,7 @@ impl BackgroundSubAgentStore {
                 record.progress.total_output_tokens = result.total_output_tokens as usize;
                 record.progress.total_cache_hit_tokens = result.total_cache_hit_tokens as usize;
                 record.progress.total_cache_miss_tokens = result.total_cache_miss_tokens as usize;
-                record.status = result.status;
+                record.status = result.status.to_string();
                 record.summary = Some(result.summary);
                 record.persistence_error = result.persistence_error;
                 record.plan = result.plan;
@@ -843,7 +846,7 @@ impl BackgroundSubAgentStore {
                 record.error = None;
             }
             Err(err) => {
-                record.status = "failed";
+                record.status = "failed".to_string();
                 record.error = Some(err.to_string());
             }
         }
@@ -926,11 +929,12 @@ fn unix_timestamp_secs() -> u64 {
 
 pub struct SubAgentResumeTool {
     pub background_subagents: Arc<BackgroundSubAgentStore>,
+    pub session_manager: Arc<SessionManager>,
 }
 
 #[tool_spec(
     name = "subagent_resume",
-    description = "Resume observing a background sub-agent by agent_id. Returns the running status or the completed result summary without reading the sidechain transcript into parent context.",
+    description = "Resume observing a background sub-agent by agent_id. Returns live in-process status, or reconnects to the current thread's persisted completed sidechain result after a runtime restart, without reading the sidechain transcript into parent context.",
     input_schema = {
         "type": "object",
         "properties": {
@@ -945,20 +949,41 @@ pub struct SubAgentResumeTool {
 #[async_trait]
 impl Tool for SubAgentResumeTool {
     async fn call(&self, input: Value) -> Result<Value, ToolError> {
+        self.call_with_context_events(input, ToolCallContext::default(), &mut |_| {})
+            .await
+    }
+
+    async fn call_with_context_events(
+        &self,
+        input: Value,
+        context: ToolCallContext,
+        _report: &mut (dyn FnMut(rara_tools::tool::ToolProgressEvent) + Send),
+    ) -> Result<Value, ToolError> {
         let agent_id = input["agent_id"]
             .as_str()
             .ok_or(ToolError::InvalidInput("agent_id".into()))?;
-        Ok(self.background_subagents.get(agent_id)?.to_json())
+        match self.background_subagents.get(agent_id) {
+            Ok(record) => Ok(record.to_json()),
+            Err(err) => {
+                let Some(parent_session_id) = context.session_id() else {
+                    return Err(err);
+                };
+                durable_subagent_record(&self.session_manager, parent_session_id, agent_id)?
+                    .map(|record| record.to_json())
+                    .ok_or(err)
+            }
+        }
     }
 }
 
 pub struct SubAgentListTool {
     pub background_subagents: Arc<BackgroundSubAgentStore>,
+    pub session_manager: Arc<SessionManager>,
 }
 
 #[tool_spec(
     name = "subagent_list",
-    description = "List in-process background sub-agents for this RARA runtime. Completed sidechain transcripts remain on disk; this list is for live background control.",
+    description = "List in-process background sub-agents plus persisted completed sub-agent edges for the current thread. Sidechain transcripts remain on disk and are not loaded into parent context.",
     input_schema = {
         "type": "object",
         "properties": {}
@@ -967,11 +992,41 @@ pub struct SubAgentListTool {
 #[async_trait]
 impl Tool for SubAgentListTool {
     async fn call(&self, _input: Value) -> Result<Value, ToolError> {
+        self.call_with_context_events(json!({}), ToolCallContext::default(), &mut |_| {})
+            .await
+    }
+
+    async fn call_with_context_events(
+        &self,
+        _input: Value,
+        context: ToolCallContext,
+        _report: &mut (dyn FnMut(rara_tools::tool::ToolProgressEvent) + Send),
+    ) -> Result<Value, ToolError> {
         let mut agents = self
             .background_subagents
             .list()?
             .into_iter()
             .collect::<Vec<_>>();
+        if let Some(parent_session_id) = context.session_id() {
+            let mut live_ids = agents
+                .iter()
+                .map(|record| record.agent_id.clone())
+                .collect::<std::collections::HashSet<_>>();
+            match durable_subagent_records(&self.session_manager, parent_session_id) {
+                Ok(records) => {
+                    for record in records {
+                        if live_ids.insert(record.agent_id.clone()) {
+                            agents.push(record);
+                        }
+                    }
+                }
+                Err(err) => {
+                    log::warn!(
+                        "failed to retrieve durable sub-agent records for parent session {parent_session_id}: {err}"
+                    );
+                }
+            }
+        }
         agents.sort_by(|left, right| {
             left.started_at
                 .cmp(&right.started_at)

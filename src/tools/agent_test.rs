@@ -31,8 +31,8 @@ use crate::session_transcript::{load_transcript, model_visible_messages};
 use crate::tasklist::{DEFAULT_TASK_LIST_ID, TaskListStore};
 use crate::thread_store::{ThreadMetadataSource, ThreadStore};
 use crate::tools::agent::{
-    AgentTool, ExploreAgentTool, PlanAgentTool, SubAgentResumeTool, SubAgentStopTool,
-    TeamCreateTool,
+    AgentTool, ExploreAgentTool, PlanAgentTool, SubAgentListTool, SubAgentResumeTool,
+    SubAgentStopTool, TeamCreateTool,
 };
 use crate::workspace::WorkspaceMemory;
 
@@ -1069,7 +1069,7 @@ async fn background_subagent_resume_returns_completed_summary_without_inline_sid
         vdb: Arc::new(VectorDB::new(
             &rara_dir.join("lancedb").display().to_string(),
         )),
-        session_manager,
+        session_manager: session_manager.clone(),
         agent_definitions: test_agent_definition_cache(&root),
         workspace: Arc::new(WorkspaceMemory::from_paths(root, rara_dir.clone())),
         prompt_config: PromptRuntimeConfig::default(),
@@ -1078,6 +1078,7 @@ async fn background_subagent_resume_returns_completed_summary_without_inline_sid
     };
     let resume = SubAgentResumeTool {
         background_subagents,
+        session_manager,
     };
 
     let mut progress = |_| {};
@@ -1129,21 +1130,110 @@ async fn background_subagent_resume_returns_completed_summary_without_inline_sid
 }
 
 #[tokio::test]
+async fn subagent_resume_reconnects_completed_sidechain_after_store_restart() {
+    let temp = tempdir().expect("tempdir");
+    let root = temp.path().join("workspace");
+    let rara_dir = temp.path().join(".rara");
+    std::fs::create_dir_all(&root).expect("workspace");
+    let live_store = Arc::new(BackgroundSubAgentStore::default());
+    let session_manager =
+        Arc::new(SessionManager::new_for_rara_dir(rara_dir.clone()).expect("session manager"));
+    let tool = ExploreAgentTool {
+        backend: Arc::new(CountingBackend {
+            calls: Arc::new(AtomicUsize::new(0)),
+        }),
+        embedding_backend: mock_embedding_backend(),
+        vdb: Arc::new(VectorDB::new(
+            &rara_dir.join("lancedb").display().to_string(),
+        )),
+        session_manager: session_manager.clone(),
+        agent_definitions: test_agent_definition_cache(&root),
+        workspace: Arc::new(WorkspaceMemory::from_paths(root, rara_dir)),
+        prompt_config: PromptRuntimeConfig::default(),
+        task_list_id: test_task_list_id(),
+        background_subagents: live_store,
+    };
+
+    let mut progress = |_| {};
+    let started = tool
+        .call_with_context_events(
+            json!({
+                "instruction": "inspect this in the background",
+                "run_in_background": true
+            }),
+            ToolCallContext::default().with_session_id("parent-session"),
+            &mut progress,
+        )
+        .await
+        .expect("background start");
+    let agent_id = started["agent_id"].as_str().expect("agent_id");
+
+    let reconnect_store = Arc::new(BackgroundSubAgentStore::default());
+    let resume = SubAgentResumeTool {
+        background_subagents: reconnect_store.clone(),
+        session_manager: session_manager.clone(),
+    };
+    let list = SubAgentListTool {
+        background_subagents: reconnect_store,
+        session_manager,
+    };
+
+    let mut reconnected = None;
+    for _ in 0..50 {
+        let status = resume
+            .call_with_context_events(
+                json!({ "agent_id": agent_id }),
+                ToolCallContext::default().with_session_id("parent-session"),
+                &mut |_| {},
+            )
+            .await;
+        if let Ok(status) = status {
+            reconnected = Some(status);
+            break;
+        }
+        sleep(Duration::from_millis(20)).await;
+    }
+
+    let reconnected = reconnected.expect("durable sub-agent result");
+    assert_eq!(reconnected["agent_id"], agent_id);
+    assert_eq!(reconnected["status"], "explored");
+    assert_eq!(reconnected["parent_session_id"], "parent-session");
+    assert_eq!(reconnected["kind"], "reconnected");
+    assert!(
+        reconnected["summary"]
+            .as_str()
+            .expect("summary")
+            .starts_with("counted")
+    );
+
+    let listed = list
+        .call_with_context_events(
+            json!({}),
+            ToolCallContext::default().with_session_id("parent-session"),
+            &mut |_| {},
+        )
+        .await
+        .expect("subagent list");
+    let agents = listed["subagents"].as_array().expect("subagents");
+    assert!(agents.iter().any(|record| record["agent_id"] == agent_id));
+}
+
+#[tokio::test]
 async fn background_subagent_stop_marks_running_task_cancelled() {
     let temp = tempdir().expect("tempdir");
     let root = temp.path().join("workspace");
     let rara_dir = temp.path().join(".rara");
     std::fs::create_dir_all(&root).expect("workspace");
     let background_subagents = Arc::new(BackgroundSubAgentStore::default());
+    let session_manager =
+        Arc::new(SessionManager::new_for_rara_dir(rara_dir.clone()).expect("session manager"));
     let tool = ExploreAgentTool {
         backend: Arc::new(SlowBackend),
         embedding_backend: mock_embedding_backend(),
         vdb: Arc::new(VectorDB::new(
             &rara_dir.join("lancedb").display().to_string(),
         )),
-        session_manager: Arc::new(
-            SessionManager::new_for_rara_dir(rara_dir.clone()).expect("session manager"),
-        ),
+        session_manager: session_manager.clone(),
         agent_definitions: test_agent_definition_cache(&root),
         workspace: Arc::new(WorkspaceMemory::from_paths(root, rara_dir)),
         prompt_config: PromptRuntimeConfig::default(),
@@ -1155,6 +1245,7 @@ async fn background_subagent_stop_marks_running_task_cancelled() {
     };
     let resume = SubAgentResumeTool {
         background_subagents,
+        session_manager,
     };
 
     let mut progress = |_| {};
@@ -1202,7 +1293,7 @@ fn background_subagent_store_prunes_old_completed_records() {
                     progress: SubagentProgress::new("test".to_string()),
                     kind: "general",
                     parent_session_id: None,
-                    status: "done",
+                    status: "done".to_string(),
                     summary: Some(format!("summary {idx}")),
                     error: None,
                     persistence_error: None,
@@ -1234,15 +1325,15 @@ async fn background_plan_agent_resume_returns_plan_state() {
     let rara_dir = temp.path().join(".rara");
     std::fs::create_dir_all(&root).expect("workspace");
     let background_subagents = Arc::new(BackgroundSubAgentStore::default());
+    let session_manager =
+        Arc::new(SessionManager::new_for_rara_dir(rara_dir.clone()).expect("session manager"));
     let tool = PlanAgentTool {
         backend: Arc::new(PlanStateBackend),
         embedding_backend: mock_embedding_backend(),
         vdb: Arc::new(VectorDB::new(
             &rara_dir.join("lancedb").display().to_string(),
         )),
-        session_manager: Arc::new(
-            SessionManager::new_for_rara_dir(rara_dir.clone()).expect("session manager"),
-        ),
+        session_manager: session_manager.clone(),
         agent_definitions: test_agent_definition_cache(&root),
         workspace: Arc::new(WorkspaceMemory::from_paths(root, rara_dir)),
         prompt_config: PromptRuntimeConfig::default(),
@@ -1251,6 +1342,7 @@ async fn background_plan_agent_resume_returns_plan_state() {
     };
     let resume = SubAgentResumeTool {
         background_subagents,
+        session_manager,
     };
 
     let mut progress = |_| {};
