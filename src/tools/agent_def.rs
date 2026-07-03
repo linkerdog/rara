@@ -4,11 +4,8 @@ pub struct AgentDefinition {
     /// Canonical name (also the file stem).
     #[serde(default)]
     pub name: String,
-    /// Short description for /agents listing.
-    /// Reserved for the future /agents listing surface
-    /// (docs/features/subagent-claude-compat.md).
+    /// Short description for agent listing and status surfaces.
     #[serde(default)]
-    #[allow(dead_code)]
     pub description: String,
     /// Allowed tools (Claude Code display names). Empty = all tools.
     #[serde(default)]
@@ -38,11 +35,8 @@ pub struct AgentDefinition {
     /// Whether plan approval is required before action.
     #[serde(default)]
     pub plan_mode_required: bool,
-    /// Hidden from /agents listing (Claude Code compat).
-    /// Reserved for the future /agents listing surface
-    /// (docs/features/subagent-claude-compat.md).
+    /// Hidden from agent listing and status surfaces (Claude Code compat).
     #[serde(default)]
-    #[allow(dead_code)]
     pub hidden: bool,
     /// System prompt — body after frontmatter `---`.
     #[serde(default, skip_deserializing)]
