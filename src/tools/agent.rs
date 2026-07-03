@@ -286,6 +286,7 @@ pub struct AgentTool {
     pub prompt_config: PromptRuntimeConfig,
     pub background_subagents: Arc<BackgroundSubAgentStore>,
     pub task_list_id: String,
+    pub agent_definitions: AgentDefinitionCache,
 }
 
 #[tool_spec(
@@ -340,7 +341,7 @@ impl AgentTool {
             .as_str()
             .ok_or(ToolError::InvalidInput("instruction".into()))?;
         let agent_id = next_subagent_id(SubAgentKind::General, Some(name));
-        let definition = resolve_spawn_agent_definition(&self.workspace.root, &agent_label);
+        let definition = resolve_spawn_agent_definition(&self.agent_definitions, &agent_label);
         if i.get("run_in_background")
             .and_then(Value::as_bool)
             .unwrap_or(false)
@@ -359,6 +360,7 @@ impl AgentTool {
                 workspace: self.workspace.clone(),
                 prompt_config: self.prompt_config.clone(),
                 task_list_id: self.task_list_id.clone(),
+                agent_definitions: self.agent_definitions.clone(),
             })?;
             return Ok(task.to_json());
         }
@@ -378,6 +380,7 @@ impl AgentTool {
             self.workspace.clone(),
             self.prompt_config.clone(),
             self.task_list_id.clone(),
+            self.agent_definitions.clone(),
         )
         .await?;
         Ok(json!({
@@ -406,6 +409,7 @@ pub struct ExploreAgentTool {
     pub prompt_config: PromptRuntimeConfig,
     pub background_subagents: Arc<BackgroundSubAgentStore>,
     pub task_list_id: String,
+    pub agent_definitions: AgentDefinitionCache,
 }
 
 #[tool_spec(
@@ -469,6 +473,7 @@ impl ExploreAgentTool {
                 workspace: self.workspace.clone(),
                 prompt_config: self.prompt_config.clone(),
                 task_list_id: self.task_list_id.clone(),
+                agent_definitions: self.agent_definitions.clone(),
             })?;
             return Ok(task.to_json());
         }
@@ -488,6 +493,7 @@ impl ExploreAgentTool {
             self.workspace.clone(),
             self.prompt_config.clone(),
             self.task_list_id.clone(),
+            self.agent_definitions.clone(),
         )
         .await?;
         Ok(json!({
@@ -515,6 +521,7 @@ pub struct PlanAgentTool {
     pub prompt_config: PromptRuntimeConfig,
     pub background_subagents: Arc<BackgroundSubAgentStore>,
     pub task_list_id: String,
+    pub agent_definitions: AgentDefinitionCache,
 }
 
 #[tool_spec(
@@ -578,6 +585,7 @@ impl PlanAgentTool {
                 workspace: self.workspace.clone(),
                 prompt_config: self.prompt_config.clone(),
                 task_list_id: self.task_list_id.clone(),
+                agent_definitions: self.agent_definitions.clone(),
             })?;
             return Ok(task.to_json());
         }
@@ -597,6 +605,7 @@ impl PlanAgentTool {
             self.workspace.clone(),
             self.prompt_config.clone(),
             self.task_list_id.clone(),
+            self.agent_definitions.clone(),
         )
         .await?;
         Ok(json!({
@@ -628,6 +637,7 @@ pub struct TeamCreateTool {
     pub workspace: Arc<WorkspaceMemory>,
     pub prompt_config: PromptRuntimeConfig,
     pub task_list_id: String,
+    pub agent_definitions: AgentDefinitionCache,
 }
 
 const BACKGROUND_SUBAGENT_COMPLETED_RETENTION: usize = 64;
@@ -657,6 +667,7 @@ struct BackgroundSubAgentStart {
     workspace: Arc<WorkspaceMemory>,
     prompt_config: PromptRuntimeConfig,
     task_list_id: String,
+    agent_definitions: AgentDefinitionCache,
 }
 
 #[derive(Clone, Debug)]
@@ -739,6 +750,7 @@ impl BackgroundSubAgentStore {
                 start.workspace,
                 start.prompt_config,
                 start.task_list_id,
+                start.agent_definitions,
             )
             .await;
             store.finish(&agent_id, result);
@@ -1059,6 +1071,7 @@ impl TeamCreateTool {
             let workspace = self.workspace.clone();
             let prompt_config = self.prompt_config.clone();
             let task_list_id = self.task_list_id.clone();
+            let agent_definitions = self.agent_definitions.clone();
             let parent_session_id = parent_session_id.map(str::to_string);
             let agent_id = next_subagent_id(task.kind, Some(&task.name));
 
@@ -1079,6 +1092,7 @@ impl TeamCreateTool {
                     workspace,
                     prompt_config,
                     task_list_id,
+                    agent_definitions,
                 )
                 .await?;
                 Ok::<_, ToolError>(serialize_team_result(&task.name, result))
@@ -1133,19 +1147,21 @@ pub(crate) async fn run_sub_agent(
     workspace: Arc<WorkspaceMemory>,
     prompt_config: PromptRuntimeConfig,
     task_list_id: String,
+    agent_definitions: AgentDefinitionCache,
 ) -> Result<SubAgentResult, ToolError> {
     let tool_manager = if let Some(def) = definition {
         build_filtered_tool_manager(kind, def, workspace.rara_dir.join("tasks"), &task_list_id)
     } else {
         build_subagent_tool_manager(kind, workspace.rara_dir.join("tasks"), &task_list_id)
     };
-    let mut sub = Agent::new_with_embedding_backend(
+    let mut sub = Agent::new_with_embedding_backend_and_agent_definitions(
         tool_manager,
         backend,
         embedding_backend,
         vdb,
         session_manager.clone(),
         workspace.clone(),
+        agent_definitions,
     );
     if let Some(session_id) = session_id {
         sub.session_id = session_id;
@@ -1598,9 +1614,12 @@ fn resolve_kind_definition(kind: SubAgentKind) -> AgentDefinition {
     })
 }
 
-fn resolve_spawn_agent_definition(workspace_root: &Path, normalized_name: &str) -> AgentDefinition {
-    let registry = load_agent_definitions(workspace_root);
-    resolve_agent(normalized_name, &registry)
+fn resolve_spawn_agent_definition(
+    cache: &AgentDefinitionCache,
+    normalized_name: &str,
+) -> AgentDefinition {
+    cache
+        .resolve(normalized_name)
         .unwrap_or_else(|| fallback_spawn_agent_definition(normalized_name))
 }
 

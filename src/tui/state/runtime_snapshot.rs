@@ -108,7 +108,7 @@ impl TuiApp {
                 interaction.source.as_deref(),
             );
         }
-        let ext_counts = discover_extension_counts(&runtime_context.cwd);
+        let ext_counts = discover_extension_counts(&runtime_context.cwd, agent);
         let runtime_hook_count = self
             .hook_runtime
             .as_ref()
@@ -214,12 +214,16 @@ impl TuiApp {
     }
 }
 
-fn discover_extension_counts(cwd: &str) -> (usize, usize, Vec<String>) {
+fn discover_extension_counts(cwd: &str, agent: &Agent) -> (usize, usize, Vec<String>) {
     let root = std::path::Path::new(cwd);
     let mut hook_registry = crate::hooks::HookRegistry::new();
-    let mut agent_registry = crate::agents_ext::AgentRegistry::new();
     hook_registry.discover_repo_hooks(root);
-    agent_registry.discover_repo_agents(root);
+    let records = agent
+        .agent_definition_records()
+        .into_iter()
+        .filter(|record| record.source_path.starts_with(root))
+        .collect();
+    let agent_registry = crate::agents_ext::AgentRegistry::from_records(records, root);
     let agent_count = agent_registry.agents.len();
     let agent_status_lines = if agent_count == 0 {
         Vec::new()

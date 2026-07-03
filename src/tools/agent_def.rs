@@ -60,34 +60,71 @@ pub struct AgentDefinitionLoadRecord {
     pub error: Option<String>,
 }
 
-/// Load Claude-compatible agent definitions from RARA and compatibility roots.
-///
-/// Each .md file must contain a YAML frontmatter block delimited by `---`.
-/// The body after the closing `---` becomes `AgentDefinition::system_prompt`.
-///
-/// Built-in agents (general/explore/plan) are always available and do not
-/// require an agent definition file. Custom definitions can override built-in
-/// names or define net new agents. RARA-native `.rara/agents` roots take
-/// precedence over legacy Claude `.claude/agents` compatibility roots.
-pub fn load_agent_definitions(workspace_root: &Path) -> AgentRegistry {
-    let mut registry = AgentRegistry::new();
+#[derive(Clone, Debug)]
+struct AgentDefinitionCacheState {
+    registry: AgentRegistry,
+    records: Vec<AgentDefinitionLoadRecord>,
+}
 
-    for record in discover_agent_definition_records(workspace_root) {
-        match record.definition {
+/// Shared runtime cache for Claude-compatible agent definitions.
+///
+/// A cache is loaded once when the runtime agent is constructed. Rebuilding the
+/// runtime constructs a new cache after editing `.rara/agents` or
+/// `.claude/agents`.
+#[derive(Clone, Debug)]
+pub struct AgentDefinitionCache {
+    state: Arc<AgentDefinitionCacheState>,
+}
+
+impl AgentDefinitionCache {
+    pub fn load(workspace_root: impl Into<PathBuf>) -> Self {
+        let workspace_root = workspace_root.into();
+        let state = load_agent_definition_cache_state(&workspace_root);
+        Self {
+            state: Arc::new(state),
+        }
+    }
+
+    pub fn resolve(&self, name: &str) -> Option<AgentDefinition> {
+        resolve_agent(name, &self.state.registry)
+    }
+
+    pub fn records(&self) -> Vec<AgentDefinitionLoadRecord> {
+        self.state.records.clone()
+    }
+
+    #[cfg(test)]
+    pub fn from_records_for_test(records: Vec<AgentDefinitionLoadRecord>) -> Self {
+        let mut registry = AgentRegistry::new();
+        for record in &records {
+            if let Some(definition) = &record.definition {
+                registry.insert(definition.name.clone(), definition.clone());
+            }
+        }
+        Self {
+            state: Arc::new(AgentDefinitionCacheState { registry, records }),
+        }
+    }
+}
+
+fn load_agent_definition_cache_state(workspace_root: &Path) -> AgentDefinitionCacheState {
+    let records = discover_agent_definition_records(workspace_root);
+    let mut registry = AgentRegistry::new();
+    for record in &records {
+        match &record.definition {
             Some(definition) => {
-                registry.insert(definition.name.clone(), definition);
+                registry.insert(definition.name.clone(), definition.clone());
             }
             None => {
                 log::warn!(
                     "failed to load agent definition {}: {}",
                     record.source_path.display(),
-                    record.error.unwrap_or_else(|| "parse error".to_string())
+                    record.error.as_deref().unwrap_or("parse error")
                 );
             }
         }
     }
-
-    registry
+    AgentDefinitionCacheState { registry, records }
 }
 
 pub fn discover_agent_definition_records(workspace_root: &Path) -> Vec<AgentDefinitionLoadRecord> {
@@ -98,6 +135,7 @@ pub fn discover_agent_definition_records(workspace_root: &Path) -> Vec<AgentDefi
     records
 }
 
+#[cfg(test)]
 pub fn discover_workspace_agent_definition_records(
     workspace_root: &Path,
 ) -> Vec<AgentDefinitionLoadRecord> {
