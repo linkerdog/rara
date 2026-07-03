@@ -25,12 +25,8 @@ pub struct AgentDefinition {
     /// (docs/features/subagent-claude-compat.md).
     #[allow(dead_code)]
     pub token_budget: Option<i64>,
-    /// Permission mode (e.g. "acceptEdits", "default").
-    /// Reserved for per-agent permission overrides.
-    /// Will be activated with subagent permission-mode resolution
-    /// (docs/features/subagent-claude-compat.md).
+    /// Claude-compatible permission mode override for spawned subagents.
     #[serde(default)]
-    #[allow(dead_code)]
     pub permission_mode: Option<String>,
     /// Whether plan approval is required before action.
     #[serde(default)]

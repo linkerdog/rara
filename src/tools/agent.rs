@@ -34,6 +34,10 @@ use crate::thread_store::{ThreadRecorder, ThreadRuntimeLineage, ThreadRuntimeSta
 use crate::tools::tasklist::{TaskCreateTool, TaskGetTool, TaskListTool, TaskUpdateTool};
 use crate::workspace::WorkspaceMemory;
 
+#[path = "agent_permission.rs"]
+mod agent_permission;
+use agent_permission::{agent_permission_mode, parse_agent_permission_mode};
+
 #[derive(Clone, Copy, Debug)]
 pub(crate) enum SubAgentKind {
     General,
@@ -1149,11 +1153,16 @@ pub(crate) async fn run_sub_agent(
     task_list_id: String,
     agent_definitions: AgentDefinitionCache,
 ) -> Result<SubAgentResult, ToolError> {
+    let permission_mode = agent_permission_mode(definition)?;
     let tool_manager = if let Some(def) = definition {
         build_filtered_tool_manager(kind, def, workspace.rara_dir.join("tasks"), &task_list_id)
     } else {
-        build_subagent_tool_manager(kind, workspace.rara_dir.join("tasks"), &task_list_id)
-    };
+        Ok(build_subagent_tool_manager(
+            kind,
+            workspace.rara_dir.join("tasks"),
+            &task_list_id,
+        ))
+    }?;
     let mut sub = Agent::new_with_embedding_backend_and_agent_definitions(
         tool_manager,
         backend,
@@ -1167,11 +1176,15 @@ pub(crate) async fn run_sub_agent(
         sub.session_id = session_id;
     }
     sub.set_cancellation_token(cancellation_token);
-    sub.set_execution_mode(if definition.is_some_and(|d| d.plan_mode_required) {
+    let plan_required =
+        definition.is_some_and(|d| d.plan_mode_required) || permission_mode.requires_plan_mode();
+    sub.set_execution_mode(if plan_required {
         AgentExecutionMode::Plan
     } else {
         kind.execution_mode()
     });
+    sub.set_bash_approval_mode(permission_mode.bash_approval_mode(plan_required));
+    sub.set_full_access_mode(permission_mode.full_access_mode(plan_required));
     let role_prompt = subagent_role_prompt(kind, definition);
     let appended_prompt = match definition
         .map(|d| d.system_prompt.trim())
@@ -1663,8 +1676,14 @@ fn build_filtered_tool_manager(
     definition: &AgentDefinition,
     task_root: PathBuf,
     default_task_list_id: &str,
-) -> ToolManager {
-    let mut tm = if matches!(kind, SubAgentKind::General) && !definition.tools.is_empty() {
+) -> Result<ToolManager, ToolError> {
+    let permission_mode =
+        parse_agent_permission_mode(definition.permission_mode.as_deref().unwrap_or_default())?;
+    let force_read_only = definition.plan_mode_required || permission_mode.requires_plan_mode();
+    let mut tm = if force_read_only {
+        let task_store = Arc::new(TaskListStore::new(task_root));
+        build_read_only_tool_manager(task_store, default_task_list_id)
+    } else if matches!(kind, SubAgentKind::General) && !definition.tools.is_empty() {
         build_custom_spawn_agent_tool_manager(task_root, default_task_list_id)
     } else {
         build_subagent_tool_manager(kind, task_root, default_task_list_id)
@@ -1687,7 +1706,7 @@ fn build_filtered_tool_manager(
         tm.retain(|name| !blocked.contains(name));
     }
 
-    tm
+    Ok(tm)
 }
 
 #[cfg(test)]

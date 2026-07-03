@@ -99,6 +99,23 @@ Definitions with `hidden: true` are omitted from listing/status surfaces while
 remaining valid for direct `spawn_agent` resolution. Visible definitions include
 their frontmatter `description` in the status line when present.
 
+`permissionMode` controls the spawned subagent's local execution policy. Values
+are parsed ASCII case-insensitively:
+
+- `default` and omitted values keep the subagent's normal execution mode.
+- `acceptEdits`, `accept-edits`, and `accept_edits` keep execute mode but
+  require bash approval for mutable shell commands.
+- `auto` keeps execute mode with the normal auto policy.
+- `plan`, `readOnly`, `read-only`, and `read_only` force plan mode and a
+  read-only tool manager.
+- `bypassPermissions`, `bypass-permissions`, `bypass_permissions`,
+  `fullAccess`, `full-access`, and `full_access` enable full-access approval
+  bypass unless `planModeRequired` is also set, in which case plan mode takes
+  precedence.
+
+Invalid `permissionMode` values fail the `spawn_agent` request before creating
+a subagent.
+
 ### Subagent Execution Changes
 
 **Before** (current):
