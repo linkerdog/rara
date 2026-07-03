@@ -4,7 +4,7 @@ use ratatui::{
 };
 
 use crate::tui::render::display_width;
-use crate::tui::theme::*;
+use crate::tui::theme::{ThemeToken, theme_color};
 
 const MAX_DIFF_LINES: usize = 80;
 
@@ -63,7 +63,7 @@ pub(crate) fn render_patch_preview(patch: &str, width: u16) -> Vec<Line<'static>
                 Span::raw("    "),
                 Span::styled(
                     "(no inline diff preview)",
-                    Style::default().fg(TEXT_SECONDARY),
+                    token_fg(ThemeToken::TextSecondary),
                 ),
             ]));
             continue;
@@ -78,7 +78,7 @@ pub(crate) fn render_patch_preview(patch: &str, width: u16) -> Vec<Line<'static>
                             "... {} more diff line(s)",
                             remaining_diff_lines(&files, emitted)
                         ),
-                        Style::default().fg(TEXT_SECONDARY),
+                        token_fg(ThemeToken::TextSecondary),
                     ),
                 ]));
                 return lines;
@@ -107,9 +107,7 @@ pub(crate) fn render_message_diff_preview(
     if let Some(role) = role.filter(|role| !role.is_empty()) {
         lines.push(Line::from(vec![Span::styled(
             role.to_string(),
-            Style::default()
-                .fg(TEXT_SECONDARY)
-                .add_modifier(Modifier::ITALIC),
+            token_fg(ThemeToken::TextSecondary).add_modifier(Modifier::ITALIC),
         )]));
     }
 
@@ -125,9 +123,7 @@ pub(crate) fn render_message_diff_preview(
             Span::raw("  "),
             Span::styled(
                 "diff:",
-                Style::default()
-                    .fg(PHASE_PLANNING)
-                    .add_modifier(Modifier::BOLD),
+                token_fg(ThemeToken::PhasePlanning).add_modifier(Modifier::BOLD),
             ),
         ]));
     }
@@ -197,7 +193,7 @@ fn render_raw_patch_preview(patch: &str, width: u16) -> Vec<Line<'static>> {
                     "  ... {} more diff line(s)",
                     patch.lines().count().saturating_sub(emitted)
                 ),
-                Style::default().fg(TEXT_SECONDARY),
+                token_fg(ThemeToken::TextSecondary),
             )));
             break;
         }
@@ -282,7 +278,7 @@ fn push_current_file(files: &mut Vec<DiffFile>, current: &mut Option<DiffFile>) 
 fn render_summary_header(files: &[DiffFile]) -> Line<'static> {
     let added: usize = files.iter().map(|file| file.added).sum();
     let removed: usize = files.iter().map(|file| file.removed).sum();
-    let mut spans = vec![Span::styled("* ", Style::default().fg(TEXT_SECONDARY))];
+    let mut spans = vec![Span::styled("* ", token_fg(ThemeToken::TextSecondary))];
 
     if let [file] = files {
         spans.push(Span::styled(
@@ -313,7 +309,7 @@ fn render_summary_header(files: &[DiffFile]) -> Line<'static> {
 }
 
 fn render_file_header(file: &DiffFile) -> Line<'static> {
-    let mut spans = vec![Span::styled("  - ", Style::default().fg(TEXT_SECONDARY))];
+    let mut spans = vec![Span::styled("  - ", token_fg(ThemeToken::TextSecondary))];
     spans.extend(path_spans(file));
     spans.push(Span::raw(" "));
     spans.extend(line_count_spans(file.added, file.removed));
@@ -331,9 +327,9 @@ fn path_spans(file: &DiffFile) -> Vec<Span<'static>> {
 fn line_count_spans(added: usize, removed: usize) -> Vec<Span<'static>> {
     vec![
         Span::raw("("),
-        Span::styled(format!("+{added}"), Style::default().fg(STATUS_SUCCESS)),
+        Span::styled(format!("+{added}"), token_fg(ThemeToken::StatusSuccess)),
         Span::raw(" "),
-        Span::styled(format!("-{removed}"), Style::default().fg(STATUS_ERROR)),
+        Span::styled(format!("-{removed}"), token_fg(ThemeToken::StatusError)),
         Span::raw(")"),
     ]
 }
@@ -371,33 +367,27 @@ fn push_wrapped_diff_line(
     let (sign, sign_style, line_bg, content_style) = match kind {
         DiffLineType::Insert => (
             "+",
-            Style::default()
-                .fg(DIFF_ADD_FG)
-                .add_modifier(Modifier::BOLD),
-            Some(DIFF_ADD_BG),
-            Style::default().fg(DIFF_ADD_FG),
+            token_fg(ThemeToken::DiffAddFg).add_modifier(Modifier::BOLD),
+            Some(theme_color(ThemeToken::DiffAddBg)),
+            token_fg(ThemeToken::DiffAddFg),
         ),
         DiffLineType::Delete => (
             "-",
-            Style::default()
-                .fg(DIFF_DEL_FG)
-                .add_modifier(Modifier::BOLD),
-            Some(DIFF_DEL_BG),
-            Style::default().fg(DIFF_DEL_FG).add_modifier(Modifier::DIM),
+            token_fg(ThemeToken::DiffDelFg).add_modifier(Modifier::BOLD),
+            Some(theme_color(ThemeToken::DiffDelBg)),
+            token_fg(ThemeToken::DiffDelFg).add_modifier(Modifier::DIM),
         ),
         DiffLineType::Header => (
             " ",
-            Style::default().fg(TEXT_SECONDARY),
-            Some(DIFF_HUNK_BG),
-            Style::default()
-                .fg(DIFF_HUNK_FG)
-                .add_modifier(Modifier::BOLD),
+            token_fg(ThemeToken::TextSecondary),
+            Some(theme_color(ThemeToken::DiffHunkBg)),
+            token_fg(ThemeToken::DiffHunkFg).add_modifier(Modifier::BOLD),
         ),
         DiffLineType::Context => (
             " ",
-            Style::default().fg(DIFF_CONTEXT_FG),
+            token_fg(ThemeToken::DiffContextFg),
             None,
-            Style::default().fg(DIFF_CONTEXT_FG),
+            token_fg(ThemeToken::DiffContextFg),
         ),
     };
 
@@ -423,6 +413,10 @@ fn push_wrapped_diff_line(
             Line::from(spans)
         })
         .collect()
+}
+
+fn token_fg(token: ThemeToken) -> Style {
+    Style::default().fg(theme_color(token))
 }
 
 fn wrap_plain_text(text: &str, width: usize) -> Vec<String> {
