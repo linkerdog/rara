@@ -40,6 +40,7 @@ fn active_turn_cell_keeps_sections_in_stable_order() {
             note: None,
             approval: None,
             source: None,
+            created_at_epoch_seconds: None,
         }],
         ..RuntimeSnapshot::default()
     };
@@ -88,6 +89,7 @@ fn active_turn_cell_renders_pending_approval_without_transcript_entries() {
                 payload: Default::default(),
             }),
             source: None,
+            created_at_epoch_seconds: None,
         });
 
     let rendered = ActiveTurnCell::new(&app, Some(Path::new(".")))

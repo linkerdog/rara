@@ -91,9 +91,9 @@ Active backlog only. Keep this file small and current.
       approved-plan tool result more than once.
 - [x] Expose planning lifecycle fields in `/status` and `/context`: plan path,
       approval status, pending age, last decision, and approved plan revision.
-- [ ] Support continue-planning feedback so rejecting a plan can carry user
+- [x] Support continue-planning feedback so rejecting a plan can carry user
       instructions back into planning mode instead of only a generic retry.
-- [ ] Persist plan submission timestamps and approved plan hashes so `/status`
+- [x] Persist plan submission timestamps and approved plan hashes so `/status`
       and `/context` can render concrete pending age and approved revision
       values instead of `-`.
 

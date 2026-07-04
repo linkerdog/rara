@@ -271,6 +271,7 @@ mod tests {
                     },
                 }),
                 source: None,
+                created_at_epoch_seconds: None,
             });
 
         let rendered = status_command_approval_text(&app);
@@ -310,6 +311,7 @@ mod tests {
                     },
                 }),
                 source: None,
+                created_at_epoch_seconds: None,
             });
 
         let selected = shell_approval_text_lines(&app, Some(2)).join("\n");

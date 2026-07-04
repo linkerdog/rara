@@ -8,7 +8,8 @@ use rara_state::state_db::{
 use serde_json::json;
 
 use super::{
-    InteractionKind, StateDb, TranscriptEntry, TranscriptTurn, TuiApp, state_db_status_error,
+    CompletedInteractionSnapshot, InteractionKind, StateDb, TranscriptEntry, TranscriptTurn,
+    TuiApp, state_db_status_error,
 };
 use crate::thread_store::{ThreadRecorder, ThreadRuntimeState, ThreadStore};
 
@@ -183,6 +184,7 @@ impl TuiApp {
                 }
                 InteractionKind::PlanApproval => {
                     let tool_use_id = plan_approval_tool_use_id(interaction.source.as_deref());
+                    let plan_path = format!(".rara/sessions/{}/plan.md", self.snapshot.session_id);
                     interactions.push(PersistedInteraction {
                         kind: "plan_approval".to_string(),
                         status: "pending".to_string(),
@@ -198,9 +200,13 @@ impl TuiApp {
                         phase: "plan_ready".to_string(),
                         decision: None,
                         feedback: None,
-                        plan_path: None,
+                        plan_path: Some(plan_path),
                         tool_use_id,
                         plan_hash: None,
+                        submitted_at: interaction
+                            .created_at_epoch_seconds
+                            .and_then(|value| i64::try_from(value).ok()),
+                        decided_at: None,
                     });
                 }
                 InteractionKind::Approval => {
@@ -235,16 +241,15 @@ impl TuiApp {
                 status: "completed".to_string(),
                 title: interaction.title.clone(),
                 summary: interaction.summary.clone(),
-                payload: interaction.source.as_ref().map(|source| {
-                    json!({
-                        "source": source,
-                    })
-                }),
+                payload: completed_interaction_payload(interaction),
             });
             if interaction.kind == InteractionKind::PlanApproval
                 && let Some(lifecycle) = plan_lifecycle_from_completed_interaction(
                     &interaction.summary,
                     interaction.source.as_deref(),
+                    interaction.feedback.as_deref(),
+                    interaction.plan_revision.as_deref(),
+                    interaction.completed_at_epoch_seconds,
                 )
             {
                 plan_lifecycle.push(lifecycle);
@@ -378,6 +383,9 @@ impl TuiApp {
 fn plan_lifecycle_from_completed_interaction(
     summary: &str,
     source: Option<&str>,
+    feedback: Option<&str>,
+    plan_hash: Option<&str>,
+    completed_at_epoch_seconds: Option<u64>,
 ) -> Option<PersistedPlanLifecycle> {
     let (phase, decision) = match source {
         Some("plan_approval:approve") => ("plan_approved", "approve"),
@@ -388,11 +396,34 @@ fn plan_lifecycle_from_completed_interaction(
     Some(PersistedPlanLifecycle {
         phase: phase.to_string(),
         decision: Some(decision.to_string()),
-        feedback: None,
+        feedback: feedback
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(str::to_string),
         plan_path: None,
         tool_use_id: None,
-        plan_hash: None,
+        plan_hash: plan_hash.map(str::to_string),
+        submitted_at: None,
+        decided_at: completed_at_epoch_seconds.and_then(|value| i64::try_from(value).ok()),
     })
+}
+
+fn completed_interaction_payload(
+    interaction: &CompletedInteractionSnapshot,
+) -> Option<serde_json::Value> {
+    if interaction.source.is_none()
+        && interaction.feedback.is_none()
+        && interaction.plan_revision.is_none()
+        && interaction.completed_at_epoch_seconds.is_none()
+    {
+        return None;
+    }
+    Some(json!({
+        "source": interaction.source,
+        "feedback": interaction.feedback,
+        "plan_revision": interaction.plan_revision,
+        "completed_at": interaction.completed_at_epoch_seconds,
+    }))
 }
 
 fn plan_lifecycle_from_completed_summary(summary: &str) -> Option<(&'static str, &'static str)> {
@@ -437,14 +468,23 @@ mod tests {
         let approved = plan_lifecycle_from_completed_interaction(
             "copy can change",
             Some("plan_approval:approve"),
+            Some("ship it"),
+            Some("sha256:abc"),
+            Some(1_713_955_200),
         )
         .unwrap();
         assert_eq!(approved.phase, "plan_approved");
         assert_eq!(approved.decision.as_deref(), Some("approve"));
+        assert_eq!(approved.feedback.as_deref(), Some("ship it"));
+        assert_eq!(approved.plan_hash.as_deref(), Some("sha256:abc"));
+        assert_eq!(approved.decided_at, Some(1_713_955_200));
 
         let revising = plan_lifecycle_from_completed_interaction(
             "copy can change",
             Some("plan_approval:continue_planning"),
+            None,
+            None,
+            None,
         )
         .expect("revising lifecycle");
         assert_eq!(revising.phase, "plan_revising");
@@ -453,19 +493,29 @@ mod tests {
         let rejected = plan_lifecycle_from_completed_interaction(
             "copy can change",
             Some("plan_approval:reject"),
+            None,
+            None,
+            None,
         )
         .unwrap();
         assert_eq!(rejected.phase, "plan_rejected");
         assert_eq!(rejected.decision.as_deref(), Some("reject"));
 
-        assert!(plan_lifecycle_from_completed_interaction("other", None).is_none());
+        assert!(
+            plan_lifecycle_from_completed_interaction("other", None, None, None, None).is_none()
+        );
     }
 
     #[test]
     fn keeps_summary_fallback_for_existing_completed_plan_approvals() {
-        let approved =
-            plan_lifecycle_from_completed_interaction("Approved. Starting implementation.", None)
-                .unwrap();
+        let approved = plan_lifecycle_from_completed_interaction(
+            "Approved. Starting implementation.",
+            None,
+            None,
+            None,
+            None,
+        )
+        .unwrap();
         assert_eq!(approved.phase, "plan_approved");
         assert_eq!(approved.decision.as_deref(), Some("approve"));
     }

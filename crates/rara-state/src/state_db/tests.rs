@@ -478,6 +478,8 @@ fn load_rollout_events_prefers_append_only_log_without_snapshot_rewrite() -> Res
                     plan_path: Some(".rara/sessions/session-events/plan.md".to_string()),
                     tool_use_id: Some("tool-plan".to_string()),
                     plan_hash: None,
+                    submitted_at: None,
+                    decided_at: None,
                 },
             },
         ],

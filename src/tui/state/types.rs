@@ -320,6 +320,7 @@ pub struct PendingInteractionSnapshot {
     pub note: Option<String>,
     pub approval: Option<PendingApprovalSnapshot>,
     pub source: Option<String>,
+    pub created_at_epoch_seconds: Option<u64>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -343,6 +344,9 @@ pub struct CompletedInteractionSnapshot {
     pub title: String,
     pub summary: String,
     pub source: Option<String>,
+    pub feedback: Option<String>,
+    pub completed_at_epoch_seconds: Option<u64>,
+    pub plan_revision: Option<String>,
 }
 
 #[derive(Debug)]

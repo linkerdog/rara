@@ -338,12 +338,10 @@ async fn pending_plan_approval_blocks_plain_submit() {
     assert!(!should_quit);
     assert!(app.has_pending_plan_approval());
     assert!(app.bottom_pane.running_task.is_none());
-    assert!(
-        app.bottom_pane
-            .notice
-            .as_deref()
-            .is_some_and(|value| value.contains("approval actions above the input"))
-    );
+    let notice = app.bottom_pane.notice.as_deref().expect("notice");
+    assert!(notice.contains("Use 1 approve"));
+    assert!(notice.contains("2 keep planning"));
+    assert!(notice.contains("3 reject"));
 }
 
 #[test]
@@ -901,6 +899,7 @@ fn add_pending_shell_approval(app: &mut TuiApp) {
                 payload: Default::default(),
             }),
             source: None,
+            created_at_epoch_seconds: None,
         });
 }
 
@@ -915,6 +914,7 @@ fn add_pending_plan_approval(app: &mut TuiApp) {
             note: None,
             approval: None,
             source: None,
+            created_at_epoch_seconds: None,
         });
 }
 
@@ -968,6 +968,7 @@ fn add_pending_request_input(app: &mut TuiApp, option_count: usize) {
             note: None,
             approval: None,
             source: None,
+            created_at_epoch_seconds: None,
         });
 }
 

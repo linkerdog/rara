@@ -151,6 +151,15 @@ pub(crate) fn answer_plan_approval(
     agent_slot: &mut Option<Agent>,
     decision: PlanApprovalDecision,
 ) -> InputControlOutcome {
+    answer_plan_approval_with_feedback(app, agent_slot, decision, None)
+}
+
+pub(crate) fn answer_plan_approval_with_feedback(
+    app: &mut TuiApp,
+    agent_slot: &mut Option<Agent>,
+    decision: PlanApprovalDecision,
+    feedback: Option<String>,
+) -> InputControlOutcome {
     if !app.has_pending_plan_approval() {
         app.push_notice("No pending plan approval.");
         return InputControlOutcome::Rejected;
@@ -174,20 +183,25 @@ pub(crate) fn answer_plan_approval(
         ),
     };
     let source = Some(plan_approval_decision_source(decision).to_string());
+    let feedback = feedback
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty());
 
     if decision == PlanApprovalDecision::Reject {
         let mut agent = agent;
-        if let Err(err) = agent.reject_pending_plan_approval(None) {
+        if let Err(err) = agent.reject_pending_plan_approval(feedback.as_deref()) {
             app.push_notice(format!("Failed to record plan rejection: {err}"));
             *agent_slot = Some(agent);
             return InputControlOutcome::Rejected;
         }
         app.clear_pending_plan_approval();
-        app.record_completed_interaction(
+        app.record_completed_interaction_with_metadata(
             InteractionKind::PlanApproval,
             "Plan Decision",
             summary,
             source.clone(),
+            feedback,
+            None,
         );
         app.set_agent_execution_mode(agent.execution_mode);
         app.bottom_pane.notice = Some(notice.to_string());
@@ -197,13 +211,20 @@ pub(crate) fn answer_plan_approval(
     }
 
     app.clear_pending_plan_approval();
-    app.record_completed_interaction(
+    let plan_revision = if decision == PlanApprovalDecision::Approve {
+        Some(agent.current_plan_hash())
+    } else {
+        None
+    };
+    app.record_completed_interaction_with_metadata(
         InteractionKind::PlanApproval,
         "Plan Decision",
         summary,
         source,
+        feedback.clone(),
+        plan_revision,
     );
-    start_plan_approval_resume_task(app, decision, agent);
+    start_plan_approval_resume_task(app, decision, feedback, agent);
     InputControlOutcome::Answered
 }
 

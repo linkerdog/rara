@@ -48,9 +48,10 @@ pub fn start_pending_approval_task(
 pub fn start_plan_approval_resume_task(
     app: &mut TuiApp,
     decision: crate::runtime_control::PlanApprovalDecision,
+    feedback: Option<String>,
     agent: Agent,
 ) {
-    tasks::start_plan_approval_resume_task(app, decision, agent);
+    tasks::start_plan_approval_resume_task(app, decision, feedback, agent);
 }
 
 pub fn start_rebuild_task(app: &mut TuiApp) {

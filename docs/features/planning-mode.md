@@ -125,7 +125,9 @@ The control-plane decision is explicit: `AnswerPlanApproval` carries one of
 `approve`, `continue_planning`, or `reject`. `approve` resumes execution with
 the saved plan, `continue_planning` keeps the agent in planning mode and asks it
 to revise the plan, and `reject` clears the pending plan approval without
-starting implementation.
+starting implementation. `continue_planning` and `reject` may carry user
+feedback from the approval input; that feedback is forwarded to planning-mode
+resume logic instead of being reduced to generic retry or cancellation text.
 
 ### Runtime Persistence
 
@@ -237,9 +239,10 @@ derived snapshot:
 
 The current `/context` overlay and text surface include a Planning Lifecycle
 section with plan path, approval status, pending age, last decision, approved
-revision, and pending `exit_plan_mode` tool-use id when present. Pending age and
-approved revision render as `-` until runtime checkpoints persist submission
-timestamps and plan hashes.
+revision, and pending `exit_plan_mode` tool-use id when present. Pending plan
+approval records include submission timestamps so pending age can render as a
+concrete elapsed value. Approved decisions record a stable plan hash so approved
+revision can render without depending on UI copy.
 
 ### Recovery Scenarios
 

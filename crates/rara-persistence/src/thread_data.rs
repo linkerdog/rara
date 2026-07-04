@@ -36,6 +36,10 @@ pub struct PersistedPlanLifecycle {
     pub tool_use_id: Option<String>,
     #[serde(default)]
     pub plan_hash: Option<String>,
+    #[serde(default)]
+    pub submitted_at: Option<i64>,
+    #[serde(default)]
+    pub decided_at: Option<i64>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

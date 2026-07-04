@@ -196,6 +196,7 @@ fn active_turn_cell_renders_shell_approval_as_interaction_card() {
                 },
             }),
             source: None,
+            created_at_epoch_seconds: None,
         });
     app.approval_picker_idx = 1;
 
@@ -251,6 +252,7 @@ fn active_turn_cell_renders_queued_follow_up_without_hiding_shell_approval() {
                 payload: Default::default(),
             }),
             source: None,
+            created_at_epoch_seconds: None,
         });
 
     let rendered = ActiveTurnCell::new(&app, Some(Path::new(".")))

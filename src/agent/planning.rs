@@ -1,6 +1,7 @@
 use anyhow::anyhow;
 use rara_tools::planning::{ENTER_PLAN_MODE_TOOL_NAME, EXIT_PLAN_MODE_TOOL_NAME};
 use rara_tools::tool::ToolProgressEvent;
+use sha2::{Digest, Sha256};
 
 use super::*;
 use crate::tools::bash::BashCommandInput;
@@ -566,6 +567,17 @@ impl Agent {
             lines.push(format!("- [{status}] {}", step.step));
         }
         lines.join("\n")
+    }
+
+    pub(crate) fn current_plan_hash(&self) -> String {
+        use std::fmt::Write as _;
+
+        let digest = Sha256::digest(self.current_plan_markdown().as_bytes());
+        let mut hex = String::with_capacity(64);
+        for byte in digest.as_slice() {
+            write!(&mut hex, "{byte:02x}").expect("writing to String cannot fail");
+        }
+        format!("sha256:{hex}")
     }
 
     pub(super) fn save_current_plan_file(&self) -> Result<()> {

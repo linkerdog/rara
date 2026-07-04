@@ -4,6 +4,8 @@
 
 - Added a typed `PlanLifecycle` structured rollout event.
 - Persisted plan approval lifecycle phases through runtime-state checkpoints.
+- Persisted plan submission timestamps, completed decision timestamps,
+  completed-plan feedback, and approved plan hashes.
 - Surfaced plan lifecycle phases in thread snapshot rollout summaries.
 - Exposed the derived planning lifecycle in `/status` and `/context`.
 
@@ -46,21 +48,20 @@ derived from the plan approval interaction state:
   `/status` and `/context` share one parsing boundary instead of duplicating
   interaction-source string parsing in renderers.
 - Pending age and approved revision are explicit nullable fields in the
-  snapshot. They render as `-` until checkpoint records include submission
-  timestamps and plan hashes.
+  snapshot. Pending approvals now populate pending age from submission
+  timestamps, and approved decisions populate revision from the approved plan
+  hash.
+- Numeric plan approval input accepts trailing feedback, such as
+  `2 add more validation`, and forwards that feedback to planning-mode resume
+  or rejection handling.
 
 ## Validation
 
 - `cargo check --locked --workspace --all-targets`
+- `cargo test tui::submit::pending::tests`
 - focused state persistence tests for pending and completed plan approval
   lifecycle checkpoints
 - `cargo test tui::session_restore::tests::restore_session_recovers_pending_plan_approval_from_lifecycle`
 - `cargo test tui::session_restore::tests::restore_session_does_not_reopen_completed_plan_approval`
 - focused planning lifecycle snapshot derivation tests
 - focused `/status` runtime/context and overview rendering tests
-
-## Follow-Ups
-
-- Persist user feedback for continue-planning and rejected-plan decisions.
-- Persist plan submission timestamps and plan hashes so pending age and
-  approved revision can render concrete values.

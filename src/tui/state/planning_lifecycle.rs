@@ -1,4 +1,7 @@
-use super::types::{CompletedInteractionSnapshot, InteractionKind, PendingInteractionSnapshot};
+use super::types::{
+    CompletedInteractionSnapshot, InteractionKind, PendingInteractionSnapshot,
+    current_unix_timestamp_secs,
+};
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum PlanningApprovalStatus {
@@ -63,11 +66,11 @@ impl PlanningLifecycleSnapshot {
         let pending_plan = pending_interactions
             .iter()
             .find(|item| item.kind == InteractionKind::PlanApproval);
-        let completed_decision = completed_interactions
+        let completed_plan = completed_interactions
             .iter()
             .rev()
-            .find(|item| item.kind == InteractionKind::PlanApproval)
-            .and_then(plan_decision_from_completed_interaction);
+            .find(|item| item.kind == InteractionKind::PlanApproval);
+        let completed_decision = completed_plan.and_then(plan_decision_from_completed_interaction);
 
         let approval_status = if pending_plan.is_some() {
             PlanningApprovalStatus::Pending
@@ -85,9 +88,11 @@ impl PlanningLifecycleSnapshot {
         Self {
             plan_path,
             approval_status,
-            pending_age: None,
+            pending_age: pending_plan
+                .and_then(|item| item.created_at_epoch_seconds)
+                .map(format_pending_age),
             last_decision: completed_decision,
-            approved_plan_revision: None,
+            approved_plan_revision: completed_plan.and_then(|item| item.plan_revision.clone()),
             tool_use_id: pending_plan
                 .and_then(|item| plan_approval_tool_use_id(item.source.as_deref())),
         }
@@ -109,6 +114,19 @@ impl PlanningLifecycleSnapshot {
 
     pub fn tool_use_id_label(&self) -> &str {
         self.tool_use_id.as_deref().unwrap_or("-")
+    }
+}
+
+fn format_pending_age(created_at_epoch_seconds: u64) -> String {
+    let elapsed = current_unix_timestamp_secs().saturating_sub(created_at_epoch_seconds);
+    if elapsed < 60 {
+        format!("{elapsed}s")
+    } else if elapsed < 60 * 60 {
+        format!("{}m", elapsed / 60)
+    } else if elapsed < 24 * 60 * 60 {
+        format!("{}h", elapsed / (60 * 60))
+    } else {
+        format!("{}d", elapsed / (24 * 60 * 60))
     }
 }
 
@@ -159,12 +177,16 @@ mod tests {
                 note: None,
                 approval: None,
                 source: Some("exit_plan_mode:tool-123".into()),
+                created_at_epoch_seconds: Some(crate::tui::state::current_unix_timestamp_secs()),
             }],
             &[CompletedInteractionSnapshot {
                 kind: InteractionKind::PlanApproval,
                 title: "Plan Decision".into(),
                 summary: "Sent back for more planning.".into(),
                 source: Some("plan_approval:continue_planning".into()),
+                feedback: Some("Add validation.".into()),
+                completed_at_epoch_seconds: Some(crate::tui::state::current_unix_timestamp_secs()),
+                plan_revision: None,
             }],
         );
 
@@ -178,7 +200,7 @@ mod tests {
             Some(PlanningApprovalDecision::ContinuePlanning)
         );
         assert_eq!(snapshot.tool_use_id.as_deref(), Some("tool-123"));
-        assert_eq!(snapshot.pending_age_label(), "-");
+        assert_eq!(snapshot.pending_age_label(), "0s");
         assert_eq!(snapshot.approved_plan_revision_label(), "-");
     }
 
@@ -192,6 +214,9 @@ mod tests {
                 title: "Plan Decision".into(),
                 summary: "Approved. Starting implementation.".into(),
                 source: Some("plan_approval:approve".into()),
+                feedback: None,
+                completed_at_epoch_seconds: Some(crate::tui::state::current_unix_timestamp_secs()),
+                plan_revision: Some("sha256:abc".into()),
             }],
         );
 
@@ -201,5 +226,9 @@ mod tests {
             Some(PlanningApprovalDecision::Approve)
         );
         assert_eq!(snapshot.tool_use_id, None);
+        assert_eq!(
+            snapshot.approved_plan_revision.as_deref(),
+            Some("sha256:abc")
+        );
     }
 }

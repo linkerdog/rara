@@ -133,7 +133,9 @@ pub(crate) fn apply_openai_model_picker_action(
 }
 
 fn handle_pending_plan_approval_submit(app: &mut TuiApp) {
-    app.push_notice("A plan is waiting for review. Use the approval actions above the input.");
+    app.push_notice(
+        "A plan is waiting for review. Use 1 approve, 2 keep planning <feedback>, or 3 reject <feedback>.",
+    );
 }
 
 pub(crate) fn clamp_command_palette_selection(app: &mut TuiApp) {
