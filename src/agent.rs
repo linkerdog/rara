@@ -1513,16 +1513,18 @@ Rules:
 }
 
 fn hook_output_candidate(text: &str, index: usize, session_id: &str) -> RetrievalCandidate {
+    use std::fmt::Write as _;
+
     let mut hasher = Sha256::new();
     hasher.update(session_id.as_bytes());
     hasher.update([0]);
-    hasher.update(index.to_le_bytes());
+    hasher.update((index as u64).to_le_bytes());
     hasher.update([0]);
     hasher.update(text.as_bytes());
     let digest = hasher.finalize();
     let mut hex = String::with_capacity(64);
     for byte in digest.as_slice() {
-        hex.push_str(&format!("{byte:02x}"));
+        write!(&mut hex, "{byte:02x}").expect("writing to String cannot fail");
     }
     let id = format!("hook_output:{hex}");
     RetrievalCandidate {
