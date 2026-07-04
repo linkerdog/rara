@@ -93,6 +93,21 @@ impl HookRuntime {
             .len()
     }
 
+    pub fn dispatch_memory_query(&self, query: &str) {
+        let event = AgentEvent::MemoryAction {
+            message: format!("MemoryQuery: {query}"),
+        };
+        let guard = self
+            .hooks
+            .read()
+            .expect("hook runtime registry lock poisoned");
+        for entry in guard.values() {
+            if entry.lifecycle == HookLifecycle::MemoryQuery {
+                (entry.callback)(&event);
+            }
+        }
+    }
+
     /// Start the hook dispatch loop on a dedicated Tokio task.
     ///
     /// Returns immediately if already started (idempotent).
@@ -177,6 +192,12 @@ pub(crate) fn global_modify_tool_input(tool_name: &str, input: Value) -> Value {
     }
 }
 
+pub(crate) fn global_dispatch_memory_query(query: &str) {
+    if let Some(hr) = GLOBAL_HOOK_RUNTIME.get() {
+        hr.dispatch_memory_query(query);
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -244,5 +265,34 @@ mod tests {
             Box::new(|_| {}),
         );
         assert_eq!(runtime.hook_count(), 1);
+    }
+
+    #[test]
+    fn dispatch_memory_query_invokes_memory_query_hooks() {
+        let bus = Arc::new(RuntimeEventBus::new(4));
+        let runtime = HookRuntime::new(bus);
+        let seen = Arc::new(std::sync::Mutex::new(Vec::new()));
+        let seen_hook = seen.clone();
+        runtime.register(
+            "memory-query".into(),
+            HookLifecycle::MemoryQuery,
+            Box::new(move |event| {
+                if let AgentEvent::MemoryAction { message } = event {
+                    seen_hook.lock().expect("seen lock").push(message.clone());
+                }
+            }),
+        );
+        runtime.register(
+            "pre-tool-use".into(),
+            HookLifecycle::PreToolUse,
+            Box::new(|_| panic!("pre-tool hook should not fire")),
+        );
+
+        runtime.dispatch_memory_query("repo notes");
+
+        assert_eq!(
+            seen.lock().expect("seen lock").as_slice(),
+            ["MemoryQuery: repo notes"]
+        );
     }
 }

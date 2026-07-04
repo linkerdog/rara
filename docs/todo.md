@@ -99,8 +99,9 @@ Active backlog only. Keep this file small and current.
 
 ## Hooks
 
-- [ ] Hook output injection into model context (blocked on sandbox policy)
-- [ ] Hooks/plugin lifecycle spec
+- [x] Hook output injection into model context; command hook execution remains
+      constrained by sandbox policy.
+- [x] Hooks/plugin lifecycle spec
 
 ## Configuration
 

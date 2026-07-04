@@ -113,7 +113,7 @@ pub(crate) fn retrieval_source_entries(
             status: hook_output_status.to_string(),
             detail: format!("outputs={}", hook_output_candidates.len()),
             inclusion_reason: if hook_output_status == "available" {
-                "available as volatile hook output; prompt injection remains disabled until hook execution policy is explicit".to_string()
+                "available as volatile hook output and injected directly as system context before the next model turn".to_string()
             } else {
                 "no hook output is available for context selection".to_string()
             },

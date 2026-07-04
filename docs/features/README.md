@@ -64,6 +64,8 @@ future appserver integrations can use.
   inheritance, child budget, result summary, and restart/reconnect contracts.
 - `shared-task-lists.md`: workspace-local shared task store and
   Claude-compatible read tools for future subagent/team coordination.
+- `hooks-plugin-lifecycle.md`: hook/plugin lifecycle phases, MemoryQuery
+  dispatch, and hook output context injection boundaries.
 - `tui-theme-tokens.md`: configurable semantic TUI theme tokens, renderer
   integration, and embedded syntax theme selection.
 
