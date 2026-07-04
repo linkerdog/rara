@@ -80,6 +80,11 @@ fn shared_task_fingerprint(task_root: &Path, task_list_id: &str) -> String {
     };
     let mut parts = Vec::new();
     for entry in entries.flatten() {
+        let file_name = entry.file_name();
+        let file_name = file_name.to_string_lossy();
+        if file_name.starts_with('.') {
+            continue;
+        }
         let path = entry.path();
         if path.extension().and_then(|value| value.to_str()) != Some("json") {
             continue;
@@ -97,12 +102,7 @@ fn shared_task_fingerprint(task_root: &Path, task_list_id: &str) -> String {
         let modified = modified
             .map(|duration| format!("{}:{}", duration.as_secs(), duration.subsec_nanos()))
             .unwrap_or_else(|| "-".to_string());
-        parts.push(format!(
-            "{}:{}:{}",
-            entry.file_name().to_string_lossy(),
-            metadata.len(),
-            modified
-        ));
+        parts.push(format!("{}:{}:{}", file_name, metadata.len(), modified));
     }
     parts.sort();
     parts.join("|")
@@ -176,6 +176,40 @@ mod tests {
 
         assert_eq!(active, "team-alpha");
         assert_eq!(app.snapshot.shared_tasks.task_list_id, "team-alpha");
+        assert_eq!(app.snapshot.shared_tasks.total, 1);
+    }
+
+    #[test]
+    fn shared_task_poll_ignores_dotfiles() {
+        let temp = tempdir().expect("tempdir");
+        let task_root = temp.path().join(".rara/tasks");
+        let store = TaskListStore::new(&task_root);
+        store
+            .create_task(
+                DEFAULT_TASK_LIST_ID,
+                NewTaskRecord {
+                    subject: "Track visible tasks".to_string(),
+                    description: "Ignore hidden editor files.".to_string(),
+                    active_form: None,
+                    metadata: Default::default(),
+                },
+            )
+            .expect("create task");
+        let mut app = TuiApp::new(ConfigManager {
+            path: temp.path().join("config.json"),
+        })
+        .expect("app");
+        app.configure_shared_task_watch(task_root.clone(), DEFAULT_TASK_LIST_ID);
+        app.switch_active_shared_task_list(DEFAULT_TASK_LIST_ID);
+
+        std::fs::write(
+            task_root.join(DEFAULT_TASK_LIST_ID).join(".scratch.json"),
+            "{}",
+        )
+        .expect("write dotfile");
+        app.shared_task_last_poll = Some(Instant::now() - SHARED_TASK_POLL_INTERVAL);
+
+        assert!(!app.poll_shared_task_files());
         assert_eq!(app.snapshot.shared_tasks.total, 1);
     }
 }

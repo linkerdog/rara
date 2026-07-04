@@ -20,6 +20,7 @@ pub(super) async fn execute_local_command(
     agent_slot: &mut Option<Agent>,
     oauth_manager: &Arc<OAuthManager>,
 ) -> anyhow::Result<bool> {
+    let command_kind = command.kind;
     app.remember_command(match command.kind {
         LocalCommandKind::Approval => "approval",
         LocalCommandKind::BaseUrl => "base-url",
@@ -329,7 +330,9 @@ pub(super) async fn execute_local_command(
             app.open_overlay(Overlay::SkillsPicker);
         }
     }
-    if let Some(agent) = agent_slot.as_ref() {
+    if command_kind != LocalCommandKind::Tasks
+        && let Some(agent) = agent_slot.as_ref()
+    {
         app.sync_snapshot(agent);
     }
     Ok(false)
@@ -553,14 +556,12 @@ fn handle_tasks_command(arg: Option<&str>, app: &mut TuiApp, agent_slot: &mut Op
         return;
     };
 
-    let active = if let Some(agent) = agent_slot.as_mut() {
-        let active = agent.set_task_list_id(requested);
-        app.configure_shared_task_watch(agent.workspace.rara_dir.join("tasks"), &active);
-        active
+    if let Some(agent) = agent_slot.as_mut() {
+        agent.set_task_list_id(requested);
+        app.sync_snapshot(agent);
     } else {
-        app.switch_active_shared_task_list(requested)
-    };
-    app.switch_active_shared_task_list(&active);
+        app.switch_active_shared_task_list(requested);
+    }
     let tasks = &app.snapshot.shared_tasks;
     app.push_notice(format!(
         "Active shared task list: {} ({} total, {} ready).",
