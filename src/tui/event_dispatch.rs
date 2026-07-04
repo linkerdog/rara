@@ -1,12 +1,14 @@
 use std::sync::Arc;
 
+use codex_models_manager::manager::RefreshStrategy;
+
 use super::app_event::AppEvent;
 use super::command::{palette_command_by_index, palette_commands};
 use super::input_control;
 #[allow(unused_imports)]
 use super::list_picker;
 use super::provider_flow::{
-    open_provider_family_overlay, should_open_codex_auth_guide,
+    open_provider_family_overlay, refresh_codex_model_picker, should_open_codex_auth_guide,
     sync_codex_credential_from_auth_store,
 };
 use super::runtime::apply_permission_mode;
@@ -502,6 +504,14 @@ pub(crate) async fn dispatch_event(
                             if app.picker_intent == Some(PickerIntent::SwitchModel)
                                 && !app.config.provider.is_empty()
                             {
+                                if app.selected_provider_family() == ProviderFamily::Codex {
+                                    refresh_codex_model_picker(
+                                        app,
+                                        oauth_manager.as_ref(),
+                                        RefreshStrategy::OnlineIfUncached,
+                                    )
+                                    .await?;
+                                }
                                 app.open_overlay(Overlay::ListPicker(ListPickerKind::Model));
                             }
                         }

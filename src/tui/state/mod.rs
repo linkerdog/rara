@@ -37,7 +37,6 @@ pub use self::types::{
     SystemMessageKind, TaskCompletion, TaskKind, TerminalDiagnosticsView, TranscriptEntry,
     TranscriptEntryPayload, TranscriptTurn, TuiApp, TuiEvent, UnifiedModelPreset,
 };
-use crate::google_oauth::GoogleOAuthManager;
 use crate::oauth::OAuthManager;
 
 const OPENAI_PROFILE_SETUP_KINDS: [OpenAiEndpointKind; 3] = [
@@ -370,11 +369,17 @@ impl TuiApp {
                 }
                 ProviderFamily::Gemini => {
                     let has_key = self.config.provider == "gemini" && self.config.has_api_key();
+                    let has_state = self
+                        .config
+                        .provider_states
+                        .get("gemini")
+                        .and_then(|state| state.api_key.as_ref())
+                        .is_some();
                     let has_oauth = rara_config::ensure_rara_home_dir()
                         .ok()
-                        .and_then(|dir| GoogleOAuthManager::new(dir).ok())
-                        .is_some_and(|m| m.has_saved_auth());
-                    has_key || has_oauth
+                        .and_then(|dir| crate::google_oauth::GoogleOAuthManager::new(dir).ok())
+                        .is_some_and(|manager| manager.has_saved_auth());
+                    has_key || has_state || has_oauth
                 }
                 ProviderFamily::OpenAiCompatible => self
                     .config
@@ -945,8 +950,6 @@ impl TuiApp {
             .unwrap_or(0);
     }
 
-    /// Reserved for wiring Codex model catalog refresh into active picker flow (docs/todo.md).
-    #[allow(dead_code)]
     pub fn set_codex_model_options(&mut self, options: Vec<CodexModelOption>) {
         self.codex_model_options = options;
         self.model_picker_idx = self.selected_preset_idx();

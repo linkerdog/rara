@@ -1,5 +1,4 @@
 mod builder;
-mod google_oauth;
 mod oauth;
 #[cfg(test)]
 mod tests;
@@ -622,16 +621,6 @@ pub(super) fn start_oauth_task(
     oauth::start_oauth_task(app, oauth_manager, mode);
 }
 
-/// Reserved for Gemini Code Assist OAuth connection from the TUI (docs/todo.md).
-#[allow(dead_code)]
-pub(super) fn start_google_oauth_task(
-    app: &mut TuiApp,
-    oauth_manager: Arc<crate::google_oauth::GoogleOAuthManager>,
-    mode: OAuthLoginMode,
-) {
-    google_oauth::start_google_oauth_task(app, oauth_manager, mode);
-}
-
 pub(super) fn start_deepseek_model_list_task(app: &mut TuiApp) {
     let (_sender, receiver) = mpsc::unbounded_channel();
     let api_key = app.config.api_key_secret();
@@ -785,7 +774,7 @@ pub(crate) async fn finish_running_task_if_ready(
     }
     match completion {
         TaskCompletion::Query { agent, result } => {
-            let mut agent = agent;
+            let agent = agent;
             let query_started_in_plan_mode = matches!(
                 app.agent_execution_mode,
                 crate::agent::AgentExecutionMode::Plan
@@ -870,29 +859,6 @@ pub(crate) async fn finish_running_task_if_ready(
                                 app.finalize_active_turn();
                                 start_query_task(app, next_goal_prompt, agent);
                                 return Ok(());
-                            }
-                            // Evaluator: check whether the goal condition is satisfied.
-                            let condition = app
-                                .goal
-                                .as_ref()
-                                .and_then(|g| g.condition.as_deref())
-                                .unwrap_or_default();
-                            if !condition.is_empty() {
-                                // TODO: call evaluator LLM to get real yes/no.
-                                // Placeholder: always "not yet" so the loop
-                                // continues until the model marks complete.
-                                let eval_reason =
-                                    format!("no: goal not yet complete — {condition}");
-                                app.push_system(
-                                    eval_reason.clone(),
-                                    crate::tui::state::SystemMessageKind::Other,
-                                );
-                                // Also push to agent history so the model
-                                // sees the evaluator's feedback on the next turn.
-                                agent.push_history_message(crate::agent::Message {
-                                    role: "system".into(),
-                                    content: serde_json::Value::String(eval_reason),
-                                });
                             }
                             // finalize_active_turn closes the current turn's transcript
                             // before start_query_task begins a new one.
@@ -1146,44 +1112,6 @@ pub(crate) async fn finish_running_task_if_ready(
             Err(err) => {
                 app.set_runtime_phase(RuntimePhase::Failed, Some("oauth failed".into()));
                 let message = format!("OAuth failed:\n{}", format_error_chain(&err));
-                app.push_system(message.clone(), SystemMessageKind::OAuth);
-                app.push_notice(message);
-            }
-        },
-        TaskCompletion::GoogleOAuth { mode, result } => match result {
-            Ok(credential) => {
-                app.config.set_provider("gemini-code-assist");
-                // Clear any api_key since Code Assist uses OAuth, not API key.
-                app.config.clear_api_key();
-                app.config_manager.save(&app.config)?;
-                let saved_message = match mode {
-                    OAuthLoginMode::Browser => {
-                        format!(
-                            "Saved Google OAuth credential for {} to ~/.rara/auth/google_oauth.json.",
-                            credential.email
-                        )
-                    }
-                    OAuthLoginMode::DeviceCode => {
-                        format!(
-                            "Saved Google device-code credential for {} to ~/.rara/auth/google_oauth.json.",
-                            credential.email
-                        )
-                    }
-                };
-                let msg = saved_message.clone();
-                app.setup_status = Some(saved_message);
-                app.bottom_pane.notice = app.setup_status.clone();
-                app.set_runtime_phase(
-                    RuntimePhase::OAuthSaved,
-                    Some("google oauth token saved".into()),
-                );
-                app.dismiss_overlay();
-                app.push_entry("Runtime", msg);
-                start_rebuild_task(app);
-            }
-            Err(err) => {
-                app.set_runtime_phase(RuntimePhase::Failed, Some("google oauth failed".into()));
-                let message = format!("Google OAuth failed:\n{}", format_error_chain(&err));
                 app.push_system(message.clone(), SystemMessageKind::OAuth);
                 app.push_notice(message);
             }

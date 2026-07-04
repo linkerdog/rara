@@ -20,17 +20,9 @@ use crate::llm::{ContentBlock, LlmResponse, TokenUsage};
 /// Code Assist production endpoint.
 const CODE_ASSIST_ENDPOINT: &str = "https://cloudcode-pa.googleapis.com";
 
-/// AI Studio endpoint for native Gemini API (not OpenAI-compatible).
-const AI_STUDIO_ENDPOINT: &str = "https://generativelanguage.googleapis.com/v1beta";
-
 /// Auth mode for Gemini.
 #[derive(Debug, Clone)]
 pub enum GeminiAuthMode {
-    /// Google AI Studio — API key in query param or Bearer.
-    /// Reserved until docs/todo.md decides whether `provider=gemini` uses this
-    /// native API-key backend or the current OpenAI-compatible endpoint.
-    #[allow(dead_code)]
-    ApiKey(String),
     /// Google Code Assist — OAuth access token.
     OAuth { oauth: GoogleOAuthManager },
 }
@@ -45,19 +37,6 @@ pub struct GeminiBackend {
 }
 
 impl GeminiBackend {
-    /// Reserved for the native Gemini AI Studio API-key backend; docs/todo.md
-    /// tracks whether `provider=gemini` should wire this path.
-    #[allow(dead_code)]
-    pub fn new(api_key: String, model: String) -> Result<Self> {
-        Ok(Self {
-            auth: GeminiAuthMode::ApiKey(api_key),
-            model,
-            client: reqwest::Client::builder()
-                .timeout(Duration::from_secs(120))
-                .build()?,
-        })
-    }
-
     pub fn with_oauth(oauth: GoogleOAuthManager, model: String) -> Result<Self> {
         Ok(Self {
             auth: GeminiAuthMode::OAuth { oauth },
@@ -68,75 +47,37 @@ impl GeminiBackend {
         })
     }
 
-    fn is_code_assist(&self) -> bool {
-        matches!(self.auth, GeminiAuthMode::OAuth { .. })
-    }
-
     fn base_endpoint(&self) -> &str {
-        if self.is_code_assist() {
-            CODE_ASSIST_ENDPOINT
-        } else {
-            AI_STUDIO_ENDPOINT
-        }
-    }
-
-    async fn resolve_auth(&self) -> Result<String> {
-        match &self.auth {
-            GeminiAuthMode::ApiKey(key) => Ok(key.clone()),
-            GeminiAuthMode::OAuth { oauth } => {
-                let cred = oauth.load_credential().await?;
-                Ok(cred.access_token)
-            }
-        }
+        CODE_ASSIST_ENDPOINT
     }
 
     async fn send_gemini_request(&self, body: &Value, stream: bool) -> Result<reqwest::Response> {
         let endpoint = self.base_endpoint();
         let model = &self.model;
 
-        let (url, request_builder) = if self.is_code_assist() {
-            // Code Assist: single credential load for token + project_id.
-            let cred = self.code_assist_credential().await?;
-            let project_id = cred.project_id.as_deref().unwrap_or("unknown");
-            let url = format!(
-                "{}/v1internal/projects/-/locations/global/models/{}:{}",
-                endpoint,
-                model,
-                if stream {
-                    "streamGenerateContent"
-                } else {
-                    "generateContent"
-                }
-            );
-            let envelope = json!({
-                "project": project_id,
-                "model": model,
-                "user_prompt_id": Uuid::new_v4().to_string(),
-                "request": body,
-            });
-            let rb = self
-                .client
-                .post(&url)
-                .bearer_auth(cred.access_token)
-                .json(&envelope);
-            (url, rb)
-        } else {
-            let key = self.resolve_auth().await?;
-            let url = format!(
-                "{}/models/{}:{}?key={}&alt={}",
-                endpoint,
-                model,
-                if stream {
-                    "streamGenerateContent"
-                } else {
-                    "generateContent"
-                },
-                key,
-                if stream { "sse" } else { "" }
-            );
-            let rb = self.client.post(&url).json(body);
-            (url.clone(), rb)
-        };
+        let cred = self.code_assist_credential().await?;
+        let project_id = cred.project_id.as_deref().unwrap_or("unknown");
+        let url = format!(
+            "{}/v1internal/projects/-/locations/global/models/{}:{}",
+            endpoint,
+            model,
+            if stream {
+                "streamGenerateContent"
+            } else {
+                "generateContent"
+            }
+        );
+        let envelope = json!({
+            "project": project_id,
+            "model": model,
+            "user_prompt_id": Uuid::new_v4().to_string(),
+            "request": body,
+        });
+        let request_builder = self
+            .client
+            .post(&url)
+            .bearer_auth(cred.access_token)
+            .json(&envelope);
 
         let res = (|| async {
             request_builder
@@ -160,10 +101,8 @@ impl GeminiBackend {
     }
 
     async fn code_assist_credential(&self) -> Result<crate::google_oauth::GoogleCredential> {
-        match &self.auth {
-            GeminiAuthMode::OAuth { oauth } => oauth.load_credential().await,
-            _ => bail!("code_assist_credential called for non-OAuth auth mode"),
-        }
+        let GeminiAuthMode::OAuth { oauth } = &self.auth;
+        oauth.load_credential().await
     }
 }
 
@@ -281,38 +220,10 @@ impl LlmBackend for GeminiBackend {
     }
 
     async fn embed(&self, text: &str) -> Result<Vec<f32>> {
-        // Code Assist does not support embeddings; use hashed fallback.
-        if self.is_code_assist() {
-            return Ok(crate::llm::hashed_embedding(text, 768));
-        }
-        // AI Studio: text-embedding-004.
-        let key = self.resolve_auth().await?;
-        let url = format!(
-            "{}/models/text-embedding-004:embedContent?key={}",
-            AI_STUDIO_ENDPOINT, key
-        );
-        let body = json!({
-            "model": "models/text-embedding-004",
-            "content": {"parts": [{"text": text}]}
-        });
-
-        let resp: Value = self
-            .client
-            .post(&url)
-            .json(&body)
-            .send()
-            .await?
-            .json()
-            .await?;
-
-        let values = resp["embedding"]["values"]
-            .as_array()
-            .context("Missing embedding values")?;
-        let embedding: Vec<f32> = values
-            .iter()
-            .filter_map(|v| v.as_f64().map(|f| f as f32))
-            .collect();
-        Ok(embedding)
+        // Code Assist does not support embeddings. `provider=gemini` uses the
+        // OpenAI-compatible backend, so this native backend only needs a local
+        // deterministic fallback.
+        Ok(crate::llm::hashed_embedding(text, 768))
     }
 
     async fn summarize(&self, messages: &[Message], instruction: &str) -> Result<String> {
