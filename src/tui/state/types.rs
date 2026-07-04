@@ -13,6 +13,7 @@ use tokio::task::JoinHandle;
 use super::super::markdown_stream::MarkdownStreamCollector;
 use super::super::queued_input::PendingFollowUpMessage;
 use super::bottom_pane_model::BottomPaneModel;
+use super::planning_lifecycle::PlanningLifecycleSnapshot;
 use crate::agent::{Agent, AgentExecutionMode, BashApprovalMode};
 use crate::codex_model_catalog::CodexModelOption;
 use crate::config::{ConfigManager, OpenAiEndpointKind, RaraConfig};
@@ -264,6 +265,7 @@ pub struct RuntimeSnapshot {
     pub compaction_source_entries: Vec<CompactionSourceContextEntry>,
     pub plan_steps: Vec<(String, String)>,
     pub plan_explanation: Option<String>,
+    pub planning_lifecycle: PlanningLifecycleSnapshot,
     pub pending_interactions: Vec<PendingInteractionSnapshot>,
     pub completed_interactions: Vec<CompletedInteractionSnapshot>,
     pub todo: crate::context::TodoContextView,

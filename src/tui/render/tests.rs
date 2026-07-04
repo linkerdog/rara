@@ -19,8 +19,8 @@ use super::{
 use crate::config::{ConfigManager, OpenAiEndpointKind, RaraConfig};
 use crate::tui::custom_terminal::Frame;
 use crate::tui::state::{
-    ListPickerKind, Overlay, ProviderFamily, RuntimeSnapshot, StatusTab, TranscriptEntry,
-    TranscriptTurn, TuiApp,
+    ListPickerKind, Overlay, PlanningApprovalStatus, PlanningLifecycleSnapshot, ProviderFamily,
+    RuntimeSnapshot, StatusTab, TranscriptEntry, TranscriptTurn, TuiApp,
 };
 
 fn provider_family_idx(family: ProviderFamily) -> usize {
@@ -1172,6 +1172,12 @@ fn context_overlay_snapshot_with_typical_budget() {
         compaction_count: 1,
         last_compaction_before_tokens: Some(12_000),
         last_compaction_after_tokens: Some(4_500),
+        planning_lifecycle: PlanningLifecycleSnapshot {
+            plan_path: Some(".rara/sessions/session-abc/plan.md".into()),
+            approval_status: PlanningApprovalStatus::Pending,
+            tool_use_id: Some("exit-plan-abc".into()),
+            ..PlanningLifecycleSnapshot::default()
+        },
         plan_steps: vec![("pending".into(), "Implement /context".into())],
         plan_explanation: Some("Adding Claude Code-style context display".into()),
         assembly_entries: vec![

@@ -7,7 +7,7 @@ use std::sync::atomic::Ordering;
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
 
-use crate::tui::state::{StatusTab, TuiApp};
+use crate::tui::state::{PlanningApprovalStatus, StatusTab, TuiApp};
 
 pub(crate) fn render_status_lines(app: &TuiApp, tab: StatusTab) -> Vec<Line<'static>> {
     let mut lines: Vec<Line<'static>> = Vec::new();
@@ -73,6 +73,10 @@ fn render_overview_status(app: &TuiApp, lines: &mut Vec<Line<'static>>) {
         app.bash_approval_mode_label(),
         Color::DarkGray,
     );
+
+    section_spacer(lines);
+    section_header(lines, "Planning");
+    render_planning_lifecycle_status(app, lines);
 
     section_spacer(lines);
     section_header(lines, "Workspace");
@@ -269,6 +273,7 @@ fn render_context_status(app: &TuiApp, lines: &mut Vec<Line<'static>>) {
         ),
         Color::LightBlue,
     );
+    render_planning_lifecycle_summary(app, lines);
 
     section_spacer(lines);
     section_header(lines, "More Detail");
@@ -334,6 +339,74 @@ fn render_local_embedding_status(app: &TuiApp, lines: &mut Vec<Line<'static>>) {
     kv(lines, "backend", &status.backend, Color::DarkGray);
     kv(lines, "model", &status.model, Color::LightBlue);
     kv(lines, "detail", &status.detail, Color::DarkGray);
+}
+
+fn render_planning_lifecycle_status(app: &TuiApp, lines: &mut Vec<Line<'static>>) {
+    let lifecycle = &app.snapshot.planning_lifecycle;
+    kv(
+        lines,
+        "status",
+        lifecycle.approval_status.label(),
+        planning_status_color(lifecycle.approval_status),
+    );
+    kv(
+        lines,
+        "plan",
+        lifecycle.plan_path.as_deref().unwrap_or("-"),
+        Color::DarkGray,
+    );
+    kv(
+        lines,
+        "pending_age",
+        lifecycle.pending_age_label(),
+        Color::DarkGray,
+    );
+    kv(
+        lines,
+        "decision",
+        lifecycle.last_decision_label(),
+        Color::DarkGray,
+    );
+    kv(
+        lines,
+        "revision",
+        lifecycle.approved_plan_revision_label(),
+        Color::DarkGray,
+    );
+    if lifecycle.tool_use_id.is_some() {
+        kv(
+            lines,
+            "exit_plan_tool",
+            lifecycle.tool_use_id_label(),
+            Color::DarkGray,
+        );
+    }
+}
+
+fn render_planning_lifecycle_summary(app: &TuiApp, lines: &mut Vec<Line<'static>>) {
+    let lifecycle = &app.snapshot.planning_lifecycle;
+    kv(
+        lines,
+        "planning",
+        &format!(
+            "status={} plan={} decision={} revision={}",
+            lifecycle.approval_status.label(),
+            lifecycle.plan_path.as_deref().unwrap_or("-"),
+            lifecycle.last_decision_label(),
+            lifecycle.approved_plan_revision_label(),
+        ),
+        planning_status_color(lifecycle.approval_status),
+    );
+}
+
+fn planning_status_color(status: PlanningApprovalStatus) -> Color {
+    match status {
+        PlanningApprovalStatus::None => Color::DarkGray,
+        PlanningApprovalStatus::Pending => Color::Yellow,
+        PlanningApprovalStatus::Approved => Color::LightGreen,
+        PlanningApprovalStatus::Revising => Color::LightBlue,
+        PlanningApprovalStatus::Rejected => Color::Red,
+    }
 }
 
 fn format_metric(n: u64) -> String {
@@ -421,7 +494,9 @@ mod tests {
 
     use super::render_status_lines;
     use crate::config::ConfigManager;
-    use crate::tui::state::{RuntimeSnapshot, StatusTab, TuiApp};
+    use crate::tui::state::{
+        PlanningApprovalStatus, PlanningLifecycleSnapshot, RuntimeSnapshot, StatusTab, TuiApp,
+    };
 
     #[test]
     fn overview_status_reports_local_embedding_component() {
@@ -466,5 +541,34 @@ mod tests {
         assert!(rendered.contains("agents"));
         assert!(rendered.contains("code-reviewer"));
         assert!(rendered.contains(".rara/agents/code-reviewer.md"));
+    }
+
+    #[test]
+    fn overview_status_reports_planning_lifecycle() {
+        let temp = tempdir().expect("tempdir");
+        let mut app = TuiApp::new(ConfigManager {
+            path: temp.path().join("config.json"),
+        })
+        .expect("app");
+        app.snapshot = RuntimeSnapshot {
+            planning_lifecycle: PlanningLifecycleSnapshot {
+                plan_path: Some(".rara/sessions/session-123/plan.md".into()),
+                approval_status: PlanningApprovalStatus::Pending,
+                tool_use_id: Some("exit-tool-123".into()),
+                ..PlanningLifecycleSnapshot::default()
+            },
+            ..RuntimeSnapshot::default()
+        };
+
+        let rendered = render_status_lines(&app, StatusTab::Overview)
+            .into_iter()
+            .map(|line| line.to_string())
+            .collect::<Vec<_>>()
+            .join("\n");
+
+        assert!(rendered.contains("Planning\n"));
+        assert!(rendered.contains("status         pending"));
+        assert!(rendered.contains(".rara/sessions/session-123/plan.md"));
+        assert!(rendered.contains("exit-tool-123"));
     }
 }
