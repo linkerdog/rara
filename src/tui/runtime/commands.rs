@@ -20,6 +20,7 @@ pub(super) async fn execute_local_command(
     agent_slot: &mut Option<Agent>,
     oauth_manager: &Arc<OAuthManager>,
 ) -> anyhow::Result<bool> {
+    let command_kind = command.kind;
     app.remember_command(match command.kind {
         LocalCommandKind::Approval => "approval",
         LocalCommandKind::BaseUrl => "base-url",
@@ -37,6 +38,7 @@ pub(super) async fn execute_local_command(
         LocalCommandKind::Resume => "resume",
         LocalCommandKind::Review => "review",
         LocalCommandKind::Status => "status",
+        LocalCommandKind::Tasks => "tasks",
         LocalCommandKind::Skills => "skills",
         LocalCommandKind::Permissions => "permissions",
         LocalCommandKind::Goal => "goal",
@@ -204,6 +206,9 @@ pub(super) async fn execute_local_command(
             app.set_runtime_phase(RuntimePhase::LocalCommand, Some("opening status".into()));
             app.open_overlay(Overlay::Status(StatusTab::Overview));
         }
+        LocalCommandKind::Tasks => {
+            handle_tasks_command(command.arg.as_deref(), app, agent_slot);
+        }
         LocalCommandKind::Dream => {
             if let Some(agent) = agent_slot.as_mut() {
                 let summary = agent.consolidation_scheduler.status();
@@ -325,7 +330,9 @@ pub(super) async fn execute_local_command(
             app.open_overlay(Overlay::SkillsPicker);
         }
     }
-    if let Some(agent) = agent_slot.as_ref() {
+    if command_kind != LocalCommandKind::Tasks
+        && let Some(agent) = agent_slot.as_ref()
+    {
         app.sync_snapshot(agent);
     }
     Ok(false)
@@ -535,6 +542,33 @@ fn command_project_root(app: &TuiApp) -> PathBuf {
     mcp_project_root_from_cwd(cwd)
 }
 
+fn handle_tasks_command(arg: Option<&str>, app: &mut TuiApp, agent_slot: &mut Option<Agent>) {
+    app.set_runtime_phase(
+        RuntimePhase::LocalCommand,
+        Some("processing shared task command".into()),
+    );
+    let Some(requested) = arg.map(str::trim).filter(|value| !value.is_empty()) else {
+        let tasks = &app.snapshot.shared_tasks;
+        app.push_notice(format!(
+            "Active shared task list: {} ({} total, {} ready).",
+            tasks.task_list_id, tasks.total, tasks.unblocked
+        ));
+        return;
+    };
+
+    if let Some(agent) = agent_slot.as_mut() {
+        agent.set_task_list_id(requested);
+        app.sync_snapshot(agent);
+    } else {
+        app.switch_active_shared_task_list(requested);
+    }
+    let tasks = &app.snapshot.shared_tasks;
+    app.push_notice(format!(
+        "Active shared task list: {} ({} total, {} ready).",
+        tasks.task_list_id, tasks.total, tasks.unblocked
+    ));
+}
+
 fn mcp_project_root_from_cwd(cwd: PathBuf) -> PathBuf {
     for ancestor in cwd.ancestors() {
         if ancestor.join(".mcp.json").is_file() {
@@ -641,24 +675,31 @@ mod tests {
     use std::sync::Arc;
     use std::time::Instant;
 
+    use rara_memory::vectordb::VectorDB;
+    use rara_tools::tool::ToolManager;
     use tokio::sync::mpsc;
 
     use super::{
         execute_local_command, handle_mcp_command, mcp_project_root_from_cwd,
         parse_goal_objective_and_budget, parse_goal_token_budget, spawn_mcp_tool_cache_population,
     };
-    use crate::agent::{AgentEvent, BashApprovalMode};
+    use crate::agent::{Agent, AgentEvent, BashApprovalMode};
     use crate::config::{
         ConfigManager, McpRegistry, McpServerConfig, McpServerScope, McpServerSource,
         McpServerTransport, SourcedMcpServerConfig,
     };
+    use crate::llm::MockLlm;
     use crate::mcp_tool_cache::McpToolCache;
     use crate::oauth::OAuthManager;
     use crate::runtime_event_bus::RuntimeEventBus;
+    use crate::session::SessionManager;
+    use crate::tasklist::{DEFAULT_TASK_LIST_ID, NewTaskRecord, TaskListStore};
+    use crate::tools::tasklist::TaskListTool;
     use crate::tui::state::{
         LocalCommand, LocalCommandKind, Overlay, PermissionMode, RunningTask, TaskCompletion,
         TaskKind, TuiApp,
     };
+    use crate::workspace::WorkspaceMemory;
 
     fn mark_app_busy(app: &mut TuiApp) {
         let (_sender, receiver) = mpsc::unbounded_channel();
@@ -671,6 +712,34 @@ mod tests {
             cancellation_token: None,
             cancellation_requested: false,
         });
+    }
+
+    fn test_agent_with_shared_task_tool(dir: &tempfile::TempDir) -> Agent {
+        let rara_dir = dir.path().join(".rara");
+        fs::create_dir_all(rara_dir.join("rollouts")).expect("rollouts");
+        fs::create_dir_all(rara_dir.join("sessions")).expect("sessions");
+        fs::create_dir_all(rara_dir.join("tool-results")).expect("tool results");
+        let task_store = Arc::new(TaskListStore::new(rara_dir.join("tasks")));
+        let mut tools = ToolManager::new();
+        tools.register(Box::new(TaskListTool {
+            store: task_store,
+            default_task_list_id: DEFAULT_TASK_LIST_ID.to_string(),
+        }));
+        Agent::new(
+            tools,
+            Arc::new(MockLlm),
+            Arc::new(VectorDB::new(
+                &rara_dir.join("lancedb").display().to_string(),
+            )),
+            Arc::new(SessionManager {
+                storage_dir: rara_dir.join("rollouts"),
+                legacy_storage_dir: rara_dir.join("sessions"),
+            }),
+            Arc::new(WorkspaceMemory::from_paths(
+                dir.path().join("workspace"),
+                rara_dir,
+            )),
+        )
     }
 
     #[test]
@@ -1055,6 +1124,57 @@ command = "docs-server"
             app.bottom_pane.notice.as_deref(),
             Some("No active goal. Use /help for /goal details.")
         );
+    }
+
+    #[tokio::test]
+    async fn tasks_command_switches_agent_and_tool_default_list() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let task_store = TaskListStore::new(dir.path().join(".rara/tasks"));
+        task_store
+            .create_task(
+                "team alpha",
+                NewTaskRecord {
+                    subject: "Switch shared task list".to_string(),
+                    description: "Verify active task-list command.".to_string(),
+                    active_form: None,
+                    metadata: Default::default(),
+                },
+            )
+            .expect("create task");
+        let mut app = TuiApp::new(ConfigManager {
+            path: dir.path().join("config.json"),
+        })
+        .expect("app");
+        let oauth_manager = Arc::new(
+            OAuthManager::new_for_config_dir(dir.path().join("oauth")).expect("oauth manager"),
+        );
+        let mut agent_slot = Some(test_agent_with_shared_task_tool(&dir));
+        app.sync_snapshot(agent_slot.as_ref().expect("agent"));
+
+        execute_local_command(
+            LocalCommand {
+                kind: LocalCommandKind::Tasks,
+                arg: Some("team alpha".to_string()),
+            },
+            &mut app,
+            &mut agent_slot,
+            &oauth_manager,
+        )
+        .await
+        .expect("tasks command should be handled");
+
+        let agent = agent_slot.as_ref().expect("agent");
+        assert_eq!(agent.task_list_id, "team-alpha");
+        assert_eq!(app.snapshot.shared_tasks.task_list_id, "team-alpha");
+        assert_eq!(app.snapshot.shared_tasks.total, 1);
+        let output = agent
+            .tool_manager
+            .get_tool("task_list")
+            .expect("task_list tool")
+            .call(serde_json::json!({}))
+            .await
+            .expect("task list");
+        assert_eq!(output["tasks"][0]["subject"], "Switch shared task list");
     }
 
     #[tokio::test]

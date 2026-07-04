@@ -2,7 +2,7 @@
 
 use crate::tui::state::{CommandSpec, LocalCommand, LocalCommandKind, TuiApp};
 
-pub const COMMAND_SPECS: [CommandSpec; 24] = [
+pub const COMMAND_SPECS: [CommandSpec; 25] = [
     CommandSpec {
         category: "Session",
         name: "permissions",
@@ -86,6 +86,13 @@ pub const COMMAND_SPECS: [CommandSpec; 24] = [
         usage: "/compact",
         summary: "Compact the current conversation history immediately.",
         detail: "Force one explicit history compaction pass. Compaction summarizes older turns into a structured summary so the model can continue a long conversation without losing early context. Compaction runs on every message and tool-result batch, but /compact lets you trigger one on demand.",
+    },
+    CommandSpec {
+        category: "Session",
+        name: "tasks",
+        usage: "/tasks [task_list_id]",
+        summary: "Show or switch the active shared task list.",
+        detail: "Without an argument, show the active shared task list and current task counts. With an argument, switch the active shared task list for runtime context, shared task tools, and future subagents.",
     },
     CommandSpec {
         category: "Session",
@@ -194,6 +201,7 @@ pub fn parse_local_command(input: &str) -> Option<LocalCommand> {
         "plan" => LocalCommandKind::Plan,
         "approval" => LocalCommandKind::Approval,
         "compact" => LocalCommandKind::Compact,
+        "tasks" | "task-list" => LocalCommandKind::Tasks,
         "model" | "models" => LocalCommandKind::Model,
         "connect" => LocalCommandKind::Connect,
         "base-url" => LocalCommandKind::BaseUrl,

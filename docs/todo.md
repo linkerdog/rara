@@ -76,9 +76,9 @@ Active backlog only. Keep this file small and current.
       coordinate on the same shared task list without an explicit tool input.
 - [x] Add snapshot-backed shared task status and TUI surfaces after mutation
       semantics are stable.
-- [ ] Add a live filesystem watcher for shared task files if cross-process task
+- [x] Add a live filesystem watcher for shared task files if cross-process task
       changes need to update the TUI without a new runtime snapshot.
-- [ ] Add a user-facing command for switching the active shared task list during
+- [x] Add a user-facing command for switching the active shared task list during
       a TUI session.
 
 ## Planning Control Plane

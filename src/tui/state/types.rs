@@ -158,6 +158,7 @@ pub enum LocalCommandKind {
     Permissions,
     Logout,
     Review,
+    Tasks,
     /// Reserved for `/dream` command help while consolidation execution is
     /// still tracked as follow-up work (docs/todo.md).
     #[allow(dead_code)]
@@ -759,6 +760,9 @@ pub struct TuiApp {
     pub terminal_focused: bool,
     pub state_db: Option<Arc<StateDb>>,
     pub state_db_status: Option<String>,
+    pub shared_task_root: Option<PathBuf>,
+    pub shared_task_fingerprint: Option<String>,
+    pub shared_task_last_poll: Option<Instant>,
     pub local_model_server: crate::local_model_server::LocalModelServerStatus,
     pub mcp_manager: Option<Arc<McpConnectionManager>>,
     pub lsp_manager: Option<Arc<LspManager>>,

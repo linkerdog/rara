@@ -131,6 +131,17 @@ fn parses_compact_command() {
 }
 
 #[test]
+fn parses_tasks_command() {
+    let command = parse_local_command("/tasks team alpha").expect("tasks should parse");
+    assert!(matches!(command.kind, LocalCommandKind::Tasks));
+    assert_eq!(command.arg.as_deref(), Some("team alpha"));
+
+    let alias = parse_local_command("/task-list team alpha").expect("task-list should parse");
+    assert!(matches!(alias.kind, LocalCommandKind::Tasks));
+    assert_eq!(alias.arg.as_deref(), Some("team alpha"));
+}
+
+#[test]
 fn parses_login_and_logout_commands() {
     let login = parse_local_command("/login").expect("login should parse");
     assert!(matches!(login.kind, LocalCommandKind::Login));

@@ -148,6 +148,7 @@ pub async fn run_tui(
                 if let Some(delta) = app.transcript_selection.autoscroll_delta() {
                     app.scroll_transcript(delta);
                 }
+                let _ = app.poll_shared_task_files();
                 needs_redraw = true;
             }
             maybe_event = events.next() => {

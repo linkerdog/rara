@@ -49,4 +49,19 @@ This slice closes the multi-agent coordination gaps left by the first mutation p
 
 The UI follows the existing RARA sidebar summary style after checking Claude Code and OpenCode task displays. Claude keeps expanded tasks in a low-noise region near the composer, while OpenCode shows a collapsible sidebar list only when unfinished work exists. RARA keeps the existing sidebar fallback rule and only shows `Shared Tasks` when there is no active plan, goal, or session-local todo list.
 
-Remaining risk: shared task state refreshes through runtime snapshots. There is still no live filesystem watcher or TUI command for switching the active shared task list during a session.
+## TUI Watcher And Active List Follow-Up
+
+This slice completes the remaining TUI control-plane work for shared tasks:
+
+- The TUI now fingerprints the active `.rara/tasks/<task_list_id>/` directory on
+  the regular UI tick and refreshes the shared task snapshot when task JSON
+  files change outside the current process.
+- `/tasks` shows the active shared task list and compact counts.
+- `/tasks <task_list_id>` switches the active list for runtime context, main
+  shared-task tool defaults, and future subagent defaults.
+- Task-list IDs are canonicalized through the same store path rules, so a user
+  command such as `/tasks team alpha` activates `team-alpha`.
+
+This remains intentionally lighter than an OS notification watcher. The task
+store already writes individual JSON files atomically, and a small polling
+fingerprint avoids adding platform-specific watcher dependencies to the TUI.
