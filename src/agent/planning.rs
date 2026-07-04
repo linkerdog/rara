@@ -570,10 +570,12 @@ impl Agent {
     }
 
     pub(crate) fn current_plan_hash(&self) -> String {
+        use std::fmt::Write as _;
+
         let digest = Sha256::digest(self.current_plan_markdown().as_bytes());
         let mut hex = String::with_capacity(64);
         for byte in digest.as_slice() {
-            hex.push_str(&format!("{byte:02x}"));
+            write!(&mut hex, "{byte:02x}").expect("writing to String cannot fail");
         }
         format!("sha256:{hex}")
     }
