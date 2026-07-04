@@ -225,6 +225,7 @@ impl<'a> ThreadStore<'a> {
                 explanation: materialized.plan_explanation.clone(),
                 steps: materialized.plan_steps.clone(),
                 interactions: materialized.interactions.clone(),
+                plan_lifecycle: Vec::new(),
             }],
         )?;
 
@@ -341,6 +342,7 @@ impl<'a> ThreadStore<'a> {
                     explanation,
                     steps,
                     interactions: runtime_interactions,
+                    plan_lifecycle,
                 } => {
                     saw_runtime_state = true;
                     saw_plan_state = true;
@@ -350,7 +352,8 @@ impl<'a> ThreadStore<'a> {
                     interactions = runtime_interactions.clone();
                     let base_order = rollout_order;
                     let reserved_items = usize::from(!steps.is_empty() || explanation.is_some())
-                        + runtime_interactions.len();
+                        + runtime_interactions.len()
+                        + plan_lifecycle.len();
                     rollout_order += reserved_items.max(1);
                     latest_runtime_state = Some((
                         recorded_at.unwrap_or(0),
@@ -358,6 +361,7 @@ impl<'a> ThreadStore<'a> {
                         explanation,
                         steps,
                         runtime_interactions,
+                        plan_lifecycle,
                     ));
                 }
                 PersistedStructuredRolloutEvent::PlanState {
@@ -388,6 +392,17 @@ impl<'a> ThreadStore<'a> {
                         RolloutItem::Interaction(interaction),
                     );
                 }
+                PersistedStructuredRolloutEvent::PlanLifecycle {
+                    recorded_at,
+                    lifecycle,
+                } => {
+                    push_rollout_item(
+                        &mut ordered_rollout_items,
+                        &mut rollout_order,
+                        recorded_at.unwrap_or(0),
+                        RolloutItem::PlanLifecycle(lifecycle),
+                    );
+                }
                 PersistedStructuredRolloutEvent::SpawnAgent {
                     recorded_at,
                     event_id,
@@ -415,8 +430,14 @@ impl<'a> ThreadStore<'a> {
             }
         }
 
-        if let Some((recorded_at, base_order, explanation, steps, runtime_interactions)) =
-            latest_runtime_state
+        if let Some((
+            recorded_at,
+            base_order,
+            explanation,
+            steps,
+            runtime_interactions,
+            plan_lifecycle,
+        )) = latest_runtime_state
         {
             let mut item_order = base_order;
             if !steps.is_empty() || explanation.is_some() {
@@ -432,6 +453,14 @@ impl<'a> ThreadStore<'a> {
                     recorded_at,
                     item_order,
                     RolloutItem::Interaction(interaction),
+                ));
+                item_order += 1;
+            }
+            for lifecycle in plan_lifecycle {
+                ordered_rollout_items.push((
+                    recorded_at,
+                    item_order,
+                    RolloutItem::PlanLifecycle(lifecycle),
                 ));
                 item_order += 1;
             }
@@ -763,6 +792,7 @@ impl<'a> ThreadStore<'a> {
                 PersistedStructuredRolloutEvent::RuntimeState { .. }
                 | PersistedStructuredRolloutEvent::PlanState { .. }
                 | PersistedStructuredRolloutEvent::Interaction { .. }
+                | PersistedStructuredRolloutEvent::PlanLifecycle { .. }
                 | PersistedStructuredRolloutEvent::SpawnAgent { .. } => None,
             })
             .collect::<Vec<_>>();

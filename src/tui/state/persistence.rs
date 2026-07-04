@@ -2,8 +2,8 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use rara_state::state_db::{
-    PersistedCompactState, PersistedInteraction, PersistedPlanStep, PersistedPromptRuntimeState,
-    PersistedStructuredRolloutEvent, PersistedTurnEntry,
+    PersistedCompactState, PersistedInteraction, PersistedPlanLifecycle, PersistedPlanStep,
+    PersistedPromptRuntimeState, PersistedStructuredRolloutEvent, PersistedTurnEntry,
 };
 use serde_json::json;
 
@@ -154,6 +154,7 @@ impl TuiApp {
         }
 
         let mut interactions = Vec::new();
+        let mut plan_lifecycle = Vec::new();
         for interaction in &self.snapshot.pending_interactions {
             match interaction.kind {
                 InteractionKind::RequestInput => {
@@ -187,6 +188,14 @@ impl TuiApp {
                         title: interaction.title.clone(),
                         summary: interaction.summary.clone(),
                         payload: None,
+                    });
+                    plan_lifecycle.push(PersistedPlanLifecycle {
+                        phase: "plan_ready".to_string(),
+                        decision: None,
+                        feedback: None,
+                        plan_path: None,
+                        tool_use_id: None,
+                        plan_hash: None,
                     });
                 }
                 InteractionKind::Approval => {
@@ -223,6 +232,11 @@ impl TuiApp {
                 summary: interaction.summary.clone(),
                 payload: None,
             });
+            if interaction.kind == InteractionKind::PlanApproval
+                && let Some(lifecycle) = plan_lifecycle_from_completed_summary(&interaction.summary)
+            {
+                plan_lifecycle.push(lifecycle);
+            }
         }
 
         if let Err(err) = recorder.replace_interactions(&self.snapshot.session_id, &interactions) {
@@ -245,6 +259,12 @@ impl TuiApp {
             PersistedStructuredRolloutEvent::Interaction {
                 recorded_at: None,
                 interaction,
+            }
+        }));
+        structured_rollout.extend(plan_lifecycle.iter().cloned().map(|lifecycle| {
+            PersistedStructuredRolloutEvent::PlanLifecycle {
+                recorded_at: None,
+                lifecycle,
             }
         }));
         if let Err(err) =
@@ -343,6 +363,23 @@ impl TuiApp {
     }
 }
 
+fn plan_lifecycle_from_completed_summary(summary: &str) -> Option<PersistedPlanLifecycle> {
+    let (phase, decision) = match summary {
+        "Approved. Starting implementation." => ("plan_approved", "approve"),
+        "Sent back for more planning." => ("plan_revising", "continue_planning"),
+        "Rejected. Implementation cancelled." => ("plan_rejected", "reject"),
+        _ => return None,
+    };
+    Some(PersistedPlanLifecycle {
+        phase: phase.to_string(),
+        decision: Some(decision.to_string()),
+        feedback: None,
+        plan_path: None,
+        tool_use_id: None,
+        plan_hash: None,
+    })
+}
+
 fn resume_thread_matches_query(thread: &crate::thread_store::ThreadSummary, query: &str) -> bool {
     let metadata = &thread.metadata;
     [
@@ -357,4 +394,29 @@ fn resume_thread_matches_query(thread: &crate::thread_store::ThreadSummary, quer
     ]
     .into_iter()
     .any(|value| value.to_ascii_lowercase().contains(query))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::plan_lifecycle_from_completed_summary;
+
+    #[test]
+    fn maps_plan_approval_summaries_to_lifecycle_phases() {
+        let approved =
+            plan_lifecycle_from_completed_summary("Approved. Starting implementation.").unwrap();
+        assert_eq!(approved.phase, "plan_approved");
+        assert_eq!(approved.decision.as_deref(), Some("approve"));
+
+        let revising = plan_lifecycle_from_completed_summary("Sent back for more planning.")
+            .expect("revising lifecycle");
+        assert_eq!(revising.phase, "plan_revising");
+        assert_eq!(revising.decision.as_deref(), Some("continue_planning"));
+
+        let rejected =
+            plan_lifecycle_from_completed_summary("Rejected. Implementation cancelled.").unwrap();
+        assert_eq!(rejected.phase, "plan_rejected");
+        assert_eq!(rejected.decision.as_deref(), Some("reject"));
+
+        assert!(plan_lifecycle_from_completed_summary("other").is_none());
+    }
 }

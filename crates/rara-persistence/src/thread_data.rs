@@ -23,6 +23,21 @@ pub struct PersistedInteraction {
     pub payload: Option<Value>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct PersistedPlanLifecycle {
+    pub phase: String,
+    #[serde(default)]
+    pub decision: Option<String>,
+    #[serde(default)]
+    pub feedback: Option<String>,
+    #[serde(default)]
+    pub plan_path: Option<String>,
+    #[serde(default)]
+    pub tool_use_id: Option<String>,
+    #[serde(default)]
+    pub plan_hash: Option<String>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PersistedTurnSummary {
     pub ordinal: usize,
@@ -67,6 +82,8 @@ pub enum PersistedStructuredRolloutEvent {
         explanation: Option<String>,
         steps: Vec<PersistedPlanStep>,
         interactions: Vec<PersistedInteraction>,
+        #[serde(default)]
+        plan_lifecycle: Vec<PersistedPlanLifecycle>,
     },
     PlanState {
         #[serde(default)]
@@ -92,6 +109,12 @@ pub enum PersistedStructuredRolloutEvent {
         #[serde(default)]
         token_budget: Option<i64>,
     },
+    PlanLifecycle {
+        #[serde(default)]
+        recorded_at: Option<i64>,
+        #[serde(flatten)]
+        lifecycle: PersistedPlanLifecycle,
+    },
 }
 
 impl PersistedStructuredRolloutEvent {
@@ -102,6 +125,7 @@ impl PersistedStructuredRolloutEvent {
         let mut explanation = None;
         let mut steps = Vec::new();
         let mut interactions = Vec::new();
+        let mut plan_lifecycle = Vec::new();
         for item in items {
             match item {
                 PersistedStructuredRolloutEvent::RuntimeState {
@@ -109,10 +133,12 @@ impl PersistedStructuredRolloutEvent {
                     explanation: item_explanation,
                     steps: item_steps,
                     interactions: item_interactions,
+                    plan_lifecycle: item_plan_lifecycle,
                 } => {
                     explanation = item_explanation.clone();
                     steps = item_steps.clone();
                     interactions = item_interactions.clone();
+                    plan_lifecycle = item_plan_lifecycle.clone();
                 }
                 PersistedStructuredRolloutEvent::PlanState {
                     recorded_at: _,
@@ -128,6 +154,12 @@ impl PersistedStructuredRolloutEvent {
                 } => {
                     interactions.push(interaction.clone());
                 }
+                PersistedStructuredRolloutEvent::PlanLifecycle {
+                    recorded_at: _,
+                    lifecycle,
+                } => {
+                    plan_lifecycle.push(lifecycle.clone());
+                }
                 PersistedStructuredRolloutEvent::Compaction { .. }
                 | PersistedStructuredRolloutEvent::SpawnAgent { .. } => {}
             }
@@ -138,6 +170,7 @@ impl PersistedStructuredRolloutEvent {
             explanation,
             steps,
             interactions,
+            plan_lifecycle,
         }
     }
 }

@@ -468,6 +468,7 @@ impl SessionManager {
                 PersistedStructuredRolloutEvent::RuntimeState { .. }
                 | PersistedStructuredRolloutEvent::PlanState { .. }
                 | PersistedStructuredRolloutEvent::Interaction { .. }
+                | PersistedStructuredRolloutEvent::PlanLifecycle { .. }
                 | PersistedStructuredRolloutEvent::SpawnAgent { .. } => None,
             })
             .collect::<Vec<_>>();

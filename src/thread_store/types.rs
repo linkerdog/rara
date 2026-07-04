@@ -1,6 +1,6 @@
 use rara_persistence::thread_data::{
-    PersistedCompactState, PersistedInteraction, PersistedPlanStep, PersistedRecentThreadRecord,
-    PersistedThreadRecord, PersistedTurnEntry, PersistedTurnSummary,
+    PersistedCompactState, PersistedInteraction, PersistedPlanLifecycle, PersistedPlanStep,
+    PersistedRecentThreadRecord, PersistedThreadRecord, PersistedTurnEntry, PersistedTurnSummary,
 };
 
 use crate::agent::Message;
@@ -219,6 +219,7 @@ pub enum RolloutItem {
         steps: Vec<PersistedPlanStep>,
     },
     Interaction(PersistedInteraction),
+    PlanLifecycle(PersistedPlanLifecycle),
     SpawnAgent {
         event_id: String,
         agent_id: String,
