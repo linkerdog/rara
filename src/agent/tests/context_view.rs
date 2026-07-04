@@ -17,6 +17,21 @@ use crate::runtime_control::{
 use crate::runtime_event_bus::RuntimeEventBus;
 
 #[test]
+fn hook_output_candidate_is_observable_but_not_reselected() {
+    let candidate = super::super::hook_output_candidate("lint hook passed", 0, "session-1");
+
+    assert_eq!(candidate.kind, "hook_output");
+    assert_eq!(candidate.source.source_type, "hook_output");
+    assert_eq!(candidate.source.session_id.as_deref(), Some("session-1"));
+    assert_eq!(candidate.summary.as_deref(), Some("lint hook passed"));
+    assert!(!candidate.selectable);
+    assert_eq!(
+        candidate.not_selected_reason,
+        "already injected as direct system context"
+    );
+}
+
+#[test]
 fn shared_runtime_context_collects_prompt_plan_and_compaction_state() {
     let (_temp, session_manager, workspace, rara_dir) = test_runtime_storage();
     std::fs::write(

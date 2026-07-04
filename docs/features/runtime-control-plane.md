@@ -327,6 +327,8 @@ External applications may declare hooks for lifecycle points such as:
 - `UserPromptSubmit`;
 - `PreToolUse`;
 - `PostToolUse`;
+- `PostMemoryWrite`;
+- `MemoryQuery`;
 - `Stop`;
 - `PreCompact`.
 
@@ -349,6 +351,8 @@ Lifecycle timing is part of the safety boundary:
   original user text;
 - `PostToolUse` output is next-turn context unless the runtime explicitly
   starts a new assembly step;
+- `MemoryQuery` fires before memory retrieval tools run and receives the raw
+  search query through the hook runtime callback path;
 - `PreCompact` output is advisory retain metadata for the compaction lifecycle;
 - `Stop` hooks must be bounded and should not run on prompt-too-long or API
   error paths where hook retry could create a loop.

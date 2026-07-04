@@ -19,6 +19,7 @@ use rara_tools::tool::ToolOutputStream;
 use rara_tools::tool::{ToolCallContext, ToolManager, ToolProgressEvent};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
+use sha2::{Digest, Sha256};
 use uuid::Uuid;
 
 use crate::context::{
@@ -902,8 +903,14 @@ impl Agent {
             }
             self.ensure_active_plan_step();
             // Inject hook outputs as system messages before the model turn
+            self.hook_output_candidates.clear();
             if let Some(hr) = crate::hook_runtime::get_global_hook_runtime() {
                 let outputs = hr.blocking_drain_outputs();
+                self.hook_output_candidates = outputs
+                    .iter()
+                    .enumerate()
+                    .map(|(index, text)| hook_output_candidate(text, index, &self.session_id))
+                    .collect();
                 for text in outputs {
                     self.history.push(Message {
                         role: "system".to_string(),
@@ -1502,6 +1509,49 @@ Rules:
             Some(token) => context.with_cancellation(token.clone()),
             None => context,
         }
+    }
+}
+
+fn hook_output_candidate(text: &str, index: usize, session_id: &str) -> RetrievalCandidate {
+    use std::fmt::Write as _;
+
+    let mut hasher = Sha256::new();
+    hasher.update(session_id.as_bytes());
+    hasher.update([0]);
+    hasher.update((index as u64).to_le_bytes());
+    hasher.update([0]);
+    hasher.update(text.as_bytes());
+    let digest = hasher.finalize();
+    let mut hex = String::with_capacity(64);
+    for byte in digest.as_slice() {
+        write!(&mut hex, "{byte:02x}").expect("writing to String cannot fail");
+    }
+    let id = format!("hook_output:{hex}");
+    RetrievalCandidate {
+        id: id.clone(),
+        source: crate::context::RetrievalSourceRef {
+            source_type: "hook_output".to_string(),
+            source_id: Some(id.clone()),
+            source_path: None,
+            source_uri: None,
+            session_id: Some(session_id.to_string()),
+            thread_id: None,
+            workspace_id: None,
+        },
+        kind: "hook_output".to_string(),
+        scope: "turn".to_string(),
+        label: format!("Hook Output {}", index + 1),
+        detail: "drained before model turn".to_string(),
+        summary: Some(text.to_string()),
+        rank: index,
+        score: None,
+        priority: 60,
+        dedupe_key: Some(id),
+        budget_impact_tokens: None,
+        selection_reason: "hook output is injected directly as system context".to_string(),
+        availability_reason: "available from hook runtime output buffer".to_string(),
+        not_selected_reason: "already injected as direct system context".to_string(),
+        selectable: false,
     }
 }
 

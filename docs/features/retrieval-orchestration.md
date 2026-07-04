@@ -165,9 +165,10 @@ Provider responsibilities:
 - `FileSearchProvider`: produce file candidates from `crates/file-search`;
   it must not inject file contents directly.
 - `McpResourceProvider`: surface referenced MCP resources as candidates.
-- `HookContextProvider`: surface hook output as volatile candidates; current
-  implementation accepts precomputed candidates and keeps them observable but
-  non-injected until hook execution policy is enabled.
+- `HookContextProvider`: surface hook output as volatile candidates. Hook output
+  drained from `HookRuntime` is injected directly as system context before the
+  next model turn and mirrored as non-selectable candidates for `/context`
+  observability.
 - `GraphProvider`: surface graph/vector composed context; current
   implementation accepts precomputed candidates and keeps them observable but
   non-injected until graph confidence policy is enabled.
