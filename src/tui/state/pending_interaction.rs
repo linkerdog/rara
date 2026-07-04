@@ -1,3 +1,4 @@
+use super::types::current_unix_timestamp_secs;
 use super::{
     ActivePendingInteraction, ActivePendingInteractionKind, CompletedInteractionSnapshot,
     InteractionKind, PendingInteractionSnapshot, TuiApp,
@@ -58,6 +59,7 @@ impl TuiApp {
             note: None,
             approval: None,
             source: tool_use_id.map(|id| format!("exit_plan_mode:{id}")),
+            created_at_epoch_seconds: Some(current_unix_timestamp_secs()),
         }
     }
 
@@ -214,6 +216,18 @@ impl TuiApp {
         summary: impl Into<String>,
         source: Option<String>,
     ) {
+        self.record_completed_interaction_with_metadata(kind, title, summary, source, None, None);
+    }
+
+    pub fn record_completed_interaction_with_metadata(
+        &mut self,
+        kind: InteractionKind,
+        title: impl Into<String>,
+        summary: impl Into<String>,
+        source: Option<String>,
+        feedback: Option<String>,
+        plan_revision: Option<String>,
+    ) {
         let title = title.into();
         let summary = summary.into();
         self.snapshot
@@ -226,6 +240,9 @@ impl TuiApp {
                 title: title.clone(),
                 summary: summary.clone(),
                 source: source.clone(),
+                feedback,
+                completed_at_epoch_seconds: Some(current_unix_timestamp_secs()),
+                plan_revision,
             });
         self.ensure_completed_interaction_entry(
             kind,
@@ -257,6 +274,7 @@ impl TuiApp {
                 note,
                 approval: None,
                 source: Some(source.into()),
+                created_at_epoch_seconds: Some(current_unix_timestamp_secs()),
             });
         self.bottom_pane.notice = Some(title.clone());
         self.persist_runtime_state();

@@ -107,6 +107,7 @@ fn prioritizes_active_pending_interaction_in_ui_order() {
                 note: None,
                 approval: None,
                 source: Some("plan_agent".to_string()),
+                created_at_epoch_seconds: None,
             },
             PendingInteractionSnapshot {
                 kind: InteractionKind::Approval,
@@ -116,6 +117,7 @@ fn prioritizes_active_pending_interaction_in_ui_order() {
                 note: None,
                 approval: None,
                 source: None,
+                created_at_epoch_seconds: None,
             },
             PendingInteractionSnapshot {
                 kind: InteractionKind::PlanApproval,
@@ -125,6 +127,7 @@ fn prioritizes_active_pending_interaction_in_ui_order() {
                 note: None,
                 approval: None,
                 source: None,
+                created_at_epoch_seconds: None,
             },
         ],
         ..RuntimeSnapshot::default()
@@ -155,6 +158,7 @@ fn clear_pending_command_approval_removes_only_shell_approval() {
                 note: None,
                 approval: None,
                 source: Some("worker".to_string()),
+                created_at_epoch_seconds: None,
             },
             PendingInteractionSnapshot {
                 kind: InteractionKind::Approval,
@@ -164,6 +168,7 @@ fn clear_pending_command_approval_removes_only_shell_approval() {
                 note: None,
                 approval: None,
                 source: None,
+                created_at_epoch_seconds: None,
             },
             PendingInteractionSnapshot {
                 kind: InteractionKind::PlanApproval,
@@ -173,6 +178,7 @@ fn clear_pending_command_approval_removes_only_shell_approval() {
                 note: None,
                 approval: None,
                 source: None,
+                created_at_epoch_seconds: None,
             },
         ],
         ..RuntimeSnapshot::default()
@@ -1442,13 +1448,19 @@ fn pending_plan_approval_persists_plan_ready_lifecycle() {
         .expect("state db")
         .load_rollout_events("plan-ready-session")
         .expect("rollout events");
-    assert!(events.iter().any(|event| matches!(
-        event,
-        PersistedStructuredRolloutEvent::RuntimeState {
-            plan_lifecycle,
-            ..
-        } if plan_lifecycle.iter().any(|lifecycle| lifecycle.phase == "plan_ready")
-    )));
+    let ready_lifecycle = events.iter().find_map(|event| match event {
+        PersistedStructuredRolloutEvent::RuntimeState { plan_lifecycle, .. } => plan_lifecycle
+            .iter()
+            .find(|lifecycle| lifecycle.phase == "plan_ready"),
+        _ => None,
+    });
+    let ready_lifecycle = ready_lifecycle.expect("plan ready lifecycle");
+    assert_eq!(
+        ready_lifecycle.plan_path.as_deref(),
+        Some(".rara/sessions/plan-ready-session/plan.md")
+    );
+    assert!(ready_lifecycle.submitted_at.is_some());
+    assert_eq!(ready_lifecycle.decided_at, None);
 }
 
 #[test]
@@ -1462,11 +1474,13 @@ fn completed_plan_approval_persists_decision_lifecycle() {
     app.snapshot.session_id = "plan-approved-session".to_string();
     app.attach_state_db(std::sync::Arc::new(state_db));
 
-    app.record_completed_interaction(
+    app.record_completed_interaction_with_metadata(
         InteractionKind::PlanApproval,
         "Plan Decision",
         "copy can change",
         Some("plan_approval:approve".to_string()),
+        Some("approved with tests".to_string()),
+        Some("sha256:abc".to_string()),
     );
 
     let events = app
@@ -1475,16 +1489,21 @@ fn completed_plan_approval_persists_decision_lifecycle() {
         .expect("state db")
         .load_rollout_events("plan-approved-session")
         .expect("rollout events");
-    assert!(events.iter().any(|event| matches!(
-        event,
-        PersistedStructuredRolloutEvent::RuntimeState {
-            plan_lifecycle,
-            ..
-        } if plan_lifecycle.iter().any(|lifecycle| {
-            lifecycle.phase == "plan_approved"
-                && lifecycle.decision.as_deref() == Some("approve")
-        })
-    )));
+    let approved_lifecycle = events.iter().find_map(|event| match event {
+        PersistedStructuredRolloutEvent::RuntimeState { plan_lifecycle, .. } => plan_lifecycle
+            .iter()
+            .find(|lifecycle| lifecycle.phase == "plan_approved"),
+        _ => None,
+    });
+    let approved_lifecycle = approved_lifecycle.expect("plan approved lifecycle");
+    assert_eq!(approved_lifecycle.decision.as_deref(), Some("approve"));
+    assert_eq!(
+        approved_lifecycle.feedback.as_deref(),
+        Some("approved with tests")
+    );
+    assert_eq!(approved_lifecycle.plan_hash.as_deref(), Some("sha256:abc"));
+    assert_eq!(approved_lifecycle.submitted_at, None);
+    assert!(approved_lifecycle.decided_at.is_some());
 }
 
 #[test]

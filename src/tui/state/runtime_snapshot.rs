@@ -46,6 +46,7 @@ impl TuiApp {
                 note: question.note.clone(),
                 approval: None,
                 source: None,
+                created_at_epoch_seconds: None,
             });
         }
         if agent.pending_user_input.is_none() {
@@ -69,6 +70,7 @@ impl TuiApp {
                     payload: pending.request.clone(),
                 }),
                 source: None,
+                created_at_epoch_seconds: None,
             });
         }
         let current_pending_approval_id = agent
@@ -85,6 +87,9 @@ impl TuiApp {
                 title: item.title.clone(),
                 summary: item.summary.clone(),
                 source: None,
+                feedback: None,
+                completed_at_epoch_seconds: None,
+                plan_revision: None,
             });
         }
         if let Some(item) = agent.completed_approval.as_ref() {
@@ -93,6 +98,9 @@ impl TuiApp {
                 title: item.title.clone(),
                 summary: item.summary.clone(),
                 source: None,
+                feedback: None,
+                completed_at_epoch_seconds: None,
+                plan_revision: None,
             });
         }
         if let Some(item) = existing_local_request_completion {

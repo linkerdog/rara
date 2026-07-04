@@ -97,6 +97,7 @@ fn activity_status_line_prefers_pending_interactions() {
             note: None,
             approval: None,
             source: None,
+            created_at_epoch_seconds: None,
         });
 
     let (label, _, detail) = activity_status_line(&app);
@@ -124,6 +125,7 @@ fn pending_interaction_hint_takes_priority_over_queued_follow_up() {
             note: None,
             approval: None,
             source: None,
+            created_at_epoch_seconds: None,
         });
 
     let hint = composer_hint(&app).to_string();

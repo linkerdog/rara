@@ -533,6 +533,7 @@ pub(super) fn start_pending_approval_task(
 pub(super) fn start_plan_approval_resume_task(
     app: &mut TuiApp,
     decision: crate::runtime_control::PlanApprovalDecision,
+    feedback: Option<String>,
     agent: Agent,
 ) {
     let (notice, phase_detail) = match decision {
@@ -549,10 +550,8 @@ pub(super) fn start_plan_approval_resume_task(
         ),
     };
 
-    let request = crate::runtime_control::InputControlRequest::AnswerPlanApproval {
-        decision,
-        feedback: None,
-    };
+    let request =
+        crate::runtime_control::InputControlRequest::AnswerPlanApproval { decision, feedback };
 
     start_input_control_task(
         app,

@@ -519,6 +519,7 @@ impl Default for PendingInteractionSnapshot {
             note: None,
             approval: None,
             source: None,
+            created_at_epoch_seconds: None,
         }
     }
 }

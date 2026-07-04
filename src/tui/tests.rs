@@ -901,6 +901,7 @@ fn add_pending_shell_approval(app: &mut TuiApp) {
                 payload: Default::default(),
             }),
             source: None,
+            created_at_epoch_seconds: None,
         });
 }
 
@@ -915,6 +916,7 @@ fn add_pending_plan_approval(app: &mut TuiApp) {
             note: None,
             approval: None,
             source: None,
+            created_at_epoch_seconds: None,
         });
 }
 
@@ -968,6 +970,7 @@ fn add_pending_request_input(app: &mut TuiApp, option_count: usize) {
             note: None,
             approval: None,
             source: None,
+            created_at_epoch_seconds: None,
         });
 }
 

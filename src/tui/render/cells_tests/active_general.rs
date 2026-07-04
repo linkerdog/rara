@@ -40,6 +40,7 @@ fn active_turn_cell_keeps_sections_in_stable_order() {
             note: None,
             approval: None,
             source: None,
+            created_at_epoch_seconds: None,
         }],
         ..RuntimeSnapshot::default()
     };

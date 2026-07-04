@@ -453,6 +453,8 @@ mod tests {
                     plan_path: None,
                     tool_use_id: None,
                     plan_hash: None,
+                    submitted_at: None,
+                    decided_at: None,
                 }),
                 RolloutItem::Turn(RolloutTurnItem {
                     summary: PersistedTurnSummary {
