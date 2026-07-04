@@ -5,7 +5,6 @@ use super::state::{ListPickerKind, Overlay, ProviderFamily, TuiApp};
 use crate::agent::Agent;
 use crate::codex_model_catalog::load_codex_model_catalog;
 use crate::config::{OpenAiEndpointKind, ensure_rara_home_dir};
-use crate::google_oauth::GoogleOAuthManager;
 use crate::oauth::OAuthManager;
 
 pub(super) fn sync_codex_credential_from_auth_store(
@@ -121,8 +120,6 @@ pub(super) fn codex_auth_is_available(app: &TuiApp, oauth_manager: &OAuthManager
     oauth_manager.has_saved_auth().is_ok_and(|saved| saved)
 }
 
-/// Reserved for wiring Codex model catalog refresh into active picker flow (docs/todo.md).
-#[allow(dead_code)]
 pub(super) async fn refresh_codex_model_picker(
     app: &mut TuiApp,
     oauth_manager: &OAuthManager,

@@ -1,16 +1,7 @@
 #[cfg(test)]
 use super::command::api_key_status;
 #[cfg(test)]
-use super::state::{ProviderFamily, TuiApp};
-
-/// Check whether a saved Google OAuth credential exists.
-#[cfg(test)]
-fn google_oauth_has_saved_auth() -> bool {
-    crate::config::ensure_rara_home_dir()
-        .ok()
-        .map(|home| home.join("auth").join("google_oauth.json").exists())
-        .unwrap_or(false)
-}
+use super::state::TuiApp;
 
 #[cfg(test)]
 pub(crate) struct AuthModePickerView {
@@ -24,76 +15,39 @@ pub(crate) const AUTH_MODE_OPTION_COUNT: usize = 4;
 
 #[cfg(test)]
 pub(crate) fn build_auth_mode_picker_view(app: &TuiApp, ssh_session: bool) -> AuthModePickerView {
-    let family = app.selected_provider_family();
-    let is_gemini = family == ProviderFamily::Gemini;
-    let provider_label = if is_gemini { "Gemini" } else { "Codex" };
-    let provider_id: &str = if is_gemini {
-        "gemini-code-assist"
-    } else {
-        "codex"
-    };
-
     let ssh_hint = if ssh_session {
         "\n\nSSH session detected. Browser login on a remote shell usually cannot complete the localhost callback. Device-code login is recommended in SSH/headless sessions."
     } else {
         ""
     };
     let intro = format!(
-        "{provider_label} needs authentication before this preset can be used.\n\n\
+        "Codex needs authentication before this preset can be used.\n\n\
          Choose one auth mode below.{ssh_hint}"
     );
-    let options: &[(&str, &str)] = if is_gemini {
-        // Gemini Code Assist: browser + device-code + logout (no API key).
-        // API key users should select provider=gemini for AI Studio.
-        &[
-            (
-                "Browser login",
-                "Best for local desktop sessions with a localhost callback.",
-            ),
-            (
-                "Device code",
-                "Best for SSH/headless sessions. Open the URL elsewhere and enter the one-time code.",
-            ),
-            (
-                "—",
-                "For API key access, go back and select the standard Gemini (AI Studio) provider.",
-            ),
-            ("Logout", "Clear the saved Google OAuth credential."),
-        ]
-    } else {
-        &[
-            (
-                "Browser login",
-                "Best for local desktop sessions with a localhost callback.",
-            ),
-            (
-                "Device code",
-                "Best for SSH/headless sessions. Open the URL elsewhere and enter the one-time code.",
-            ),
-            (
-                "API key",
-                "Paste an existing Codex API key and save it locally.",
-            ),
-            (
-                "Logout",
-                "Clear the saved provider credential and rebuild the current codex backend.",
-            ),
-        ]
-    };
+    let options: &[(&str, &str)] = &[
+        (
+            "Browser login",
+            "Best for local desktop sessions with a localhost callback.",
+        ),
+        (
+            "Device code",
+            "Best for SSH/headless sessions. Open the URL elsewhere and enter the one-time code.",
+        ),
+        (
+            "API key",
+            "Paste an existing Codex API key and save it locally.",
+        ),
+        (
+            "Logout",
+            "Clear the saved provider credential and rebuild the current codex backend.",
+        ),
+    ];
 
     debug_assert_eq!(options.len(), AUTH_MODE_OPTION_COUNT);
-    let credential_label = if is_gemini {
-        if google_oauth_has_saved_auth() {
-            "saved (OAuth)"
-        } else {
-            "missing (OAuth login required)"
-        }
-    } else {
-        api_key_status(&app.config)
-    };
+    let credential_label = api_key_status(&app.config);
     let mut lines = vec![
         format!("Current model: {}", app.current_model_label()),
-        format!("Provider: {provider_id}"),
+        "Provider: codex".to_string(),
         format!("Credential status: {credential_label}"),
         String::new(),
     ];

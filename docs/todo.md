@@ -106,18 +106,6 @@ Active backlog only. Keep this file small and current.
 ## Configuration
 
 - [ ] Explicit embedding controls: enable/disable, provider override (low priority)
-- [ ] `/status` context fields for model/provider/thread/retrieval/memory/workspace
-- [ ] Replace the placeholder thread-goal evaluator with a real evaluator
-      backend call, or explicitly remove evaluator feedback from the goal loop.
-- [ ] Decide the Gemini AI Studio runtime path: either wire `provider=gemini`
-      to the native `GeminiBackend::new` API-key backend or remove that native
-      API-key path in favor of the current OpenAI-compatible endpoint.
-- [ ] Wire Codex model catalog refresh into the active TUI provider/model
-      selection flow, or remove the catalog loader and stored
-      `codex_model_options` state if Codex presets stay static.
-- [ ] Wire Gemini Code Assist OAuth login into the TUI provider connection
-      flow, or remove the Google OAuth task surface if Gemini remains API-key
-      only in the terminal UI.
 
 ## Long-term
 
