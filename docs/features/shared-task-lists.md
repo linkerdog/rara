@@ -205,6 +205,18 @@ Shared task state is included in the runtime snapshot built for each turn. `/sta
 
 The sidebar intentionally follows the existing RARA summary style rather than introducing a new layout: it shows completed/total, open count, ready count, and up to four active shared tasks with the same `[>]` and `[ ]` markers used by the existing todo fallback.
 
+The TUI keeps a lightweight filesystem watcher for the active shared task list.
+It polls the active `.rara/tasks/<task_list_id>/` directory on the regular UI
+tick and fingerprints task JSON filenames, file lengths, and modification
+times. Lock files and temporary writes are ignored. When another process
+changes the active task list, the TUI refreshes the shared task snapshot without
+waiting for a new agent turn.
+
+`/tasks` shows the active task-list ID and compact counts. `/tasks
+<task_list_id>` switches the active task list for runtime context, main-agent
+shared task tool defaults, and future subagents. The command canonicalizes the
+ID with the same path-segment rules used by the task store.
+
 Missing tasks return a non-fatal outcome:
 
 ```json
@@ -228,12 +240,9 @@ Missing tasks return a non-fatal outcome:
 - Tool tests cover default task-list IDs, expected-revision output, claim-owner updates, and stale-update errors.
 - Subagent tests cover read-only and general subagent shared task tool exposure plus Claude-style task tool aliases.
 - TUI tests cover `/status`, `/context`, and sidebar shared task summaries.
+- TUI tests cover active shared task-list switching and watcher refresh after
+  cross-process task writes.
 - Workspace checks should run `cargo test tasklist`, `cargo test tools::tasklist::tests`, `cargo check --locked --workspace --all-targets`, and `cargo clippy --locked --workspace --all-targets -- -D warnings`.
-
-## Open Risks
-
-- The current shared task surface refreshes through runtime snapshots; it is not a live filesystem watcher.
-- Task-list IDs are propagated inside the runtime, but there is not yet a user-facing command for switching the active task list during a TUI session.
 
 ## Source Journals
 

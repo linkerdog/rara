@@ -819,7 +819,7 @@ fn sync_parent_dir_best_effort(path: &Path) {
     }
 }
 
-fn normalize_task_list_id(task_list_id: &str) -> String {
+pub fn canonical_task_list_id(task_list_id: &str) -> String {
     let normalized = task_list_id
         .trim()
         .chars()
@@ -838,6 +838,10 @@ fn normalize_task_list_id(task_list_id: &str) -> String {
     } else {
         normalized
     }
+}
+
+fn normalize_task_list_id(task_list_id: &str) -> String {
+    canonical_task_list_id(task_list_id)
 }
 
 fn sort_tasks_by_id(tasks: &mut [TaskRecord]) {

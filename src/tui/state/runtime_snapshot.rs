@@ -11,6 +11,7 @@ use crate::agent::Agent;
 impl TuiApp {
     pub fn sync_snapshot(&mut self, agent: &Agent) {
         let runtime_context = agent.shared_runtime_context();
+        let shared_task_root = agent.workspace.rara_dir.join("tasks");
         let existing_pending_approval_id = self
             .pending_command_approval()
             .and_then(|item| item.approval.as_ref())
@@ -199,6 +200,7 @@ impl TuiApp {
         };
         self.agent_execution_mode = agent.execution_mode;
         self.bash_approval_mode = agent.bash_approval_mode;
+        self.configure_shared_task_watch(shared_task_root, &agent.task_list_id);
         self.populate_skill_picker_entries(agent);
         self.persist_runtime_state();
     }

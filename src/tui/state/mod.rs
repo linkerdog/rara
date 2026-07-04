@@ -5,6 +5,7 @@ mod pending_interaction;
 mod persistence;
 mod planning_lifecycle;
 mod runtime_snapshot;
+mod shared_tasks;
 mod state_presets;
 #[cfg(test)]
 mod tests;
@@ -292,6 +293,9 @@ impl TuiApp {
             terminal_focused: true,
             state_db: None,
             state_db_status: None,
+            shared_task_root: None,
+            shared_task_fingerprint: None,
+            shared_task_last_poll: None,
             local_model_server,
             mcp_manager: None,
             lsp_manager: None,

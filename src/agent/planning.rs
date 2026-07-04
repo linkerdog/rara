@@ -3,7 +3,9 @@ use rara_tools::planning::{ENTER_PLAN_MODE_TOOL_NAME, EXIT_PLAN_MODE_TOOL_NAME};
 use rara_tools::tool::ToolProgressEvent;
 
 use super::*;
+use crate::tasklist::{TaskListStore, canonical_task_list_id};
 use crate::tools::bash::BashCommandInput;
+use crate::tools::tasklist::{TaskCreateTool, TaskGetTool, TaskListTool, TaskUpdateTool};
 use crate::tools::todo::TODO_WRITE_TOOL_NAME;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -194,6 +196,42 @@ impl Agent {
 
     pub fn set_full_access_mode(&mut self, full_access: bool) {
         self.full_access_mode = full_access;
+    }
+
+    pub fn set_task_list_id(&mut self, task_list_id: impl AsRef<str>) -> String {
+        let task_list_id = canonical_task_list_id(task_list_id.as_ref());
+        self.task_list_id = task_list_id.clone();
+        self.refresh_shared_task_tool_defaults();
+        task_list_id
+    }
+
+    fn refresh_shared_task_tool_defaults(&mut self) {
+        let store = std::sync::Arc::new(TaskListStore::new(self.workspace.rara_dir.join("tasks")));
+        let task_list_id = self.task_list_id.clone();
+        if self.tool_manager.get_tool("task_create").is_some() {
+            self.tool_manager.register(Box::new(TaskCreateTool {
+                store: store.clone(),
+                default_task_list_id: task_list_id.clone(),
+            }));
+        }
+        if self.tool_manager.get_tool("task_list").is_some() {
+            self.tool_manager.register(Box::new(TaskListTool {
+                store: store.clone(),
+                default_task_list_id: task_list_id.clone(),
+            }));
+        }
+        if self.tool_manager.get_tool("task_update").is_some() {
+            self.tool_manager.register(Box::new(TaskUpdateTool {
+                store: store.clone(),
+                default_task_list_id: task_list_id.clone(),
+            }));
+        }
+        if self.tool_manager.get_tool("task_get").is_some() {
+            self.tool_manager.register(Box::new(TaskGetTool {
+                store,
+                default_task_list_id: task_list_id,
+            }));
+        }
     }
 
     pub fn is_bash_prefix_approved(&self, request: &BashCommandInput) -> bool {
