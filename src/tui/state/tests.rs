@@ -1434,7 +1434,7 @@ fn pending_plan_approval_persists_plan_ready_lifecycle() {
     app.snapshot.session_id = "plan-ready-session".to_string();
     app.attach_state_db(std::sync::Arc::new(state_db));
 
-    app.set_pending_plan_approval(true);
+    app.show_pending_plan_approval(None);
 
     let events = app
         .state_db

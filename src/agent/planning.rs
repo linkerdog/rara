@@ -146,6 +146,18 @@ impl Agent {
         self.pending_plan_exit_tool_id.is_some()
     }
 
+    pub fn pending_plan_exit_tool_id(&self) -> Option<&str> {
+        self.pending_plan_exit_tool_id.as_deref()
+    }
+
+    pub fn restore_pending_plan_exit_approval(&mut self, tool_id: &str) {
+        if tool_id.trim().is_empty() {
+            return;
+        }
+        self.pending_plan_exit_tool_id = Some(tool_id.to_string());
+        self.execution_mode = AgentExecutionMode::Plan;
+    }
+
     pub fn set_execution_mode(&mut self, mode: AgentExecutionMode) {
         self.execution_mode = mode;
     }

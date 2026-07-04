@@ -141,8 +141,8 @@ with these phases:
 The current checkpoint records the latest phase and decision metadata derived
 from the plan approval interaction. Completed decisions should use structured
 decision metadata rather than parsing UI copy. Thread forks preserve the
-materialized lifecycle records from the source thread. The complete recovery
-contract still needs enough state to recover after restart:
+materialized lifecycle records from the source thread. The recovery contract
+records enough state to recover a pending approval after restart:
 
 - `session_id`
 - `plan_file_path`
@@ -152,11 +152,16 @@ contract still needs enough state to recover after restart:
 - approved plan version or content hash
 - timestamp of submission and decision
 
-This state should be recorded in the structured rollout log rather than only in memory. On resume:
+This state should be recorded in the structured rollout log rather than only in
+memory. On resume, the latest lifecycle phase is authoritative:
 
-- if a plan is pending approval, the TUI should restore the approval card;
-- if a plan was approved but execution did not continue, the runtime should be able to inject the approved-plan result once;
-- if a plan was rejected or sent back for revision, the model should receive structured feedback and remain in planning mode.
+- `plan_ready` restores the approval card and, when present, the
+  `exit_plan_mode` tool-use id so approving the restored plan injects the tool
+  result once;
+- `plan_approved`, `plan_rejected`, and `plan_revising` must not reopen an
+  older pending approval card;
+- if a plan was rejected or sent back for revision, the model should receive
+  structured feedback and remain in planning mode.
 
 ### Tool Permissions
 

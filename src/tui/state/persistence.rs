@@ -182,19 +182,24 @@ impl TuiApp {
                     });
                 }
                 InteractionKind::PlanApproval => {
+                    let tool_use_id = plan_approval_tool_use_id(interaction.source.as_deref());
                     interactions.push(PersistedInteraction {
                         kind: "plan_approval".to_string(),
                         status: "pending".to_string(),
                         title: interaction.title.clone(),
                         summary: interaction.summary.clone(),
-                        payload: None,
+                        payload: interaction.source.as_ref().map(|source| {
+                            json!({
+                                "source": source,
+                            })
+                        }),
                     });
                     plan_lifecycle.push(PersistedPlanLifecycle {
                         phase: "plan_ready".to_string(),
                         decision: None,
                         feedback: None,
                         plan_path: None,
-                        tool_use_id: None,
+                        tool_use_id,
                         plan_hash: None,
                     });
                 }
@@ -397,6 +402,14 @@ fn plan_lifecycle_from_completed_summary(summary: &str) -> Option<(&'static str,
         "Rejected. Implementation cancelled." => Some(("plan_rejected", "reject")),
         _ => None,
     }
+}
+
+fn plan_approval_tool_use_id(source: Option<&str>) -> Option<String> {
+    source
+        .and_then(|value| value.strip_prefix("exit_plan_mode:"))
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string)
 }
 
 fn resume_thread_matches_query(thread: &crate::thread_store::ThreadSummary, query: &str) -> bool {

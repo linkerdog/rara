@@ -182,7 +182,7 @@ pub(crate) fn answer_plan_approval(
             *agent_slot = Some(agent);
             return InputControlOutcome::Rejected;
         }
-        app.set_pending_plan_approval(false);
+        app.clear_pending_plan_approval();
         app.record_completed_interaction(
             InteractionKind::PlanApproval,
             "Plan Decision",
@@ -196,7 +196,7 @@ pub(crate) fn answer_plan_approval(
         return InputControlOutcome::Answered;
     }
 
-    app.set_pending_plan_approval(false);
+    app.clear_pending_plan_approval();
     app.record_completed_interaction(
         InteractionKind::PlanApproval,
         "Plan Decision",
