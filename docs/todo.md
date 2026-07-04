@@ -15,7 +15,7 @@ Active backlog only. Keep this file small and current.
 - [x] `tools/bash.rs` — tests extracted to bash_tests.rs (914 + 947 lines)
 - [x] `tools/agent.rs` — agent_def extracted via include! (1749→1551, PR #603)
 - [ ] `tools/pty.rs` (1625) — blocked: nested `mod tests` incompatible with `#[path]` and `include!`
-- [ ] `tui/runtime/tasks.rs` (1308) — split goal lifecycle, OAuth, rebuild, and query task orchestration into narrower modules.
+- [x] `tui/runtime/tasks.rs` — completion orchestration split into `tasks/completion.rs` (747 + 545 lines)
 
 ## TUI / UX
 
