@@ -8,15 +8,14 @@ Active backlog only. Keep this file small and current.
 2. ✅ `rara plugin install/list/remove`.
 3. ✅ TUI live feedback: thinking collapse + live bash transcript.
 4. ✅ Context/embedding: project_context merge, canonical vector schema, model-aware budgeting.
-5. 🔵 P0 file splits stalled — pty blocked by nested test modules; agent reduced via PR #603.
+5. 🔵 P0 file splits remaining — pty still blocked by nested test modules; runtime tasks needs a follow-up split.
 
 ## P0 File Splits
 
 - [x] `tools/bash.rs` — tests extracted to bash_tests.rs (914 + 947 lines)
 - [x] `tools/agent.rs` — agent_def extracted via include! (1749→1551, PR #603)
-- [ ] `tools/pty.rs` (1649) — blocked: nested `mod tests` incompatible with `#[path]` and `include!`
-- [ ] `memory_store.rs` (1625)
-- [ ] `thread_store.rs` (1568)
+- [ ] `tools/pty.rs` (1625) — blocked: nested `mod tests` incompatible with `#[path]` and `include!`
+- [ ] `tui/runtime/tasks.rs` (1308) — split goal lifecycle, OAuth, rebuild, and query task orchestration into narrower modules.
 
 ## TUI / UX
 
@@ -104,6 +103,8 @@ Active backlog only. Keep this file small and current.
 
 - [ ] Explicit embedding controls: enable/disable, provider override (low priority)
 - [ ] `/status` context fields for model/provider/thread/retrieval/memory/workspace
+- [ ] Replace the placeholder thread-goal evaluator with a real evaluator
+      backend call, or explicitly remove evaluator feedback from the goal loop.
 - [ ] Decide the Gemini AI Studio runtime path: either wire `provider=gemini`
       to the native `GeminiBackend::new` API-key backend or remove that native
       API-key path in favor of the current OpenAI-compatible endpoint.
