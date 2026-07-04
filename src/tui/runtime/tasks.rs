@@ -1,5 +1,5 @@
 mod builder;
-mod completion;
+include!("tasks/completion.rs");
 mod google_oauth;
 mod oauth;
 #[cfg(test)]
@@ -12,9 +12,6 @@ use std::sync::{
 use std::time::Instant;
 
 use builder::rebuild_agent_with_progress;
-#[cfg(test)]
-use completion::emit_query_heartbeat;
-pub(crate) use completion::finish_running_task_if_ready;
 use rara_persistence::redaction::sanitize_url_for_display;
 use rara_provider_catalog::{
     ModelCatalogProvider, ModelCatalogRequest, fallback_models, load_model_catalog,

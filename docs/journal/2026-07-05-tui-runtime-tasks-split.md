@@ -9,9 +9,11 @@ module.
 
 ## Scope
 
-- Added `src/tui/runtime/tasks/completion.rs` for running-task join,
-  completion handling, query heartbeat updates, rebuild result handling, OAuth
-  completion handling, and model-list completion handling.
+- Added `src/tui/runtime/tasks/completion.rs` as an `include!`-backed physical
+  split for running-task join, completion handling, query heartbeat updates,
+  rebuild result handling, OAuth completion handling, and model-list completion
+  handling. This keeps the code in the same logical Rust module and preserves
+  private helper visibility.
 - Kept task start functions, lifecycle forwarding helpers, and shared prompt /
   goal helpers in `src/tui/runtime/tasks.rs`.
 - Reduced `src/tui/runtime/tasks.rs` from 1309 lines to 747 lines.

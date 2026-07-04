@@ -1,4 +1,3 @@
-use super::*;
 use crate::tui::command;
 use crate::tui::state::Overlay;
 
@@ -471,7 +470,7 @@ pub(crate) async fn finish_running_task_if_ready(
     Ok(())
 }
 
-pub(super) fn emit_query_heartbeat(app: &mut TuiApp) {
+fn emit_query_heartbeat(app: &mut TuiApp) {
     let elapsed = {
         let Some(task) = app.bottom_pane.running_task.as_mut() else {
             return;
