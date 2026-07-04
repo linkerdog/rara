@@ -34,6 +34,10 @@ derived from the plan approval interaction state:
   standalone structured event shape for append-only future slices.
 - Thread materialization includes lifecycle rollout items so CLI and future
   status surfaces can inspect typed phase data.
+- Thread forks preserve materialized planning lifecycle records from the source
+  thread instead of resetting lifecycle state.
+- Completed plan approvals persist a typed `plan_approval:*` source marker so
+  lifecycle decisions do not depend on UI summary copy.
 
 ## Validation
 

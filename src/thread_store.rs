@@ -182,6 +182,14 @@ impl<'a> ThreadStore<'a> {
             .load_session_runtime_state(source_thread_id)?
             .unwrap_or_default();
         let compact_state = recorder::compact_state_from_record(&materialized.compaction);
+        let plan_lifecycle = materialized
+            .rollout_items
+            .iter()
+            .filter_map(|item| match item {
+                RolloutItem::PlanLifecycle(lifecycle) => Some(lifecycle.clone()),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
         let forked_thread_id = Uuid::new_v4().to_string();
         let lineage = PersistedThreadLineage {
             origin_kind: "fork".to_string(),
@@ -225,7 +233,7 @@ impl<'a> ThreadStore<'a> {
                 explanation: materialized.plan_explanation.clone(),
                 steps: materialized.plan_steps.clone(),
                 interactions: materialized.interactions.clone(),
-                plan_lifecycle: Vec::new(),
+                plan_lifecycle,
             }],
         )?;
 

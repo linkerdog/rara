@@ -1465,8 +1465,8 @@ fn completed_plan_approval_persists_decision_lifecycle() {
     app.record_completed_interaction(
         InteractionKind::PlanApproval,
         "Plan Decision",
-        "Approved. Starting implementation.",
-        None,
+        "copy can change",
+        Some("plan_approval:approve".to_string()),
     );
 
     let events = app

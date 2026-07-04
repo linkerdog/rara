@@ -885,17 +885,17 @@ fn load_thread_preserves_structured_rollout_event_order() -> Result<()> {
         Some(RolloutItem::Interaction(interaction))
             if interaction.title == "Question"
     ));
-    assert!(snapshot.rollout_items.iter().any(|item| matches!(
-        item,
-        RolloutItem::PlanLifecycle(lifecycle)
+    assert!(matches!(
+        snapshot.rollout_items.get(3),
+        Some(RolloutItem::PlanLifecycle(lifecycle))
             if lifecycle.phase == "plan_ready"
                 && lifecycle.tool_use_id.as_deref() == Some("exit-plan-ordered")
-    )));
-    assert!(snapshot.rollout_items.iter().any(|item| matches!(
-        item,
-        RolloutItem::Compaction(compaction)
+    ));
+    assert!(matches!(
+        snapshot.rollout_items.get(4),
+        Some(RolloutItem::Compaction(compaction))
             if compaction.compaction_count == 2
-    )));
+    ));
     Ok(())
 }
 
@@ -1786,6 +1786,33 @@ fn fork_thread_preserves_materialized_state_and_sets_lineage() -> Result<()> {
             payload: None,
         }],
     )?;
+    state_db.replace_runtime_rollout_events(
+        "source-thread",
+        &[PersistedStructuredRolloutEvent::RuntimeState {
+            recorded_at: None,
+            explanation: Some("Preserve thread continuity.".to_string()),
+            steps: vec![PersistedPlanStep {
+                step_index: 0,
+                status: "in_progress".to_string(),
+                step: "Implement fork lifecycle".to_string(),
+            }],
+            interactions: vec![PersistedInteraction {
+                kind: "approval".to_string(),
+                status: "completed".to_string(),
+                title: "Approved".to_string(),
+                summary: "continue".to_string(),
+                payload: None,
+            }],
+            plan_lifecycle: vec![PersistedPlanLifecycle {
+                phase: "plan_ready".to_string(),
+                decision: None,
+                feedback: None,
+                plan_path: Some(".rara/sessions/source-thread/plan.md".to_string()),
+                tool_use_id: Some("exit-plan-source".to_string()),
+                plan_hash: None,
+            }],
+        }],
+    )?;
     state_db.persist_turn(
         "source-thread",
         0,
@@ -1873,7 +1900,9 @@ fn fork_thread_preserves_materialized_state_and_sets_lineage() -> Result<()> {
             if explanation.as_deref() == Some("Preserve thread continuity.")
                 && steps.len() == 1
                 && interactions.len() == 1
-                && plan_lifecycle.is_empty()
+                && plan_lifecycle.len() == 1
+                && plan_lifecycle[0].phase == "plan_ready"
+                && plan_lifecycle[0].tool_use_id.as_deref() == Some("exit-plan-source")
     )));
 
     Ok(())

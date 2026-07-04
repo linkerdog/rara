@@ -230,10 +230,17 @@ impl TuiApp {
                 status: "completed".to_string(),
                 title: interaction.title.clone(),
                 summary: interaction.summary.clone(),
-                payload: None,
+                payload: interaction.source.as_ref().map(|source| {
+                    json!({
+                        "source": source,
+                    })
+                }),
             });
             if interaction.kind == InteractionKind::PlanApproval
-                && let Some(lifecycle) = plan_lifecycle_from_completed_summary(&interaction.summary)
+                && let Some(lifecycle) = plan_lifecycle_from_completed_interaction(
+                    &interaction.summary,
+                    interaction.source.as_deref(),
+                )
             {
                 plan_lifecycle.push(lifecycle);
             }
@@ -363,12 +370,15 @@ impl TuiApp {
     }
 }
 
-fn plan_lifecycle_from_completed_summary(summary: &str) -> Option<PersistedPlanLifecycle> {
-    let (phase, decision) = match summary {
-        "Approved. Starting implementation." => ("plan_approved", "approve"),
-        "Sent back for more planning." => ("plan_revising", "continue_planning"),
-        "Rejected. Implementation cancelled." => ("plan_rejected", "reject"),
-        _ => return None,
+fn plan_lifecycle_from_completed_interaction(
+    summary: &str,
+    source: Option<&str>,
+) -> Option<PersistedPlanLifecycle> {
+    let (phase, decision) = match source {
+        Some("plan_approval:approve") => ("plan_approved", "approve"),
+        Some("plan_approval:continue_planning") => ("plan_revising", "continue_planning"),
+        Some("plan_approval:reject") => ("plan_rejected", "reject"),
+        _ => plan_lifecycle_from_completed_summary(summary)?,
     };
     Some(PersistedPlanLifecycle {
         phase: phase.to_string(),
@@ -378,6 +388,15 @@ fn plan_lifecycle_from_completed_summary(summary: &str) -> Option<PersistedPlanL
         tool_use_id: None,
         plan_hash: None,
     })
+}
+
+fn plan_lifecycle_from_completed_summary(summary: &str) -> Option<(&'static str, &'static str)> {
+    match summary {
+        "Approved. Starting implementation." => Some(("plan_approved", "approve")),
+        "Sent back for more planning." => Some(("plan_revising", "continue_planning")),
+        "Rejected. Implementation cancelled." => Some(("plan_rejected", "reject")),
+        _ => None,
+    }
 }
 
 fn resume_thread_matches_query(thread: &crate::thread_store::ThreadSummary, query: &str) -> bool {
@@ -398,25 +417,43 @@ fn resume_thread_matches_query(thread: &crate::thread_store::ThreadSummary, quer
 
 #[cfg(test)]
 mod tests {
-    use super::plan_lifecycle_from_completed_summary;
+    use super::plan_lifecycle_from_completed_interaction;
 
     #[test]
-    fn maps_plan_approval_summaries_to_lifecycle_phases() {
-        let approved =
-            plan_lifecycle_from_completed_summary("Approved. Starting implementation.").unwrap();
+    fn maps_plan_approval_sources_to_lifecycle_phases() {
+        let approved = plan_lifecycle_from_completed_interaction(
+            "copy can change",
+            Some("plan_approval:approve"),
+        )
+        .unwrap();
         assert_eq!(approved.phase, "plan_approved");
         assert_eq!(approved.decision.as_deref(), Some("approve"));
 
-        let revising = plan_lifecycle_from_completed_summary("Sent back for more planning.")
-            .expect("revising lifecycle");
+        let revising = plan_lifecycle_from_completed_interaction(
+            "copy can change",
+            Some("plan_approval:continue_planning"),
+        )
+        .expect("revising lifecycle");
         assert_eq!(revising.phase, "plan_revising");
         assert_eq!(revising.decision.as_deref(), Some("continue_planning"));
 
-        let rejected =
-            plan_lifecycle_from_completed_summary("Rejected. Implementation cancelled.").unwrap();
+        let rejected = plan_lifecycle_from_completed_interaction(
+            "copy can change",
+            Some("plan_approval:reject"),
+        )
+        .unwrap();
         assert_eq!(rejected.phase, "plan_rejected");
         assert_eq!(rejected.decision.as_deref(), Some("reject"));
 
-        assert!(plan_lifecycle_from_completed_summary("other").is_none());
+        assert!(plan_lifecycle_from_completed_interaction("other", None).is_none());
+    }
+
+    #[test]
+    fn keeps_summary_fallback_for_existing_completed_plan_approvals() {
+        let approved =
+            plan_lifecycle_from_completed_interaction("Approved. Starting implementation.", None)
+                .unwrap();
+        assert_eq!(approved.phase, "plan_approved");
+        assert_eq!(approved.decision.as_deref(), Some("approve"));
     }
 }

@@ -139,8 +139,10 @@ with these phases:
 - `plan_rejected`
 
 The current checkpoint records the latest phase and decision metadata derived
-from the plan approval interaction. The complete recovery contract still needs
-enough state to recover after restart:
+from the plan approval interaction. Completed decisions should use structured
+decision metadata rather than parsing UI copy. Thread forks preserve the
+materialized lifecycle records from the source thread. The complete recovery
+contract still needs enough state to recover after restart:
 
 - `session_id`
 - `plan_file_path`

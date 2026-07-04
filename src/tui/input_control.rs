@@ -173,6 +173,7 @@ pub(crate) fn answer_plan_approval(
             "Plan rejected. Implementation cancelled.",
         ),
     };
+    let source = Some(plan_approval_decision_source(decision).to_string());
 
     if decision == PlanApprovalDecision::Reject {
         let mut agent = agent;
@@ -186,7 +187,7 @@ pub(crate) fn answer_plan_approval(
             InteractionKind::PlanApproval,
             "Plan Decision",
             summary,
-            None,
+            source.clone(),
         );
         app.set_agent_execution_mode(agent.execution_mode);
         app.bottom_pane.notice = Some(notice.to_string());
@@ -200,10 +201,18 @@ pub(crate) fn answer_plan_approval(
         InteractionKind::PlanApproval,
         "Plan Decision",
         summary,
-        None,
+        source,
     );
     start_plan_approval_resume_task(app, decision, agent);
     InputControlOutcome::Answered
+}
+
+pub(crate) fn plan_approval_decision_source(decision: PlanApprovalDecision) -> &'static str {
+    match decision {
+        PlanApprovalDecision::Approve => "plan_approval:approve",
+        PlanApprovalDecision::ContinuePlanning => "plan_approval:continue_planning",
+        PlanApprovalDecision::Reject => "plan_approval:reject",
+    }
 }
 
 pub(crate) fn plan_approval_decision_for_index(index: usize) -> Option<PlanApprovalDecision> {
