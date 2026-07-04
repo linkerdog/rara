@@ -809,11 +809,12 @@ pub(crate) async fn finish_running_task_if_ready(
                         let plan_ready =
                             agent.last_query_produced_plan() && !agent.current_plan.is_empty();
                         let pending_exit_plan_approval = agent.has_pending_plan_exit_approval();
-                        app.set_pending_plan_approval_with_tool_id(
-                            plan_ready
-                                && (query_started_in_plan_mode || pending_exit_plan_approval),
-                            agent.pending_plan_exit_tool_id(),
-                        );
+                        if plan_ready && (query_started_in_plan_mode || pending_exit_plan_approval)
+                        {
+                            app.show_pending_plan_approval(agent.pending_plan_exit_tool_id());
+                        } else {
+                            app.clear_pending_plan_approval();
+                        }
                         if plan_ready && !query_started_in_plan_mode && !pending_exit_plan_approval
                         {
                             app.release_pending_follow_ups();
@@ -939,7 +940,7 @@ pub(crate) async fn finish_running_task_if_ready(
                     );
                     app.clear_active_live_sections();
 
-                    app.set_pending_plan_approval(false);
+                    app.clear_pending_plan_approval();
                     *agent_slot = Some(agent);
                     if let Some(agent) = agent_slot.as_ref() {
                         app.sync_snapshot(agent);

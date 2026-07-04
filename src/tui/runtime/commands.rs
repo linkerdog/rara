@@ -134,7 +134,7 @@ pub(super) async fn execute_local_command(
                 RuntimePhase::LocalCommand,
                 Some("entering planning mode".into()),
             );
-            app.set_pending_plan_approval(false);
+            app.clear_pending_plan_approval();
             app.permission_mode = PermissionMode::Custom;
             app.set_agent_execution_mode(AgentExecutionMode::Plan);
             if let Some(agent) = agent_slot.as_mut() {
@@ -632,7 +632,7 @@ pub(crate) fn apply_permission_mode(
         RuntimePhase::LocalCommand,
         Some("updating permissions".into()),
     );
-    app.set_pending_plan_approval(false);
+    app.clear_pending_plan_approval();
 }
 
 #[cfg(test)]

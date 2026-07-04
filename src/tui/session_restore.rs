@@ -216,31 +216,18 @@ pub(super) fn restore_thread_by_id(
     app.sync_snapshot(agent);
     let pending_plan_tool_id = latest_plan_lifecycle
         .as_ref()
-        .and_then(|(phase, tool_use_id)| {
-            (phase == "plan_ready")
-                .then_some(tool_use_id.as_deref())
-                .flatten()
-        });
+        .filter(|(phase, _)| phase == "plan_ready")
+        .and_then(|(_, tool_use_id)| tool_use_id.as_deref());
     if latest_plan_lifecycle
         .as_ref()
         .is_some_and(|(phase, _)| phase == "plan_ready")
     {
         agent.set_execution_mode(AgentExecutionMode::Plan);
-    }
-    if let Some(tool_id) = pending_plan_tool_id {
-        agent.restore_pending_plan_exit_approval(tool_id);
+        if let Some(tool_id) = pending_plan_tool_id {
+            agent.restore_pending_plan_exit_approval(tool_id);
+        }
         app.sync_snapshot(agent);
-        app.set_pending_plan_approval_with_tool_id(true, Some(tool_id));
-        app.set_runtime_phase(
-            super::state::RuntimePhase::Idle,
-            Some("awaiting plan approval".into()),
-        );
-    } else if latest_plan_lifecycle
-        .as_ref()
-        .is_some_and(|(phase, _)| phase == "plan_ready")
-    {
-        app.sync_snapshot(agent);
-        app.set_pending_plan_approval_with_tool_id(true, None);
+        app.show_pending_plan_approval(pending_plan_tool_id);
         app.set_runtime_phase(
             super::state::RuntimePhase::Idle,
             Some("awaiting plan approval".into()),
@@ -847,7 +834,7 @@ mod tests {
         .expect("app");
         original_app.attach_state_db(state_db.clone());
         original_app.sync_snapshot(&original_agent);
-        original_app.set_pending_plan_approval_with_tool_id(true, Some("exit-plan-restore"));
+        original_app.show_pending_plan_approval(Some("exit-plan-restore"));
 
         let restored_agent = Agent::new(
             ToolManager::new(),
@@ -942,8 +929,8 @@ mod tests {
         .expect("app");
         original_app.attach_state_db(state_db.clone());
         original_app.sync_snapshot(&original_agent);
-        original_app.set_pending_plan_approval_with_tool_id(true, Some("exit-plan-completed"));
-        original_app.set_pending_plan_approval(false);
+        original_app.show_pending_plan_approval(Some("exit-plan-completed"));
+        original_app.clear_pending_plan_approval();
         original_app.record_completed_interaction(
             InteractionKind::PlanApproval,
             "Plan Decision",

@@ -25,7 +25,7 @@ fn active_turn_cell_renders_plan_approval_as_interaction_card() {
     ];
     app.snapshot.plan_explanation =
         Some("The current discovery path is hardcoded and should be generalized.".into());
-    app.set_pending_plan_approval(true);
+    app.show_pending_plan_approval(None);
 
     let rendered = ActiveTurnCell::new(&app, Some(Path::new(".")))
         .display_lines(100)

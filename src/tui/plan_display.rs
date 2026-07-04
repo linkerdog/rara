@@ -172,7 +172,7 @@ mod tests {
 
         assert!(!should_show_updated_plan(&app));
 
-        app.set_pending_plan_approval(true);
+        app.show_pending_plan_approval(None);
         assert!(should_show_updated_plan(&app));
     }
 }

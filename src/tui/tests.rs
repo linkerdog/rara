@@ -323,7 +323,7 @@ async fn pending_plan_approval_blocks_plain_submit() {
         crate::protocol_sources::MemoryControlHandler::new(bus.clone()),
     ));
 
-    app.set_pending_plan_approval(true);
+    app.show_pending_plan_approval(None);
     app.bottom_pane.input = "start implementation".into();
 
     let mut agent_slot = None;
@@ -355,7 +355,7 @@ fn pending_plan_approval_number_shortcuts_work_in_local_and_ssh() {
             path: temp.path().join("config.json"),
         })
         .expect("build tui app");
-        app.set_pending_plan_approval(true);
+        app.show_pending_plan_approval(None);
 
         assert_eq!(app.active_pending_option_count(), 3);
         assert!(matches!(

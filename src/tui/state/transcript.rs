@@ -242,7 +242,7 @@ impl TuiApp {
         self.bottom_pane.pending_follow_up_messages.clear();
         self.bottom_pane.queued_follow_up_messages.clear();
         self.running_tool_boundary_count = 0;
-        self.set_plan_approval_interaction(false, None);
+        self.clear_pending_plan_approval();
         self.bottom_pane.notice = Some("Cleared local transcript view.".into());
     }
 

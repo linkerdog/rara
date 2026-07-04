@@ -61,19 +61,23 @@ impl TuiApp {
         }
     }
 
-    pub(super) fn set_plan_approval_interaction(
-        &mut self,
-        pending: bool,
-        tool_use_id: Option<&str>,
-    ) {
+    fn clear_plan_approval_interaction(&mut self) {
         self.snapshot
             .pending_interactions
             .retain(|item| item.kind != InteractionKind::PlanApproval);
-        if pending {
-            self.snapshot
-                .pending_interactions
-                .push(self.plan_approval_interaction(tool_use_id));
-        }
+    }
+
+    pub fn show_pending_plan_approval(&mut self, tool_use_id: Option<&str>) {
+        self.clear_plan_approval_interaction();
+        self.snapshot
+            .pending_interactions
+            .push(self.plan_approval_interaction(tool_use_id));
+        self.persist_runtime_state();
+    }
+
+    pub fn clear_pending_plan_approval(&mut self) {
+        self.clear_plan_approval_interaction();
+        self.persist_runtime_state();
     }
 
     pub fn set_agent_execution_mode(&mut self, mode: AgentExecutionMode) {
@@ -157,19 +161,6 @@ impl TuiApp {
                 .map(|interaction| interaction.options.len().min(3))
                 .unwrap_or(0),
         }
-    }
-
-    pub fn set_pending_plan_approval(&mut self, pending: bool) {
-        self.set_pending_plan_approval_with_tool_id(pending, None);
-    }
-
-    pub fn set_pending_plan_approval_with_tool_id(
-        &mut self,
-        pending: bool,
-        tool_use_id: Option<&str>,
-    ) {
-        self.set_plan_approval_interaction(pending, tool_use_id);
-        self.persist_runtime_state();
     }
 
     pub fn pending_request_input(&self) -> Option<&PendingInteractionSnapshot> {
