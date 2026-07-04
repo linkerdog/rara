@@ -388,43 +388,6 @@ pub(crate) async fn finish_running_task_if_ready(
                 app.push_notice(message);
             }
         },
-        TaskCompletion::GoogleOAuth { mode, result } => match result {
-            Ok(credential) => {
-                app.config.set_provider("gemini-code-assist");
-                app.config.clear_api_key();
-                app.config_manager.save(&app.config)?;
-                let saved_message = match mode {
-                    OAuthLoginMode::Browser => {
-                        format!(
-                            "Saved Google OAuth credential for {} to ~/.rara/auth/google_oauth.json.",
-                            credential.email
-                        )
-                    }
-                    OAuthLoginMode::DeviceCode => {
-                        format!(
-                            "Saved Google device-code credential for {} to ~/.rara/auth/google_oauth.json.",
-                            credential.email
-                        )
-                    }
-                };
-                let msg = saved_message.clone();
-                app.setup_status = Some(saved_message);
-                app.bottom_pane.notice = app.setup_status.clone();
-                app.set_runtime_phase(
-                    RuntimePhase::OAuthSaved,
-                    Some("google oauth token saved".into()),
-                );
-                app.dismiss_overlay();
-                app.push_entry("Runtime", msg);
-                start_rebuild_task(app);
-            }
-            Err(err) => {
-                app.set_runtime_phase(RuntimePhase::Failed, Some("google oauth failed".into()));
-                let message = format!("Google OAuth failed:\n{}", format_error_chain(&err));
-                app.push_system(message.clone(), SystemMessageKind::OAuth);
-                app.push_notice(message);
-            }
-        },
         TaskCompletion::DeepSeekModels { result } => match result {
             Ok(models) => {
                 let count = models.len();

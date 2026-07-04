@@ -356,9 +356,6 @@ pub enum TaskKind {
     Compact,
     Rebuild,
     OAuth,
-    /// Reserved for Gemini Code Assist OAuth connection from the TUI (docs/todo.md).
-    #[allow(dead_code)]
-    GoogleOAuth,
     DeepSeekModels,
     KimiModels,
 }
@@ -387,12 +384,6 @@ pub enum TaskCompletion {
     OAuth {
         mode: OAuthLoginMode,
         result: anyhow::Result<secrecy::SecretString>,
-    },
-    /// Reserved for Gemini Code Assist OAuth connection from the TUI (docs/todo.md).
-    #[allow(dead_code)]
-    GoogleOAuth {
-        mode: OAuthLoginMode,
-        result: anyhow::Result<crate::google_oauth::GoogleCredential>,
     },
     DeepSeekModels {
         result: anyhow::Result<Vec<String>>,

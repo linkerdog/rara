@@ -1,6 +1,5 @@
 mod builder;
 include!("tasks/completion.rs");
-mod google_oauth;
 mod oauth;
 #[cfg(test)]
 mod tests;
@@ -621,16 +620,6 @@ pub(super) fn start_oauth_task(
     mode: OAuthLoginMode,
 ) {
     oauth::start_oauth_task(app, oauth_manager, mode);
-}
-
-/// Reserved for Gemini Code Assist OAuth connection from the TUI (docs/todo.md).
-#[allow(dead_code)]
-pub(super) fn start_google_oauth_task(
-    app: &mut TuiApp,
-    oauth_manager: Arc<crate::google_oauth::GoogleOAuthManager>,
-    mode: OAuthLoginMode,
-) {
-    google_oauth::start_google_oauth_task(app, oauth_manager, mode);
 }
 
 pub(super) fn start_deepseek_model_list_task(app: &mut TuiApp) {

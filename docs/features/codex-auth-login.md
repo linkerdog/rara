@@ -174,8 +174,8 @@ server login surface.
 
 ## Model and Reasoning Selection
 
-Once Codex auth is available, RARA should align with Codex's catalog-driven
-model selection instead of maintaining a local hardcoded preset list.
+Once Codex auth is available, RARA aligns with Codex's catalog-driven model
+selection instead of maintaining a local hardcoded preset list.
 
 ### Model Source
 
@@ -187,14 +187,14 @@ Codex:
 
 This means:
 
-- the visible Codex model list should come from the active catalog;
-- picker visibility should respect `show_in_picker`;
-- auth-aware filtering should follow Codex's own catalog logic rather than a
+- the visible Codex model list comes from the active catalog;
+- picker visibility respects `show_in_picker`;
+- auth-aware filtering follows Codex's own catalog logic rather than a
   RARA-local allowlist.
 
 ### Picker Flow
 
-The TUI `/model` flow for Codex should behave as follows:
+The TUI `/model` flow for Codex behaves as follows:
 
 1. If no Codex auth is available, open the Codex auth-mode picker.
 2. If Codex auth is available, refresh/load the Codex model catalog and open
