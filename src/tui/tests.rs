@@ -338,12 +338,10 @@ async fn pending_plan_approval_blocks_plain_submit() {
     assert!(!should_quit);
     assert!(app.has_pending_plan_approval());
     assert!(app.bottom_pane.running_task.is_none());
-    assert!(
-        app.bottom_pane
-            .notice
-            .as_deref()
-            .is_some_and(|value| value.contains("approval actions above the input"))
-    );
+    let notice = app.bottom_pane.notice.as_deref().expect("notice");
+    assert!(notice.contains("Use 1 approve"));
+    assert!(notice.contains("2 keep planning"));
+    assert!(notice.contains("3 reject"));
 }
 
 #[test]
