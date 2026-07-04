@@ -375,7 +375,11 @@ impl TuiApp {
                         .get("gemini")
                         .and_then(|state| state.api_key.as_ref())
                         .is_some();
-                    has_key || has_state
+                    let has_oauth = rara_config::ensure_rara_home_dir()
+                        .ok()
+                        .and_then(|dir| crate::google_oauth::GoogleOAuthManager::new(dir).ok())
+                        .is_some_and(|manager| manager.has_saved_auth());
+                    has_key || has_state || has_oauth
                 }
                 ProviderFamily::OpenAiCompatible => self
                     .config
