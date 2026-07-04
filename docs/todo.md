@@ -87,7 +87,7 @@ Active backlog only. Keep this file small and current.
       approve, continue planning with feedback, and reject/cancel.
 - [x] Persist planning lifecycle state in the structured rollout log:
       `plan_ready`, `plan_revising`, `plan_approved`, and `plan_rejected`.
-- [ ] Restore pending plan approval after restart and avoid reinjecting an
+- [x] Restore pending plan approval after restart and avoid reinjecting an
       approved-plan tool result more than once.
 - [ ] Expose planning lifecycle fields in `/status` and `/context`: plan path,
       approval status, pending age, last decision, and approved plan revision.

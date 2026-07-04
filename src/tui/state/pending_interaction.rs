@@ -45,7 +45,7 @@ impl TuiApp {
         }
     }
 
-    fn plan_approval_interaction(&self) -> PendingInteractionSnapshot {
+    fn plan_approval_interaction(&self, tool_use_id: Option<&str>) -> PendingInteractionSnapshot {
         PendingInteractionSnapshot {
             kind: InteractionKind::PlanApproval,
             title: "Plan Ready".to_string(),
@@ -57,18 +57,22 @@ impl TuiApp {
             options: Vec::new(),
             note: None,
             approval: None,
-            source: None,
+            source: tool_use_id.map(|id| format!("exit_plan_mode:{id}")),
         }
     }
 
-    pub(super) fn set_plan_approval_interaction(&mut self, pending: bool) {
+    pub(super) fn set_plan_approval_interaction(
+        &mut self,
+        pending: bool,
+        tool_use_id: Option<&str>,
+    ) {
         self.snapshot
             .pending_interactions
             .retain(|item| item.kind != InteractionKind::PlanApproval);
         if pending {
             self.snapshot
                 .pending_interactions
-                .push(self.plan_approval_interaction());
+                .push(self.plan_approval_interaction(tool_use_id));
         }
     }
 
@@ -156,7 +160,15 @@ impl TuiApp {
     }
 
     pub fn set_pending_plan_approval(&mut self, pending: bool) {
-        self.set_plan_approval_interaction(pending);
+        self.set_pending_plan_approval_with_tool_id(pending, None);
+    }
+
+    pub fn set_pending_plan_approval_with_tool_id(
+        &mut self,
+        pending: bool,
+        tool_use_id: Option<&str>,
+    ) {
+        self.set_plan_approval_interaction(pending, tool_use_id);
         self.persist_runtime_state();
     }
 

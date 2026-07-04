@@ -38,15 +38,19 @@ derived from the plan approval interaction state:
   thread instead of resetting lifecycle state.
 - Completed plan approvals persist a typed `plan_approval:*` source marker so
   lifecycle decisions do not depend on UI summary copy.
+- Session restore uses the latest planning lifecycle phase to recover a pending
+  approval card and the `exit_plan_mode` tool-use id. Terminal lifecycle phases
+  do not reopen older pending approvals.
 
 ## Validation
 
 - `cargo check --locked --workspace --all-targets`
 - focused state persistence tests for pending and completed plan approval
   lifecycle checkpoints
+- `cargo test tui::session_restore::tests::restore_session_recovers_pending_plan_approval_from_lifecycle`
+- `cargo test tui::session_restore::tests::restore_session_does_not_reopen_completed_plan_approval`
 
 ## Follow-Ups
 
-- Restore pending plan approval after restart from persisted lifecycle state.
 - Add `/status` and `/context` planning lifecycle fields.
 - Persist user feedback for continue-planning and rejected-plan decisions.
