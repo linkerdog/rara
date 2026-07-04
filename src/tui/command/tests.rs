@@ -12,7 +12,9 @@ use crate::context::{
     PromptSourceContextEntry, SharedTaskContextItem, SharedTaskContextView, TodoContextView,
 };
 use crate::todo::TodoSummary;
-use crate::tui::state::{LocalCommandKind, RuntimeSnapshot, TuiApp};
+use crate::tui::state::{
+    LocalCommandKind, PlanningApprovalStatus, PlanningLifecycleSnapshot, RuntimeSnapshot, TuiApp,
+};
 
 #[test]
 fn parses_model_command_argument() {
@@ -352,6 +354,12 @@ fn status_runtime_text_reports_effective_provider_surface_sources() {
     assert!(rendered.contains("terminal_history_mode="));
     assert!(rendered.contains("terminal_width_columns="));
     assert!(rendered.contains("reasoning_summary_source=legacy_global"));
+    assert!(rendered.contains("planning_status=none"));
+    assert!(rendered.contains("plan_path=-"));
+    assert!(rendered.contains("planning_pending_age=-"));
+    assert!(rendered.contains("planning_last_decision=-"));
+    assert!(rendered.contains("approved_plan_revision=-"));
+    assert!(rendered.contains("exit_plan_tool=-"));
 }
 
 #[test]
@@ -381,6 +389,12 @@ fn status_context_text_includes_prompt_sources_and_plan_state() {
         last_compaction_boundary_version: Some(1),
         last_compaction_boundary_before_tokens: Some(12_000),
         last_compaction_boundary_recent_file_count: Some(2),
+        planning_lifecycle: PlanningLifecycleSnapshot {
+            plan_path: Some(".rara/sessions/session-123/plan.md".into()),
+            approval_status: PlanningApprovalStatus::Pending,
+            tool_use_id: Some("exit-tool-123".into()),
+            ..PlanningLifecycleSnapshot::default()
+        },
         compaction_source_entries: vec![crate::context::CompactionSourceContextEntry {
             order: 1,
             kind: "compacted_summary".into(),
@@ -601,6 +615,13 @@ fn status_context_text_includes_prompt_sources_and_plan_state() {
     assert!(rendered.contains("Retrieval-ready"));
     assert!(rendered.contains("Plan"));
     assert!(rendered.contains("[pending] Implement /context"));
+    assert!(rendered.contains("Planning Lifecycle"));
+    assert!(rendered.contains("plan_path: .rara/sessions/session-123/plan.md"));
+    assert!(rendered.contains("approval_status: pending"));
+    assert!(rendered.contains("pending_age: -"));
+    assert!(rendered.contains("last_decision: -"));
+    assert!(rendered.contains("approved_plan_revision: -"));
+    assert!(rendered.contains("exit_plan_tool: exit-tool-123"));
     assert!(rendered.contains("Todo"));
     assert!(rendered.contains("artifact: /workspace/rara/.rara/sessions/session-123/todo.json"));
     assert!(rendered.contains("updated_at: 2026-04-30 21:20:00 UTC"));

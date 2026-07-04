@@ -5,6 +5,7 @@
 - Added a typed `PlanLifecycle` structured rollout event.
 - Persisted plan approval lifecycle phases through runtime-state checkpoints.
 - Surfaced plan lifecycle phases in thread snapshot rollout summaries.
+- Exposed the derived planning lifecycle in `/status` and `/context`.
 
 ## Background
 
@@ -41,6 +42,12 @@ derived from the plan approval interaction state:
 - Session restore uses the latest planning lifecycle phase to recover a pending
   approval card and the `exit_plan_mode` tool-use id. Terminal lifecycle phases
   do not reopen older pending approvals.
+- `RuntimeSnapshot` now carries a derived `PlanningLifecycleSnapshot` so
+  `/status` and `/context` share one parsing boundary instead of duplicating
+  interaction-source string parsing in renderers.
+- Pending age and approved revision are explicit nullable fields in the
+  snapshot. They render as `-` until checkpoint records include submission
+  timestamps and plan hashes.
 
 ## Validation
 
@@ -49,8 +56,11 @@ derived from the plan approval interaction state:
   lifecycle checkpoints
 - `cargo test tui::session_restore::tests::restore_session_recovers_pending_plan_approval_from_lifecycle`
 - `cargo test tui::session_restore::tests::restore_session_does_not_reopen_completed_plan_approval`
+- focused planning lifecycle snapshot derivation tests
+- focused `/status` runtime/context and overview rendering tests
 
 ## Follow-Ups
 
-- Add `/status` and `/context` planning lifecycle fields.
 - Persist user feedback for continue-planning and rejected-plan decisions.
+- Persist plan submission timestamps and plan hashes so pending age and
+  approved revision can render concrete values.

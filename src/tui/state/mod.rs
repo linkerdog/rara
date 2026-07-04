@@ -3,6 +3,7 @@ mod bottom_pane_model;
 mod overlay_state;
 mod pending_interaction;
 mod persistence;
+mod planning_lifecycle;
 mod runtime_snapshot;
 mod state_presets;
 #[cfg(test)]
@@ -15,6 +16,9 @@ use std::sync::atomic::AtomicBool;
 
 use unicode_width::UnicodeWidthChar;
 
+pub use self::planning_lifecycle::{
+    PlanningApprovalDecision, PlanningApprovalStatus, PlanningLifecycleSnapshot,
+};
 pub use self::state_presets::{
     current_model_presets, openai_compatible_preset_kind, selected_preset_idx_for_config,
     selected_provider_family_idx_for_config,

@@ -332,6 +332,57 @@ pub(crate) fn render_context_lines(app: &TuiApp, available_width: u16) -> Vec<Li
             Color::Yellow,
         );
     }
+    section_spacer(&mut lines);
+
+    // ── Planning Lifecycle ──
+    section_header(&mut lines, "Planning Lifecycle");
+    let lifecycle = &snap.planning_lifecycle;
+    kv(
+        &mut lines,
+        "status",
+        lifecycle.approval_status.label(),
+        match lifecycle.approval_status {
+            crate::tui::state::PlanningApprovalStatus::None => TEXT_MUTED,
+            crate::tui::state::PlanningApprovalStatus::Pending => Color::Yellow,
+            crate::tui::state::PlanningApprovalStatus::Approved => STATUS_SUCCESS,
+            crate::tui::state::PlanningApprovalStatus::Revising => STATUS_INFO,
+            crate::tui::state::PlanningApprovalStatus::Rejected => Color::Red,
+        },
+    );
+    kv(
+        &mut lines,
+        "plan path",
+        lifecycle.plan_path.as_deref().unwrap_or("-"),
+        TEXT_SECONDARY,
+    );
+    kv(
+        &mut lines,
+        "pending age",
+        lifecycle.pending_age_label(),
+        TEXT_MUTED,
+    );
+    kv(
+        &mut lines,
+        "last decision",
+        lifecycle.last_decision_label(),
+        TEXT_MUTED,
+    );
+    kv(
+        &mut lines,
+        "revision",
+        lifecycle.approved_plan_revision_label(),
+        TEXT_MUTED,
+    );
+    if lifecycle.tool_use_id.is_some() {
+        kv(
+            &mut lines,
+            "exit tool",
+            lifecycle.tool_use_id_label(),
+            TEXT_MUTED,
+        );
+    }
+    section_spacer(&mut lines);
+
     // ── Assembly ──
     render_assembly_layer(
         &mut lines,

@@ -218,12 +218,28 @@ The current plan artifact should be part of runtime context:
 - approved plan hash or revision id;
 - execution progress against the approved plan, if available.
 
+The current `/status` runtime and overview surfaces expose the lifecycle as a
+derived snapshot:
+
+- `planning_status`;
+- `plan_path`;
+- `planning_pending_age`;
+- `planning_last_decision`;
+- `approved_plan_revision`;
+- `exit_plan_tool`, when a pending `exit_plan_mode` approval is waiting.
+
 `/context` should expose more detail:
 
 - plan source and path;
 - prompt/runtime sections that mention plan mode;
 - whether current context included the approved plan;
 - whether compacted context retained the plan artifact reference.
+
+The current `/context` overlay and text surface include a Planning Lifecycle
+section with plan path, approval status, pending age, last decision, approved
+revision, and pending `exit_plan_mode` tool-use id when present. Pending age and
+approved revision render as `-` until runtime checkpoints persist submission
+timestamps and plan hashes.
 
 ### Recovery Scenarios
 

@@ -1,6 +1,6 @@
 ---
 source: src/tui/render/tests.rs
-assertion_line: 1156
+assertion_line: 1227
 expression: rendered
 ---
 Context Usage
@@ -43,6 +43,16 @@ Active Turn
 
   mode           execute
   step 0         [pending] Implement /context
+
+Planning Lifecycle
+
+  status         pending
+  plan path      .rara/sessions/session-abc/plan.md
+  pending age    -
+  last decision  -
+  revision       -
+  exit tool      exit-plan-abc
+
 Stable Instructions
 
   project_instruction AGENTS.md  240 tokens

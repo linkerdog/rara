@@ -3,7 +3,8 @@ use std::sync::atomic::Ordering;
 
 use super::{
     CompletedInteractionSnapshot, InteractionKind, PendingApprovalSnapshot,
-    PendingInteractionSnapshot, RuntimeSnapshot, SkillPickerEntry, TuiApp,
+    PendingInteractionSnapshot, PlanningLifecycleSnapshot, RuntimeSnapshot, SkillPickerEntry,
+    TuiApp,
 };
 use crate::agent::Agent;
 
@@ -114,6 +115,11 @@ impl TuiApp {
             .as_ref()
             .map(|runtime| runtime.hook_count())
             .unwrap_or(0);
+        let planning_lifecycle = PlanningLifecycleSnapshot::from_interactions(
+            &runtime_context.session_id,
+            &pending_interactions,
+            &completed_interactions,
+        );
         self.snapshot = RuntimeSnapshot {
             cwd: runtime_context.cwd,
             branch: runtime_context.branch,
@@ -149,6 +155,7 @@ impl TuiApp {
             compaction_source_entries: runtime_context.compaction.source_entries,
             plan_steps: runtime_context.plan.steps,
             plan_explanation: runtime_context.plan.explanation,
+            planning_lifecycle,
             pending_interactions,
             completed_interactions,
             todo_artifact_path: if agent.todo_state.is_some() {

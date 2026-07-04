@@ -327,171 +327,7 @@ fn render_context_observability(app: &TuiApp) -> String {
     )
 }
 
-fn todo_summary_line(app: &TuiApp) -> String {
-    let summary = &app.snapshot.todo.summary;
-    if summary.total == 0 {
-        return "none".to_string();
-    }
-    let active = summary
-        .active_label
-        .as_deref()
-        .or(summary.active_item.as_deref())
-        .unwrap_or("-");
-    format!(
-        "{} total, {} pending, {} in_progress, {} completed, {} cancelled, active={}",
-        summary.total,
-        summary.pending,
-        summary.in_progress,
-        summary.completed,
-        summary.cancelled,
-        truncate_preview(active, 80)
-    )
-}
-
-fn shared_task_summary_line(app: &TuiApp) -> String {
-    let tasks = &app.snapshot.shared_tasks;
-    if let Some(error) = tasks.error.as_deref() {
-        return format!(
-            "list={} error={}",
-            tasks.task_list_id,
-            truncate_preview(error, 80)
-        );
-    }
-    if tasks.total == 0 {
-        return format!("list={} none", tasks.task_list_id);
-    }
-    format!(
-        "list={} {} total, {} pending, {} in_progress, {} completed, {} unblocked, {} owned",
-        tasks.task_list_id,
-        tasks.total,
-        tasks.pending,
-        tasks.in_progress,
-        tasks.completed,
-        tasks.unblocked,
-        tasks.owned,
-    )
-}
-
-fn render_todo_context(app: &TuiApp) -> String {
-    let summary = &app.snapshot.todo.summary;
-    if summary.total == 0 {
-        return "Todo\n  artifact: -\n  items: none".to_string();
-    }
-    let artifact = app.snapshot.todo_artifact_path.as_deref().unwrap_or("-");
-    let updated_at = app
-        .snapshot
-        .todo
-        .updated_at
-        .map(format_unix_timestamp_utc)
-        .unwrap_or_else(|| "-".to_string());
-    let active = summary.active_item.as_deref();
-    let items = if app.snapshot.todo.items.is_empty() {
-        "  items: none".to_string()
-    } else {
-        let rendered_items = app
-            .snapshot
-            .todo
-            .items
-            .iter()
-            .take(8)
-            .map(|(id, status, content)| {
-                let suffix = if active == Some(content.as_str()) {
-                    format!("{id}, active")
-                } else {
-                    id.to_string()
-                };
-                format!(
-                    "    - [{status}] {} ({suffix})",
-                    truncate_preview(content, 100)
-                )
-            })
-            .collect::<Vec<_>>()
-            .join("\n");
-        let omitted = app.snapshot.todo.items.len().saturating_sub(8);
-        if omitted == 0 {
-            format!("  items:\n{rendered_items}")
-        } else {
-            format!("  items:\n{rendered_items}\n    ... {omitted} more")
-        }
-    };
-    format!(
-        "Todo\n  artifact: {artifact}\n  updated_at: {updated_at}\n  total: {}  pending: {}  in_progress: {}  completed: {}  cancelled: {}\n{}",
-        summary.total,
-        summary.pending,
-        summary.in_progress,
-        summary.completed,
-        summary.cancelled,
-        items,
-    )
-}
-
-fn render_shared_tasks_context(app: &TuiApp) -> String {
-    let tasks = &app.snapshot.shared_tasks;
-    if let Some(error) = tasks.error.as_deref() {
-        return format!(
-            "Shared Tasks\n  list: {}\n  error: {}",
-            tasks.task_list_id,
-            truncate_preview(error, 120)
-        );
-    }
-    if tasks.total == 0 {
-        return format!(
-            "Shared Tasks\n  list: {}\n  tasks: none",
-            tasks.task_list_id
-        );
-    }
-    let rendered_items = tasks
-        .items
-        .iter()
-        .take(8)
-        .map(|task| {
-            let owner = task.owner.as_deref().unwrap_or("-");
-            let blockers = if task.blocked_by.is_empty() {
-                "-".to_string()
-            } else {
-                task.blocked_by.join(",")
-            };
-            format!(
-                "    - [{}] #{} rev={} owner={} blockedBy={} {}",
-                task.status,
-                task.id,
-                task.revision,
-                owner,
-                blockers,
-                truncate_preview(task.subject.as_str(), 90)
-            )
-        })
-        .collect::<Vec<_>>()
-        .join("\n");
-    let omitted = tasks.items.len().saturating_sub(8);
-    let omitted = if omitted == 0 {
-        String::new()
-    } else {
-        format!("\n    ... {omitted} more")
-    };
-    format!(
-        "Shared Tasks\n  list: {}\n  total: {}  pending: {}  in_progress: {}  completed: {}  unblocked: {}  owned: {}\n  tasks:\n{}{}",
-        tasks.task_list_id,
-        tasks.total,
-        tasks.pending,
-        tasks.in_progress,
-        tasks.completed,
-        tasks.unblocked,
-        tasks.owned,
-        rendered_items,
-        omitted,
-    )
-}
-
-fn format_unix_timestamp_utc(timestamp: i64) -> String {
-    let format =
-        time::macros::format_description!("[year]-[month]-[day] [hour]:[minute]:[second] UTC");
-
-    OffsetDateTime::from_unix_timestamp(timestamp)
-        .ok()
-        .and_then(|dt| dt.format(&format).ok())
-        .unwrap_or_else(|| "invalid timestamp".to_string())
-}
+include!("status_sections.rs");
 
 /// Reserved for the richer `/status` context tab tracked in docs/todo.md.
 #[allow(dead_code)]
@@ -595,6 +431,7 @@ pub fn status_context_text(app: &TuiApp) -> String {
             app.snapshot.plan_explanation.as_deref().unwrap_or("-"),
             plan_lines
         ),
+        render_planning_lifecycle_context(app),
         render_todo_context(app),
         render_shared_tasks_context(app),
         format!("Pending\n{}", pending_interactions),
@@ -692,7 +529,7 @@ pub fn status_runtime_text(app: &TuiApp) -> String {
         crate::local_model_server::LocalModelServerState::Error => "error",
     };
     format!(
-        "provider={}\nendpoint_profile={}\nendpoint_kind={}\nmodel={}\nmodel_source={}\nauxiliary_model={}\nauxiliary_model_source={}\nauxiliary_route={}\nbase_url={}\nbase_url_source={}\nrevision={}\nrevision_source={}\nagent_mode={}\nbash_approval={}\nmode={}\napi_key={}\napi_key_source={}\ncodex_auth_mode={}\ncodex_endpoint_kind={}\nthinking={}\nreasoning_summary={}\nreasoning_summary_source={}\nreasoning_effort={}\nreasoning_effort_source={}\ntodo={}\nshared_tasks={}\nembedding_state={}\nembedding_backend={}\nembedding_model={}\nembedding_detail={}\ndevice={}\ndtype={}\nterminal_name={}\nterminal_user_agent={}\nterminal_term={}\nterminal_term_program={}\nterminal_multiplexer={}\nterminal_remote={}\nterminal_history_mode={}\nterminal_focused={}\nterminal_width_columns={}\nphase={}\ndetail={}",
+        "provider={}\nendpoint_profile={}\nendpoint_kind={}\nmodel={}\nmodel_source={}\nauxiliary_model={}\nauxiliary_model_source={}\nauxiliary_route={}\nbase_url={}\nbase_url_source={}\nrevision={}\nrevision_source={}\nagent_mode={}\nbash_approval={}\nmode={}\napi_key={}\napi_key_source={}\ncodex_auth_mode={}\ncodex_endpoint_kind={}\nthinking={}\nreasoning_summary={}\nreasoning_summary_source={}\nreasoning_effort={}\nreasoning_effort_source={}\nplanning_status={}\nplan_path={}\nplanning_pending_age={}\nplanning_last_decision={}\napproved_plan_revision={}\nexit_plan_tool={}\ntodo={}\nshared_tasks={}\nembedding_state={}\nembedding_backend={}\nembedding_model={}\nembedding_detail={}\ndevice={}\ndtype={}\nterminal_name={}\nterminal_user_agent={}\nterminal_term={}\nterminal_term_program={}\nterminal_multiplexer={}\nterminal_remote={}\nterminal_history_mode={}\nterminal_focused={}\nterminal_width_columns={}\nphase={}\ndetail={}",
         surface.provider,
         endpoint_profile,
         endpoint_kind,
@@ -719,6 +556,18 @@ pub fn status_runtime_text(app: &TuiApp) -> String {
             .reasoning_effort
             .display_or(reasoning_effort_label.as_str()),
         surface.reasoning_effort.source.label(),
+        app.snapshot.planning_lifecycle.approval_status.label(),
+        app.snapshot
+            .planning_lifecycle
+            .plan_path
+            .as_deref()
+            .unwrap_or("-"),
+        app.snapshot.planning_lifecycle.pending_age_label(),
+        app.snapshot.planning_lifecycle.last_decision_label(),
+        app.snapshot
+            .planning_lifecycle
+            .approved_plan_revision_label(),
+        app.snapshot.planning_lifecycle.tool_use_id_label(),
         todo_summary_line(app),
         shared_task_summary_line(app),
         embedding_state,
