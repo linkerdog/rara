@@ -19,6 +19,9 @@ Active backlog only. Keep this file small and current.
 
 ## TUI / UX
 
+- [x] Keep `rara-file-search` as the shared backend for TUI file suggestions
+      and `list_files`; keep automatic retrieval as optional low-priority
+      paths-only `RetrievalCandidate` / `MemorySelection` input.
 - [x] Refactor ~7 large methods out of `impl TuiApp` to enable file split.
 - [x] Restore Claude Code-style realtime transcript live-log writes from
       `push_entry` and clear the live log after turn commit so resume can

@@ -17,7 +17,7 @@ RARA already has several recall-like sources:
 - compacted history source descriptors;
 - active turn state such as plans, pending interactions, latest request, and
   recent tool results;
-- future file-search candidates from `crates/file-search`;
+- optional paths-only file-search candidates from `crates/file-search`;
 - future MCP resources, hook output, and protocol-registered sources.
 
 Without a retrieval orchestration boundary, each source can leak directly into
@@ -87,6 +87,10 @@ Current code already has part of this shape:
   candidate boundary for direct memory/session retrieval inputs;
 - file-search, MCP resource, hook-output, and graph-context sources enter the
   same orchestration boundary as precomputed candidate providers;
+- file-search candidates are controlled by `context_file_search`; the default
+  `paths_only` policy exposes low-priority path/provenance candidates, while
+  `off` disables only automatic file-search retrieval and leaves explicit
+  picker/list-files flows unchanged;
 - `memory_selection()` ranks selected/available/dropped entries;
 - `SharedRuntimeContext.retrieval.memory_selection` is consumed by `/context`.
 
@@ -162,8 +166,8 @@ Provider responsibilities:
 - `MemoryStoreProvider`: search workspace/thread `MemoryRecord`s through
   LanceDB-backed APIs.
 - `SessionShardProvider`: search per-session context shards.
-- `FileSearchProvider`: produce file candidates from `crates/file-search`;
-  it must not inject file contents directly.
+- `FileSearchProvider`: produce paths-only file candidates from
+  `crates/file-search`; it must not read or inject file contents directly.
 - `McpResourceProvider`: surface referenced MCP resources as candidates.
 - `HookContextProvider`: surface hook output as volatile candidates. Hook output
   drained from `HookRuntime` is injected directly as system context before the
@@ -183,7 +187,7 @@ Initial priority order:
 1. active fixed context already selected by owner layers;
 2. focused session/thread context relevant to the current request;
 3. workspace memory records;
-4. file candidates;
+4. file candidates, as low-priority paths-only manifests;
 5. MCP resource candidates;
 6. hook output;
 7. graph expansion candidates until graph confidence is proven.
