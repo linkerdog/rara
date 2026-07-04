@@ -129,7 +129,20 @@ starting implementation.
 
 ### Runtime Persistence
 
-Runtime should persist enough state to recover after restart:
+Runtime persists the current planning lifecycle in the structured rollout log.
+Each runtime-state checkpoint may include one or more plan lifecycle records
+with these phases:
+
+- `plan_ready`
+- `plan_revising`
+- `plan_approved`
+- `plan_rejected`
+
+The current checkpoint records the latest phase and decision metadata derived
+from the plan approval interaction. Completed decisions should use structured
+decision metadata rather than parsing UI copy. Thread forks preserve the
+materialized lifecycle records from the source thread. The complete recovery
+contract still needs enough state to recover after restart:
 
 - `session_id`
 - `plan_file_path`

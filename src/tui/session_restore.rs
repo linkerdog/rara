@@ -194,6 +194,7 @@ pub(super) fn restore_thread_by_id(
             | RolloutItem::Compaction(_)
             | RolloutItem::PlanState { .. }
             | RolloutItem::Interaction(_)
+            | RolloutItem::PlanLifecycle(_)
             | RolloutItem::SpawnAgent { .. } => {}
         }
     }

@@ -159,6 +159,8 @@ fn format_thread_snapshot(thread: &ThreadSnapshot) -> String {
             "rollout_plan_snapshots={}\n",
             "rollout_plan_snapshot_steps={}\n",
             "rollout_plan_snapshot_explanations={}\n",
+            "rollout_plan_lifecycle={}\n",
+            "rollout_plan_lifecycle_phases={}\n",
             "rollout_interactions={}\n",
             "rollout_interaction_statuses={}\n",
             "rollout_spawn_agents={}\n",
@@ -202,6 +204,8 @@ fn format_thread_snapshot(thread: &ThreadSnapshot) -> String {
         rollout.plan_state_count,
         rollout.plan_state_step_count,
         rollout.plan_state_explanation_count,
+        rollout.plan_lifecycle_count,
+        rollout.plan_lifecycle_phases,
         rollout.interaction_count,
         rollout.interaction_statuses,
         rollout.spawn_agent_count,
@@ -237,6 +241,8 @@ struct RolloutSummary {
     plan_state_count: usize,
     plan_state_step_count: usize,
     plan_state_explanation_count: usize,
+    plan_lifecycle_count: usize,
+    plan_lifecycle_phases: String,
     interaction_count: usize,
     interaction_statuses: String,
     spawn_agent_count: usize,
@@ -247,12 +253,14 @@ fn rollout_summary(thread: &ThreadSnapshot) -> RolloutSummary {
     let mut summary = RolloutSummary {
         turn_ordinals: "-".to_string(),
         compaction_indexes: "-".to_string(),
+        plan_lifecycle_phases: "-".to_string(),
         interaction_statuses: "-".to_string(),
         last_spawn_agent: "-".to_string(),
         ..RolloutSummary::default()
     };
     let mut turn_ordinals = Vec::new();
     let mut compaction_indexes = Vec::new();
+    let mut plan_lifecycle_phases = Vec::new();
     let mut interaction_statuses = Vec::new();
     for item in &thread.rollout_items {
         match item {
@@ -273,6 +281,10 @@ fn rollout_summary(thread: &ThreadSnapshot) -> RolloutSummary {
             crate::thread_store::RolloutItem::Interaction(interaction) => {
                 summary.interaction_count += 1;
                 interaction_statuses.push(format!("{}:{}", interaction.kind, interaction.status));
+            }
+            crate::thread_store::RolloutItem::PlanLifecycle(lifecycle) => {
+                summary.plan_lifecycle_count += 1;
+                plan_lifecycle_phases.push(lifecycle.phase.clone());
             }
             crate::thread_store::RolloutItem::SpawnAgent {
                 event_id,
@@ -305,6 +317,9 @@ fn rollout_summary(thread: &ThreadSnapshot) -> RolloutSummary {
     if !compaction_indexes.is_empty() {
         summary.compaction_indexes = compaction_indexes.join(",");
     }
+    if !plan_lifecycle_phases.is_empty() {
+        summary.plan_lifecycle_phases = plan_lifecycle_phases.join(",");
+    }
     if !interaction_statuses.is_empty() {
         summary.interaction_statuses = interaction_statuses.join(",");
     }
@@ -330,7 +345,9 @@ fn workspace_label(cwd: &str) -> &str {
 
 #[cfg(test)]
 mod tests {
-    use rara_persistence::thread_data::{PersistedTurnEntry, PersistedTurnSummary};
+    use rara_persistence::thread_data::{
+        PersistedPlanLifecycle, PersistedTurnEntry, PersistedTurnSummary,
+    };
     use rara_state::state_db::PersistedInteraction;
 
     use super::{
@@ -429,6 +446,14 @@ mod tests {
                     compaction_count: 4,
                     ..Default::default()
                 }),
+                RolloutItem::PlanLifecycle(PersistedPlanLifecycle {
+                    phase: "plan_approved".to_string(),
+                    decision: Some("approve".to_string()),
+                    feedback: None,
+                    plan_path: None,
+                    tool_use_id: None,
+                    plan_hash: None,
+                }),
                 RolloutItem::Turn(RolloutTurnItem {
                     summary: PersistedTurnSummary {
                         ordinal: 7,
@@ -461,6 +486,8 @@ mod tests {
         assert!(output.contains("interactions=1"));
         assert!(output.contains("turn_ordinals=7"));
         assert!(output.contains("rollout_compaction_indexes=4"));
+        assert!(output.contains("rollout_plan_lifecycle=1"));
+        assert!(output.contains("rollout_plan_lifecycle_phases=plan_approved"));
         assert!(output.contains("rollout_interactions=1"));
         assert!(output.contains("rollout_interaction_statuses=approval:completed"));
         assert!(output.contains("rollout_spawn_agents=1"));

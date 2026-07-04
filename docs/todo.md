@@ -85,7 +85,7 @@ Active backlog only. Keep this file small and current.
 
 - [x] Replace boolean plan approval handling with an explicit decision enum:
       approve, continue planning with feedback, and reject/cancel.
-- [ ] Persist planning lifecycle state in the structured rollout log:
+- [x] Persist planning lifecycle state in the structured rollout log:
       `plan_ready`, `plan_revising`, `plan_approved`, and `plan_rejected`.
 - [ ] Restore pending plan approval after restart and avoid reinjecting an
       approved-plan tool result more than once.

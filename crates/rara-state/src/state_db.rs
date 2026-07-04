@@ -6,11 +6,11 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use anyhow::Result;
 pub use rara_persistence::thread_data::{
     PersistedCompactState, PersistedInteraction, PersistedLegacyRolloutMigration,
-    PersistedLegacyRolloutSource, PersistedPlanStep, PersistedPromptRuntimeState,
-    PersistedRecentThreadRecord, PersistedRecentThreadSummary, PersistedRuntimeRolloutItem,
-    PersistedSessionRuntimeState, PersistedSpawnAgentEdge, PersistedStructuredRolloutEvent,
-    PersistedThreadLineage, PersistedThreadRecord, PersistedTurnEntry, PersistedTurnSummary,
-    turn_preview,
+    PersistedLegacyRolloutSource, PersistedPlanLifecycle, PersistedPlanStep,
+    PersistedPromptRuntimeState, PersistedRecentThreadRecord, PersistedRecentThreadSummary,
+    PersistedRuntimeRolloutItem, PersistedSessionRuntimeState, PersistedSpawnAgentEdge,
+    PersistedStructuredRolloutEvent, PersistedThreadLineage, PersistedThreadRecord,
+    PersistedTurnEntry, PersistedTurnSummary, turn_preview,
 };
 pub use rara_persistence::{thread_rollout_log, thread_turn_log};
 use rusqlite::{Connection, params};

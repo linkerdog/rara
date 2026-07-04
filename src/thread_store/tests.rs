@@ -6,9 +6,9 @@ use anyhow::Result;
 use async_trait::async_trait;
 use rara_memory::vectordb::VectorDB;
 use rara_persistence::thread_data::{
-    PersistedCompactState, PersistedInteraction, PersistedPlanStep, PersistedPromptRuntimeState,
-    PersistedRuntimeRolloutItem, PersistedStructuredRolloutEvent, PersistedThreadLineage,
-    PersistedThreadRecord, PersistedTurnEntry,
+    PersistedCompactState, PersistedInteraction, PersistedPlanLifecycle, PersistedPlanStep,
+    PersistedPromptRuntimeState, PersistedRuntimeRolloutItem, PersistedStructuredRolloutEvent,
+    PersistedThreadLineage, PersistedThreadRecord, PersistedTurnEntry,
 };
 use rara_persistence::thread_metadata;
 use rara_persistence::{thread_rollout_log, thread_turn_log};
@@ -541,6 +541,17 @@ fn load_thread_prefers_structured_runtime_rollout_items() -> Result<()> {
                     payload: None,
                 },
             },
+            rara_state::state_db::PersistedStructuredRolloutEvent::PlanLifecycle {
+                recorded_at: None,
+                lifecycle: PersistedPlanLifecycle {
+                    phase: "plan_ready".to_string(),
+                    decision: None,
+                    feedback: None,
+                    plan_path: Some(".rara/sessions/session-runtime-rollout/plan.md".to_string()),
+                    tool_use_id: Some("exit-plan-runtime".to_string()),
+                    plan_hash: None,
+                },
+            },
         ],
     )?;
 
@@ -561,6 +572,12 @@ fn load_thread_prefers_structured_runtime_rollout_items() -> Result<()> {
         snapshot.rollout_items.get(1),
         Some(RolloutItem::Interaction(interaction))
             if interaction.title == "Structured Question" && interaction.summary == "answered"
+    ));
+    assert!(matches!(
+        snapshot.rollout_items.get(2),
+        Some(RolloutItem::PlanLifecycle(lifecycle))
+            if lifecycle.phase == "plan_ready"
+                && lifecycle.tool_use_id.as_deref() == Some("exit-plan-runtime")
     ));
     Ok(())
 }
@@ -822,6 +839,17 @@ fn load_thread_preserves_structured_rollout_event_order() -> Result<()> {
                     payload: None,
                 },
             },
+            rara_state::state_db::PersistedStructuredRolloutEvent::PlanLifecycle {
+                recorded_at: None,
+                lifecycle: PersistedPlanLifecycle {
+                    phase: "plan_ready".to_string(),
+                    decision: None,
+                    feedback: None,
+                    plan_path: Some(".rara/sessions/session-ordered-events/plan.md".to_string()),
+                    tool_use_id: Some("exit-plan-ordered".to_string()),
+                    plan_hash: None,
+                },
+            },
         ],
     )?;
     session_manager.save_compaction_event(
@@ -859,6 +887,12 @@ fn load_thread_preserves_structured_rollout_event_order() -> Result<()> {
     ));
     assert!(matches!(
         snapshot.rollout_items.get(3),
+        Some(RolloutItem::PlanLifecycle(lifecycle))
+            if lifecycle.phase == "plan_ready"
+                && lifecycle.tool_use_id.as_deref() == Some("exit-plan-ordered")
+    ));
+    assert!(matches!(
+        snapshot.rollout_items.get(4),
         Some(RolloutItem::Compaction(compaction))
             if compaction.compaction_count == 2
     ));
@@ -1033,6 +1067,17 @@ fn thread_recorder_writes_runtime_rollout_events_directly() -> Result<()> {
                     payload: None,
                 },
             },
+            PersistedStructuredRolloutEvent::PlanLifecycle {
+                recorded_at: None,
+                lifecycle: PersistedPlanLifecycle {
+                    phase: "plan_approved".to_string(),
+                    decision: Some("approve".to_string()),
+                    feedback: None,
+                    plan_path: Some(".rara/sessions/session-runtime-recorder/plan.md".to_string()),
+                    tool_use_id: Some("exit-plan-1".to_string()),
+                    plan_hash: None,
+                },
+            },
         ],
     )?;
 
@@ -1046,12 +1091,15 @@ fn thread_recorder_writes_runtime_rollout_events_directly() -> Result<()> {
             explanation: Some(explanation),
             steps,
             interactions,
+            plan_lifecycle,
             ..
         }] if explanation == "Runtime rollout belongs to ThreadRecorder."
             && steps.len() == 1
             && steps[0].step == "append canonical runtime state"
             && interactions.len() == 1
             && interactions[0].title == "Runtime Question"
+            && plan_lifecycle.len() == 1
+            && plan_lifecycle[0].phase == "plan_approved"
     ));
     Ok(())
 }
@@ -1738,6 +1786,33 @@ fn fork_thread_preserves_materialized_state_and_sets_lineage() -> Result<()> {
             payload: None,
         }],
     )?;
+    state_db.replace_runtime_rollout_events(
+        "source-thread",
+        &[PersistedStructuredRolloutEvent::RuntimeState {
+            recorded_at: None,
+            explanation: Some("Preserve thread continuity.".to_string()),
+            steps: vec![PersistedPlanStep {
+                step_index: 0,
+                status: "in_progress".to_string(),
+                step: "Implement fork lifecycle".to_string(),
+            }],
+            interactions: vec![PersistedInteraction {
+                kind: "approval".to_string(),
+                status: "completed".to_string(),
+                title: "Approved".to_string(),
+                summary: "continue".to_string(),
+                payload: None,
+            }],
+            plan_lifecycle: vec![PersistedPlanLifecycle {
+                phase: "plan_ready".to_string(),
+                decision: None,
+                feedback: None,
+                plan_path: Some(".rara/sessions/source-thread/plan.md".to_string()),
+                tool_use_id: Some("exit-plan-source".to_string()),
+                plan_hash: None,
+            }],
+        }],
+    )?;
     state_db.persist_turn(
         "source-thread",
         0,
@@ -1820,10 +1895,14 @@ fn fork_thread_preserves_materialized_state_and_sets_lineage() -> Result<()> {
             explanation,
             steps,
             interactions,
+            plan_lifecycle,
         }
             if explanation.as_deref() == Some("Preserve thread continuity.")
                 && steps.len() == 1
                 && interactions.len() == 1
+                && plan_lifecycle.len() == 1
+                && plan_lifecycle[0].phase == "plan_ready"
+                && plan_lifecycle[0].tool_use_id.as_deref() == Some("exit-plan-source")
     )));
 
     Ok(())

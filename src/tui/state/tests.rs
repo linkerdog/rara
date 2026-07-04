@@ -1,6 +1,8 @@
 use rara_memory::vectordb::VectorDB;
 use rara_persistence::thread_turn_log;
-use rara_state::state_db::{PersistedCompactState, PersistedPromptRuntimeState, StateDb};
+use rara_state::state_db::{
+    PersistedCompactState, PersistedPromptRuntimeState, PersistedStructuredRolloutEvent, StateDb,
+};
 use rara_tools::tool::ToolManager;
 use tempfile::tempdir;
 
@@ -1419,6 +1421,70 @@ fn active_turn_entries_write_and_clear_live_log() {
     .expect("turn records");
     assert_eq!(turn_records.len(), 1);
     assert_eq!(turn_records[0].entries.len(), 2);
+}
+
+#[test]
+fn pending_plan_approval_persists_plan_ready_lifecycle() {
+    let dir = tempdir().expect("tempdir");
+    let state_db = StateDb::new_for_root_dir(dir.path().join(".rara")).expect("state db");
+    let mut app = TuiApp::new(ConfigManager {
+        path: dir.path().join("config.json"),
+    })
+    .expect("app");
+    app.snapshot.session_id = "plan-ready-session".to_string();
+    app.attach_state_db(std::sync::Arc::new(state_db));
+
+    app.set_pending_plan_approval(true);
+
+    let events = app
+        .state_db
+        .as_ref()
+        .expect("state db")
+        .load_rollout_events("plan-ready-session")
+        .expect("rollout events");
+    assert!(events.iter().any(|event| matches!(
+        event,
+        PersistedStructuredRolloutEvent::RuntimeState {
+            plan_lifecycle,
+            ..
+        } if plan_lifecycle.iter().any(|lifecycle| lifecycle.phase == "plan_ready")
+    )));
+}
+
+#[test]
+fn completed_plan_approval_persists_decision_lifecycle() {
+    let dir = tempdir().expect("tempdir");
+    let state_db = StateDb::new_for_root_dir(dir.path().join(".rara")).expect("state db");
+    let mut app = TuiApp::new(ConfigManager {
+        path: dir.path().join("config.json"),
+    })
+    .expect("app");
+    app.snapshot.session_id = "plan-approved-session".to_string();
+    app.attach_state_db(std::sync::Arc::new(state_db));
+
+    app.record_completed_interaction(
+        InteractionKind::PlanApproval,
+        "Plan Decision",
+        "copy can change",
+        Some("plan_approval:approve".to_string()),
+    );
+
+    let events = app
+        .state_db
+        .as_ref()
+        .expect("state db")
+        .load_rollout_events("plan-approved-session")
+        .expect("rollout events");
+    assert!(events.iter().any(|event| matches!(
+        event,
+        PersistedStructuredRolloutEvent::RuntimeState {
+            plan_lifecycle,
+            ..
+        } if plan_lifecycle.iter().any(|lifecycle| {
+            lifecycle.phase == "plan_approved"
+                && lifecycle.decision.as_deref() == Some("approve")
+        })
+    )));
 }
 
 #[test]

@@ -3,8 +3,8 @@ use rusqlite::Connection;
 use tempfile::tempdir;
 
 use super::{
-    PersistedCompactState, PersistedInteraction, PersistedPlanStep, PersistedPromptRuntimeState,
-    PersistedStructuredRolloutEvent, PersistedTurnEntry, StateDb,
+    PersistedCompactState, PersistedInteraction, PersistedPlanLifecycle, PersistedPlanStep,
+    PersistedPromptRuntimeState, PersistedStructuredRolloutEvent, PersistedTurnEntry, StateDb,
 };
 
 #[test]
@@ -459,15 +459,28 @@ fn load_rollout_events_prefers_append_only_log_without_snapshot_rewrite() -> Res
     )?;
     db.replace_runtime_rollout_events(
         "session-events",
-        &[PersistedStructuredRolloutEvent::PlanState {
-            recorded_at: None,
-            explanation: Some("Structured runtime plan".to_string()),
-            steps: vec![PersistedPlanStep {
-                step_index: 0,
-                status: "pending".to_string(),
-                step: "Inspect thread store".to_string(),
-            }],
-        }],
+        &[
+            PersistedStructuredRolloutEvent::PlanState {
+                recorded_at: None,
+                explanation: Some("Structured runtime plan".to_string()),
+                steps: vec![PersistedPlanStep {
+                    step_index: 0,
+                    status: "pending".to_string(),
+                    step: "Inspect thread store".to_string(),
+                }],
+            },
+            PersistedStructuredRolloutEvent::PlanLifecycle {
+                recorded_at: None,
+                lifecycle: PersistedPlanLifecycle {
+                    phase: "plan_ready".to_string(),
+                    decision: None,
+                    feedback: None,
+                    plan_path: Some(".rara/sessions/session-events/plan.md".to_string()),
+                    tool_use_id: Some("tool-plan".to_string()),
+                    plan_hash: None,
+                },
+            },
+        ],
     )?;
 
     assert!(
@@ -500,11 +513,15 @@ fn load_rollout_events_prefers_append_only_log_without_snapshot_rewrite() -> Res
             explanation,
             steps,
             interactions,
+            plan_lifecycle,
         }
             if explanation.as_deref() == Some("Structured runtime plan")
                 && steps.len() == 1
                 && steps[0].step == "Inspect thread store"
                 && interactions.is_empty()
+                && plan_lifecycle.len() == 1
+                && plan_lifecycle[0].phase == "plan_ready"
+                && plan_lifecycle[0].tool_use_id.as_deref() == Some("tool-plan")
     ));
     Ok(())
 }
