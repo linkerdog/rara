@@ -547,6 +547,8 @@ impl ActiveCell for ActiveTurnCell<'_> {
                 self.cwd,
             )));
         } else if !has_active_pending_interaction
+            && !has_live_thinking
+            && !has_live_events
             && let Some((role, tool_result)) = latest_tool_result
         {
             cells.push(Box::new(RespondingCell::from_tool_result(

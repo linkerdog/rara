@@ -1583,6 +1583,83 @@ fn active_turn_cell_prefers_responding_over_tool_result_while_processing_respons
 }
 
 #[test]
+fn active_turn_cell_hides_successful_bash_result_while_thinking() {
+    let temp = tempdir().unwrap();
+    let mut app = TuiApp::new(ConfigManager {
+        path: temp.path().join("config.json"),
+    })
+    .expect("build tui app");
+    app.runtime_phase = RuntimePhase::ProcessingResponse;
+    app.runtime_phase_detail = Some("thinking".into());
+    app.active_turn = TranscriptTurn {
+        thinking_duration: None,
+        entries: vec![
+            TranscriptEntry {
+                role: "You".into(),
+                message: "Review the repository".into(),
+                payload: None,
+            },
+            TranscriptEntry {
+                role: "Tool Result".into(),
+                message: "bash finished with exit code 0".into(),
+                payload: None,
+            },
+        ],
+    };
+    app.append_agent_thinking_delta("checking the result\n");
+
+    let rendered = ActiveTurnCell::new(&app, Some(Path::new(".")))
+        .display_lines(100)
+        .into_iter()
+        .map(|line| line.to_string())
+        .collect::<Vec<_>>()
+        .join("\n");
+
+    assert!(rendered.contains("Thinking"));
+    assert!(rendered.contains("checking the result"));
+    assert!(!rendered.contains("bash finished with exit code 0"));
+    assert!(!rendered.contains("✓ bash"));
+}
+
+#[test]
+fn active_turn_cell_renders_bash_completion_as_status_line() {
+    let temp = tempdir().unwrap();
+    let mut app = TuiApp::new(ConfigManager {
+        path: temp.path().join("config.json"),
+    })
+    .expect("build tui app");
+    app.runtime_phase = RuntimePhase::RunningTool;
+    app.runtime_phase_detail = Some("tool completed".into());
+    app.active_turn = TranscriptTurn {
+        thinking_duration: None,
+        entries: vec![
+            TranscriptEntry {
+                role: "You".into(),
+                message: "Run checks".into(),
+                payload: None,
+            },
+            TranscriptEntry {
+                role: "Tool Result".into(),
+                message: "bash finished with exit code 0\nDuration: 12 ms".into(),
+                payload: None,
+            },
+        ],
+    };
+
+    let rendered = ActiveTurnCell::new(&app, Some(Path::new(".")))
+        .display_lines(100)
+        .into_iter()
+        .map(|line| line.to_string())
+        .collect::<Vec<_>>()
+        .join("\n");
+
+    assert!(rendered.contains("✓ bash"));
+    assert!(rendered.contains("Duration: 12 ms"));
+    assert!(!rendered.contains("Tool Result"));
+    assert!(!rendered.contains("bash finished with exit code 0"));
+}
+
+#[test]
 fn active_turn_cell_prefers_responding_over_system_notice_while_sending_prompt() {
     let temp = tempdir().unwrap();
     let mut app = TuiApp::new(ConfigManager {
