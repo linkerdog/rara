@@ -332,8 +332,8 @@ impl Agent {
     }
 }
 
-include!("compact_a.rs");
-include!("compact_b.rs");
+include!("planning.rs");
+include!("helpers.rs");
 fn collect_recent_file_excerpts(
     history: &[Message],
     limit: usize,

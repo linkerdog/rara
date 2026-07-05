@@ -2,9 +2,7 @@ use ratatui::{style::Color, text::Line};
 
 use crate::tui::state::{TranscriptEntry, TranscriptEntryPayload};
 
-#[path = "active_turn.rs"]
 mod active_turn;
-#[path = "committed_turn.rs"]
 mod committed_turn;
 mod interaction_cells;
 mod lsp_diagnostics;
