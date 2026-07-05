@@ -68,6 +68,25 @@ fn default_consolidation_model() -> String {
 fn default_consolidation_reasoning_effort() -> String {
     super::defaults::DEFAULT_CONSOLIDATION_REASONING_EFFORT.into()
 }
+
+/// Controls whether fuzzy path matches enter automatic retrieval context.
+///
+/// `paths_only` keeps file search as a low-priority candidate source that only
+/// exposes path/provenance metadata. It does not read or inject file contents.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum ContextFileSearchPolicy {
+    Off,
+    #[default]
+    PathsOnly,
+}
+
+impl ContextFileSearchPolicy {
+    pub fn is_default(&self) -> bool {
+        *self == Self::default()
+    }
+}
+
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct ProviderConfigState {
     #[serde(
@@ -272,6 +291,8 @@ pub struct RaraConfig {
     pub sandbox_workspace_write: SandboxWorkspaceWriteConfig,
     #[serde(default, skip_serializing_if = "MemoryConsolidationConfig::is_default")]
     pub memory_consolidation: MemoryConsolidationConfig,
+    #[serde(default, skip_serializing_if = "ContextFileSearchPolicy::is_default")]
+    pub context_file_search: ContextFileSearchPolicy,
     #[serde(default, skip_serializing_if = "TuiConfig::is_default")]
     pub tui: TuiConfig,
 }
@@ -1041,8 +1062,8 @@ mod tests {
     use tempfile::tempdir;
 
     use super::{
-        ConfigManager, OpenAiEndpointKind, OpenAiEndpointProfile, ProviderConfigState, RaraConfig,
-        workspace_data_dir_for_home,
+        ConfigManager, ContextFileSearchPolicy, OpenAiEndpointKind, OpenAiEndpointProfile,
+        ProviderConfigState, RaraConfig, workspace_data_dir_for_home,
     };
     use crate::defaults::{
         DEFAULT_CODEX_BASE_URL, DEFAULT_CODEX_CHATGPT_BASE_URL, DEFAULT_CODEX_MODEL,
@@ -1111,6 +1132,32 @@ mod tests {
         .expect("deserialize config");
 
         assert!(config.sandbox_workspace_write.network_access);
+    }
+
+    #[test]
+    fn context_file_search_defaults_to_paths_only_and_is_omitted() {
+        let config = RaraConfig::default();
+
+        assert_eq!(
+            config.context_file_search,
+            ContextFileSearchPolicy::PathsOnly
+        );
+
+        let json = serde_json::to_string(&config).expect("serialize config");
+        assert!(!json.contains("context_file_search"));
+    }
+
+    #[test]
+    fn context_file_search_can_disable_automatic_retrieval_candidates() {
+        let config: RaraConfig = serde_json::from_str(
+            r#"{
+                "provider": "codex",
+                "context_file_search": "off"
+            }"#,
+        )
+        .expect("deserialize config");
+
+        assert_eq!(config.context_file_search, ContextFileSearchPolicy::Off);
     }
 
     #[test]

@@ -1,11 +1,11 @@
 //! File-search candidate provider for context routing.
 //!
-//! Wraps `rara_file_search::search_files()` to produce
-//! `MemorySelectionItemContextEntry` candidates that flow through the
-//! existing `memory_selection` budget allocator.
+//! Wraps `rara_file_search::search_files()` to produce paths-only
+//! `RetrievalCandidate` values that flow through the existing
+//! `memory_selection` budget allocator.
 //!
-//! Candidates are NOT auto-injected — the selection logic decides
-//! which files to include based on token budget and priority.
+//! Candidates are NOT content injections. They only expose the matched path and
+//! provenance so `/context` can explain why a file surfaced.
 
 use std::path::{Path, PathBuf};
 
@@ -13,9 +13,7 @@ use anyhow::Context;
 use rara_file_search::FileSearchOptions;
 
 use crate::context::retrieval_provider::stable_retrieval_text_id;
-use crate::context::runtime::{
-    MemorySelectionItemContextEntry, RetrievalCandidate, RetrievalSourceRef,
-};
+use crate::context::runtime::{RetrievalCandidate, RetrievalSourceRef};
 
 /// A file match from the file-search engine, ready for context routing.
 #[derive(Debug, Clone)]
@@ -24,7 +22,7 @@ pub struct FileSearchCandidate {
     pub path: String,
     /// Match score from nucleo (0.0–1.0).
     pub score: f64,
-    /// Estimated token count for the file content (capped).
+    /// Estimated token count for the path/provenance candidate.
     pub token_budget: usize,
     /// Human-readable provenance label.
     pub provenance: String,
@@ -63,38 +61,14 @@ impl FileSearchCandidateProvider {
         results
             .into_iter()
             .map(|m| {
-                let full_path = self.workspace_root.join(&m.path);
+                let path = display_path(&self.workspace_root, &m.path);
+                let token_budget = estimate_path_candidate_tokens(&path);
                 FileSearchCandidate {
-                    path: display_path(&self.workspace_root, &m.path),
+                    path,
                     score: m.score as f64,
-                    token_budget: estimate_file_token_budget(&full_path),
+                    token_budget,
                     provenance: provenance_label(m.score as f64),
                 }
-            })
-            .collect()
-    }
-
-    /// Produce `MemorySelectionItemContextEntry` candidates for the
-    /// `memory_selection` budget allocator.
-    ///
-    /// Each candidate carries provenance, budget, and a stable order
-    /// (score descending, path ascending).
-    #[allow(dead_code)] // TODO: file search provider — activate when file search context is wired in.
-    pub fn context_candidates(
-        &self,
-        query: &str,
-        max_results: usize,
-    ) -> Vec<MemorySelectionItemContextEntry> {
-        self.retrieval_candidates(query, max_results)
-            .into_iter()
-            .map(|candidate| MemorySelectionItemContextEntry {
-                order: candidate.rank,
-                kind: candidate.kind,
-                label: candidate.label,
-                detail: candidate.detail,
-                selection_reason: candidate.selection_reason,
-                budget_impact_tokens: candidate.budget_impact_tokens,
-                dropped_reason: None,
             })
             .collect()
     }
@@ -129,18 +103,22 @@ impl FileSearchCandidateProvider {
                     kind: "file_search".to_string(),
                     scope: "workspace".to_string(),
                     label: c.path,
-                    detail: c.provenance,
+                    detail: format!("{}; paths_only; content_not_read", c.provenance),
                     summary: None,
                     rank,
                     score: Some(c.score as f32),
-                    priority: 30 + rank,
+                    priority: 80 + rank,
                     dedupe_key: None,
                     budget_impact_tokens: Some(c.token_budget),
-                    selection_reason: format!("candidate from file search (score {:.3})", c.score),
+                    selection_reason: format!(
+                        "paths-only candidate from file search (score {:.3}); file contents were not read",
+                        c.score
+                    ),
                     availability_reason:
-                        "available because file search matched the current turn query".to_string(),
+                        "available because fuzzy path search matched the current turn query; this candidate carries only the path and provenance"
+                            .to_string(),
                     not_selected_reason:
-                        "not selected after ranking the file-search candidate against the current memory-selection budget"
+                        "not selected after ranking this low-priority paths-only file-search candidate against the current memory-selection budget"
                             .to_string(),
                     selectable: true,
                 }
@@ -162,18 +140,10 @@ fn provenance_label(score: f64) -> String {
     format!("file_search(name_match, score={:.3})", score)
 }
 
-/// Heuristic token estimate: read up to 8 KiB of the file, count chars / 4.
-/// Returns 0 if the file cannot be read.
-fn estimate_file_token_budget(path: &Path) -> usize {
-    const MAX_BYTES: usize = 8192;
-    match std::fs::read_to_string(path) {
-        Ok(content) => {
-            let preview: String = content.chars().take(MAX_BYTES).collect();
-            // Rough estimate: ~4 chars per token for English text.
-            preview.len() / 4
-        }
-        Err(_) => 0,
-    }
+/// Heuristic token estimate for a paths-only candidate.
+fn estimate_path_candidate_tokens(path: &str) -> usize {
+    let path_tokens = path.len().div_ceil(4);
+    path_tokens.max(1)
 }
 
 #[cfg(test)]
@@ -188,18 +158,9 @@ mod tests {
     }
 
     #[test]
-    fn estimate_file_token_budget_readable() {
-        let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join("test.txt");
-        std::fs::write(&path, "hello world").unwrap();
-        let budget = estimate_file_token_budget(&path);
+    fn estimate_path_candidate_budget_does_not_read_file_contents() {
+        let budget = estimate_path_candidate_tokens("/nonexistent/file.txt");
         assert!(budget > 0);
-    }
-
-    #[test]
-    fn estimate_file_token_budget_missing() {
-        let budget = estimate_file_token_budget(Path::new("/nonexistent/file.txt"));
-        assert_eq!(budget, 0);
     }
 
     #[test]
@@ -213,23 +174,30 @@ mod tests {
         assert!(!candidates.is_empty());
         assert_eq!(candidates[0].path, "hello.rs");
         assert!(candidates[0].score > 0.0);
-        assert!(candidates[0].token_budget > 0);
+        assert_eq!(candidates[0].token_budget, 2);
         assert!(candidates[0].provenance.contains("file_search"));
     }
 
     #[test]
-    fn context_candidates_have_stable_order() {
+    fn retrieval_candidates_are_low_priority_paths_only() {
         let dir = tempfile::tempdir().unwrap();
         std::fs::write(dir.path().join("a.rs"), "a").unwrap();
         std::fs::write(dir.path().join("b.rs"), "b").unwrap();
 
         let provider = FileSearchCandidateProvider::new(dir.path().to_path_buf(), false);
-        let entries = provider.context_candidates(".rs", 10);
+        let entries = provider.retrieval_candidates(".rs", 10);
         // Both .rs files match; stable ordering by score then path
         assert_eq!(entries.len(), 2);
-        assert!(entries[0].order < entries[1].order);
+        assert!(entries[0].rank < entries[1].rank);
         // label is the display path
         assert!(entries.iter().all(|e| e.label.ends_with(".rs")));
         assert!(entries.iter().all(|e| e.kind == "file_search"));
+        assert!(entries.iter().all(|e| e.priority >= 80));
+        assert!(entries.iter().all(|e| e.detail.contains("paths_only")));
+        assert!(
+            entries
+                .iter()
+                .all(|e| e.selection_reason.contains("contents were not read"))
+        );
     }
 }

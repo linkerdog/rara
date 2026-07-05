@@ -7,30 +7,37 @@
 ## Overview
 
 `crates/file-search` provides fuzzy file search via `search_files(pattern, roots, opts)`.
-Currently it is only used by the TUI file picker (`src/tools/file.rs` `list_files`).
+It is the shared backend for explicit file-selection flows such as the TUI file
+picker and the `list_files` tool.
 
-This spec defines how file-search results become context candidates that flow through
-the existing `memory_selection` pipeline, alongside retrieved memory and workspace
-prompt sources — without automatic injection.
+This spec also defines the narrow automatic-retrieval bridge: when enabled,
+file-search results become low-priority paths-only `RetrievalCandidate` values
+that flow through the existing `memory_selection` pipeline. They expose path and
+provenance only; they do not read or inject file contents.
 
 ---
 
 ## Design Goals
 
-1. **Candidates only** — file-search produces `MemorySelectionItemContextEntry`
-   candidates; the existing selection logic decides which to include.
+1. **Shared backend** — explicit TUI file suggestions and `list_files` use the
+   same `rara-file-search` backend as context routing.
 
-2. **Provenance** — every candidate carries an explicit origin (`file_search`,
+2. **Paths only** — automatic retrieval produces `RetrievalCandidate` values
+   that contain path/provenance metadata only. File contents stay behind
+   explicit tools such as `read_file`.
+
+3. **Optional routing** — `context_file_search = "paths_only"` is the default;
+   `context_file_search = "off"` disables automatic file-search candidates
+   without affecting explicit picker/list-files flows.
+
+4. **Provenance** — every candidate carries an explicit origin (`file_search`,
    match score, file path) for auditability.
 
-3. **Token budget** — each candidate estimates its token cost. The
-   `MemorySelection` budget allocator decides how many fit.
+5. **Token budget** — each automatic candidate estimates the cost of its
+   manifest text only. It must not charge or imply file-content injection.
 
-4. **Stable ordering** — candidates are ordered deterministically by (score
+6. **Stable ordering** — candidates are ordered deterministically by (score
    descending, path ascending) so repeated runs produce the same list.
-
-5. **Single interface** — the same candidate provider serves both the TUI picker
-   (listFiles) and the context routing path.
 
 ---
 
@@ -42,47 +49,35 @@ prompt sources — without automatic injection.
 /// A file match returned by the file-search engine, ready for context routing.
 #[derive(Debug, Clone)]
 pub struct FileSearchCandidate {
-    /// Absolute workspace-relative display path.
+    /// Workspace-relative display path.
     pub path: String,
-    /// Full absolute path on disk.
-    pub full_path: String,
     /// Match score from nucleo (0.0–1.0).
     pub score: f64,
-    /// Whether this was a fuzzy-name match or a content-grep match.
-    pub match_type: FileMatchType,
-    /// Estimated token count for the file content (capped).
+    /// Estimated token count for the path/provenance candidate.
     pub token_budget: usize,
     /// Human-readable provenance label.
     pub provenance: String,
 }
-
-#[derive(Debug, Clone, Copy)]
-pub enum FileMatchType {
-    /// Matched on file name.
-    Name,
-    /// Matched on file content (future: content_grep).
-    Content,
-}
 ```
 
-### Conversion to `MemorySelectionItemContextEntry`
+### Conversion to `RetrievalCandidate`
 
 ```rust
 impl FileSearchCandidate {
-    fn to_context_entry(&self, order: usize) -> MemorySelectionItemContextEntry {
-        MemorySelectionItemContextEntry {
-            order,
-            kind: "file_search".to_string(),
+    fn to_retrieval_candidate(&self, rank: usize) -> RetrievalCandidate {
+        RetrievalCandidate {
+            kind: "file_search".into(),
+            scope: "workspace".into(),
             label: self.path.clone(),
-            detail: self.provenance.clone(),
-            selection_reason: format!(
-                "candidate from file search (score {:.3}, match_type {:?})",
-                self.score, self.match_type
-            ),
+            detail: format!("{}; paths_only; content_not_read", self.provenance),
+            priority: 80 + rank,
             budget_impact_tokens: Some(self.token_budget),
-            priority: (self.score * 1000.0) as usize,
-            selectable: true,
-            dropped_reason: None,
+            selection_reason: format!(
+                "paths-only candidate from file search (score {:.3}); file contents were not read",
+                self.score
+            ),
+            // source.source_path is the same workspace-relative path.
+            // Other fields omitted here for brevity.
         }
     }
 }
@@ -91,7 +86,7 @@ impl FileSearchCandidate {
 ### Provenance format
 
 ```
-provenance = "file_search(name_match, score=0.82, root=/workspace)"
+provenance = "file_search(name_match, score=0.820)"
 ```
 
 ---
@@ -118,32 +113,37 @@ impl FileSearchCandidateProvider {
         max_results: usize,
     ) -> Vec<FileSearchCandidate>;
 
-    /// Produce context entries ready for MemorySelection.
-    /// Each entry carries provenance, budget, and a stable order.
-    pub fn context_candidates(
+    /// Produce paths-only retrieval candidates ready for MemorySelection.
+    /// Each candidate carries provenance, path budget, and stable order.
+    pub fn retrieval_candidates(
         &self,
         query: &str,
         max_results: usize,
-    ) -> Vec<MemorySelectionItemContextEntry>;
+    ) -> Vec<RetrievalCandidate>;
 }
 ```
 
 ### Token budget estimation
 
 ```rust
-fn estimate_file_token_budget(path: &Path, max_bytes: usize) -> usize {
-    match std::fs::read_to_string(path) {
-        Ok(content) => estimate_text_tokens(
-            &content.chars().take(max_bytes).collect::<String>()
-        ),
-        Err(_) => 0,
-    }
+fn estimate_path_candidate_tokens(path: &Path) -> usize {
+    let path_tokens = path.to_string_lossy().len().div_ceil(4);
+    path_tokens.max(1)
 }
 ```
 
-Hueristic: read up to `MAX_FILE_CANDIDATE_BYTES` (default 8 KiB) of the file, count
-tokens.  The budget allocator in `memory_selection` subtracts this from the
-`selection_budget`.
+Heuristic: charge only the path/provenance manifest. The provider must not open
+the file for automatic retrieval.
+
+## Configuration
+
+```toml
+# Default. Explicit file picker/list_files behavior is unchanged.
+context_file_search = "paths_only"
+
+# Disable only automatic file-search retrieval candidates.
+context_file_search = "off"
+```
 
 ---
 
@@ -163,8 +163,8 @@ pub(crate) fn memory_selection(
     vdb_uri: Option<&str>,
     retrieved_memory_candidates: &[RetrievedMemoryCandidate],
     selection_budget: Option<usize>,
-    // NEW: file-search candidates from the provider
-    file_search_candidates: &[MemorySelectionItemContextEntry],
+    file_search_candidates: &[RetrievalCandidate],
+    graph_context_candidates: &[RetrievalCandidate],
 ) -> MemorySelectionContextView;
 ```
 
@@ -174,12 +174,12 @@ pub(crate) fn memory_selection(
 rara_file_search::search_files("pattern", [workspace_root], opts)
         │
         ▼
-FileSearchCandidateProvider::context_candidates(query, max)
+FileSearchCandidateProvider::retrieval_candidates(query, max)
         │  ┌─ provenance: "file_search(name_match, score=0.82)"
-        │  ├─ token_budget: estimate_file_token_budget(path)
-        │  └─ priority: score-derived
+        │  ├─ token_budget: estimate_path_candidate_tokens(path)
+        │  └─ priority: low-priority paths-only source
         ▼
-MemorySelectionItemContextEntry (kind = "file_search")
+RetrievalCandidate (kind = "file_search", source_path = path)
         │
         ▼
 memory_selection()                ← existing budget allocator
@@ -188,7 +188,7 @@ memory_selection()                ← existing budget allocator
 MemorySelectionContextView.available_items   ← "file_search" category
         │
         ▼
-ContextAssembler                 ← decides whether to include
+ContextAssembler                 ← may expose selected manifest only
 ```
 
 ---
@@ -196,11 +196,13 @@ ContextAssembler                 ← decides whether to include
 ## What NOT to do
 
 - ❌ Do NOT auto-inject file contents into the prompt.
+- ❌ Do NOT read file contents while producing automatic file-search
+  candidates.
 - ❌ Do NOT modify `PromptSource` or the workspace prompt source list.
 - ❌ Do NOT bypass the `memory_selection` budget allocator.
 - ❌ Do NOT add a separate "file search" prompt block — candidates are just
   candidates.
-- ❌ Do NOT break the existing `listFiles` TUI picker — it continues to use
+- ❌ Do NOT break the existing `list_files` tool or TUI picker — they continue to use
   `FileSearchCandidateProvider::search()` directly.
 
 ---
@@ -217,7 +219,7 @@ This produces a deterministic list that survives repeated calls.
 
 ## Future
 
-- `grep_files()` for content-search candidates (match_type = Content)
+- `grep_files()` for explicit content-search tools, not automatic injection.
 - `FileSearchCache` with incremental re-scan (session-style)
 - TUI inline file-search picker (Ctrl-F in composer)
 - Context-budget-aware truncation hints (“this file is too large; read

@@ -226,6 +226,7 @@ pub struct PromptRuntimeConfig {
     pub compact_prompt: Option<String>,
     pub protocol_prompt_sources: Vec<PromptSource>,
     pub available_skills: Vec<PromptSkillSummary>,
+    pub context_file_search: rara_config::ContextFileSearchPolicy,
     /// Hook prompt entries, each tagged with its lifecycle phase.
     /// Populated at startup from `.claude/hooks/*.md`.
     pub hook_prompt_entries: Vec<HookPromptEntry>,
@@ -258,6 +259,7 @@ impl PromptRuntimeConfig {
             compact_prompt,
             protocol_prompt_sources: Vec::new(),
             available_skills: Vec::new(),
+            context_file_search: config.context_file_search,
             hook_prompt_entries: Vec::new(),
             warnings,
         }

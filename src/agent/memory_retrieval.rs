@@ -18,6 +18,10 @@ impl Agent {
     }
 
     pub(super) fn refresh_file_search_candidates(&mut self) {
+        if self.prompt_config.context_file_search == crate::config::ContextFileSearchPolicy::Off {
+            self.file_search_candidates = Vec::new();
+            return;
+        }
         let query = latest_user_text(&self.history);
         if query.is_empty() {
             self.file_search_candidates = Vec::new();
