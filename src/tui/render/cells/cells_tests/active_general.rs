@@ -1660,6 +1660,48 @@ fn active_turn_cell_renders_bash_completion_as_status_line() {
 }
 
 #[test]
+fn active_turn_cell_marks_truncated_bash_completion_body() {
+    let temp = tempdir().unwrap();
+    let mut app = TuiApp::new(ConfigManager {
+        path: temp.path().join("config.json"),
+    })
+    .expect("build tui app");
+    app.runtime_phase = RuntimePhase::RunningTool;
+    app.runtime_phase_detail = Some("tool completed".into());
+    let body = (1..=20)
+        .map(|idx| format!("line {idx}"))
+        .collect::<Vec<_>>()
+        .join("\n");
+    app.active_turn = TranscriptTurn {
+        thinking_duration: None,
+        entries: vec![
+            TranscriptEntry {
+                role: "You".into(),
+                message: "Run checks".into(),
+                payload: None,
+            },
+            TranscriptEntry {
+                role: "Tool Result".into(),
+                message: format!("bash finished with exit code 0\n{body}"),
+                payload: None,
+            },
+        ],
+    };
+
+    let rendered = ActiveTurnCell::new(&app, Some(Path::new(".")))
+        .display_lines(100)
+        .into_iter()
+        .map(|line| line.to_string())
+        .collect::<Vec<_>>()
+        .join("\n");
+
+    assert!(rendered.contains("✓ bash"));
+    assert!(rendered.contains("line 1"));
+    assert!(rendered.contains("... 8 more line(s)"));
+    assert!(!rendered.contains("line 20"));
+}
+
+#[test]
 fn active_turn_cell_prefers_responding_over_system_notice_while_sending_prompt() {
     let temp = tempdir().unwrap();
     let mut app = TuiApp::new(ConfigManager {

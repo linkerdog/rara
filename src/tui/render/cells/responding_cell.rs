@@ -218,18 +218,28 @@ fn bash_completion_lines(
         return Some(rendered);
     }
 
-    rendered.extend(
-        lines
-            .map(str::trim_end)
-            .filter(|line| !line.is_empty())
-            .take(body_budget)
-            .map(|line| {
-                Line::from(Span::styled(
-                    format!("  {line}"),
-                    Style::default().fg(TEXT_SECONDARY),
-                ))
-            }),
-    );
+    let body_lines = lines
+        .map(str::trim_end)
+        .filter(|line| !line.is_empty())
+        .collect::<Vec<_>>();
+    let truncated = body_lines.len() > body_budget;
+    let capped = if truncated {
+        body_budget.saturating_sub(1)
+    } else {
+        body_lines.len().min(body_budget)
+    };
+    rendered.extend(body_lines.iter().take(capped).map(|line| {
+        Line::from(Span::styled(
+            format!("  {line}"),
+            Style::default().fg(TEXT_SECONDARY),
+        ))
+    }));
+    if truncated {
+        rendered.push(Line::from(Span::styled(
+            format!("  ... {} more line(s)", body_lines.len() - capped),
+            Style::default().fg(TEXT_SECONDARY),
+        )));
+    }
     Some(rendered)
 }
 
