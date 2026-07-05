@@ -44,6 +44,13 @@ Active backlog only. Keep this file small and current.
 - [x] Tool result compression — ToolResultProjectionPolicy + model_preview_bash_output
 - [x] Context file routing — FileSearchCandidateProvider → retrieval pipeline (spec-only PR #606)
 
+## Benchmark / Evaluation
+
+- [ ] Add Harbor-compatible Terminal-Bench integration. Build the Harbor
+      installed-agent adapter on top of `rara exec --json`, run inside the
+      benchmark task workspace, and write ATIF-compatible trajectory logs. See
+      `docs/features/terminal-bench-evaluation.md`.
+
 ## Agent / Subagent
 
 - [x] Subagent token_budget field (PR #601)

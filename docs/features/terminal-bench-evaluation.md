@@ -15,6 +15,8 @@ from failures, and final task verification. These are core RARA capabilities.
 
 RARA should support a Terminal-Bench-compatible evaluation path that can:
 
+- run under Harbor's Terminal-Bench tutorial flow:
+  `harbor run -d terminal-bench/terminal-bench-2 -a <rara-agent>`;
 - run RARA inside the benchmark task container;
 - map benchmark task instructions into a single RARA session;
 - expose the working directory and terminal environment without requiring TUI
@@ -44,8 +46,14 @@ parallel agent implementation.
 
 Recommended components:
 
-- `rara eval terminal-bench` command or an equivalent Harbor agent adapter.
-- Headless execution mode that reuses the normal agent loop without TUI chrome.
+- `rara exec` headless execution mode that reuses the normal agent loop
+  without TUI chrome. Initial support includes prompt/stdin input,
+  `--json` JSONL events, explicit cwd selection, run/task metadata, and
+  `--output-last-message`.
+- A Harbor installed-agent adapter that invokes `rara exec` for the task and
+  converts RARA's structured output into ATIF-compatible trajectory artifacts.
+- `rara eval terminal-bench` may be added later as a convenience wrapper, but
+  the first integration target is Harbor compatibility.
 - Stable workspace setup contract:
   - cwd points at the benchmark task workspace;
   - all edits happen inside the task workspace unless the benchmark explicitly
@@ -66,6 +74,7 @@ Recommended components:
   - sandbox mode;
   - token and tool-loop limits;
   - task id;
+  - Harbor run id / trial id when provided by the harness;
   - start/end timestamps;
   - pass/fail result when provided by the harness.
 
@@ -77,9 +86,34 @@ The benchmark adapter must present RARA as a terminal agent that can receive one
 task instruction, operate inside the provided workspace, and stop with a final
 answer when the task is complete.
 
+For Harbor, the adapter should be an installed agent wrapper rather than a
+benchmark-specific RARA runtime. The wrapper owns Harbor-specific plumbing:
+reading the task input, invoking `rara exec`, and writing ATIF trajectory output.
+RARA owns the generic headless agent execution and event stream.
+
 The adapter must not require interactive TUI-only features. Any configuration
 that is currently only exposed through `/model`, `/auth`, or overlays must also
 have a headless path.
+
+### Headless Execution Contract
+
+`rara exec` is the stable automation surface:
+
+- accept a prompt argument, stdin, or `-` for stdin-only prompts;
+- support explicit cwd selection for task workspaces;
+- support scriptable provider/model/API-key selection through existing config
+  and CLI overrides;
+- emit JSONL trajectory events when requested;
+- optionally write the final assistant message to a file;
+- fail fast when interactive approval, user input, or auth refresh is required
+  in headless mode.
+
+The JSONL event schema is RARA-owned and stable enough for the Harbor adapter
+boundary. It includes thread start, turn start/completion/failure, assistant
+message items, reasoning items, tool call/result/progress items, memory/todo
+status items, model usage items, and final failure reasons. Later revisions can
+add richer command exit metadata and file-change grouping without requiring a
+benchmark-specific runtime.
 
 ### Tool Contract
 
@@ -123,6 +157,9 @@ Each trial should end with one of:
 ## Validation Matrix
 
 - Run a small smoke subset locally through the adapter.
+- Run Harbor's Terminal-Bench tutorial command with a RARA installed agent and
+  record the exact `harbor run` invocation.
+- Confirm the Harbor run receives an ATIF-compatible trajectory artifact.
 - Confirm failures include enough trajectory data to reproduce the final
   decision.
 - Confirm headless configuration can select provider/model/API key without TUI
@@ -149,4 +186,4 @@ Each trial should end with one of:
 
 ## Source Journals
 
-- None yet. Add a dated journal entry when the first adapter or smoke run lands.
+- `docs/journal/2026-07-05-rara-exec-headless.md`
