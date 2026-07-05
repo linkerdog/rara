@@ -152,7 +152,9 @@ impl HistoryCell for RespondingCell<'_> {
                 message,
                 max_lines,
             } => {
-                if let Some(cell) = LspDiagnosticsCell::from_message(message) {
+                if let Some(lines) = bash_completion_lines(role, message, *max_lines) {
+                    lines
+                } else if let Some(cell) = LspDiagnosticsCell::from_message(message) {
                     cell.display_lines(width)
                 } else if let Some(lines) = render_message_diff_preview(Some(role), message, width)
                 {
@@ -164,6 +166,81 @@ impl HistoryCell for RespondingCell<'_> {
             RespondingCellContent::Working(detail) => compact_message_lines(detail, 1),
         }
     }
+}
+
+fn bash_completion_lines(
+    role: &str,
+    message: &str,
+    max_lines: usize,
+) -> Option<Vec<Line<'static>>> {
+    if !matches!(role, "Tool Result" | "Tool Error") {
+        return None;
+    }
+
+    let mut lines = message.lines();
+    let first = lines.next()?.trim();
+    let normalized = first.strip_prefix("bash: ").unwrap_or(first);
+    let (success, exit_code) = if normalized == "bash finished with exit code 0"
+        || normalized == "finished with exit code 0"
+    {
+        (true, Some(0))
+    } else {
+        let code = normalized
+            .strip_prefix("bash failed with exit code ")
+            .or_else(|| normalized.strip_prefix("failed with exit code "))
+            .and_then(|value| value.parse::<i32>().ok())?;
+        (false, Some(code))
+    };
+
+    let icon_style = if success {
+        Style::default()
+            .fg(STATUS_SUCCESS)
+            .add_modifier(Modifier::BOLD)
+    } else {
+        Style::default()
+            .fg(STATUS_ERROR)
+            .add_modifier(Modifier::BOLD)
+    };
+    let mut status = Line::from(vec![
+        Span::styled(if success { "✓" } else { "✗" }, icon_style),
+        Span::raw(" bash"),
+    ]);
+    if let Some(code) = exit_code.filter(|code| *code != 0) {
+        status.push_span(Span::styled(
+            format!(" · exit {code}"),
+            Style::default().fg(TEXT_SECONDARY),
+        ));
+    }
+
+    let body_budget = max_lines.saturating_sub(1);
+    let mut rendered = vec![status];
+    if body_budget == 0 {
+        return Some(rendered);
+    }
+
+    let body_lines = lines
+        .map(str::trim_end)
+        .filter(|line| !line.is_empty())
+        .collect::<Vec<_>>();
+    let truncated = body_lines.len() > body_budget;
+    let capped = if truncated {
+        body_budget.saturating_sub(1)
+    } else {
+        body_lines.len().min(body_budget)
+    };
+    rendered.extend(body_lines.iter().take(capped).map(|line| {
+        Line::from(Span::styled(
+            format!("  {line}"),
+            Style::default().fg(TEXT_SECONDARY),
+        ))
+    }));
+    if truncated {
+        rendered.push(Line::from(Span::styled(
+            format!("  ... {} more line(s)", body_lines.len() - capped),
+            Style::default().fg(TEXT_SECONDARY),
+        )));
+    }
+    Some(rendered)
 }
 
 fn lightweight_stream_lines(rendered: &[Line<'static>], max_lines: usize) -> Vec<Line<'static>> {
