@@ -183,6 +183,33 @@ fn shell_approval_panel_keeps_actions_visible() {
 }
 
 #[test]
+fn interaction_panel_keeps_actions_visible_with_three_detail_lines() {
+    let temp = tempdir().expect("tempdir");
+    let mut app = TuiApp::new(ConfigManager {
+        path: temp.path().join("config.json"),
+    })
+    .expect("build tui app");
+    app.snapshot
+        .pending_interactions
+        .push(PendingInteractionSnapshot {
+            kind: InteractionKind::RequestInput,
+            title: "line one\nline two\nline three".into(),
+            summary: "answer planning question".into(),
+            options: Vec::new(),
+            note: None,
+            approval: None,
+            source: Some("plan_agent".into()),
+            created_at_epoch_seconds: None,
+        });
+
+    let rendered = render_screen_text(&mut app, 80, 14);
+
+    assert!(rendered.contains("Planning Question"));
+    assert!(rendered.contains("[Enter] Continue Plan"));
+    assert!(rendered.contains("[I] Start Implementation"));
+}
+
+#[test]
 fn bottom_pane_background_covers_hint_and_footer_rows() {
     let temp = tempdir().expect("tempdir");
     let mut app = TuiApp::new(ConfigManager {

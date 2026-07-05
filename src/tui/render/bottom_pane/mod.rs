@@ -120,7 +120,7 @@ fn render_interaction_panel(f: &mut Frame, panel: &view::InteractionPanelView, a
         }
     } else {
         let action_line = interaction_action_line(panel);
-        let detail_rows = usize::from(area.height).saturating_sub(2);
+        let detail_rows = usize::from(area.height).saturating_sub(3);
         for line in panel.detail.lines().take(detail_rows) {
             lines.push(Line::from(format!("  {}", line)));
         }
