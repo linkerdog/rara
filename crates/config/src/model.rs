@@ -87,6 +87,21 @@ impl ContextFileSearchPolicy {
     }
 }
 
+/// Controls whether RARA may start the bundled local embedding sidecar.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum LocalEmbeddingPolicy {
+    #[default]
+    Off,
+    Auto,
+}
+
+impl LocalEmbeddingPolicy {
+    pub fn is_default(&self) -> bool {
+        *self == Self::default()
+    }
+}
+
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct ProviderConfigState {
     #[serde(
@@ -293,6 +308,8 @@ pub struct RaraConfig {
     pub memory_consolidation: MemoryConsolidationConfig,
     #[serde(default, skip_serializing_if = "ContextFileSearchPolicy::is_default")]
     pub context_file_search: ContextFileSearchPolicy,
+    #[serde(default, skip_serializing_if = "LocalEmbeddingPolicy::is_default")]
+    pub local_embeddings: LocalEmbeddingPolicy,
     #[serde(default, skip_serializing_if = "TuiConfig::is_default")]
     pub tui: TuiConfig,
 }
@@ -1062,8 +1079,8 @@ mod tests {
     use tempfile::tempdir;
 
     use super::{
-        ConfigManager, ContextFileSearchPolicy, OpenAiEndpointKind, OpenAiEndpointProfile,
-        ProviderConfigState, RaraConfig, workspace_data_dir_for_home,
+        ConfigManager, ContextFileSearchPolicy, LocalEmbeddingPolicy, OpenAiEndpointKind,
+        OpenAiEndpointProfile, ProviderConfigState, RaraConfig, workspace_data_dir_for_home,
     };
     use crate::defaults::{
         DEFAULT_CODEX_BASE_URL, DEFAULT_CODEX_CHATGPT_BASE_URL, DEFAULT_CODEX_MODEL,
@@ -1158,6 +1175,29 @@ mod tests {
         .expect("deserialize config");
 
         assert_eq!(config.context_file_search, ContextFileSearchPolicy::Off);
+    }
+
+    #[test]
+    fn local_embeddings_default_off_and_omitted() {
+        let config = RaraConfig::default();
+
+        assert_eq!(config.local_embeddings, LocalEmbeddingPolicy::Off);
+
+        let json = serde_json::to_string(&config).expect("serialize config");
+        assert!(!json.contains("local_embeddings"));
+    }
+
+    #[test]
+    fn local_embeddings_can_enable_auto_sidecar_policy() {
+        let config: RaraConfig = serde_json::from_str(
+            r#"{
+                "provider": "deepseek",
+                "local_embeddings": "auto"
+            }"#,
+        )
+        .expect("deserialize config");
+
+        assert_eq!(config.local_embeddings, LocalEmbeddingPolicy::Auto);
     }
 
     #[test]

@@ -10,7 +10,8 @@ use self::tooling::{create_full_tool_manager, load_skill_manager, vector_db_uri_
 use crate::agent::Agent;
 use crate::config::{
     DEFAULT_CODEX_BASE_URL, DEFAULT_CODEX_MODEL, DEFAULT_GEMINI_BASE_URL, DEFAULT_GEMINI_MODEL,
-    OpenAiEndpointKind, REASONING_SUMMARY_NONE, RaraConfig, ensure_rara_home_dir,
+    LocalEmbeddingPolicy, OpenAiEndpointKind, REASONING_SUMMARY_NONE, RaraConfig,
+    ensure_rara_home_dir,
 };
 use crate::embedding::EmbeddingOverrideBackend;
 use crate::google_oauth::GoogleOAuthManager;
@@ -267,6 +268,9 @@ enum EmbeddingRoute {
 }
 
 fn embedding_route_for_config(config: &RaraConfig) -> EmbeddingRoute {
+    if config.local_embeddings == LocalEmbeddingPolicy::Off {
+        return EmbeddingRoute::CurrentLlmBackend;
+    }
     match config.provider.as_str() {
         "codex" | "mock" => EmbeddingRoute::CurrentLlmBackend,
         provider if RaraConfig::is_openai_compatible_family(provider) => {
@@ -536,10 +540,13 @@ mod tests {
     use tempfile::tempdir;
 
     use super::{
-        EmbeddingRoute, build_backend_with_progress, embedding_route_for_config,
-        initialize_rara_context, ollama_thinking_enabled, vector_db_uri_for_workspace,
+        EmbeddingRoute, build_backend_with_progress, config_requires_local_embedding_sidecar,
+        embedding_route_for_config, initialize_rara_context, ollama_thinking_enabled,
+        vector_db_uri_for_workspace,
     };
-    use crate::config::{DEFAULT_REASONING_SUMMARY, REASONING_SUMMARY_NONE, RaraConfig};
+    use crate::config::{
+        DEFAULT_REASONING_SUMMARY, LocalEmbeddingPolicy, REASONING_SUMMARY_NONE, RaraConfig,
+    };
     use crate::workspace::WorkspaceMemory;
 
     #[test]
@@ -678,9 +685,23 @@ mod tests {
     }
 
     #[test]
-    fn embedding_route_prefers_local_sidecar_for_unsupported_or_local_chat_providers() {
+    fn embedding_route_disables_local_sidecar_by_default() {
         let deepseek = RaraConfig {
             provider: "deepseek".to_string(),
+            ..Default::default()
+        };
+        assert_eq!(
+            embedding_route_for_config(&deepseek),
+            EmbeddingRoute::CurrentLlmBackend
+        );
+        assert!(!config_requires_local_embedding_sidecar(&deepseek));
+    }
+
+    #[test]
+    fn embedding_route_prefers_local_sidecar_when_auto_policy_is_enabled() {
+        let deepseek = RaraConfig {
+            provider: "deepseek".to_string(),
+            local_embeddings: LocalEmbeddingPolicy::Auto,
             ..Default::default()
         };
         assert_eq!(
@@ -690,6 +711,7 @@ mod tests {
 
         let local = RaraConfig {
             provider: "local".to_string(),
+            local_embeddings: LocalEmbeddingPolicy::Auto,
             ..Default::default()
         };
         assert_eq!(
@@ -699,6 +721,7 @@ mod tests {
 
         let gemini_code_assist = RaraConfig {
             provider: "gemini-code-assist".to_string(),
+            local_embeddings: LocalEmbeddingPolicy::Auto,
             ..Default::default()
         };
         assert_eq!(
