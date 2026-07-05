@@ -54,6 +54,10 @@ impl ExecConsumer {
 
         match result {
             Ok(()) => {
+                processor.update_usage(
+                    self.agent.total_input_tokens,
+                    self.agent.total_output_tokens,
+                );
                 if processor.final_message().is_none() {
                     let message =
                         "headless exec completed without a final assistant message".to_string();
@@ -72,6 +76,10 @@ impl ExecConsumer {
                 Ok(())
             }
             Err(err) => {
+                processor.update_usage(
+                    self.agent.total_input_tokens,
+                    self.agent.total_output_tokens,
+                );
                 processor.emit_turn_failed(err.to_string())?;
                 Err(err)
             }
@@ -212,6 +220,11 @@ impl ExecJsonlProcessor {
         self.final_message.as_deref()
     }
 
+    fn update_usage(&mut self, input_tokens: u32, output_tokens: u32) {
+        self.usage.input_tokens = input_tokens;
+        self.usage.output_tokens = output_tokens;
+    }
+
     fn next_item_id(&mut self) -> String {
         let id = format!("item_{}", self.next_item_id);
         self.next_item_id += 1;
@@ -251,7 +264,9 @@ impl ExecJsonlProcessor {
             AgentEvent::AgentStart => Ok(()),
             AgentEvent::AgentStop { .. } => Ok(()),
             AgentEvent::AssistantText(text) => {
-                self.final_message = Some(text.clone());
+                self.final_message
+                    .get_or_insert_with(String::new)
+                    .push_str(&text);
                 self.emit_item(ExecItemDetails::AgentMessage { text })
             }
             AgentEvent::AssistantDelta(delta) => {
@@ -449,5 +464,53 @@ mod tests {
 
         assert_eq!(processor.final_message(), Some("done"));
         assert_eq!(processor.next_item_id, 2);
+    }
+
+    #[test]
+    fn processor_appends_assistant_text_parts() {
+        let mut processor = ExecJsonlProcessor::new(test_metadata(), false);
+
+        processor
+            .process_event(AgentEvent::AssistantText("first ".to_string()))
+            .expect("first assistant text");
+        processor
+            .process_event(AgentEvent::AssistantText("second ".to_string()))
+            .expect("second assistant text");
+        processor
+            .process_event(AgentEvent::AssistantDelta("third".to_string()))
+            .expect("assistant delta");
+
+        assert_eq!(processor.final_message(), Some("first second third"));
+    }
+
+    #[test]
+    fn processor_updates_usage_from_final_agent_totals() {
+        let mut processor = ExecJsonlProcessor::new(test_metadata(), false);
+
+        processor
+            .process_event(AgentEvent::ModelRequest {
+                model: "mock".to_string(),
+                input_tokens: 0,
+            })
+            .expect("model request");
+        processor
+            .process_event(AgentEvent::ModelResponse {
+                model: "mock".to_string(),
+                output_tokens: 2,
+                finish_reason: Some("stop".to_string()),
+            })
+            .expect("model response");
+        processor.update_usage(13, 7);
+
+        assert_eq!(processor.usage.input_tokens, 13);
+        assert_eq!(processor.usage.output_tokens, 7);
+    }
+
+    fn test_metadata() -> ExecRunMetadata {
+        ExecRunMetadata {
+            session_id: "session-1".to_string(),
+            run_id: Some("run-1".to_string()),
+            task_id: Some("task-1".to_string()),
+        }
     }
 }
