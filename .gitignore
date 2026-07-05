@@ -3,6 +3,7 @@
 .rara/
 .idea/
 data/lancedb
+jobs/
 .DS_Store
 .tmp-pr-*
 .tmp-pr*.md
