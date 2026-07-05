@@ -62,7 +62,7 @@ impl FileSearchCandidateProvider {
             .into_iter()
             .map(|m| {
                 let path = display_path(&self.workspace_root, &m.path);
-                let token_budget = estimate_path_candidate_tokens(Path::new(&path));
+                let token_budget = estimate_path_candidate_tokens(&path);
                 FileSearchCandidate {
                     path,
                     score: m.score as f64,
@@ -141,8 +141,8 @@ fn provenance_label(score: f64) -> String {
 }
 
 /// Heuristic token estimate for a paths-only candidate.
-fn estimate_path_candidate_tokens(path: &Path) -> usize {
-    let path_tokens = path.to_string_lossy().len().div_ceil(4);
+fn estimate_path_candidate_tokens(path: &str) -> usize {
+    let path_tokens = path.len().div_ceil(4);
     path_tokens.max(1)
 }
 
@@ -159,7 +159,7 @@ mod tests {
 
     #[test]
     fn estimate_path_candidate_budget_does_not_read_file_contents() {
-        let budget = estimate_path_candidate_tokens(Path::new("/nonexistent/file.txt"));
+        let budget = estimate_path_candidate_tokens("/nonexistent/file.txt");
         assert!(budget > 0);
     }
 
