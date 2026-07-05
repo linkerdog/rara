@@ -119,21 +119,12 @@ fn render_interaction_panel(f: &mut Frame, panel: &view::InteractionPanelView, a
             )));
         }
     } else {
-        for line in panel.detail.lines() {
+        let action_line = interaction_action_line(panel);
+        let detail_rows = usize::from(area.height).saturating_sub(2);
+        for line in panel.detail.lines().take(detail_rows) {
             lines.push(Line::from(format!("  {}", line)));
         }
-        lines.push(Line::from(""));
-        let button_line: String = panel
-            .actions
-            .iter()
-            .enumerate()
-            .map(|(i, a)| {
-                let prefix = if i == panel.selected { "▸" } else { " " };
-                format!("{}[{}] {}", prefix, a.key, a.label)
-            })
-            .collect::<Vec<_>>()
-            .join("    ");
-        lines.push(Line::from(format!("  {}", button_line)));
+        lines.push(Line::from(format!("  {}", action_line)));
     }
 
     let block = Block::default();
@@ -141,4 +132,17 @@ fn render_interaction_panel(f: &mut Frame, panel: &view::InteractionPanelView, a
         .block(block)
         .wrap(Wrap { trim: false });
     f.render_widget(para, area);
+}
+
+fn interaction_action_line(panel: &view::InteractionPanelView) -> String {
+    panel
+        .actions
+        .iter()
+        .enumerate()
+        .map(|(i, action)| {
+            let prefix = if i == panel.selected { "▸" } else { " " };
+            format!("{}[{}] {}", prefix, action.key, action.label)
+        })
+        .collect::<Vec<_>>()
+        .join("    ")
 }

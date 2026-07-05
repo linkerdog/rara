@@ -17,10 +17,12 @@ use super::{
     tool_action_label, transcript_scroll_offset, transcript_viewport, transcript_visual_row_count,
 };
 use crate::config::{ConfigManager, OpenAiEndpointKind, RaraConfig};
+use crate::tools::bash::BashCommandInput;
 use crate::tui::custom_terminal::Frame;
 use crate::tui::state::{
-    ListPickerKind, Overlay, PlanningApprovalStatus, PlanningLifecycleSnapshot, ProviderFamily,
-    RuntimeSnapshot, StatusTab, TranscriptEntry, TranscriptTurn, TuiApp,
+    InteractionKind, ListPickerKind, Overlay, PendingApprovalSnapshot, PendingInteractionSnapshot,
+    PlanningApprovalStatus, PlanningLifecycleSnapshot, ProviderFamily, RuntimeSnapshot, StatusTab,
+    TranscriptEntry, TranscriptTurn, TuiApp,
 };
 
 fn provider_family_idx(family: ProviderFamily) -> usize {
@@ -140,6 +142,44 @@ fn transcript_render_stays_above_bottom_pane() {
     assert!(transcript.contains("TRANSCRIPT_SENTINEL"));
     assert!(!bottom.contains("TRANSCRIPT_SENTINEL"));
     assert!(bottom.contains("composer text"));
+}
+
+#[test]
+fn shell_approval_panel_keeps_actions_visible() {
+    let temp = tempdir().expect("tempdir");
+    let mut app = TuiApp::new(ConfigManager {
+        path: temp.path().join("config.json"),
+    })
+    .expect("build tui app");
+    app.snapshot
+        .pending_interactions
+        .push(PendingInteractionSnapshot {
+            kind: InteractionKind::Approval,
+            title: "Shell Approval".into(),
+            summary: "cargo check 2>&1 | head -80".into(),
+            options: Vec::new(),
+            note: None,
+            approval: Some(PendingApprovalSnapshot {
+                tool_use_id: "toolu_123".into(),
+                command: "cargo check 2>&1 | head -80".into(),
+                allow_net: false,
+                payload: BashCommandInput {
+                    command: Some("cargo check 2>&1 | head -80".into()),
+                    cwd: Some("/home/hawkingrei/devel/opensource/rara".into()),
+                    ..Default::default()
+                },
+            }),
+            source: None,
+            created_at_epoch_seconds: None,
+        });
+
+    let rendered = render_screen_text(&mut app, 80, 14);
+
+    assert!(rendered.contains("Permission Required"));
+    assert!(rendered.contains("[1] Allow once"));
+    assert!(rendered.contains("[2] Allow prefix"));
+    assert!(rendered.contains("[3] Allow always"));
+    assert!(rendered.contains("[4] Deny"));
 }
 
 #[test]
