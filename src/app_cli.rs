@@ -1,3 +1,4 @@
+use std::path::PathBuf;
 use std::sync::Arc;
 
 use anyhow::{Result, bail};
@@ -87,6 +88,33 @@ struct ModelsShowArgs {
     profile_id: String,
 }
 
+#[derive(Debug, clap::Args)]
+struct ExecArgs {
+    /// Print headless execution events to stdout as JSONL.
+    #[arg(long, default_value_t = false)]
+    json: bool,
+
+    /// Working directory for the headless run.
+    #[arg(long = "cwd", short = 'C', value_name = "DIR")]
+    cwd: Option<PathBuf>,
+
+    /// Write the final assistant message to this file.
+    #[arg(long = "output-last-message", short = 'o', value_name = "FILE")]
+    output_last_message: Option<PathBuf>,
+
+    /// External benchmark or harness run id to include in JSONL metadata.
+    #[arg(long = "run-id", value_name = "ID")]
+    run_id: Option<String>,
+
+    /// External benchmark task id to include in JSONL metadata.
+    #[arg(long = "task-id", value_name = "ID")]
+    task_id: Option<String>,
+
+    /// Initial instructions. If omitted, or if `-` is used, read from stdin.
+    #[arg(value_name = "PROMPT")]
+    prompt: Option<String>,
+}
+
 #[derive(Debug, clap::Subcommand)]
 enum ModelsCommands {
     /// List configured models
@@ -109,6 +137,8 @@ enum Commands {
     Ask {
         prompt: String,
     },
+    /// Run RARA non-interactively for automation and evaluation harnesses.
+    Exec(ExecArgs),
     Fork {
         #[arg(value_name = "THREAD_ID")]
         thread_id: String,
@@ -164,6 +194,7 @@ pub(crate) async fn run_cli() -> Result<()> {
         Commands::Models(cmd) => run_models_command(&config, cmd)?,
         Commands::Plugin(cmd) => run_plugin_command(cmd)?,
         Commands::Ask { prompt } => run_ask_command(&config, prompt).await?,
+        Commands::Exec(args) => run_exec_command(&config, args).await?,
         Commands::Fork { thread_id } => thread_cli::run_fork_command(&thread_id)?,
         Commands::Distill { thread_id } => run_distill_command(&config, &thread_id).await?,
         Commands::Thread { thread_id } => thread_cli::run_thread_command(&thread_id)?,
@@ -259,6 +290,27 @@ async fn run_print_command(config: &RaraConfig, prompt: String) -> Result<()> {
     let event_bus = bootstrap.event_bus.clone();
     let agent = bootstrap.into_agent();
     let consumer = PrintConsumer::new(agent, event_bus, prompt);
+    consumer.run().await
+}
+
+async fn run_exec_command(config: &RaraConfig, args: ExecArgs) -> Result<()> {
+    if let Some(cwd) = args.cwd.as_deref() {
+        std::env::set_current_dir(cwd)
+            .map_err(|err| anyhow::anyhow!("failed to switch cwd to {}: {err}", cwd.display()))?;
+    }
+    let bootstrap = runtime_context::initialize_rara_context(config, None).await?;
+    emit_bootstrap_warnings(&bootstrap.warnings);
+    let agent = bootstrap.into_agent();
+    let consumer = crate::exec_consumer::ExecConsumer::new(
+        agent,
+        crate::exec_consumer::ExecRunOptions {
+            prompt: args.prompt,
+            json: args.json,
+            output_last_message: args.output_last_message,
+            run_id: args.run_id,
+            task_id: args.task_id,
+        },
+    );
     consumer.run().await
 }
 
@@ -382,6 +434,7 @@ fn startup_resume_target_for_command(command: &Commands) -> Option<StartupResume
         | Commands::Models(..)
         | Commands::Plugin(..)
         | Commands::Ask { .. }
+        | Commands::Exec(..)
         | Commands::Distill { .. }
         | Commands::Fork { .. }
         | Commands::Thread { .. }
@@ -636,6 +689,36 @@ mod tests {
     }
 
     #[test]
+    fn clap_parses_exec_command_for_headless_harnesses() {
+        let cli = Cli::try_parse_from([
+            "rara",
+            "exec",
+            "--json",
+            "-C",
+            "task-workspace",
+            "--run-id",
+            "run-1",
+            "--task-id",
+            "task-1",
+            "--output-last-message",
+            "final.txt",
+            "-",
+        ])
+        .expect("parse exec");
+        match cli.command.expect("command") {
+            Commands::Exec(args) => {
+                assert!(args.json);
+                assert_eq!(args.cwd, Some(PathBuf::from("task-workspace")));
+                assert_eq!(args.run_id.as_deref(), Some("run-1"));
+                assert_eq!(args.task_id.as_deref(), Some("task-1"));
+                assert_eq!(args.output_last_message, Some(PathBuf::from("final.txt")));
+                assert_eq!(args.prompt.as_deref(), Some("-"));
+            }
+            other => panic!("unexpected command: {other:?}"),
+        }
+    }
+
+    #[test]
     fn clap_parses_thread_resume_with_last() {
         let cli = Cli::try_parse_from(["rara", "resume", "--last"]).expect("parse resume --last");
         match cli.command.expect("command") {
@@ -706,6 +789,17 @@ mod tests {
             }),
             Some(StartupResumeTarget::ThreadId(thread_id)) if thread_id == "thread-123"
         ));
+        assert!(
+            startup_resume_target_for_command(&Commands::Exec(ExecArgs {
+                json: true,
+                cwd: None,
+                output_last_message: None,
+                run_id: None,
+                task_id: None,
+                prompt: Some("hello".to_string()),
+            }))
+            .is_none()
+        );
     }
 
     // --- connect / models CLI parsing ---

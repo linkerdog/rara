@@ -46,11 +46,10 @@ Active backlog only. Keep this file small and current.
 
 ## Benchmark / Evaluation
 
-- [ ] Add Harbor-compatible Terminal-Bench integration. Start with a
-      Codex-style `rara exec --json` headless surface plus a Harbor installed
-      agent adapter that runs inside the benchmark task workspace, supports
-      scriptable provider/model configuration, and writes ATIF-compatible
-      trajectory logs. See `docs/features/terminal-bench-evaluation.md`.
+- [ ] Add Harbor-compatible Terminal-Bench integration. Build the Harbor
+      installed-agent adapter on top of `rara exec --json`, run inside the
+      benchmark task workspace, and write ATIF-compatible trajectory logs. See
+      `docs/features/terminal-bench-evaluation.md`.
 
 ## Agent / Subagent
 

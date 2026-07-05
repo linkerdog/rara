@@ -47,7 +47,9 @@ parallel agent implementation.
 Recommended components:
 
 - `rara exec` headless execution mode that reuses the normal agent loop
-  without TUI chrome.
+  without TUI chrome. Initial support includes prompt/stdin input,
+  `--json` JSONL events, explicit cwd selection, run/task metadata, and
+  `--output-last-message`.
 - A Harbor installed-agent adapter that invokes `rara exec` for the task and
   converts RARA's structured output into ATIF-compatible trajectory artifacts.
 - `rara eval terminal-bench` may be added later as a convenience wrapper, but
@@ -95,7 +97,7 @@ have a headless path.
 
 ### Headless Execution Contract
 
-`rara exec` should be the stable automation surface:
+`rara exec` is the stable automation surface:
 
 - accept a prompt argument, stdin, or `-` for stdin-only prompts;
 - support explicit cwd selection for task workspaces;
@@ -106,10 +108,12 @@ have a headless path.
 - fail fast when interactive approval, user input, or auth refresh is required
   in headless mode.
 
-The JSONL event schema should be RARA-owned and stable. It should include turn
-start/completion/failure events, assistant messages, command execution items,
-file-change items, tool-result summaries, usage metadata, and final failure
-reasons.
+The JSONL event schema is RARA-owned and stable enough for the Harbor adapter
+boundary. It includes thread start, turn start/completion/failure, assistant
+message items, reasoning items, tool call/result/progress items, memory/todo
+status items, model usage items, and final failure reasons. Later revisions can
+add richer command exit metadata and file-change grouping without requiring a
+benchmark-specific runtime.
 
 ### Tool Contract
 
@@ -182,4 +186,4 @@ Each trial should end with one of:
 
 ## Source Journals
 
-- None yet. Add a dated journal entry when the first adapter or smoke run lands.
+- `docs/journal/2026-07-05-rara-exec-headless.md`
