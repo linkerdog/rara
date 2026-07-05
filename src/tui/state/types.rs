@@ -786,9 +786,6 @@ pub struct TuiApp {
 pub struct SkillPickerEntry {
     pub name: String,
     pub title: String,
-    // Skill scope metadata (repo, home, cwd) exposed through the TUI picker
-    // surface; populated during startup but read through skill_picker_entries.
-    #[allow(dead_code)]
     pub scope: String,
     pub enabled: bool,
     pub disable_model_invocation: bool,

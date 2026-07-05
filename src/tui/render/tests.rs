@@ -19,6 +19,7 @@ use super::{
 use crate::config::{ConfigManager, OpenAiEndpointKind, RaraConfig};
 use crate::tools::bash::BashCommandInput;
 use crate::tui::custom_terminal::Frame;
+use crate::tui::state::SkillPickerEntry;
 use crate::tui::state::{
     InteractionKind, ListPickerKind, Overlay, PendingApprovalSnapshot, PendingInteractionSnapshot,
     PlanningApprovalStatus, PlanningLifecycleSnapshot, ProviderFamily, RuntimeSnapshot, StatusTab,
@@ -1103,6 +1104,34 @@ fn deepseek_api_key_editor_uses_deepseek_copy() {
     assert!(rendered.contains("Esc back to model picker"));
     assert!(!rendered.contains("Codex API Key"));
     assert!(!rendered.contains("Esc back to login guide"));
+}
+
+#[test]
+fn skills_picker_renders_selected_entry_scope_and_scrolls() {
+    let temp = tempdir().expect("tempdir");
+    let mut app = TuiApp::new(ConfigManager {
+        path: temp.path().join("config.json"),
+    })
+    .expect("build tui app");
+    app.skill_picker_entries = (0..16)
+        .map(|idx| SkillPickerEntry {
+            name: format!("skill-{idx:02}"),
+            title: format!("Skill {idx:02}"),
+            scope: if idx % 2 == 0 { "repo" } else { "home" }.to_string(),
+            enabled: idx % 3 != 0,
+            disable_model_invocation: idx % 3 == 0,
+        })
+        .collect();
+    app.open_overlay(Overlay::SkillsPicker);
+    app.skill_picker_idx = 14;
+
+    let rendered = render_screen_text(&mut app, 80, 16);
+    assert!(
+        rendered.contains("[x] skill-14 [repo]"),
+        "rendered:\n{rendered}"
+    );
+    assert!(rendered.contains("Skill 14"), "rendered:\n{rendered}");
+    assert!(!rendered.contains("skill-00"));
 }
 
 fn render_screen_text(app: &mut TuiApp, width: u16, height: u16) -> String {

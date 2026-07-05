@@ -118,25 +118,33 @@ pub(super) fn render_permission_picker_modal(f: &mut Frame, app: &TuiApp, area: 
 
 pub(super) fn render_skills_picker_modal(f: &mut Frame, app: &TuiApp, area: Rect) {
     let title = " Skills ";
-    let mut items = Vec::new();
-    for (idx, entry) in app.skill_picker_entries.iter().enumerate() {
-        let checkbox = if entry.enabled { "[x]" } else { "[ ]" };
-        let desc = entry.title.as_str();
-        let style = if idx == app.skill_picker_idx {
-            Style::default()
-                .fg(theme_color(ThemeToken::TextAccent))
-                .add_modifier(Modifier::BOLD)
-        } else {
-            Style::default()
-        };
-        items.push(
-            ListItem::new(vec![
-                Line::from(format!("{} {}", checkbox, entry.name)),
-                Line::from(desc.to_string()),
-                Line::from(""),
-            ])
-            .style(style),
-        );
+    let items = if app.skill_picker_entries.is_empty() {
+        vec![ListItem::new("No skills loaded.")]
+    } else {
+        app.skill_picker_entries
+            .iter()
+            .enumerate()
+            .map(|(idx, entry)| {
+                let checkbox = if entry.enabled { "[x]" } else { "[ ]" };
+                let style = if idx == app.skill_picker_idx {
+                    Style::default()
+                        .fg(theme_color(ThemeToken::TextAccent))
+                        .add_modifier(Modifier::BOLD)
+                } else {
+                    Style::default()
+                };
+                ListItem::new(Line::from(format!(
+                    "{} {} [{}] - {}",
+                    checkbox, entry.name, entry.scope, entry.title
+                )))
+                .style(style)
+            })
+            .collect()
+    };
+    let mut list_state = ListState::default();
+    if !app.skill_picker_entries.is_empty() {
+        list_state.select(Some(app.skill_picker_idx));
+        *list_state.offset_mut() = app.skill_picker_idx;
     }
 
     let [header, list, footer] = Layout::default()
@@ -156,7 +164,17 @@ pub(super) fn render_skills_picker_modal(f: &mut Frame, app: &TuiApp, area: Rect
         ),
         header,
     );
-    f.render_widget(List::new(items), list);
+    f.render_stateful_widget(
+        List::new(items)
+            .highlight_style(
+                Style::default()
+                    .fg(theme_color(ThemeToken::TextAccent))
+                    .add_modifier(Modifier::BOLD),
+            )
+            .highlight_symbol("> "),
+        list,
+        &mut list_state,
+    );
     f.render_widget(
         Paragraph::new("Space toggle  Up/Down navigate  Enter confirm  Esc cancel"),
         footer,
@@ -168,8 +186,24 @@ pub(super) fn render_api_key_editor_modal(
     app: &TuiApp,
     area: Rect,
 ) -> Option<(u16, u16)> {
-    let intro_text = "Enter the API key for the selected OpenAI-compatible endpoint profile.\nUse an existing key or generate one through your provider. The key is stored in the local secret store.";
-    let intro_height = wrapped_text_height(intro_text, area.width.saturating_sub(2));
+    let (intro_text, title, footer_text) = match app.selected_provider_family() {
+        ProviderFamily::OpenAiCompatible => (
+            "Paste the API key for the selected OpenAI-compatible endpoint profile.",
+            " API Key ",
+            "Enter save  Esc back to model picker",
+        ),
+        ProviderFamily::DeepSeek => (
+            "Paste a DeepSeek API key. It is used to load /models and call the selected DeepSeek model.",
+            " DeepSeek API Key ",
+            "Enter save and load models  Esc back to model picker",
+        ),
+        _ => (
+            "Paste a Codex API key. This is the recommended path for SSH/headless sessions.",
+            " Codex API Key ",
+            "Enter save and rebuild  Esc back to login guide",
+        ),
+    };
+    let intro_height = wrapped_text_height(intro_text, area.width);
     let chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
@@ -183,20 +217,15 @@ pub(super) fn render_api_key_editor_modal(
             Block::default()
                 .style(element_bg())
                 .padding(Padding::horizontal(1))
-                .title(" API Key "),
+                .title(title),
         )
         .wrap(Wrap { trim: false });
     let editor = Paragraph::new(app.api_key_input.chars().map(|_| '*').collect::<String>()).block(
         Block::default()
             .style(element_bg())
             .padding(Padding::horizontal(1))
-            .title(" Key "),
+            .title(" Value "),
     );
-    let footer_text = if app.api_key_input.is_empty() {
-        "Type to enter key  Enter save  Esc cancel"
-    } else {
-        "Enter save  Esc back to model picker"
-    };
     let footer = Paragraph::new(footer_text).alignment(Alignment::Center);
     f.render_widget(intro, chunks[0]);
     f.render_widget(editor, chunks[1]);
@@ -214,7 +243,7 @@ pub(super) fn render_base_url_editor_modal(
     area: Rect,
 ) -> Option<(u16, u16)> {
     let intro_text = "Set the base URL for the selected OpenAI-compatible endpoint profile.\nExample: https://api.openai.com/v1, https://api.deepseek.com/v1, or any provider- or proxy-specific URL.";
-    let intro_height = wrapped_text_height(intro_text, area.width.saturating_sub(2));
+    let intro_height = wrapped_text_height(intro_text, area.width);
     let chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
@@ -259,7 +288,7 @@ pub(super) fn render_model_name_editor_modal(
     area: Rect,
 ) -> Option<(u16, u16)> {
     let intro_text = "Set the model name for the selected OpenAI-compatible endpoint profile.\nExample: gpt-4o-mini, kimi-k2.6, deepseek-chat, or any server-specific model id.";
-    let intro_height = wrapped_text_height(intro_text, area.width.saturating_sub(2));
+    let intro_height = wrapped_text_height(intro_text, area.width);
     let chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
@@ -306,7 +335,7 @@ pub(super) fn render_openai_profile_label_editor_modal(
         "Create a new {} endpoint profile.\nThis label is only used locally in the picker and status surfaces.",
         kind.label()
     );
-    let intro_height = wrapped_text_height(intro_text.as_str(), area.width.saturating_sub(2));
+    let intro_height = wrapped_text_height(intro_text.as_str(), area.width);
     let chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
