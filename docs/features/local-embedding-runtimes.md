@@ -142,6 +142,23 @@ If the sidecar is not ready or startup reports an error, RARA falls back to the
 configured provider's existing embedding implementation and surfaces a bootstrap
 warning for hard failures.
 
+### Configuration Policy
+
+Local embeddings are opt-in. The default config keeps the bundled sidecar off
+and routes embedding calls through the current `LlmBackend` implementation.
+This avoids unexpected Python environment setup, model downloads, or sidecar
+startup in ordinary CLI, TUI, ACP, and benchmark runs.
+
+Users can enable sidecar routing with:
+
+```json
+{"local_embeddings":"auto"}
+```
+
+`auto` preserves the provider-aware routing policy: providers with a usable
+embedding surface can keep using the current backend, while local or
+embedding-limited chat providers may use the bundled local model server.
+
 ### Startup Bootstrap And Reuse
 
 RARA owns the model server lifecycle. A normal `rara` startup should:
