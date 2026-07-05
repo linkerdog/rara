@@ -30,8 +30,8 @@ PYTHONPATH=$PWD/tools/harbor harbor run -d terminal-bench/terminal-bench-2 \
 ## Validation
 
 ```bash
-PYTHONPATH=/Users/hawkingrei/.local/share/uv/tools/harbor/lib/python3.13/site-packages:tools/harbor:. \
-  python -m unittest tools.harbor.test_rara_agent
+HARBOR_SITE_PACKAGES=$(find "$(uv tool dir)/harbor/lib" -path '*/site-packages' -type d | head -1)
+PYTHONPATH="${HARBOR_SITE_PACKAGES}:tools/harbor:." python -m unittest tools.harbor.test_rara_agent
 python -m py_compile tools/harbor/rara_agent.py tools/harbor/test_rara_agent.py
 ```
 

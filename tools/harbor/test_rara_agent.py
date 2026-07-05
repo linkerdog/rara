@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import tempfile
 import unittest
 from pathlib import Path
 from uuid import UUID
@@ -22,7 +23,9 @@ class RaraAgentTests(unittest.TestCase):
 
         events = parse_rara_jsonl(output)
 
-        self.assertEqual([event["type"] for event in events], ["thread.started", "turn.completed"])
+        self.assertEqual(
+            [event["type"] for event in events], ["thread.started", "turn.completed"]
+        )
 
     def test_populate_context_reads_usage_and_final_message(self) -> None:
         context = AgentContext()
@@ -42,6 +45,22 @@ class RaraAgentTests(unittest.TestCase):
         self.assertEqual(context.metadata["final_message"], "done")
         self.assertEqual(context.metadata["event_counts"]["turn.completed"], 1)
 
+    def test_populate_context_preserves_zero_token_counts(self) -> None:
+        context = AgentContext()
+        context.n_input_tokens = 9
+        context.n_output_tokens = 9
+        events = [
+            {
+                "type": "turn.completed",
+                "usage": {"input_tokens": 0, "output_tokens": 0},
+            },
+        ]
+
+        RaraAgent._populate_context(context, events)
+
+        self.assertEqual(context.n_input_tokens, 0)
+        self.assertEqual(context.n_output_tokens, 0)
+
     def test_build_exec_command_uses_context_and_session_ids(self) -> None:
         agent = RaraAgent(
             logs_dir=Path("/tmp/logs"),
@@ -59,7 +78,19 @@ class RaraAgentTests(unittest.TestCase):
         self.assertIn("--task-id trial-agent", command)
         self.assertIn("--output-last-message /logs/agent/last-message.txt", command)
         self.assertIn("< /logs/agent/instruction.txt", command)
+        self.assertIn(" && /opt/rara exec --json", command)
+        self.assertNotIn("2>&1", command)
         self.assertIn("| tee /logs/agent/rara-exec.jsonl", command)
+
+    def test_binary_path_is_resolved(self) -> None:
+        with tempfile.TemporaryDirectory(dir=Path.cwd()) as temp:
+            binary_path = Path(temp) / "rara"
+            binary_path.touch()
+            relative_path = binary_path.relative_to(Path.cwd())
+
+            agent = RaraAgent(logs_dir=Path("/tmp/logs"), binary_path=str(relative_path))
+
+        self.assertTrue(agent.binary_path.is_absolute())
 
 
 if __name__ == "__main__":

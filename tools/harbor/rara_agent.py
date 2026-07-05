@@ -46,7 +46,7 @@ class RaraAgent(BaseInstalledAgent):
         super().__init__(*args, **kwargs)
         self.binary_path = Path(
             binary_path or os.environ.get("RARA_HARBOR_BINARY", "target/release/rara")
-        ).expanduser()
+        ).expanduser().resolve()
         self.remote_binary = PurePosixPath(remote_binary or DEFAULT_REMOTE_BINARY)
         self.cwd = cwd
         self.rara_home = PurePosixPath(rara_home or DEFAULT_RARA_HOME)
@@ -86,7 +86,7 @@ class RaraAgent(BaseInstalledAgent):
     ) -> None:
         instruction_path = self.logs_dir / "instruction.txt"
         instruction_path.parent.mkdir(parents=True, exist_ok=True)
-        instruction_path.write_text(instruction)
+        instruction_path.write_text(instruction, encoding="utf-8")
         await environment.upload_file(
             instruction_path,
             DEFAULT_INSTRUCTION_PATH.as_posix(),
@@ -111,10 +111,10 @@ class RaraAgent(BaseInstalledAgent):
         task_id = shlex.quote(self.session_id or "harbor-task")
         return (
             f"mkdir -p {shlex.quote(EnvironmentPaths.agent_dir.as_posix())} "
-            f"{shlex.quote(self.rara_home.as_posix())}\n"
+            f"{shlex.quote(self.rara_home.as_posix())} && "
             f"{binary} exec --json --run-id {run_id} --task-id {task_id} "
             f"--output-last-message {last_message_path} - "
-            f"< {instruction_path} 2>&1 | tee {jsonl_path}"
+            f"< {instruction_path} | tee {jsonl_path}"
         )
 
     @staticmethod
@@ -131,8 +131,12 @@ class RaraAgent(BaseInstalledAgent):
                 event_counts[event_type] = event_counts.get(event_type, 0) + 1
             if event_type == "turn.completed":
                 usage = event.get("usage") or {}
-                input_tokens = int(usage.get("input_tokens") or input_tokens)
-                output_tokens = int(usage.get("output_tokens") or output_tokens)
+                u_input = usage.get("input_tokens")
+                if u_input is not None:
+                    input_tokens = int(u_input)
+                u_output = usage.get("output_tokens")
+                if u_output is not None:
+                    output_tokens = int(u_output)
                 if isinstance(event.get("final_message"), str):
                     final_message = event["final_message"]
             elif event_type == "turn.failed":
