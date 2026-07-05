@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import tempfile
 import unittest
 from pathlib import Path
@@ -8,6 +9,33 @@ from uuid import UUID
 from harbor.models.agent.context import AgentContext
 
 from rara_agent import RaraAgent, parse_rara_jsonl
+
+
+class FakeExecResult:
+    def __init__(
+        self, return_code: int, stdout: str | None = "", stderr: str | None = ""
+    ) -> None:
+        self.return_code = return_code
+        self.stdout = stdout
+        self.stderr = stderr
+
+
+class FakeInstallEnvironment:
+    def __init__(self) -> None:
+        self.uploads: list[tuple[Path, str]] = []
+        self.commands: list[str] = []
+
+    async def upload_file(self, source: Path, destination: str) -> None:
+        self.uploads.append((source, destination))
+
+    async def exec(self, command: str, **_: object) -> FakeExecResult:
+        self.commands.append(command)
+        if command.endswith("--version"):
+            return FakeExecResult(
+                126,
+                stdout="cannot execute binary file: Exec format error",
+            )
+        return FakeExecResult(0)
 
 
 class RaraAgentTests(unittest.TestCase):
@@ -78,9 +106,17 @@ class RaraAgentTests(unittest.TestCase):
         self.assertIn("--task-id trial-agent", command)
         self.assertIn("--output-last-message /logs/agent/last-message.txt", command)
         self.assertIn("< /logs/agent/instruction.txt", command)
-        self.assertIn(" && /opt/rara exec --json", command)
+        self.assertIn("{ /opt/rara exec --json", command)
+        self.assertIn("printf '%s\\n' \"$?\" > /logs/agent/rara-exec.status", command)
+        self.assertIn("status=$(cat /logs/agent/rara-exec.status", command)
+        self.assertIn('exit "$status"', command)
         self.assertNotIn("2>&1", command)
         self.assertIn("| tee /logs/agent/rara-exec.jsonl", command)
+
+    def test_default_cwd_matches_terminal_bench_workdir(self) -> None:
+        agent = RaraAgent(logs_dir=Path("/tmp/logs"), binary_path="/tmp/rara")
+
+        self.assertEqual(agent.cwd, "/app")
 
     def test_binary_path_is_resolved(self) -> None:
         with tempfile.TemporaryDirectory(dir=Path.cwd()) as temp:
@@ -91,6 +127,18 @@ class RaraAgentTests(unittest.TestCase):
             agent = RaraAgent(logs_dir=Path("/tmp/logs"), binary_path=str(relative_path))
 
         self.assertTrue(agent.binary_path.is_absolute())
+
+    def test_install_reports_remote_binary_validation_failure(self) -> None:
+        with tempfile.TemporaryDirectory(dir=Path.cwd()) as temp:
+            binary_path = Path(temp) / "rara"
+            binary_path.touch()
+            agent = RaraAgent(logs_dir=Path("/tmp/logs"), binary_path=str(binary_path))
+            environment = FakeInstallEnvironment()
+
+            with self.assertRaisesRegex(RuntimeError, "Linux binary"):
+                asyncio.run(agent.install(environment))  # type: ignore[arg-type]
+
+        self.assertIn("/installed-agent/rara --version", environment.commands)
 
 
 if __name__ == "__main__":

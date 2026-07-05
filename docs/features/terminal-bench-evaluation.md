@@ -55,7 +55,9 @@ Recommended components:
   The first local integration ships as a dynamic Harbor import-path adapter:
   `PYTHONPATH=$PWD/tools/harbor harbor run -d terminal-bench/terminal-bench-2
   --agent rara_agent:RaraAgent --agent-kwarg
-  binary_path=$PWD/target/release/rara`.
+  binary_path=$PWD/target/release/rara`. The adapter defaults to `/app` as the
+  benchmark cwd and preserves the `rara exec` exit code while teeing JSONL
+  output into `/logs/agent/rara-exec.jsonl`.
 - `rara eval terminal-bench` may be added later as a convenience wrapper, but
   the first integration target is Harbor compatibility.
 - Stable workspace setup contract:
@@ -164,7 +166,12 @@ Each trial should end with one of:
 - Run Harbor's Terminal-Bench tutorial command with a RARA installed agent and
   record the exact `harbor run` invocation.
 - For local dynamic-adapter smoke runs, build `target/release/rara` first and
-  pass it through `--agent-kwarg binary_path=$PWD/target/release/rara`.
+  pass it through `--agent-kwarg binary_path=$PWD/target/release/rara`. The
+  binary must be executable inside the benchmark environment; Linux Docker
+  tasks require a Linux RARA binary, not a macOS host build.
+- For single-task smoke runs, filter the dataset with `--task
+  terminal-bench/<task-name>` and inspect `/logs/agent/rara-exec.jsonl`,
+  `/logs/agent/rara-exec.status`, and verifier output when reward is `0.0`.
 - Confirm the Harbor run receives an ATIF-compatible trajectory artifact.
 - Confirm failures include enough trajectory data to reproduce the final
   decision.

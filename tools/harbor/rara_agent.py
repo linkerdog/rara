@@ -24,6 +24,7 @@ from harbor.models.trial.paths import EnvironmentPaths
 DEFAULT_REMOTE_BINARY = PurePosixPath("/installed-agent/rara")
 DEFAULT_RARA_HOME = PurePosixPath("/logs/agent/rara-home")
 DEFAULT_JSONL_PATH = EnvironmentPaths.agent_dir / "rara-exec.jsonl"
+DEFAULT_EXIT_STATUS_PATH = EnvironmentPaths.agent_dir / "rara-exec.status"
 DEFAULT_INSTRUCTION_PATH = EnvironmentPaths.agent_dir / "instruction.txt"
 DEFAULT_LAST_MESSAGE_PATH = EnvironmentPaths.agent_dir / "last-message.txt"
 
@@ -39,7 +40,7 @@ class RaraAgent(BaseInstalledAgent):
         *args: Any,
         binary_path: str | None = None,
         remote_binary: str | None = None,
-        cwd: str = ".",
+        cwd: str = "/app",
         rara_home: str | None = None,
         **kwargs: Any,
     ) -> None:
@@ -76,6 +77,20 @@ class RaraAgent(BaseInstalledAgent):
             environment,
             command=f"chmod 0755 {shlex.quote(self.remote_binary.as_posix())}",
         )
+        validation = await environment.exec(
+            command=f"{shlex.quote(self.remote_binary.as_posix())} --version",
+            user="root",
+            timeout_sec=30,
+        )
+        if validation.return_code != 0:
+            output = validation.stderr or validation.stdout or "no output"
+            raise RuntimeError(
+                "Uploaded RARA binary cannot run inside the Harbor environment. "
+                "For Docker-backed Terminal-Bench runs, pass a Linux binary via "
+                "--agent-kwarg binary_path=/path/to/linux/rara. "
+                f"Host binary: {self.binary_path}. "
+                f"Remote error: {output.strip()}"
+            )
 
     @with_prompt_template
     async def run(
@@ -105,16 +120,22 @@ class RaraAgent(BaseInstalledAgent):
     def _build_exec_command(self) -> str:
         binary = shlex.quote(self.remote_binary.as_posix())
         jsonl_path = shlex.quote(DEFAULT_JSONL_PATH.as_posix())
+        status_path = shlex.quote(DEFAULT_EXIT_STATUS_PATH.as_posix())
         instruction_path = shlex.quote(DEFAULT_INSTRUCTION_PATH.as_posix())
         last_message_path = shlex.quote(DEFAULT_LAST_MESSAGE_PATH.as_posix())
         run_id = shlex.quote(self.context_id.hex if self.context_id else "harbor")
         task_id = shlex.quote(self.session_id or "harbor-task")
         return (
             f"mkdir -p {shlex.quote(EnvironmentPaths.agent_dir.as_posix())} "
-            f"{shlex.quote(self.rara_home.as_posix())} && "
+            f"{shlex.quote(self.rara_home.as_posix())} || exit $?; "
+            "{ "
             f"{binary} exec --json --run-id {run_id} --task-id {task_id} "
             f"--output-last-message {last_message_path} - "
-            f"< {instruction_path} | tee {jsonl_path}"
+            f"< {instruction_path}; "
+            f"printf '%s\\n' \"$?\" > {status_path}; "
+            f"}} | tee {jsonl_path}; "
+            f"status=$(cat {status_path} 2>/dev/null || printf '1'); "
+            'exit "$status"'
         )
 
     @staticmethod
