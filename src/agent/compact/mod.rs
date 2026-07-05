@@ -1,9 +1,6 @@
-#[path = "main.rs"]
 pub(crate) mod main;
 #[cfg(test)]
-#[path = "tests.rs"]
 mod tests;
-#[path = "types.rs"]
 pub(crate) mod types;
 
 pub(crate) use main::compact_boundary_item;

@@ -1,6 +1,5 @@
 use crate::tui::theme::{ThemeToken, theme_color, token_bg, token_fg};
-#[path = "overlay_setup.rs"]
-mod overlay_setup;
+mod setup;
 
 use ratatui::{
     layout::{Alignment, Constraint, Direction, Flex, Layout, Rect},
@@ -10,7 +9,7 @@ use ratatui::{
     widgets::{Block, Clear, List, ListItem, ListState, Paragraph, Tabs, Wrap},
 };
 
-use self::overlay_setup::{
+use self::setup::{
     render_api_key_editor_modal, render_base_url_editor_modal, render_model_name_editor_modal,
     render_openai_profile_label_editor_modal, render_permission_picker_modal,
     render_skills_picker_modal,
