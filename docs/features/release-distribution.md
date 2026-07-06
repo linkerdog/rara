@@ -48,8 +48,8 @@ Initial release targets:
 | --- | --- | --- |
 | `aarch64-apple-darwin` | `macos-14` | `.tar.gz` |
 | `x86_64-apple-darwin` | `macos-13` | `.tar.gz` |
-| `x86_64-unknown-linux-musl` | `ubuntu-latest` | `.tar.gz` |
-| `aarch64-unknown-linux-musl` | `ubuntu-latest` with `cross` | `.tar.gz` |
+| `x86_64-unknown-linux-musl` | `ubuntu-latest` | `.tar.gz`, `.deb` |
+| `aarch64-unknown-linux-musl` | `ubuntu-latest` with `cross` | `.tar.gz`, `.deb` |
 | `x86_64-pc-windows-msvc` | `windows-latest` | `.zip` |
 | `aarch64-pc-windows-msvc` | `windows-latest` | `.zip` |
 
@@ -62,6 +62,7 @@ Each build produces one executable archive:
 
 - Unix: `rara-${VERSION}-${TARGET}.tar.gz`
 - Windows: `rara-${VERSION}-${TARGET}.zip`
+- Debian package for Linux targets: `rara_${VERSION}_${DEB_ARCH}.deb`
 
 Each release should also publish checksum files:
 
@@ -72,6 +73,15 @@ Archives contain only the executable at the archive root:
 
 - `rara`
 - `rara.exe`
+
+Debian packages install the executable to:
+
+- `/usr/bin/rara`
+
+Debian package architecture names follow Debian conventions:
+
+- `amd64` for `x86_64-unknown-linux-musl`
+- `arm64` for `aarch64-unknown-linux-musl`
 
 ## GitHub Release Contract
 
@@ -110,9 +120,11 @@ depend on a runner-provided `sqlite3.lib`.
 - pinned Rust toolchain discovery from `rust-toolchain.toml`;
 - target matrix release builds;
 - deterministic binary archives;
+- Debian packages for Linux `amd64` and `arm64` targets;
 - runnable archive smoke tests on native runner/target pairs;
 - checksum generation;
-- GitHub Release asset publishing.
+- GitHub Release creation through the release action, followed by explicit
+  `gh release upload --clobber` asset publishing and verification.
 
 It intentionally does not publish Homebrew or npm packages yet.
 

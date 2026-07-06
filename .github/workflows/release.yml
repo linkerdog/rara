@@ -213,6 +213,45 @@ jobs:
           chmod +x "${dist_dir}/rara"
           tar -C "${dist_dir}" -czf "dist/rara-${VERSION}-${TARGET}.tar.gz" rara
 
+      - name: Package Debian package
+        if: ${{ runner.os == 'Linux' && contains(matrix.target, 'linux-musl') }}
+        shell: bash
+        env:
+          VERSION: ${{ needs.tag-check.outputs.version }}
+          TARGET: ${{ matrix.target }}
+        run: |
+          set -euo pipefail
+
+          case "${TARGET}" in
+            x86_64-unknown-linux-musl)
+              deb_arch="amd64"
+              ;;
+            aarch64-unknown-linux-musl)
+              deb_arch="arm64"
+              ;;
+            *)
+              echo "Unsupported Debian package target: ${TARGET}" >&2
+              exit 1
+              ;;
+          esac
+
+          package_root="dist/deb/${TARGET}"
+          install -Dm755 "target/${TARGET}/release/rara" "${package_root}/usr/bin/rara"
+          mkdir -p "${package_root}/DEBIAN"
+          cat > "${package_root}/DEBIAN/control" <<EOF
+          Package: rara
+          Version: ${VERSION}
+          Architecture: ${deb_arch}
+          Maintainer: linkerdog <noreply@linkerdog.com>
+          Section: utils
+          Priority: optional
+          Description: Local-first coding agent runtime
+           RARA is a local-first coding agent runtime with terminal chat, tools,
+           local memory, and pluggable LLM backends.
+          EOF
+          sed -i 's/^          //' "${package_root}/DEBIAN/control"
+          dpkg-deb --build --root-owner-group "${package_root}" "dist/rara_${VERSION}_${deb_arch}.deb"
+
       - name: Package windows archive
         if: ${{ runner.os == 'Windows' }}
         shell: pwsh
@@ -254,7 +293,9 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           name: rara-${{ matrix.target }}
-          path: dist/rara-${{ needs.tag-check.outputs.version }}-${{ matrix.target }}.${{ matrix.archive }}
+          path: |
+            dist/rara-${{ needs.tag-check.outputs.version }}-${{ matrix.target }}.${{ matrix.archive }}
+            dist/*.deb
           if-no-files-found: error
 
   release:
@@ -284,24 +325,25 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p dist/release
-          find dist/artifacts -type f \( -name "*.tar.gz" -o -name "*.zip" \) -print0 \
+          find dist/artifacts -type f \( -name "*.tar.gz" -o -name "*.zip" -o -name "*.deb" \) -print0 \
             | xargs -0 -I{} cp "{}" dist/release/
 
-          expected=6
-          actual="$(find dist/release -type f \( -name "*.tar.gz" -o -name "*.zip" \) | wc -l | tr -d ' ')"
+          expected=8
+          actual="$(find dist/release -type f \( -name "*.tar.gz" -o -name "*.zip" -o -name "*.deb" \) | wc -l | tr -d ' ')"
           [[ "${actual}" == "${expected}" ]] || {
-            echo "Expected ${expected} release archives, found ${actual}." >&2
+            echo "Expected ${expected} release binary assets, found ${actual}." >&2
             find dist/release -maxdepth 1 -type f -print >&2
             exit 1
           }
 
           (
             cd dist/release
-            shasum -a 256 rara-"${VERSION}"-* > checksums.txt
+            shasum -a 256 * > checksums.txt
             while read -r checksum filename; do
               printf "%s  %s\n" "${checksum}" "${filename}" > "${filename}.sha256"
             done < checksums.txt
           )
+          find dist/release -maxdepth 1 -type f | sort
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v3
@@ -310,8 +352,32 @@ jobs:
           tag_name: ${{ needs.tag-check.outputs.tag }}
           generate_release_notes: true
           prerelease: ${{ needs.tag-check.outputs.prerelease }}
-          files: |
-            dist/release/rara-${{ needs.tag-check.outputs.version }}-*.tar.gz
-            dist/release/rara-${{ needs.tag-check.outputs.version }}-*.zip
-            dist/release/rara-${{ needs.tag-check.outputs.version }}-*.sha256
-            dist/release/checksums.txt
+
+      - name: Upload GitHub Release assets
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.tag-check.outputs.tag }}
+        run: |
+          set -euo pipefail
+          mapfile -t assets < <(find dist/release -maxdepth 1 -type f | sort)
+          [[ "${#assets[@]}" -gt 0 ]] || {
+            echo "No release assets staged for upload." >&2
+            exit 1
+          }
+          gh release upload "${TAG}" "${assets[@]}" --clobber
+
+      - name: Verify GitHub Release assets
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.tag-check.outputs.tag }}
+        run: |
+          set -euo pipefail
+          expected=17
+          actual="$(gh release view "${TAG}" --json assets --jq '.assets | length')"
+          [[ "${actual}" == "${expected}" ]] || {
+            echo "Expected ${expected} assets on release ${TAG}, found ${actual}." >&2
+            gh release view "${TAG}" --json assets --jq '.assets[].name' >&2
+            exit 1
+          }
