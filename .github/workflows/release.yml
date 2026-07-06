@@ -97,9 +97,11 @@ jobs:
         run: |
           set -euo pipefail
           cargo_version="$(cargo metadata --no-deps --format-version 1 \
-            | python3 -c 'import json,sys; print(json.load(sys.stdin)["packages"][0]["version"])')"
+            | python3 -c 'import json,sys; data=json.load(sys.stdin); print(next(p for p in data["packages"] if p["name"] == "rara")["version"])')"
           [[ "${cargo_version}" == "${VERSION}" ]] || {
-            echo "Tag version ${VERSION} does not match Cargo package version ${cargo_version}." >&2
+            echo "::error title=Release version mismatch::Tag version ${VERSION} does not match Cargo package version ${cargo_version}." >&2
+            echo "Before creating or dispatching a release tag, commit a Cargo.toml version bump so the rara package version equals ${VERSION}." >&2
+            echo "Then create the tag from that version-bump commit." >&2
             exit 1
           }
 

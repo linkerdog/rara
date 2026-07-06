@@ -160,6 +160,8 @@ guides instead of expanding this charter with long procedural detail:
   `docs/journal/`.
 - `rara-docs-spec`: write or review canonical feature specs under
   `docs/features/`.
+- `release-rara`: prepare, validate, tag, or troubleshoot RARA releases without
+  tag/package version drift.
 - `project-github-titles`: write RARA commit and PR titles using the allowed
   project title format.
 
