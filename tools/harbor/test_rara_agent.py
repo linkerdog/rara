@@ -38,6 +38,27 @@ class FakeInstallEnvironment:
         return FakeExecResult(0)
 
 
+class FakeRunEnvironment:
+    def __init__(self) -> None:
+        self.uploads: list[tuple[Path, str]] = []
+        self.exec_env: dict[str, str] | None = None
+
+    async def upload_file(self, source: Path, destination: str) -> None:
+        self.uploads.append((source, destination))
+
+    async def exec(
+        self,
+        command: str,
+        cwd: str | None = None,
+        env: dict[str, str] | None = None,
+    ) -> FakeExecResult:
+        self.exec_env = dict(env or {})
+        return FakeExecResult(
+            0,
+            stdout='{"type":"turn.completed","usage":{"input_tokens":1,"output_tokens":1},"final_message":"done"}\n',
+        )
+
+
 class RaraAgentTests(unittest.TestCase):
     def test_parse_rara_jsonl_ignores_non_json_lines(self) -> None:
         output = "\n".join(
@@ -117,6 +138,17 @@ class RaraAgentTests(unittest.TestCase):
         agent = RaraAgent(logs_dir=Path("/tmp/logs"), binary_path="/tmp/rara")
 
         self.assertEqual(agent.cwd, "/app")
+
+    def test_run_disables_local_embeddings_for_benchmark(self) -> None:
+        with tempfile.TemporaryDirectory(dir=Path.cwd()) as temp:
+            agent = RaraAgent(logs_dir=Path(temp), binary_path="/tmp/rara")
+            context = AgentContext()
+            environment = FakeRunEnvironment()
+
+            asyncio.run(agent.run("solve task", environment, context))  # type: ignore[arg-type]
+
+        self.assertEqual(environment.exec_env["RARA_LOCAL_EMBEDDINGS"], "off")
+        self.assertEqual(environment.exec_env["RARA_HOME"], "/logs/agent/rara-home")
 
     def test_binary_path_is_resolved(self) -> None:
         with tempfile.TemporaryDirectory(dir=Path.cwd()) as temp:

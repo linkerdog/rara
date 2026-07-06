@@ -19,6 +19,8 @@ The adapter lives at `tools/harbor/rara_agent.py` and exposes
   not treat a failed agent run as a successful zero-reward verifier run.
 - Validates the uploaded binary during agent setup and reports host/container
   architecture mismatches before the task runs.
+- Sets `RARA_LOCAL_EMBEDDINGS=off` for benchmark runs so RARA does not prepare
+  the bundled local embedding sidecar before solving the task.
 - Parses RARA JSONL output into Harbor `AgentContext` usage and metadata.
 - Preserves parsed context metadata even when `rara exec` exits non-zero.
 

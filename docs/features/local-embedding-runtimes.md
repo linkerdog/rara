@@ -144,20 +144,24 @@ warning for hard failures.
 
 ### Configuration Policy
 
-Local embeddings are opt-in. The default config keeps the bundled sidecar off
-and routes embedding calls through the current `LlmBackend` implementation.
-This avoids unexpected Python environment setup, model downloads, or sidecar
-startup in ordinary CLI, TUI, ACP, and benchmark runs.
+Local embeddings default to `auto` so ordinary CLI, TUI, ACP, and memory
+workflows keep the provider-aware sidecar behavior. This preserves the normal
+local-first memory path.
 
-Users can enable sidecar routing with:
+Benchmark adapters can disable sidecar routing for faster startup by setting:
 
-```json
-{"local_embeddings":"auto"}
+```text
+RARA_LOCAL_EMBEDDINGS=off
 ```
 
 `auto` preserves the provider-aware routing policy: providers with a usable
 embedding surface can keep using the current backend, while local or
 embedding-limited chat providers may use the bundled local model server.
+
+`off` always routes embedding calls through the current `LlmBackend`
+implementation. The Harbor Terminal-Bench adapter uses this mode so benchmark
+runs do not create a Python environment, download embedding models, or start
+the local model server before solving the task.
 
 ### Startup Bootstrap And Reuse
 

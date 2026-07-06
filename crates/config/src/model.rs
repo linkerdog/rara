@@ -91,8 +91,8 @@ impl ContextFileSearchPolicy {
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
 #[serde(rename_all = "snake_case")]
 pub enum LocalEmbeddingPolicy {
-    #[default]
     Off,
+    #[default]
     Auto,
 }
 
@@ -356,6 +356,14 @@ impl RaraConfig {
     where
         F: FnMut(&str) -> Option<String>,
     {
+        if let Some(value) = read_env("RARA_LOCAL_EMBEDDINGS") {
+            self.local_embeddings = match value.trim().to_ascii_lowercase().as_str() {
+                "off" | "false" | "0" | "no" => LocalEmbeddingPolicy::Off,
+                "auto" | "on" | "true" | "1" | "yes" => LocalEmbeddingPolicy::Auto,
+                _ => self.local_embeddings,
+            };
+        }
+
         if self.has_api_key()
             || self.effective_openai_endpoint_kind() != Some(OpenAiEndpointKind::Kimi)
         {
@@ -1178,26 +1186,38 @@ mod tests {
     }
 
     #[test]
-    fn local_embeddings_default_off_and_omitted() {
+    fn local_embeddings_default_auto_and_omitted() {
         let config = RaraConfig::default();
 
-        assert_eq!(config.local_embeddings, LocalEmbeddingPolicy::Off);
+        assert_eq!(config.local_embeddings, LocalEmbeddingPolicy::Auto);
 
         let json = serde_json::to_string(&config).expect("serialize config");
         assert!(!json.contains("local_embeddings"));
     }
 
     #[test]
-    fn local_embeddings_can_enable_auto_sidecar_policy() {
+    fn local_embeddings_can_disable_sidecar_policy() {
         let config: RaraConfig = serde_json::from_str(
             r#"{
                 "provider": "deepseek",
-                "local_embeddings": "auto"
+                "local_embeddings": "off"
             }"#,
         )
         .expect("deserialize config");
 
-        assert_eq!(config.local_embeddings, LocalEmbeddingPolicy::Auto);
+        assert_eq!(config.local_embeddings, LocalEmbeddingPolicy::Off);
+    }
+
+    #[test]
+    fn local_embeddings_can_be_disabled_by_environment_for_benchmarks() {
+        let mut config = RaraConfig::default();
+
+        config.apply_provider_environment_defaults_from(|key| match key {
+            "RARA_LOCAL_EMBEDDINGS" => Some("off".to_string()),
+            _ => None,
+        });
+
+        assert_eq!(config.local_embeddings, LocalEmbeddingPolicy::Off);
     }
 
     #[test]
