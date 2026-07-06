@@ -142,6 +142,27 @@ If the sidecar is not ready or startup reports an error, RARA falls back to the
 configured provider's existing embedding implementation and surfaces a bootstrap
 warning for hard failures.
 
+### Configuration Policy
+
+Local embeddings default to `auto` so ordinary CLI, TUI, ACP, and memory
+workflows keep the provider-aware sidecar behavior. This preserves the normal
+local-first memory path.
+
+Benchmark adapters can disable sidecar routing for faster startup by setting:
+
+```text
+RARA_LOCAL_EMBEDDINGS=off
+```
+
+`auto` preserves the provider-aware routing policy: providers with a usable
+embedding surface can keep using the current backend, while local or
+embedding-limited chat providers may use the bundled local model server.
+
+`off` always routes embedding calls through the current `LlmBackend`
+implementation. The Harbor Terminal-Bench adapter uses this mode so benchmark
+runs do not create a Python environment, download embedding models, or start
+the local model server before solving the task.
+
 ### Startup Bootstrap And Reuse
 
 RARA owns the model server lifecycle. A normal `rara` startup should:

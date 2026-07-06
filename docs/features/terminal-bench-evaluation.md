@@ -57,7 +57,9 @@ Recommended components:
   --agent rara_agent:RaraAgent --agent-kwarg
   binary_path=$PWD/target/release/rara`. The adapter defaults to `/app` as the
   benchmark cwd and preserves the `rara exec` exit code while teeing JSONL
-  output into `/logs/agent/rara-exec.jsonl`.
+  output into `/logs/agent/rara-exec.jsonl`. It also sets
+  `RARA_LOCAL_EMBEDDINGS=off` so benchmark startup does not prepare the bundled
+  local embedding sidecar.
 - `rara eval terminal-bench` may be added later as a convenience wrapper, but
   the first integration target is Harbor compatibility.
 - Stable workspace setup contract:
