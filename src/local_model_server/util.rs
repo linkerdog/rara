@@ -314,10 +314,83 @@ pub(crate) fn set_private_file_permissions(_path: &Path) -> Result<()> {
 
 /// Check whether a process identified by `pid` has exited.
 /// Returns `true` if the pid is no longer running (or never existed).
+#[cfg(unix)]
 pub(crate) fn process_exited(pid: u32) -> bool {
     use nix::sys::signal::kill;
     use nix::unistd::Pid;
     // Signal 0 (null signal) — does not actually send a signal, only
     // checks whether the process exists and we have permission.
     kill(Pid::from_raw(pid as i32), None).is_err()
+}
+
+/// Check whether a process identified by `pid` has exited.
+/// Returns `true` if the pid is no longer running (or never existed).
+#[cfg(windows)]
+pub(crate) fn process_exited(pid: u32) -> bool {
+    let pid_text = pid.to_string();
+    let filter = format!("PID eq {pid}");
+    match Command::new("tasklist")
+        .args(["/FI", filter.as_str(), "/NH"])
+        .output()
+    {
+        Ok(output) if output.status.success() => {
+            let stdout = String::from_utf8_lossy(&output.stdout);
+            !stdout.lines().any(|line| {
+                line.split_whitespace()
+                    .nth(1)
+                    .is_some_and(|value| value == pid_text)
+            })
+        }
+        Ok(output) => {
+            log::warn!(
+                "failed to inspect Windows process {pid}: tasklist exited with {}",
+                output.status
+            );
+            false
+        }
+        Err(err) => {
+            log::warn!("failed to inspect Windows process {pid}: {err}");
+            false
+        }
+    }
+}
+
+/// Check whether a process identified by `pid` has exited.
+/// Returns `true` if the pid is no longer running (or never existed).
+#[cfg(not(any(unix, windows)))]
+pub(crate) fn process_exited(_pid: u32) -> bool {
+    false
+}
+
+#[cfg(unix)]
+pub(crate) fn terminate_process(pid: u32) {
+    use nix::sys::signal::{Signal, kill};
+    use nix::unistd::Pid;
+
+    if let Err(err) = kill(Pid::from_raw(pid as i32), Signal::SIGTERM) {
+        log::warn!("failed to terminate local model server process {pid}: {err}");
+    }
+}
+
+#[cfg(windows)]
+pub(crate) fn terminate_process(pid: u32) {
+    match Command::new("taskkill")
+        .args(["/PID", &pid.to_string(), "/T"])
+        .status()
+    {
+        Ok(status) if status.success() => {}
+        Ok(status) => {
+            log::warn!(
+                "failed to terminate local model server process {pid}: taskkill exited with {status}"
+            );
+        }
+        Err(err) => {
+            log::warn!("failed to terminate local model server process {pid}: {err}");
+        }
+    }
+}
+
+#[cfg(not(any(unix, windows)))]
+pub(crate) fn terminate_process(pid: u32) {
+    log::warn!("cannot terminate local model server process {pid}: unsupported platform");
 }

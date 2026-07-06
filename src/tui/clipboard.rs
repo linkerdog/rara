@@ -24,6 +24,9 @@ fn write_osc52(text: &str) -> io::Result<()> {
 }
 
 fn try_native_clipboard(text: &str) {
+    #[cfg(not(any(target_os = "macos", target_os = "linux")))]
+    let _ = text;
+
     #[cfg(target_os = "macos")]
     {
         let _ = pipe_to_command("pbcopy", &[], text);

@@ -1,0 +1,205 @@
+name: release-build
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_INCREMENTAL: "0"
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: "1"
+  VERSION: 0.0.0-ci
+
+jobs:
+  build:
+    name: build-${{ matrix.target }}
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 90
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-14
+            target: aarch64-apple-darwin
+            archive: tar.gz
+            smoke: true
+          - runner: macos-13
+            target: x86_64-apple-darwin
+            archive: tar.gz
+            smoke: true
+          - runner: ubuntu-22.04
+            target: x86_64-unknown-linux-gnu
+            archive: tar.gz
+            smoke: true
+          - runner: ubuntu-22.04
+            target: aarch64-unknown-linux-gnu
+            archive: tar.gz
+            build_with: cross
+            smoke: false
+          - runner: windows-latest
+            target: x86_64-pc-windows-msvc
+            archive: zip
+            smoke: true
+          - runner: windows-latest
+            target: aarch64-pc-windows-msvc
+            archive: zip
+            smoke: false
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Read pinned Rust toolchain
+        id: rust-toolchain
+        shell: bash
+        run: |
+          set -euo pipefail
+          channel="$(awk -F'"' '/^[[:space:]]*channel[[:space:]]*=/{print $2; exit}' rust-toolchain.toml)"
+          [[ -n "${channel}" ]] || {
+            echo "Failed to read Rust toolchain channel from rust-toolchain.toml." >&2
+            exit 1
+          }
+          echo "channel=${channel}" >> "$GITHUB_OUTPUT"
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ steps.rust-toolchain.outputs.channel }}
+          targets: ${{ matrix.target }}
+
+      - name: Install protoc on Linux
+        if: ${{ runner.os == 'Linux' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update -y
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y libssl-dev pkg-config protobuf-compiler
+
+      - name: Install protoc on macOS
+        if: ${{ runner.os == 'macOS' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          brew install protobuf
+
+      - name: Install protoc on Windows
+        if: ${{ runner.os == 'Windows' }}
+        shell: pwsh
+        run: choco install protoc --no-progress
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
+        with:
+          cache-on-failure: true
+
+      - name: Install cross
+        if: ${{ matrix.build_with == 'cross' }}
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cross
+
+      - name: Build
+        if: ${{ matrix.build_with != 'cross' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo build --locked --release --target "${{ matrix.target }}" --bin rara
+
+      - name: Cross build
+        if: ${{ matrix.build_with == 'cross' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          cross build --locked --release --target "${{ matrix.target }}" --bin rara
+
+      - name: Package unix archive
+        if: ${{ runner.os != 'Windows' }}
+        shell: bash
+        env:
+          TARGET: ${{ matrix.target }}
+        run: |
+          set -euo pipefail
+          dist_dir="dist/${TARGET}"
+          mkdir -p "${dist_dir}"
+          cp "target/${TARGET}/release/rara" "${dist_dir}/rara"
+          chmod +x "${dist_dir}/rara"
+          tar -C "${dist_dir}" -czf "dist/rara-${VERSION}-${TARGET}.tar.gz" rara
+
+      - name: Package Debian package
+        if: ${{ runner.os == 'Linux' && contains(matrix.target, 'unknown-linux') }}
+        shell: bash
+        env:
+          TARGET: ${{ matrix.target }}
+        run: |
+          set -euo pipefail
+
+          case "${TARGET}" in
+            x86_64-unknown-linux-gnu)
+              deb_arch="amd64"
+              ;;
+            aarch64-unknown-linux-gnu)
+              deb_arch="arm64"
+              ;;
+            *)
+              echo "Unsupported Debian package target: ${TARGET}" >&2
+              exit 1
+              ;;
+          esac
+
+          package_root="dist/deb/${TARGET}"
+          install -Dm755 "target/${TARGET}/release/rara" "${package_root}/usr/bin/rara"
+          mkdir -p "${package_root}/DEBIAN"
+          cat > "${package_root}/DEBIAN/control" <<EOF
+          Package: rara
+          Version: ${VERSION}
+          Architecture: ${deb_arch}
+          Maintainer: linkerdog <noreply@linkerdog.com>
+          Section: utils
+          Priority: optional
+          Description: Local-first coding agent runtime
+           RARA is a local-first coding agent runtime with terminal chat, tools,
+           local memory, and pluggable LLM backends.
+          EOF
+          sed -i 's/^          //' "${package_root}/DEBIAN/control"
+          dpkg-deb --build --root-owner-group "${package_root}" "dist/rara_${VERSION}_${deb_arch}.deb"
+
+      - name: Package windows archive
+        if: ${{ runner.os == 'Windows' }}
+        shell: pwsh
+        env:
+          TARGET: ${{ matrix.target }}
+        run: |
+          $distDir = "dist/$env:TARGET"
+          New-Item -ItemType Directory -Force -Path $distDir | Out-Null
+          Copy-Item "target/$env:TARGET/release/rara.exe" "$distDir/rara.exe"
+          Compress-Archive -Path "$distDir/rara.exe" -DestinationPath "dist/rara-$env:VERSION-$env:TARGET.zip" -Force
+
+      - name: Smoke test unix archive
+        if: ${{ runner.os != 'Windows' && matrix.smoke }}
+        shell: bash
+        env:
+          TARGET: ${{ matrix.target }}
+        run: |
+          set -euo pipefail
+          smoke_dir="dist/smoke-${TARGET}"
+          mkdir -p "${smoke_dir}"
+          tar -C "${smoke_dir}" -xzf "dist/rara-${VERSION}-${TARGET}.tar.gz"
+          "${smoke_dir}/rara" --version
+
+      - name: Smoke test windows archive
+        if: ${{ runner.os == 'Windows' && matrix.smoke }}
+        shell: pwsh
+        env:
+          TARGET: ${{ matrix.target }}
+        run: |
+          $smokeDir = "dist/smoke-$env:TARGET"
+          New-Item -ItemType Directory -Force -Path $smokeDir | Out-Null
+          Expand-Archive -Path "dist/rara-$env:VERSION-$env:TARGET.zip" -DestinationPath $smokeDir -Force
+          & "$smokeDir/rara.exe" --version
