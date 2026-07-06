@@ -33,8 +33,10 @@ The follow-up keeps the published Linux binaries on GNU targets
 OpenSSL for the aarch64 Linux target, and adds a pull-request `release-build`
 workflow that builds, packages, and smoke-tests the same target matrix without
 publishing release assets. The `aarch64-unknown-linux-gnu` cross image now also
-installs the minimal build tools needed by vendored OpenSSL and protobuf-backed
-build scripts.
+installs the minimal build tools needed by vendored OpenSSL and a fixed upstream
+`protoc` version for protobuf-backed build scripts. The fixed `protoc` install
+is required because the cross image's Ubuntu xenial package repository provides
+`protoc` 2.6.1, which does not support `--experimental_allow_proto3_optional`.
 
 ## Validation
 
