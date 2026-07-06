@@ -113,10 +113,7 @@ impl Drop for LocalModelServerEmbeddingBackend {
     fn drop(&mut self) {
         let runtime_dir = self.rara_home.join("runtime").join("model-server");
         if let Ok(Some(metadata)) = read_server_metadata(&metadata_path(&runtime_dir)) {
-            let _ = nix::sys::signal::kill(
-                Pid::from_raw(metadata.pid as i32),
-                nix::sys::signal::Signal::SIGTERM,
-            );
+            terminate_process(metadata.pid);
         }
     }
 }

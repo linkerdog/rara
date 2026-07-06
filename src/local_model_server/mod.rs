@@ -12,7 +12,6 @@ use fs2::FileExt;
 use hf_hub::api::Progress as HfProgress;
 use hf_hub::api::sync::ApiBuilder;
 use hf_hub::{Cache, Repo, RepoType};
-use nix::unistd::Pid;
 use rara_persistence::redaction::{redact_secrets, sanitize_url_for_display};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
