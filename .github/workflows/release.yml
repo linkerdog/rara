@@ -250,7 +250,7 @@ jobs:
            local memory, and pluggable LLM backends.
           EOF
           sed -i 's/^          //' "${package_root}/DEBIAN/control"
-          dpkg-deb --build --root-owner-group "${package_root}" "dist/rara-${VERSION}-${TARGET}.deb"
+          dpkg-deb --build --root-owner-group "${package_root}" "dist/rara_${VERSION}_${deb_arch}.deb"
 
       - name: Package windows archive
         if: ${{ runner.os == 'Windows' }}
@@ -295,7 +295,7 @@ jobs:
           name: rara-${{ matrix.target }}
           path: |
             dist/rara-${{ needs.tag-check.outputs.version }}-${{ matrix.target }}.${{ matrix.archive }}
-            dist/rara-${{ needs.tag-check.outputs.version }}-${{ matrix.target }}.deb
+            dist/*.deb
           if-no-files-found: error
 
   release:
@@ -338,7 +338,7 @@ jobs:
 
           (
             cd dist/release
-            shasum -a 256 rara-"${VERSION}"-* > checksums.txt
+            shasum -a 256 * > checksums.txt
             while read -r checksum filename; do
               printf "%s  %s\n" "${checksum}" "${filename}" > "${filename}.sha256"
             done < checksums.txt

@@ -62,7 +62,7 @@ Each build produces one executable archive:
 
 - Unix: `rara-${VERSION}-${TARGET}.tar.gz`
 - Windows: `rara-${VERSION}-${TARGET}.zip`
-- Debian package for Linux targets: `rara-${VERSION}-${TARGET}.deb`
+- Debian package for Linux targets: `rara_${VERSION}_${DEB_ARCH}.deb`
 
 Each release should also publish checksum files:
 
@@ -77,6 +77,11 @@ Archives contain only the executable at the archive root:
 Debian packages install the executable to:
 
 - `/usr/bin/rara`
+
+Debian package architecture names follow Debian conventions:
+
+- `amd64` for `x86_64-unknown-linux-musl`
+- `arm64` for `aarch64-unknown-linux-musl`
 
 ## GitHub Release Contract
 
