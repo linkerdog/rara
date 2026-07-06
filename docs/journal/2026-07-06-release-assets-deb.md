@@ -2,9 +2,10 @@
 
 ## Summary
 
-The release workflow now stages Debian packages for Linux targets and performs
-an explicit GitHub Release asset upload after the release is created. This
-prevents a tag release from existing without binary assets attached.
+The `.github/workflows/release.yml` release workflow now stages Debian packages
+for Linux targets and performs an explicit GitHub Release asset upload after the
+release is created. This prevents a tag release from existing without binary
+assets attached.
 
 ## Scope
 
