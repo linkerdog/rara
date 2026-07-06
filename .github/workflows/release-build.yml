@@ -1,7 +1,6 @@
 name: release-build
 
 on:
-  pull_request:
   push:
     branches:
       - main
@@ -29,10 +28,6 @@ jobs:
         include:
           - runner: macos-14
             target: aarch64-apple-darwin
-            archive: tar.gz
-            smoke: true
-          - runner: macos-13
-            target: x86_64-apple-darwin
             archive: tar.gz
             smoke: true
           - runner: ubuntu-22.04

@@ -47,7 +47,6 @@ Initial release targets:
 | Target | Runner | Archive |
 | --- | --- | --- |
 | `aarch64-apple-darwin` | `macos-14` | `.tar.gz` |
-| `x86_64-apple-darwin` | `macos-13` | `.tar.gz` |
 | `x86_64-unknown-linux-gnu` | `ubuntu-22.04` | `.tar.gz`, `.deb` |
 | `aarch64-unknown-linux-gnu` | `ubuntu-22.04` with `cross` | `.tar.gz`, `.deb` |
 | `x86_64-pc-windows-msvc` | `windows-latest` | `.zip` |
@@ -102,9 +101,7 @@ jobs should not run unless the release assets exist.
 
 Pull-request CI includes:
 
-- Linux build, fmt, clippy, and test jobs on `ubuntu-latest`;
-- release matrix build coverage for the archive/package target set without
-  publishing assets;
+- Linux build, fmt, clippy, and test jobs on `ubuntu-latest`.
 
 Post-merge CI additionally includes a Windows build gate on `windows-latest`
 using the pinned Rust toolchain and `cargo build --locked`.
@@ -114,10 +111,11 @@ release workflow still owns Windows archive packaging and native smoke tests.
 SQLite is built through `rusqlite`'s bundled feature so Windows builds do not
 depend on a runner-provided `sqlite3.lib`.
 
-`.github/workflows/release-build.yml` validates the release matrix before
-merge. It builds and packages the same platform targets as the release workflow,
-including Linux Debian packages, and runs native archive smoke tests. It does
-not create GitHub Releases or upload release assets.
+`.github/workflows/release-build.yml` validates the release matrix after merge
+on `main`. It builds and packages the same platform targets as the release
+workflow, including Linux Debian packages, and runs native archive smoke tests.
+It does not run on pull requests, create GitHub Releases, or upload release
+assets.
 
 `.github/workflows/release.yml` implements the tag-driven release slice:
 

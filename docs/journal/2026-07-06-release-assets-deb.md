@@ -30,13 +30,18 @@ covered before merge:
 The follow-up keeps the published Linux binaries on GNU targets
 (`x86_64-unknown-linux-gnu` and `aarch64-unknown-linux-gnu`) built on
 `ubuntu-22.04`, installs `protoc` through runner package managers, uses vendored
-OpenSSL for the aarch64 Linux target, and adds a pull-request `release-build`
-workflow that builds, packages, and smoke-tests the same target matrix without
-publishing release assets. The `aarch64-unknown-linux-gnu` cross image now also
-installs the minimal build tools needed by vendored OpenSSL and a fixed upstream
-`protoc` version for protobuf-backed build scripts. The fixed `protoc` install
-is required because the cross image's Ubuntu xenial package repository provides
-`protoc` 2.6.1, which does not support `--experimental_allow_proto3_optional`.
+OpenSSL for the aarch64 Linux target, and drops `x86_64-apple-darwin` from the
+release matrix because the current release scope does not require `macos-13`.
+The `aarch64-unknown-linux-gnu` cross image now also installs the minimal build
+tools needed by vendored OpenSSL and a fixed upstream `protoc` version for
+protobuf-backed build scripts. The fixed `protoc` install is required because
+the cross image's Ubuntu xenial package repository provides `protoc` 2.6.1,
+which does not support `--experimental_allow_proto3_optional`.
+
+The pull-request `release-build` trigger was removed after the validated targets
+passed so normal pull-request CI does not run release packaging. The
+`release-build` workflow remains as a post-merge `main` check to build, package,
+and smoke-test the release target matrix without publishing assets.
 
 ## Validation
 
