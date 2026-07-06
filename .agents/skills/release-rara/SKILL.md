@@ -55,6 +55,7 @@ Run this before creating or pushing a release tag:
 
 ```bash
 VERSION=X.Y.Z
+export VERSION
 cargo metadata --no-deps --format-version 1 \
   | python3 -c 'import json,os,sys; data=json.load(sys.stdin); pkg=next(p for p in data["packages"] if p["name"]=="rara"); actual=pkg["version"]; expected=os.environ["VERSION"]; print(actual); sys.exit(0 if actual == expected else 1)'
 ```
