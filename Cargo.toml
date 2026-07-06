@@ -24,7 +24,7 @@ members = [
 resolver = "2"
 
 [workspace.package]
-version = "0.0.1"
+version = "0.0.3"
 edition = "2024"
 license = "Apache-2.0"
 
@@ -47,8 +47,8 @@ rara-instructions = { path = "crates/instructions" }
 
 [package]
 name = "rara"
-version = "0.0.1"
-edition = "2024"
+version.workspace = true
+edition.workspace = true
 
 [dependencies]
 rara-persistence = { path = "crates/rara-persistence" }
