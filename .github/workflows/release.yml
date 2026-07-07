@@ -119,23 +119,28 @@ jobs:
         include:
           - runner: macos-14
             target: aarch64-apple-darwin
+            asset_name: macos-aarch64
             archive: tar.gz
             smoke: true
           - runner: ubuntu-22.04
             target: x86_64-unknown-linux-gnu
+            asset_name: linux-x86_64
             archive: tar.gz
             smoke: true
           - runner: ubuntu-22.04
             target: aarch64-unknown-linux-gnu
+            asset_name: linux-aarch64
             archive: tar.gz
             build_with: cross
             smoke: false
           - runner: windows-latest
             target: x86_64-pc-windows-msvc
+            asset_name: windows-x86_64
             archive: zip
             smoke: true
           - runner: windows-latest
             target: aarch64-pc-windows-msvc
+            asset_name: windows-aarch64
             archive: zip
             smoke: false
     steps:
@@ -211,6 +216,7 @@ jobs:
         if: ${{ runner.os != 'Windows' }}
         shell: bash
         env:
+          ASSET_NAME: ${{ matrix.asset_name }}
           VERSION: ${{ needs.tag-check.outputs.version }}
           TARGET: ${{ matrix.target }}
         run: |
@@ -219,7 +225,7 @@ jobs:
           mkdir -p "${dist_dir}"
           cp "target/${TARGET}/release/rara" "${dist_dir}/rara"
           chmod +x "${dist_dir}/rara"
-          tar -C "${dist_dir}" -czf "dist/rara-${VERSION}-${TARGET}.tar.gz" rara
+          tar -C "${dist_dir}" -czf "dist/rara-${VERSION}-${ASSET_NAME}.tar.gz" rara
 
       - name: Package Debian package
         if: ${{ runner.os == 'Linux' && contains(matrix.target, 'unknown-linux') }}
@@ -264,37 +270,40 @@ jobs:
         if: ${{ runner.os == 'Windows' }}
         shell: pwsh
         env:
+          ASSET_NAME: ${{ matrix.asset_name }}
           VERSION: ${{ needs.tag-check.outputs.version }}
           TARGET: ${{ matrix.target }}
         run: |
           $distDir = "dist/$env:TARGET"
           New-Item -ItemType Directory -Force -Path $distDir | Out-Null
           Copy-Item "target/$env:TARGET/release/rara.exe" "$distDir/rara.exe"
-          Compress-Archive -Path "$distDir/rara.exe" -DestinationPath "dist/rara-$env:VERSION-$env:TARGET.zip" -Force
+          Compress-Archive -Path "$distDir/rara.exe" -DestinationPath "dist/rara-$env:VERSION-$env:ASSET_NAME.zip" -Force
 
       - name: Smoke test unix archive
         if: ${{ runner.os != 'Windows' && matrix.smoke }}
         shell: bash
         env:
+          ASSET_NAME: ${{ matrix.asset_name }}
           VERSION: ${{ needs.tag-check.outputs.version }}
           TARGET: ${{ matrix.target }}
         run: |
           set -euo pipefail
           smoke_dir="dist/smoke-${TARGET}"
           mkdir -p "${smoke_dir}"
-          tar -C "${smoke_dir}" -xzf "dist/rara-${VERSION}-${TARGET}.tar.gz"
+          tar -C "${smoke_dir}" -xzf "dist/rara-${VERSION}-${ASSET_NAME}.tar.gz"
           "${smoke_dir}/rara" --version
 
       - name: Smoke test windows archive
         if: ${{ runner.os == 'Windows' && matrix.smoke }}
         shell: pwsh
         env:
+          ASSET_NAME: ${{ matrix.asset_name }}
           VERSION: ${{ needs.tag-check.outputs.version }}
           TARGET: ${{ matrix.target }}
         run: |
           $smokeDir = "dist/smoke-$env:TARGET"
           New-Item -ItemType Directory -Force -Path $smokeDir | Out-Null
-          Expand-Archive -Path "dist/rara-$env:VERSION-$env:TARGET.zip" -DestinationPath $smokeDir -Force
+          Expand-Archive -Path "dist/rara-$env:VERSION-$env:ASSET_NAME.zip" -DestinationPath $smokeDir -Force
           & "$smokeDir/rara.exe" --version
 
       - name: Upload release archive
@@ -302,7 +311,7 @@ jobs:
         with:
           name: rara-${{ matrix.target }}
           path: |
-            dist/rara-${{ needs.tag-check.outputs.version }}-${{ matrix.target }}.${{ matrix.archive }}
+            dist/rara-${{ needs.tag-check.outputs.version }}-${{ matrix.asset_name }}.${{ matrix.archive }}
             dist/*.deb
           if-no-files-found: error
 

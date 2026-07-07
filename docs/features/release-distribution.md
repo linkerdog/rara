@@ -57,10 +57,13 @@ or linker behavior makes a target unreliable.
 
 ## Artifact Contract
 
-Each build produces one executable archive:
+Each build produces one executable archive using user-facing platform names:
 
-- Unix: `rara-${VERSION}-${TARGET}.tar.gz`
-- Windows: `rara-${VERSION}-${TARGET}.zip`
+- macOS: `rara-${VERSION}-macos-aarch64.tar.gz`
+- Linux: `rara-${VERSION}-linux-x86_64.tar.gz`
+- Linux: `rara-${VERSION}-linux-aarch64.tar.gz`
+- Windows: `rara-${VERSION}-windows-x86_64.zip`
+- Windows: `rara-${VERSION}-windows-aarch64.zip`
 - Debian package for Linux targets: `rara_${VERSION}_${DEB_ARCH}.deb`
 
 The current target matrix produces seven binary release assets: five target
@@ -70,6 +73,9 @@ Each release should also publish checksum files:
 
 - `rara-${VERSION}-${TARGET}.sha256`
 - `checksums.txt`
+
+Build jobs still use Rust target triples internally. Release archive names avoid
+the Rust `unknown` vendor component so they are easier for users to identify.
 
 Archives contain only the executable at the archive root:
 
