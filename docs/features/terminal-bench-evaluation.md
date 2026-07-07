@@ -56,10 +56,13 @@ Recommended components:
   `PYTHONPATH=$PWD/tools/harbor harbor run -d terminal-bench/terminal-bench-2
   --agent rara_agent:RaraAgent --agent-kwarg
   binary_path=$PWD/target/release/rara`. The adapter defaults to `/app` as the
-  benchmark cwd and preserves the `rara exec` exit code while teeing JSONL
-  output into `/logs/agent/rara-exec.jsonl`. It also sets
+  benchmark cwd, passes that cwd explicitly to `rara exec`, and preserves the
+  `rara exec` exit code while teeing JSONL output into
+  `/logs/agent/rara-exec.jsonl`. It also sets
   `RARA_LOCAL_EMBEDDINGS=off` so benchmark startup does not prepare the bundled
-  local embedding sidecar.
+  local embedding sidecar. The adapter wraps task text with generic
+  non-interactive benchmark guidance so RARA treats named output files as
+  required artifacts rather than optional final-answer prose.
 - `rara eval terminal-bench` may be added later as a convenience wrapper, but
   the first integration target is Harbor compatibility.
 - Stable workspace setup contract:
@@ -102,6 +105,12 @@ RARA owns the generic headless agent execution and event stream.
 The adapter must not require interactive TUI-only features. Any configuration
 that is currently only exposed through `/model`, `/auth`, or overlays must also
 have a headless path.
+
+The adapter may add generic harness guidance around the raw task instruction.
+That guidance can require non-interactive operation, exact creation of
+task-named output files, focused validation, and blocker reporting. It must not
+embed task-specific solutions, hidden verifier knowledge, or benchmark oracle
+content.
 
 ### Headless Execution Contract
 
