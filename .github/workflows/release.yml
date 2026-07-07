@@ -19,6 +19,7 @@ env:
   CARGO_INCREMENTAL: "0"
   CARGO_TERM_COLOR: always
   RUST_BACKTRACE: "1"
+  RELEASE_BINARY_ASSET_COUNT: "7"
 
 jobs:
   tag-check:
@@ -335,7 +336,7 @@ jobs:
           find dist/artifacts -type f \( -name "*.tar.gz" -o -name "*.zip" -o -name "*.deb" \) -print0 \
             | xargs -0 -I{} cp "{}" dist/release/
 
-          expected=8
+          expected="${RELEASE_BINARY_ASSET_COUNT}"
           actual="$(find dist/release -type f \( -name "*.tar.gz" -o -name "*.zip" -o -name "*.deb" \) | wc -l | tr -d ' ')"
           [[ "${actual}" == "${expected}" ]] || {
             echo "Expected ${expected} release binary assets, found ${actual}." >&2
@@ -381,7 +382,7 @@ jobs:
           TAG: ${{ needs.tag-check.outputs.tag }}
         run: |
           set -euo pipefail
-          expected=17
+          expected=$((RELEASE_BINARY_ASSET_COUNT * 2 + 1))
           actual="$(gh release view "${TAG}" --json assets --jq '.assets | length')"
           [[ "${actual}" == "${expected}" ]] || {
             echo "Expected ${expected} assets on release ${TAG}, found ${actual}." >&2
