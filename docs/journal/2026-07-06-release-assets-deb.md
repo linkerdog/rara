@@ -72,3 +72,15 @@ ruby -e 'require "yaml"; YAML.load_file(".github/workflows/release.yml"); puts "
 bash -lc 'RELEASE_BINARY_ASSET_COUNT=7; expected=$((RELEASE_BINARY_ASSET_COUNT * 2 + 1)); test "$expected" = 15; echo "$expected"'
 git diff --check
 ```
+
+## User-Facing Archive Names
+
+Release archives now use user-facing platform labels instead of full Rust target
+triples. The build matrix still compiles with triples such as
+`x86_64-unknown-linux-gnu`, but the uploaded archives are named:
+
+- `rara-${VERSION}-macos-aarch64.tar.gz`
+- `rara-${VERSION}-linux-x86_64.tar.gz`
+- `rara-${VERSION}-linux-aarch64.tar.gz`
+- `rara-${VERSION}-windows-x86_64.zip`
+- `rara-${VERSION}-windows-aarch64.zip`
