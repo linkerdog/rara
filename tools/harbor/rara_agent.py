@@ -27,6 +27,7 @@ DEFAULT_JSONL_PATH = EnvironmentPaths.agent_dir / "rara-exec.jsonl"
 DEFAULT_EXIT_STATUS_PATH = EnvironmentPaths.agent_dir / "rara-exec.status"
 DEFAULT_INSTRUCTION_PATH = EnvironmentPaths.agent_dir / "instruction.txt"
 DEFAULT_LAST_MESSAGE_PATH = EnvironmentPaths.agent_dir / "last-message.txt"
+DEFAULT_BENCHMARK_CWD = "/app"
 
 
 class RaraAgent(BaseInstalledAgent):
@@ -40,7 +41,7 @@ class RaraAgent(BaseInstalledAgent):
         *args: Any,
         binary_path: str | None = None,
         remote_binary: str | None = None,
-        cwd: str = "/app",
+        cwd: str = DEFAULT_BENCHMARK_CWD,
         rara_home: str | None = None,
         **kwargs: Any,
     ) -> None:
@@ -101,7 +102,9 @@ class RaraAgent(BaseInstalledAgent):
     ) -> None:
         instruction_path = self.logs_dir / "instruction.txt"
         instruction_path.parent.mkdir(parents=True, exist_ok=True)
-        instruction_path.write_text(instruction, encoding="utf-8")
+        cwd = self.effective_cwd()
+        benchmark_instruction = build_benchmark_instruction(instruction, cwd)
+        instruction_path.write_text(benchmark_instruction, encoding="utf-8")
         await environment.upload_file(
             instruction_path,
             DEFAULT_INSTRUCTION_PATH.as_posix(),
@@ -113,7 +116,7 @@ class RaraAgent(BaseInstalledAgent):
             "RARA_LOCAL_EMBEDDINGS": "off",
         }
         command = self._build_exec_command()
-        result = await environment.exec(command=command, cwd=self.cwd, env=env)
+        result = await environment.exec(command=command, cwd=cwd, env=env)
 
         stdout = result.stdout or ""
         events = parse_rara_jsonl(stdout)
@@ -123,6 +126,7 @@ class RaraAgent(BaseInstalledAgent):
 
     def _build_exec_command(self) -> str:
         binary = shlex.quote(self.remote_binary.as_posix())
+        cwd = shlex.quote(self.effective_cwd())
         jsonl_path = shlex.quote(DEFAULT_JSONL_PATH.as_posix())
         status_path = shlex.quote(DEFAULT_EXIT_STATUS_PATH.as_posix())
         instruction_path = shlex.quote(DEFAULT_INSTRUCTION_PATH.as_posix())
@@ -133,7 +137,7 @@ class RaraAgent(BaseInstalledAgent):
             f"mkdir -p {shlex.quote(EnvironmentPaths.agent_dir.as_posix())} "
             f"{shlex.quote(self.rara_home.as_posix())} || exit $?; "
             "{ "
-            f"{binary} exec --json --run-id {run_id} --task-id {task_id} "
+            f"{binary} exec --json --cwd {cwd} --run-id {run_id} --task-id {task_id} "
             f"--output-last-message {last_message_path} - "
             f"< {instruction_path}; "
             f"printf '%s\\n' \"$?\" > {status_path}; "
@@ -180,6 +184,24 @@ class RaraAgent(BaseInstalledAgent):
             "jsonl_path": DEFAULT_JSONL_PATH.as_posix(),
             "last_message_path": DEFAULT_LAST_MESSAGE_PATH.as_posix(),
         }
+
+    def effective_cwd(self) -> str:
+        return self.cwd or DEFAULT_BENCHMARK_CWD
+
+
+def build_benchmark_instruction(instruction: str, cwd: str) -> str:
+    """Wrap Harbor task text with generic non-interactive benchmark guidance."""
+    return f"""You are running inside a non-interactive Terminal-Bench task container.
+
+Work only in the benchmark workspace: {cwd}.
+Read the task carefully and create every file path that the task asks for exactly as specified.
+If the task names an absolute output path under the workspace, write that artifact before you finish.
+Use available shell and file tools to inspect inputs, edit files, and run focused validation commands.
+Do not finish with only an explanation. Finish only after the requested artifacts exist, or report the exact blocker if you cannot create them.
+
+Task instructions:
+{instruction.strip()}
+"""
 
 
 def parse_rara_jsonl(output: str) -> list[dict[str, Any]]:

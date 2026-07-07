@@ -8,7 +8,7 @@ from uuid import UUID
 
 from harbor.models.agent.context import AgentContext
 
-from rara_agent import RaraAgent, parse_rara_jsonl
+from rara_agent import RaraAgent, build_benchmark_instruction, parse_rara_jsonl
 
 
 class FakeExecResult:
@@ -42,6 +42,7 @@ class FakeRunEnvironment:
     def __init__(self) -> None:
         self.uploads: list[tuple[Path, str]] = []
         self.exec_env: dict[str, str] | None = None
+        self.exec_cwd: str | None = None
 
     async def upload_file(self, source: Path, destination: str) -> None:
         self.uploads.append((source, destination))
@@ -52,6 +53,7 @@ class FakeRunEnvironment:
         cwd: str | None = None,
         env: dict[str, str] | None = None,
     ) -> FakeExecResult:
+        self.exec_cwd = cwd
         self.exec_env = dict(env or {})
         return FakeExecResult(
             0,
@@ -123,6 +125,7 @@ class RaraAgentTests(unittest.TestCase):
         command = agent._build_exec_command()
 
         self.assertIn("/opt/rara exec --json", command)
+        self.assertIn("--cwd /app", command)
         self.assertIn("--run-id 00000000000000000000000000000123", command)
         self.assertIn("--task-id trial-agent", command)
         self.assertIn("--output-last-message /logs/agent/last-message.txt", command)
@@ -139,6 +142,21 @@ class RaraAgentTests(unittest.TestCase):
 
         self.assertEqual(agent.cwd, "/app")
 
+    def test_empty_cwd_falls_back_to_terminal_bench_workdir(self) -> None:
+        with tempfile.TemporaryDirectory(dir=Path.cwd()) as temp:
+            agent = RaraAgent(logs_dir=Path(temp), binary_path="/tmp/rara", cwd="")
+            context = AgentContext()
+            environment = FakeRunEnvironment()
+
+            asyncio.run(agent.run("Create /app/output.txt.", environment, context))  # type: ignore[arg-type]
+
+            uploaded_instruction = environment.uploads[0][0].read_text(encoding="utf-8")
+
+        self.assertEqual(agent.effective_cwd(), "/app")
+        self.assertEqual(environment.exec_cwd, "/app")
+        self.assertIn("--cwd /app", agent._build_exec_command())
+        self.assertIn("Work only in the benchmark workspace: /app", uploaded_instruction)
+
     def test_run_disables_local_embeddings_for_benchmark(self) -> None:
         with tempfile.TemporaryDirectory(dir=Path.cwd()) as temp:
             agent = RaraAgent(logs_dir=Path(temp), binary_path="/tmp/rara")
@@ -149,6 +167,36 @@ class RaraAgentTests(unittest.TestCase):
 
         self.assertEqual(environment.exec_env["RARA_LOCAL_EMBEDDINGS"], "off")
         self.assertEqual(environment.exec_env["RARA_HOME"], "/logs/agent/rara-home")
+        self.assertEqual(environment.exec_cwd, "/app")
+
+    def test_run_wraps_instruction_with_benchmark_artifact_guidance(self) -> None:
+        with tempfile.TemporaryDirectory(dir=Path.cwd()) as temp:
+            agent = RaraAgent(logs_dir=Path(temp), binary_path="/tmp/rara")
+            context = AgentContext()
+            environment = FakeRunEnvironment()
+
+            asyncio.run(
+                agent.run(
+                    "Save your query in `/app/solution.sparql`.",
+                    environment,
+                    context,
+                )
+            )  # type: ignore[arg-type]
+
+            uploaded_instruction = environment.uploads[0][0].read_text(encoding="utf-8")
+
+        self.assertIn("non-interactive Terminal-Bench task container", uploaded_instruction)
+        self.assertIn("Work only in the benchmark workspace: /app", uploaded_instruction)
+        self.assertIn("create every file path that the task asks for", uploaded_instruction)
+        self.assertIn("/app/solution.sparql", uploaded_instruction)
+        self.assertIn("Do not finish with only an explanation", uploaded_instruction)
+
+    def test_build_benchmark_instruction_preserves_task_text(self) -> None:
+        instruction = "\nCreate /app/solution.sparql.\n"
+
+        wrapped = build_benchmark_instruction(instruction, "/app")
+
+        self.assertTrue(wrapped.endswith("Create /app/solution.sparql.\n"))
 
     def test_binary_path_is_resolved(self) -> None:
         with tempfile.TemporaryDirectory(dir=Path.cwd()) as temp:
