@@ -63,6 +63,9 @@ Each build produces one executable archive:
 - Windows: `rara-${VERSION}-${TARGET}.zip`
 - Debian package for Linux targets: `rara_${VERSION}_${DEB_ARCH}.deb`
 
+The current target matrix produces seven binary release assets: five target
+archives and two Linux Debian packages.
+
 Each release should also publish checksum files:
 
 - `rara-${VERSION}-${TARGET}.sha256`

@@ -51,3 +51,24 @@ cargo metadata --locked --format-version 1 --filter-platform aarch64-unknown-lin
 cargo check --locked --bin rara
 git diff --check
 ```
+
+## v0.0.5 Release Count Fix
+
+The first `v0.0.5` release run built every matrix target successfully, but the
+`github-release` job failed while staging checksums because the release workflow
+still expected eight binary assets. After `x86_64-apple-darwin` was removed from
+the release matrix, the release produces seven binary assets: five target
+archives and two Linux Debian packages.
+
+The workflow now stores the expected binary asset count in
+`RELEASE_BINARY_ASSET_COUNT` and derives the final GitHub Release asset count as
+`binary_count * 2 + 1`, covering each binary asset, each `.sha256` file, and
+`checksums.txt`.
+
+Validation:
+
+```bash
+ruby -e 'require "yaml"; YAML.load_file(".github/workflows/release.yml"); puts ".github/workflows/release.yml ok"'
+bash -lc 'RELEASE_BINARY_ASSET_COUNT=7; expected=$((RELEASE_BINARY_ASSET_COUNT * 2 + 1)); test "$expected" = 15; echo "$expected"'
+git diff --check
+```
