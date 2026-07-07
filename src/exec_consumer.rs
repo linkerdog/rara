@@ -87,6 +87,40 @@ impl ExecConsumer {
     }
 }
 
+pub fn emit_exec_startup_failure_jsonl(
+    run_id: Option<String>,
+    task_id: Option<String>,
+    message: String,
+) {
+    for event in exec_startup_failure_events(run_id, task_id, message) {
+        let _ = emit_jsonl(&event);
+    }
+}
+
+pub fn exec_startup_failure_events(
+    run_id: Option<String>,
+    task_id: Option<String>,
+    message: String,
+) -> Vec<ExecEvent> {
+    vec![
+        ExecEvent::ThreadStarted {
+            metadata: ExecRunMetadata {
+                session_id: "startup".to_string(),
+                run_id,
+                task_id,
+            },
+            timestamp: timestamp_now(),
+        },
+        ExecEvent::TurnStarted {
+            timestamp: timestamp_now(),
+        },
+        ExecEvent::TurnFailed {
+            error: ExecError { message },
+            timestamp: timestamp_now(),
+        },
+    ]
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct ExecRunMetadata {
     pub session_id: String,
@@ -504,6 +538,32 @@ mod tests {
 
         assert_eq!(processor.usage.input_tokens, 13);
         assert_eq!(processor.usage.output_tokens, 7);
+    }
+
+    #[test]
+    fn startup_failure_events_preserve_harness_metadata() {
+        let events = exec_startup_failure_events(
+            Some("run-1".to_string()),
+            Some("task-1".to_string()),
+            "rara exec panicked during startup".to_string(),
+        );
+
+        assert_eq!(events.len(), 3);
+        match &events[0] {
+            ExecEvent::ThreadStarted { metadata, .. } => {
+                assert_eq!(metadata.session_id, "startup");
+                assert_eq!(metadata.run_id.as_deref(), Some("run-1"));
+                assert_eq!(metadata.task_id.as_deref(), Some("task-1"));
+            }
+            other => panic!("unexpected first event: {other:?}"),
+        }
+        assert!(matches!(events[1], ExecEvent::TurnStarted { .. }));
+        match &events[2] {
+            ExecEvent::TurnFailed { error, .. } => {
+                assert_eq!(error.message, "rara exec panicked during startup");
+            }
+            other => panic!("unexpected third event: {other:?}"),
+        }
     }
 
     fn test_metadata() -> ExecRunMetadata {
