@@ -1,5 +1,6 @@
 use std::path::PathBuf;
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use anyhow::{Result, bail};
 use clap::{Parser, Subcommand};
@@ -294,6 +295,7 @@ async fn run_print_command(config: &RaraConfig, prompt: String) -> Result<()> {
 }
 
 async fn run_exec_command(config: &RaraConfig, args: ExecArgs) -> Result<()> {
+    let startup_complete = install_exec_panic_hook(&args);
     if let Some(cwd) = args.cwd.as_deref() {
         std::env::set_current_dir(cwd)
             .map_err(|err| anyhow::anyhow!("failed to switch cwd to {}: {err}", cwd.display()))?;
@@ -311,7 +313,32 @@ async fn run_exec_command(config: &RaraConfig, args: ExecArgs) -> Result<()> {
             task_id: args.task_id,
         },
     );
+    if let Some(startup_complete) = startup_complete {
+        startup_complete.store(true, Ordering::Release);
+    }
     consumer.run().await
+}
+
+fn install_exec_panic_hook(args: &ExecArgs) -> Option<Arc<AtomicBool>> {
+    if !args.json {
+        return None;
+    }
+    let startup_complete = Arc::new(AtomicBool::new(false));
+    let startup_complete_for_hook = startup_complete.clone();
+    let run_id = args.run_id.clone();
+    let task_id = args.task_id.clone();
+    let default_hook = std::panic::take_hook();
+    std::panic::set_hook(Box::new(move |info| {
+        if !startup_complete_for_hook.load(Ordering::Acquire) {
+            crate::exec_consumer::emit_exec_startup_failure_jsonl(
+                run_id.clone(),
+                task_id.clone(),
+                format!("rara exec panicked during startup: {info}"),
+            );
+        }
+        default_hook(info);
+    }));
+    Some(startup_complete)
 }
 
 async fn run_wire_command(config: &RaraConfig, prompt: String) -> Result<()> {
