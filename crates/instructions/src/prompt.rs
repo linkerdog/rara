@@ -697,6 +697,7 @@ fn default_system_prompt_sections() -> Vec<PromptSection> {
                     "Prefer regression tests that would fail on the old behavior and pass for the intended behavior.",
                     "Run the smallest relevant test first, then broaden only when the touched path or risk justifies it.",
                     "For bug fixes, close the loop in order when practical: reproduce or characterize the original failure, implement the fix, run the focused regression test, then check nearby behavior for side effects.",
+                    "Treat explicit task constraints as validation requirements, not just guidance. When a task says only certain edits are allowed, specific files must remain unchanged, output must match an exact format, or substitutions must come from an allowed list, verify those invariants directly before reporting completion.",
                     "Treat build/test output as necessary evidence, not the whole story. When user-visible state, runtime workflow, or tool behavior changed, also inspect the changed surface or structured runtime result.",
                     "Inspect the real command output before claiming success. A command that exits successfully with warnings should be reported as passed with warnings when the warnings matter.",
                     "If sandbox or permission limits block a needed validation command, do not stop at the first denial. Read the exact error, try the narrowest equivalent command or other local evidence path, and request escalated permissions only when the sandbox is the real blocker.",
@@ -1531,6 +1532,11 @@ mod tests {
         assert!(effective.text.contains("Principle of Least Complexity"));
         assert!(effective.text.contains("Default to writing no comments"));
         assert!(effective.text.contains("verify it actually works"));
+        assert!(
+            effective
+                .text
+                .contains("Treat explicit task constraints as validation requirements")
+        );
 
         assert!(
             effective

@@ -258,6 +258,8 @@ class RaraAgentTests(unittest.TestCase):
         self.assertIn("non-interactive Terminal-Bench task container", uploaded_instruction)
         self.assertIn("Work only in the benchmark workspace: /app", uploaded_instruction)
         self.assertIn("create every file path that the task asks for", uploaded_instruction)
+        self.assertIn("Treat task constraints as validation requirements", uploaded_instruction)
+        self.assertIn("substitutions must come from an allowed list", uploaded_instruction)
         self.assertIn("request escalated sandbox permissions", uploaded_instruction)
         self.assertIn("/app/solution.sparql", uploaded_instruction)
         self.assertIn("Do not finish with only an explanation", uploaded_instruction)
