@@ -4,6 +4,7 @@ import asyncio
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 from uuid import UUID
 
 from harbor.models.agent.context import AgentContext
@@ -122,7 +123,8 @@ class RaraAgentTests(unittest.TestCase):
         agent.context_id = UUID("00000000-0000-0000-0000-000000000123")
         agent.session_id = "trial-agent"
 
-        command = agent._build_exec_command()
+        with patch.dict("os.environ", {}, clear=True):
+            command = agent._build_exec_command()
 
         self.assertIn("/opt/rara exec --json", command)
         self.assertIn("--cwd /app", command)
@@ -136,6 +138,23 @@ class RaraAgentTests(unittest.TestCase):
         self.assertIn('exit "$status"', command)
         self.assertNotIn("2>&1", command)
         self.assertIn("| tee /logs/agent/rara-exec.jsonl", command)
+
+    def test_build_exec_command_includes_provider_flags_without_api_key(self) -> None:
+        agent = RaraAgent(
+            logs_dir=Path("/tmp/logs"),
+            binary_path="/tmp/rara",
+            remote_binary="/opt/rara",
+            provider="gemini",
+            model="gemini-2.5-flash",
+        )
+
+        command = agent._build_exec_command()
+
+        self.assertIn(
+            "/opt/rara --provider gemini --model gemini-2.5-flash exec --json",
+            command,
+        )
+        self.assertNotIn("--api-key", command)
 
     def test_default_cwd_matches_terminal_bench_workdir(self) -> None:
         agent = RaraAgent(logs_dir=Path("/tmp/logs"), binary_path="/tmp/rara")
@@ -168,6 +187,57 @@ class RaraAgentTests(unittest.TestCase):
         self.assertEqual(environment.exec_env["RARA_LOCAL_EMBEDDINGS"], "off")
         self.assertEqual(environment.exec_env["RARA_HOME"], "/logs/agent/rara-home")
         self.assertEqual(environment.exec_cwd, "/app")
+
+    def test_run_maps_inferred_provider_api_key_to_rara_api_key(self) -> None:
+        with tempfile.TemporaryDirectory(dir=Path.cwd()) as temp:
+            agent = RaraAgent(logs_dir=Path(temp), binary_path="/tmp/rara")
+            context = AgentContext()
+            environment = FakeRunEnvironment()
+
+            with patch.dict("os.environ", {"GEMINI_API_KEY": "secret"}, clear=True):
+                asyncio.run(agent.run("solve task", environment, context))  # type: ignore[arg-type]
+                self.assertEqual(agent.effective_provider(), "gemini")
+                self.assertIn("--provider gemini", agent._build_exec_command())
+
+        self.assertEqual(environment.exec_env["RARA_API_KEY"], "secret")
+
+    def test_run_prefers_explicit_extra_env_over_inferred_provider_key(self) -> None:
+        with tempfile.TemporaryDirectory(dir=Path.cwd()) as temp:
+            agent = RaraAgent(
+                logs_dir=Path(temp),
+                binary_path="/tmp/rara",
+                extra_env={"RARA_API_KEY": "explicit"},
+            )
+            context = AgentContext()
+            environment = FakeRunEnvironment()
+
+            with patch.dict("os.environ", {"GEMINI_API_KEY": "inferred"}, clear=True):
+                asyncio.run(agent.run("solve task", environment, context))  # type: ignore[arg-type]
+
+        self.assertEqual(environment.exec_env["RARA_API_KEY"], "explicit")
+
+    def test_run_rejects_mock_backend_completion(self) -> None:
+        class FakeMockRunEnvironment(FakeRunEnvironment):
+            async def exec(
+                self,
+                command: str,
+                cwd: str | None = None,
+                env: dict[str, str] | None = None,
+            ) -> FakeExecResult:
+                self.exec_cwd = cwd
+                self.exec_env = dict(env or {})
+                return FakeExecResult(
+                    0,
+                    stdout='{"type":"turn.completed","final_message":"Mock Response: solve task"}\n',
+                )
+
+        with tempfile.TemporaryDirectory(dir=Path.cwd()) as temp:
+            agent = RaraAgent(logs_dir=Path(temp), binary_path="/tmp/rara")
+            context = AgentContext()
+            environment = FakeMockRunEnvironment()
+
+            with self.assertRaisesRegex(RuntimeError, "mock backend"):
+                asyncio.run(agent.run("solve task", environment, context))  # type: ignore[arg-type]
 
     def test_run_wraps_instruction_with_benchmark_artifact_guidance(self) -> None:
         with tempfile.TemporaryDirectory(dir=Path.cwd()) as temp:
@@ -219,6 +289,50 @@ class RaraAgentTests(unittest.TestCase):
                 asyncio.run(agent.install(environment))  # type: ignore[arg-type]
 
         self.assertIn("/installed-agent/rara --version", environment.commands)
+
+    def test_install_ensures_ca_certificates_before_validation(self) -> None:
+        with tempfile.TemporaryDirectory(dir=Path.cwd()) as temp:
+            binary_path = Path(temp) / "rara"
+            binary_path.touch()
+            agent = RaraAgent(logs_dir=Path("/tmp/logs"), binary_path=str(binary_path))
+            environment = FakeInstallEnvironment()
+
+            with self.assertRaisesRegex(RuntimeError, "Linux binary"):
+                asyncio.run(agent.install(environment))  # type: ignore[arg-type]
+
+        ca_command_index = next(
+            index
+            for index, command in enumerate(environment.commands)
+            if "ca-certificates" in command
+        )
+        validation_index = next(
+            index
+            for index, command in enumerate(environment.commands)
+            if command.endswith("--version")
+        )
+        self.assertLess(ca_command_index, validation_index)
+
+    def test_ca_certificate_install_command_supports_common_images(self) -> None:
+        command = RaraAgent._ca_certificate_install_command()
+
+        self.assertIn("/etc/ssl/certs/ca-certificates.crt", command)
+        self.assertIn(
+            "apt-get update && "
+            "apt-get install -y --no-install-recommends ca-certificates && "
+            "update-ca-certificates",
+            command,
+        )
+        self.assertIn(
+            "apk add --no-cache ca-certificates && update-ca-certificates", command
+        )
+        self.assertIn(
+            "dnf install -y ca-certificates && (update-ca-trust extract || true)",
+            command,
+        )
+        self.assertIn(
+            "yum install -y ca-certificates && (update-ca-trust extract || true)",
+            command,
+        )
 
 
 if __name__ == "__main__":

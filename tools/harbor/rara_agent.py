@@ -28,6 +28,16 @@ DEFAULT_EXIT_STATUS_PATH = EnvironmentPaths.agent_dir / "rara-exec.status"
 DEFAULT_INSTRUCTION_PATH = EnvironmentPaths.agent_dir / "instruction.txt"
 DEFAULT_LAST_MESSAGE_PATH = EnvironmentPaths.agent_dir / "last-message.txt"
 DEFAULT_BENCHMARK_CWD = "/app"
+CA_CERTIFICATE_BUNDLE = PurePosixPath("/etc/ssl/certs/ca-certificates.crt")
+PROVIDER_API_KEY_ENVS = {
+    "deepseek": ("DEEPSEEK_API_KEY",),
+    "gemini": ("GEMINI_API_KEY",),
+    "kimi": ("KIMI_API_KEY", "MOONSHOT_API_KEY"),
+    "openrouter": ("OPENROUTER_API_KEY",),
+    "codex": ("CODEX_API_KEY", "OPENAI_API_KEY"),
+    "openai-compatible": ("RARA_API_KEY", "OPENAI_API_KEY"),
+}
+PROVIDER_INFERENCE_ORDER = ("deepseek", "kimi", "gemini", "openrouter", "codex")
 
 
 class RaraAgent(BaseInstalledAgent):
@@ -43,6 +53,10 @@ class RaraAgent(BaseInstalledAgent):
         remote_binary: str | None = None,
         cwd: str = DEFAULT_BENCHMARK_CWD,
         rara_home: str | None = None,
+        provider: str | None = None,
+        model: str | None = None,
+        base_url: str | None = None,
+        api_key_env: str | None = None,
         **kwargs: Any,
     ) -> None:
         super().__init__(*args, **kwargs)
@@ -52,6 +66,10 @@ class RaraAgent(BaseInstalledAgent):
         self.remote_binary = PurePosixPath(remote_binary or DEFAULT_REMOTE_BINARY)
         self.cwd = cwd
         self.rara_home = PurePosixPath(rara_home or DEFAULT_RARA_HOME)
+        self.provider = provider
+        self.model = model
+        self.base_url = base_url
+        self.api_key_env = api_key_env
 
     @staticmethod
     def name() -> str:
@@ -77,6 +95,11 @@ class RaraAgent(BaseInstalledAgent):
         await self.exec_as_root(
             environment,
             command=f"chmod 0755 {shlex.quote(self.remote_binary.as_posix())}",
+        )
+        await self.exec_as_root(
+            environment,
+            command=self._ca_certificate_install_command(),
+            timeout_sec=180,
         )
         validation = await environment.exec(
             command=f"{shlex.quote(self.remote_binary.as_posix())} --version",
@@ -111,6 +134,7 @@ class RaraAgent(BaseInstalledAgent):
         )
 
         env = {
+            **self._provider_env(),
             **self.extra_env,
             "RARA_HOME": self.rara_home.as_posix(),
             "RARA_LOCAL_EMBEDDINGS": "off",
@@ -121,6 +145,13 @@ class RaraAgent(BaseInstalledAgent):
         stdout = result.stdout or ""
         events = parse_rara_jsonl(stdout)
         self._populate_context(context, events)
+        if self._completed_with_mock_backend(events):
+            raise RuntimeError(
+                "RARA completed with the mock backend. Pass provider/model credentials "
+                "to the Harbor adapter, for example "
+                "--agent-kwarg provider=gemini --agent-kwarg model=gemini-2.5-flash, "
+                "or expose a supported provider API key in the Harbor process environment."
+            )
         if result.return_code != 0:
             raise self._classify_exec_error(command, result)
 
@@ -133,11 +164,13 @@ class RaraAgent(BaseInstalledAgent):
         last_message_path = shlex.quote(DEFAULT_LAST_MESSAGE_PATH.as_posix())
         run_id = shlex.quote(self.context_id.hex if self.context_id else "harbor")
         task_id = shlex.quote(self.session_id or "harbor-task")
+        global_flags = self._build_rara_global_flags()
+        binary_invocation = f"{binary} {global_flags}".rstrip()
         return (
             f"mkdir -p {shlex.quote(EnvironmentPaths.agent_dir.as_posix())} "
             f"{shlex.quote(self.rara_home.as_posix())} || exit $?; "
             "{ "
-            f"{binary} exec --json --cwd {cwd} --run-id {run_id} --task-id {task_id} "
+            f"{binary_invocation} exec --json --cwd {cwd} --run-id {run_id} --task-id {task_id} "
             f"--output-last-message {last_message_path} - "
             f"< {instruction_path}; "
             f"printf '%s\\n' \"$?\" > {status_path}; "
@@ -145,6 +178,69 @@ class RaraAgent(BaseInstalledAgent):
             f"status=$(cat {status_path} 2>/dev/null || printf '1'); "
             'exit "$status"'
         )
+
+    @staticmethod
+    def _ca_certificate_install_command() -> str:
+        bundle = shlex.quote(CA_CERTIFICATE_BUNDLE.as_posix())
+        return (
+            f"if [ -s {bundle} ]; then exit 0; fi; "
+            "if command -v apt-get >/dev/null 2>&1; then "
+            "export DEBIAN_FRONTEND=noninteractive; "
+            "apt-get update && "
+            "apt-get install -y --no-install-recommends ca-certificates && "
+            "update-ca-certificates; "
+            "elif command -v apk >/dev/null 2>&1; then "
+            "apk add --no-cache ca-certificates && "
+            "update-ca-certificates; "
+            "elif command -v dnf >/dev/null 2>&1; then "
+            "dnf install -y ca-certificates && "
+            "(update-ca-trust extract || true); "
+            "elif command -v yum >/dev/null 2>&1; then "
+            "yum install -y ca-certificates && "
+            "(update-ca-trust extract || true); "
+            "else "
+            "echo 'RARA requires CA certificates, but no supported package manager was found.' >&2; "
+            "exit 1; "
+            "fi"
+        )
+
+    def _build_rara_global_flags(self) -> str:
+        flags: list[str] = []
+        provider = self.effective_provider()
+        if provider:
+            flags.extend(["--provider", shlex.quote(provider)])
+        if self.base_url:
+            flags.extend(["--base-url", shlex.quote(self.base_url)])
+        if self.model:
+            flags.extend(["--model", shlex.quote(self.model)])
+        return " ".join(flags)
+
+    def _provider_env(self) -> dict[str, str]:
+        api_key = self._api_key_from_host_env()
+        if api_key is None:
+            return {}
+        return {"RARA_API_KEY": api_key}
+
+    def _api_key_from_host_env(self) -> str | None:
+        names: tuple[str, ...]
+        if self.api_key_env:
+            names = (self.api_key_env,)
+        else:
+            provider = self.effective_provider()
+            names = PROVIDER_API_KEY_ENVS.get(provider or "", ())
+        for name in names:
+            value = os.environ.get(name)
+            if value and value.strip():
+                return value
+        return None
+
+    def effective_provider(self) -> str | None:
+        if self.provider:
+            return self.provider
+        for provider in PROVIDER_INFERENCE_ORDER:
+            if any(os.environ.get(name, "").strip() for name in PROVIDER_API_KEY_ENVS[provider]):
+                return provider
+        return None
 
     @staticmethod
     def _populate_context(context: AgentContext, events: list[dict[str, Any]]) -> None:
@@ -184,6 +280,16 @@ class RaraAgent(BaseInstalledAgent):
             "jsonl_path": DEFAULT_JSONL_PATH.as_posix(),
             "last_message_path": DEFAULT_LAST_MESSAGE_PATH.as_posix(),
         }
+
+    @staticmethod
+    def _completed_with_mock_backend(events: list[dict[str, Any]]) -> bool:
+        for event in events:
+            if event.get("type") != "turn.completed":
+                continue
+            final_message = event.get("final_message")
+            if isinstance(final_message, str) and final_message.startswith("Mock Response:"):
+                return True
+        return False
 
     def effective_cwd(self) -> str:
         return self.cwd or DEFAULT_BENCHMARK_CWD
