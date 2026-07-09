@@ -61,6 +61,15 @@ Manual log inspection used:
 - `jobs/2026-07-08__20-45-55/sparql-university__w3PTeRy/agent/rara-exec.jsonl`
 - `jobs/2026-07-09__11-04-40/sparql-university__CnKTBtr/agent/rara-exec.jsonl`
 
+Full Terminal-Bench validation used a different task from `terminal-bench/terminal-bench-2`:
+
+- `jobs/2026-07-09__11-22-44/regex-log__duKe4R5/config.json`
+- `jobs/2026-07-09__11-22-44/regex-log__duKe4R5/agent/rara-exec.status`
+- `jobs/2026-07-09__11-22-44/regex-log__duKe4R5/result.json`
+- `jobs/2026-07-09__11-22-44/regex-log__duKe4R5/verifier/reward.txt`
+
+The `terminal-bench/regex-log` run exited with RARA status `0` and verifier reward `1.0`.
+
 ## Follow-Ups
 
-- Run a full Harbor Terminal-Bench job with a rotated provider key and verify that `/app/solution.sparql` is created before the verifier starts.
+- None for this checkpoint.
