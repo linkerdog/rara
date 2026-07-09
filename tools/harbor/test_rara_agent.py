@@ -126,13 +126,13 @@ class RaraAgentTests(unittest.TestCase):
         with patch.dict("os.environ", {}, clear=True):
             command = agent._build_exec_command()
 
-        self.assertIn("/opt/rara exec --json", command)
+        self.assertIn("/opt/rara exec --json --full-access", command)
         self.assertIn("--cwd /app", command)
         self.assertIn("--run-id 00000000000000000000000000000123", command)
         self.assertIn("--task-id trial-agent", command)
         self.assertIn("--output-last-message /logs/agent/last-message.txt", command)
         self.assertIn("< /logs/agent/instruction.txt", command)
-        self.assertIn("{ /opt/rara exec --json", command)
+        self.assertIn("{ /opt/rara exec --json --full-access", command)
         self.assertIn("printf '%s\\n' \"$?\" > /logs/agent/rara-exec.status", command)
         self.assertIn("status=$(cat /logs/agent/rara-exec.status", command)
         self.assertIn('exit "$status"', command)
@@ -151,7 +151,7 @@ class RaraAgentTests(unittest.TestCase):
         command = agent._build_exec_command()
 
         self.assertIn(
-            "/opt/rara --provider gemini --model gemini-2.5-flash exec --json",
+            "/opt/rara --provider gemini --model gemini-2.5-flash exec --json --full-access",
             command,
         )
         self.assertNotIn("--api-key", command)
@@ -258,6 +258,7 @@ class RaraAgentTests(unittest.TestCase):
         self.assertIn("non-interactive Terminal-Bench task container", uploaded_instruction)
         self.assertIn("Work only in the benchmark workspace: /app", uploaded_instruction)
         self.assertIn("create every file path that the task asks for", uploaded_instruction)
+        self.assertIn("request escalated sandbox permissions", uploaded_instruction)
         self.assertIn("/app/solution.sparql", uploaded_instruction)
         self.assertIn("Do not finish with only an explanation", uploaded_instruction)
 
