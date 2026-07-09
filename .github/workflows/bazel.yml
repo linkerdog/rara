@@ -1,0 +1,31 @@
+name: bazel
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+
+jobs:
+  bazel:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Install protoc
+        run: sudo apt-get update && sudo apt-get install -y protobuf-compiler
+
+      - name: Install Bazel
+        uses: bazel-contrib/setup-bazel@0.16.0
+        with:
+          bazelisk-cache: true
+          disk-cache: true
+          repository-cache: true
+
+      - name: Build
+        run: bazel build //...
+
+      - name: Test
+        run: bazel test --test_output=errors //...

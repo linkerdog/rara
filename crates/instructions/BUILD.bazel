@@ -1,0 +1,26 @@
+load("@crate_index//:defs.bzl", "aliases", "all_crate_deps")
+load("@rules_rust//rust:defs.bzl", "rust_library", "rust_test")
+
+package(default_visibility = ["//visibility:public"])
+
+rust_library(
+    name = "rara_instructions",
+    srcs = glob(["src/**/*.rs"]),
+    aliases = aliases(),
+    crate_name = "rara_instructions",
+    edition = "2024",
+    deps = all_crate_deps(normal = True) + ["//crates/config:rara_config"],
+    proc_macro_deps = all_crate_deps(proc_macro = True),
+)
+
+rust_test(
+    name = "rara_instructions_tests",
+    crate = ":rara_instructions",
+    aliases = aliases(
+        normal_dev = True,
+        proc_macro_dev = True,
+    ),
+    edition = "2024",
+    deps = all_crate_deps(normal_dev = True) + ["//crates/config:rara_config"],
+    proc_macro_deps = all_crate_deps(proc_macro_dev = True),
+)

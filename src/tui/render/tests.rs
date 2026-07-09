@@ -947,11 +947,10 @@ fn provider_picker_renders_as_full_overlay_on_standard_terminal() {
     cm.save(&config).expect("save config");
 
     let mut app = TuiApp::new(cm).expect("build tui app");
+    app.snapshot.cwd = "<CWD>".into();
     app.open_overlay(Overlay::ListPicker(ListPickerKind::Provider));
 
     let rendered = render_screen_text(&mut app, 100, 24);
-    let dir = display_directory_for_startup(&app);
-    let rendered = rendered.replace(&dir, "<CWD>");
     assert_snapshot!("provider_picker_standard_terminal", rendered);
 }
 

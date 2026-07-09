@@ -781,7 +781,10 @@ mod tests {
             .call(json!({ "patch": patch }))
             .await
             .expect_err("stale file should be rejected");
-        assert!(err.to_string().contains("modified since read"));
+        assert!(
+            err.to_string().contains("changed since read"),
+            "unexpected stale-file error: {err}"
+        );
     }
 
     #[tokio::test]

@@ -1,0 +1,30 @@
+module(
+    name = "rara",
+    version = "0.0.7",
+)
+
+bazel_dep(name = "bazel_skylib", version = "1.8.2")
+bazel_dep(name = "platforms", version = "1.1.0")
+bazel_dep(name = "rules_cc", version = "0.2.17")
+bazel_dep(name = "rules_rust", version = "0.67.0")
+
+crate = use_extension("@rules_rust//crate_universe:extensions.bzl", "crate")
+crate.annotation(
+    crate = "aws-lc-sys",
+    patch_args = ["-p1"],
+    patches = ["//third_party/aws_lc_sys:aws_lc_sys_symlink_header_copy.patch"],
+    repositories = ["crate_index"],
+)
+crate.from_cargo(
+    name = "crate_index",
+    cargo_lockfile = "//:Cargo.lock",
+    manifests = ["//:Cargo.toml"],
+)
+use_repo(crate, "crate_index")
+
+rust = use_extension("@rules_rust//rust:extensions.bzl", "rust")
+rust.toolchain(
+    edition = "2024",
+    versions = ["1.96.0"],
+)
+use_repo(rust, "rust_toolchains")
