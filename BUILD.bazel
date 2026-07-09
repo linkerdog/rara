@@ -1,0 +1,63 @@
+load("@crate_index//:defs.bzl", "aliases", "all_crate_deps")
+load("@rules_rust//rust:defs.bzl", "rust_binary", "rust_test")
+
+package(default_visibility = ["//visibility:public"])
+
+RARA_SRCS = glob(["src/**/*.rs"])
+
+RARA_DEPS = all_crate_deps(normal = True) + [
+    "//crates/bedrock:rara_bedrock",
+    "//crates/config:rara_config",
+    "//crates/file-search:rara_file_search",
+    "//crates/instructions:rara_instructions",
+    "//crates/provider-catalog:rara_provider_catalog",
+    "//crates/rara-app-server:rara_app_server",
+    "//crates/rara-background-tasks:rara_background_tasks",
+    "//crates/rara-core:rara_core",
+    "//crates/rara-mcp-client:rara_mcp_client",
+    "//crates/rara-memory:rara_memory",
+    "//crates/rara-observability:rara_observability",
+    "//crates/rara-persistence:rara_persistence",
+    "//crates/rara-plugins:rara_plugins",
+    "//crates/rara-state:rara_state",
+    "//crates/rara-tools:rara_tools",
+    "//crates/sandbox:rara_sandbox",
+    "//crates/skills:rara_skills",
+    "//crates/terminal-detection:rara_terminal_detection",
+]
+
+MODEL_SERVER_DATA = [
+    "components/model_server/rara_model_server.py",
+    "components/model_server/requirements-macos-arm64.txt",
+    "components/model_server/requirements-portable.txt",
+]
+
+rust_binary(
+    name = "rara",
+    srcs = RARA_SRCS,
+    aliases = aliases(),
+    compile_data = MODEL_SERVER_DATA,
+    crate_name = "rara",
+    crate_root = "src/main.rs",
+    edition = "2024",
+    deps = RARA_DEPS,
+    proc_macro_deps = all_crate_deps(proc_macro = True) + ["//crates/tool-macros:rara_tool_macros"],
+)
+
+rust_test(
+    name = "rara_unit_tests",
+    srcs = RARA_SRCS,
+    aliases = aliases(
+        normal = True,
+        normal_dev = True,
+        proc_macro = True,
+        proc_macro_dev = True,
+    ),
+    compile_data = MODEL_SERVER_DATA,
+    crate_name = "rara",
+    crate_root = "src/main.rs",
+    edition = "2024",
+    deps = RARA_DEPS + all_crate_deps(normal_dev = True),
+    proc_macro_deps = all_crate_deps(proc_macro = True) + all_crate_deps(proc_macro_dev = True) + ["//crates/tool-macros:rara_tool_macros"],
+    timeout = "long",
+)
