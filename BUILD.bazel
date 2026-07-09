@@ -63,6 +63,7 @@ rust_test(
     deps = RARA_DEPS + all_crate_deps(normal_dev = True),
     env = {
         "INSTA_WORKSPACE_ROOT": ".",
+        "RARA_SKIP_MANAGED_VENV_TESTS": "1",
     },
     proc_macro_deps = all_crate_deps(proc_macro = True) + all_crate_deps(proc_macro_dev = True) + ["//crates/tool-macros:rara_tool_macros"],
     timeout = "long",

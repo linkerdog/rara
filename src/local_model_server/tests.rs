@@ -581,6 +581,10 @@ fn fastembed_snapshot_selection_still_requires_external_data() {
 
 #[test]
 fn ensure_managed_venv_creates_and_reuses_venv_with_pip() {
+    if skip_managed_venv_test() {
+        return;
+    }
+
     let temp = tempfile::tempdir().expect("tempdir");
     let server = ensure_bundled_model_server(temp.path()).expect("install model server");
 
@@ -614,6 +618,10 @@ fn ensure_managed_venv_creates_and_reuses_venv_with_pip() {
 
 #[test]
 fn ensure_managed_venv_cleans_stale_venv_dir() {
+    if skip_managed_venv_test() {
+        return;
+    }
+
     let temp = tempfile::tempdir().expect("tempdir");
     let server = ensure_bundled_model_server(temp.path()).expect("install model server");
 
@@ -630,6 +638,15 @@ fn ensure_managed_venv_cleans_stale_venv_dir() {
     };
     assert!(venv_python.is_file());
     assert!(!server.venv_dir.join("partial").exists());
+}
+
+fn skip_managed_venv_test() -> bool {
+    if std::env::var_os("RARA_SKIP_MANAGED_VENV_TESTS").is_none() {
+        return false;
+    }
+
+    eprintln!("skipping managed venv test because RARA_SKIP_MANAGED_VENV_TESTS is set");
+    true
 }
 
 #[cfg(unix)]
