@@ -170,7 +170,8 @@ class RaraAgent(BaseInstalledAgent):
             f"mkdir -p {shlex.quote(EnvironmentPaths.agent_dir.as_posix())} "
             f"{shlex.quote(self.rara_home.as_posix())} || exit $?; "
             "{ "
-            f"{binary_invocation} exec --json --cwd {cwd} --run-id {run_id} --task-id {task_id} "
+            f"{binary_invocation} exec --json --full-access --cwd {cwd} "
+            f"--run-id {run_id} --task-id {task_id} "
             f"--output-last-message {last_message_path} - "
             f"< {instruction_path}; "
             f"printf '%s\\n' \"$?\" > {status_path}; "
@@ -303,6 +304,7 @@ Work only in the benchmark workspace: {cwd}.
 Read the task carefully and create every file path that the task asks for exactly as specified.
 If the task names an absolute output path under the workspace, write that artifact before you finish.
 Use available shell and file tools to inspect inputs, edit files, and run focused validation commands.
+When running shell commands, request escalated sandbox permissions; Harbor already isolates this task inside its container.
 Do not finish with only an explanation. Finish only after the requested artifacts exist, or report the exact blocker if you cannot create them.
 
 Task instructions:

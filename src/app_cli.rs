@@ -111,6 +111,10 @@ struct ExecArgs {
     #[arg(long = "task-id", value_name = "ID")]
     task_id: Option<String>,
 
+    /// Run headless automation with full shell access inside the selected workspace/container.
+    #[arg(long = "full-access", default_value_t = false)]
+    full_access: bool,
+
     /// Initial instructions. If omitted, or if `-` is used, read from stdin.
     #[arg(value_name = "PROMPT")]
     prompt: Option<String>,
@@ -302,7 +306,10 @@ async fn run_exec_command(config: &RaraConfig, args: ExecArgs) -> Result<()> {
     }
     let bootstrap = runtime_context::initialize_rara_context(config, None).await?;
     emit_bootstrap_warnings(&bootstrap.warnings);
-    let agent = bootstrap.into_agent();
+    let mut agent = bootstrap.into_agent();
+    if args.full_access {
+        agent.set_full_access_mode(true);
+    }
     let consumer = crate::exec_consumer::ExecConsumer::new(
         agent,
         crate::exec_consumer::ExecRunOptions {
@@ -729,6 +736,7 @@ mod tests {
             "task-1",
             "--output-last-message",
             "final.txt",
+            "--full-access",
             "-",
         ])
         .expect("parse exec");
@@ -739,6 +747,7 @@ mod tests {
                 assert_eq!(args.run_id.as_deref(), Some("run-1"));
                 assert_eq!(args.task_id.as_deref(), Some("task-1"));
                 assert_eq!(args.output_last_message, Some(PathBuf::from("final.txt")));
+                assert!(args.full_access);
                 assert_eq!(args.prompt.as_deref(), Some("-"));
             }
             other => panic!("unexpected command: {other:?}"),
@@ -823,6 +832,7 @@ mod tests {
                 output_last_message: None,
                 run_id: None,
                 task_id: None,
+                full_access: false,
                 prompt: Some("hello".to_string()),
             }))
             .is_none()
