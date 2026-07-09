@@ -32,6 +32,8 @@ MODEL_SERVER_DATA = [
     "components/model_server/requirements-portable.txt",
 ]
 
+SNAPSHOT_DATA = glob(["src/**/snapshots/*.snap"])
+
 rust_binary(
     name = "rara",
     srcs = RARA_SRCS,
@@ -57,7 +59,11 @@ rust_test(
     crate_name = "rara",
     crate_root = "src/main.rs",
     edition = "2024",
+    data = SNAPSHOT_DATA,
     deps = RARA_DEPS + all_crate_deps(normal_dev = True),
+    env = {
+        "INSTA_WORKSPACE_ROOT": ".",
+    },
     proc_macro_deps = all_crate_deps(proc_macro = True) + all_crate_deps(proc_macro_dev = True) + ["//crates/tool-macros:rara_tool_macros"],
     timeout = "long",
 )
