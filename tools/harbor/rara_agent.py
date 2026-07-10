@@ -303,7 +303,8 @@ def build_benchmark_instruction(instruction: str, cwd: str) -> str:
 Work only in the benchmark workspace: {cwd}.
 Read the task carefully and create every file path that the task asks for exactly as specified.
 If the task names an absolute output path under the workspace, write that artifact before you finish.
-Use available shell and file tools to inspect inputs, edit files, and run focused validation commands.
+Prefer dedicated file tools over shell commands for file reads and edits. Use read_file to inspect files, and use apply_patch, replace, replace_lines, multi_edit, or write_file for file modifications. Do not use shell redirection, heredocs, sed, awk, perl, or ad-hoc scripts to edit files when a direct edit tool can do the job.
+Use shell commands for process execution and focused validation commands.
 Treat task constraints as validation requirements. If the task says only certain edits are allowed, files must not be edited, output must match an exact format, or substitutions must come from an allowed list, verify those constraints directly before finishing.
 When running shell commands, request escalated sandbox permissions; Harbor already isolates this task inside its container.
 Do not finish with only an explanation. Finish only after the requested artifacts exist, or report the exact blocker if you cannot create them.

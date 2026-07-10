@@ -258,6 +258,13 @@ class RaraAgentTests(unittest.TestCase):
         self.assertIn("non-interactive Terminal-Bench task container", uploaded_instruction)
         self.assertIn("Work only in the benchmark workspace: /app", uploaded_instruction)
         self.assertIn("create every file path that the task asks for", uploaded_instruction)
+        self.assertIn("Prefer dedicated file tools over shell commands", uploaded_instruction)
+        self.assertIn(
+            "apply_patch, replace, replace_lines, multi_edit, or write_file",
+            uploaded_instruction,
+        )
+        self.assertIn("Do not use shell redirection, heredocs, sed, awk, perl", uploaded_instruction)
+        self.assertIn("Use shell commands for process execution", uploaded_instruction)
         self.assertIn("Treat task constraints as validation requirements", uploaded_instruction)
         self.assertIn("substitutions must come from an allowed list", uploaded_instruction)
         self.assertIn("request escalated sandbox permissions", uploaded_instruction)
