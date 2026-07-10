@@ -40,9 +40,10 @@ tempfile = "3.17"
 ignore = "0.4.26"
 nucleo = { git = "https://github.com/helix-editor/nucleo.git", rev = "4253de9faabb4e5c6d81d946a5e35a90f87347ee" }
 rmcp = { version = "2.0", features = ["client", "transport-child-process"] }
-codex-execpolicy = { git = "https://github.com/openai/codex", tag = "rust-v0.143.0" }
-codex-login = { git = "https://github.com/openai/codex", tag = "rust-v0.143.0" }
-codex-models-manager = { git = "https://github.com/openai/codex", tag = "rust-v0.143.0" }
+codex-execpolicy = { git = "https://github.com/openai/codex", tag = "rust-v0.144.1" }
+codex-http-client = { git = "https://github.com/openai/codex", tag = "rust-v0.144.1" }
+codex-login = { git = "https://github.com/openai/codex", tag = "rust-v0.144.1" }
+codex-models-manager = { git = "https://github.com/openai/codex", tag = "rust-v0.144.1" }
 rara-instructions = { path = "crates/instructions" }
 
 [package]
@@ -120,6 +121,7 @@ agent-client-protocol = { version = "1", features = ["unstable"] }
 hf-hub = "0.5"
 tokenizers = { version = "0.23.1", default-features = false, features = ["onig"] }
 codex-login = { workspace = true }
+codex-http-client = { workspace = true }
 codex-models-manager = { workspace = true }
 candle = { git = "https://github.com/huggingface/candle", rev = "34625ab6d1567a0bc132ac6bc8dc2cce0e16d86d", package = "candle-core" }
 candle-nn = { git = "https://github.com/huggingface/candle", rev = "34625ab6d1567a0bc132ac6bc8dc2cce0e16d86d", package = "candle-nn" }
