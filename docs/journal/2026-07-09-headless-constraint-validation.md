@@ -22,10 +22,10 @@ the allowed-substitution invariant as a completion check.
   sets, untouched files, exact formats, and allowed substitution lists must be
   verified directly before finishing.
 - Harbor benchmark instructions now direct agents to use `read_file` for file
-  inspection and `apply_patch`, `replace`, `replace_lines`, or `write_file` for
-  file modifications. Shell remains available for process execution and focused
-  validation, but not as the default path for `sed`, `awk`, `perl`, heredocs,
-  redirection, or ad-hoc editing scripts.
+  inspection and `apply_patch`, `replace`, `replace_lines`, `multi_edit`, or
+  `write_file` for file modifications. Shell remains available for process
+  execution and focused validation, but not as the default path for `sed`,
+  `awk`, `perl`, heredocs, redirection, or ad-hoc editing scripts.
 - The default execute-mode validation guidance now treats explicit task
   constraints as validation requirements rather than prose guidance.
 
