@@ -259,7 +259,7 @@ version = "1.1.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "40c48f72fd53cd289104fc64099abca73db4166ad86ea0b4341abe65af83dadc"
 dependencies = [
- "windows-sys 0.60.2",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -270,7 +270,7 @@ checksum = "291e6a250ff86cd4a820112fb8898808a366d8f9f58ce16d1f538353ad55747d"
 dependencies = [
  "anstyle",
  "once_cell_polyfill",
- "windows-sys 0.60.2",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -2046,14 +2046,14 @@ source = "git+https://github.com/openai/codex?tag=rust-v0.143.0#c4d748f586a84a3e
 dependencies = [
  "anyhow",
  "base64 0.22.1",
- "codex-execpolicy",
+ "codex-execpolicy 0.143.0",
  "codex-features",
  "codex-file-system",
  "codex-git-utils",
  "codex-model-provider-info",
  "codex-network-proxy",
  "codex-protocol",
- "codex-utils-absolute-path",
+ "codex-utils-absolute-path 0.143.0",
  "codex-utils-path",
  "codex-utils-path-uri",
  "core-foundation 0.9.4",
@@ -2091,7 +2091,23 @@ source = "git+https://github.com/openai/codex?tag=rust-v0.143.0#c4d748f586a84a3e
 dependencies = [
  "anyhow",
  "clap",
- "codex-utils-absolute-path",
+ "codex-utils-absolute-path 0.143.0",
+ "multimap",
+ "serde",
+ "serde_json",
+ "shlex 1.3.0",
+ "starlark",
+ "thiserror 2.0.18",
+]
+
+[[package]]
+name = "codex-execpolicy"
+version = "0.144.1"
+source = "git+https://github.com/openai/codex?tag=rust-v0.144.1#44918ea10c0f99151c6710411b4322c2f5c96bea"
+dependencies = [
+ "anyhow",
+ "clap",
+ "codex-utils-absolute-path 0.144.1",
  "multimap",
  "serde",
  "serde_json",
@@ -2120,7 +2136,7 @@ source = "git+https://github.com/openai/codex?tag=rust-v0.143.0#c4d748f586a84a3e
 dependencies = [
  "bytes",
  "codex-protocol",
- "codex-utils-absolute-path",
+ "codex-utils-absolute-path 0.143.0",
  "codex-utils-path-uri",
  "futures",
  "serde",
@@ -2135,7 +2151,7 @@ dependencies = [
  "chrono",
  "codex-file-system",
  "codex-protocol",
- "codex-utils-absolute-path",
+ "codex-utils-absolute-path 0.143.0",
  "codex-utils-path-uri",
  "futures",
  "gix",
@@ -2258,7 +2274,7 @@ dependencies = [
  "base64 0.22.1",
  "chrono",
  "clap",
- "codex-utils-absolute-path",
+ "codex-utils-absolute-path 0.143.0",
  "codex-utils-home-dir",
  "codex-utils-rustls-provider",
  "globset",
@@ -2292,7 +2308,7 @@ dependencies = [
  "chrono",
  "codex-api",
  "codex-protocol",
- "codex-utils-absolute-path",
+ "codex-utils-absolute-path 0.143.0",
  "codex-utils-string",
  "eventsource-stream",
  "gethostname",
@@ -2323,9 +2339,9 @@ dependencies = [
  "chardetng",
  "chrono",
  "codex-async-utils",
- "codex-execpolicy",
+ "codex-execpolicy 0.143.0",
  "codex-network-proxy",
- "codex-utils-absolute-path",
+ "codex-utils-absolute-path 0.143.0",
  "codex-utils-image",
  "codex-utils-path-uri",
  "codex-utils-string",
@@ -2393,6 +2409,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "codex-utils-absolute-path"
+version = "0.144.1"
+source = "git+https://github.com/openai/codex?tag=rust-v0.144.1#44918ea10c0f99151c6710411b4322c2f5c96bea"
+dependencies = [
+ "dirs",
+ "dunce",
+ "schemars 0.8.22",
+ "serde",
+ "ts-rs",
+]
+
+[[package]]
 name = "codex-utils-cache"
 version = "0.143.0"
 source = "git+https://github.com/openai/codex?tag=rust-v0.143.0#c4d748f586a84a3ed5b6aceb82e9a1db4abb1cda"
@@ -2407,7 +2435,7 @@ name = "codex-utils-home-dir"
 version = "0.143.0"
 source = "git+https://github.com/openai/codex?tag=rust-v0.143.0#c4d748f586a84a3ed5b6aceb82e9a1db4abb1cda"
 dependencies = [
- "codex-utils-absolute-path",
+ "codex-utils-absolute-path 0.143.0",
  "dirs",
 ]
 
@@ -2438,7 +2466,7 @@ name = "codex-utils-path"
 version = "0.143.0"
 source = "git+https://github.com/openai/codex?tag=rust-v0.143.0#c4d748f586a84a3ed5b6aceb82e9a1db4abb1cda"
 dependencies = [
- "codex-utils-absolute-path",
+ "codex-utils-absolute-path 0.143.0",
  "dunce",
  "tempfile",
 ]
@@ -2449,7 +2477,7 @@ version = "0.143.0"
 source = "git+https://github.com/openai/codex?tag=rust-v0.143.0#c4d748f586a84a3ed5b6aceb82e9a1db4abb1cda"
 dependencies = [
  "base64 0.22.1",
- "codex-utils-absolute-path",
+ "codex-utils-absolute-path 0.143.0",
  "schemars 0.8.22",
  "serde",
  "thiserror 2.0.18",
@@ -4048,7 +4076,7 @@ dependencies = [
  "libc",
  "option-ext",
  "redox_users 0.5.2",
- "windows-sys 0.59.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -4333,7 +4361,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "39cab71617ae0d63f51a36d69f866391735b51691dbda63cf6f96d042b63efeb"
 dependencies = [
  "libc",
- "windows-sys 0.52.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -6628,7 +6656,7 @@ dependencies = [
  "libc",
  "percent-encoding",
  "pin-project-lite",
- "socket2 0.6.4",
+ "socket2 0.5.10",
  "system-configuration",
  "tokio",
  "tower-service",
@@ -8798,7 +8826,7 @@ version = "0.50.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7957b9740744892f114936ab4a57b3f487491bbeafaf8083688b16841a4240e5"
 dependencies = [
- "windows-sys 0.59.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -10079,7 +10107,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "03da047801ff44bb6a4d407d4860c05fd70bb81714e6b2f3812603d5b145b042"
 dependencies = [
  "heck",
- "itertools 0.14.0",
+ "itertools 0.13.0",
  "log",
  "multimap",
  "petgraph",
@@ -10098,7 +10126,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b570b25f7617e43d59005d0990ccb79e950a423952cea19671b7a876da390adf"
 dependencies = [
  "anyhow",
- "itertools 0.14.0",
+ "itertools 0.13.0",
  "proc-macro2",
  "quote",
  "syn 2.0.118",
@@ -10269,7 +10297,7 @@ dependencies = [
  "quinn-udp",
  "rustc-hash 2.1.2",
  "rustls 0.23.41",
- "socket2 0.6.4",
+ "socket2 0.5.10",
  "thiserror 2.0.18",
  "tokio",
  "tracing",
@@ -10307,7 +10335,7 @@ dependencies = [
  "cfg_aliases 0.2.1",
  "libc",
  "once_cell",
- "socket2 0.6.4",
+ "socket2 0.5.10",
  "tracing",
  "windows-sys 0.60.2",
 ]
@@ -10925,7 +10953,7 @@ name = "rara-config"
 version = "0.0.8"
 dependencies = [
  "anyhow",
- "codex-execpolicy",
+ "codex-execpolicy 0.144.1",
  "secrecy",
  "serde",
  "serde_json",
@@ -11664,7 +11692,7 @@ dependencies = [
  "errno",
  "libc",
  "linux-raw-sys",
- "windows-sys 0.52.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -11735,7 +11763,7 @@ dependencies = [
  "security-framework 3.7.0",
  "security-framework-sys",
  "webpki-root-certs",
- "windows-sys 0.52.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -12556,7 +12584,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "52d1cfed4120b4d927bf7c0f86d2087a4a7d6027c906d9f9d525a80573b9be51"
 dependencies = [
  "libc",
- "windows-sys 0.60.2",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -13007,7 +13035,7 @@ dependencies = [
  "getrandom 0.4.3",
  "once_cell",
  "rustix",
- "windows-sys 0.52.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -13029,7 +13057,7 @@ dependencies = [
  "parking_lot",
  "rustix",
  "signal-hook",
- "windows-sys 0.60.2",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -13886,7 +13914,7 @@ checksum = "f2f6fb2847f6742cd76af783a2a2c49e9375d0a111c7bef6f71cd9e738c72d6e"
 dependencies = [
  "memoffset",
  "tempfile",
- "windows-sys 0.60.2",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -14544,7 +14572,7 @@ version = "0.1.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c2a7b1c03c876122aa43f3020e6c3c3ee5c05081c9a00739faf7503aeba10d22"
 dependencies = [
- "windows-sys 0.48.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
