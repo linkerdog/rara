@@ -346,6 +346,88 @@ class RaraAgentTests(unittest.TestCase):
         self.assertEqual(trajectory.final_metrics.total_prompt_tokens, 5)
         self.assertEqual(trajectory.final_metrics.total_completion_tokens, 2)
 
+    def test_write_trajectory_preserves_zero_token_context_metrics(self) -> None:
+        with tempfile.TemporaryDirectory(dir=Path.cwd()) as temp:
+            agent = RaraAgent(logs_dir=Path(temp), binary_path="/tmp/rara")
+            context = AgentContext()
+            context.n_input_tokens = 9
+            context.n_output_tokens = 9
+            events = parse_rara_jsonl(
+                '{"type":"turn.completed","usage":{"input_tokens":0,"output_tokens":0},"final_message":"done"}'
+            )
+
+            agent._write_trajectory(context, instruction="Finish.", events=events)
+
+        self.assertEqual(context.n_input_tokens, 0)
+        self.assertEqual(context.n_output_tokens, 0)
+
+    def test_convert_rara_events_to_trajectory_accumulates_turn_usage(self) -> None:
+        events = parse_rara_jsonl(
+            "\n".join(
+                [
+                    '{"type":"turn.completed","usage":{"input_tokens":5,"output_tokens":2},"final_message":"first"}',
+                    '{"type":"turn.completed","usage":{"input_tokens":7,"output_tokens":3},"final_message":"second"}',
+                ]
+            )
+        )
+
+        trajectory = convert_rara_events_to_trajectory(
+            events,
+            instruction="Run multiple turns.",
+        )
+
+        self.assertIsNotNone(trajectory)
+        assert trajectory is not None
+        self.assertEqual(trajectory.final_metrics.total_prompt_tokens, 12)
+        self.assertEqual(trajectory.final_metrics.total_completion_tokens, 5)
+
+    def test_unmatched_tool_result_does_not_borrow_other_tool_call_id(self) -> None:
+        events = parse_rara_jsonl(
+            "\n".join(
+                [
+                    '{"type":"item.completed","item":{"id":"call_1","type":"tool_call","name":"read_file","input":{"path":"/app/a"}}}',
+                    '{"type":"item.completed","item":{"id":"result_1","type":"tool_result","name":"bash","content":"ok","is_error":false}}',
+                    '{"type":"turn.completed","usage":{"input_tokens":1,"output_tokens":1},"final_message":"done"}',
+                ]
+            )
+        )
+
+        trajectory = convert_rara_events_to_trajectory(
+            events,
+            instruction="Run one tool.",
+        )
+
+        self.assertIsNotNone(trajectory)
+        assert trajectory is not None
+        tool_step = next(step for step in trajectory.steps if step.tool_calls)
+        self.assertIsNotNone(tool_step.observation)
+        assert tool_step.observation is not None
+        self.assertIsNone(tool_step.observation.results[0].source_call_id)
+
+    def test_model_response_does_not_attach_metrics_to_older_agent_step(self) -> None:
+        events = parse_rara_jsonl(
+            "\n".join(
+                [
+                    '{"type":"item.completed","item":{"id":"msg_1","type":"agent_message","text":"first"}}',
+                    '{"type":"item.completed","item":{"id":"resp_1","type":"model_response","model":"mock","output_tokens":1,"finish_reason":"stop"}}',
+                    '{"type":"item.completed","item":{"id":"msg_2","type":"agent_message","text":"second"}}',
+                    '{"type":"item.completed","item":{"id":"resp_2","type":"model_response","model":"mock","output_tokens":2,"finish_reason":"stop"}}',
+                    '{"type":"item.completed","item":{"id":"resp_3","type":"model_response","model":"mock","output_tokens":3,"finish_reason":"stop"}}',
+                ]
+            )
+        )
+
+        trajectory = convert_rara_events_to_trajectory(
+            events,
+            instruction="Check metrics.",
+        )
+
+        self.assertIsNotNone(trajectory)
+        assert trajectory is not None
+        agent_steps = [step for step in trajectory.steps if step.source == "agent"]
+        self.assertEqual(agent_steps[0].metrics.completion_tokens, 1)
+        self.assertEqual(agent_steps[1].metrics.completion_tokens, 2)
+
     def test_run_maps_inferred_provider_api_key_to_rara_api_key(self) -> None:
         with tempfile.TemporaryDirectory(dir=Path.cwd()) as temp:
             agent = RaraAgent(logs_dir=Path(temp), binary_path="/tmp/rara")

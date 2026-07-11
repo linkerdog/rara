@@ -324,11 +324,12 @@ class RaraAgent(BaseInstalledAgent):
         if trajectory.final_metrics:
             metrics = trajectory.final_metrics
             context.cost_usd = metrics.total_cost_usd
-            context.n_input_tokens = metrics.total_prompt_tokens or context.n_input_tokens
-            context.n_output_tokens = (
-                metrics.total_completion_tokens or context.n_output_tokens
-            )
-            context.n_cache_tokens = metrics.total_cached_tokens or 0
+            if metrics.total_prompt_tokens is not None:
+                context.n_input_tokens = metrics.total_prompt_tokens
+            if metrics.total_completion_tokens is not None:
+                context.n_output_tokens = metrics.total_completion_tokens
+            if metrics.total_cached_tokens is not None:
+                context.n_cache_tokens = metrics.total_cached_tokens
 
     @staticmethod
     def _completed_with_mock_backend(events: list[dict[str, Any]]) -> bool:
@@ -403,8 +404,8 @@ def convert_rara_events_to_trajectory(
     pending_model_input: int | None = None
     pending_reasoning: list[str] = []
     pending_tool_calls: list[tuple[str, str]] = []
-    total_input_tokens = 0
-    total_output_tokens = 0
+    total_input_tokens: int | None = None
+    total_output_tokens: int | None = None
     final_message: str | None = None
     failure_message: str | None = None
 
@@ -436,8 +437,12 @@ def convert_rara_events_to_trajectory(
         if event_type == "turn.completed":
             usage = event.get("usage") or {}
             if isinstance(usage, dict):
-                total_input_tokens = _int_value(usage.get("input_tokens")) or 0
-                total_output_tokens = _int_value(usage.get("output_tokens")) or 0
+                total_input_tokens = _add_optional_int(
+                    total_input_tokens, _int_value(usage.get("input_tokens"))
+                )
+                total_output_tokens = _add_optional_int(
+                    total_output_tokens, _int_value(usage.get("output_tokens"))
+                )
             final_message = _string_value(event.get("final_message"))
             if final_message and not _has_agent_message_step(steps, final_message):
                 append_step(
@@ -592,8 +597,8 @@ def convert_rara_events_to_trajectory(
         ),
         steps=steps,
         final_metrics=FinalMetrics(
-            total_prompt_tokens=total_input_tokens or None,
-            total_completion_tokens=total_output_tokens or None,
+            total_prompt_tokens=total_input_tokens,
+            total_completion_tokens=total_output_tokens,
             total_cached_tokens=None,
             total_cost_usd=None,
             total_steps=len(steps),
@@ -608,6 +613,12 @@ def _string_value(value: Any) -> str | None:
 
 def _int_value(value: Any) -> int | None:
     return value if isinstance(value, int) else None
+
+
+def _add_optional_int(total: int | None, value: int | None) -> int | None:
+    if value is None:
+        return total
+    return (total or 0) + value
 
 
 def _take_joined(parts: list[str]) -> str | None:
@@ -626,7 +637,7 @@ def _last_matching_tool_call(pending: list[tuple[str, str]], name: str) -> str |
     for call_id, pending_name in reversed(pending):
         if pending_name == name:
             return call_id
-    return pending[-1][0] if pending else None
+    return None
 
 
 def _pop_matching_tool_call(pending: list[tuple[str, str]], name: str) -> str | None:
@@ -635,10 +646,7 @@ def _pop_matching_tool_call(pending: list[tuple[str, str]], name: str) -> str | 
         if pending_name == name:
             del pending[index]
             return call_id
-    if not pending:
-        return None
-    call_id, _ = pending.pop()
-    return call_id
+    return None
 
 
 def _append_observation(
@@ -664,6 +672,7 @@ def _append_observation(
 
 def _attach_metrics_to_latest_agent_step(steps: list[Step], metrics: Metrics) -> None:
     for step in reversed(steps):
-        if step.source == "agent" and step.metrics is None:
-            step.metrics = metrics
+        if step.source == "agent":
+            if step.metrics is None:
+                step.metrics = metrics
             return
