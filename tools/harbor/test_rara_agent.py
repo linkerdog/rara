@@ -9,7 +9,12 @@ from uuid import UUID
 
 from harbor.models.agent.context import AgentContext
 
-from rara_agent import RaraAgent, build_benchmark_instruction, parse_rara_jsonl
+from rara_agent import (
+    RaraAgent,
+    build_benchmark_instruction,
+    convert_rara_events_to_trajectory,
+    parse_rara_jsonl,
+)
 
 
 class FakeExecResult:
@@ -62,7 +67,110 @@ class FakeRunEnvironment:
         )
 
 
+class FakeTrajectoryEnvironment(FakeRunEnvironment):
+    async def exec(
+        self,
+        command: str,
+        cwd: str | None = None,
+        env: dict[str, str] | None = None,
+    ) -> FakeExecResult:
+        self.exec_cwd = cwd
+        self.exec_env = dict(env or {})
+        events = [
+            {
+                "type": "thread.started",
+                "metadata": {
+                    "session_id": "session-1",
+                    "run_id": "run-1",
+                    "task_id": "task-1",
+                },
+                "timestamp": "2026-07-11T00:00:00Z",
+            },
+            {"type": "turn.started", "timestamp": "2026-07-11T00:00:01Z"},
+            {
+                "type": "item.completed",
+                "item": {
+                    "id": "item_0",
+                    "type": "model_request",
+                    "model": "gemini-2.5-flash",
+                    "input_tokens": 11,
+                },
+            },
+            {
+                "type": "item.completed",
+                "item": {
+                    "id": "item_1",
+                    "type": "reasoning",
+                    "text": "Need to inspect files.",
+                },
+            },
+            {
+                "type": "item.completed",
+                "item": {
+                    "id": "item_2",
+                    "type": "tool_call",
+                    "name": "bash",
+                    "input": {"command": "ls"},
+                },
+            },
+            {
+                "type": "item.completed",
+                "item": {
+                    "id": "item_3",
+                    "type": "tool_progress",
+                    "name": "bash",
+                    "stream": "stdout",
+                    "chunk": "solution.sparql\n",
+                },
+            },
+            {
+                "type": "item.completed",
+                "item": {
+                    "id": "item_4",
+                    "type": "tool_result",
+                    "name": "bash",
+                    "content": "done",
+                    "is_error": False,
+                },
+            },
+            {
+                "type": "item.completed",
+                "item": {
+                    "id": "item_5",
+                    "type": "agent_message",
+                    "text": "Created /app/solution.sparql.",
+                },
+            },
+            {
+                "type": "item.completed",
+                "item": {
+                    "id": "item_6",
+                    "type": "model_response",
+                    "model": "gemini-2.5-flash",
+                    "output_tokens": 7,
+                    "finish_reason": "stop",
+                },
+            },
+            {
+                "type": "turn.completed",
+                "usage": {"input_tokens": 13, "output_tokens": 9},
+                "final_message": "Created /app/solution.sparql.",
+                "timestamp": "2026-07-11T00:00:02Z",
+            },
+        ]
+        return FakeExecResult(0, stdout="\n".join(json_line(event) for event in events))
+
+
+def json_line(value: dict[str, object]) -> str:
+    import json
+
+    return json.dumps(value)
+
+
 class RaraAgentTests(unittest.TestCase):
+    def test_agent_declares_atif_support(self) -> None:
+        self.assertTrue(RaraAgent.SUPPORTS_ATIF)
+
     def test_parse_rara_jsonl_ignores_non_json_lines(self) -> None:
         output = "\n".join(
             [
@@ -96,6 +204,7 @@ class RaraAgentTests(unittest.TestCase):
         self.assertEqual(context.n_output_tokens, 7)
         self.assertEqual(context.metadata["final_message"], "done")
         self.assertEqual(context.metadata["event_counts"]["turn.completed"], 1)
+        self.assertEqual(context.metadata["trajectory_path"], "/logs/agent/trajectory.json")
 
     def test_populate_context_preserves_zero_token_counts(self) -> None:
         context = AgentContext()
@@ -187,6 +296,55 @@ class RaraAgentTests(unittest.TestCase):
         self.assertEqual(environment.exec_env["RARA_LOCAL_EMBEDDINGS"], "off")
         self.assertEqual(environment.exec_env["RARA_HOME"], "/logs/agent/rara-home")
         self.assertEqual(environment.exec_cwd, "/app")
+
+    def test_run_writes_atif_trajectory(self) -> None:
+        with tempfile.TemporaryDirectory(dir=Path.cwd()) as temp:
+            agent = RaraAgent(logs_dir=Path(temp), binary_path="/tmp/rara")
+            context = AgentContext()
+            environment = FakeTrajectoryEnvironment()
+
+            asyncio.run(agent.run("Create /app/solution.sparql.", environment, context))  # type: ignore[arg-type]
+
+            trajectory = Path(temp, "trajectory.json")
+            data = trajectory.read_text(encoding="utf-8")
+
+        self.assertIn('"schema_version": "ATIF-v1.7"', data)
+        self.assertIn('"session_id": "session-1"', data)
+        self.assertIn('"name": "rara"', data)
+        self.assertIn('"function_name": "bash"', data)
+        self.assertIn('"source_call_id": "item_2"', data)
+        self.assertEqual(context.n_input_tokens, 13)
+        self.assertEqual(context.n_output_tokens, 9)
+
+    def test_convert_rara_events_to_trajectory_links_tool_observations(self) -> None:
+        events = parse_rara_jsonl(
+            "\n".join(
+                [
+                    '{"type":"thread.started","metadata":{"session_id":"s"},"timestamp":"2026-07-11T00:00:00Z"}',
+                    '{"type":"item.completed","item":{"id":"call_1","type":"tool_call","name":"bash","input":{"command":"true"}}}',
+                    '{"type":"item.completed","item":{"id":"result_1","type":"tool_result","name":"bash","content":"ok","is_error":false}}',
+                    '{"type":"turn.completed","usage":{"input_tokens":5,"output_tokens":2},"final_message":"done","timestamp":"2026-07-11T00:00:01Z"}',
+                ]
+            )
+        )
+
+        trajectory = convert_rara_events_to_trajectory(
+            events,
+            instruction="Run a command.",
+            agent_version="test",
+            default_model_name="mock",
+        )
+
+        self.assertIsNotNone(trajectory)
+        assert trajectory is not None
+        tool_step = next(step for step in trajectory.steps if step.tool_calls)
+        self.assertEqual(tool_step.tool_calls[0].tool_call_id, "call_1")
+        self.assertIsNotNone(tool_step.observation)
+        assert tool_step.observation is not None
+        self.assertEqual(tool_step.observation.results[0].source_call_id, "call_1")
+        self.assertEqual(tool_step.observation.results[0].content, "ok")
+        self.assertEqual(trajectory.final_metrics.total_prompt_tokens, 5)
+        self.assertEqual(trajectory.final_metrics.total_completion_tokens, 2)
 
     def test_run_maps_inferred_provider_api_key_to_rara_api_key(self) -> None:
         with tempfile.TemporaryDirectory(dir=Path.cwd()) as temp:

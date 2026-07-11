@@ -49,7 +49,7 @@ Active backlog only. Keep this file small and current.
 - [x] Add a dynamic Harbor adapter that loads with
       `--agent rara_agent:RaraAgent` and invokes `rara exec --json` inside the
       benchmark task workspace.
-- [ ] Convert RARA JSONL events into full ATIF-compatible trajectory logs for
+- [x] Convert RARA JSONL events into full ATIF-compatible trajectory logs for
       Harbor result artifacts. See `docs/features/terminal-bench-evaluation.md`.
 
 ## Agent / Subagent
