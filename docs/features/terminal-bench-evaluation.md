@@ -183,7 +183,10 @@ Each trial should end with one of:
 - For single-task smoke runs, filter the dataset with `--task
   terminal-bench/<task-name>` and inspect `/logs/agent/rara-exec.jsonl`,
   `/logs/agent/rara-exec.status`, and verifier output when reward is `0.0`.
-- Confirm the Harbor run receives an ATIF-compatible trajectory artifact.
+- Confirm the Harbor run receives an ATIF-compatible `agent/trajectory.json`
+  artifact. The adapter writes this file by converting `rara exec --json`
+  events into Harbor's ATIF model and keeps `/logs/agent/rara-exec.jsonl` as
+  the raw event stream.
 - Confirm failures include enough trajectory data to reproduce the final
   decision.
 - Confirm headless configuration can select provider/model/API key without TUI
@@ -212,3 +215,4 @@ Each trial should end with one of:
 
 - `docs/journal/2026-07-05-rara-exec-headless.md`
 - `docs/journal/2026-07-05-harbor-rara-agent-adapter.md`
+- `docs/journal/2026-07-11-harbor-atif-trajectory.md`

@@ -18,7 +18,18 @@ from typing import Any
 from harbor.agents.installed.base import BaseInstalledAgent, with_prompt_template
 from harbor.environments.base import BaseEnvironment
 from harbor.models.agent.context import AgentContext
+from harbor.models.trajectories import (
+    Agent,
+    FinalMetrics,
+    Metrics,
+    Observation,
+    ObservationResult,
+    Step,
+    ToolCall,
+    Trajectory,
+)
 from harbor.models.trial.paths import EnvironmentPaths
+from harbor.utils.trajectory_utils import format_trajectory_json
 
 
 DEFAULT_REMOTE_BINARY = PurePosixPath("/installed-agent/rara")
@@ -27,6 +38,7 @@ DEFAULT_JSONL_PATH = EnvironmentPaths.agent_dir / "rara-exec.jsonl"
 DEFAULT_EXIT_STATUS_PATH = EnvironmentPaths.agent_dir / "rara-exec.status"
 DEFAULT_INSTRUCTION_PATH = EnvironmentPaths.agent_dir / "instruction.txt"
 DEFAULT_LAST_MESSAGE_PATH = EnvironmentPaths.agent_dir / "last-message.txt"
+DEFAULT_TRAJECTORY_PATH = EnvironmentPaths.agent_dir / "trajectory.json"
 DEFAULT_BENCHMARK_CWD = "/app"
 CA_CERTIFICATE_BUNDLE = PurePosixPath("/etc/ssl/certs/ca-certificates.crt")
 PROVIDER_API_KEY_ENVS = {
@@ -43,7 +55,7 @@ PROVIDER_INFERENCE_ORDER = ("deepseek", "kimi", "gemini", "openrouter", "codex")
 class RaraAgent(BaseInstalledAgent):
     """Run RARA as a Harbor installed agent using the headless exec surface."""
 
-    SUPPORTS_ATIF = False
+    SUPPORTS_ATIF = True
     SUPPORTS_WINDOWS = False
 
     def __init__(
@@ -145,6 +157,7 @@ class RaraAgent(BaseInstalledAgent):
         stdout = result.stdout or ""
         events = parse_rara_jsonl(stdout)
         self._populate_context(context, events)
+        self._write_trajectory(context, instruction=benchmark_instruction, events=events)
         if self._completed_with_mock_backend(events):
             raise RuntimeError(
                 "RARA completed with the mock backend. Pass provider/model credentials "
@@ -280,7 +293,43 @@ class RaraAgent(BaseInstalledAgent):
             "failure": failure,
             "jsonl_path": DEFAULT_JSONL_PATH.as_posix(),
             "last_message_path": DEFAULT_LAST_MESSAGE_PATH.as_posix(),
+            "trajectory_path": DEFAULT_TRAJECTORY_PATH.as_posix(),
         }
+
+    def _write_trajectory(
+        self,
+        context: AgentContext,
+        *,
+        instruction: str,
+        events: list[dict[str, Any]],
+    ) -> None:
+        trajectory = convert_rara_events_to_trajectory(
+            events,
+            instruction=instruction,
+            agent_version=self.version() or "unknown",
+            default_model_name=self.model,
+        )
+        if trajectory is None:
+            return
+
+        trajectory_path = self.logs_dir / "trajectory.json"
+        try:
+            trajectory_path.write_text(
+                format_trajectory_json(trajectory.to_json_dict()), encoding="utf-8"
+            )
+        except OSError as exc:
+            self.logger.debug(f"Failed to write RARA trajectory file: {exc}")
+            return
+
+        if trajectory.final_metrics:
+            metrics = trajectory.final_metrics
+            context.cost_usd = metrics.total_cost_usd
+            if metrics.total_prompt_tokens is not None:
+                context.n_input_tokens = metrics.total_prompt_tokens
+            if metrics.total_completion_tokens is not None:
+                context.n_output_tokens = metrics.total_completion_tokens
+            if metrics.total_cached_tokens is not None:
+                context.n_cache_tokens = metrics.total_cached_tokens
 
     @staticmethod
     def _completed_with_mock_backend(events: list[dict[str, Any]]) -> bool:
@@ -332,3 +381,298 @@ def parse_rara_jsonl(output: str) -> list[dict[str, Any]]:
         if isinstance(payload, dict) and isinstance(payload.get("type"), str):
             events.append(payload)
     return events
+
+
+def convert_rara_events_to_trajectory(
+    events: list[dict[str, Any]],
+    *,
+    instruction: str,
+    agent_version: str = "unknown",
+    default_model_name: str | None = None,
+) -> Trajectory | None:
+    """Convert RARA exec JSONL events into Harbor's ATIF trajectory model."""
+    if not events and not instruction.strip():
+        return None
+
+    session_id = "unknown"
+    run_id: str | None = None
+    task_id: str | None = None
+    event_counts: dict[str, int] = {}
+    steps: list[Step] = []
+    next_step_id = 1
+    last_model_name = default_model_name
+    pending_model_input: int | None = None
+    pending_reasoning: list[str] = []
+    pending_tool_calls: list[tuple[str, str]] = []
+    total_input_tokens: int | None = None
+    total_output_tokens: int | None = None
+    final_message: str | None = None
+    failure_message: str | None = None
+
+    def append_step(**kwargs: Any) -> Step:
+        nonlocal next_step_id
+        step = Step(step_id=next_step_id, **kwargs)
+        steps.append(step)
+        next_step_id += 1
+        return step
+
+    if instruction.strip():
+        append_step(source="user", message=instruction)
+
+    for event in events:
+        event_type = event.get("type")
+        if isinstance(event_type, str):
+            event_counts[event_type] = event_counts.get(event_type, 0) + 1
+
+        timestamp = _string_value(event.get("timestamp"))
+
+        if event_type == "thread.started":
+            metadata = event.get("metadata") or {}
+            if isinstance(metadata, dict):
+                session_id = _string_value(metadata.get("session_id")) or session_id
+                run_id = _string_value(metadata.get("run_id"))
+                task_id = _string_value(metadata.get("task_id"))
+            continue
+
+        if event_type == "turn.completed":
+            usage = event.get("usage") or {}
+            if isinstance(usage, dict):
+                total_input_tokens = _add_optional_int(
+                    total_input_tokens, _int_value(usage.get("input_tokens"))
+                )
+                total_output_tokens = _add_optional_int(
+                    total_output_tokens, _int_value(usage.get("output_tokens"))
+                )
+            final_message = _string_value(event.get("final_message"))
+            if final_message and not _has_agent_message_step(steps, final_message):
+                append_step(
+                    source="agent",
+                    timestamp=timestamp,
+                    model_name=last_model_name,
+                    message=final_message,
+                )
+            continue
+
+        if event_type == "turn.failed":
+            error = event.get("error") or {}
+            if isinstance(error, dict):
+                failure_message = _string_value(error.get("message"))
+            if failure_message:
+                append_step(
+                    source="system",
+                    timestamp=timestamp,
+                    message=f"RARA exec failed: {failure_message}",
+                )
+            continue
+
+        if event_type != "item.completed":
+            continue
+
+        item = event.get("item") or {}
+        if not isinstance(item, dict):
+            continue
+        item_id = _string_value(item.get("id")) or f"item_{next_step_id}"
+        item_type = item.get("type")
+
+        if item_type == "reasoning":
+            text = _string_value(item.get("text"))
+            if text:
+                pending_reasoning.append(text)
+            continue
+
+        if item_type == "agent_message":
+            text = _string_value(item.get("text"))
+            if text:
+                append_step(
+                    source="agent",
+                    timestamp=timestamp,
+                    model_name=last_model_name,
+                    message=text,
+                    reasoning_content=_take_joined(pending_reasoning),
+                )
+            continue
+
+        if item_type == "tool_call":
+            name = _string_value(item.get("name")) or "tool"
+            arguments = item.get("input")
+            if not isinstance(arguments, dict):
+                arguments = {"input": arguments}
+            pending_tool_calls.append((item_id, name))
+            append_step(
+                source="agent",
+                timestamp=timestamp,
+                model_name=last_model_name,
+                message=f"Call tool `{name}`.",
+                reasoning_content=_take_joined(pending_reasoning),
+                tool_calls=[
+                    ToolCall(
+                        tool_call_id=item_id,
+                        function_name=name,
+                        arguments=arguments,
+                    )
+                ],
+            )
+            continue
+
+        if item_type == "tool_result":
+            name = _string_value(item.get("name")) or "tool"
+            content = _string_value(item.get("content")) or ""
+            is_error = bool(item.get("is_error"))
+            call_id = _pop_matching_tool_call(pending_tool_calls, name)
+            _append_observation(
+                steps,
+                source_call_id=call_id,
+                content=content,
+                extra={"tool_name": name, "is_error": is_error},
+            )
+            continue
+
+        if item_type == "tool_progress":
+            name = _string_value(item.get("name")) or "tool"
+            stream = _string_value(item.get("stream"))
+            chunk = _string_value(item.get("chunk")) or ""
+            call_id = _last_matching_tool_call(pending_tool_calls, name)
+            _append_observation(
+                steps,
+                source_call_id=call_id,
+                content=chunk,
+                extra={"tool_name": name, "stream": stream, "progress": True},
+            )
+            continue
+
+        if item_type == "model_request":
+            last_model_name = _string_value(item.get("model")) or last_model_name
+            pending_model_input = _int_value(item.get("input_tokens"))
+            continue
+
+        if item_type == "model_response":
+            last_model_name = _string_value(item.get("model")) or last_model_name
+            output_tokens = _int_value(item.get("output_tokens"))
+            _attach_metrics_to_latest_agent_step(
+                steps,
+                Metrics(
+                    prompt_tokens=pending_model_input,
+                    completion_tokens=output_tokens,
+                    extra={"finish_reason": _string_value(item.get("finish_reason"))},
+                ),
+            )
+            pending_model_input = None
+            continue
+
+        if item_type == "status":
+            message = _string_value(item.get("message"))
+            if message:
+                append_step(source="system", timestamp=timestamp, message=message)
+            continue
+
+        if item_type == "error":
+            message = _string_value(item.get("message"))
+            if message:
+                append_step(
+                    source="system",
+                    timestamp=timestamp,
+                    message=message,
+                    extra={"recoverable": bool(item.get("recoverable"))},
+                )
+            continue
+
+    if not steps:
+        return None
+
+    final_extra = {
+        "event_counts": event_counts,
+        "run_id": run_id,
+        "task_id": task_id,
+        "final_message": final_message,
+        "failure": failure_message,
+    }
+
+    return Trajectory(
+        schema_version="ATIF-v1.7",
+        session_id=session_id,
+        agent=Agent(
+            name="rara",
+            version=agent_version,
+            model_name=last_model_name,
+        ),
+        steps=steps,
+        final_metrics=FinalMetrics(
+            total_prompt_tokens=total_input_tokens,
+            total_completion_tokens=total_output_tokens,
+            total_cached_tokens=None,
+            total_cost_usd=None,
+            total_steps=len(steps),
+            extra={k: v for k, v in final_extra.items() if v is not None},
+        ),
+    )
+
+
+def _string_value(value: Any) -> str | None:
+    return value if isinstance(value, str) else None
+
+
+def _int_value(value: Any) -> int | None:
+    return value if isinstance(value, int) else None
+
+
+def _add_optional_int(total: int | None, value: int | None) -> int | None:
+    if value is None:
+        return total
+    return (total or 0) + value
+
+
+def _take_joined(parts: list[str]) -> str | None:
+    if not parts:
+        return None
+    joined = "\n".join(parts)
+    parts.clear()
+    return joined
+
+
+def _has_agent_message_step(steps: list[Step], message: str) -> bool:
+    return any(step.source == "agent" and step.message == message for step in steps)
+
+
+def _last_matching_tool_call(pending: list[tuple[str, str]], name: str) -> str | None:
+    for call_id, pending_name in reversed(pending):
+        if pending_name == name:
+            return call_id
+    return None
+
+
+def _pop_matching_tool_call(pending: list[tuple[str, str]], name: str) -> str | None:
+    for index in range(len(pending) - 1, -1, -1):
+        call_id, pending_name = pending[index]
+        if pending_name == name:
+            del pending[index]
+            return call_id
+    return None
+
+
+def _append_observation(
+    steps: list[Step],
+    *,
+    source_call_id: str | None,
+    content: str,
+    extra: dict[str, Any],
+) -> None:
+    result = ObservationResult(
+        source_call_id=source_call_id,
+        content=content,
+        extra={k: v for k, v in extra.items() if v is not None},
+    )
+    for step in reversed(steps):
+        if step.source == "agent":
+            if step.observation is None:
+                step.observation = Observation(results=[result])
+            else:
+                step.observation.results.append(result)
+            return
+
+
+def _attach_metrics_to_latest_agent_step(steps: list[Step], metrics: Metrics) -> None:
+    for step in reversed(steps):
+        if step.source == "agent":
+            if step.metrics is None:
+                step.metrics = metrics
+            return
