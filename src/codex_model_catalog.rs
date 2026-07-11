@@ -1,6 +1,7 @@
 use std::path::Path;
 
 use anyhow::Result;
+use codex_http_client::{HttpClientFactory, OutboundProxyPolicy};
 use codex_login::{AuthCredentialsStoreMode, AuthKeyringBackendKind, AuthManager};
 use codex_models_manager::bundled_models_response;
 use codex_models_manager::manager::{ModelsManager, RefreshStrategy, StaticModelsManager};
@@ -42,7 +43,12 @@ pub async fn load_codex_model_catalog(
     )
     .await;
     let manager = StaticModelsManager::new(Some(auth_manager), bundled_models_response()?);
-    let mut models = manager.list_models(refresh_strategy).await;
+    let mut models = manager
+        .list_models(
+            refresh_strategy,
+            HttpClientFactory::new(OutboundProxyPolicy::ReqwestDefault),
+        )
+        .await;
     if models.iter().any(|model| model.show_in_picker) {
         models.retain(|model| model.show_in_picker);
     }
