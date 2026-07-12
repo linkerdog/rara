@@ -346,6 +346,45 @@ class RaraAgentTests(unittest.TestCase):
         self.assertEqual(trajectory.final_metrics.total_prompt_tokens, 5)
         self.assertEqual(trajectory.final_metrics.total_completion_tokens, 2)
 
+    def test_convert_rara_events_to_trajectory_keeps_same_name_results_with_calls(self) -> None:
+        events = parse_rara_jsonl(
+            "\n".join(
+                [
+                    '{"type":"item.completed","item":{"id":"call_1","type":"tool_call","name":"read_file","input":{"path":"/app/main.tex"}}}',
+                    '{"type":"item.completed","item":{"id":"call_2","type":"tool_call","name":"read_file","input":{"path":"/app/input.tex"}}}',
+                    '{"type":"item.completed","item":{"id":"call_3","type":"tool_call","name":"read_file","input":{"path":"/app/synonyms.txt"}}}',
+                    '{"type":"item.completed","item":{"id":"progress_1","type":"tool_progress","name":"read_file","stream":"stdout","chunk":"main progress"}}',
+                    '{"type":"item.completed","item":{"id":"result_1","type":"tool_result","name":"read_file","content":"main result","is_error":false}}',
+                    '{"type":"item.completed","item":{"id":"result_2","type":"tool_result","name":"read_file","content":"input result","is_error":false}}',
+                    '{"type":"item.completed","item":{"id":"result_3","type":"tool_result","name":"read_file","content":"synonyms result","is_error":false}}',
+                ]
+            )
+        )
+
+        trajectory = convert_rara_events_to_trajectory(
+            events,
+            instruction="Read the input files.",
+        )
+
+        self.assertIsNotNone(trajectory)
+        assert trajectory is not None
+        tool_steps = [step for step in trajectory.steps if step.tool_calls]
+        self.assertEqual(
+            [step.tool_calls[0].tool_call_id for step in tool_steps],
+            ["call_1", "call_2", "call_3"],
+        )
+        self.assertEqual(
+            [
+                [(result.source_call_id, result.content) for result in step.observation.results]
+                for step in tool_steps
+            ],
+            [
+                [("call_1", "main progress"), ("call_1", "main result")],
+                [("call_2", "input result")],
+                [("call_3", "synonyms result")],
+            ],
+        )
+
     def test_write_trajectory_preserves_zero_token_context_metrics(self) -> None:
         with tempfile.TemporaryDirectory(dir=Path.cwd()) as temp:
             agent = RaraAgent(logs_dir=Path(temp), binary_path="/tmp/rara")

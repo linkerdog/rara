@@ -404,6 +404,7 @@ def convert_rara_events_to_trajectory(
     pending_model_input: int | None = None
     pending_reasoning: list[str] = []
     pending_tool_calls: list[tuple[str, str]] = []
+    tool_call_steps: dict[str, Step] = {}
     total_input_tokens: int | None = None
     total_output_tokens: int | None = None
     final_message: str | None = None
@@ -498,7 +499,7 @@ def convert_rara_events_to_trajectory(
             if not isinstance(arguments, dict):
                 arguments = {"input": arguments}
             pending_tool_calls.append((item_id, name))
-            append_step(
+            tool_call_steps[item_id] = append_step(
                 source="agent",
                 timestamp=timestamp,
                 model_name=last_model_name,
@@ -521,6 +522,7 @@ def convert_rara_events_to_trajectory(
             call_id = _pop_matching_tool_call(pending_tool_calls, name)
             _append_observation(
                 steps,
+                tool_call_steps=tool_call_steps,
                 source_call_id=call_id,
                 content=content,
                 extra={"tool_name": name, "is_error": is_error},
@@ -531,9 +533,10 @@ def convert_rara_events_to_trajectory(
             name = _string_value(item.get("name")) or "tool"
             stream = _string_value(item.get("stream"))
             chunk = _string_value(item.get("chunk")) or ""
-            call_id = _last_matching_tool_call(pending_tool_calls, name)
+            call_id = _first_matching_tool_call(pending_tool_calls, name)
             _append_observation(
                 steps,
+                tool_call_steps=tool_call_steps,
                 source_call_id=call_id,
                 content=chunk,
                 extra={"tool_name": name, "stream": stream, "progress": True},
@@ -633,16 +636,15 @@ def _has_agent_message_step(steps: list[Step], message: str) -> bool:
     return any(step.source == "agent" and step.message == message for step in steps)
 
 
-def _last_matching_tool_call(pending: list[tuple[str, str]], name: str) -> str | None:
-    for call_id, pending_name in reversed(pending):
+def _first_matching_tool_call(pending: list[tuple[str, str]], name: str) -> str | None:
+    for call_id, pending_name in pending:
         if pending_name == name:
             return call_id
     return None
 
 
 def _pop_matching_tool_call(pending: list[tuple[str, str]], name: str) -> str | None:
-    for index in range(len(pending) - 1, -1, -1):
-        call_id, pending_name = pending[index]
+    for index, (call_id, pending_name) in enumerate(pending):
         if pending_name == name:
             del pending[index]
             return call_id
@@ -652,6 +654,7 @@ def _pop_matching_tool_call(pending: list[tuple[str, str]], name: str) -> str | 
 def _append_observation(
     steps: list[Step],
     *,
+    tool_call_steps: dict[str, Step],
     source_call_id: str | None,
     content: str,
     extra: dict[str, Any],
@@ -661,13 +664,15 @@ def _append_observation(
         content=content,
         extra={k: v for k, v in extra.items() if v is not None},
     )
-    for step in reversed(steps):
-        if step.source == "agent":
-            if step.observation is None:
-                step.observation = Observation(results=[result])
-            else:
-                step.observation.results.append(result)
-            return
+    step = tool_call_steps.get(source_call_id) if source_call_id else None
+    if step is None:
+        step = next((step for step in reversed(steps) if step.source == "agent"), None)
+    if step is None:
+        return
+    if step.observation is None:
+        step.observation = Observation(results=[result])
+    else:
+        step.observation.results.append(result)
 
 
 def _attach_metrics_to_latest_agent_step(steps: list[Step], metrics: Metrics) -> None:
