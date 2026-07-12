@@ -452,6 +452,7 @@ def convert_rara_events_to_trajectory(
                     model_name=last_model_name,
                     message=final_message,
                 )
+            pending_tool_calls.clear()
             continue
 
         if event_type == "turn.failed":
@@ -464,6 +465,7 @@ def convert_rara_events_to_trajectory(
                     timestamp=timestamp,
                     message=f"RARA exec failed: {failure_message}",
                 )
+            pending_tool_calls.clear()
             continue
 
         if event_type != "item.completed":

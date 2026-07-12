@@ -140,6 +140,10 @@ observation `source_call_id` belongs to a tool call on the same step. A future
 event revision may carry the provider tool-call id on progress and result events
 to remove this compatibility association.
 
+The adapter discards unmatched calls at `turn.completed` and `turn.failed`
+boundaries. A call without a result belongs only to its originating turn and
+must not affect same-name associations in a later turn.
+
 ### Tool Contract
 
 The same file and shell tools used in ordinary sessions must be available in the
@@ -197,6 +201,8 @@ Each trial should end with one of:
   the raw event stream.
 - Confirm multiple same-name tool calls in one model response keep each
   progress/result observation on the matching tool-call step.
+- Confirm an incomplete tool call cannot affect same-name result association in
+  the next completed or failed turn.
 - Confirm failures include enough trajectory data to reproduce the final
   decision.
 - Confirm headless configuration can select provider/model/API key without TUI

@@ -385,6 +385,45 @@ class RaraAgentTests(unittest.TestCase):
             ],
         )
 
+    def test_convert_rara_events_to_trajectory_drops_orphaned_calls_at_turn_boundaries(self) -> None:
+        events = parse_rara_jsonl(
+            "\n".join(
+                [
+                    '{"type":"item.completed","item":{"id":"completed_orphan","type":"tool_call","name":"read_file","input":{"path":"/app/orphan-after-completion"}}}',
+                    '{"type":"turn.completed","usage":{"input_tokens":1,"output_tokens":1},"final_message":"first"}',
+                    '{"type":"item.completed","item":{"id":"after_completion","type":"tool_call","name":"read_file","input":{"path":"/app/after-completion"}}}',
+                    '{"type":"item.completed","item":{"id":"result_after_completion","type":"tool_result","name":"read_file","content":"after completion","is_error":false}}',
+                    '{"type":"item.completed","item":{"id":"failed_orphan","type":"tool_call","name":"read_file","input":{"path":"/app/orphan-after-failure"}}}',
+                    '{"type":"turn.failed","error":{"message":"interrupted"}}',
+                    '{"type":"item.completed","item":{"id":"after_failure","type":"tool_call","name":"read_file","input":{"path":"/app/after-failure"}}}',
+                    '{"type":"item.completed","item":{"id":"result_after_failure","type":"tool_result","name":"read_file","content":"after failure","is_error":false}}',
+                ]
+            )
+        )
+
+        trajectory = convert_rara_events_to_trajectory(
+            events,
+            instruction="Read the files.",
+        )
+
+        self.assertIsNotNone(trajectory)
+        assert trajectory is not None
+        tool_steps = {
+            step.tool_calls[0].tool_call_id: step
+            for step in trajectory.steps
+            if step.tool_calls
+        }
+        self.assertIsNone(tool_steps["completed_orphan"].observation)
+        self.assertEqual(
+            tool_steps["after_completion"].observation.results[0].source_call_id,
+            "after_completion",
+        )
+        self.assertIsNone(tool_steps["failed_orphan"].observation)
+        self.assertEqual(
+            tool_steps["after_failure"].observation.results[0].source_call_id,
+            "after_failure",
+        )
+
     def test_write_trajectory_preserves_zero_token_context_metrics(self) -> None:
         with tempfile.TemporaryDirectory(dir=Path.cwd()) as temp:
             agent = RaraAgent(logs_dir=Path(temp), binary_path="/tmp/rara")

@@ -30,6 +30,8 @@ can now upload and view a normalized trajectory artifact.
   observation to that call's ATIF step. This keeps `source_call_id` valid for
   multiple same-name calls in one model response. The raw JSONL remains
   available for debugging if an external event producer breaks that ordering.
+- Unmatched calls are discarded at completed and failed turn boundaries so an
+  interrupted call cannot alter same-name result association in a later turn.
 - The trajectory uses Harbor's current `ATIF-v1.7` model instead of a
   RARA-local JSON schema.
 
