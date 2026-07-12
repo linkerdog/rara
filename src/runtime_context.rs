@@ -53,6 +53,7 @@ pub(crate) struct RuntimeBootstrap {
     pub prompt_source_registry: Arc<PromptSourceRegistry>,
     pub skill_source_registry: Arc<SkillSourceRegistry>,
     pub hook_registry: Arc<HookRegistry>,
+    command_hook_registry: Arc<crate::hooks::HookRegistry>,
     pub goal_handle: GoalHandle,
     pub mcp_tool_cache: McpToolCache,
     pub mcp_manager: Arc<McpConnectionManager>,
@@ -83,6 +84,7 @@ impl RuntimeBootstrap {
         Arc<HookRegistry>,
         Arc<LspManager>,
     ) {
+        let hook_workspace_root = self.workspace.root.clone();
         let mut agent = Agent::new_with_embedding_backend_and_agent_definitions(
             self.tool_manager,
             self.backend,
@@ -97,8 +99,11 @@ impl RuntimeBootstrap {
         agent.set_skill_source_registry(self.skill_source_registry.clone());
         agent.set_lsp_manager(self.lsp_manager.clone());
         agent.set_hook_context(
-            Arc::new(crate::hooks::HookRegistry::new()),
-            crate::hooks::HookSandbox::default(),
+            self.command_hook_registry,
+            crate::hooks::HookSandbox {
+                workspace_root: hook_workspace_root,
+                ..crate::hooks::HookSandbox::default()
+            },
         );
         (
             agent,
@@ -214,11 +219,14 @@ pub(crate) async fn initialize_rara_context_with_local_embedding_bootstrap(
     prompt_config.hook_prompt_entries = file_hooks
         .hooks
         .values()
+        .filter(|hook| hook.source_path != ".claude/settings.json")
         .map(|h| rara_instructions::HookPromptEntry {
             phase: h.phase,
             body: format!("## {}\n\n{}", h.phase.as_str(), h.body),
         })
         .collect();
+    let file_hook_warnings = file_hooks.load_warnings.clone();
+    let command_hook_registry = Arc::new(file_hooks);
     let agent_definitions = AgentDefinitionCache::load(workspace.root.clone());
     let tool_manager = create_full_tool_manager(
         backend.clone(),
@@ -238,6 +246,7 @@ pub(crate) async fn initialize_rara_context_with_local_embedding_bootstrap(
     );
     let mut warnings = prompt_config.warnings.clone();
     warnings.extend(embedding_warnings);
+    warnings.extend(file_hook_warnings);
 
     Ok(RuntimeBootstrap {
         backend,
@@ -253,6 +262,7 @@ pub(crate) async fn initialize_rara_context_with_local_embedding_bootstrap(
         prompt_source_registry,
         skill_source_registry,
         hook_registry,
+        command_hook_registry,
         goal_handle,
         mcp_tool_cache,
         mcp_manager,
