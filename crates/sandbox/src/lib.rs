@@ -466,10 +466,16 @@ fn command_exists(program: &str) -> bool {
         .unwrap_or(false)
 }
 
-fn command_search_path_dirs(command_path: Option<&std::ffi::OsStr>) -> Vec<PathBuf> {
-    let home_dir = env::var_os("HOME")
+fn command_search_home_dir() -> Option<PathBuf> {
+    env::var_os("HOME")
         .map(PathBuf::from)
-        .and_then(|path| fs::canonicalize(&path).ok().or(Some(path)));
+        .and_then(|path| fs::canonicalize(&path).ok().or(Some(path)))
+}
+
+fn command_search_path_dirs(
+    command_path: Option<&std::ffi::OsStr>,
+    home_dir: Option<&Path>,
+) -> Vec<PathBuf> {
     command_path
         .map(OsString::from)
         .or_else(|| env::var_os("PATH"))
@@ -486,7 +492,7 @@ fn command_search_path_dirs(command_path: Option<&std::ffi::OsStr>) -> Vec<PathB
                 if path_contains_control_chars(&dir) {
                     continue;
                 }
-                if is_broad_command_search_dir(&dir, home_dir.as_deref()) {
+                if is_broad_command_search_dir(&dir, home_dir) {
                     continue;
                 }
                 if !dirs.iter().any(|existing| existing == &dir) {
@@ -503,17 +509,22 @@ fn is_broad_command_search_dir(dir: &Path, home_dir: Option<&Path>) -> bool {
 }
 
 fn command_search_install_roots(command_path: Option<&std::ffi::OsStr>) -> Vec<PathBuf> {
+    let home_dir = command_search_home_dir();
+    command_search_install_roots_for_home(command_path, home_dir.as_deref())
+}
+
+fn command_search_install_roots_for_home(
+    command_path: Option<&std::ffi::OsStr>,
+    home_dir: Option<&Path>,
+) -> Vec<PathBuf> {
     let mut roots = Vec::new();
-    let home_dir = env::var_os("HOME")
-        .map(PathBuf::from)
-        .and_then(|path| fs::canonicalize(&path).ok().or(Some(path)));
-    for dir in command_search_path_dirs(command_path) {
+    for dir in command_search_path_dirs(command_path, home_dir) {
         let root = if matches!(
             dir.file_name().and_then(|name| name.to_str()),
             Some("bin" | "sbin")
         ) {
             let parent = dir.parent().unwrap_or(dir.as_path());
-            if parent == Path::new("/") || home_dir.as_deref() == Some(parent) {
+            if parent == Path::new("/") || home_dir == Some(parent) {
                 dir.clone()
             } else {
                 parent.to_path_buf()
