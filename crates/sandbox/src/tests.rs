@@ -6,8 +6,8 @@ use tempfile::tempdir;
 
 use super::{
     DEFAULT_SHELL, MACOS_SANDBOX_EXEC, SandboxBackend, SandboxManager, cleanup_profiles_older_than,
-    cleanup_stale_profiles, command_search_install_roots, sandbox_profile_string_literal,
-    sanitize_shell_program, shell_command_flag, shell_program,
+    cleanup_stale_profiles, command_search_install_roots, command_search_install_roots_for_home,
+    sandbox_profile_string_literal, sanitize_shell_program, shell_command_flag, shell_program,
 };
 
 fn manager(os: &str, backend: SandboxBackend) -> SandboxManager {
@@ -523,16 +523,7 @@ fn home_bin_path_stays_narrow() {
     std::fs::create_dir_all(&home_bin).expect("home bin dir");
     let home = std::fs::canonicalize(&home).expect("canonical home");
     let home_bin = home.join("bin");
-    let original_home = std::env::var_os("HOME");
-    set_env_var("HOME", &home);
-
-    let roots = command_search_install_roots(Some(home_bin.as_os_str()));
-
-    if let Some(home) = original_home {
-        set_env_var("HOME", home);
-    } else {
-        remove_env_var("HOME");
-    }
+    let roots = command_search_install_roots_for_home(Some(home_bin.as_os_str()), Some(&home));
 
     assert_eq!(roots, vec![home_bin]);
 }
@@ -548,18 +539,9 @@ fn command_search_install_roots_rejects_broad_path_entries() {
     let home = std::fs::canonicalize(&home).expect("canonical home");
     let tool_root = std::fs::canonicalize(&tool_root).expect("canonical tool root");
     let tool_bin = tool_root.join("bin");
-    let original_home = std::env::var_os("HOME");
-    set_env_var("HOME", &home);
-
     let path = env::join_paths([PathBuf::from("/"), home.clone(), tool_bin.clone()])
         .expect("build test PATH");
-    let roots = command_search_install_roots(Some(path.as_os_str()));
-
-    if let Some(home) = original_home {
-        set_env_var("HOME", home);
-    } else {
-        remove_env_var("HOME");
-    }
+    let roots = command_search_install_roots_for_home(Some(path.as_os_str()), Some(&home));
 
     assert_eq!(roots, vec![tool_root]);
 }

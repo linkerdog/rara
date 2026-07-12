@@ -132,6 +132,18 @@ status items, model usage items, and final failure reasons. Later revisions can
 add richer command exit metadata and file-change grouping without requiring a
 benchmark-specific runtime.
 
+For the current headless runtime, tool calls from one model response execute in
+emission order. The Harbor adapter therefore associates same-name progress and
+result events with the earliest unmatched call of that name, and attaches the
+observation to that call's ATIF step. This preserves ATIF's requirement that an
+observation `source_call_id` belongs to a tool call on the same step. A future
+event revision may carry the provider tool-call id on progress and result events
+to remove this compatibility association.
+
+The adapter discards unmatched calls at `turn.completed` and `turn.failed`
+boundaries. A call without a result belongs only to its originating turn and
+must not affect same-name associations in a later turn.
+
 ### Tool Contract
 
 The same file and shell tools used in ordinary sessions must be available in the
@@ -187,6 +199,10 @@ Each trial should end with one of:
   artifact. The adapter writes this file by converting `rara exec --json`
   events into Harbor's ATIF model and keeps `/logs/agent/rara-exec.jsonl` as
   the raw event stream.
+- Confirm multiple same-name tool calls in one model response keep each
+  progress/result observation on the matching tool-call step.
+- Confirm an incomplete tool call cannot affect same-name result association in
+  the next completed or failed turn.
 - Confirm failures include enough trajectory data to reproduce the final
   decision.
 - Confirm headless configuration can select provider/model/API key without TUI

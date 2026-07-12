@@ -24,3 +24,7 @@
 - The first snapshot slice captures `PATH` only. This mirrors the Codex and
   Claude direction of reusing user shell initialization while avoiding a full
   shell-state import before RARA has a richer environment policy.
+- Command-root classification now receives the resolved home directory as an
+  explicit internal input. This preserves the runtime environment behavior and
+  lets path-root tests avoid mutating process-wide `HOME` while running in
+  parallel.

@@ -24,9 +24,14 @@ can now upload and view a normalized trajectory artifact.
 
 - The adapter owns ATIF conversion because Harbor owns the artifact contract,
   while `rara exec` remains responsible for the stable RARA JSONL event stream.
-- Tool result events do not currently carry an explicit call id, so the adapter
-  associates them with the most recent unmatched tool call of the same name.
-  The raw JSONL remains available for debugging if this heuristic is ambiguous.
+- Tool result events do not currently carry an explicit call id. Because RARA
+  executes tool calls in emission order, the adapter associates same-name
+  progress and results with the earliest unmatched call, then appends the
+  observation to that call's ATIF step. This keeps `source_call_id` valid for
+  multiple same-name calls in one model response. The raw JSONL remains
+  available for debugging if an external event producer breaks that ordering.
+- Unmatched calls are discarded at completed and failed turn boundaries so an
+  interrupted call cannot alter same-name result association in a later turn.
 - The trajectory uses Harbor's current `ATIF-v1.7` model instead of a
   RARA-local JSON schema.
 
@@ -42,5 +47,5 @@ git diff --check
 ## Follow-Ups
 
 - A future `rara exec` event revision can include explicit tool call ids on
-  tool result and progress events to remove the adapter-side name-matching
-  heuristic.
+  tool result and progress events to remove the adapter-side ordering
+  association.
