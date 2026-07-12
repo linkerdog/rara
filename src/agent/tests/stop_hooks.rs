@@ -23,7 +23,7 @@ async fn stop_hook_blocks_completion_and_returns_feedback_to_the_model() {
                 "Stop": [{
                     "hooks": [{
                         "type": "command",
-                        "command": "if [ -e .stop-hook-ran ]; then exit 0; fi; touch .stop-hook-ran; echo 'Run the visible completion check.' >&2; exit 2"
+                        "command": "cat > .stop-hook-input.json; if [ -e .stop-hook-ran ]; then exit 0; fi; touch .stop-hook-ran; echo 'Run the visible completion check.' >&2; exit 2"
                     }]
                 }]
             }
@@ -78,6 +78,14 @@ async fn stop_hook_blocks_completion_and_returns_feedback_to_the_model() {
                 .as_str()
                 .is_some_and(|content| content.contains("Stop hook"))
     }));
+    let hook_input: serde_json::Value = serde_json::from_str(
+        &fs::read_to_string(temp.path().join(".stop-hook-input.json")).expect("hook input"),
+    )
+    .expect("valid hook input");
+    assert_eq!(
+        hook_input["last_assistant_message"],
+        serde_json::Value::String("first completion".to_string())
+    );
 }
 
 fn response(text: &str) -> LlmResponse {
@@ -102,5 +110,22 @@ fn stop_hook_json_block_reason_is_returned_to_the_agent() {
     assert_eq!(
         super::super::stop_hook_block_reason(&outcome),
         Some("Run the completion check.".to_string())
+    );
+}
+
+#[test]
+fn message_text_extracts_text_blocks_from_structured_assistant_content() {
+    let message = crate::agent::Message {
+        role: "assistant".to_string(),
+        content: json!([
+            {"type": "text", "text": "first "},
+            {"type": "tool_use", "name": "read_file"},
+            {"type": "text", "text": "last"}
+        ]),
+    };
+
+    assert_eq!(
+        super::super::message_text(&message),
+        Some("first last".to_string())
     );
 }

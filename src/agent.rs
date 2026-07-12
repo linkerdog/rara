@@ -175,7 +175,21 @@ struct StopHookSpecificOutput {
 }
 
 fn message_text(message: &Message) -> Option<String> {
-    message.content.as_str().map(ToString::to_string)
+    match &message.content {
+        Value::String(text) => Some(text.clone()),
+        Value::Array(blocks) => {
+            let text = blocks
+                .iter()
+                .filter_map(|block| {
+                    block
+                        .as_str()
+                        .or_else(|| block.get("text").and_then(Value::as_str))
+                })
+                .collect::<String>();
+            (!text.is_empty()).then_some(text)
+        }
+        _ => None,
+    }
 }
 
 fn stop_hook_block_reason(outcome: &HookOutcome) -> Option<String> {
