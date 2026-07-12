@@ -23,7 +23,7 @@ async fn stop_hook_blocks_completion_and_returns_feedback_to_the_model() {
                 "Stop": [{
                     "hooks": [{
                         "type": "command",
-                        "command": "cat > .stop-hook-input.json; if [ -e .stop-hook-ran ]; then exit 0; fi; touch .stop-hook-ran; echo 'Run the visible completion check.' >&2; exit 2"
+                        "command": "if [ -e .stop-hook-ran ]; then exit 0; fi; cat > .stop-hook-input.json; touch .stop-hook-ran; echo 'Run the visible completion check.' >&2; exit 2"
                     }]
                 }]
             }
