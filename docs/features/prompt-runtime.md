@@ -80,6 +80,13 @@ for simple answers, use concise bullets for longer reports, use language-tagged 
 for multi-line code or commands, prefer `path:line` code references, avoid large tables unless they
 improve comparison, and avoid emojis unless explicitly requested.
 
+Shell capability guidance keeps the runtime portable across constrained environments. When a
+dedicated tool is unavailable or unsuitable, the agent checks an optional shell command before
+depending on it (for example, `command -v rg`), prefers `rg` only when present, and otherwise uses
+an equivalent available or POSIX tool. Missing commands are not an implicit package-installation
+request: the default prompt must not infer a package manager or install a dependency unless the
+user explicitly requests an environment change.
+
 Git conflict guidance is intentionally conservative. It tells the model to inspect the current git
 state and conflicted file, preserve complementary changes instead of blindly choosing one side, use
 structured edits where practical, scan for remaining conflict markers, and run the narrowest relevant

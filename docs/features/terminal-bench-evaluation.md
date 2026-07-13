@@ -152,13 +152,16 @@ Important tool requirements:
 The default prompt may describe general terminal-agent discipline:
 
 - inspect before editing;
-- prefer `rg` for search;
+- prefer `rg` for search only after checking it is available, then fall back to an equivalent
+  available or POSIX tool;
 - use patch/file tools instead of shell redirection for edits;
 - run focused verification;
 - summarize unresolved failures.
 
 The default prompt must not contain benchmark task answers, benchmark-specific
 oracle behavior, or hidden test assumptions.
+It must not treat missing commands as an implicit request to identify a package manager and install
+dependencies; such an environment change requires explicit user instruction.
 
 ### Result Contract
 
