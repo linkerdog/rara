@@ -15,7 +15,7 @@ use serde_json::Value;
 
 use self::model::{
     LocalModelSpec, LocalTextModel, build_hf_api, default_local_model_cache_dir as model_cache_dir,
-    load_safetensors, preferred_dtype, select_device,
+    load_safetensors, model_repo, preferred_dtype, select_device,
 };
 pub use self::model::{default_local_model_cache_dir, local_runtime_target};
 use self::parser::parse_tool_aware_reply;
@@ -63,11 +63,7 @@ impl LocalLlmBackend {
         );
         report_progress(&progress, format!("Cache · {}", cache_dir.display()));
         let api = build_hf_api(config, &cache_dir)?;
-        let repo = api.repo(hf_hub::Repo::with_revision(
-            spec.model_id().to_string(),
-            hf_hub::RepoType::Model,
-            revision,
-        ));
+        let repo = model_repo(&api, spec.model_id());
 
         report_progress(
             &progress,
@@ -75,13 +71,27 @@ impl LocalLlmBackend {
         );
         report_progress(&progress, "Artifact · tokenizer.json".to_string());
         let tokenizer_path = repo
-            .get("tokenizer.json")
+            .download_file()
+            .filename("tokenizer.json")
+            .revision(&revision)
+            .send()
             .context("download tokenizer.json")?;
         report_progress(&progress, "Artifact · config.json".to_string());
-        let config_path = repo.get("config.json").context("download config.json")?;
+        let config_path = repo
+            .download_file()
+            .filename("config.json")
+            .revision(&revision)
+            .send()
+            .context("download config.json")?;
         report_progress(&progress, "Weights · downloading model weights".to_string());
-        let weight_paths = load_safetensors(&repo)
-            .or_else(|_| repo.get("model.safetensors").map(|p| vec![p]))
+        let weight_paths = load_safetensors(&repo, &revision)
+            .or_else(|_| {
+                repo.download_file()
+                    .filename("model.safetensors")
+                    .revision(&revision)
+                    .send()
+                    .map(|path| vec![path])
+            })
             .context("download model weights")?;
         report_progress(
             &progress,

@@ -10,9 +10,13 @@ pub(crate) fn report_progress(
 pub(crate) struct TuiDownloadProgress {
     filename: String,
     progress: Option<LocalProgressReporter>,
-    total: usize,
-    current: usize,
-    last_percent: Option<usize>,
+    state: std::sync::Mutex<DownloadProgressState>,
+}
+
+struct DownloadProgressState {
+    total: u64,
+    current: u64,
+    last_percent: Option<u64>,
 }
 
 impl TuiDownloadProgress {
@@ -20,55 +24,78 @@ impl TuiDownloadProgress {
         Self {
             filename,
             progress,
-            total: 0,
-            current: 0,
-            last_percent: None,
+            state: std::sync::Mutex::new(DownloadProgressState {
+                total: 0,
+                current: 0,
+                last_percent: None,
+            }),
         }
     }
 
-    fn emit(&mut self, force: bool) {
-        let percent = self
+    fn emit(&self, state: &mut DownloadProgressState, force: bool) {
+        let percent = state
             .current
             .saturating_mul(100)
-            .checked_div(self.total)
+            .checked_div(state.total)
             .unwrap_or(0);
-        if !force && self.last_percent == Some(percent) {
+        if !force && state.last_percent == Some(percent) {
             return;
         }
-        self.last_percent = Some(percent);
+        state.last_percent = Some(percent);
         report_progress(
             &self.progress,
             format!(
                 "Model · {} · {}% ({}/{})",
                 self.filename,
                 percent,
-                format_bytes(self.current),
-                format_bytes(self.total)
+                format_bytes(state.current),
+                format_bytes(state.total)
             ),
         );
     }
 }
 
-impl HfProgress for TuiDownloadProgress {
-    fn init(&mut self, size: usize, filename: &str) {
-        self.total = size;
-        self.current = 0;
-        self.filename = filename.to_string();
-        self.emit(true);
-    }
-
-    fn update(&mut self, size: usize) {
-        self.current = self.current.saturating_add(size);
-        self.emit(false);
-    }
-
-    fn finish(&mut self) {
-        self.current = self.total;
-        self.emit(true);
+impl ProgressHandler for TuiDownloadProgress {
+    fn on_progress(&self, event: &ProgressEvent) {
+        let mut state = match self.state.lock() {
+            Ok(state) => state,
+            Err(err) => {
+                log::warn!("download progress state lock poisoned: {err}");
+                return;
+            }
+        };
+        match event {
+            ProgressEvent::Download(DownloadEvent::Start { total_bytes, .. }) => {
+                state.total = *total_bytes;
+                state.current = 0;
+                self.emit(&mut state, true);
+            }
+            ProgressEvent::Download(DownloadEvent::Progress { files }) => {
+                if let Some(file) = files.iter().find(|file| file.filename == self.filename) {
+                    state.total = file.total_bytes;
+                    state.current = file.bytes_completed;
+                    self.emit(&mut state, false);
+                }
+            }
+            ProgressEvent::Download(DownloadEvent::AggregateProgress {
+                bytes_completed,
+                total_bytes,
+                ..
+            }) => {
+                state.total = *total_bytes;
+                state.current = *bytes_completed;
+                self.emit(&mut state, false);
+            }
+            ProgressEvent::Download(DownloadEvent::Complete) => {
+                state.current = state.total;
+                self.emit(&mut state, true);
+            }
+            ProgressEvent::Upload(_) => {}
+        }
     }
 }
 
-pub(crate) fn format_bytes(bytes: usize) -> String {
+pub(crate) fn format_bytes(bytes: u64) -> String {
     const KIB: f64 = 1024.0;
     const MIB: f64 = KIB * 1024.0;
     const GIB: f64 = MIB * 1024.0;

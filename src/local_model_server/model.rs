@@ -22,19 +22,13 @@ pub(crate) fn prepare_local_embedding_model_snapshot(
         return Ok(Some(marker.snapshot_path));
     }
 
-    let repo = Repo::with_revision(
-        model.to_string(),
-        RepoType::Model,
-        profile.revision.to_string(),
-    );
-    let cache = Cache::new(cache_dir.clone());
-    let cache_repo = cache.repo(repo.clone());
+    let repo_folder = model_cache_folder(model);
     report_progress(
         progress,
         format!("Model · checking local snapshot for {model}"),
     );
     if let Some((snapshot_path, files)) =
-        local_cached_model_snapshot(&cache_dir, &repo, required_files, profile.revision)?
+        local_cached_model_snapshot(&cache_dir, model, required_files, profile.revision)?
     {
         write_model_snapshot_marker(
             &marker_path,
@@ -50,29 +44,20 @@ pub(crate) fn prepare_local_embedding_model_snapshot(
         return Ok(Some(snapshot_path));
     }
 
-    let mut builder = ApiBuilder::from_cache(cache)
-        .with_progress(false)
-        .with_retries(3);
-    if let Ok(endpoint) = std::env::var("HF_ENDPOINT") {
-        builder = builder.with_endpoint(endpoint);
-    }
-    if let Some(token) = std::env::var("HF_TOKEN")
-        .ok()
-        .filter(|value| !value.is_empty())
-    {
-        builder = builder.with_token(Some(token));
-    }
-    let api = builder.build().context("build Hugging Face API client")?;
-    let api_repo = api.repo(repo);
+    let api = build_hf_api(&cache_dir)?;
+    let api_repo = model_repo(&api, model);
     report_progress(
         progress,
         format!("Model · resolving model metadata for {model}"),
     );
     let info = api_repo
         .info()
+        .revision(profile.revision)
+        .send()
         .context("resolve model repository metadata")?;
     let available_files: Vec<String> = info
         .siblings
+        .unwrap_or_default()
         .into_iter()
         .map(|sibling| sibling.rfilename)
         .filter(|name| !name.ends_with('/'))
@@ -82,7 +67,10 @@ pub(crate) fn prepare_local_embedding_model_snapshot(
         bail!("model repository is missing required files for profile");
     }
 
-    let snapshot_path = cache_repo.pointer_path(&info.sha);
+    let revision_sha = info
+        .sha
+        .ok_or_else(|| anyhow!("model repository metadata is missing commit SHA"))?;
+    let snapshot_path = cache_dir.join(&repo_folder).join("snapshots").join(revision_sha);
     if snapshot_has_all_files(&snapshot_path, &files) {
         write_model_snapshot_marker(
             &marker_path,
@@ -110,10 +98,11 @@ pub(crate) fn prepare_local_embedding_model_snapshot(
         }
         report_progress(progress, format!("Model · downloading {filename}"));
         api_repo
-            .download_with_progress(
-                filename,
-                TuiDownloadProgress::new(filename.clone(), progress.clone()),
-            )
+            .download_file()
+            .filename(filename)
+            .revision(profile.revision)
+            .progress(TuiDownloadProgress::new(filename.clone(), progress.clone()))
+            .send()
             .with_context(|| format!("download model file {filename}"))?;
     }
 
@@ -166,11 +155,11 @@ pub(crate) fn selected_snapshot_files(
 
 pub(crate) fn local_cached_model_snapshot(
     cache_dir: &Path,
-    repo: &Repo,
+    model: &str,
     required_files: SnapshotRequiredFiles,
     revision: &str,
 ) -> Result<Option<(PathBuf, Vec<String>)>> {
-    let repo_dir = cache_dir.join(repo.folder_name());
+    let repo_dir = cache_dir.join(model_cache_folder(model));
     let ref_path = repo_dir.join("refs").join(revision);
     let commit_hash = match fs::read_to_string(&ref_path) {
         Ok(hash) => hash.trim().to_string(),
@@ -189,6 +178,23 @@ pub(crate) fn local_cached_model_snapshot(
         return Ok(None);
     }
     Ok(Some((snapshot_path, files)))
+}
+
+pub(crate) fn build_hf_api(cache_dir: &Path) -> Result<HFClientSync> {
+    HFClient::builder()
+        .cache_dir(cache_dir.to_path_buf())
+        .retry_max_attempts(3)
+        .build_sync()
+        .context("build Hugging Face API client")
+}
+
+pub(crate) fn model_repo(api: &HFClientSync, model: &str) -> HFRepositorySync<RepoTypeModel> {
+    let (owner, name) = split_id(model);
+    api.model(owner, name)
+}
+
+pub(crate) fn model_cache_folder(model: &str) -> String {
+    format!("models--{}", model.replace('/', "--"))
 }
 
 pub(crate) fn collect_snapshot_files(snapshot_path: &Path) -> Result<Vec<String>> {

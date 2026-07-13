@@ -9,7 +9,7 @@ use candle_transformers::models::gemma4::{
     text::TextModel as Gemma4TextModel,
 };
 use candle_transformers::models::qwen3::{Config as Qwen3Config, ModelForCausalLM as Qwen3Model};
-use hf_hub::api::sync::{ApiBuilder, ApiRepo};
+use hf_hub::{HFClient, HFClientSync, HFRepositorySync, RepoTypeModel, split_id};
 use serde_json::Value;
 use tokenizers::Tokenizer;
 
@@ -217,22 +217,21 @@ fn remap_multimodal_gemma4_text_tensor(name: &str) -> String {
     }
 }
 
-pub(super) fn build_hf_api(
-    config: &RaraConfig,
-    cache_dir: &Path,
-) -> Result<hf_hub::api::sync::Api> {
-    let mut builder = ApiBuilder::new()
-        .with_cache_dir(cache_dir.to_path_buf())
-        .with_progress(true)
-        .with_retries(3);
-    if let Some(token) = config
-        .api_key()
-        .map(str::to_owned)
-        .or_else(|| std::env::var("HF_TOKEN").ok())
-    {
-        builder = builder.with_token(Some(token));
+pub(super) fn build_hf_api(config: &RaraConfig, cache_dir: &Path) -> Result<HFClientSync> {
+    let mut builder = HFClient::builder()
+        .cache_dir(cache_dir.to_path_buf())
+        .retry_max_attempts(3);
+    if let Some(token) = config.api_key().map(str::to_owned) {
+        builder = builder.token(token);
     }
-    builder.build().context("build Hugging Face API client")
+    builder
+        .build_sync()
+        .context("build Hugging Face API client")
+}
+
+pub(super) fn model_repo(api: &HFClientSync, model_id: &str) -> HFRepositorySync<RepoTypeModel> {
+    let (owner, name) = split_id(model_id);
+    api.model(owner, name)
 }
 
 pub fn default_local_model_cache_dir() -> PathBuf {
@@ -258,9 +257,15 @@ pub fn local_runtime_target() -> Result<(String, String)> {
     ))
 }
 
-pub(super) fn load_safetensors(repo: &ApiRepo) -> Result<Vec<PathBuf>> {
+pub(super) fn load_safetensors(
+    repo: &HFRepositorySync<RepoTypeModel>,
+    revision: &str,
+) -> Result<Vec<PathBuf>> {
     let index_path = repo
-        .get("model.safetensors.index.json")
+        .download_file()
+        .filename("model.safetensors.index.json")
+        .revision(revision)
+        .send()
         .context("download model.safetensors.index.json")?;
     let reader = std::fs::File::open(&index_path).context("open safetensors index")?;
     let json: Value = serde_json::from_reader(reader).context("parse safetensors index")?;
@@ -273,7 +278,10 @@ pub(super) fn load_safetensors(repo: &ApiRepo) -> Result<Vec<PathBuf>> {
     for value in weight_map.values() {
         if let Some(file) = value.as_str() {
             files.insert(
-                repo.get(file)
+                repo.download_file()
+                    .filename(file)
+                    .revision(revision)
+                    .send()
                     .with_context(|| format!("download weight shard {file}"))?,
             );
         }

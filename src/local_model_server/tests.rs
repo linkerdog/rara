@@ -5,8 +5,6 @@ use std::net::TcpListener;
 use std::sync::{Arc, Mutex};
 use std::thread;
 
-use hf_hub::{Repo, RepoType};
-
 use super::{
     BootstrapMode, LocalModelServerEmbeddingBackend, LocalModelServerState, ModelServerMetadata,
     StartupLock, cleanup_failed_venv, ensure_bundled_model_server, ensure_managed_venv,
@@ -462,12 +460,9 @@ fn model_snapshot_marker_requires_matching_files() {
 #[test]
 fn local_cached_model_snapshot_reuses_existing_ref_without_metadata() {
     let temp = tempfile::tempdir().expect("tempdir");
-    let repo = Repo::with_revision(
-        super::MLX_QWEN3_MODEL_ID.to_string(),
-        RepoType::Model,
-        super::MODEL_REVISION.to_string(),
-    );
-    let repo_dir = temp.path().join(repo.folder_name());
+    let repo_dir = temp
+        .path()
+        .join(super::model_cache_folder(super::MLX_QWEN3_MODEL_ID));
     let commit = "cached-main-sha";
     let snapshot_path = repo_dir.join("snapshots").join(commit);
     fs::create_dir_all(snapshot_path.join("nested")).expect("mkdir snapshot");
@@ -479,7 +474,7 @@ fn local_cached_model_snapshot_reuses_existing_ref_without_metadata() {
 
     let (found_path, files) = local_cached_model_snapshot(
         temp.path(),
-        &repo,
+        super::MLX_QWEN3_MODEL_ID,
         super::SnapshotRequiredFiles::MlxQwen3,
         super::MODEL_REVISION,
     )

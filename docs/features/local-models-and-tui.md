@@ -46,6 +46,9 @@ Provider aliases may resolve to the same local backend path so the CLI and TUI c
 - Download progress should remain visible to the operator.
 - The default cache root is user-global and persistent.
 - `RARA_MODEL_CACHE` may override the default cache location.
+- The runtime uses `hf-hub`'s blocking typed model client so synchronous backend construction remains safe inside
+  RARA's async runtime. Downloads keep the established `models--owner--name` cache layout, preserving reusable
+  snapshots across the client migration.
 
 ### 4) TUI Interaction Direction
 
@@ -85,6 +88,7 @@ Target state:
 ## Validation Matrix
 
 - `cargo check`
+- focused local-model-server cache snapshot tests
 - focused backend unit tests for alias resolution and tool-call parsing
 - focused TUI tests or manual validation for model switching and local-provider no-key flow
 
@@ -98,3 +102,4 @@ Target state:
 ## Source Journals
 
 - [2026-04-11-local-model-bootstrap](../journal/2026-04-11-local-model-bootstrap.md)
+- [2026-07-13-hf-hub-v1-migration](../journal/2026-07-13-hf-hub-v1-migration.md)
