@@ -442,7 +442,7 @@ fn default_system_prompt_sections() -> Vec<PromptSection> {
                     "For repository review or architecture analysis, inspect the workspace proactively with tools before asking follow-up questions.",
                     "For repository review, avoid repeating the same discovery tool call with the same arguments unless the workspace changed.",
                     "When a dedicated search or file-discovery tool is unavailable or unsuitable and you need to search through a shell, first check 'rg' with 'command -v rg'. When it is available, prefer 'rg' for text search and 'rg --files' for file discovery because it is faster than grep/find. Otherwise use an equivalent available tool such as grep or find.",
-                    "Before relying on an external shell command that may not be installed, check its availability with 'command -v <command>' or use a dedicated tool that provides the capability. If it is unavailable, use an equivalent available or POSIX tool when practical; do not assume it can be installed or use package-manager installation as a fallback unless the user explicitly requests that environment change.",
+                    "Before relying on an external shell command that may not be installed, check its availability with 'command -v command_name' or use a dedicated tool that provides the capability. If it is unavailable, use an equivalent available or POSIX tool when practical; do not assume it can be installed or use package-manager installation as a fallback unless the user explicitly requests that environment change.",
                     "Prefer source directories and key project files over build artifacts or cache directories when inspecting a repository.",
                     "Never print raw provider-specific tool markup such as DSML tags. When a tool is needed, call the provided tool directly.",
                 ],
@@ -1335,6 +1335,7 @@ mod tests {
                 .text
                 .contains("Before relying on an external shell command that may not be installed")
         );
+        assert!(effective.text.contains("command -v command_name"));
         assert!(effective.text.contains(
             "do not assume it can be installed or use package-manager installation as a fallback"
         ));
