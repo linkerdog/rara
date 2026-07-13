@@ -13,7 +13,7 @@ use std::time::{Duration, Instant};
 
 /// Hook phases aligned with Claude Code's lifecycle events.
 use rara_instructions::HookLifecycle;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 /// A discovered and normalised hook declaration.
 #[derive(Debug, Clone, serde::Serialize)]
@@ -27,6 +27,9 @@ pub struct HookDefinition {
     pub parse_status: HookParseStatus,
     /// Hook body / handler content.
     pub body: String,
+    /// Per-hook timeout from Claude-compatible settings, if configured.
+    #[serde(skip_serializing)]
+    pub timeout: Option<Duration>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -38,7 +41,6 @@ pub enum HookParseStatus {
 }
 
 /// Discovers hook candidates and stores their normalised definitions.
-/// Execution is currently disabled — this is discovery-only.
 pub struct HookRegistry {
     pub hooks: BTreeMap<String, HookDefinition>,
     pub load_warnings: Vec<String>,
@@ -100,6 +102,7 @@ impl HookRegistry {
                             phase,
                             parse_status: HookParseStatus::ParseError,
                             body: format!("read error: {err}"),
+                            timeout: None,
                         },
                     );
                     continue;
@@ -120,6 +123,7 @@ impl HookRegistry {
                     phase,
                     parse_status,
                     body,
+                    timeout: None,
                 },
             );
         }
@@ -131,6 +135,74 @@ impl HookRegistry {
     pub fn discover_repo_hooks(&mut self, repo_root: &Path) {
         let hooks_dir = repo_root.join(".claude").join("hooks");
         self.discover_from_dir(&hooks_dir);
+        self.discover_claude_settings_hooks(repo_root);
+    }
+
+    /// Discover the Claude Code project-settings subset that RARA executes.
+    ///
+    /// Version one supports `hooks.Stop` command handlers. The handler runs at
+    /// the completion boundary, so it needs no matcher and can return a
+    /// blocking decision before the agent reports success.
+    fn discover_claude_settings_hooks(&mut self, repo_root: &Path) {
+        let path = repo_root.join(".claude").join("settings.json");
+        if !path.exists() {
+            return;
+        }
+        let contents = match fs::read_to_string(&path) {
+            Ok(contents) => contents,
+            Err(err) => {
+                self.load_warnings
+                    .push(format!("hook settings {}: {err}", path.display()));
+                return;
+            }
+        };
+        let settings: ClaudeHookSettings = match serde_json::from_str(&contents) {
+            Ok(settings) => settings,
+            Err(err) => {
+                self.load_warnings
+                    .push(format!("hook settings {}: {err}", path.display()));
+                return;
+            }
+        };
+        let Some(groups) = settings.hooks.get("Stop") else {
+            return;
+        };
+
+        for (group_index, group) in groups.iter().enumerate() {
+            for (handler_index, handler) in group.hooks.iter().enumerate() {
+                if handler.handler_type != "command" {
+                    self.load_warnings.push(format!(
+                        "hook settings {}: Stop handler {group_index}:{handler_index} has unsupported type {:?}",
+                        path.display(),
+                        handler.handler_type
+                    ));
+                    continue;
+                }
+                let Some(command) = handler
+                    .command
+                    .as_deref()
+                    .filter(|command| !command.trim().is_empty())
+                else {
+                    self.load_warnings.push(format!(
+                        "hook settings {}: Stop command handler {group_index}:{handler_index} is missing command",
+                        path.display()
+                    ));
+                    continue;
+                };
+                self.hooks.insert(
+                    format!("hook-settings-stop-{group_index}-{handler_index}"),
+                    HookDefinition {
+                        id: format!("hook-settings-stop-{group_index}-{handler_index}"),
+                        source_path: ".claude/settings.json".to_string(),
+                        phase: HookLifecycle::Stop,
+                        parse_status: HookParseStatus::Ok,
+                        body: command.to_string(),
+                        timeout: handler.timeout.map(Duration::from_secs),
+                    },
+                );
+            }
+        }
+        self.refresh_active_phases();
     }
 
     fn refresh_active_phases(&mut self) {
@@ -153,6 +225,34 @@ impl HookRegistry {
             .filter(|h| h.parse_status == HookParseStatus::Ok && h.phase == phase)
             .collect()
     }
+
+    /// Return command hooks loaded from Claude-compatible project settings.
+    pub fn executable_hooks_for_phase(&self, phase: HookLifecycle) -> Vec<&HookDefinition> {
+        self.hooks_for_phase(phase)
+            .into_iter()
+            .filter(|hook| hook.source_path == ".claude/settings.json")
+            .collect()
+    }
+}
+
+#[derive(Debug, Deserialize)]
+struct ClaudeHookSettings {
+    #[serde(default)]
+    hooks: BTreeMap<String, Vec<ClaudeHookMatcher>>,
+}
+
+#[derive(Debug, Deserialize)]
+struct ClaudeHookMatcher {
+    #[serde(default)]
+    hooks: Vec<ClaudeHookHandler>,
+}
+
+#[derive(Debug, Deserialize)]
+struct ClaudeHookHandler {
+    #[serde(rename = "type")]
+    handler_type: String,
+    command: Option<String>,
+    timeout: Option<u64>,
 }
 
 fn phase_ordinal(phase: HookLifecycle) -> u8 {
@@ -231,6 +331,37 @@ mod tests {
         assert_eq!(hook.parse_status, HookParseStatus::ParseError);
         assert!(registry.active_phases.is_empty());
     }
+
+    #[test]
+    fn discovers_claude_settings_stop_command_hook() {
+        let dir = tempdir().expect("tempdir");
+        let claude_dir = dir.path().join(".claude");
+        fs::create_dir_all(&claude_dir).expect("mkdir");
+        fs::write(
+            claude_dir.join("settings.json"),
+            r#"{
+                "hooks": {
+                    "Stop": [{
+                        "hooks": [{
+                            "type": "command",
+                            "command": "./check-completion.sh",
+                            "timeout": 5
+                        }]
+                    }]
+                }
+            }"#,
+        )
+        .expect("settings");
+
+        let mut registry = HookRegistry::new();
+        registry.discover_repo_hooks(dir.path());
+
+        let hooks = registry.hooks_for_phase(HookLifecycle::Stop);
+        assert_eq!(hooks.len(), 1);
+        assert_eq!(hooks[0].body, "./check-completion.sh");
+        assert_eq!(hooks[0].timeout, Some(Duration::from_secs(5)));
+        assert_eq!(hooks[0].source_path, ".claude/settings.json");
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -256,6 +387,7 @@ impl Default for HookSandbox {
 
 /// Outcome of a hook execution.
 pub struct HookOutcome {
+    pub stdout: String,
     pub stderr: String,
     pub exit_code: Option<i32>,
     pub timed_out: bool,
@@ -299,6 +431,7 @@ pub fn run_sandboxed_hook(
     }
     // stdin is dropped here — closes the pipe so the hook sees EOF.
 
+    let timeout = hook.timeout.unwrap_or(sandbox.timeout);
     let start = Instant::now();
     let output: std::process::Output;
 
@@ -316,11 +449,12 @@ pub fn run_sandboxed_hook(
                 break;
             }
             None => {
-                if start.elapsed() >= sandbox.timeout {
+                if start.elapsed() >= timeout {
                     let _ = child.kill();
                     let _ = child.wait();
                     return Ok(HookOutcome {
-                        stderr: format!("hook {} timed out after {:?}", hook.id, sandbox.timeout),
+                        stdout: String::new(),
+                        stderr: format!("hook {} timed out after {timeout:?}", hook.id),
                         exit_code: None,
                         timed_out: true,
                     });
@@ -331,6 +465,7 @@ pub fn run_sandboxed_hook(
     }
 
     Ok(HookOutcome {
+        stdout: String::from_utf8_lossy(&output.stdout).into_owned(),
         stderr: String::from_utf8_lossy(&output.stderr).into_owned(),
         exit_code: output.status.code(),
         timed_out: false,

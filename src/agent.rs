@@ -29,7 +29,7 @@ use crate::control_tokens::scrub_internal_control_tokens;
 use crate::hooks::HookDefinition;
 use crate::hooks::HookParseStatus;
 use crate::hooks::HookRegistry;
-use crate::hooks::{HookSandbox, run_sandboxed_hook};
+use crate::hooks::{HookOutcome, HookSandbox, run_sandboxed_hook};
 #[cfg(test)]
 use crate::llm::LlmEmbeddingBackend;
 use crate::llm::{
@@ -57,6 +57,7 @@ use crate::workspace::WorkspaceMemory;
 
 const MAX_RUNTIME_ERROR_RECOVERY_ATTEMPTS: usize = 1;
 const MAX_PLAN_EXIT_REPAIR_ATTEMPTS: usize = 1;
+const MAX_STOP_HOOK_CONTINUATIONS: usize = 8;
 
 pub use self::compact::{CompactBoundaryMetadata, CompactState, latest_compact_boundary_metadata};
 pub use self::planning::{
@@ -151,6 +152,85 @@ struct ToolCall {
     id: String,
     name: String,
     input: Value,
+}
+
+#[derive(Debug, PartialEq, Eq)]
+struct StopHookBlock {
+    hook_id: String,
+    reason: String,
+}
+
+#[derive(Debug, Deserialize)]
+struct StopHookOutput {
+    decision: Option<String>,
+    reason: Option<String>,
+    #[serde(rename = "hookSpecificOutput")]
+    hook_specific_output: Option<StopHookSpecificOutput>,
+}
+
+#[derive(Debug, Deserialize)]
+struct StopHookSpecificOutput {
+    #[serde(rename = "additionalContext")]
+    additional_context: Option<String>,
+}
+
+fn message_text(message: &Message) -> Option<String> {
+    match &message.content {
+        Value::String(text) => Some(text.clone()),
+        Value::Array(blocks) => {
+            let text = blocks
+                .iter()
+                .filter_map(|block| {
+                    block
+                        .as_str()
+                        .or_else(|| block.get("text").and_then(Value::as_str))
+                })
+                .collect::<String>();
+            (!text.is_empty()).then_some(text)
+        }
+        _ => None,
+    }
+}
+
+fn stop_hook_block_reason(outcome: &HookOutcome) -> Option<String> {
+    if outcome.exit_code == Some(2) {
+        return Some(non_empty_hook_message(&outcome.stderr));
+    }
+    if outcome.exit_code != Some(0) {
+        return None;
+    }
+    let output: StopHookOutput = serde_json::from_str(&outcome.stdout).ok()?;
+    if output.decision.as_deref() == Some("block") {
+        return Some(
+            output
+                .reason
+                .filter(|reason| !reason.trim().is_empty())
+                .unwrap_or_else(|| "Stop hook blocked completion.".to_string()),
+        );
+    }
+    output
+        .hook_specific_output
+        .and_then(|output| output.additional_context)
+        .filter(|context| !context.trim().is_empty())
+}
+
+fn non_empty_hook_message(message: &str) -> String {
+    let message = message.trim();
+    if message.is_empty() {
+        "Stop hook exited with code 2.".to_string()
+    } else {
+        message.to_string()
+    }
+}
+
+fn stop_hook_feedback(block: &StopHookBlock) -> Message {
+    Message {
+        role: "system".to_string(),
+        content: Value::String(format!(
+            "Stop hook {} blocked completion: {}\nResolve the reported condition before finishing.",
+            block.hook_id, block.reason
+        )),
+    }
 }
 
 #[derive(Debug)]
@@ -876,6 +956,7 @@ impl Agent {
         F: FnMut(AgentEvent) + Send,
     {
         let mut plan_exit_repair_attempts = 0usize;
+        let mut stop_hook_continuations = 0usize;
         loop {
             if let Some(max) = self.max_turns
                 && *agentic_turns >= max
@@ -998,6 +1079,10 @@ impl Agent {
                 self.checkpoint_session()?;
                 break;
             }
+            let last_assistant_message = turn_output
+                .assistant_message
+                .as_ref()
+                .and_then(message_text);
             let assistant_message_recorded = turn_output.assistant_message.is_some();
             if let Some(message) = turn_output.assistant_message.take() {
                 self.push_history_message(message);
@@ -1077,6 +1162,44 @@ impl Agent {
                     self.checkpoint_session()?;
                     continue;
                 }
+                if let Some(block) = self.run_stop_hooks(
+                    last_assistant_message.as_deref(),
+                    stop_hook_continuations > 0,
+                    report,
+                ) {
+                    if stop_hook_continuations < MAX_STOP_HOOK_CONTINUATIONS {
+                        stop_hook_continuations += 1;
+                        *agentic_turns += 1;
+                        report(AgentEvent::AgentError {
+                            message: format!(
+                                "Stop hook {} blocked completion: {}",
+                                block.hook_id, block.reason
+                            ),
+                            recoverable: true,
+                        });
+                        report(AgentEvent::Status(
+                            "Stop hook blocked completion. Continuing with hook feedback."
+                                .to_string(),
+                        ));
+                        self.record_agent_turn_trace(
+                            &turn_output,
+                            *agentic_turns,
+                            Some("continued"),
+                            Some("stop_hook_blocked"),
+                            assistant_message_recorded,
+                        );
+                        self.push_history_message(stop_hook_feedback(&block));
+                        self.checkpoint_session()?;
+                        continue;
+                    }
+                    report(AgentEvent::AgentError {
+                        message: format!(
+                            "Stop hook {} continued to block after {MAX_STOP_HOOK_CONTINUATIONS} attempts; allowing completion.",
+                            block.hook_id
+                        ),
+                        recoverable: false,
+                    });
+                }
                 self.record_agent_turn_trace(
                     &turn_output,
                     *agentic_turns,
@@ -1107,6 +1230,60 @@ impl Agent {
             self.extend_history_for_next_turn(tool_results, report, *agentic_turns)?;
         }
         Ok(())
+    }
+
+    fn run_stop_hooks<F>(
+        &self,
+        last_assistant_message: Option<&str>,
+        stop_hook_active: bool,
+        report: &mut F,
+    ) -> Option<StopHookBlock>
+    where
+        F: FnMut(AgentEvent) + Send,
+    {
+        let (Some(registry), Some(sandbox)) = (&self.hook_registry, &self.hook_sandbox) else {
+            return None;
+        };
+        let input = json!({
+            "session_id": self.session_id,
+            "cwd": sandbox.workspace_root,
+            "hook_event_name": "Stop",
+            "stop_hook_active": stop_hook_active,
+            "last_assistant_message": last_assistant_message.unwrap_or_default(),
+        })
+        .to_string();
+
+        for hook in registry.executable_hooks_for_phase(HookLifecycle::Stop) {
+            match run_sandboxed_hook(hook, sandbox, &input) {
+                Ok(outcome) => {
+                    if outcome.timed_out {
+                        report(AgentEvent::Status(format!(
+                            "Stop hook {} timed out; allowing completion.",
+                            hook.id
+                        )));
+                        continue;
+                    }
+                    if let Some(reason) = stop_hook_block_reason(&outcome) {
+                        return Some(StopHookBlock {
+                            hook_id: hook.id.clone(),
+                            reason,
+                        });
+                    }
+                    if outcome.exit_code.is_some_and(|code| code != 0) {
+                        report(AgentEvent::Status(format!(
+                            "Stop hook {} exited unsuccessfully; allowing completion: {}",
+                            hook.id,
+                            outcome.stderr.trim()
+                        )));
+                    }
+                }
+                Err(error) => report(AgentEvent::Status(format!(
+                    "Stop hook {} failed; allowing completion: {error}",
+                    hook.id
+                ))),
+            }
+        }
+        None
     }
 
     fn record_agent_turn_trace(
@@ -1346,7 +1523,7 @@ impl Agent {
             }
             // PreToolUse hook: run registered hooks that can allow/block.
             if let (Some(registry), Some(sandbox)) = (&self.hook_registry, &self.hook_sandbox) {
-                let hooks = registry.hooks_for_phase(HookLifecycle::PreToolUse);
+                let hooks = registry.executable_hooks_for_phase(HookLifecycle::PreToolUse);
                 let mut blocked = false;
                 if !hooks.is_empty() {
                     let input = serde_json::json!({

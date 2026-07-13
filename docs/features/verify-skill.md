@@ -21,7 +21,7 @@ RARA should adopt that shape before considering a runtime-level verifier tool.
 ## Non-Goals
 
 - Adding a built-in `verify` runtime tool.
-- Adding a stop-condition hook that blocks final answers.
+- Replacing lifecycle hooks with verifier skills.
 - Replacing unit tests, type checks, format checks, or CI.
 - Automatically installing browser, tmux, API, or recorder dependencies.
 - Treating verifier skills as permission to mutate files or external systems.
@@ -84,7 +84,8 @@ The expected flow is:
 6. Agent reports the verdict and evidence.
 
 The first implementation should remain advisory. The runtime should not force every task through
-`verify`, because RARA does not yet have a stop-condition verifier hook or a complete todo runtime.
+`verify`, because project Stop hooks and verifier skills serve different purposes: the former
+mechanically gate completion while the latter guide the agent's evidence-gathering workflow.
 
 ### 4) Report Format
 
