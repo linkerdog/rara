@@ -144,6 +144,13 @@ The adapter discards unmatched calls at `turn.completed` and `turn.failed`
 boundaries. A call without a result belongs only to its originating turn and
 must not affect same-name associations in a later turn.
 
+For externally isolated Harbor task containers, the adapter invokes `rara exec`
+with explicit `--full-access`. This bypasses interactive bash approval and the
+auto-permission classifier so task-required container setup is not rejected as
+an out-of-workspace host operation. The outer Harbor task container remains the
+isolation boundary; ordinary TUI and `rara exec` invocations retain their normal
+permission policy unless the caller explicitly selects full access.
+
 ### Tool Contract
 
 The same file and shell tools used in ordinary sessions must be available in the
@@ -168,6 +175,8 @@ The default prompt may describe general terminal-agent discipline:
   available or POSIX tool;
 - use patch/file tools instead of shell redirection for edits;
 - run focused verification;
+- verify PATH requirements from a fresh non-interactive process rather than a
+  shell with a command-local PATH override;
 - summarize unresolved failures.
 
 The default prompt must not contain benchmark task answers, benchmark-specific
@@ -234,4 +243,5 @@ Each trial should end with one of:
 
 - `docs/journal/2026-07-05-rara-exec-headless.md`
 - `docs/journal/2026-07-05-harbor-rara-agent-adapter.md`
+- `docs/journal/2026-07-14-harbor-full-access-path-validation.md`
 - `docs/journal/2026-07-11-harbor-atif-trajectory.md`

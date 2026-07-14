@@ -1,4 +1,7 @@
-use std::sync::{Arc, Mutex};
+use std::sync::{
+    Arc, Mutex,
+    atomic::{AtomicUsize, Ordering},
+};
 
 use anyhow::Result;
 use async_trait::async_trait;
@@ -45,6 +48,8 @@ pub(super) struct SequencedBackend {
     observed_messages: Mutex<Vec<Vec<Message>>>,
     observed_tools: Mutex<Vec<Vec<String>>>,
     model_label: Mutex<Option<String>>,
+    classifier_responses: Mutex<Vec<String>>,
+    classifier_calls: AtomicUsize,
 }
 
 impl SequencedBackend {
@@ -54,12 +59,26 @@ impl SequencedBackend {
             observed_messages: Mutex::new(Vec::new()),
             observed_tools: Mutex::new(Vec::new()),
             model_label: Mutex::new(None),
+            classifier_responses: Mutex::new(Vec::new()),
+            classifier_calls: AtomicUsize::new(0),
         }
     }
 
     pub(super) fn with_model_label(self, model_label: impl Into<String>) -> Self {
         *self.model_label.lock().expect("lock") = Some(model_label.into());
         self
+    }
+
+    pub(super) fn with_classifier_response(self, response: impl Into<String>) -> Self {
+        self.classifier_responses
+            .lock()
+            .expect("lock")
+            .push(response.into());
+        self
+    }
+
+    pub(super) fn classifier_call_count(&self) -> usize {
+        self.classifier_calls.load(Ordering::Relaxed)
     }
 
     pub(super) fn observed_tools(&self) -> Vec<Vec<String>> {
@@ -122,5 +141,17 @@ impl LlmBackend for SequencedBackend {
 
     async fn summarize(&self, _messages: &[Message], _instruction: &str) -> Result<String> {
         Ok("summary".to_string())
+    }
+
+    async fn classify(&self, instructions: &str, messages: &[Message]) -> Result<String> {
+        self.classifier_calls.fetch_add(1, Ordering::Relaxed);
+        let response = {
+            let mut responses = self.classifier_responses.lock().expect("lock");
+            (!responses.is_empty()).then(|| responses.remove(0))
+        };
+        match response {
+            Some(response) => Ok(response),
+            None => self.summarize(messages, instructions).await,
+        }
     }
 }

@@ -1063,6 +1063,64 @@ async fn full_access_mode_auto_allows_escalated_sandbox_request() {
 }
 
 #[tokio::test]
+async fn full_access_mode_bypasses_auto_permission_classifier_denials() {
+    let backend = Arc::new(
+        SequencedBackend::new(vec![
+            LlmResponse {
+                content: vec![ContentBlock::ToolUse {
+                    id: "tool-system-path".to_string(),
+                    name: "bash".to_string(),
+                    input: json!({
+                        "command": "ln -sf /app/tool /usr/local/bin/tool",
+                        "sandbox_permissions": "require_escalated"
+                    }),
+                }],
+                stop_reason: Some("tool_use".to_string()),
+                usage: Some(TokenUsage::default()),
+            },
+            LlmResponse {
+                content: vec![ContentBlock::Text {
+                    text: "done".to_string(),
+                }],
+                stop_reason: Some("end_turn".to_string()),
+                usage: Some(TokenUsage::default()),
+            },
+        ])
+        .with_classifier_response(
+            r#"{"decision":"deny","reason":"outside workspace","matched_rule":"workspace"}"#,
+        ),
+    );
+    let mut tool_manager = ToolManager::new();
+    tool_manager.register(Box::new(StubBashTool));
+    let (_temp, session_manager, workspace, rara_dir) = test_runtime_storage();
+    let mut agent = Agent::new(
+        tool_manager,
+        backend.clone(),
+        Arc::new(VectorDB::new(&rara_dir.join("lancedb").to_string_lossy())),
+        session_manager,
+        workspace,
+    );
+    agent.set_full_access_mode(true);
+
+    agent
+        .query_with_mode(
+            "install the command in the externally isolated container".to_string(),
+            super::super::AgentOutputMode::Silent,
+        )
+        .await
+        .expect("full access should execute the command");
+
+    assert_eq!(backend.classifier_call_count(), 0);
+    assert!(backend.observed_messages()[1].iter().any(|message| {
+        message.role == "user"
+            && message
+                .content
+                .to_string()
+                .contains("finished with exit code 0")
+    }));
+}
+
+#[tokio::test]
 async fn approved_prefix_auto_allows_matching_escalated_request() {
     let backend = Arc::new(SequencedBackend::new(vec![
         LlmResponse {
