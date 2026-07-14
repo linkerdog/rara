@@ -2,7 +2,8 @@
 
 use std::collections::{HashMap, VecDeque};
 use std::path::PathBuf;
-use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, RwLock};
 
 use agent_client_protocol::{
     Agent as AcpRoleAgent, Client, ConnectionTo, Dispatch, Responder, Result as AcpResult,
@@ -40,19 +41,20 @@ struct AcpSessionRuntime {
 struct AcpSession {
     cwd: PathBuf,
     runtime: tokio::sync::Mutex<Option<AcpSessionRuntime>>,
+    cancellation_token: Arc<AtomicBool>,
 }
 
 /// ACP adapter state. Every ACP session owns an independent RARA runtime.
 pub struct RaraAcpAgent {
     config: RaraConfig,
-    sessions: tokio::sync::RwLock<HashMap<String, Arc<AcpSession>>>,
+    sessions: RwLock<HashMap<String, Arc<AcpSession>>>,
 }
 
 impl RaraAcpAgent {
     pub fn new(config: RaraConfig) -> Self {
         Self {
             config,
-            sessions: tokio::sync::RwLock::new(HashMap::new()),
+            sessions: RwLock::new(HashMap::new()),
         }
     }
 
@@ -87,13 +89,20 @@ impl RaraAcpAgent {
                         let this = this.clone();
                         async move {
                             let session_id = SessionId::from(uuid::Uuid::new_v4().to_string());
-                            this.sessions.write().await.insert(
-                                session_id.to_string(),
-                                Arc::new(AcpSession {
-                                    cwd: req.cwd,
-                                    runtime: tokio::sync::Mutex::new(None),
-                                }),
-                            );
+                            this.sessions
+                                .write()
+                                .unwrap_or_else(|error| {
+                                    log::warn!("ACP session registry was poisoned: {error}");
+                                    error.into_inner()
+                                })
+                                .insert(
+                                    session_id.to_string(),
+                                    Arc::new(AcpSession {
+                                        cwd: req.cwd,
+                                        runtime: tokio::sync::Mutex::new(None),
+                                        cancellation_token: Arc::new(AtomicBool::new(false)),
+                                    }),
+                                );
                             responder.respond(NewSessionResponse::new(session_id))
                         }
                     }
@@ -133,10 +142,13 @@ impl RaraAcpAgent {
             .await
     }
 
-    async fn session(&self, session_id: &SessionId) -> Option<Arc<AcpSession>> {
+    fn session(&self, session_id: &SessionId) -> Option<Arc<AcpSession>> {
         self.sessions
             .read()
-            .await
+            .unwrap_or_else(|error| {
+                log::warn!("ACP session registry was poisoned: {error}");
+                error.into_inner()
+            })
             .get(&session_id.to_string())
             .cloned()
     }
@@ -164,27 +176,32 @@ impl RaraAcpAgent {
     }
 
     async fn cancel_session(&self, session_id: SessionId) {
-        let Some(session) = self.session(&session_id).await else {
+        let Some(session) = self.session(&session_id) else {
             return;
         };
-        let mut runtime = session.runtime.lock().await;
-        let Some(runtime) = runtime.as_mut() else {
-            return;
-        };
-        let envelope = cancel_envelope(session_id.clone());
-        if let Err(err) = crate::control_plane::dispatch(
-            envelope,
-            &runtime.mcp_manager,
-            &runtime.prompt_registry,
-            &runtime.skill_registry,
-            &runtime.memory_handler,
-            &runtime.hook_registry,
-            Some(&mut runtime.agent),
-            |_| {},
-        )
-        .await
+        session.cancellation_token.store(true, Ordering::SeqCst);
+
+        if let Ok(mut runtime) = session.runtime.try_lock()
+            && let Some(runtime) = runtime.as_mut()
         {
-            log::warn!("ACP cancellation failed for session {session_id}: {err}");
+            let event_bus = runtime.event_bus.clone();
+            let envelope = cancel_envelope(session_id.clone());
+            if let Err(err) = crate::control_plane::dispatch(
+                envelope,
+                &runtime.mcp_manager,
+                &runtime.prompt_registry,
+                &runtime.skill_registry,
+                &runtime.memory_handler,
+                &runtime.hook_registry,
+                Some(&mut runtime.agent),
+                move |event| {
+                    event_bus.publish_control_event(event);
+                },
+            )
+            .await
+            {
+                log::warn!("ACP cancellation failed for session {session_id}: {err}");
+            }
         }
     }
 
@@ -199,10 +216,11 @@ impl RaraAcpAgent {
             responder.respond(PromptResponse::new(StopReason::EndTurn))?;
             return Ok(());
         }
-        let Some(session) = self.session(&req.session_id).await else {
+        let Some(session) = self.session(&req.session_id) else {
             responder.respond(PromptResponse::new(StopReason::EndTurn))?;
             return Ok(());
         };
+        session.cancellation_token.store(false, Ordering::SeqCst);
         let mut runtime = session.runtime.lock().await;
         if runtime.is_none() {
             match self.ensure_runtime(&session).await {
@@ -215,6 +233,9 @@ impl RaraAcpAgent {
             }
         }
         let runtime = runtime.as_mut().expect("runtime initialized");
+        runtime
+            .agent
+            .set_cancellation_token(Some(session.cancellation_token.clone()));
         let provenance = RuntimeProvenance::protocol(
             RuntimeControllerKind::Acp,
             "acp",
@@ -413,27 +434,29 @@ mod tests {
         let agent = RaraAcpAgent::new(RaraConfig::default());
         let first = SessionId::from("first");
         let second = SessionId::from("second");
-        agent.sessions.write().await.insert(
+        agent.sessions.write().expect("session registry").insert(
             first.to_string(),
             Arc::new(AcpSession {
                 cwd: PathBuf::from("/tmp/rara-acp-first"),
                 runtime: tokio::sync::Mutex::new(None),
+                cancellation_token: Arc::new(AtomicBool::new(false)),
             }),
         );
-        agent.sessions.write().await.insert(
+        agent.sessions.write().expect("session registry").insert(
             second.to_string(),
             Arc::new(AcpSession {
                 cwd: PathBuf::from("/tmp/rara-acp-second"),
                 runtime: tokio::sync::Mutex::new(None),
+                cancellation_token: Arc::new(AtomicBool::new(false)),
             }),
         );
 
         assert_eq!(
-            agent.session(&first).await.expect("first session").cwd,
+            agent.session(&first).expect("first session").cwd,
             PathBuf::from("/tmp/rara-acp-first")
         );
         assert_eq!(
-            agent.session(&second).await.expect("second session").cwd,
+            agent.session(&second).expect("second session").cwd,
             PathBuf::from("/tmp/rara-acp-second")
         );
     }
@@ -465,5 +488,19 @@ mod tests {
                 crate::runtime_control::SessionControlRequest::CancelCurrentTurn
             )
         ));
+    }
+
+    #[test]
+    fn cancellation_token_is_shared_without_waiting_for_runtime() {
+        let session = AcpSession {
+            cwd: PathBuf::from("/tmp/rara-acp-cancel"),
+            runtime: tokio::sync::Mutex::new(None),
+            cancellation_token: Arc::new(AtomicBool::new(false)),
+        };
+
+        let _runtime_guard = session.runtime.try_lock().expect("runtime lock");
+        session.cancellation_token.store(true, Ordering::SeqCst);
+
+        assert!(session.cancellation_token.load(Ordering::SeqCst));
     }
 }
