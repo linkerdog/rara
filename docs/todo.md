@@ -118,6 +118,19 @@ Active backlog only. Keep this file small and current.
 
 - [ ] Explicit embedding controls: enable/disable, provider override (low priority)
 
+## ACP Compatibility
+
+- [ ] Replace the single ACP `active_agent` with session-scoped runtime state;
+      bind each `session/new` ID to its own history and requested workspace cwd.
+- [ ] Route ACP cancellation by `CancelNotification.session_id` and retain the
+      session ID in control-plane provenance so one client cannot interrupt
+      another session.
+- [ ] Map ACP output from structured runtime events rather than presentation
+      text: include thinking, tool lifecycle and streams, approvals, plans,
+      todos, warnings, errors, cancellation, and completion.
+- [ ] Add focused ACP regressions for multi-session isolation, cwd propagation,
+      session-targeted cancellation, and structured event translation.
+
 ## Long-term
 
 - [ ] Claude plugin runtime integration
