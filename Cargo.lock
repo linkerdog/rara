@@ -2023,9 +2023,9 @@ dependencies = [
  "bytes",
  "chrono",
  "codex-client",
- "codex-http-client",
+ "codex-http-client 0.144.3",
  "codex-protocol",
- "codex-utils-rustls-provider",
+ "codex-utils-rustls-provider 0.144.3",
  "codex-websocket-client",
  "eventsource-stream",
  "futures",
@@ -2058,7 +2058,7 @@ name = "codex-client"
 version = "0.144.3"
 source = "git+https://github.com/openai/codex?tag=rust-v0.144.3#78ad6e6bfd1d3b6a209acd3ef82172a96b25179c"
 dependencies = [
- "codex-http-client",
+ "codex-http-client 0.144.3",
  "eventsource-stream",
  "futures",
  "http 1.4.2",
@@ -2200,7 +2200,33 @@ version = "0.144.3"
 source = "git+https://github.com/openai/codex?tag=rust-v0.144.3#78ad6e6bfd1d3b6a209acd3ef82172a96b25179c"
 dependencies = [
  "bytes",
- "codex-utils-rustls-provider",
+ "codex-utils-rustls-provider 0.144.3",
+ "futures",
+ "http 1.4.2",
+ "opentelemetry",
+ "reqwest 0.12.28",
+ "rustls 0.23.41",
+ "rustls-native-certs",
+ "rustls-pki-types",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+ "system-configuration",
+ "thiserror 2.0.18",
+ "tokio",
+ "tracing",
+ "tracing-opentelemetry",
+ "windows-sys 0.52.0",
+ "zstd",
+]
+
+[[package]]
+name = "codex-http-client"
+version = "0.144.4"
+source = "git+https://github.com/openai/codex?tag=rust-v0.144.4#8c68d4c87dc54d38861f5114e920c3de2efa5876"
+dependencies = [
+ "bytes",
+ "codex-utils-rustls-provider 0.144.4",
  "futures",
  "http 1.4.2",
  "opentelemetry",
@@ -2238,7 +2264,7 @@ dependencies = [
  "chrono",
  "codex-agent-identity",
  "codex-config",
- "codex-http-client",
+ "codex-http-client 0.144.3",
  "codex-keyring-store",
  "codex-model-provider-info",
  "codex-otel",
@@ -2281,7 +2307,7 @@ source = "git+https://github.com/openai/codex?tag=rust-v0.144.3#78ad6e6bfd1d3b6a
 dependencies = [
  "chrono",
  "codex-collaboration-mode-templates",
- "codex-http-client",
+ "codex-http-client 0.144.3",
  "codex-login",
  "codex-otel",
  "codex-protocol",
@@ -2304,7 +2330,7 @@ dependencies = [
  "clap",
  "codex-utils-absolute-path",
  "codex-utils-home-dir",
- "codex-utils-rustls-provider",
+ "codex-utils-rustls-provider 0.144.3",
  "globset",
  "rama-core",
  "rama-http",
@@ -2512,6 +2538,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "codex-utils-rustls-provider"
+version = "0.144.4"
+source = "git+https://github.com/openai/codex?tag=rust-v0.144.4#8c68d4c87dc54d38861f5114e920c3de2efa5876"
+dependencies = [
+ "rustls 0.23.41",
+]
+
+[[package]]
 name = "codex-utils-string"
 version = "0.144.3"
 source = "git+https://github.com/openai/codex?tag=rust-v0.144.3#78ad6e6bfd1d3b6a209acd3ef82172a96b25179c"
@@ -2531,7 +2565,7 @@ name = "codex-websocket-client"
 version = "0.144.3"
 source = "git+https://github.com/openai/codex?tag=rust-v0.144.3#78ad6e6bfd1d3b6a209acd3ef82172a96b25179c"
 dependencies = [
- "codex-http-client",
+ "codex-http-client 0.144.3",
  "futures",
  "rustls 0.23.41",
  "tokio",
@@ -2558,7 +2592,7 @@ version = "3.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "faf9468729b8cbcea668e36183cb69d317348c2e08e994829fb56ebfdfbaac34"
 dependencies = [
- "windows-sys 0.48.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -6774,7 +6808,7 @@ dependencies = [
  "libc",
  "percent-encoding",
  "pin-project-lite",
- "socket2 0.5.10",
+ "socket2 0.6.4",
  "system-configuration",
  "tokio",
  "tower-service",
@@ -10288,7 +10322,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "03da047801ff44bb6a4d407d4860c05fd70bb81714e6b2f3812603d5b145b042"
 dependencies = [
  "heck",
- "itertools 0.13.0",
+ "itertools 0.14.0",
  "log",
  "multimap",
  "petgraph",
@@ -10307,7 +10341,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b570b25f7617e43d59005d0990ccb79e950a423952cea19671b7a876da390adf"
 dependencies = [
  "anyhow",
- "itertools 0.13.0",
+ "itertools 0.14.0",
  "proc-macro2",
  "quote",
  "syn 2.0.118",
@@ -10478,7 +10512,7 @@ dependencies = [
  "quinn-udp",
  "rustc-hash 2.1.2",
  "rustls 0.23.41",
- "socket2 0.5.10",
+ "socket2 0.6.4",
  "thiserror 2.0.18",
  "tokio",
  "tracing",
@@ -10516,7 +10550,7 @@ dependencies = [
  "cfg_aliases 0.2.1",
  "libc",
  "once_cell",
- "socket2 0.5.10",
+ "socket2 0.6.4",
  "tracing",
  "windows-sys 0.60.2",
 ]
@@ -11025,7 +11059,7 @@ dependencies = [
  "candle-nn",
  "candle-transformers",
  "clap",
- "codex-http-client",
+ "codex-http-client 0.144.4",
  "codex-login",
  "codex-models-manager",
  "crossterm",
@@ -14881,7 +14915,7 @@ version = "0.1.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c2a7b1c03c876122aa43f3020e6c3c3ee5c05081c9a00739faf7503aeba10d22"
 dependencies = [
- "windows-sys 0.48.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
