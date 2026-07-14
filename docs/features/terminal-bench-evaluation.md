@@ -245,3 +245,4 @@ Each trial should end with one of:
 - `docs/journal/2026-07-05-harbor-rara-agent-adapter.md`
 - `docs/journal/2026-07-14-harbor-full-access-path-validation.md`
 - `docs/journal/2026-07-11-harbor-atif-trajectory.md`
+- `docs/journal/2026-07-14-terminal-bench-results.md`
