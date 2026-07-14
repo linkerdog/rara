@@ -297,6 +297,9 @@ impl ExecJsonlProcessor {
         match event {
             AgentEvent::AgentStart => Ok(()),
             AgentEvent::AgentStop { .. } => Ok(()),
+            AgentEvent::PlanUpdated { .. }
+            | AgentEvent::ApprovalRequested { .. }
+            | AgentEvent::ApprovalAnswered { .. } => Ok(()),
             AgentEvent::AssistantText(text) => {
                 self.final_message
                     .get_or_insert_with(String::new)

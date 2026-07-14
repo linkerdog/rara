@@ -123,6 +123,21 @@ pub enum AgentEvent {
         message: String,
     },
     TodoUpdated(TodoState),
+    /// The execution plan changed and should be rendered as a complete snapshot.
+    PlanUpdated {
+        steps: Vec<PlanStep>,
+        explanation: Option<String>,
+    },
+    /// A structured approval is required before the agent can continue.
+    ApprovalRequested {
+        approval_id: String,
+        kind: String,
+    },
+    /// A structured approval decision was applied.
+    ApprovalAnswered {
+        approval_id: String,
+        approved: bool,
+    },
     /// Agent loop started a new run.
     AgentStart,
     /// Agent loop stopped normally (e.g. turn complete, user interruption).
@@ -839,7 +854,13 @@ impl Agent {
                         if matches!(self.execution_mode, AgentExecutionMode::Plan) {
                             malformed_proposed_plan |=
                                 planning::has_unclosed_proposed_plan_block(&clean_text);
-                            plan_updated |= self.capture_plan_from_text(&clean_text)?;
+                            if self.capture_plan_from_text(&clean_text)? {
+                                plan_updated = true;
+                                report(AgentEvent::PlanUpdated {
+                                    steps: self.current_plan.clone(),
+                                    explanation: self.plan_explanation.clone(),
+                                });
+                            }
                         }
                         if matches!(output_mode, AgentOutputMode::Terminal) {
                             println!("Agent: {}", clean_text);
@@ -856,6 +877,10 @@ impl Agent {
                         self.current_plan = steps;
                         self.plan_explanation = explanation;
                         plan_updated = true;
+                        report(AgentEvent::PlanUpdated {
+                            steps: self.current_plan.clone(),
+                            explanation: self.plan_explanation.clone(),
+                        });
                     }
                     sanitized_content.push(ContentBlock::ToolUse {
                         id: id.clone(),
@@ -1399,6 +1424,13 @@ impl Agent {
                     continue;
                 }
                 self.pending_plan_exit_tool_id = Some(tool_id);
+                report(AgentEvent::ApprovalRequested {
+                    approval_id: self
+                        .pending_plan_exit_tool_id
+                        .clone()
+                        .expect("plan approval id was just assigned"),
+                    kind: "plan".to_string(),
+                });
                 report(AgentEvent::Status(
                     "Plan ready for approval. Waiting for a structured user decision.".to_string(),
                 ));
@@ -1451,6 +1483,10 @@ impl Agent {
                     self.pending_approval = Some(PendingApproval {
                         tool_use_id: tool_id.clone(),
                         request: request.to_owned(),
+                    });
+                    report(AgentEvent::ApprovalRequested {
+                        approval_id: tool_id.clone(),
+                        kind: "shell".to_string(),
                     });
                     report(AgentEvent::Status(
                         "Bash approval required. Waiting for a structured user decision."
@@ -1683,7 +1719,9 @@ Rules:
     }
 
     fn tool_call_context(&self) -> ToolCallContext {
-        let context = ToolCallContext::default().with_session_id(self.session_id.clone());
+        let context = ToolCallContext::default()
+            .with_session_id(self.session_id.clone())
+            .with_workspace_root(self.workspace.root.clone());
         match self.cancellation_token.as_ref() {
             Some(token) => context.with_cancellation(token.clone()),
             None => context,

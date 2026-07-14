@@ -1,82 +1,63 @@
-//! ACP (Agent Client Protocol) integration for RARA.
-//!
-//! Implements an ACP-compliant agent with a full tool-calling loop.
-//! The agent accepts stdio transports per the ACP spec.
+//! ACP (Agent Client Protocol) adapter with workspace-scoped session runtimes.
 
+use std::collections::{HashMap, VecDeque};
+use std::path::PathBuf;
 use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, Ordering};
 
 use agent_client_protocol::{
     Agent as AcpRoleAgent, Client, ConnectionTo, Dispatch, Responder, Result as AcpResult,
     schema::v1::{
         AgentCapabilities, AuthenticateRequest, AuthenticateResponse, CancelNotification,
         ContentBlock as AcpContentBlock, ContentChunk, InitializeRequest, InitializeResponse,
-        NewSessionRequest, NewSessionResponse, PromptRequest, PromptResponse, SessionId,
-        SessionNotification, SessionUpdate, StopReason, TextContent,
+        NewSessionRequest, NewSessionResponse, Plan, PlanEntry, PlanEntryPriority, PlanEntryStatus,
+        PromptRequest, PromptResponse, SessionId, SessionNotification, SessionUpdate, StopReason,
+        TextContent, ToolCall, ToolCallStatus, ToolCallUpdate, ToolCallUpdateFields,
     },
 };
-use rara_tools::tool::{ToolManager, ToolProgressEvent};
-use serde_json::Value;
 use tokio::io::{stdin, stdout};
 use tokio_util::compat::{TokioAsyncReadCompatExt, TokioAsyncWriteCompatExt};
 
-use crate::agent::{Agent, Message};
+use crate::agent::Agent;
+use crate::config::RaraConfig;
 use crate::hook_registry::HookRegistry;
-use crate::llm::{ContentBlock, LlmBackend, LlmStreamEvent};
 use crate::mcp_connection_manager::McpConnectionManager;
 use crate::protocol_sources::{MemoryControlHandler, PromptSourceRegistry, SkillSourceRegistry};
 use crate::runtime_control::{
-    RuntimeControlEnvelope, RuntimeControlRequest, RuntimeControllerKind,
+    RuntimeControlEnvelope, RuntimeControlRequest, RuntimeControllerKind, RuntimeProvenance,
 };
 use crate::runtime_event_bus::RuntimeEventBus;
 
-/// ACP agent state shared across request handlers.
+struct AcpSessionRuntime {
+    agent: Agent,
+    event_bus: Arc<RuntimeEventBus>,
+    mcp_manager: Arc<McpConnectionManager>,
+    prompt_registry: Arc<PromptSourceRegistry>,
+    skill_registry: Arc<SkillSourceRegistry>,
+    hook_registry: Arc<HookRegistry>,
+    memory_handler: Arc<MemoryControlHandler>,
+}
+
+struct AcpSession {
+    cwd: PathBuf,
+    runtime: tokio::sync::Mutex<Option<AcpSessionRuntime>>,
+}
+
+/// ACP adapter state. Every ACP session owns an independent RARA runtime.
 pub struct RaraAcpAgent {
-    pub llm_backend: Arc<dyn LlmBackend>,
-    pub tool_manager: Arc<ToolManager>,
-    pub event_bus: Arc<RuntimeEventBus>,
-    pub mcp_manager: Arc<McpConnectionManager>,
-    pub prompt_registry: Arc<PromptSourceRegistry>,
-    pub skill_registry: Arc<SkillSourceRegistry>,
-    pub hook_registry: Arc<HookRegistry>,
-    pub memory_handler: Arc<MemoryControlHandler>,
-    /// active agent (one per ACP session for now)
-    active_agent: tokio::sync::Mutex<Option<Agent>>,
+    config: RaraConfig,
+    sessions: tokio::sync::RwLock<HashMap<String, Arc<AcpSession>>>,
 }
 
 impl RaraAcpAgent {
-    #[allow(clippy::too_many_arguments)]
-    // ACP session wiring owns the runtime dependencies explicitly; grouping
-    // them would duplicate RuntimeContext without reducing call-site risk.
-    pub fn new(
-        llm_backend: Arc<dyn LlmBackend>,
-        tool_manager: Arc<ToolManager>,
-        event_bus: Arc<RuntimeEventBus>,
-        mcp_manager: Arc<McpConnectionManager>,
-        prompt_registry: Arc<PromptSourceRegistry>,
-        skill_registry: Arc<SkillSourceRegistry>,
-        hook_registry: Arc<HookRegistry>,
-        memory_handler: Arc<MemoryControlHandler>,
-    ) -> Self {
+    pub fn new(config: RaraConfig) -> Self {
         Self {
-            llm_backend,
-            tool_manager,
-            event_bus,
-            mcp_manager,
-            prompt_registry,
-            skill_registry,
-            hook_registry,
-            memory_handler,
-            active_agent: tokio::sync::Mutex::new(None),
+            config,
+            sessions: tokio::sync::RwLock::new(HashMap::new()),
         }
     }
 
-    /// Run the ACP agent on stdio using the ACP builder API.
     pub async fn run_acp_stdio(self) -> AcpResult<()> {
-        let llm = self.llm_backend.clone();
-        let tools = self.tool_manager.clone();
         let this = Arc::new(self);
-
         let transport =
             agent_client_protocol::ByteStreams::new(stdout().compat_write(), stdin().compat());
 
@@ -98,22 +79,33 @@ impl RaraAcpAgent {
                 agent_client_protocol::on_receive_request!(),
             )
             .on_receive_request(
-                async move |_req: NewSessionRequest, responder, _cx| {
-                    let session_id = SessionId::from(uuid::Uuid::new_v4().to_string());
-                    responder.respond(NewSessionResponse::new(session_id))
+                {
+                    let this = this.clone();
+                    move |req: NewSessionRequest,
+                          responder: Responder<NewSessionResponse>,
+                          _cx: ConnectionTo<Client>| {
+                        let this = this.clone();
+                        async move {
+                            let session_id = SessionId::from(uuid::Uuid::new_v4().to_string());
+                            this.sessions.write().await.insert(
+                                session_id.to_string(),
+                                Arc::new(AcpSession {
+                                    cwd: req.cwd,
+                                    runtime: tokio::sync::Mutex::new(None),
+                                }),
+                            );
+                            responder.respond(NewSessionResponse::new(session_id))
+                        }
+                    }
                 },
                 agent_client_protocol::on_receive_request!(),
             )
             .on_receive_request(
                 {
                     let this = this.clone();
-                    let llm = llm.clone();
-                    let tools = tools.clone();
                     move |req: PromptRequest, responder, cx: ConnectionTo<Client>| {
                         let this = this.clone();
-                        let llm = llm.clone();
-                        let tools = tools.clone();
-                        async move { this.handle_prompt(req, responder, cx, llm, tools).await }
+                        async move { this.handle_prompt(req, responder, cx).await }
                     }
                 },
                 agent_client_protocol::on_receive_request!(),
@@ -121,40 +113,8 @@ impl RaraAcpAgent {
             .on_receive_notification(
                 {
                     let this = this.clone();
-                    async move |_notif: CancelNotification, _cx: ConnectionTo<Client>| {
-                        eprintln!("[acp] cancel notification received");
-
-                        let provenance = crate::runtime_control::RuntimeProvenance::protocol(
-                            crate::runtime_control::RuntimeControllerKind::Acp,
-                            "acp",
-                            None, // We might not have session_id here if it's broad?
-                            // Actually ACP CancelNotification has session_id.
-                            None,
-                        );
-                        let request = crate::runtime_control::RuntimeControlRequest::Session(
-                            crate::runtime_control::SessionControlRequest::CancelCurrentTurn,
-                        );
-                        let envelope = crate::runtime_control::RuntimeControlEnvelope {
-                            request_id: uuid::Uuid::new_v4().to_string(),
-                            provenance,
-                            request,
-                        };
-
-                        let mut active_agent = this.active_agent.lock().await;
-                        let agent = active_agent.as_mut();
-
-                        let _ = crate::control_plane::dispatch(
-                            envelope,
-                            &this.mcp_manager,
-                            &this.prompt_registry,
-                            &this.skill_registry,
-                            &this.memory_handler,
-                            &this.hook_registry,
-                            agent,
-                            |_| {},
-                        )
-                        .await;
-
+                    async move |notification: CancelNotification, _cx: ConnectionTo<Client>| {
+                        this.cancel_session(notification.session_id).await;
                         Ok(())
                     }
                 },
@@ -173,173 +133,337 @@ impl RaraAcpAgent {
             .await
     }
 
-    /// Handle a prompt request with a full tool-calling agent loop.
+    async fn session(&self, session_id: &SessionId) -> Option<Arc<AcpSession>> {
+        self.sessions
+            .read()
+            .await
+            .get(&session_id.to_string())
+            .cloned()
+    }
+
+    async fn ensure_runtime(&self, session: &AcpSession) -> Result<AcpSessionRuntime, String> {
+        let bootstrap = crate::runtime_context::initialize_rara_context_for_workspace(
+            &self.config,
+            Some(&session.cwd),
+            None,
+        )
+        .await
+        .map_err(|err| err.to_string())?;
+        let event_bus = bootstrap.event_bus.clone();
+        let (agent, _, _, _, _, mcp_manager, prompt_registry, skill_registry, hook_registry, _) =
+            bootstrap.into_parts();
+        Ok(AcpSessionRuntime {
+            agent,
+            event_bus: event_bus.clone(),
+            mcp_manager,
+            prompt_registry,
+            skill_registry,
+            hook_registry,
+            memory_handler: Arc::new(MemoryControlHandler::new(event_bus)),
+        })
+    }
+
+    async fn cancel_session(&self, session_id: SessionId) {
+        let Some(session) = self.session(&session_id).await else {
+            return;
+        };
+        let mut runtime = session.runtime.lock().await;
+        let Some(runtime) = runtime.as_mut() else {
+            return;
+        };
+        let envelope = cancel_envelope(session_id.clone());
+        if let Err(err) = crate::control_plane::dispatch(
+            envelope,
+            &runtime.mcp_manager,
+            &runtime.prompt_registry,
+            &runtime.skill_registry,
+            &runtime.memory_handler,
+            &runtime.hook_registry,
+            Some(&mut runtime.agent),
+            |_| {},
+        )
+        .await
+        {
+            log::warn!("ACP cancellation failed for session {session_id}: {err}");
+        }
+    }
+
     async fn handle_prompt(
         &self,
         req: PromptRequest,
         responder: Responder<PromptResponse>,
         cx: ConnectionTo<Client>,
-        _llm: Arc<dyn LlmBackend>,
-        _tool_manager: Arc<ToolManager>,
     ) -> AcpResult<()> {
-        let session_id = req.session_id.to_string();
-        let prompt_text = extract_prompt_text(&req.prompt);
-
-        if prompt_text.trim().is_empty() {
+        let prompt = extract_prompt_text(&req.prompt);
+        if prompt.trim().is_empty() {
             responder.respond(PromptResponse::new(StopReason::EndTurn))?;
             return Ok(());
         }
-
-        let cancel_token = Arc::new(AtomicBool::new(false));
-
-        // Create or get the agent for this session.
-        let mut active_agent = self.active_agent.lock().await;
-        if active_agent.is_none() {
-            let bootstrap = match crate::runtime_context::initialize_rara_context(
-                &crate::config::ConfigManager::new()
-                    .and_then(|m| m.load())
-                    .unwrap_or_default(),
-                None,
-            )
-            .await
-            {
-                Ok(b) => b,
-                Err(_e) => {
-                    let _ = responder.respond(PromptResponse::new(StopReason::EndTurn));
+        let Some(session) = self.session(&req.session_id).await else {
+            responder.respond(PromptResponse::new(StopReason::EndTurn))?;
+            return Ok(());
+        };
+        let mut runtime = session.runtime.lock().await;
+        if runtime.is_none() {
+            match self.ensure_runtime(&session).await {
+                Ok(created) => *runtime = Some(created),
+                Err(err) => {
+                    log::warn!("ACP session initialization failed: {err}");
+                    responder.respond(PromptResponse::new(StopReason::EndTurn))?;
                     return Ok(());
                 }
-            };
-            *active_agent = Some(bootstrap.into_agent());
+            }
         }
-
-        let agent = active_agent.as_mut().unwrap();
-        agent.set_cancellation_token(Some(cancel_token.clone()));
-
-        // Create the control envelope.
-        let provenance = crate::runtime_control::RuntimeProvenance::protocol(
-            crate::runtime_control::RuntimeControllerKind::Acp,
+        let runtime = runtime.as_mut().expect("runtime initialized");
+        let provenance = RuntimeProvenance::protocol(
+            RuntimeControllerKind::Acp,
             "acp",
-            Some(session_id.clone()),
+            Some(req.session_id.to_string()),
             None,
         );
-        let request = crate::runtime_control::RuntimeControlRequest::Input(
-            crate::runtime_control::InputControlRequest::SubmitUserPrompt {
-                prompt: prompt_text,
-            },
-        );
-        let envelope = crate::runtime_control::RuntimeControlEnvelope {
+        let envelope = RuntimeControlEnvelope {
             request_id: uuid::Uuid::new_v4().to_string(),
-            provenance,
-            request,
+            provenance: provenance.clone(),
+            request: RuntimeControlRequest::Input(
+                crate::runtime_control::InputControlRequest::SubmitUserPrompt { prompt },
+            ),
         };
-
-        // Wire up the event reporter to send ACP notifications.
-        let cx_for_report = cx.clone();
-        let sid_for_report = req.session_id.clone();
-        let bus = self.event_bus.clone();
-
-        let mut on_event = move |control_event: crate::runtime_control::RuntimeControlEvent| {
-            // Forward to RuntimeEventBus for other subscribers.
-            let _ = bus.send_with_provenance(
-                match &control_event.event {
-                    crate::runtime_control::RuntimeEvent::Session(
-                        crate::runtime_control::SessionEvent::Status { message },
-                    ) => crate::agent::AgentEvent::Status(message.clone()),
-                    crate::runtime_control::RuntimeEvent::Session(_) => {
-                        return;
-                    }
-                    crate::runtime_control::RuntimeEvent::Assistant(ae) => match ae {
-                        crate::runtime_control::AssistantEvent::TextDelta(text) => {
-                            crate::agent::AgentEvent::AssistantDelta(text.clone())
-                        }
-                        crate::runtime_control::AssistantEvent::ThinkingDelta(text) => {
-                            crate::agent::AgentEvent::AssistantThinkingDelta(text.clone())
-                        }
-                        _ => return,
-                    },
-                    crate::runtime_control::RuntimeEvent::Tool(te) => match te {
-                        crate::runtime_control::ToolEvent::Use { name, input, .. } => {
-                            crate::agent::AgentEvent::ToolUse {
-                                name: name.clone(),
-                                input: input.clone(),
-                            }
-                        }
-                        crate::runtime_control::ToolEvent::Result {
-                            name,
-                            content,
-                            is_error,
-                        } => crate::agent::AgentEvent::ToolResult {
-                            name: name.clone(),
-                            content: content.clone(),
-                            is_error: *is_error,
-                        },
-                        _ => return,
-                    },
-                    _ => return,
-                },
-                control_event.provenance.clone(),
-            );
-
-            // Translate to ACP SessionNotification.
-            match control_event.event {
+        let session_id = req.session_id.clone();
+        let event_bus = runtime.event_bus.clone();
+        let mut tool_ids = HashMap::<String, VecDeque<String>>::new();
+        let mut sequence = 0_u64;
+        let mut report = move |event: crate::runtime_control::RuntimeControlEvent| {
+            sequence += 1;
+            let event_id = format!("acp-{sequence:016x}");
+            let _ = event_bus.publish_control_event(event.clone());
+            match event.event {
                 crate::runtime_control::RuntimeEvent::Assistant(
                     crate::runtime_control::AssistantEvent::TextDelta(text),
                 ) => {
-                    let chunk = ContentChunk::new(AcpContentBlock::Text(TextContent::new(text)));
-                    let _ = cx_for_report.send_notification(SessionNotification::new(
-                        sid_for_report.clone(),
-                        SessionUpdate::AgentMessageChunk(chunk),
-                    ));
+                    send_update(
+                        &cx,
+                        &session_id,
+                        SessionUpdate::AgentMessageChunk(ContentChunk::new(AcpContentBlock::Text(
+                            TextContent::new(text),
+                        ))),
+                    );
+                }
+                crate::runtime_control::RuntimeEvent::Assistant(
+                    crate::runtime_control::AssistantEvent::ThinkingDelta(text),
+                ) => {
+                    send_update(
+                        &cx,
+                        &session_id,
+                        SessionUpdate::AgentThoughtChunk(ContentChunk::new(AcpContentBlock::Text(
+                            TextContent::new(text),
+                        ))),
+                    );
                 }
                 crate::runtime_control::RuntimeEvent::Tool(
-                    crate::runtime_control::ToolEvent::Result { name, content, .. },
+                    crate::runtime_control::ToolEvent::Use { name, input },
                 ) => {
-                    let label = format!("\n[Tool result: {name}]\n{}\n", content);
-                    let chunk = ContentChunk::new(AcpContentBlock::Text(TextContent::new(label)));
-                    let _ = cx_for_report.send_notification(SessionNotification::new(
-                        sid_for_report.clone(),
-                        SessionUpdate::AgentMessageChunk(chunk),
-                    ));
+                    let id = format!("{event_id}-{name}");
+                    tool_ids
+                        .entry(name.clone())
+                        .or_default()
+                        .push_back(id.clone());
+                    send_update(
+                        &cx,
+                        &session_id,
+                        SessionUpdate::ToolCall(ToolCall::new(id, name).raw_input(input)),
+                    );
+                }
+                crate::runtime_control::RuntimeEvent::Tool(
+                    crate::runtime_control::ToolEvent::Result {
+                        name,
+                        content,
+                        is_error,
+                    },
+                ) => {
+                    if let Some(id) = tool_ids.get_mut(&name).and_then(VecDeque::pop_front) {
+                        let status = if is_error {
+                            ToolCallStatus::Failed
+                        } else {
+                            ToolCallStatus::Completed
+                        };
+                        send_update(
+                            &cx,
+                            &session_id,
+                            SessionUpdate::ToolCallUpdate(ToolCallUpdate::new(
+                                id,
+                                ToolCallUpdateFields::new().status(status).raw_output(
+                                    serde_json::json!({
+                                        "content": content,
+                                        "is_error": is_error,
+                                    }),
+                                ),
+                            )),
+                        );
+                    }
+                }
+                crate::runtime_control::RuntimeEvent::Tool(
+                    crate::runtime_control::ToolEvent::Progress {
+                        name,
+                        stream,
+                        chunk,
+                    },
+                ) => {
+                    if let Some(id) = tool_ids.get(&name).and_then(|ids| ids.front()) {
+                        send_update(
+                            &cx,
+                            &session_id,
+                            SessionUpdate::ToolCallUpdate(ToolCallUpdate::new(
+                                id.clone(),
+                                ToolCallUpdateFields::new().raw_output(serde_json::json!({
+                                    "stream": stream,
+                                    "chunk": chunk,
+                                })),
+                            )),
+                        );
+                    }
+                }
+                crate::runtime_control::RuntimeEvent::Plan(
+                    crate::runtime_control::PlanEvent::Updated { steps, .. },
+                ) => {
+                    send_update(&cx, &session_id, acp_plan_update(steps));
                 }
                 _ => {}
             }
         };
-
-        // Dispatch via control plane.
         let result = crate::control_plane::dispatch(
             envelope,
-            &self.mcp_manager,
-            &self.prompt_registry,
-            &self.skill_registry,
-            &self.memory_handler,
-            &self.hook_registry,
-            Some(agent),
-            &mut on_event,
+            &runtime.mcp_manager,
+            &runtime.prompt_registry,
+            &runtime.skill_registry,
+            &runtime.memory_handler,
+            &runtime.hook_registry,
+            Some(&mut runtime.agent),
+            &mut report,
         )
         .await;
-
-        let stop_reason = match result {
+        responder.respond(PromptResponse::new(match result {
             Ok(()) => StopReason::EndTurn,
-            Err(e) if e.contains("cancelled") => StopReason::Cancelled,
-            Err(_) => StopReason::EndTurn, // ACP StopReason doesn't have Error, using EndTurn as fallback
-        };
-
-        responder.respond(PromptResponse::new(stop_reason))?;
+            Err(err) if err.contains("cancelled") => StopReason::Cancelled,
+            Err(err) => {
+                log::warn!("ACP prompt failed: {err}");
+                StopReason::EndTurn
+            }
+        }))?;
         Ok(())
     }
 }
 
-/// Extract plain text from ACP content blocks.
+fn cancel_envelope(session_id: SessionId) -> RuntimeControlEnvelope {
+    RuntimeControlEnvelope {
+        request_id: uuid::Uuid::new_v4().to_string(),
+        provenance: RuntimeProvenance::protocol(
+            RuntimeControllerKind::Acp,
+            "acp",
+            Some(session_id.to_string()),
+            None,
+        ),
+        request: RuntimeControlRequest::Session(
+            crate::runtime_control::SessionControlRequest::CancelCurrentTurn,
+        ),
+    }
+}
+
+fn acp_plan_update(steps: Vec<crate::runtime_control::PlanStepEvent>) -> SessionUpdate {
+    let entries = steps
+        .into_iter()
+        .map(|step| {
+            let status = match step.status {
+                crate::runtime_control::PlanStepStatusEvent::Pending => PlanEntryStatus::Pending,
+                crate::runtime_control::PlanStepStatusEvent::InProgress => {
+                    PlanEntryStatus::InProgress
+                }
+                crate::runtime_control::PlanStepStatusEvent::Completed => {
+                    PlanEntryStatus::Completed
+                }
+            };
+            PlanEntry::new(step.step, PlanEntryPriority::Medium, status)
+        })
+        .collect();
+    SessionUpdate::Plan(Plan::new(entries))
+}
+
+fn send_update(cx: &ConnectionTo<Client>, session_id: &SessionId, update: SessionUpdate) {
+    if let Err(err) = cx.send_notification(SessionNotification::new(session_id.clone(), update)) {
+        log::warn!("ACP session update delivery failed: {err}");
+    }
+}
+
 fn extract_prompt_text(prompt: &[AcpContentBlock]) -> String {
     prompt
         .iter()
-        .filter_map(|block| {
-            if let AcpContentBlock::Text(text) = block {
-                Some(text.text.as_str())
-            } else {
-                None
-            }
+        .filter_map(|block| match block {
+            AcpContentBlock::Text(text) => Some(text.text.as_str()),
+            _ => None,
         })
         .collect::<Vec<_>>()
         .join("\n")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn sessions_keep_distinct_requested_workspaces() {
+        let agent = RaraAcpAgent::new(RaraConfig::default());
+        let first = SessionId::from("first");
+        let second = SessionId::from("second");
+        agent.sessions.write().await.insert(
+            first.to_string(),
+            Arc::new(AcpSession {
+                cwd: PathBuf::from("/tmp/rara-acp-first"),
+                runtime: tokio::sync::Mutex::new(None),
+            }),
+        );
+        agent.sessions.write().await.insert(
+            second.to_string(),
+            Arc::new(AcpSession {
+                cwd: PathBuf::from("/tmp/rara-acp-second"),
+                runtime: tokio::sync::Mutex::new(None),
+            }),
+        );
+
+        assert_eq!(
+            agent.session(&first).await.expect("first session").cwd,
+            PathBuf::from("/tmp/rara-acp-first")
+        );
+        assert_eq!(
+            agent.session(&second).await.expect("second session").cwd,
+            PathBuf::from("/tmp/rara-acp-second")
+        );
+    }
+
+    #[test]
+    fn plan_events_translate_to_native_acp_updates() {
+        let update = acp_plan_update(vec![crate::runtime_control::PlanStepEvent {
+            step: "verify cancellation".to_string(),
+            status: crate::runtime_control::PlanStepStatusEvent::Completed,
+        }]);
+
+        assert!(matches!(
+            update,
+            SessionUpdate::Plan(Plan { entries, .. })
+                if entries.len() == 1
+                && entries[0].content == "verify cancellation"
+                && entries[0].status == PlanEntryStatus::Completed
+        ));
+    }
+
+    #[test]
+    fn cancellation_envelope_targets_the_notified_session() {
+        let envelope = cancel_envelope(SessionId::from("second"));
+
+        assert_eq!(envelope.provenance.session_id.as_deref(), Some("second"));
+        assert!(matches!(
+            envelope.request,
+            RuntimeControlRequest::Session(
+                crate::runtime_control::SessionControlRequest::CancelCurrentTurn
+            )
+        ));
+    }
 }

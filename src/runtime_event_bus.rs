@@ -102,6 +102,16 @@ impl RuntimeEventBus {
         };
         self.control_sender.send(control_event).unwrap_or(0)
     }
+
+    /// Publish an adapter-produced event without changing its provenance or
+    /// sequence. Protocol adapters use this after `control_plane::dispatch`
+    /// has already wrapped an agent event for the originating session.
+    pub fn publish_control_event(&self, event: RuntimeControlEvent) -> usize {
+        if self.control_sender.receiver_count() == 0 {
+            return 0;
+        }
+        self.control_sender.send(event).unwrap_or(0)
+    }
 }
 
 #[cfg(test)]
@@ -206,5 +216,28 @@ mod tests {
         let event = control.try_recv().expect("control event");
         assert_eq!(event.sequence, 1);
         assert_eq!(event.event_id, "evt-0000000000000001");
+    }
+
+    #[test]
+    fn adapter_events_keep_their_acp_provenance() {
+        let bus = RuntimeEventBus::new(8);
+        let mut control = bus.subscribe_control();
+        let event = RuntimeControlEvent {
+            event_id: "acp-1".to_string(),
+            provenance: RuntimeProvenance::protocol(
+                crate::runtime_control::RuntimeControllerKind::Acp,
+                "acp",
+                Some("session-1".to_string()),
+                None,
+            ),
+            sequence: 7,
+            event: RuntimeEvent::Session(crate::runtime_control::SessionEvent::TurnCancelled),
+        };
+
+        assert_eq!(bus.publish_control_event(event), 1);
+        let received = control.try_recv().expect("control event");
+        assert_eq!(received.event_id, "acp-1");
+        assert_eq!(received.sequence, 7);
+        assert_eq!(received.provenance.session_id.as_deref(), Some("session-1"));
     }
 }

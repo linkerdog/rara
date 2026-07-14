@@ -11,7 +11,7 @@ use std::time::{Duration, Instant};
 use async_trait::async_trait;
 use portable_pty::{Child, CommandBuilder, NativePtySystem, PtySize, PtySystem};
 use rara_tool_macros::tool_spec;
-use rara_tools::tool::{Tool, ToolError};
+use rara_tools::tool::{Tool, ToolCallContext, ToolError, ToolProgressEvent};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use tokio::io::{AsyncReadExt, AsyncSeekExt};
@@ -602,8 +602,30 @@ impl PtyCommandInput {
 #[async_trait]
 impl Tool for PtyStartTool {
     async fn call(&self, input: Value) -> Result<Value, ToolError> {
+        self.call_with_context_events(input, ToolCallContext::default(), &mut |_| {})
+            .await
+    }
+
+    async fn call_with_context_events(
+        &self,
+        input: Value,
+        context: ToolCallContext,
+        _report: &mut (dyn FnMut(ToolProgressEvent) + Send),
+    ) -> Result<Value, ToolError> {
         let request = PtyCommandInput::from_value(input)?;
-        let cwd = request.working_dir();
+        let cwd = request
+            .cwd
+            .as_deref()
+            .filter(|cwd| !cwd.trim().is_empty())
+            .map_or_else(
+                || {
+                    context
+                        .workspace_root()
+                        .map(|cwd| cwd.display().to_string())
+                        .unwrap_or_else(|| request.working_dir())
+                },
+                str::to_string,
+            );
         let allow_net = self.sandbox_network_access.load(Ordering::Relaxed) || request.allow_net;
         let (command, wrapped) =
             if let Some(cmd) = request.command.as_deref().filter(|v| !v.trim().is_empty()) {

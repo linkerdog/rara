@@ -85,6 +85,19 @@ Clients must not send raw keys such as `Esc` or rely on TUI overlay behavior.
 Queued follow-ups preserve input order. Cancellation and interruption are
 separate control requests and must not be implied by a follow-up.
 
+### Session And Workspace Isolation
+
+Each ACP `session/new` creates a session-scoped RARA runtime lazily on its
+first prompt. The requested absolute `cwd` is the workspace root for that
+runtime: its history, workspace memory, session data, hooks, and default Bash
+and PTY working directories are isolated from every other ACP session.
+
+An ACP host process may serve several workspaces concurrently. Adapters must
+therefore pass the workspace explicitly and must never change the process cwd
+to implement session switching. `CancelNotification.session_id` targets only
+the matching runtime, and emitted cancellation events retain that ACP session
+id in their control-plane provenance.
+
 ### Output Events
 
 ACP-facing output should be derived from structured runtime events, not parsed
@@ -104,6 +117,14 @@ The support skill should document at least these event families:
 
 Plain text streaming is a presentation layer. The source of truth is the
 runtime-control event stream.
+
+ACP v1 has native session updates for assistant text and thinking, tool calls
+and updates, and complete plan snapshots. RARA translates those families to
+their native ACP representations. Approval requests and decisions, todo
+updates, warnings, errors, cancellation, and completion remain structured
+`RuntimeControlEvent` values with ACP provenance because ACP v1 has no native
+`SessionUpdate` variant for them. Clients that require those signals must
+subscribe to the RARA control-plane stream rather than infer them from text.
 
 ### Source Registration
 
@@ -143,6 +164,8 @@ approval and permission system used by the local TUI.
   and context specs rather than redefining incompatible contracts.
 - ACP client examples use semantic runtime intents, not TUI key events.
 - Output examples are event-based and do not require scraping rendered text.
+- Multiple ACP sessions with different `cwd` values preserve separate runtime
+  state and cancellation targets.
 - Source registration examples include provenance and lifetime metadata.
 - Changes to runtime-control request or event shapes update the support skill
   in the same PR.
