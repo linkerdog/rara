@@ -585,6 +585,8 @@ class RaraAgentTests(unittest.TestCase):
         self.assertIn("Use shell commands for process execution", uploaded_instruction)
         self.assertIn("Treat task constraints as validation requirements", uploaded_instruction)
         self.assertIn("substitutions must come from an allowed list", uploaded_instruction)
+        self.assertIn("fresh non-interactive process", uploaded_instruction)
+        self.assertIn("shell startup files alone does not prove", uploaded_instruction)
         self.assertIn("request escalated sandbox permissions", uploaded_instruction)
         self.assertIn("/app/solution.sparql", uploaded_instruction)
         self.assertIn("Do not finish with only an explanation", uploaded_instruction)

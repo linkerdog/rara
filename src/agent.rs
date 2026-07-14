@@ -1462,9 +1462,11 @@ impl Agent {
             // ── Auto-permission classifier safety net ────────────────────────────
             // Safety net: for dangerous tools (bash, web_*, pty), run the LLM
             // classifier to detect suspicious commands the static rules missed.
+            // Explicit full access delegates that boundary to the caller's
+            // external isolation and therefore bypasses this local gate.
             const CLASSIFIABLE_TOOLS: &[&str] =
                 &["bash", "pty", "web_search", "web_fetch", "mcp_tool_search"];
-            if CLASSIFIABLE_TOOLS.contains(&tool_name.as_str()) {
+            if !self.full_access_mode && CLASSIFIABLE_TOOLS.contains(&tool_name.as_str()) {
                 let classifier_input = tool_input.clone();
                 let request = crate::classifier::AutoPermissionRequest {
                     tool_name: tool_name.clone(),
