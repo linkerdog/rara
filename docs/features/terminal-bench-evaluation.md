@@ -234,4 +234,5 @@ Each trial should end with one of:
 
 - `docs/journal/2026-07-05-rara-exec-headless.md`
 - `docs/journal/2026-07-05-harbor-rara-agent-adapter.md`
+- `docs/journal/2026-07-14-terminal-bench-results.md`
 - `docs/journal/2026-07-11-harbor-atif-trajectory.md`
