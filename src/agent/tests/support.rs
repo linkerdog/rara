@@ -145,7 +145,10 @@ impl LlmBackend for SequencedBackend {
 
     async fn classify(&self, instructions: &str, messages: &[Message]) -> Result<String> {
         self.classifier_calls.fetch_add(1, Ordering::Relaxed);
-        let response = self.classifier_responses.lock().expect("lock").pop();
+        let response = {
+            let mut responses = self.classifier_responses.lock().expect("lock");
+            (!responses.is_empty()).then(|| responses.remove(0))
+        };
         match response {
             Some(response) => Ok(response),
             None => self.summarize(messages, instructions).await,
