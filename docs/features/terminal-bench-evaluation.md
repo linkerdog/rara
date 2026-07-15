@@ -177,6 +177,10 @@ The default prompt may describe general terminal-agent discipline:
 - run focused verification;
 - verify PATH requirements from a fresh non-interactive process rather than a
   shell with a command-local PATH override;
+- for a background process, daemon, or network service, verify the required
+  behavior through a separate client with readiness polling, a real request or
+  connection, an expected-response assertion, and cleanup of temporary
+  services unless the task requires them to remain running;
 - summarize unresolved failures.
 
 The default prompt must not contain benchmark task answers, benchmark-specific

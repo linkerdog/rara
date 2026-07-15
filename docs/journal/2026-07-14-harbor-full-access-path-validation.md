@@ -41,5 +41,5 @@ visibility.
 
 ## Follow-Ups
 
-- Re-run `terminal-bench/sqlite-with-gcov` and record the Harbor verifier
-  artifact in the Terminal-Bench observed-results journal.
+- Add the successful `terminal-bench/sqlite-with-gcov` Harbor verifier artifact
+  to the Terminal-Bench observed-results journal when its job path is available.
