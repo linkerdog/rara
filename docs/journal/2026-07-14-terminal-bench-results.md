@@ -13,7 +13,7 @@ not sufficient.
 | --- | --- | --- | --- |
 | `terminal-bench/regex-log` | Passed | Harbor verifier reward `1.0` | The run recorded RARA exit status `0` and an authoritative verifier success. |
 | `terminal-bench/sqlite-with-gcov` | Passed (artifact pending) | User-reported successful benchmark run | This confirms the full-access PATH handling validated in the accompanying Harbor checkpoint. Record the Harbor verifier artifact when its job path is available. |
-| `terminal-bench/headless-terminal` | Failed | Harbor verifier reward `0.0` | Six checks passed, but a background HTTP service was not reachable from the verifier. The adapter now requires independent-client validation for service tasks before the planned rerun. |
+| `terminal-bench/headless-terminal` | Failed | Harbor verifier reward `0.0` | Six checks passed, but a background HTTP service was not reachable from the verifier. RARA's default prompt now requires independent-client service validation before the planned rerun. |
 | `terminal-bench/overfull-hbox` | Failed | Final task artifact violated an edit constraint | The agent removed the LaTeX warnings, but also changed `an` to `a` when only synonym substitutions were allowed. The task therefore did not pass validation. |
 | `terminal-bench/sparql-university` | Passed (artifact pending) | User-reported successful benchmark run | Earlier attempts were inconclusive because of CA and provider setup failures. Record the Harbor verifier artifact for this successful rerun when its job path is available. |
 

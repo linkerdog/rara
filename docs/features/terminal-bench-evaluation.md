@@ -108,11 +108,9 @@ have a headless path.
 
 The adapter may add generic harness guidance around the raw task instruction.
 That guidance can require non-interactive operation, exact creation of
-task-named output files, focused validation, and blocker reporting. For a
-background process, daemon, or network service, it must require verification
-from a fresh independent client process instead of shell-local launch output, a
-PID, or a process listing. It must not embed task-specific solutions, hidden
-verifier knowledge, or benchmark oracle content.
+task-named output files, focused validation, and blocker reporting. It must not
+embed task-specific solutions, hidden verifier knowledge, or benchmark oracle
+content.
 
 ### Headless Execution Contract
 
@@ -179,6 +177,9 @@ The default prompt may describe general terminal-agent discipline:
 - run focused verification;
 - verify PATH requirements from a fresh non-interactive process rather than a
   shell with a command-local PATH override;
+- for a background process, daemon, or network service, verify the required
+  behavior through a separate client with readiness polling, a real request or
+  connection, an expected-response assertion, and cleanup;
 - summarize unresolved failures.
 
 The default prompt must not contain benchmark task answers, benchmark-specific
