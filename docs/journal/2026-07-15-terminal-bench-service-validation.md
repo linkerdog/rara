@@ -20,7 +20,9 @@ services.
 Service launch output, a PID, and a process listing only establish shell-local
 state. A task that requires a long-running service must be started through the
 surface under test, readiness-polled, checked by a fresh client request or
-connection, asserted against its expected response, and cleaned up.
+connection, and asserted against its expected response. Temporary services are
+cleaned up; services the task requires to remain running stay available for
+external verification.
 
 ## Validation
 

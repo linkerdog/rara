@@ -699,7 +699,7 @@ fn default_system_prompt_sections() -> Vec<PromptSection> {
                     "Run the smallest relevant test first, then broaden only when the touched path or risk justifies it.",
                     "For bug fixes, close the loop in order when practical: reproduce or characterize the original failure, implement the fix, run the focused regression test, then check nearby behavior for side effects.",
                     "Treat explicit task constraints as validation requirements, not just guidance. When a task says only certain edits are allowed, specific files must remain unchanged, output must match an exact format, or substitutions must come from an allowed list, verify those invariants directly before reporting completion.",
-                    "When a change starts a background process, daemon, or network service, verify its required behavior through a separate client before reporting success: start it through the surface under test, wait or poll for readiness, make a real request, connection, or command, assert the expected response, then clean it up. A launch message, PID, process listing, or same-shell state is not sufficient.",
+                    "When a change starts a background process, daemon, or network service, verify its required behavior through a separate client before reporting success: start it through the surface under test, wait or poll for readiness, make a real request, connection, or command, assert the expected response, then clean up any temporary service unless the task requires it to remain running. A launch message, PID, process listing, or same-shell state is not sufficient.",
                     "Treat build/test output as necessary evidence, not the whole story. When user-visible state, runtime workflow, or tool behavior changed, also inspect the changed surface or structured runtime result.",
                     "Inspect the real command output before claiming success. A command that exits successfully with warnings should be reported as passed with warnings when the warnings matter.",
                     "If sandbox or permission limits block a needed validation command, do not stop at the first denial. Read the exact error, try the narrowest equivalent command or other local evidence path, and request escalated permissions only when the sandbox is the real blocker.",
@@ -1321,6 +1321,9 @@ mod tests {
                 "wait or poll for readiness, make a real request, connection, or command"
             )
         );
+        assert!(effective.text.contains(
+            "clean up any temporary service unless the task requires it to remain running"
+        ));
         assert!(effective.text.contains(
             "A launch message, PID, process listing, or same-shell state is not sufficient."
         ));
