@@ -1,5 +1,6 @@
 mod tooling;
 
+use std::path::Path;
 use std::sync::{Arc, atomic::AtomicBool};
 
 use anyhow::{Context, Result, bail};
@@ -124,8 +125,18 @@ pub(crate) async fn initialize_rara_context(
     config: &RaraConfig,
     progress: Option<LocalProgressReporter>,
 ) -> Result<RuntimeBootstrap> {
+    initialize_rara_context_for_workspace(config, None, progress).await
+}
+
+/// Build a runtime for an explicit workspace without mutating the process cwd.
+pub(crate) async fn initialize_rara_context_for_workspace(
+    config: &RaraConfig,
+    workspace_root: Option<&Path>,
+    progress: Option<LocalProgressReporter>,
+) -> Result<RuntimeBootstrap> {
     initialize_rara_context_with_local_embedding_bootstrap(
         config,
+        workspace_root,
         progress,
         LocalEmbeddingBootstrap::Prepare,
     )
@@ -140,6 +151,7 @@ pub(crate) enum LocalEmbeddingBootstrap {
 
 pub(crate) async fn initialize_rara_context_with_local_embedding_bootstrap(
     config: &RaraConfig,
+    workspace_root: Option<&Path>,
     progress: Option<LocalProgressReporter>,
     local_embedding_bootstrap: LocalEmbeddingBootstrap,
 ) -> Result<RuntimeBootstrap> {
@@ -156,9 +168,17 @@ pub(crate) async fn initialize_rara_context_with_local_embedding_bootstrap(
     )
     .await?;
 
-    let workspace = Arc::new(WorkspaceMemory::new()?);
+    let workspace = match workspace_root {
+        Some(root) => Arc::new(WorkspaceMemory::from_paths(
+            root.to_path_buf(),
+            rara_config::workspace_data_dir_for(root)?,
+        )),
+        None => Arc::new(WorkspaceMemory::new()?),
+    };
     let vdb = Arc::new(VectorDB::new(&vector_db_uri_for_workspace(&workspace)));
-    let session_manager = Arc::new(SessionManager::new()?);
+    let session_manager = Arc::new(SessionManager::new_for_rara_dir(
+        workspace.rara_dir.clone(),
+    )?);
     let shell_env = capture_shell_environment_snapshot().await;
     let sandbox_manager = Arc::new(SandboxManager::new_with_command_path(
         shell_env.env.get("PATH").cloned(),
@@ -213,9 +233,7 @@ pub(crate) async fn initialize_rara_context_with_local_embedding_bootstrap(
 
     // Discover file-based hooks and inject into prompt config
     let mut file_hooks = crate::hooks::HookRegistry::new();
-    if let Ok(cwd) = std::env::current_dir() {
-        file_hooks.discover_repo_hooks(&cwd);
-    }
+    file_hooks.discover_repo_hooks(&workspace.root);
     prompt_config.hook_prompt_entries = file_hooks
         .hooks
         .values()

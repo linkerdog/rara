@@ -11,7 +11,7 @@ use rara_tools::tool::ToolOutputStream;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-use crate::agent::{AgentEvent, BashApprovalDecision};
+use crate::agent::{AgentEvent, BashApprovalDecision, PlanStep, PlanStepStatus};
 use crate::context::{ContextObservabilityView, RetrievalOrchestrationView};
 use crate::mcp_status::{McpConnectionState, McpStatusSnapshot};
 use crate::session_promotion::SessionShardPromotionOutcome;
@@ -188,9 +188,41 @@ pub enum ApprovalEvent {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "type", content = "payload", rename_all = "snake_case")]
 pub enum PlanEvent {
-    Updated,
+    Updated {
+        steps: Vec<PlanStepEvent>,
+        explanation: Option<String>,
+    },
     Approved,
     Continued,
+}
+
+#[allow(dead_code)] // ACP protocol type — reserved for future lifecycle events
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PlanStepEvent {
+    pub step: String,
+    pub status: PlanStepStatusEvent,
+}
+
+#[allow(dead_code)] // ACP protocol type — reserved for future lifecycle events
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum PlanStepStatusEvent {
+    Pending,
+    InProgress,
+    Completed,
+}
+
+impl From<PlanStep> for PlanStepEvent {
+    fn from(step: PlanStep) -> Self {
+        Self {
+            step: step.step,
+            status: match step.status {
+                PlanStepStatus::Pending => PlanStepStatusEvent::Pending,
+                PlanStepStatus::InProgress => PlanStepStatusEvent::InProgress,
+                PlanStepStatus::Completed => PlanStepStatusEvent::Completed,
+            },
+        }
+    }
 }
 
 #[allow(dead_code)] // ACP protocol type — reserved for future lifecycle events
@@ -380,6 +412,20 @@ pub fn agent_event_to_runtime_event(event: AgentEvent) -> RuntimeEvent {
             RuntimeEvent::Mcp(McpEvent::StatusLoadFailed { message })
         }
         AgentEvent::TodoUpdated(state) => RuntimeEvent::Todo(TodoEvent::Updated { state }),
+        AgentEvent::PlanUpdated { steps, explanation } => RuntimeEvent::Plan(PlanEvent::Updated {
+            steps: steps.into_iter().map(PlanStepEvent::from).collect(),
+            explanation,
+        }),
+        AgentEvent::ApprovalRequested { approval_id, kind } => {
+            RuntimeEvent::Approval(ApprovalEvent::Requested { approval_id, kind })
+        }
+        AgentEvent::ApprovalAnswered {
+            approval_id,
+            approved,
+        } => RuntimeEvent::Approval(ApprovalEvent::Answered {
+            approval_id,
+            approved,
+        }),
         AgentEvent::AgentStart => RuntimeEvent::Session(SessionEvent::TurnStarted),
         AgentEvent::AgentStop { reason } => RuntimeEvent::Session(SessionEvent::TurnFinished {
             reason: Some(reason),
@@ -447,6 +493,35 @@ mod tests {
                 chunk: "error\n".to_string(),
             })
         );
+    }
+
+    #[test]
+    fn agent_plan_and_approval_events_preserve_structured_fields() {
+        let plan = agent_event_to_runtime_event(AgentEvent::PlanUpdated {
+            steps: vec![PlanStep {
+                step: "inspect ACP adapter".to_string(),
+                status: PlanStepStatus::InProgress,
+            }],
+            explanation: Some("verify event mapping".to_string()),
+        });
+        assert!(matches!(
+            plan,
+            RuntimeEvent::Plan(PlanEvent::Updated { steps, explanation })
+                if steps == vec![PlanStepEvent {
+                    step: "inspect ACP adapter".to_string(),
+                    status: PlanStepStatusEvent::InProgress,
+                }]
+                && explanation.as_deref() == Some("verify event mapping")
+        ));
+
+        assert!(matches!(
+            agent_event_to_runtime_event(AgentEvent::ApprovalRequested {
+                approval_id: "tool-1".to_string(),
+                kind: "shell".to_string(),
+            }),
+            RuntimeEvent::Approval(ApprovalEvent::Requested { approval_id, kind })
+                if approval_id == "tool-1" && kind == "shell"
+        ));
     }
 
     #[test]

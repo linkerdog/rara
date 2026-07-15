@@ -13,7 +13,9 @@ use crate::agent::Agent;
 use crate::hook_registry::HookRegistry;
 use crate::mcp_connection_manager::McpConnectionManager;
 use crate::protocol_sources::{MemoryControlHandler, PromptSourceRegistry, SkillSourceRegistry};
-use crate::runtime_control::{RuntimeControlEnvelope, RuntimeControlEvent, RuntimeControlRequest};
+use crate::runtime_control::{
+    RuntimeControlEnvelope, RuntimeControlEvent, RuntimeControlRequest, RuntimeEvent, SessionEvent,
+};
 
 /// Dispatch a structured control-plane request and stream resulting events
 /// to the provided callback.
@@ -66,10 +68,30 @@ where
         }
         RuntimeControlRequest::Session(session_request) => {
             if let Some(agent) = agent {
-                agent
+                let result = agent
                     .handle_session_control(session_request)
                     .await
-                    .map_err(|err| err.to_string())
+                    .map_err(|err| err.to_string());
+                if result.is_ok() {
+                    let event = match session_request {
+                        crate::runtime_control::SessionControlRequest::CancelCurrentTurn => {
+                            Some(SessionEvent::TurnCancelled)
+                        }
+                        crate::runtime_control::SessionControlRequest::InterruptCurrentTurn => {
+                            Some(SessionEvent::TurnInterrupted)
+                        }
+                        _ => None,
+                    };
+                    if let Some(event) = event {
+                        on_event(RuntimeControlEvent {
+                            event_id: uuid::Uuid::new_v4().to_string(),
+                            provenance: envelope.provenance.clone(),
+                            sequence: 0,
+                            event: RuntimeEvent::Session(event),
+                        });
+                    }
+                }
+                result
             } else {
                 Err("no active session available for session control".to_string())
             }
@@ -93,10 +115,21 @@ where
                     on_event(control_event);
                 };
 
-                agent
+                report(crate::agent::AgentEvent::AgentStart);
+                let result = agent
                     .handle_input_control(input_request, &mut report)
                     .await
-                    .map_err(|err| err.to_string())
+                    .map_err(|err| err.to_string());
+                match &result {
+                    Ok(()) => report(crate::agent::AgentEvent::AgentStop {
+                        reason: "turn complete".to_string(),
+                    }),
+                    Err(err) => report(crate::agent::AgentEvent::AgentError {
+                        message: err.clone(),
+                        recoverable: false,
+                    }),
+                }
+                result
             } else {
                 Err("no active session available for input control".to_string())
             }

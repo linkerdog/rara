@@ -162,6 +162,9 @@ fn lifecycle_for_event(event: &AgentEvent) -> Option<HookLifecycle> {
         | AgentEvent::McpStatusUpdated(_)
         | AgentEvent::McpStatusLoadFailed { .. }
         | AgentEvent::TodoUpdated(_)
+        | AgentEvent::PlanUpdated { .. }
+        | AgentEvent::ApprovalRequested { .. }
+        | AgentEvent::ApprovalAnswered { .. }
         | AgentEvent::AgentError { .. } => None,
     }
 }

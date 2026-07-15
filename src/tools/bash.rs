@@ -518,7 +518,20 @@ impl Tool for BashTool {
         report: &mut (dyn FnMut(ToolProgressEvent) + Send),
     ) -> Result<Value, ToolError> {
         let request = BashCommandInput::from_value(i)?;
-        let cwd = request.working_dir()?;
+        let cwd = request
+            .cwd
+            .as_deref()
+            .filter(|cwd| !cwd.trim().is_empty())
+            .map_or_else(
+                || {
+                    context
+                        .workspace_root()
+                        .map(|cwd| cwd.display().to_string())
+                        .map(Ok)
+                        .unwrap_or_else(|| request.working_dir())
+                },
+                |cwd| Ok(cwd.to_string()),
+            )?;
         let allow_net = self.sandbox_network_access.load(Ordering::Relaxed) || request.allow_net;
         let wrapped = if let Some(command) = request.command.as_deref() {
             if request.sandbox_permissions == BashSandboxPermissions::RequireEscalated {
@@ -597,11 +610,7 @@ impl Tool for BashTool {
                     .filter(|v| !v.trim().is_empty())
                     .map(String::from),
                 args: request.args.clone(),
-                cwd: request
-                    .cwd
-                    .as_ref()
-                    .filter(|d| !d.trim().is_empty())
-                    .cloned(),
+                cwd: Some(cwd.clone()),
                 sandboxed: wrapped.sandboxed,
                 sandbox_backend: wrapped.sandbox_backend.clone(),
                 network_access: wrapped.network_access,

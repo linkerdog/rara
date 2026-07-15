@@ -270,6 +270,10 @@ impl Agent {
         self.pending_approval = None;
         self.pending_user_input = None;
         self.completed_approval = None;
+        report(AgentEvent::ApprovalAnswered {
+            approval_id: pending.tool_use_id.clone(),
+            approved: !matches!(selection, BashApprovalDecision::Suggestion),
+        });
 
         match selection {
             BashApprovalDecision::Once => {
@@ -507,6 +511,13 @@ impl Agent {
         self.pending_approval = None;
         let pending_plan_exit_tool_id = self.pending_plan_exit_tool_id.take();
 
+        if let Some(approval_id) = pending_plan_exit_tool_id.as_ref() {
+            report(AgentEvent::ApprovalAnswered {
+                approval_id: approval_id.clone(),
+                approved: !continue_planning,
+            });
+        }
+
         if continue_planning {
             self.execution_mode = AgentExecutionMode::Plan;
             report(AgentEvent::Status(
@@ -550,6 +561,11 @@ impl Agent {
             );
             self.checkpoint_session()?;
         }
+
+        report(AgentEvent::PlanUpdated {
+            steps: self.current_plan.clone(),
+            explanation: self.plan_explanation.clone(),
+        });
 
         self.run_agent_loop(output_mode, &mut report).await
     }

@@ -262,20 +262,7 @@ fn apply_cli_overrides(config: &mut RaraConfig, cli: Cli) -> Option<Commands> {
 }
 
 async fn run_acp_command(config: &RaraConfig) -> Result<()> {
-    let bootstrap = runtime_context::initialize_rara_context(config, None).await?;
-    emit_bootstrap_warnings(&bootstrap.warnings);
-    let acp_agent = RaraAcpAgent::new(
-        bootstrap.backend.clone(),
-        Arc::new(bootstrap.tool_manager),
-        bootstrap.event_bus.clone(),
-        bootstrap.mcp_manager.clone(),
-        bootstrap.prompt_source_registry.clone(),
-        bootstrap.skill_source_registry.clone(),
-        bootstrap.hook_registry.clone(),
-        Arc::new(crate::protocol_sources::MemoryControlHandler::new(
-            bootstrap.event_bus.clone(),
-        )),
-    );
+    let acp_agent = RaraAcpAgent::new(config.clone());
     acp_agent
         .run_acp_stdio()
         .await
@@ -387,6 +374,7 @@ async fn run_tui_command(
     let bootstrap = if initialize_local_embeddings {
         runtime_context::initialize_rara_context_with_local_embedding_bootstrap(
             config,
+            None,
             None,
             runtime_context::LocalEmbeddingBootstrap::InspectOnly,
         )

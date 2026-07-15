@@ -1,4 +1,5 @@
 use std::collections::BTreeMap;
+use std::path::{Path, PathBuf};
 use std::sync::{
     Arc,
     atomic::{AtomicBool, Ordering},
@@ -36,6 +37,7 @@ pub enum ToolProgressEvent {
 pub struct ToolCallContext {
     cancellation: Option<Arc<AtomicBool>>,
     session_id: Option<String>,
+    workspace_root: Option<PathBuf>,
 }
 
 impl ToolCallContext {
@@ -49,8 +51,17 @@ impl ToolCallContext {
         self
     }
 
+    pub fn with_workspace_root(mut self, workspace_root: impl Into<PathBuf>) -> Self {
+        self.workspace_root = Some(workspace_root.into());
+        self
+    }
+
     pub fn session_id(&self) -> Option<&str> {
         self.session_id.as_deref()
+    }
+
+    pub fn workspace_root(&self) -> Option<&Path> {
+        self.workspace_root.as_deref()
     }
 
     pub fn is_cancelled(&self) -> bool {
@@ -194,5 +205,15 @@ mod tests {
             .collect::<Vec<_>>();
 
         assert_eq!(names, vec!["alpha_tool", "zeta_tool"]);
+    }
+
+    #[test]
+    fn call_context_retains_workspace_root() {
+        let context = ToolCallContext::default().with_workspace_root("/tmp/rara-workspace");
+
+        assert_eq!(
+            context.workspace_root(),
+            Some(Path::new("/tmp/rara-workspace"))
+        );
     }
 }
