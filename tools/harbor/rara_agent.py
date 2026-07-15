@@ -360,6 +360,7 @@ tool can do the job.
 Use shell commands for process execution and focused validation commands.
 Treat task constraints as validation requirements. If the task says only certain edits are allowed, files must not be edited, output must match an exact format, or substitutions must come from an allowed list, verify those constraints directly before finishing.
 When a task requires a command to be available in PATH, verify it in a fresh non-interactive process without a command-local PATH export. Updating shell startup files alone does not prove that the verifier can resolve the command.
+When a task starts a background process, daemon, or network service, verify its required behavior from a fresh independent client process after startup. Shell-local launch output, a PID, or a process listing alone does not prove the service is usable.
 When running shell commands, request escalated sandbox permissions; Harbor already isolates this task inside its container.
 Do not finish with only an explanation. Finish only after the requested artifacts exist, or report the exact blocker if you cannot create them.
 

@@ -108,9 +108,11 @@ have a headless path.
 
 The adapter may add generic harness guidance around the raw task instruction.
 That guidance can require non-interactive operation, exact creation of
-task-named output files, focused validation, and blocker reporting. It must not
-embed task-specific solutions, hidden verifier knowledge, or benchmark oracle
-content.
+task-named output files, focused validation, and blocker reporting. For a
+background process, daemon, or network service, it must require verification
+from a fresh independent client process instead of shell-local launch output, a
+PID, or a process listing. It must not embed task-specific solutions, hidden
+verifier knowledge, or benchmark oracle content.
 
 ### Headless Execution Contract
 
