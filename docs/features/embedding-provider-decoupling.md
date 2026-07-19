@@ -21,8 +21,8 @@ to plug in the local embedding sidecar introduced by
   vector tools through that standalone backend.
 - Allow runtime bootstrap to choose between provider-native embeddings and the
   local model-server sidecar independently of the chat backend.
-- Define the durable routing policy as sidecar-first unless a provider has an
-  explicit native-embedding capability entry.
+- Keep the bundled local model-server sidecar as an explicit opt-in enhancement
+  instead of starting it during ordinary runtime bootstrap by default.
 - Preserve the existing `LlmBackend::embed` implementations as a compatibility
   shim for provider wrappers and tests in this slice.
 
@@ -131,13 +131,19 @@ vector indexing/search is a separate dependency.
   `EmbeddingInputKind::Document`.
 - Runtime bootstrap must build one embedding backend per process runtime and
   pass it through to the main agent and sub-agents.
+- `local_embeddings` defaults to `off`, so ordinary startup must not prepare,
+  download, or start the bundled local embedding sidecar.
+- `local_embeddings = "auto"` and `RARA_LOCAL_EMBEDDINGS=auto|on|true|1|yes`
+  explicitly opt in to the provider-aware local sidecar routing matrix.
 - Provider-native embeddings must be enabled only through an explicit capability
   entry or equivalent allowlist, not by assuming that all providers in one chat
   family expose usable embedding models.
 - Providers with known missing native embeddings, including `deepseek` and
-  `kimi`, must route to the local sidecar.
-- Unknown providers must default to the local sidecar until RARA validates and
-  records a native embedding capability for that provider surface.
+  `kimi`, must route to the local sidecar when local embeddings are explicitly
+  enabled.
+- Unknown providers must default to the local sidecar only when local embeddings
+  are explicitly enabled and until RARA validates and records a native embedding
+  capability for that provider surface.
 - The local sidecar client must not rely on ambient proxy configuration for
   loopback embedding calls.
 - `MemoryStore` may keep a chat-backend reference for distillation, but its
@@ -159,10 +165,14 @@ vector indexing/search is a separate dependency.
 
 - Provider-native embeddings are still exposed through the legacy
   `LlmBackend::embed` compatibility path in this slice.
-- The local sidecar path is now the default recovery route for providers that
-  cannot produce useful embeddings themselves.
-- The intended steady-state policy is `sidecar-first` with a small explicit
-  native-embedding allowlist. Broad provider-family inference is transitional.
+- The local sidecar path is available as an explicit opt-in recovery route for
+  providers that cannot produce useful embeddings themselves.
+- Local memory remains in scope. Disabling bundled sidecar startup by default
+  does not remove memory storage, retrieval orchestration, LanceDB integration,
+  or the standalone `EmbeddingBackend` boundary.
+- The intended steady-state policy is conservative startup with explicit
+  embedding enablement and a small native-embedding allowlist. Broad
+  provider-family inference is transitional.
 - Retrieval paths that depend on a query vector still degrade to "no vector
   candidates" when the configured embedding backend is unavailable; broader
   keyword-only fallback remains follow-up work.

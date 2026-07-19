@@ -713,16 +713,16 @@ mod tests {
     }
 
     #[test]
-    fn embedding_route_prefers_local_sidecar_by_default() {
+    fn embedding_route_keeps_local_sidecar_off_by_default() {
         let deepseek = RaraConfig {
             provider: "deepseek".to_string(),
             ..Default::default()
         };
         assert_eq!(
             embedding_route_for_config(&deepseek),
-            EmbeddingRoute::LocalModelServer
+            EmbeddingRoute::CurrentLlmBackend
         );
-        assert!(config_requires_local_embedding_sidecar(&deepseek));
+        assert!(!config_requires_local_embedding_sidecar(&deepseek));
     }
 
     #[test]
@@ -743,6 +743,7 @@ mod tests {
     fn embedding_route_prefers_local_sidecar_when_auto_policy_is_enabled() {
         let deepseek = RaraConfig {
             provider: "deepseek".to_string(),
+            local_embeddings: LocalEmbeddingPolicy::Auto,
             ..Default::default()
         };
         assert_eq!(
