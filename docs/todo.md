@@ -8,13 +8,13 @@ Active backlog only. Keep this file small and current.
 2. ✅ `rara plugin install/list/remove`.
 3. ✅ TUI live feedback: thinking collapse + live bash transcript.
 4. ✅ Context/embedding: project_context merge, canonical vector schema, model-aware budgeting.
-5. 🔵 P0 file splits remaining — pty still blocked by nested test modules.
+5. ✅ P0 file splits completed.
 
 ## P0 File Splits
 
 - [x] `tools/bash.rs` — tests extracted to bash_tests.rs (914 + 947 lines)
 - [x] `tools/agent.rs` — agent_def extracted via include! (1749→1551, PR #603)
-- [ ] `tools/pty.rs` (1625) — blocked: nested `mod tests` incompatible with `#[path]` and `include!`
+- [x] `tools/pty.rs` — split into real submodules (15-line facade; largest child 617 lines)
 - [x] `tui/runtime/tasks.rs` — completion orchestration split into `tasks/completion.rs` (747 + 545 lines)
 
 ## TUI / UX
