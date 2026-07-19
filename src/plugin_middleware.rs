@@ -33,14 +33,14 @@ fn hook_event_to_lifecycle(event: HookEvent) -> HookLifecycle {
 
 pub async fn register_plugin_hooks(
     runtime: &Arc<HookRuntime>,
-    user_plugins_dir: &Path,
+    project_plugins_dir: &Path,
     session_id: &str,
 ) -> usize {
     let runtime = runtime.clone();
-    let user_plugins_dir = user_plugins_dir.to_path_buf();
+    let project_plugins_dir = project_plugins_dir.to_path_buf();
     let session_id = session_id.to_string();
     match tokio::task::spawn_blocking(move || {
-        register_plugin_hooks_blocking(&runtime, &user_plugins_dir, &session_id)
+        register_plugin_hooks_blocking(&runtime, &project_plugins_dir, &session_id)
     })
     .await
     {
@@ -54,12 +54,12 @@ pub async fn register_plugin_hooks(
 
 fn register_plugin_hooks_blocking(
     runtime: &Arc<HookRuntime>,
-    user_plugins_dir: &Path,
+    project_plugins_dir: &Path,
     session_id: &str,
 ) -> usize {
     let plugins = discover_plugins_from_source(
-        user_plugins_dir,
-        PluginSource::Project(user_plugins_dir.to_path_buf()),
+        project_plugins_dir,
+        PluginSource::Project(project_plugins_dir.to_path_buf()),
     );
     let mut registered = 0usize;
 

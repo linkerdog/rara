@@ -61,6 +61,8 @@ pub fn discover_plugins(plugins_dir: &Path) -> Vec<Plugin> {
 ///
 /// Later sources in the slice override earlier sources with the same plugin
 /// name, so callers can express their precedence rules by source ordering.
+/// The returned vector is sorted by plugin name for deterministic consumers; it
+/// does not preserve source or filesystem discovery order.
 pub fn discover_plugins_from_sources(sources: &[PluginDiscoverySource]) -> Vec<Plugin> {
     let mut plugins_by_name = BTreeMap::new();
     for source in sources {

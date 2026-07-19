@@ -1,5 +1,5 @@
 use std::collections::BTreeMap;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use serde::Deserialize;
 
@@ -13,7 +13,7 @@ pub enum PluginSource {
 }
 
 impl PluginSource {
-    pub fn path(&self) -> &PathBuf {
+    pub fn path(&self) -> &Path {
         match self {
             Self::User(path) | Self::Project(path) | Self::Cli(path) | Self::Directory(path) => {
                 path
