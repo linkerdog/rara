@@ -20,6 +20,8 @@ use that contract instead of rebuilding a one-directory scan path.
   - explicit plugin directories as the final CLI source tier for future callers.
 - Updated TUI runtime rebuild to call plugin hook registration with RARA home
   and the workspace root.
+- RARA home resolution runs on the blocking registration worker. If home
+  resolution fails, project and explicit plugin sources are still discovered.
 - Preserved the current behavior of not creating project-local `.rara` during
   plugin discovery. Missing plugin directories simply discover zero plugins.
 - Added focused middleware tests for source ordering and project-over-user

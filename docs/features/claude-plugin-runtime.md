@@ -272,6 +272,8 @@ Implemented in the first merged slice:
   and `<workspace>/.rara/plugins` as the project source through the ordered
   discovery API. Project plugins override user plugins with the same plugin
   name.
+- User plugin home resolution happens on the blocking registration worker. If
+  user plugin home cannot be resolved, project plugin registration still runs.
 - The middleware API accepts explicit CLI plugin directories as the final source
   tier, but the user-facing CLI flag for passing those directories remains a
   follow-up.
