@@ -1209,7 +1209,7 @@ mod tests {
     }
 
     #[test]
-    fn local_embeddings_can_be_enabled_by_environment() {
+    fn local_embeddings_can_be_enabled_and_disabled_by_environment() {
         let mut config = RaraConfig::default();
 
         config.apply_provider_environment_defaults_from(|key| match key {
@@ -1218,6 +1218,13 @@ mod tests {
         });
 
         assert_eq!(config.local_embeddings, LocalEmbeddingPolicy::Auto);
+
+        config.apply_provider_environment_defaults_from(|key| match key {
+            "RARA_LOCAL_EMBEDDINGS" => Some("off".to_string()),
+            _ => None,
+        });
+
+        assert_eq!(config.local_embeddings, LocalEmbeddingPolicy::Off);
     }
 
     #[test]

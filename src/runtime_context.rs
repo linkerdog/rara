@@ -776,6 +776,7 @@ mod tests {
     fn embedding_route_reuses_provider_embedding_for_supported_openai_like_surfaces() {
         let codex = RaraConfig {
             provider: "codex".to_string(),
+            local_embeddings: LocalEmbeddingPolicy::Auto,
             ..Default::default()
         };
         assert_eq!(
@@ -785,6 +786,7 @@ mod tests {
 
         let openai_compatible = RaraConfig {
             provider: "openai-compatible".to_string(),
+            local_embeddings: LocalEmbeddingPolicy::Auto,
             ..Default::default()
         };
         assert_eq!(
@@ -794,6 +796,7 @@ mod tests {
 
         let mock = RaraConfig {
             provider: "mock".to_string(),
+            local_embeddings: LocalEmbeddingPolicy::Auto,
             ..Default::default()
         };
         assert_eq!(
