@@ -93,10 +93,7 @@ impl PtySessionStore {
         }
 
         let pruned = to_prune.len();
-        drop(sessions);
-        if !to_prune.is_empty()
-            && let Ok(sessions) = self.sessions.lock()
-        {
+        if !to_prune.is_empty() {
             for id in &to_prune {
                 if let Some(session) = sessions.get(id)
                     && let Ok(mut status) = session.status.lock()
@@ -240,15 +237,20 @@ impl PtySessionStore {
                 .unwrap_or_else(|| PtySessionSnapshot::missing(id));
         };
 
-        // Fetch the session handle once so we can poll status without
-        // calling self.get(id) (which clones the whole snapshot) on every
-        // iteration.  We still refresh the full snapshot on completion.
-        let mut snapshot = match self.get(id) {
-            Some(snap) => snap,
-            None => return PtySessionSnapshot::missing(id),
+        // Fetch the session status once so polling avoids locking the session
+        // store and cloning the full snapshot on every iteration.
+        let status = {
+            let sessions = self.sessions.lock().expect("pty session store lock");
+            sessions.get(id).map(|record| record.status.clone())
+        };
+        let Some(status) = status else {
+            return PtySessionSnapshot::missing(id);
         };
 
-        while matches!(snapshot.status, PtySessionStatus::Running) {
+        while matches!(
+            *status.lock().expect("pty status lock"),
+            PtySessionStatus::Running
+        ) {
             let now = Instant::now();
             if now >= deadline {
                 break;
@@ -256,13 +258,9 @@ impl PtySessionStore {
             let remaining = deadline - now;
             let sleep_duration = remaining.min(PTY_START_QUICK_COMPLETION_POLL);
             tokio::time::sleep(sleep_duration).await;
-
-            match self.get(id) {
-                Some(next) => snapshot = next,
-                None => break,
-            }
         }
-        snapshot
+        self.get(id)
+            .unwrap_or_else(|| PtySessionSnapshot::missing(id))
     }
 
     pub(crate) fn list(&self) -> Vec<PtySessionSnapshot> {
