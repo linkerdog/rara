@@ -291,16 +291,16 @@ pub(crate) async fn finish_running_task_if_ready(
                 app.hook_runtime = Some(rebuilt.hook_runtime.clone());
                 if let (Ok(workspace_root), Some(hr)) =
                     (std::env::current_dir(), app.hook_runtime.as_ref())
+                    && let Ok(rara_home) = crate::config::ensure_rara_home_dir()
                 {
-                    let plugins_dir = workspace_root.join(".rara").join("plugins");
-                    if plugins_dir.is_dir() {
-                        crate::plugin_middleware::register_plugin_hooks(
-                            hr,
-                            &plugins_dir,
-                            &agent.session_id,
-                        )
-                        .await;
-                    }
+                    crate::plugin_middleware::register_plugin_hooks(
+                        hr,
+                        &rara_home,
+                        &workspace_root,
+                        &[],
+                        &agent.session_id,
+                    )
+                    .await;
                 }
                 app.local_model_server = rebuilt.local_model_server;
                 app.config_manager.save(&app.config)?;

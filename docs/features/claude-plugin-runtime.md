@@ -266,19 +266,26 @@ Implemented in the first merged slice:
 - The discovery API can scan a single directory with source metadata or scan
   multiple ordered sources with name-based de-duplication. Later sources in the
   ordered list override earlier sources, so callers own their precedence policy.
-- Workspace plugin CLI and runtime hook registration currently use the project
-  source for `<workspace>/.rara/plugins`.
+- Workspace plugin CLI uses the project source for
+  `<workspace>/.rara/plugins`.
+- TUI runtime hook registration combines `~/.rara/plugins` as the user source
+  and `<workspace>/.rara/plugins` as the project source through the ordered
+  discovery API. Project plugins override user plugins with the same plugin
+  name.
+- The middleware API accepts explicit CLI plugin directories as the final source
+  tier, but the user-facing CLI flag for passing those directories remains a
+  follow-up.
 
 Next implementation slices:
 
-1. Extend runtime startup beyond the TUI rebuild path and combine user,
-   project, and explicit CLI plugin directories through the ordered discovery
-   API.
-2. Fix lifecycle parity gaps before broad user-facing rollout: `SessionEnd` mapping,
+1. Extend plugin source composition beyond the TUI rebuild path to headless,
+   ACP, and Wire runtime startup.
+2. Add a user-facing CLI/config path for explicit plugin directories.
+3. Fix lifecycle parity gaps before broad user-facing rollout: `SessionEnd` mapping,
    matcher evaluation, blocking hook results, and hook output observability.
-3. Add git-source install support on top of the existing local-directory
+4. Add git-source install support on top of the existing local-directory
    `rara plugin install/list/remove` commands.
-4. Feed plugin `.mcp.json`, commands, skills, and agents into the same
+5. Feed plugin `.mcp.json`, commands, skills, and agents into the same
    structured extension-source registries used by native RARA features.
 
 ## Open Risks

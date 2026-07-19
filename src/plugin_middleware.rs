@@ -4,7 +4,8 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use rara_plugins::{
-    HookEvent, HookInput, PluginSource, discover_plugins_from_source, execute_command_hook,
+    HookEvent, HookInput, PluginDiscoverySource, PluginSource, discover_plugins_from_sources,
+    execute_command_hook,
 };
 
 use crate::agent::AgentEvent;
@@ -33,14 +34,16 @@ fn hook_event_to_lifecycle(event: HookEvent) -> HookLifecycle {
 
 pub async fn register_plugin_hooks(
     runtime: &Arc<HookRuntime>,
-    project_plugins_dir: &Path,
+    rara_home: &Path,
+    workspace_root: &Path,
+    explicit_plugin_dirs: &[PathBuf],
     session_id: &str,
 ) -> usize {
     let runtime = runtime.clone();
-    let project_plugins_dir = project_plugins_dir.to_path_buf();
+    let sources = plugin_discovery_sources(rara_home, workspace_root, explicit_plugin_dirs);
     let session_id = session_id.to_string();
     match tokio::task::spawn_blocking(move || {
-        register_plugin_hooks_blocking(&runtime, &project_plugins_dir, &session_id)
+        register_plugin_hooks_blocking(&runtime, sources, &session_id)
     })
     .await
     {
@@ -52,15 +55,41 @@ pub async fn register_plugin_hooks(
     }
 }
 
+fn plugin_discovery_sources(
+    rara_home: &Path,
+    workspace_root: &Path,
+    explicit_plugin_dirs: &[PathBuf],
+) -> Vec<PluginDiscoverySource> {
+    let user_plugins_dir = rara_home.join("plugins");
+    let project_plugins_dir = workspace_root.join(".rara").join("plugins");
+    let mut sources = vec![
+        PluginDiscoverySource {
+            plugins_dir: user_plugins_dir.clone(),
+            source: PluginSource::User(user_plugins_dir),
+        },
+        PluginDiscoverySource {
+            plugins_dir: project_plugins_dir.clone(),
+            source: PluginSource::Project(project_plugins_dir),
+        },
+    ];
+    sources.extend(
+        explicit_plugin_dirs
+            .iter()
+            .cloned()
+            .map(|plugins_dir| PluginDiscoverySource {
+                plugins_dir: plugins_dir.clone(),
+                source: PluginSource::Cli(plugins_dir),
+            }),
+    );
+    sources
+}
+
 fn register_plugin_hooks_blocking(
     runtime: &Arc<HookRuntime>,
-    project_plugins_dir: &Path,
+    sources: Vec<PluginDiscoverySource>,
     session_id: &str,
 ) -> usize {
-    let plugins = discover_plugins_from_source(
-        project_plugins_dir,
-        PluginSource::Project(project_plugins_dir.to_path_buf()),
-    );
+    let plugins = discover_plugins_from_sources(&sources);
     let mut registered = 0usize;
 
     for plugin in &plugins {
@@ -126,5 +155,97 @@ fn extract_tool_name(event: &AgentEvent) -> Option<String> {
         AgentEvent::ToolUse { name, .. } => Some(name.clone()),
         AgentEvent::ToolResult { name, .. } => Some(name.clone()),
         _ => None,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::fs;
+
+    use serde_json::json;
+    use tempfile::tempdir;
+
+    use super::*;
+    use crate::runtime_event_bus::RuntimeEventBus;
+
+    #[test]
+    fn plugin_discovery_sources_order_user_project_then_cli() {
+        let dir = tempdir().expect("tempdir");
+        let rara_home = dir.path().join("home").join(".rara");
+        let workspace_root = dir.path().join("workspace");
+        let explicit_plugins_dir = dir.path().join("explicit-plugins");
+
+        let sources = plugin_discovery_sources(
+            &rara_home,
+            &workspace_root,
+            std::slice::from_ref(&explicit_plugins_dir),
+        );
+
+        assert_eq!(sources.len(), 3);
+        assert_eq!(sources[0].source.label(), "user");
+        assert_eq!(sources[0].plugins_dir, rara_home.join("plugins"));
+        assert_eq!(sources[1].source.label(), "project");
+        assert_eq!(
+            sources[1].plugins_dir,
+            workspace_root.join(".rara").join("plugins")
+        );
+        assert_eq!(sources[2].source.label(), "cli");
+        assert_eq!(sources[2].plugins_dir, explicit_plugins_dir);
+    }
+
+    #[tokio::test]
+    async fn registers_user_and_project_plugins_with_project_precedence() {
+        let dir = tempdir().expect("tempdir");
+        let rara_home = dir.path().join("home").join(".rara");
+        let workspace_root = dir.path().join("workspace");
+        let user_plugins_dir = rara_home.join("plugins");
+        let project_plugins_dir = workspace_root.join(".rara").join("plugins");
+        write_test_plugin(&user_plugins_dir.join("shared"), "shared", "echo user");
+        write_test_plugin(
+            &project_plugins_dir.join("shared"),
+            "shared",
+            "echo project",
+        );
+        write_test_plugin(
+            &project_plugins_dir.join("project-only"),
+            "project-only",
+            "echo project-only",
+        );
+
+        let runtime = Arc::new(HookRuntime::new(Arc::new(RuntimeEventBus::new(4))));
+        let registered =
+            register_plugin_hooks(&runtime, &rara_home, &workspace_root, &[], "session-1").await;
+
+        assert_eq!(registered, 2);
+        assert_eq!(runtime.hook_count(), 2);
+    }
+
+    fn write_test_plugin(root: &Path, name: &str, command: &str) {
+        fs::create_dir_all(root.join(".claude-plugin")).expect("metadata dir");
+        fs::write(
+            root.join(".claude-plugin").join("plugin.json"),
+            json!({
+                "name": name,
+                "version": "1.0.0",
+                "description": "test plugin"
+            })
+            .to_string(),
+        )
+        .expect("plugin json");
+        fs::create_dir_all(root.join("hooks")).expect("hooks dir");
+        fs::write(
+            root.join("hooks").join("hooks.json"),
+            json!({
+                "Stop": [{
+                    "hooks": [{
+                        "type": "command",
+                        "command": command,
+                        "timeout": 1
+                    }]
+                }]
+            })
+            .to_string(),
+        )
+        .expect("hooks json");
     }
 }
