@@ -3,7 +3,9 @@
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use rara_plugins::{HookEvent, HookInput, discover_plugins, execute_command_hook};
+use rara_plugins::{
+    HookEvent, HookInput, PluginSource, discover_plugins_from_source, execute_command_hook,
+};
 
 use crate::agent::AgentEvent;
 use crate::hook_runtime::HookRuntime;
@@ -55,7 +57,10 @@ fn register_plugin_hooks_blocking(
     user_plugins_dir: &Path,
     session_id: &str,
 ) -> usize {
-    let plugins = discover_plugins(user_plugins_dir);
+    let plugins = discover_plugins_from_source(
+        user_plugins_dir,
+        PluginSource::Project(user_plugins_dir.to_path_buf()),
+    );
     let mut registered = 0usize;
 
     for plugin in &plugins {

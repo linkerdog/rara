@@ -72,7 +72,10 @@ fn workspace_plugins_dir_for(workspace_root: &Path) -> PathBuf {
 
 fn list_plugins_for_workspace(workspace_root: &Path) -> Vec<rara_plugins::Plugin> {
     let plugins_dir = workspace_plugins_dir_for(workspace_root);
-    let mut plugins = rara_plugins::discover_plugins(&plugins_dir);
+    let mut plugins = rara_plugins::discover_plugins_from_source(
+        &plugins_dir,
+        rara_plugins::PluginSource::Project(plugins_dir.clone()),
+    );
     plugins.sort_by(|a, b| a.name.cmp(&b.name));
     plugins
 }
@@ -88,7 +91,11 @@ fn install_plugin_for_workspace(
     if !source.is_dir() {
         bail!("plugin source must be a directory: {}", source.display());
     }
-    let plugin = rara_plugins::load_plugin(&source).with_context(|| {
+    let plugin = rara_plugins::load_plugin_with_source(
+        &source,
+        rara_plugins::PluginSource::Cli(source.clone()),
+    )
+    .with_context(|| {
         format!(
             "plugin source {} must contain .claude-plugin/plugin.json",
             source.display()
@@ -204,6 +211,7 @@ mod tests {
         let plugins = list_plugins_for_workspace(workspace.path());
         assert_eq!(plugins.len(), 1);
         assert_eq!(plugins[0].name, "test-plugin");
+        assert_eq!(plugins[0].source.label(), "project");
 
         remove_plugin_for_workspace(workspace.path(), "test-plugin").expect("remove plugin");
         assert!(list_plugins_for_workspace(workspace.path()).is_empty());
