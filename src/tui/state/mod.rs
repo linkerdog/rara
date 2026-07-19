@@ -302,6 +302,7 @@ impl TuiApp {
             skill_source_registry: None,
             hook_registry: None,
             hook_runtime: None,
+            explicit_plugin_dirs: Vec::new(),
             memory_handler: None,
             provider_connection_status: std::collections::HashMap::new(),
             repo_context_task: None,

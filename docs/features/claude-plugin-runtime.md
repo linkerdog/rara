@@ -71,7 +71,7 @@ RARA will scan:
 |---|---|---|
 | `~/.rara/plugins/<name>/` | User | per-user plugins |
 | `<workspace>/.rara/plugins/<name>/` | Project | per-project plugins |
-| `--plugin-dir <path>` | CLI | manual override |
+| `--plugin-dir <path>` | CLI | manual override for TUI sessions |
 
 A valid plugin directory contains:
 
@@ -274,15 +274,16 @@ Implemented in the first merged slice:
   name.
 - User plugin home resolution happens on the blocking registration worker. If
   user plugin home cannot be resolved, project plugin registration still runs.
-- The middleware API accepts explicit CLI plugin directories as the final source
-  tier, but the user-facing CLI flag for passing those directories remains a
-  follow-up.
+- TUI and `resume` startup accept repeated `--plugin-dir <path>` global CLI
+  flags and pass those directories into plugin hook registration as the final
+  source tier. CLI plugin directories override project and user plugins with the
+  same plugin name.
 
 Next implementation slices:
 
 1. Extend plugin source composition beyond the TUI rebuild path to headless,
    ACP, and Wire runtime startup.
-2. Add a user-facing CLI/config path for explicit plugin directories.
+2. Add config persistence for explicit plugin directories.
 3. Fix lifecycle parity gaps before broad user-facing rollout: `SessionEnd` mapping,
    matcher evaluation, blocking hook results, and hook output observability.
 4. Add git-source install support on top of the existing local-directory

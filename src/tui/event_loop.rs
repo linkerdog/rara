@@ -1,3 +1,4 @@
+use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::atomic::AtomicBool;
 
@@ -54,6 +55,7 @@ pub async fn run_tui(
     hook_registry: Arc<crate::hook_registry::HookRegistry>,
     lsp_manager: Arc<LspManager>,
     initialize_local_embeddings: bool,
+    explicit_plugin_dirs: Vec<PathBuf>,
 ) -> anyhow::Result<Option<String>> {
     enable_raw_mode()?;
     let initial_size = terminal_size()?;
@@ -67,6 +69,7 @@ pub async fn run_tui(
     app.prompt_source_registry = Some(prompt_source_registry);
     app.skill_source_registry = Some(skill_source_registry);
     app.hook_registry = Some(hook_registry);
+    app.explicit_plugin_dirs = explicit_plugin_dirs;
     app.lsp_manager = Some(lsp_manager);
     app.memory_handler = Some(Arc::new(
         crate::protocol_sources::MemoryControlHandler::with_store(

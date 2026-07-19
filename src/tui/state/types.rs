@@ -761,6 +761,7 @@ pub struct TuiApp {
     pub skill_source_registry: Option<Arc<SkillSourceRegistry>>,
     pub hook_registry: Option<Arc<HookRegistry>>,
     pub hook_runtime: Option<Arc<crate::hook_runtime::HookRuntime>>,
+    pub explicit_plugin_dirs: Vec<PathBuf>,
     pub memory_handler: Option<Arc<MemoryControlHandler>>,
     pub provider_connection_status: std::collections::HashMap<ProviderFamily, bool>,
     pub repo_context_task: Option<JoinHandle<(Option<String>, Option<String>)>>,
