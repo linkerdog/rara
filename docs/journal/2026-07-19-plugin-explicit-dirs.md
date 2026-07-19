@@ -16,9 +16,13 @@ directory testing dependent on code-level call sites.
 ## Scope
 
 - Added a global `--plugin-dir DIR` CLI flag.
-- Preserved the parsed directories through TUI and `resume` startup.
+- Normalized parsed directories to absolute paths during CLI startup.
+- Preserved the normalized directories through TUI and `resume` startup.
 - Stored explicit plugin directories on `TuiApp` so runtime rebuild hook
   registration can pass them into `register_plugin_hooks`.
+- Triggered the TUI runtime rebuild path when explicit plugin directories are
+  supplied so plugin hook registration runs even when local embedding startup is
+  disabled.
 - Kept headless, ACP, and Wire runtime startup out of scope because those
   surfaces still need plugin hook execution ownership work.
 
@@ -27,6 +31,7 @@ directory testing dependent on code-level call sites.
 ```bash
 cargo test app_cli::tests::clap_parses_explicit_plugin_dirs_as_global_args -- --nocapture
 cargo test app_cli::tests::clap_parses_explicit_plugin_dirs_after_tui_command -- --nocapture
+cargo test app_cli::tests::normalize_plugin_dirs_returns_absolute_paths -- --nocapture
 cargo test tui::state::tests::new_starts_without_explicit_plugin_dirs -- --nocapture
 cargo test plugin_middleware::tests::plugin_discovery_sources_order_user_project_then_cli -- --nocapture
 cargo check --locked --workspace --all-targets

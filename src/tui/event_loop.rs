@@ -115,9 +115,16 @@ pub async fn run_tui(
 
     maintainer.sync_snapshot();
     maintainer.start_repo_context_detection();
-    if initialize_local_embeddings {
+    if should_start_initial_rebuild(
+        initialize_local_embeddings,
+        &maintainer.app().explicit_plugin_dirs,
+    ) {
         let (app, _) = maintainer.split_mut();
-        app.push_entry("Runtime", "Initializing local embedding model.");
+        if initialize_local_embeddings {
+            app.push_entry("Runtime", "Initializing local embedding model.");
+        } else {
+            app.push_entry("Runtime", "Loading explicit plugin directories.");
+        }
         super::runtime::start_rebuild_task(app);
     }
 
@@ -219,4 +226,28 @@ pub async fn run_tui(
                 .then(|| maintainer.app().snapshot.session_id.clone())
         });
     Ok(session_id)
+}
+
+fn should_start_initial_rebuild(
+    initialize_local_embeddings: bool,
+    explicit_plugin_dirs: &[PathBuf],
+) -> bool {
+    initialize_local_embeddings || !explicit_plugin_dirs.is_empty()
+}
+
+#[cfg(test)]
+mod tests {
+    use std::path::PathBuf;
+
+    use super::should_start_initial_rebuild;
+
+    #[test]
+    fn initial_rebuild_starts_for_embeddings_or_explicit_plugin_dirs() {
+        assert!(should_start_initial_rebuild(true, &[]));
+        assert!(should_start_initial_rebuild(
+            false,
+            &[PathBuf::from("/plugins")]
+        ));
+        assert!(!should_start_initial_rebuild(false, &[]));
+    }
 }

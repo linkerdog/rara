@@ -277,7 +277,10 @@ Implemented in the first merged slice:
 - TUI and `resume` startup accept repeated `--plugin-dir <path>` global CLI
   flags and pass those directories into plugin hook registration as the final
   source tier. CLI plugin directories override project and user plugins with the
-  same plugin name.
+  same plugin name. Relative CLI plugin directories are normalized to absolute
+  paths during CLI startup. Supplying explicit plugin directories triggers the
+  TUI runtime rebuild path on startup so the hook runtime is created and plugin
+  hooks are registered even when local embedding startup is disabled.
 
 Next implementation slices:
 

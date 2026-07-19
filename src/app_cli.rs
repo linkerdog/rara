@@ -1,4 +1,4 @@
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
@@ -190,7 +190,7 @@ enum Commands {
 
 pub(crate) async fn run_cli() -> Result<()> {
     let cli = Cli::parse();
-    let plugin_dirs = cli.plugin_dirs.clone();
+    let plugin_dirs = normalize_plugin_dirs(&cli.plugin_dirs)?;
     let config_manager = ConfigManager::new()?;
     let mut config = config_manager.load()?;
     let command = apply_cli_overrides(&mut config, cli);
@@ -266,6 +266,21 @@ fn apply_cli_overrides(config: &mut RaraConfig, cli: Cli) -> Option<Commands> {
         config.set_revision(Some(revision));
     }
     cli.command
+}
+
+fn normalize_plugin_dirs(plugin_dirs: &[PathBuf]) -> Result<Vec<PathBuf>> {
+    plugin_dirs
+        .iter()
+        .map(|path| normalize_plugin_dir(path))
+        .collect()
+}
+
+fn normalize_plugin_dir(path: &Path) -> Result<PathBuf> {
+    match path.canonicalize() {
+        Ok(path) => Ok(path),
+        Err(_) if path.is_absolute() => Ok(path.to_path_buf()),
+        Err(_) => Ok(std::env::current_dir()?.join(path)),
+    }
 }
 
 async fn run_acp_command(config: &RaraConfig) -> Result<()> {
@@ -745,6 +760,22 @@ mod tests {
 
         assert_eq!(cli.plugin_dirs, vec![PathBuf::from("plugins-a")]);
         assert!(matches!(cli.command, Some(Commands::Tui)));
+    }
+
+    #[test]
+    fn normalize_plugin_dirs_returns_absolute_paths() {
+        let cwd = std::env::current_dir().expect("cwd");
+        let normalized = normalize_plugin_dirs(&[
+            PathBuf::from("."),
+            PathBuf::from("missing-plugin-dir"),
+            cwd.join("missing-absolute-plugin-dir"),
+        ])
+        .expect("normalize plugin dirs");
+
+        assert_eq!(normalized[0], cwd.canonicalize().expect("canonical cwd"));
+        assert_eq!(normalized[1], cwd.join("missing-plugin-dir"));
+        assert_eq!(normalized[2], cwd.join("missing-absolute-plugin-dir"));
+        assert!(normalized.iter().all(|path| path.is_absolute()));
     }
 
     #[test]
