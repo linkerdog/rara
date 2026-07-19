@@ -3,7 +3,9 @@
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use rara_plugins::{HookEvent, HookInput, discover_plugins, execute_command_hook};
+use rara_plugins::{
+    HookEvent, HookInput, PluginSource, discover_plugins_from_source, execute_command_hook,
+};
 
 use crate::agent::AgentEvent;
 use crate::hook_runtime::HookRuntime;
@@ -31,14 +33,14 @@ fn hook_event_to_lifecycle(event: HookEvent) -> HookLifecycle {
 
 pub async fn register_plugin_hooks(
     runtime: &Arc<HookRuntime>,
-    user_plugins_dir: &Path,
+    project_plugins_dir: &Path,
     session_id: &str,
 ) -> usize {
     let runtime = runtime.clone();
-    let user_plugins_dir = user_plugins_dir.to_path_buf();
+    let project_plugins_dir = project_plugins_dir.to_path_buf();
     let session_id = session_id.to_string();
     match tokio::task::spawn_blocking(move || {
-        register_plugin_hooks_blocking(&runtime, &user_plugins_dir, &session_id)
+        register_plugin_hooks_blocking(&runtime, &project_plugins_dir, &session_id)
     })
     .await
     {
@@ -52,10 +54,13 @@ pub async fn register_plugin_hooks(
 
 fn register_plugin_hooks_blocking(
     runtime: &Arc<HookRuntime>,
-    user_plugins_dir: &Path,
+    project_plugins_dir: &Path,
     session_id: &str,
 ) -> usize {
-    let plugins = discover_plugins(user_plugins_dir);
+    let plugins = discover_plugins_from_source(
+        project_plugins_dir,
+        PluginSource::Project(project_plugins_dir.to_path_buf()),
+    );
     let mut registered = 0usize;
 
     for plugin in &plugins {

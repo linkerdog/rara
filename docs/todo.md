@@ -135,5 +135,8 @@ Active backlog only. Keep this file small and current.
 
 ## Long-term
 
-- [ ] Claude plugin runtime integration
+- [x] Claude plugin discovery source metadata and ordered de-duplication.
+- [ ] Claude plugin runtime startup across user, project, and explicit CLI plugin directories.
+- [ ] Claude plugin lifecycle parity: `SessionEnd`, matcher evaluation, blocking results, and output observability.
+- [ ] Claude plugin extension registries for `.mcp.json`, commands, skills, and agents.
 - [ ] Control-plane readiness for new features

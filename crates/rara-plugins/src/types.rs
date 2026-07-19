@@ -1,7 +1,35 @@
 use std::collections::BTreeMap;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use serde::Deserialize;
+
+/// Origin of a discovered Claude Code plugin.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum PluginSource {
+    User(PathBuf),
+    Project(PathBuf),
+    Cli(PathBuf),
+    Directory(PathBuf),
+}
+
+impl PluginSource {
+    pub fn path(&self) -> &Path {
+        match self {
+            Self::User(path) | Self::Project(path) | Self::Cli(path) | Self::Directory(path) => {
+                path
+            }
+        }
+    }
+
+    pub fn label(&self) -> &'static str {
+        match self {
+            Self::User(_) => "user",
+            Self::Project(_) => "project",
+            Self::Cli(_) => "cli",
+            Self::Directory(_) => "directory",
+        }
+    }
+}
 
 /// A loaded Claude Code plugin.
 #[derive(Debug, Clone)]
@@ -10,6 +38,7 @@ pub struct Plugin {
     pub version: Option<String>,
     pub description: String,
     pub root: PathBuf,
+    pub source: PluginSource,
     pub hooks: Vec<HookHandler>,
     pub mcp_config: Option<McpConfig>,
     pub load_warnings: Vec<String>,

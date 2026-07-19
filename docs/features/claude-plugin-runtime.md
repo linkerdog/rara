@@ -261,19 +261,23 @@ Implemented in the first merged slice:
 - `.claude-plugin/plugin.json` and `hooks/hooks.json` are parsed.
 - Command hooks can be executed with stdin JSON, timeout handling, exit-code
   reporting, and stdout parsing.
-- A middleware bridge exists in `src/plugin_middleware.rs`, but it is not yet
-  part of the runtime startup path.
-- The current discovery API scans one plugin directory at a time; the target
-  user/project/CLI precedence and dedupe contract remains to be implemented.
+- A middleware bridge exists in `src/plugin_middleware.rs` and is used by the
+  TUI runtime rebuild path for workspace plugin hook registration.
+- The discovery API can scan a single directory with source metadata or scan
+  multiple ordered sources with name-based de-duplication. Later sources in the
+  ordered list override earlier sources, so callers own their precedence policy.
+- Workspace plugin CLI and runtime hook registration currently use the project
+  source for `<workspace>/.rara/plugins`.
 
 Next implementation slices:
 
-1. Register discovered plugin hooks during runtime bootstrap and make the path
-   work for TUI, CLI, ACP, and Wire surfaces.
-2. Fix lifecycle parity gaps before user-facing rollout: `SessionEnd` mapping,
+1. Extend runtime startup beyond the TUI rebuild path and combine user,
+   project, and explicit CLI plugin directories through the ordered discovery
+   API.
+2. Fix lifecycle parity gaps before broad user-facing rollout: `SessionEnd` mapping,
    matcher evaluation, blocking hook results, and hook output observability.
-3. Add `rara plugin install/list/remove` with explicit trust copy and git/local
-   source handling.
+3. Add git-source install support on top of the existing local-directory
+   `rara plugin install/list/remove` commands.
 4. Feed plugin `.mcp.json`, commands, skills, and agents into the same
    structured extension-source registries used by native RARA features.
 
@@ -293,3 +297,4 @@ Next implementation slices:
 
 - `docs/journal/2026-05-12-claude-plugin-runtime.md`
 - `docs/journal/2026-05-12-main-sync-development-plan.md`
+- `docs/journal/2026-07-19-plugin-source-discovery.md`

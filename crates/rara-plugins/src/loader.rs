@@ -1,9 +1,17 @@
+use std::collections::BTreeMap;
 use std::fs;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use serde::Deserialize;
 
-use crate::types::{HookEvent, HookHandler, McpConfig, Plugin, RegisteredHook};
+use crate::types::{HookEvent, HookHandler, McpConfig, Plugin, PluginSource, RegisteredHook};
+
+/// Directory to scan with the source metadata attached to loaded plugins.
+#[derive(Debug, Clone)]
+pub struct PluginDiscoverySource {
+    pub plugins_dir: PathBuf,
+    pub source: PluginSource,
+}
 
 /// Parsed hooks.json content.
 #[derive(Debug, Clone, Deserialize)]
@@ -43,6 +51,30 @@ struct PluginJson {
 
 /// Discover and load all plugins from a directory.
 pub fn discover_plugins(plugins_dir: &Path) -> Vec<Plugin> {
+    discover_plugins_from_source(
+        plugins_dir,
+        PluginSource::Directory(plugins_dir.to_path_buf()),
+    )
+}
+
+/// Discover plugins across multiple directories and de-duplicate by plugin name.
+///
+/// Later sources in the slice override earlier sources with the same plugin
+/// name, so callers can express their precedence rules by source ordering.
+/// The returned vector is sorted by plugin name for deterministic consumers; it
+/// does not preserve source or filesystem discovery order.
+pub fn discover_plugins_from_sources(sources: &[PluginDiscoverySource]) -> Vec<Plugin> {
+    let mut plugins_by_name = BTreeMap::new();
+    for source in sources {
+        for plugin in discover_plugins_from_source(&source.plugins_dir, source.source.clone()) {
+            plugins_by_name.insert(plugin.name.clone(), plugin);
+        }
+    }
+    plugins_by_name.into_values().collect()
+}
+
+/// Discover and load all plugins from one directory with explicit source metadata.
+pub fn discover_plugins_from_source(plugins_dir: &Path, source: PluginSource) -> Vec<Plugin> {
     let mut plugins = Vec::new();
     let entries = match fs::read_dir(plugins_dir) {
         Ok(e) => e,
@@ -53,7 +85,7 @@ pub fn discover_plugins(plugins_dir: &Path) -> Vec<Plugin> {
         if !path.is_dir() {
             continue;
         }
-        if let Some(plugin) = load_plugin(&path) {
+        if let Some(plugin) = load_plugin_with_source(&path, source.clone()) {
             plugins.push(plugin);
         }
     }
@@ -62,6 +94,11 @@ pub fn discover_plugins(plugins_dir: &Path) -> Vec<Plugin> {
 
 /// Load a single plugin from a directory.
 pub fn load_plugin(root: &Path) -> Option<Plugin> {
+    load_plugin_with_source(root, PluginSource::Directory(root.to_path_buf()))
+}
+
+/// Load a single plugin from a directory with explicit source metadata.
+pub fn load_plugin_with_source(root: &Path, source: PluginSource) -> Option<Plugin> {
     let plugin_dir = root.join(".claude-plugin");
     if !plugin_dir.is_dir() {
         return None;
@@ -115,6 +152,7 @@ pub fn load_plugin(root: &Path) -> Option<Plugin> {
         version,
         description,
         root: root.to_path_buf(),
+        source,
         hooks,
         mcp_config,
         load_warnings,
@@ -261,11 +299,68 @@ mod tests {
         let plugin = load_plugin(dir.path()).unwrap();
         assert_eq!(plugin.name, "test-plugin");
         assert_eq!(plugin.version.as_deref(), Some("1.0.0"));
+        assert_eq!(plugin.source.label(), "directory");
         assert_eq!(plugin.hooks.len(), 1);
 
         let registered = registered_hooks_for_plugin(&plugin);
         assert_eq!(registered.len(), 1);
         assert_eq!(registered[0].event, HookEvent::Stop);
         assert_eq!(registered[0].handler.command, "echo ok");
+    }
+
+    #[test]
+    fn discovers_plugins_from_sources_with_later_source_precedence() {
+        let user_dir = tempfile::tempdir().unwrap();
+        let project_dir = tempfile::tempdir().unwrap();
+        let user_plugin = user_dir.path().join("shared-plugin");
+        let project_plugin = project_dir.path().join("shared-plugin");
+        write_test_plugin(&user_plugin, "shared-plugin", "user plugin");
+        write_test_plugin(&project_plugin, "shared-plugin", "project plugin");
+        write_test_plugin(
+            &project_dir.path().join("project-only"),
+            "project-only",
+            "project only",
+        );
+
+        let plugins = discover_plugins_from_sources(&[
+            PluginDiscoverySource {
+                plugins_dir: user_dir.path().to_path_buf(),
+                source: PluginSource::User(user_dir.path().to_path_buf()),
+            },
+            PluginDiscoverySource {
+                plugins_dir: project_dir.path().to_path_buf(),
+                source: PluginSource::Project(project_dir.path().to_path_buf()),
+            },
+        ]);
+
+        assert_eq!(plugins.len(), 2);
+        let shared = plugins
+            .iter()
+            .find(|plugin| plugin.name == "shared-plugin")
+            .expect("shared plugin");
+        assert_eq!(shared.description, "project plugin");
+        assert_eq!(shared.source.label(), "project");
+        assert!(matches!(shared.source, PluginSource::Project(_)));
+
+        let project_only = plugins
+            .iter()
+            .find(|plugin| plugin.name == "project-only")
+            .expect("project-only plugin");
+        assert_eq!(project_only.source.label(), "project");
+    }
+
+    fn write_test_plugin(root: &Path, name: &str, description: &str) {
+        let plugin_dir = root.join(".claude-plugin");
+        fs::create_dir_all(&plugin_dir).unwrap();
+        fs::write(
+            plugin_dir.join("plugin.json"),
+            json!({
+                "name": name,
+                "version": "1.0.0",
+                "description": description
+            })
+            .to_string(),
+        )
+        .unwrap();
     }
 }
