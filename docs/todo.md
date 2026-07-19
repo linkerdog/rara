@@ -116,7 +116,9 @@ Active backlog only. Keep this file small and current.
 
 ## Configuration
 
-- [ ] Explicit embedding controls: enable/disable, provider override (low priority)
+- [x] Default bundled local embedding sidecar startup to off while preserving
+      explicit `local_embeddings = "auto"` opt-in.
+- [ ] Explicit embedding provider override beyond `off` / `auto` (low priority)
 
 ## ACP Compatibility
 

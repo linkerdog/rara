@@ -2,11 +2,16 @@
 
 ## Summary
 
-Local embedding sidecar startup remains enabled by default through the existing
-provider-aware `auto` policy. Terminal-Bench runs disable local embeddings
-through the Harbor adapter environment so benchmark startup does not create a
-Python environment, download embedding models, or start the model server before
-the task begins.
+This checkpoint introduced the initial local embedding sidecar policy before
+the later default-off change. At the time, local embedding sidecar startup
+remained enabled by default through the provider-aware `auto` policy, while
+Terminal-Bench runs disabled local embeddings through the Harbor adapter
+environment so benchmark startup did not create a Python environment, download
+embedding models, or start the model server before the task began.
+
+See `docs/journal/2026-07-19-local-embedding-default-off.md` for the follow-up
+that made bundled local embedding startup default-off while preserving explicit
+opt-in.
 
 ## Scope
 
