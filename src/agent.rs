@@ -999,6 +999,8 @@ impl Agent {
     {
         let mut plan_exit_repair_attempts = 0usize;
         let mut stop_hook_continuations = 0usize;
+        let mut session_end_last_assistant_message: Option<String> = None;
+        let mut should_run_session_end_hooks = false;
         loop {
             if let Some(max) = self.max_turns
                 && *agentic_turns >= max
@@ -1009,6 +1011,8 @@ impl Agent {
                 report(AgentEvent::Status(format!(
                     "Agent reached max-turns limit ({max})",
                 )));
+                session_end_last_assistant_message = self.latest_assistant_message_text();
+                should_run_session_end_hooks = true;
                 break;
             }
             if let Some(budget) = self.token_budget
@@ -1022,6 +1026,8 @@ impl Agent {
                     "Agent reached token budget ({}/{budget})",
                     self.total_model_tokens()
                 )));
+                session_end_last_assistant_message = self.latest_assistant_message_text();
+                should_run_session_end_hooks = true;
                 break;
             }
             self.ensure_active_plan_step();
@@ -1041,7 +1047,15 @@ impl Agent {
                     });
                 }
             }
-            let mut turn_output = self.run_model_turn(output_mode, report).await?;
+            let mut turn_output = match self.run_model_turn(output_mode, report).await {
+                Ok(turn_output) => turn_output,
+                Err(err) if is_interrupt_error(&err) => {
+                    self.run_session_end_plugin_hooks(self.latest_assistant_message_text(), true)
+                        .await;
+                    return Err(err);
+                }
+                Err(err) => return Err(err),
+            };
             self.record_agent_turn_trace(&turn_output, *agentic_turns, None, None, false);
             self.last_query_plan_updated = turn_output.plan_updated;
             if !turn_output.tool_calls.is_empty() {
@@ -1119,6 +1133,8 @@ impl Agent {
                     false,
                 );
                 self.checkpoint_session()?;
+                session_end_last_assistant_message = self.latest_assistant_message_text();
+                should_run_session_end_hooks = true;
                 break;
             }
             let last_assistant_message = turn_output
@@ -1250,6 +1266,8 @@ impl Agent {
                     assistant_message_recorded,
                 );
                 self.complete_active_plan_step();
+                session_end_last_assistant_message = last_assistant_message;
+                should_run_session_end_hooks = true;
                 break;
             }
             *agentic_turns += 1;
@@ -1271,7 +1289,31 @@ impl Agent {
             self.advance_plan_step();
             self.extend_history_for_next_turn(tool_results, report, *agentic_turns)?;
         }
+        if should_run_session_end_hooks {
+            self.run_session_end_plugin_hooks(session_end_last_assistant_message, false)
+                .await;
+        }
         Ok(())
+    }
+
+    async fn run_session_end_plugin_hooks(
+        &self,
+        last_assistant_message: Option<String>,
+        is_interrupt: bool,
+    ) {
+        if let Some(plugin_hooks) = self.plugin_hook_runtime.clone() {
+            plugin_hooks
+                .run_session_end(last_assistant_message.as_deref(), is_interrupt)
+                .await;
+        }
+    }
+
+    fn latest_assistant_message_text(&self) -> Option<String> {
+        self.history
+            .iter()
+            .rev()
+            .find(|message| message.role == "assistant")
+            .and_then(message_text)
     }
 
     fn run_stop_hooks<F>(
@@ -1862,6 +1904,18 @@ fn recoverable_runtime_error_kind(err: &anyhow::Error) -> Option<&'static str> {
     } else {
         None
     }
+}
+
+fn is_interrupt_error(err: &anyhow::Error) -> bool {
+    err.chain().any(|cause| {
+        cause
+            .downcast_ref::<std::io::Error>()
+            .is_some_and(|io_err| io_err.kind() == std::io::ErrorKind::Interrupted)
+            || cause
+                .to_string()
+                .to_ascii_lowercase()
+                .contains("cancelled by user")
+    })
 }
 
 fn recoverable_runtime_error_message(kind: &str, err: &anyhow::Error) -> Message {
