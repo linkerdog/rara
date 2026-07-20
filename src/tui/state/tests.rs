@@ -428,6 +428,17 @@ fn new_does_not_detect_repo_context_synchronously() {
 }
 
 #[test]
+fn new_starts_without_explicit_plugin_dirs() {
+    let dir = tempdir().expect("tempdir");
+    let cm = ConfigManager {
+        path: dir.path().join("config.json"),
+    };
+    let app = TuiApp::new(cm).expect("app");
+
+    assert!(app.explicit_plugin_dirs.is_empty());
+}
+
+#[test]
 fn push_entry_keeps_manual_transcript_scroll_position() {
     let dir = tempdir().expect("tempdir");
     let cm = ConfigManager {

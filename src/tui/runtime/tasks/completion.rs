@@ -296,7 +296,7 @@ pub(crate) async fn finish_running_task_if_ready(
                         hr,
                         None,
                         &workspace_root,
-                        &[],
+                        &app.explicit_plugin_dirs,
                         &agent.session_id,
                     )
                     .await;

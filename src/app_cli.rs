@@ -1,4 +1,4 @@
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
@@ -42,6 +42,10 @@ pub(crate) struct Cli {
 
     #[arg(long, global = true)]
     revision: Option<String>,
+
+    /// Additional Claude plugin directory to scan during TUI startup.
+    #[arg(long = "plugin-dir", value_name = "DIR", global = true)]
+    plugin_dirs: Vec<PathBuf>,
 }
 
 /// Register a model provider.
@@ -186,6 +190,7 @@ enum Commands {
 
 pub(crate) async fn run_cli() -> Result<()> {
     let cli = Cli::parse();
+    let plugin_dirs = normalize_plugin_dirs(&cli.plugin_dirs)?;
     let config_manager = ConfigManager::new()?;
     let mut config = config_manager.load()?;
     let command = apply_cli_overrides(&mut config, cli);
@@ -210,6 +215,7 @@ pub(crate) async fn run_cli() -> Result<()> {
                 oauth_manager,
                 startup_resume_target_for_command(&Commands::Resume { thread_id, last })
                     .expect("resume command should always map to a startup target"),
+                plugin_dirs,
             )
             .await?
         }
@@ -235,6 +241,7 @@ pub(crate) async fn run_cli() -> Result<()> {
                 oauth_manager,
                 startup_resume_target_for_command(&Commands::Tui)
                     .expect("tui command should always map to a startup target"),
+                plugin_dirs,
             )
             .await?
         }
@@ -259,6 +266,21 @@ fn apply_cli_overrides(config: &mut RaraConfig, cli: Cli) -> Option<Commands> {
         config.set_revision(Some(revision));
     }
     cli.command
+}
+
+fn normalize_plugin_dirs(plugin_dirs: &[PathBuf]) -> Result<Vec<PathBuf>> {
+    plugin_dirs
+        .iter()
+        .map(|path| normalize_plugin_dir(path))
+        .collect()
+}
+
+fn normalize_plugin_dir(path: &Path) -> Result<PathBuf> {
+    match path.canonicalize() {
+        Ok(path) => Ok(path),
+        Err(_) if path.is_absolute() => Ok(path.to_path_buf()),
+        Err(_) => Ok(std::env::current_dir()?.join(path)),
+    }
 }
 
 async fn run_acp_command(config: &RaraConfig) -> Result<()> {
@@ -368,6 +390,7 @@ async fn run_tui_command(
     config: &RaraConfig,
     oauth_manager: OAuthManager,
     startup_resume: StartupResumeTarget,
+    plugin_dirs: Vec<PathBuf>,
 ) -> Result<()> {
     let initialize_local_embeddings =
         should_initialize_local_embeddings_on_tui_startup(config).await?;
@@ -410,6 +433,7 @@ async fn run_tui_command(
         hook_registry,
         lsp_manager,
         initialize_local_embeddings,
+        plugin_dirs,
     )
     .await?;
     if let Some(thread_id) = resumed_thread_id {
@@ -708,6 +732,50 @@ mod tests {
             Commands::Ask { prompt } => assert_eq!(prompt, "hello"),
             other => panic!("unexpected command: {other:?}"),
         }
+    }
+
+    #[test]
+    fn clap_parses_explicit_plugin_dirs_as_global_args() {
+        let cli = Cli::try_parse_from([
+            "rara",
+            "--plugin-dir",
+            "plugins-a",
+            "--plugin-dir",
+            "plugins-b",
+            "tui",
+        ])
+        .expect("parse plugin dirs");
+
+        assert_eq!(
+            cli.plugin_dirs,
+            vec![PathBuf::from("plugins-a"), PathBuf::from("plugins-b")]
+        );
+        assert!(matches!(cli.command, Some(Commands::Tui)));
+    }
+
+    #[test]
+    fn clap_parses_explicit_plugin_dirs_after_tui_command() {
+        let cli = Cli::try_parse_from(["rara", "tui", "--plugin-dir", "plugins-a"])
+            .expect("parse plugin dir after tui command");
+
+        assert_eq!(cli.plugin_dirs, vec![PathBuf::from("plugins-a")]);
+        assert!(matches!(cli.command, Some(Commands::Tui)));
+    }
+
+    #[test]
+    fn normalize_plugin_dirs_returns_absolute_paths() {
+        let cwd = std::env::current_dir().expect("cwd");
+        let normalized = normalize_plugin_dirs(&[
+            PathBuf::from("."),
+            PathBuf::from("missing-plugin-dir"),
+            cwd.join("missing-absolute-plugin-dir"),
+        ])
+        .expect("normalize plugin dirs");
+
+        assert_eq!(normalized[0], cwd.canonicalize().expect("canonical cwd"));
+        assert_eq!(normalized[1], cwd.join("missing-plugin-dir"));
+        assert_eq!(normalized[2], cwd.join("missing-absolute-plugin-dir"));
+        assert!(normalized.iter().all(|path| path.is_absolute()));
     }
 
     #[test]
