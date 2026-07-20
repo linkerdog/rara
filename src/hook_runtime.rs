@@ -10,8 +10,6 @@ use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, RwLock};
 
-use serde_json::Value;
-
 use crate::agent::AgentEvent;
 use crate::runtime_control::HookLifecycle;
 use crate::runtime_event_bus::RuntimeEventBus;
@@ -118,10 +116,9 @@ impl HookRuntime {
             return None;
         }
         let hooks = Arc::clone(&self.hooks);
-        let bus = self.bus.clone();
+        let mut rx = self.bus.subscribe();
 
         let handle = tokio::task::spawn(async move {
-            let mut rx = bus.subscribe();
             loop {
                 match rx.recv().await {
                     Ok(event) => {
@@ -171,34 +168,6 @@ fn lifecycle_for_event(event: &AgentEvent) -> Option<HookLifecycle> {
 
 fn lifecycle_matches(lifecycle: &HookLifecycle, event: &AgentEvent) -> bool {
     lifecycle_for_event(event).as_ref() == Some(lifecycle)
-}
-
-// ---------------------------------------------------------------------------
-// Global hook runtime — avoids threading Arc<HookRuntime> through every
-// Agent constructor. Set once by the builder, read by the agent loop.
-// ---------------------------------------------------------------------------
-
-static GLOBAL_HOOK_RUNTIME: std::sync::OnceLock<Arc<HookRuntime>> = std::sync::OnceLock::new();
-
-pub(crate) fn set_global_hook_runtime(hr: Arc<HookRuntime>) {
-    let _ = GLOBAL_HOOK_RUNTIME.set(hr);
-}
-
-pub(crate) fn get_global_hook_runtime() -> Option<&'static Arc<HookRuntime>> {
-    GLOBAL_HOOK_RUNTIME.get()
-}
-
-pub(crate) fn global_modify_tool_input(tool_name: &str, input: Value) -> Value {
-    match GLOBAL_HOOK_RUNTIME.get() {
-        Some(hr) => hr.modify_tool_input(tool_name, input),
-        None => input,
-    }
-}
-
-pub(crate) fn global_dispatch_memory_query(query: &str) {
-    if let Some(hr) = GLOBAL_HOOK_RUNTIME.get() {
-        hr.dispatch_memory_query(query);
-    }
 }
 
 #[cfg(test)]
@@ -268,6 +237,18 @@ mod tests {
             Box::new(|_| {}),
         );
         assert_eq!(runtime.hook_count(), 1);
+    }
+
+    #[tokio::test]
+    async fn start_does_not_capture_runtime_event_bus_arc() {
+        let bus = Arc::new(RuntimeEventBus::new(4));
+        let runtime = HookRuntime::new(bus.clone());
+        let before = Arc::strong_count(&bus);
+
+        let handle = runtime.start().expect("start hook runtime");
+
+        assert_eq!(Arc::strong_count(&bus), before);
+        handle.abort();
     }
 
     #[test]

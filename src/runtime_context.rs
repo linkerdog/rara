@@ -110,6 +110,7 @@ impl RuntimeBootstrap {
                 workspace_root: hook_workspace_root,
                 ..crate::hooks::HookSandbox::default()
             },
+            self.hook_runtime.clone(),
         );
         (
             agent,
@@ -295,7 +296,6 @@ pub(crate) async fn initialize_rara_context_with_options_and_local_embedding_boo
 
     let event_bus = Arc::new(RuntimeEventBus::new(256));
     let hook_runtime = Arc::new(HookRuntime::new(event_bus.clone()));
-    crate::hook_runtime::set_global_hook_runtime(hook_runtime.clone());
     hook_runtime.start();
     let prompt_source_registry = Arc::new(PromptSourceRegistry::new(event_bus.clone()));
     let skill_source_registry = Arc::new(SkillSourceRegistry::new(event_bus.clone()));
@@ -345,6 +345,7 @@ pub(crate) async fn initialize_rara_context_with_options_and_local_embedding_boo
         sandbox_network_access.clone(),
         goal_handle.clone(),
         mcp_tool_cache.clone(),
+        hook_runtime.clone(),
         lsp_manager.clone(),
         agent_definitions.clone(),
     );

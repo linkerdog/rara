@@ -26,6 +26,7 @@ use crate::context::{
     AgentTurnTraceView, FileSearchCandidateProvider, RetrievalCandidate, RetrievedMemoryCandidate,
 };
 use crate::control_tokens::scrub_internal_control_tokens;
+use crate::hook_runtime::HookRuntime;
 use crate::hooks::HookDefinition;
 use crate::hooks::HookParseStatus;
 use crate::hooks::HookRegistry;
@@ -300,6 +301,7 @@ pub struct Agent {
     pub compact_state: CompactState,
     pub hook_registry: Option<Arc<crate::hooks::HookRegistry>>,
     pub hook_sandbox: Option<HookSandbox>,
+    hook_runtime: Option<Arc<HookRuntime>>,
     pub retrieved_memory_candidates: Vec<RetrievedMemoryCandidate>,
     pub file_search_candidates: Vec<RetrievalCandidate>,
     pub mcp_resource_candidates: Vec<RetrievalCandidate>,
@@ -326,9 +328,11 @@ impl Agent {
         &mut self,
         registry: Arc<crate::hooks::HookRegistry>,
         sandbox: HookSandbox,
+        runtime: Arc<HookRuntime>,
     ) {
         self.hook_registry = Some(registry);
         self.hook_sandbox = Some(sandbox);
+        self.hook_runtime = Some(runtime);
     }
 
     /// Accumulate subagent (auxiliary model) cache statistics.
@@ -470,6 +474,7 @@ impl Agent {
             compact_state: CompactState::default(),
             hook_registry: None,
             hook_sandbox: None,
+            hook_runtime: None,
             retrieved_memory_candidates: Vec::new(),
             file_search_candidates: Vec::new(),
             mcp_resource_candidates: Vec::new(),
@@ -887,8 +892,10 @@ impl Agent {
                         name: name.clone(),
                         input: input.clone(),
                     });
-                    let modified_input =
-                        crate::hook_runtime::global_modify_tool_input(name.as_str(), input.clone());
+                    let modified_input = match self.hook_runtime.as_ref() {
+                        Some(runtime) => runtime.modify_tool_input(name.as_str(), input.clone()),
+                        None => input.clone(),
+                    };
                     report(AgentEvent::ToolUse {
                         name: name.clone(),
                         input: modified_input.clone(),
@@ -1010,7 +1017,7 @@ impl Agent {
             self.ensure_active_plan_step();
             // Inject hook outputs as system messages before the model turn
             self.hook_output_candidates.clear();
-            if let Some(hr) = crate::hook_runtime::get_global_hook_runtime() {
+            if let Some(hr) = self.hook_runtime.as_ref() {
                 let outputs = hr.blocking_drain_outputs();
                 self.hook_output_candidates = outputs
                     .iter()

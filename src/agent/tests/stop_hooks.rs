@@ -54,6 +54,9 @@ async fn stop_hook_blocks_completion_and_returns_feedback_to_the_model() {
             workspace_root: temp.path().to_path_buf(),
             ..HookSandbox::default()
         },
+        Arc::new(crate::hook_runtime::HookRuntime::new(Arc::new(
+            crate::runtime_event_bus::RuntimeEventBus::new(4),
+        ))),
     );
 
     let mut events = Vec::new();

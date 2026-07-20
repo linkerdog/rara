@@ -285,8 +285,10 @@ Implemented in the first merged slice:
   plugins, and user plugins with the same plugin name. Relative explicit plugin
   directories are normalized to absolute paths during CLI startup, and duplicate
   normalized directories are scanned only once. Runtime bootstrap creates and
-  starts the hook runtime, then registers plugin command hooks before handing an
-  agent to the surface consumer.
+  starts a session-scoped hook runtime, registers plugin command hooks, and
+  attaches that hook runtime to the agent before handing the agent to the
+  surface consumer. Presentation surfaces must not route plugin behavior
+  through TUI-owned state or process-global strong references.
 - `hooks/hooks.json` matcher groups are preserved on registered hook handlers.
   Tool hook matchers are evaluated before command execution. Empty matchers and
   `*` match all tools; exact tool names are matched case-insensitively; Claude
