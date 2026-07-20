@@ -261,30 +261,32 @@ Implemented in the first merged slice:
 - `.claude-plugin/plugin.json` and `hooks/hooks.json` are parsed.
 - Command hooks can be executed with stdin JSON, timeout handling, exit-code
   reporting, and stdout parsing.
-- A middleware bridge exists in `src/plugin_middleware.rs` and is used by the
-  TUI runtime rebuild path for workspace plugin hook registration.
+- A middleware bridge exists in `src/plugin_middleware.rs` and is owned by
+  runtime bootstrap assembly rather than by any presentation surface.
 - The discovery API can scan a single directory with source metadata or scan
   multiple ordered sources with name-based de-duplication. Later sources in the
   ordered list override earlier sources, so callers own their precedence policy.
 - Workspace plugin CLI uses the project source for
   `<workspace>/.rara/plugins`.
-- TUI runtime hook registration combines `~/.rara/plugins` as the user source
-  and `<workspace>/.rara/plugins` as the project source through the ordered
+- Runtime hook registration combines `~/.rara/plugins` as the user source and
+  `<workspace>/.rara/plugins` as the project source through the ordered
   discovery API. Project plugins override user plugins with the same plugin
-  name.
+  name. The same bootstrap path is used by TUI, ask, print, headless exec,
+  ACP, and Wire surfaces; those surfaces pass runtime options and then render or
+  translate the resulting event stream.
 - User plugin home resolution happens on the blocking registration worker. If
   user plugin home cannot be resolved, project plugin registration still runs.
-- TUI and `resume` startup accept plugin directories from persisted
-  `plugin_dirs` config and repeated `--plugin-dir <path>` global CLI flags.
+- TUI, `resume`, ask, print, headless exec, ACP, and Wire startup accept plugin
+  directories from persisted `plugin_dirs` config and repeated
+  `--plugin-dir <path>` global CLI flags.
   Configured directories are appended before CLI directories, and both are
   passed into plugin hook registration as the final explicit source tier. CLI
   plugin directories therefore override configured explicit directories, project
   plugins, and user plugins with the same plugin name. Relative explicit plugin
   directories are normalized to absolute paths during CLI startup, and duplicate
-  normalized directories are scanned only once. Supplying any explicit plugin
-  directories triggers the TUI runtime rebuild path on startup so the hook
-  runtime is created and plugin hooks are registered even when local embedding
-  startup is disabled.
+  normalized directories are scanned only once. Runtime bootstrap creates and
+  starts the hook runtime, then registers plugin command hooks before handing an
+  agent to the surface consumer.
 - `hooks/hooks.json` matcher groups are preserved on registered hook handlers.
   Tool hook matchers are evaluated before command execution. Empty matchers and
   `*` match all tools; exact tool names are matched case-insensitively; Claude
@@ -293,13 +295,11 @@ Implemented in the first merged slice:
 
 Next implementation slices:
 
-1. Extend plugin source composition beyond the TUI rebuild path to headless,
-   ACP, and Wire runtime startup.
-2. Fix lifecycle parity gaps before broad user-facing rollout: `SessionEnd`
+1. Fix lifecycle parity gaps before broad user-facing rollout: `SessionEnd`
    mapping, blocking hook results, and hook output observability.
-3. Add git-source install support on top of the existing local-directory
+2. Add git-source install support on top of the existing local-directory
    `rara plugin install/list/remove` commands.
-4. Feed plugin `.mcp.json`, commands, skills, and agents into the same
+3. Feed plugin `.mcp.json`, commands, skills, and agents into the same
    structured extension-source registries used by native RARA features.
 
 ## Open Risks
@@ -323,3 +323,4 @@ Next implementation slices:
 - `docs/journal/2026-07-19-plugin-source-discovery.md`
 - `docs/journal/2026-07-20-plugin-dir-config.md`
 - `docs/journal/2026-07-20-plugin-hook-matchers.md`
+- `docs/journal/2026-07-20-plugin-runtime-bootstrap.md`

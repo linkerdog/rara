@@ -200,12 +200,12 @@ pub(crate) async fn run_cli() -> Result<()> {
     let oauth_manager = OAuthManager::new()?;
 
     match command.unwrap_or(Commands::Tui) {
-        Commands::Acp => run_acp_command(&config).await?,
+        Commands::Acp => run_acp_command(&config, plugin_dirs).await?,
         Commands::Connect(args) => run_connect_command(&config, args)?,
         Commands::Models(cmd) => run_models_command(&config, cmd)?,
         Commands::Plugin(cmd) => run_plugin_command(cmd)?,
-        Commands::Ask { prompt } => run_ask_command(&config, prompt).await?,
-        Commands::Exec(args) => run_exec_command(&config, args).await?,
+        Commands::Ask { prompt } => run_ask_command(&config, prompt, plugin_dirs).await?,
+        Commands::Exec(args) => run_exec_command(&config, args, plugin_dirs).await?,
         Commands::Fork { thread_id } => thread_cli::run_fork_command(&thread_id)?,
         Commands::Distill { thread_id } => run_distill_command(&config, &thread_id).await?,
         Commands::Thread { thread_id } => thread_cli::run_thread_command(&thread_id)?,
@@ -234,8 +234,8 @@ pub(crate) async fn run_cli() -> Result<()> {
             .await?
         }
         Commands::Logout => run_logout_command(&mut config, &config_manager, &oauth_manager)?,
-        Commands::Print { prompt } => run_print_command(&config, prompt).await?,
-        Commands::Wire { prompt } => run_wire_command(&config, prompt).await?,
+        Commands::Print { prompt } => run_print_command(&config, prompt, plugin_dirs).await?,
+        Commands::Wire { prompt } => run_wire_command(&config, prompt, plugin_dirs).await?,
         Commands::Tui => {
             run_tui_command(
                 &config,
@@ -314,39 +314,69 @@ fn normalize_path_components(path: PathBuf) -> PathBuf {
     normalized
 }
 
-async fn run_acp_command(config: &RaraConfig) -> Result<()> {
-    let acp_agent = RaraAcpAgent::new(config.clone());
+async fn run_acp_command(config: &RaraConfig, plugin_dirs: Vec<PathBuf>) -> Result<()> {
+    let acp_agent = RaraAcpAgent::new(config.clone(), plugin_dirs);
     acp_agent
         .run_acp_stdio()
         .await
         .map_err(|e| anyhow::anyhow!("{e}"))
 }
 
-async fn run_ask_command(config: &RaraConfig, prompt: String) -> Result<()> {
-    let bootstrap = runtime_context::initialize_rara_context(config, None).await?;
+async fn run_ask_command(
+    config: &RaraConfig,
+    prompt: String,
+    plugin_dirs: Vec<PathBuf>,
+) -> Result<()> {
+    let bootstrap = runtime_context::initialize_rara_context_for_workspace_with_options(
+        config,
+        None,
+        None,
+        runtime_context::RuntimeBootstrapOptions::with_plugin_dirs(plugin_dirs),
+    )
+    .await?;
     emit_bootstrap_warnings(&bootstrap.warnings);
-    let mut agent = bootstrap.into_agent();
+    let mut agent = bootstrap.into_agent().await;
     agent.query(prompt).await
 }
 
-async fn run_print_command(config: &RaraConfig, prompt: String) -> Result<()> {
-    let bootstrap = runtime_context::initialize_rara_context(config, None).await?;
+async fn run_print_command(
+    config: &RaraConfig,
+    prompt: String,
+    plugin_dirs: Vec<PathBuf>,
+) -> Result<()> {
+    let bootstrap = runtime_context::initialize_rara_context_for_workspace_with_options(
+        config,
+        None,
+        None,
+        runtime_context::RuntimeBootstrapOptions::with_plugin_dirs(plugin_dirs),
+    )
+    .await?;
     emit_bootstrap_warnings(&bootstrap.warnings);
     let event_bus = bootstrap.event_bus.clone();
-    let agent = bootstrap.into_agent();
+    let agent = bootstrap.into_agent().await;
     let consumer = PrintConsumer::new(agent, event_bus, prompt);
     consumer.run().await
 }
 
-async fn run_exec_command(config: &RaraConfig, args: ExecArgs) -> Result<()> {
+async fn run_exec_command(
+    config: &RaraConfig,
+    args: ExecArgs,
+    plugin_dirs: Vec<PathBuf>,
+) -> Result<()> {
     let startup_complete = install_exec_panic_hook(&args);
     if let Some(cwd) = args.cwd.as_deref() {
         std::env::set_current_dir(cwd)
             .map_err(|err| anyhow::anyhow!("failed to switch cwd to {}: {err}", cwd.display()))?;
     }
-    let bootstrap = runtime_context::initialize_rara_context(config, None).await?;
+    let bootstrap = runtime_context::initialize_rara_context_for_workspace_with_options(
+        config,
+        None,
+        None,
+        runtime_context::RuntimeBootstrapOptions::with_plugin_dirs(plugin_dirs),
+    )
+    .await?;
     emit_bootstrap_warnings(&bootstrap.warnings);
-    let mut agent = bootstrap.into_agent();
+    let mut agent = bootstrap.into_agent().await;
     if args.full_access {
         agent.set_full_access_mode(true);
     }
@@ -388,11 +418,21 @@ fn install_exec_panic_hook(args: &ExecArgs) -> Option<Arc<AtomicBool>> {
     Some(startup_complete)
 }
 
-async fn run_wire_command(config: &RaraConfig, prompt: String) -> Result<()> {
-    let bootstrap = runtime_context::initialize_rara_context(config, None).await?;
+async fn run_wire_command(
+    config: &RaraConfig,
+    prompt: String,
+    plugin_dirs: Vec<PathBuf>,
+) -> Result<()> {
+    let bootstrap = runtime_context::initialize_rara_context_for_workspace_with_options(
+        config,
+        None,
+        None,
+        runtime_context::RuntimeBootstrapOptions::with_plugin_dirs(plugin_dirs),
+    )
+    .await?;
     emit_bootstrap_warnings(&bootstrap.warnings);
     let event_bus = bootstrap.event_bus.clone();
-    let agent = bootstrap.into_agent();
+    let agent = bootstrap.into_agent().await;
     let consumer = WireConsumer::new(agent, event_bus, prompt);
     consumer.run().await
 }
@@ -426,15 +466,22 @@ async fn run_tui_command(
     let initialize_local_embeddings =
         should_initialize_local_embeddings_on_tui_startup(config).await?;
     let bootstrap = if initialize_local_embeddings {
-        runtime_context::initialize_rara_context_with_local_embedding_bootstrap(
+        runtime_context::initialize_rara_context_with_options_and_local_embedding_bootstrap(
             config,
             None,
             None,
             runtime_context::LocalEmbeddingBootstrap::InspectOnly,
+            runtime_context::RuntimeBootstrapOptions::with_plugin_dirs(plugin_dirs.clone()),
         )
         .await?
     } else {
-        runtime_context::initialize_rara_context(config, None).await?
+        runtime_context::initialize_rara_context_for_workspace_with_options(
+            config,
+            None,
+            None,
+            runtime_context::RuntimeBootstrapOptions::with_plugin_dirs(plugin_dirs.clone()),
+        )
+        .await?
     };
     emit_bootstrap_warnings(&bootstrap.warnings);
     let event_bus = bootstrap.event_bus.clone();
@@ -448,8 +495,9 @@ async fn run_tui_command(
         prompt_source_registry,
         skill_source_registry,
         hook_registry,
+        hook_runtime,
         lsp_manager,
-    ) = bootstrap.into_parts();
+    ) = bootstrap.into_parts_with_runtime_extensions().await;
     let resumed_thread_id = crate::tui::run_tui(
         agent,
         goal_handle,
@@ -462,6 +510,7 @@ async fn run_tui_command(
         prompt_source_registry,
         skill_source_registry,
         hook_registry,
+        hook_runtime,
         lsp_manager,
         initialize_local_embeddings,
         plugin_dirs,

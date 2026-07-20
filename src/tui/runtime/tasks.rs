@@ -582,6 +582,7 @@ fn start_automatic_plan_implementation_task(app: &mut TuiApp, agent: Agent) {
 pub(super) fn start_rebuild_task(app: &mut TuiApp) {
     let (sender, receiver) = mpsc::unbounded_channel();
     let config = app.config.clone();
+    let plugin_dirs = app.explicit_plugin_dirs.clone();
     let provider = config.provider.clone();
     let model = config.model.clone().unwrap_or_else(|| "-".to_string());
     app.bottom_pane.notice = Some(format!("Rebuilding backend for {provider} / {model}."));
@@ -599,7 +600,7 @@ pub(super) fn start_rebuild_task(app: &mut TuiApp) {
                 message,
             });
         });
-        let result = rebuild_agent_with_progress(&config, Some(progress)).await;
+        let result = rebuild_agent_with_progress(&config, Some(progress), plugin_dirs).await;
         TaskCompletion::Rebuild { result }
     });
 

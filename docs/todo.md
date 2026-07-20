@@ -137,7 +137,7 @@ Active backlog only. Keep this file small and current.
 
 - [x] Claude plugin discovery source metadata and ordered de-duplication.
 - [x] Claude plugin TUI runtime startup across user and project plugin directories.
-- [ ] Claude plugin runtime startup parity for headless, ACP, and Wire surfaces.
+- [x] Claude plugin runtime startup parity for headless, ACP, and Wire surfaces.
 - [x] Claude plugin explicit plugin directory CLI surface for TUI sessions.
 - [x] Claude plugin explicit plugin directory config persistence.
 - [x] Claude plugin matcher evaluation for tool hooks.

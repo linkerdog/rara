@@ -1,6 +1,6 @@
 mod tooling;
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::{Arc, atomic::AtomicBool};
 
 use anyhow::{Context, Result, bail};
@@ -17,6 +17,7 @@ use crate::config::{
 use crate::embedding::EmbeddingOverrideBackend;
 use crate::google_oauth::GoogleOAuthManager;
 use crate::hook_registry::HookRegistry;
+use crate::hook_runtime::HookRuntime;
 use crate::llm::{
     BedrockBackend, CodexBackend, EmbeddingBackend, GeminiBackend, LlmBackend, LlmEmbeddingBackend,
     MockLlm, OllamaBackend, OpenAiCompatibleBackend, fetch_model_context_window,
@@ -54,17 +55,20 @@ pub(crate) struct RuntimeBootstrap {
     pub prompt_source_registry: Arc<PromptSourceRegistry>,
     pub skill_source_registry: Arc<SkillSourceRegistry>,
     pub hook_registry: Arc<HookRegistry>,
+    pub hook_runtime: Arc<HookRuntime>,
     command_hook_registry: Arc<crate::hooks::HookRegistry>,
     pub goal_handle: GoalHandle,
     pub mcp_tool_cache: McpToolCache,
     pub mcp_manager: Arc<McpConnectionManager>,
     pub lsp_manager: Arc<LspManager>,
     pub agent_definitions: AgentDefinitionCache,
+    plugin_dirs: Vec<PathBuf>,
+    rara_home: Option<PathBuf>,
 }
 
 impl RuntimeBootstrap {
-    pub(crate) fn into_agent(self) -> Agent {
-        let (agent, _, _, _, _, _, _, _, _, _) = self.into_parts();
+    pub(crate) async fn into_agent(self) -> Agent {
+        let (agent, _, _, _, _, _, _, _, _, _, _) = self.into_parts_with_runtime_extensions().await;
         agent
     }
 
@@ -83,6 +87,7 @@ impl RuntimeBootstrap {
         Arc<PromptSourceRegistry>,
         Arc<SkillSourceRegistry>,
         Arc<HookRegistry>,
+        Arc<HookRuntime>,
         Arc<LspManager>,
     ) {
         let hook_workspace_root = self.workspace.root.clone();
@@ -116,8 +121,52 @@ impl RuntimeBootstrap {
             self.prompt_source_registry,
             self.skill_source_registry,
             self.hook_registry,
+            self.hook_runtime,
             self.lsp_manager,
         )
+    }
+
+    #[allow(clippy::type_complexity)]
+    pub(crate) async fn into_parts_with_runtime_extensions(
+        self,
+    ) -> (
+        Agent,
+        Vec<String>,
+        Arc<AtomicBool>,
+        GoalHandle,
+        McpToolCache,
+        Arc<McpConnectionManager>,
+        Arc<PromptSourceRegistry>,
+        Arc<SkillSourceRegistry>,
+        Arc<HookRegistry>,
+        Arc<HookRuntime>,
+        Arc<LspManager>,
+    ) {
+        let workspace_root = self.workspace.root.clone();
+        let plugin_dirs = self.plugin_dirs.clone();
+        let rara_home = self.rara_home.clone();
+        let hook_runtime = self.hook_runtime.clone();
+        let parts = self.into_parts();
+        crate::plugin_middleware::register_plugin_hooks(
+            &hook_runtime,
+            rara_home,
+            &workspace_root,
+            &plugin_dirs,
+            &parts.0.session_id,
+        )
+        .await;
+        parts
+    }
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub(crate) struct RuntimeBootstrapOptions {
+    pub plugin_dirs: Vec<PathBuf>,
+}
+
+impl RuntimeBootstrapOptions {
+    pub(crate) fn with_plugin_dirs(plugin_dirs: Vec<PathBuf>) -> Self {
+        Self { plugin_dirs }
     }
 }
 
@@ -143,6 +192,22 @@ pub(crate) async fn initialize_rara_context_for_workspace(
     .await
 }
 
+pub(crate) async fn initialize_rara_context_for_workspace_with_options(
+    config: &RaraConfig,
+    workspace_root: Option<&Path>,
+    progress: Option<LocalProgressReporter>,
+    options: RuntimeBootstrapOptions,
+) -> Result<RuntimeBootstrap> {
+    initialize_rara_context_with_options_and_local_embedding_bootstrap(
+        config,
+        workspace_root,
+        progress,
+        LocalEmbeddingBootstrap::Prepare,
+        options,
+    )
+    .await
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum LocalEmbeddingBootstrap {
     Prepare,
@@ -154,6 +219,23 @@ pub(crate) async fn initialize_rara_context_with_local_embedding_bootstrap(
     workspace_root: Option<&Path>,
     progress: Option<LocalProgressReporter>,
     local_embedding_bootstrap: LocalEmbeddingBootstrap,
+) -> Result<RuntimeBootstrap> {
+    initialize_rara_context_with_options_and_local_embedding_bootstrap(
+        config,
+        workspace_root,
+        progress,
+        local_embedding_bootstrap,
+        RuntimeBootstrapOptions::default(),
+    )
+    .await
+}
+
+pub(crate) async fn initialize_rara_context_with_options_and_local_embedding_bootstrap(
+    config: &RaraConfig,
+    workspace_root: Option<&Path>,
+    progress: Option<LocalProgressReporter>,
+    local_embedding_bootstrap: LocalEmbeddingBootstrap,
+    options: RuntimeBootstrapOptions,
 ) -> Result<RuntimeBootstrap> {
     let embedding_progress = progress.clone();
     let chat_backend = build_backend_with_progress(config, progress).await?;
@@ -212,6 +294,9 @@ pub(crate) async fn initialize_rara_context_with_local_embedding_bootstrap(
     ));
 
     let event_bus = Arc::new(RuntimeEventBus::new(256));
+    let hook_runtime = Arc::new(HookRuntime::new(event_bus.clone()));
+    crate::hook_runtime::set_global_hook_runtime(hook_runtime.clone());
+    hook_runtime.start();
     let prompt_source_registry = Arc::new(PromptSourceRegistry::new(event_bus.clone()));
     let skill_source_registry = Arc::new(SkillSourceRegistry::new(event_bus.clone()));
     let hook_registry = Arc::new(HookRegistry::new(event_bus.clone()));
@@ -221,8 +306,9 @@ pub(crate) async fn initialize_rara_context_with_local_embedding_bootstrap(
     let lsp_manager = Arc::new(LspManager::new(workspace.root.clone()));
 
     let config_manager = crate::config::ConfigManager::new()?;
+    let rara_home = ensure_rara_home_dir()?;
     let mcp_registry = config_manager
-        .load_mcp_registry_for_project(&ensure_rara_home_dir()?)
+        .load_mcp_registry_for_project(&rara_home)
         .unwrap_or_else(|_| crate::config::McpRegistry::empty());
     let mcp_registry = Arc::new(mcp_registry);
 
@@ -280,12 +366,15 @@ pub(crate) async fn initialize_rara_context_with_local_embedding_bootstrap(
         prompt_source_registry,
         skill_source_registry,
         hook_registry,
+        hook_runtime,
         command_hook_registry,
         goal_handle,
         mcp_tool_cache,
         mcp_manager,
         lsp_manager,
         agent_definitions,
+        plugin_dirs: options.plugin_dirs,
+        rara_home: Some(rara_home),
     })
 }
 
@@ -565,12 +654,14 @@ fn ollama_thinking_enabled(config: &RaraConfig) -> bool {
 
 #[cfg(test)]
 mod tests {
+    use std::path::PathBuf;
+
     use tempfile::tempdir;
 
     use super::{
-        EmbeddingRoute, build_backend_with_progress, config_requires_local_embedding_sidecar,
-        embedding_route_for_config, initialize_rara_context, ollama_thinking_enabled,
-        vector_db_uri_for_workspace,
+        EmbeddingRoute, RuntimeBootstrapOptions, build_backend_with_progress,
+        config_requires_local_embedding_sidecar, embedding_route_for_config,
+        initialize_rara_context, ollama_thinking_enabled, vector_db_uri_for_workspace,
     };
     use crate::config::{
         DEFAULT_REASONING_SUMMARY, LocalEmbeddingPolicy, REASONING_SUMMARY_NONE, RaraConfig,
@@ -737,6 +828,16 @@ mod tests {
             EmbeddingRoute::CurrentLlmBackend
         );
         assert!(!config_requires_local_embedding_sidecar(&deepseek));
+    }
+
+    #[test]
+    fn runtime_bootstrap_options_preserve_plugin_dirs() {
+        let plugin_dirs = vec![
+            PathBuf::from("/tmp/rara-plugin-a"),
+            PathBuf::from("plugins-b"),
+        ];
+        let options = RuntimeBootstrapOptions::with_plugin_dirs(plugin_dirs.clone());
+        assert_eq!(options.plugin_dirs, plugin_dirs);
     }
 
     #[test]
