@@ -190,10 +190,11 @@ enum Commands {
 
 pub(crate) async fn run_cli() -> Result<()> {
     let cli = Cli::parse();
-    let plugin_dirs = normalize_plugin_dirs(&cli.plugin_dirs)?;
+    let cli_plugin_dirs = cli.plugin_dirs.clone();
     let config_manager = ConfigManager::new()?;
     let mut config = config_manager.load()?;
     let command = apply_cli_overrides(&mut config, cli);
+    let plugin_dirs = effective_plugin_dirs(&config, &cli_plugin_dirs)?;
     config.apply_provider_environment_defaults();
 
     let oauth_manager = OAuthManager::new()?;
@@ -273,6 +274,12 @@ fn normalize_plugin_dirs(plugin_dirs: &[PathBuf]) -> Result<Vec<PathBuf>> {
         .iter()
         .map(|path| normalize_plugin_dir(path))
         .collect()
+}
+
+fn effective_plugin_dirs(config: &RaraConfig, cli_plugin_dirs: &[PathBuf]) -> Result<Vec<PathBuf>> {
+    let mut plugin_dirs = config.plugin_dirs.clone();
+    plugin_dirs.extend_from_slice(cli_plugin_dirs);
+    normalize_plugin_dirs(&plugin_dirs)
 }
 
 fn normalize_plugin_dir(path: &Path) -> Result<PathBuf> {
@@ -776,6 +783,21 @@ mod tests {
         assert_eq!(normalized[1], cwd.join("missing-plugin-dir"));
         assert_eq!(normalized[2], cwd.join("missing-absolute-plugin-dir"));
         assert!(normalized.iter().all(|path| path.is_absolute()));
+    }
+
+    #[test]
+    fn effective_plugin_dirs_put_cli_dirs_after_config_dirs() {
+        let cwd = std::env::current_dir().expect("cwd");
+        let mut config = RaraConfig::default();
+        config.plugin_dirs = vec![PathBuf::from("config-plugins")];
+
+        let normalized = effective_plugin_dirs(&config, &[PathBuf::from("cli-plugins")])
+            .expect("effective plugin dirs");
+
+        assert_eq!(
+            normalized,
+            vec![cwd.join("config-plugins"), cwd.join("cli-plugins")]
+        );
     }
 
     #[test]
