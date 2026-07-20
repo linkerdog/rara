@@ -1316,8 +1316,8 @@ impl Agent {
         if self.plugin_session_start_hooks_ran {
             return;
         }
-        self.plugin_session_start_hooks_ran = true;
         if let Some(plugin_hooks) = self.plugin_hook_runtime.clone() {
+            self.plugin_session_start_hooks_ran = true;
             plugin_hooks.run_session_start().await;
         }
     }

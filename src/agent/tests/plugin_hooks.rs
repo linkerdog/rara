@@ -396,6 +396,75 @@ async fn plugin_non_tool_lifecycle_hooks_run_from_agent_query() {
     assert_eq!(prompt_submit_input["tool_name"], serde_json::Value::Null);
 }
 
+#[tokio::test]
+async fn plugin_session_start_waits_until_plugin_runtime_is_attached() {
+    let (temp, session_manager, workspace, rara_dir) = test_runtime_storage();
+    write_non_tool_lifecycle_plugin(temp.path());
+
+    let backend = Arc::new(SequencedBackend::new(vec![
+        LlmResponse {
+            content: vec![ContentBlock::Text {
+                text: "first answer".to_string(),
+            }],
+            stop_reason: Some("end_turn".to_string()),
+            usage: Some(TokenUsage::default()),
+        },
+        LlmResponse {
+            content: vec![ContentBlock::Text {
+                text: "second answer".to_string(),
+            }],
+            stop_reason: Some("end_turn".to_string()),
+            usage: Some(TokenUsage::default()),
+        },
+    ]));
+    let hook_runtime = Arc::new(crate::hook_runtime::HookRuntime::new(Arc::new(
+        crate::runtime_event_bus::RuntimeEventBus::new(4),
+    )));
+    let plugin_hooks = crate::plugin_middleware::register_plugin_hooks(
+        &hook_runtime,
+        None,
+        temp.path(),
+        &[],
+        "session-1",
+    )
+    .await;
+    let mut agent = Agent::new(
+        ToolManager::new(),
+        backend,
+        Arc::new(VectorDB::new(&rara_dir.join("lancedb").to_string_lossy())),
+        session_manager,
+        workspace,
+    );
+    agent.set_hook_context(
+        Arc::new(HookRegistry::new()),
+        HookSandbox {
+            workspace_root: temp.path().to_path_buf(),
+            ..HookSandbox::default()
+        },
+        hook_runtime,
+    );
+
+    agent
+        .query_with_mode_and_events("first prompt".to_string(), AgentOutputMode::Silent, |_| {})
+        .await
+        .expect("first query");
+    agent.set_plugin_hook_runtime(plugin_hooks);
+    agent
+        .query_with_mode_and_events("second prompt".to_string(), AgentOutputMode::Silent, |_| {})
+        .await
+        .expect("second query");
+
+    let plugin_root = temp.path().join(".rara").join("plugins").join("lifecycle");
+    assert_eq!(
+        fs::read_to_string(plugin_root.join("session-start-count")).expect("session count"),
+        "x"
+    );
+    assert_eq!(
+        fs::read_to_string(plugin_root.join("prompt-submit-count")).expect("prompt count"),
+        "x"
+    );
+}
+
 fn write_blocking_plugin(workspace_root: &std::path::Path) {
     let root = workspace_root.join(".rara").join("plugins").join("blocker");
     fs::create_dir_all(root.join(".claude-plugin")).expect("metadata dir");

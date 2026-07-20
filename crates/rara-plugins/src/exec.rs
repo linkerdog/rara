@@ -83,6 +83,7 @@ pub async fn execute_command_hook(
         let json = match serde_json::to_string(&input) {
             Ok(json) => json,
             Err(e) => {
+                let _ = child.start_kill();
                 return HookExecutionResult {
                     exit_code: Some(-1),
                     stdout: String::new(),
@@ -93,6 +94,7 @@ pub async fn execute_command_hook(
             }
         };
         if let Err(e) = stdin.write_all(json.as_bytes()).await {
+            let _ = child.start_kill();
             return HookExecutionResult {
                 exit_code: Some(-1),
                 stdout: String::new(),
