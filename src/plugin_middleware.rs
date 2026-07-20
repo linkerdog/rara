@@ -287,13 +287,37 @@ fn plugin_skill_summaries(plugins: &[Plugin]) -> Vec<PluginSkillSummary> {
 }
 
 fn extract_plugin_skill_description(content: &str) -> String {
-    for line in content.lines() {
-        let trimmed = line.trim();
-        if !trimmed.is_empty() && !trimmed.starts_with('#') && trimmed != "---" {
-            return trimmed.to_string();
+    let body = strip_leading_frontmatter(content);
+    for section in body.split("\n#") {
+        for line in section.lines() {
+            let trimmed = line.trim();
+            if !trimmed.is_empty() && !trimmed.starts_with('#') {
+                return trimmed.to_string();
+            }
         }
     }
     "No description provided.".to_string()
+}
+
+fn strip_leading_frontmatter(content: &str) -> &str {
+    if !content
+        .lines()
+        .next()
+        .is_some_and(|line| line.trim() == "---")
+    {
+        return content;
+    }
+    let mut offset = 0usize;
+    for (index, line) in content.split_inclusive('\n').enumerate() {
+        offset += line.len();
+        if index == 0 {
+            continue;
+        }
+        if line.trim() == "---" {
+            return &content[offset..];
+        }
+    }
+    content
 }
 
 fn register_plugin_hooks_blocking(
@@ -565,6 +589,16 @@ mod tests {
                 description: "Inspect plugin-provided behavior.".to_string(),
                 path: plugin_root.join("skills").join("reviewer").join("SKILL.md"),
             }]
+        );
+    }
+
+    #[test]
+    fn plugin_skill_description_uses_first_markdown_body_section() {
+        let content = "---\nname: reviewer\ndescription: metadata\n---\n# Reviewer\nInspect plugin-provided behavior.\n\n## Details\nMore.";
+
+        assert_eq!(
+            extract_plugin_skill_description(content),
+            "Inspect plugin-provided behavior."
         );
     }
 
