@@ -15,6 +15,7 @@ use rara_tools::planning::{EnterPlanModeTool, ExitPlanModeTool};
 use rara_tools::search::{GlobTool, GrepTool};
 use rara_tools::tool::ToolManager;
 
+use crate::hook_runtime::HookRuntime;
 use crate::llm::{EmbeddingBackend, LlmBackend};
 use crate::lsp_manager::LspManager;
 use crate::mcp_tool_cache::McpToolCache;
@@ -64,6 +65,7 @@ pub(super) fn create_full_tool_manager(
     sandbox_network_access: Arc<AtomicBool>,
     goal_handle: GoalHandle,
     mcp_tool_cache: McpToolCache,
+    hook_runtime: Arc<HookRuntime>,
     lsp_manager: Arc<LspManager>,
     agent_definitions: AgentDefinitionCache,
 ) -> ToolManager {
@@ -134,7 +136,9 @@ pub(super) fn create_full_tool_manager(
     tm.register(Box::new(SearchMemoryTool {
         rara_home: workspace.rara_dir.clone(),
         vdb: Some(vdb.clone()),
-        hook_callback: Some(Arc::new(crate::hook_runtime::global_dispatch_memory_query)),
+        hook_callback: Some(Arc::new(move |query| {
+            hook_runtime.dispatch_memory_query(query);
+        })),
     }));
     tm.register(Box::new(LspDiagnosticsTool::new(lsp_manager)));
     tm.register(Box::new(McpToolSearch::new(mcp_tool_cache)));

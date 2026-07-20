@@ -47,13 +47,15 @@ struct AcpSession {
 /// ACP adapter state. Every ACP session owns an independent RARA runtime.
 pub struct RaraAcpAgent {
     config: RaraConfig,
+    plugin_dirs: Vec<PathBuf>,
     sessions: RwLock<HashMap<String, Arc<AcpSession>>>,
 }
 
 impl RaraAcpAgent {
-    pub fn new(config: RaraConfig) -> Self {
+    pub fn new(config: RaraConfig, plugin_dirs: Vec<PathBuf>) -> Self {
         Self {
             config,
+            plugin_dirs,
             sessions: RwLock::new(HashMap::new()),
         }
     }
@@ -154,16 +156,30 @@ impl RaraAcpAgent {
     }
 
     async fn ensure_runtime(&self, session: &AcpSession) -> Result<AcpSessionRuntime, String> {
-        let bootstrap = crate::runtime_context::initialize_rara_context_for_workspace(
+        let bootstrap = crate::runtime_context::initialize_rara_context_for_workspace_with_options(
             &self.config,
             Some(&session.cwd),
             None,
+            crate::runtime_context::RuntimeBootstrapOptions::with_plugin_dirs(
+                self.plugin_dirs.clone(),
+            ),
         )
         .await
         .map_err(|err| err.to_string())?;
         let event_bus = bootstrap.event_bus.clone();
-        let (agent, _, _, _, _, mcp_manager, prompt_registry, skill_registry, hook_registry, _) =
-            bootstrap.into_parts();
+        let (
+            agent,
+            _,
+            _,
+            _,
+            _,
+            mcp_manager,
+            prompt_registry,
+            skill_registry,
+            hook_registry,
+            _hook_runtime,
+            _,
+        ) = bootstrap.into_parts_with_runtime_extensions().await;
         Ok(AcpSessionRuntime {
             agent,
             event_bus: event_bus.clone(),
@@ -431,7 +447,7 @@ mod tests {
 
     #[tokio::test]
     async fn sessions_keep_distinct_requested_workspaces() {
-        let agent = RaraAcpAgent::new(RaraConfig::default());
+        let agent = RaraAcpAgent::new(RaraConfig::default(), Vec::new());
         let first = SessionId::from("first");
         let second = SessionId::from("second");
         agent.sessions.write().expect("session registry").insert(

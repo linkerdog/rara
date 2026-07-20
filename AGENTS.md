@@ -52,6 +52,14 @@ The current product direction is to make local inference a first-class path inst
 - The agent loop should continue to depend on a stable backend trait instead of model-specific code paths.
 - Local models should plug into the same `LlmBackend` contract used by hosted providers.
 - TUI interaction should converge toward one unified prompt surface instead of growing separate setup-only flows for common actions.
+- Runtime-changing features such as plugins, hooks, MCP servers, skills,
+  commands, agents, and extension registries belong to runtime/app-server
+  assembly. TUI is a presentation consumer: it may pass explicit runtime
+  options and render runtime status, but it must not own plugin discovery,
+  hook registration, or extension registry ingestion.
+- Runtime handles used by agent execution must be session-scoped. Do not route
+  mutable runtime behavior through process-global strong references when ACP,
+  Wire, headless, or app-server surfaces may host more than one session.
 - Prefer smaller modules over long files; as a rule of thumb, avoid letting a single source file grow beyond roughly 1000 lines unless there is a strong reason not to split it.
 - If an implementation would push a source file toward or past that limit, proactively split the file instead of continuing to accumulate new logic in place.
 - Non-trivial behavior changes should add or update focused tests when practical.

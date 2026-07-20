@@ -53,6 +53,7 @@ pub async fn run_tui(
     prompt_source_registry: Arc<PromptSourceRegistry>,
     skill_source_registry: Arc<SkillSourceRegistry>,
     hook_registry: Arc<crate::hook_registry::HookRegistry>,
+    hook_runtime: Arc<crate::hook_runtime::HookRuntime>,
     lsp_manager: Arc<LspManager>,
     initialize_local_embeddings: bool,
     explicit_plugin_dirs: Vec<PathBuf>,
@@ -69,6 +70,7 @@ pub async fn run_tui(
     app.prompt_source_registry = Some(prompt_source_registry);
     app.skill_source_registry = Some(skill_source_registry);
     app.hook_registry = Some(hook_registry);
+    app.hook_runtime = Some(hook_runtime);
     app.explicit_plugin_dirs = explicit_plugin_dirs;
     app.lsp_manager = Some(lsp_manager);
     app.memory_handler = Some(Arc::new(

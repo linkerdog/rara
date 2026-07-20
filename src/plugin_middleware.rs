@@ -110,11 +110,14 @@ fn register_plugin_hooks_blocking(
             let lifecycle = hook_event_to_lifecycle(rh.event);
 
             let plugin_name_for_callback = plugin_name.clone();
-            let runtime_for_output = runtime.clone();
+            let runtime_for_output = Arc::downgrade(runtime);
             let callback = Box::new(move |event: &AgentEvent| {
                 if !hook_matches_agent_event(&hook, event) {
                     return;
                 }
+                let Some(runtime_for_output) = runtime_for_output.upgrade() else {
+                    return;
+                };
                 let hook_event_name = match agent_event_to_hook_event(event) {
                     Some(e) => e.as_str().to_string(),
                     None => return,
@@ -282,6 +285,25 @@ mod tests {
 
         assert_eq!(registered, 2);
         assert_eq!(runtime.hook_count(), 2);
+    }
+
+    #[tokio::test]
+    async fn plugin_callbacks_do_not_retain_hook_runtime_strong_reference() {
+        let dir = tempdir().expect("tempdir");
+        let rara_home = dir.path().join("home").join(".rara");
+        let workspace_root = dir.path().join("workspace");
+        let project_plugins_dir = workspace_root.join(".rara").join("plugins");
+        write_test_plugin(
+            &project_plugins_dir.join("project-only"),
+            "project-only",
+            "echo project-only",
+        );
+
+        let runtime = Arc::new(HookRuntime::new(Arc::new(RuntimeEventBus::new(4))));
+        register_plugin_hooks(&runtime, Some(rara_home), &workspace_root, &[], "session-1").await;
+
+        assert_eq!(runtime.hook_count(), 1);
+        assert_eq!(Arc::strong_count(&runtime), 1);
     }
 
     #[test]

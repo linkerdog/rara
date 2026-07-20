@@ -289,18 +289,6 @@ pub(crate) async fn finish_running_task_if_ready(
                 app.memory_handler = Some(rebuilt.memory_handler);
                 app.hook_registry = Some(rebuilt.hook_registry);
                 app.hook_runtime = Some(rebuilt.hook_runtime.clone());
-                if let (Ok(workspace_root), Some(hr)) =
-                    (std::env::current_dir(), app.hook_runtime.as_ref())
-                {
-                    crate::plugin_middleware::register_plugin_hooks(
-                        hr,
-                        None,
-                        &workspace_root,
-                        &app.explicit_plugin_dirs,
-                        &agent.session_id,
-                    )
-                    .await;
-                }
                 app.local_model_server = rebuilt.local_model_server;
                 app.config_manager.save(&app.config)?;
                 let is_bootstrap = app.setup_status.is_none();
