@@ -46,6 +46,10 @@ non-TUI surfaces without the same runtime behavior.
 - `SessionEnd` payloads include empty tool fields, the best available
   `last_assistant_message`, and `is_interrupt: false`. Approval waits remain
   resumable pauses and do not fire `SessionEnd`.
+- Cancelled model turns fire `SessionEnd` with `is_interrupt: true` before the
+  cancellation error returns to the caller. Other runtime errors keep the
+  existing error and recovery behavior so recoverable continuation paths do not
+  run cleanup early.
 - This slice does not change non-tool lifecycle dispatch beyond `SessionEnd`,
   full structured hook output observability, or plugin extension registry
   ingestion.
@@ -65,6 +69,7 @@ cargo fmt --check
 git diff --check
 cargo test agent::tests::plugin_hooks::plugin_pre_tool_use_continue_false_blocks_tool_execution -- --nocapture
 cargo test agent::tests::plugin_hooks::plugin_session_end_runs_once_with_last_assistant_message -- --nocapture
+cargo test agent::tests::plugin_hooks::plugin_session_end_marks_cancelled_model_turn_as_interrupt -- --nocapture
 cargo test plugin_middleware::tests -- --nocapture
 ```
 

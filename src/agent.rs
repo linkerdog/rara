@@ -1047,7 +1047,15 @@ impl Agent {
                     });
                 }
             }
-            let mut turn_output = self.run_model_turn(output_mode, report).await?;
+            let mut turn_output = match self.run_model_turn(output_mode, report).await {
+                Ok(turn_output) => turn_output,
+                Err(err) if is_interrupt_error(&err) => {
+                    self.run_session_end_plugin_hooks(self.latest_assistant_message_text(), true)
+                        .await;
+                    return Err(err);
+                }
+                Err(err) => return Err(err),
+            };
             self.record_agent_turn_trace(&turn_output, *agentic_turns, None, None, false);
             self.last_query_plan_updated = turn_output.plan_updated;
             if !turn_output.tool_calls.is_empty() {
@@ -1281,13 +1289,23 @@ impl Agent {
             self.advance_plan_step();
             self.extend_history_for_next_turn(tool_results, report, *agentic_turns)?;
         }
-        if should_run_session_end_hooks && let Some(plugin_hooks) = self.plugin_hook_runtime.clone()
-        {
-            plugin_hooks
-                .run_session_end(session_end_last_assistant_message.as_deref())
+        if should_run_session_end_hooks {
+            self.run_session_end_plugin_hooks(session_end_last_assistant_message, false)
                 .await;
         }
         Ok(())
+    }
+
+    async fn run_session_end_plugin_hooks(
+        &self,
+        last_assistant_message: Option<String>,
+        is_interrupt: bool,
+    ) {
+        if let Some(plugin_hooks) = self.plugin_hook_runtime.clone() {
+            plugin_hooks
+                .run_session_end(last_assistant_message.as_deref(), is_interrupt)
+                .await;
+        }
     }
 
     fn latest_assistant_message_text(&self) -> Option<String> {
@@ -1886,6 +1904,18 @@ fn recoverable_runtime_error_kind(err: &anyhow::Error) -> Option<&'static str> {
     } else {
         None
     }
+}
+
+fn is_interrupt_error(err: &anyhow::Error) -> bool {
+    err.chain().any(|cause| {
+        cause
+            .downcast_ref::<std::io::Error>()
+            .is_some_and(|io_err| io_err.kind() == std::io::ErrorKind::Interrupted)
+            || cause
+                .to_string()
+                .to_ascii_lowercase()
+                .contains("cancelled by user")
+    })
 }
 
 fn recoverable_runtime_error_message(kind: &str, err: &anyhow::Error) -> Message {

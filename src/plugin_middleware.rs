@@ -78,14 +78,18 @@ impl PluginHookRuntime {
         None
     }
 
-    pub(crate) async fn run_session_end(&self, last_assistant_message: Option<&str>) {
+    pub(crate) async fn run_session_end(
+        &self,
+        last_assistant_message: Option<&str>,
+        is_interrupt: bool,
+    ) {
         for hook in self.matching_hooks(HookEvent::SessionEnd, None) {
             let input = self.hook_input(
                 HookEvent::SessionEnd,
                 hook,
                 HookInputFields {
                     last_assistant_message: last_assistant_message.map(ToString::to_string),
-                    is_interrupt: Some(false),
+                    is_interrupt: Some(is_interrupt),
                     ..HookInputFields::default()
                 },
             );

@@ -214,10 +214,11 @@ executes them directly when the loop reaches a terminal completion or hard stop
 such as max-turn or token-budget exhaustion. Waiting states such as shell
 approval or plan-exit approval do not fire `SessionEnd` because the session is
 paused rather than complete. The hook input includes `last_assistant_message`
-when a final assistant message is available and `is_interrupt: false` for this
-non-interrupt path. `SessionEnd` hook failures are logged and do not block
-completion; stdout observability is reserved for a later structured output
-surface.
+when a final assistant message is available. Normal completion sends
+`is_interrupt: false`; model-turn cancellation sends `is_interrupt: true`
+before returning the cancellation error to the caller. `SessionEnd` hook
+failures are logged and do not block completion; stdout observability is
+reserved for a later structured output surface.
 
 ### Installation
 
@@ -270,6 +271,7 @@ scope for now.
 | `execute_command_hook` with working command | integration test (echo return code) |
 | `{ "continue": false }` blocks command hook execution | `cargo test agent::tests::plugin_hooks::plugin_pre_tool_use_continue_false_blocks_tool_execution -- --nocapture` |
 | `SessionEnd` receives final assistant payload | `cargo test agent::tests::plugin_hooks::plugin_session_end_runs_once_with_last_assistant_message -- --nocapture` |
+| `SessionEnd` marks cancelled model turns as interrupts | `cargo test agent::tests::plugin_hooks::plugin_session_end_marks_cancelled_model_turn_as_interrupt -- --nocapture` |
 | Non-zero exit code fails | integration test |
 | Timeout fires | integration test (sleep 10) |
 | `discover_plugins` skips non-directories | unit test |
@@ -321,8 +323,9 @@ Implemented in the first merged slice:
 - `SessionEnd` command hooks execute once when the agent loop reaches final
   completion or a hard stop. They receive `hook_event: "SessionEnd"`, empty
   tool fields, the best available `last_assistant_message`, and
-  `is_interrupt: false`. Approval waits and other resumable pauses do not fire
-  `SessionEnd`.
+  `is_interrupt: false`. Cancelled model turns fire `SessionEnd` with
+  `is_interrupt: true` before returning the cancellation error. Approval waits
+  and other resumable pauses do not fire `SessionEnd`.
 
 Next implementation slices:
 

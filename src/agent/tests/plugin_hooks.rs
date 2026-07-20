@@ -14,7 +14,32 @@ use serde_json::{Value, json};
 use super::support::{SequencedBackend, test_runtime_storage};
 use crate::agent::{Agent, AgentEvent, AgentOutputMode};
 use crate::hooks::{HookRegistry, HookSandbox};
-use crate::llm::{ContentBlock, LlmResponse, TokenUsage};
+use crate::llm::{ContentBlock, LlmBackend, LlmResponse, TokenUsage};
+
+struct CancelledBackend;
+
+#[async_trait]
+impl LlmBackend for CancelledBackend {
+    async fn ask(
+        &self,
+        _messages: &[crate::agent::Message],
+        _tools: &[Value],
+    ) -> Result<LlmResponse> {
+        anyhow::bail!("cancelled by user")
+    }
+
+    async fn embed(&self, _text: &str) -> Result<Vec<f32>> {
+        Ok(vec![0.0; 8])
+    }
+
+    async fn summarize(
+        &self,
+        _messages: &[crate::agent::Message],
+        _instruction: &str,
+    ) -> Result<String> {
+        Ok("summary".to_string())
+    }
+}
 
 struct CountingTool {
     calls: Arc<AtomicUsize>,
@@ -181,6 +206,73 @@ async fn plugin_session_end_runs_once_with_last_assistant_message() {
         serde_json::Value::String("final answer".to_string())
     );
     assert_eq!(hook_input["is_interrupt"], serde_json::Value::Bool(false));
+    assert_eq!(
+        fs::read_to_string(plugin_root.join("session-end-count")).expect("count"),
+        "x"
+    );
+}
+
+#[tokio::test]
+async fn plugin_session_end_marks_cancelled_model_turn_as_interrupt() {
+    let (temp, session_manager, workspace, rara_dir) = test_runtime_storage();
+    write_session_end_plugin(temp.path());
+
+    let hook_runtime = Arc::new(crate::hook_runtime::HookRuntime::new(Arc::new(
+        crate::runtime_event_bus::RuntimeEventBus::new(4),
+    )));
+    let plugin_hooks = crate::plugin_middleware::register_plugin_hooks(
+        &hook_runtime,
+        None,
+        temp.path(),
+        &[],
+        "session-1",
+    )
+    .await;
+    let mut agent = Agent::new(
+        ToolManager::new(),
+        Arc::new(CancelledBackend),
+        Arc::new(VectorDB::new(&rara_dir.join("lancedb").to_string_lossy())),
+        session_manager,
+        workspace,
+    );
+    agent.history.push(crate::agent::Message {
+        role: "user".to_string(),
+        content: json!("complete"),
+    });
+    agent.set_hook_context(
+        Arc::new(HookRegistry::new()),
+        HookSandbox {
+            workspace_root: temp.path().to_path_buf(),
+            ..HookSandbox::default()
+        },
+        hook_runtime,
+    );
+    agent.set_plugin_hook_runtime(plugin_hooks);
+
+    let error = agent
+        .run_agent_loop_with_limit(AgentOutputMode::Silent, &mut |_| {}, &mut 0)
+        .await
+        .expect_err("agent loop should return cancellation");
+
+    assert!(error.to_string().contains("cancelled by user"));
+    let plugin_root = temp
+        .path()
+        .join(".rara")
+        .join("plugins")
+        .join("session-end");
+    let hook_input: serde_json::Value = serde_json::from_str(
+        &fs::read_to_string(plugin_root.join("session-end-input.json")).expect("hook input"),
+    )
+    .expect("valid hook input");
+    assert_eq!(
+        hook_input["hook_event"],
+        serde_json::Value::String("SessionEnd".to_string())
+    );
+    assert_eq!(hook_input["is_interrupt"], serde_json::Value::Bool(true));
+    assert_eq!(
+        hook_input["last_assistant_message"],
+        serde_json::Value::Null
+    );
     assert_eq!(
         fs::read_to_string(plugin_root.join("session-end-count")).expect("count"),
         "x"
