@@ -1,10 +1,11 @@
-//! Bridge between `rara-plugins` and RARA's `HookRuntime`.
+//! Bridge between `rara-plugins` and RARA's runtime registries.
 
+use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use rara_plugins::{
-    HookEvent, HookInput, PluginDiscoverySource, PluginSource, RegisteredHook,
+    HookEvent, HookInput, Plugin, PluginDiscoverySource, PluginSource, RegisteredHook,
     discover_plugins_from_sources, execute_command_hook,
 };
 use serde_json::Value;
@@ -17,12 +18,21 @@ use crate::runtime_control::HookLifecycle;
 pub(crate) struct PluginHookRuntime {
     session_id: String,
     hooks: Vec<RegisteredHook>,
+    skill_summaries: Vec<PluginSkillSummary>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct PluginHookBlock {
     pub plugin_name: String,
     pub message: String,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct PluginSkillSummary {
+    pub name: String,
+    pub title: Option<String>,
+    pub description: String,
+    pub path: PathBuf,
 }
 
 #[derive(Clone, Debug, Default)]
@@ -35,13 +45,25 @@ struct HookInputFields {
 }
 
 impl PluginHookRuntime {
-    fn new(session_id: String, hooks: Vec<RegisteredHook>) -> Self {
-        Self { session_id, hooks }
+    fn new(
+        session_id: String,
+        hooks: Vec<RegisteredHook>,
+        skill_summaries: Vec<PluginSkillSummary>,
+    ) -> Self {
+        Self {
+            session_id,
+            hooks,
+            skill_summaries,
+        }
     }
 
     #[cfg(test)]
     fn hook_count(&self) -> usize {
         self.hooks.len()
+    }
+
+    pub(crate) fn skill_summaries(&self) -> &[PluginSkillSummary] {
+        &self.skill_summaries
     }
 
     pub(crate) async fn run_pre_tool_use(
@@ -228,7 +250,74 @@ fn load_plugin_hooks_blocking(
     for plugin in &plugins {
         hooks.extend(rara_plugins::loader::registered_hooks_for_plugin(plugin));
     }
-    PluginHookRuntime::new(session_id.to_string(), hooks)
+    let skill_summaries = plugin_skill_summaries(&plugins);
+    PluginHookRuntime::new(session_id.to_string(), hooks, skill_summaries)
+}
+
+fn plugin_skill_summaries(plugins: &[Plugin]) -> Vec<PluginSkillSummary> {
+    let mut summaries = Vec::new();
+    for plugin in plugins {
+        let skills_dir = plugin.root.join("skills");
+        let Ok(entries) = fs::read_dir(&skills_dir) else {
+            continue;
+        };
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if !path.is_dir() {
+                continue;
+            }
+            let skill_md = path.join("SKILL.md");
+            if !skill_md.is_file() {
+                continue;
+            }
+            let Some(skill_name) = path.file_name().and_then(|name| name.to_str()) else {
+                continue;
+            };
+            let content = fs::read_to_string(&skill_md).unwrap_or_default();
+            summaries.push(PluginSkillSummary {
+                name: format!("{}:{skill_name}", plugin.name),
+                title: Some(skill_name.to_string()),
+                description: extract_plugin_skill_description(&content),
+                path: skill_md,
+            });
+        }
+    }
+    summaries.sort_by(|left, right| left.name.cmp(&right.name));
+    summaries
+}
+
+fn extract_plugin_skill_description(content: &str) -> String {
+    let body = strip_leading_frontmatter(content);
+    for section in body.split("\n#") {
+        for line in section.lines() {
+            let trimmed = line.trim();
+            if !trimmed.is_empty() && !trimmed.starts_with('#') {
+                return trimmed.to_string();
+            }
+        }
+    }
+    "No description provided.".to_string()
+}
+
+fn strip_leading_frontmatter(content: &str) -> &str {
+    if !content
+        .lines()
+        .next()
+        .is_some_and(|line| line.trim() == "---")
+    {
+        return content;
+    }
+    let mut offset = 0usize;
+    for (index, line) in content.split_inclusive('\n').enumerate() {
+        offset += line.len();
+        if index == 0 {
+            continue;
+        }
+        if line.trim() == "---" {
+            return &content[offset..];
+        }
+    }
+    content
 }
 
 fn register_plugin_hooks_blocking(
@@ -473,6 +562,47 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn registers_project_plugin_skill_summaries() {
+        let dir = tempdir().expect("tempdir");
+        let rara_home = dir.path().join("home").join(".rara");
+        let workspace_root = dir.path().join("workspace");
+        let project_plugins_dir = workspace_root.join(".rara").join("plugins");
+        let plugin_root = project_plugins_dir.join("skillful");
+        write_test_plugin(&plugin_root, "skillful", "echo project");
+        fs::create_dir_all(plugin_root.join("skills").join("reviewer")).expect("skill dir");
+        fs::write(
+            plugin_root.join("skills").join("reviewer").join("SKILL.md"),
+            "# Reviewer\nInspect plugin-provided behavior.",
+        )
+        .expect("skill");
+
+        let runtime = Arc::new(HookRuntime::new(Arc::new(RuntimeEventBus::new(4))));
+        let registered =
+            register_plugin_hooks(&runtime, Some(rara_home), &workspace_root, &[], "session-1")
+                .await;
+
+        assert_eq!(
+            registered.skill_summaries(),
+            &[PluginSkillSummary {
+                name: "skillful:reviewer".to_string(),
+                title: Some("reviewer".to_string()),
+                description: "Inspect plugin-provided behavior.".to_string(),
+                path: plugin_root.join("skills").join("reviewer").join("SKILL.md"),
+            }]
+        );
+    }
+
+    #[test]
+    fn plugin_skill_description_uses_first_markdown_body_section() {
+        let content = "---\nname: reviewer\ndescription: metadata\n---\n# Reviewer\nInspect plugin-provided behavior.\n\n## Details\nMore.";
+
+        assert_eq!(
+            extract_plugin_skill_description(content),
+            "Inspect plugin-provided behavior."
+        );
+    }
+
+    #[tokio::test]
     async fn plugin_callbacks_do_not_retain_hook_runtime_strong_reference() {
         let dir = tempdir().expect("tempdir");
         let rara_home = dir.path().join("home").join(".rara");
@@ -564,6 +694,7 @@ mod tests {
                 plugin_name: "control".to_string(),
                 plugin_root,
             }],
+            Vec::new(),
         );
 
         let block = plugin_hooks

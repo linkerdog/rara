@@ -5,7 +5,7 @@ use crate::context::{
     AssembledContext, AssembledTurnContext, ContextAssembler, RuntimeContextInputs,
     RuntimeInteractionInput, SharedTaskContextView,
 };
-use crate::prompt::{PromptSource, PromptSourceKind};
+use crate::prompt::{PromptSkillSummary, PromptSource, PromptSourceKind};
 use crate::protocol_sources::{PromptSourceRegistry, SkillSourceRegistry};
 use crate::tasklist::TaskListStore;
 use crate::tool_result::ToolResultProjectionPolicy;
@@ -153,6 +153,21 @@ impl Agent {
         skill_source_registry: std::sync::Arc<SkillSourceRegistry>,
     ) {
         self.skill_source_registry = Some(skill_source_registry);
+    }
+
+    pub(crate) fn add_plugin_skill_summaries(
+        &mut self,
+        summaries: &[crate::plugin_middleware::PluginSkillSummary],
+    ) {
+        self.prompt_config
+            .available_skills
+            .extend(summaries.iter().map(|summary| PromptSkillSummary {
+                name: summary.name.clone(),
+                title: summary.title.clone(),
+                description: summary.description.clone(),
+                scope: "plugin".to_string(),
+                disable_model_invocation: true,
+            }));
     }
 
     pub fn set_lsp_manager(&mut self, lsp_manager: std::sync::Arc<crate::lsp_manager::LspManager>) {

@@ -156,6 +156,9 @@ impl RuntimeBootstrap {
             &parts.0.session_id,
         )
         .await;
+        parts
+            .0
+            .add_plugin_skill_summaries(plugin_hook_runtime.skill_summaries());
         parts.0.set_plugin_hook_runtime(plugin_hook_runtime);
         parts
     }

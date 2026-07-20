@@ -936,6 +936,8 @@ fn render_available_skills_section(skills: &[PromptSkillSummary]) -> Option<Stri
          listed in the current skill listing or explicitly typed by the user — do not guess or invent \
          skill names from memory or training data. When a listed skill matches the user's request, \
          invoking it is a blocking first step before task-specific analysis or implementation. \
+         If a listed skill has `disable_model_invocation: true`, treat it as visible metadata only \
+         and do not invoke it with the `skill` tool. \
          Do not mention that a skill applies unless you actually invoke it, and if the skill body \
          is already injected in the current turn, follow it instead of invoking it again.\n\n\
          How to invoke:\n\
@@ -1397,6 +1399,7 @@ mod tests {
                 .text
                 .contains("invoking it is a blocking first step before task-specific analysis")
         );
+        assert!(effective.text.contains("disable_model_invocation: true"));
         assert!(
             effective
                 .text
