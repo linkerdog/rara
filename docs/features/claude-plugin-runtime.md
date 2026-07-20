@@ -285,13 +285,18 @@ Implemented in the first merged slice:
   directories triggers the TUI runtime rebuild path on startup so the hook
   runtime is created and plugin hooks are registered even when local embedding
   startup is disabled.
+- `hooks/hooks.json` matcher groups are preserved on registered hook handlers.
+  Tool hook matchers are evaluated before command execution. Empty matchers and
+  `*` match all tools; exact tool names are matched case-insensitively; Claude
+  Code-style tool patterns such as `Bash(*)` match by the tool name before the
+  parenthesized input pattern; alternatives can be separated with `|` or `,`.
 
 Next implementation slices:
 
 1. Extend plugin source composition beyond the TUI rebuild path to headless,
    ACP, and Wire runtime startup.
-2. Fix lifecycle parity gaps before broad user-facing rollout: `SessionEnd` mapping,
-   matcher evaluation, blocking hook results, and hook output observability.
+2. Fix lifecycle parity gaps before broad user-facing rollout: `SessionEnd`
+   mapping, blocking hook results, and hook output observability.
 3. Add git-source install support on top of the existing local-directory
    `rara plugin install/list/remove` commands.
 4. Feed plugin `.mcp.json`, commands, skills, and agents into the same
@@ -302,8 +307,10 @@ Next implementation slices:
 - Hook scripts may `require` Node modules that aren't installed in the user's
   environment. RARA cannot manage Node dependencies. Plugin `README.md` must
   document runtime requirements.
-- Matcher pattern evaluation (`Bash(*)`, `Write|Edit`) is deferred. All hooks
-  currently fire for all tool calls within their event.
+- Full matcher pattern evaluation is not complete yet. Current matcher
+  evaluation matches the tool name only. Parenthesized input
+  subpatterns such as `Bash(git status*)` are treated as tool-name matchers for
+  `Bash`; input-level glob evaluation remains deferred.
 - `prompt`-type hooks require prompt assembly integration that is not yet
   designed.
 - No sandboxing of hook processes. A malicious plugin hook script has full user
@@ -315,3 +322,4 @@ Next implementation slices:
 - `docs/journal/2026-05-12-main-sync-development-plan.md`
 - `docs/journal/2026-07-19-plugin-source-discovery.md`
 - `docs/journal/2026-07-20-plugin-dir-config.md`
+- `docs/journal/2026-07-20-plugin-hook-matchers.md`

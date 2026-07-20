@@ -140,6 +140,7 @@ Active backlog only. Keep this file small and current.
 - [ ] Claude plugin runtime startup parity for headless, ACP, and Wire surfaces.
 - [x] Claude plugin explicit plugin directory CLI surface for TUI sessions.
 - [x] Claude plugin explicit plugin directory config persistence.
-- [ ] Claude plugin lifecycle parity: `SessionEnd`, matcher evaluation, blocking results, and output observability.
+- [x] Claude plugin matcher evaluation for tool hooks.
+- [ ] Claude plugin lifecycle parity: `SessionEnd`, blocking results, and output observability.
 - [ ] Claude plugin extension registries for `.mcp.json`, commands, skills, and agents.
 - [ ] Control-plane readiness for new features

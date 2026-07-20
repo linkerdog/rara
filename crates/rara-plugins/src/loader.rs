@@ -165,24 +165,37 @@ fn parse_hooks_json(path: &Path) -> Result<Vec<HookHandler>, String> {
 
     let mut handlers = Vec::new();
     for group in parsed.Stop {
-        handlers.extend(group.hooks);
+        handlers.extend(hooks_with_group_matcher(group));
     }
     for group in parsed.PostToolUse {
-        handlers.extend(group.hooks);
+        handlers.extend(hooks_with_group_matcher(group));
     }
     for group in parsed.PreToolUse {
-        handlers.extend(group.hooks);
+        handlers.extend(hooks_with_group_matcher(group));
     }
     for group in parsed.UserPromptSubmit {
-        handlers.extend(group.hooks);
+        handlers.extend(hooks_with_group_matcher(group));
     }
     for group in parsed.SessionStart {
-        handlers.extend(group.hooks);
+        handlers.extend(hooks_with_group_matcher(group));
     }
     for group in parsed.SessionEnd {
-        handlers.extend(group.hooks);
+        handlers.extend(hooks_with_group_matcher(group));
     }
     Ok(handlers)
+}
+
+fn hooks_with_group_matcher(group: MatcherGroup) -> Vec<HookHandler> {
+    group
+        .hooks
+        .into_iter()
+        .map(|mut hook| {
+            if hook.matcher.is_none() {
+                hook.matcher = group.matcher.clone();
+            }
+            hook
+        })
+        .collect()
 }
 
 /// Produce all registered hooks for a plugin, binding each handler to its event.
@@ -198,7 +211,7 @@ pub fn registered_hooks_for_plugin(plugin: &Plugin) -> Vec<RegisteredHook> {
     };
 
     for group in parsed.Stop {
-        for h in group.hooks {
+        for h in hooks_with_group_matcher(group) {
             registered.push(RegisteredHook {
                 event: HookEvent::Stop,
                 handler: h,
@@ -208,7 +221,7 @@ pub fn registered_hooks_for_plugin(plugin: &Plugin) -> Vec<RegisteredHook> {
         }
     }
     for group in parsed.PostToolUse {
-        for h in group.hooks {
+        for h in hooks_with_group_matcher(group) {
             registered.push(RegisteredHook {
                 event: HookEvent::PostToolUse,
                 handler: h,
@@ -218,7 +231,7 @@ pub fn registered_hooks_for_plugin(plugin: &Plugin) -> Vec<RegisteredHook> {
         }
     }
     for group in parsed.PreToolUse {
-        for h in group.hooks {
+        for h in hooks_with_group_matcher(group) {
             registered.push(RegisteredHook {
                 event: HookEvent::PreToolUse,
                 handler: h,
@@ -228,7 +241,7 @@ pub fn registered_hooks_for_plugin(plugin: &Plugin) -> Vec<RegisteredHook> {
         }
     }
     for group in parsed.UserPromptSubmit {
-        for h in group.hooks {
+        for h in hooks_with_group_matcher(group) {
             registered.push(RegisteredHook {
                 event: HookEvent::UserPromptSubmit,
                 handler: h,
@@ -238,7 +251,7 @@ pub fn registered_hooks_for_plugin(plugin: &Plugin) -> Vec<RegisteredHook> {
         }
     }
     for group in parsed.SessionStart {
-        for h in group.hooks {
+        for h in hooks_with_group_matcher(group) {
             registered.push(RegisteredHook {
                 event: HookEvent::SessionStart,
                 handler: h,
@@ -248,7 +261,7 @@ pub fn registered_hooks_for_plugin(plugin: &Plugin) -> Vec<RegisteredHook> {
         }
     }
     for group in parsed.SessionEnd {
-        for h in group.hooks {
+        for h in hooks_with_group_matcher(group) {
             registered.push(RegisteredHook {
                 event: HookEvent::SessionEnd,
                 handler: h,
@@ -306,6 +319,44 @@ mod tests {
         assert_eq!(registered.len(), 1);
         assert_eq!(registered[0].event, HookEvent::Stop);
         assert_eq!(registered[0].handler.command, "echo ok");
+        assert_eq!(registered[0].handler.matcher.as_deref(), Some(""));
+    }
+
+    #[test]
+    fn registered_hooks_inherit_group_matcher_unless_handler_overrides() {
+        let dir = tempfile::tempdir().unwrap();
+        fs::create_dir_all(dir.path().join(".claude-plugin")).unwrap();
+        fs::write(
+            dir.path().join(".claude-plugin").join("plugin.json"),
+            json!({
+                "name": "matcher-plugin",
+                "description": "matcher plugin"
+            })
+            .to_string(),
+        )
+        .unwrap();
+        fs::create_dir_all(dir.path().join("hooks")).unwrap();
+        fs::write(
+            dir.path().join("hooks").join("hooks.json"),
+            json!({
+                "PreToolUse": [{
+                    "matcher": "Bash(*)",
+                    "hooks": [
+                        {"type": "command", "command": "echo inherited"},
+                        {"type": "command", "command": "echo override", "matcher": "Write|Edit"}
+                    ]
+                }]
+            })
+            .to_string(),
+        )
+        .unwrap();
+
+        let plugin = load_plugin(dir.path()).unwrap();
+        let registered = registered_hooks_for_plugin(&plugin);
+
+        assert_eq!(registered.len(), 2);
+        assert_eq!(registered[0].handler.matcher.as_deref(), Some("Bash(*)"));
+        assert_eq!(registered[1].handler.matcher.as_deref(), Some("Write|Edit"));
     }
 
     #[test]
