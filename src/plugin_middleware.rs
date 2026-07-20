@@ -184,7 +184,7 @@ fn hook_matches_agent_event(hook: &rara_plugins::HookHandler, event: &AgentEvent
 }
 
 fn tool_name_matches(matcher: &str, tool_name: &str) -> bool {
-    let tool_name = tool_name.trim().to_ascii_lowercase();
+    let tool_name = tool_name.trim();
     matcher
         .split(['|', ','])
         .map(str::trim)
@@ -194,9 +194,8 @@ fn tool_name_matches(matcher: &str, tool_name: &str) -> bool {
                 .split_once('(')
                 .map(|(name, _)| name)
                 .unwrap_or(part)
-                .trim()
-                .to_ascii_lowercase();
-            tool_pattern == "*" || tool_pattern == tool_name
+                .trim();
+            tool_pattern == "*" || tool_pattern.eq_ignore_ascii_case(tool_name)
         })
 }
 

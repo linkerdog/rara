@@ -185,17 +185,15 @@ fn parse_hooks_json(path: &Path) -> Result<Vec<HookHandler>, String> {
     Ok(handlers)
 }
 
-fn hooks_with_group_matcher(group: MatcherGroup) -> Vec<HookHandler> {
-    group
-        .hooks
-        .into_iter()
-        .map(|mut hook| {
+fn hooks_with_group_matcher(mut group: MatcherGroup) -> Vec<HookHandler> {
+    if let Some(matcher) = group.matcher {
+        for hook in &mut group.hooks {
             if hook.matcher.is_none() {
-                hook.matcher = group.matcher.clone();
+                hook.matcher = Some(matcher.clone());
             }
-            hook
-        })
-        .collect()
+        }
+    }
+    group.hooks
 }
 
 /// Produce all registered hooks for a plugin, binding each handler to its event.
