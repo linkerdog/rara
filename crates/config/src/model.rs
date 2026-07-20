@@ -310,6 +310,8 @@ pub struct RaraConfig {
     pub context_file_search: ContextFileSearchPolicy,
     #[serde(default, skip_serializing_if = "LocalEmbeddingPolicy::is_default")]
     pub local_embeddings: LocalEmbeddingPolicy,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub plugin_dirs: Vec<PathBuf>,
     #[serde(default, skip_serializing_if = "TuiConfig::is_default")]
     pub tui: TuiConfig,
 }
@@ -1082,6 +1084,7 @@ fn stable_path_hash(root: &Path) -> u64 {
 mod tests {
     use std::collections::BTreeMap;
     use std::fs;
+    use std::path::PathBuf;
 
     use secrecy::ExposeSecret;
     use tempfile::tempdir;
@@ -1225,6 +1228,32 @@ mod tests {
         });
 
         assert_eq!(config.local_embeddings, LocalEmbeddingPolicy::Off);
+    }
+
+    #[test]
+    fn plugin_dirs_default_empty_and_omitted() {
+        let config = RaraConfig::default();
+
+        assert!(config.plugin_dirs.is_empty());
+
+        let json = serde_json::to_string(&config).expect("serialize config");
+        assert!(!json.contains("plugin_dirs"));
+    }
+
+    #[test]
+    fn plugin_dirs_can_be_loaded_from_config() {
+        let config: RaraConfig = serde_json::from_str(
+            r#"{
+                "provider": "deepseek",
+                "plugin_dirs": ["plugins-a", "/tmp/plugins-b"]
+            }"#,
+        )
+        .expect("deserialize config");
+
+        assert_eq!(
+            config.plugin_dirs,
+            vec![PathBuf::from("plugins-a"), PathBuf::from("/tmp/plugins-b")]
+        );
     }
 
     #[test]

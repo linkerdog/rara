@@ -274,24 +274,27 @@ Implemented in the first merged slice:
   name.
 - User plugin home resolution happens on the blocking registration worker. If
   user plugin home cannot be resolved, project plugin registration still runs.
-- TUI and `resume` startup accept repeated `--plugin-dir <path>` global CLI
-  flags and pass those directories into plugin hook registration as the final
-  source tier. CLI plugin directories override project and user plugins with the
-  same plugin name. Relative CLI plugin directories are normalized to absolute
-  paths during CLI startup. Supplying explicit plugin directories triggers the
-  TUI runtime rebuild path on startup so the hook runtime is created and plugin
-  hooks are registered even when local embedding startup is disabled.
+- TUI and `resume` startup accept plugin directories from persisted
+  `plugin_dirs` config and repeated `--plugin-dir <path>` global CLI flags.
+  Configured directories are appended before CLI directories, and both are
+  passed into plugin hook registration as the final explicit source tier. CLI
+  plugin directories therefore override configured explicit directories, project
+  plugins, and user plugins with the same plugin name. Relative explicit plugin
+  directories are normalized to absolute paths during CLI startup, and duplicate
+  normalized directories are scanned only once. Supplying any explicit plugin
+  directories triggers the TUI runtime rebuild path on startup so the hook
+  runtime is created and plugin hooks are registered even when local embedding
+  startup is disabled.
 
 Next implementation slices:
 
 1. Extend plugin source composition beyond the TUI rebuild path to headless,
    ACP, and Wire runtime startup.
-2. Add config persistence for explicit plugin directories.
-3. Fix lifecycle parity gaps before broad user-facing rollout: `SessionEnd` mapping,
+2. Fix lifecycle parity gaps before broad user-facing rollout: `SessionEnd` mapping,
    matcher evaluation, blocking hook results, and hook output observability.
-4. Add git-source install support on top of the existing local-directory
+3. Add git-source install support on top of the existing local-directory
    `rara plugin install/list/remove` commands.
-5. Feed plugin `.mcp.json`, commands, skills, and agents into the same
+4. Feed plugin `.mcp.json`, commands, skills, and agents into the same
    structured extension-source registries used by native RARA features.
 
 ## Open Risks
@@ -311,3 +314,4 @@ Next implementation slices:
 - `docs/journal/2026-05-12-claude-plugin-runtime.md`
 - `docs/journal/2026-05-12-main-sync-development-plan.md`
 - `docs/journal/2026-07-19-plugin-source-discovery.md`
+- `docs/journal/2026-07-20-plugin-dir-config.md`
