@@ -25,6 +25,8 @@ This spec covers:
   read exit code and stdout JSON (`{ continue: bool }`).
 - Synchronous `PreToolUse` command-hook blocking in the agent tool execution
   path.
+- Direct `SessionStart` and `UserPromptSubmit` command hooks from the agent
+  query path.
 - `SessionEnd` command hooks on final agent-loop completion.
 - Prompt-visible summaries for plugin `skills/<name>/SKILL.md` directories.
 - Timeout enforcement per hook (default 60s, configurable).
@@ -186,7 +188,8 @@ wait_with_timeout(timeout_secs)
   "tool_input": { "command": "git status" },
   "tool_response": null,      // reserved for PostToolUse
   "last_assistant_message": null,
-  "is_interrupt": null
+  "is_interrupt": null,
+  "prompt": null              // only populated for UserPromptSubmit
 }
 ```
 
@@ -208,6 +211,15 @@ Non-blocking plugin events continue to register with `HookRuntime` and inject
 stdout into the model context before a later model turn. `PreToolUse` is not
 also registered through the async event-bus callback, so command hooks are not
 run twice.
+
+`SessionStart` and `UserPromptSubmit` command hooks are executed directly by
+the agent query path instead of through the async event-bus callback.
+`SessionStart` fires once for each `Agent` instance before the first submitted
+prompt is compacted or appended to history. `UserPromptSubmit` fires once for
+each `query_with_mode_and_events` call and receives the submitted prompt in the
+`prompt` field. These lifecycle hooks are fire-and-log only for now: failures
+are logged and do not block the turn, and stdout is not injected into model
+context until the structured hook-output surface is designed.
 
 `SessionEnd` command hooks are not registered through the async event-bus
 callback because there is no ordinary tool event to translate. The agent loop
@@ -283,6 +295,7 @@ scope for now.
 | `{ "continue": false }` blocks command hook execution | `cargo test agent::tests::plugin_hooks::plugin_pre_tool_use_continue_false_blocks_tool_execution -- --nocapture` |
 | `SessionEnd` receives final assistant payload | `cargo test agent::tests::plugin_hooks::plugin_session_end_runs_once_with_last_assistant_message -- --nocapture` |
 | `SessionEnd` marks cancelled model turns as interrupts | `cargo test agent::tests::plugin_hooks::plugin_session_end_marks_cancelled_model_turn_as_interrupt -- --nocapture` |
+| `SessionStart` and `UserPromptSubmit` fire from agent queries | `cargo test agent::tests::plugin_hooks::plugin_non_tool_lifecycle_hooks_run_from_agent_query -- --nocapture` |
 | Plugin skills are prompt-visible summaries | `cargo test plugin_middleware::tests::registers_project_plugin_skill_summaries -- --nocapture` and `cargo test agent::tests::plugin_hooks::plugin_skill_summaries_are_prompt_visible_but_not_invokable_yet -- --nocapture` |
 | Non-zero exit code fails | integration test |
 | Timeout fires | integration test (sleep 10) |
@@ -338,6 +351,11 @@ Implemented in the first merged slice:
   `is_interrupt: false`. Cancelled model turns fire `SessionEnd` with
   `is_interrupt: true` before returning the cancellation error. Approval waits
   and other resumable pauses do not fire `SessionEnd`.
+- `SessionStart` and `UserPromptSubmit` command hooks execute directly from
+  agent queries. `SessionStart` runs once per agent instance. `UserPromptSubmit`
+  runs once per submitted query and includes the submitted prompt. Both
+  lifecycle hooks are non-blocking and log failures without injecting stdout
+  into model context yet.
 - Plugin `skills/<name>/SKILL.md` directories are exposed as prompt-visible
   summaries with namespaced `plugin_name:skill_name` names and plugin scope.
   They are marked `disable_model_invocation: true` because the `skill` tool
@@ -346,8 +364,7 @@ Implemented in the first merged slice:
 Next implementation slices:
 
 1. Fix remaining lifecycle parity gaps before broad user-facing rollout:
-   structured hook output observability and non-tool lifecycle dispatch beyond
-   `SessionEnd`.
+   structured hook output observability for lifecycle hooks.
 2. Add git-source install support on top of the existing local-directory
    `rara plugin install/list/remove` commands.
 3. Feed plugin `.mcp.json`, commands, skills, and agents into the same
@@ -378,3 +395,4 @@ Next implementation slices:
 - `docs/journal/2026-07-20-plugin-dir-config.md`
 - `docs/journal/2026-07-20-plugin-hook-matchers.md`
 - `docs/journal/2026-07-20-plugin-runtime-bootstrap.md`
+- `docs/journal/2026-07-21-plugin-non-tool-lifecycle-hooks.md`

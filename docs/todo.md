@@ -143,6 +143,7 @@ Active backlog only. Keep this file small and current.
 - [x] Claude plugin matcher evaluation for tool hooks.
 - [x] Claude plugin `SessionEnd` command hook dispatch.
 - [x] Claude plugin skill directory prompt summaries.
-- [ ] Claude plugin lifecycle parity: non-tool lifecycle dispatch beyond `SessionEnd` and output observability.
+- [x] Claude plugin non-tool command hook dispatch for `SessionStart` and `UserPromptSubmit`.
+- [ ] Claude plugin lifecycle parity: structured hook output observability.
 - [ ] Claude plugin extension registries for `.mcp.json`, commands, skill invocation/reload, and agents.
 - [ ] Control-plane readiness for new features
