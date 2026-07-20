@@ -112,6 +112,9 @@ fn register_plugin_hooks_blocking(
             let plugin_name_for_callback = plugin_name.clone();
             let runtime_for_output = runtime.clone();
             let callback = Box::new(move |event: &AgentEvent| {
+                if !hook_matches_agent_event(&hook, event) {
+                    return;
+                }
                 let hook_event_name = match agent_event_to_hook_event(event) {
                     Some(e) => e.as_str().to_string(),
                     None => return,
@@ -164,6 +167,36 @@ fn extract_tool_name(event: &AgentEvent) -> Option<String> {
         AgentEvent::ToolResult { name, .. } => Some(name.clone()),
         _ => None,
     }
+}
+
+fn hook_matches_agent_event(hook: &rara_plugins::HookHandler, event: &AgentEvent) -> bool {
+    let Some(matcher) = hook.matcher.as_deref() else {
+        return true;
+    };
+    let matcher = matcher.trim();
+    if matcher.is_empty() || matcher == "*" {
+        return true;
+    }
+    let Some(tool_name) = extract_tool_name(event) else {
+        return true;
+    };
+    tool_name_matches(matcher, &tool_name)
+}
+
+fn tool_name_matches(matcher: &str, tool_name: &str) -> bool {
+    let tool_name = tool_name.trim();
+    matcher
+        .split(['|', ','])
+        .map(str::trim)
+        .filter(|part| !part.is_empty())
+        .any(|part| {
+            let tool_pattern = part
+                .split_once('(')
+                .map(|(name, _)| name)
+                .unwrap_or(part)
+                .trim();
+            tool_pattern == "*" || tool_pattern.eq_ignore_ascii_case(tool_name)
+        })
 }
 
 #[cfg(test)]
@@ -249,6 +282,37 @@ mod tests {
 
         assert_eq!(registered, 2);
         assert_eq!(runtime.hook_count(), 2);
+    }
+
+    #[test]
+    fn hook_matcher_filters_tool_events_by_tool_name() {
+        let bash_hook = rara_plugins::HookHandler {
+            r#type: "command".to_string(),
+            command: "echo bash".to_string(),
+            timeout: 1,
+            matcher: Some("Bash(*)".to_string()),
+            once: false,
+        };
+        let edit_hook = rara_plugins::HookHandler {
+            r#type: "command".to_string(),
+            command: "echo edit".to_string(),
+            timeout: 1,
+            matcher: Some("Write|Edit".to_string()),
+            once: false,
+        };
+        let bash_event = AgentEvent::ToolUse {
+            name: "bash".to_string(),
+            input: serde_json::json!({}),
+        };
+        let edit_event = AgentEvent::ToolUse {
+            name: "Edit".to_string(),
+            input: serde_json::json!({}),
+        };
+
+        assert!(hook_matches_agent_event(&bash_hook, &bash_event));
+        assert!(!hook_matches_agent_event(&bash_hook, &edit_event));
+        assert!(hook_matches_agent_event(&edit_hook, &edit_event));
+        assert!(!hook_matches_agent_event(&edit_hook, &bash_event));
     }
 
     fn write_test_plugin(root: &Path, name: &str, command: &str) {
