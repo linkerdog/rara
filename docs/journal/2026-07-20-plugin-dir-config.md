@@ -19,13 +19,15 @@ every TUI or `resume` startup.
 - Loaded configured plugin directories from `plugin_dirs`.
 - Merged configured plugin directories before CLI plugin directories so CLI
   inputs remain the most explicit override within the explicit source tier.
+- Deduplicated normalized explicit plugin directories while preserving the
+  effective scan order.
 - Reused the existing absolute-path normalization and TUI startup rebuild path.
 
 ## Validation
 
 ```bash
 cargo test -p rara-config plugin_dirs -- --nocapture
-cargo test app_cli::tests::effective_plugin_dirs_put_cli_dirs_after_config_dirs -- --nocapture
+cargo test app_cli::tests::effective_plugin_dirs_put_cli_dirs_after_config_dirs_and_deduplicates -- --nocapture
 cargo test app_cli::tests::normalize_plugin_dirs_returns_absolute_paths -- --nocapture
 cargo check --locked --workspace --all-targets
 cargo fmt --check

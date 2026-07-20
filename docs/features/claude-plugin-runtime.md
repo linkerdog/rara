@@ -280,10 +280,11 @@ Implemented in the first merged slice:
   passed into plugin hook registration as the final explicit source tier. CLI
   plugin directories therefore override configured explicit directories, project
   plugins, and user plugins with the same plugin name. Relative explicit plugin
-  directories are normalized to absolute paths during CLI startup. Supplying any
-  explicit plugin directories triggers the TUI runtime rebuild path on startup
-  so the hook runtime is created and plugin hooks are registered even when local
-  embedding startup is disabled.
+  directories are normalized to absolute paths during CLI startup, and duplicate
+  normalized directories are scanned only once. Supplying any explicit plugin
+  directories triggers the TUI runtime rebuild path on startup so the hook
+  runtime is created and plugin hooks are registered even when local embedding
+  startup is disabled.
 
 Next implementation slices:
 

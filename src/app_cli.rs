@@ -1,4 +1,4 @@
-use std::path::{Path, PathBuf};
+use std::path::{Component, Path, PathBuf};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
@@ -279,15 +279,39 @@ fn normalize_plugin_dirs(plugin_dirs: &[PathBuf]) -> Result<Vec<PathBuf>> {
 fn effective_plugin_dirs(config: &RaraConfig, cli_plugin_dirs: &[PathBuf]) -> Result<Vec<PathBuf>> {
     let mut plugin_dirs = config.plugin_dirs.clone();
     plugin_dirs.extend_from_slice(cli_plugin_dirs);
-    normalize_plugin_dirs(&plugin_dirs)
+    let normalized = normalize_plugin_dirs(&plugin_dirs)?;
+    let mut seen = std::collections::HashSet::new();
+    Ok(normalized
+        .into_iter()
+        .filter(|path| seen.insert(path.clone()))
+        .collect())
 }
 
 fn normalize_plugin_dir(path: &Path) -> Result<PathBuf> {
-    match path.canonicalize() {
-        Ok(path) => Ok(path),
-        Err(_) if path.is_absolute() => Ok(path.to_path_buf()),
-        Err(_) => Ok(std::env::current_dir()?.join(path)),
+    let path = match path.canonicalize() {
+        Ok(path) => path,
+        Err(_) if path.is_absolute() => path.to_path_buf(),
+        Err(_) => std::env::current_dir()?.join(path),
+    };
+    Ok(normalize_path_components(path))
+}
+
+fn normalize_path_components(path: PathBuf) -> PathBuf {
+    let mut normalized = PathBuf::new();
+    for component in path.components() {
+        match component {
+            Component::CurDir => {}
+            Component::ParentDir => {
+                if !normalized.pop() {
+                    normalized.push(component.as_os_str());
+                }
+            }
+            Component::Prefix(_) | Component::RootDir | Component::Normal(_) => {
+                normalized.push(component.as_os_str());
+            }
+        }
     }
+    normalized
 }
 
 async fn run_acp_command(config: &RaraConfig) -> Result<()> {
@@ -786,13 +810,24 @@ mod tests {
     }
 
     #[test]
-    fn effective_plugin_dirs_put_cli_dirs_after_config_dirs() {
+    fn effective_plugin_dirs_put_cli_dirs_after_config_dirs_and_deduplicates() {
         let cwd = std::env::current_dir().expect("cwd");
-        let mut config = RaraConfig::default();
-        config.plugin_dirs = vec![PathBuf::from("config-plugins")];
+        let config = RaraConfig {
+            plugin_dirs: vec![
+                PathBuf::from("config-plugins"),
+                PathBuf::from("./config-plugins"),
+            ],
+            ..Default::default()
+        };
 
-        let normalized = effective_plugin_dirs(&config, &[PathBuf::from("cli-plugins")])
-            .expect("effective plugin dirs");
+        let normalized = effective_plugin_dirs(
+            &config,
+            &[
+                PathBuf::from("cli-plugins"),
+                PathBuf::from("config-plugins"),
+            ],
+        )
+        .expect("effective plugin dirs");
 
         assert_eq!(
             normalized,
