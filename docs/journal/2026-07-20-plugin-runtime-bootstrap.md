@@ -50,9 +50,15 @@ non-TUI surfaces without the same runtime behavior.
   cancellation error returns to the caller. Other runtime errors keep the
   existing error and recovery behavior so recoverable continuation paths do not
   run cleanup early.
+- Plugin `skills/<name>/SKILL.md` directories are now discovered during runtime
+  plugin registration and appended to the agent's available-skill summaries as
+  `plugin_name:skill_name` entries with `scope: "plugin"`.
+- Plugin skill summaries set `disable_model_invocation: true`; this records
+  availability without pretending the existing `skill` tool can invoke plugin
+  skill bodies before the shared extension registry is wired through.
 - This slice does not change non-tool lifecycle dispatch beyond `SessionEnd`,
   full structured hook output observability, or plugin extension registry
-  ingestion.
+  invocation/reload ingestion.
 
 ## Validation
 
@@ -70,6 +76,8 @@ git diff --check
 cargo test agent::tests::plugin_hooks::plugin_pre_tool_use_continue_false_blocks_tool_execution -- --nocapture
 cargo test agent::tests::plugin_hooks::plugin_session_end_runs_once_with_last_assistant_message -- --nocapture
 cargo test agent::tests::plugin_hooks::plugin_session_end_marks_cancelled_model_turn_as_interrupt -- --nocapture
+cargo test plugin_middleware::tests::registers_project_plugin_skill_summaries -- --nocapture
+cargo test agent::tests::plugin_hooks::plugin_skill_summaries_are_prompt_visible_but_not_invokable_yet -- --nocapture
 cargo test plugin_middleware::tests -- --nocapture
 ```
 
@@ -77,5 +85,5 @@ cargo test plugin_middleware::tests -- --nocapture
 
 - Implement non-tool lifecycle dispatch beyond `SessionEnd` and hook output
   observability.
-- Feed plugin `.mcp.json`, commands, skills, and agents into structured
-  extension registries.
+- Feed plugin `.mcp.json`, commands, skill invocation/reload, and agents into
+  structured extension registries.

@@ -26,6 +26,7 @@ This spec covers:
 - Synchronous `PreToolUse` command-hook blocking in the agent tool execution
   path.
 - `SessionEnd` command hooks on final agent-loop completion.
+- Prompt-visible summaries for plugin `skills/<name>/SKILL.md` directories.
 - Timeout enforcement per hook (default 60s, configurable).
 - Integration with RARA's existing `HookRuntime` so plugin hooks fire on the
   same lifecycle events as built-in hooks.
@@ -232,6 +233,16 @@ rara plugin remove clawmem
 Installation copies/clones the plugin to `~/.rara/plugins/<name>/`. For git
 URLs, a shallow clone is performed and kept for future updates.
 
+### Skill Extension Summaries
+
+Runtime bootstrap discovers `skills/<name>/SKILL.md` directories from loaded
+plugins and appends compact summaries to the agent's available-skill listing.
+Plugin skill names are exposed as `plugin_name:skill_name`, use
+`scope: "plugin"`, and set `disable_model_invocation: true` until plugin skill
+invocation is routed through the shared skill registry. This makes plugin skill
+availability visible to the model and control surfaces without implying that
+the existing `skill` tool can invoke those bodies yet.
+
 ## Contracts
 
 ### Crate API
@@ -272,6 +283,7 @@ scope for now.
 | `{ "continue": false }` blocks command hook execution | `cargo test agent::tests::plugin_hooks::plugin_pre_tool_use_continue_false_blocks_tool_execution -- --nocapture` |
 | `SessionEnd` receives final assistant payload | `cargo test agent::tests::plugin_hooks::plugin_session_end_runs_once_with_last_assistant_message -- --nocapture` |
 | `SessionEnd` marks cancelled model turns as interrupts | `cargo test agent::tests::plugin_hooks::plugin_session_end_marks_cancelled_model_turn_as_interrupt -- --nocapture` |
+| Plugin skills are prompt-visible summaries | `cargo test plugin_middleware::tests::registers_project_plugin_skill_summaries -- --nocapture` and `cargo test agent::tests::plugin_hooks::plugin_skill_summaries_are_prompt_visible_but_not_invokable_yet -- --nocapture` |
 | Non-zero exit code fails | integration test |
 | Timeout fires | integration test (sleep 10) |
 | `discover_plugins` skips non-directories | unit test |
@@ -326,6 +338,10 @@ Implemented in the first merged slice:
   `is_interrupt: false`. Cancelled model turns fire `SessionEnd` with
   `is_interrupt: true` before returning the cancellation error. Approval waits
   and other resumable pauses do not fire `SessionEnd`.
+- Plugin `skills/<name>/SKILL.md` directories are exposed as prompt-visible
+  summaries with namespaced `plugin_name:skill_name` names and plugin scope.
+  They are marked `disable_model_invocation: true` because the `skill` tool
+  still reads from the local `SkillManager`, not from plugin extension roots.
 
 Next implementation slices:
 
@@ -335,7 +351,9 @@ Next implementation slices:
 2. Add git-source install support on top of the existing local-directory
    `rara plugin install/list/remove` commands.
 3. Feed plugin `.mcp.json`, commands, skills, and agents into the same
-   structured extension-source registries used by native RARA features.
+   structured extension-source registries used by native RARA features. Skills
+   already have prompt-visible summaries; invocation and reload integration
+   remain open.
 
 ## Open Risks
 
