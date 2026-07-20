@@ -147,8 +147,8 @@ impl RuntimeBootstrap {
         let plugin_dirs = self.plugin_dirs.clone();
         let rara_home = self.rara_home.clone();
         let hook_runtime = self.hook_runtime.clone();
-        let parts = self.into_parts();
-        crate::plugin_middleware::register_plugin_hooks(
+        let mut parts = self.into_parts();
+        let plugin_hook_runtime = crate::plugin_middleware::register_plugin_hooks(
             &hook_runtime,
             rara_home,
             &workspace_root,
@@ -156,6 +156,7 @@ impl RuntimeBootstrap {
             &parts.0.session_id,
         )
         .await;
+        parts.0.set_plugin_hook_runtime(plugin_hook_runtime);
         parts
     }
 }

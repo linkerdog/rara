@@ -8,6 +8,7 @@ use std::process::Stdio;
 use std::time::Duration;
 
 use serde::Serialize;
+use serde_json::Value;
 use tokio::io::AsyncWriteExt;
 use tokio::process::Command;
 use tokio::time::timeout;
@@ -22,7 +23,8 @@ pub struct HookInput {
     pub hook_event: String,
     pub plugin_root: String,
     pub tool_name: Option<String>,
-    pub tool_input: Option<String>,
+    pub tool_input: Option<Value>,
+    pub tool_response: Option<Value>,
 }
 
 /// Result of executing a command hook.
@@ -152,6 +154,7 @@ mod tests {
                 plugin_root: "/tmp".to_string(),
                 tool_name: None,
                 tool_input: None,
+                tool_response: None,
             },
         )
         .await;
@@ -177,6 +180,7 @@ mod tests {
                 plugin_root: "/tmp".to_string(),
                 tool_name: None,
                 tool_input: None,
+                tool_response: None,
             },
         )
         .await;
@@ -202,6 +206,7 @@ mod tests {
                 plugin_root: "/tmp".to_string(),
                 tool_name: None,
                 tool_input: None,
+                tool_response: None,
             },
         )
         .await;

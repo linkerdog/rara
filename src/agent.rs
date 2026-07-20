@@ -302,6 +302,7 @@ pub struct Agent {
     pub hook_registry: Option<Arc<crate::hooks::HookRegistry>>,
     pub hook_sandbox: Option<HookSandbox>,
     hook_runtime: Option<Arc<HookRuntime>>,
+    plugin_hook_runtime: Option<Arc<crate::plugin_middleware::PluginHookRuntime>>,
     pub retrieved_memory_candidates: Vec<RetrievedMemoryCandidate>,
     pub file_search_candidates: Vec<RetrievalCandidate>,
     pub mcp_resource_candidates: Vec<RetrievalCandidate>,
@@ -333,6 +334,14 @@ impl Agent {
         self.hook_registry = Some(registry);
         self.hook_sandbox = Some(sandbox);
         self.hook_runtime = Some(runtime);
+    }
+
+    /// Configure Claude plugin hooks loaded for this runtime session.
+    pub(crate) fn set_plugin_hook_runtime(
+        &mut self,
+        runtime: Arc<crate::plugin_middleware::PluginHookRuntime>,
+    ) {
+        self.plugin_hook_runtime = Some(runtime);
     }
 
     /// Accumulate subagent (auxiliary model) cache statistics.
@@ -475,6 +484,7 @@ impl Agent {
             hook_registry: None,
             hook_sandbox: None,
             hook_runtime: None,
+            plugin_hook_runtime: None,
             retrieved_memory_candidates: Vec::new(),
             file_search_candidates: Vec::new(),
             mcp_resource_candidates: Vec::new(),
@@ -1599,6 +1609,21 @@ impl Agent {
                 if blocked {
                     continue;
                 }
+            }
+            if let Some(plugin_hooks) = self.plugin_hook_runtime.clone()
+                && let Some(block) = plugin_hooks.run_pre_tool_use(&tool_name, &tool_input).await
+            {
+                let error_text = format!(
+                    "Error: tool {} blocked by plugin hook {}: {}",
+                    tool_name, block.plugin_name, block.message
+                );
+                report(AgentEvent::ToolResult {
+                    name: tool_name.clone(),
+                    content: error_text.clone(),
+                    is_error: true,
+                });
+                tool_results.push(tool_result_message(&tool_id, error_text, true));
+                continue;
             }
             if let Some(tool) = self.tool_manager.get_tool(&tool_name) {
                 self.inspection_progress
