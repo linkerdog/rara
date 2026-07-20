@@ -23,6 +23,8 @@ This spec covers:
   SessionEnd).
 - Execution of `command`-type hooks: spawn a shell process, feed JSON on stdin,
   read exit code and stdout JSON (`{ continue: bool }`).
+- Synchronous `PreToolUse` command-hook blocking in the agent tool execution
+  path.
 - Timeout enforcement per hook (default 60s, configurable).
 - Integration with RARA's existing `HookRuntime` so plugin hooks fire on the
   same lifecycle events as built-in hooks.
@@ -178,27 +180,30 @@ wait_with_timeout(timeout_secs)
   "transcript_path": "/path/to/session.jsonl",
   "hook_event": "Stop",
   "plugin_root": "/path/to/plugin",
-  "tool_name": "Bash",        // only for PreToolUse/PostToolUse
-  "tool_input": "..."         // only for PreToolUse/PostToolUse
+  "tool_name": "Bash",        // only for tool events
+  "tool_input": { "command": "git status" },
+  "tool_response": null       // reserved for PostToolUse
 }
 ```
 
 ### Integration With Existing Hook Runtime
 
-RARA's `HookRuntime` already maps `AgentEvent` → `HookLifecycle` and runs a
-dispatch loop. Plugin hooks are added as an additional source:
+Plugin discovery and registration are owned by runtime bootstrap. The resulting
+plugin hook set is session-scoped and attached to the agent alongside the
+session-owned `HookRuntime`.
 
-```rust
-// In hook_runtime.rs or a new integration point:
-let plugin_hooks = PluginLoader::load_all();
-for hook in plugin_hooks {
-    runtime.register(hook.event, hook);
-}
-```
+`PreToolUse` command hooks are executed synchronously at the tool execution
+boundary. A hook result with `continue:false`, a non-zero exit, or a timeout
+returns an error `tool_result` to the model and the tool is not executed. The
+blocking message is selected from stdout JSON `stopReason`, `reason`, or
+`systemMessage`, then stderr, plain stdout, then a generic fallback. `PreToolUse`
+stdout is treated as control output for the blocking decision and is not
+injected into later model context.
 
-When the hook runtime dispatches a lifecycle event, it iterates registered
-hooks and calls `PluginRuntime::execute_hook()` for each `HandlerType::Command`
-hook.
+Non-blocking plugin events continue to register with `HookRuntime` and inject
+stdout into the model context before a later model turn. `PreToolUse` is not
+also registered through the async event-bus callback, so command hooks are not
+run twice.
 
 ### Installation
 
@@ -237,7 +242,9 @@ pub fn remove_plugin(name: &str, target_dir: &Path) -> Result<()>;
 ```
 
 Unknown fields are ignored. Unknown event keys are ignored with a warning.
-Matchers are parsed but not evaluated in the first slice (matching is deferred).
+Tool matchers are evaluated by tool name, including simple `A|B`, `A,B`, and
+`Tool(...)` forms. Full Claude Code input-pattern matching remains out of
+scope for now.
 
 ## Validation Matrix
 
@@ -247,7 +254,7 @@ Matchers are parsed but not evaluated in the first slice (matching is deferred).
 | Missing `.claude-plugin/` returns None | unit test |
 | Invalid JSON produces load_warnings | unit test |
 | `execute_command_hook` with working command | integration test (echo return code) |
-| `{ "continue": false }` blocks | integration test |
+| `{ "continue": false }` blocks command hook execution | `cargo test agent::tests::plugin_hooks::plugin_pre_tool_use_continue_false_blocks_tool_execution -- --nocapture` |
 | Non-zero exit code fails | integration test |
 | Timeout fires | integration test (sleep 10) |
 | `discover_plugins` skips non-directories | unit test |
@@ -261,6 +268,8 @@ Implemented in the first merged slice:
 - `.claude-plugin/plugin.json` and `hooks/hooks.json` are parsed.
 - Command hooks can be executed with stdin JSON, timeout handling, exit-code
   reporting, and stdout parsing.
+- `PreToolUse` command hooks run synchronously before tool execution. Blocking
+  results return an error tool result to the model and skip the tool call.
 - A middleware bridge exists in `src/plugin_middleware.rs` and is owned by
   runtime bootstrap assembly rather than by any presentation surface.
 - The discovery API can scan a single directory with source metadata or scan
@@ -297,8 +306,9 @@ Implemented in the first merged slice:
 
 Next implementation slices:
 
-1. Fix lifecycle parity gaps before broad user-facing rollout: `SessionEnd`
-   mapping, blocking hook results, and hook output observability.
+1. Fix remaining lifecycle parity gaps before broad user-facing rollout:
+   `SessionEnd` mapping, structured hook output observability, and non-tool
+   lifecycle dispatch.
 2. Add git-source install support on top of the existing local-directory
    `rara plugin install/list/remove` commands.
 3. Feed plugin `.mcp.json`, commands, skills, and agents into the same
@@ -322,6 +332,7 @@ Next implementation slices:
 
 - `docs/journal/2026-05-12-claude-plugin-runtime.md`
 - `docs/journal/2026-05-12-main-sync-development-plan.md`
+- `docs/journal/2026-07-20-plugin-runtime-bootstrap.md`
 - `docs/journal/2026-07-19-plugin-source-discovery.md`
 - `docs/journal/2026-07-20-plugin-dir-config.md`
 - `docs/journal/2026-07-20-plugin-hook-matchers.md`

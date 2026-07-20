@@ -141,6 +141,6 @@ Active backlog only. Keep this file small and current.
 - [x] Claude plugin explicit plugin directory CLI surface for TUI sessions.
 - [x] Claude plugin explicit plugin directory config persistence.
 - [x] Claude plugin matcher evaluation for tool hooks.
-- [ ] Claude plugin lifecycle parity: `SessionEnd`, blocking results, and output observability.
+- [ ] Claude plugin lifecycle parity: `SessionEnd`, non-tool lifecycle dispatch, and output observability.
 - [ ] Claude plugin extension registries for `.mcp.json`, commands, skills, and agents.
 - [ ] Control-plane readiness for new features

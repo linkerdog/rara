@@ -35,8 +35,12 @@ non-TUI surfaces without the same runtime behavior.
 - Agent execution uses a session-scoped hook runtime. The process-global hook
   runtime bridge was removed so runtime behavior cannot silently pin or route
   through the first initialized ACP session.
-- This slice does not change `SessionEnd`, blocking hook behavior, hook output
-  observability, or plugin extension registry ingestion.
+- Plugin `PreToolUse` command hooks now also have a session-scoped synchronous
+  execution path at the agent tool boundary. `continue:false`, non-zero exits,
+  and timeouts return an error tool result to the model and prevent the tool
+  from running.
+- This slice does not change `SessionEnd`, non-tool lifecycle dispatch, full
+  structured hook output observability, or plugin extension registry ingestion.
 
 ## Validation
 
@@ -51,10 +55,13 @@ cargo check --locked --workspace --all-targets
 cargo clippy --locked --workspace --all-targets --no-deps -- -D warnings
 cargo fmt --check
 git diff --check
+cargo test agent::tests::plugin_hooks::plugin_pre_tool_use_continue_false_blocks_tool_execution -- --nocapture
+cargo test plugin_middleware::tests -- --nocapture
 ```
 
 ## Follow-Ups
 
-- Implement `SessionEnd`, blocking hook results, and hook output observability.
+- Implement `SessionEnd`, non-tool lifecycle dispatch, and hook output
+  observability.
 - Feed plugin `.mcp.json`, commands, skills, and agents into structured
   extension registries.

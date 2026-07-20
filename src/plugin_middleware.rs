@@ -4,13 +4,100 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use rara_plugins::{
-    HookEvent, HookInput, PluginDiscoverySource, PluginSource, discover_plugins_from_sources,
-    execute_command_hook,
+    HookEvent, HookInput, PluginDiscoverySource, PluginSource, RegisteredHook,
+    discover_plugins_from_sources, execute_command_hook,
 };
+use serde_json::Value;
 
 use crate::agent::AgentEvent;
 use crate::hook_runtime::HookRuntime;
 use crate::runtime_control::HookLifecycle;
+
+#[derive(Clone, Debug, Default)]
+pub(crate) struct PluginHookRuntime {
+    session_id: String,
+    hooks: Vec<RegisteredHook>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct PluginHookBlock {
+    pub plugin_name: String,
+    pub message: String,
+}
+
+impl PluginHookRuntime {
+    fn new(session_id: String, hooks: Vec<RegisteredHook>) -> Self {
+        Self { session_id, hooks }
+    }
+
+    #[cfg(test)]
+    fn hook_count(&self) -> usize {
+        self.hooks.len()
+    }
+
+    pub(crate) async fn run_pre_tool_use(
+        &self,
+        tool_name: &str,
+        tool_input: &Value,
+    ) -> Option<PluginHookBlock> {
+        for hook in self.matching_hooks(HookEvent::PreToolUse, tool_name) {
+            let input = self.hook_input(
+                HookEvent::PreToolUse,
+                hook,
+                Some(tool_name.to_string()),
+                Some(tool_input.clone()),
+                None,
+            );
+            let result = execute_command_hook(&hook.handler, &hook.plugin_root, input).await;
+            if !result.ok {
+                if !result.stderr.trim().is_empty() {
+                    eprintln!(
+                        "plugin hook {} failed: {} / {}",
+                        hook.plugin_name,
+                        result.exit_code.unwrap_or(-1),
+                        result.stderr
+                    );
+                }
+                return Some(PluginHookBlock {
+                    plugin_name: hook.plugin_name.clone(),
+                    message: plugin_hook_block_message(&result.stdout, &result.stderr),
+                });
+            }
+        }
+        None
+    }
+
+    fn matching_hooks(
+        &self,
+        event: HookEvent,
+        tool_name: &str,
+    ) -> impl Iterator<Item = &RegisteredHook> {
+        self.hooks.iter().filter(move |hook| {
+            hook.event == event
+                && is_command_hook(&hook.handler)
+                && hook_handler_matches_tool(&hook.handler, Some(tool_name))
+        })
+    }
+
+    fn hook_input(
+        &self,
+        event: HookEvent,
+        hook: &RegisteredHook,
+        tool_name: Option<String>,
+        tool_input: Option<Value>,
+        tool_response: Option<Value>,
+    ) -> HookInput {
+        HookInput {
+            session_id: self.session_id.clone(),
+            transcript_path: None,
+            hook_event: event.as_str().to_string(),
+            plugin_root: hook.plugin_root.to_string_lossy().to_string(),
+            tool_name,
+            tool_input,
+            tool_response,
+        }
+    }
+}
 
 fn agent_event_to_hook_event(event: &AgentEvent) -> Option<HookEvent> {
     match event {
@@ -32,13 +119,13 @@ fn hook_event_to_lifecycle(event: HookEvent) -> HookLifecycle {
     }
 }
 
-pub async fn register_plugin_hooks(
+pub(crate) async fn register_plugin_hooks(
     runtime: &Arc<HookRuntime>,
     rara_home: Option<PathBuf>,
     workspace_root: &Path,
     explicit_plugin_dirs: &[PathBuf],
     session_id: &str,
-) -> usize {
+) -> Arc<PluginHookRuntime> {
     let runtime = runtime.clone();
     let workspace_root = workspace_root.to_path_buf();
     let explicit_plugin_dirs = explicit_plugin_dirs.to_vec();
@@ -50,14 +137,16 @@ pub async fn register_plugin_hooks(
             &workspace_root,
             &explicit_plugin_dirs,
         );
-        register_plugin_hooks_blocking(&runtime, sources, &session_id)
+        let plugin_runtime = load_plugin_hooks_blocking(sources, &session_id);
+        register_plugin_hooks_blocking(&runtime, &plugin_runtime);
+        plugin_runtime
     })
     .await
     {
-        Ok(count) => count,
+        Ok(plugin_runtime) => Arc::new(plugin_runtime),
         Err(err) => {
             eprintln!("plugin hook registration task failed: {err}");
-            0
+            Arc::new(PluginHookRuntime::default())
         }
     }
 }
@@ -92,76 +181,91 @@ fn plugin_discovery_sources(
     sources
 }
 
-fn register_plugin_hooks_blocking(
-    runtime: &Arc<HookRuntime>,
+fn load_plugin_hooks_blocking(
     sources: Vec<PluginDiscoverySource>,
     session_id: &str,
-) -> usize {
+) -> PluginHookRuntime {
     let plugins = discover_plugins_from_sources(&sources);
+    let mut hooks = Vec::new();
+    for plugin in &plugins {
+        hooks.extend(rara_plugins::loader::registered_hooks_for_plugin(plugin));
+    }
+    PluginHookRuntime::new(session_id.to_string(), hooks)
+}
+
+fn register_plugin_hooks_blocking(
+    runtime: &Arc<HookRuntime>,
+    plugin_runtime: &PluginHookRuntime,
+) -> usize {
     let mut registered = 0usize;
 
-    for plugin in &plugins {
-        let registered_hooks = rara_plugins::loader::registered_hooks_for_plugin(plugin);
-        for rh in &registered_hooks {
-            let hook = rh.handler.clone();
-            let plugin_name = rh.plugin_name.clone();
-            let plugin_root = rh.plugin_root.clone();
-            let session_id = session_id.to_string();
-            let lifecycle = hook_event_to_lifecycle(rh.event);
-
-            let plugin_name_for_callback = plugin_name.clone();
-            let runtime_for_output = Arc::downgrade(runtime);
-            let callback = Box::new(move |event: &AgentEvent| {
-                if !hook_matches_agent_event(&hook, event) {
-                    return;
-                }
-                let Some(runtime_for_output) = runtime_for_output.upgrade() else {
-                    return;
-                };
-                let hook_event_name = match agent_event_to_hook_event(event) {
-                    Some(e) => e.as_str().to_string(),
-                    None => return,
-                };
-
-                let input = HookInput {
-                    session_id: session_id.clone(),
-                    transcript_path: None,
-                    hook_event: hook_event_name,
-                    plugin_root: plugin_root.to_string_lossy().to_string(),
-                    tool_name: extract_tool_name(event),
-                    tool_input: None,
-                };
-
-                let h = hook.clone();
-                let pr = plugin_root.clone();
-                let pn = plugin_name_for_callback.clone();
-                let r = runtime_for_output.clone();
-                tokio::task::spawn(async move {
-                    let result = execute_command_hook(&h, &pr, input).await;
-                    if !result.ok {
-                        eprintln!(
-                            "plugin hook {pn} failed: {} / {}",
-                            result.exit_code.unwrap_or(-1),
-                            result.stderr
-                        );
-                    }
-                    if !result.stdout.trim().is_empty() {
-                        r.push_output(result.stdout);
-                    }
-                });
-            });
-
-            runtime.register(
-                format!("{}-{}", plugin_name, rh.event.as_str()),
-                lifecycle,
-                callback,
-            );
-
-            registered += 1;
+    for rh in &plugin_runtime.hooks {
+        if rh.event == HookEvent::PreToolUse || !is_command_hook(&rh.handler) {
+            continue;
         }
+        let hook = rh.handler.clone();
+        let plugin_name = rh.plugin_name.clone();
+        let plugin_root = rh.plugin_root.clone();
+        let session_id = plugin_runtime.session_id.clone();
+        let lifecycle = hook_event_to_lifecycle(rh.event);
+
+        let plugin_name_for_callback = plugin_name.clone();
+        let runtime_for_output = Arc::downgrade(runtime);
+        let callback = Box::new(move |event: &AgentEvent| {
+            if !hook_matches_agent_event(&hook, event) {
+                return;
+            }
+            let Some(runtime_for_output) = runtime_for_output.upgrade() else {
+                return;
+            };
+            let hook_event_name = match agent_event_to_hook_event(event) {
+                Some(e) => e.as_str().to_string(),
+                None => return,
+            };
+
+            let input = HookInput {
+                session_id: session_id.clone(),
+                transcript_path: None,
+                hook_event: hook_event_name,
+                plugin_root: plugin_root.to_string_lossy().to_string(),
+                tool_name: extract_tool_name(event),
+                tool_input: extract_tool_input(event),
+                tool_response: extract_tool_response(event),
+            };
+
+            let h = hook.clone();
+            let pr = plugin_root.clone();
+            let pn = plugin_name_for_callback.clone();
+            let r = runtime_for_output.clone();
+            tokio::task::spawn(async move {
+                let result = execute_command_hook(&h, &pr, input).await;
+                if !result.ok {
+                    eprintln!(
+                        "plugin hook {pn} failed: {} / {}",
+                        result.exit_code.unwrap_or(-1),
+                        result.stderr
+                    );
+                }
+                if !result.stdout.trim().is_empty() {
+                    r.push_output(result.stdout);
+                }
+            });
+        });
+
+        runtime.register(
+            format!("{}-{}", plugin_name, rh.event.as_str()),
+            lifecycle,
+            callback,
+        );
+
+        registered += 1;
     }
 
     registered
+}
+
+fn is_command_hook(hook: &rara_plugins::HookHandler) -> bool {
+    hook.r#type.is_empty() || hook.r#type == "command"
 }
 
 fn extract_tool_name(event: &AgentEvent) -> Option<String> {
@@ -172,7 +276,27 @@ fn extract_tool_name(event: &AgentEvent) -> Option<String> {
     }
 }
 
+fn extract_tool_input(event: &AgentEvent) -> Option<Value> {
+    match event {
+        AgentEvent::ToolUse { input, .. } => Some(input.clone()),
+        _ => None,
+    }
+}
+
+fn extract_tool_response(event: &AgentEvent) -> Option<Value> {
+    match event {
+        AgentEvent::ToolResult { content, .. } => {
+            Some(serde_json::from_str(content).unwrap_or_else(|_| Value::String(content.clone())))
+        }
+        _ => None,
+    }
+}
+
 fn hook_matches_agent_event(hook: &rara_plugins::HookHandler, event: &AgentEvent) -> bool {
+    hook_handler_matches_tool(hook, extract_tool_name(event).as_deref())
+}
+
+fn hook_handler_matches_tool(hook: &rara_plugins::HookHandler, tool_name: Option<&str>) -> bool {
     let Some(matcher) = hook.matcher.as_deref() else {
         return true;
     };
@@ -180,10 +304,10 @@ fn hook_matches_agent_event(hook: &rara_plugins::HookHandler, event: &AgentEvent
     if matcher.is_empty() || matcher == "*" {
         return true;
     }
-    let Some(tool_name) = extract_tool_name(event) else {
+    let Some(tool_name) = tool_name else {
         return true;
     };
-    tool_name_matches(matcher, &tool_name)
+    tool_name_matches(matcher, tool_name)
 }
 
 fn tool_name_matches(matcher: &str, tool_name: &str) -> bool {
@@ -200,6 +324,25 @@ fn tool_name_matches(matcher: &str, tool_name: &str) -> bool {
                 .trim();
             tool_pattern == "*" || tool_pattern.eq_ignore_ascii_case(tool_name)
         })
+}
+
+fn plugin_hook_block_message(stdout: &str, stderr: &str) -> String {
+    if let Ok(parsed) = serde_json::from_str::<Value>(stdout) {
+        for key in ["stopReason", "reason", "systemMessage"] {
+            if let Some(message) = parsed.get(key).and_then(Value::as_str)
+                && !message.trim().is_empty()
+            {
+                return message.trim().to_string();
+            }
+        }
+    }
+    if !stderr.trim().is_empty() {
+        return stderr.trim().to_string();
+    }
+    if !stdout.trim().is_empty() {
+        return stdout.trim().to_string();
+    }
+    "blocked by plugin hook".to_string()
 }
 
 #[cfg(test)]
@@ -283,7 +426,7 @@ mod tests {
             register_plugin_hooks(&runtime, Some(rara_home), &workspace_root, &[], "session-1")
                 .await;
 
-        assert_eq!(registered, 2);
+        assert_eq!(registered.hook_count(), 2);
         assert_eq!(runtime.hook_count(), 2);
     }
 
@@ -335,6 +478,58 @@ mod tests {
         assert!(!hook_matches_agent_event(&bash_hook, &edit_event));
         assert!(hook_matches_agent_event(&edit_hook, &edit_event));
         assert!(!hook_matches_agent_event(&edit_hook, &bash_event));
+    }
+
+    #[test]
+    fn extracts_tool_result_content_for_post_tool_use_hooks() {
+        let event = AgentEvent::ToolResult {
+            name: "stub_tool".to_string(),
+            content: json!({ "status": "ok" }).to_string(),
+            is_error: false,
+        };
+
+        assert_eq!(
+            extract_tool_response(&event),
+            Some(json!({ "status": "ok" }))
+        );
+    }
+
+    #[test]
+    fn plugin_hook_block_message_falls_back_to_plain_stdout() {
+        assert_eq!(
+            plugin_hook_block_message("plain stdout failure", ""),
+            "plain stdout failure"
+        );
+    }
+
+    #[tokio::test]
+    async fn pre_tool_use_control_stdout_is_not_buffered_as_context() {
+        let hook_runtime = HookRuntime::new(Arc::new(RuntimeEventBus::new(4)));
+        let dir = tempdir().expect("tempdir");
+        let plugin_root = dir.path().join("plugin");
+        fs::create_dir_all(&plugin_root).expect("plugin root");
+        let plugin_hooks = PluginHookRuntime::new(
+            "session-1".to_string(),
+            vec![rara_plugins::RegisteredHook {
+                event: HookEvent::PreToolUse,
+                handler: rara_plugins::HookHandler {
+                    r#type: "command".to_string(),
+                    command: "echo '{\"continue\":true}'".to_string(),
+                    timeout: 1,
+                    matcher: Some("stub_tool".to_string()),
+                    once: false,
+                },
+                plugin_name: "control".to_string(),
+                plugin_root,
+            }],
+        );
+
+        let block = plugin_hooks
+            .run_pre_tool_use("stub_tool", &json!({ "path": "src/lib.rs" }))
+            .await;
+
+        assert_eq!(block, None);
+        assert!(hook_runtime.blocking_drain_outputs().is_empty());
     }
 
     fn write_test_plugin(root: &Path, name: &str, command: &str) {
