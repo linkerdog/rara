@@ -25,6 +25,8 @@ pub struct HookInput {
     pub tool_name: Option<String>,
     pub tool_input: Option<Value>,
     pub tool_response: Option<Value>,
+    pub last_assistant_message: Option<String>,
+    pub is_interrupt: Option<bool>,
 }
 
 /// Result of executing a command hook.
@@ -155,6 +157,8 @@ mod tests {
                 tool_name: None,
                 tool_input: None,
                 tool_response: None,
+                last_assistant_message: None,
+                is_interrupt: None,
             },
         )
         .await;
@@ -181,6 +185,8 @@ mod tests {
                 tool_name: None,
                 tool_input: None,
                 tool_response: None,
+                last_assistant_message: None,
+                is_interrupt: None,
             },
         )
         .await;
@@ -207,6 +213,8 @@ mod tests {
                 tool_name: None,
                 tool_input: None,
                 tool_response: None,
+                last_assistant_message: None,
+                is_interrupt: None,
             },
         )
         .await;

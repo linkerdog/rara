@@ -25,6 +25,7 @@ This spec covers:
   read exit code and stdout JSON (`{ continue: bool }`).
 - Synchronous `PreToolUse` command-hook blocking in the agent tool execution
   path.
+- `SessionEnd` command hooks on final agent-loop completion.
 - Timeout enforcement per hook (default 60s, configurable).
 - Integration with RARA's existing `HookRuntime` so plugin hooks fire on the
   same lifecycle events as built-in hooks.
@@ -182,7 +183,9 @@ wait_with_timeout(timeout_secs)
   "plugin_root": "/path/to/plugin",
   "tool_name": "Bash",        // only for tool events
   "tool_input": { "command": "git status" },
-  "tool_response": null       // reserved for PostToolUse
+  "tool_response": null,      // reserved for PostToolUse
+  "last_assistant_message": null,
+  "is_interrupt": null
 }
 ```
 
@@ -204,6 +207,17 @@ Non-blocking plugin events continue to register with `HookRuntime` and inject
 stdout into the model context before a later model turn. `PreToolUse` is not
 also registered through the async event-bus callback, so command hooks are not
 run twice.
+
+`SessionEnd` command hooks are not registered through the async event-bus
+callback because there is no ordinary tool event to translate. The agent loop
+executes them directly when the loop reaches a terminal completion or hard stop
+such as max-turn or token-budget exhaustion. Waiting states such as shell
+approval or plan-exit approval do not fire `SessionEnd` because the session is
+paused rather than complete. The hook input includes `last_assistant_message`
+when a final assistant message is available and `is_interrupt: false` for this
+non-interrupt path. `SessionEnd` hook failures are logged and do not block
+completion; stdout observability is reserved for a later structured output
+surface.
 
 ### Installation
 
@@ -255,6 +269,7 @@ scope for now.
 | Invalid JSON produces load_warnings | unit test |
 | `execute_command_hook` with working command | integration test (echo return code) |
 | `{ "continue": false }` blocks command hook execution | `cargo test agent::tests::plugin_hooks::plugin_pre_tool_use_continue_false_blocks_tool_execution -- --nocapture` |
+| `SessionEnd` receives final assistant payload | `cargo test agent::tests::plugin_hooks::plugin_session_end_runs_once_with_last_assistant_message -- --nocapture` |
 | Non-zero exit code fails | integration test |
 | Timeout fires | integration test (sleep 10) |
 | `discover_plugins` skips non-directories | unit test |
@@ -303,12 +318,17 @@ Implemented in the first merged slice:
   `*` match all tools; exact tool names are matched case-insensitively; Claude
   Code-style tool patterns such as `Bash(*)` match by the tool name before the
   parenthesized input pattern; alternatives can be separated with `|` or `,`.
+- `SessionEnd` command hooks execute once when the agent loop reaches final
+  completion or a hard stop. They receive `hook_event: "SessionEnd"`, empty
+  tool fields, the best available `last_assistant_message`, and
+  `is_interrupt: false`. Approval waits and other resumable pauses do not fire
+  `SessionEnd`.
 
 Next implementation slices:
 
 1. Fix remaining lifecycle parity gaps before broad user-facing rollout:
-   `SessionEnd` mapping, structured hook output observability, and non-tool
-   lifecycle dispatch.
+   structured hook output observability and non-tool lifecycle dispatch beyond
+   `SessionEnd`.
 2. Add git-source install support on top of the existing local-directory
    `rara plugin install/list/remove` commands.
 3. Feed plugin `.mcp.json`, commands, skills, and agents into the same

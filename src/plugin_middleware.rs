@@ -25,6 +25,15 @@ pub(crate) struct PluginHookBlock {
     pub message: String,
 }
 
+#[derive(Clone, Debug, Default)]
+struct HookInputFields {
+    tool_name: Option<String>,
+    tool_input: Option<Value>,
+    tool_response: Option<Value>,
+    last_assistant_message: Option<String>,
+    is_interrupt: Option<bool>,
+}
+
 impl PluginHookRuntime {
     fn new(session_id: String, hooks: Vec<RegisteredHook>) -> Self {
         Self { session_id, hooks }
@@ -40,13 +49,15 @@ impl PluginHookRuntime {
         tool_name: &str,
         tool_input: &Value,
     ) -> Option<PluginHookBlock> {
-        for hook in self.matching_hooks(HookEvent::PreToolUse, tool_name) {
+        for hook in self.matching_hooks(HookEvent::PreToolUse, Some(tool_name)) {
             let input = self.hook_input(
                 HookEvent::PreToolUse,
                 hook,
-                Some(tool_name.to_string()),
-                Some(tool_input.clone()),
-                None,
+                HookInputFields {
+                    tool_name: Some(tool_name.to_string()),
+                    tool_input: Some(tool_input.clone()),
+                    ..HookInputFields::default()
+                },
             );
             let result = execute_command_hook(&hook.handler, &hook.plugin_root, input).await;
             if !result.ok {
@@ -67,15 +78,38 @@ impl PluginHookRuntime {
         None
     }
 
+    pub(crate) async fn run_session_end(&self, last_assistant_message: Option<&str>) {
+        for hook in self.matching_hooks(HookEvent::SessionEnd, None) {
+            let input = self.hook_input(
+                HookEvent::SessionEnd,
+                hook,
+                HookInputFields {
+                    last_assistant_message: last_assistant_message.map(ToString::to_string),
+                    is_interrupt: Some(false),
+                    ..HookInputFields::default()
+                },
+            );
+            let result = execute_command_hook(&hook.handler, &hook.plugin_root, input).await;
+            if !result.ok {
+                eprintln!(
+                    "plugin hook {} failed: {} / {}",
+                    hook.plugin_name,
+                    result.exit_code.unwrap_or(-1),
+                    result.stderr
+                );
+            }
+        }
+    }
+
     fn matching_hooks(
         &self,
         event: HookEvent,
-        tool_name: &str,
+        tool_name: Option<&str>,
     ) -> impl Iterator<Item = &RegisteredHook> {
         self.hooks.iter().filter(move |hook| {
             hook.event == event
                 && is_command_hook(&hook.handler)
-                && hook_handler_matches_tool(&hook.handler, Some(tool_name))
+                && hook_handler_matches_tool(&hook.handler, tool_name)
         })
     }
 
@@ -83,18 +117,18 @@ impl PluginHookRuntime {
         &self,
         event: HookEvent,
         hook: &RegisteredHook,
-        tool_name: Option<String>,
-        tool_input: Option<Value>,
-        tool_response: Option<Value>,
+        fields: HookInputFields,
     ) -> HookInput {
         HookInput {
             session_id: self.session_id.clone(),
             transcript_path: None,
             hook_event: event.as_str().to_string(),
             plugin_root: hook.plugin_root.to_string_lossy().to_string(),
-            tool_name,
-            tool_input,
-            tool_response,
+            tool_name: fields.tool_name,
+            tool_input: fields.tool_input,
+            tool_response: fields.tool_response,
+            last_assistant_message: fields.last_assistant_message,
+            is_interrupt: fields.is_interrupt,
         }
     }
 }
@@ -200,7 +234,9 @@ fn register_plugin_hooks_blocking(
     let mut registered = 0usize;
 
     for rh in &plugin_runtime.hooks {
-        if rh.event == HookEvent::PreToolUse || !is_command_hook(&rh.handler) {
+        if matches!(rh.event, HookEvent::PreToolUse | HookEvent::SessionEnd)
+            || !is_command_hook(&rh.handler)
+        {
             continue;
         }
         let hook = rh.handler.clone();
@@ -231,6 +267,8 @@ fn register_plugin_hooks_blocking(
                 tool_name: extract_tool_name(event),
                 tool_input: extract_tool_input(event),
                 tool_response: extract_tool_response(event),
+                last_assistant_message: None,
+                is_interrupt: None,
             };
 
             let h = hook.clone();

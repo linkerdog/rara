@@ -999,6 +999,8 @@ impl Agent {
     {
         let mut plan_exit_repair_attempts = 0usize;
         let mut stop_hook_continuations = 0usize;
+        let mut session_end_last_assistant_message: Option<String> = None;
+        let mut should_run_session_end_hooks = false;
         loop {
             if let Some(max) = self.max_turns
                 && *agentic_turns >= max
@@ -1009,6 +1011,8 @@ impl Agent {
                 report(AgentEvent::Status(format!(
                     "Agent reached max-turns limit ({max})",
                 )));
+                session_end_last_assistant_message = self.latest_assistant_message_text();
+                should_run_session_end_hooks = true;
                 break;
             }
             if let Some(budget) = self.token_budget
@@ -1022,6 +1026,8 @@ impl Agent {
                     "Agent reached token budget ({}/{budget})",
                     self.total_model_tokens()
                 )));
+                session_end_last_assistant_message = self.latest_assistant_message_text();
+                should_run_session_end_hooks = true;
                 break;
             }
             self.ensure_active_plan_step();
@@ -1119,6 +1125,8 @@ impl Agent {
                     false,
                 );
                 self.checkpoint_session()?;
+                session_end_last_assistant_message = self.latest_assistant_message_text();
+                should_run_session_end_hooks = true;
                 break;
             }
             let last_assistant_message = turn_output
@@ -1250,6 +1258,8 @@ impl Agent {
                     assistant_message_recorded,
                 );
                 self.complete_active_plan_step();
+                session_end_last_assistant_message = last_assistant_message;
+                should_run_session_end_hooks = true;
                 break;
             }
             *agentic_turns += 1;
@@ -1271,7 +1281,21 @@ impl Agent {
             self.advance_plan_step();
             self.extend_history_for_next_turn(tool_results, report, *agentic_turns)?;
         }
+        if should_run_session_end_hooks && let Some(plugin_hooks) = self.plugin_hook_runtime.clone()
+        {
+            plugin_hooks
+                .run_session_end(session_end_last_assistant_message.as_deref())
+                .await;
+        }
         Ok(())
+    }
+
+    fn latest_assistant_message_text(&self) -> Option<String> {
+        self.history
+            .iter()
+            .rev()
+            .find(|message| message.role == "assistant")
+            .and_then(message_text)
     }
 
     fn run_stop_hooks<F>(
