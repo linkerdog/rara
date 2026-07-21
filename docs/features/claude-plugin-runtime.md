@@ -321,6 +321,7 @@ scope for now.
 | Lifecycle hook stdout/stderr publishes a structured control event | `cargo test plugin_middleware::tests::lifecycle_hook_output_is_published_as_structured_control_event -- --nocapture` and `cargo test runtime_control::tests::hook_command_output_uses_structured_wire_shape -- --nocapture` |
 | Plugin skills are prompt-visible summaries | `cargo test plugin_middleware::tests::registers_project_plugin_skill_summaries -- --nocapture` and `cargo test agent::tests::plugin_hooks::plugin_skill_summaries_are_prompt_visible_but_not_invokable_yet -- --nocapture` |
 | Plugin `.mcp.json` registers into the shared MCP registry | `cargo test plugin_middleware::tests::appends_plugin_mcp_configs_with_plugin_source_metadata -- --nocapture` |
+| Plugin MCP file and relative cwd handling | `cargo test plugin_middleware::tests::plugin_mcp_configs_skip_mcp_json_directories -- --nocapture` and `cargo test plugin_middleware::tests::plugin_mcp_configs_resolve_relative_cwd_from_plugin_root -- --nocapture` |
 | Plugin MCP parse and duplicate-name failures surface | `cargo test plugin_middleware::tests::plugin_mcp_configs_fail_on_duplicate_server_names -- --nocapture` and `cargo test plugin_middleware::tests::plugin_mcp_configs_fail_on_invalid_json -- --nocapture` |
 | Non-zero exit code fails | integration test |
 | Timeout fires | integration test (sleep 10) |

@@ -338,7 +338,7 @@ fn append_plugin_mcp_configs_from_plugins(
 ) -> anyhow::Result<()> {
     for plugin in plugins {
         let mcp_path = plugin.root.join(".mcp.json");
-        if !mcp_path.exists() {
+        if !mcp_path.is_file() {
             continue;
         }
         let mut servers = load_mcp_servers_from_json_path(&mcp_path)?;
@@ -360,10 +360,15 @@ fn apply_plugin_mcp_defaults(
 ) {
     for server in servers.values_mut() {
         match &mut server.transport {
-            McpServerTransport::Stdio { cwd, .. } if cwd.is_none() => {
-                *cwd = Some(plugin_root.to_path_buf());
+            McpServerTransport::Stdio { cwd, .. } => {
+                let resolved = match cwd.take() {
+                    Some(path) if path.is_absolute() => path,
+                    Some(path) => plugin_root.join(path),
+                    None => plugin_root.to_path_buf(),
+                };
+                *cwd = Some(resolved);
             }
-            McpServerTransport::Stdio { .. } | McpServerTransport::StreamableHttp { .. } => {}
+            McpServerTransport::StreamableHttp { .. } => {}
         }
     }
 }
@@ -737,6 +742,59 @@ mod tests {
                 cwd: Some(plugin_root),
             }
         );
+    }
+
+    #[test]
+    fn plugin_mcp_configs_resolve_relative_cwd_from_plugin_root() {
+        let dir = tempdir().expect("tempdir");
+        let workspace_root = dir.path().join("workspace");
+        let project_plugins_dir = workspace_root.join(".rara").join("plugins");
+        let plugin_root = project_plugins_dir.join("mcp-plugin");
+        write_test_plugin(&plugin_root, "mcp-plugin", "echo project");
+        fs::write(
+            plugin_root.join(".mcp.json"),
+            json!({
+                "mcpServers": {
+                    "docs": {
+                        "command": "docs-server",
+                        "cwd": "server"
+                    }
+                }
+            })
+            .to_string(),
+        )
+        .expect("mcp json");
+
+        let mut registry = McpRegistry::empty();
+        append_plugin_mcp_configs(&mut registry, None, &workspace_root, &[])
+            .expect("append plugin mcp config");
+
+        let server = registry.servers.get("docs").expect("docs server");
+        assert_eq!(
+            server.config.transport,
+            McpServerTransport::Stdio {
+                command: "docs-server".to_string(),
+                args: Vec::new(),
+                env: None,
+                cwd: Some(plugin_root.join("server")),
+            }
+        );
+    }
+
+    #[test]
+    fn plugin_mcp_configs_skip_mcp_json_directories() {
+        let dir = tempdir().expect("tempdir");
+        let workspace_root = dir.path().join("workspace");
+        let project_plugins_dir = workspace_root.join(".rara").join("plugins");
+        let plugin_root = project_plugins_dir.join("mcp-plugin");
+        write_test_plugin(&plugin_root, "mcp-plugin", "echo project");
+        fs::create_dir_all(plugin_root.join(".mcp.json")).expect("mcp json dir");
+
+        let mut registry = McpRegistry::empty();
+        append_plugin_mcp_configs(&mut registry, None, &workspace_root, &[])
+            .expect("directory should be skipped");
+
+        assert!(registry.servers.is_empty());
     }
 
     #[test]
