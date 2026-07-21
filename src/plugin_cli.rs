@@ -139,14 +139,18 @@ impl ResolvedPluginSource {
 
 impl Drop for ResolvedPluginSource {
     fn drop(&mut self) {
-        if let Some(temp_root) = self.temp_root.take()
-            && let Err(err) = fs::remove_dir_all(&temp_root)
-        {
-            log::warn!(
-                "failed to remove temporary plugin checkout {}: {err}",
-                temp_root.display()
-            );
+        if let Some(temp_root) = self.temp_root.take() {
+            remove_temp_plugin_checkout(&temp_root);
         }
+    }
+}
+
+fn remove_temp_plugin_checkout(temp_root: &Path) {
+    if let Err(err) = fs::remove_dir_all(temp_root) {
+        log::warn!(
+            "failed to remove temporary plugin checkout {}: {err}",
+            temp_root.display()
+        );
     }
 }
 
@@ -184,25 +188,25 @@ fn clone_git_plugin_source(source: &str) -> Result<ResolvedPluginSource> {
             temp_root.display()
         )
     })?;
+    let source_guard = ResolvedPluginSource {
+        path: checkout,
+        temp_root: Some(temp_root),
+    };
     let output = Command::new("git")
         .arg("clone")
         .arg("--depth")
         .arg("1")
         .arg(source)
-        .arg(&checkout)
+        .arg(source_guard.path())
         .output()
         .with_context(|| format!("failed to run git clone for plugin source {source}"))?;
     if !output.status.success() {
-        let _ = fs::remove_dir_all(&temp_root);
         bail!(
             "failed to clone plugin source {source}: {}",
             String::from_utf8_lossy(&output.stderr).trim()
         );
     }
-    Ok(ResolvedPluginSource {
-        path: checkout,
-        temp_root: Some(temp_root),
-    })
+    Ok(source_guard)
 }
 
 fn unique_plugin_checkout_dir() -> PathBuf {
