@@ -1099,7 +1099,7 @@ mod tests {
             .expect("parse plugin install");
         match cli.command.expect("command") {
             Commands::Plugin(PluginCommands::Install(args)) => {
-                assert_eq!(args.source, std::path::PathBuf::from("../my-plugin"));
+                assert_eq!(args.source, "../my-plugin");
                 assert!(args.force);
             }
             other => panic!("unexpected command: {other:?}"),
