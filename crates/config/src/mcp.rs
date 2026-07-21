@@ -9,6 +9,7 @@ use serde::{Deserialize, Serialize};
 #[serde(rename_all = "snake_case")]
 pub enum McpServerScope {
     Project,
+    Plugin,
     Local,
     User,
     Enterprise,
@@ -19,6 +20,7 @@ impl McpServerScope {
     pub fn label(self) -> &'static str {
         match self {
             Self::Project => "project",
+            Self::Plugin => "plugin",
             Self::Local => "local",
             Self::User => "user",
             Self::Enterprise => "enterprise",
@@ -45,7 +47,7 @@ impl McpRegistry {
         }
     }
 
-    fn insert_source(
+    pub fn insert_source(
         &mut self,
         source: McpServerSource,
         servers: BTreeMap<String, McpServerConfig>,
@@ -152,12 +154,21 @@ pub fn load_mcp_registry(user_config_toml: &Path, project_root: &Path) -> Result
         &mut registry,
         &project_config,
         McpServerScope::Project,
-        |content| {
-            serde_json::from_str::<ProjectMcpConfig>(content).map(|config| config.mcp_servers)
-        },
+        parse_mcp_servers_json,
     )?;
 
     Ok(registry)
+}
+
+pub fn load_mcp_servers_from_json_path(path: &Path) -> Result<BTreeMap<String, McpServerConfig>> {
+    let content = fs::read_to_string(path).with_context(|| format!("read {}", path.display()))?;
+    parse_mcp_servers_json(&content).with_context(|| format!("parse {}", path.display()))
+}
+
+fn parse_mcp_servers_json(
+    content: &str,
+) -> std::result::Result<BTreeMap<String, McpServerConfig>, serde_json::Error> {
+    serde_json::from_str::<ProjectMcpConfig>(content).map(|config| config.mcp_servers)
 }
 
 fn append_servers_from_path<E>(

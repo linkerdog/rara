@@ -34,6 +34,7 @@ RARA tracks MCP definitions with explicit scope provenance:
 
 - `user`: `~/.rara/config.toml`;
 - `project`: `<workspace>/.mcp.json`;
+- `plugin`: `<plugin-root>/.mcp.json` from loaded Claude Code plugins;
 - `local`: reserved for machine-local project settings;
 - `enterprise`: reserved for managed policy;
 - `builtin`: reserved for RARA-provided MCP surfaces.
@@ -189,6 +190,12 @@ large dynamic surfaces should be searched or referenced, not eagerly appended.
 - Source scope and path are preserved for every server.
 - Registry parsing is independent from TUI rendering and future connection
   startup.
+- Plugin MCP server definitions enter the same registry after user and project
+  config loading. Their source path is the plugin `.mcp.json` file, their scope
+  is `plugin`, and duplicate server names across user, project, and plugin
+  sources fail loudly instead of overriding.
+- Plugin stdio MCP servers run relative to the plugin root when they are
+  connected by the existing MCP refresh/tool-cache path.
 - `/mcp` renders the registry-derived status grouped by scope and source path.
 - `/mcp` must report parse/conflict failures instead of silently ignoring broken
   config.

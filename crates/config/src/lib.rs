@@ -18,7 +18,7 @@ pub use self::defaults::{
 };
 pub use self::mcp::{
     McpRegistry, McpServerConfig, McpServerScope, McpServerSource, McpServerTransport,
-    SourcedMcpServerConfig,
+    SourcedMcpServerConfig, load_mcp_servers_from_json_path,
 };
 pub use self::migration::migrate_reasoning_summary;
 pub use self::model::{
