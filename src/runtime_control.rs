@@ -337,6 +337,15 @@ pub enum HookEvent {
         hook_id: String,
         reason: String,
     },
+    CommandOutput {
+        plugin_name: String,
+        hook_event: String,
+        stdout: String,
+        stderr: String,
+        exit_code: Option<i32>,
+        timed_out: bool,
+        ok: bool,
+    },
 }
 
 #[allow(dead_code)] // ACP protocol type — reserved for future lifecycle events
@@ -617,6 +626,39 @@ mod tests {
                     "type": "follow_up_queued",
                     "payload": {
                         "queue_len": 3
+                    }
+                }
+            })
+        );
+    }
+
+    #[test]
+    fn hook_command_output_uses_structured_wire_shape() {
+        let value = serde_json::to_value(RuntimeEvent::Hook(HookEvent::CommandOutput {
+            plugin_name: "observer".to_string(),
+            hook_event: "SessionStart".to_string(),
+            stdout: "visible\n".to_string(),
+            stderr: "warn\n".to_string(),
+            exit_code: Some(0),
+            timed_out: false,
+            ok: true,
+        }))
+        .unwrap();
+
+        assert_eq!(
+            value,
+            json!({
+                "type": "hook",
+                "payload": {
+                    "type": "command_output",
+                    "payload": {
+                        "plugin_name": "observer",
+                        "hook_event": "SessionStart",
+                        "stdout": "visible\n",
+                        "stderr": "warn\n",
+                        "exit_code": 0,
+                        "timed_out": false,
+                        "ok": true
                     }
                 }
             })

@@ -11,7 +11,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, RwLock};
 
 use crate::agent::AgentEvent;
-use crate::runtime_control::HookLifecycle;
+use crate::runtime_control::{HookEvent, HookLifecycle, RuntimeEvent};
 use crate::runtime_event_bus::RuntimeEventBus;
 
 /// A registered in-process hook combining a lifecycle trigger and a callback.
@@ -50,6 +50,12 @@ impl HookRuntime {
         if let Ok(mut guard) = self.outputs.lock() {
             guard.push(text);
         }
+    }
+
+    /// Publish structured plugin hook command output to control-plane
+    /// subscribers without injecting it into model context.
+    pub fn publish_plugin_hook_output(&self, event: HookEvent) -> usize {
+        self.bus.publish_control(RuntimeEvent::Hook(event))
     }
 
     /// Drain outputs synchronously (for use in non-async contexts).

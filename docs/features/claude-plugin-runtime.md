@@ -217,9 +217,10 @@ the agent query path instead of through the async event-bus callback.
 `SessionStart` fires once for each `Agent` instance before the first submitted
 prompt is compacted or appended to history. `UserPromptSubmit` fires once for
 each `query_with_mode_and_events` call and receives the submitted prompt in the
-`prompt` field. These lifecycle hooks are fire-and-log only for now: failures
-are logged and do not block the turn, and stdout is not injected into model
-context until the structured hook-output surface is designed.
+`prompt` field. These lifecycle hooks do not block the turn. Their command
+stdout, stderr, exit code, timeout state, and success state are published as
+structured `RuntimeEvent::Hook(command_output)` control-plane events and are not
+injected into model context.
 
 `SessionEnd` command hooks are not registered through the async event-bus
 callback because there is no ordinary tool event to translate. The agent loop
@@ -231,7 +232,8 @@ when a final assistant message is available. Normal completion sends
 `is_interrupt: false`; model-turn cancellation sends `is_interrupt: true`
 before returning the cancellation error to the caller. `SessionEnd` hook
 failures are logged and do not block completion; stdout observability is
-reserved for a later structured output surface.
+published through the same structured hook command-output event used by other
+non-blocking lifecycle hooks.
 
 ### Installation
 
@@ -296,6 +298,7 @@ scope for now.
 | `SessionEnd` receives final assistant payload | `cargo test agent::tests::plugin_hooks::plugin_session_end_runs_once_with_last_assistant_message -- --nocapture` |
 | `SessionEnd` marks cancelled model turns as interrupts | `cargo test agent::tests::plugin_hooks::plugin_session_end_marks_cancelled_model_turn_as_interrupt -- --nocapture` |
 | `SessionStart` and `UserPromptSubmit` fire from agent queries | `cargo test agent::tests::plugin_hooks::plugin_non_tool_lifecycle_hooks_run_from_agent_query -- --nocapture` |
+| Lifecycle hook stdout/stderr publishes a structured control event | `cargo test plugin_middleware::tests::lifecycle_hook_output_is_published_as_structured_control_event -- --nocapture` and `cargo test runtime_control::tests::hook_command_output_uses_structured_wire_shape -- --nocapture` |
 | Plugin skills are prompt-visible summaries | `cargo test plugin_middleware::tests::registers_project_plugin_skill_summaries -- --nocapture` and `cargo test agent::tests::plugin_hooks::plugin_skill_summaries_are_prompt_visible_but_not_invokable_yet -- --nocapture` |
 | Non-zero exit code fails | integration test |
 | Timeout fires | integration test (sleep 10) |
@@ -354,8 +357,11 @@ Implemented in the first merged slice:
 - `SessionStart` and `UserPromptSubmit` command hooks execute directly from
   agent queries. `SessionStart` runs once per agent instance. `UserPromptSubmit`
   runs once per submitted query and includes the submitted prompt. Both
-  lifecycle hooks are non-blocking and log failures without injecting stdout
-  into model context yet.
+  lifecycle hooks are non-blocking.
+- Non-blocking lifecycle hook stdout, stderr, exit code, timeout state, and
+  success state are published as `RuntimeEvent::Hook(command_output)` events on
+  the session control bus. These events are structured observability only and do
+  not feed model context.
 - Plugin `skills/<name>/SKILL.md` directories are exposed as prompt-visible
   summaries with namespaced `plugin_name:skill_name` names and plugin scope.
   They are marked `disable_model_invocation: true` because the `skill` tool
@@ -363,11 +369,9 @@ Implemented in the first merged slice:
 
 Next implementation slices:
 
-1. Fix remaining lifecycle parity gaps before broad user-facing rollout:
-   structured hook output observability for lifecycle hooks.
-2. Add git-source install support on top of the existing local-directory
+1. Add git-source install support on top of the existing local-directory
    `rara plugin install/list/remove` commands.
-3. Feed plugin `.mcp.json`, commands, skills, and agents into the same
+2. Feed plugin `.mcp.json`, commands, skills, and agents into the same
    structured extension-source registries used by native RARA features. Skills
    already have prompt-visible summaries; invocation and reload integration
    remain open.

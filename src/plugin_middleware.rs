@@ -2,7 +2,7 @@
 
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
+use std::sync::{Arc, Weak};
 
 use rara_plugins::{
     HookEvent, HookInput, Plugin, PluginDiscoverySource, PluginSource, RegisteredHook,
@@ -12,13 +12,14 @@ use serde_json::Value;
 
 use crate::agent::AgentEvent;
 use crate::hook_runtime::HookRuntime;
-use crate::runtime_control::HookLifecycle;
+use crate::runtime_control::{HookEvent as RuntimeHookEvent, HookLifecycle};
 
 #[derive(Clone, Debug, Default)]
 pub(crate) struct PluginHookRuntime {
     session_id: String,
     hooks: Vec<RegisteredHook>,
     skill_summaries: Vec<PluginSkillSummary>,
+    hook_runtime: Option<Weak<HookRuntime>>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -50,11 +51,13 @@ impl PluginHookRuntime {
         session_id: String,
         hooks: Vec<RegisteredHook>,
         skill_summaries: Vec<PluginSkillSummary>,
+        hook_runtime: Option<Arc<HookRuntime>>,
     ) -> Self {
         Self {
             session_id,
             hooks,
             skill_summaries,
+            hook_runtime: hook_runtime.map(|runtime| Arc::downgrade(&runtime)),
         }
     }
 
@@ -117,6 +120,7 @@ impl PluginHookRuntime {
                 },
             );
             let result = execute_command_hook(&hook.handler, &hook.plugin_root, input).await;
+            self.publish_hook_output(hook, HookEvent::SessionEnd, &result);
             if !result.ok {
                 log::warn!(
                     "plugin hook {} failed: {} / {}",
@@ -148,6 +152,7 @@ impl PluginHookRuntime {
         for hook in self.matching_hooks(event, None) {
             let input = self.hook_input(event, hook, fields.clone());
             let result = execute_command_hook(&hook.handler, &hook.plugin_root, input).await;
+            self.publish_hook_output(hook, event, &result);
             if !result.ok {
                 log::warn!(
                     "plugin hook {} failed: {} / {}",
@@ -157,6 +162,29 @@ impl PluginHookRuntime {
                 );
             }
         }
+    }
+
+    fn publish_hook_output(
+        &self,
+        hook: &RegisteredHook,
+        event: HookEvent,
+        result: &rara_plugins::HookExecutionResult,
+    ) {
+        if result.stdout.trim().is_empty() && result.stderr.trim().is_empty() && result.ok {
+            return;
+        }
+        let Some(runtime) = self.hook_runtime.as_ref().and_then(Weak::upgrade) else {
+            return;
+        };
+        runtime.publish_plugin_hook_output(RuntimeHookEvent::CommandOutput {
+            plugin_name: hook.plugin_name.clone(),
+            hook_event: event.as_str().to_string(),
+            stdout: result.stdout.clone(),
+            stderr: result.stderr.clone(),
+            exit_code: result.exit_code,
+            timed_out: result.timed_out,
+            ok: result.ok,
+        });
     }
 
     fn matching_hooks(
@@ -230,7 +258,8 @@ pub(crate) async fn register_plugin_hooks(
             &workspace_root,
             &explicit_plugin_dirs,
         );
-        let plugin_runtime = load_plugin_hooks_blocking(sources, &session_id);
+        let plugin_runtime =
+            load_plugin_hooks_blocking(sources, &session_id, Some(runtime.clone()));
         register_plugin_hooks_blocking(&runtime, &plugin_runtime);
         plugin_runtime
     })
@@ -277,6 +306,7 @@ fn plugin_discovery_sources(
 fn load_plugin_hooks_blocking(
     sources: Vec<PluginDiscoverySource>,
     session_id: &str,
+    runtime: Option<Arc<HookRuntime>>,
 ) -> PluginHookRuntime {
     let plugins = discover_plugins_from_sources(&sources);
     let mut hooks = Vec::new();
@@ -284,7 +314,7 @@ fn load_plugin_hooks_blocking(
         hooks.extend(rara_plugins::loader::registered_hooks_for_plugin(plugin));
     }
     let skill_summaries = plugin_skill_summaries(&plugins);
-    PluginHookRuntime::new(session_id.to_string(), hooks, skill_summaries)
+    PluginHookRuntime::new(session_id.to_string(), hooks, skill_summaries, runtime)
 }
 
 fn plugin_skill_summaries(plugins: &[Plugin]) -> Vec<PluginSkillSummary> {
@@ -734,6 +764,7 @@ mod tests {
                 plugin_root,
             }],
             Vec::new(),
+            None,
         );
 
         let block = plugin_hooks
@@ -741,6 +772,52 @@ mod tests {
             .await;
 
         assert_eq!(block, None);
+        assert!(hook_runtime.blocking_drain_outputs().is_empty());
+    }
+
+    #[tokio::test]
+    async fn lifecycle_hook_output_is_published_as_structured_control_event() {
+        let bus = Arc::new(RuntimeEventBus::new(8));
+        let mut events = bus.subscribe_control();
+        let hook_runtime = Arc::new(HookRuntime::new(bus));
+        let dir = tempdir().expect("tempdir");
+        let plugin_root = dir.path().join("plugin");
+        fs::create_dir_all(&plugin_root).expect("plugin root");
+        let plugin_hooks = PluginHookRuntime::new(
+            "session-1".to_string(),
+            vec![rara_plugins::RegisteredHook {
+                event: HookEvent::SessionStart,
+                handler: rara_plugins::HookHandler {
+                    r#type: "command".to_string(),
+                    command: "cat >/dev/null; echo visible; echo warn >&2".to_string(),
+                    timeout: 1,
+                    matcher: None,
+                    once: false,
+                },
+                plugin_name: "observer".to_string(),
+                plugin_root,
+            }],
+            Vec::new(),
+            Some(hook_runtime.clone()),
+        );
+
+        plugin_hooks.run_session_start().await;
+
+        let event = events.try_recv().expect("hook output event");
+        assert_eq!(
+            event.event,
+            crate::runtime_control::RuntimeEvent::Hook(
+                crate::runtime_control::HookEvent::CommandOutput {
+                    plugin_name: "observer".to_string(),
+                    hook_event: "SessionStart".to_string(),
+                    stdout: "visible\n".to_string(),
+                    stderr: "warn\n".to_string(),
+                    exit_code: Some(0),
+                    timed_out: false,
+                    ok: true,
+                }
+            )
+        );
         assert!(hook_runtime.blocking_drain_outputs().is_empty());
     }
 

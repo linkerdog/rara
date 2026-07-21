@@ -47,7 +47,25 @@ git diff --check
 
 ## Follow-Ups
 
-- Add structured observability for non-blocking lifecycle hook stdout and
-  stderr.
 - Feed plugin `.mcp.json`, commands, skill invocation/reload, and agents into
   structured extension registries.
+
+## Structured Output Observability
+
+RARA now publishes non-blocking lifecycle hook command output as structured
+control-plane events. `SessionStart`, `UserPromptSubmit`, and `SessionEnd`
+command hooks emit `RuntimeEvent::Hook(command_output)` when they produce
+stdout, stderr, or a failed execution result.
+
+The event includes plugin name, hook event name, stdout, stderr, exit code,
+timeout state, and success state. This keeps lifecycle hook output observable to
+app-server/control-plane subscribers without injecting that output into model
+context or changing hook blocking semantics.
+
+## Additional Validation
+
+```bash
+cargo test plugin_middleware::tests::lifecycle_hook_output_is_published_as_structured_control_event -- --nocapture
+cargo test runtime_control::tests::hook_command_output_uses_structured_wire_shape -- --nocapture
+cargo check --locked --workspace --all-targets
+```
