@@ -303,6 +303,7 @@ pub struct Agent {
     pub hook_sandbox: Option<HookSandbox>,
     hook_runtime: Option<Arc<HookRuntime>>,
     plugin_hook_runtime: Option<Arc<crate::plugin_middleware::PluginHookRuntime>>,
+    plugin_session_start_hooks_ran: bool,
     pub retrieved_memory_candidates: Vec<RetrievedMemoryCandidate>,
     pub file_search_candidates: Vec<RetrievalCandidate>,
     pub mcp_resource_candidates: Vec<RetrievalCandidate>,
@@ -485,6 +486,7 @@ impl Agent {
             hook_sandbox: None,
             hook_runtime: None,
             plugin_hook_runtime: None,
+            plugin_session_start_hooks_ran: false,
             retrieved_memory_candidates: Vec::new(),
             file_search_candidates: Vec::new(),
             mcp_resource_candidates: Vec::new(),
@@ -540,6 +542,8 @@ impl Agent {
         self.inspection_progress = InspectionProgress::default();
         self.last_query_plan_updated = false;
         self.pending_plan_exit_tool_id = None;
+        self.run_plugin_session_start_hooks_once().await;
+        self.run_user_prompt_submit_plugin_hooks(&prompt).await;
         self.compact_if_needed_with_reporter(&mut report).await?;
         let repaired_history = repair_tool_result_history(&self.history);
         if repaired_history != self.history {
@@ -1305,6 +1309,22 @@ impl Agent {
             plugin_hooks
                 .run_session_end(last_assistant_message.as_deref(), is_interrupt)
                 .await;
+        }
+    }
+
+    async fn run_plugin_session_start_hooks_once(&mut self) {
+        if self.plugin_session_start_hooks_ran {
+            return;
+        }
+        if let Some(plugin_hooks) = self.plugin_hook_runtime.clone() {
+            self.plugin_session_start_hooks_ran = true;
+            plugin_hooks.run_session_start().await;
+        }
+    }
+
+    async fn run_user_prompt_submit_plugin_hooks(&self, prompt: &str) {
+        if let Some(plugin_hooks) = self.plugin_hook_runtime.clone() {
+            plugin_hooks.run_user_prompt_submit(prompt).await;
         }
     }
 

@@ -42,6 +42,7 @@ struct HookInputFields {
     tool_response: Option<Value>,
     last_assistant_message: Option<String>,
     is_interrupt: Option<bool>,
+    prompt: Option<String>,
 }
 
 impl PluginHookRuntime {
@@ -84,7 +85,7 @@ impl PluginHookRuntime {
             let result = execute_command_hook(&hook.handler, &hook.plugin_root, input).await;
             if !result.ok {
                 if !result.stderr.trim().is_empty() {
-                    eprintln!(
+                    log::warn!(
                         "plugin hook {} failed: {} / {}",
                         hook.plugin_name,
                         result.exit_code.unwrap_or(-1),
@@ -117,7 +118,38 @@ impl PluginHookRuntime {
             );
             let result = execute_command_hook(&hook.handler, &hook.plugin_root, input).await;
             if !result.ok {
-                eprintln!(
+                log::warn!(
+                    "plugin hook {} failed: {} / {}",
+                    hook.plugin_name,
+                    result.exit_code.unwrap_or(-1),
+                    result.stderr
+                );
+            }
+        }
+    }
+
+    pub(crate) async fn run_session_start(&self) {
+        self.run_unblocked_lifecycle(HookEvent::SessionStart, HookInputFields::default())
+            .await;
+    }
+
+    pub(crate) async fn run_user_prompt_submit(&self, prompt: &str) {
+        self.run_unblocked_lifecycle(
+            HookEvent::UserPromptSubmit,
+            HookInputFields {
+                prompt: Some(prompt.to_string()),
+                ..HookInputFields::default()
+            },
+        )
+        .await;
+    }
+
+    async fn run_unblocked_lifecycle(&self, event: HookEvent, fields: HookInputFields) {
+        for hook in self.matching_hooks(event, None) {
+            let input = self.hook_input(event, hook, fields.clone());
+            let result = execute_command_hook(&hook.handler, &hook.plugin_root, input).await;
+            if !result.ok {
+                log::warn!(
                     "plugin hook {} failed: {} / {}",
                     hook.plugin_name,
                     result.exit_code.unwrap_or(-1),
@@ -155,6 +187,7 @@ impl PluginHookRuntime {
             tool_response: fields.tool_response,
             last_assistant_message: fields.last_assistant_message,
             is_interrupt: fields.is_interrupt,
+            prompt: fields.prompt,
         }
     }
 }
@@ -205,7 +238,7 @@ pub(crate) async fn register_plugin_hooks(
     {
         Ok(plugin_runtime) => Arc::new(plugin_runtime),
         Err(err) => {
-            eprintln!("plugin hook registration task failed: {err}");
+            log::warn!("plugin hook registration task failed: {err}");
             Arc::new(PluginHookRuntime::default())
         }
     }
@@ -327,8 +360,13 @@ fn register_plugin_hooks_blocking(
     let mut registered = 0usize;
 
     for rh in &plugin_runtime.hooks {
-        if matches!(rh.event, HookEvent::PreToolUse | HookEvent::SessionEnd)
-            || !is_command_hook(&rh.handler)
+        if matches!(
+            rh.event,
+            HookEvent::PreToolUse
+                | HookEvent::SessionStart
+                | HookEvent::UserPromptSubmit
+                | HookEvent::SessionEnd
+        ) || !is_command_hook(&rh.handler)
         {
             continue;
         }
@@ -362,6 +400,7 @@ fn register_plugin_hooks_blocking(
                 tool_response: extract_tool_response(event),
                 last_assistant_message: None,
                 is_interrupt: None,
+                prompt: None,
             };
 
             let h = hook.clone();
@@ -371,7 +410,7 @@ fn register_plugin_hooks_blocking(
             tokio::task::spawn(async move {
                 let result = execute_command_hook(&h, &pr, input).await;
                 if !result.ok {
-                    eprintln!(
+                    log::warn!(
                         "plugin hook {pn} failed: {} / {}",
                         result.exit_code.unwrap_or(-1),
                         result.stderr
@@ -686,7 +725,7 @@ mod tests {
                 event: HookEvent::PreToolUse,
                 handler: rara_plugins::HookHandler {
                     r#type: "command".to_string(),
-                    command: "echo '{\"continue\":true}'".to_string(),
+                    command: "cat >/dev/null; echo '{\"continue\":true}'".to_string(),
                     timeout: 1,
                     matcher: Some("stub_tool".to_string()),
                     once: false,

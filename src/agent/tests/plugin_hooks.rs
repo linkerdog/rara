@@ -304,6 +304,167 @@ fn plugin_skill_summaries_are_prompt_visible_but_not_invokable_yet() {
     assert!(summary.disable_model_invocation);
 }
 
+#[tokio::test]
+async fn plugin_non_tool_lifecycle_hooks_run_from_agent_query() {
+    let (temp, session_manager, workspace, rara_dir) = test_runtime_storage();
+    write_non_tool_lifecycle_plugin(temp.path());
+
+    let backend = Arc::new(SequencedBackend::new(vec![
+        LlmResponse {
+            content: vec![ContentBlock::Text {
+                text: "first answer".to_string(),
+            }],
+            stop_reason: Some("end_turn".to_string()),
+            usage: Some(TokenUsage::default()),
+        },
+        LlmResponse {
+            content: vec![ContentBlock::Text {
+                text: "second answer".to_string(),
+            }],
+            stop_reason: Some("end_turn".to_string()),
+            usage: Some(TokenUsage::default()),
+        },
+    ]));
+    let hook_runtime = Arc::new(crate::hook_runtime::HookRuntime::new(Arc::new(
+        crate::runtime_event_bus::RuntimeEventBus::new(4),
+    )));
+    let plugin_hooks = crate::plugin_middleware::register_plugin_hooks(
+        &hook_runtime,
+        None,
+        temp.path(),
+        &[],
+        "session-1",
+    )
+    .await;
+    let mut agent = Agent::new(
+        ToolManager::new(),
+        backend,
+        Arc::new(VectorDB::new(&rara_dir.join("lancedb").to_string_lossy())),
+        session_manager,
+        workspace,
+    );
+    agent.set_hook_context(
+        Arc::new(HookRegistry::new()),
+        HookSandbox {
+            workspace_root: temp.path().to_path_buf(),
+            ..HookSandbox::default()
+        },
+        hook_runtime,
+    );
+    agent.set_plugin_hook_runtime(plugin_hooks);
+
+    agent
+        .query_with_mode_and_events("first prompt".to_string(), AgentOutputMode::Silent, |_| {})
+        .await
+        .expect("first query");
+    agent
+        .query_with_mode_and_events("second prompt".to_string(), AgentOutputMode::Silent, |_| {})
+        .await
+        .expect("second query");
+
+    let plugin_root = temp.path().join(".rara").join("plugins").join("lifecycle");
+    assert_eq!(
+        fs::read_to_string(plugin_root.join("session-start-count")).expect("session count"),
+        "x"
+    );
+    assert_eq!(
+        fs::read_to_string(plugin_root.join("prompt-submit-count")).expect("prompt count"),
+        "xx"
+    );
+    let session_start_input: serde_json::Value = serde_json::from_str(
+        &fs::read_to_string(plugin_root.join("session-start-input.json")).expect("session input"),
+    )
+    .expect("valid session input");
+    assert_eq!(
+        session_start_input["hook_event"],
+        serde_json::Value::String("SessionStart".to_string())
+    );
+    assert_eq!(session_start_input["prompt"], serde_json::Value::Null);
+
+    let prompt_submit_input: serde_json::Value = serde_json::from_str(
+        &fs::read_to_string(plugin_root.join("prompt-submit-input.json")).expect("prompt input"),
+    )
+    .expect("valid prompt input");
+    assert_eq!(
+        prompt_submit_input["hook_event"],
+        serde_json::Value::String("UserPromptSubmit".to_string())
+    );
+    assert_eq!(
+        prompt_submit_input["prompt"],
+        serde_json::Value::String("second prompt".to_string())
+    );
+    assert_eq!(prompt_submit_input["tool_name"], serde_json::Value::Null);
+}
+
+#[tokio::test]
+async fn plugin_session_start_waits_until_plugin_runtime_is_attached() {
+    let (temp, session_manager, workspace, rara_dir) = test_runtime_storage();
+    write_non_tool_lifecycle_plugin(temp.path());
+
+    let backend = Arc::new(SequencedBackend::new(vec![
+        LlmResponse {
+            content: vec![ContentBlock::Text {
+                text: "first answer".to_string(),
+            }],
+            stop_reason: Some("end_turn".to_string()),
+            usage: Some(TokenUsage::default()),
+        },
+        LlmResponse {
+            content: vec![ContentBlock::Text {
+                text: "second answer".to_string(),
+            }],
+            stop_reason: Some("end_turn".to_string()),
+            usage: Some(TokenUsage::default()),
+        },
+    ]));
+    let hook_runtime = Arc::new(crate::hook_runtime::HookRuntime::new(Arc::new(
+        crate::runtime_event_bus::RuntimeEventBus::new(4),
+    )));
+    let plugin_hooks = crate::plugin_middleware::register_plugin_hooks(
+        &hook_runtime,
+        None,
+        temp.path(),
+        &[],
+        "session-1",
+    )
+    .await;
+    let mut agent = Agent::new(
+        ToolManager::new(),
+        backend,
+        Arc::new(VectorDB::new(&rara_dir.join("lancedb").to_string_lossy())),
+        session_manager,
+        workspace,
+    );
+    agent.set_hook_context(
+        Arc::new(HookRegistry::new()),
+        HookSandbox {
+            workspace_root: temp.path().to_path_buf(),
+            ..HookSandbox::default()
+        },
+        hook_runtime,
+    );
+
+    agent
+        .query_with_mode_and_events("first prompt".to_string(), AgentOutputMode::Silent, |_| {})
+        .await
+        .expect("first query");
+    agent.set_plugin_hook_runtime(plugin_hooks);
+    agent
+        .query_with_mode_and_events("second prompt".to_string(), AgentOutputMode::Silent, |_| {})
+        .await
+        .expect("second query");
+
+    let plugin_root = temp.path().join(".rara").join("plugins").join("lifecycle");
+    assert_eq!(
+        fs::read_to_string(plugin_root.join("session-start-count")).expect("session count"),
+        "x"
+    );
+    assert_eq!(
+        fs::read_to_string(plugin_root.join("prompt-submit-count")).expect("prompt count"),
+        "x"
+    );
+}
+
 fn write_blocking_plugin(workspace_root: &std::path::Path) {
     let root = workspace_root.join(".rara").join("plugins").join("blocker");
     fs::create_dir_all(root.join(".claude-plugin")).expect("metadata dir");
@@ -326,6 +487,46 @@ fn write_blocking_plugin(workspace_root: &std::path::Path) {
                 "hooks": [{
                     "type": "command",
                     "command": "cat > hook-input.json; echo '{\"continue\":false,\"reason\":\"blocked by policy\"}'",
+                    "timeout": 5
+                }]
+            }]
+        })
+        .to_string(),
+    )
+    .expect("hooks json");
+}
+
+fn write_non_tool_lifecycle_plugin(workspace_root: &std::path::Path) {
+    let root = workspace_root
+        .join(".rara")
+        .join("plugins")
+        .join("lifecycle");
+    fs::create_dir_all(root.join(".claude-plugin")).expect("metadata dir");
+    fs::write(
+        root.join(".claude-plugin").join("plugin.json"),
+        json!({
+            "name": "lifecycle",
+            "version": "1.0.0",
+            "description": "test lifecycle hooks"
+        })
+        .to_string(),
+    )
+    .expect("plugin json");
+    fs::create_dir_all(root.join("hooks")).expect("hooks dir");
+    fs::write(
+        root.join("hooks").join("hooks.json"),
+        json!({
+            "SessionStart": [{
+                "hooks": [{
+                    "type": "command",
+                    "command": "cat > \"$CLAUDE_PLUGIN_ROOT/session-start-input.json\"; printf x >> \"$CLAUDE_PLUGIN_ROOT/session-start-count\"",
+                    "timeout": 5
+                }]
+            }],
+            "UserPromptSubmit": [{
+                "hooks": [{
+                    "type": "command",
+                    "command": "cat > \"$CLAUDE_PLUGIN_ROOT/prompt-submit-input.json\"; printf x >> \"$CLAUDE_PLUGIN_ROOT/prompt-submit-count\"",
                     "timeout": 5
                 }]
             }]

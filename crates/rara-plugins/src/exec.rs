@@ -27,6 +27,7 @@ pub struct HookInput {
     pub tool_response: Option<Value>,
     pub last_assistant_message: Option<String>,
     pub is_interrupt: Option<bool>,
+    pub prompt: Option<String>,
 }
 
 /// Result of executing a command hook.
@@ -79,8 +80,29 @@ pub async fn execute_command_hook(
 
     // Write JSON input to stdin
     if let Some(mut stdin) = child.stdin.take() {
-        let json = serde_json::to_string(&input).unwrap_or_default();
-        let _ = stdin.write_all(json.as_bytes()).await;
+        let json = match serde_json::to_string(&input) {
+            Ok(json) => json,
+            Err(e) => {
+                let _ = child.start_kill();
+                return HookExecutionResult {
+                    exit_code: Some(-1),
+                    stdout: String::new(),
+                    stderr: format!("failed to encode hook input: {e}"),
+                    timed_out: false,
+                    ok: false,
+                };
+            }
+        };
+        if let Err(e) = stdin.write_all(json.as_bytes()).await {
+            let _ = child.start_kill();
+            return HookExecutionResult {
+                exit_code: Some(-1),
+                stdout: String::new(),
+                stderr: format!("failed to write hook input: {e}"),
+                timed_out: false,
+                ok: false,
+            };
+        }
         // Close stdin
         drop(stdin);
     }
@@ -159,6 +181,7 @@ mod tests {
                 tool_response: None,
                 last_assistant_message: None,
                 is_interrupt: None,
+                prompt: None,
             },
         )
         .await;
@@ -187,6 +210,7 @@ mod tests {
                 tool_response: None,
                 last_assistant_message: None,
                 is_interrupt: None,
+                prompt: None,
             },
         )
         .await;
@@ -215,6 +239,7 @@ mod tests {
                 tool_response: None,
                 last_assistant_message: None,
                 is_interrupt: None,
+                prompt: None,
             },
         )
         .await;
