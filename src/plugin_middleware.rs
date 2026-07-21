@@ -725,7 +725,7 @@ mod tests {
                 event: HookEvent::PreToolUse,
                 handler: rara_plugins::HookHandler {
                     r#type: "command".to_string(),
-                    command: "echo '{\"continue\":true}'".to_string(),
+                    command: "cat >/dev/null; echo '{\"continue\":true}'".to_string(),
                     timeout: 1,
                     matcher: Some("stub_tool".to_string()),
                     once: false,
