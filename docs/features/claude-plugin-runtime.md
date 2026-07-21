@@ -244,8 +244,13 @@ rara plugin list
 rara plugin remove clawmem
 ```
 
-Installation copies/clones the plugin to `~/.rara/plugins/<name>/`. For git
-URLs, a shallow clone is performed and kept for future updates.
+Installation copies the plugin into the current workspace's
+`.rara/plugins/<name>/` directory. Local directory sources are copied directly.
+Git sources (`https://`, `ssh://`, `git://`, `file://`, and `git@...`) are
+shallow-cloned to a temporary checkout, validated as Claude Code plugin
+directories, copied under the plugin name from `.claude-plugin/plugin.json`,
+and then removed from the temporary checkout location. Existing plugins require
+`--force` to replace.
 
 ### Skill Extension Summaries
 
@@ -366,12 +371,13 @@ Implemented in the first merged slice:
   summaries with namespaced `plugin_name:skill_name` names and plugin scope.
   They are marked `disable_model_invocation: true` because the `skill` tool
   still reads from the local `SkillManager`, not from plugin extension roots.
+- `rara plugin install <source>` accepts both local plugin directories and git
+  sources. Git sources are cloned with `git clone --depth 1` into a temporary
+  checkout before the existing plugin validation and workspace copy path runs.
 
 Next implementation slices:
 
-1. Add git-source install support on top of the existing local-directory
-   `rara plugin install/list/remove` commands.
-2. Feed plugin `.mcp.json`, commands, skills, and agents into the same
+1. Feed plugin `.mcp.json`, commands, skills, and agents into the same
    structured extension-source registries used by native RARA features. Skills
    already have prompt-visible summaries; invocation and reload integration
    remain open.

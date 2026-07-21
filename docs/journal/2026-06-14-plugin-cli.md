@@ -13,7 +13,14 @@ under the plugin name from `.claude-plugin/plugin.json`. Existing plugins requir
 `--force` to replace. `remove` validates names before deleting so callers cannot
 escape the workspace plugin directory.
 
+Git sources are now accepted by the same install command. Sources beginning
+with `https://`, `ssh://`, `git://`, `file://`, or `git@` are cloned with
+`git clone --depth 1` into a temporary checkout, validated with the same
+`rara-plugins` loader path, copied into the workspace plugin directory, and
+then removed from the temporary checkout location. The installed plugin name
+still comes from `.claude-plugin/plugin.json`, not from the repository URL.
+
 Verification:
 
 - `cargo test app_cli -- --nocapture`
-
+- `cargo test plugin_cli -- --nocapture`
