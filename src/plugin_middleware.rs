@@ -23,6 +23,7 @@ pub(crate) struct PluginHookRuntime {
     session_id: String,
     hooks: Vec<RegisteredHook>,
     skill_summaries: Vec<PluginSkillSummary>,
+    command_summaries: Vec<PluginCommandSummary>,
     hook_runtime: Option<Weak<HookRuntime>>,
 }
 
@@ -34,6 +35,14 @@ pub(crate) struct PluginHookBlock {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct PluginSkillSummary {
+    pub name: String,
+    pub title: Option<String>,
+    pub description: String,
+    pub path: PathBuf,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct PluginCommandSummary {
     pub name: String,
     pub title: Option<String>,
     pub description: String,
@@ -55,12 +64,14 @@ impl PluginHookRuntime {
         session_id: String,
         hooks: Vec<RegisteredHook>,
         skill_summaries: Vec<PluginSkillSummary>,
+        command_summaries: Vec<PluginCommandSummary>,
         hook_runtime: Option<Arc<HookRuntime>>,
     ) -> Self {
         Self {
             session_id,
             hooks,
             skill_summaries,
+            command_summaries,
             hook_runtime: hook_runtime.map(|runtime| Arc::downgrade(&runtime)),
         }
     }
@@ -72,6 +83,10 @@ impl PluginHookRuntime {
 
     pub(crate) fn skill_summaries(&self) -> &[PluginSkillSummary] {
         &self.skill_summaries
+    }
+
+    pub(crate) fn command_summaries(&self) -> &[PluginCommandSummary] {
+        &self.command_summaries
     }
 
     pub(crate) async fn run_pre_tool_use(
@@ -329,7 +344,14 @@ fn load_plugin_hooks_blocking(
         hooks.extend(rara_plugins::loader::registered_hooks_for_plugin(plugin));
     }
     let skill_summaries = plugin_skill_summaries(&plugins);
-    PluginHookRuntime::new(session_id.to_string(), hooks, skill_summaries, runtime)
+    let command_summaries = plugin_command_summaries(&plugins);
+    PluginHookRuntime::new(
+        session_id.to_string(),
+        hooks,
+        skill_summaries,
+        command_summaries,
+        runtime,
+    )
 }
 
 fn append_plugin_mcp_configs_from_plugins(
@@ -403,6 +425,108 @@ fn plugin_skill_summaries(plugins: &[Plugin]) -> Vec<PluginSkillSummary> {
     }
     summaries.sort_by(|left, right| left.name.cmp(&right.name));
     summaries
+}
+
+fn plugin_command_summaries(plugins: &[Plugin]) -> Vec<PluginCommandSummary> {
+    let mut summaries = Vec::new();
+    for plugin in plugins {
+        let commands_dir = plugin.root.join("commands");
+        let mut command_paths = Vec::new();
+        collect_markdown_files(&commands_dir, &mut command_paths);
+        for path in command_paths {
+            let Some(local_name) = local_plugin_command_name(&commands_dir, &path) else {
+                continue;
+            };
+            let content = fs::read_to_string(&path).unwrap_or_default();
+            summaries.push(PluginCommandSummary {
+                name: format!("{}:{local_name}", plugin.name),
+                title: Some(local_name),
+                description: extract_plugin_command_description(&content),
+                path,
+            });
+        }
+    }
+    summaries.sort_by(|left, right| left.name.cmp(&right.name));
+    summaries
+}
+
+fn collect_markdown_files(dir: &Path, out: &mut Vec<PathBuf>) {
+    let Ok(entries) = fs::read_dir(dir) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.is_dir() {
+            collect_markdown_files(&path, out);
+        } else if path.extension().and_then(|ext| ext.to_str()) == Some("md") {
+            out.push(path);
+        }
+    }
+}
+
+fn local_plugin_command_name(commands_dir: &Path, path: &Path) -> Option<String> {
+    let relative = path.strip_prefix(commands_dir).ok()?;
+    let mut parts = Vec::new();
+    for component in relative.components() {
+        let std::path::Component::Normal(raw) = component else {
+            return None;
+        };
+        let mut part = raw.to_str()?.to_string();
+        if part.ends_with(".md") {
+            part.truncate(part.len() - ".md".len());
+        }
+        if part.is_empty() {
+            return None;
+        }
+        parts.push(part);
+    }
+    if parts.is_empty() {
+        None
+    } else {
+        Some(parts.join("/"))
+    }
+}
+
+fn extract_plugin_command_description(content: &str) -> String {
+    extract_leading_frontmatter_field(content, "description")
+        .unwrap_or_else(|| extract_plugin_skill_description(content))
+}
+
+fn extract_leading_frontmatter_field(content: &str, key: &str) -> Option<String> {
+    let mut lines = content.lines();
+    if lines.next()?.trim() != "---" {
+        return None;
+    }
+    for line in lines {
+        let trimmed = line.trim();
+        if trimmed == "---" {
+            break;
+        }
+        let Some((field, value)) = trimmed.split_once(':') else {
+            continue;
+        };
+        if field.trim() != key {
+            continue;
+        }
+        let value = trim_yaml_scalar(value);
+        if !value.is_empty() {
+            return Some(value);
+        }
+    }
+    None
+}
+
+fn trim_yaml_scalar(value: &str) -> String {
+    let trimmed = value.trim();
+    if trimmed.len() >= 2 {
+        let bytes = trimmed.as_bytes();
+        if (bytes[0] == b'"' && bytes[trimmed.len() - 1] == b'"')
+            || (bytes[0] == b'\'' && bytes[trimmed.len() - 1] == b'\'')
+        {
+            return trimmed[1..trimmed.len() - 1].to_string();
+        }
+    }
+    trimmed.to_string()
 }
 
 fn extract_plugin_skill_description(content: &str) -> String {
@@ -717,6 +841,50 @@ mod tests {
         );
     }
 
+    #[tokio::test]
+    async fn registers_project_plugin_command_summaries() {
+        let dir = tempdir().expect("tempdir");
+        let rara_home = dir.path().join("home").join(".rara");
+        let workspace_root = dir.path().join("workspace");
+        let project_plugins_dir = workspace_root.join(".rara").join("plugins");
+        let plugin_root = project_plugins_dir.join("commands");
+        write_test_plugin(&plugin_root, "commands", "echo project");
+        fs::create_dir_all(plugin_root.join("commands").join("git")).expect("commands dir");
+        fs::write(
+            plugin_root.join("commands").join("git").join("review.md"),
+            "---\ndescription: Review the current diff.\n---\n# Review\nBody text.",
+        )
+        .expect("command");
+        fs::write(
+            plugin_root.join("commands").join("explain.md"),
+            "# Explain\nExplain selected code.",
+        )
+        .expect("command");
+
+        let runtime = Arc::new(HookRuntime::new(Arc::new(RuntimeEventBus::new(4))));
+        let registered =
+            register_plugin_hooks(&runtime, Some(rara_home), &workspace_root, &[], "session-1")
+                .await;
+
+        assert_eq!(
+            registered.command_summaries(),
+            &[
+                PluginCommandSummary {
+                    name: "commands:explain".to_string(),
+                    title: Some("explain".to_string()),
+                    description: "Explain selected code.".to_string(),
+                    path: plugin_root.join("commands").join("explain.md"),
+                },
+                PluginCommandSummary {
+                    name: "commands:git/review".to_string(),
+                    title: Some("git/review".to_string()),
+                    description: "Review the current diff.".to_string(),
+                    path: plugin_root.join("commands").join("git").join("review.md"),
+                },
+            ]
+        );
+    }
+
     #[test]
     fn appends_plugin_mcp_configs_with_plugin_source_metadata() {
         let dir = tempdir().expect("tempdir");
@@ -963,6 +1131,7 @@ mod tests {
                 plugin_root,
             }],
             Vec::new(),
+            Vec::new(),
             None,
         );
 
@@ -996,6 +1165,7 @@ mod tests {
                 plugin_name: "observer".to_string(),
                 plugin_root,
             }],
+            Vec::new(),
             Vec::new(),
             Some(hook_runtime.clone()),
         );

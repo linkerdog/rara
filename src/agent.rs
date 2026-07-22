@@ -345,6 +345,12 @@ impl Agent {
         self.plugin_hook_runtime = Some(runtime);
     }
 
+    pub(crate) fn plugin_command_count(&self) -> usize {
+        self.plugin_hook_runtime
+            .as_ref()
+            .map_or(0, |runtime| runtime.command_summaries().len())
+    }
+
     /// Accumulate subagent (auxiliary model) cache statistics.
     /// Called by consolidation and other subagent completion
     /// handlers to split cache reporting between main and aux models.
