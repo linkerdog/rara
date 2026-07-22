@@ -1512,7 +1512,7 @@ version = "3.9.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6dee98b0db6a962de883bf5d20362dee4d7ca0d12fe39a7c6c73c844e1cd7c1f"
 dependencies = [
- "darling 0.23.0",
+ "darling 0.20.11",
  "ident_case",
  "prettyplease",
  "proc-macro2",
@@ -2080,14 +2080,14 @@ source = "git+https://github.com/openai/codex?tag=rust-v0.144.6#5d1fbf26c43abc65
 dependencies = [
  "anyhow",
  "base64 0.22.1",
- "codex-execpolicy",
+ "codex-execpolicy 0.144.6",
  "codex-features",
  "codex-file-system",
  "codex-git-utils",
  "codex-model-provider-info",
  "codex-network-proxy",
  "codex-protocol",
- "codex-utils-absolute-path",
+ "codex-utils-absolute-path 0.144.6",
  "codex-utils-path",
  "codex-utils-path-uri",
  "core-foundation 0.9.4",
@@ -2125,7 +2125,7 @@ source = "git+https://github.com/openai/codex?tag=rust-v0.144.6#5d1fbf26c43abc65
 dependencies = [
  "anyhow",
  "clap",
- "codex-utils-absolute-path",
+ "codex-utils-absolute-path 0.144.6",
  "multimap",
  "serde",
  "serde_json",
@@ -2135,11 +2135,29 @@ dependencies = [
 ]
 
 [[package]]
+name = "codex-execpolicy"
+version = "0.145.0"
+source = "git+https://github.com/openai/codex?tag=rust-v0.145.0#25af12f7e61572b0bc18ddb1008be543b91519b0"
+dependencies = [
+ "anyhow",
+ "clap",
+ "codex-utils-absolute-path 0.145.0",
+ "multimap",
+ "serde",
+ "serde_json",
+ "shlex 1.3.0",
+ "starlark",
+ "tempfile",
+ "thiserror 2.0.19",
+ "tokio",
+]
+
+[[package]]
 name = "codex-extension-items"
 version = "0.144.6"
 source = "git+https://github.com/openai/codex?tag=rust-v0.144.6#5d1fbf26c43abc65a203928b2e31561cb039e06d"
 dependencies = [
- "codex-utils-absolute-path",
+ "codex-utils-absolute-path 0.144.6",
  "schemars 0.8.22",
  "serde",
  "ts-rs",
@@ -2165,7 +2183,7 @@ source = "git+https://github.com/openai/codex?tag=rust-v0.144.6#5d1fbf26c43abc65
 dependencies = [
  "bytes",
  "codex-protocol",
- "codex-utils-absolute-path",
+ "codex-utils-absolute-path 0.144.6",
  "codex-utils-path-uri",
  "futures",
  "serde",
@@ -2180,7 +2198,7 @@ dependencies = [
  "chrono",
  "codex-file-system",
  "codex-protocol",
- "codex-utils-absolute-path",
+ "codex-utils-absolute-path 0.144.6",
  "codex-utils-path-uri",
  "futures",
  "gix",
@@ -2304,7 +2322,7 @@ dependencies = [
  "base64 0.22.1",
  "chrono",
  "clap",
- "codex-utils-absolute-path",
+ "codex-utils-absolute-path 0.144.6",
  "codex-utils-home-dir",
  "codex-utils-rustls-provider",
  "globset",
@@ -2338,7 +2356,7 @@ dependencies = [
  "chrono",
  "codex-api",
  "codex-protocol",
- "codex-utils-absolute-path",
+ "codex-utils-absolute-path 0.144.6",
  "codex-utils-string",
  "eventsource-stream",
  "gethostname",
@@ -2369,10 +2387,10 @@ dependencies = [
  "chardetng",
  "chrono",
  "codex-async-utils",
- "codex-execpolicy",
+ "codex-execpolicy 0.144.6",
  "codex-extension-items",
  "codex-network-proxy",
- "codex-utils-absolute-path",
+ "codex-utils-absolute-path 0.144.6",
  "codex-utils-image",
  "codex-utils-path-uri",
  "codex-utils-string",
@@ -2440,6 +2458,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "codex-utils-absolute-path"
+version = "0.145.0"
+source = "git+https://github.com/openai/codex?tag=rust-v0.145.0#25af12f7e61572b0bc18ddb1008be543b91519b0"
+dependencies = [
+ "dirs",
+ "dunce",
+ "schemars 0.8.22",
+ "serde",
+ "ts-rs",
+]
+
+[[package]]
 name = "codex-utils-cache"
 version = "0.144.6"
 source = "git+https://github.com/openai/codex?tag=rust-v0.144.6#5d1fbf26c43abc65a203928b2e31561cb039e06d"
@@ -2454,7 +2484,7 @@ name = "codex-utils-home-dir"
 version = "0.144.6"
 source = "git+https://github.com/openai/codex?tag=rust-v0.144.6#5d1fbf26c43abc65a203928b2e31561cb039e06d"
 dependencies = [
- "codex-utils-absolute-path",
+ "codex-utils-absolute-path 0.144.6",
  "dirs",
 ]
 
@@ -2485,7 +2515,7 @@ name = "codex-utils-path"
 version = "0.144.6"
 source = "git+https://github.com/openai/codex?tag=rust-v0.144.6#5d1fbf26c43abc65a203928b2e31561cb039e06d"
 dependencies = [
- "codex-utils-absolute-path",
+ "codex-utils-absolute-path 0.144.6",
  "dunce",
  "tempfile",
 ]
@@ -2496,7 +2526,7 @@ version = "0.144.6"
 source = "git+https://github.com/openai/codex?tag=rust-v0.144.6#5d1fbf26c43abc65a203928b2e31561cb039e06d"
 dependencies = [
  "base64 0.22.1",
- "codex-utils-absolute-path",
+ "codex-utils-absolute-path 0.144.6",
  "schemars 0.8.22",
  "serde",
  "thiserror 2.0.19",
@@ -2560,7 +2590,7 @@ version = "3.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "faf9468729b8cbcea668e36183cb69d317348c2e08e994829fb56ebfdfbaac34"
 dependencies = [
- "windows-sys 0.61.2",
+ "windows-sys 0.48.0",
 ]
 
 [[package]]
@@ -6776,7 +6806,7 @@ dependencies = [
  "libc",
  "percent-encoding",
  "pin-project-lite",
- "socket2 0.6.4",
+ "socket2 0.5.10",
  "system-configuration",
  "tokio",
  "tower-service",
@@ -10290,7 +10320,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "03da047801ff44bb6a4d407d4860c05fd70bb81714e6b2f3812603d5b145b042"
 dependencies = [
  "heck",
- "itertools 0.14.0",
+ "itertools 0.13.0",
  "log",
  "multimap",
  "petgraph",
@@ -10309,7 +10339,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b570b25f7617e43d59005d0990ccb79e950a423952cea19671b7a876da390adf"
 dependencies = [
  "anyhow",
- "itertools 0.14.0",
+ "itertools 0.13.0",
  "proc-macro2",
  "quote",
  "syn 2.0.119",
@@ -10480,7 +10510,7 @@ dependencies = [
  "quinn-udp",
  "rustc-hash 2.1.2",
  "rustls 0.23.41",
- "socket2 0.6.4",
+ "socket2 0.5.10",
  "thiserror 2.0.19",
  "tokio",
  "tracing",
@@ -10518,7 +10548,7 @@ dependencies = [
  "cfg_aliases 0.2.1",
  "libc",
  "once_cell",
- "socket2 0.6.4",
+ "socket2 0.5.10",
  "tracing",
  "windows-sys 0.60.2",
 ]
@@ -11137,7 +11167,7 @@ name = "rara-config"
 version = "0.0.13"
 dependencies = [
  "anyhow",
- "codex-execpolicy",
+ "codex-execpolicy 0.145.0",
  "secrecy",
  "serde",
  "serde_json",
@@ -14894,7 +14924,7 @@ version = "0.1.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c2a7b1c03c876122aa43f3020e6c3c3ee5c05081c9a00739faf7503aeba10d22"
 dependencies = [
- "windows-sys 0.61.2",
+ "windows-sys 0.48.0",
 ]
 
 [[package]]
