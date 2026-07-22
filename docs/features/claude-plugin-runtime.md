@@ -277,6 +277,21 @@ duplicate server name fails registry assembly with both source paths, matching
 the base MCP registry contract. Stdio plugin MCP servers receive `cwd` set to
 the plugin root when the existing MCP runtime later connects them.
 
+### Command Extension Registry
+
+Runtime bootstrap discovers plugin `commands/**/*.md` files from loaded
+plugins and attaches compact summaries to the session plugin runtime. Plugin
+command names are exposed as `plugin_name:command_name`, with nested command
+paths preserved as `/` separators. The command description comes from leading
+frontmatter `description` when present, otherwise from the first non-heading
+body line.
+
+Plugin command summaries are runtime-owned metadata only. TUI and protocol
+surfaces may render the command count or future command details from the
+runtime snapshot, but plugin commands are not routed through the TUI local
+slash-command parser and are not executable until a shared command invocation
+contract exists.
+
 ## Contracts
 
 ### Crate API
@@ -323,6 +338,7 @@ scope for now.
 | Plugin `.mcp.json` registers into the shared MCP registry | `cargo test plugin_middleware::tests::appends_plugin_mcp_configs_with_plugin_source_metadata -- --nocapture` |
 | Plugin MCP file and relative cwd handling | `cargo test plugin_middleware::tests::plugin_mcp_configs_skip_mcp_json_directories -- --nocapture` and `cargo test plugin_middleware::tests::plugin_mcp_configs_resolve_relative_cwd_from_plugin_root -- --nocapture` |
 | Plugin MCP parse and duplicate-name failures surface | `cargo test plugin_middleware::tests::plugin_mcp_configs_fail_on_duplicate_server_names -- --nocapture` and `cargo test plugin_middleware::tests::plugin_mcp_configs_fail_on_invalid_json -- --nocapture` |
+| Plugin command markdown files register as runtime summaries | `cargo test plugin_middleware::tests::registers_project_plugin_command_summaries -- --nocapture` |
 | Non-zero exit code fails | integration test |
 | Timeout fires | integration test (sleep 10) |
 | `discover_plugins` skips non-directories | unit test |
@@ -392,16 +408,20 @@ Implemented in the first merged slice:
   summaries with namespaced `plugin_name:skill_name` names and plugin scope.
   They are marked `disable_model_invocation: true` because the `skill` tool
   still reads from the local `SkillManager`, not from plugin extension roots.
+- Plugin `commands/**/*.md` files are exposed as runtime-owned command
+  summaries with namespaced `plugin_name:command_name` names. `/status`
+  displays the loaded command count from the runtime snapshot. Invocation is
+  intentionally deferred until a shared command execution contract exists.
 - `rara plugin install <source>` accepts both local plugin directories and git
   sources. Git sources are cloned with `git clone --depth 1` into a temporary
   checkout before the existing plugin validation and workspace copy path runs.
 
 Next implementation slices:
 
-1. Feed plugin `.mcp.json`, commands, skills, and agents into the same
-   structured extension-source registries used by native RARA features. Skills
-   already have prompt-visible summaries; invocation and reload integration
-   remain open.
+1. Feed plugin skill invocation/reload and agents into the same structured
+   extension-source registries used by native RARA features. Skills already
+   have prompt-visible summaries; invocation and reload integration remain
+   open.
 
 ## Open Risks
 
@@ -427,3 +447,4 @@ Next implementation slices:
 - `docs/journal/2026-07-20-plugin-hook-matchers.md`
 - `docs/journal/2026-07-20-plugin-runtime-bootstrap.md`
 - `docs/journal/2026-07-21-plugin-non-tool-lifecycle-hooks.md`
+- `docs/journal/2026-07-22-plugin-command-registry.md`

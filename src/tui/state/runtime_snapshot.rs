@@ -203,6 +203,7 @@ impl TuiApp {
                     .collect()
             },
             extension_hook_count: ext_counts.0.max(runtime_hook_count),
+            extension_command_count: agent.plugin_command_count(),
             extension_agent_count: ext_counts.1,
             extension_agent_status_lines: ext_counts.2,
         };
