@@ -311,9 +311,15 @@ pub(crate) async fn initialize_rara_context_with_options_and_local_embedding_boo
 
     let config_manager = crate::config::ConfigManager::new()?;
     let rara_home = ensure_rara_home_dir()?;
-    let mcp_registry = config_manager
-        .load_mcp_registry_for_project(&rara_home)
+    let mut mcp_registry = config_manager
+        .load_mcp_registry_for_project(&workspace.root)
         .unwrap_or_else(|_| crate::config::McpRegistry::empty());
+    crate::plugin_middleware::append_plugin_mcp_configs(
+        &mut mcp_registry,
+        Some(&rara_home),
+        &workspace.root,
+        &options.plugin_dirs,
+    )?;
     let mcp_registry = Arc::new(mcp_registry);
 
     let mcp_manager = Arc::new(McpConnectionManager::new(

@@ -173,6 +173,7 @@ fn transport_display(config: &McpServerConfig) -> (McpTransportKind, String) {
 fn scope_heading(scope: McpServerScope) -> &'static str {
     match scope {
         McpServerScope::Project => "Project",
+        McpServerScope::Plugin => "Plugin",
         McpServerScope::Local => "Local",
         McpServerScope::User => "User",
         McpServerScope::Enterprise => "Enterprise",

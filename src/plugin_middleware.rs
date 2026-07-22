@@ -11,6 +11,10 @@ use rara_plugins::{
 use serde_json::Value;
 
 use crate::agent::AgentEvent;
+use crate::config::{
+    McpRegistry, McpServerConfig, McpServerScope, McpServerSource, McpServerTransport,
+    load_mcp_servers_from_json_path,
+};
 use crate::hook_runtime::HookRuntime;
 use crate::runtime_control::{HookEvent as RuntimeHookEvent, HookLifecycle};
 
@@ -273,6 +277,17 @@ pub(crate) async fn register_plugin_hooks(
     }
 }
 
+pub(crate) fn append_plugin_mcp_configs(
+    registry: &mut McpRegistry,
+    rara_home: Option<&Path>,
+    workspace_root: &Path,
+    explicit_plugin_dirs: &[PathBuf],
+) -> anyhow::Result<()> {
+    let sources = plugin_discovery_sources(rara_home, workspace_root, explicit_plugin_dirs);
+    let plugins = discover_plugins_from_sources(&sources);
+    append_plugin_mcp_configs_from_plugins(registry, &plugins)
+}
+
 fn plugin_discovery_sources(
     rara_home: Option<&Path>,
     workspace_root: &Path,
@@ -315,6 +330,47 @@ fn load_plugin_hooks_blocking(
     }
     let skill_summaries = plugin_skill_summaries(&plugins);
     PluginHookRuntime::new(session_id.to_string(), hooks, skill_summaries, runtime)
+}
+
+fn append_plugin_mcp_configs_from_plugins(
+    registry: &mut McpRegistry,
+    plugins: &[Plugin],
+) -> anyhow::Result<()> {
+    for plugin in plugins {
+        let mcp_path = plugin.root.join(".mcp.json");
+        if !mcp_path.is_file() {
+            continue;
+        }
+        let mut servers = load_mcp_servers_from_json_path(&mcp_path)?;
+        apply_plugin_mcp_defaults(&mut servers, &plugin.root);
+        registry.insert_source(
+            McpServerSource {
+                scope: McpServerScope::Plugin,
+                path: mcp_path,
+            },
+            servers,
+        )?;
+    }
+    Ok(())
+}
+
+fn apply_plugin_mcp_defaults(
+    servers: &mut std::collections::BTreeMap<String, McpServerConfig>,
+    plugin_root: &Path,
+) {
+    for server in servers.values_mut() {
+        match &mut server.transport {
+            McpServerTransport::Stdio { cwd, .. } => {
+                let resolved = match cwd.take() {
+                    Some(path) if path.is_absolute() => path,
+                    Some(path) => plugin_root.join(path),
+                    None => plugin_root.to_path_buf(),
+                };
+                *cwd = Some(resolved);
+            }
+            McpServerTransport::StreamableHttp { .. } => {}
+        }
+    }
 }
 
 fn plugin_skill_summaries(plugins: &[Plugin]) -> Vec<PluginSkillSummary> {
@@ -662,6 +718,149 @@ mod tests {
     }
 
     #[test]
+    fn appends_plugin_mcp_configs_with_plugin_source_metadata() {
+        let dir = tempdir().expect("tempdir");
+        let workspace_root = dir.path().join("workspace");
+        let project_plugins_dir = workspace_root.join(".rara").join("plugins");
+        let plugin_root = project_plugins_dir.join("mcp-plugin");
+        write_test_plugin(&plugin_root, "mcp-plugin", "echo project");
+        write_test_plugin_mcp_config(&plugin_root, "docs", "docs-server", &["--stdio"]);
+
+        let mut registry = McpRegistry::empty();
+        append_plugin_mcp_configs(&mut registry, None, &workspace_root, &[])
+            .expect("append plugin mcp config");
+
+        let server = registry.servers.get("docs").expect("docs server");
+        assert_eq!(server.source.scope, McpServerScope::Plugin);
+        assert_eq!(server.source.path, plugin_root.join(".mcp.json"));
+        assert_eq!(
+            server.config.transport,
+            McpServerTransport::Stdio {
+                command: "docs-server".to_string(),
+                args: vec!["--stdio".to_string()],
+                env: None,
+                cwd: Some(plugin_root),
+            }
+        );
+    }
+
+    #[test]
+    fn plugin_mcp_configs_resolve_relative_cwd_from_plugin_root() {
+        let dir = tempdir().expect("tempdir");
+        let workspace_root = dir.path().join("workspace");
+        let project_plugins_dir = workspace_root.join(".rara").join("plugins");
+        let plugin_root = project_plugins_dir.join("mcp-plugin");
+        write_test_plugin(&plugin_root, "mcp-plugin", "echo project");
+        fs::write(
+            plugin_root.join(".mcp.json"),
+            json!({
+                "mcpServers": {
+                    "docs": {
+                        "command": "docs-server",
+                        "cwd": "server"
+                    }
+                }
+            })
+            .to_string(),
+        )
+        .expect("mcp json");
+
+        let mut registry = McpRegistry::empty();
+        append_plugin_mcp_configs(&mut registry, None, &workspace_root, &[])
+            .expect("append plugin mcp config");
+
+        let server = registry.servers.get("docs").expect("docs server");
+        assert_eq!(
+            server.config.transport,
+            McpServerTransport::Stdio {
+                command: "docs-server".to_string(),
+                args: Vec::new(),
+                env: None,
+                cwd: Some(plugin_root.join("server")),
+            }
+        );
+    }
+
+    #[test]
+    fn plugin_mcp_configs_skip_mcp_json_directories() {
+        let dir = tempdir().expect("tempdir");
+        let workspace_root = dir.path().join("workspace");
+        let project_plugins_dir = workspace_root.join(".rara").join("plugins");
+        let plugin_root = project_plugins_dir.join("mcp-plugin");
+        write_test_plugin(&plugin_root, "mcp-plugin", "echo project");
+        fs::create_dir_all(plugin_root.join(".mcp.json")).expect("mcp json dir");
+
+        let mut registry = McpRegistry::empty();
+        append_plugin_mcp_configs(&mut registry, None, &workspace_root, &[])
+            .expect("directory should be skipped");
+
+        assert!(registry.servers.is_empty());
+    }
+
+    #[test]
+    fn plugin_mcp_configs_fail_on_duplicate_server_names() {
+        let dir = tempdir().expect("tempdir");
+        let workspace_root = dir.path().join("workspace");
+        let project_plugins_dir = workspace_root.join(".rara").join("plugins");
+        let plugin_root = project_plugins_dir.join("mcp-plugin");
+        write_test_plugin(&plugin_root, "mcp-plugin", "echo project");
+        write_test_plugin_mcp_config(&plugin_root, "docs", "docs-server", &[]);
+
+        let mut registry = McpRegistry::empty();
+        registry
+            .insert_source(
+                McpServerSource {
+                    scope: McpServerScope::Project,
+                    path: workspace_root.join(".mcp.json"),
+                },
+                std::collections::BTreeMap::from([(
+                    "docs".to_string(),
+                    McpServerConfig {
+                        transport: McpServerTransport::Stdio {
+                            command: "project-docs".to_string(),
+                            args: Vec::new(),
+                            env: None,
+                            cwd: None,
+                        },
+                        enabled: true,
+                        required: false,
+                        supports_parallel_tool_calls: false,
+                        startup_timeout_sec: None,
+                        tool_timeout_sec: None,
+                        enabled_tools: None,
+                        disabled_tools: None,
+                    },
+                )]),
+            )
+            .expect("insert project source");
+
+        let err = append_plugin_mcp_configs(&mut registry, None, &workspace_root, &[])
+            .expect_err("duplicate server should fail");
+
+        let message = err.to_string();
+        assert!(message.contains("MCP server `docs` is defined in both project"));
+        assert!(message.contains("plugin"));
+    }
+
+    #[test]
+    fn plugin_mcp_configs_fail_on_invalid_json() {
+        let dir = tempdir().expect("tempdir");
+        let workspace_root = dir.path().join("workspace");
+        let project_plugins_dir = workspace_root.join(".rara").join("plugins");
+        let plugin_root = project_plugins_dir.join("mcp-plugin");
+        write_test_plugin(&plugin_root, "mcp-plugin", "echo project");
+        fs::write(plugin_root.join(".mcp.json"), "{invalid json").expect("mcp json");
+
+        let mut registry = McpRegistry::empty();
+        let err = append_plugin_mcp_configs(&mut registry, None, &workspace_root, &[])
+            .expect_err("invalid plugin mcp json should fail");
+
+        let message = err.to_string();
+        assert!(message.contains("parse"));
+        assert!(message.contains(".mcp.json"));
+    }
+
+    #[test]
     fn plugin_skill_description_uses_first_markdown_body_section() {
         let content = "---\nname: reviewer\ndescription: metadata\n---\n# Reviewer\nInspect plugin-provided behavior.\n\n## Details\nMore.";
 
@@ -848,5 +1047,21 @@ mod tests {
             .to_string(),
         )
         .expect("hooks json");
+    }
+
+    fn write_test_plugin_mcp_config(root: &Path, name: &str, command: &str, args: &[&str]) {
+        fs::write(
+            root.join(".mcp.json"),
+            json!({
+                "mcpServers": {
+                    name: {
+                        "command": command,
+                        "args": args
+                    }
+                }
+            })
+            .to_string(),
+        )
+        .expect("mcp json");
     }
 }

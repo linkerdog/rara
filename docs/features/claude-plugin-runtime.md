@@ -44,8 +44,9 @@ This spec covers:
   reasoning into the agent loop and require per-turn prompt assembly changes.
 - No `http`-type hook execution (external webhook POST).
 - No `agent`-type hook execution (sub-agent spawn for evaluation).
-- No MCP server lifecycle management (start, stop, reconnect). The MCP config
-  from `.mcp.json` is parsed but not yet launched.
+- No plugin-owned MCP lifecycle manager. Plugin `.mcp.json` files are registered
+  into RARA's shared MCP registry; connection, refresh, status, and tool-cache
+  behavior remain owned by the existing MCP runtime path.
 - No configSchema-driven UI forms or CLI prompt flows.
 - No plugin marketplace browsing from within RARA (just `install` from known
   sources).
@@ -262,6 +263,20 @@ invocation is routed through the shared skill registry. This makes plugin skill
 availability visible to the model and control surfaces without implying that
 the existing `skill` tool can invoke those bodies yet.
 
+### MCP Extension Registry
+
+Runtime bootstrap registers plugin `.mcp.json` files into the same source-aware
+`McpRegistry` used by user `config.toml` and workspace `.mcp.json` files.
+Plugin MCP entries use `scope: "plugin"` and keep the source path at the plugin
+`.mcp.json` file so `/mcp`, runtime-control events, ACP, Wire, and future
+app-server clients can display provenance without parsing plugin directories
+themselves.
+
+Plugin MCP server names do not override user or workspace MCP servers. A
+duplicate server name fails registry assembly with both source paths, matching
+the base MCP registry contract. Stdio plugin MCP servers receive `cwd` set to
+the plugin root when the existing MCP runtime later connects them.
+
 ## Contracts
 
 ### Crate API
@@ -305,6 +320,9 @@ scope for now.
 | `SessionStart` and `UserPromptSubmit` fire from agent queries | `cargo test agent::tests::plugin_hooks::plugin_non_tool_lifecycle_hooks_run_from_agent_query -- --nocapture` |
 | Lifecycle hook stdout/stderr publishes a structured control event | `cargo test plugin_middleware::tests::lifecycle_hook_output_is_published_as_structured_control_event -- --nocapture` and `cargo test runtime_control::tests::hook_command_output_uses_structured_wire_shape -- --nocapture` |
 | Plugin skills are prompt-visible summaries | `cargo test plugin_middleware::tests::registers_project_plugin_skill_summaries -- --nocapture` and `cargo test agent::tests::plugin_hooks::plugin_skill_summaries_are_prompt_visible_but_not_invokable_yet -- --nocapture` |
+| Plugin `.mcp.json` registers into the shared MCP registry | `cargo test plugin_middleware::tests::appends_plugin_mcp_configs_with_plugin_source_metadata -- --nocapture` |
+| Plugin MCP file and relative cwd handling | `cargo test plugin_middleware::tests::plugin_mcp_configs_skip_mcp_json_directories -- --nocapture` and `cargo test plugin_middleware::tests::plugin_mcp_configs_resolve_relative_cwd_from_plugin_root -- --nocapture` |
+| Plugin MCP parse and duplicate-name failures surface | `cargo test plugin_middleware::tests::plugin_mcp_configs_fail_on_duplicate_server_names -- --nocapture` and `cargo test plugin_middleware::tests::plugin_mcp_configs_fail_on_invalid_json -- --nocapture` |
 | Non-zero exit code fails | integration test |
 | Timeout fires | integration test (sleep 10) |
 | `discover_plugins` skips non-directories | unit test |
@@ -338,6 +356,9 @@ Implemented in the first merged slice:
 - TUI, `resume`, ask, print, headless exec, ACP, and Wire startup accept plugin
   directories from persisted `plugin_dirs` config and repeated
   `--plugin-dir <path>` global CLI flags.
+- Plugin `.mcp.json` definitions are converted into the shared MCP registry
+  with `plugin` scope, plugin-root `cwd` for stdio servers, and duplicate-name
+  conflict handling shared with user and project MCP sources.
   Configured directories are appended before CLI directories, and both are
   passed into plugin hook registration as the final explicit source tier. CLI
   plugin directories therefore override configured explicit directories, project
