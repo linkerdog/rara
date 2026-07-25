@@ -681,6 +681,7 @@ fn default_system_prompt_sections() -> Vec<PromptSection> {
                     "Do not emit <continue_inspection/> once you are ready to give the final answer, a final plan, or a structured user-input request.",
                     "Runtime may append an <agent_runtime> block after tool execution.",
                     "Treat that block as internal execution state, not as a new user request.",
+                    "Recognize runtime phases: `tool_results_available` continues after tools, `plan_continuation_required` keeps planning in read-only mode, and `execution_continuation_required` continues repository inspection.",
                     "Follow runtime phase instructions directly and continue the same task when tool results or continuation phases are available.",
                 ],
             ),
