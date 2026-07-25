@@ -135,6 +135,12 @@ vector indexing/search is a separate dependency.
   download, or start the bundled local embedding sidecar.
 - `local_embeddings = "auto"` and `RARA_LOCAL_EMBEDDINGS=auto|on|true|1|yes`
   explicitly opt in to the provider-aware local sidecar routing matrix.
+- `local_embeddings = "provider"` and
+  `RARA_LOCAL_EMBEDDINGS=provider|native|llm` force embedding calls through the
+  current chat provider embedding route and must not start the local sidecar.
+- `local_embeddings = "local"` and `RARA_LOCAL_EMBEDDINGS=local|sidecar`
+  force embedding calls through the bundled local sidecar, even for providers
+  that would otherwise use provider-native embeddings.
 - Provider-native embeddings must be enabled only through an explicit capability
   entry or equivalent allowlist, not by assuming that all providers in one chat
   family expose usable embedding models.

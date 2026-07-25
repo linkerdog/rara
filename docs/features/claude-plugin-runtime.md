@@ -253,15 +253,16 @@ directories, copied under the plugin name from `.claude-plugin/plugin.json`,
 and then removed from the temporary checkout location. Existing plugins require
 `--force` to replace.
 
-### Skill Extension Summaries
+### Skill Extension Registry
 
 Runtime bootstrap discovers `skills/<name>/SKILL.md` directories from loaded
-plugins and appends compact summaries to the agent's available-skill listing.
-Plugin skill names are exposed as `plugin_name:skill_name`, use
-`scope: "plugin"`, and set `disable_model_invocation: true` until plugin skill
-invocation is routed through the shared skill registry. This makes plugin skill
-availability visible to the model and control surfaces without implying that
-the existing `skill` tool can invoke those bodies yet.
+plugins and loads them into the shared `SkillManager`. Plugin skill names are
+exposed as `plugin_name:skill_name`, use `scope: "plugin"`, and are available
+through the existing `skill` tool `list`, `invoke`, and `reload` actions.
+
+Plugin skill reload uses the same runtime-owned plugin roots captured during
+bootstrap. Reload updates the running `SkillManager`; it is not a validation-only
+rescan.
 
 ### MCP Extension Registry
 
@@ -291,6 +292,17 @@ surfaces may render the command count or future command details from the
 runtime snapshot, but plugin commands are not routed through the TUI local
 slash-command parser and are not executable until a shared command invocation
 contract exists.
+
+### Agent Extension Registry
+
+Runtime bootstrap discovers plugin `agents/**/*.md` definitions and feeds them
+into the same session-scoped `AgentDefinitionCache` used by workspace and user
+agent definitions. Plugin agent names are exposed as `plugin_name:agent_name`,
+which avoids collisions with built-in, user, and workspace agents.
+
+Plugin agent definitions use the existing Claude-compatible agent frontmatter
+contract: `description`, `tools`, `disallowed_tools`, `model`, `max_turns`,
+`token_budget`, `permission_mode`, `plan_mode_required`, and `hidden`.
 
 ## Contracts
 
@@ -334,11 +346,12 @@ scope for now.
 | `SessionEnd` marks cancelled model turns as interrupts | `cargo test agent::tests::plugin_hooks::plugin_session_end_marks_cancelled_model_turn_as_interrupt -- --nocapture` |
 | `SessionStart` and `UserPromptSubmit` fire from agent queries | `cargo test agent::tests::plugin_hooks::plugin_non_tool_lifecycle_hooks_run_from_agent_query -- --nocapture` |
 | Lifecycle hook stdout/stderr publishes a structured control event | `cargo test plugin_middleware::tests::lifecycle_hook_output_is_published_as_structured_control_event -- --nocapture` and `cargo test runtime_control::tests::hook_command_output_uses_structured_wire_shape -- --nocapture` |
-| Plugin skills are prompt-visible summaries | `cargo test plugin_middleware::tests::registers_project_plugin_skill_summaries -- --nocapture` and `cargo test agent::tests::plugin_hooks::plugin_skill_summaries_are_prompt_visible_but_not_invokable_yet -- --nocapture` |
+| Plugin skills load into the shared skill registry | `cargo test -p rara-skills plugin_skills_are_namespaced_and_invokable -- --nocapture` and `cargo test tools::skill::reload_updates_running_manager_with_plugin_skills -- --nocapture` |
 | Plugin `.mcp.json` registers into the shared MCP registry | `cargo test plugin_middleware::tests::appends_plugin_mcp_configs_with_plugin_source_metadata -- --nocapture` |
 | Plugin MCP file and relative cwd handling | `cargo test plugin_middleware::tests::plugin_mcp_configs_skip_mcp_json_directories -- --nocapture` and `cargo test plugin_middleware::tests::plugin_mcp_configs_resolve_relative_cwd_from_plugin_root -- --nocapture` |
 | Plugin MCP parse and duplicate-name failures surface | `cargo test plugin_middleware::tests::plugin_mcp_configs_fail_on_duplicate_server_names -- --nocapture` and `cargo test plugin_middleware::tests::plugin_mcp_configs_fail_on_invalid_json -- --nocapture` |
 | Plugin command markdown files register as runtime summaries | `cargo test plugin_middleware::tests::registers_project_plugin_command_summaries -- --nocapture` |
+| Plugin agent markdown files register as runtime agent definitions | `cargo test plugin_middleware::tests::plugin_agent_records_are_namespaced_by_plugin_name -- --nocapture` |
 | Non-zero exit code fails | integration test |
 | Timeout fires | integration test (sleep 10) |
 | `discover_plugins` skips non-directories | unit test |
@@ -404,24 +417,20 @@ Implemented in the first merged slice:
   success state are published as `RuntimeEvent::Hook(command_output)` events on
   the session control bus. These events are structured observability only and do
   not feed model context.
-- Plugin `skills/<name>/SKILL.md` directories are exposed as prompt-visible
-  summaries with namespaced `plugin_name:skill_name` names and plugin scope.
-  They are marked `disable_model_invocation: true` because the `skill` tool
-  still reads from the local `SkillManager`, not from plugin extension roots.
+- Plugin `skills/<name>/SKILL.md` directories are loaded into the shared
+  `SkillManager` with namespaced `plugin_name:skill_name` names and plugin
+  scope. The `skill` tool can list, invoke, and reload them.
 - Plugin `commands/**/*.md` files are exposed as runtime-owned command
   summaries with namespaced `plugin_name:command_name` names. `/status`
   displays the loaded command count from the runtime snapshot. Invocation is
   intentionally deferred until a shared command execution contract exists.
+- Plugin `agents/**/*.md` files are loaded into the shared
+  `AgentDefinitionCache` with namespaced `plugin_name:agent_name` names and can
+  be used by `spawn_agent`, `explore_agent`, `plan_agent`, and team creation
+  paths through the existing agent resolution contract.
 - `rara plugin install <source>` accepts both local plugin directories and git
   sources. Git sources are cloned with `git clone --depth 1` into a temporary
   checkout before the existing plugin validation and workspace copy path runs.
-
-Next implementation slices:
-
-1. Feed plugin skill invocation/reload and agents into the same structured
-   extension-source registries used by native RARA features. Skills already
-   have prompt-visible summaries; invocation and reload integration remain
-   open.
 
 ## Open Risks
 
@@ -448,3 +457,4 @@ Next implementation slices:
 - `docs/journal/2026-07-20-plugin-runtime-bootstrap.md`
 - `docs/journal/2026-07-21-plugin-non-tool-lifecycle-hooks.md`
 - `docs/journal/2026-07-22-plugin-command-registry.md`
+- `docs/journal/2026-07-25-extension-completion.md`

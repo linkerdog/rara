@@ -66,6 +66,7 @@ pub enum RuntimeEvent {
     Memory(MemoryEvent),
     Hook(HookEvent),
     Context(ContextEvent),
+    Extension(ExtensionEvent),
     Todo(TodoEvent),
     Warning(WarningEvent),
     Error(ErrorEvent),
@@ -358,6 +359,26 @@ pub enum ContextEvent {
     SnapshotUpdated,
     RetrievalOrchestrationUpdated { view: RetrievalOrchestrationView },
     ObservabilityUpdated { view: ContextObservabilityView },
+}
+
+#[allow(dead_code)] // ACP protocol type — reserved for future lifecycle events
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "type", content = "payload", rename_all = "snake_case")]
+pub enum ExtensionEvent {
+    ReadinessUpdated {
+        snapshot: ExtensionReadinessSnapshot,
+    },
+}
+
+#[allow(dead_code)] // ACP protocol type — reserved for future lifecycle events
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ExtensionReadinessSnapshot {
+    pub plugin_count: usize,
+    pub hook_count: usize,
+    pub skill_count: usize,
+    pub command_count: usize,
+    pub agent_count: usize,
+    pub mcp_server_count: usize,
 }
 
 #[allow(dead_code)] // ACP protocol type — reserved for future lifecycle events
@@ -1270,6 +1291,40 @@ mod tests {
         assert_eq!(
             control_event.event,
             RuntimeEvent::Assistant(AssistantEvent::TextDelta("hello".to_string()))
+        );
+    }
+
+    #[test]
+    fn extension_readiness_event_uses_structured_wire_shape() {
+        let event = RuntimeEvent::Extension(ExtensionEvent::ReadinessUpdated {
+            snapshot: ExtensionReadinessSnapshot {
+                plugin_count: 2,
+                hook_count: 3,
+                skill_count: 4,
+                command_count: 5,
+                agent_count: 6,
+                mcp_server_count: 7,
+            },
+        });
+
+        assert_eq!(
+            serde_json::to_value(event).unwrap(),
+            json!({
+                "type": "extension",
+                "payload": {
+                    "type": "readiness_updated",
+                    "payload": {
+                        "snapshot": {
+                            "plugin_count": 2,
+                            "hook_count": 3,
+                            "skill_count": 4,
+                            "command_count": 5,
+                            "agent_count": 6,
+                            "mcp_server_count": 7
+                        }
+                    }
+                }
+            })
         );
     }
 }

@@ -279,31 +279,6 @@ async fn plugin_session_end_marks_cancelled_model_turn_as_interrupt() {
     );
 }
 
-#[test]
-fn plugin_skill_summaries_are_prompt_visible_but_not_invokable_yet() {
-    let (_temp, session_manager, workspace, rara_dir) = test_runtime_storage();
-    let mut agent = Agent::new(
-        ToolManager::new(),
-        Arc::new(SequencedBackend::new(Vec::new())),
-        Arc::new(VectorDB::new(&rara_dir.join("lancedb").to_string_lossy())),
-        session_manager,
-        workspace,
-    );
-
-    agent.add_plugin_skill_summaries(&[crate::plugin_middleware::PluginSkillSummary {
-        name: "skillful:reviewer".to_string(),
-        title: Some("reviewer".to_string()),
-        description: "Inspect plugin-provided behavior.".to_string(),
-        path: std::path::PathBuf::from("/tmp/plugin/skills/reviewer/SKILL.md"),
-    }]);
-
-    assert_eq!(agent.prompt_config().available_skills.len(), 1);
-    let summary = &agent.prompt_config().available_skills[0];
-    assert_eq!(summary.name, "skillful:reviewer");
-    assert_eq!(summary.scope, "plugin");
-    assert!(summary.disable_model_invocation);
-}
-
 #[tokio::test]
 async fn plugin_non_tool_lifecycle_hooks_run_from_agent_query() {
     let (temp, session_manager, workspace, rara_dir) = test_runtime_storage();

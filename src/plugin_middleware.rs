@@ -22,7 +22,6 @@ use crate::runtime_control::{HookEvent as RuntimeHookEvent, HookLifecycle};
 pub(crate) struct PluginHookRuntime {
     session_id: String,
     hooks: Vec<RegisteredHook>,
-    skill_summaries: Vec<PluginSkillSummary>,
     command_summaries: Vec<PluginCommandSummary>,
     hook_runtime: Option<Weak<HookRuntime>>,
 }
@@ -31,14 +30,6 @@ pub(crate) struct PluginHookRuntime {
 pub(crate) struct PluginHookBlock {
     pub plugin_name: String,
     pub message: String,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) struct PluginSkillSummary {
-    pub name: String,
-    pub title: Option<String>,
-    pub description: String,
-    pub path: PathBuf,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -63,26 +54,19 @@ impl PluginHookRuntime {
     fn new(
         session_id: String,
         hooks: Vec<RegisteredHook>,
-        skill_summaries: Vec<PluginSkillSummary>,
         command_summaries: Vec<PluginCommandSummary>,
         hook_runtime: Option<Arc<HookRuntime>>,
     ) -> Self {
         Self {
             session_id,
             hooks,
-            skill_summaries,
             command_summaries,
             hook_runtime: hook_runtime.map(|runtime| Arc::downgrade(&runtime)),
         }
     }
 
-    #[cfg(test)]
-    fn hook_count(&self) -> usize {
+    pub(crate) fn hook_count(&self) -> usize {
         self.hooks.len()
-    }
-
-    pub(crate) fn skill_summaries(&self) -> &[PluginSkillSummary] {
-        &self.skill_summaries
     }
 
     pub(crate) fn command_summaries(&self) -> &[PluginCommandSummary] {
@@ -303,6 +287,43 @@ pub(crate) fn append_plugin_mcp_configs(
     append_plugin_mcp_configs_from_plugins(registry, &plugins)
 }
 
+pub(crate) fn discover_runtime_plugins(
+    rara_home: Option<&Path>,
+    workspace_root: &Path,
+    explicit_plugin_dirs: &[PathBuf],
+) -> Vec<Plugin> {
+    let sources = plugin_discovery_sources(rara_home, workspace_root, explicit_plugin_dirs);
+    discover_plugins_from_sources(&sources)
+}
+
+pub(crate) fn plugin_skill_roots(plugins: &[Plugin]) -> Vec<(String, PathBuf)> {
+    plugins
+        .iter()
+        .filter(|plugin| plugin.root.join("skills").is_dir())
+        .map(|plugin| (plugin.name.clone(), plugin.root.clone()))
+        .collect()
+}
+
+pub(crate) fn plugin_agent_records(
+    plugins: &[Plugin],
+) -> Vec<crate::tools::agent::AgentDefinitionLoadRecord> {
+    let mut records = Vec::new();
+    for plugin in plugins {
+        let agents_dir = plugin.root.join("agents");
+        let start = records.len();
+        crate::tools::agent::scan_agent_records_dir(&agents_dir, &mut records);
+        for record in &mut records[start..] {
+            let local_id = record.id.clone();
+            record.id = format!("{}:{local_id}", plugin.name);
+            if let Some(definition) = &mut record.definition {
+                let local_name = definition.name.clone();
+                definition.name = format!("{}:{local_name}", plugin.name);
+            }
+        }
+    }
+    records
+}
+
 fn plugin_discovery_sources(
     rara_home: Option<&Path>,
     workspace_root: &Path,
@@ -343,15 +364,8 @@ fn load_plugin_hooks_blocking(
     for plugin in &plugins {
         hooks.extend(rara_plugins::loader::registered_hooks_for_plugin(plugin));
     }
-    let skill_summaries = plugin_skill_summaries(&plugins);
     let command_summaries = plugin_command_summaries(&plugins);
-    PluginHookRuntime::new(
-        session_id.to_string(),
-        hooks,
-        skill_summaries,
-        command_summaries,
-        runtime,
-    )
+    PluginHookRuntime::new(session_id.to_string(), hooks, command_summaries, runtime)
 }
 
 fn append_plugin_mcp_configs_from_plugins(
@@ -393,38 +407,6 @@ fn apply_plugin_mcp_defaults(
             McpServerTransport::StreamableHttp { .. } => {}
         }
     }
-}
-
-fn plugin_skill_summaries(plugins: &[Plugin]) -> Vec<PluginSkillSummary> {
-    let mut summaries = Vec::new();
-    for plugin in plugins {
-        let skills_dir = plugin.root.join("skills");
-        let Ok(entries) = fs::read_dir(&skills_dir) else {
-            continue;
-        };
-        for entry in entries.flatten() {
-            let path = entry.path();
-            if !path.is_dir() {
-                continue;
-            }
-            let skill_md = path.join("SKILL.md");
-            if !skill_md.is_file() {
-                continue;
-            }
-            let Some(skill_name) = path.file_name().and_then(|name| name.to_str()) else {
-                continue;
-            };
-            let content = fs::read_to_string(&skill_md).unwrap_or_default();
-            summaries.push(PluginSkillSummary {
-                name: format!("{}:{skill_name}", plugin.name),
-                title: Some(skill_name.to_string()),
-                description: extract_plugin_skill_description(&content),
-                path: skill_md,
-            });
-        }
-    }
-    summaries.sort_by(|left, right| left.name.cmp(&right.name));
-    summaries
 }
 
 fn plugin_command_summaries(plugins: &[Plugin]) -> Vec<PluginCommandSummary> {
@@ -811,37 +793,6 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn registers_project_plugin_skill_summaries() {
-        let dir = tempdir().expect("tempdir");
-        let rara_home = dir.path().join("home").join(".rara");
-        let workspace_root = dir.path().join("workspace");
-        let project_plugins_dir = workspace_root.join(".rara").join("plugins");
-        let plugin_root = project_plugins_dir.join("skillful");
-        write_test_plugin(&plugin_root, "skillful", "echo project");
-        fs::create_dir_all(plugin_root.join("skills").join("reviewer")).expect("skill dir");
-        fs::write(
-            plugin_root.join("skills").join("reviewer").join("SKILL.md"),
-            "# Reviewer\nInspect plugin-provided behavior.",
-        )
-        .expect("skill");
-
-        let runtime = Arc::new(HookRuntime::new(Arc::new(RuntimeEventBus::new(4))));
-        let registered =
-            register_plugin_hooks(&runtime, Some(rara_home), &workspace_root, &[], "session-1")
-                .await;
-
-        assert_eq!(
-            registered.skill_summaries(),
-            &[PluginSkillSummary {
-                name: "skillful:reviewer".to_string(),
-                title: Some("reviewer".to_string()),
-                description: "Inspect plugin-provided behavior.".to_string(),
-                path: plugin_root.join("skills").join("reviewer").join("SKILL.md"),
-            }]
-        );
-    }
-
-    #[tokio::test]
     async fn registers_project_plugin_command_summaries() {
         let dir = tempdir().expect("tempdir");
         let rara_home = dir.path().join("home").join(".rara");
@@ -883,6 +834,37 @@ mod tests {
                 },
             ]
         );
+    }
+
+    #[test]
+    fn plugin_agent_records_are_namespaced_by_plugin_name() {
+        let dir = tempdir().expect("tempdir");
+        let plugin_root = dir.path().join("plugin");
+        write_test_plugin(&plugin_root, "helpers", "echo project");
+        fs::create_dir_all(plugin_root.join("agents")).expect("agents dir");
+        fs::write(
+            plugin_root.join("agents").join("reviewer.md"),
+            r#"---
+name: reviewer
+description: Reviews plugin-provided code.
+---
+
+Review code from the plugin context.
+"#,
+        )
+        .expect("agent");
+        let plugins = discover_plugins_from_sources(&[PluginDiscoverySource {
+            plugins_dir: dir.path().to_path_buf(),
+            source: PluginSource::Directory(dir.path().to_path_buf()),
+        }]);
+
+        let records = plugin_agent_records(&plugins);
+
+        assert_eq!(records.len(), 1);
+        assert_eq!(records[0].id, "helpers:reviewer");
+        let definition = records[0].definition.as_ref().expect("definition");
+        assert_eq!(definition.name, "helpers:reviewer");
+        assert_eq!(definition.description, "Reviews plugin-provided code.");
     }
 
     #[test]
@@ -1131,7 +1113,6 @@ mod tests {
                 plugin_root,
             }],
             Vec::new(),
-            Vec::new(),
             None,
         );
 
@@ -1165,7 +1146,6 @@ mod tests {
                 plugin_name: "observer".to_string(),
                 plugin_root,
             }],
-            Vec::new(),
             Vec::new(),
             Some(hook_runtime.clone()),
         );

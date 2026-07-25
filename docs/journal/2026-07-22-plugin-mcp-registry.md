@@ -18,8 +18,8 @@ surface that consumes the registry sees the same plugin-provided servers.
   paths from the plugin root.
 - Duplicate MCP server names across user, project, and plugin sources remain a
   hard registry error rather than a precedence override.
-- Real skill invocation/reload and plugin agent definitions remain separate
-  extension-registry follow-ups.
+- Skill invocation/reload and plugin agent definitions are completed by the
+  later extension completion slice.
 
 ## Validation
 
@@ -30,7 +30,5 @@ surface that consumes the registry sees the same plugin-provided servers.
 
 ## Follow-Ups
 
-- Register plugin skill invocation/reload and plugin agents through their
-  shared runtime registries.
-- Continue control-plane readiness work for new plugin-provided extension
-  sources.
+- Plugin skill invocation/reload, plugin agents, and structured readiness were
+  completed in `docs/journal/2026-07-25-extension-completion.md`.

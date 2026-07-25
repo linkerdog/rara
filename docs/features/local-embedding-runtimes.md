@@ -525,8 +525,8 @@ Valid preparation states:
   versioned by profile.
 - LanceDB table versioning still needs a separate migration plan before mixed
   embedding dimensions or model profiles are enabled.
-- Explicit embedding enable/disable and provider override config still remains
-  follow-up work.
+- Explicit provider/local embedding route overrides are available through
+  `local_embeddings = "provider"` and `local_embeddings = "local"`.
 
 ## Source Journals
 

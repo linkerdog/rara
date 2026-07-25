@@ -345,7 +345,7 @@ Reloaded prompt.
 }
 
 #[test]
-fn sync_snapshot_counts_only_repo_agent_definition_records() {
+fn sync_snapshot_counts_runtime_agent_definition_records() {
     let dir = tempdir().expect("tempdir");
     let root = dir.path().join("workspace");
     let rara_dir = root.join(".rara");
@@ -383,7 +383,7 @@ fn sync_snapshot_counts_only_repo_agent_definition_records() {
 
     app.sync_snapshot(&agent);
 
-    assert_eq!(app.snapshot.extension_agent_count, 1);
+    assert_eq!(app.snapshot.extension_agent_count, 2);
     assert!(
         app.snapshot
             .extension_agent_status_lines
@@ -391,7 +391,7 @@ fn sync_snapshot_counts_only_repo_agent_definition_records() {
             .any(|line| line.contains("repo-agent"))
     );
     assert!(
-        !app.snapshot
+        app.snapshot
             .extension_agent_status_lines
             .iter()
             .any(|line| line.contains("home-agent"))

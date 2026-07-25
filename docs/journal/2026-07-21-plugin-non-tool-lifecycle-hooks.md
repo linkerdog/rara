@@ -47,8 +47,8 @@ git diff --check
 
 ## Follow-Ups
 
-- Feed plugin `.mcp.json`, commands, skill invocation/reload, and agents into
-  structured extension registries.
+- Plugin extension registries were completed in
+  `docs/journal/2026-07-25-extension-completion.md`.
 
 ## Structured Output Observability
 
