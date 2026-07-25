@@ -27,6 +27,6 @@ plugin directories themselves.
 
 ## Follow-Ups
 
-- Route plugin skill invocation/reload through a shared runtime registry.
-- Register plugin agent definitions through the runtime-owned agent registry.
-- Continue control-plane readiness work for plugin-provided extension sources.
+- Plugin skill invocation/reload, plugin agent definitions, and structured
+  control-plane readiness were completed in
+  `docs/journal/2026-07-25-extension-completion.md`.

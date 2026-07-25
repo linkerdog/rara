@@ -118,7 +118,7 @@ Active backlog only. Keep this file small and current.
 
 - [x] Default bundled local embedding sidecar startup to off while preserving
       explicit `local_embeddings = "auto"` opt-in.
-- [ ] Explicit embedding provider override beyond `off` / `auto` (low priority)
+- [x] Explicit embedding provider override beyond `off` / `auto`.
 
 ## ACP Compatibility
 
@@ -147,5 +147,5 @@ Active backlog only. Keep this file small and current.
 - [x] Claude plugin lifecycle parity: structured hook output observability.
 - [x] Claude plugin `.mcp.json` extension registry integration.
 - [x] Claude plugin command extension registry summaries.
-- [ ] Claude plugin extension registries for skill invocation/reload and agents.
-- [ ] Control-plane readiness for new features
+- [x] Claude plugin extension registries for skill invocation/reload and agents.
+- [x] Control-plane readiness for new features.

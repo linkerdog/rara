@@ -64,9 +64,21 @@ pub struct AgentDefinitionCache {
 }
 
 impl AgentDefinitionCache {
+    #[cfg(test)]
     pub fn load(workspace_root: impl Into<PathBuf>) -> Self {
         let workspace_root = workspace_root.into();
-        let state = load_agent_definition_cache_state(&workspace_root);
+        let state = load_agent_definition_cache_state(&workspace_root, Vec::new());
+        Self {
+            state: Arc::new(state),
+        }
+    }
+
+    pub fn load_with_records(
+        workspace_root: impl Into<PathBuf>,
+        extra_records: Vec<AgentDefinitionLoadRecord>,
+    ) -> Self {
+        let workspace_root = workspace_root.into();
+        let state = load_agent_definition_cache_state(&workspace_root, extra_records);
         Self {
             state: Arc::new(state),
         }
@@ -94,8 +106,12 @@ impl AgentDefinitionCache {
     }
 }
 
-fn load_agent_definition_cache_state(workspace_root: &Path) -> AgentDefinitionCacheState {
-    let records = discover_agent_definition_records(workspace_root);
+fn load_agent_definition_cache_state(
+    workspace_root: &Path,
+    extra_records: Vec<AgentDefinitionLoadRecord>,
+) -> AgentDefinitionCacheState {
+    let mut records = discover_agent_definition_records(workspace_root);
+    records.extend(extra_records);
     let mut registry = AgentRegistry::new();
     for record in &records {
         match &record.definition {
@@ -164,7 +180,10 @@ fn agent_definition_dirs_for_root(root: &Path) -> Vec<PathBuf> {
     ]
 }
 
-fn scan_agent_records_dir(agents_dir: &Path, records: &mut Vec<AgentDefinitionLoadRecord>) {
+pub(crate) fn scan_agent_records_dir(
+    agents_dir: &Path,
+    records: &mut Vec<AgentDefinitionLoadRecord>,
+) {
     if !agents_dir.exists() || !agents_dir.is_dir() {
         return;
     }

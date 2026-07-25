@@ -100,11 +100,12 @@ impl AgentRegistry {
                     return;
                 }
                 let id = definition.name.clone();
+                let source_kind = source_kind_for_agent_path(&record.source_path);
                 ImportedAgentProfile {
                     id: id.clone(),
                     label: id,
                     source_path,
-                    source_kind: "rara_agent".to_string(),
+                    source_kind,
                     prompt_body: definition.system_prompt,
                     description: definition.description,
                     parse_status: AgentParseStatus::Ok,
@@ -114,13 +115,23 @@ impl AgentRegistry {
                 id: fallback_id.clone(),
                 label: fallback_id,
                 source_path,
-                source_kind: "rara_agent".to_string(),
+                source_kind: source_kind_for_agent_path(&record.source_path),
                 prompt_body: String::new(),
                 description: record.error.unwrap_or_else(|| "parse error".to_string()),
                 parse_status: AgentParseStatus::ParseError,
             },
         };
         self.agents.insert(profile.id.clone(), profile);
+    }
+}
+
+fn source_kind_for_agent_path(path: &Path) -> String {
+    if path.components().any(|component| {
+        component.as_os_str() == "plugins" || component.as_os_str() == ".claude-plugin"
+    }) {
+        "plugin_agent".to_string()
+    } else {
+        "rara_agent".to_string()
     }
 }
 

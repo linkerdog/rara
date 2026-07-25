@@ -1,5 +1,5 @@
 use std::collections::HashMap;
-use std::sync::{Arc, OnceLock, atomic::AtomicBool};
+use std::sync::{Arc, OnceLock, RwLock, atomic::AtomicBool};
 
 use rara_background_tasks::{
     BackgroundTaskListTool, BackgroundTaskStatusTool, BackgroundTaskStopTool, BackgroundTaskStore,
@@ -59,7 +59,8 @@ pub(super) fn create_full_tool_manager(
     session_manager: Arc<SessionManager>,
     workspace: Arc<WorkspaceMemory>,
     sandbox: Arc<SandboxManager>,
-    skill_manager: Arc<SkillManager>,
+    skill_manager: Arc<RwLock<SkillManager>>,
+    plugin_roots: Vec<(String, std::path::PathBuf)>,
     prompt_config: PromptRuntimeConfig,
     shell_env: Arc<HashMap<String, String>>,
     sandbox_network_access: Arc<AtomicBool>,
@@ -182,6 +183,7 @@ pub(super) fn create_full_tool_manager(
     }));
     tm.register(Box::new(SkillTool {
         skill_manager: skill_manager.clone(),
+        plugin_roots,
     }));
     tm.register(Box::new(AgentTool {
         backend: backend.clone(),
@@ -247,12 +249,24 @@ pub(super) fn create_full_tool_manager(
     tm
 }
 
-pub(super) fn load_skill_manager(warnings: &mut Vec<String>) -> Arc<SkillManager> {
+pub(super) fn load_skill_manager(
+    warnings: &mut Vec<String>,
+    plugin_roots: &[(String, std::path::PathBuf)],
+) -> Arc<RwLock<SkillManager>> {
     let mut skill_manager = SkillManager::new();
     if let Err(err) = skill_manager.load_all() {
         warnings.push(format!("Skill loading failed: {err}"));
     }
-    Arc::new(skill_manager)
+    for (plugin_name, plugin_root) in plugin_roots {
+        if let Err(err) = skill_manager.load_plugin_skills_from_root(plugin_name, plugin_root) {
+            warnings.push(format!(
+                "Plugin skill loading failed for {} at {}: {err}",
+                plugin_name,
+                plugin_root.display()
+            ));
+        }
+    }
+    Arc::new(RwLock::new(skill_manager))
 }
 
 pub(crate) fn vector_db_uri_for_workspace(workspace: &WorkspaceMemory) -> String {

@@ -236,11 +236,7 @@ fn discover_extension_counts(cwd: &str, agent: &Agent) -> (usize, usize, Vec<Str
     let root = std::path::Path::new(cwd);
     let mut hook_registry = crate::hooks::HookRegistry::new();
     hook_registry.discover_repo_hooks(root);
-    let records = agent
-        .agent_definition_records()
-        .into_iter()
-        .filter(|record| record.source_path.starts_with(root))
-        .collect();
+    let records = agent.agent_definition_records();
     let agent_registry = crate::agents_ext::AgentRegistry::from_records(records, root);
     let agent_count = agent_registry.agents.len();
     let agent_status_lines = if agent_count == 0 {

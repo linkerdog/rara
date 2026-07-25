@@ -99,6 +99,9 @@ That means:
 - prompt-affecting data enters through source objects, not string append points;
 - visible runtime state can be consumed by `/context`, `/status`, and protocol
   subscribers;
+- extension registries publish structured readiness snapshots when runtime
+  bootstrap loads plugin-provided hooks, skills, commands, agents, or MCP
+  servers;
 - sandbox, approval, and permission decisions remain centralized in RARA;
 - new state is either persisted or explicitly marked transient.
 
@@ -398,6 +401,7 @@ Minimum event families:
 - `MemoryEvent`;
 - `HookEvent`;
 - `ContextEvent`;
+- `ExtensionEvent`;
 - `WarningEvent`;
 - `ErrorEvent`.
 

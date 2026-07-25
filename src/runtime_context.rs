@@ -32,6 +32,7 @@ use crate::mcp_connection_manager::McpConnectionManager;
 use crate::mcp_tool_cache::McpToolCache;
 use crate::prompt::{PromptRuntimeConfig, PromptSkillSummary};
 use crate::protocol_sources::{PromptSourceRegistry, SkillSourceRegistry};
+use crate::runtime_control::{ExtensionEvent, ExtensionReadinessSnapshot, RuntimeEvent};
 use crate::runtime_event_bus::RuntimeEventBus;
 use crate::sandbox::SandboxManager;
 use crate::session::SessionManager;
@@ -62,6 +63,7 @@ pub(crate) struct RuntimeBootstrap {
     pub mcp_manager: Arc<McpConnectionManager>,
     pub lsp_manager: Arc<LspManager>,
     pub agent_definitions: AgentDefinitionCache,
+    extension_readiness: ExtensionReadinessSnapshot,
     plugin_dirs: Vec<PathBuf>,
     rara_home: Option<PathBuf>,
 }
@@ -147,6 +149,8 @@ impl RuntimeBootstrap {
         let plugin_dirs = self.plugin_dirs.clone();
         let rara_home = self.rara_home.clone();
         let hook_runtime = self.hook_runtime.clone();
+        let event_bus = self.event_bus.clone();
+        let mut extension_readiness = self.extension_readiness.clone();
         let mut parts = self.into_parts();
         let plugin_hook_runtime = crate::plugin_middleware::register_plugin_hooks(
             &hook_runtime,
@@ -156,10 +160,12 @@ impl RuntimeBootstrap {
             &parts.0.session_id,
         )
         .await;
-        parts
-            .0
-            .add_plugin_skill_summaries(plugin_hook_runtime.skill_summaries());
+        extension_readiness.hook_count = plugin_hook_runtime.hook_count();
+        extension_readiness.command_count = plugin_hook_runtime.command_summaries().len();
         parts.0.set_plugin_hook_runtime(plugin_hook_runtime);
+        event_bus.publish_control(RuntimeEvent::Extension(ExtensionEvent::ReadinessUpdated {
+            snapshot: extension_readiness,
+        }));
         parts
     }
 }
@@ -271,10 +277,27 @@ pub(crate) async fn initialize_rara_context_with_options_and_local_embedding_boo
         shell_env.env.get("PATH").cloned(),
     )?);
 
+    let config_manager = crate::config::ConfigManager::new()?;
+    let rara_home = ensure_rara_home_dir()?;
+    let plugins = crate::plugin_middleware::discover_runtime_plugins(
+        Some(&rara_home),
+        &workspace.root,
+        &options.plugin_dirs,
+    );
+    let plugin_skill_roots = crate::plugin_middleware::plugin_skill_roots(&plugins);
+    let plugin_agent_records = crate::plugin_middleware::plugin_agent_records(&plugins);
+
     let mut prompt_config = PromptRuntimeConfig::from_config(config);
-    let skill_manager = load_skill_manager(&mut prompt_config.warnings);
-    prompt_config.available_skills = skill_manager
-        .list_summaries()
+    let skill_manager = load_skill_manager(&mut prompt_config.warnings, &plugin_skill_roots);
+    let skill_summaries = skill_manager
+        .read()
+        .map_err(|err| anyhow::anyhow!("skill manager lock failed: {err}"))?
+        .list_summaries();
+    let extension_skill_count = skill_summaries
+        .iter()
+        .filter(|skill| skill.scope == rara_skills::SkillScope::Plugin)
+        .count();
+    prompt_config.available_skills = skill_summaries
         .into_iter()
         .map(|skill| {
             let scope = match skill.scope {
@@ -282,6 +305,7 @@ pub(crate) async fn initialize_rara_context_with_options_and_local_embedding_boo
                 rara_skills::SkillScope::Workspace
                 | rara_skills::SkillScope::Repo
                 | rara_skills::SkillScope::Cwd => "workspace",
+                rara_skills::SkillScope::Plugin => "plugin",
                 rara_skills::SkillScope::System => "system",
             };
             PromptSkillSummary {
@@ -309,8 +333,6 @@ pub(crate) async fn initialize_rara_context_with_options_and_local_embedding_boo
     mcp_tool_cache.clear();
     let lsp_manager = Arc::new(LspManager::new(workspace.root.clone()));
 
-    let config_manager = crate::config::ConfigManager::new()?;
-    let rara_home = ensure_rara_home_dir()?;
     let mut mcp_registry = config_manager
         .load_mcp_registry_for_project(&workspace.root)
         .unwrap_or_else(|_| crate::config::McpRegistry::empty());
@@ -320,6 +342,11 @@ pub(crate) async fn initialize_rara_context_with_options_and_local_embedding_boo
         &workspace.root,
         &options.plugin_dirs,
     )?;
+    let extension_mcp_server_count = mcp_registry
+        .servers
+        .values()
+        .filter(|server| server.source.scope == crate::config::McpServerScope::Plugin)
+        .count();
     let mcp_registry = Arc::new(mcp_registry);
 
     let mcp_manager = Arc::new(McpConnectionManager::new(
@@ -341,7 +368,14 @@ pub(crate) async fn initialize_rara_context_with_options_and_local_embedding_boo
         .collect();
     let file_hook_warnings = file_hooks.load_warnings.clone();
     let command_hook_registry = Arc::new(file_hooks);
-    let agent_definitions = AgentDefinitionCache::load(workspace.root.clone());
+    let extension_agent_count = crate::agents_ext::AgentRegistry::from_records(
+        plugin_agent_records.clone(),
+        &workspace.root,
+    )
+    .agents
+    .len();
+    let agent_definitions =
+        AgentDefinitionCache::load_with_records(workspace.root.clone(), plugin_agent_records);
     let tool_manager = create_full_tool_manager(
         backend.clone(),
         embedding_backend.clone(),
@@ -350,6 +384,7 @@ pub(crate) async fn initialize_rara_context_with_options_and_local_embedding_boo
         workspace.clone(),
         sandbox_manager.clone(),
         skill_manager,
+        plugin_skill_roots,
         prompt_config.clone(),
         Arc::new(shell_env.env),
         sandbox_network_access.clone(),
@@ -384,6 +419,14 @@ pub(crate) async fn initialize_rara_context_with_options_and_local_embedding_boo
         mcp_manager,
         lsp_manager,
         agent_definitions,
+        extension_readiness: ExtensionReadinessSnapshot {
+            plugin_count: plugins.len(),
+            hook_count: 0,
+            skill_count: extension_skill_count,
+            command_count: 0,
+            agent_count: extension_agent_count,
+            mcp_server_count: extension_mcp_server_count,
+        },
         plugin_dirs: options.plugin_dirs,
         rara_home: Some(rara_home),
     })
@@ -396,8 +439,14 @@ enum EmbeddingRoute {
 }
 
 fn embedding_route_for_config(config: &RaraConfig) -> EmbeddingRoute {
-    if config.local_embeddings == LocalEmbeddingPolicy::Off {
-        return EmbeddingRoute::CurrentLlmBackend;
+    match config.local_embeddings {
+        LocalEmbeddingPolicy::Off | LocalEmbeddingPolicy::Provider => {
+            return EmbeddingRoute::CurrentLlmBackend;
+        }
+        LocalEmbeddingPolicy::Local => {
+            return EmbeddingRoute::LocalModelServer;
+        }
+        LocalEmbeddingPolicy::Auto => {}
     }
     match config.provider.as_str() {
         "codex" | "mock" => EmbeddingRoute::CurrentLlmBackend,
@@ -882,6 +931,31 @@ mod tests {
             embedding_route_for_config(&gemini_code_assist),
             EmbeddingRoute::LocalModelServer
         );
+    }
+
+    #[test]
+    fn embedding_route_honors_explicit_provider_and_local_overrides() {
+        let deepseek_provider = RaraConfig {
+            provider: "deepseek".to_string(),
+            local_embeddings: LocalEmbeddingPolicy::Provider,
+            ..Default::default()
+        };
+        assert_eq!(
+            embedding_route_for_config(&deepseek_provider),
+            EmbeddingRoute::CurrentLlmBackend
+        );
+        assert!(!config_requires_local_embedding_sidecar(&deepseek_provider));
+
+        let codex_local = RaraConfig {
+            provider: "codex".to_string(),
+            local_embeddings: LocalEmbeddingPolicy::Local,
+            ..Default::default()
+        };
+        assert_eq!(
+            embedding_route_for_config(&codex_local),
+            EmbeddingRoute::LocalModelServer
+        );
+        assert!(config_requires_local_embedding_sidecar(&codex_local));
     }
 
     #[test]

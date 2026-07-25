@@ -10,6 +10,7 @@ use serde::Serialize;
 pub enum SkillScope {
     Workspace,
     Global,
+    Plugin,
     // Legacy variants for compatibility
     Home,
     Repo,
@@ -22,6 +23,7 @@ impl SkillScope {
         match self {
             Self::Workspace => "workspace",
             Self::Global => "global",
+            Self::Plugin => "plugin",
             Self::Home => "home",
             Self::Repo => "repo",
             Self::Cwd => "cwd",
@@ -88,6 +90,18 @@ impl SkillManager {
 
     pub fn load_all(&mut self) -> Result<()> {
         self.discover_and_load()
+    }
+
+    pub fn load_plugin_skills_from_root(
+        &mut self,
+        plugin_name: &str,
+        plugin_root: &Path,
+    ) -> Result<()> {
+        let skills_dir = plugin_root.join("skills");
+        if skills_dir.is_dir() {
+            self.load_plugin_skills_from_dir(plugin_name, &skills_dir)?;
+        }
+        Ok(())
     }
 
     pub fn list_summaries(&self) -> Vec<SkillSummary> {
@@ -166,23 +180,7 @@ impl SkillManager {
                 let skill_md = path.join("SKILL.md");
                 if skill_md.is_file() {
                     match self.load_skill(&skill_md, scope) {
-                        Ok(skill) => {
-                            let name = skill.name.clone();
-                            if let Some(existing) = self.skills.get(&name) {
-                                let mut chain = self.overrides.remove(&name).unwrap_or_default();
-                                if scope == SkillScope::Workspace
-                                    && existing.scope == SkillScope::Global
-                                {
-                                    chain.push(existing.clone());
-                                    self.skills.insert(name.clone(), skill);
-                                } else {
-                                    chain.push(skill);
-                                }
-                                self.overrides.insert(name, chain);
-                            } else {
-                                self.skills.insert(name, skill);
-                            }
-                        }
+                        Ok(skill) => self.insert_skill(skill),
                         Err(err) => {
                             self.load_warnings.push(format!(
                                 "Failed to load skill from {}: {}",
@@ -195,6 +193,47 @@ impl SkillManager {
             }
         }
         Ok(())
+    }
+
+    fn load_plugin_skills_from_dir(&mut self, plugin_name: &str, dir: &Path) -> Result<()> {
+        for entry in fs::read_dir(dir)? {
+            let entry = entry?;
+            let path = entry.path();
+            if !path.is_dir() {
+                continue;
+            }
+            let skill_md = path.join("SKILL.md");
+            if !skill_md.is_file() {
+                continue;
+            }
+            match self.load_plugin_skill(plugin_name, &skill_md) {
+                Ok(skill) => self.insert_skill(skill),
+                Err(err) => {
+                    self.load_warnings.push(format!(
+                        "Failed to load plugin skill from {}: {}",
+                        skill_md.display(),
+                        err
+                    ));
+                }
+            }
+        }
+        Ok(())
+    }
+
+    fn insert_skill(&mut self, skill: Skill) {
+        let name = skill.name.clone();
+        if let Some(existing) = self.skills.get(&name) {
+            let mut chain = self.overrides.remove(&name).unwrap_or_default();
+            if skill.scope == SkillScope::Workspace && existing.scope == SkillScope::Global {
+                chain.push(existing.clone());
+                self.skills.insert(name.clone(), skill);
+            } else {
+                chain.push(skill);
+            }
+            self.overrides.insert(name, chain);
+        } else {
+            self.skills.insert(name, skill);
+        }
     }
 
     fn load_skill(&self, path: &Path, scope: SkillScope) -> Result<Skill> {
@@ -215,6 +254,28 @@ impl SkillManager {
             description,
             path: path.to_path_buf(),
             scope,
+            content,
+            disable_model_invocation: false,
+        })
+    }
+
+    fn load_plugin_skill(&self, plugin_name: &str, path: &Path) -> Result<Skill> {
+        let content = fs::read_to_string(path)?;
+        let local_name = path
+            .parent()
+            .and_then(|p| p.file_name())
+            .and_then(|s| s.to_str())
+            .ok_or_else(|| anyhow!("invalid plugin skill path"))?;
+        let name = format!("{plugin_name}:{local_name}");
+        let description =
+            extract_description(&content).unwrap_or_else(|| "No description provided.".to_string());
+
+        Ok(Skill {
+            name: name.clone(),
+            title: Some(local_name.to_string()),
+            description,
+            path: path.to_path_buf(),
+            scope: SkillScope::Plugin,
             content,
             disable_model_invocation: false,
         })
@@ -334,6 +395,31 @@ mod tests {
         assert_eq!(manager.skills.get("s").unwrap().content, "c2");
         assert_eq!(manager.overrides.get("s").unwrap().len(), 1);
         assert_eq!(manager.overrides.get("s").unwrap()[0].content, "c1");
+        Ok(())
+    }
+
+    #[test]
+    fn plugin_skills_are_namespaced_and_invokable() -> Result<()> {
+        let temp = tempdir()?;
+        let plugin_root = temp.path().join("plugin");
+        let skill_path = plugin_root.join("skills").join("reviewer");
+        fs::create_dir_all(&skill_path)?;
+        fs::write(
+            skill_path.join("SKILL.md"),
+            "# Reviewer\nInspect plugin-provided behavior.",
+        )?;
+
+        let mut manager = SkillManager::new();
+        manager.load_plugin_skills_from_root("quality", &plugin_root)?;
+
+        let skill = manager.get_skill("quality:reviewer").unwrap();
+        assert_eq!(skill.name, "quality:reviewer");
+        assert_eq!(skill.title.as_deref(), Some("reviewer"));
+        assert_eq!(skill.scope, SkillScope::Plugin);
+        assert_eq!(
+            skill.instructions(),
+            "# Reviewer\nInspect plugin-provided behavior."
+        );
         Ok(())
     }
 }

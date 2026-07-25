@@ -94,6 +94,8 @@ pub enum LocalEmbeddingPolicy {
     #[default]
     Off,
     Auto,
+    Provider,
+    Local,
 }
 
 impl LocalEmbeddingPolicy {
@@ -362,6 +364,8 @@ impl RaraConfig {
             self.local_embeddings = match value.trim().to_ascii_lowercase().as_str() {
                 "off" | "false" | "0" | "no" => LocalEmbeddingPolicy::Off,
                 "auto" | "on" | "true" | "1" | "yes" => LocalEmbeddingPolicy::Auto,
+                "provider" | "native" | "llm" => LocalEmbeddingPolicy::Provider,
+                "local" | "sidecar" => LocalEmbeddingPolicy::Local,
                 _ => self.local_embeddings,
             };
         }
@@ -1212,6 +1216,27 @@ mod tests {
     }
 
     #[test]
+    fn local_embeddings_accepts_explicit_provider_and_local_overrides() {
+        let provider: RaraConfig = serde_json::from_str(
+            r#"{
+                "provider": "deepseek",
+                "local_embeddings": "provider"
+            }"#,
+        )
+        .expect("deserialize provider override");
+        assert_eq!(provider.local_embeddings, LocalEmbeddingPolicy::Provider);
+
+        let local: RaraConfig = serde_json::from_str(
+            r#"{
+                "provider": "codex",
+                "local_embeddings": "local"
+            }"#,
+        )
+        .expect("deserialize local override");
+        assert_eq!(local.local_embeddings, LocalEmbeddingPolicy::Local);
+    }
+
+    #[test]
     fn local_embeddings_can_be_enabled_and_disabled_by_environment() {
         let mut config = RaraConfig::default();
 
@@ -1221,6 +1246,20 @@ mod tests {
         });
 
         assert_eq!(config.local_embeddings, LocalEmbeddingPolicy::Auto);
+
+        config.apply_provider_environment_defaults_from(|key| match key {
+            "RARA_LOCAL_EMBEDDINGS" => Some("provider".to_string()),
+            _ => None,
+        });
+
+        assert_eq!(config.local_embeddings, LocalEmbeddingPolicy::Provider);
+
+        config.apply_provider_environment_defaults_from(|key| match key {
+            "RARA_LOCAL_EMBEDDINGS" => Some("local".to_string()),
+            _ => None,
+        });
+
+        assert_eq!(config.local_embeddings, LocalEmbeddingPolicy::Local);
 
         config.apply_provider_environment_defaults_from(|key| match key {
             "RARA_LOCAL_EMBEDDINGS" => Some("off".to_string()),
