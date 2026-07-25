@@ -82,7 +82,7 @@ rand = "0.10"
 libc = "0.2"
 nix = { version = "0.31.2", default-features = false, features = ["process", "signal"] }
 fs2 = "0.4"
-base64 = "0.22"
+base64 = "0.23"
 sha2 = "0.11"
 secrecy = { version = "0.10", features = ["serde"] }
 rara-config = { path = "crates/config" }
