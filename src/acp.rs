@@ -132,11 +132,11 @@ impl RaraAcpAgent {
                 agent_client_protocol::on_receive_notification!(),
             )
             .on_receive_dispatch(
-                async move |message: Dispatch, cx: ConnectionTo<Client>| {
-                    message.respond_with_error(
+                async move |message: Dispatch, _cx: ConnectionTo<Client>| match message {
+                    Dispatch::Request(_, responder) => responder.respond_with_error(
                         agent_client_protocol::util::internal_error("unhandled ACP message"),
-                        cx,
-                    )
+                    ),
+                    Dispatch::Notification(_) | Dispatch::Response(_, _) => Ok(()),
                 },
                 agent_client_protocol::on_receive_dispatch!(),
             )
