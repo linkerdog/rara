@@ -17,11 +17,11 @@ use tokio::time::{Duration, sleep};
 use super::{
     AgentDefinition, AgentDefinitionCache, BACKGROUND_SUBAGENT_COMPLETED_RETENTION,
     BackgroundSubAgentRecord, BackgroundSubAgentStore, InheritedSubagentBackendResolver,
-    SubAgentKind, SubagentBackendResolver, SubagentModelTarget, SubagentProgress,
+    SubAgentKind, SubagentBackendResolver, SubagentProgress, SubagentProviderTarget,
     TEAM_CREATE_CONCURRENCY_LIMIT, append_subagent_prompt, build_filtered_tool_manager,
     build_read_only_tool_manager, build_subagent_tool_manager, home_dir_from_vars,
-    latest_assistant_text_from_history, model_target_from_parts, parse_agent_permission_mode,
-    parse_agent_token_budget, parse_team_task_kind, resolve_kind_definition,
+    latest_assistant_text_from_history, parse_agent_permission_mode, parse_agent_token_budget,
+    parse_team_task_kind, provider_target_from_parts, resolve_kind_definition,
     resolve_spawn_agent_definition, validate_agent_id_label,
 };
 use crate::agent::Message;
@@ -67,7 +67,7 @@ struct BudgetedToolBackend {
 
 #[derive(Default)]
 struct RecordingBackendResolver {
-    targets: Arc<Mutex<Vec<Option<SubagentModelTarget>>>>,
+    targets: Arc<Mutex<Vec<Option<SubagentProviderTarget>>>>,
 }
 
 fn mock_embedding_backend() -> Arc<dyn EmbeddingBackend> {
@@ -304,7 +304,7 @@ impl LlmBackend for BudgetedToolBackend {
 impl SubagentBackendResolver for RecordingBackendResolver {
     async fn resolve_backend(
         &self,
-        target: Option<&SubagentModelTarget>,
+        target: Option<&SubagentProviderTarget>,
         inherited_backend: Arc<dyn LlmBackend>,
     ) -> std::result::Result<super::ResolvedSubagentBackend, ToolError> {
         self.targets
@@ -482,38 +482,38 @@ fn team_task_kind_defaults_to_explore_and_rejects_unknown_values() {
 }
 
 #[test]
-fn subagent_model_target_supports_provider_and_model_overrides() {
+fn subagent_provider_target_supports_provider_and_model_overrides() {
     assert_eq!(
-        model_target_from_parts(None, Some("deepseek:deepseek-reasoner")).expect("target"),
-        Some(SubagentModelTarget {
+        provider_target_from_parts(None, Some("deepseek:deepseek-reasoner")).expect("target"),
+        Some(SubagentProviderTarget {
             provider: Some("deepseek".to_string()),
             model: Some("deepseek-reasoner".to_string()),
         })
     );
     assert_eq!(
-        model_target_from_parts(Some("gemini"), Some("gemini-2.5-pro")).expect("target"),
-        Some(SubagentModelTarget {
+        provider_target_from_parts(Some("gemini"), Some("gemini-2.5-pro")).expect("target"),
+        Some(SubagentProviderTarget {
             provider: Some("gemini".to_string()),
             model: Some("gemini-2.5-pro".to_string()),
         })
     );
     assert_eq!(
-        model_target_from_parts(Some("ollama"), Some("inherit")).expect("target"),
-        Some(SubagentModelTarget {
+        provider_target_from_parts(Some("ollama"), Some("inherit")).expect("target"),
+        Some(SubagentProviderTarget {
             provider: Some("ollama".to_string()),
             model: None,
         })
     );
     assert!(
-        model_target_from_parts(None, Some("inherit"))
+        provider_target_from_parts(None, Some("inherit"))
             .unwrap()
             .is_none()
     );
 }
 
 #[test]
-fn subagent_model_target_rejects_ambiguous_provider_model_form() {
-    let err = model_target_from_parts(Some("deepseek"), Some("kimi:kimi-k2"))
+fn subagent_provider_target_rejects_ambiguous_provider_model_form() {
+    let err = provider_target_from_parts(Some("deepseek"), Some("kimi:kimi-k2"))
         .expect_err("ambiguous target should fail");
     assert!(matches!(err, ToolError::InvalidInput(message)
         if message.contains("provider:model") && message.contains("provider is also set")));
@@ -1102,7 +1102,7 @@ Use the configured DeepSeek backend.
     assert_eq!(result["model"], "deepseek-reasoner");
     assert_eq!(
         targets.lock().expect("targets").as_slice(),
-        [Some(SubagentModelTarget {
+        [Some(SubagentProviderTarget {
             provider: Some("deepseek".to_string()),
             model: Some("deepseek-reasoner".to_string()),
         })]
@@ -1162,11 +1162,11 @@ async fn team_create_routes_per_task_provider_model_override() {
     assert_eq!(
         targets.lock().expect("targets").as_slice(),
         [
-            Some(SubagentModelTarget {
+            Some(SubagentProviderTarget {
                 provider: Some("gemini".to_string()),
                 model: Some("gemini-2.5-pro".to_string()),
             }),
-            Some(SubagentModelTarget {
+            Some(SubagentProviderTarget {
                 provider: Some("openrouter".to_string()),
                 model: Some("anthropic/claude-sonnet-4".to_string()),
             }),

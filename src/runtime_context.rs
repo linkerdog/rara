@@ -39,7 +39,7 @@ use crate::session::SessionManager;
 use crate::shell_env::capture_shell_environment_snapshot;
 use crate::skill::SkillScope;
 use crate::tools::agent::{
-    AgentDefinitionCache, ResolvedSubagentBackend, SubagentBackendResolver, SubagentModelTarget,
+    AgentDefinitionCache, ResolvedSubagentBackend, SubagentBackendResolver, SubagentProviderTarget,
 };
 use crate::tui::state::GoalHandle;
 use crate::workspace::WorkspaceMemory;
@@ -85,7 +85,7 @@ impl ConfigSubagentBackendResolver {
 impl SubagentBackendResolver for ConfigSubagentBackendResolver {
     async fn resolve_backend(
         &self,
-        target: Option<&SubagentModelTarget>,
+        target: Option<&SubagentProviderTarget>,
         inherited_backend: Arc<dyn LlmBackend>,
     ) -> std::result::Result<ResolvedSubagentBackend, rara_tools::tool::ToolError> {
         let Some(target) = target else {
@@ -534,8 +534,22 @@ fn embedding_route_for_config(config: &RaraConfig) -> EmbeddingRoute {
                 }
             }
         }
+        provider if is_configured_openai_compatible_provider(config, provider) => {
+            EmbeddingRoute::CurrentLlmBackend
+        }
         _ => EmbeddingRoute::LocalModelServer,
     }
+}
+
+fn is_configured_openai_compatible_provider(config: &RaraConfig, provider: &str) -> bool {
+    if RaraConfig::is_openai_compatible_family(provider) {
+        return false;
+    }
+
+    config
+        .base_url
+        .as_deref()
+        .is_some_and(|value| !value.trim().is_empty())
 }
 
 pub(crate) fn config_requires_local_embedding_sidecar(config: &RaraConfig) -> bool {
@@ -767,6 +781,34 @@ pub(crate) async fn build_backend_with_progress(
             .await?,
         )),
         "mock" => Ok(Box::new(MockLlm)),
+        provider if is_configured_openai_compatible_provider(config, provider) => {
+            let model = config
+                .model
+                .clone()
+                .with_context(|| format!("Model required for configured provider '{provider}'"))?;
+            let base_url = config.base_url.clone().with_context(|| {
+                format!("Base URL required for configured provider '{provider}'")
+            })?;
+            let mut backend = OpenAiCompatibleBackend::new_with_endpoint_kind_and_reasoning(
+                config.api_key_secret(),
+                base_url.clone(),
+                model.clone(),
+                OpenAiEndpointKind::Custom,
+                config.reasoning_effort.clone(),
+                config.thinking,
+            )?
+            .with_auxiliary_model(config.auxiliary_model.clone());
+            if backend.context_budget(&[], &[]).is_none() {
+                backend.context_window_override = fetch_model_context_window(
+                    &backend.client,
+                    &base_url,
+                    backend.api_key.as_ref(),
+                    &model,
+                )
+                .await;
+            }
+            Ok(Box::new(backend))
+        }
         other => bail!("Unsupported provider '{other}'"),
     }
 }
@@ -792,10 +834,11 @@ mod tests {
         vector_db_uri_for_workspace,
     };
     use crate::config::{
-        DEFAULT_REASONING_SUMMARY, LocalEmbeddingPolicy, REASONING_SUMMARY_NONE, RaraConfig,
+        DEFAULT_REASONING_SUMMARY, LocalEmbeddingPolicy, ProviderConfigState,
+        REASONING_SUMMARY_NONE, RaraConfig,
     };
     use crate::llm::{LlmBackend, MockLlm};
-    use crate::tools::agent::{SubagentBackendResolver, SubagentModelTarget};
+    use crate::tools::agent::{SubagentBackendResolver, SubagentProviderTarget};
     use crate::workspace::WorkspaceMemory;
 
     #[test]
@@ -982,7 +1025,7 @@ mod tests {
 
         let resolved = resolver
             .resolve_backend(
-                Some(&SubagentModelTarget {
+                Some(&SubagentProviderTarget {
                     provider: Some("mock".to_string()),
                     model: Some("mock-worker".to_string()),
                 }),
@@ -993,6 +1036,39 @@ mod tests {
 
         assert_eq!(resolved.provider, "mock");
         assert_eq!(resolved.model, "mock-worker");
+    }
+
+    #[tokio::test]
+    async fn config_subagent_backend_resolver_builds_configured_provider_state() {
+        let mut config = RaraConfig {
+            provider: "codex".to_string(),
+            model: Some("gpt-5.1-codex".to_string()),
+            ..Default::default()
+        };
+        config.provider_states.insert(
+            "groq-fast".to_string(),
+            ProviderConfigState {
+                base_url: Some("https://api.groq.com/openai/v1".to_string()),
+                model: Some("gpt-4o-mini".to_string()),
+                ..Default::default()
+            },
+        );
+        let resolver = ConfigSubagentBackendResolver::new(Arc::new(config));
+        let inherited: Arc<dyn LlmBackend> = Arc::new(MockLlm);
+
+        let resolved = resolver
+            .resolve_backend(
+                Some(&SubagentProviderTarget {
+                    provider: Some("groq-fast".to_string()),
+                    model: None,
+                }),
+                inherited,
+            )
+            .await
+            .expect("resolved backend");
+
+        assert_eq!(resolved.provider, "groq-fast");
+        assert_eq!(resolved.model, "gpt-4o-mini");
     }
 
     #[test]

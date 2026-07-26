@@ -126,6 +126,12 @@ bare `model` uses the parent provider with that model. A subagent may either set
 `provider:model`. The colon form is intentionally used instead of slash syntax
 because provider model IDs can contain `/`, such as OpenRouter IDs.
 
+Provider IDs first select built-in runtime backends such as Codex, Gemini,
+Ollama, Bedrock, and the named OpenAI-compatible families. If a provider ID is
+not built in but the active config has a matching provider state with `base_url`
+and `model`, runtime builds it as a custom OpenAI-compatible backend. Unknown
+providers without a configured endpoint still fail before execution.
+
 `team_create` task entries accept the same optional `provider` and `model`
 fields so one batched delegation can run heterogeneous workers. RARA validates
 all task model targets before starting any worker, preserving the existing

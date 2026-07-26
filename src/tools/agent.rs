@@ -77,12 +77,12 @@ pub(super) fn agent_tool_to_internal_name(name: &str) -> &str {
 include!("agent_def.rs");
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) struct SubagentModelTarget {
+pub(crate) struct SubagentProviderTarget {
     pub provider: Option<String>,
     pub model: Option<String>,
 }
 
-impl SubagentModelTarget {
+impl SubagentProviderTarget {
     fn display_model(&self) -> Option<String> {
         match (self.provider.as_deref(), self.model.as_deref()) {
             (Some(provider), Some(model)) => Some(format!("{provider}:{model}")),
@@ -104,7 +104,7 @@ pub(crate) struct ResolvedSubagentBackend {
 pub(crate) trait SubagentBackendResolver: Send + Sync {
     async fn resolve_backend(
         &self,
-        target: Option<&SubagentModelTarget>,
+        target: Option<&SubagentProviderTarget>,
         inherited_backend: Arc<dyn LlmBackend>,
     ) -> Result<ResolvedSubagentBackend, ToolError>;
 }
@@ -115,7 +115,7 @@ pub(crate) struct InheritedSubagentBackendResolver;
 impl SubagentBackendResolver for InheritedSubagentBackendResolver {
     async fn resolve_backend(
         &self,
-        target: Option<&SubagentModelTarget>,
+        target: Option<&SubagentProviderTarget>,
         inherited_backend: Arc<dyn LlmBackend>,
     ) -> Result<ResolvedSubagentBackend, ToolError> {
         let provider = target
@@ -754,7 +754,7 @@ struct BackgroundSubAgentStart {
     agent_id: String,
     name: Option<String>,
     definition: AgentDefinition,
-    model_target: Option<SubagentModelTarget>,
+    model_target: Option<SubagentProviderTarget>,
     parent_session_id: Option<String>,
     instruction: String,
     backend: Arc<dyn LlmBackend>,
@@ -800,7 +800,7 @@ impl BackgroundSubAgentStore {
         let model = start
             .model_target
             .as_ref()
-            .and_then(SubagentModelTarget::display_model);
+            .and_then(SubagentProviderTarget::display_model);
         let record = BackgroundSubAgentRecord {
             agent_id: start.agent_id.clone(),
             session_id: session_id.clone(),
@@ -1287,7 +1287,7 @@ struct TeamTask {
     name: String,
     instruction: String,
     kind: SubAgentKind,
-    model_target: Option<SubagentModelTarget>,
+    model_target: Option<SubagentProviderTarget>,
 }
 
 pub(crate) struct SubAgentResult {
@@ -1321,7 +1321,7 @@ pub(crate) async fn run_sub_agent(
     instruction: &str,
     session_id: Option<String>,
     cancellation_token: Option<Arc<AtomicBool>>,
-    model_target: Option<SubagentModelTarget>,
+    model_target: Option<SubagentProviderTarget>,
     backend: Arc<dyn LlmBackend>,
     backend_resolver: Arc<dyn SubagentBackendResolver>,
     embedding_backend: Arc<dyn EmbeddingBackend>,
@@ -1648,7 +1648,7 @@ fn normalize_team_tasks(tasks: &[Value]) -> Result<Vec<TeamTask>, ToolError> {
                 .map_err(|field| ToolError::InvalidInput(format!("tasks[{idx}].{field}")))?;
             let model = optional_string_field(task, "model")
                 .map_err(|field| ToolError::InvalidInput(format!("tasks[{idx}].{field}")))?;
-            let model_target = model_target_from_parts(provider.as_deref(), model.as_deref())?;
+            let model_target = provider_target_from_parts(provider.as_deref(), model.as_deref())?;
             Ok(TeamTask {
                 name,
                 instruction,
@@ -1748,20 +1748,20 @@ fn validate_agent_id_label(value: &str) -> Option<String> {
 
 fn model_target_from_definition(
     definition: Option<&AgentDefinition>,
-) -> Result<Option<SubagentModelTarget>, ToolError> {
+) -> Result<Option<SubagentProviderTarget>, ToolError> {
     let provider = definition.and_then(|definition| definition.provider.as_deref());
     let model = definition.and_then(|definition| definition.model.as_deref());
-    model_target_from_parts(provider, model)
+    provider_target_from_parts(provider, model)
 }
 
-fn model_target_from_parts(
+fn provider_target_from_parts(
     provider: Option<&str>,
     model: Option<&str>,
-) -> Result<Option<SubagentModelTarget>, ToolError> {
+) -> Result<Option<SubagentProviderTarget>, ToolError> {
     let provider = normalize_inherited_override(provider, "provider")?;
     let model = normalize_inherited_override(model, "model")?;
     let Some(model) = model else {
-        return Ok(provider.map(|provider| SubagentModelTarget {
+        return Ok(provider.map(|provider| SubagentProviderTarget {
             provider: Some(provider),
             model: None,
         }));
@@ -1776,13 +1776,13 @@ fn model_target_from_parts(
         let provider_from_model =
             normalize_required_override(provider_from_model, "model provider")?;
         let model_from_model = normalize_required_override(model_from_model, "model")?;
-        return Ok(Some(SubagentModelTarget {
+        return Ok(Some(SubagentProviderTarget {
             provider: Some(provider_from_model),
             model: Some(model_from_model),
         }));
     }
 
-    Ok(Some(SubagentModelTarget {
+    Ok(Some(SubagentProviderTarget {
         provider,
         model: Some(model),
     }))
