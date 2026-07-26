@@ -460,7 +460,7 @@ pub const PROVIDER_FAMILIES: [(ProviderFamily, &str, &str); 8] = [
     (
         ProviderFamily::Kimi,
         "Kimi",
-        "Use Moonshot Kimi with an API key from api.moonshot.cn.",
+        "Use Moonshot Kimi with an API key from platform.kimi.ai.",
     ),
     (
         ProviderFamily::OpenAiCompatible,

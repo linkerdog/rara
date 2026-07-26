@@ -9,9 +9,9 @@ use secrecy::{ExposeSecret, SecretString};
 
 use crate::acp::RaraAcpAgent;
 use crate::config::{
-    ConfigManager, DEFAULT_CODEX_BASE_URL, DEFAULT_CODEX_CHATGPT_BASE_URL,
-    DEFAULT_REASONING_SUMMARY, OpenAiEndpointKind, OpenAiEndpointProfile, RaraConfig,
-    ensure_rara_home_dir,
+    ConfigManager, DEFAULT_CODEX_BASE_URL, DEFAULT_CODEX_CHATGPT_BASE_URL, DEFAULT_KIMI_BASE_URL,
+    DEFAULT_KIMI_MODEL, DEFAULT_REASONING_SUMMARY, OpenAiEndpointKind, OpenAiEndpointProfile,
+    RaraConfig, ensure_rara_home_dir,
 };
 use crate::oauth::{OAuthManager, SavedCodexAuthMode};
 use crate::plugin_cli::{PluginCommands, run_plugin_command};
@@ -1181,11 +1181,11 @@ mod tests {
             "kimi".to_string(),
             OpenAiEndpointProfile {
                 id: "kimi".to_string(),
-                label: "Kimi K2".to_string(),
+                label: "Kimi".to_string(),
                 kind: OpenAiEndpointKind::Kimi,
                 api_key: None,
-                base_url: Some("https://api.moonshot.cn/v1".to_string()),
-                model: Some("kimi-k2".to_string()),
+                base_url: Some(DEFAULT_KIMI_BASE_URL.to_string()),
+                model: Some(DEFAULT_KIMI_MODEL.to_string()),
                 auxiliary_model: None,
                 reasoning_effort: None,
                 reasoning_summary: Some(DEFAULT_REASONING_SUMMARY.to_string()),

@@ -72,7 +72,7 @@ Selecting the Kimi profile sets:
 
 - `provider = "openai-compatible"`
 - `endpoint_kind = "kimi"`
-- `base_url = "https://api.moonshot.cn/v1"` unless a Kimi profile override exists
+- `base_url = "https://api.moonshot.ai/v1"` unless a Kimi profile override exists
 - `model = "kimi-k2.6"` unless a Kimi profile override exists
 - `revision = None`
 
