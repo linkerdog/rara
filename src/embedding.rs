@@ -23,6 +23,10 @@ impl EmbeddingOverrideBackend {
 
 #[async_trait]
 impl LlmBackend for EmbeddingOverrideBackend {
+    fn model_label(&self) -> Option<String> {
+        self.chat.model_label()
+    }
+
     async fn ask(&self, messages: &[Message], tools: &[Value]) -> Result<LlmResponse> {
         self.chat.ask(messages, tools).await
     }

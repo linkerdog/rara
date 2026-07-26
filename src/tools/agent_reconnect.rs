@@ -51,6 +51,7 @@ pub(super) fn durable_subagent_records(
             agent_id,
             session_id: child_session_id,
             name,
+            provider: None,
             model: None,
             summary,
             error: None,

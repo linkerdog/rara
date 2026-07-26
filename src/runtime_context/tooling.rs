@@ -27,7 +27,8 @@ use crate::tasklist::DEFAULT_TASK_LIST_ID;
 use crate::tasklist::TaskListStore;
 use crate::tools::agent::{
     AgentDefinitionCache, AgentTool, BackgroundSubAgentStore, ExploreAgentTool, PlanAgentTool,
-    SubAgentListTool, SubAgentResumeTool, SubAgentStopTool, TeamCreateTool,
+    SubAgentListTool, SubAgentResumeTool, SubAgentStopTool, SubagentBackendResolver,
+    TeamCreateTool,
 };
 use crate::tools::bash::BashTool;
 use crate::tools::context::RetrieveSessionContextTool;
@@ -68,6 +69,7 @@ pub(super) fn create_full_tool_manager(
     mcp_tool_cache: McpToolCache,
     hook_runtime: Arc<HookRuntime>,
     lsp_manager: Arc<LspManager>,
+    subagent_backend_resolver: Arc<dyn SubagentBackendResolver>,
     agent_definitions: AgentDefinitionCache,
 ) -> ToolManager {
     let mut tm = ToolManager::new();
@@ -187,6 +189,7 @@ pub(super) fn create_full_tool_manager(
     }));
     tm.register(Box::new(AgentTool {
         backend: backend.clone(),
+        backend_resolver: subagent_backend_resolver.clone(),
         embedding_backend: embedding_backend.clone(),
         vdb: vdb.clone(),
         session_manager: session_manager.clone(),
@@ -198,6 +201,7 @@ pub(super) fn create_full_tool_manager(
     }));
     tm.register(Box::new(ExploreAgentTool {
         backend: backend.clone(),
+        backend_resolver: subagent_backend_resolver.clone(),
         embedding_backend: embedding_backend.clone(),
         vdb: vdb.clone(),
         session_manager: session_manager.clone(),
@@ -209,6 +213,7 @@ pub(super) fn create_full_tool_manager(
     }));
     tm.register(Box::new(PlanAgentTool {
         backend: backend.clone(),
+        backend_resolver: subagent_backend_resolver.clone(),
         embedding_backend: embedding_backend.clone(),
         vdb: vdb.clone(),
         session_manager: session_manager.clone(),
@@ -220,6 +225,7 @@ pub(super) fn create_full_tool_manager(
     }));
     tm.register(Box::new(TeamCreateTool {
         backend,
+        backend_resolver: subagent_backend_resolver,
         embedding_backend,
         vdb,
         session_manager: session_manager.clone(),

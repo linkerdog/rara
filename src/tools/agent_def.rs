@@ -17,6 +17,9 @@ pub struct AgentDefinition {
     /// If the specified model is unavailable, fall back to session default.
     #[serde(default)]
     pub model: Option<String>,
+    /// Provider override for this agent. None / "inherit" = use parent provider.
+    #[serde(default)]
+    pub provider: Option<String>,
     /// Max tool-calling turns. 0 = system default.
     #[serde(default)]
     pub max_turns: usize,
@@ -309,6 +312,7 @@ fn builtin_agent_definition(name: &str) -> Option<AgentDefinition> {
             tools: vec![],
             disallowed_tools: vec![],
             model: None,
+            provider: None,
             max_turns: 0,
             permission_mode: None,
             plan_mode_required: false,
@@ -322,6 +326,7 @@ fn builtin_agent_definition(name: &str) -> Option<AgentDefinition> {
             tools: vec!["Read".into(), "Glob".into(), "Grep".into()],
             disallowed_tools: vec!["Write".into(), "Edit".into(), "Bash".into()],
             model: None,
+            provider: None,
             max_turns: 50,
             permission_mode: None,
             plan_mode_required: false,
@@ -335,6 +340,7 @@ fn builtin_agent_definition(name: &str) -> Option<AgentDefinition> {
             tools: vec!["Read".into(), "Glob".into(), "Grep".into()],
             disallowed_tools: vec!["Write".into(), "Edit".into(), "Bash".into()],
             model: None,
+            provider: None,
             max_turns: 30,
             permission_mode: None,
             plan_mode_required: true,

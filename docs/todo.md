@@ -73,6 +73,10 @@ Active backlog only. Keep this file small and current.
 - [x] Add an end-to-end `spawn_agent` regression test proving custom
       `.rara/agents` definitions affect prompt body, tool filtering,
       `maxTurns`, and `planModeRequired`.
+- [x] Route subagent `provider` / `model` overrides through runtime backend
+      assembly, including per-task `team_create` overrides.
+- [ ] Surface configured subagent provider/model targets in runtime status for
+      agent definitions.
 
 ## Shared Task Lists
 
