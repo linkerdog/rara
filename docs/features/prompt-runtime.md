@@ -157,6 +157,10 @@ workspace instructions and documentation, not in the default runtime system prom
 Prompt locality is a contract, not only a style preference:
 
 - place a rule at the narrowest layer that still guarantees the behavior;
+- keep the always-on default prompt focused on durable invariants, not detailed tool syntax,
+  repository-maintenance procedures, or repeated examples;
+- prefer tool descriptions, input schemas, skills, mode addenda, workspace instructions, or dynamic
+  context for narrow procedural guidance that is only useful at call time or for a specific task;
 - do not move an execution-only rule into the always-on base prompt just because Claude or Codex has
   a nearby sentence in its own runtime;
 - when borrowing from other agents, migrate the behavioral contract, not the exact prompt text or
