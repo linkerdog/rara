@@ -676,25 +676,7 @@ pub(crate) async fn build_backend_with_progress(
                 .value
                 .unwrap_or_else(|| kind.default_base_url())
                 .to_string();
-            let mut backend = OpenAiCompatibleBackend::new_with_endpoint_kind_and_reasoning(
-                config.api_key_secret(),
-                base_url.clone(),
-                model.clone(),
-                kind,
-                config.reasoning_effort.clone(),
-                config.thinking,
-            )?
-            .with_auxiliary_model(config.auxiliary_model.clone());
-            if backend.context_budget(&[], &[]).is_none() {
-                backend.context_window_override = fetch_model_context_window(
-                    &backend.client,
-                    &base_url,
-                    backend.api_key.as_ref(),
-                    &model,
-                )
-                .await;
-            }
-            Ok(Box::new(backend))
+            build_openai_compatible_backend(config, base_url, model, kind).await
         }
         "ollama" | "ollama-native" => Ok(Box::new(OllamaBackend::new(
             config
@@ -731,25 +713,8 @@ pub(crate) async fn build_backend_with_progress(
                 .base_url
                 .clone()
                 .unwrap_or_else(|| DEFAULT_GEMINI_BASE_URL.to_string());
-            let mut backend = OpenAiCompatibleBackend::new_with_endpoint_kind_and_reasoning(
-                config.api_key_secret(),
-                base_url.clone(),
-                model.clone(),
-                OpenAiEndpointKind::Custom,
-                config.reasoning_effort.clone(),
-                config.thinking,
-            )?
-            .with_auxiliary_model(config.auxiliary_model.clone());
-            if backend.context_budget(&[], &[]).is_none() {
-                backend.context_window_override = fetch_model_context_window(
-                    &backend.client,
-                    &base_url,
-                    backend.api_key.as_ref(),
-                    &model,
-                )
-                .await;
-            }
-            Ok(Box::new(backend))
+            build_openai_compatible_backend(config, base_url, model, OpenAiEndpointKind::Custom)
+                .await
         }
         "gemini-code-assist" => {
             let model = config
@@ -789,28 +754,38 @@ pub(crate) async fn build_backend_with_progress(
             let base_url = config.base_url.clone().with_context(|| {
                 format!("Base URL required for configured provider '{provider}'")
             })?;
-            let mut backend = OpenAiCompatibleBackend::new_with_endpoint_kind_and_reasoning(
-                config.api_key_secret(),
-                base_url.clone(),
-                model.clone(),
-                OpenAiEndpointKind::Custom,
-                config.reasoning_effort.clone(),
-                config.thinking,
-            )?
-            .with_auxiliary_model(config.auxiliary_model.clone());
-            if backend.context_budget(&[], &[]).is_none() {
-                backend.context_window_override = fetch_model_context_window(
-                    &backend.client,
-                    &base_url,
-                    backend.api_key.as_ref(),
-                    &model,
-                )
-                .await;
-            }
-            Ok(Box::new(backend))
+            build_openai_compatible_backend(config, base_url, model, OpenAiEndpointKind::Custom)
+                .await
         }
         other => bail!("Unsupported provider '{other}'"),
     }
+}
+
+async fn build_openai_compatible_backend(
+    config: &RaraConfig,
+    base_url: String,
+    model: String,
+    kind: OpenAiEndpointKind,
+) -> Result<Box<dyn LlmBackend>> {
+    let mut backend = OpenAiCompatibleBackend::new_with_endpoint_kind_and_reasoning(
+        config.api_key_secret(),
+        base_url.clone(),
+        model.clone(),
+        kind,
+        config.reasoning_effort.clone(),
+        config.thinking,
+    )?
+    .with_auxiliary_model(config.auxiliary_model.clone());
+    if backend.context_budget(&[], &[]).is_none() {
+        backend.context_window_override = fetch_model_context_window(
+            &backend.client,
+            &base_url,
+            backend.api_key.as_ref(),
+            &model,
+        )
+        .await;
+    }
+    Ok(Box::new(backend))
 }
 
 fn ollama_thinking_enabled(config: &RaraConfig) -> bool {
