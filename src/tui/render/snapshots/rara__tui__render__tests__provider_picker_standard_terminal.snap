@@ -15,7 +15,7 @@ Start with:     ›    [1] Codex (current)
   /model   cho       [2] DeepSeek
   /status  ins          Use DeepSeek with an API key and model list from api.deepsee
   /quit    lea       [3] Kimi
-                        Use Moonshot Kimi with an API key from api.moonshot.cn.
+                        Use Moonshot Kimi with an API key from platform.kimi.ai.
 Prompt ideas:        [4] OpenAI-compatible
   · Explain th          Use OpenAI-compatible endpoint profiles such as Custom, Kimi
   · Find the m       [5] Gemini

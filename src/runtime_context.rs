@@ -38,7 +38,9 @@ use crate::sandbox::SandboxManager;
 use crate::session::SessionManager;
 use crate::shell_env::capture_shell_environment_snapshot;
 use crate::skill::SkillScope;
-use crate::tools::agent::AgentDefinitionCache;
+use crate::tools::agent::{
+    AgentDefinitionCache, ResolvedSubagentBackend, SubagentBackendResolver, SubagentProviderTarget,
+};
 use crate::tui::state::GoalHandle;
 use crate::workspace::WorkspaceMemory;
 
@@ -66,6 +68,67 @@ pub(crate) struct RuntimeBootstrap {
     extension_readiness: ExtensionReadinessSnapshot,
     plugin_dirs: Vec<PathBuf>,
     rara_home: Option<PathBuf>,
+}
+
+#[derive(Clone)]
+pub(crate) struct ConfigSubagentBackendResolver {
+    config: Arc<RaraConfig>,
+}
+
+impl ConfigSubagentBackendResolver {
+    fn new(config: Arc<RaraConfig>) -> Self {
+        Self { config }
+    }
+}
+
+#[async_trait::async_trait]
+impl SubagentBackendResolver for ConfigSubagentBackendResolver {
+    async fn resolve_backend(
+        &self,
+        target: Option<&SubagentProviderTarget>,
+        inherited_backend: Arc<dyn LlmBackend>,
+    ) -> std::result::Result<ResolvedSubagentBackend, rara_tools::tool::ToolError> {
+        let Some(target) = target else {
+            let model = inherited_backend
+                .model_label()
+                .or_else(|| self.config.model.clone())
+                .unwrap_or_else(|| "inherit".to_string());
+            return Ok(ResolvedSubagentBackend {
+                backend: inherited_backend,
+                provider: self.config.provider.clone(),
+                model,
+            });
+        };
+
+        let mut config = (*self.config).clone();
+        let provider = target
+            .provider
+            .clone()
+            .unwrap_or_else(|| config.provider.clone());
+        if let Some(provider) = &target.provider {
+            config.set_provider(provider.clone());
+        }
+        if let Some(model) = &target.model {
+            config.set_model(Some(model.clone()));
+        }
+        let backend = build_backend_with_progress(&config, None)
+            .await
+            .map_err(|err| {
+                rara_tools::tool::ToolError::ExecutionFailed(format!(
+                    "failed to initialize sub-agent model backend: {err}"
+                ))
+            })?;
+        let backend: Arc<dyn LlmBackend> = backend.into();
+        let model = backend
+            .model_label()
+            .or_else(|| config.model.clone())
+            .unwrap_or_else(|| "unknown".to_string());
+        Ok(ResolvedSubagentBackend {
+            backend,
+            provider,
+            model,
+        })
+    }
 }
 
 impl RuntimeBootstrap {
@@ -376,6 +439,8 @@ pub(crate) async fn initialize_rara_context_with_options_and_local_embedding_boo
     .len();
     let agent_definitions =
         AgentDefinitionCache::load_with_records(workspace.root.clone(), plugin_agent_records);
+    let subagent_backend_resolver: Arc<dyn SubagentBackendResolver> =
+        Arc::new(ConfigSubagentBackendResolver::new(Arc::new(config.clone())));
     let tool_manager = create_full_tool_manager(
         backend.clone(),
         embedding_backend.clone(),
@@ -392,6 +457,7 @@ pub(crate) async fn initialize_rara_context_with_options_and_local_embedding_boo
         mcp_tool_cache.clone(),
         hook_runtime.clone(),
         lsp_manager.clone(),
+        subagent_backend_resolver.clone(),
         agent_definitions.clone(),
     );
     let mut warnings = prompt_config.warnings.clone();
@@ -468,8 +534,22 @@ fn embedding_route_for_config(config: &RaraConfig) -> EmbeddingRoute {
                 }
             }
         }
+        provider if is_configured_openai_compatible_provider(config, provider) => {
+            EmbeddingRoute::CurrentLlmBackend
+        }
         _ => EmbeddingRoute::LocalModelServer,
     }
+}
+
+fn is_configured_openai_compatible_provider(config: &RaraConfig, provider: &str) -> bool {
+    if RaraConfig::is_openai_compatible_family(provider) {
+        return false;
+    }
+
+    config
+        .base_url
+        .as_deref()
+        .is_some_and(|value| !value.trim().is_empty())
 }
 
 pub(crate) fn config_requires_local_embedding_sidecar(config: &RaraConfig) -> bool {
@@ -701,6 +781,34 @@ pub(crate) async fn build_backend_with_progress(
             .await?,
         )),
         "mock" => Ok(Box::new(MockLlm)),
+        provider if is_configured_openai_compatible_provider(config, provider) => {
+            let model = config
+                .model
+                .clone()
+                .with_context(|| format!("Model required for configured provider '{provider}'"))?;
+            let base_url = config.base_url.clone().with_context(|| {
+                format!("Base URL required for configured provider '{provider}'")
+            })?;
+            let mut backend = OpenAiCompatibleBackend::new_with_endpoint_kind_and_reasoning(
+                config.api_key_secret(),
+                base_url.clone(),
+                model.clone(),
+                OpenAiEndpointKind::Custom,
+                config.reasoning_effort.clone(),
+                config.thinking,
+            )?
+            .with_auxiliary_model(config.auxiliary_model.clone());
+            if backend.context_budget(&[], &[]).is_none() {
+                backend.context_window_override = fetch_model_context_window(
+                    &backend.client,
+                    &base_url,
+                    backend.api_key.as_ref(),
+                    &model,
+                )
+                .await;
+            }
+            Ok(Box::new(backend))
+        }
         other => bail!("Unsupported provider '{other}'"),
     }
 }
@@ -715,17 +823,22 @@ fn ollama_thinking_enabled(config: &RaraConfig) -> bool {
 #[cfg(test)]
 mod tests {
     use std::path::PathBuf;
+    use std::sync::Arc;
 
     use tempfile::tempdir;
 
     use super::{
-        EmbeddingRoute, RuntimeBootstrapOptions, build_backend_with_progress,
-        config_requires_local_embedding_sidecar, embedding_route_for_config,
-        initialize_rara_context, ollama_thinking_enabled, vector_db_uri_for_workspace,
+        ConfigSubagentBackendResolver, EmbeddingRoute, RuntimeBootstrapOptions,
+        build_backend_with_progress, config_requires_local_embedding_sidecar,
+        embedding_route_for_config, initialize_rara_context, ollama_thinking_enabled,
+        vector_db_uri_for_workspace,
     };
     use crate::config::{
-        DEFAULT_REASONING_SUMMARY, LocalEmbeddingPolicy, REASONING_SUMMARY_NONE, RaraConfig,
+        DEFAULT_REASONING_SUMMARY, LocalEmbeddingPolicy, ProviderConfigState,
+        REASONING_SUMMARY_NONE, RaraConfig,
     };
+    use crate::llm::{LlmBackend, MockLlm};
+    use crate::tools::agent::{SubagentBackendResolver, SubagentProviderTarget};
     use crate::workspace::WorkspaceMemory;
 
     #[test]
@@ -898,6 +1011,64 @@ mod tests {
         ];
         let options = RuntimeBootstrapOptions::with_plugin_dirs(plugin_dirs.clone());
         assert_eq!(options.plugin_dirs, plugin_dirs);
+    }
+
+    #[tokio::test]
+    async fn config_subagent_backend_resolver_builds_target_backend() {
+        let config = Arc::new(RaraConfig {
+            provider: "codex".to_string(),
+            model: Some("gpt-5.1-codex".to_string()),
+            ..Default::default()
+        });
+        let resolver = ConfigSubagentBackendResolver::new(config);
+        let inherited: Arc<dyn LlmBackend> = Arc::new(MockLlm);
+
+        let resolved = resolver
+            .resolve_backend(
+                Some(&SubagentProviderTarget {
+                    provider: Some("mock".to_string()),
+                    model: Some("mock-worker".to_string()),
+                }),
+                inherited,
+            )
+            .await
+            .expect("resolved backend");
+
+        assert_eq!(resolved.provider, "mock");
+        assert_eq!(resolved.model, "mock-worker");
+    }
+
+    #[tokio::test]
+    async fn config_subagent_backend_resolver_builds_configured_provider_state() {
+        let mut config = RaraConfig {
+            provider: "codex".to_string(),
+            model: Some("gpt-5.1-codex".to_string()),
+            ..Default::default()
+        };
+        config.provider_states.insert(
+            "groq-fast".to_string(),
+            ProviderConfigState {
+                base_url: Some("https://api.groq.com/openai/v1".to_string()),
+                model: Some("gpt-4o-mini".to_string()),
+                ..Default::default()
+            },
+        );
+        let resolver = ConfigSubagentBackendResolver::new(Arc::new(config));
+        let inherited: Arc<dyn LlmBackend> = Arc::new(MockLlm);
+
+        let resolved = resolver
+            .resolve_backend(
+                Some(&SubagentProviderTarget {
+                    provider: Some("groq-fast".to_string()),
+                    model: None,
+                }),
+                inherited,
+            )
+            .await
+            .expect("resolved backend");
+
+        assert_eq!(resolved.provider, "groq-fast");
+        assert_eq!(resolved.model, "gpt-4o-mini");
     }
 
     #[test]

@@ -76,6 +76,63 @@ pub(super) fn agent_tool_to_internal_name(name: &str) -> &str {
 // Agent definition matching RARA .rara/agents/*.md files with Claude-compatible frontmatter.
 include!("agent_def.rs");
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct SubagentProviderTarget {
+    pub provider: Option<String>,
+    pub model: Option<String>,
+}
+
+impl SubagentProviderTarget {
+    fn display_model(&self) -> Option<String> {
+        match (self.provider.as_deref(), self.model.as_deref()) {
+            (Some(provider), Some(model)) => Some(format!("{provider}:{model}")),
+            (Some(provider), None) => Some(format!("{provider}:default")),
+            (None, Some(model)) => Some(model.to_string()),
+            (None, None) => None,
+        }
+    }
+}
+
+#[derive(Clone)]
+pub(crate) struct ResolvedSubagentBackend {
+    pub backend: Arc<dyn LlmBackend>,
+    pub provider: String,
+    pub model: String,
+}
+
+#[async_trait]
+pub(crate) trait SubagentBackendResolver: Send + Sync {
+    async fn resolve_backend(
+        &self,
+        target: Option<&SubagentProviderTarget>,
+        inherited_backend: Arc<dyn LlmBackend>,
+    ) -> Result<ResolvedSubagentBackend, ToolError>;
+}
+
+pub(crate) struct InheritedSubagentBackendResolver;
+
+#[async_trait]
+impl SubagentBackendResolver for InheritedSubagentBackendResolver {
+    async fn resolve_backend(
+        &self,
+        target: Option<&SubagentProviderTarget>,
+        inherited_backend: Arc<dyn LlmBackend>,
+    ) -> Result<ResolvedSubagentBackend, ToolError> {
+        let provider = target
+            .and_then(|target| target.provider.clone())
+            .unwrap_or_else(|| "inherit".to_string());
+        let model = target
+            .and_then(|target| target.model.clone())
+            .or_else(|| inherited_backend.model_label())
+            .unwrap_or_else(|| "inherit".to_string());
+        Ok(ResolvedSubagentBackend {
+            backend: inherited_backend,
+            provider,
+            model,
+        })
+    }
+}
+
 /// Progress tracking for a subagent (Claude Code AgentProgress compatible).
 #[derive(Clone, Debug)]
 pub struct SubagentProgress {
@@ -289,6 +346,7 @@ impl SubAgentKind {
 
 pub struct AgentTool {
     pub backend: Arc<dyn LlmBackend>,
+    pub backend_resolver: Arc<dyn SubagentBackendResolver>,
     pub embedding_backend: Arc<dyn EmbeddingBackend>,
     pub vdb: Arc<VectorDB>,
     pub session_manager: Arc<SessionManager>,
@@ -352,6 +410,7 @@ impl AgentTool {
             .ok_or(ToolError::InvalidInput("instruction".into()))?;
         let agent_id = next_subagent_id(SubAgentKind::General, Some(name));
         let definition = resolve_spawn_agent_definition(&self.agent_definitions, &agent_label);
+        let model_target = model_target_from_definition(Some(&definition))?;
         if i.get("run_in_background")
             .and_then(Value::as_bool)
             .unwrap_or(false)
@@ -361,9 +420,11 @@ impl AgentTool {
                 agent_id,
                 name: Some(name.to_string()),
                 definition,
+                model_target,
                 parent_session_id: parent_session_id.map(str::to_string),
                 instruction: instruction.to_string(),
                 backend: self.backend.clone(),
+                backend_resolver: self.backend_resolver.clone(),
                 embedding_backend: self.embedding_backend.clone(),
                 vdb: self.vdb.clone(),
                 session_manager: self.session_manager.clone(),
@@ -383,7 +444,9 @@ impl AgentTool {
             instruction,
             None,
             None,
+            model_target,
             self.backend.clone(),
+            self.backend_resolver.clone(),
             self.embedding_backend.clone(),
             self.vdb.clone(),
             self.session_manager.clone(),
@@ -399,6 +462,8 @@ impl AgentTool {
             "name": name,
             "status": result.status,
             "summary": result.summary,
+            "provider": result.provider,
+            "model": result.model,
             "cache_hit_tokens": result.total_cache_hit_tokens,
             "cache_miss_tokens": result.total_cache_miss_tokens,
             "token_budget": result.token_budget,
@@ -414,6 +479,7 @@ impl AgentTool {
 
 pub struct ExploreAgentTool {
     pub backend: Arc<dyn LlmBackend>,
+    pub backend_resolver: Arc<dyn SubagentBackendResolver>,
     pub embedding_backend: Arc<dyn EmbeddingBackend>,
     pub vdb: Arc<VectorDB>,
     pub session_manager: Arc<SessionManager>,
@@ -467,6 +533,8 @@ impl ExploreAgentTool {
             .as_str()
             .ok_or(ToolError::InvalidInput("instruction".into()))?;
         let agent_id = next_subagent_id(SubAgentKind::Explore, None);
+        let definition = resolve_kind_definition(SubAgentKind::Explore);
+        let model_target = model_target_from_definition(Some(&definition))?;
         if i.get("run_in_background")
             .and_then(Value::as_bool)
             .unwrap_or(false)
@@ -475,10 +543,12 @@ impl ExploreAgentTool {
                 kind: SubAgentKind::Explore,
                 agent_id,
                 name: None,
-                definition: resolve_kind_definition(SubAgentKind::Explore),
+                definition,
+                model_target,
                 parent_session_id: parent_session_id.map(str::to_string),
                 instruction: instruction.to_string(),
                 backend: self.backend.clone(),
+                backend_resolver: self.backend_resolver.clone(),
                 embedding_backend: self.embedding_backend.clone(),
                 vdb: self.vdb.clone(),
                 session_manager: self.session_manager.clone(),
@@ -498,7 +568,9 @@ impl ExploreAgentTool {
             instruction,
             None,
             None,
+            model_target,
             self.backend.clone(),
+            self.backend_resolver.clone(),
             self.embedding_backend.clone(),
             self.vdb.clone(),
             self.session_manager.clone(),
@@ -513,6 +585,8 @@ impl ExploreAgentTool {
             "session_id": result.session_id,
             "status": result.status,
             "summary": result.summary,
+            "provider": result.provider,
+            "model": result.model,
             "cache_hit_tokens": result.total_cache_hit_tokens,
             "cache_miss_tokens": result.total_cache_miss_tokens,
             "persistence_error": result.persistence_error,
@@ -526,6 +600,7 @@ impl ExploreAgentTool {
 
 pub struct PlanAgentTool {
     pub backend: Arc<dyn LlmBackend>,
+    pub backend_resolver: Arc<dyn SubagentBackendResolver>,
     pub embedding_backend: Arc<dyn EmbeddingBackend>,
     pub vdb: Arc<VectorDB>,
     pub session_manager: Arc<SessionManager>,
@@ -579,6 +654,8 @@ impl PlanAgentTool {
             .as_str()
             .ok_or(ToolError::InvalidInput("instruction".into()))?;
         let agent_id = next_subagent_id(SubAgentKind::Plan, None);
+        let definition = resolve_kind_definition(SubAgentKind::Plan);
+        let model_target = model_target_from_definition(Some(&definition))?;
         if i.get("run_in_background")
             .and_then(Value::as_bool)
             .unwrap_or(false)
@@ -587,10 +664,12 @@ impl PlanAgentTool {
                 kind: SubAgentKind::Plan,
                 agent_id,
                 name: None,
-                definition: resolve_kind_definition(SubAgentKind::Plan),
+                definition,
+                model_target,
                 parent_session_id: parent_session_id.map(str::to_string),
                 instruction: instruction.to_string(),
                 backend: self.backend.clone(),
+                backend_resolver: self.backend_resolver.clone(),
                 embedding_backend: self.embedding_backend.clone(),
                 vdb: self.vdb.clone(),
                 session_manager: self.session_manager.clone(),
@@ -610,7 +689,9 @@ impl PlanAgentTool {
             instruction,
             None,
             None,
+            model_target,
             self.backend.clone(),
+            self.backend_resolver.clone(),
             self.embedding_backend.clone(),
             self.vdb.clone(),
             self.session_manager.clone(),
@@ -625,6 +706,8 @@ impl PlanAgentTool {
             "session_id": result.session_id,
             "status": result.status,
             "summary": result.summary,
+            "provider": result.provider,
+            "model": result.model,
             "cache_hit_tokens": result.total_cache_hit_tokens,
             "cache_miss_tokens": result.total_cache_miss_tokens,
             "persistence_error": result.persistence_error,
@@ -643,6 +726,7 @@ impl PlanAgentTool {
 
 pub struct TeamCreateTool {
     pub backend: Arc<dyn LlmBackend>,
+    pub backend_resolver: Arc<dyn SubagentBackendResolver>,
     pub embedding_backend: Arc<dyn EmbeddingBackend>,
     pub vdb: Arc<VectorDB>,
     pub session_manager: Arc<SessionManager>,
@@ -670,9 +754,11 @@ struct BackgroundSubAgentStart {
     agent_id: String,
     name: Option<String>,
     definition: AgentDefinition,
+    model_target: Option<SubagentProviderTarget>,
     parent_session_id: Option<String>,
     instruction: String,
     backend: Arc<dyn LlmBackend>,
+    backend_resolver: Arc<dyn SubagentBackendResolver>,
     embedding_backend: Arc<dyn EmbeddingBackend>,
     vdb: Arc<VectorDB>,
     session_manager: Arc<SessionManager>,
@@ -687,6 +773,7 @@ struct BackgroundSubAgentRecord {
     agent_id: String,
     session_id: String,
     name: Option<String>,
+    provider: Option<String>,
     model: Option<String>,
     progress: SubagentProgress,
     kind: &'static str,
@@ -706,11 +793,20 @@ impl BackgroundSubAgentStore {
     fn start(&self, start: BackgroundSubAgentStart) -> Result<BackgroundSubAgentRecord, ToolError> {
         let session_id = uuid::Uuid::new_v4().to_string();
         let cancellation = Arc::new(AtomicBool::new(false));
+        let provider = start
+            .model_target
+            .as_ref()
+            .and_then(|target| target.provider.clone());
+        let model = start
+            .model_target
+            .as_ref()
+            .and_then(SubagentProviderTarget::display_model);
         let record = BackgroundSubAgentRecord {
             agent_id: start.agent_id.clone(),
             session_id: session_id.clone(),
             name: start.name.clone(),
-            model: start.definition.model.clone(),
+            provider,
+            model,
             progress: SubagentProgress::new(
                 start.name.clone().unwrap_or_else(|| "sub-agent".into()),
             ),
@@ -755,7 +851,9 @@ impl BackgroundSubAgentStore {
                 &start.instruction,
                 Some(session_id),
                 Some(cancellation),
+                start.model_target,
                 start.backend,
+                start.backend_resolver,
                 start.embedding_backend,
                 start.vdb,
                 start.session_manager,
@@ -839,6 +937,8 @@ impl BackgroundSubAgentStore {
                 record.progress.total_cache_miss_tokens = result.total_cache_miss_tokens as usize;
                 record.status = result.status.to_string();
                 record.summary = Some(result.summary);
+                record.provider = Some(result.provider);
+                record.model = Some(result.model);
                 record.persistence_error = result.persistence_error;
                 record.plan = result.plan;
                 record.plan_explanation = result.plan_explanation;
@@ -893,6 +993,7 @@ impl BackgroundSubAgentRecord {
             "agent_id": self.agent_id,
             "session_id": self.session_id,
             "name": self.name,
+            "provider": self.provider,
             "model": self.model,
             "progress": {
                 "tool_use_count": self.progress.tool_use_count,
@@ -1085,6 +1186,14 @@ impl Tool for SubAgentStopTool {
                         "kind": {
                             "type": "string",
                             "enum": ["general", "explore", "plan"]
+                        },
+                        "provider": {
+                            "type": "string",
+                            "description": "Optional provider override for this sub-agent. Use with model to run one task on a different configured provider."
+                        },
+                        "model": {
+                            "type": "string",
+                            "description": "Optional model override for this sub-agent. Bare model uses the current provider; provider:model selects a configured provider."
                         }
                     },
                     "required": ["instruction"]
@@ -1129,6 +1238,7 @@ impl TeamCreateTool {
         let tasks = normalize_team_tasks(tasks)?;
         let runs = tasks.into_iter().map(|task| {
             let backend = self.backend.clone();
+            let backend_resolver = self.backend_resolver.clone();
             let embedding_backend = self.embedding_backend.clone();
             let vdb = self.vdb.clone();
             let session_manager = self.session_manager.clone();
@@ -1149,7 +1259,9 @@ impl TeamCreateTool {
                     &task.instruction,
                     None,
                     None,
+                    task.model_target,
                     backend,
+                    backend_resolver,
                     embedding_backend,
                     vdb,
                     session_manager,
@@ -1175,6 +1287,7 @@ struct TeamTask {
     name: String,
     instruction: String,
     kind: SubAgentKind,
+    model_target: Option<SubagentProviderTarget>,
 }
 
 pub(crate) struct SubAgentResult {
@@ -1182,6 +1295,8 @@ pub(crate) struct SubAgentResult {
     session_id: String,
     pub(crate) status: &'static str,
     pub(crate) summary: String,
+    pub(crate) provider: String,
+    pub(crate) model: String,
     persistence_error: Option<String>,
     plan: Option<Vec<PlanStep>>,
     plan_explanation: Option<String>,
@@ -1206,7 +1321,9 @@ pub(crate) async fn run_sub_agent(
     instruction: &str,
     session_id: Option<String>,
     cancellation_token: Option<Arc<AtomicBool>>,
+    model_target: Option<SubagentProviderTarget>,
     backend: Arc<dyn LlmBackend>,
+    backend_resolver: Arc<dyn SubagentBackendResolver>,
     embedding_backend: Arc<dyn EmbeddingBackend>,
     vdb: Arc<VectorDB>,
     session_manager: Arc<SessionManager>,
@@ -1217,6 +1334,9 @@ pub(crate) async fn run_sub_agent(
 ) -> Result<SubAgentResult, ToolError> {
     let permission_mode = agent_permission_mode(definition)?;
     let token_budget = agent_token_budget(definition)?;
+    let resolved_backend = backend_resolver
+        .resolve_backend(model_target.as_ref(), backend)
+        .await?;
     let tool_manager = if let Some(def) = definition {
         build_filtered_tool_manager(kind, def, workspace.rara_dir.join("tasks"), &task_list_id)
     } else {
@@ -1228,7 +1348,7 @@ pub(crate) async fn run_sub_agent(
     }?;
     let mut sub = Agent::new_with_embedding_backend_and_agent_definitions(
         tool_manager,
-        backend,
+        resolved_backend.backend,
         embedding_backend,
         vdb,
         session_manager.clone(),
@@ -1312,6 +1432,8 @@ pub(crate) async fn run_sub_agent(
             status,
             &summary,
             token_budget,
+            &resolved_backend.provider,
+            &resolved_backend.model,
         )
         .err()
         .map(|err| err.to_string())
@@ -1326,6 +1448,8 @@ pub(crate) async fn run_sub_agent(
         total_cache_miss_tokens: sub.total_cache_miss_tokens,
         status,
         summary,
+        provider: resolved_backend.provider,
+        model: resolved_backend.model,
         token_budget,
         token_budget_exhausted: sub.token_budget_exhausted,
         persistence_error,
@@ -1347,9 +1471,18 @@ fn persist_subagent_edge(
     status: &str,
     summary: &str,
     token_budget: Option<u32>,
+    provider: &str,
+    model: &str,
 ) -> anyhow::Result<()> {
     write_subagent_sidechain(session_manager, parent_session_id, agent_id, sub)?;
-    persist_subagent_runtime_state(session_manager, workspace, parent_session_id, sub)?;
+    persist_subagent_runtime_state(
+        session_manager,
+        workspace,
+        parent_session_id,
+        sub,
+        provider,
+        model,
+    )?;
     session_manager.save_spawn_agent_event(
         parent_session_id,
         &format!("spawn-{}", uuid::Uuid::new_v4()),
@@ -1382,6 +1515,8 @@ fn persist_subagent_runtime_state(
     workspace: &WorkspaceMemory,
     parent_session_id: &str,
     sub: &Agent,
+    provider: &str,
+    model: &str,
 ) -> anyhow::Result<()> {
     let rara_dir = session_manager
         .storage_dir
@@ -1396,8 +1531,8 @@ fn persist_subagent_runtime_state(
             session_id: &sub.session_id,
             cwd: &cwd,
             branch: &branch,
-            provider: "subagent",
-            model: "subagent",
+            provider,
+            model,
             base_url: None,
             agent_mode: sub.execution_mode_label(),
             bash_approval: "unavailable",
@@ -1509,13 +1644,32 @@ fn normalize_team_tasks(tasks: &[Value]) -> Result<Vec<TeamTask>, ToolError> {
                 }
                 None => parse_team_task_kind(idx, None)?,
             };
+            let provider = optional_string_field(task, "provider")
+                .map_err(|field| ToolError::InvalidInput(format!("tasks[{idx}].{field}")))?;
+            let model = optional_string_field(task, "model")
+                .map_err(|field| ToolError::InvalidInput(format!("tasks[{idx}].{field}")))?;
+            let model_target = provider_target_from_parts(provider.as_deref(), model.as_deref())?;
             Ok(TeamTask {
                 name,
                 instruction,
                 kind,
+                model_target,
             })
         })
         .collect()
+}
+
+fn optional_string_field(
+    value: &Value,
+    field: &'static str,
+) -> Result<Option<String>, &'static str> {
+    let Some(raw) = value.get(field) else {
+        return Ok(None);
+    };
+    match raw.as_str() {
+        Some(text) => Ok(Some(text.to_string())),
+        None => Err(field),
+    }
 }
 
 fn normalize_team_task_name(idx: usize, task: &Value) -> Result<String, ToolError> {
@@ -1553,6 +1707,8 @@ fn serialize_team_result(name: &str, result: SubAgentResult) -> Value {
         "name": name,
         "status": result.status,
         "summary": result.summary,
+        "provider": result.provider,
+        "model": result.model,
         "cache_hit_tokens": result.total_cache_hit_tokens,
         "cache_miss_tokens": result.total_cache_miss_tokens,
         "token_budget": result.token_budget,
@@ -1588,6 +1744,72 @@ fn validate_agent_id_label(value: &str) -> Option<String> {
         .trim_matches('-')
         .to_string();
     (!label.is_empty()).then_some(label)
+}
+
+fn model_target_from_definition(
+    definition: Option<&AgentDefinition>,
+) -> Result<Option<SubagentProviderTarget>, ToolError> {
+    let provider = definition.and_then(|definition| definition.provider.as_deref());
+    let model = definition.and_then(|definition| definition.model.as_deref());
+    provider_target_from_parts(provider, model)
+}
+
+fn provider_target_from_parts(
+    provider: Option<&str>,
+    model: Option<&str>,
+) -> Result<Option<SubagentProviderTarget>, ToolError> {
+    let provider = normalize_inherited_override(provider, "provider")?;
+    let model = normalize_inherited_override(model, "model")?;
+    let Some(model) = model else {
+        return Ok(provider.map(|provider| SubagentProviderTarget {
+            provider: Some(provider),
+            model: None,
+        }));
+    };
+
+    if let Some((provider_from_model, model_from_model)) = model.split_once(':') {
+        if provider.is_some() {
+            return Err(ToolError::InvalidInput(
+                "model must not use provider:model when provider is also set".into(),
+            ));
+        }
+        let provider_from_model =
+            normalize_required_override(provider_from_model, "model provider")?;
+        let model_from_model = normalize_required_override(model_from_model, "model")?;
+        return Ok(Some(SubagentProviderTarget {
+            provider: Some(provider_from_model),
+            model: Some(model_from_model),
+        }));
+    }
+
+    Ok(Some(SubagentProviderTarget {
+        provider,
+        model: Some(model),
+    }))
+}
+
+fn normalize_inherited_override(
+    value: Option<&str>,
+    field: &str,
+) -> Result<Option<String>, ToolError> {
+    let Some(value) = value else {
+        return Ok(None);
+    };
+    let value = value.trim();
+    if value.is_empty() || value.eq_ignore_ascii_case("inherit") {
+        return Ok(None);
+    }
+    Ok(Some(normalize_required_override(value, field)?))
+}
+
+fn normalize_required_override(value: &str, field: &str) -> Result<String, ToolError> {
+    let value = value.trim();
+    if value.is_empty() {
+        return Err(ToolError::InvalidInput(format!(
+            "{field} must not be empty"
+        )));
+    }
+    Ok(value.to_string())
 }
 
 pub(crate) fn append_subagent_prompt(
@@ -1698,6 +1920,7 @@ fn resolve_kind_definition(kind: SubAgentKind) -> AgentDefinition {
         name: kind.label().to_string(),
         description: kind.label().to_string(),
         model: None,
+        provider: None,
         tools: vec![],
         disallowed_tools: vec![],
         max_turns: 0,
@@ -1742,6 +1965,7 @@ fn fallback_spawn_agent_definition(name: &str) -> AgentDefinition {
         name: name.to_string(),
         description: name.to_string(),
         model: None,
+        provider: None,
         tools: vec![],
         disallowed_tools: vec![],
         max_turns: 0,

@@ -2427,6 +2427,14 @@ fn derives_context_budget_for_deepseek_v4_models() {
 }
 
 #[test]
+fn derives_context_budget_for_kimi_k3() {
+    let budget = model_context_budget("kimi-k3").expect("budget");
+    assert_eq!(budget.context_window_tokens, 1_048_576);
+    assert_eq!(budget.reserved_output_tokens, 32_768);
+    assert!(budget.compact_threshold_tokens > 900_000);
+}
+
+#[test]
 fn does_not_infer_deepseek_long_context_from_unlisted_versions() {
     assert!(model_context_budget("deepseek-v3").is_none());
 }

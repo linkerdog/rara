@@ -514,6 +514,14 @@ pub(super) fn model_context_budget(model: &str) -> Option<ContextBudget> {
     {
         return Some(context_budget_from_window(window));
     }
+    if canonical.contains("kimi")
+        && let Some(window) = rara_provider_catalog::kimi::MODEL_WINDOWS
+            .iter()
+            .find(|(name, _)| name.contains(canonical.as_str()))
+            .map(|(_, w)| *w as usize)
+    {
+        return Some(context_budget_from_window(window));
+    }
     if canonical.contains("gpt-5")
         || canonical.contains("codex")
         || canonical.contains("gpt-4.1")

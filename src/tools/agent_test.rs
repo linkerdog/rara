@@ -16,12 +16,13 @@ use tokio::time::{Duration, sleep};
 
 use super::{
     AgentDefinition, AgentDefinitionCache, BACKGROUND_SUBAGENT_COMPLETED_RETENTION,
-    BackgroundSubAgentRecord, BackgroundSubAgentStore, SubAgentKind, SubagentProgress,
+    BackgroundSubAgentRecord, BackgroundSubAgentStore, InheritedSubagentBackendResolver,
+    SubAgentKind, SubagentBackendResolver, SubagentProgress, SubagentProviderTarget,
     TEAM_CREATE_CONCURRENCY_LIMIT, append_subagent_prompt, build_filtered_tool_manager,
     build_read_only_tool_manager, build_subagent_tool_manager, home_dir_from_vars,
     latest_assistant_text_from_history, parse_agent_permission_mode, parse_agent_token_budget,
-    parse_team_task_kind, resolve_kind_definition, resolve_spawn_agent_definition,
-    validate_agent_id_label,
+    parse_team_task_kind, provider_target_from_parts, resolve_kind_definition,
+    resolve_spawn_agent_definition, validate_agent_id_label,
 };
 use crate::agent::Message;
 use crate::llm::{ContentBlock, EmbeddingBackend, LlmBackend, LlmResponse, MockLlm, TokenUsage};
@@ -64,8 +65,17 @@ struct BudgetedToolBackend {
     calls: Arc<AtomicUsize>,
 }
 
+#[derive(Default)]
+struct RecordingBackendResolver {
+    targets: Arc<Mutex<Vec<Option<SubagentProviderTarget>>>>,
+}
+
 fn mock_embedding_backend() -> Arc<dyn EmbeddingBackend> {
     Arc::new(MockLlm)
+}
+
+fn inherited_backend_resolver() -> Arc<dyn SubagentBackendResolver> {
+    Arc::new(InheritedSubagentBackendResolver)
 }
 
 fn test_task_root() -> PathBuf {
@@ -290,6 +300,32 @@ impl LlmBackend for BudgetedToolBackend {
     }
 }
 
+#[async_trait]
+impl SubagentBackendResolver for RecordingBackendResolver {
+    async fn resolve_backend(
+        &self,
+        target: Option<&SubagentProviderTarget>,
+        inherited_backend: Arc<dyn LlmBackend>,
+    ) -> std::result::Result<super::ResolvedSubagentBackend, ToolError> {
+        self.targets
+            .lock()
+            .expect("targets lock")
+            .push(target.cloned());
+        let model = target
+            .and_then(|target| target.model.clone())
+            .or_else(|| inherited_backend.model_label())
+            .unwrap_or_else(|| "inherit".to_string());
+        let provider = target
+            .and_then(|target| target.provider.clone())
+            .unwrap_or_else(|| "inherit".to_string());
+        Ok(super::ResolvedSubagentBackend {
+            backend: inherited_backend,
+            provider,
+            model,
+        })
+    }
+}
+
 fn tool_schema_names(tools: &[serde_json::Value]) -> Vec<String> {
     tools
         .iter()
@@ -445,6 +481,44 @@ fn team_task_kind_defaults_to_explore_and_rejects_unknown_values() {
     assert!(matches!(err, ToolError::InvalidInput(message) if message.contains("tasks[3].kind")));
 }
 
+#[test]
+fn subagent_provider_target_supports_provider_and_model_overrides() {
+    assert_eq!(
+        provider_target_from_parts(None, Some("deepseek:deepseek-reasoner")).expect("target"),
+        Some(SubagentProviderTarget {
+            provider: Some("deepseek".to_string()),
+            model: Some("deepseek-reasoner".to_string()),
+        })
+    );
+    assert_eq!(
+        provider_target_from_parts(Some("gemini"), Some("gemini-2.5-pro")).expect("target"),
+        Some(SubagentProviderTarget {
+            provider: Some("gemini".to_string()),
+            model: Some("gemini-2.5-pro".to_string()),
+        })
+    );
+    assert_eq!(
+        provider_target_from_parts(Some("ollama"), Some("inherit")).expect("target"),
+        Some(SubagentProviderTarget {
+            provider: Some("ollama".to_string()),
+            model: None,
+        })
+    );
+    assert!(
+        provider_target_from_parts(None, Some("inherit"))
+            .unwrap()
+            .is_none()
+    );
+}
+
+#[test]
+fn subagent_provider_target_rejects_ambiguous_provider_model_form() {
+    let err = provider_target_from_parts(Some("deepseek"), Some("kimi:kimi-k2"))
+        .expect_err("ambiguous target should fail");
+    assert!(matches!(err, ToolError::InvalidInput(message)
+        if message.contains("provider:model") && message.contains("provider is also set")));
+}
+
 #[tokio::test]
 async fn team_create_runs_real_subagents_in_order() {
     let temp = tempdir().expect("tempdir");
@@ -453,6 +527,7 @@ async fn team_create_runs_real_subagents_in_order() {
     std::fs::create_dir_all(&root).expect("workspace");
     let tool = TeamCreateTool {
         backend: Arc::new(MockLlm),
+        backend_resolver: inherited_backend_resolver(),
         embedding_backend: mock_embedding_backend(),
         vdb: Arc::new(VectorDB::new(
             &rara_dir.join("lancedb").display().to_string(),
@@ -508,6 +583,7 @@ async fn team_create_validates_all_tasks_before_running_subagents() {
         backend: Arc::new(CountingBackend {
             calls: calls.clone(),
         }),
+        backend_resolver: inherited_backend_resolver(),
         embedding_backend: mock_embedding_backend(),
         vdb: Arc::new(VectorDB::new(
             &rara_dir.join("lancedb").display().to_string(),
@@ -551,6 +627,7 @@ async fn team_create_rejects_non_string_kind_before_running_subagents() {
         backend: Arc::new(CountingBackend {
             calls: calls.clone(),
         }),
+        backend_resolver: inherited_backend_resolver(),
         embedding_backend: mock_embedding_backend(),
         vdb: Arc::new(VectorDB::new(
             &rara_dir.join("lancedb").display().to_string(),
@@ -593,6 +670,7 @@ async fn team_create_rejects_unstable_explicit_name_before_running_subagents() {
         backend: Arc::new(CountingBackend {
             calls: calls.clone(),
         }),
+        backend_resolver: inherited_backend_resolver(),
         embedding_backend: mock_embedding_backend(),
         vdb: Arc::new(VectorDB::new(
             &rara_dir.join("lancedb").display().to_string(),
@@ -634,6 +712,7 @@ async fn spawn_agent_rejects_name_that_normalizes_empty_before_running_subagent(
         backend: Arc::new(CountingBackend {
             calls: calls.clone(),
         }),
+        backend_resolver: inherited_backend_resolver(),
         embedding_backend: mock_embedding_backend(),
         vdb: Arc::new(VectorDB::new(
             &rara_dir.join("lancedb").display().to_string(),
@@ -674,6 +753,7 @@ async fn team_create_limits_concurrent_subagents() {
             in_flight,
             peak: peak.clone(),
         }),
+        backend_resolver: inherited_backend_resolver(),
         embedding_backend: mock_embedding_backend(),
         vdb: Arc::new(VectorDB::new(
             &rara_dir.join("lancedb").display().to_string(),
@@ -711,6 +791,7 @@ async fn team_create_writes_parent_scoped_sidechain_transcripts() {
         backend: Arc::new(CountingBackend {
             calls: Arc::new(AtomicUsize::new(0)),
         }),
+        backend_resolver: inherited_backend_resolver(),
         embedding_backend: mock_embedding_backend(),
         vdb: Arc::new(VectorDB::new(
             &rara_dir.join("lancedb").display().to_string(),
@@ -802,6 +883,7 @@ async fn spawn_agent_writes_parent_scoped_sidechain_transcript() {
         backend: Arc::new(CountingBackend {
             calls: Arc::new(AtomicUsize::new(0)),
         }),
+        backend_resolver: inherited_backend_resolver(),
         embedding_backend: mock_embedding_backend(),
         vdb: Arc::new(VectorDB::new(
             &rara_dir.join("lancedb").display().to_string(),
@@ -906,6 +988,7 @@ Custom reviewer prompt from workspace definition.
             calls: calls.clone(),
             observed: observed.clone(),
         }),
+        backend_resolver: inherited_backend_resolver(),
         embedding_backend: mock_embedding_backend(),
         vdb: Arc::new(VectorDB::new(
             &rara_dir.join("lancedb").display().to_string(),
@@ -965,6 +1048,133 @@ Custom reviewer prompt from workspace definition.
 }
 
 #[tokio::test]
+async fn spawn_agent_definition_routes_provider_model_override() {
+    let temp = tempdir().expect("tempdir");
+    let root = temp.path().join("workspace");
+    let rara_dir = temp.path().join(".rara-runtime");
+    let agents_dir = root.join(".rara").join("agents");
+    std::fs::create_dir_all(&agents_dir).expect("agents dir");
+    std::fs::write(
+        agents_dir.join("deep-reviewer.md"),
+        r#"---
+name: deep-reviewer
+description: Reviews with a provider-specific model
+provider: deepseek
+model: deepseek-reasoner
+maxTurns: 1
+---
+
+Use the configured DeepSeek backend.
+"#,
+    )
+    .expect("agent definition");
+
+    let resolver = Arc::new(RecordingBackendResolver::default());
+    let targets = resolver.targets.clone();
+    let tool = AgentTool {
+        backend: Arc::new(CountingBackend {
+            calls: Arc::new(AtomicUsize::new(0)),
+        }),
+        backend_resolver: resolver,
+        embedding_backend: mock_embedding_backend(),
+        vdb: Arc::new(VectorDB::new(
+            &rara_dir.join("lancedb").display().to_string(),
+        )),
+        session_manager: Arc::new(
+            SessionManager::new_for_rara_dir(rara_dir.clone()).expect("session manager"),
+        ),
+        workspace: Arc::new(WorkspaceMemory::from_paths(root.clone(), rara_dir)),
+        prompt_config: PromptRuntimeConfig::default(),
+        task_list_id: test_task_list_id(),
+        background_subagents: Arc::new(BackgroundSubAgentStore::default()),
+        agent_definitions: test_agent_definition_cache(&root),
+    };
+
+    let result = tool
+        .call(json!({
+            "name": "Deep Reviewer",
+            "instruction": "summarize routing"
+        }))
+        .await
+        .expect("spawn_agent result");
+
+    assert_eq!(result["provider"], "deepseek");
+    assert_eq!(result["model"], "deepseek-reasoner");
+    assert_eq!(
+        targets.lock().expect("targets").as_slice(),
+        [Some(SubagentProviderTarget {
+            provider: Some("deepseek".to_string()),
+            model: Some("deepseek-reasoner".to_string()),
+        })]
+    );
+}
+
+#[tokio::test]
+async fn team_create_routes_per_task_provider_model_override() {
+    let temp = tempdir().expect("tempdir");
+    let root = temp.path().join("workspace");
+    let rara_dir = temp.path().join(".rara");
+    std::fs::create_dir_all(&root).expect("workspace");
+    let resolver = Arc::new(RecordingBackendResolver::default());
+    let targets = resolver.targets.clone();
+    let tool = TeamCreateTool {
+        backend: Arc::new(MockLlm),
+        backend_resolver: resolver,
+        embedding_backend: mock_embedding_backend(),
+        vdb: Arc::new(VectorDB::new(
+            &rara_dir.join("lancedb").display().to_string(),
+        )),
+        session_manager: Arc::new(
+            SessionManager::new_for_rara_dir(rara_dir.clone()).expect("session manager"),
+        ),
+        agent_definitions: test_agent_definition_cache(&root),
+        workspace: Arc::new(WorkspaceMemory::from_paths(root, rara_dir)),
+        prompt_config: PromptRuntimeConfig::default(),
+        task_list_id: test_task_list_id(),
+    };
+
+    let result = tool
+        .call(json!({
+            "tasks": [
+                {
+                    "name": "analysis",
+                    "kind": "general",
+                    "provider": "gemini",
+                    "model": "gemini-2.5-pro",
+                    "instruction": "summarize one"
+                },
+                {
+                    "name": "routing",
+                    "kind": "general",
+                    "model": "openrouter:anthropic/claude-sonnet-4",
+                    "instruction": "summarize two"
+                }
+            ]
+        }))
+        .await
+        .expect("team_create result");
+
+    let results = result["team_results"].as_array().expect("results");
+    assert_eq!(results[0]["provider"], "gemini");
+    assert_eq!(results[0]["model"], "gemini-2.5-pro");
+    assert_eq!(results[1]["provider"], "openrouter");
+    assert_eq!(results[1]["model"], "anthropic/claude-sonnet-4");
+    assert_eq!(
+        targets.lock().expect("targets").as_slice(),
+        [
+            Some(SubagentProviderTarget {
+                provider: Some("gemini".to_string()),
+                model: Some("gemini-2.5-pro".to_string()),
+            }),
+            Some(SubagentProviderTarget {
+                provider: Some("openrouter".to_string()),
+                model: Some("anthropic/claude-sonnet-4".to_string()),
+            }),
+        ]
+    );
+}
+
+#[tokio::test]
 async fn spawn_agent_definition_token_budget_stops_after_budget_exhaustion() {
     let temp = tempdir().expect("tempdir");
     let root = temp.path().join("workspace");
@@ -991,6 +1201,7 @@ Review with a small budget.
         backend: Arc::new(BudgetedToolBackend {
             calls: calls.clone(),
         }),
+        backend_resolver: inherited_backend_resolver(),
         embedding_backend: mock_embedding_backend(),
         vdb: Arc::new(VectorDB::new(
             &rara_dir.join("lancedb").display().to_string(),
@@ -1065,6 +1276,7 @@ async fn background_subagent_resume_returns_completed_summary_without_inline_sid
         backend: Arc::new(CountingBackend {
             calls: Arc::new(AtomicUsize::new(0)),
         }),
+        backend_resolver: inherited_backend_resolver(),
         embedding_backend: mock_embedding_backend(),
         vdb: Arc::new(VectorDB::new(
             &rara_dir.join("lancedb").display().to_string(),
@@ -1142,6 +1354,7 @@ async fn subagent_resume_reconnects_completed_sidechain_after_store_restart() {
         backend: Arc::new(CountingBackend {
             calls: Arc::new(AtomicUsize::new(0)),
         }),
+        backend_resolver: inherited_backend_resolver(),
         embedding_backend: mock_embedding_backend(),
         vdb: Arc::new(VectorDB::new(
             &rara_dir.join("lancedb").display().to_string(),
@@ -1229,6 +1442,7 @@ async fn background_subagent_stop_marks_running_task_cancelled() {
         Arc::new(SessionManager::new_for_rara_dir(rara_dir.clone()).expect("session manager"));
     let tool = ExploreAgentTool {
         backend: Arc::new(SlowBackend),
+        backend_resolver: inherited_backend_resolver(),
         embedding_backend: mock_embedding_backend(),
         vdb: Arc::new(VectorDB::new(
             &rara_dir.join("lancedb").display().to_string(),
@@ -1289,6 +1503,7 @@ fn background_subagent_store_prunes_old_completed_records() {
                     agent_id,
                     session_id: format!("session-{idx}"),
                     name: None,
+                    provider: None,
                     model: None,
                     progress: SubagentProgress::new("test".to_string()),
                     kind: "general",
@@ -1329,6 +1544,7 @@ async fn background_plan_agent_resume_returns_plan_state() {
         Arc::new(SessionManager::new_for_rara_dir(rara_dir.clone()).expect("session manager"));
     let tool = PlanAgentTool {
         backend: Arc::new(PlanStateBackend),
+        backend_resolver: inherited_backend_resolver(),
         embedding_backend: mock_embedding_backend(),
         vdb: Arc::new(VectorDB::new(
             &rara_dir.join("lancedb").display().to_string(),
@@ -1387,6 +1603,7 @@ async fn plan_agent_writes_parent_scoped_sidechain_transcript() {
     std::fs::create_dir_all(&root).expect("workspace");
     let tool = PlanAgentTool {
         backend: Arc::new(PlanStateBackend),
+        backend_resolver: inherited_backend_resolver(),
         embedding_backend: mock_embedding_backend(),
         vdb: Arc::new(VectorDB::new(
             &rara_dir.join("lancedb").display().to_string(),
@@ -1465,6 +1682,7 @@ async fn subagent_without_parent_context_does_not_write_sidechain() {
         backend: Arc::new(CountingBackend {
             calls: Arc::new(AtomicUsize::new(0)),
         }),
+        backend_resolver: inherited_backend_resolver(),
         embedding_backend: mock_embedding_backend(),
         vdb: Arc::new(VectorDB::new(
             &rara_dir.join("lancedb").display().to_string(),
@@ -1511,6 +1729,7 @@ async fn subagent_returns_result_when_sidechain_persistence_fails() {
         backend: Arc::new(CountingBackend {
             calls: Arc::new(AtomicUsize::new(0)),
         }),
+        backend_resolver: inherited_backend_resolver(),
         embedding_backend: mock_embedding_backend(),
         vdb: Arc::new(VectorDB::new(
             &rara_dir.join("lancedb").display().to_string(),
@@ -1558,6 +1777,7 @@ async fn team_create_rejects_too_many_tasks() {
     std::fs::create_dir_all(&root).expect("workspace");
     let tool = TeamCreateTool {
         backend: Arc::new(MockLlm),
+        backend_resolver: inherited_backend_resolver(),
         embedding_backend: mock_embedding_backend(),
         vdb: Arc::new(VectorDB::new(
             &rara_dir.join("lancedb").display().to_string(),
@@ -1601,6 +1821,7 @@ fn filtered_tool_manager_respects_tools_whitelist() {
         tools: vec!["Grep".into(), "Read".into()],
         disallowed_tools: vec![],
         model: None,
+        provider: None,
         max_turns: 0,
         plan_mode_required: false,
         permission_mode: None,
@@ -1629,6 +1850,7 @@ fn filtered_tool_manager_maps_task_tool_aliases() {
         tools: vec!["TaskList".into(), "TaskGet".into()],
         disallowed_tools: vec![],
         model: None,
+        provider: None,
         max_turns: 0,
         plan_mode_required: false,
         permission_mode: None,
@@ -1656,6 +1878,7 @@ fn filtered_tool_manager_respects_disallowed_tools_blacklist() {
         tools: vec![],
         disallowed_tools: vec!["Grep".into(), "Glob".into()],
         model: None,
+        provider: None,
         max_turns: 0,
         plan_mode_required: false,
         permission_mode: None,
@@ -1684,6 +1907,7 @@ fn filtered_tool_manager_disallowed_takes_precedence_over_tools() {
         tools: vec!["Grep".into(), "Read".into()],
         disallowed_tools: vec!["Grep".into()],
         model: None,
+        provider: None,
         max_turns: 0,
         plan_mode_required: false,
         permission_mode: None,
@@ -1716,6 +1940,7 @@ fn filtered_tool_manager_permission_mode_plan_forces_read_only_tools() {
         tools: vec![],
         disallowed_tools: vec![],
         model: None,
+        provider: None,
         max_turns: 0,
         plan_mode_required: false,
         permission_mode: Some("plan".into()),
@@ -1746,6 +1971,7 @@ fn filtered_tool_manager_rejects_unknown_permission_mode() {
         tools: vec![],
         disallowed_tools: vec![],
         model: None,
+        provider: None,
         max_turns: 0,
         plan_mode_required: false,
         permission_mode: Some("surprise".into()),

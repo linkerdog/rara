@@ -11,6 +11,7 @@ const MODELS_TIMEOUT_SECS: u64 = 15;
 /// Model name → context window tokens (for budget calculation).
 /// Also serves as the fallback model list when the API is unavailable.
 pub const MODEL_WINDOWS: &[(&str, u32)] = &[
+    ("kimi-k3", 1_048_576),
     ("kimi-k2.6", 262_144),
     ("kimi-k2.5", 262_144),
     ("kimi-k2-0905-preview", 262_144),
@@ -93,12 +94,12 @@ mod tests {
     #[test]
     fn kimi_models_url_uses_root_models_endpoint() {
         assert_eq!(
-            models_url(Some("https://api.moonshot.cn/v1")),
-            "https://api.moonshot.cn/v1/models"
+            models_url(Some("https://api.moonshot.ai/v1")),
+            "https://api.moonshot.ai/v1/models"
         );
         assert_eq!(
-            models_url(Some("https://api.moonshot.cn")),
-            "https://api.moonshot.cn/models"
+            models_url(Some("https://api.moonshot.ai")),
+            "https://api.moonshot.ai/models"
         );
     }
 
@@ -118,5 +119,13 @@ mod tests {
         .expect("parse models");
 
         assert_eq!(models, vec!["kimi-k2.6", "kimi-k2.5", "kimi-k2.5"]);
+    }
+
+    #[test]
+    fn fallback_models_include_kimi_k3_first() {
+        let models = super::fallback_models();
+
+        assert_eq!(models.first().map(String::as_str), Some("kimi-k3"));
+        assert!(models.iter().any(|model| model == "kimi-k2.6"));
     }
 }

@@ -25,6 +25,7 @@ name: code-reviewer
 description: Reviews code for correctness, style, and security issues.
 tools: [Read, Grep, Glob, Bash]
 disallowedTools: [Write, Edit]
+provider: deepseek
 model: inherit
 permissionMode: acceptEdits
 maxTurns: 20
@@ -54,9 +55,11 @@ pub struct AgentDefinition {
     pub tools: Vec<String>,
     /// Disallowed tools. Takes precedence over `tools`.
     pub disallowed_tools: Vec<String>,
-    /// Model override. "inherit" = use parent model. If the specified model
-    /// is not available on the configured provider, fall back to the default
-    /// model for the current session.
+    /// Provider override. "inherit" = use parent provider.
+    pub provider: Option<String>,
+    /// Model override. "inherit" = use parent model. Bare model names use the
+    /// selected provider. `provider:model` selects another configured provider
+    /// without needing a separate provider field.
     pub model: Option<String>,
     /// Permission mode override.
     pub permission_mode: Option<String>,
@@ -115,6 +118,24 @@ are parsed ASCII case-insensitively:
 
 Invalid `permissionMode` values fail the `spawn_agent` request before creating
 a subagent.
+
+`provider` and `model` are resolved by runtime/app-server assembly, not by the
+TUI. A subagent with no override inherits the parent backend. A subagent with a
+bare `model` uses the parent provider with that model. A subagent may either set
+`provider` and `model` as separate frontmatter fields, or set `model` to
+`provider:model`. The colon form is intentionally used instead of slash syntax
+because provider model IDs can contain `/`, such as OpenRouter IDs.
+
+Provider IDs first select built-in runtime backends such as Codex, Gemini,
+Ollama, Bedrock, and the named OpenAI-compatible families. If a provider ID is
+not built in but the active config has a matching provider state with `base_url`
+and `model`, runtime builds it as a custom OpenAI-compatible backend. Unknown
+providers without a configured endpoint still fail before execution.
+
+`team_create` task entries accept the same optional `provider` and `model`
+fields so one batched delegation can run heterogeneous workers. RARA validates
+all task model targets before starting any worker, preserving the existing
+all-or-nothing startup behavior.
 
 `tokenBudget` is an optional positive token budget for a spawned subagent. RARA
 counts model input and output tokens reported by the provider. Cache hit and
