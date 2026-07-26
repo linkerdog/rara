@@ -27,6 +27,10 @@ pub struct ImportedAgentProfile {
     pub prompt_body: String,
     /// Short description from parsed frontmatter, or parse error detail.
     pub description: String,
+    /// Provider target from parsed frontmatter, if this agent overrides it.
+    pub provider_target: Option<String>,
+    /// Model target from parsed frontmatter, if this agent overrides it.
+    pub model_target: Option<String>,
     /// Whether the file could be read successfully.
     pub parse_status: AgentParseStatus,
 }
@@ -76,6 +80,12 @@ impl AgentRegistry {
                 line.push_str("  - ");
                 line.push_str(agent.description.trim());
             }
+            if agent.parse_status == AgentParseStatus::Ok
+                && let Some(target) = format_agent_provider_target(agent)
+            {
+                line.push_str("  ");
+                line.push_str(&target);
+            }
             lines.push(line);
         }
         if lines.is_empty() {
@@ -101,6 +111,8 @@ impl AgentRegistry {
                 }
                 let id = definition.name.clone();
                 let source_kind = source_kind_for_agent_path(&record.source_path);
+                let (provider_target, model_target) =
+                    normalize_agent_provider_target(definition.provider, definition.model);
                 ImportedAgentProfile {
                     id: id.clone(),
                     label: id,
@@ -108,6 +120,8 @@ impl AgentRegistry {
                     source_kind,
                     prompt_body: definition.system_prompt,
                     description: definition.description,
+                    provider_target,
+                    model_target,
                     parse_status: AgentParseStatus::Ok,
                 }
             }
@@ -118,10 +132,58 @@ impl AgentRegistry {
                 source_kind: source_kind_for_agent_path(&record.source_path),
                 prompt_body: String::new(),
                 description: record.error.unwrap_or_else(|| "parse error".to_string()),
+                provider_target: None,
+                model_target: None,
                 parse_status: AgentParseStatus::ParseError,
             },
         };
         self.agents.insert(profile.id.clone(), profile);
+    }
+}
+
+fn format_agent_provider_target(agent: &ImportedAgentProfile) -> Option<String> {
+    match (
+        agent.provider_target.as_deref(),
+        agent.model_target.as_deref(),
+    ) {
+        (Some(provider), Some(model)) => Some(format!("target: provider={provider} model={model}")),
+        (Some(provider), None) => Some(format!("target: provider={provider}")),
+        (None, Some(model)) => Some(format!("target: model={model}")),
+        (None, None) => None,
+    }
+}
+
+fn normalize_agent_provider_target(
+    provider: Option<String>,
+    model: Option<String>,
+) -> (Option<String>, Option<String>) {
+    let provider = normalize_inherited_value(provider);
+    let model = normalize_inherited_value(model);
+    let Some(model) = model else {
+        return (provider, None);
+    };
+    if provider.is_none()
+        && let Some((provider_from_model, model_from_model)) = model.split_once(':')
+    {
+        let provider_from_model = provider_from_model.trim();
+        let model_from_model = model_from_model.trim();
+        if !provider_from_model.is_empty() && !model_from_model.is_empty() {
+            return (
+                Some(provider_from_model.to_string()),
+                Some(model_from_model.to_string()),
+            );
+        }
+    }
+    (provider, Some(model))
+}
+
+fn normalize_inherited_value(value: Option<String>) -> Option<String> {
+    let value = value?;
+    let value = value.trim();
+    if value.is_empty() || value.eq_ignore_ascii_case("inherit") {
+        None
+    } else {
+        Some(value.to_string())
     }
 }
 
@@ -196,6 +258,48 @@ Generate unit tests for new code paths.
                 .iter()
                 .any(|line| line.contains("Reviews pull requests for correctness and style."))
         );
+    }
+
+    #[test]
+    fn status_lines_include_agent_provider_targets() {
+        let dir = tempdir().expect("tempdir");
+        let agents_dir = dir.path().join(".rara").join("agents");
+        fs::create_dir_all(&agents_dir).expect("mkdir");
+        fs::write(
+            agents_dir.join("deepseek-reviewer.md"),
+            r#"---
+name: deepseek-reviewer
+description: Reviews with DeepSeek.
+provider: deepseek
+model: deepseek-reasoner
+---
+
+Review code.
+"#,
+        )
+        .expect("write separate target");
+        fs::write(
+            agents_dir.join("openrouter-reviewer.md"),
+            r#"---
+name: openrouter-reviewer
+description: Reviews with OpenRouter.
+model: openrouter:anthropic/claude-sonnet-4
+---
+
+Review code.
+"#,
+        )
+        .expect("write compact target");
+
+        let registry = discover_repo_agents(dir.path());
+        let status_lines = registry.status_lines().join("\n");
+
+        assert!(status_lines.contains(
+            "deepseek-reviewer  .rara/agents/deepseek-reviewer.md  ok  (disabled)  - Reviews with DeepSeek.  target: provider=deepseek model=deepseek-reasoner"
+        ));
+        assert!(status_lines.contains(
+            "openrouter-reviewer  .rara/agents/openrouter-reviewer.md  ok  (disabled)  - Reviews with OpenRouter.  target: provider=openrouter model=anthropic/claude-sonnet-4"
+        ));
     }
 
     #[test]

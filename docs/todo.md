@@ -76,7 +76,7 @@ Active backlog only. Keep this file small and current.
 - [x] Route subagent `provider` / `model` targets through runtime backend
       assembly, including configured provider states and per-task `team_create`
       overrides.
-- [ ] Surface configured subagent provider/model targets in runtime status for
+- [x] Surface configured subagent provider/model targets in runtime status for
       agent definitions.
 
 ## Shared Task Lists
