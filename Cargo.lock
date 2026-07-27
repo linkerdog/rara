@@ -11115,6 +11115,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "rara-apply-patch"
+version = "0.0.13"
+dependencies = [
+ "thiserror 2.0.19",
+]
+
+[[package]]
 name = "rara-background-tasks"
 version = "0.0.13"
 dependencies = [
@@ -11308,6 +11315,7 @@ dependencies = [
  "anyhow",
  "async-trait",
  "glob",
+ "rara-apply-patch",
  "rara-file-search",
  "rara-memory",
  "rara-tool-macros",

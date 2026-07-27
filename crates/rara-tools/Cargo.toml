@@ -6,6 +6,7 @@ license.workspace = true
 
 [dependencies]
 rara-tool-macros = { path = "../tool-macros" }
+rara-apply-patch = { path = "../rara-apply-patch" }
 rara-file-search = { path = "../file-search" }
 rara-memory = { path = "../rara-memory" }
 anyhow.workspace = true

@@ -125,6 +125,13 @@ Active backlog only. Keep this file small and current.
       explicit `local_embeddings = "auto"` opt-in.
 - [x] Explicit embedding provider override beyond `off` / `auto`.
 
+## Patch Engine
+
+- [x] Add a typed `PatchAction` preview API for approval UI and app-server
+      surfaces.
+- [ ] Add structured applied-delta failure reporting for partial filesystem
+      writes.
+
 ## ACP Compatibility
 
 - [x] Replace the single ACP `active_agent` with session-scoped runtime state;
