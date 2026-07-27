@@ -3,8 +3,8 @@ use std::path::Path;
 
 use async_trait::async_trait;
 use rara_apply_patch::{
-    PatchChange, PatchError, PatchOp, build_patch_action_from_ops, parse_patch,
-    validate_patch_update_context,
+    AppliedPatchChange, AppliedPatchDelta, AppliedPatchFileChange, PatchChange, PatchError,
+    PatchOp, build_patch_action_from_ops, parse_patch, validate_patch_update_context,
 };
 use rara_tool_macros::tool_spec;
 use serde_json::{Value, json};
@@ -79,38 +79,63 @@ impl Tool for ApplyPatchTool {
             },
         };
         let action = build_patch_action_from_ops(patch, ops, &mut read_for_action)?;
+        let mut delta = AppliedPatchDelta::empty();
 
         for change in &action.changes {
             match change {
                 PatchChange::Add { path, content, .. } => {
                     if Path::new(&path).exists() {
-                        return Err(ToolError::ExecutionFailed(format!(
-                            "Cannot add existing file {path}"
-                        )));
+                        return Err(patch_apply_failure(
+                            format!("Cannot add existing file {path}"),
+                            &delta,
+                        ));
                     }
                     if !dry_run {
-                        write_text_file(path, content)?;
+                        write_text_file(path, content, &mut delta)?;
+                        delta.push_change(AppliedPatchChange {
+                            path: path.clone(),
+                            change: AppliedPatchFileChange::Add {
+                                content: content.clone(),
+                                overwritten_content: None,
+                            },
+                        });
                         if let Some(read_state) = &self.read_state {
                             record_patch_write_best_effort(read_state, path, content);
                         }
                     }
                 }
-                PatchChange::Delete { path, .. } => {
+                PatchChange::Delete { path, content, .. } => {
                     if !Path::new(&path).exists() {
-                        return Err(ToolError::ExecutionFailed(format!(
-                            "Cannot delete missing file {path}"
-                        )));
+                        return Err(patch_apply_failure(
+                            format!("Cannot delete missing file {path}"),
+                            &delta,
+                        ));
                     }
                     if !dry_run {
                         if let Some(read_state) = &self.read_state {
                             read_state.forget(path)?;
                         }
-                        fs::remove_file(path)?;
+                        if let Err(err) = fs::remove_file(path) {
+                            if !file_still_matches(path, content) {
+                                delta.mark_inexact();
+                            }
+                            return Err(patch_apply_failure(
+                                format!("Failed to delete file {path}: {err}"),
+                                &delta,
+                            ));
+                        }
+                        delta.push_change(AppliedPatchChange {
+                            path: path.clone(),
+                            change: AppliedPatchFileChange::Delete {
+                                content: content.clone(),
+                            },
+                        });
                     }
                 }
                 PatchChange::Update {
                     path,
                     move_to,
+                    original_content,
                     new_content,
                     ..
                 } => {
@@ -119,15 +144,55 @@ impl Tool for ApplyPatchTool {
                         if let Some(target) = &move_to
                             && target != path
                         {
-                            if let Some(parent) = Path::new(target).parent() {
-                                fs::create_dir_all(parent)?;
-                            }
+                            let overwritten_move_content =
+                                read_optional_existing_text(target, &mut delta);
+                            write_text_file(target, new_content, &mut delta)?;
+                            let target_delta_index = delta.push_change(AppliedPatchChange {
+                                path: target.clone(),
+                                change: AppliedPatchFileChange::Add {
+                                    content: new_content.clone(),
+                                    overwritten_content: overwritten_move_content.clone(),
+                                },
+                            });
                             if let Some(read_state) = &self.read_state {
                                 read_state.forget(path)?;
                             }
-                            fs::remove_file(path)?;
+                            if let Err(err) = fs::remove_file(path) {
+                                if !file_still_matches(path, original_content) {
+                                    delta.mark_inexact();
+                                }
+                                return Err(patch_apply_failure(
+                                    format!("Failed to delete moved source file {path}: {err}"),
+                                    &delta,
+                                ));
+                            }
+                            delta.replace_change(
+                                target_delta_index,
+                                AppliedPatchChange {
+                                    path: path.clone(),
+                                    change: AppliedPatchFileChange::Update {
+                                        move_to: Some(target.clone()),
+                                        original_content: original_content.clone(),
+                                        overwritten_move_content,
+                                        new_content: new_content.clone(),
+                                    },
+                                },
+                            );
+                            if let Some(read_state) = &self.read_state {
+                                record_patch_write_best_effort(read_state, target, new_content);
+                            }
+                            continue;
                         }
-                        write_text_file(write_path, new_content)?;
+                        write_text_file(write_path, new_content, &mut delta)?;
+                        delta.push_change(AppliedPatchChange {
+                            path: path.clone(),
+                            change: AppliedPatchFileChange::Update {
+                                move_to: None,
+                                original_content: original_content.clone(),
+                                overwritten_move_content: None,
+                                new_content: new_content.clone(),
+                            },
+                        });
                         if let Some(read_state) = &self.read_state {
                             record_patch_write_best_effort(read_state, write_path, new_content);
                         }
@@ -153,6 +218,7 @@ impl Tool for ApplyPatchTool {
             "summary": action.summary(),
             "diff_preview": action.preview.text,
             "diff_truncated": action.preview.truncated,
+            "applied_delta": applied_delta_json(&delta),
         }))
     }
 }
@@ -163,12 +229,89 @@ fn record_patch_write_best_effort(read_state: &FileReadState, path: &str, conten
     }
 }
 
-fn write_text_file(path: &str, content: &str) -> Result<(), ToolError> {
-    if let Some(parent) = Path::new(path).parent() {
-        fs::create_dir_all(parent)?;
+fn write_text_file(
+    path: &str,
+    content: &str,
+    delta: &mut AppliedPatchDelta,
+) -> Result<(), ToolError> {
+    if let Some(parent) = Path::new(path).parent()
+        && let Err(err) = fs::create_dir_all(parent)
+    {
+        return Err(patch_apply_failure(
+            format!("Failed to create parent directory for {path}: {err}"),
+            delta,
+        ));
     }
-    fs::write(path, content)?;
+    if let Err(err) = fs::write(path, content) {
+        delta.mark_inexact();
+        return Err(patch_apply_failure(
+            format!("Failed to write file {path}: {err}"),
+            delta,
+        ));
+    }
     Ok(())
+}
+
+fn patch_apply_failure(message: impl Into<String>, delta: &AppliedPatchDelta) -> ToolError {
+    ToolError::ExecutionFailed(format!(
+        "{}\napplied_delta: {}",
+        message.into(),
+        applied_delta_json(delta)
+    ))
+}
+
+fn applied_delta_json(delta: &AppliedPatchDelta) -> Value {
+    json!({
+        "exact": delta.is_exact(),
+        "changes": delta.changes().iter().map(applied_patch_change_json).collect::<Vec<_>>(),
+    })
+}
+
+fn applied_patch_change_json(change: &AppliedPatchChange) -> Value {
+    match &change.change {
+        AppliedPatchFileChange::Add {
+            content,
+            overwritten_content,
+        } => json!({
+            "path": change.path,
+            "kind": "add",
+            "content": content,
+            "overwritten_content": overwritten_content,
+        }),
+        AppliedPatchFileChange::Delete { content } => json!({
+            "path": change.path,
+            "kind": "delete",
+            "content": content,
+        }),
+        AppliedPatchFileChange::Update {
+            move_to,
+            original_content,
+            overwritten_move_content,
+            new_content,
+        } => json!({
+            "path": change.path,
+            "kind": "update",
+            "move_to": move_to,
+            "original_content": original_content,
+            "overwritten_move_content": overwritten_move_content,
+            "new_content": new_content,
+        }),
+    }
+}
+
+fn file_still_matches(path: &str, expected_content: &str) -> bool {
+    read_file_content(path).is_ok_and(|content| content == expected_content)
+}
+
+fn read_optional_existing_text(path: &str, delta: &mut AppliedPatchDelta) -> Option<String> {
+    match read_file_content(path) {
+        Ok(content) => Some(content),
+        Err(ToolError::Io(err)) if err.kind() == std::io::ErrorKind::NotFound => None,
+        Err(_) => {
+            delta.mark_inexact();
+            None
+        }
+    }
 }
 
 impl From<PatchError> for ToolError {
@@ -227,6 +370,16 @@ mod tests {
                 .expect("diff preview")
                 .contains("-hello\n+hi")
         );
+        assert_eq!(result["applied_delta"]["exact"], true);
+        assert_eq!(result["applied_delta"]["changes"][0]["kind"], "update");
+        assert_eq!(
+            result["applied_delta"]["changes"][0]["original_content"],
+            "hello\nworld\n"
+        );
+        assert_eq!(
+            result["applied_delta"]["changes"][0]["new_content"],
+            "hi\nworld\n"
+        );
     }
 
     #[tokio::test]
@@ -252,6 +405,11 @@ mod tests {
             "hello\nworld\n"
         );
         assert_eq!(result["status"], "validated");
+        assert_eq!(result["applied_delta"]["exact"], true);
+        assert_eq!(
+            result["applied_delta"]["changes"].as_array().unwrap().len(),
+            0
+        );
     }
 
     #[tokio::test]
@@ -276,6 +434,54 @@ mod tests {
         );
         assert_eq!(result["status"], "applied");
         assert_eq!(result["created_files"][0], file.display().to_string());
+        assert_eq!(result["applied_delta"]["changes"][0]["kind"], "add");
+        assert_eq!(
+            result["applied_delta"]["changes"][0]["content"],
+            "hello\nworld\n"
+        );
+    }
+
+    #[tokio::test]
+    async fn reports_applied_delta_after_partial_patch_failure() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let created = dir.path().join("created.txt");
+        let parent_file = dir.path().join("not_a_directory");
+        let blocked_child = parent_file.join("child.txt");
+        std::fs::write(&parent_file, "parent\n").expect("write parent file");
+
+        let tool = ApplyPatchTool::default();
+        let error = tool
+            .call(json!({
+                "patch": format!(
+                    "*** Begin Patch\n*** Add File: {}\n+created\n*** Add File: {}\n+blocked\n*** End Patch",
+                    created.display(),
+                    blocked_child.display()
+                )
+            }))
+            .await
+            .expect_err("second write should fail");
+        let message = error.to_string();
+
+        assert!(
+            message.contains("Failed to create parent directory"),
+            "unexpected error: {message}"
+        );
+        assert!(
+            message.contains("\"exact\":true"),
+            "delta should be exact when failure happens before the blocked write: {message}"
+        );
+        assert!(
+            message.contains("\"kind\":\"add\""),
+            "delta should include the committed add: {message}"
+        );
+        assert!(
+            message.contains(&created.display().to_string()),
+            "delta should include the committed path: {message}"
+        );
+        assert_eq!(
+            std::fs::read_to_string(&created).expect("created file remains"),
+            "created\n"
+        );
     }
 
     #[tokio::test]

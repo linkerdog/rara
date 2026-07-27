@@ -85,6 +85,75 @@ pub enum PatchChange {
     },
 }
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct AppliedPatchDelta {
+    changes: Vec<AppliedPatchChange>,
+    exact: bool,
+}
+
+impl Default for AppliedPatchDelta {
+    fn default() -> Self {
+        Self::empty()
+    }
+}
+
+impl AppliedPatchDelta {
+    pub fn empty() -> Self {
+        Self {
+            changes: Vec::new(),
+            exact: true,
+        }
+    }
+
+    pub fn changes(&self) -> &[AppliedPatchChange] {
+        &self.changes
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.changes.is_empty()
+    }
+
+    pub fn is_exact(&self) -> bool {
+        self.exact
+    }
+
+    pub fn mark_inexact(&mut self) {
+        self.exact = false;
+    }
+
+    pub fn push_change(&mut self, change: AppliedPatchChange) -> usize {
+        self.changes.push(change);
+        self.changes.len() - 1
+    }
+
+    pub fn replace_change(&mut self, index: usize, change: AppliedPatchChange) {
+        self.changes[index] = change;
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct AppliedPatchChange {
+    pub path: String,
+    pub change: AppliedPatchFileChange,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum AppliedPatchFileChange {
+    Add {
+        content: String,
+        overwritten_content: Option<String>,
+    },
+    Delete {
+        content: String,
+    },
+    Update {
+        move_to: Option<String>,
+        original_content: String,
+        overwritten_move_content: Option<String>,
+        new_content: String,
+    },
+}
+
 #[derive(Default, Debug, PartialEq, Eq)]
 pub struct PatchActionStats {
     pub files_changed: usize,
@@ -583,9 +652,9 @@ mod tests {
     use std::string::ToString;
 
     use super::{
-        PatchChange, PatchError, PatchMove, PatchOp, PatchStats, apply_update_chunks,
-        build_patch_action, normalise_unicode, parse_patch, seek_sequence,
-        validate_patch_update_context,
+        AppliedPatchChange, AppliedPatchDelta, AppliedPatchFileChange, PatchChange, PatchError,
+        PatchMove, PatchOp, PatchStats, apply_update_chunks, build_patch_action, normalise_unicode,
+        parse_patch, seek_sequence, validate_patch_update_context,
     };
 
     fn to_vec(strings: &[&str]) -> Vec<String> {
@@ -742,6 +811,45 @@ mod tests {
             error,
             PatchError::ExecutionFailed("Cannot update missing file missing.txt".to_string())
         );
+    }
+
+    #[test]
+    fn applied_patch_delta_defaults_to_exact_empty_state() {
+        let mut delta = AppliedPatchDelta::default();
+
+        assert!(delta.is_empty());
+        assert!(delta.is_exact());
+
+        let index = delta.push_change(AppliedPatchChange {
+            path: "created.txt".to_string(),
+            change: AppliedPatchFileChange::Add {
+                content: "hello\n".to_string(),
+                overwritten_content: None,
+            },
+        });
+        assert_eq!(index, 0);
+        assert!(!delta.is_empty());
+        assert!(delta.is_exact());
+
+        delta.replace_change(
+            index,
+            AppliedPatchChange {
+                path: "created.txt".to_string(),
+                change: AppliedPatchFileChange::Update {
+                    move_to: None,
+                    original_content: "hello\n".to_string(),
+                    overwritten_move_content: None,
+                    new_content: "hi\n".to_string(),
+                },
+            },
+        );
+        delta.mark_inexact();
+
+        assert!(!delta.is_exact());
+        assert!(matches!(
+            &delta.changes()[0].change,
+            AppliedPatchFileChange::Update { new_content, .. } if new_content == "hi\n"
+        ));
     }
 
     #[test]
