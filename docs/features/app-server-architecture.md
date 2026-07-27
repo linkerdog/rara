@@ -65,5 +65,5 @@ the consumer boundary (ACP/Wire).
 | done | #276 | `TuiMaintainer` owns `TuiApp`, event loop uses `split_mut()` |
 | done | #280, #281 | ACP publishes `AgentEvent` to `RuntimeEventBus`; injection via `Arc<Self>` |
 | done | #286 | `PrintConsumer` — plain text, `--print` CLI |
-| done | #287 | `AcpConsumer` — subscribes to bus, translates AgentEvent → ACP SessionNotification |
+| superseded | #287 | Removed the unused `AcpConsumer`; ACP now maps runtime-control events directly in the session adapter |
 | done | #289 | `WireConsumer` — Wire JSON lines, `--wire` CLI |
