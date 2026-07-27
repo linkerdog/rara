@@ -61,7 +61,6 @@ constants.
 
 - `src/runtime_control.rs` — remove all unused types and enums
 - `src/hook_registry.rs` — remove unused `all_hooks` method
-- `src/acp_consumer.rs` — remove unused types and methods
 - `src/mcp_status.rs` — remove unused type
 - `src/tui/custom_terminal.rs` — remove unused method
 
@@ -144,4 +143,3 @@ Add the following to AGENTS.md §3.1:
   the same module.
 
 ## Source Journals
-
