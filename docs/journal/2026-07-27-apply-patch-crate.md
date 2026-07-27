@@ -36,6 +36,14 @@ side effects.
   app-server surfaces.
 - Keep filesystem writes in `rara-tools` for this step. A later PR can add an
   applied-delta failure contract once this crate boundary is stable.
+- Represent filesystem side effects with `AppliedPatchDelta` in the core crate,
+  but let `rara-tools` populate it at the I/O boundary. The delta records
+  committed add/delete/update effects and whether the report is exact after a
+  failure.
+- Apply move updates by writing the target first and deleting the source after
+  the target write succeeds. During a failed source delete, the tool can still
+  report the target write as an applied add, including any overwritten target
+  content.
 
 ## Validation
 
@@ -51,4 +59,6 @@ git diff --check
 
 ## Follow-Ups
 
-- Add structured applied-delta failure reporting for partial filesystem writes.
+- Consider promoting apply-patch failure details from the current error-message
+  JSON payload into a structured `ToolError` details field if other tools need
+  the same recovery contract.

@@ -129,7 +129,7 @@ Active backlog only. Keep this file small and current.
 
 - [x] Add a typed `PatchAction` preview API for approval UI and app-server
       surfaces.
-- [ ] Add structured applied-delta failure reporting for partial filesystem
+- [x] Add structured applied-delta failure reporting for partial filesystem
       writes.
 
 ## ACP Compatibility
