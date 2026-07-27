@@ -99,6 +99,7 @@ One-line index of every source file, grouped by subsystem.
 
 | Crate | Role |
 |---|---|
+| `rara-apply-patch` | Pure structured patch parser and text update engine |
 | `rara-memory` | Memory file operations + LanceDB vector database |
 | `rara-persistence` | Persistent state DB (JSON) |
 | `instructions` | Workspace memory + project instructions |
