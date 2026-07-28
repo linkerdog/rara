@@ -361,6 +361,22 @@ mod tests {
     }
 
     #[test]
+    fn hook_control_accepts_goal_lifecycle_phases() {
+        let request = HookControlRequest::Declare {
+            hook_id: "goal-created-hook".to_string(),
+            lifecycle: HookLifecycle::GoalCreated,
+            description: "observe goal creation".to_string(),
+        };
+
+        let value = serde_json::to_value(&request).unwrap();
+        let parsed: HookControlRequest = serde_json::from_value(value.clone()).unwrap();
+
+        assert_eq!(value["type"], json!("declare"));
+        assert_eq!(value["payload"]["lifecycle"], json!("GoalCreated"));
+        assert_eq!(parsed, request);
+    }
+
+    #[test]
     fn mcp_control_requests_use_structured_wire_shape() {
         let query = RuntimeControlRequest::Mcp(McpControlRequest::QueryStatus);
         assert_eq!(

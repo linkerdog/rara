@@ -29,6 +29,10 @@ struct HooksJson {
     SessionStart: Vec<MatcherGroup>,
     #[serde(default)]
     SessionEnd: Vec<MatcherGroup>,
+    #[serde(default)]
+    GoalCreated: Vec<MatcherGroup>,
+    #[serde(default)]
+    GoalCompleted: Vec<MatcherGroup>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -182,6 +186,12 @@ fn parse_hooks_json(path: &Path) -> Result<Vec<HookHandler>, String> {
     for group in parsed.SessionEnd {
         handlers.extend(hooks_with_group_matcher(group));
     }
+    for group in parsed.GoalCreated {
+        handlers.extend(hooks_with_group_matcher(group));
+    }
+    for group in parsed.GoalCompleted {
+        handlers.extend(hooks_with_group_matcher(group));
+    }
     Ok(handlers)
 }
 
@@ -262,6 +272,26 @@ pub fn registered_hooks_for_plugin(plugin: &Plugin) -> Vec<RegisteredHook> {
         for h in hooks_with_group_matcher(group) {
             registered.push(RegisteredHook {
                 event: HookEvent::SessionEnd,
+                handler: h,
+                plugin_name: plugin.name.clone(),
+                plugin_root: plugin.root.clone(),
+            });
+        }
+    }
+    for group in parsed.GoalCreated {
+        for h in hooks_with_group_matcher(group) {
+            registered.push(RegisteredHook {
+                event: HookEvent::GoalCreated,
+                handler: h,
+                plugin_name: plugin.name.clone(),
+                plugin_root: plugin.root.clone(),
+            });
+        }
+    }
+    for group in parsed.GoalCompleted {
+        for h in hooks_with_group_matcher(group) {
+            registered.push(RegisteredHook {
+                event: HookEvent::GoalCompleted,
                 handler: h,
                 plugin_name: plugin.name.clone(),
                 plugin_root: plugin.root.clone(),
@@ -355,6 +385,44 @@ mod tests {
         assert_eq!(registered.len(), 2);
         assert_eq!(registered[0].handler.matcher.as_deref(), Some("Bash(*)"));
         assert_eq!(registered[1].handler.matcher.as_deref(), Some("Write|Edit"));
+    }
+
+    #[test]
+    fn registered_hooks_include_goal_lifecycle_events() {
+        let dir = tempfile::tempdir().unwrap();
+        fs::create_dir_all(dir.path().join(".claude-plugin")).unwrap();
+        fs::write(
+            dir.path().join(".claude-plugin").join("plugin.json"),
+            json!({
+                "name": "goal-plugin",
+                "description": "goal plugin"
+            })
+            .to_string(),
+        )
+        .unwrap();
+        fs::create_dir_all(dir.path().join("hooks")).unwrap();
+        fs::write(
+            dir.path().join("hooks").join("hooks.json"),
+            json!({
+                "GoalCreated": [{
+                    "hooks": [{"type": "command", "command": "echo created"}]
+                }],
+                "GoalCompleted": [{
+                    "hooks": [{"type": "command", "command": "echo completed"}]
+                }]
+            })
+            .to_string(),
+        )
+        .unwrap();
+
+        let plugin = load_plugin(dir.path()).unwrap();
+        let registered = registered_hooks_for_plugin(&plugin);
+        let events = registered.iter().map(|hook| hook.event).collect::<Vec<_>>();
+
+        assert_eq!(
+            events,
+            vec![HookEvent::GoalCreated, HookEvent::GoalCompleted]
+        );
     }
 
     #[test]

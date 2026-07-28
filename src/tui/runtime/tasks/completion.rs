@@ -1,6 +1,8 @@
 use crate::tui::command;
 use crate::tui::state::Overlay;
 
+use self::goal_evaluator::{GoalEvaluation, evaluate_goal_completion};
+
 pub(crate) async fn finish_running_task_if_ready(
     app: &mut TuiApp,
     agent_slot: &mut Option<Agent>,
@@ -123,22 +125,40 @@ pub(crate) async fn finish_running_task_if_ready(
                                 start_query_task(app, next_goal_prompt, agent);
                                 return Ok(());
                             }
-                            let condition = app
-                                .goal
-                                .as_ref()
-                                .and_then(|g| g.condition.as_deref())
-                                .unwrap_or_default();
-                            if !condition.is_empty() {
-                                let eval_reason =
-                                    format!("no: goal not yet complete — {condition}");
-                                app.push_system(
-                                    eval_reason.clone(),
-                                    crate::tui::state::SystemMessageKind::Other,
-                                );
-                                agent.push_history_message(crate::agent::Message {
-                                    role: "system".into(),
-                                    content: serde_json::Value::String(eval_reason),
-                                });
+                            let goal_snapshot =
+                                app.goal.as_ref().expect("goal must exist").clone();
+                            match evaluate_goal_completion(&agent, &goal_snapshot).await {
+                                GoalEvaluation::Complete => {
+                                    if let Some(goal) = app.goal.as_mut() {
+                                        goal.status = GoalStatus::Complete;
+                                    }
+                                    *app.goal_handle.write().unwrap() = app.goal.clone();
+                                    *agent_slot = Some(agent);
+                                    if let Some(agent) = agent_slot.as_ref() {
+                                        app.sync_snapshot(agent);
+                                    }
+                                    app.release_pending_follow_ups();
+                                    app.finalize_agent_stream(None);
+                                    app.finalize_active_turn();
+                                    app.bottom_pane.notice =
+                                        Some("Goal evaluator marked the goal complete.".into());
+                                    app.set_runtime_phase(
+                                        RuntimePhase::Idle,
+                                        Some("goal complete".into()),
+                                    );
+                                    return Ok(());
+                                }
+                                GoalEvaluation::Continue { reason } => {
+                                    let eval_reason = format!("no: {reason}");
+                                    app.push_system(
+                                        eval_reason.clone(),
+                                        crate::tui::state::SystemMessageKind::Other,
+                                    );
+                                    agent.push_history_message(crate::agent::Message {
+                                        role: "system".into(),
+                                        content: serde_json::Value::String(eval_reason),
+                                    });
+                                }
                             }
                             app.finalize_active_turn();
                             start_query_task(app, next_goal_prompt, agent);

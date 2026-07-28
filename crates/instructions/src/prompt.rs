@@ -13,6 +13,8 @@ use crate::workspace::WorkspaceMemory;
 pub enum HookLifecycle {
     SessionStart,
     SessionEnd,
+    GoalCreated,
+    GoalCompleted,
     UserPromptSubmit,
     PreToolUse,
     PostToolUse,
@@ -28,6 +30,8 @@ impl HookLifecycle {
         match self {
             Self::SessionStart => "SessionStart",
             Self::SessionEnd => "SessionEnd",
+            Self::GoalCreated => "GoalCreated",
+            Self::GoalCompleted => "GoalCompleted",
             Self::UserPromptSubmit => "UserPromptSubmit",
             Self::PreToolUse => "PreToolUse",
             Self::PostToolUse => "PostToolUse",
@@ -44,6 +48,8 @@ impl HookLifecycle {
         match name {
             "session-start" | "session_start" => Some(Self::SessionStart),
             "session-end" | "session_end" => Some(Self::SessionEnd),
+            "goal-created" | "goal_created" => Some(Self::GoalCreated),
+            "goal-completed" | "goal_completed" => Some(Self::GoalCompleted),
             "user-prompt-submit" | "user_prompt_submit" => Some(Self::UserPromptSubmit),
             "pre-tool-use" | "pre_tool_use" => Some(Self::PreToolUse),
             "post-tool-use" | "post_tool_use" => Some(Self::PostToolUse),
