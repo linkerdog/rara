@@ -15,7 +15,8 @@ no reusable search primitive for TUI file pickers or context file routing.
 ## Scope
 
 The first implementation introduces a reusable file-search crate and routes the
-`list_files` tool through it.
+`list_files` tool through it. A later slice also exposes fuzzy path matches as
+paths-only retrieval candidates for the shared `MemorySelection` pipeline.
 
 In scope:
 
@@ -78,6 +79,23 @@ The tool adapter owns RARA-specific default excludes such as `target`,
 `node_modules`, `dist`, and virtual environments. Those excludes do not belong
 in the generic crate because other callers may need exact git-aware traversal.
 
+### Memory Selection Adapter
+
+Runtime context routing uses `FileSearchCandidateProvider` to translate fuzzy
+path matches into `RetrievalCandidate` values with `kind = "file_search"`.
+Those candidates flow through the same `MemorySelection` ranking and budget
+allocator as memory, session, MCP, hook, and graph candidates.
+
+File-search candidates are deliberately paths-only:
+
+- `source_path` carries the matched workspace-relative path.
+- `detail` records file-search provenance and `paths_only`.
+- `budget_impact_tokens` estimates only path/provenance text.
+- file contents are not read or injected by this adapter.
+
+This keeps file routing observable in `/context` while preserving prompt-cache
+stability until an explicit excerpt-selection step exists.
+
 ## Validation Matrix
 
 - `.gitignore` in a git workspace suppresses ignored files.
@@ -87,6 +105,8 @@ in the generic crate because other callers may need exact git-aware traversal.
 - `list_files` still suppresses build artifacts by default.
 - `list_files include_ignored=true` includes those artifacts.
 - `list_files limit` reports `total_count` and `truncated`.
+- file-search retrieval candidates pass through `MemorySelection` as paths-only
+  candidates.
 
 ## Open Risks
 
@@ -95,15 +115,16 @@ in the generic crate because other callers may need exact git-aware traversal.
 - `glob` and `grep` still have their own traversal paths. They should move to
   the shared crate only when their output contracts and ignore semantics are
   updated deliberately.
-- File search is not yet connected to `MemorySelection`; automatic context
-  injection must preserve budget and cache-prefix stability.
+- Automatic file-content injection remains intentionally out of scope until
+  excerpt selection has a cache-stable budget contract.
 
 ## Follow-Up
 
 Future work should add a session-style incremental search surface for TUI
-pickers, then use the same crate for context file routing before injecting
-candidate files into `MemorySelection`.
+pickers. File-content injection should wait for an explicit excerpt-selection
+contract that preserves budget and cache-prefix stability.
 
 ## Source Journals
 
 - `docs/journal/2026-05-07-file-search-crate.md`
+- `docs/journal/2026-07-29-file-search-memory-selection.md`
