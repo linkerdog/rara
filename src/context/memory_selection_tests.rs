@@ -4,7 +4,7 @@ use super::*;
 use crate::context::retrieval_provider::retrieval_candidate_from_retrieved_memory;
 use crate::context::{
     RETRIEVED_THREAD_CONTEXT_KIND, RETRIEVED_WORKSPACE_MEMORY_KIND, RetrievalRequest,
-    RetrievedMemoryCandidate, retrieval_candidates,
+    RetrievalSourceRef, RetrievedMemoryCandidate, retrieval_candidates,
 };
 
 #[allow(clippy::too_many_arguments)]
@@ -475,6 +475,72 @@ fn typed_retrieval_candidate_priority_drives_selection_order() {
             RETRIEVED_WORKSPACE_MEMORY_KIND
         ],
         "typed priorities should preserve focused thread context before workspace memory"
+    );
+}
+
+#[test]
+fn file_search_candidates_flow_through_memory_selection() {
+    let history = vec![Message {
+        role: "user".to_string(),
+        content: json!([{"type":"text","text":"Open the provider tests"}]),
+    }];
+    let file_search = vec![RetrievalCandidate {
+        id: "file_search:1:src-context-provider-tests-rs".to_string(),
+        source: RetrievalSourceRef {
+            source_type: "file_search".to_string(),
+            source_id: None,
+            source_path: Some("src/context/provider_tests.rs".to_string()),
+            source_uri: None,
+            session_id: None,
+            thread_id: None,
+            workspace_id: None,
+        },
+        kind: "file_search".to_string(),
+        scope: "workspace".to_string(),
+        label: "src/context/provider_tests.rs".to_string(),
+        detail: "file_search(name_match, score=0.920); paths_only; content_not_read".to_string(),
+        summary: None,
+        rank: 1,
+        score: Some(0.92),
+        priority: 81,
+        dedupe_key: None,
+        budget_impact_tokens: Some(8),
+        selection_reason:
+            "paths-only candidate from file search (score 0.920); file contents were not read"
+                .to_string(),
+        availability_reason:
+            "available because fuzzy path search matched the current turn query".to_string(),
+        not_selected_reason:
+            "not selected after ranking this low-priority paths-only file-search candidate"
+                .to_string(),
+        selectable: true,
+    }];
+
+    let result = memory_selection_for_test(
+        &[],
+        None,
+        &[],
+        &[],
+        &[],
+        &history,
+        "session-1",
+        "",
+        &[],
+        file_search.as_slice(),
+        Some(10_000),
+    );
+
+    let selected = result
+        .selected_items
+        .iter()
+        .find(|item| item.kind == "file_search")
+        .expect("file-search candidate should enter memory selection");
+    assert_eq!(selected.label, "src/context/provider_tests.rs");
+    assert_eq!(selected.budget_impact_tokens, Some(8));
+    assert!(
+        selected.detail.contains("paths_only")
+            && selected.detail.contains("content_not_read"),
+        "file search selection must stay paths-only until an excerpt loader exists"
     );
 }
 
