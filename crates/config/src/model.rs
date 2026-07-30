@@ -239,19 +239,11 @@ impl TuiConfig {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
 #[serde(default)]
 pub struct BuiltinPluginConfig {
     #[serde(default, skip_serializing_if = "NowledgeMemPluginConfig::is_default")]
     pub nowledge_mem: NowledgeMemPluginConfig,
-}
-
-impl Default for BuiltinPluginConfig {
-    fn default() -> Self {
-        Self {
-            nowledge_mem: NowledgeMemPluginConfig::default(),
-        }
-    }
 }
 
 impl BuiltinPluginConfig {

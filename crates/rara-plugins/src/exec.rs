@@ -162,6 +162,7 @@ mod tests {
 
     #[tokio::test]
     async fn executes_simple_echo_hook() {
+        let plugin_root = tempfile::tempdir().expect("plugin root");
         let handler = HookHandler {
             r#type: "command".to_string(),
             command: "echo '{\"continue\": true}'".to_string(),
@@ -171,12 +172,12 @@ mod tests {
         };
         let result = execute_command_hook(
             &handler,
-            &PathBuf::from("/tmp"),
+            &plugin_root.path().to_path_buf(),
             HookInput {
                 session_id: "test".to_string(),
                 transcript_path: None,
                 hook_event: "Stop".to_string(),
-                plugin_root: "/tmp".to_string(),
+                plugin_root: plugin_root.path().to_string_lossy().to_string(),
                 tool_name: None,
                 tool_input: None,
                 tool_response: None,
