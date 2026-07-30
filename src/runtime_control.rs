@@ -291,6 +291,7 @@ pub enum MemoryEvent {
         labels: Vec<MemoryLabelSummary>,
     },
     RecordsQueried {
+        query: String,
         records: Vec<MemoryRecordSummary>,
     },
     ActionObserved {
@@ -1188,6 +1189,7 @@ mod tests {
         );
 
         let records = serde_json::to_value(RuntimeEvent::Memory(MemoryEvent::RecordsQueried {
+            query: "project path".to_string(),
             records: vec![MemoryRecordSummary {
                 id: "memory-1".to_string(),
                 title: "Reference project path".to_string(),
@@ -1208,6 +1210,7 @@ mod tests {
                 "payload": {
                     "type": "records_queried",
                     "payload": {
+                        "query": "project path",
                         "records": [{
                             "id": "memory-1",
                             "title": "Reference project path",

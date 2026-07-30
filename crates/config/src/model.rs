@@ -241,6 +241,57 @@ impl TuiConfig {
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(default)]
+pub struct BuiltinPluginConfig {
+    #[serde(default, skip_serializing_if = "NowledgeMemPluginConfig::is_default")]
+    pub nowledge_mem: NowledgeMemPluginConfig,
+}
+
+impl Default for BuiltinPluginConfig {
+    fn default() -> Self {
+        Self {
+            nowledge_mem: NowledgeMemPluginConfig::default(),
+        }
+    }
+}
+
+impl BuiltinPluginConfig {
+    pub fn is_default(&self) -> bool {
+        *self == Self::default()
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(default)]
+pub struct NowledgeMemPluginConfig {
+    #[serde(default = "default_true")]
+    pub enabled: bool,
+    pub url: String,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub http_headers: BTreeMap<String, String>,
+}
+
+impl Default for NowledgeMemPluginConfig {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            url: default_nowledge_mem_mcp_url(),
+            http_headers: BTreeMap::new(),
+        }
+    }
+}
+
+impl NowledgeMemPluginConfig {
+    pub fn is_default(&self) -> bool {
+        *self == Self::default()
+    }
+}
+
+fn default_nowledge_mem_mcp_url() -> String {
+    "http://127.0.0.1:14242/mcp/".to_string()
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(default)]
 pub struct TuiThemeConfig {
     pub name: String,
     pub syntax_theme: Option<String>,
@@ -314,6 +365,8 @@ pub struct RaraConfig {
     pub local_embeddings: LocalEmbeddingPolicy,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub plugin_dirs: Vec<PathBuf>,
+    #[serde(default, skip_serializing_if = "BuiltinPluginConfig::is_default")]
+    pub builtin_plugins: BuiltinPluginConfig,
     #[serde(default, skip_serializing_if = "TuiConfig::is_default")]
     pub tui: TuiConfig,
 }
@@ -1292,6 +1345,53 @@ mod tests {
         assert_eq!(
             config.plugin_dirs,
             vec![PathBuf::from("plugins-a"), PathBuf::from("/tmp/plugins-b")]
+        );
+    }
+
+    #[test]
+    fn builtin_plugins_default_enabled_and_omitted() {
+        let config = RaraConfig::default();
+
+        assert!(config.builtin_plugins.nowledge_mem.enabled);
+        assert_eq!(
+            config.builtin_plugins.nowledge_mem.url,
+            "http://127.0.0.1:14242/mcp/"
+        );
+
+        let json = serde_json::to_string(&config).expect("serialize config");
+        assert!(!json.contains("builtin_plugins"));
+    }
+
+    #[test]
+    fn builtin_nowledge_mem_config_can_override_endpoint_and_headers() {
+        let config: RaraConfig = serde_json::from_str(
+            r#"{
+                "provider": "deepseek",
+                "builtin_plugins": {
+                    "nowledge_mem": {
+                        "enabled": false,
+                        "url": "http://localhost:24242/mcp/",
+                        "http_headers": {
+                            "APP": "CustomRara",
+                            "X-NMEM-Space": "workspace"
+                        }
+                    }
+                }
+            }"#,
+        )
+        .expect("deserialize config");
+
+        assert!(!config.builtin_plugins.nowledge_mem.enabled);
+        assert_eq!(
+            config.builtin_plugins.nowledge_mem.url,
+            "http://localhost:24242/mcp/"
+        );
+        assert_eq!(
+            config.builtin_plugins.nowledge_mem.http_headers,
+            BTreeMap::from([
+                ("APP".to_string(), "CustomRara".to_string()),
+                ("X-NMEM-Space".to_string(), "workspace".to_string())
+            ])
         );
     }
 

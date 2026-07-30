@@ -99,10 +99,7 @@ pub fn load_plugin(root: &Path) -> Option<Plugin> {
 
 /// Load a single plugin from a directory with explicit source metadata.
 pub fn load_plugin_with_source(root: &Path, source: PluginSource) -> Option<Plugin> {
-    let plugin_dir = root.join(".claude-plugin");
-    if !plugin_dir.is_dir() {
-        return None;
-    }
+    let plugin_dir = plugin_metadata_dir(root)?;
 
     let mut load_warnings = Vec::new();
 
@@ -157,6 +154,13 @@ pub fn load_plugin_with_source(root: &Path, source: PluginSource) -> Option<Plug
         mcp_config,
         load_warnings,
     })
+}
+
+fn plugin_metadata_dir(root: &Path) -> Option<PathBuf> {
+    [".claude-plugin", ".codex-plugin"]
+        .into_iter()
+        .map(|dir| root.join(dir))
+        .find(|dir| dir.is_dir())
 }
 
 fn parse_hooks_json(path: &Path) -> Result<Vec<HookHandler>, String> {
@@ -318,6 +322,29 @@ mod tests {
         assert_eq!(registered[0].event, HookEvent::Stop);
         assert_eq!(registered[0].handler.command, "echo ok");
         assert_eq!(registered[0].handler.matcher.as_deref(), Some(""));
+    }
+
+    #[test]
+    fn loads_codex_plugin_metadata_directory() {
+        let dir = tempfile::tempdir().unwrap();
+        let plugin_dir = dir.path().join(".codex-plugin");
+        fs::create_dir_all(&plugin_dir).unwrap();
+        fs::write(
+            plugin_dir.join("plugin.json"),
+            json!({
+                "name": "nowledge-mem",
+                "version": "0.1.29",
+                "description": "Memory that follows the user"
+            })
+            .to_string(),
+        )
+        .unwrap();
+
+        let plugin = load_plugin(dir.path()).expect("codex plugin should load");
+
+        assert_eq!(plugin.name, "nowledge-mem");
+        assert_eq!(plugin.version.as_deref(), Some("0.1.29"));
+        assert_eq!(plugin.description, "Memory that follows the user");
     }
 
     #[test]

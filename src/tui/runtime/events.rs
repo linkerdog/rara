@@ -2,6 +2,8 @@ mod helpers;
 #[cfg(test)]
 mod tests;
 
+use rara_persistence::redaction::redact_secrets;
+
 use self::helpers::{
     append_tool_progress, exploration_action_label, exploration_note_lines,
     exploration_result_note, format_tool_result, format_tool_use, is_exploration_tool_name,
@@ -18,9 +20,11 @@ use crate::session_promotion::{
     SessionShardPromotionDecision, SessionShardPromotionOutcome, SessionShardPromotionSkipReason,
 };
 use crate::todo::format_todo_update;
+use crate::tui::display_sanitize::sanitize_display_text;
 use crate::tui::terminal_event::{TerminalEvent, TerminalTarget};
 
 const TOOL_PROGRESS_LINE_LIMIT: usize = 16;
+const MEMORY_QUERY_PREVIEW_LIMIT: usize = 120;
 
 pub(super) fn apply_tui_event(app: &mut TuiApp, event: TuiEvent) {
     match event {
@@ -382,8 +386,9 @@ pub(super) fn format_memory_event_notice(event: &MemoryEvent) -> String {
             record_count,
             count_label("record", *record_count)
         )),
-        MemoryEvent::RecordsQueried { records } => memory_notice(format!(
-            "queried records: {} {}",
+        MemoryEvent::RecordsQueried { query, records } => memory_notice(format!(
+            "queried records for \"{}\": {} {}",
+            memory_query_preview(query),
             records.len(),
             count_label("result", records.len())
         )),
@@ -393,6 +398,25 @@ pub(super) fn format_memory_event_notice(event: &MemoryEvent) -> String {
         }
         MemoryEvent::SelectionUpdated => memory_notice("refreshed selection snapshot"),
     }
+}
+
+fn memory_query_preview(query: &str) -> String {
+    let sanitized = sanitize_display_text(&redact_secrets(query));
+    let condensed = sanitized.split_whitespace().collect::<Vec<_>>().join(" ");
+    truncate_memory_query_preview(&condensed)
+}
+
+fn truncate_memory_query_preview(query: &str) -> String {
+    if query.chars().count() <= MEMORY_QUERY_PREVIEW_LIMIT {
+        return query.to_string();
+    }
+
+    let mut truncated = query
+        .chars()
+        .take(MEMORY_QUERY_PREVIEW_LIMIT.saturating_sub(3))
+        .collect::<String>();
+    truncated.push_str("...");
+    truncated
 }
 
 fn format_session_shard_promotion_outcome(outcome: &SessionShardPromotionOutcome) -> String {

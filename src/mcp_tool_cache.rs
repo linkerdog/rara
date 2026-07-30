@@ -101,6 +101,7 @@ impl McpToolCache {
                     args,
                     env,
                     cwd,
+                    ..
                 } => {
                     let cmd = std::ffi::OsString::from(command);
                     let argv: Vec<std::ffi::OsString> = args.iter().map(|a| a.into()).collect();

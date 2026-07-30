@@ -4,9 +4,11 @@
 // actually render in the TUI, not just plain text.
 use std::sync::atomic::Ordering;
 
+use rara_persistence::redaction::sanitize_url_for_display;
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
 
+use crate::config::McpServerTransport;
 use crate::tui::state::{PlanningApprovalStatus, StatusTab, TuiApp};
 
 pub(crate) fn render_status_lines(app: &TuiApp, tab: StatusTab) -> Vec<Line<'static>> {
@@ -124,11 +126,60 @@ fn render_overview_status(app: &TuiApp, lines: &mut Vec<Line<'static>>) {
         &snap.extension_agent_count.to_string(),
         Color::DarkGray,
     );
+    render_nowledge_mem_status(app, lines);
     for line in &snap.extension_agent_status_lines {
         lines.push(Line::from(Span::styled(
             line.clone(),
             Style::default().fg(Color::DarkGray),
         )));
+    }
+}
+
+fn render_nowledge_mem_status(app: &TuiApp, lines: &mut Vec<Line<'static>>) {
+    let config = &app.config.builtin_plugins.nowledge_mem;
+    if !config.enabled {
+        kv(lines, "mcp", "nowledge-mem disabled", Color::DarkGray);
+        kv(lines, "nowledge", "disabled", Color::DarkGray);
+        return;
+    }
+
+    let proxy_label = if nowledge_mem_transport(config).bypasses_proxy() {
+        "local/direct"
+    } else {
+        "remote"
+    };
+    let header_label = if config.http_headers.is_empty() {
+        "default headers".to_string()
+    } else {
+        format!("{} custom headers", config.http_headers.len())
+    };
+    kv(lines, "mcp", "nowledge-mem builtin", Color::LightBlue);
+    kv(
+        lines,
+        "nowledge",
+        &format!(
+            "{} ({proxy_label}, {header_label})",
+            sanitize_url_for_display(&config.url)
+        ),
+        if proxy_label == "local/direct" {
+            Color::LightGreen
+        } else {
+            Color::LightBlue
+        },
+    );
+}
+
+fn nowledge_mem_transport(config: &crate::config::NowledgeMemPluginConfig) -> McpServerTransport {
+    McpServerTransport::StreamableHttp {
+        r#type: Some("http".to_string()),
+        url: config.url.clone(),
+        bearer_token_env_var: None,
+        http_headers: if config.http_headers.is_empty() {
+            None
+        } else {
+            Some(config.http_headers.clone())
+        },
+        env_http_headers: None,
     }
 }
 
@@ -550,6 +601,71 @@ mod tests {
         assert!(rendered.contains("2"));
         assert!(rendered.contains("code-reviewer"));
         assert!(rendered.contains(".rara/agents/code-reviewer.md"));
+    }
+
+    #[test]
+    fn overview_status_reports_builtin_nowledge_mem() {
+        let temp = tempdir().expect("tempdir");
+        let app = TuiApp::new(ConfigManager {
+            path: temp.path().join("config.json"),
+        })
+        .expect("app");
+
+        let rendered = render_status_lines(&app, StatusTab::Overview)
+            .into_iter()
+            .map(|line| line.to_string())
+            .collect::<Vec<_>>()
+            .join("\n");
+
+        assert!(rendered.contains("nowledge-mem builtin"));
+        assert!(rendered.contains("http://127.0.0.1:14242/mcp/"));
+        assert!(rendered.contains("local/direct"));
+        assert!(rendered.contains("default headers"));
+    }
+
+    #[test]
+    fn overview_status_reports_disabled_nowledge_mem() {
+        let temp = tempdir().expect("tempdir");
+        let mut app = TuiApp::new(ConfigManager {
+            path: temp.path().join("config.json"),
+        })
+        .expect("app");
+        app.config.builtin_plugins.nowledge_mem.enabled = false;
+
+        let rendered = render_status_lines(&app, StatusTab::Overview)
+            .into_iter()
+            .map(|line| line.to_string())
+            .collect::<Vec<_>>()
+            .join("\n");
+
+        assert!(rendered.contains("nowledge-mem disabled"));
+    }
+
+    #[test]
+    fn overview_status_reports_custom_nowledge_mem_endpoint_and_headers() {
+        let temp = tempdir().expect("tempdir");
+        let mut app = TuiApp::new(ConfigManager {
+            path: temp.path().join("config.json"),
+        })
+        .expect("app");
+        app.config.builtin_plugins.nowledge_mem.url =
+            "https://mem.example.com/mcp/?token=secret".to_string();
+        app.config
+            .builtin_plugins
+            .nowledge_mem
+            .http_headers
+            .insert("X-NMEM-Space".to_string(), "workspace".to_string());
+
+        let rendered = render_status_lines(&app, StatusTab::Overview)
+            .into_iter()
+            .map(|line| line.to_string())
+            .collect::<Vec<_>>()
+            .join("\n");
+
+        assert!(rendered.contains("https://mem.example.com/mcp/?token=%3Credacted%3E"));
+        assert!(rendered.contains("remote"));
+        assert!(rendered.contains("1 custom headers"));
+        assert!(!rendered.contains("token=secret"));
     }
 
     #[test]

@@ -316,11 +316,12 @@ string fields and integer importance basis points so ACP/Wire adapters do not
 depend on internal Rust enums or floating-point formatting.
 
 Memory activity that affects the local agent turn must also produce a
-content-free TUI notice. Query notices may expose the operation and result
-count, and write notices may expose the operation and shortened record id, but
-they must not render stored memory content, query text, or titles in the
-transcript. Automatic workspace-memory retrieval and session checkpoint writes
-use the same notice style as protocol memory-control events.
+content-free TUI notice. Query notices may expose the operation, a sanitized
+and bounded query preview, and result count. Write notices may expose the
+operation and shortened record id. Notices must not render stored memory
+content, record titles, or unbounded query text in the transcript. Automatic
+workspace-memory retrieval and session checkpoint writes use the same notice
+style as protocol memory-control events.
 
 ### Hook Declaration
 

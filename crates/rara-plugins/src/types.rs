@@ -6,6 +6,7 @@ use serde::Deserialize;
 /// Origin of a discovered Claude Code plugin.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum PluginSource {
+    Builtin(PathBuf),
     User(PathBuf),
     Project(PathBuf),
     Cli(PathBuf),
@@ -15,14 +16,17 @@ pub enum PluginSource {
 impl PluginSource {
     pub fn path(&self) -> &Path {
         match self {
-            Self::User(path) | Self::Project(path) | Self::Cli(path) | Self::Directory(path) => {
-                path
-            }
+            Self::Builtin(path)
+            | Self::User(path)
+            | Self::Project(path)
+            | Self::Cli(path)
+            | Self::Directory(path) => path,
         }
     }
 
     pub fn label(&self) -> &'static str {
         match self {
+            Self::Builtin(_) => "builtin",
             Self::User(_) => "user",
             Self::Project(_) => "project",
             Self::Cli(_) => "cli",
