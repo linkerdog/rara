@@ -383,7 +383,6 @@ and switch between local and cloud mode. Cloud configuration accepts the server
 URL and environment variable names only; it never accepts an API-key value.
 Saving a change persists the config and asks the runtime to rebuild. The TUI
 does not assemble the MCP transport itself.
-`/nowledge-mem` remains a compatibility alias.
 The status display reports the builtin MCP entry as
 `nowledge-mem builtin`, shows the configured endpoint with secret-bearing URL
 parts redacted, and marks localhost endpoints as `local/direct` to make the

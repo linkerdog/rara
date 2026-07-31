@@ -97,17 +97,6 @@ fn parses_nowledge_mem_configuration_command() {
         command.arg.as_deref(),
         Some("cloud https://mem.example.com RARA_NMEM_API_KEY RARA_NMEM_SPACE")
     );
-
-    let compatibility_alias =
-        parse_local_command("/nowledge-mem off").expect("compatibility alias should parse");
-    assert!(matches!(
-        compatibility_alias.kind,
-        LocalCommandKind::NowledgeMem
-    ));
-
-    let alias = parse_local_command("/mem-config off").expect("alias should parse");
-    assert!(matches!(alias.kind, LocalCommandKind::NowledgeMem));
-    assert_eq!(alias.arg.as_deref(), Some("off"));
 }
 
 #[test]

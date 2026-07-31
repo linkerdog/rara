@@ -42,8 +42,7 @@ same plugin state.
   default, with configurable environment variable names.
 - TUI exposes `/mem` for enablement, local/cloud mode selection, and endpoint
   or environment-variable-name updates. It saves configuration and requests a
-  runtime rebuild; transport construction remains runtime-owned. The longer
-  `/nowledge-mem` form remains a compatibility alias.
+  runtime rebuild; transport construction remains runtime-owned.
 - `builtin_plugins.nowledge_mem` controls whether the plugin is materialized
   and which MCP URL or headers are written into its generated `.mcp.json`.
 - The builtin plugin accepts Codex-style `.codex-plugin/plugin.json` metadata.

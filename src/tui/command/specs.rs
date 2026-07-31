@@ -127,7 +127,7 @@ pub const COMMAND_SPECS: [CommandSpec; 26] = [
         name: "mem",
         usage: "/mem [on|off|local [url]|cloud <url> [api-key-env] [space-env]]",
         summary: "Configure the builtin Nowledge Mem local or cloud MCP connection.",
-        detail: "Show or update the builtin Nowledge Mem connection. Cloud mode stores only the endpoint and environment variable names; it never accepts or persists an API key value. /nowledge-mem remains a compatibility alias.",
+        detail: "Show or update the builtin Nowledge Mem connection. Cloud mode stores only the endpoint and environment variable names; it never accepts or persists an API key value.",
     },
     CommandSpec {
         category: "Setup",
@@ -212,7 +212,7 @@ pub fn parse_local_command(input: &str) -> Option<LocalCommand> {
         "model" | "models" => LocalCommandKind::Model,
         "connect" => LocalCommandKind::Connect,
         "base-url" => LocalCommandKind::BaseUrl,
-        "mem" | "nowledge-mem" | "mem-config" => LocalCommandKind::NowledgeMem,
+        "mem" => LocalCommandKind::NowledgeMem,
         "login" | "auth" => LocalCommandKind::Login,
         "logout" => LocalCommandKind::Logout,
         "review" => LocalCommandKind::Review,
