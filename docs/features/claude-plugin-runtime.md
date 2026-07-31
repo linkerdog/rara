@@ -378,7 +378,12 @@ MCP, shell, or skill invocation inside subagents is a separate tool-surface
 decision.
 
 TUI displays this integration in the `/status` Overview Extensions section.
-The display is read-only: it reports the builtin MCP entry as
+The `/nowledge-mem` command can also enable or disable the builtin plugin and
+switch between local and cloud mode. Cloud configuration accepts the server
+URL and environment variable names only; it never accepts an API-key value.
+Saving a change persists the config and asks the runtime to rebuild. The TUI
+does not assemble the MCP transport itself.
+The status display reports the builtin MCP entry as
 `nowledge-mem builtin`, shows the configured endpoint with secret-bearing URL
 parts redacted, and marks localhost endpoints as `local/direct` to make the
 no-proxy contract visible. Disabled builtin configuration renders as
@@ -433,7 +438,7 @@ scope for now.
 | Builtin Nowledge Mem plugin materializes skills, MCP, and agent definition | `cargo test plugin_middleware::tests::builtin_nowledge_mem_plugin_materializes_skills_mcp_and_agent -- --nocapture` |
 | Builtin Nowledge Mem MCP registers as builtin fallback | `cargo test plugin_middleware::tests::appends_builtin_nowledge_mem_mcp_config -- --nocapture` and `cargo test plugin_middleware::tests::builtin_nowledge_mem_mcp_yields_to_existing_registry_server -- --nocapture` |
 | Builtin Nowledge Mem config controls endpoint, headers, and enabled state | `cargo test plugin_middleware::tests::builtin_nowledge_mem_mcp_uses_configured_url_and_headers -- --nocapture`, `cargo test plugin_middleware::tests::disabled_builtin_nowledge_mem_plugin_is_not_discovered -- --nocapture`, and `cargo test -p rara-config builtin_nowledge_mem_config_can_override_endpoint_and_headers -- --nocapture` |
-| TUI shows builtin Nowledge Mem status without owning runtime assembly | `cargo test tui::status_display::tests::overview_status_reports_builtin_nowledge_mem -- --nocapture`, `cargo test tui::status_display::tests::overview_status_reports_disabled_nowledge_mem -- --nocapture`, and `cargo test tui::status_display::tests::overview_status_reports_custom_nowledge_mem_endpoint_and_headers -- --nocapture` |
+| TUI configures and shows builtin Nowledge Mem without owning runtime assembly | `cargo test tui::command::tests::parses_nowledge_mem_configuration_command -- --nocapture`, `cargo test tui::status_display::tests::overview_status_reports_builtin_nowledge_mem -- --nocapture`, `cargo test tui::status_display::tests::overview_status_reports_disabled_nowledge_mem -- --nocapture`, and `cargo test tui::status_display::tests::overview_status_reports_custom_nowledge_mem_endpoint_and_headers -- --nocapture` |
 | Local streamable HTTP MCP endpoints bypass proxy | `cargo test -p rara-config streamable_http_localhost_bypasses_proxy -- --nocapture` |
 | Plugin MCP file and relative cwd handling | `cargo test plugin_middleware::tests::plugin_mcp_configs_skip_mcp_json_directories -- --nocapture` and `cargo test plugin_middleware::tests::plugin_mcp_configs_resolve_relative_cwd_from_plugin_root -- --nocapture` |
 | Plugin MCP parse and duplicate-name failures surface | `cargo test plugin_middleware::tests::plugin_mcp_configs_fail_on_duplicate_server_names -- --nocapture` and `cargo test plugin_middleware::tests::plugin_mcp_configs_fail_on_invalid_json -- --nocapture` |

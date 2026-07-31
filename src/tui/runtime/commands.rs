@@ -33,6 +33,7 @@ pub(super) async fn execute_local_command(
         LocalCommandKind::Logout => "logout",
         LocalCommandKind::Mcp => "mcp",
         LocalCommandKind::Model => "model",
+        LocalCommandKind::NowledgeMem => "nowledge-mem",
         LocalCommandKind::Plan => "plan",
         LocalCommandKind::Quit => "quit",
         LocalCommandKind::Resume => "resume",
@@ -78,6 +79,9 @@ pub(super) async fn execute_local_command(
             app.push_notice(notice);
         }
         LocalCommandKind::BaseUrl => handle_base_url_command(command.arg.as_deref(), app)?,
+        LocalCommandKind::NowledgeMem => {
+            handle_nowledge_mem_command(command.arg.as_deref(), app)?;
+        }
         LocalCommandKind::Help => {
             app.set_runtime_phase(RuntimePhase::LocalCommand, Some("opening help".into()));
             app.open_overlay(Overlay::Help(HelpTab::General));
@@ -344,6 +348,77 @@ fn handle_connect_command(app: &mut TuiApp) -> anyhow::Result<()> {
     app.bottom_pane.notice = Some(
         "Connect a provider — select the provider family, then configure API key and model.".into(),
     );
+    Ok(())
+}
+
+fn handle_nowledge_mem_command(arg: Option<&str>, app: &mut TuiApp) -> anyhow::Result<()> {
+    let arg = arg.unwrap_or("").trim();
+    if arg.is_empty() {
+        let config = &app.config.builtin_plugins.nowledge_mem;
+        app.push_notice(format!(
+            "Nowledge Mem: {} {}",
+            if config.enabled {
+                "enabled"
+            } else {
+                "disabled"
+            },
+            config.mode_label()
+        ));
+        return Ok(());
+    }
+
+    let mut parts = arg.split_whitespace();
+    let action = parts.next().unwrap_or_default();
+    let mut next = app.config.builtin_plugins.nowledge_mem.clone();
+    match action {
+        "on" => {
+            if parts.next().is_some() {
+                anyhow::bail!("Usage: /nowledge-mem on");
+            }
+            next.enabled = true;
+        }
+        "off" => {
+            if parts.next().is_some() {
+                anyhow::bail!("Usage: /nowledge-mem off");
+            }
+            next.enabled = false;
+        }
+        "local" => {
+            next.mode = crate::config::NowledgeMemMode::Local;
+            next.enabled = true;
+            if let Some(url) = parts.next() {
+                next.url = url.to_string();
+            }
+            if parts.next().is_some() {
+                anyhow::bail!("Usage: /nowledge-mem local [mcp-url]");
+            }
+        }
+        "cloud" => {
+            let url = parts.next().ok_or_else(|| {
+                anyhow::anyhow!("Usage: /nowledge-mem cloud <url> [api-key-env] [space-env]")
+            })?;
+            next.mode = crate::config::NowledgeMemMode::Cloud;
+            next.enabled = true;
+            next.url = url.to_string();
+            if let Some(api_key_env) = parts.next() {
+                next.api_key_env_var = api_key_env.to_string();
+            }
+            if let Some(space_env) = parts.next() {
+                next.space_id_env_var = (space_env != "-").then(|| space_env.to_string());
+            }
+            if parts.next().is_some() {
+                anyhow::bail!("Usage: /nowledge-mem cloud <url> [api-key-env] [space-env]");
+            }
+        }
+        _ => anyhow::bail!(
+            "Usage: /nowledge-mem [on|off|local [url]|cloud <url> [api-key-env] [space-env]]"
+        ),
+    }
+
+    app.config.builtin_plugins.nowledge_mem = next;
+    app.config_manager.save(&app.config)?;
+    start_rebuild_task(app);
+    app.push_notice("Nowledge Mem configuration saved; rebuilding runtime.");
     Ok(())
 }
 
@@ -680,13 +755,14 @@ mod tests {
     use tokio::sync::mpsc;
 
     use super::{
-        execute_local_command, handle_mcp_command, mcp_project_root_from_cwd,
-        parse_goal_objective_and_budget, parse_goal_token_budget, spawn_mcp_tool_cache_population,
+        execute_local_command, handle_mcp_command, handle_nowledge_mem_command,
+        mcp_project_root_from_cwd, parse_goal_objective_and_budget, parse_goal_token_budget,
+        spawn_mcp_tool_cache_population,
     };
     use crate::agent::{Agent, AgentEvent, BashApprovalMode};
     use crate::config::{
         ConfigManager, McpRegistry, McpServerConfig, McpServerScope, McpServerSource,
-        McpServerTransport, SourcedMcpServerConfig,
+        McpServerTransport, NowledgeMemMode, SourcedMcpServerConfig,
     };
     use crate::llm::MockLlm;
     use crate::mcp_tool_cache::McpToolCache;
@@ -785,6 +861,32 @@ mod tests {
             parse_goal_objective_and_budget("fix the build").expect("no budget"),
             ("fix the build".to_string(), None)
         );
+    }
+
+    #[tokio::test]
+    async fn nowledge_mem_command_saves_cloud_config_and_env_names_only() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let mut app = TuiApp::new(ConfigManager {
+            path: dir.path().join("config.json"),
+        })
+        .expect("app");
+
+        handle_nowledge_mem_command(
+            Some("cloud https://mem.example.com RARA_NMEM_API_KEY RARA_NMEM_SPACE"),
+            &mut app,
+        )
+        .expect("cloud configuration should save");
+
+        let config = &app.config.builtin_plugins.nowledge_mem;
+        assert!(config.enabled);
+        assert_eq!(config.mode, NowledgeMemMode::Cloud);
+        assert_eq!(config.url, "https://mem.example.com");
+        assert_eq!(config.api_key_env_var, "RARA_NMEM_API_KEY");
+        assert_eq!(config.space_id_env_var.as_deref(), Some("RARA_NMEM_SPACE"));
+
+        let saved = fs::read_to_string(dir.path().join("config.json")).expect("saved config");
+        assert!(saved.contains("RARA_NMEM_API_KEY"));
+        assert!(!saved.contains("secret-value"));
     }
 
     #[test]

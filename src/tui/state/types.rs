@@ -153,6 +153,7 @@ pub enum LocalCommandKind {
     Model,
     Connect,
     BaseUrl,
+    NowledgeMem,
     Login,
     Mcp,
     Permissions,
