@@ -2,7 +2,7 @@
 
 use crate::tui::state::{CommandSpec, LocalCommand, LocalCommandKind, TuiApp};
 
-pub const COMMAND_SPECS: [CommandSpec; 25] = [
+pub const COMMAND_SPECS: [CommandSpec; 26] = [
     CommandSpec {
         category: "Session",
         name: "permissions",
@@ -124,6 +124,13 @@ pub const COMMAND_SPECS: [CommandSpec; 25] = [
     },
     CommandSpec {
         category: "Setup",
+        name: "mem",
+        usage: "/mem [on|off|local [url]|cloud <url> [api-key-env] [space-env]]",
+        summary: "Configure the builtin Nowledge Mem local or cloud MCP connection.",
+        detail: "Show or update the builtin Nowledge Mem connection. Cloud mode stores only the endpoint and environment variable names; it never accepts or persists an API key value.",
+    },
+    CommandSpec {
+        category: "Setup",
         name: "login",
         usage: "/login",
         summary: "Open the provider auth picker.",
@@ -205,6 +212,7 @@ pub fn parse_local_command(input: &str) -> Option<LocalCommand> {
         "model" | "models" => LocalCommandKind::Model,
         "connect" => LocalCommandKind::Connect,
         "base-url" => LocalCommandKind::BaseUrl,
+        "mem" => LocalCommandKind::NowledgeMem,
         "login" | "auth" => LocalCommandKind::Login,
         "logout" => LocalCommandKind::Logout,
         "review" => LocalCommandKind::Review,

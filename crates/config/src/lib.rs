@@ -23,9 +23,9 @@ pub use self::mcp::{
 pub use self::migration::migrate_reasoning_summary;
 pub use self::model::{
     BuiltinPluginConfig, ConfigManager, ContextFileSearchPolicy, LocalEmbeddingPolicy,
-    NowledgeMemPluginConfig, OpenAiEndpointKind, OpenAiEndpointProfile, ProviderConfigState,
-    RaraConfig, SandboxWorkspaceWriteConfig, TuiConfig, TuiThemeConfig, ensure_rara_home_dir,
-    rara_home_dir, workspace_data_dir_for, workspace_data_dir_for_home,
+    NowledgeMemMode, NowledgeMemPluginConfig, OpenAiEndpointKind, OpenAiEndpointProfile,
+    ProviderConfigState, RaraConfig, SandboxWorkspaceWriteConfig, TuiConfig, TuiThemeConfig,
+    ensure_rara_home_dir, rara_home_dir, workspace_data_dir_for, workspace_data_dir_for_home,
 };
 pub use self::provider_surface::{
     ConfigValueSource, EffectiveProviderSurface, ResolvedProviderValue,
