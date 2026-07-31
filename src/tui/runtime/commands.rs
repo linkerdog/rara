@@ -33,7 +33,7 @@ pub(super) async fn execute_local_command(
         LocalCommandKind::Logout => "logout",
         LocalCommandKind::Mcp => "mcp",
         LocalCommandKind::Model => "model",
-        LocalCommandKind::NowledgeMem => "nowledge-mem",
+        LocalCommandKind::NowledgeMem => "mem",
         LocalCommandKind::Plan => "plan",
         LocalCommandKind::Quit => "quit",
         LocalCommandKind::Resume => "resume",
@@ -373,13 +373,13 @@ fn handle_nowledge_mem_command(arg: Option<&str>, app: &mut TuiApp) -> anyhow::R
     match action {
         "on" => {
             if parts.next().is_some() {
-                anyhow::bail!("Usage: /nowledge-mem on");
+                anyhow::bail!("Usage: /mem on");
             }
             next.enabled = true;
         }
         "off" => {
             if parts.next().is_some() {
-                anyhow::bail!("Usage: /nowledge-mem off");
+                anyhow::bail!("Usage: /mem off");
             }
             next.enabled = false;
         }
@@ -390,12 +390,12 @@ fn handle_nowledge_mem_command(arg: Option<&str>, app: &mut TuiApp) -> anyhow::R
                 next.url = url.to_string();
             }
             if parts.next().is_some() {
-                anyhow::bail!("Usage: /nowledge-mem local [mcp-url]");
+                anyhow::bail!("Usage: /mem local [mcp-url]");
             }
         }
         "cloud" => {
             let url = parts.next().ok_or_else(|| {
-                anyhow::anyhow!("Usage: /nowledge-mem cloud <url> [api-key-env] [space-env]")
+                anyhow::anyhow!("Usage: /mem cloud <url> [api-key-env] [space-env]")
             })?;
             next.mode = crate::config::NowledgeMemMode::Cloud;
             next.enabled = true;
@@ -407,12 +407,12 @@ fn handle_nowledge_mem_command(arg: Option<&str>, app: &mut TuiApp) -> anyhow::R
                 next.space_id_env_var = (space_env != "-").then(|| space_env.to_string());
             }
             if parts.next().is_some() {
-                anyhow::bail!("Usage: /nowledge-mem cloud <url> [api-key-env] [space-env]");
+                anyhow::bail!("Usage: /mem cloud <url> [api-key-env] [space-env]");
             }
         }
-        _ => anyhow::bail!(
-            "Usage: /nowledge-mem [on|off|local [url]|cloud <url> [api-key-env] [space-env]]"
-        ),
+        _ => {
+            anyhow::bail!("Usage: /mem [on|off|local [url]|cloud <url> [api-key-env] [space-env]]")
+        }
     }
 
     app.config.builtin_plugins.nowledge_mem = next;

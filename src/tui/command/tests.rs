@@ -89,15 +89,21 @@ fn parses_base_url_command() {
 
 #[test]
 fn parses_nowledge_mem_configuration_command() {
-    let command = parse_local_command(
-        "/nowledge-mem cloud https://mem.example.com RARA_NMEM_API_KEY RARA_NMEM_SPACE",
-    )
-    .expect("command should parse");
+    let command =
+        parse_local_command("/mem cloud https://mem.example.com RARA_NMEM_API_KEY RARA_NMEM_SPACE")
+            .expect("command should parse");
     assert!(matches!(command.kind, LocalCommandKind::NowledgeMem));
     assert_eq!(
         command.arg.as_deref(),
         Some("cloud https://mem.example.com RARA_NMEM_API_KEY RARA_NMEM_SPACE")
     );
+
+    let compatibility_alias =
+        parse_local_command("/nowledge-mem off").expect("compatibility alias should parse");
+    assert!(matches!(
+        compatibility_alias.kind,
+        LocalCommandKind::NowledgeMem
+    ));
 
     let alias = parse_local_command("/mem-config off").expect("alias should parse");
     assert!(matches!(alias.kind, LocalCommandKind::NowledgeMem));
