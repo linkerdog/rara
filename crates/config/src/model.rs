@@ -252,12 +252,32 @@ impl BuiltinPluginConfig {
     }
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum NowledgeMemMode {
+    #[default]
+    Local,
+    Cloud,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(default)]
 pub struct NowledgeMemPluginConfig {
+    #[serde(default, skip_serializing_if = "NowledgeMemMode::is_default")]
+    pub mode: NowledgeMemMode,
     #[serde(default = "default_true")]
     pub enabled: bool,
     pub url: String,
+    #[serde(
+        default = "default_nowledge_mem_api_key_env_var",
+        skip_serializing_if = "is_default_nowledge_mem_api_key_env_var"
+    )]
+    pub api_key_env_var: String,
+    #[serde(
+        default = "default_nowledge_mem_space_id_env_var",
+        skip_serializing_if = "is_default_nowledge_mem_space_id_env_var"
+    )]
+    pub space_id_env_var: Option<String>,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub http_headers: BTreeMap<String, String>,
 }
@@ -265,21 +285,83 @@ pub struct NowledgeMemPluginConfig {
 impl Default for NowledgeMemPluginConfig {
     fn default() -> Self {
         Self {
+            mode: NowledgeMemMode::Local,
             enabled: true,
             url: default_nowledge_mem_mcp_url(),
+            api_key_env_var: default_nowledge_mem_api_key_env_var(),
+            space_id_env_var: default_nowledge_mem_space_id_env_var(),
             http_headers: BTreeMap::new(),
         }
     }
 }
 
 impl NowledgeMemPluginConfig {
+    pub fn mcp_url(&self) -> String {
+        match self.mode {
+            NowledgeMemMode::Local => self.url.clone(),
+            NowledgeMemMode::Cloud => {
+                let base = self.url.trim_end_matches('/');
+                if base.ends_with("/mcp") {
+                    format!("{base}/")
+                } else if base.ends_with("/remote-api") {
+                    format!("{base}/mcp/")
+                } else {
+                    format!("{base}/remote-api/mcp/")
+                }
+            }
+        }
+    }
+
+    pub fn env_http_headers(&self) -> Option<BTreeMap<String, String>> {
+        if self.mode != NowledgeMemMode::Cloud {
+            return None;
+        }
+        let mut headers = BTreeMap::from([
+            ("Authorization".to_string(), self.api_key_env_var.clone()),
+            ("X-NMEM-API-Key".to_string(), self.api_key_env_var.clone()),
+        ]);
+        if let Some(env_var) = &self.space_id_env_var {
+            headers.insert("X-Nmem-Space-Id".to_string(), env_var.clone());
+        }
+        Some(headers)
+    }
+
+    pub fn mode_label(&self) -> &'static str {
+        match self.mode {
+            NowledgeMemMode::Local => "local",
+            NowledgeMemMode::Cloud => "cloud",
+        }
+    }
+
     pub fn is_default(&self) -> bool {
+        *self == Self::default()
+    }
+}
+
+impl NowledgeMemMode {
+    fn is_default(&self) -> bool {
         *self == Self::default()
     }
 }
 
 fn default_nowledge_mem_mcp_url() -> String {
     "http://127.0.0.1:14242/mcp/".to_string()
+}
+
+fn default_nowledge_mem_api_key_env_var() -> String {
+    "NMEM_API_KEY".to_string()
+}
+
+fn is_default_nowledge_mem_api_key_env_var(value: &str) -> bool {
+    value == "NMEM_API_KEY"
+}
+
+fn default_nowledge_mem_space_id_env_var() -> Option<String> {
+    Some("NMEM_SPACE".to_string())
+}
+
+fn is_default_nowledge_mem_space_id_env_var(value: &Option<String>) -> bool {
+    value.as_deref() == Some("NMEM_SPACE")
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -1139,8 +1221,9 @@ mod tests {
     use tempfile::tempdir;
 
     use super::{
-        ConfigManager, ContextFileSearchPolicy, LocalEmbeddingPolicy, OpenAiEndpointKind,
-        OpenAiEndpointProfile, ProviderConfigState, RaraConfig, workspace_data_dir_for_home,
+        ConfigManager, ContextFileSearchPolicy, LocalEmbeddingPolicy, NowledgeMemMode,
+        OpenAiEndpointKind, OpenAiEndpointProfile, ProviderConfigState, RaraConfig,
+        workspace_data_dir_for_home,
     };
     use crate::defaults::{
         DEFAULT_CODEX_BASE_URL, DEFAULT_CODEX_CHATGPT_BASE_URL, DEFAULT_CODEX_MODEL,
@@ -1384,6 +1467,39 @@ mod tests {
                 ("APP".to_string(), "CustomRara".to_string()),
                 ("X-NMEM-Space".to_string(), "workspace".to_string())
             ])
+        );
+    }
+
+    #[test]
+    fn builtin_nowledge_mem_cloud_mode_derives_remote_mcp_and_env_headers() {
+        let config: RaraConfig = serde_json::from_str(
+            r#"{
+                "provider": "deepseek",
+                "builtin_plugins": {
+                    "nowledge_mem": {
+                        "mode": "cloud",
+                        "url": "https://mem.example.com",
+                        "api_key_env_var": "RARA_NMEM_API_KEY",
+                        "space_id_env_var": "RARA_NMEM_SPACE"
+                    }
+                }
+            }"#,
+        )
+        .expect("deserialize config");
+
+        let mem = &config.builtin_plugins.nowledge_mem;
+        assert_eq!(mem.mode, NowledgeMemMode::Cloud);
+        assert_eq!(mem.mcp_url(), "https://mem.example.com/remote-api/mcp/");
+        assert_eq!(
+            mem.env_http_headers(),
+            Some(BTreeMap::from([
+                ("Authorization".to_string(), "RARA_NMEM_API_KEY".to_string()),
+                (
+                    "X-NMEM-API-Key".to_string(),
+                    "RARA_NMEM_API_KEY".to_string()
+                ),
+                ("X-Nmem-Space-Id".to_string(), "RARA_NMEM_SPACE".to_string())
+            ]))
         );
     }
 

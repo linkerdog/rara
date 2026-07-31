@@ -153,15 +153,24 @@ fn render_nowledge_mem_status(app: &TuiApp, lines: &mut Vec<Line<'static>>) {
     } else {
         format!("{} custom headers", config.http_headers.len())
     };
+    let auth_label = if config.mode_label() == "cloud" {
+        format!(", api key env {}", config.api_key_env_var)
+    } else {
+        String::new()
+    };
     kv(lines, "mcp", "nowledge-mem builtin", Color::LightBlue);
     kv(
         lines,
         "nowledge",
         &format!(
-            "{} ({proxy_label}, {header_label})",
-            sanitize_url_for_display(&config.url)
+            "{} ({} / {}, {}{})",
+            sanitize_url_for_display(&config.mcp_url()),
+            config.mode_label(),
+            proxy_label,
+            header_label,
+            auth_label
         ),
-        if proxy_label == "local/direct" {
+        if config.mode_label() == "local" {
             Color::LightGreen
         } else {
             Color::LightBlue
@@ -172,14 +181,14 @@ fn render_nowledge_mem_status(app: &TuiApp, lines: &mut Vec<Line<'static>>) {
 fn nowledge_mem_transport(config: &crate::config::NowledgeMemPluginConfig) -> McpServerTransport {
     McpServerTransport::StreamableHttp {
         r#type: Some("http".to_string()),
-        url: config.url.clone(),
+        url: config.mcp_url(),
         bearer_token_env_var: None,
         http_headers: if config.http_headers.is_empty() {
             None
         } else {
             Some(config.http_headers.clone())
         },
-        env_http_headers: None,
+        env_http_headers: config.env_http_headers(),
     }
 }
 
@@ -666,6 +675,28 @@ mod tests {
         assert!(rendered.contains("remote"));
         assert!(rendered.contains("1 custom headers"));
         assert!(!rendered.contains("token=secret"));
+    }
+
+    #[test]
+    fn overview_status_reports_cloud_nowledge_mem_auth_source() {
+        let temp = tempdir().expect("tempdir");
+        let mut app = TuiApp::new(ConfigManager {
+            path: temp.path().join("config.json"),
+        })
+        .expect("app");
+        app.config.builtin_plugins.nowledge_mem.mode = crate::config::NowledgeMemMode::Cloud;
+        app.config.builtin_plugins.nowledge_mem.url = "https://mem.example.com".to_string();
+        app.config.builtin_plugins.nowledge_mem.api_key_env_var = "RARA_NMEM_API_KEY".to_string();
+
+        let rendered = render_status_lines(&app, StatusTab::Overview)
+            .into_iter()
+            .map(|line| line.to_string())
+            .collect::<Vec<_>>()
+            .join("\n");
+
+        assert!(rendered.contains("https://mem.example.com/remote-api/mcp/"));
+        assert!(rendered.contains("cloud / remote"));
+        assert!(rendered.contains("api key env RARA_NMEM_API_KEY"));
     }
 
     #[test]

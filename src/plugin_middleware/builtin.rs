@@ -9,6 +9,8 @@ pub(super) const BUILTIN_PLUGINS_DIR: &str = "builtin-plugins";
 pub(super) const NOWLEDGE_MEM_PLUGIN_DIR: &str = "nowledge-mem";
 #[cfg(test)]
 pub(super) const NOWLEDGE_MEM_MCP_URL: &str = "http://127.0.0.1:14242/mcp/";
+#[cfg(test)]
+pub(super) const NOWLEDGE_MEM_CLOUD_MCP_URL: &str = "https://mem.example.com/remote-api/mcp/";
 
 const NOWLEDGE_MEM_PLUGIN_VERSION: &str = "0.1.29-rara.1";
 const NOWLEDGE_MEM_SKILL_ROOTS: &[(&str, &str)] = &[
@@ -62,8 +64,9 @@ fn materialize_nowledge_mem_plugin(
             "mcpServers": {
                 "nowledge-mem": {
                     "type": "http",
-                    "url": config.url.clone(),
-                    "http_headers": nowledge_mem_http_headers(config)
+                    "url": config.mcp_url(),
+                    "http_headers": nowledge_mem_http_headers(config),
+                    "env_http_headers": config.env_http_headers()
                 }
             }
         })

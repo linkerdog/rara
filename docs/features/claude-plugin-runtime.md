@@ -338,6 +338,7 @@ The builtin plugin is configurable through `config.json`:
   "builtin_plugins": {
     "nowledge_mem": {
       "enabled": true,
+      "mode": "local",
       "url": "http://127.0.0.1:14242/mcp/",
       "http_headers": {
         "APP": "RARA"
@@ -357,6 +358,13 @@ CLI plugins with the same plugin name override the builtin plugin through the
 normal ordered de-duplication path. Builtin MCP servers also yield to already
 registered user or project MCP servers with the same name; normal non-builtin
 plugin MCP duplicates remain hard errors.
+
+Cloud mode is also supported. In cloud mode, url is treated as the Mem server
+base URL and the generated endpoint is /remote-api/mcp/. The transport emits
+Authorization and X-NMEM-API-Key from NMEM_API_KEY, plus the optional
+X-Nmem-Space-Id from NMEM_SPACE. These are environment-variable references,
+not persisted credentials; the environment variable names can be configured
+with api_key_env_var and space_id_env_var.
 
 Local Nowledge Mem endpoints must not use system HTTP proxies. The MCP
 transport contract exposes localhost proxy bypass detection for streamable HTTP
