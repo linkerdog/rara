@@ -10,9 +10,9 @@ use rara_tools::tool::ToolManager;
 use self::tooling::{create_full_tool_manager, load_skill_manager, vector_db_uri_for_workspace};
 use crate::agent::Agent;
 use crate::config::{
-    DEFAULT_CODEX_BASE_URL, DEFAULT_CODEX_MODEL, DEFAULT_GEMINI_BASE_URL, DEFAULT_GEMINI_MODEL,
-    LocalEmbeddingPolicy, OpenAiEndpointKind, REASONING_SUMMARY_NONE, RaraConfig,
-    ensure_rara_home_dir,
+    BuiltinPluginConfig, DEFAULT_CODEX_BASE_URL, DEFAULT_CODEX_MODEL, DEFAULT_GEMINI_BASE_URL,
+    DEFAULT_GEMINI_MODEL, LocalEmbeddingPolicy, OpenAiEndpointKind, REASONING_SUMMARY_NONE,
+    RaraConfig, ensure_rara_home_dir,
 };
 use crate::embedding::EmbeddingOverrideBackend;
 use crate::google_oauth::GoogleOAuthManager;
@@ -68,6 +68,7 @@ pub(crate) struct RuntimeBootstrap {
     extension_readiness: ExtensionReadinessSnapshot,
     plugin_dirs: Vec<PathBuf>,
     rara_home: Option<PathBuf>,
+    builtin_plugins: BuiltinPluginConfig,
 }
 
 #[derive(Clone)]
@@ -211,6 +212,7 @@ impl RuntimeBootstrap {
         let workspace_root = self.workspace.root.clone();
         let plugin_dirs = self.plugin_dirs.clone();
         let rara_home = self.rara_home.clone();
+        let builtin_plugins = self.builtin_plugins.clone();
         let hook_runtime = self.hook_runtime.clone();
         let event_bus = self.event_bus.clone();
         let mut extension_readiness = self.extension_readiness.clone();
@@ -220,6 +222,7 @@ impl RuntimeBootstrap {
             rara_home,
             &workspace_root,
             &plugin_dirs,
+            &builtin_plugins,
             &parts.0.session_id,
         )
         .await;
@@ -346,6 +349,7 @@ pub(crate) async fn initialize_rara_context_with_options_and_local_embedding_boo
         Some(&rara_home),
         &workspace.root,
         &options.plugin_dirs,
+        &config.builtin_plugins,
     );
     let plugin_skill_roots = crate::plugin_middleware::plugin_skill_roots(&plugins);
     let plugin_agent_records = crate::plugin_middleware::plugin_agent_records(&plugins);
@@ -404,11 +408,17 @@ pub(crate) async fn initialize_rara_context_with_options_and_local_embedding_boo
         Some(&rara_home),
         &workspace.root,
         &options.plugin_dirs,
+        &config.builtin_plugins,
     )?;
     let extension_mcp_server_count = mcp_registry
         .servers
         .values()
-        .filter(|server| server.source.scope == crate::config::McpServerScope::Plugin)
+        .filter(|server| {
+            matches!(
+                server.source.scope,
+                crate::config::McpServerScope::Plugin | crate::config::McpServerScope::Builtin
+            )
+        })
         .count();
     let mcp_registry = Arc::new(mcp_registry);
 
@@ -495,6 +505,7 @@ pub(crate) async fn initialize_rara_context_with_options_and_local_embedding_boo
         },
         plugin_dirs: options.plugin_dirs,
         rara_home: Some(rara_home),
+        builtin_plugins: config.builtin_plugins.clone(),
     })
 }
 

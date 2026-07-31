@@ -94,6 +94,7 @@ async fn plugin_pre_tool_use_continue_false_blocks_tool_execution() {
         None,
         temp.path(),
         &[],
+        &crate::config::BuiltinPluginConfig::default(),
         "session-1",
     )
     .await;
@@ -156,6 +157,7 @@ async fn plugin_session_end_runs_once_with_last_assistant_message() {
         None,
         temp.path(),
         &[],
+        &crate::config::BuiltinPluginConfig::default(),
         "session-1",
     )
     .await;
@@ -225,6 +227,7 @@ async fn plugin_session_end_marks_cancelled_model_turn_as_interrupt() {
         None,
         temp.path(),
         &[],
+        &crate::config::BuiltinPluginConfig::default(),
         "session-1",
     )
     .await;
@@ -308,6 +311,7 @@ async fn plugin_non_tool_lifecycle_hooks_run_from_agent_query() {
         None,
         temp.path(),
         &[],
+        &crate::config::BuiltinPluginConfig::default(),
         "session-1",
     )
     .await;
@@ -400,6 +404,7 @@ async fn plugin_session_start_waits_until_plugin_runtime_is_attached() {
         None,
         temp.path(),
         &[],
+        &crate::config::BuiltinPluginConfig::default(),
         "session-1",
     )
     .await;

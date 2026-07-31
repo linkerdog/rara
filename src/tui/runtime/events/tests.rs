@@ -56,6 +56,7 @@ fn memory_action_event_becomes_renderable_system_notice() {
 #[test]
 fn memory_query_notice_reports_count_without_record_content() {
     let notice = format_memory_event_notice(&MemoryEvent::RecordsQueried {
+        query: "repo notes".into(),
         records: vec![MemoryRecordSummary {
             id: "memory-1234567890".into(),
             title: "Useful title".into(),
@@ -69,9 +70,26 @@ fn memory_query_notice_reports_count_without_record_content() {
         }],
     });
 
-    assert_eq!(notice, "Memory · queried records: 1 result");
+    assert_eq!(
+        notice,
+        "Memory · queried records for \"repo notes\": 1 result"
+    );
     assert!(!notice.contains("secret memory content"));
     assert!(!notice.contains("Useful title"));
+}
+
+#[test]
+fn memory_query_notice_sanitizes_query_preview() {
+    let notice = format_memory_event_notice(&MemoryEvent::RecordsQueried {
+        query: format!("{}\n{}", "token=sk-test-secret", "word ".repeat(40)),
+        records: Vec::new(),
+    });
+
+    assert!(notice.starts_with("Memory · queried records for \""));
+    assert!(notice.ends_with("\": 0 results"));
+    assert!(!notice.contains("sk-test-secret"));
+    assert!(!notice.contains('\n'));
+    assert!(notice.len() < 180);
 }
 
 #[test]

@@ -867,6 +867,7 @@ command = "docs-server"
             SourcedMcpServerConfig {
                 config: McpServerConfig {
                     transport: McpServerTransport::StreamableHttp {
+                        r#type: None,
                         url: "http://127.0.0.1:1/mcp".to_string(),
                         bearer_token_env_var: None,
                         http_headers: None,

@@ -61,6 +61,7 @@ pub async fn execute_command_hook(
         .arg(&handler.command)
         .current_dir(plugin_root)
         .env("CLAUDE_PLUGIN_ROOT", plugin_root.to_string_lossy().as_ref())
+        .env("PLUGIN_ROOT", plugin_root.to_string_lossy().as_ref())
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
@@ -161,6 +162,7 @@ mod tests {
 
     #[tokio::test]
     async fn executes_simple_echo_hook() {
+        let plugin_root = tempfile::tempdir().expect("plugin root");
         let handler = HookHandler {
             r#type: "command".to_string(),
             command: "echo '{\"continue\": true}'".to_string(),
@@ -170,12 +172,12 @@ mod tests {
         };
         let result = execute_command_hook(
             &handler,
-            &PathBuf::from("/tmp"),
+            &plugin_root.path().to_path_buf(),
             HookInput {
                 session_id: "test".to_string(),
                 transcript_path: None,
                 hook_event: "Stop".to_string(),
-                plugin_root: "/tmp".to_string(),
+                plugin_root: plugin_root.path().to_string_lossy().to_string(),
                 tool_name: None,
                 tool_input: None,
                 tool_response: None,
@@ -185,6 +187,42 @@ mod tests {
             },
         )
         .await;
+        assert!(result.ok);
+    }
+
+    #[tokio::test]
+    async fn exposes_plugin_root_environment_aliases() {
+        let plugin_root = tempfile::tempdir().expect("plugin root");
+        let plugin_root = plugin_root.path().to_path_buf();
+        let expected = plugin_root.to_string_lossy();
+        let handler = HookHandler {
+            r#type: "command".to_string(),
+            command: format!(
+                "test \"$CLAUDE_PLUGIN_ROOT\" = '{expected}' && test \"$PLUGIN_ROOT\" = '{expected}'"
+            ),
+            timeout: 5,
+            matcher: None,
+            once: false,
+        };
+
+        let result = execute_command_hook(
+            &handler,
+            &plugin_root,
+            HookInput {
+                session_id: "test".to_string(),
+                transcript_path: None,
+                hook_event: "Stop".to_string(),
+                plugin_root: plugin_root.to_string_lossy().to_string(),
+                tool_name: None,
+                tool_input: None,
+                tool_response: None,
+                last_assistant_message: None,
+                is_interrupt: None,
+                prompt: None,
+            },
+        )
+        .await;
+
         assert!(result.ok);
     }
 

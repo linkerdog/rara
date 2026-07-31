@@ -105,6 +105,8 @@ pub struct McpServerConfig {
 #[serde(untagged, deny_unknown_fields)]
 pub enum McpServerTransport {
     Stdio {
+        #[serde(default, rename = "type", skip_serializing_if = "Option::is_none")]
+        r#type: Option<String>,
         command: String,
         #[serde(default)]
         args: Vec<String>,
@@ -114,6 +116,8 @@ pub enum McpServerTransport {
         cwd: Option<PathBuf>,
     },
     StreamableHttp {
+        #[serde(default, rename = "type", skip_serializing_if = "Option::is_none")]
+        r#type: Option<String>,
         url: String,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         bearer_token_env_var: Option<String>,
@@ -122,6 +126,32 @@ pub enum McpServerTransport {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         env_http_headers: Option<BTreeMap<String, String>>,
     },
+}
+
+impl McpServerTransport {
+    pub fn bypasses_proxy(&self) -> bool {
+        match self {
+            Self::Stdio { .. } => false,
+            Self::StreamableHttp { url, .. } => streamable_http_url_bypasses_proxy(url),
+        }
+    }
+}
+
+fn streamable_http_url_bypasses_proxy(url: &str) -> bool {
+    let Some(after_scheme) = url.split_once("://").map(|(_, rest)| rest) else {
+        return false;
+    };
+    let authority = after_scheme.split('/').next().unwrap_or_default();
+    let host = authority
+        .rsplit_once('@')
+        .map(|(_, host)| host)
+        .unwrap_or(authority);
+    let host = if let Some(stripped) = host.strip_prefix('[') {
+        stripped.split(']').next().unwrap_or_default()
+    } else {
+        host.split(':').next().unwrap_or_default()
+    };
+    matches!(host, "localhost" | "127.0.0.1" | "::1")
 }
 
 const fn default_enabled() -> bool {
@@ -245,6 +275,78 @@ bearer_token_env_var = "MCP_TOKEN"
         assert_eq!(
             registry.servers["docs"].config.enabled_tools.as_deref(),
             Some(&["search".to_string()][..])
+        );
+    }
+
+    #[test]
+    fn loads_codex_style_http_mcp_json_type_field() {
+        let content = r#"{
+  "mcpServers": {
+    "nowledge-mem": {
+      "type": "http",
+      "url": "http://127.0.0.1:14242/mcp/",
+      "http_headers": {
+        "APP": "RARA"
+      }
+    }
+  }
+}"#;
+
+        let servers = parse_mcp_servers_json(content).expect("mcp servers");
+
+        assert_eq!(
+            servers["nowledge-mem"].transport,
+            McpServerTransport::StreamableHttp {
+                r#type: Some("http".to_string()),
+                url: "http://127.0.0.1:14242/mcp/".to_string(),
+                bearer_token_env_var: None,
+                http_headers: Some(BTreeMap::from([("APP".to_string(), "RARA".to_string())])),
+                env_http_headers: None,
+            }
+        );
+    }
+
+    #[test]
+    fn streamable_http_localhost_bypasses_proxy() {
+        assert!(
+            McpServerTransport::StreamableHttp {
+                r#type: None,
+                url: "http://localhost:14242/mcp/".to_string(),
+                bearer_token_env_var: None,
+                http_headers: None,
+                env_http_headers: None,
+            }
+            .bypasses_proxy()
+        );
+        assert!(
+            McpServerTransport::StreamableHttp {
+                r#type: None,
+                url: "http://127.0.0.1:14242/mcp/".to_string(),
+                bearer_token_env_var: None,
+                http_headers: None,
+                env_http_headers: None,
+            }
+            .bypasses_proxy()
+        );
+        assert!(
+            McpServerTransport::StreamableHttp {
+                r#type: None,
+                url: "http://[::1]:14242/mcp/".to_string(),
+                bearer_token_env_var: None,
+                http_headers: None,
+                env_http_headers: None,
+            }
+            .bypasses_proxy()
+        );
+        assert!(
+            !McpServerTransport::StreamableHttp {
+                r#type: None,
+                url: "https://mem.example.com/mcp/".to_string(),
+                bearer_token_env_var: None,
+                http_headers: None,
+                env_http_headers: None,
+            }
+            .bypasses_proxy()
         );
     }
 

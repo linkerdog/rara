@@ -410,7 +410,10 @@ impl MemoryControlHandler {
                     .take(*limit)
                     .map(memory_record_summary)
                     .collect();
-                self.publish_memory_event(MemoryEvent::RecordsQueried { records });
+                self.publish_memory_event(MemoryEvent::RecordsQueried {
+                    query: query.clone(),
+                    records,
+                });
             }
             MemoryControlRequest::QueryMetadata => {
                 let labels = memory_store.list_labels(None).await?;
@@ -442,7 +445,8 @@ impl MemoryControlHandler {
                 scope: scope.clone(),
                 labels: Vec::new(),
             },
-            MemoryControlRequest::QueryRecords { .. } => MemoryEvent::RecordsQueried {
+            MemoryControlRequest::QueryRecords { query, .. } => MemoryEvent::RecordsQueried {
+                query: query.clone(),
                 records: Vec::new(),
             },
             MemoryControlRequest::QueryMetadata => MemoryEvent::MetadataQueried {
@@ -855,9 +859,11 @@ mod tests {
             .expect("query records");
 
         let event = events.recv().await.expect("records queried event");
-        let RuntimeEvent::Memory(MemoryEvent::RecordsQueried { records }) = event.event else {
+        let RuntimeEvent::Memory(MemoryEvent::RecordsQueried { query, records }) = event.event
+        else {
             panic!("expected records queried event");
         };
+        assert_eq!(query, "Initial memory");
         assert_eq!(records.len(), 1);
         assert_eq!(records[0].id, "protocol-memory-2");
         assert_eq!(records[0].labels, vec!["procedure"]);
@@ -897,6 +903,22 @@ mod tests {
             event.event,
             RuntimeEvent::Memory(MemoryEvent::LabelsListed { scope: Some(ControlMemoryScope::Thread), labels })
                 if labels.is_empty()
+        ));
+
+        handler
+            .handle_control(&MemoryControlRequest::QueryRecords {
+                query: "fallback query".to_string(),
+                scope: None,
+                limit: 5,
+            })
+            .await
+            .expect("query records");
+
+        let event = events.recv().await.expect("query event");
+        assert!(matches!(
+            event.event,
+            RuntimeEvent::Memory(MemoryEvent::RecordsQueried { query, records })
+                if query == "fallback query" && records.is_empty()
         ));
     }
 

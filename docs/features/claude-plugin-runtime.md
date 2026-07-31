@@ -16,7 +16,8 @@ This spec covers:
 
 - A new `rara-plugins` crate that owns plugin discovery, loading, and command
   hook execution.
-- Parsing of `.claude-plugin/plugin.json` (name, version, description,
+- Parsing of `.claude-plugin/plugin.json` and compatible
+  `.codex-plugin/plugin.json` metadata (name, version, description,
   configSchema, uiHints).
 - Parsing of `hooks/hooks.json` into strongly-typed handler configurations with
   event binding (Stop, PreToolUse, PostToolUse, UserPromptSubmit, SessionStart,
@@ -76,6 +77,7 @@ RARA will scan:
 
 | Path | Priority | Content |
 |---|---|---|
+| `~/.rara/builtin-plugins/<name>/` | Builtin | RARA-owned compatibility plugins |
 | `~/.rara/plugins/<name>/` | User | per-user plugins |
 | `<workspace>/.rara/plugins/<name>/` | Project | per-project plugins |
 | `--plugin-dir <path>` | CLI | manual override for TUI sessions |
@@ -84,7 +86,7 @@ A valid plugin directory contains:
 
 ```
 <name>/
-├── .claude-plugin/
+├── .claude-plugin/           # or .codex-plugin/
 │   └── plugin.json          # required
 ├── hooks/
 │   └── hooks.json            # optional
@@ -111,6 +113,7 @@ pub struct Plugin {
 }
 
 pub enum PluginSource {
+    Builtin(PathBuf),
     User(PathBuf),
     Project(PathBuf),
     Cli(PathBuf),
@@ -278,6 +281,11 @@ duplicate server name fails registry assembly with both source paths, matching
 the base MCP registry contract. Stdio plugin MCP servers receive `cwd` set to
 the plugin root when the existing MCP runtime later connects them.
 
+MCP JSON parsing accepts Codex-style HTTP entries with an informational
+`"type": "http"` field and maps them onto RARA's existing streamable HTTP
+transport. RARA does not run a plugin-specific MCP lifecycle manager; it only
+registers server definitions into the shared runtime registry.
+
 ### Command Extension Registry
 
 Runtime bootstrap discovers plugin `commands/**/*.md` files from loaded
@@ -303,6 +311,71 @@ which avoids collisions with built-in, user, and workspace agents.
 Plugin agent definitions use the existing Claude-compatible agent frontmatter
 contract: `description`, `tools`, `disallowed_tools`, `model`, `max_turns`,
 `token_budget`, `permission_mode`, `plan_mode_required`, and `hidden`.
+
+### Builtin Nowledge Mem Plugin
+
+RARA materializes a builtin `nowledge-mem` plugin under
+`~/.rara/builtin-plugins/nowledge-mem` during runtime plugin discovery. This
+plugin is based on the Nowledge Mem community Codex plugin shape, but is kept as
+a compact RARA-owned compatibility package instead of vendoring the whole
+community repository.
+
+The builtin plugin provides:
+
+- `.codex-plugin/plugin.json` metadata so the same loader path accepts Codex
+  plugin manifests.
+- A `nowledge-mem` streamable HTTP MCP server pointing at
+  `http://127.0.0.1:14242/mcp/` with `APP: RARA`.
+- Plugin skills for working memory, memory search, memory distillation, thread
+  save guidance, and status diagnostics.
+- A `nowledge-mem:nowledge-mem` plugin agent definition for subagent routing
+  guidance.
+
+The builtin plugin is configurable through `config.json`:
+
+```json
+{
+  "builtin_plugins": {
+    "nowledge_mem": {
+      "enabled": true,
+      "url": "http://127.0.0.1:14242/mcp/",
+      "http_headers": {
+        "APP": "RARA"
+      }
+    }
+  }
+}
+```
+
+Default values are omitted when config is serialized. `enabled: false` disables
+materialization and discovery of the builtin Nowledge Mem plugin. `url` and
+`http_headers` override the generated builtin `.mcp.json`; custom headers merge
+with the default `APP: RARA` header and may replace it.
+
+Builtin plugins are the lowest-precedence source. User, project, and explicit
+CLI plugins with the same plugin name override the builtin plugin through the
+normal ordered de-duplication path. Builtin MCP servers also yield to already
+registered user or project MCP servers with the same name; normal non-builtin
+plugin MCP duplicates remain hard errors.
+
+Local Nowledge Mem endpoints must not use system HTTP proxies. The MCP
+transport contract exposes localhost proxy bypass detection for streamable HTTP
+URLs whose host is `localhost`, `127.0.0.1`, or `::1`. Any future streamable
+HTTP MCP connector must call this helper before constructing its HTTP client.
+
+The builtin subagent does not receive additional external execution authority.
+It is a registry-provided routing agent that can explain which Nowledge Mem
+skill, MCP tool, or CLI fallback the parent runtime should use. Opening direct
+MCP, shell, or skill invocation inside subagents is a separate tool-surface
+decision.
+
+TUI displays this integration in the `/status` Overview Extensions section.
+The display is read-only: it reports the builtin MCP entry as
+`nowledge-mem builtin`, shows the configured endpoint with secret-bearing URL
+parts redacted, and marks localhost endpoints as `local/direct` to make the
+no-proxy contract visible. Disabled builtin configuration renders as
+`nowledge-mem disabled`. TUI does not own plugin discovery, MCP registration,
+or generated plugin files.
 
 ## Contracts
 
@@ -348,6 +421,12 @@ scope for now.
 | Lifecycle hook stdout/stderr publishes a structured control event | `cargo test plugin_middleware::tests::lifecycle_hook_output_is_published_as_structured_control_event -- --nocapture` and `cargo test runtime_control::tests::hook_command_output_uses_structured_wire_shape -- --nocapture` |
 | Plugin skills load into the shared skill registry | `cargo test -p rara-skills plugin_skills_are_namespaced_and_invokable -- --nocapture` and `cargo test tools::skill::reload_updates_running_manager_with_plugin_skills -- --nocapture` |
 | Plugin `.mcp.json` registers into the shared MCP registry | `cargo test plugin_middleware::tests::appends_plugin_mcp_configs_with_plugin_source_metadata -- --nocapture` |
+| Codex-style HTTP MCP JSON parses | `cargo test -p rara-config loads_codex_style_http_mcp_json_type_field -- --nocapture` |
+| Builtin Nowledge Mem plugin materializes skills, MCP, and agent definition | `cargo test plugin_middleware::tests::builtin_nowledge_mem_plugin_materializes_skills_mcp_and_agent -- --nocapture` |
+| Builtin Nowledge Mem MCP registers as builtin fallback | `cargo test plugin_middleware::tests::appends_builtin_nowledge_mem_mcp_config -- --nocapture` and `cargo test plugin_middleware::tests::builtin_nowledge_mem_mcp_yields_to_existing_registry_server -- --nocapture` |
+| Builtin Nowledge Mem config controls endpoint, headers, and enabled state | `cargo test plugin_middleware::tests::builtin_nowledge_mem_mcp_uses_configured_url_and_headers -- --nocapture`, `cargo test plugin_middleware::tests::disabled_builtin_nowledge_mem_plugin_is_not_discovered -- --nocapture`, and `cargo test -p rara-config builtin_nowledge_mem_config_can_override_endpoint_and_headers -- --nocapture` |
+| TUI shows builtin Nowledge Mem status without owning runtime assembly | `cargo test tui::status_display::tests::overview_status_reports_builtin_nowledge_mem -- --nocapture`, `cargo test tui::status_display::tests::overview_status_reports_disabled_nowledge_mem -- --nocapture`, and `cargo test tui::status_display::tests::overview_status_reports_custom_nowledge_mem_endpoint_and_headers -- --nocapture` |
+| Local streamable HTTP MCP endpoints bypass proxy | `cargo test -p rara-config streamable_http_localhost_bypasses_proxy -- --nocapture` |
 | Plugin MCP file and relative cwd handling | `cargo test plugin_middleware::tests::plugin_mcp_configs_skip_mcp_json_directories -- --nocapture` and `cargo test plugin_middleware::tests::plugin_mcp_configs_resolve_relative_cwd_from_plugin_root -- --nocapture` |
 | Plugin MCP parse and duplicate-name failures surface | `cargo test plugin_middleware::tests::plugin_mcp_configs_fail_on_duplicate_server_names -- --nocapture` and `cargo test plugin_middleware::tests::plugin_mcp_configs_fail_on_invalid_json -- --nocapture` |
 | Plugin command markdown files register as runtime summaries | `cargo test plugin_middleware::tests::registers_project_plugin_command_summaries -- --nocapture` |
@@ -428,6 +507,15 @@ Implemented in the first merged slice:
   `AgentDefinitionCache` with namespaced `plugin_name:agent_name` names and can
   be used by `spawn_agent`, `explore_agent`, `plan_agent`, and team creation
   paths through the existing agent resolution contract.
+- `.codex-plugin/plugin.json` is accepted as a compatible plugin metadata
+  directory alongside `.claude-plugin/plugin.json`.
+- RARA materializes the builtin `nowledge-mem` plugin under
+  `~/.rara/builtin-plugins/nowledge-mem` and includes it as the lowest
+  precedence discovery source before user, project, configured, and CLI plugin
+  directories.
+- The builtin `nowledge-mem` plugin registers streamable HTTP MCP, prompt-visible
+  memory skills, and a namespaced subagent definition through the same runtime
+  registries as external plugins.
 - `rara plugin install <source>` accepts both local plugin directories and git
   sources. Git sources are cloned with `git clone --depth 1` into a temporary
   checkout before the existing plugin validation and workspace copy path runs.
@@ -458,3 +546,4 @@ Implemented in the first merged slice:
 - `docs/journal/2026-07-21-plugin-non-tool-lifecycle-hooks.md`
 - `docs/journal/2026-07-22-plugin-command-registry.md`
 - `docs/journal/2026-07-25-extension-completion.md`
+- `docs/journal/2026-07-30-nowledge-mem-builtin-plugin.md`
