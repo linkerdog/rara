@@ -4,7 +4,6 @@ use std::sync::Arc;
 use super::super::state::{
     GoalStatus, HelpTab, ListPickerKind, LocalCommand, LocalCommandKind, Overlay, PermissionMode,
     PickerIntent, RalphGoal, RuntimePhase, StatusTab, SystemMessageKind, TuiApp,
-    UnifiedModelPreset,
 };
 use super::tasks::{start_compact_task, start_rebuild_task, start_review_task};
 use crate::agent::{Agent, AgentEvent, AgentExecutionMode, BashApprovalMode};
@@ -352,73 +351,11 @@ fn handle_connect_command(app: &mut TuiApp) -> anyhow::Result<()> {
 }
 
 fn handle_nowledge_mem_command(arg: Option<&str>, app: &mut TuiApp) -> anyhow::Result<()> {
-    let arg = arg.unwrap_or("").trim();
-    if arg.is_empty() {
-        let config = &app.config.builtin_plugins.nowledge_mem;
-        app.push_notice(format!(
-            "Nowledge Mem: {} {}",
-            if config.enabled {
-                "enabled"
-            } else {
-                "disabled"
-            },
-            config.mode_label()
-        ));
-        return Ok(());
+    if arg.is_some_and(|value| !value.trim().is_empty()) {
+        app.push_notice("/mem does not accept arguments. Choose a mode in the TUI.");
     }
-
-    let mut parts = arg.split_whitespace();
-    let action = parts.next().unwrap_or_default();
-    let mut next = app.config.builtin_plugins.nowledge_mem.clone();
-    match action {
-        "on" => {
-            if parts.next().is_some() {
-                anyhow::bail!("Usage: /mem on");
-            }
-            next.enabled = true;
-        }
-        "off" => {
-            if parts.next().is_some() {
-                anyhow::bail!("Usage: /mem off");
-            }
-            next.enabled = false;
-        }
-        "local" => {
-            next.mode = crate::config::NowledgeMemMode::Local;
-            next.enabled = true;
-            if let Some(url) = parts.next() {
-                next.url = url.to_string();
-            }
-            if parts.next().is_some() {
-                anyhow::bail!("Usage: /mem local [mcp-url]");
-            }
-        }
-        "cloud" => {
-            let url = parts.next().ok_or_else(|| {
-                anyhow::anyhow!("Usage: /mem cloud <url> [api-key-env] [space-env]")
-            })?;
-            next.mode = crate::config::NowledgeMemMode::Cloud;
-            next.enabled = true;
-            next.url = url.to_string();
-            if let Some(api_key_env) = parts.next() {
-                next.api_key_env_var = api_key_env.to_string();
-            }
-            if let Some(space_env) = parts.next() {
-                next.space_id_env_var = (space_env != "-").then(|| space_env.to_string());
-            }
-            if parts.next().is_some() {
-                anyhow::bail!("Usage: /mem cloud <url> [api-key-env] [space-env]");
-            }
-        }
-        _ => {
-            anyhow::bail!("Usage: /mem [on|off|local [url]|cloud <url> [api-key-env] [space-env]]")
-        }
-    }
-
-    app.config.builtin_plugins.nowledge_mem = next;
-    app.config_manager.save(&app.config)?;
-    start_rebuild_task(app);
-    app.push_notice("Nowledge Mem configuration saved; rebuilding runtime.");
+    app.open_overlay(Overlay::ListPicker(ListPickerKind::NowledgeMem));
+    app.bottom_pane.notice = Some("Choose the builtin Nowledge Mem mode.".into());
     Ok(())
 }
 
@@ -481,48 +418,12 @@ fn parse_goal_token_budget(input: &str) -> Option<u32> {
 }
 
 fn handle_model_command(arg: Option<&str>, app: &mut TuiApp) -> anyhow::Result<()> {
-    let query = arg.map(str::trim).filter(|a| !a.is_empty());
-
-    if let Some(query) = query {
-        let presets = app.all_unified_model_presets();
-        let query_lower = query.to_lowercase();
-
-        let matches: Vec<(usize, &UnifiedModelPreset)> = presets
-            .iter()
-            .enumerate()
-            .filter(|(_, p)| {
-                p.model_id.to_lowercase().contains(&query_lower)
-                    || p.model_label.to_lowercase().contains(&query_lower)
-            })
-            .collect();
-
-        match matches.len() {
-            1 => {
-                let (idx, preset) = matches[0];
-                app.push_notice(format!(
-                    "Switching to {} ({})",
-                    preset.model_label, preset.provider_label
-                ));
-                app.select_unified_model(idx);
-            }
-            0 => {
-                app.push_notice(format!("No model matching \"{query}\" found."));
-                app.model_picker_idx = app.selected_unified_preset_idx();
-                app.open_overlay(Overlay::ModelSearch);
-            }
-            _ => {
-                app.push_notice(format!(
-                    "Multiple models match \"{query}\" — opening picker."
-                ));
-                app.model_picker_idx = app.selected_unified_preset_idx();
-                app.open_overlay(Overlay::ModelSearch);
-            }
-        }
-    } else {
-        app.model_picker_idx = app.selected_unified_preset_idx();
-        app.open_overlay(Overlay::ModelSearch);
-        app.bottom_pane.notice = Some("Switch active model across all connected providers.".into());
+    if arg.is_some_and(|value| !value.trim().is_empty()) {
+        app.push_notice("/model does not accept arguments. Choose a model in the UI.");
     }
+    app.model_picker_idx = app.selected_unified_preset_idx();
+    app.open_overlay(Overlay::ModelSearch);
+    app.bottom_pane.notice = Some("Switch active model across all connected providers.".into());
     Ok(())
 }
 
@@ -762,7 +663,7 @@ mod tests {
     use crate::agent::{Agent, AgentEvent, BashApprovalMode};
     use crate::config::{
         ConfigManager, McpRegistry, McpServerConfig, McpServerScope, McpServerSource,
-        McpServerTransport, NowledgeMemMode, SourcedMcpServerConfig,
+        McpServerTransport, SourcedMcpServerConfig,
     };
     use crate::llm::MockLlm;
     use crate::mcp_tool_cache::McpToolCache;
@@ -772,8 +673,8 @@ mod tests {
     use crate::tasklist::{DEFAULT_TASK_LIST_ID, NewTaskRecord, TaskListStore};
     use crate::tools::tasklist::TaskListTool;
     use crate::tui::state::{
-        LocalCommand, LocalCommandKind, Overlay, PermissionMode, RunningTask, TaskCompletion,
-        TaskKind, TuiApp,
+        ListPickerKind, LocalCommand, LocalCommandKind, Overlay, PermissionMode, RunningTask,
+        TaskCompletion, TaskKind, TuiApp,
     };
     use crate::workspace::WorkspaceMemory;
 
@@ -863,30 +764,19 @@ mod tests {
         );
     }
 
-    #[tokio::test]
-    async fn nowledge_mem_command_saves_cloud_config_and_env_names_only() {
+    #[test]
+    fn nowledge_mem_command_opens_picker_without_arguments() {
         let dir = tempfile::tempdir().expect("tempdir");
         let mut app = TuiApp::new(ConfigManager {
             path: dir.path().join("config.json"),
         })
         .expect("app");
 
-        handle_nowledge_mem_command(
-            Some("cloud https://mem.example.com RARA_NMEM_API_KEY RARA_NMEM_SPACE"),
-            &mut app,
-        )
-        .expect("cloud configuration should save");
-
-        let config = &app.config.builtin_plugins.nowledge_mem;
-        assert!(config.enabled);
-        assert_eq!(config.mode, NowledgeMemMode::Cloud);
-        assert_eq!(config.url, "https://mem.example.com");
-        assert_eq!(config.api_key_env_var, "RARA_NMEM_API_KEY");
-        assert_eq!(config.space_id_env_var.as_deref(), Some("RARA_NMEM_SPACE"));
-
-        let saved = fs::read_to_string(dir.path().join("config.json")).expect("saved config");
-        assert!(saved.contains("RARA_NMEM_API_KEY"));
-        assert!(!saved.contains("secret-value"));
+        handle_nowledge_mem_command(None, &mut app).expect("picker should open");
+        assert_eq!(
+            app.overlay,
+            Some(Overlay::ListPicker(ListPickerKind::NowledgeMem))
+        );
     }
 
     #[test]

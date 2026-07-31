@@ -378,11 +378,11 @@ MCP, shell, or skill invocation inside subagents is a separate tool-surface
 decision.
 
 TUI displays this integration in the `/status` Overview Extensions section.
-The `/mem` configuration command can also enable or disable the builtin plugin
-and switch between local and cloud mode. Cloud configuration accepts the server
+The `/mem` configuration command opens a picker for Disabled, Local, or Cloud;
+it does not accept command arguments. Cloud configuration accepts the server
 URL and environment variable names only; it never accepts an API-key value.
-Saving a change persists the config and asks the runtime to rebuild. The TUI
-does not assemble the MCP transport itself.
+Saving a mode choice persists the config and asks the runtime to rebuild. The
+TUI does not assemble the MCP transport itself.
 The status display reports the builtin MCP entry as
 `nowledge-mem builtin`, shows the configured endpoint with secret-bearing URL
 parts redacted, and marks localhost endpoints as `local/direct` to make the
