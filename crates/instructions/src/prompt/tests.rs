@@ -669,6 +669,7 @@ fn effective_prompt_reports_base_kind_and_active_sections() {
     let workspace = WorkspaceMemory::from_paths(root, rara_dir);
     let runtime = PromptRuntimeConfig {
         append_system_prompt: Some("tail".to_string()),
+        subagent_capability_policy: Some("policy".to_string()),
         ..Default::default()
     };
 
@@ -677,6 +678,12 @@ fn effective_prompt_reports_base_kind_and_active_sections() {
     assert!(effective.section_keys.contains(&"dynamic_boundary"));
     assert!(effective.section_keys.contains(&"runtime_context"));
     assert!(effective.section_keys.contains(&"append_system_prompt"));
+    assert!(
+        effective
+            .section_keys
+            .contains(&"subagent_capability_policy")
+    );
+    assert!(effective.text.ends_with("policy"));
     assert!(effective.text.contains(super::DYNAMIC_BOUNDARY));
     assert!(effective.dynamic_boundary_index.is_some());
 }

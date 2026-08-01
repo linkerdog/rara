@@ -212,6 +212,29 @@ Claude Code doesn't support task resume (`task_id`). RARA won't either
 for now — each `spawn_agent` creates a new session. This keeps
 compatibility with Claude Code semantics.
 
+### Plugin Capability Policy
+
+Subagents do not inherit the parent session's plugin authority implicitly.
+Runtime-owned child construction attaches a
+`SubagentPluginCapabilityPolicy` with these defaults:
+
+- plugin skill execution is denied;
+- MCP server and MCP tool execution are denied;
+- plugin memory read and write access are denied independently;
+- subagent delegation depth is limited to one.
+
+The policy is included as a separate final prompt section so the model has an
+honest description of its authority, but prompt text is not the enforcement
+boundary.
+Actual plugin skill and MCP execution will require scoped runtime executors in
+later slices. Until those executors exist, child tool managers must not expose
+those capabilities, and a child must not infer permission from the parent
+registry, credentials, or tool descriptions.
+
+This separates plugin skill guidance from MCP execution authority. A future
+allowlist may grant selected skills or MCP tools per agent definition, but
+memory reads and writes remain separate capabilities.
+
 ### Display
 
 TUI subagent sidebar shows:
@@ -231,3 +254,7 @@ TUI subagent sidebar shows:
 4. Add tool filtering to subagent spawning.
 5. Add `SubagentProgress` tracking.
 6. Update TUI subagent display.
+7. Attach the default-deny plugin capability policy to every child runtime.
+
+The remaining follow-up is to implement scoped plugin skill and MCP executors;
+this policy does not enable either execution path.

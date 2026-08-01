@@ -1,3 +1,68 @@
+/// Runtime capability boundary for plugin-backed sub-agent execution.
+///
+/// The default policy is intentionally deny-by-default. Plugin skills and MCP
+/// execution will be enabled only after their runtime-owned scoped executors
+/// exist; defining the boundary here prevents child sessions from inheriting
+/// the parent's plugin authority implicitly.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct SubagentPluginCapabilityPolicy {
+    pub plugin_skills: Vec<String>,
+    pub mcp_servers: Vec<String>,
+    pub mcp_tools: Vec<String>,
+    pub allow_memory_read: bool,
+    pub allow_memory_write: bool,
+    pub max_depth: u8,
+}
+
+impl Default for SubagentPluginCapabilityPolicy {
+    fn default() -> Self {
+        Self {
+            plugin_skills: Vec::new(),
+            mcp_servers: Vec::new(),
+            mcp_tools: Vec::new(),
+            allow_memory_read: false,
+            allow_memory_write: false,
+            max_depth: 1,
+        }
+    }
+}
+
+impl SubagentPluginCapabilityPolicy {
+    pub fn prompt_instructions(&self) -> String {
+        let format_allowlist = |items: &[String]| {
+            if items.is_empty() {
+                "denied".to_string()
+            } else {
+                format!("allowlisted: [{}]", items.join(", "))
+            }
+        };
+        let skills = format_allowlist(&self.plugin_skills);
+        let mcp_servers = format_allowlist(&self.mcp_servers);
+        let mcp_tools = format_allowlist(&self.mcp_tools);
+        format!(
+            "## Plugin Capability Policy\n\
+- Direct plugin skill execution: {skills}.\n\
+- Direct MCP server access: {mcp_servers}.\n\
+- Direct MCP tool execution: {mcp_tools}.\n\
+- Plugin memory read access: {}.\n\
+- Plugin memory write access: {}.\n\
+- Maximum sub-agent delegation depth: {}.\n\
+- Do not infer additional plugin authority from the parent session or tool descriptions.",
+            if self.allow_memory_read {
+                "allowed"
+            } else {
+                "denied"
+            },
+            if self.allow_memory_write {
+                "allowed"
+            } else {
+                "denied"
+            },
+            self.max_depth,
+        )
+    }
+}
+
 #[derive(Clone, Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AgentDefinition {

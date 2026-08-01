@@ -33,7 +33,7 @@ use crate::tasklist::{DEFAULT_TASK_LIST_ID, TaskListStore};
 use crate::thread_store::{ThreadMetadataSource, ThreadStore};
 use crate::tools::agent::{
     AgentTool, ExploreAgentTool, PlanAgentTool, SubAgentListTool, SubAgentResumeTool,
-    SubAgentStopTool, TeamCreateTool,
+    SubAgentStopTool, SubagentPluginCapabilityPolicy, TeamCreateTool,
 };
 use crate::workspace::WorkspaceMemory;
 
@@ -408,6 +408,38 @@ fn append_subagent_prompt_preserves_existing_append_prompt() {
         updated.append_system_prompt.as_deref(),
         Some("existing tail\n\nsub-agent")
     );
+}
+
+#[test]
+fn subagent_plugin_capability_policy_defaults_to_deny() {
+    let policy = SubagentPluginCapabilityPolicy::default();
+
+    assert!(policy.plugin_skills.is_empty());
+    assert!(policy.mcp_servers.is_empty());
+    assert!(policy.mcp_tools.is_empty());
+    assert!(!policy.allow_memory_read);
+    assert!(!policy.allow_memory_write);
+    assert_eq!(policy.max_depth, 1);
+    let prompt = policy.prompt_instructions();
+    assert!(prompt.contains("Direct MCP server access: denied."));
+    assert!(prompt.contains("Direct MCP tool execution: denied."));
+}
+
+#[test]
+fn subagent_plugin_capability_policy_renders_explicit_allowlists() {
+    let policy = SubagentPluginCapabilityPolicy {
+        plugin_skills: vec!["nowledge-mem:search-memory".into()],
+        mcp_servers: vec!["nowledge-mem".into()],
+        mcp_tools: vec!["memory_search".into()],
+        allow_memory_read: true,
+        ..Default::default()
+    };
+
+    let prompt = policy.prompt_instructions();
+    assert!(prompt.contains("allowlisted: [nowledge-mem:search-memory]"));
+    assert!(prompt.contains("allowlisted: [nowledge-mem]"));
+    assert!(prompt.contains("allowlisted: [memory_search]"));
+    assert!(prompt.contains("Plugin memory read access: allowed."));
 }
 
 #[test]
@@ -1038,6 +1070,14 @@ Custom reviewer prompt from workspace definition.
     assert!(!system_prompt.contains("You do not have repository"));
     assert!(!system_prompt.contains("answer only from the provided instruction/context"));
     assert!(system_prompt.contains("Custom reviewer prompt from workspace definition."));
+    assert!(
+        system_prompt
+            .find("## Plugin Capability Policy")
+            .expect("capability policy")
+            > system_prompt
+                .find("Custom reviewer prompt from workspace definition.")
+                .expect("custom prompt")
+    );
 
     let mut tool_names = request.tool_names.clone();
     tool_names.sort();
