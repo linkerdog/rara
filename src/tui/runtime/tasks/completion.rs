@@ -100,6 +100,7 @@ pub(crate) async fn finish_running_task_if_ready(
                                 goal.tokens_used,
                                 goal.token_budget.unwrap_or(0)
                             ));
+                            app.sync_snapshot(&agent);
                             app.finalize_active_turn();
                             *agent_slot = Some(agent);
                             start_query_task(app, prompt, agent_slot.take().expect("agent"));
@@ -120,6 +121,7 @@ pub(crate) async fn finish_running_task_if_ready(
                         GoalContinuation::Continue { goal, prompt, reason } => {
                             app.goal = Some(goal);
                             app.push_system(reason, crate::tui::state::SystemMessageKind::Other);
+                            app.sync_snapshot(&agent);
                             app.finalize_active_turn();
                             start_query_task(app, prompt, agent);
                             return Ok(());

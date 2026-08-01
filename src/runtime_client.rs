@@ -167,7 +167,7 @@ impl RuntimeClient {
         plan_turn_finished: bool,
         plan_approval_pending: bool,
     ) -> GoalContinuation {
-        let Some(mut goal) = goal_handle.read().ok().and_then(|goal| goal.clone()) else {
+        let Some(mut goal) = read_goal(goal_handle) else {
             return GoalContinuation::NotActive;
         };
         if goal.status != GoalStatus::Pursuing || plan_turn_finished || plan_approval_pending {
@@ -188,9 +188,7 @@ impl RuntimeClient {
         } else {
             goal_continuation_prompt(&goal)
         };
-        if let Ok(mut stored_goal) = goal_handle.write() {
-            *stored_goal = Some(goal.clone());
-        }
+        write_goal(goal_handle, Some(goal.clone()));
         if budget_exhausted {
             return GoalContinuation::BudgetLimited { goal, prompt };
         }
@@ -199,9 +197,7 @@ impl RuntimeClient {
             GoalEvaluation::Complete => {
                 let mut complete_goal = goal;
                 complete_goal.status = GoalStatus::Complete;
-                if let Ok(mut stored_goal) = goal_handle.write() {
-                    *stored_goal = Some(complete_goal.clone());
-                }
+                write_goal(goal_handle, Some(complete_goal.clone()));
                 GoalContinuation::Complete {
                     goal: complete_goal,
                 }
@@ -258,6 +254,26 @@ impl RuntimeClient {
         prompt_config.warnings = previous_prompt_config.warnings;
         rebuilt.set_prompt_config(prompt_config);
         rebuilt
+    }
+}
+
+fn read_goal(goal_handle: &GoalHandle) -> Option<RalphGoal> {
+    match goal_handle.read() {
+        Ok(goal) => goal.clone(),
+        Err(poisoned) => {
+            log::warn!("goal handle read lock was poisoned; recovering the stored goal");
+            poisoned.into_inner().clone()
+        }
+    }
+}
+
+fn write_goal(goal_handle: &GoalHandle, goal: Option<RalphGoal>) {
+    match goal_handle.write() {
+        Ok(mut stored_goal) => *stored_goal = goal,
+        Err(poisoned) => {
+            log::warn!("goal handle write lock was poisoned; recovering the stored goal");
+            *poisoned.into_inner() = goal;
+        }
     }
 }
 
