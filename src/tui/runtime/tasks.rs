@@ -22,9 +22,7 @@ use super::super::state::{
     ListPickerKind, OAuthLoginMode, PermissionMode, RunningTask, RuntimePhase, SystemMessageKind,
     TaskCompletion, TaskKind, TuiApp, TuiEvent,
 };
-use super::events::{
-    apply_tui_event, convert_agent_event, format_error_chain, format_memory_event_notice,
-};
+use super::events::{apply_tui_event, format_error_chain, runtime_event_from_agent_event};
 use crate::agent::{Agent, AgentEvent, AgentOutputMode, BashApprovalDecision};
 pub(crate) use crate::runtime_client::{goal_budget_limit_prompt, goal_continuation_prompt};
 use crate::runtime_control::RuntimeProvenance;
@@ -230,9 +228,7 @@ pub(super) fn start_input_control_task(
                         _ => return,
                     };
                     forward_event_to_bus(&bus_arg, &agent_event, &event_provenance);
-                    if let Some(tui_event) = convert_agent_event(agent_event) {
-                        let _ = tx.send(tui_event);
-                    }
+                    let _ = tx.send(TuiEvent::Runtime(Box::new(control_event)));
                 } else if let crate::runtime_control::RuntimeEvent::Tool(te) = &control_event.event
                 {
                     let agent_event = match te {
@@ -262,16 +258,9 @@ pub(super) fn start_input_control_task(
                         },
                     };
                     forward_event_to_bus(&bus_arg, &agent_event, &event_provenance);
-                    if let Some(tui_event) = convert_agent_event(agent_event) {
-                        let _ = tx.send(tui_event);
-                    }
-                } else if let crate::runtime_control::RuntimeEvent::Memory(me) =
-                    &control_event.event
-                {
-                    let _ = tx.send(TuiEvent::Transcript {
-                        role: "System",
-                        message: format_memory_event_notice(me),
-                    });
+                    let _ = tx.send(TuiEvent::Runtime(Box::new(control_event)));
+                } else {
+                    let _ = tx.send(TuiEvent::Runtime(Box::new(control_event)));
                 }
             },
         )
@@ -334,9 +323,10 @@ pub(super) fn start_compact_task(app: &mut TuiApp, mut agent: Agent) {
         let result = agent
             .compact_now_with_reporter(move |event| {
                 forward_event_to_bus(&bus, &event, &event_provenance);
-                if let Some(tui_event) = convert_agent_event(event) {
-                    let _ = tx.send(tui_event);
-                }
+                let _ = tx.send(runtime_event_from_agent_event(
+                    event,
+                    event_provenance.clone(),
+                ));
             })
             .await;
         forward_optional_task_result_lifecycle(&lifecycle_bus, &lifecycle_provenance, &result);
@@ -381,9 +371,10 @@ pub(super) fn start_review_task(app: &mut TuiApp, prompt: String, mut agent: Age
         let result = agent
             .query_with_mode_and_events(prompt, AgentOutputMode::Silent, move |event| {
                 forward_event_to_bus(&bus, &event, &event_provenance);
-                if let Some(tui_event) = convert_agent_event(event) {
-                    let _ = tx.send(tui_event);
-                }
+                let _ = tx.send(runtime_event_from_agent_event(
+                    event,
+                    event_provenance.clone(),
+                ));
             })
             .await;
         forward_optional_task_result_lifecycle(&lifecycle_bus, &lifecycle_provenance, &result);
