@@ -1,8 +1,7 @@
 /// Runtime capability boundary for plugin-backed sub-agent execution.
 ///
-/// The default policy is intentionally deny-by-default. Plugin skills and MCP
-/// execution will be enabled only after their runtime-owned scoped executors
-/// exist; defining the boundary here prevents child sessions from inheriting
+/// The default policy is intentionally deny-by-default. Agent definitions may
+/// explicitly allow selected plugin skills, but child sessions never inherit
 /// the parent's plugin authority implicitly.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct SubagentPluginCapabilityPolicy {
@@ -33,6 +32,10 @@ impl SubagentPluginCapabilityPolicy {
             if items.is_empty() {
                 "denied".to_string()
             } else {
+                let items = items
+                    .iter()
+                    .map(|item| item.replace(['\n', '\r'], " "))
+                    .collect::<Vec<_>>();
                 format!("allowlisted: [{}]", items.join(", "))
             }
         };
@@ -78,6 +81,9 @@ pub struct AgentDefinition {
     /// Blocked tools. Takes precedence over `tools`.
     #[serde(default)]
     pub disallowed_tools: Vec<String>,
+    /// Plugin skills explicitly exposed to this subagent.
+    #[serde(default)]
+    pub plugin_skills: Vec<String>,
     /// Model override. None / "inherit" = use parent model.  
     /// If the specified model is unavailable, fall back to session default.
     #[serde(default)]
@@ -376,6 +382,7 @@ fn builtin_agent_definition(name: &str) -> Option<AgentDefinition> {
             description: "No-tool reasoning sub-agent".into(),
             tools: vec![],
             disallowed_tools: vec![],
+            plugin_skills: vec![],
             model: None,
             provider: None,
             max_turns: 0,
@@ -390,6 +397,7 @@ fn builtin_agent_definition(name: &str) -> Option<AgentDefinition> {
             description: "Read-only repository inspection sub-agent".into(),
             tools: vec!["Read".into(), "Glob".into(), "Grep".into()],
             disallowed_tools: vec!["Write".into(), "Edit".into(), "Bash".into()],
+            plugin_skills: vec![],
             model: None,
             provider: None,
             max_turns: 50,
@@ -404,6 +412,7 @@ fn builtin_agent_definition(name: &str) -> Option<AgentDefinition> {
             description: "Read-only planning sub-agent".into(),
             tools: vec!["Read".into(), "Glob".into(), "Grep".into()],
             disallowed_tools: vec!["Write".into(), "Edit".into(), "Bash".into()],
+            plugin_skills: vec![],
             model: None,
             provider: None,
             max_turns: 30,
