@@ -39,6 +39,7 @@ mod runtime_client;
 mod runtime_context;
 mod runtime_control;
 mod runtime_event_bus;
+mod runtime_goal;
 mod sandbox;
 mod session;
 mod session_context;

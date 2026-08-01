@@ -382,7 +382,7 @@ pub enum TaskCompletion {
         result: anyhow::Result<bool>,
     },
     Rebuild {
-        result: anyhow::Result<RebuildSuccess>,
+        result: anyhow::Result<crate::runtime_client::RebuildSuccess>,
     },
     OAuth {
         mode: OAuthLoginMode,
@@ -394,23 +394,6 @@ pub enum TaskCompletion {
     KimiModels {
         result: anyhow::Result<Vec<String>>,
     },
-}
-
-pub struct RebuildSuccess {
-    pub agent: Agent,
-    pub warnings: Vec<String>,
-    pub local_model_server: crate::local_model_server::LocalModelServerStatus,
-    pub sandbox_network_access: Arc<AtomicBool>,
-    /// Shared goal handle for model-facing tools.
-    pub goal_handle: crate::tui::state::GoalHandle,
-    pub mcp_tool_cache: crate::mcp_tool_cache::McpToolCache,
-    pub mcp_manager: Arc<McpConnectionManager>,
-    pub prompt_source_registry: Arc<PromptSourceRegistry>,
-    pub skill_source_registry: Arc<SkillSourceRegistry>,
-    pub hook_registry: Arc<HookRegistry>,
-    pub hook_runtime: Arc<crate::hook_runtime::HookRuntime>,
-    pub memory_handler: Arc<MemoryControlHandler>,
-    pub lsp_manager: Arc<LspManager>,
 }
 
 pub enum TuiEvent {

@@ -1,7 +1,7 @@
 use crate::tui::command;
 use crate::tui::state::Overlay;
 
-use self::goal_evaluator::{GoalEvaluation, evaluate_goal_completion};
+use crate::runtime_client::{GoalContinuation, RuntimeClient};
 
 pub(crate) async fn finish_running_task_if_ready(
     app: &mut TuiApp,
@@ -50,7 +50,7 @@ pub(crate) async fn finish_running_task_if_ready(
                 app.agent_execution_mode,
                 crate::agent::AgentExecutionMode::Plan
             );
-            if let Err(err) = sync_bash_prefixes_to_config(app, &agent) {
+            if let Err(err) = RuntimeClient::persist_bash_prefixes(&app.config_manager, &agent) {
                 app.push_notice(format!(
                     "Failed to persist bash approval rules: {}",
                     format_error_chain(&err)
@@ -65,105 +65,68 @@ pub(crate) async fn finish_running_task_if_ready(
                     );
                     app.clear_active_live_sections();
                     if finished_plan_turn {
-                        let plan_ready =
-                            agent.last_query_produced_plan() && !agent.current_plan.is_empty();
-                        let pending_exit_plan_approval = agent.has_pending_plan_exit_approval();
-                        if plan_ready && (query_started_in_plan_mode || pending_exit_plan_approval)
-                        {
-                            app.show_pending_plan_approval(agent.pending_plan_exit_tool_id());
-                        } else {
-                            app.clear_pending_plan_approval();
-                        }
-                        if plan_ready && !query_started_in_plan_mode && !pending_exit_plan_approval
-                        {
-                            app.release_pending_follow_ups();
-                            app.finalize_agent_stream(None);
-                            start_automatic_plan_implementation_task(app, agent);
-                            return Ok(());
-                        }
-                    }
-                    let prior_total_input_tokens = app.snapshot.total_input_tokens;
-                    let should_auto_continue_goal = !finished_plan_turn
-                        && app
-                            .goal_handle
-                            .read()
-                            .unwrap()
-                            .as_ref()
-                            .is_some_and(|g| g.status == GoalStatus::Pursuing)
-                        && !app.has_pending_plan_approval();
-                    if should_auto_continue_goal {
-                        app.sync_snapshot(&agent);
-                        app.goal = app.goal_handle.read().unwrap().clone();
-                        {
-                            let turn_input_tokens = app
-                                .snapshot
-                                .total_input_tokens
-                                .saturating_sub(prior_total_input_tokens);
-                            let (goal_used, goal_budget, budget_exhausted, next_goal_prompt) = {
-                                let goal = app.goal.as_mut().expect("goal must exist");
-                                goal.tokens_used += turn_input_tokens;
-                                goal.turns_completed += 1;
-                                let exhausted =
-                                    goal.token_budget.is_some_and(|b| goal.tokens_used >= b);
-                                if exhausted {
-                                    goal.status = GoalStatus::BudgetLimited;
-                                }
-                                let prompt = if exhausted {
-                                    goal_budget_limit_prompt(goal)
-                                } else {
-                                    goal_continuation_prompt(goal)
-                                };
-                                (goal.tokens_used, goal.token_budget, exhausted, prompt)
-                            };
-                            *app.goal_handle.write().unwrap() = app.goal.clone();
-                            if budget_exhausted {
-                                app.push_notice(format!(
-                                    "Goal budget exhausted: {goal_used} / {} tokens.",
-                                    goal_budget.unwrap_or(0)
-                                ));
-                                app.finalize_active_turn();
-                                start_query_task(app, next_goal_prompt, agent);
+                        match RuntimeClient::plan_continuation(&agent, query_started_in_plan_mode) {
+                            crate::runtime_client::PlanContinuation::AwaitApproval { tool_id } => {
+                                app.show_pending_plan_approval(tool_id.as_deref());
+                            }
+                            crate::runtime_client::PlanContinuation::AutomaticImplementation => {
+                                app.release_pending_follow_ups();
+                                app.finalize_agent_stream(None);
+                                start_automatic_plan_implementation_task(app, agent);
                                 return Ok(());
                             }
-                            let goal_snapshot =
-                                app.goal.as_ref().expect("goal must exist").clone();
-                            match evaluate_goal_completion(&agent, &goal_snapshot).await {
-                                GoalEvaluation::Complete => {
-                                    if let Some(goal) = app.goal.as_mut() {
-                                        goal.status = GoalStatus::Complete;
-                                    }
-                                    *app.goal_handle.write().unwrap() = app.goal.clone();
-                                    *agent_slot = Some(agent);
-                                    if let Some(agent) = agent_slot.as_ref() {
-                                        app.sync_snapshot(agent);
-                                    }
-                                    app.release_pending_follow_ups();
-                                    app.finalize_agent_stream(None);
-                                    app.finalize_active_turn();
-                                    app.bottom_pane.notice =
-                                        Some("Goal evaluator marked the goal complete.".into());
-                                    app.set_runtime_phase(
-                                        RuntimePhase::Idle,
-                                        Some("goal complete".into()),
-                                    );
-                                    return Ok(());
-                                }
-                                GoalEvaluation::Continue { reason } => {
-                                    let eval_reason = format!("no: {reason}");
-                                    app.push_system(
-                                        eval_reason.clone(),
-                                        crate::tui::state::SystemMessageKind::Other,
-                                    );
-                                    agent.push_history_message(crate::agent::Message {
-                                        role: "system".into(),
-                                        content: serde_json::Value::String(eval_reason),
-                                    });
-                                }
+                            crate::runtime_client::PlanContinuation::None => {
+                                app.clear_pending_plan_approval();
                             }
+                        }
+                    }
+                    if let Some(goal) = app.goal_handle.read().unwrap().clone() {
+                        app.goal = Some(goal);
+                    }
+                    let prior_total_input_tokens = app.snapshot.total_input_tokens;
+                    match RuntimeClient::continue_goal(
+                            &app.goal_handle,
+                            &mut agent,
+                            prior_total_input_tokens,
+                            finished_plan_turn,
+                            app.has_pending_plan_approval(),
+                        )
+                        .await
+                    {
+                        GoalContinuation::BudgetLimited { goal, prompt } => {
+                            app.goal = Some(goal.clone());
+                            app.push_notice(format!(
+                                "Goal budget exhausted: {} / {} tokens.",
+                                goal.tokens_used,
+                                goal.token_budget.unwrap_or(0)
+                            ));
+                            app.sync_snapshot(&agent);
                             app.finalize_active_turn();
-                            start_query_task(app, next_goal_prompt, agent);
+                            *agent_slot = Some(agent);
+                            start_query_task(app, prompt, agent_slot.take().expect("agent"));
                             return Ok(());
                         }
+                        GoalContinuation::Complete { goal } => {
+                            app.goal = Some(goal);
+                            *agent_slot = Some(agent);
+                            app.sync_snapshot(agent_slot.as_ref().expect("agent"));
+                            app.release_pending_follow_ups();
+                            app.finalize_agent_stream(None);
+                            app.finalize_active_turn();
+                            app.bottom_pane.notice =
+                                Some("Goal evaluator marked the goal complete.".into());
+                            app.set_runtime_phase(RuntimePhase::Idle, Some("goal complete".into()));
+                            return Ok(());
+                        }
+                        GoalContinuation::Continue { goal, prompt, reason } => {
+                            app.goal = Some(goal);
+                            app.push_system(reason, crate::tui::state::SystemMessageKind::Other);
+                            app.sync_snapshot(&agent);
+                            app.finalize_active_turn();
+                            start_query_task(app, prompt, agent);
+                            return Ok(());
+                        }
+                        GoalContinuation::NotActive => {}
                     }
                     *agent_slot = Some(agent);
                     app.goal = app.goal_handle.read().unwrap().clone();
@@ -310,7 +273,7 @@ pub(crate) async fn finish_running_task_if_ready(
                 app.hook_registry = Some(rebuilt.hook_registry);
                 app.hook_runtime = Some(rebuilt.hook_runtime.clone());
                 app.local_model_server = rebuilt.local_model_server;
-                app.config_manager.save(&app.config)?;
+                RuntimeClient::persist_config(&app.config_manager, &app.config)?;
                 let is_bootstrap = app.setup_status.is_none();
                 app.setup_status = Some(format!(
                     "Applied {} / {}",

@@ -22,6 +22,8 @@ Active backlog only. Keep this file small and current.
 - [ ] Complete the session-scoped `RuntimeClient` migration: route typed
       commands and runtime snapshots/events through the client, then remove
       runtime registries and completion orchestration from `TuiApp`.
+- [x] Move goal continuation, plan continuation decisions, rebuilt-agent
+      continuity, and runtime persistence helpers out of TUI task logic.
 - [ ] Replace the local `AgentEvent -> role/message -> parser` compatibility
       path with a typed TUI projection event carrying session and sequence
       identity.

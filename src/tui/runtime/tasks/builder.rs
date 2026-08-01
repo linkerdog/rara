@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use crate::tui::state::RebuildSuccess;
+use crate::runtime_client::RebuildSuccess;
 
 pub(super) async fn rebuild_agent_with_progress(
     config: &crate::config::RaraConfig,
