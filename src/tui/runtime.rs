@@ -1,6 +1,7 @@
 mod commands;
 pub(crate) use commands::apply_permission_mode;
 mod events;
+pub(super) use events::apply_tui_event;
 pub(super) mod tasks;
 
 use std::sync::Arc;

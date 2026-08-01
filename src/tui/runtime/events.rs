@@ -26,7 +26,7 @@ use crate::tui::terminal_event::{TerminalEvent, TerminalTarget};
 const TOOL_PROGRESS_LINE_LIMIT: usize = 16;
 const MEMORY_QUERY_PREVIEW_LIMIT: usize = 120;
 
-pub(super) fn apply_tui_event(app: &mut TuiApp, event: TuiEvent) {
+pub(crate) fn apply_tui_event(app: &mut TuiApp, event: TuiEvent) {
     match event {
         TuiEvent::Transcript { role, message } => {
             if role == "Status" {
