@@ -242,6 +242,8 @@ fn hook_event_to_lifecycle(event: HookEvent) -> HookLifecycle {
         HookEvent::UserPromptSubmit => HookLifecycle::UserPromptSubmit,
         HookEvent::SessionStart => HookLifecycle::SessionStart,
         HookEvent::SessionEnd => HookLifecycle::SessionEnd,
+        HookEvent::GoalCreated => HookLifecycle::GoalCreated,
+        HookEvent::GoalCompleted => HookLifecycle::GoalCompleted,
     }
 }
 

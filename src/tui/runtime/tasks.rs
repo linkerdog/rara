@@ -1,4 +1,5 @@
 mod builder;
+mod goal_evaluator;
 include!("tasks/completion.rs");
 mod oauth;
 #[cfg(test)]

@@ -258,7 +258,9 @@ struct ClaudeHookHandler {
 fn phase_ordinal(phase: HookLifecycle) -> u8 {
     match phase {
         HookLifecycle::SessionStart => 0,
-        HookLifecycle::SessionEnd => 9,
+        HookLifecycle::SessionEnd => 11,
+        HookLifecycle::GoalCreated => 9,
+        HookLifecycle::GoalCompleted => 10,
         HookLifecycle::UserPromptSubmit => 1,
         HookLifecycle::PreToolUse => 2,
         HookLifecycle::PostToolUse => 3,
@@ -292,6 +294,14 @@ mod tests {
         assert_eq!(
             HookLifecycle::from_filename("stop"),
             Some(HookLifecycle::Stop)
+        );
+        assert_eq!(
+            HookLifecycle::from_filename("goal-created"),
+            Some(HookLifecycle::GoalCreated)
+        );
+        assert_eq!(
+            HookLifecycle::from_filename("goal-completed"),
+            Some(HookLifecycle::GoalCompleted)
         );
         assert_eq!(HookLifecycle::from_filename("unknown"), None);
     }
