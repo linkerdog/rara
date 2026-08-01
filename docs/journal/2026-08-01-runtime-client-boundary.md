@@ -33,6 +33,10 @@ goal and plan state do not get duplicated between runtime and TUI.
 
 ## Remaining work
 
-Move command submission and completion orchestration behind `RuntimeClient`,
-then replace the role/message compatibility path with typed runtime
-projection events and snapshots.
+Command submission and completion orchestration still use the compatibility
+task bridge. The lifecycle portion is now separated: runtime code owns goal
+and plan decisions, rebuild continuity, and persistence helpers, while TUI
+code applies only presentation effects. The next slice should move command
+submission and queued execution behind typed runtime commands, then replace
+the role/message compatibility path with typed runtime projection events and
+snapshots.

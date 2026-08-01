@@ -31,6 +31,13 @@ Runtime task events are now awaited directly in the TUI event loop. A runtime
 event wakes the loop immediately; the 166 ms timer remains only for periodic
 UI work such as autoscroll, shared-task polling, and heartbeat display.
 
+The lifecycle slice is now runtime-owned as well. Goal token accounting,
+completion evaluation, continuation prompt construction, plan continuation
+decisions, rebuilt-agent continuity merging, and runtime persistence helpers
+live under `runtime_client` / `runtime_goal`. TUI completion code consumes
+these typed outcomes and only applies transcript, overlay, phase, and queued
+input presentation effects.
+
 ## Ownership Rules
 
 1. A session has one `RuntimeClient` and one runtime registry graph.
@@ -41,7 +48,8 @@ UI work such as autoscroll, shared-task polling, and heartbeat display.
    transport boundary.
 4. Completion logic belongs to the runtime command processor. TUI completion
    handling is a migration compatibility layer and must not become a second
-   goal or plan state machine.
+   goal or plan state machine. Goal and plan decisions are runtime-owned;
+   presentation effects remain TUI-owned.
 5. Snapshot hydration and live events must have an explicit ordering contract;
    a late snapshot must not overwrite newer live state.
 
@@ -53,4 +61,6 @@ UI work such as autoscroll, shared-task polling, and heartbeat display.
 - Publish a TUI-facing typed projection event instead of converting
   `AgentEvent` into role/message strings and parsing those strings again.
 - Move goal continuation, plan completion, agent replacement, and queued
-  execution into the runtime command processor.
+  execution into the runtime command processor. Goal/plan decisions and
+  rebuilt-agent continuity are now runtime-owned; queued command submission
+  still uses the compatibility task bridge.

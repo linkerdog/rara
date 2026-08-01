@@ -33,11 +33,12 @@ pub use self::types::{
     HelpTab, InteractionKind, ListPickerKind, LocalCommand, LocalCommandKind, ModelRoutingView,
     OAuthLoginMode, OpenAiModelPickerAction, Overlay, PROVIDER_FAMILIES, PendingApprovalSnapshot,
     PendingInteractionSnapshot, PermissionMode, PickerIntent, ProviderFamily, RalphGoal,
-    RebuildSuccess, RunningTask, RuntimePhase, RuntimeSnapshot, SkillPickerEntry, StatusTab,
-    SystemMessageKind, TaskCompletion, TaskKind, TerminalDiagnosticsView, TranscriptEntry,
-    TranscriptEntryPayload, TranscriptTurn, TuiApp, TuiEvent, UnifiedModelPreset,
+    RunningTask, RuntimePhase, RuntimeSnapshot, SkillPickerEntry, StatusTab, SystemMessageKind,
+    TaskCompletion, TaskKind, TerminalDiagnosticsView, TranscriptEntry, TranscriptEntryPayload,
+    TranscriptTurn, TuiApp, TuiEvent, UnifiedModelPreset,
 };
 use crate::oauth::OAuthManager;
+pub(crate) use crate::runtime_client::RebuildSuccess;
 
 const OPENAI_PROFILE_SETUP_KINDS: [OpenAiEndpointKind; 3] = [
     OpenAiEndpointKind::Custom,
