@@ -665,6 +665,8 @@ pub(crate) async fn dispatch_event(
                         ListPickerKind::NowledgeMem => {
                             let mode_label = {
                                 let config = &mut app.config.builtin_plugins.nowledge_mem;
+                                let was_cloud =
+                                    config.mode == crate::config::NowledgeMemMode::Cloud;
                                 match app.nowledge_mem_picker_idx {
                                     0 => config.enabled = false,
                                     1 => {
@@ -674,6 +676,11 @@ pub(crate) async fn dispatch_event(
                                     2 => {
                                         config.enabled = true;
                                         config.mode = crate::config::NowledgeMemMode::Cloud;
+                                        if !was_cloud {
+                                            config.url =
+                                                crate::config::DEFAULT_NOWLEDGE_MEM_CLOUD_URL
+                                                    .to_string();
+                                        }
                                     }
                                     _ => return Ok(false),
                                 }

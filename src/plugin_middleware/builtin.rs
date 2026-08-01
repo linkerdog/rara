@@ -10,7 +10,7 @@ pub(super) const NOWLEDGE_MEM_PLUGIN_DIR: &str = "nowledge-mem";
 #[cfg(test)]
 pub(super) const NOWLEDGE_MEM_MCP_URL: &str = "http://127.0.0.1:14242/mcp/";
 #[cfg(test)]
-pub(super) const NOWLEDGE_MEM_CLOUD_MCP_URL: &str = "https://mem.example.com/remote-api/mcp/";
+pub(super) const NOWLEDGE_MEM_CLOUD_MCP_URL: &str = "https://cloud.nowledge.co/remote-api/mcp/";
 
 const NOWLEDGE_MEM_PLUGIN_VERSION: &str = "0.1.29-rara.1";
 const NOWLEDGE_MEM_SKILL_ROOTS: &[(&str, &str)] = &[

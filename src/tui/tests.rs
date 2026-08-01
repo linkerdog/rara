@@ -830,8 +830,44 @@ async fn mem_picker_persists_selected_cloud_mode() {
         app.config.builtin_plugins.nowledge_mem.mode,
         crate::config::NowledgeMemMode::Cloud
     );
+    assert_eq!(
+        app.config.builtin_plugins.nowledge_mem.url,
+        crate::config::DEFAULT_NOWLEDGE_MEM_CLOUD_URL
+    );
     let saved = std::fs::read_to_string(config_path).expect("saved config");
     assert!(saved.contains("cloud"));
+}
+
+#[tokio::test]
+async fn mem_picker_preserves_existing_cloud_url() {
+    let temp = tempdir().expect("tempdir");
+    let mut app = TuiApp::new(ConfigManager {
+        path: temp.path().join("config.json"),
+    })
+    .expect("build tui app");
+    app.config.builtin_plugins.nowledge_mem.mode = crate::config::NowledgeMemMode::Cloud;
+    app.config.builtin_plugins.nowledge_mem.url = "https://custom.mem.example".to_string();
+    app.open_overlay(Overlay::ListPicker(ListPickerKind::NowledgeMem));
+    app.nowledge_mem_picker_idx = 2;
+
+    let oauth_manager = Arc::new(
+        crate::oauth::OAuthManager::new_for_config_dir(temp.path().join(".rara"))
+            .expect("oauth manager"),
+    );
+    let mut agent_slot = None;
+    dispatch_event(
+        AppEvent::ApplyOverlaySelection,
+        &mut app,
+        &mut agent_slot,
+        &oauth_manager,
+    )
+    .await
+    .expect("apply memory mode selection");
+
+    assert_eq!(
+        app.config.builtin_plugins.nowledge_mem.url,
+        "https://custom.mem.example"
+    );
 }
 
 #[test]
