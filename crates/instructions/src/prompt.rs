@@ -229,6 +229,9 @@ impl PromptSection {
 pub struct PromptRuntimeConfig {
     pub system_prompt: Option<String>,
     pub append_system_prompt: Option<String>,
+    /// Final child-session capability section, kept separate from append text
+    /// so runtime policy remains observable and ordered independently.
+    pub subagent_capability_policy: Option<String>,
     pub compact_prompt: Option<String>,
     pub protocol_prompt_sources: Vec<PromptSource>,
     pub available_skills: Vec<PromptSkillSummary>,
@@ -262,6 +265,7 @@ impl PromptRuntimeConfig {
         Self {
             system_prompt,
             append_system_prompt,
+            subagent_capability_policy: None,
             compact_prompt,
             protocol_prompt_sources: Vec::new(),
             available_skills: Vec::new(),
@@ -388,6 +392,10 @@ pub fn build_effective_prompt(
     if let Some(append) = &runtime.append_system_prompt {
         final_sections.push(append.clone());
         section_keys.push("append_system_prompt");
+    }
+    if let Some(policy) = &runtime.subagent_capability_policy {
+        final_sections.push(policy.clone());
+        section_keys.push("subagent_capability_policy");
     }
 
     EffectivePrompt {

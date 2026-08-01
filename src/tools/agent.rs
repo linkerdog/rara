@@ -1369,6 +1369,7 @@ pub(crate) async fn run_sub_agent(
     sub.set_bash_approval_mode(permission_mode.bash_approval_mode(plan_required));
     sub.set_full_access_mode(permission_mode.full_access_mode(plan_required));
     sub.set_token_budget(token_budget);
+    let capability_policy = SubagentPluginCapabilityPolicy::default();
     let role_prompt = subagent_role_prompt(kind, definition);
     let appended_prompt = match definition
         .map(|d| d.system_prompt.trim())
@@ -1377,7 +1378,9 @@ pub(crate) async fn run_sub_agent(
         Some(system_prompt) => format!("{role_prompt}\n\n{system_prompt}"),
         None => role_prompt,
     };
-    sub.set_prompt_config(append_subagent_prompt(prompt_config, &appended_prompt));
+    let mut prompt_config = append_subagent_prompt(prompt_config, &appended_prompt);
+    prompt_config.subagent_capability_policy = Some(capability_policy.prompt_instructions());
+    sub.set_prompt_config(prompt_config);
     sub.task_list_id = task_list_id;
 
     let def_max_turns = definition

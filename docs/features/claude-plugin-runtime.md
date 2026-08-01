@@ -380,9 +380,10 @@ HTTP MCP connector must call this helper before constructing its HTTP client.
 
 The builtin subagent does not receive additional external execution authority.
 It is a registry-provided routing agent that can explain which Nowledge Mem
-skill, MCP tool, or CLI fallback the parent runtime should use. Opening direct
-MCP, shell, or skill invocation inside subagents is a separate tool-surface
-decision.
+skill, MCP tool, or CLI fallback the parent runtime should use. Every child
+runtime receives a default-deny `SubagentPluginCapabilityPolicy`; direct MCP,
+shell, or skill invocation inside subagents requires a later scoped executor
+and explicit capability allowlist.
 
 TUI displays this integration in the `/status` Overview Extensions section.
 The `/mem` configuration command opens a picker for Disabled, Local, or Cloud;

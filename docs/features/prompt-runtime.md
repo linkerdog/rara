@@ -29,6 +29,7 @@ The effective prompt may draw from:
 - the default built-in prompt family;
 - a configured custom system prompt;
 - an optional append prompt;
+- an optional final subagent capability policy section;
 - workspace instruction files;
 - local memory files;
 - protocol-registered prompt sources routed through the runtime control plane;
@@ -52,6 +53,7 @@ The effective prompt is assembled in this order:
 4. runtime context;
 5. mode-specific addenda such as execute mode, plan mode, and review mode;
 6. append prompt.
+7. subagent capability policy section, when a child session is active.
 
 ### 3.1) Built-In Engineering Workflow Guidance
 
