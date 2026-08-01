@@ -269,7 +269,7 @@ impl ListPickerKind {
             ("Local", "Use the local loopback MCP endpoint."),
             (
                 "Cloud",
-                "Use the configured remote Mem server and env-backed auth.",
+                "Use https://cloud.nowledge.co with env-backed auth.",
             ),
         ]
         .into_iter()

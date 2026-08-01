@@ -830,6 +830,10 @@ async fn mem_picker_persists_selected_cloud_mode() {
         app.config.builtin_plugins.nowledge_mem.mode,
         crate::config::NowledgeMemMode::Cloud
     );
+    assert_eq!(
+        app.config.builtin_plugins.nowledge_mem.url,
+        crate::config::DEFAULT_NOWLEDGE_MEM_CLOUD_URL
+    );
     let saved = std::fs::read_to_string(config_path).expect("saved config");
     assert!(saved.contains("cloud"));
 }

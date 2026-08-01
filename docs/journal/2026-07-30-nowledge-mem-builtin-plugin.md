@@ -34,12 +34,16 @@ same plugin state.
 - Builtin MCP servers use `builtin` provenance and yield to already registered
   user or project MCP servers with the same name. Normal non-builtin plugin MCP
   duplicates remain hard errors.
-- Local mode preserves the loopback MCP endpoint. Cloud mode derives
-  /remote-api/mcp/ from the configured server base URL and emits API-key and
-  optional space headers as environment-variable references.
-- Cloud credentials are never persisted in RARA config or generated plugin
-  files. The generated transport references NMEM_API_KEY and NMEM_SPACE by
-  default, with configurable environment variable names.
+- Local mode preserves the loopback MCP endpoint. Cloud mode defaults to
+  `https://cloud.nowledge.co` and derives `/remote-api/mcp/`. It emits API-key
+  and optional space headers as environment-variable references.
+- Cloud credentials are persisted in RARA's existing secret configuration field
+  but never written to generated plugin files. The runtime exposes the saved
+  key through NMEM_API_KEY and keeps the generated transport on an environment
+  variable reference.
+- `rara mem --api-key <key>` saves the Cloud credential and enables Cloud mode;
+  the saved key is restored after restart, and users do not need to manage
+  NMEM_API_KEY separately.
 - TUI exposes `/mem` as an argument-free picker for disabled, local, or cloud
   mode. It saves the selected mode and requests a runtime rebuild; transport
   construction remains runtime-owned.

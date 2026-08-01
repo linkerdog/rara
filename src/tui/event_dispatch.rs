@@ -674,6 +674,8 @@ pub(crate) async fn dispatch_event(
                                     2 => {
                                         config.enabled = true;
                                         config.mode = crate::config::NowledgeMemMode::Cloud;
+                                        config.url = crate::config::DEFAULT_NOWLEDGE_MEM_CLOUD_URL
+                                            .to_string();
                                     }
                                     _ => return Ok(false),
                                 }
