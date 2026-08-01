@@ -111,9 +111,9 @@ pub const COMMAND_SPECS: [CommandSpec; 26] = [
     CommandSpec {
         category: "Setup",
         name: "model",
-        usage: "/model [name]",
-        summary: "Switch to a model by name, or open the unified model picker if no name is given.",
-        detail: "Switch directly to a model when a name is given, e.g. /model gpt-4o or /model claude-sonnet-4. The name is matched case-insensitively against model IDs and labels. Without an argument, opens the unified model picker so you can browse all available models from every connected provider and switch the active model immediately.",
+        usage: "/model",
+        summary: "Open the unified model picker.",
+        detail: "Open the unified model picker so you can browse all available models from every connected provider and switch the active model immediately.",
     },
     CommandSpec {
         category: "Setup",
@@ -125,9 +125,9 @@ pub const COMMAND_SPECS: [CommandSpec; 26] = [
     CommandSpec {
         category: "Setup",
         name: "mem",
-        usage: "/mem [on|off|local [url]|cloud <url> [api-key-env] [space-env]]",
+        usage: "/mem",
         summary: "Configure the builtin Nowledge Mem local or cloud MCP connection.",
-        detail: "Show or update the builtin Nowledge Mem connection. Cloud mode stores only the endpoint and environment variable names; it never accepts or persists an API key value.",
+        detail: "Open the builtin Nowledge Mem configuration picker. Cloud mode stores only the endpoint and environment variable names; it never accepts or persists an API key value.",
     },
     CommandSpec {
         category: "Setup",
@@ -326,7 +326,7 @@ pub fn help_text() -> String {
         .collect::<Vec<_>>()
         .join("\n");
     format!(
-        "Built-in commands:\n{}\n\nCompaction:\n  /compact   summarize older conversation history now\n\nThreads:\n  /resume    reopen a recent local thread\n\nModes:\n  /permissions   cycle permission presets (auto, accept-edits, read-only, full-access)\n  /plan      enter planning mode for the current task\n  Agent may call enter_plan_mode automatically\n  /approval  toggle bash approval mode\n\nAuth:\n  /login     open the provider auth picker\n  /logout    clear the saved provider credential\n\nEditing:\n  apply_patch    preferred for editing existing files\n  replace_lines  use for verified large line-range edits\n  write_file     use for new files or full rewrites\n  replace        simple fallback for unique string replacement\n\nKeyboard:\n  Enter submit\n  Shift+Enter insert newline\n  Esc close current overlay\n\nExit:\n  /quit\n  /exit\n\nModel switching:\n  /model [name]\n  /models [name]  switch model by name, or open picker\n\nProvider URL:\n  /base-url",
+        "Built-in commands:\n{}\n\nCompaction:\n  /compact   summarize older conversation history now\n\nThreads:\n  /resume    reopen a recent local thread\n\nModes:\n  /permissions   cycle permission presets (auto, accept-edits, read-only, full-access)\n  /plan      enter planning mode for the current task\n  Agent may call enter_plan_mode automatically\n  /approval  toggle bash approval mode\n\nAuth:\n  /login     open the provider auth picker\n  /logout    clear the saved provider credential\n\nEditing:\n  apply_patch    preferred for editing existing files\n  replace_lines  use for verified large line-range edits\n  write_file     use for new files or full rewrites\n  replace        simple fallback for unique string replacement\n\nKeyboard:\n  Enter submit\n  Shift+Enter insert newline\n  Esc close current overlay\n\nExit:\n  /quit\n  /exit\n\nModel switching:\n  /model          open the model picker\n  /models         open the model picker\n\nProvider URL:\n  /base-url",
         commands
     )
 }

@@ -662,6 +662,35 @@ pub(crate) async fn dispatch_event(
                             app.apply_selected_codex_reasoning_effort();
                             start_rebuild_task(app);
                         }
+                        ListPickerKind::NowledgeMem => {
+                            let mode_label = {
+                                let config = &mut app.config.builtin_plugins.nowledge_mem;
+                                match app.nowledge_mem_picker_idx {
+                                    0 => config.enabled = false,
+                                    1 => {
+                                        config.enabled = true;
+                                        config.mode = crate::config::NowledgeMemMode::Local;
+                                    }
+                                    2 => {
+                                        config.enabled = true;
+                                        config.mode = crate::config::NowledgeMemMode::Cloud;
+                                    }
+                                    _ => return Ok(false),
+                                }
+                                if config.enabled {
+                                    config.mode_label().to_string()
+                                } else {
+                                    "disabled".to_string()
+                                }
+                            };
+                            app.config_manager.save(&app.config)?;
+                            app.bottom_pane.notice = Some(format!(
+                                "Saved Nowledge Mem {} configuration. Rebuilding runtime.",
+                                mode_label
+                            ));
+                            app.dismiss_overlay();
+                            start_rebuild_task(app);
+                        }
                         ListPickerKind::Resume => {
                             if let Some(thread_id) = list_picker::selected_resumable_thread_id(app)
                             {

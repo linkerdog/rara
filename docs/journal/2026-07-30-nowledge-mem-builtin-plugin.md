@@ -40,9 +40,9 @@ same plugin state.
 - Cloud credentials are never persisted in RARA config or generated plugin
   files. The generated transport references NMEM_API_KEY and NMEM_SPACE by
   default, with configurable environment variable names.
-- TUI exposes `/mem` for enablement, local/cloud mode selection, and endpoint
-  or environment-variable-name updates. It saves configuration and requests a
-  runtime rebuild; transport construction remains runtime-owned.
+- TUI exposes `/mem` as an argument-free picker for disabled, local, or cloud
+  mode. It saves the selected mode and requests a runtime rebuild; transport
+  construction remains runtime-owned.
 - `builtin_plugins.nowledge_mem` controls whether the plugin is materialized
   and which MCP URL or headers are written into its generated `.mcp.json`.
 - The builtin plugin accepts Codex-style `.codex-plugin/plugin.json` metadata.

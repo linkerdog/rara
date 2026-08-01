@@ -78,6 +78,7 @@ pub enum ListPickerKind {
     AuthMode,
     ReasoningEffort,
     UnifiedModel,
+    NowledgeMem,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Hash)]
@@ -714,6 +715,7 @@ pub struct TuiApp {
     pub openai_profile_picker_idx: usize,
     pub reasoning_effort_picker_idx: usize,
     pub auth_mode_idx: usize,
+    pub nowledge_mem_picker_idx: usize,
     pub approval_picker_idx: usize,
     pub permission_picker_idx: usize,
     pub command_palette_idx: usize,
