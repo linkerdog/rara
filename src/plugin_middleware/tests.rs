@@ -378,7 +378,7 @@ fn builtin_nowledge_mem_mcp_supports_cloud_auth_without_persisting_secrets() {
     let config = BuiltinPluginConfig {
         nowledge_mem: crate::config::NowledgeMemPluginConfig {
             mode: crate::config::NowledgeMemMode::Cloud,
-            url: "https://mem.example.com".to_string(),
+            url: "http://127.0.0.1:14242/mcp/".to_string(),
             api_key_env_var: "RARA_NMEM_API_KEY".to_string(),
             space_id_env_var: Some("RARA_NMEM_SPACE".to_string()),
             ..Default::default()

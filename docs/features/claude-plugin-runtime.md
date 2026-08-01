@@ -359,12 +359,19 @@ normal ordered de-duplication path. Builtin MCP servers also yield to already
 registered user or project MCP servers with the same name; normal non-builtin
 plugin MCP duplicates remain hard errors.
 
-Cloud mode is also supported. In cloud mode, url is treated as the Mem server
-base URL and the generated endpoint is /remote-api/mcp/. The transport emits
-Authorization and X-NMEM-API-Key from NMEM_API_KEY, plus the optional
-X-Nmem-Space-Id from NMEM_SPACE. These are environment-variable references,
-not persisted credentials; the environment variable names can be configured
-with api_key_env_var and space_id_env_var.
+Cloud mode is also supported. Cloud mode defaults to the fixed Nowledge Mem
+server `https://cloud.nowledge.co`. The generated endpoint is
+`/remote-api/mcp/`. The transport emits
+Authorization and X-NMEM-API-Key from the configured API key, plus the optional
+X-Nmem-Space-Id from NMEM_SPACE. The key is persisted using RARA's existing
+secret configuration field and is exposed to the runtime only through
+NMEM_API_KEY; the generated plugin file contains only the environment variable
+reference. The environment variable names can be configured with
+api_key_env_var and space_id_env_var.
+
+`rara mem --api-key <key>` saves the key to RARA's configuration and applies it
+to subsequent runs, including after restart. The user does not need to
+configure `NMEM_API_KEY` separately.
 
 Local Nowledge Mem endpoints must not use system HTTP proxies. The MCP
 transport contract exposes localhost proxy bypass detection for streamable HTTP
