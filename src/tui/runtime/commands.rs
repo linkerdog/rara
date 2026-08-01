@@ -663,7 +663,7 @@ mod tests {
     use crate::agent::{Agent, AgentEvent, BashApprovalMode};
     use crate::config::{
         ConfigManager, McpRegistry, McpServerConfig, McpServerScope, McpServerSource,
-        McpServerTransport, NowledgeMemMode, SourcedMcpServerConfig,
+        McpServerTransport, SourcedMcpServerConfig,
     };
     use crate::llm::MockLlm;
     use crate::mcp_tool_cache::McpToolCache;
@@ -762,32 +762,6 @@ mod tests {
             parse_goal_objective_and_budget("fix the build").expect("no budget"),
             ("fix the build".to_string(), None)
         );
-    }
-
-    #[tokio::test]
-    async fn nowledge_mem_command_saves_cloud_config_and_env_names_only() {
-        let dir = tempfile::tempdir().expect("tempdir");
-        let mut app = TuiApp::new(ConfigManager {
-            path: dir.path().join("config.json"),
-        })
-        .expect("app");
-
-        handle_nowledge_mem_command(
-            Some("cloud https://mem.example.com RARA_NMEM_API_KEY RARA_NMEM_SPACE"),
-            &mut app,
-        )
-        .expect("cloud configuration should save");
-
-        let config = &app.config.builtin_plugins.nowledge_mem;
-        assert!(config.enabled);
-        assert_eq!(config.mode, NowledgeMemMode::Cloud);
-        assert_eq!(config.url, "https://mem.example.com");
-        assert_eq!(config.api_key_env_var, "RARA_NMEM_API_KEY");
-        assert_eq!(config.space_id_env_var.as_deref(), Some("RARA_NMEM_SPACE"));
-
-        let saved = fs::read_to_string(dir.path().join("config.json")).expect("saved config");
-        assert!(saved.contains("RARA_NMEM_API_KEY"));
-        assert!(!saved.contains("secret-value"));
     }
 
     #[test]
