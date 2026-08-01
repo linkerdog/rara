@@ -1384,6 +1384,11 @@ pub(crate) async fn run_sub_agent(
             .any(|name| name == "skill");
         included && !excluded
     });
+    if kind.read_only() && !capability_policy.plugin_skills.is_empty() {
+        return Err(ToolError::InvalidInput(
+            "pluginSkills are not supported for read-only subagents".into(),
+        ));
+    }
     if !skill_tool_enabled && !capability_policy.plugin_skills.is_empty() {
         return Err(ToolError::InvalidInput(
             "pluginSkills requires the skill tool to be enabled".into(),

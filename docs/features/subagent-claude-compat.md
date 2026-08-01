@@ -232,7 +232,9 @@ boundary. An allowlisted plugin skill is copied into a child-owned in-memory
 registry. The child receives no plugin roots, and its `skill` tool cannot
 reload or discover additional skills.
 
-This separates plugin skill guidance from MCP execution authority. A future
+Plugin skill allowlists currently apply only to general subagents. Explore and
+plan subagents remain strictly read-only and reject `pluginSkills` rather than
+expanding their tool surface. This separates plugin skill guidance from MCP execution authority. A future
 MCP allowlist may grant selected servers or tools per agent definition, but
 memory reads and writes remain separate capabilities. Unknown names and
 non-plugin skills are rejected during child construction.
