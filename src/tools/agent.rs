@@ -3,7 +3,7 @@
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::{
-    Arc, Mutex,
+    Arc, Mutex, RwLock,
     atomic::{AtomicBool, Ordering},
 };
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
@@ -29,8 +29,10 @@ use crate::llm::{EmbeddingBackend, LlmBackend};
 use crate::prompt::PromptRuntimeConfig;
 use crate::session::SessionManager;
 use crate::session_transcript::{self, TranscriptScope};
+use crate::skill::{SkillManager, SkillScope};
 use crate::tasklist::TaskListStore;
 use crate::thread_store::{ThreadRecorder, ThreadRuntimeLineage, ThreadRuntimeState};
+use crate::tools::skill::{SkillReloadPolicy, SkillTool};
 use crate::tools::tasklist::{TaskCreateTool, TaskGetTool, TaskListTool, TaskUpdateTool};
 use crate::workspace::WorkspaceMemory;
 
@@ -68,6 +70,7 @@ pub(super) fn agent_tool_to_internal_name(name: &str) -> &str {
         "TaskList" => "task_list",
         "TaskGet" => "task_get",
         "TaskUpdate" => "task_update",
+        "Skill" => "skill",
         "Task" | "spawn_agent" => "spawn_agent",
         n => n,
     }
@@ -355,6 +358,7 @@ pub struct AgentTool {
     pub background_subagents: Arc<BackgroundSubAgentStore>,
     pub task_list_id: String,
     pub agent_definitions: AgentDefinitionCache,
+    pub skill_manager: Arc<RwLock<SkillManager>>,
 }
 
 #[tool_spec(
@@ -432,6 +436,7 @@ impl AgentTool {
                 prompt_config: self.prompt_config.clone(),
                 task_list_id: self.task_list_id.clone(),
                 agent_definitions: self.agent_definitions.clone(),
+                skill_manager: Some(self.skill_manager.clone()),
             })?;
             return Ok(task.to_json());
         }
@@ -454,6 +459,7 @@ impl AgentTool {
             self.prompt_config.clone(),
             self.task_list_id.clone(),
             self.agent_definitions.clone(),
+            Some(self.skill_manager.clone()),
         )
         .await?;
         Ok(json!({
@@ -488,6 +494,7 @@ pub struct ExploreAgentTool {
     pub background_subagents: Arc<BackgroundSubAgentStore>,
     pub task_list_id: String,
     pub agent_definitions: AgentDefinitionCache,
+    pub skill_manager: Arc<RwLock<SkillManager>>,
 }
 
 #[tool_spec(
@@ -556,6 +563,7 @@ impl ExploreAgentTool {
                 prompt_config: self.prompt_config.clone(),
                 task_list_id: self.task_list_id.clone(),
                 agent_definitions: self.agent_definitions.clone(),
+                skill_manager: Some(self.skill_manager.clone()),
             })?;
             return Ok(task.to_json());
         }
@@ -578,6 +586,7 @@ impl ExploreAgentTool {
             self.prompt_config.clone(),
             self.task_list_id.clone(),
             self.agent_definitions.clone(),
+            Some(self.skill_manager.clone()),
         )
         .await?;
         Ok(json!({
@@ -609,6 +618,7 @@ pub struct PlanAgentTool {
     pub background_subagents: Arc<BackgroundSubAgentStore>,
     pub task_list_id: String,
     pub agent_definitions: AgentDefinitionCache,
+    pub skill_manager: Arc<RwLock<SkillManager>>,
 }
 
 #[tool_spec(
@@ -677,6 +687,7 @@ impl PlanAgentTool {
                 prompt_config: self.prompt_config.clone(),
                 task_list_id: self.task_list_id.clone(),
                 agent_definitions: self.agent_definitions.clone(),
+                skill_manager: Some(self.skill_manager.clone()),
             })?;
             return Ok(task.to_json());
         }
@@ -699,6 +710,7 @@ impl PlanAgentTool {
             self.prompt_config.clone(),
             self.task_list_id.clone(),
             self.agent_definitions.clone(),
+            Some(self.skill_manager.clone()),
         )
         .await?;
         Ok(json!({
@@ -734,6 +746,7 @@ pub struct TeamCreateTool {
     pub prompt_config: PromptRuntimeConfig,
     pub task_list_id: String,
     pub agent_definitions: AgentDefinitionCache,
+    pub skill_manager: Arc<RwLock<SkillManager>>,
 }
 
 const BACKGROUND_SUBAGENT_COMPLETED_RETENTION: usize = 64;
@@ -766,6 +779,7 @@ struct BackgroundSubAgentStart {
     prompt_config: PromptRuntimeConfig,
     task_list_id: String,
     agent_definitions: AgentDefinitionCache,
+    skill_manager: Option<Arc<RwLock<SkillManager>>>,
 }
 
 #[derive(Clone, Debug)]
@@ -861,6 +875,7 @@ impl BackgroundSubAgentStore {
                 start.prompt_config,
                 start.task_list_id,
                 start.agent_definitions,
+                start.skill_manager,
             )
             .await;
             store.finish(&agent_id, result);
@@ -1246,6 +1261,7 @@ impl TeamCreateTool {
             let prompt_config = self.prompt_config.clone();
             let task_list_id = self.task_list_id.clone();
             let agent_definitions = self.agent_definitions.clone();
+            let skill_manager = self.skill_manager.clone();
             let parent_session_id = parent_session_id.map(str::to_string);
             let agent_id = next_subagent_id(task.kind, Some(&task.name));
 
@@ -1269,6 +1285,7 @@ impl TeamCreateTool {
                     prompt_config,
                     task_list_id,
                     agent_definitions,
+                    Some(skill_manager),
                 )
                 .await?;
                 Ok::<_, ToolError>(serialize_team_result(&task.name, result))
@@ -1331,6 +1348,7 @@ pub(crate) async fn run_sub_agent(
     prompt_config: PromptRuntimeConfig,
     task_list_id: String,
     agent_definitions: AgentDefinitionCache,
+    skill_manager: Option<Arc<RwLock<SkillManager>>>,
 ) -> Result<SubAgentResult, ToolError> {
     let permission_mode = agent_permission_mode(definition)?;
     let token_budget = agent_token_budget(definition)?;
@@ -1346,6 +1364,37 @@ pub(crate) async fn run_sub_agent(
             &task_list_id,
         ))
     }?;
+    let capability_policy = SubagentPluginCapabilityPolicy {
+        plugin_skills: definition
+            .map(|definition| definition.plugin_skills.clone())
+            .unwrap_or_default(),
+        ..Default::default()
+    };
+    let skill_tool_enabled = definition.is_none_or(|definition| {
+        let included = definition.tools.is_empty()
+            || definition
+                .tools
+                .iter()
+                .map(|name| agent_tool_to_internal_name(name))
+                .any(|name| name == "skill");
+        let excluded = definition
+            .disallowed_tools
+            .iter()
+            .map(|name| agent_tool_to_internal_name(name))
+            .any(|name| name == "skill");
+        included && !excluded
+    });
+    if !skill_tool_enabled && !capability_policy.plugin_skills.is_empty() {
+        return Err(ToolError::InvalidInput(
+            "pluginSkills requires the skill tool to be enabled".into(),
+        ));
+    }
+    let mut tool_manager = tool_manager;
+    register_scoped_plugin_skill_tool(
+        &mut tool_manager,
+        skill_manager,
+        &capability_policy.plugin_skills,
+    )?;
     let mut sub = Agent::new_with_embedding_backend_and_agent_definitions(
         tool_manager,
         resolved_backend.backend,
@@ -1369,7 +1418,6 @@ pub(crate) async fn run_sub_agent(
     sub.set_bash_approval_mode(permission_mode.bash_approval_mode(plan_required));
     sub.set_full_access_mode(permission_mode.full_access_mode(plan_required));
     sub.set_token_budget(token_budget);
-    let capability_policy = SubagentPluginCapabilityPolicy::default();
     let role_prompt = subagent_role_prompt(kind, definition);
     let appended_prompt = match definition
         .map(|d| d.system_prompt.trim())
@@ -1926,6 +1974,7 @@ fn resolve_kind_definition(kind: SubAgentKind) -> AgentDefinition {
         provider: None,
         tools: vec![],
         disallowed_tools: vec![],
+        plugin_skills: vec![],
         max_turns: 0,
         plan_mode_required: matches!(kind, SubAgentKind::Plan),
         permission_mode: None,
@@ -1971,12 +2020,51 @@ fn fallback_spawn_agent_definition(name: &str) -> AgentDefinition {
         provider: None,
         tools: vec![],
         disallowed_tools: vec![],
+        plugin_skills: vec![],
         max_turns: 0,
         plan_mode_required: false,
         permission_mode: None,
         hidden: false,
         system_prompt: String::new(),
     }
+}
+
+fn register_scoped_plugin_skill_tool(
+    tool_manager: &mut ToolManager,
+    parent_skill_manager: Option<Arc<RwLock<SkillManager>>>,
+    allowed_skills: &[String],
+) -> Result<(), ToolError> {
+    if allowed_skills.is_empty() {
+        return Ok(());
+    }
+
+    let parent_skill_manager = parent_skill_manager.ok_or_else(|| {
+        ToolError::ExecutionFailed(
+            "plugin skills require a runtime-owned skill manager".to_string(),
+        )
+    })?;
+    let parent = parent_skill_manager
+        .read()
+        .map_err(|err| ToolError::ExecutionFailed(format!("skill lock failed: {err}")))?;
+    let mut scoped = SkillManager::new();
+    for name in allowed_skills {
+        let skill = parent
+            .get_skill(name)
+            .ok_or_else(|| ToolError::InvalidInput(format!("unknown plugin skill: {name}")))?;
+        if skill.scope != SkillScope::Plugin {
+            return Err(ToolError::InvalidInput(format!(
+                "skill is not a plugin skill: {name}"
+            )));
+        }
+        scoped.skills.insert(name.clone(), skill.clone());
+    }
+
+    tool_manager.register(Box::new(SkillTool {
+        skill_manager: Arc::new(RwLock::new(scoped)),
+        plugin_roots: Vec::new(),
+        reload_policy: SkillReloadPolicy::Disabled,
+    }));
+    Ok(())
 }
 
 fn build_filtered_tool_manager(

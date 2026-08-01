@@ -55,6 +55,8 @@ pub struct AgentDefinition {
     pub tools: Vec<String>,
     /// Disallowed tools. Takes precedence over `tools`.
     pub disallowed_tools: Vec<String>,
+    /// Explicitly exposed plugin skill names. Only plugin-scoped skills are valid.
+    pub plugin_skills: Vec<String>,
     /// Provider override. "inherit" = use parent provider.
     pub provider: Option<String>,
     /// Model override. "inherit" = use parent model. Bare model names use the
@@ -218,22 +220,22 @@ Subagents do not inherit the parent session's plugin authority implicitly.
 Runtime-owned child construction attaches a
 `SubagentPluginCapabilityPolicy` with these defaults:
 
-- plugin skill execution is denied;
+- plugin skill execution is denied unless the agent definition declares an
+  explicit `pluginSkills` allowlist;
 - MCP server and MCP tool execution are denied;
 - plugin memory read and write access are denied independently;
 - subagent delegation depth is limited to one.
 
 The policy is included as a separate final prompt section so the model has an
 honest description of its authority, but prompt text is not the enforcement
-boundary.
-Actual plugin skill and MCP execution will require scoped runtime executors in
-later slices. Until those executors exist, child tool managers must not expose
-those capabilities, and a child must not infer permission from the parent
-registry, credentials, or tool descriptions.
+boundary. An allowlisted plugin skill is copied into a child-owned in-memory
+registry. The child receives no plugin roots, and its `skill` tool cannot
+reload or discover additional skills.
 
 This separates plugin skill guidance from MCP execution authority. A future
-allowlist may grant selected skills or MCP tools per agent definition, but
-memory reads and writes remain separate capabilities.
+MCP allowlist may grant selected servers or tools per agent definition, but
+memory reads and writes remain separate capabilities. Unknown names and
+non-plugin skills are rejected during child construction.
 
 ### Display
 
@@ -255,6 +257,7 @@ TUI subagent sidebar shows:
 5. Add `SubagentProgress` tracking.
 6. Update TUI subagent display.
 7. Attach the default-deny plugin capability policy to every child runtime.
+8. Register an in-memory scoped skill tool for explicit `pluginSkills` entries.
 
-The remaining follow-up is to implement scoped plugin skill and MCP executors;
-this policy does not enable either execution path.
+The remaining follow-up is to implement scoped MCP executors; MCP access and
+plugin memory access remain denied.

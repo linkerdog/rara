@@ -13,9 +13,16 @@ fn shared_skill_manager(manager: SkillManager) -> Arc<RwLock<SkillManager>> {
     Arc::new(RwLock::new(manager))
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SkillReloadPolicy {
+    Enabled,
+    Disabled,
+}
+
 pub struct SkillTool {
     pub skill_manager: Arc<RwLock<SkillManager>>,
     pub plugin_roots: Vec<(String, PathBuf)>,
+    pub reload_policy: SkillReloadPolicy,
 }
 #[tool_spec(
     name = "skill",
@@ -112,6 +119,11 @@ impl Tool for SkillTool {
                 }))
             }
             "reload" => {
+                if self.reload_policy == SkillReloadPolicy::Disabled {
+                    return Err(ToolError::ExecutionFailed(
+                        "skill reload is not available in this subagent".into(),
+                    ));
+                }
                 let mut verify = SkillManager::new();
                 if let Err(err) = verify.load_all() {
                     return Err(ToolError::ExecutionFailed(err.to_string()));
@@ -151,6 +163,7 @@ async fn list_returns_scopes_and_skills() {
     let tool = SkillTool {
         skill_manager: shared_skill_manager(manager),
         plugin_roots: Vec::new(),
+        reload_policy: SkillReloadPolicy::Enabled,
     };
 
     let result = tool.call(json!({"action": "list"})).await.expect("list");
@@ -167,6 +180,7 @@ fn skill_tool_description_requires_exact_pre_task_invocation() {
     let tool = SkillTool {
         skill_manager: shared_skill_manager(manager),
         plugin_roots: Vec::new(),
+        reload_policy: SkillReloadPolicy::Enabled,
     };
     let description = tool.description();
 
@@ -202,6 +216,7 @@ async fn invoke_returns_overridden_by_when_present() {
     let tool = SkillTool {
         skill_manager: shared_skill_manager(manager),
         plugin_roots: Vec::new(),
+        reload_policy: SkillReloadPolicy::Enabled,
     };
 
     let result = tool
@@ -223,6 +238,7 @@ async fn invoke_missing_skill_returns_error() {
     let tool = SkillTool {
         skill_manager: shared_skill_manager(manager),
         plugin_roots: Vec::new(),
+        reload_policy: SkillReloadPolicy::Enabled,
     };
 
     let err = tool
@@ -264,6 +280,7 @@ async fn list_shows_overridden_flag() {
     let tool = SkillTool {
         skill_manager: shared_skill_manager(manager),
         plugin_roots: Vec::new(),
+        reload_policy: SkillReloadPolicy::Enabled,
     };
 
     let result = tool.call(json!({"action": "list"})).await.expect("list");
@@ -309,6 +326,7 @@ async fn list_returns_active_scopes() {
     let tool = SkillTool {
         skill_manager: shared_skill_manager(manager),
         plugin_roots: Vec::new(),
+        reload_policy: SkillReloadPolicy::Enabled,
     };
 
     let result = tool.call(json!({"action": "list"})).await.expect("list");
@@ -334,6 +352,7 @@ async fn reload_updates_running_manager_with_plugin_skills() {
     let tool = SkillTool {
         skill_manager: manager.clone(),
         plugin_roots: vec![("quality".to_string(), plugin_root)],
+        reload_policy: SkillReloadPolicy::Enabled,
     };
 
     let result = tool

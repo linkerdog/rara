@@ -79,9 +79,9 @@ Active backlog only. Keep this file small and current.
 - [x] Surface configured subagent provider/model targets in runtime status for
       agent definitions.
 - [x] Define the default-deny policy for subagent plugin skill and MCP access.
-      Builtin plugin agent definitions remain registered, but external
-      execution authority remains parent-owned until scoped skill/MCP
-      executors are added.
+- [x] Add a runtime-owned scoped plugin skill executor for explicit
+      `AgentDefinition.pluginSkills` allowlists; child reload and discovery stay
+      disabled. MCP and plugin memory authority remain parent-owned.
 
 ## Shared Task Lists
 

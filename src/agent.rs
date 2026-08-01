@@ -629,6 +629,7 @@ impl Agent {
                                 prompt_config,
                                 task_list_id,
                                 agent_definitions,
+                                None,
                             )
                             .await;
                             match result {

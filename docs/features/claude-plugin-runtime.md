@@ -378,12 +378,14 @@ transport contract exposes localhost proxy bypass detection for streamable HTTP
 URLs whose host is `localhost`, `127.0.0.1`, or `::1`. Any future streamable
 HTTP MCP connector must call this helper before constructing its HTTP client.
 
-The builtin subagent does not receive additional external execution authority.
-It is a registry-provided routing agent that can explain which Nowledge Mem
-skill, MCP tool, or CLI fallback the parent runtime should use. Every child
-runtime receives a default-deny `SubagentPluginCapabilityPolicy`; direct MCP,
-shell, or skill invocation inside subagents requires a later scoped executor
-and explicit capability allowlist.
+The builtin subagent does not receive additional external execution authority
+by default. It is a registry-provided routing agent that can explain which
+Nowledge Mem skill, MCP tool, or CLI fallback the parent runtime should use.
+Every child runtime receives a default-deny `SubagentPluginCapabilityPolicy`.
+An agent definition may explicitly declare `pluginSkills`; runtime-owned child
+construction then copies only those plugin-scoped skills into a child-owned
+registry. The child receives no plugin roots and cannot reload the registry.
+Direct MCP, shell, and plugin memory access remain denied.
 
 TUI displays this integration in the `/status` Overview Extensions section.
 The `/mem` configuration command opens a picker for Disabled, Local, or Cloud;
