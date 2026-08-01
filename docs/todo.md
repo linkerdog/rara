@@ -26,6 +26,8 @@ Active backlog only. Keep this file small and current.
       continuity, and runtime persistence helpers out of TUI task logic.
 - [x] Deliver RuntimeControlEvent directly to TUI task consumers and stop
       deriving runtime semantics from role/message transcript formatting.
+- [x] Route runtime receiver events and task completion through one
+      `tokio::select!` mux, and redraw only after a visible state change.
 - [ ] Replace the local `AgentEvent -> role/message -> parser` compatibility
       path with a typed TUI projection event carrying session and sequence
       identity.

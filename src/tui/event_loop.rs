@@ -8,7 +8,7 @@ use tokio::time::{Duration, MissedTickBehavior, interval};
 
 use super::event_dispatch::dispatch_event;
 use super::event_stream::{UiEvent, translate_event};
-use super::maintainer::TuiMaintainer;
+use super::maintainer::{RuntimeActivity, TuiMaintainer};
 use super::render::{desired_viewport_height, render};
 use super::session_restore::{restore_latest_thread, restore_thread_by_id};
 use super::state::ListPickerKind;
@@ -108,10 +108,10 @@ pub async fn run_tui(
     }
 
     let result: anyhow::Result<()> = loop {
-        maintainer.poll_repo_context().await;
-        maintainer.poll_agent_task().await?;
-
         let mut needs_redraw = maintainer.needs_redraw;
+        if maintainer.poll_repo_context().await {
+            needs_redraw = true;
+        }
         {
             let app = maintainer.app_mut();
             clamp_command_palette_selection(app);
@@ -134,20 +134,27 @@ pub async fn run_tui(
 
         tokio::select! {
             _ = tick.tick() => {
+                let mut changed = false;
                 let app = maintainer.app_mut();
                 if let Some(delta) = app.transcript_selection.autoscroll_delta() {
                     app.scroll_transcript(delta);
+                    changed = true;
                 }
-                let _ = app.poll_shared_task_files();
-                needs_redraw = true;
+                changed |= app.poll_shared_task_files();
+                needs_redraw |= changed;
             }
-            maybe_agent_event = maintainer.wait_for_agent_event() => {
-                if let Some(event) = maybe_agent_event {
-                    maintainer.apply_agent_event(event);
-                } else {
-                    maintainer.poll_agent_task().await?;
+            runtime_activity = maintainer.wait_for_runtime_activity() => {
+                match runtime_activity {
+                    RuntimeActivity::Event(Some(event)) => {
+                        maintainer.apply_agent_event(event);
+                        needs_redraw = true;
+                    }
+                    RuntimeActivity::Event(None) => {}
+                    RuntimeActivity::Completed(completion) => {
+                        maintainer.complete_runtime_task(completion).await?;
+                        needs_redraw = true;
+                    }
                 }
-                needs_redraw = true;
             }
             maybe_event = events.next() => {
                 let (app, agent_slot) = maintainer.split_mut();
@@ -189,6 +196,7 @@ pub async fn run_tui(
                     },
                     Some(Err(err)) => {
                         app.push_notice(format!("Terminal event error: {err}"));
+                        needs_redraw = true;
                     }
                     None => break Ok(()),
                 }
