@@ -7,11 +7,14 @@ use super::helpers::{
     format_tool_use, is_oauth_prompt_message, planning_note_lines, scrub_internal_control_tokens,
     subagent_request_input,
 };
-use super::{apply_tui_event, convert_agent_event, format_memory_event_notice};
+use super::{
+    apply_tui_event, convert_agent_event, format_memory_event_notice,
+    runtime_event_from_agent_event,
+};
 use crate::agent::{AgentEvent, AgentExecutionMode};
 use crate::config::ConfigManager;
 use crate::control_tokens::has_pending_internal_control_context;
-use crate::runtime_control::{MemoryEvent, MemoryRecordSummary};
+use crate::runtime_control::{MemoryEvent, MemoryRecordSummary, RuntimeEvent, RuntimeProvenance};
 use crate::session_promotion::{
     SessionShardPromotionDecision, SessionShardPromotionOutcome, SessionShardPromotionPlan,
     SessionShardPromotionSkipReason, SessionShardPromotionTrigger,
@@ -19,6 +22,49 @@ use crate::session_promotion::{
 use crate::tui::state::{ActivePendingInteractionKind, TranscriptEntryPayload};
 use crate::tui::state::{RuntimePhase, TuiApp, TuiEvent};
 use crate::tui::terminal_event::{TerminalEvent, TerminalTarget};
+
+#[test]
+fn runtime_agent_event_preserves_structured_semantics_for_tui() {
+    let event = runtime_event_from_agent_event(
+        AgentEvent::ToolUse {
+            name: "write_file".into(),
+            input: json!({"path": "src/runtime.rs", "content": "fn main() {}"}),
+        },
+        RuntimeProvenance::local_tui("session-1"),
+    );
+
+    assert!(matches!(
+        event,
+        TuiEvent::Runtime(envelope)
+            if matches!(envelope.event, RuntimeEvent::Tool(_))
+    ));
+}
+
+#[test]
+fn structured_tool_event_updates_running_action_without_role_parsing() {
+    let temp = tempdir().expect("tempdir");
+    let mut app = TuiApp::new(ConfigManager {
+        path: temp.path().join("config.json"),
+    })
+    .expect("app");
+    let event = TuiEvent::Runtime(crate::runtime_control::RuntimeControlEvent {
+        event_id: "event-1".into(),
+        provenance: RuntimeProvenance::local_tui("session-1"),
+        sequence: 1,
+        event: RuntimeEvent::Tool(crate::runtime_control::ToolEvent::Use {
+            name: "write_file".into(),
+            input: json!({"path": "src/runtime.rs", "content": "fn main() {}"}),
+        }),
+    });
+
+    apply_tui_event(&mut app, event);
+
+    assert_eq!(
+        app.active_live.running_actions,
+        vec!["Write src/runtime.rs".to_string()]
+    );
+    assert_eq!(app.active_turn.entries[0].role, "Tool");
+}
 
 #[test]
 fn parses_delegated_request_input_from_subagent_result() {

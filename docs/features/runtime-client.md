@@ -31,6 +31,12 @@ Runtime task events are now awaited directly in the TUI event loop. A runtime
 event wakes the loop immediately; the 166 ms timer remains only for periodic
 UI work such as autoscroll, shared-task polling, and heartbeat display.
 
+Runtime-to-TUI task delivery uses `RuntimeControlEvent` directly. The TUI
+matches `RuntimeEvent` variants for assistant, tool, memory, todo, warning,
+and error behavior; it does not infer those semantics from transcript roles or
+formatted message text. `Transcript` remains only for presentation-only
+progress such as OAuth and model download messages.
+
 The lifecycle slice is now runtime-owned as well. Goal token accounting,
 completion evaluation, continuation prompt construction, plan continuation
 decisions, rebuilt-agent continuity merging, and runtime persistence helpers

@@ -24,6 +24,8 @@ Active backlog only. Keep this file small and current.
       runtime registries and completion orchestration from `TuiApp`.
 - [x] Move goal continuation, plan continuation decisions, rebuilt-agent
       continuity, and runtime persistence helpers out of TUI task logic.
+- [x] Deliver RuntimeControlEvent directly to TUI task consumers and stop
+      deriving runtime semantics from role/message transcript formatting.
 - [ ] Replace the local `AgentEvent -> role/message -> parser` compatibility
       path with a typed TUI projection event carrying session and sequence
       identity.
