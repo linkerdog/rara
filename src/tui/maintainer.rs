@@ -65,7 +65,7 @@ impl TuiMaintainer {
         let Some(task) = self.app.bottom_pane.running_task.as_mut() else {
             std::future::pending().await
         };
-        task.receiver.recv().await
+        receive_agent_event(&mut task.receiver).await
     }
 
     pub(super) fn apply_agent_event(&mut self, event: TuiEvent) {
@@ -89,5 +89,37 @@ impl TuiMaintainer {
     /// Poll and finish repo context task if ready.
     pub(super) async fn poll_repo_context(&mut self) {
         self.app.finish_repo_context_task_if_ready().await;
+    }
+}
+
+async fn receive_agent_event(
+    receiver: &mut tokio::sync::mpsc::UnboundedReceiver<TuiEvent>,
+) -> Option<TuiEvent> {
+    receiver.recv().await
+}
+
+#[cfg(test)]
+mod tests {
+    use tokio::sync::mpsc;
+
+    use super::receive_agent_event;
+    use crate::tui::state::TuiEvent;
+
+    #[tokio::test]
+    async fn agent_event_receiver_wakes_on_event_and_reports_closure() {
+        let (sender, mut receiver) = mpsc::unbounded_channel();
+        let waiter = tokio::spawn(async move { receive_agent_event(&mut receiver).await });
+        sender
+            .send(TuiEvent::Transcript {
+                role: "Status",
+                message: "ready".into(),
+            })
+            .expect("send event");
+        let event = waiter.await.expect("waiter").expect("event");
+        assert!(matches!(event, TuiEvent::Transcript { message, .. } if message == "ready"));
+
+        let (sender, mut receiver) = mpsc::unbounded_channel();
+        drop(sender);
+        assert!(receive_agent_event(&mut receiver).await.is_none());
     }
 }

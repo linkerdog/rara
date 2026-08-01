@@ -29,11 +29,6 @@ pub enum StartupResumeTarget {
     Picker,
 }
 
-use crate::hook_registry::HookRegistry;
-use crate::lsp_manager::LspManager;
-use crate::mcp_connection_manager::McpConnectionManager;
-use crate::protocol_sources::{PromptSourceRegistry, SkillSourceRegistry};
-
 pub async fn run_tui(
     runtime: RuntimeClient,
     oauth_manager: OAuthManager,

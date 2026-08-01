@@ -38,20 +38,22 @@ impl RuntimeClient {
     /// Convert a fully bootstrapped runtime into a session-owned client.
     pub(crate) async fn from_bootstrap(bootstrap: RuntimeBootstrap) -> Self {
         let event_bus = bootstrap.event_bus.clone();
-        let explicit_plugin_dirs = bootstrap.plugin_dirs_for_client();
         let (
-            agent,
-            _warnings,
-            sandbox_network_access,
-            goal_handle,
-            mcp_tool_cache,
-            mcp_manager,
-            prompt_source_registry,
-            skill_source_registry,
-            hook_registry,
-            hook_runtime,
-            lsp_manager,
-        ) = bootstrap.into_parts_with_runtime_extensions().await;
+            (
+                agent,
+                _warnings,
+                sandbox_network_access,
+                goal_handle,
+                mcp_tool_cache,
+                mcp_manager,
+                prompt_source_registry,
+                skill_source_registry,
+                hook_registry,
+                hook_runtime,
+                lsp_manager,
+            ),
+            explicit_plugin_dirs,
+        ) = bootstrap.into_runtime_client_parts().await;
         Self {
             agent: Some(agent),
             goal_handle,

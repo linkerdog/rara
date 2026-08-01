@@ -71,12 +71,6 @@ pub(crate) struct RuntimeBootstrap {
     builtin_plugins: BuiltinPluginConfig,
 }
 
-impl RuntimeBootstrap {
-    pub(crate) fn plugin_dirs_for_client(&self) -> Vec<PathBuf> {
-        self.plugin_dirs.clone()
-    }
-}
-
 #[derive(Clone)]
 pub(crate) struct ConfigSubagentBackendResolver {
     config: Arc<RaraConfig>,
@@ -217,6 +211,53 @@ impl RuntimeBootstrap {
     ) {
         let workspace_root = self.workspace.root.clone();
         let plugin_dirs = self.plugin_dirs.clone();
+        self.into_parts_with_runtime_extensions_for_plugin_dirs(&workspace_root, &plugin_dirs)
+            .await
+    }
+
+    pub(crate) async fn into_runtime_client_parts(
+        mut self,
+    ) -> (
+        (
+            Agent,
+            Vec<String>,
+            Arc<AtomicBool>,
+            GoalHandle,
+            McpToolCache,
+            Arc<McpConnectionManager>,
+            Arc<PromptSourceRegistry>,
+            Arc<SkillSourceRegistry>,
+            Arc<HookRegistry>,
+            Arc<HookRuntime>,
+            Arc<LspManager>,
+        ),
+        Vec<PathBuf>,
+    ) {
+        let plugin_dirs = std::mem::take(&mut self.plugin_dirs);
+        let workspace_root = self.workspace.root.clone();
+        let parts = self
+            .into_parts_with_runtime_extensions_for_plugin_dirs(&workspace_root, &plugin_dirs)
+            .await;
+        (parts, plugin_dirs)
+    }
+
+    async fn into_parts_with_runtime_extensions_for_plugin_dirs(
+        self,
+        workspace_root: &Path,
+        plugin_dirs: &[PathBuf],
+    ) -> (
+        Agent,
+        Vec<String>,
+        Arc<AtomicBool>,
+        GoalHandle,
+        McpToolCache,
+        Arc<McpConnectionManager>,
+        Arc<PromptSourceRegistry>,
+        Arc<SkillSourceRegistry>,
+        Arc<HookRegistry>,
+        Arc<HookRuntime>,
+        Arc<LspManager>,
+    ) {
         let rara_home = self.rara_home.clone();
         let builtin_plugins = self.builtin_plugins.clone();
         let hook_runtime = self.hook_runtime.clone();
@@ -226,8 +267,8 @@ impl RuntimeBootstrap {
         let plugin_hook_runtime = crate::plugin_middleware::register_plugin_hooks(
             &hook_runtime,
             rara_home,
-            &workspace_root,
-            &plugin_dirs,
+            workspace_root,
+            plugin_dirs,
             &builtin_plugins,
             &parts.0.session_id,
         )
