@@ -210,8 +210,9 @@ pub(crate) async fn run_cli() -> Result<()> {
     }
     let plugin_dirs = effective_plugin_dirs(&config, &cli_plugin_dirs)?;
     config.apply_provider_environment_defaults();
-    if let Some(api_key) = config.builtin_plugins.nowledge_mem.api_key() {
-        set_process_mem_api_key(api_key.to_string());
+    let mem_config = &config.builtin_plugins.nowledge_mem;
+    if let Some(api_key) = mem_config.api_key() {
+        set_process_mem_api_key(&mem_config.api_key_env_var, api_key.to_string());
     }
 
     let oauth_manager = OAuthManager::new()?;
@@ -287,7 +288,6 @@ fn apply_cli_overrides(config: &mut RaraConfig, cli: Cli) -> Option<Commands> {
     if let Some(Commands::Mem(args)) = cli.command.as_ref() {
         config.builtin_plugins.nowledge_mem.enabled = true;
         config.builtin_plugins.nowledge_mem.mode = NowledgeMemMode::Cloud;
-        config.builtin_plugins.nowledge_mem.api_key_env_var = "NMEM_API_KEY".to_string();
         config
             .builtin_plugins
             .nowledge_mem
@@ -296,10 +296,10 @@ fn apply_cli_overrides(config: &mut RaraConfig, cli: Cli) -> Option<Commands> {
     cli.command
 }
 
-fn set_process_mem_api_key(api_key: String) {
+fn set_process_mem_api_key(env_var: &str, api_key: String) {
     // SAFETY: CLI overrides are applied before RARA starts async runtimes or
     // worker threads, so no concurrent environment access is possible here.
-    unsafe { std::env::set_var("NMEM_API_KEY", api_key) };
+    unsafe { std::env::set_var(env_var, api_key) };
 }
 
 fn normalize_plugin_dirs(plugin_dirs: &[PathBuf]) -> Result<Vec<PathBuf>> {
@@ -853,6 +853,7 @@ mod tests {
         let cli = Cli::try_parse_from(["rara", "mem", "--api-key", "nmem_test_key"])
             .expect("parse mem api key");
         let mut config = RaraConfig::default();
+        config.builtin_plugins.nowledge_mem.api_key_env_var = "CUSTOM_MEM_KEY".to_string();
 
         assert!(matches!(
             apply_cli_overrides(&mut config, cli),
@@ -860,7 +861,7 @@ mod tests {
         ));
         assert_eq!(
             config.builtin_plugins.nowledge_mem.api_key_env_var,
-            "NMEM_API_KEY"
+            "CUSTOM_MEM_KEY"
         );
         assert_eq!(
             config.builtin_plugins.nowledge_mem.api_key(),

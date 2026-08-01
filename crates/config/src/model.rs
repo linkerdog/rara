@@ -1548,8 +1548,10 @@ mod tests {
 
     #[test]
     fn builtin_nowledge_mem_cloud_mode_defaults_to_nowledge_cloud() {
-        let mut mem = NowledgeMemPluginConfig::default();
-        mem.mode = NowledgeMemMode::Cloud;
+        let mem = NowledgeMemPluginConfig {
+            mode: NowledgeMemMode::Cloud,
+            ..Default::default()
+        };
 
         assert_eq!(mem.mcp_url(), "https://cloud.nowledge.co/remote-api/mcp/");
     }
