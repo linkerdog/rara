@@ -71,6 +71,12 @@ pub(crate) struct RuntimeBootstrap {
     builtin_plugins: BuiltinPluginConfig,
 }
 
+impl RuntimeBootstrap {
+    pub(crate) fn plugin_dirs_for_client(&self) -> Vec<PathBuf> {
+        self.plugin_dirs.clone()
+    }
+}
+
 #[derive(Clone)]
 pub(crate) struct ConfigSubagentBackendResolver {
     config: Arc<RaraConfig>,

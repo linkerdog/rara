@@ -19,6 +19,13 @@ Active backlog only. Keep this file small and current.
 
 ## TUI / UX
 
+- [ ] Complete the session-scoped `RuntimeClient` migration: route typed
+      commands and runtime snapshots/events through the client, then remove
+      runtime registries and completion orchestration from `TuiApp`.
+- [ ] Replace the local `AgentEvent -> role/message -> parser` compatibility
+      path with a typed TUI projection event carrying session and sequence
+      identity.
+
 - [x] Keep `rara-file-search` as the shared backend for TUI file suggestions
       and `list_files`; keep automatic retrieval as optional low-priority
       paths-only `RetrievalCandidate` / `MemorySelection` input.

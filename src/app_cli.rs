@@ -517,36 +517,12 @@ async fn run_tui_command(
         .await?
     };
     emit_bootstrap_warnings(&bootstrap.warnings);
-    let event_bus = bootstrap.event_bus.clone();
-    let (
-        agent,
-        _warnings,
-        sandbox_network_access,
-        goal_handle,
-        mcp_tool_cache,
-        mcp_manager,
-        prompt_source_registry,
-        skill_source_registry,
-        hook_registry,
-        hook_runtime,
-        lsp_manager,
-    ) = bootstrap.into_parts_with_runtime_extensions().await;
+    let runtime_client = crate::runtime_client::RuntimeClient::from_bootstrap(bootstrap).await;
     let resumed_thread_id = crate::tui::run_tui(
-        agent,
-        goal_handle,
-        mcp_tool_cache,
+        runtime_client,
         oauth_manager,
         startup_resume,
-        sandbox_network_access,
-        event_bus,
-        mcp_manager,
-        prompt_source_registry,
-        skill_source_registry,
-        hook_registry,
-        hook_runtime,
-        lsp_manager,
         initialize_local_embeddings,
-        plugin_dirs,
     )
     .await?;
     if let Some(thread_id) = resumed_thread_id {

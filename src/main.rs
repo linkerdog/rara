@@ -35,6 +35,7 @@ mod plugin_middleware;
 mod print_consumer;
 mod prompt;
 mod protocol_sources;
+mod runtime_client;
 mod runtime_context;
 mod runtime_control;
 mod runtime_event_bus;
