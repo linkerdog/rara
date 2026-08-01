@@ -143,7 +143,8 @@ fn render_nowledge_mem_status(app: &TuiApp, lines: &mut Vec<Line<'static>>) {
         return;
     }
 
-    let proxy_label = if nowledge_mem_transport(config).bypasses_proxy() {
+    let local_direct = nowledge_mem_transport(config).bypasses_proxy();
+    let proxy_label = if local_direct {
         "local/direct"
     } else {
         "remote"
@@ -153,7 +154,7 @@ fn render_nowledge_mem_status(app: &TuiApp, lines: &mut Vec<Line<'static>>) {
     } else {
         format!("{} custom headers", config.http_headers.len())
     };
-    let auth_label = if config.mode_label() == "cloud" {
+    let auth_label = if config.mode == crate::config::NowledgeMemMode::Cloud {
         format!(", api key env {}", config.api_key_env_var)
     } else {
         String::new()
@@ -170,7 +171,7 @@ fn render_nowledge_mem_status(app: &TuiApp, lines: &mut Vec<Line<'static>>) {
             header_label,
             auth_label
         ),
-        if config.mode_label() == "local" {
+        if local_direct {
             Color::LightGreen
         } else {
             Color::LightBlue
@@ -556,6 +557,7 @@ fn sandbox_label(_app: &TuiApp) -> String {
 
 #[cfg(test)]
 mod tests {
+    use ratatui::style::Color;
     use tempfile::tempdir;
 
     use super::render_status_lines;
@@ -675,6 +677,23 @@ mod tests {
         assert!(rendered.contains("remote"));
         assert!(rendered.contains("1 custom headers"));
         assert!(!rendered.contains("token=secret"));
+    }
+
+    #[test]
+    fn overview_status_colors_local_mode_by_actual_proxy_route() {
+        let temp = tempdir().expect("tempdir");
+        let mut app = TuiApp::new(ConfigManager {
+            path: temp.path().join("config.json"),
+        })
+        .expect("app");
+        app.config.builtin_plugins.nowledge_mem.url = "https://mem.example.com".to_string();
+
+        let lines = render_status_lines(&app, StatusTab::Overview);
+        let line = lines
+            .iter()
+            .find(|line| line.to_string().contains("https://mem.example.com"))
+            .expect("nowledge status line");
+        assert_eq!(line.spans[1].style.fg, Some(Color::LightBlue));
     }
 
     #[test]
