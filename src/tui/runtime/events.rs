@@ -33,7 +33,7 @@ const MEMORY_QUERY_PREVIEW_LIMIT: usize = 120;
 
 pub(crate) fn apply_tui_event(app: &mut TuiApp, event: TuiEvent) {
     match event {
-        TuiEvent::Runtime(event) => apply_runtime_control_event(app, event),
+        TuiEvent::Runtime(event) => apply_runtime_control_event(app, *event),
         TuiEvent::Transcript { role, message } => {
             if role == "Status" {
                 app.set_runtime_phase(
@@ -113,55 +113,7 @@ pub(crate) fn apply_tui_event(app: &mut TuiApp, event: TuiEvent) {
                     Some(message.lines().next().unwrap_or(role).trim().to_string()),
                 );
             } else if role == "Agent" {
-                let message = scrub_internal_control_tokens(&message);
-                if message.trim().is_empty() {
-                    app.set_runtime_phase(
-                        RuntimePhase::ProcessingResponse,
-                        Some("receiving model output".into()),
-                    );
-                    return;
-                }
-                let planning_mode = matches!(
-                    app.agent_execution_mode,
-                    crate::agent::AgentExecutionMode::Plan
-                );
-                let structured_planning_output = contains_structured_planning_output(&message);
-                let has_live_exploration = !app.active_live.exploration_actions.is_empty()
-                    || !app.active_live.exploration_notes.is_empty();
-                let planning_notes = if planning_mode && !structured_planning_output {
-                    planning_note_lines(&message)
-                } else {
-                    Vec::new()
-                };
-                if !app.active_live.exploration_actions.is_empty()
-                    && matches!(
-                        app.runtime_phase,
-                        RuntimePhase::RunningTool | RuntimePhase::SendingPrompt
-                    )
-                    && (!planning_mode
-                        || (planning_notes.is_empty() && !structured_planning_output))
-                {
-                    for note in exploration_note_lines(&message, planning_mode) {
-                        app.record_exploration_note(note);
-                    }
-                }
-                app.set_runtime_phase(
-                    RuntimePhase::ProcessingResponse,
-                    Some("receiving model output".into()),
-                );
-                if planning_mode && !structured_planning_output {
-                    for note in planning_notes {
-                        app.record_planning_note(note);
-                    }
-                    if has_live_exploration
-                        || !app.active_live.planning_actions.is_empty()
-                        || !app.active_live.planning_notes.is_empty()
-                    {
-                        app.agent_markdown_stream = None;
-                        return;
-                    }
-                }
-                app.finalize_agent_stream(Some(message));
+                apply_assistant_text(app, message);
                 return;
             } else if role == "Download" {
                 let detail = message.lines().next().unwrap_or(role).trim().to_string();
@@ -277,21 +229,7 @@ pub(crate) fn apply_tui_event(app: &mut TuiApp, event: TuiEvent) {
 
 fn apply_runtime_control_event(app: &mut TuiApp, event: RuntimeControlEvent) {
     match event.event {
-        RuntimeEvent::Assistant(AssistantEvent::Text(text)) => {
-            let text = scrub_internal_control_tokens(&text);
-            if text.trim().is_empty() {
-                app.set_runtime_phase(
-                    RuntimePhase::ProcessingResponse,
-                    Some("receiving model output".into()),
-                );
-            } else {
-                app.set_runtime_phase(
-                    RuntimePhase::ProcessingResponse,
-                    Some("receiving model output".into()),
-                );
-                app.finalize_agent_stream(Some(text));
-            }
-        }
+        RuntimeEvent::Assistant(AssistantEvent::Text(text)) => apply_assistant_text(app, text),
         RuntimeEvent::Assistant(AssistantEvent::TextDelta(text)) => {
             app.set_runtime_phase(
                 RuntimePhase::ProcessingResponse,
@@ -448,16 +386,68 @@ fn apply_runtime_control_event(app: &mut TuiApp, event: RuntimeControlEvent) {
     }
 }
 
+fn apply_assistant_text(app: &mut TuiApp, message: String) {
+    let message = scrub_internal_control_tokens(&message);
+    if message.trim().is_empty() {
+        app.set_runtime_phase(
+            RuntimePhase::ProcessingResponse,
+            Some("receiving model output".into()),
+        );
+        return;
+    }
+
+    let planning_mode = matches!(
+        app.agent_execution_mode,
+        crate::agent::AgentExecutionMode::Plan
+    );
+    let structured_planning_output = contains_structured_planning_output(&message);
+    let has_live_exploration = !app.active_live.exploration_actions.is_empty()
+        || !app.active_live.exploration_notes.is_empty();
+    let planning_notes = if planning_mode && !structured_planning_output {
+        planning_note_lines(&message)
+    } else {
+        Vec::new()
+    };
+    if !app.active_live.exploration_actions.is_empty()
+        && matches!(
+            app.runtime_phase,
+            RuntimePhase::RunningTool | RuntimePhase::SendingPrompt
+        )
+        && (!planning_mode || (planning_notes.is_empty() && !structured_planning_output))
+    {
+        for note in exploration_note_lines(&message, planning_mode) {
+            app.record_exploration_note(note);
+        }
+    }
+    app.set_runtime_phase(
+        RuntimePhase::ProcessingResponse,
+        Some("receiving model output".into()),
+    );
+    if planning_mode && !structured_planning_output {
+        for note in planning_notes {
+            app.record_planning_note(note);
+        }
+        if has_live_exploration
+            || !app.active_live.planning_actions.is_empty()
+            || !app.active_live.planning_notes.is_empty()
+        {
+            app.agent_markdown_stream = None;
+            return;
+        }
+    }
+    app.finalize_agent_stream(Some(message));
+}
+
 pub(super) fn runtime_event_from_agent_event(
     event: AgentEvent,
     provenance: crate::runtime_control::RuntimeProvenance,
 ) -> TuiEvent {
-    TuiEvent::Runtime(crate::runtime_control::wrap_agent_event(
+    TuiEvent::Runtime(Box::new(crate::runtime_control::wrap_agent_event(
         uuid::Uuid::new_v4().to_string(),
         0,
         provenance,
         event,
-    ))
+    )))
 }
 
 #[cfg(test)]

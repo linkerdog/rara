@@ -47,7 +47,7 @@ fn structured_tool_event_updates_running_action_without_role_parsing() {
         path: temp.path().join("config.json"),
     })
     .expect("app");
-    let event = TuiEvent::Runtime(crate::runtime_control::RuntimeControlEvent {
+    let event = TuiEvent::Runtime(Box::new(crate::runtime_control::RuntimeControlEvent {
         event_id: "event-1".into(),
         provenance: RuntimeProvenance::local_tui("session-1"),
         sequence: 1,
@@ -55,7 +55,7 @@ fn structured_tool_event_updates_running_action_without_role_parsing() {
             name: "write_file".into(),
             input: json!({"path": "src/runtime.rs", "content": "fn main() {}"}),
         }),
-    });
+    }));
 
     apply_tui_event(&mut app, event);
 
@@ -567,6 +567,39 @@ fn plan_mode_routes_planning_prose_to_planning_not_exploring() {
             role: "Agent",
             message: "Based on the inspection of `crates/instructions/src/workspace.rs`, I propose the following plan:<channel|>\n1. Generalize prompt discovery.\n2. Keep the current merge semantics.".into(),
         },
+    );
+
+    assert!(app.active_live.exploration_notes.is_empty());
+    assert_eq!(
+        app.active_live.planning_notes,
+        vec![
+            "1. Generalize prompt discovery.".to_string(),
+            "2. Keep the current merge semantics.".to_string()
+        ]
+    );
+}
+
+#[test]
+fn structured_assistant_text_preserves_plan_mode_routing() {
+    let temp = tempdir().expect("tempdir");
+    let mut app = TuiApp::new(ConfigManager {
+        path: temp.path().join("config.json"),
+    })
+    .expect("app");
+    app.set_agent_execution_mode(AgentExecutionMode::Plan);
+    app.record_exploration_action("Read crates/instructions/src/workspace.rs");
+    app.runtime_phase = RuntimePhase::RunningTool;
+
+    apply_tui_event(
+        &mut app,
+        TuiEvent::Runtime(Box::new(crate::runtime_control::RuntimeControlEvent {
+            event_id: "event-1".into(),
+            provenance: crate::runtime_control::RuntimeProvenance::local_tui("session-1"),
+            sequence: 1,
+            event: RuntimeEvent::Assistant(crate::runtime_control::AssistantEvent::Text(
+                "Based on the inspection of `crates/instructions/src/workspace.rs`, I propose the following plan:<channel|>\n1. Generalize prompt discovery.\n2. Keep the current merge semantics.".into(),
+            )),
+        })),
     );
 
     assert!(app.active_live.exploration_notes.is_empty());

@@ -228,7 +228,7 @@ pub(super) fn start_input_control_task(
                         _ => return,
                     };
                     forward_event_to_bus(&bus_arg, &agent_event, &event_provenance);
-                    let _ = tx.send(TuiEvent::Runtime(control_event));
+                    let _ = tx.send(TuiEvent::Runtime(Box::new(control_event)));
                 } else if let crate::runtime_control::RuntimeEvent::Tool(te) = &control_event.event
                 {
                     let agent_event = match te {
@@ -258,9 +258,9 @@ pub(super) fn start_input_control_task(
                         },
                     };
                     forward_event_to_bus(&bus_arg, &agent_event, &event_provenance);
-                    let _ = tx.send(TuiEvent::Runtime(control_event));
+                    let _ = tx.send(TuiEvent::Runtime(Box::new(control_event)));
                 } else {
-                    let _ = tx.send(TuiEvent::Runtime(control_event));
+                    let _ = tx.send(TuiEvent::Runtime(Box::new(control_event)));
                 }
             },
         )

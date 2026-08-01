@@ -399,7 +399,7 @@ pub enum TaskCompletion {
 pub enum TuiEvent {
     /// Structured runtime event. Runtime semantics must be consumed from this
     /// variant instead of inferred from transcript role or message text.
-    Runtime(crate::runtime_control::RuntimeControlEvent),
+    Runtime(Box<crate::runtime_control::RuntimeControlEvent>),
     Transcript {
         role: &'static str,
         message: String,
