@@ -1,11 +1,12 @@
-//! TUI maintainer — owns all render state and applies agent-output events.
+//! TUI controller — owns presentation state and applies runtime projections.
 //!
-//! The agent task sends `TuiEvent`s through an mpsc channel. The maintainer
+//! The agent task sends `TuiEvent`s through an mpsc channel. The controller
 //! is the sole consumer: it drains events, mutates `TuiApp`, and exposes a
 //! ready/dirty signal so the event loop knows when to redraw.
 //!
 //! This is an incremental extraction of the apply logic already present in
-//! `finish_running_task_if_ready` / `apply_tui_event`.
+//! `finish_running_task_if_ready` / `apply_tui_event`. The compatibility task
+//! bridge remains here until it is replaced by `RuntimeClientPort`.
 
 use super::state::{TaskCompletion, TuiApp, TuiEvent};
 use crate::agent::Agent;
@@ -16,15 +17,15 @@ pub(super) enum RuntimeActivity {
     Completed(Box<Result<TaskCompletion, tokio::task::JoinError>>),
 }
 
-/// Owns all TUI render state and applies agent-output events to it.
-pub(super) struct TuiMaintainer {
+/// Owns TUI presentation state and applies runtime projections to it.
+pub(super) struct TuiController {
     app: TuiApp,
     runtime: RuntimeClient,
     /// Set to true every time an event is applied and the screen should repaint.
     pub(super) needs_redraw: bool,
 }
 
-impl TuiMaintainer {
+impl TuiController {
     pub(super) fn new(app: TuiApp, runtime: RuntimeClient) -> Self {
         Self {
             app,
@@ -46,7 +47,7 @@ impl TuiMaintainer {
     }
 
     /// Split borrow so callers that need independent `&mut TuiApp` and
-    /// `&mut Option<Agent>` can still use them while the maintainer
+    /// `&mut Option<Agent>` can still use them while the controller
     /// owns both.
     pub(super) fn split_mut(&mut self) -> (&mut TuiApp, &mut Option<Agent>) {
         (&mut self.app, self.runtime.agent_mut())

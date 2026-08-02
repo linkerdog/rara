@@ -22,7 +22,7 @@ The intended surface is:
 ## Current Migration Slice
 
 The first slice establishes session ownership and removes the wide bootstrap
-argument list from `run_tui`. `TuiMaintainer` owns the client while `TuiApp`
+argument list from `run_tui`. `TuiController` owns the client while `TuiApp`
 continues to hold compatibility projections used by the existing command and
 renderer modules. Those projections are not authoritative runtime state and
 must be removed as command handling moves behind the client boundary.
@@ -39,6 +39,14 @@ matches `RuntimeEvent` variants for assistant, tool, memory, todo, warning,
 and error behavior; it does not infer those semantics from transcript roles or
 formatted message text. `Transcript` remains only for presentation-only
 progress such as OAuth and model download messages.
+
+The controller boundary now has a narrow `RuntimeClientPort` contract. It
+exchanges typed commands, runtime projection events, snapshots, completion,
+and transport lifecycle notifications without exposing `Agent`, registries, or
+task join handles. The current in-process controller still uses the
+compatibility task bridge behind this boundary; an app-server client and test
+fake can be introduced without making those runtime objects part of the TUI
+contract.
 
 The lifecycle slice is now runtime-owned as well. Goal token accounting,
 completion evaluation, continuation prompt construction, plan continuation

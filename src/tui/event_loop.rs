@@ -6,9 +6,9 @@ use futures::StreamExt;
 use rara_state::state_db::StateDb;
 use tokio::time::{Duration, MissedTickBehavior, interval};
 
+use super::controller::{RuntimeActivity, TuiController};
 use super::event_dispatch::dispatch_event;
 use super::event_stream::{UiEvent, translate_event};
-use super::maintainer::{RuntimeActivity, TuiMaintainer};
 use super::render::{desired_viewport_height, render};
 use super::session_restore::{restore_latest_thread, restore_thread_by_id};
 use super::state::ListPickerKind;
@@ -61,7 +61,7 @@ pub async fn run_tui(
     app.terminal_width = initial_size.0;
     let viewport_height = desired_viewport_height(&app, initial_size.0, initial_size.1);
     let mut terminal = build_terminal(viewport_height)?;
-    let mut maintainer = TuiMaintainer::new(app, runtime);
+    let mut maintainer = TuiController::new(app, runtime);
     match StateDb::new() {
         Ok(state_db) => {
             let state_db = Arc::new(state_db);
