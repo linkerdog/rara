@@ -4,6 +4,10 @@ mod events;
 pub(super) use events::apply_tui_event;
 pub(super) mod tasks;
 
+pub(super) fn emit_query_heartbeat(app: &mut TuiApp) -> bool {
+    tasks::emit_query_heartbeat(app)
+}
+
 use std::sync::Arc;
 
 use super::state::{LocalCommand, OAuthLoginMode, TuiApp};

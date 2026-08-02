@@ -415,18 +415,18 @@ pub(crate) async fn finish_running_task_if_ready_with_completion(
     Ok(())
 }
 
-fn emit_query_heartbeat(app: &mut TuiApp) {
+pub(super) fn emit_query_heartbeat(app: &mut TuiApp) -> bool {
     let elapsed = {
         let Some(task) = app.bottom_pane.running_task.as_mut() else {
-            return;
+            return false;
         };
         if !matches!(task.kind, TaskKind::Query) {
-            return;
+            return false;
         }
 
         let elapsed = task.started_at.elapsed().as_secs();
         if elapsed < task.next_heartbeat_after_secs {
-            return;
+            return false;
         }
         task.next_heartbeat_after_secs = elapsed.saturating_add(1);
         elapsed
@@ -480,4 +480,5 @@ fn emit_query_heartbeat(app: &mut TuiApp) {
 
     app.set_runtime_phase(phase, Some(detail));
     app.bottom_pane.notice = Some(notice);
+    true
 }

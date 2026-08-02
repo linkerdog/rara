@@ -98,7 +98,7 @@ impl TuiMaintainer {
     pub(super) async fn poll_repo_context(&mut self) -> bool {
         let before = (self.app.repo_slug.clone(), self.app.current_pr_url.clone());
         self.app.finish_repo_context_task_if_ready().await;
-        before != (self.app.repo_slug.clone(), self.app.current_pr_url.clone())
+        before.0 != self.app.repo_slug || before.1 != self.app.current_pr_url
     }
 }
 

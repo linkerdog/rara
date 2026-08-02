@@ -141,6 +141,7 @@ pub async fn run_tui(
                     changed = true;
                 }
                 changed |= app.poll_shared_task_files();
+                changed |= super::runtime::emit_query_heartbeat(app);
                 needs_redraw |= changed;
             }
             runtime_activity = maintainer.wait_for_runtime_activity() => {
