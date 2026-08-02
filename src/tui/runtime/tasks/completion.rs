@@ -3,9 +3,18 @@ use crate::tui::state::Overlay;
 
 use crate::runtime_client::{GoalContinuation, RuntimeClient};
 
+#[cfg(test)]
 pub(crate) async fn finish_running_task_if_ready(
     app: &mut TuiApp,
     agent_slot: &mut Option<Agent>,
+) -> anyhow::Result<()> {
+    finish_running_task_if_ready_with_completion(app, agent_slot, None).await
+}
+
+pub(crate) async fn finish_running_task_if_ready_with_completion(
+    app: &mut TuiApp,
+    agent_slot: &mut Option<Agent>,
+    completion: Option<Result<TaskCompletion, tokio::task::JoinError>>,
 ) -> anyhow::Result<()> {
     if app.bottom_pane.running_task.is_none() {
         return Ok(());
@@ -21,7 +30,7 @@ pub(crate) async fn finish_running_task_if_ready(
         while let Ok(event) = task.receiver.try_recv() {
             pending_events.push(event);
         }
-        let is_finished = task.handle.is_finished();
+        let is_finished = completion.is_some() || task.handle.is_finished();
         (pending_events, is_finished)
     };
 
@@ -39,7 +48,10 @@ pub(crate) async fn finish_running_task_if_ready(
         .running_task
         .take()
         .expect("task should exist");
-    let completion = task.handle.await?;
+    let completion = match completion {
+        Some(completion) => completion?,
+        None => task.handle.await?,
+    };
     while let Ok(event) = task.receiver.try_recv() {
         apply_tui_event(app, event);
     }
@@ -403,18 +415,18 @@ pub(crate) async fn finish_running_task_if_ready(
     Ok(())
 }
 
-fn emit_query_heartbeat(app: &mut TuiApp) {
+pub(super) fn emit_query_heartbeat(app: &mut TuiApp) -> bool {
     let elapsed = {
         let Some(task) = app.bottom_pane.running_task.as_mut() else {
-            return;
+            return false;
         };
         if !matches!(task.kind, TaskKind::Query) {
-            return;
+            return false;
         }
 
         let elapsed = task.started_at.elapsed().as_secs();
         if elapsed < task.next_heartbeat_after_secs {
-            return;
+            return false;
         }
         task.next_heartbeat_after_secs = elapsed.saturating_add(1);
         elapsed
@@ -468,4 +480,5 @@ fn emit_query_heartbeat(app: &mut TuiApp) {
 
     app.set_runtime_phase(phase, Some(detail));
     app.bottom_pane.notice = Some(notice);
+    true
 }

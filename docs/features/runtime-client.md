@@ -27,9 +27,12 @@ continues to hold compatibility projections used by the existing command and
 renderer modules. Those projections are not authoritative runtime state and
 must be removed as command handling moves behind the client boundary.
 
-Runtime task events are now awaited directly in the TUI event loop. A runtime
-event wakes the loop immediately; the 166 ms timer remains only for periodic
-UI work such as autoscroll, shared-task polling, and heartbeat display.
+Runtime task events and task completion are now awaited by one event-mux branch
+in the TUI event loop. A runtime event wakes the loop immediately, and a closed
+runtime receiver is drained through the task completion future instead of
+falling back to receiver polling. The 166 ms timer remains only for periodic UI
+work such as autoscroll, shared-task polling, and heartbeat display; it marks
+the screen dirty only when one of those operations changes state.
 
 Runtime-to-TUI task delivery uses `RuntimeControlEvent` directly. The TUI
 matches `RuntimeEvent` variants for assistant, tool, memory, todo, warning,
