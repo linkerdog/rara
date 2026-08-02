@@ -73,6 +73,18 @@ The current harness is intentionally a deterministic projection/lifecycle
 fixture. Virtual time, production `TuiController` construction from a port,
 and full command routing remain follow-up slices.
 
+The in-process TUI now has a `RuntimeClientPort` adapter backed by the
+session's structured `RuntimeEventBus`. `TuiController` consumes that stream
+for runtime projections and snapshots; the old task receiver is retained only
+to observe completion and is drained without replaying events. This prevents
+the same runtime event from being applied once through the port and again
+through the compatibility channel.
+
+The adapter intentionally rejects command submission for now. Interactive
+commands still use the compatibility task bridge until runtime command
+execution is moved behind the port; callers must surface that error rather
+than treating it as a successful runtime mutation.
+
 ## Ownership Rules
 
 1. A session has one `RuntimeClient` and one runtime registry graph.

@@ -8,12 +8,15 @@
 //! `finish_running_task_if_ready` / `apply_tui_event`. The compatibility task
 //! bridge remains here until it is replaced by `RuntimeClientPort`.
 
-use super::state::{TaskCompletion, TuiApp, TuiEvent};
+use futures::StreamExt;
+
+use super::runtime_port::{InProcessRuntimeClientPort, RuntimeClientPort, RuntimeProjectionEvent};
+use super::state::{TaskCompletion, TuiApp};
 use crate::agent::Agent;
 use crate::runtime_client::RuntimeClient;
 
 pub(super) enum RuntimeActivity {
-    Event(Option<TuiEvent>),
+    Event(Option<RuntimeProjectionEvent>),
     Completed(Box<Result<TaskCompletion, tokio::task::JoinError>>),
 }
 
@@ -21,15 +24,24 @@ pub(super) enum RuntimeActivity {
 pub(super) struct TuiController {
     app: TuiApp,
     runtime: RuntimeClient,
+    runtime_port: InProcessRuntimeClientPort,
+    runtime_events: super::runtime_port::RuntimeEventStream,
     /// Set to true every time an event is applied and the screen should repaint.
     pub(super) needs_redraw: bool,
 }
 
 impl TuiController {
     pub(super) fn new(app: TuiApp, runtime: RuntimeClient) -> Self {
+        let runtime_port = InProcessRuntimeClientPort::new(
+            runtime.event_bus.clone(),
+            std::sync::Arc::new(std::sync::RwLock::new(app.snapshot.clone())),
+        );
+        let runtime_events = runtime_port.subscribe();
         Self {
             app,
             runtime,
+            runtime_port,
+            runtime_events,
             needs_redraw: true,
         }
     }
@@ -59,7 +71,7 @@ impl TuiController {
         &mut self,
         completion: Box<Result<TaskCompletion, tokio::task::JoinError>>,
     ) -> anyhow::Result<()> {
-        super::runtime::tasks::finish_running_task_if_ready_with_completion(
+        super::runtime::tasks::finish_running_task_if_ready_from_runtime_port(
             &mut self.app,
             self.runtime.agent_mut(),
             Some(*completion),
@@ -74,20 +86,50 @@ impl TuiController {
         let Some(task) = self.app.bottom_pane.running_task.as_mut() else {
             std::future::pending().await
         };
-        select_runtime_activity(&mut task.receiver, &mut task.handle).await
+        select_runtime_activity(&mut self.runtime_events, &mut task.handle).await
     }
 
-    pub(super) fn apply_agent_event(&mut self, event: TuiEvent) {
-        super::runtime::apply_tui_event(&mut self.app, event);
+    pub(super) fn apply_runtime_event(&mut self, event: RuntimeProjectionEvent) {
+        match event {
+            RuntimeProjectionEvent::Runtime(event) => {
+                super::runtime::apply_tui_event(
+                    &mut self.app,
+                    super::state::TuiEvent::Runtime(event),
+                );
+            }
+            RuntimeProjectionEvent::Snapshot(snapshot) => self.app.snapshot = *snapshot,
+            RuntimeProjectionEvent::Completed { reason } => {
+                self.app
+                    .set_runtime_phase(super::state::RuntimePhase::Idle, reason);
+            }
+            RuntimeProjectionEvent::Disconnected { reason } => {
+                self.app
+                    .set_runtime_phase(super::state::RuntimePhase::Failed, Some(reason));
+            }
+            RuntimeProjectionEvent::Reconnected => {
+                self.app
+                    .set_runtime_phase(super::state::RuntimePhase::Idle, None);
+            }
+        }
         self.needs_redraw = true;
     }
 
-    /// Sync snapshot from the active agent (must be called at the top of the event loop).
-    pub(super) fn sync_snapshot(&mut self) {
-        let (app, runtime) = (&mut self.app, &self.runtime);
-        if let Some(agent_ref) = runtime.agent() {
-            app.sync_snapshot(agent_ref);
+    pub(super) fn publish_snapshot_projection(&self) {
+        if let Ok(mut snapshot) = self.runtime_port.snapshot_store().write() {
+            *snapshot = self.app.snapshot.clone();
         }
+    }
+
+    /// Sync snapshot from the active agent (must be called at the top of the event loop).
+    pub(super) async fn sync_snapshot(&mut self) -> anyhow::Result<()> {
+        if let Some(agent_ref) = self.runtime.agent() {
+            self.app.sync_snapshot(agent_ref);
+            if let Ok(mut snapshot) = self.runtime_port.snapshot_store().write() {
+                *snapshot = self.app.snapshot.clone();
+            }
+        }
+        self.app.snapshot = self.runtime_port.snapshot().await?;
+        Ok(())
     }
 
     /// Start repo context detection (async side task).
@@ -104,11 +146,11 @@ impl TuiController {
 }
 
 async fn select_runtime_activity(
-    receiver: &mut tokio::sync::mpsc::UnboundedReceiver<TuiEvent>,
+    runtime_events: &mut super::runtime_port::RuntimeEventStream,
     handle: &mut tokio::task::JoinHandle<TaskCompletion>,
 ) -> RuntimeActivity {
     let activity = tokio::select! {
-        event = receiver.recv() => RuntimeActivity::Event(event),
+        event = runtime_events.next() => RuntimeActivity::Event(event),
         result = &mut *handle => RuntimeActivity::Completed(Box::new(result)),
     };
     match activity {
@@ -120,29 +162,23 @@ async fn select_runtime_activity(
 
 #[cfg(test)]
 mod tests {
-    use tokio::sync::mpsc;
+    use futures::stream;
 
     use super::{RuntimeActivity, select_runtime_activity};
-    use crate::tui::state::TuiEvent;
+    use crate::tui::runtime_port::{RuntimeEventStream, RuntimeProjectionEvent};
 
     #[tokio::test]
     async fn runtime_mux_wakes_on_event() {
-        let (sender, mut receiver) = mpsc::unbounded_channel::<TuiEvent>();
-        sender
-            .send(TuiEvent::Transcript {
-                role: "Status",
-                message: "ready".into(),
-            })
-            .expect("send event");
         let mut handle = tokio::spawn(async {
             std::future::pending::<crate::tui::state::TaskCompletion>().await
         });
+        let mut runtime_events: RuntimeEventStream =
+            Box::pin(stream::once(async { RuntimeProjectionEvent::Reconnected }));
 
-        let activity = select_runtime_activity(&mut receiver, &mut handle).await;
+        let activity = select_runtime_activity(&mut runtime_events, &mut handle).await;
         assert!(matches!(
             activity,
-            RuntimeActivity::Event(Some(TuiEvent::Transcript { message, .. }))
-                if message == "ready"
+            RuntimeActivity::Event(Some(RuntimeProjectionEvent::Reconnected))
         ));
         handle.abort();
         let _ = handle.await;
@@ -150,8 +186,6 @@ mod tests {
 
     #[tokio::test]
     async fn runtime_mux_waits_for_completion_after_receiver_closes() {
-        let (sender, mut receiver) = mpsc::unbounded_channel::<TuiEvent>();
-        drop(sender);
         let mut handle = tokio::spawn(async {
             panic!("completion failure");
             #[allow(unreachable_code)]
@@ -159,8 +193,9 @@ mod tests {
                 result: Ok(Vec::new()),
             }
         });
+        let mut runtime_events: RuntimeEventStream = Box::pin(stream::empty());
 
-        let activity = select_runtime_activity(&mut receiver, &mut handle).await;
+        let activity = select_runtime_activity(&mut runtime_events, &mut handle).await;
         assert!(matches!(
             activity,
             RuntimeActivity::Completed(error)

@@ -8,13 +8,37 @@ pub(crate) async fn finish_running_task_if_ready(
     app: &mut TuiApp,
     agent_slot: &mut Option<Agent>,
 ) -> anyhow::Result<()> {
-    finish_running_task_if_ready_with_completion(app, agent_slot, None).await
+    finish_running_task_if_ready_with_completion_mode(
+        app,
+        agent_slot,
+        None,
+        true,
+    )
+    .await
 }
 
-pub(crate) async fn finish_running_task_if_ready_with_completion(
+/// Complete a task after the structured runtime stream has already delivered
+/// its events. The compatibility receiver is drained but not replayed, which
+/// prevents each event from being applied twice during the port migration.
+pub(crate) async fn finish_running_task_if_ready_from_runtime_port(
     app: &mut TuiApp,
     agent_slot: &mut Option<Agent>,
     completion: Option<Result<TaskCompletion, tokio::task::JoinError>>,
+) -> anyhow::Result<()> {
+    finish_running_task_if_ready_with_completion_mode(
+        app,
+        agent_slot,
+        completion,
+        false,
+    )
+    .await
+}
+
+async fn finish_running_task_if_ready_with_completion_mode(
+    app: &mut TuiApp,
+    agent_slot: &mut Option<Agent>,
+    completion: Option<Result<TaskCompletion, tokio::task::JoinError>>,
+    apply_compatibility_events: bool,
 ) -> anyhow::Result<()> {
     if app.bottom_pane.running_task.is_none() {
         return Ok(());
@@ -34,8 +58,10 @@ pub(crate) async fn finish_running_task_if_ready_with_completion(
         (pending_events, is_finished)
     };
 
-    for event in pending_events {
-        apply_tui_event(app, event);
+    if apply_compatibility_events {
+        for event in pending_events {
+            apply_tui_event(app, event);
+        }
     }
 
     if !is_finished {
@@ -52,8 +78,12 @@ pub(crate) async fn finish_running_task_if_ready_with_completion(
         Some(completion) => completion?,
         None => task.handle.await?,
     };
-    while let Ok(event) = task.receiver.try_recv() {
-        apply_tui_event(app, event);
+    if apply_compatibility_events {
+        while let Ok(event) = task.receiver.try_recv() {
+            apply_tui_event(app, event);
+        }
+    } else {
+        while task.receiver.try_recv().is_ok() {}
     }
     match completion {
         TaskCompletion::Query { agent, result } => {
