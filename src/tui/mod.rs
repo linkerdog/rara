@@ -3,6 +3,7 @@ mod auth_mode_picker;
 mod clipboard;
 mod command;
 mod context_display;
+mod controller;
 mod custom_terminal;
 mod display_sanitize;
 mod event_dispatch;
@@ -16,7 +17,6 @@ mod keymap;
 mod layout_utils;
 mod line_utils;
 mod list_picker;
-mod maintainer;
 mod markdown;
 mod markdown_render;
 mod markdown_stream;
@@ -26,6 +26,10 @@ mod provider_flow;
 mod queued_input;
 mod render;
 pub(super) mod runtime;
+mod runtime_port;
+pub(crate) use self::runtime_port::{
+    RuntimeClientPort, RuntimeCommand, RuntimeEventStream, RuntimeProjectionEvent,
+};
 mod selection;
 mod session_restore;
 pub(crate) mod state;
