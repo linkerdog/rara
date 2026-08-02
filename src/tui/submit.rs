@@ -92,7 +92,7 @@ async fn handle_submit_inner(
     }
 
     if app.has_pending_plan_approval() && !trimmed.starts_with('/') {
-        if pending::handle_pending_option_submit(app, agent_slot, &trimmed) {
+        if pending::handle_pending_option_submit(app, agent_slot, &trimmed, runtime_port).await? {
             return Ok(false);
         }
         handle_pending_plan_approval_submit(app);
@@ -106,7 +106,8 @@ async fn handle_submit_inner(
         }
     } else if trimmed.starts_with('/') {
         app.push_notice(format!("Unknown command '{}'. Use /help.", trimmed));
-    } else if pending::handle_pending_option_submit(app, agent_slot, &trimmed) {
+    } else if pending::handle_pending_option_submit(app, agent_slot, &trimmed, runtime_port).await?
+    {
         return Ok(false);
     } else if let Some(runtime_port) = runtime_port {
         runtime_port

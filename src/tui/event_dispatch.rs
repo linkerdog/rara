@@ -97,7 +97,9 @@ async fn dispatch_event_inner(
         }
         AppEvent::SubmitComposer => {
             app.bottom_pane.expand_large_paste();
-            if resume_pending_shell_approval_after_full_access(app, agent_slot) {
+            if resume_pending_shell_approval_after_full_access(app, agent_slot, runtime_port)
+                .await?
+            {
                 return Ok(false);
             }
             let should_quit = if let Some(runtime_port) = runtime_port {
@@ -262,7 +264,9 @@ async fn dispatch_event_inner(
             app.permission_picker_idx = idx.min(3usize);
         }
         AppEvent::SelectPendingOption(idx) => {
-            if resume_pending_shell_approval_after_full_access(app, agent_slot) {
+            if resume_pending_shell_approval_after_full_access(app, agent_slot, runtime_port)
+                .await?
+            {
                 return Ok(false);
             }
             if let Some(interaction) = app.active_pending_interaction() {
@@ -270,7 +274,18 @@ async fn dispatch_event_inner(
                     ActivePendingInteractionKind::PlanApproval => {
                         if let Some(decision) = input_control::plan_approval_decision_for_index(idx)
                         {
-                            input_control::answer_plan_approval(app, agent_slot, decision);
+                            if let Some(runtime_port) = runtime_port {
+                                runtime_port
+                                    .send(RuntimeCommand::Input(
+                                        crate::runtime_control::InputControlRequest::AnswerPlanApproval {
+                                            decision,
+                                            feedback: None,
+                                        },
+                                    ))
+                                    .await?;
+                            } else {
+                                input_control::answer_plan_approval(app, agent_slot, decision);
+                            }
                         } else {
                             app.push_notice("Invalid plan approval option.");
                         }
@@ -282,14 +297,32 @@ async fn dispatch_event_inner(
                             2 => ShellApprovalDecision::Always,
                             _ => ShellApprovalDecision::Suggestion,
                         };
-                        input_control::answer_shell_approval(app, agent_slot, selection);
+                        if let Some(runtime_port) = runtime_port {
+                            runtime_port
+                                .send(RuntimeCommand::Input(
+                                    crate::runtime_control::InputControlRequest::AnswerShellApproval {
+                                        decision: selection,
+                                    },
+                                ))
+                                .await?;
+                        } else {
+                            input_control::answer_shell_approval(app, agent_slot, selection);
+                        }
                     }
                     ActivePendingInteractionKind::PlanningQuestion
                     | ActivePendingInteractionKind::ExplorationQuestion
                     | ActivePendingInteractionKind::SubAgentQuestion
                     | ActivePendingInteractionKind::RequestInput => {
                         if let Some(label) = app.pending_question_option_label(idx) {
-                            if let Some(agent) = agent_slot.take() {
+                            if let Some(runtime_port) = runtime_port {
+                                runtime_port
+                                        .send(RuntimeCommand::Input(
+                                            crate::runtime_control::InputControlRequest::AnswerPendingInput {
+                                                answer: label,
+                                            },
+                                        ))
+                                        .await?;
+                            } else if let Some(agent) = agent_slot.take() {
                                 input_control::answer_pending_input(app, agent_slot, agent, label);
                             } else {
                                 app.push_notice(
@@ -790,7 +823,13 @@ async fn dispatch_event_inner(
                     app.permission_mode = mode;
                     let label = mode.label();
                     app.dismiss_overlay();
-                    if !resume_pending_shell_approval_after_full_access(app, agent_slot) {
+                    if !(resume_pending_shell_approval_after_full_access(
+                        app,
+                        agent_slot,
+                        runtime_port,
+                    )
+                    .await?)
+                    {
                         app.push_notice(format!("Permission mode: {label}."));
                     }
                 }
@@ -801,23 +840,32 @@ async fn dispatch_event_inner(
     Ok(false)
 }
 
-fn resume_pending_shell_approval_after_full_access(
+async fn resume_pending_shell_approval_after_full_access(
     app: &mut TuiApp,
     agent_slot: &mut Option<Agent>,
-) -> bool {
+    runtime_port: Option<&dyn RuntimeClientPort>,
+) -> anyhow::Result<bool> {
     if app.permission_mode != PermissionMode::FullAccess
         || !app.active_pending_interaction().is_some_and(|interaction| {
             interaction.kind == ActivePendingInteractionKind::ShellApproval
         })
         || app.is_busy()
     {
-        return false;
+        return Ok(false);
     }
 
-    if agent_slot.is_some() {
+    if let Some(runtime_port) = runtime_port {
+        runtime_port
+            .send(RuntimeCommand::Input(
+                crate::runtime_control::InputControlRequest::AnswerShellApproval {
+                    decision: ShellApprovalDecision::Once,
+                },
+            ))
+            .await?;
+    } else if agent_slot.is_some() {
         input_control::answer_shell_approval(app, agent_slot, ShellApprovalDecision::Once);
     } else {
         app.push_notice("Permission mode: full-access. Approval is still preparing.");
     }
-    true
+    Ok(true)
 }

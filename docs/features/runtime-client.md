@@ -83,7 +83,8 @@ through the compatibility channel.
 The in-process adapter now owns a typed command channel. User prompts and
 session cancellation enter the same event-loop mux as runtime projections and
 task completion, so production TUI input no longer invokes those operations
-directly from the terminal event branch. The command processor still delegates
+directly from the terminal event branch. Plan, shell, and pending-input
+approval responses use the same path. The command processor still delegates
 execution to the existing in-process task bridge while the remaining command
 families are migrated.
 
@@ -105,9 +106,9 @@ families are migrated.
 ## Follow-up
 
 - Replace compatibility projections in `TuiApp` with a typed runtime snapshot.
-- Move approval, compact, rebuild, and model-list actions to typed
-  `RuntimeCommand` submission; prompt submission and session cancellation now
-  use that path but still execute through the compatibility task bridge.
+- Move compact, rebuild, and model-list actions to typed `RuntimeCommand`
+  submission; prompt, cancellation, and approval commands now use that path
+  but still execute through the compatibility task bridge.
 - Publish a TUI-facing typed projection event instead of converting
   `AgentEvent` into role/message strings and parsing those strings again.
 - Move goal continuation, plan completion, agent replacement, and queued
