@@ -16,23 +16,45 @@ use super::runtime::{
     start_deepseek_model_list_task, start_kimi_model_list_task, start_oauth_task,
     start_rebuild_task,
 };
+use super::runtime_port::{RuntimeClientPort, RuntimeCommand};
 use super::session_restore::restore_thread_by_id;
 use super::state::{
     ActivePendingInteractionKind, ListPickerKind, OpenAiModelPickerAction, Overlay, PermissionMode,
     PickerIntent, ProviderFamily, TuiApp,
 };
-use super::submit::{apply_openai_model_picker_action, handle_submit};
+use super::submit::{apply_openai_model_picker_action, handle_submit, handle_submit_with_port};
 use super::terminal_ui::is_ssh_session;
 use crate::agent::Agent;
 use crate::config::DEFAULT_CODEX_BASE_URL;
 use crate::oauth::{OAuthManager, SavedCodexAuthMode};
 use crate::runtime_control::{SessionControlRequest, ShellApprovalDecision};
 
+#[cfg(test)]
 pub(crate) async fn dispatch_event(
     event: AppEvent,
     app: &mut TuiApp,
     agent_slot: &mut Option<Agent>,
     oauth_manager: &Arc<OAuthManager>,
+) -> anyhow::Result<bool> {
+    dispatch_event_inner(event, app, agent_slot, oauth_manager, None).await
+}
+
+pub(crate) async fn dispatch_event_with_runtime(
+    event: AppEvent,
+    app: &mut TuiApp,
+    agent_slot: &mut Option<Agent>,
+    oauth_manager: &Arc<OAuthManager>,
+    runtime_port: &dyn RuntimeClientPort,
+) -> anyhow::Result<bool> {
+    dispatch_event_inner(event, app, agent_slot, oauth_manager, Some(runtime_port)).await
+}
+
+async fn dispatch_event_inner(
+    event: AppEvent,
+    app: &mut TuiApp,
+    agent_slot: &mut Option<Agent>,
+    oauth_manager: &Arc<OAuthManager>,
+    runtime_port: Option<&dyn RuntimeClientPort>,
 ) -> anyhow::Result<bool> {
     match event {
         AppEvent::Noop => {}
@@ -50,7 +72,18 @@ pub(crate) async fn dispatch_event(
             app.dismiss_overlay();
         }
         AppEvent::CancelRunningTask => {
-            input_control::handle_session_control(app, SessionControlRequest::CancelCurrentTurn);
+            if let Some(runtime_port) = runtime_port {
+                runtime_port
+                    .send(RuntimeCommand::Session(
+                        SessionControlRequest::CancelCurrentTurn,
+                    ))
+                    .await?;
+            } else {
+                input_control::handle_session_control(
+                    app,
+                    SessionControlRequest::CancelCurrentTurn,
+                );
+            }
         }
         AppEvent::ClearComposer => {
             app.bottom_pane.input.clear();
@@ -67,7 +100,12 @@ pub(crate) async fn dispatch_event(
             if resume_pending_shell_approval_after_full_access(app, agent_slot) {
                 return Ok(false);
             }
-            if handle_submit(app, agent_slot, oauth_manager).await? {
+            let should_quit = if let Some(runtime_port) = runtime_port {
+                handle_submit_with_port(app, agent_slot, oauth_manager, runtime_port).await?
+            } else {
+                handle_submit(app, agent_slot, oauth_manager).await?
+            };
+            if should_quit {
                 return Ok(true);
             }
         }
@@ -473,7 +511,13 @@ pub(crate) async fn dispatch_event(
                     app.dismiss_overlay();
                     app.bottom_pane.input = usage;
                     app.bottom_pane.input_cursor_offset = None;
-                    if handle_submit(app, agent_slot, oauth_manager).await? {
+                    let should_quit = if let Some(runtime_port) = runtime_port {
+                        handle_submit_with_port(app, agent_slot, oauth_manager, runtime_port)
+                            .await?
+                    } else {
+                        handle_submit(app, agent_slot, oauth_manager).await?
+                    };
+                    if should_quit {
                         return Ok(true);
                     }
                 }

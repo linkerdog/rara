@@ -3,6 +3,7 @@ use std::sync::Arc;
 use super::command::parse_local_command;
 use super::input_control;
 use super::runtime::execute_local_command;
+use super::runtime_port::{RuntimeClientPort, RuntimeCommand};
 use super::state::{
     ActivePendingInteractionKind, LocalCommandKind, OpenAiModelPickerAction, TuiApp,
 };
@@ -14,6 +15,24 @@ pub(crate) async fn handle_submit(
     app: &mut TuiApp,
     agent_slot: &mut Option<Agent>,
     oauth_manager: &Arc<crate::oauth::OAuthManager>,
+) -> anyhow::Result<bool> {
+    handle_submit_inner(app, agent_slot, oauth_manager, None).await
+}
+
+pub(crate) async fn handle_submit_with_port(
+    app: &mut TuiApp,
+    agent_slot: &mut Option<Agent>,
+    oauth_manager: &Arc<crate::oauth::OAuthManager>,
+    runtime_port: &dyn RuntimeClientPort,
+) -> anyhow::Result<bool> {
+    handle_submit_inner(app, agent_slot, oauth_manager, Some(runtime_port)).await
+}
+
+async fn handle_submit_inner(
+    app: &mut TuiApp,
+    agent_slot: &mut Option<Agent>,
+    oauth_manager: &Arc<crate::oauth::OAuthManager>,
+    runtime_port: Option<&dyn RuntimeClientPort>,
 ) -> anyhow::Result<bool> {
     if app.bottom_pane.input.is_empty() {
         if let Some(interaction) = app.active_pending_interaction()
@@ -58,6 +77,14 @@ pub(crate) async fn handle_submit(
             app.push_notice(
                 "A task is already running. Wait for it to finish before running a slash command.",
             );
+        } else if let Some(runtime_port) = runtime_port {
+            runtime_port
+                .send(RuntimeCommand::Input(
+                    crate::runtime_control::InputControlRequest::SubmitUserPrompt {
+                        prompt: trimmed,
+                    },
+                ))
+                .await?;
         } else {
             input_control::submit_user_prompt(app, agent_slot, trimmed);
         }
@@ -81,6 +108,12 @@ pub(crate) async fn handle_submit(
         app.push_notice(format!("Unknown command '{}'. Use /help.", trimmed));
     } else if pending::handle_pending_option_submit(app, agent_slot, &trimmed) {
         return Ok(false);
+    } else if let Some(runtime_port) = runtime_port {
+        runtime_port
+            .send(RuntimeCommand::Input(
+                crate::runtime_control::InputControlRequest::SubmitUserPrompt { prompt: trimmed },
+            ))
+            .await?;
     } else {
         input_control::submit_user_prompt(app, agent_slot, trimmed);
     }
