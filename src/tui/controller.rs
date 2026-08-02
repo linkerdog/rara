@@ -86,6 +86,37 @@ impl TuiController {
             RuntimeCommand::Input(InputControlRequest::SubmitFollowUp { prompt }) => {
                 input_control::submit_follow_up(&mut self.app, prompt, false);
             }
+            RuntimeCommand::Input(InputControlRequest::AnswerPendingInput { answer }) => {
+                if let Some(agent) = self.runtime.agent_mut().take() {
+                    input_control::answer_pending_input(
+                        &mut self.app,
+                        self.runtime.agent_mut(),
+                        agent,
+                        answer,
+                    );
+                } else {
+                    self.app
+                        .push_notice("Request input is still preparing. Try again.");
+                }
+            }
+            RuntimeCommand::Input(InputControlRequest::AnswerPlanApproval {
+                decision,
+                feedback,
+            }) => {
+                input_control::answer_plan_approval_with_feedback(
+                    &mut self.app,
+                    self.runtime.agent_mut(),
+                    decision,
+                    feedback,
+                );
+            }
+            RuntimeCommand::Input(InputControlRequest::AnswerShellApproval { decision }) => {
+                input_control::answer_shell_approval(
+                    &mut self.app,
+                    self.runtime.agent_mut(),
+                    decision,
+                );
+            }
             RuntimeCommand::Session(SessionControlRequest::CancelCurrentTurn) => {
                 input_control::handle_session_control(
                     &mut self.app,

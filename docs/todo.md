@@ -41,7 +41,9 @@ Active backlog only. Keep this file small and current.
       identity.
 - [x] Route interactive user prompts and session cancellation through the
       in-process `RuntimeClientPort` command mux.
-- [ ] Move query, approval, compact, rebuild, and model-list execution behind
+- [x] Route plan, shell, and pending-input approval commands through the
+      in-process `RuntimeClientPort` command mux.
+- [ ] Move compact, rebuild, and model-list execution behind
       `RuntimeClientPort`, then remove the remaining `Agent`/registry ownership
       from `TuiController`.
 - [ ] Construct `TuiController` directly from an injected port and add
