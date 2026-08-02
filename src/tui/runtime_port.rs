@@ -9,6 +9,7 @@ use std::sync::{Arc, RwLock};
 
 use async_trait::async_trait;
 use futures::Stream;
+use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender, unbounded_channel};
 
 use crate::runtime_control::{
     ApprovalControlRequest, InputControlRequest, RuntimeControlEvent, SessionControlRequest,
@@ -65,17 +66,23 @@ pub(crate) trait RuntimeClientPort: Send {
 pub(crate) struct InProcessRuntimeClientPort {
     event_bus: Arc<RuntimeEventBus>,
     snapshot: Arc<RwLock<RuntimeSnapshot>>,
+    command_sender: UnboundedSender<RuntimeCommand>,
 }
 
 impl InProcessRuntimeClientPort {
     pub(crate) fn new(
         event_bus: Arc<RuntimeEventBus>,
         snapshot: Arc<RwLock<RuntimeSnapshot>>,
-    ) -> Self {
-        Self {
-            event_bus,
-            snapshot,
-        }
+    ) -> (Self, UnboundedReceiver<RuntimeCommand>) {
+        let (command_sender, command_receiver) = unbounded_channel();
+        (
+            Self {
+                event_bus,
+                snapshot,
+                command_sender,
+            },
+            command_receiver,
+        )
     }
 
     pub(crate) fn snapshot_store(&self) -> Arc<RwLock<RuntimeSnapshot>> {
@@ -92,8 +99,10 @@ impl RuntimeClientPort for InProcessRuntimeClientPort {
             .map_err(|_| anyhow::anyhow!("runtime snapshot lock is poisoned"))
     }
 
-    async fn send(&self, _command: RuntimeCommand) -> anyhow::Result<()> {
-        anyhow::bail!("in-process runtime commands still use the compatibility bridge")
+    async fn send(&self, command: RuntimeCommand) -> anyhow::Result<()> {
+        self.command_sender
+            .send(command)
+            .map_err(|_| anyhow::anyhow!("in-process runtime command channel is closed"))
     }
 
     fn subscribe(&self) -> RuntimeEventStream {
@@ -182,7 +191,7 @@ mod tests {
     #[tokio::test]
     async fn in_process_port_projects_control_bus_events() {
         let bus = std::sync::Arc::new(RuntimeEventBus::new(8));
-        let port = InProcessRuntimeClientPort::new(
+        let (port, _commands) = InProcessRuntimeClientPort::new(
             bus.clone(),
             std::sync::Arc::new(std::sync::RwLock::new(RuntimeSnapshot::default())),
         );

@@ -10,13 +10,22 @@
 
 use futures::StreamExt;
 
-use super::runtime_port::{InProcessRuntimeClientPort, RuntimeClientPort, RuntimeProjectionEvent};
+use super::app_event::AppEvent;
+use super::event_dispatch::dispatch_event_with_runtime;
+use super::input_control;
+use super::runtime_port::{
+    InProcessRuntimeClientPort, RuntimeClientPort, RuntimeCommand, RuntimeEventStream,
+    RuntimeProjectionEvent,
+};
 use super::state::{TaskCompletion, TuiApp};
 use crate::agent::Agent;
+use crate::oauth::OAuthManager;
 use crate::runtime_client::RuntimeClient;
+use crate::runtime_control::{InputControlRequest, SessionControlRequest};
 
 pub(super) enum RuntimeActivity {
     Event(Option<RuntimeProjectionEvent>),
+    Command(Option<RuntimeCommand>),
     Completed(Box<Result<TaskCompletion, tokio::task::JoinError>>),
 }
 
@@ -25,14 +34,15 @@ pub(super) struct TuiController {
     app: TuiApp,
     runtime: RuntimeClient,
     runtime_port: InProcessRuntimeClientPort,
-    runtime_events: super::runtime_port::RuntimeEventStream,
+    runtime_events: RuntimeEventStream,
+    runtime_commands: tokio::sync::mpsc::UnboundedReceiver<RuntimeCommand>,
     /// Set to true every time an event is applied and the screen should repaint.
     pub(super) needs_redraw: bool,
 }
 
 impl TuiController {
     pub(super) fn new(app: TuiApp, runtime: RuntimeClient) -> Self {
-        let runtime_port = InProcessRuntimeClientPort::new(
+        let (runtime_port, runtime_commands) = InProcessRuntimeClientPort::new(
             runtime.event_bus.clone(),
             std::sync::Arc::new(std::sync::RwLock::new(app.snapshot.clone())),
         );
@@ -42,6 +52,7 @@ impl TuiController {
             runtime,
             runtime_port,
             runtime_events,
+            runtime_commands,
             needs_redraw: true,
         }
     }
@@ -52,6 +63,41 @@ impl TuiController {
 
     pub(super) fn app_mut(&mut self) -> &mut TuiApp {
         &mut self.app
+    }
+
+    pub(super) async fn dispatch_event(
+        &mut self,
+        event: AppEvent,
+        oauth_manager: &std::sync::Arc<OAuthManager>,
+    ) -> anyhow::Result<bool> {
+        let (app, runtime, runtime_port) = (&mut self.app, &mut self.runtime, &self.runtime_port);
+        dispatch_event_with_runtime(event, app, runtime.agent_mut(), oauth_manager, runtime_port)
+            .await
+    }
+
+    pub(super) async fn apply_runtime_command(
+        &mut self,
+        command: RuntimeCommand,
+    ) -> anyhow::Result<()> {
+        match command {
+            RuntimeCommand::Input(InputControlRequest::SubmitUserPrompt { prompt }) => {
+                input_control::submit_user_prompt(&mut self.app, self.runtime.agent_mut(), prompt);
+            }
+            RuntimeCommand::Input(InputControlRequest::SubmitFollowUp { prompt }) => {
+                input_control::submit_follow_up(&mut self.app, prompt, false);
+            }
+            RuntimeCommand::Session(SessionControlRequest::CancelCurrentTurn) => {
+                input_control::handle_session_control(
+                    &mut self.app,
+                    SessionControlRequest::CancelCurrentTurn,
+                );
+            }
+            command => self.app.push_notice(format!(
+                "Runtime command is not handled by the in-process TUI: {command:?}"
+            )),
+        }
+        self.needs_redraw = true;
+        Ok(())
     }
 
     pub(super) fn agent(&self) -> Option<&Agent> {
@@ -83,10 +129,19 @@ impl TuiController {
 
     /// Wait for the next runtime event or task completion without polling.
     pub(super) async fn wait_for_runtime_activity(&mut self) -> RuntimeActivity {
-        let Some(task) = self.app.bottom_pane.running_task.as_mut() else {
-            std::future::pending().await
-        };
-        select_runtime_activity(&mut self.runtime_events, &mut task.handle).await
+        if let Some(task) = self.app.bottom_pane.running_task.as_mut() {
+            select_runtime_activity(
+                &mut self.runtime_events,
+                &mut self.runtime_commands,
+                &mut task.handle,
+            )
+            .await
+        } else {
+            tokio::select! {
+                event = self.runtime_events.next() => RuntimeActivity::Event(event),
+                command = self.runtime_commands.recv() => RuntimeActivity::Command(command),
+            }
+        }
     }
 
     pub(super) fn apply_runtime_event(&mut self, event: RuntimeProjectionEvent) {
@@ -146,16 +201,19 @@ impl TuiController {
 }
 
 async fn select_runtime_activity(
-    runtime_events: &mut super::runtime_port::RuntimeEventStream,
+    runtime_events: &mut RuntimeEventStream,
+    runtime_commands: &mut tokio::sync::mpsc::UnboundedReceiver<RuntimeCommand>,
     handle: &mut tokio::task::JoinHandle<TaskCompletion>,
 ) -> RuntimeActivity {
     let activity = tokio::select! {
         event = runtime_events.next() => RuntimeActivity::Event(event),
+        command = runtime_commands.recv() => RuntimeActivity::Command(command),
         result = &mut *handle => RuntimeActivity::Completed(Box::new(result)),
     };
     match activity {
         RuntimeActivity::Event(Some(event)) => RuntimeActivity::Event(Some(event)),
         RuntimeActivity::Event(None) => RuntimeActivity::Completed(Box::new(handle.await)),
+        RuntimeActivity::Command(command) => RuntimeActivity::Command(command),
         RuntimeActivity::Completed(result) => RuntimeActivity::Completed(result),
     }
 }
@@ -164,7 +222,8 @@ async fn select_runtime_activity(
 mod tests {
     use futures::stream;
 
-    use super::{RuntimeActivity, select_runtime_activity};
+    use super::{RuntimeActivity, RuntimeCommand, select_runtime_activity};
+    use crate::runtime_control::SessionControlRequest;
     use crate::tui::runtime_port::{RuntimeEventStream, RuntimeProjectionEvent};
 
     #[tokio::test]
@@ -174,8 +233,10 @@ mod tests {
         });
         let mut runtime_events: RuntimeEventStream =
             Box::pin(stream::once(async { RuntimeProjectionEvent::Reconnected }));
+        let (_sender, mut runtime_commands) = tokio::sync::mpsc::unbounded_channel();
 
-        let activity = select_runtime_activity(&mut runtime_events, &mut handle).await;
+        let activity =
+            select_runtime_activity(&mut runtime_events, &mut runtime_commands, &mut handle).await;
         assert!(matches!(
             activity,
             RuntimeActivity::Event(Some(RuntimeProjectionEvent::Reconnected))
@@ -194,12 +255,39 @@ mod tests {
             }
         });
         let mut runtime_events: RuntimeEventStream = Box::pin(stream::empty());
+        let (_sender, mut runtime_commands) = tokio::sync::mpsc::unbounded_channel();
 
-        let activity = select_runtime_activity(&mut runtime_events, &mut handle).await;
+        let activity =
+            select_runtime_activity(&mut runtime_events, &mut runtime_commands, &mut handle).await;
         assert!(matches!(
             activity,
             RuntimeActivity::Completed(error)
                 if error.as_ref().as_ref().is_err_and(|error| error.is_panic())
         ));
+    }
+
+    #[tokio::test]
+    async fn runtime_mux_wakes_on_command_without_running_task() {
+        let (sender, mut commands) = tokio::sync::mpsc::unbounded_channel();
+        sender
+            .send(RuntimeCommand::Session(
+                SessionControlRequest::CancelCurrentTurn,
+            ))
+            .expect("command send");
+        let mut runtime_events: RuntimeEventStream = Box::pin(stream::pending());
+        let mut handle = tokio::spawn(async {
+            std::future::pending::<crate::tui::state::TaskCompletion>().await
+        });
+
+        let activity =
+            select_runtime_activity(&mut runtime_events, &mut commands, &mut handle).await;
+        assert!(matches!(
+            activity,
+            RuntimeActivity::Command(Some(RuntimeCommand::Session(
+                SessionControlRequest::CancelCurrentTurn
+            )))
+        ));
+        handle.abort();
+        let _ = handle.await;
     }
 }

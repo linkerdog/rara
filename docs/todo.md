@@ -39,8 +39,11 @@ Active backlog only. Keep this file small and current.
 - [ ] Replace the local `AgentEvent -> role/message -> parser` compatibility
       path with a typed TUI projection event carrying session and sequence
       identity.
-- [ ] Move interactive command submission behind `RuntimeClientPort`, then
-      remove the remaining `Agent`/registry ownership from `TuiController`.
+- [x] Route interactive user prompts and session cancellation through the
+      in-process `RuntimeClientPort` command mux.
+- [ ] Move query, approval, compact, rebuild, and model-list execution behind
+      `RuntimeClientPort`, then remove the remaining `Agent`/registry ownership
+      from `TuiController`.
 - [ ] Construct `TuiController` directly from an injected port and add
       virtual-time controls to the shared harness.
 

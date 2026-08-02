@@ -80,10 +80,12 @@ to observe completion and is drained without replaying events. This prevents
 the same runtime event from being applied once through the port and again
 through the compatibility channel.
 
-The adapter intentionally rejects command submission for now. Interactive
-commands still use the compatibility task bridge until runtime command
-execution is moved behind the port; callers must surface that error rather
-than treating it as a successful runtime mutation.
+The in-process adapter now owns a typed command channel. User prompts and
+session cancellation enter the same event-loop mux as runtime projections and
+task completion, so production TUI input no longer invokes those operations
+directly from the terminal event branch. The command processor still delegates
+execution to the existing in-process task bridge while the remaining command
+families are migrated.
 
 ## Ownership Rules
 
@@ -103,8 +105,9 @@ than treating it as a successful runtime mutation.
 ## Follow-up
 
 - Replace compatibility projections in `TuiApp` with a typed runtime snapshot.
-- Move query, approval, compact, rebuild, and model-list actions to typed
-  `RuntimeCommand` submission.
+- Move approval, compact, rebuild, and model-list actions to typed
+  `RuntimeCommand` submission; prompt submission and session cancellation now
+  use that path but still execute through the compatibility task bridge.
 - Publish a TUI-facing typed projection event instead of converting
   `AgentEvent` into role/message strings and parsing those strings again.
 - Move goal continuation, plan completion, agent replacement, and queued

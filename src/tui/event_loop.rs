@@ -7,7 +7,6 @@ use rara_state::state_db::StateDb;
 use tokio::time::{Duration, MissedTickBehavior, interval};
 
 use super::controller::{RuntimeActivity, TuiController};
-use super::event_dispatch::dispatch_event;
 use super::event_stream::{UiEvent, translate_event};
 use super::render::{desired_viewport_height, render};
 use super::session_restore::{restore_latest_thread, restore_thread_by_id};
@@ -155,15 +154,19 @@ pub async fn run_tui(
                         maintainer.complete_runtime_task(completion).await?;
                         needs_redraw = true;
                     }
+                    RuntimeActivity::Command(Some(command)) => {
+                        maintainer.apply_runtime_command(command).await?;
+                        needs_redraw = true;
+                    }
+                    RuntimeActivity::Command(None) => {}
                 }
             }
             maybe_event = events.next() => {
-                let (app, agent_slot) = maintainer.split_mut();
                 match maybe_event {
-                    Some(Ok(event)) => match translate_event(event, app) {
+                    Some(Ok(event)) => match translate_event(event, maintainer.app_mut()) {
                         Some(UiEvent::App(event)) => {
-                            if dispatch_event(event, app, agent_slot, &oauth_manager).await? {
-                                if let Some(task) = app.bottom_pane.running_task.take() {
+                            if maintainer.dispatch_event(event, &oauth_manager).await? {
+                                if let Some(task) = maintainer.app_mut().bottom_pane.running_task.take() {
                                     task.handle.abort();
                                 }
                                 break Ok(());
@@ -171,6 +174,7 @@ pub async fn run_tui(
                             needs_redraw = true;
                         }
                         Some(UiEvent::Draw) => {
+                            let app = maintainer.app_mut();
                             let size = terminal_size()?;
                             let desired_height = desired_viewport_height(app, size.0, size.1);
                             match update_terminal_viewport(&mut terminal, desired_height, app) {
@@ -184,10 +188,12 @@ pub async fn run_tui(
                             needs_redraw = true;
                         }
                         Some(UiEvent::Paste(text)) => {
+                            let app = maintainer.app_mut();
                             handle_paste(text, app);
                             needs_redraw = true;
                         }
                         Some(UiEvent::FocusChanged(_focused)) => {
+                            let (app, agent_slot) = maintainer.split_mut();
                             if let Some(agent_ref) = agent_slot.as_ref() {
                                 app.sync_snapshot(agent_ref);
                             }
@@ -197,7 +203,9 @@ pub async fn run_tui(
                         None => {}
                     },
                     Some(Err(err)) => {
-                        app.push_notice(format!("Terminal event error: {err}"));
+                        maintainer
+                            .app_mut()
+                            .push_notice(format!("Terminal event error: {err}"));
                         needs_redraw = true;
                     }
                     None => break Ok(()),
