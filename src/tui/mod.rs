@@ -39,6 +39,8 @@ mod submit;
 mod terminal_event;
 mod terminal_ui;
 #[cfg(test)]
+mod testing;
+#[cfg(test)]
 mod tests;
 mod theme;
 mod tool_text;

@@ -30,9 +30,14 @@ Active backlog only. Keep this file small and current.
       exposing `Agent`, registries, or task join handles to future fakes.
 - [x] Route runtime receiver events and task completion through one
       `tokio::select!` mux, and redraw only after a visible state change.
+- [x] Add a shared scripted `TuiHarness` and `FakeRuntimeClient` for
+      snapshot, event, completion, cancel, disconnect, reconnect, and render
+      lifecycle tests without wall-clock sleeps.
 - [ ] Replace the local `AgentEvent -> role/message -> parser` compatibility
       path with a typed TUI projection event carrying session and sequence
       identity.
+- [ ] Construct the production `TuiController` from `RuntimeClientPort` and
+      add virtual-time controls to the shared harness.
 
 - [x] Keep `rara-file-search` as the shared backend for TUI file suggestions
       and `list_files`; keep automatic retrieval as optional low-priority
