@@ -33,11 +33,16 @@ Active backlog only. Keep this file small and current.
 - [x] Add a shared scripted `TuiHarness` and `FakeRuntimeClient` for
       snapshot, event, completion, cancel, disconnect, reconnect, and render
       lifecycle tests without wall-clock sleeps.
+- [x] Route production TUI runtime projections and snapshots through the
+      session-scoped in-process `RuntimeClientPort` adapter; drain the legacy
+      task receiver without replaying events.
 - [ ] Replace the local `AgentEvent -> role/message -> parser` compatibility
       path with a typed TUI projection event carrying session and sequence
       identity.
-- [ ] Construct the production `TuiController` from `RuntimeClientPort` and
-      add virtual-time controls to the shared harness.
+- [ ] Move interactive command submission behind `RuntimeClientPort`, then
+      remove the remaining `Agent`/registry ownership from `TuiController`.
+- [ ] Construct `TuiController` directly from an injected port and add
+      virtual-time controls to the shared harness.
 
 - [x] Keep `rara-file-search` as the shared backend for TUI file suggestions
       and `list_files`; keep automatic retrieval as optional low-priority

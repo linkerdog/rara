@@ -92,7 +92,7 @@ pub async fn run_tui(
     let mut tick = interval(Duration::from_millis(166));
     tick.set_missed_tick_behavior(MissedTickBehavior::Delay);
 
-    maintainer.sync_snapshot();
+    maintainer.sync_snapshot().await?;
     maintainer.start_repo_context_detection();
     if should_start_initial_rebuild(
         initialize_local_embeddings,
@@ -147,7 +147,7 @@ pub async fn run_tui(
             runtime_activity = maintainer.wait_for_runtime_activity() => {
                 match runtime_activity {
                     RuntimeActivity::Event(Some(event)) => {
-                        maintainer.apply_agent_event(event);
+                        maintainer.apply_runtime_event(event);
                         needs_redraw = true;
                     }
                     RuntimeActivity::Event(None) => {}
@@ -191,6 +191,7 @@ pub async fn run_tui(
                             if let Some(agent_ref) = agent_slot.as_ref() {
                                 app.sync_snapshot(agent_ref);
                             }
+                            maintainer.publish_snapshot_projection();
                             needs_redraw = true;
                         }
                         None => {}

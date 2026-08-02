@@ -260,6 +260,10 @@ pub(super) fn start_input_control_task(
                     forward_event_to_bus(&bus_arg, &agent_event, &event_provenance);
                     let _ = tx.send(TuiEvent::Runtime(Box::new(control_event)));
                 } else {
+                    bus_arg
+                        .as_ref()
+                        .expect("runtime event bus must exist")
+                        .publish_control_event(control_event.clone());
                     let _ = tx.send(TuiEvent::Runtime(Box::new(control_event)));
                 }
             },
