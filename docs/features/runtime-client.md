@@ -55,6 +55,24 @@ live under `runtime_client` / `runtime_goal`. TUI completion code consumes
 these typed outcomes and only applies transcript, overlay, phase, and queued
 input presentation effects.
 
+## TUI Test Contract
+
+TUI tests use the same runtime projection reducer and renderer as production.
+`src/tui/testing` provides a test-only `FakeRuntimeClient` and `TuiHarness`;
+the fake records typed commands and scripts snapshots, runtime events, turn
+completion, cancellation, disconnect, and reconnect without constructing an
+`Agent`, registries, task handles, or a real terminal.
+
+The harness consumes `RuntimeProjectionEvent` through the same stream shape as
+the future app-server client. Rendering uses the existing custom terminal with
+an in-memory Ratatui backend adapter, so lifecycle tests do not create a second
+rendering path. Script actions are awaited directly; tests must not use sleeps
+to establish ordering.
+
+The current harness is intentionally a deterministic projection/lifecycle
+fixture. Virtual time, production `TuiController` construction from a port,
+and full command routing remain follow-up slices.
+
 ## Ownership Rules
 
 1. A session has one `RuntimeClient` and one runtime registry graph.
