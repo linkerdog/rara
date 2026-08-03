@@ -146,6 +146,13 @@ impl RuntimeClient {
         let Some(agent) = self.agent() else {
             return RuntimeExtensionSnapshot::default();
         };
+        Self::extension_snapshot_for_agent(agent, self.hook_runtime.hook_count())
+    }
+
+    pub(crate) fn extension_snapshot_for_agent(
+        agent: &Agent,
+        runtime_hook_count: usize,
+    ) -> RuntimeExtensionSnapshot {
         let runtime_context = agent.shared_runtime_context();
         let records = agent.agent_definition_records();
         let root = std::path::Path::new(&runtime_context.cwd);
@@ -162,13 +169,14 @@ impl RuntimeClient {
                 .collect::<BTreeSet<_>>()
                 .into_iter()
                 .collect(),
-            hook_count: file_hook_registry
-                .hooks
-                .len()
-                .max(self.hook_runtime.hook_count()),
+            hook_count: file_hook_registry.hooks.len().max(runtime_hook_count),
             command_count: agent.plugin_command_count(),
             agent_count: agent_registry.agents.len(),
-            agent_status_lines: agent_registry.status_lines(),
+            agent_status_lines: if agent_registry.agents.is_empty() {
+                Vec::new()
+            } else {
+                agent_registry.status_lines()
+            },
         }
     }
 
