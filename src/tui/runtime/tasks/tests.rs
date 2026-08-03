@@ -862,7 +862,7 @@ async fn queued_follow_ups_start_as_one_multiline_turn() {
     );
     let mut agent_slot = Some(agent);
 
-    try_start_queued_follow_up(&mut app, &mut agent_slot);
+    try_start_queued_follow_up(&mut app, &mut agent_slot, None);
 
     assert_eq!(app.queued_follow_up_count(), 0);
     assert!(app.bottom_pane.running_task.is_some());

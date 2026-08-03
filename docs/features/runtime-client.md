@@ -61,6 +61,10 @@ lines from the session runtime and passes the projection to the TUI snapshot
 reducer. The TUI snapshot reducer no longer discovers extension state from an
 agent; restore paths use the same runtime-owned projection helper.
 
+Production TUI state no longer stores prompt, skill, or hook registry handles.
+The runtime command processor owns these registries and passes cloned
+`RuntimeTaskServices` to query, approval, and completion task construction.
+
 ## TUI Test Contract
 
 TUI tests use the same runtime projection reducer and renderer as production.
@@ -115,8 +119,8 @@ owns task construction, completion, and runtime replacement access.
 
 - Remove mutable extension-registry projections from `TuiApp`; all registry
   discovery and reload should remain runtime-owned while TUI consumes typed
-  snapshots. The snapshot entry point is now typed; task construction still
-  needs the registry handles during the remaining compatibility migration.
+  snapshots. Production task construction now receives explicit runtime-owned
+  services; test-only fixtures retain local setup helpers.
 - Publish a TUI-facing typed projection event instead of converting
   `AgentEvent` into role/message strings and parsing those strings again.
 - Move goal continuation, plan completion, agent replacement, and queued

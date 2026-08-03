@@ -45,9 +45,6 @@ pub async fn run_tui(
     app.sandbox_network_access = runtime.sandbox_network_access.clone();
     app.event_bus = Some(runtime.event_bus.clone());
     app.mcp_manager = Some(runtime.mcp_manager.clone());
-    app.prompt_source_registry = Some(runtime.prompt_source_registry.clone());
-    app.skill_source_registry = Some(runtime.skill_source_registry.clone());
-    app.hook_registry = Some(runtime.hook_registry.clone());
     app.hook_runtime = Some(runtime.hook_runtime.clone());
     app.explicit_plugin_dirs = runtime.explicit_plugin_dirs.clone();
     app.lsp_manager = Some(runtime.lsp_manager.clone());

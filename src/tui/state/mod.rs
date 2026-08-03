@@ -300,8 +300,11 @@ impl TuiApp {
             local_model_server,
             mcp_manager: None,
             lsp_manager: None,
+            #[cfg(test)]
             prompt_source_registry: None,
+            #[cfg(test)]
             skill_source_registry: None,
+            #[cfg(test)]
             hook_registry: None,
             hook_runtime: None,
             explicit_plugin_dirs: Vec::new(),

@@ -38,6 +38,13 @@ pub(crate) struct RebuildSuccess {
     pub(crate) lsp_manager: Arc<LspManager>,
 }
 
+#[derive(Clone)]
+pub(crate) struct RuntimeTaskServices {
+    pub(crate) prompt_source_registry: Arc<PromptSourceRegistry>,
+    pub(crate) skill_source_registry: Arc<SkillSourceRegistry>,
+    pub(crate) hook_registry: Arc<HookRegistry>,
+}
+
 #[derive(Debug)]
 pub(crate) enum PlanContinuation {
     None,
@@ -140,6 +147,20 @@ impl RuntimeClient {
 
     pub(crate) fn agent_mut(&mut self) -> &mut Option<Agent> {
         &mut self.agent
+    }
+
+    pub(crate) fn task_services(&self) -> RuntimeTaskServices {
+        RuntimeTaskServices {
+            prompt_source_registry: self.prompt_source_registry.clone(),
+            skill_source_registry: self.skill_source_registry.clone(),
+            hook_registry: self.hook_registry.clone(),
+        }
+    }
+
+    pub(crate) fn update_task_services(&mut self, services: &RuntimeTaskServices) {
+        self.prompt_source_registry = services.prompt_source_registry.clone();
+        self.skill_source_registry = services.skill_source_registry.clone();
+        self.hook_registry = services.hook_registry.clone();
     }
 
     pub(crate) fn extension_snapshot(&self) -> RuntimeExtensionSnapshot {
