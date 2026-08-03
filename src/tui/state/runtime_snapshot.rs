@@ -3,13 +3,45 @@ use std::sync::atomic::Ordering;
 
 use super::{
     CompletedInteractionSnapshot, InteractionKind, PendingApprovalSnapshot,
-    PendingInteractionSnapshot, PlanningLifecycleSnapshot, RuntimeSnapshot, SkillPickerEntry,
-    TuiApp,
+    PendingInteractionSnapshot, PlanningLifecycleSnapshot, RuntimeExtensionSnapshot,
+    RuntimeSnapshot, SkillPickerEntry, TuiApp,
 };
 use crate::agent::Agent;
 
 impl TuiApp {
     pub fn sync_snapshot(&mut self, agent: &Agent) {
+        let (hook_count, agent_count, agent_status_lines) =
+            discover_extension_counts(&agent.shared_runtime_context().cwd, agent);
+        let runtime_hook_count = self
+            .hook_runtime
+            .as_ref()
+            .map(|runtime| runtime.hook_count())
+            .unwrap_or(0);
+        self.sync_snapshot_with_extensions(
+            agent,
+            RuntimeExtensionSnapshot {
+                skill_count: agent.prompt_config().available_skills.len(),
+                skill_scopes: agent
+                    .prompt_config()
+                    .available_skills
+                    .iter()
+                    .map(|skill| skill.scope.clone())
+                    .collect::<BTreeSet<_>>()
+                    .into_iter()
+                    .collect(),
+                hook_count: hook_count.max(runtime_hook_count),
+                command_count: agent.plugin_command_count(),
+                agent_count,
+                agent_status_lines,
+            },
+        );
+    }
+
+    pub fn sync_snapshot_with_extensions(
+        &mut self,
+        agent: &Agent,
+        extensions: RuntimeExtensionSnapshot,
+    ) {
         let runtime_context = agent.shared_runtime_context();
         let shared_task_root = agent.workspace.rara_dir.join("tasks");
         let existing_pending_approval_id = self
@@ -118,12 +150,6 @@ impl TuiApp {
                 interaction.source.as_deref(),
             );
         }
-        let ext_counts = discover_extension_counts(&runtime_context.cwd, agent);
-        let runtime_hook_count = self
-            .hook_runtime
-            .as_ref()
-            .map(|runtime| runtime.hook_count())
-            .unwrap_or(0);
         let planning_lifecycle = PlanningLifecycleSnapshot::from_interactions(
             &runtime_context.session_id,
             &pending_interactions,
@@ -191,21 +217,12 @@ impl TuiApp {
             memory_selection: runtime_context.retrieval.memory_selection,
             context_observability: runtime_context.observability,
             assembly_entries: runtime_context.assembly.entries,
-            extension_skill_count: agent.prompt_config().available_skills.len(),
-            extension_skill_scopes: {
-                agent
-                    .prompt_config()
-                    .available_skills
-                    .iter()
-                    .map(|s| s.scope.clone())
-                    .collect::<BTreeSet<_>>()
-                    .into_iter()
-                    .collect()
-            },
-            extension_hook_count: ext_counts.0.max(runtime_hook_count),
-            extension_command_count: agent.plugin_command_count(),
-            extension_agent_count: ext_counts.1,
-            extension_agent_status_lines: ext_counts.2,
+            extension_skill_count: extensions.skill_count,
+            extension_skill_scopes: extensions.skill_scopes,
+            extension_hook_count: extensions.hook_count,
+            extension_command_count: extensions.command_count,
+            extension_agent_count: extensions.agent_count,
+            extension_agent_status_lines: extensions.agent_status_lines,
         };
         self.agent_execution_mode = agent.execution_mode;
         self.bash_approval_mode = agent.bash_approval_mode;
