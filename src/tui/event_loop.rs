@@ -10,7 +10,9 @@ use super::controller::{RuntimeActivity, TuiController};
 use super::event_stream::{UiEvent, translate_event};
 use super::render::{desired_viewport_height, render};
 use super::runtime::RuntimeCommandProcessor;
-use super::runtime_port::{InProcessRuntimeClientPort, RuntimeCommand, RuntimeMaintenanceCommand};
+use super::runtime_port::{
+    InProcessRuntimeClientPort, RuntimeClientPort, RuntimeCommand, RuntimeMaintenanceCommand,
+};
 use super::session_restore::{restore_latest_thread, restore_thread_by_id};
 use super::state::ListPickerKind;
 use super::state::Overlay;
@@ -64,6 +66,7 @@ pub async fn run_tui(
         processor.event_bus(),
         Arc::new(std::sync::RwLock::new(app.snapshot.clone())),
     );
+    let runtime_port: Arc<dyn RuntimeClientPort> = Arc::new(runtime_port);
     let mut maintainer = TuiController::new(app, runtime_port, runtime_commands);
     match StateDb::new() {
         Ok(state_db) => {
@@ -158,8 +161,7 @@ pub async fn run_tui(
             runtime_activity = maintainer.wait_for_runtime_activity() => {
                 match runtime_activity {
                     RuntimeActivity::Event(Some(event)) => {
-                        maintainer.apply_runtime_event(event);
-                        needs_redraw = true;
+                        needs_redraw |= maintainer.apply_runtime_event(event);
                     }
                     RuntimeActivity::Event(None) => {}
                     RuntimeActivity::Completed(completion) => {
@@ -231,7 +233,7 @@ pub async fn run_tui(
     }
     teardown_terminal(terminal)?;
     if result.is_ok() {
-        let _ = crate::auto_memory::drain_auto_memory_for_shutdown().await;
+        processor.drain_memory().await;
     }
     result?;
     let session_id = processor.session_id().or_else(|| {

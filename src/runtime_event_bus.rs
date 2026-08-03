@@ -11,8 +11,8 @@ use crate::runtime_control::{
 };
 
 /// Shared runtime event bus for raw agent events and structured protocol
-/// subscribers. The TUI continues to receive events through the separate
-/// `convert_agent_event → mpsc` path.
+/// subscribers. Presentation consumers subscribe to the structured control
+/// stream and do not reconstruct semantics from transcript text.
 ///
 /// Built on a `tokio::sync::broadcast` channel so subscribers receive every
 /// event without the bus needing to know about them ahead of time.  Slow

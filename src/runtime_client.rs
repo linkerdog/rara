@@ -8,6 +8,8 @@ use std::collections::BTreeSet;
 use std::path::PathBuf;
 use std::sync::{Arc, atomic::AtomicBool};
 
+use serde_json::Value;
+
 use crate::agent::Agent;
 use crate::config::{ConfigManager, RaraConfig};
 use crate::hook_registry::HookRegistry;
@@ -15,6 +17,9 @@ use crate::hook_runtime::HookRuntime;
 use crate::lsp_manager::LspManager;
 use crate::mcp_connection_manager::McpConnectionManager;
 use crate::mcp_tool_cache::McpToolCache;
+use crate::memory_lifecycle::{
+    MemoryLifecycleCoordinator, MemorySessionMessage, MemorySessionSnapshot, MemorySyncReason,
+};
 use crate::protocol_sources::{PromptSourceRegistry, SkillSourceRegistry};
 use crate::runtime_context::RuntimeBootstrap;
 use crate::runtime_event_bus::RuntimeEventBus;
@@ -82,7 +87,25 @@ pub(crate) struct RuntimeClient {
     pub(crate) lsp_manager: Arc<LspManager>,
     pub(crate) sandbox_network_access: Arc<AtomicBool>,
     pub(crate) event_bus: Arc<RuntimeEventBus>,
+    pub(crate) memory_lifecycle: Arc<MemoryLifecycleCoordinator>,
+    memory_space_id: Option<String>,
     pub(crate) explicit_plugin_dirs: Vec<PathBuf>,
+}
+
+fn memory_message_content(content: &Value) -> String {
+    if let Some(text) = content.as_str() {
+        return text.to_string();
+    }
+    if let Some(parts) = content.as_array() {
+        let text = parts
+            .iter()
+            .filter_map(|part| part.get("text").and_then(Value::as_str))
+            .collect::<Vec<_>>();
+        if !text.is_empty() {
+            return text.join("\n");
+        }
+    }
+    content.to_string()
 }
 
 impl RuntimeClient {
@@ -109,6 +132,7 @@ impl RuntimeClient {
     /// Convert a fully bootstrapped runtime into a session-owned client.
     pub(crate) async fn from_bootstrap(bootstrap: RuntimeBootstrap) -> Self {
         let event_bus = bootstrap.event_bus.clone();
+        let memory_config = bootstrap.nowledge_mem_config();
         let (
             (
                 agent,
@@ -136,8 +160,13 @@ impl RuntimeClient {
             hook_runtime,
             lsp_manager,
             sandbox_network_access,
-            event_bus,
+            event_bus: event_bus.clone(),
             explicit_plugin_dirs,
+            memory_lifecycle: Arc::new(MemoryLifecycleCoordinator::from_config(
+                &memory_config,
+                event_bus,
+            )),
+            memory_space_id: memory_config.configured_space_id(),
         }
     }
 
@@ -154,6 +183,47 @@ impl RuntimeClient {
             prompt_source_registry: self.prompt_source_registry.clone(),
             skill_source_registry: self.skill_source_registry.clone(),
             hook_registry: self.hook_registry.clone(),
+        }
+    }
+
+    pub(crate) async fn capture_memory(&self, agent: &Agent, reason: MemorySyncReason) {
+        let snapshot = self.memory_snapshot(agent);
+        let _ = self.memory_lifecycle.capture(snapshot, reason).await;
+    }
+
+    pub(crate) async fn drain_memory(&self) {
+        let Some(agent) = self.agent() else {
+            return;
+        };
+        let snapshot = self.memory_snapshot(agent);
+        let _ = self.memory_lifecycle.drain(snapshot).await;
+    }
+
+    fn memory_snapshot(&self, agent: &Agent) -> MemorySessionSnapshot {
+        MemorySessionSnapshot {
+            session_id: agent.session_id.clone(),
+            workspace: agent.workspace.root.display().to_string(),
+            space_id: self
+                .memory_space_id
+                .clone()
+                .or_else(|| std::env::var("RARA_NMEM_SPACE").ok())
+                .or_else(|| std::env::var("NMEM_SPACE").ok()),
+            agent_id: std::env::var("RARA_NMEM_AGENT_ID")
+                .ok()
+                .or_else(|| std::env::var("NMEM_AGENT_ID").ok()),
+            host_agent_id: std::env::var("RARA_NMEM_HOST_AGENT_ID")
+                .ok()
+                .or_else(|| std::env::var("NMEM_HOST_AGENT_ID").ok()),
+            messages: agent
+                .history
+                .iter()
+                .enumerate()
+                .map(|(index, message)| MemorySessionMessage {
+                    role: message.role.clone(),
+                    content: memory_message_content(&message.content),
+                    external_id: format!("rara-msg-{}-{index}", agent.session_id),
+                })
+                .collect(),
         }
     }
 

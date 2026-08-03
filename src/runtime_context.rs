@@ -133,6 +133,10 @@ impl SubagentBackendResolver for ConfigSubagentBackendResolver {
 }
 
 impl RuntimeBootstrap {
+    pub(crate) fn nowledge_mem_config(&self) -> rara_config::NowledgeMemPluginConfig {
+        self.builtin_plugins.nowledge_mem.clone()
+    }
+
     pub(crate) async fn into_agent(self) -> Agent {
         let (agent, _, _, _, _, _, _, _, _, _, _) = self.into_parts_with_runtime_extensions().await;
         agent
@@ -402,6 +406,7 @@ pub(crate) async fn initialize_rara_context_with_options_and_local_embedding_boo
     let plugin_agent_records = crate::plugin_middleware::plugin_agent_records(&plugins);
 
     let mut prompt_config = PromptRuntimeConfig::from_config(config);
+    append_builtin_prompt_instructions(&mut prompt_config, &config.builtin_plugins);
     let skill_manager = load_skill_manager(&mut prompt_config.warnings, &plugin_skill_roots);
     let skill_summaries = skill_manager
         .read()
@@ -554,6 +559,21 @@ pub(crate) async fn initialize_rara_context_with_options_and_local_embedding_boo
         rara_home: Some(rara_home),
         builtin_plugins: config.builtin_plugins.clone(),
     })
+}
+
+fn append_builtin_prompt_instructions(
+    prompt_config: &mut PromptRuntimeConfig,
+    builtin_plugins: &BuiltinPluginConfig,
+) {
+    let Some(memory_instructions) =
+        crate::plugin_middleware::nowledge_mem_prompt_instructions(builtin_plugins)
+    else {
+        return;
+    };
+    prompt_config.append_system_prompt = Some(match prompt_config.append_system_prompt.take() {
+        Some(existing) => format!("{existing}\n\n{memory_instructions}"),
+        None => memory_instructions.to_string(),
+    });
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -862,9 +882,9 @@ mod tests {
 
     use super::{
         ConfigSubagentBackendResolver, EmbeddingRoute, RuntimeBootstrapOptions,
-        build_backend_with_progress, config_requires_local_embedding_sidecar,
-        embedding_route_for_config, initialize_rara_context, ollama_thinking_enabled,
-        vector_db_uri_for_workspace,
+        append_builtin_prompt_instructions, build_backend_with_progress,
+        config_requires_local_embedding_sidecar, embedding_route_for_config,
+        initialize_rara_context, ollama_thinking_enabled, vector_db_uri_for_workspace,
     };
     use crate::config::{
         DEFAULT_REASONING_SUMMARY, LocalEmbeddingPolicy, ProviderConfigState,
@@ -873,6 +893,21 @@ mod tests {
     use crate::llm::{LlmBackend, MockLlm};
     use crate::tools::agent::{SubagentBackendResolver, SubagentProviderTarget};
     use crate::workspace::WorkspaceMemory;
+
+    #[test]
+    fn nowledge_mem_guidance_is_injected_into_the_default_prompt() {
+        let mut prompt = crate::prompt::PromptRuntimeConfig::default();
+        append_builtin_prompt_instructions(
+            &mut prompt,
+            &crate::config::BuiltinPluginConfig::default(),
+        );
+
+        let instructions = prompt
+            .append_system_prompt
+            .expect("enabled builtin memory should add prompt guidance");
+        assert!(instructions.contains("Context Bundle"));
+        assert!(instructions.contains("After context compaction"));
+    }
 
     #[test]
     fn vector_db_uri_is_workspace_scoped() {

@@ -19,7 +19,7 @@ Active backlog only. Keep this file small and current.
 
 ## TUI / UX
 
-- [ ] Complete the session-scoped `RuntimeClient` migration: route typed
+- [x] Complete the session-scoped `RuntimeClient` migration: route typed
       commands and runtime snapshots/events through the client, then remove
       runtime registries and completion orchestration from `TuiApp`.
 - [x] Move goal continuation, plan continuation decisions, rebuilt-agent
@@ -36,7 +36,7 @@ Active backlog only. Keep this file small and current.
 - [x] Route production TUI runtime projections and snapshots through the
       session-scoped in-process `RuntimeClientPort` adapter; drain the legacy
       task receiver without replaying events.
-- [ ] Replace the local `AgentEvent -> role/message -> parser` compatibility
+- [x] Replace the local `AgentEvent -> role/message -> parser` compatibility
       path with a typed TUI projection event carrying session and sequence
       identity.
 - [x] Route interactive user prompts and session cancellation through the
@@ -53,8 +53,15 @@ Active backlog only. Keep this file small and current.
       discovery and reload must remain runtime-owned while TUI receives typed
       snapshots. Production task construction now receives explicit runtime
       services; only test-only fixtures retain local registry setup helpers.
-- [ ] Construct `TuiController` directly from an injected port and add
-      virtual-time controls to the shared harness.
+- [x] Construct `TuiController` directly from an injected port and add
+      deterministic scripted lifecycle controls to the shared harness.
+
+## Memory Lifecycle
+
+- [x] Own incremental session capture, compaction flush, fail-open warnings,
+      stable append deduplication, and bounded shutdown drain in the runtime.
+- [x] Load Nowledge Mem context at session start and refresh it after
+      compaction through the built-in plugin instructions.
 
 - [x] Keep `rara-file-search` as the shared backend for TUI file suggestions
       and `list_files`; keep automatic retrieval as optional low-priority

@@ -13,8 +13,8 @@ use futures::StreamExt;
 use super::app_event::AppEvent;
 use super::runtime::RuntimeCommandProcessor;
 use super::runtime_port::{
-    InProcessRuntimeClientPort, RuntimeClientPort, RuntimeCommand, RuntimeEventStream,
-    RuntimeProjectionEvent,
+    RuntimeClientPort, RuntimeCommand, RuntimeEventStream, RuntimeProjectionEvent,
+    accept_runtime_event,
 };
 use super::state::{TaskCompletion, TuiApp};
 use crate::oauth::OAuthManager;
@@ -28,9 +28,10 @@ pub(super) enum RuntimeActivity {
 /// Owns TUI presentation state and applies runtime projections to it.
 pub(super) struct TuiController {
     app: TuiApp,
-    runtime_port: InProcessRuntimeClientPort,
+    runtime_port: std::sync::Arc<dyn RuntimeClientPort>,
     runtime_events: RuntimeEventStream,
     runtime_commands: tokio::sync::mpsc::UnboundedReceiver<RuntimeCommand>,
+    last_runtime_event: Option<(Option<String>, u64, String)>,
     /// Set to true every time an event is applied and the screen should repaint.
     pub(super) needs_redraw: bool,
 }
@@ -38,7 +39,7 @@ pub(super) struct TuiController {
 impl TuiController {
     pub(super) fn new(
         app: TuiApp,
-        runtime_port: InProcessRuntimeClientPort,
+        runtime_port: std::sync::Arc<dyn RuntimeClientPort>,
         runtime_commands: tokio::sync::mpsc::UnboundedReceiver<RuntimeCommand>,
     ) -> Self {
         let runtime_events = runtime_port.subscribe();
@@ -47,6 +48,7 @@ impl TuiController {
             runtime_port,
             runtime_events,
             runtime_commands,
+            last_runtime_event: None,
             needs_redraw: true,
         }
     }
@@ -66,7 +68,7 @@ impl TuiController {
         oauth_manager: &std::sync::Arc<OAuthManager>,
     ) -> anyhow::Result<bool> {
         processor
-            .dispatch_event(&mut self.app, event, oauth_manager, &self.runtime_port)
+            .dispatch_event(&mut self.app, event, oauth_manager, &*self.runtime_port)
             .await
     }
 
@@ -113,9 +115,12 @@ impl TuiController {
         }
     }
 
-    pub(super) fn apply_runtime_event(&mut self, event: RuntimeProjectionEvent) {
+    pub(super) fn apply_runtime_event(&mut self, event: RuntimeProjectionEvent) -> bool {
         match event {
             RuntimeProjectionEvent::Runtime(event) => {
+                if !accept_runtime_event(&mut self.last_runtime_event, &event) {
+                    return false;
+                }
                 super::runtime::apply_tui_event(
                     &mut self.app,
                     super::state::TuiEvent::Runtime(event),
@@ -136,12 +141,12 @@ impl TuiController {
             }
         }
         self.needs_redraw = true;
+        true
     }
 
     pub(super) fn publish_snapshot_projection(&self) {
-        if let Ok(mut snapshot) = self.runtime_port.snapshot_store().write() {
-            *snapshot = self.app.snapshot.clone();
-        }
+        self.runtime_port
+            .publish_snapshot(self.app.snapshot.clone());
     }
 
     /// Sync snapshot from the active agent (must be called at the top of the event loop).
@@ -149,7 +154,7 @@ impl TuiController {
         &mut self,
         processor: &RuntimeCommandProcessor,
     ) -> anyhow::Result<()> {
-        processor.sync_snapshot(&mut self.app, &self.runtime_port.snapshot_store());
+        processor.sync_snapshot(&mut self.app);
         self.app.snapshot = self.runtime_port.snapshot().await?;
         Ok(())
     }

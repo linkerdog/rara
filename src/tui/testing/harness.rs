@@ -1,5 +1,7 @@
 use std::io::{self, Write};
+use std::sync::{Arc, Mutex};
 
+use async_trait::async_trait;
 use futures::StreamExt;
 use ratatui::backend::{Backend, ClearType, TestBackend, WindowSize};
 use ratatui::buffer::Cell;
@@ -8,12 +10,18 @@ use tempfile::TempDir;
 
 use super::FakeRuntimeClient;
 use crate::config::ConfigManager;
+use crate::memory_lifecycle::{
+    MemoryAppendRequest, MemoryLifecycleCoordinator, MemorySessionMessage, MemorySessionSink,
+    MemorySessionSnapshot, MemorySyncReason,
+};
 use crate::runtime_control::{RuntimeControlEvent, SessionControlRequest};
+use crate::runtime_event_bus::RuntimeEventBus;
 use crate::tui::custom_terminal::Terminal;
 use crate::tui::render;
 use crate::tui::runtime::apply_tui_event;
 use crate::tui::runtime_port::{
     RuntimeClientPort, RuntimeCommand, RuntimeEventStream, RuntimeProjectionEvent,
+    accept_runtime_event,
 };
 use crate::tui::state::{RuntimePhase, RuntimeSnapshot, TuiApp, TuiEvent};
 
@@ -28,6 +36,30 @@ pub(crate) struct TuiHarness {
     runtime: FakeRuntimeClient,
     events: RuntimeEventStream,
     terminal: Terminal<TestBackendAdapter>,
+    memory: Arc<MemoryLifecycleCoordinator>,
+    memory_sink: Arc<HarnessMemorySink>,
+    memory_events: tokio::sync::broadcast::Receiver<RuntimeControlEvent>,
+    last_runtime_event: Option<(Option<String>, u64, String)>,
+}
+
+#[derive(Default)]
+struct HarnessMemorySink {
+    requests: Mutex<Vec<MemoryAppendRequest>>,
+    fail: Mutex<bool>,
+}
+
+#[async_trait]
+impl MemorySessionSink for HarnessMemorySink {
+    async fn append(&self, request: MemoryAppendRequest) -> anyhow::Result<()> {
+        if *self.fail.lock().expect("memory failure lock") {
+            anyhow::bail!("scripted memory transport failure");
+        }
+        self.requests
+            .lock()
+            .expect("memory request lock")
+            .push(request);
+        Ok(())
+    }
 }
 
 impl TuiHarness {
@@ -40,6 +72,13 @@ impl TuiHarness {
 
         let runtime = FakeRuntimeClient::new(snapshot);
         let events = runtime.subscribe();
+        let memory_bus = Arc::new(RuntimeEventBus::new(16));
+        let memory_events = memory_bus.subscribe_control();
+        let memory_sink = Arc::new(HarnessMemorySink::default());
+        let memory = Arc::new(MemoryLifecycleCoordinator::new_for_test(
+            memory_sink.clone(),
+            memory_bus,
+        ));
         let mut terminal = Terminal::new(TestBackendAdapter::new(DEFAULT_WIDTH, DEFAULT_HEIGHT))?;
         terminal.set_viewport_area(Rect::new(0, 0, DEFAULT_WIDTH, DEFAULT_HEIGHT));
 
@@ -49,6 +88,10 @@ impl TuiHarness {
             runtime,
             events,
             terminal,
+            memory,
+            memory_sink,
+            memory_events,
+            last_runtime_event: None,
         })
     }
 
@@ -78,6 +121,57 @@ impl TuiHarness {
                 SessionControlRequest::CancelCurrentTurn,
             ))
             .await
+    }
+
+    pub(crate) async fn capture_memory(&self, messages: &[&str], reason: MemorySyncReason) {
+        self.memory
+            .capture(self.memory_snapshot(messages), reason)
+            .await;
+    }
+
+    pub(crate) async fn drain_memory(&self, messages: &[&str]) {
+        self.memory.drain(self.memory_snapshot(messages)).await;
+    }
+
+    fn memory_snapshot(&self, messages: &[&str]) -> MemorySessionSnapshot {
+        MemorySessionSnapshot {
+            session_id: "harness-session".to_string(),
+            workspace: "/harness/workspace".to_string(),
+            space_id: Some("harness-space".to_string()),
+            agent_id: Some("harness-agent".to_string()),
+            host_agent_id: Some("harness-host".to_string()),
+            messages: messages
+                .iter()
+                .enumerate()
+                .map(|(index, content)| MemorySessionMessage {
+                    role: if index % 2 == 0 { "user" } else { "assistant" }.to_string(),
+                    content: (*content).to_string(),
+                    external_id: format!("harness-message-{index}"),
+                })
+                .collect(),
+        }
+    }
+
+    pub(crate) fn set_memory_failure(&self, fail: bool) {
+        *self.memory_sink.fail.lock().expect("memory failure lock") = fail;
+    }
+
+    pub(crate) fn memory_requests(&self) -> Vec<MemoryAppendRequest> {
+        self.memory_sink
+            .requests
+            .lock()
+            .expect("memory request lock")
+            .clone()
+    }
+
+    pub(crate) fn expect_memory_warning(&mut self) {
+        assert!(matches!(
+            self.memory_events
+                .try_recv()
+                .expect("memory warning event")
+                .event,
+            crate::runtime_control::RuntimeEvent::Warning(_)
+        ));
     }
 
     pub(crate) async fn disconnect(&mut self, reason: impl Into<String>) {
@@ -120,6 +214,9 @@ impl TuiHarness {
         match event {
             RuntimeProjectionEvent::Snapshot(snapshot) => self.app.snapshot = *snapshot,
             RuntimeProjectionEvent::Runtime(event) => {
+                if !accept_runtime_event(&mut self.last_runtime_event, &event) {
+                    return;
+                }
                 apply_tui_event(&mut self.app, TuiEvent::Runtime(event));
             }
             RuntimeProjectionEvent::Completed { reason } => {
@@ -251,6 +348,32 @@ mod tests {
             .emit_runtime(assistant_event(AssistantEvent::Text("Inspecting".into())))
             .await;
         harness.expect_transcript_contains("Inspecting");
+        let before_duplicate = harness
+            .app
+            .committed_turns
+            .iter()
+            .chain(std::iter::once(&harness.app.active_turn))
+            .flat_map(|turn| turn.entries.iter())
+            .filter(|entry| entry.message.contains("Inspecting"))
+            .count();
+        let duplicate = RuntimeControlEvent {
+            event_id: "event-3".into(),
+            provenance: RuntimeProvenance::local_tui("test-session"),
+            sequence: 3,
+            event: RuntimeEvent::Assistant(AssistantEvent::Text("Inspecting again".into())),
+        };
+        harness.emit_runtime(duplicate.clone()).await;
+        harness.emit_runtime(duplicate).await;
+        let after_duplicate = harness
+            .app
+            .committed_turns
+            .iter()
+            .chain(std::iter::once(&harness.app.active_turn))
+            .flat_map(|turn| turn.entries.iter())
+            .filter(|entry| entry.message.contains("Inspecting again"))
+            .count();
+        assert_eq!(after_duplicate, 1);
+        assert_eq!(before_duplicate, 1);
         harness
             .cancel()
             .await
@@ -266,5 +389,62 @@ mod tests {
         harness.reconnect().await;
         harness.expect_runtime_phase(RuntimePhase::Idle);
         harness.render().expect("render test backend");
+    }
+
+    #[tokio::test]
+    async fn harness_scripts_memory_idle_compaction_dedup_and_shutdown() {
+        let mut harness = TuiHarness::new(RuntimeSnapshot::default()).expect("harness");
+        harness
+            .capture_memory(
+                &["inspect repository", "I found the runtime boundary"],
+                MemorySyncReason::TurnIdle,
+            )
+            .await;
+        harness
+            .capture_memory(
+                &["inspect repository", "I found the runtime boundary"],
+                MemorySyncReason::TurnIdle,
+            )
+            .await;
+        harness
+            .capture_memory(
+                &[
+                    "inspect repository",
+                    "I found the runtime boundary",
+                    "next step is testing",
+                ],
+                MemorySyncReason::Compaction,
+            )
+            .await;
+
+        let requests = harness.memory_requests();
+        assert_eq!(requests.len(), 2);
+        assert_eq!(requests[0].thread_id, "rara-harness-session");
+        assert_eq!(requests[1].messages.len(), 1);
+
+        harness.set_memory_failure(true);
+        harness
+            .capture_memory(
+                &[
+                    "inspect repository",
+                    "I found the runtime boundary",
+                    "next step is testing",
+                    "shutdown checkpoint",
+                ],
+                MemorySyncReason::Shutdown,
+            )
+            .await;
+        harness.expect_memory_warning();
+        assert_eq!(harness.memory_requests().len(), 2);
+        harness.set_memory_failure(false);
+        harness
+            .drain_memory(&[
+                "inspect repository",
+                "I found the runtime boundary",
+                "next step is testing",
+                "shutdown checkpoint",
+            ])
+            .await;
+        assert_eq!(harness.memory_requests().len(), 3);
     }
 }

@@ -262,55 +262,11 @@ pub(crate) fn start_input_control_task_with_services(
             &hook_registry,
             Some(&mut agent),
             move |control_event| {
-                if let crate::runtime_control::RuntimeEvent::Assistant(ae) = &control_event.event {
-                    let agent_event = match ae {
-                        crate::runtime_control::AssistantEvent::TextDelta(text) => {
-                            crate::agent::AgentEvent::AssistantDelta(text.clone())
-                        }
-                        crate::runtime_control::AssistantEvent::ThinkingDelta(text) => {
-                            crate::agent::AgentEvent::AssistantThinkingDelta(text.clone())
-                        }
-                        _ => return,
-                    };
-                    forward_event_to_bus(&bus_arg, &agent_event, &event_provenance);
-                    let _ = tx.send(TuiEvent::Runtime(Box::new(control_event)));
-                } else if let crate::runtime_control::RuntimeEvent::Tool(te) = &control_event.event
-                {
-                    let agent_event = match te {
-                        crate::runtime_control::ToolEvent::Use { name, input, .. } => {
-                            crate::agent::AgentEvent::ToolUse {
-                                name: name.clone(),
-                                input: input.clone(),
-                            }
-                        }
-                        crate::runtime_control::ToolEvent::Result {
-                            name,
-                            content,
-                            is_error,
-                        } => crate::agent::AgentEvent::ToolResult {
-                            name: name.clone(),
-                            content: content.clone(),
-                            is_error: *is_error,
-                        },
-                        crate::runtime_control::ToolEvent::Progress {
-                            name,
-                            stream,
-                            chunk,
-                        } => crate::agent::AgentEvent::ToolProgress {
-                            name: name.clone(),
-                            stream: (*stream).into(),
-                            chunk: chunk.clone(),
-                        },
-                    };
-                    forward_event_to_bus(&bus_arg, &agent_event, &event_provenance);
-                    let _ = tx.send(TuiEvent::Runtime(Box::new(control_event)));
-                } else {
-                    bus_arg
-                        .as_ref()
-                        .expect("runtime event bus must exist")
-                        .publish_control_event(control_event.clone());
-                    let _ = tx.send(TuiEvent::Runtime(Box::new(control_event)));
-                }
+                bus_arg
+                    .as_ref()
+                    .expect("runtime event bus must exist")
+                    .publish_control_event(control_event.clone());
+                let _ = tx.send(TuiEvent::Runtime(Box::new(control_event)));
             },
         )
         .await;

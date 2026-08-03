@@ -23,8 +23,6 @@ use crate::runtime_control::{
 use crate::session_promotion::{
     SessionShardPromotionDecision, SessionShardPromotionOutcome, SessionShardPromotionSkipReason,
 };
-#[cfg(test)]
-use crate::todo::format_todo_update;
 use crate::tui::display_sanitize::sanitize_display_text;
 use crate::tui::terminal_event::{TerminalEvent, TerminalTarget};
 
@@ -219,10 +217,6 @@ pub(crate) fn apply_tui_event(app: &mut TuiApp, event: TuiEvent) {
                 RuntimePhase::RunningTool,
                 Some(format!("streaming {name} output")),
             );
-        }
-        #[cfg(test)]
-        TuiEvent::UpdateTodo(view) => {
-            app.snapshot.todo = view;
         }
     }
 }
@@ -448,104 +442,6 @@ pub(super) fn runtime_event_from_agent_event(
         provenance,
         event,
     )))
-}
-
-#[cfg(test)]
-pub(super) fn convert_agent_event(event: AgentEvent) -> Option<TuiEvent> {
-    match event {
-        AgentEvent::Status(message) => Some(TuiEvent::Transcript {
-            role: "Status",
-            message,
-        }),
-        AgentEvent::AssistantText(text) => Some(TuiEvent::Transcript {
-            role: "Agent",
-            message: text,
-        }),
-        AgentEvent::AssistantDelta(text) => Some(TuiEvent::Transcript {
-            role: "Agent Delta",
-            message: text,
-        }),
-        AgentEvent::AssistantThinkingDelta(text) => Some(TuiEvent::Transcript {
-            role: "Agent Thinking Delta",
-            message: text,
-        }),
-        AgentEvent::ToolUse { name, input } => {
-            if name == crate::tools::todo::TODO_WRITE_TOOL_NAME {
-                match crate::todo::normalize_todo_write_input(&input) {
-                    Ok(state) => {
-                        return Some(TuiEvent::UpdateTodo(
-                            crate::context::TodoContextView::from_state(Some(state)),
-                        ));
-                    }
-                    Err(e) => {
-                        eprintln!("todo_write parse error: {e}");
-                    }
-                }
-                return None;
-            }
-            if let Some(event) = TerminalEvent::from_tool_use(&name, &input) {
-                return Some(TuiEvent::Terminal(event));
-            }
-            Some(TuiEvent::Transcript {
-                role: "Tool",
-                message: format_tool_use(&name, &input),
-            })
-        }
-        AgentEvent::ToolResult {
-            name,
-            content,
-            is_error,
-        } => {
-            if name == crate::tools::todo::TODO_WRITE_TOOL_NAME {
-                return None;
-            }
-            if is_exploration_tool_name(&name) {
-                return None;
-            }
-            if let Some(event) = TerminalEvent::from_tool_result(&name, &content, is_error) {
-                return Some(TuiEvent::Terminal(event));
-            }
-            Some(TuiEvent::Transcript {
-                role: if is_error {
-                    "Tool Error"
-                } else {
-                    "Tool Result"
-                },
-                message: format_tool_result(&name, &content),
-            })
-        }
-        AgentEvent::ToolProgress {
-            name,
-            stream,
-            chunk,
-        } => TerminalEvent::from_tool_progress(&name, stream, &chunk)
-            .map(TuiEvent::Terminal)
-            .or({
-                Some(TuiEvent::ToolProgress {
-                    name,
-                    stream,
-                    chunk,
-                })
-            }),
-        AgentEvent::MemoryAction { message } => Some(TuiEvent::Transcript {
-            role: "System",
-            message,
-        }),
-        AgentEvent::TodoUpdated(state) => Some(TuiEvent::Transcript {
-            role: "Todo",
-            message: format_todo_update(&state),
-        }),
-        AgentEvent::PlanUpdated { .. }
-        | AgentEvent::ApprovalRequested { .. }
-        | AgentEvent::ApprovalAnswered { .. } => None,
-        AgentEvent::McpStatusUpdated(_) => None,
-        AgentEvent::McpStatusLoadFailed { .. } => None,
-        AgentEvent::AgentStart => None,
-        AgentEvent::AgentStop { .. } => None,
-        AgentEvent::AgentError { .. } => None,
-        AgentEvent::ModelRequest { .. } => None,
-        AgentEvent::ModelResponse { .. } => None,
-    }
 }
 
 pub(super) fn format_memory_event_notice(event: &MemoryEvent) -> String {
