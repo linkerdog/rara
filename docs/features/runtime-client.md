@@ -55,6 +55,12 @@ live under `runtime_client` / `runtime_goal`. TUI completion code consumes
 these typed outcomes and only applies transcript, overlay, phase, and queued
 input presentation effects.
 
+Extension status projection now has a typed `RuntimeExtensionSnapshot`. The
+runtime command processor computes extension counts, scopes, and agent status
+lines from the session runtime and passes the projection to the TUI snapshot
+reducer. The legacy agent-based snapshot entry point remains only for restore
+and focused compatibility tests while registry ownership is migrated.
+
 ## TUI Test Contract
 
 TUI tests use the same runtime projection reducer and renderer as production.

@@ -132,7 +132,7 @@ impl RuntimeCommandProcessor {
         snapshot_store: &Arc<RwLock<RuntimeSnapshot>>,
     ) {
         if let Some(agent) = self.agent() {
-            app.sync_snapshot(agent);
+            app.sync_snapshot_with_extensions(agent, self.runtime.extension_snapshot());
             if let Ok(mut snapshot) = snapshot_store.write() {
                 *snapshot = app.snapshot.clone();
             }

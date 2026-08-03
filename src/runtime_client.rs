@@ -4,6 +4,7 @@
 //! surfaces may retain this client and submit commands through its API, but
 //! they must not construct or own the underlying registries independently.
 
+use std::collections::BTreeSet;
 use std::path::PathBuf;
 use std::sync::{Arc, atomic::AtomicBool};
 
@@ -18,7 +19,7 @@ use crate::protocol_sources::{PromptSourceRegistry, SkillSourceRegistry};
 use crate::runtime_context::RuntimeBootstrap;
 use crate::runtime_event_bus::RuntimeEventBus;
 use crate::runtime_goal::{GoalEvaluation, evaluate_goal_completion};
-use crate::tui::state::{GoalHandle, GoalStatus, RalphGoal};
+use crate::tui::state::{GoalHandle, GoalStatus, RalphGoal, RuntimeExtensionSnapshot};
 
 /// Fully initialized replacement runtime returned by a backend rebuild.
 pub(crate) struct RebuildSuccess {
@@ -139,6 +140,36 @@ impl RuntimeClient {
 
     pub(crate) fn agent_mut(&mut self) -> &mut Option<Agent> {
         &mut self.agent
+    }
+
+    pub(crate) fn extension_snapshot(&self) -> RuntimeExtensionSnapshot {
+        let Some(agent) = self.agent() else {
+            return RuntimeExtensionSnapshot::default();
+        };
+        let runtime_context = agent.shared_runtime_context();
+        let records = agent.agent_definition_records();
+        let root = std::path::Path::new(&runtime_context.cwd);
+        let agent_registry = crate::agents_ext::AgentRegistry::from_records(records, root);
+        let mut file_hook_registry = crate::hooks::HookRegistry::new();
+        file_hook_registry.discover_repo_hooks(root);
+        RuntimeExtensionSnapshot {
+            skill_count: agent.prompt_config().available_skills.len(),
+            skill_scopes: agent
+                .prompt_config()
+                .available_skills
+                .iter()
+                .map(|skill| skill.scope.clone())
+                .collect::<BTreeSet<_>>()
+                .into_iter()
+                .collect(),
+            hook_count: file_hook_registry
+                .hooks
+                .len()
+                .max(self.hook_runtime.hook_count()),
+            command_count: agent.plugin_command_count(),
+            agent_count: agent_registry.agents.len(),
+            agent_status_lines: agent_registry.status_lines(),
+        }
     }
 
     /// Decide the next plan action after a completed model turn.

@@ -8,9 +8,9 @@ use tempfile::tempdir;
 
 use super::{
     ActivePendingInteractionKind, AgentMarkdownStreamState, InteractionKind, ListPickerKind,
-    Overlay, PROVIDER_FAMILIES, PendingInteractionSnapshot, ProviderFamily, RuntimeSnapshot,
-    SystemMessageKind, TranscriptEntry, TranscriptTurn, TuiApp, input_requests_command_palette,
-    parse_repo_slug, state_db_status_error,
+    Overlay, PROVIDER_FAMILIES, PendingInteractionSnapshot, ProviderFamily,
+    RuntimeExtensionSnapshot, RuntimeSnapshot, SystemMessageKind, TranscriptEntry, TranscriptTurn,
+    TuiApp, input_requests_command_palette, parse_repo_slug, state_db_status_error,
 };
 use crate::agent::{Agent, PendingApproval};
 use crate::codex_model_catalog::{CodexModelOption, CodexReasoningOption};
@@ -273,7 +273,13 @@ async fn sync_snapshot_reports_registered_runtime_hooks() {
     );
     app.hook_runtime = Some(runtime);
 
-    app.sync_snapshot(&agent);
+    app.sync_snapshot_with_extensions(
+        &agent,
+        RuntimeExtensionSnapshot {
+            hook_count: 1,
+            ..RuntimeExtensionSnapshot::default()
+        },
+    );
 
     assert_eq!(app.snapshot.extension_hook_count, 1);
 }

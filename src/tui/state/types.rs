@@ -300,6 +300,16 @@ pub struct RuntimeSnapshot {
     pub extension_agent_status_lines: Vec<String>,
 }
 
+#[derive(Default, Clone, Debug, PartialEq, Eq)]
+pub struct RuntimeExtensionSnapshot {
+    pub skill_count: usize,
+    pub skill_scopes: Vec<String>,
+    pub hook_count: usize,
+    pub command_count: usize,
+    pub agent_count: usize,
+    pub agent_status_lines: Vec<String>,
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum InteractionKind {
     RequestInput,
