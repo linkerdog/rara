@@ -6,7 +6,7 @@ RARA now creates a session-scoped memory lifecycle coordinator with the runtime
 client. It captures unsent transcript messages at turn idle, flushes before
 compaction, and drains with a bounded timeout during shutdown. The hosted
 transport uses stable thread and external message IDs, append idempotency, and
-structured provenance metadata.
+structured provenance metadata with `source_app=RARA`.
 
 The TUI controller consumes an injected runtime port and ignores duplicate or
 late runtime events using session and sequence identity. Redraw is requested

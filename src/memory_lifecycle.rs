@@ -14,7 +14,8 @@ use crate::config::NowledgeMemPluginConfig;
 use crate::runtime_control::{RuntimeEvent, WarningEvent};
 use crate::runtime_event_bus::RuntimeEventBus;
 
-const SOURCE_APP: &str = "rara";
+const SOURCE_APP: &str = "RARA";
+const THREAD_ID_PREFIX: &str = "rara";
 const CAPTURE_TIMEOUT: Duration = Duration::from_secs(10);
 const SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(2);
 
@@ -189,7 +190,7 @@ impl MemoryLifecycleCoordinator {
         }
         drop(state);
 
-        let thread_id = format!("{SOURCE_APP}-{}", snapshot.session_id);
+        let thread_id = format!("{THREAD_ID_PREFIX}-{}", snapshot.session_id);
         Some(MemoryAppendRequest {
             idempotency_key: format!("{thread_id}:{}:{last_id}", reason.label()),
             thread_id,

@@ -18,7 +18,8 @@ shutdown drain. The TUI only renders warning events.
 Hosted sync uses `rara-{session_id}` as the stable thread ID. Each transcript
 message has a stable `rara-msg-{session_id}-{index}` external ID. Requests carry
 an idempotency key, `deduplicate=true` on append, `source_app=rara`, workspace,
-space, agent, host-agent provenance, and the lifecycle reason.
+space, agent, host-agent provenance, and the lifecycle reason. The source
+application marker is the protocol value `RARA`.
 
 Create conflicts fall through to append so an existing thread cannot discard
 new messages. The coordinator also filters acknowledged external IDs within
