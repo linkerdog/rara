@@ -13,6 +13,7 @@ pub(crate) async fn finish_running_task_if_ready(
         agent_slot,
         None,
         true,
+        None,
     )
     .await
 }
@@ -24,12 +25,14 @@ pub(crate) async fn finish_running_task_if_ready_from_runtime_port(
     app: &mut TuiApp,
     agent_slot: &mut Option<Agent>,
     completion: Option<Result<TaskCompletion, tokio::task::JoinError>>,
+    runtime: Option<&mut RuntimeTaskServices>,
 ) -> anyhow::Result<()> {
     finish_running_task_if_ready_with_completion_mode(
         app,
         agent_slot,
         completion,
         false,
+        runtime,
     )
     .await
 }
@@ -39,6 +42,7 @@ async fn finish_running_task_if_ready_with_completion_mode(
     agent_slot: &mut Option<Agent>,
     completion: Option<Result<TaskCompletion, tokio::task::JoinError>>,
     apply_compatibility_events: bool,
+    mut runtime: Option<&mut RuntimeTaskServices>,
 ) -> anyhow::Result<()> {
     if app.bottom_pane.running_task.is_none() {
         return Ok(());
@@ -114,7 +118,11 @@ async fn finish_running_task_if_ready_with_completion_mode(
                             crate::runtime_client::PlanContinuation::AutomaticImplementation => {
                                 app.release_pending_follow_ups();
                                 app.finalize_agent_stream(None);
-                                start_automatic_plan_implementation_task(app, agent);
+                                start_automatic_plan_implementation_task(
+                                    app,
+                                    agent,
+                                    runtime.as_deref().cloned(),
+                                );
                                 return Ok(());
                             }
                             crate::runtime_client::PlanContinuation::None => {
@@ -150,7 +158,12 @@ async fn finish_running_task_if_ready_with_completion_mode(
                             );
                             app.finalize_active_turn();
                             *agent_slot = Some(agent);
-                            start_query_task(app, prompt, agent_slot.take().expect("agent"));
+                            let agent = agent_slot.take().expect("agent");
+                            if let Some(services) = runtime.as_deref().cloned() {
+                                start_query_task_with_services(app, prompt, agent, services);
+                            } else {
+                                start_query_task(app, prompt, agent);
+                            }
                             return Ok(());
                         }
                         GoalContinuation::Complete { goal } => {
@@ -181,7 +194,11 @@ async fn finish_running_task_if_ready_with_completion_mode(
                                 ),
                             );
                             app.finalize_active_turn();
-                            start_query_task(app, prompt, agent);
+                            if let Some(services) = runtime.as_deref().cloned() {
+                                start_query_task_with_services(app, prompt, agent, services);
+                            } else {
+                                start_query_task(app, prompt, agent);
+                            }
                             return Ok(());
                         }
                         GoalContinuation::NotActive => {}
@@ -214,7 +231,7 @@ async fn finish_running_task_if_ready_with_completion_mode(
                         }
                         app.bottom_pane.notice = Some("Prompt finished.".into());
                         app.set_runtime_phase(RuntimePhase::Idle, Some("prompt finished".into()));
-                        try_start_queued_follow_up(app, agent_slot);
+                        try_start_queued_follow_up(app, agent_slot, runtime.as_deref().cloned());
                     }
                 }
                 Err(err) => {
@@ -243,7 +260,7 @@ async fn finish_running_task_if_ready_with_completion_mode(
                         app.finalize_active_turn();
                         app.bottom_pane.notice = Some("Query cancelled.".into());
                         app.set_runtime_phase(RuntimePhase::Idle, Some("query cancelled".into()));
-                        try_start_queued_follow_up(app, agent_slot);
+                        try_start_queued_follow_up(app, agent_slot, runtime.as_deref().cloned());
                         return Ok(());
                     }
                     app.set_runtime_phase(RuntimePhase::Failed, Some("query failed".into()));
@@ -261,7 +278,7 @@ async fn finish_running_task_if_ready_with_completion_mode(
                     }
                     app.push_system(message.clone(), SystemMessageKind::Other);
                     app.push_notice(message);
-                    try_start_queued_follow_up(app, agent_slot);
+                    try_start_queued_follow_up(app, agent_slot, runtime.as_deref().cloned());
                 }
             }
         }
@@ -295,7 +312,7 @@ async fn finish_running_task_if_ready_with_completion_mode(
                     }
                     app.finalize_active_turn();
                     app.set_runtime_phase(RuntimePhase::Idle, Some("history compacted".into()));
-                    try_start_queued_follow_up(app, agent_slot);
+                    try_start_queued_follow_up(app, agent_slot, runtime.as_deref().cloned());
                 }
                 Ok(false) => {
                     app.clear_active_live_sections();
@@ -305,7 +322,7 @@ async fn finish_running_task_if_ready_with_completion_mode(
                     app.push_notice(message);
                     app.finalize_active_turn();
                     app.set_runtime_phase(RuntimePhase::Idle, Some("compact skipped".into()));
-                    try_start_queued_follow_up(app, agent_slot);
+                    try_start_queued_follow_up(app, agent_slot, runtime.as_deref().cloned());
                 }
                 Err(err) => {
                     app.clear_active_live_sections();
@@ -340,10 +357,23 @@ async fn finish_running_task_if_ready_with_completion_mode(
                 app.mcp_tool_cache = Some(rebuilt.mcp_tool_cache);
                 app.mcp_manager = Some(rebuilt.mcp_manager);
                 app.lsp_manager = Some(rebuilt.lsp_manager);
-                app.prompt_source_registry = Some(rebuilt.prompt_source_registry);
-                app.skill_source_registry = Some(rebuilt.skill_source_registry);
+                if let Some(runtime) = runtime.as_deref_mut() {
+                    *runtime = RuntimeTaskServices {
+                        prompt_source_registry: rebuilt.prompt_source_registry.clone(),
+                        skill_source_registry: rebuilt.skill_source_registry.clone(),
+                        hook_registry: rebuilt.hook_registry.clone(),
+                    };
+                }
+                #[cfg(test)]
+                {
+                    app.prompt_source_registry = Some(rebuilt.prompt_source_registry);
+                    app.skill_source_registry = Some(rebuilt.skill_source_registry);
+                }
                 app.memory_handler = Some(rebuilt.memory_handler);
-                app.hook_registry = Some(rebuilt.hook_registry);
+                #[cfg(test)]
+                {
+                    app.hook_registry = Some(rebuilt.hook_registry);
+                }
                 app.hook_runtime = Some(rebuilt.hook_runtime.clone());
                 app.local_model_server = rebuilt.local_model_server;
                 RuntimeClient::persist_config(&app.config_manager, &app.config)?;
@@ -392,7 +422,7 @@ async fn finish_running_task_if_ready_with_completion_mode(
                     app.bottom_pane.notice = Some(notice);
                 }
                 app.finalize_active_turn();
-                try_start_queued_follow_up(app, agent_slot);
+                try_start_queued_follow_up(app, agent_slot, runtime.as_deref().cloned());
             }
             Err(err) => {
                 app.set_runtime_phase(RuntimePhase::Failed, Some("backend rebuild failed".into()));

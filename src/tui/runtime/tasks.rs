@@ -24,6 +24,7 @@ use super::super::state::{
 };
 use super::events::{apply_tui_event, format_error_chain, runtime_event_from_agent_event};
 use crate::agent::{Agent, AgentEvent, AgentOutputMode, BashApprovalDecision};
+use crate::runtime_client::RuntimeTaskServices;
 pub(crate) use crate::runtime_client::{goal_budget_limit_prompt, goal_continuation_prompt};
 use crate::runtime_control::RuntimeProvenance;
 use crate::runtime_event_bus::RuntimeEventBus;
@@ -116,7 +117,11 @@ fn merge_rebuilt_agent(rebuilt: Agent, previous: Agent) -> Agent {
     crate::runtime_client::RuntimeClient::merge_rebuilt_agent(rebuilt, previous)
 }
 
-fn try_start_queued_follow_up(app: &mut TuiApp, agent_slot: &mut Option<Agent>) {
+fn try_start_queued_follow_up(
+    app: &mut TuiApp,
+    agent_slot: &mut Option<Agent>,
+    services: Option<RuntimeTaskServices>,
+) {
     if app.bottom_pane.running_task.is_none() {
         app.release_pending_follow_ups();
     }
@@ -140,7 +145,11 @@ fn try_start_queued_follow_up(app: &mut TuiApp, agent_slot: &mut Option<Agent>) 
     };
 
     app.bottom_pane.notice = Some("Running queued follow-up.".to_string());
-    start_query_task(app, prompt, agent);
+    if let Some(services) = services {
+        start_query_task_with_services(app, prompt, agent, services);
+    } else {
+        start_query_task(app, prompt, agent);
+    }
 }
 
 fn sync_bash_prefixes_from_config(app: &TuiApp, agent: &mut Agent) {
@@ -154,6 +163,28 @@ fn sync_bash_prefixes_from_config(app: &TuiApp, agent: &mut Agent) {
     }
 }
 
+fn legacy_task_services(app: &TuiApp) -> RuntimeTaskServices {
+    #[cfg(test)]
+    {
+        RuntimeTaskServices {
+            prompt_source_registry: app
+                .prompt_source_registry
+                .clone()
+                .expect("prompt_registry must exist"),
+            skill_source_registry: app
+                .skill_source_registry
+                .clone()
+                .expect("skill_registry must exist"),
+            hook_registry: app.hook_registry.clone().expect("hook_registry must exist"),
+        }
+    }
+    #[cfg(not(test))]
+    {
+        let _ = app;
+        panic!("runtime task services must be supplied by RuntimeCommandProcessor");
+    }
+}
+
 pub(super) fn start_input_control_task(
     app: &mut TuiApp,
     agent: Agent,
@@ -161,6 +192,26 @@ pub(super) fn start_input_control_task(
     notice: String,
     phase: RuntimePhase,
     phase_detail: Option<String>,
+) {
+    start_input_control_task_with_services(
+        app,
+        agent,
+        request,
+        notice,
+        phase,
+        phase_detail,
+        legacy_task_services(app),
+    );
+}
+
+pub(crate) fn start_input_control_task_with_services(
+    app: &mut TuiApp,
+    agent: Agent,
+    request: crate::runtime_control::InputControlRequest,
+    notice: String,
+    phase: RuntimePhase,
+    phase_detail: Option<String>,
+    services: RuntimeTaskServices,
 ) {
     let (sender, receiver) = mpsc::unbounded_channel();
     let cancellation_token = Arc::new(AtomicBool::new(false));
@@ -174,19 +225,13 @@ pub(super) fn start_input_control_task(
     app.set_runtime_phase(phase, phase_detail);
 
     let mcp_manager = app.mcp_manager.clone().expect("mcp_manager must exist");
-    let prompt_registry = app
-        .prompt_source_registry
-        .clone()
-        .expect("prompt_registry must exist");
-    let skill_registry = app
-        .skill_source_registry
-        .clone()
-        .expect("skill_registry must exist");
+    let prompt_registry = services.prompt_source_registry;
+    let skill_registry = services.skill_source_registry;
     let memory_handler = app
         .memory_handler
         .clone()
         .expect("memory_handler must exist");
-    let hook_registry = app.hook_registry.clone().expect("hook_registry must exist");
+    let hook_registry = services.hook_registry;
 
     let mut agent = agent;
     agent.set_execution_mode(app.agent_execution_mode);
@@ -287,17 +332,27 @@ pub(super) fn start_input_control_task(
 }
 
 pub(super) fn start_query_task(app: &mut TuiApp, prompt: String, agent: Agent) {
+    start_query_task_with_services(app, prompt, agent, legacy_task_services(app));
+}
+
+pub(crate) fn start_query_task_with_services(
+    app: &mut TuiApp,
+    prompt: String,
+    agent: Agent,
+    services: RuntimeTaskServices,
+) {
     let request = crate::runtime_control::InputControlRequest::SubmitUserPrompt {
         prompt: prompt.clone(),
     };
     app.push_entry("You", prompt);
-    start_input_control_task(
+    start_input_control_task_with_services(
         app,
         agent,
         request,
         "Running prompt.".into(),
         RuntimePhase::SendingPrompt,
         Some("sending prompt".into()),
+        services,
     );
 }
 
@@ -399,7 +454,16 @@ pub(super) fn start_review_task(app: &mut TuiApp, prompt: String, mut agent: Age
 pub(super) fn start_pending_approval_task(
     app: &mut TuiApp,
     selection: BashApprovalDecision,
+    agent: Agent,
+) {
+    start_pending_approval_task_with_services(app, selection, agent, legacy_task_services(app));
+}
+
+pub(crate) fn start_pending_approval_task_with_services(
+    app: &mut TuiApp,
+    selection: BashApprovalDecision,
     mut agent: Agent,
+    services: RuntimeTaskServices,
 ) {
     if selection == BashApprovalDecision::Always {
         app.permission_mode = PermissionMode::FullAccess;
@@ -424,13 +488,14 @@ pub(super) fn start_pending_approval_task(
     };
 
     app.clear_pending_command_approval();
-    start_input_control_task(
+    start_input_control_task_with_services(
         app,
         agent,
         request,
         format!("Answering approval request: {selection_label}."),
         RuntimePhase::ProcessingResponse,
         Some("resuming after approval".into()),
+        services,
     );
 }
 
@@ -439,6 +504,22 @@ pub(super) fn start_plan_approval_resume_task(
     decision: crate::runtime_control::PlanApprovalDecision,
     feedback: Option<String>,
     agent: Agent,
+) {
+    start_plan_approval_resume_task_with_services(
+        app,
+        decision,
+        feedback,
+        agent,
+        legacy_task_services(app),
+    );
+}
+
+pub(crate) fn start_plan_approval_resume_task_with_services(
+    app: &mut TuiApp,
+    decision: crate::runtime_control::PlanApprovalDecision,
+    feedback: Option<String>,
+    agent: Agent,
+    services: RuntimeTaskServices,
 ) {
     let (notice, phase_detail) = match decision {
         crate::runtime_control::PlanApprovalDecision::Approve => (
@@ -457,30 +538,47 @@ pub(super) fn start_plan_approval_resume_task(
     let request =
         crate::runtime_control::InputControlRequest::AnswerPlanApproval { decision, feedback };
 
-    start_input_control_task(
+    start_input_control_task_with_services(
         app,
         agent,
         request,
         notice.to_string(),
         RuntimePhase::ProcessingResponse,
         Some(phase_detail.into()),
+        services,
     );
 }
 
-fn start_automatic_plan_implementation_task(app: &mut TuiApp, agent: Agent) {
+fn start_automatic_plan_implementation_task(
+    app: &mut TuiApp,
+    agent: Agent,
+    services: Option<RuntimeTaskServices>,
+) {
     let request = crate::runtime_control::InputControlRequest::AnswerPlanApproval {
         decision: crate::runtime_control::PlanApprovalDecision::Approve,
         feedback: None,
     };
 
-    start_input_control_task(
-        app,
-        agent,
-        request,
-        "Plan generated automatically. Continuing with implementation.".into(),
-        RuntimePhase::ProcessingResponse,
-        Some("resuming approved plan".into()),
-    );
+    if let Some(services) = services {
+        start_input_control_task_with_services(
+            app,
+            agent,
+            request,
+            "Plan generated automatically. Continuing with implementation.".into(),
+            RuntimePhase::ProcessingResponse,
+            Some("resuming approved plan".into()),
+            services,
+        );
+    } else {
+        start_input_control_task(
+            app,
+            agent,
+            request,
+            "Plan generated automatically. Continuing with implementation.".into(),
+            RuntimePhase::ProcessingResponse,
+            Some("resuming approved plan".into()),
+        );
+    }
 }
 
 pub(super) fn start_rebuild_task(app: &mut TuiApp) {

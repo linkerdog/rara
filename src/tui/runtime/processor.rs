@@ -8,6 +8,7 @@ use super::super::state::{RuntimeSnapshot, TaskCompletion, TuiApp};
 use crate::agent::Agent;
 use crate::oauth::OAuthManager;
 use crate::runtime_client::RuntimeClient;
+use crate::runtime_client::RuntimeTaskServices;
 use crate::runtime_control::{InputControlRequest, SessionControlRequest};
 
 /// Owns session runtime execution and applies typed commands to the runtime.
@@ -58,14 +59,29 @@ impl RuntimeCommandProcessor {
     ) -> anyhow::Result<()> {
         match command {
             RuntimeCommand::Input(InputControlRequest::SubmitUserPrompt { prompt }) => {
-                input_control::submit_user_prompt(app, self.agent_mut(), prompt);
+                let services = self.runtime.task_services();
+                let agent_slot = self.runtime.agent_mut();
+                input_control::submit_user_prompt_with_services(
+                    app,
+                    agent_slot,
+                    prompt,
+                    Some(services),
+                );
             }
             RuntimeCommand::Input(InputControlRequest::SubmitFollowUp { prompt }) => {
                 input_control::submit_follow_up(app, prompt, false);
             }
             RuntimeCommand::Input(InputControlRequest::AnswerPendingInput { answer }) => {
-                if let Some(agent) = self.agent_mut().take() {
-                    input_control::answer_pending_input(app, self.agent_mut(), agent, answer);
+                let services = self.runtime.task_services();
+                let agent_slot = self.runtime.agent_mut();
+                if let Some(agent) = agent_slot.take() {
+                    input_control::answer_pending_input_with_services(
+                        app,
+                        agent_slot,
+                        agent,
+                        answer,
+                        Some(services),
+                    );
                 } else {
                     app.push_notice("Request input is still preparing. Try again.");
                 }
@@ -74,15 +90,25 @@ impl RuntimeCommandProcessor {
                 decision,
                 feedback,
             }) => {
-                input_control::answer_plan_approval_with_feedback(
+                let services = self.runtime.task_services();
+                let agent_slot = self.runtime.agent_mut();
+                input_control::answer_plan_approval_with_feedback_and_services(
                     app,
-                    self.agent_mut(),
+                    agent_slot,
                     decision,
                     feedback,
+                    Some(services),
                 );
             }
             RuntimeCommand::Input(InputControlRequest::AnswerShellApproval { decision }) => {
-                input_control::answer_shell_approval(app, self.agent_mut(), decision);
+                let services = self.runtime.task_services();
+                let agent_slot = self.runtime.agent_mut();
+                input_control::answer_shell_approval_with_services(
+                    app,
+                    agent_slot,
+                    decision,
+                    Some(services),
+                );
             }
             RuntimeCommand::Session(SessionControlRequest::CancelCurrentTurn) => {
                 input_control::handle_session_control(
@@ -118,12 +144,17 @@ impl RuntimeCommandProcessor {
         app: &mut TuiApp,
         completion: Box<Result<TaskCompletion, tokio::task::JoinError>>,
     ) -> anyhow::Result<()> {
+        let mut services = self.runtime.task_services();
+        let agent_slot = self.runtime.agent_mut();
         super::tasks::finish_running_task_if_ready_from_runtime_port(
             app,
-            self.agent_mut(),
+            agent_slot,
             Some(*completion),
+            Some(&mut services),
         )
-        .await
+        .await?;
+        self.runtime.update_task_services(&services);
+        Ok(())
     }
 
     pub(crate) fn sync_snapshot(

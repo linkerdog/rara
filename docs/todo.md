@@ -49,10 +49,10 @@ Active backlog only. Keep this file small and current.
 - [x] Remove `RuntimeClient`/`Agent` ownership from `TuiController` by moving
       task construction, completion, and runtime replacement access into the
       runtime command processor.
-- [ ] Remove mutable extension-registry projections from `TuiApp`; registry
+- [x] Remove mutable extension-registry projections from `TuiApp`; registry
       discovery and reload must remain runtime-owned while TUI receives typed
-      snapshots. Snapshot discovery and the agent-based entry point are done;
-      remove the remaining registry handles used by the task bridge next.
+      snapshots. Production task construction now receives explicit runtime
+      services; only test-only fixtures retain local registry setup helpers.
 - [ ] Construct `TuiController` directly from an injected port and add
       virtual-time controls to the shared harness.
 

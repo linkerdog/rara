@@ -22,12 +22,15 @@ use crate::context::{
     RetrievalSourceContextEntry,
 };
 use crate::control_tokens::{has_pending_internal_control_context, scrub_internal_control_tokens};
+#[cfg(test)]
 use crate::hook_registry::HookRegistry;
 use crate::lsp_manager::LspManager;
 use crate::mcp_connection_manager::McpConnectionManager;
 use crate::mcp_tool_cache::McpToolCache;
 use crate::oauth::SavedCodexAuthMode;
-use crate::protocol_sources::{MemoryControlHandler, PromptSourceRegistry, SkillSourceRegistry};
+use crate::protocol_sources::MemoryControlHandler;
+#[cfg(test)]
+use crate::protocol_sources::{PromptSourceRegistry, SkillSourceRegistry};
 use crate::runtime_event_bus::RuntimeEventBus;
 use crate::thread_store::ThreadSummary;
 use crate::tools::bash::BashCommandInput;
@@ -758,8 +761,11 @@ pub struct TuiApp {
     pub local_model_server: crate::local_model_server::LocalModelServerStatus,
     pub mcp_manager: Option<Arc<McpConnectionManager>>,
     pub lsp_manager: Option<Arc<LspManager>>,
+    #[cfg(test)]
     pub prompt_source_registry: Option<Arc<PromptSourceRegistry>>,
+    #[cfg(test)]
     pub skill_source_registry: Option<Arc<SkillSourceRegistry>>,
+    #[cfg(test)]
     pub hook_registry: Option<Arc<HookRegistry>>,
     pub hook_runtime: Option<Arc<crate::hook_runtime::HookRuntime>>,
     pub explicit_plugin_dirs: Vec<PathBuf>,
