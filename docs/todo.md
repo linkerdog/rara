@@ -46,9 +46,12 @@ Active backlog only. Keep this file small and current.
 - [x] Move compact, rebuild, and model-list execution behind
       `RuntimeClientPort` while preserving the existing in-process task
       lifecycle.
-- [ ] Remove the remaining `Agent`/registry ownership from `TuiController` by
-      moving task construction and runtime replacement into the command
-      processor.
+- [x] Remove `RuntimeClient`/`Agent` ownership from `TuiController` by moving
+      task construction, completion, and runtime replacement access into the
+      runtime command processor.
+- [ ] Remove mutable extension-registry projections from `TuiApp`; registry
+      discovery and reload must remain runtime-owned while TUI receives typed
+      snapshots.
 - [ ] Construct `TuiController` directly from an injected port and add
       virtual-time controls to the shared harness.
 

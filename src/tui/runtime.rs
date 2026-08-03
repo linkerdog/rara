@@ -2,7 +2,9 @@ mod commands;
 pub(crate) use commands::apply_permission_mode;
 mod events;
 pub(super) use events::apply_tui_event;
+mod processor;
 pub(super) mod tasks;
+pub(super) use processor::RuntimeCommandProcessor;
 
 pub(super) fn emit_query_heartbeat(app: &mut TuiApp) -> bool {
     tasks::emit_query_heartbeat(app)

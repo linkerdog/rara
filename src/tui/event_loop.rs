@@ -9,7 +9,8 @@ use tokio::time::{Duration, MissedTickBehavior, interval};
 use super::controller::{RuntimeActivity, TuiController};
 use super::event_stream::{UiEvent, translate_event};
 use super::render::{desired_viewport_height, render};
-use super::runtime_port::{RuntimeCommand, RuntimeMaintenanceCommand};
+use super::runtime::RuntimeCommandProcessor;
+use super::runtime_port::{InProcessRuntimeClientPort, RuntimeCommand, RuntimeMaintenanceCommand};
 use super::session_restore::{restore_latest_thread, restore_thread_by_id};
 use super::state::ListPickerKind;
 use super::state::Overlay;
@@ -61,11 +62,17 @@ pub async fn run_tui(
     app.terminal_width = initial_size.0;
     let viewport_height = desired_viewport_height(&app, initial_size.0, initial_size.1);
     let mut terminal = build_terminal(viewport_height)?;
-    let mut maintainer = TuiController::new(app, runtime);
+    let mut processor = RuntimeCommandProcessor::new(runtime);
+    let (runtime_port, runtime_commands) = InProcessRuntimeClientPort::new(
+        processor.event_bus(),
+        Arc::new(std::sync::RwLock::new(app.snapshot.clone())),
+    );
+    let mut maintainer = TuiController::new(app, runtime_port, runtime_commands);
     match StateDb::new() {
         Ok(state_db) => {
             let state_db = Arc::new(state_db);
-            let (app, agent_slot) = maintainer.split_mut();
+            let app = maintainer.app_mut();
+            let agent_slot = processor.agent_mut();
             app.attach_state_db(state_db);
             match &startup_resume {
                 StartupResumeTarget::Fresh => {
@@ -92,7 +99,7 @@ pub async fn run_tui(
     let mut tick = interval(Duration::from_millis(166));
     tick.set_missed_tick_behavior(MissedTickBehavior::Delay);
 
-    maintainer.sync_snapshot().await?;
+    maintainer.sync_snapshot(&processor).await?;
     maintainer.start_repo_context_detection();
     if should_start_initial_rebuild(
         initialize_local_embeddings,
@@ -159,11 +166,11 @@ pub async fn run_tui(
                     }
                     RuntimeActivity::Event(None) => {}
                     RuntimeActivity::Completed(completion) => {
-                        maintainer.complete_runtime_task(completion).await?;
+                        maintainer.complete_runtime_task(&mut processor, completion).await?;
                         needs_redraw = true;
                     }
                     RuntimeActivity::Command(Some(command)) => {
-                        maintainer.apply_runtime_command(command).await?;
+                        maintainer.apply_runtime_command(&mut processor, command).await?;
                         needs_redraw = true;
                     }
                     RuntimeActivity::Command(None) => {}
@@ -173,7 +180,10 @@ pub async fn run_tui(
                 match maybe_event {
                     Some(Ok(event)) => match translate_event(event, maintainer.app_mut()) {
                         Some(UiEvent::App(event)) => {
-                            if maintainer.dispatch_event(event, &oauth_manager).await? {
+                            if maintainer
+                                .dispatch_event(&mut processor, event, &oauth_manager)
+                                .await?
+                            {
                                 if let Some(task) = maintainer.app_mut().bottom_pane.running_task.take() {
                                     task.handle.abort();
                                 }
@@ -201,10 +211,7 @@ pub async fn run_tui(
                             needs_redraw = true;
                         }
                         Some(UiEvent::FocusChanged(_focused)) => {
-                            let (app, agent_slot) = maintainer.split_mut();
-                            if let Some(agent_ref) = agent_slot.as_ref() {
-                                app.sync_snapshot(agent_ref);
-                            }
+                            maintainer.sync_snapshot(&processor).await?;
                             maintainer.publish_snapshot_projection();
                             needs_redraw = true;
                         }
@@ -230,14 +237,10 @@ pub async fn run_tui(
         let _ = crate::auto_memory::drain_auto_memory_for_shutdown().await;
     }
     result?;
-    let session_id = maintainer
-        .agent()
-        .map(|a| a.session_id.clone())
-        .filter(|id| !id.is_empty())
-        .or_else(|| {
-            (!maintainer.app().snapshot.session_id.is_empty())
-                .then(|| maintainer.app().snapshot.session_id.clone())
-        });
+    let session_id = processor.session_id().or_else(|| {
+        (!maintainer.app().snapshot.session_id.is_empty())
+            .then(|| maintainer.app().snapshot.session_id.clone())
+    });
     Ok(session_id)
 }
 
