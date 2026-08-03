@@ -28,7 +28,8 @@ mod render;
 pub(super) mod runtime;
 mod runtime_port;
 pub(crate) use self::runtime_port::{
-    RuntimeClientPort, RuntimeCommand, RuntimeEventStream, RuntimeProjectionEvent,
+    RuntimeClientPort, RuntimeCommand, RuntimeEventStream, RuntimeMaintenanceCommand,
+    RuntimeProjectionEvent,
 };
 mod selection;
 mod session_restore;

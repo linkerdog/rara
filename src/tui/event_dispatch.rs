@@ -12,11 +12,8 @@ use super::provider_flow::{
     sync_codex_credential_from_auth_store,
 };
 use super::runtime::apply_permission_mode;
-use super::runtime::{
-    start_deepseek_model_list_task, start_kimi_model_list_task, start_oauth_task,
-    start_rebuild_task,
-};
-use super::runtime_port::{RuntimeClientPort, RuntimeCommand};
+use super::runtime::start_oauth_task;
+use super::runtime_port::{RuntimeClientPort, RuntimeCommand, RuntimeMaintenanceCommand};
 use super::session_restore::restore_thread_by_id;
 use super::state::{
     ActivePendingInteractionKind, ListPickerKind, OpenAiModelPickerAction, Overlay, PermissionMode,
@@ -397,15 +394,26 @@ async fn dispatch_event_inner(
                     app.bottom_pane.notice =
                         Some("Saved Codex API key. Rebuilding backend.".into());
                     app.dismiss_overlay();
-                    start_rebuild_task(app);
+                    request_maintenance(app, runtime_port, RuntimeMaintenanceCommand::Rebuild)
+                        .await?;
                 } else if was_deepseek {
                     app.bottom_pane.notice = Some("Saved DeepSeek API key. Loading models.".into());
                     app.dismiss_overlay();
-                    start_deepseek_model_list_task(app);
+                    request_maintenance(
+                        app,
+                        runtime_port,
+                        RuntimeMaintenanceCommand::LoadDeepSeekModels,
+                    )
+                    .await?;
                 } else if was_kimi {
                     app.bottom_pane.notice = Some("Saved Kimi API key. Loading models.".into());
                     app.dismiss_overlay();
-                    start_kimi_model_list_task(app);
+                    request_maintenance(
+                        app,
+                        runtime_port,
+                        RuntimeMaintenanceCommand::LoadKimiModels,
+                    )
+                    .await?;
                 } else {
                     app.bottom_pane.notice = Some("Saved API key for the current provider.".into());
                     if app.openai_setup_steps.is_empty() {
@@ -480,11 +488,21 @@ async fn dispatch_event_inner(
             if app.is_busy() {
                 app.push_notice("Wait for the current task before deleting a profile.");
             } else if app.selected_provider_family() == ProviderFamily::OpenAiCompatible {
-                apply_openai_model_picker_action(app, OpenAiModelPickerAction::DeleteProfile)?;
+                apply_openai_model_picker_action(
+                    app,
+                    OpenAiModelPickerAction::DeleteProfile,
+                    runtime_port,
+                )
+                .await?;
             }
         }
         AppEvent::RefreshDeepSeekModels => {
-            start_deepseek_model_list_task(app);
+            request_maintenance(
+                app,
+                runtime_port,
+                RuntimeMaintenanceCommand::LoadDeepSeekModels,
+            )
+            .await?;
         }
         AppEvent::SelectHelpTab(tab) => {
             app.open_overlay(Overlay::Help(tab));
@@ -606,7 +624,12 @@ async fn dispatch_event_inner(
                                 app.select_local_model(app.model_picker_idx);
                                 if app.selected_codex_reasoning_options().len() <= 1 {
                                     app.apply_selected_codex_reasoning_effort();
-                                    start_rebuild_task(app);
+                                    request_maintenance(
+                                        app,
+                                        runtime_port,
+                                        RuntimeMaintenanceCommand::Rebuild,
+                                    )
+                                    .await?;
                                 } else {
                                     app.open_overlay(Overlay::ListPicker(
                                         ListPickerKind::ReasoningEffort,
@@ -616,7 +639,8 @@ async fn dispatch_event_inner(
                                 == ProviderFamily::OpenAiCompatible
                             {
                                 if let Some(action) = app.selected_openai_model_picker_action() {
-                                    apply_openai_model_picker_action(app, action)?;
+                                    apply_openai_model_picker_action(app, action, runtime_port)
+                                        .await?;
                                 }
                             } else if app.selected_provider_family() == ProviderFamily::DeepSeek {
                                 if app.selected_deepseek_api_key_action() {
@@ -624,7 +648,12 @@ async fn dispatch_event_inner(
                                 } else if app.config.has_api_key() {
                                     app.select_local_model(app.model_picker_idx);
                                     app.config.reasoning_effort = Some("max".to_string());
-                                    start_rebuild_task(app);
+                                    request_maintenance(
+                                        app,
+                                        runtime_port,
+                                        RuntimeMaintenanceCommand::Rebuild,
+                                    )
+                                    .await?;
                                 } else {
                                     app.open_overlay(Overlay::ApiKeyEditor);
                                 }
@@ -633,13 +662,23 @@ async fn dispatch_event_inner(
                                     app.open_overlay(Overlay::ApiKeyEditor);
                                 } else if app.config.has_api_key() {
                                     app.select_local_model(app.model_picker_idx);
-                                    start_rebuild_task(app);
+                                    request_maintenance(
+                                        app,
+                                        runtime_port,
+                                        RuntimeMaintenanceCommand::Rebuild,
+                                    )
+                                    .await?;
                                 } else {
                                     app.open_overlay(Overlay::ApiKeyEditor);
                                 }
                             } else {
                                 app.select_local_model(app.model_picker_idx);
-                                start_rebuild_task(app);
+                                request_maintenance(
+                                    app,
+                                    runtime_port,
+                                    RuntimeMaintenanceCommand::Rebuild,
+                                )
+                                .await?;
                             }
                         }
                         ListPickerKind::UnifiedModel => {
@@ -664,7 +703,12 @@ async fn dispatch_event_inner(
                                     } else {
                                         if app.selected_codex_reasoning_options().len() <= 1 {
                                             app.apply_selected_codex_reasoning_effort();
-                                            start_rebuild_task(app);
+                                            request_maintenance(
+                                                app,
+                                                runtime_port,
+                                                RuntimeMaintenanceCommand::Rebuild,
+                                            )
+                                            .await?;
                                         } else {
                                             app.open_overlay(Overlay::ListPicker(
                                                 ListPickerKind::ReasoningEffort,
@@ -692,7 +736,12 @@ async fn dispatch_event_inner(
                                     if preset.family == ProviderFamily::DeepSeek {
                                         app.config.reasoning_effort = Some("max".to_string());
                                     }
-                                    start_rebuild_task(app);
+                                    request_maintenance(
+                                        app,
+                                        runtime_port,
+                                        RuntimeMaintenanceCommand::Rebuild,
+                                    )
+                                    .await?;
                                 }
                             }
                         }
@@ -729,7 +778,12 @@ async fn dispatch_event_inner(
                                     .into(),
                                 );
                                 if app.config.provider == "codex" {
-                                    start_rebuild_task(app);
+                                    request_maintenance(
+                                        app,
+                                        runtime_port,
+                                        RuntimeMaintenanceCommand::Rebuild,
+                                    )
+                                    .await?;
                                 }
                             }
                             _ => {}
@@ -737,7 +791,12 @@ async fn dispatch_event_inner(
                         ListPickerKind::ReasoningEffort => {
                             app.select_local_model(app.model_picker_idx);
                             app.apply_selected_codex_reasoning_effort();
-                            start_rebuild_task(app);
+                            request_maintenance(
+                                app,
+                                runtime_port,
+                                RuntimeMaintenanceCommand::Rebuild,
+                            )
+                            .await?;
                         }
                         ListPickerKind::NowledgeMem => {
                             let mode_label = {
@@ -773,7 +832,12 @@ async fn dispatch_event_inner(
                                 mode_label
                             ));
                             app.dismiss_overlay();
-                            start_rebuild_task(app);
+                            request_maintenance(
+                                app,
+                                runtime_port,
+                                RuntimeMaintenanceCommand::Rebuild,
+                            )
+                            .await?;
                         }
                         ListPickerKind::Resume => {
                             if let Some(thread_id) = list_picker::selected_resumable_thread_id(app)
@@ -838,6 +902,32 @@ async fn dispatch_event_inner(
         },
     }
     Ok(false)
+}
+
+async fn request_maintenance(
+    app: &mut TuiApp,
+    runtime_port: Option<&dyn RuntimeClientPort>,
+    command: RuntimeMaintenanceCommand,
+) -> anyhow::Result<()> {
+    if let Some(runtime_port) = runtime_port {
+        runtime_port
+            .send(RuntimeCommand::Maintenance(command))
+            .await?;
+    } else {
+        match command {
+            RuntimeMaintenanceCommand::Rebuild => super::runtime::start_rebuild_task(app),
+            RuntimeMaintenanceCommand::LoadDeepSeekModels => {
+                super::runtime::start_deepseek_model_list_task(app)
+            }
+            RuntimeMaintenanceCommand::LoadKimiModels => {
+                super::runtime::start_kimi_model_list_task(app)
+            }
+            RuntimeMaintenanceCommand::Compact => {
+                app.push_notice("Compaction requires an active runtime client.")
+            }
+        }
+    }
+    Ok(())
 }
 
 async fn resume_pending_shell_approval_after_full_access(

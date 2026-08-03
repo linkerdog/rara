@@ -30,6 +30,15 @@ pub(crate) enum RuntimeCommand {
     Session(SessionControlRequest),
     Input(InputControlRequest),
     Approval(ApprovalControlRequest),
+    Maintenance(RuntimeMaintenanceCommand),
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) enum RuntimeMaintenanceCommand {
+    Compact,
+    Rebuild,
+    LoadDeepSeekModels,
+    LoadKimiModels,
 }
 
 // Contract items are intentionally ahead of their adapters; the next

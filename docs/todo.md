@@ -43,9 +43,12 @@ Active backlog only. Keep this file small and current.
       in-process `RuntimeClientPort` command mux.
 - [x] Route plan, shell, and pending-input approval commands through the
       in-process `RuntimeClientPort` command mux.
-- [ ] Move compact, rebuild, and model-list execution behind
-      `RuntimeClientPort`, then remove the remaining `Agent`/registry ownership
-      from `TuiController`.
+- [x] Move compact, rebuild, and model-list execution behind
+      `RuntimeClientPort` while preserving the existing in-process task
+      lifecycle.
+- [ ] Remove the remaining `Agent`/registry ownership from `TuiController` by
+      moving task construction and runtime replacement into the command
+      processor.
 - [ ] Construct `TuiController` directly from an injected port and add
       virtual-time controls to the shared harness.
 

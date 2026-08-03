@@ -15,7 +15,7 @@ use super::event_dispatch::dispatch_event_with_runtime;
 use super::input_control;
 use super::runtime_port::{
     InProcessRuntimeClientPort, RuntimeClientPort, RuntimeCommand, RuntimeEventStream,
-    RuntimeProjectionEvent,
+    RuntimeMaintenanceCommand, RuntimeProjectionEvent,
 };
 use super::state::{TaskCompletion, TuiApp};
 use crate::agent::Agent;
@@ -75,6 +75,10 @@ impl TuiController {
             .await
     }
 
+    pub(super) async fn send_runtime_command(&self, command: RuntimeCommand) -> anyhow::Result<()> {
+        self.runtime_port.send(command).await
+    }
+
     pub(super) async fn apply_runtime_command(
         &mut self,
         command: RuntimeCommand,
@@ -122,6 +126,23 @@ impl TuiController {
                     &mut self.app,
                     SessionControlRequest::CancelCurrentTurn,
                 );
+            }
+            RuntimeCommand::Maintenance(RuntimeMaintenanceCommand::Compact) => {
+                if let Some(agent) = self.runtime.agent_mut().take() {
+                    super::runtime::start_compact_task(&mut self.app, agent);
+                } else {
+                    self.app
+                        .push_notice("No active agent available for compaction.");
+                }
+            }
+            RuntimeCommand::Maintenance(RuntimeMaintenanceCommand::Rebuild) => {
+                super::runtime::start_rebuild_task(&mut self.app);
+            }
+            RuntimeCommand::Maintenance(RuntimeMaintenanceCommand::LoadDeepSeekModels) => {
+                super::runtime::start_deepseek_model_list_task(&mut self.app);
+            }
+            RuntimeCommand::Maintenance(RuntimeMaintenanceCommand::LoadKimiModels) => {
+                super::runtime::start_kimi_model_list_task(&mut self.app);
             }
             command => self.app.push_notice(format!(
                 "Runtime command is not handled by the in-process TUI: {command:?}"

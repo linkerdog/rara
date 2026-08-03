@@ -9,6 +9,7 @@ use tokio::time::{Duration, MissedTickBehavior, interval};
 use super::controller::{RuntimeActivity, TuiController};
 use super::event_stream::{UiEvent, translate_event};
 use super::render::{desired_viewport_height, render};
+use super::runtime_port::{RuntimeCommand, RuntimeMaintenanceCommand};
 use super::session_restore::{restore_latest_thread, restore_thread_by_id};
 use super::state::ListPickerKind;
 use super::state::Overlay;
@@ -97,13 +98,20 @@ pub async fn run_tui(
         initialize_local_embeddings,
         &maintainer.app().explicit_plugin_dirs,
     ) {
-        let (app, _) = maintainer.split_mut();
         if initialize_local_embeddings {
-            app.push_entry("Runtime", "Initializing local embedding model.");
+            maintainer
+                .app_mut()
+                .push_entry("Runtime", "Initializing local embedding model.");
         } else {
-            app.push_entry("Runtime", "Loading explicit plugin directories.");
+            maintainer
+                .app_mut()
+                .push_entry("Runtime", "Loading explicit plugin directories.");
         }
-        super::runtime::start_rebuild_task(app);
+        maintainer
+            .send_runtime_command(RuntimeCommand::Maintenance(
+                RuntimeMaintenanceCommand::Rebuild,
+            ))
+            .await?;
     }
 
     let result: anyhow::Result<()> = loop {
