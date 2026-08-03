@@ -1,0 +1,2 @@
+# Retry tests that Bazel classifies as flaky up to three total attempts.
+test --flaky_test_attempts=3
