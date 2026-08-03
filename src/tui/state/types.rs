@@ -423,9 +423,6 @@ pub enum TuiEvent {
         stream: ToolOutputStream,
         chunk: String,
     },
-    /// Legacy test adapter for the removed AgentEvent compatibility path.
-    #[cfg(test)]
-    UpdateTodo(crate::context::TodoContextView),
 }
 
 pub struct RunningTask {

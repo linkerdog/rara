@@ -53,6 +53,32 @@ pub(crate) enum RuntimeProjectionEvent {
     Reconnected,
 }
 
+pub(crate) fn accept_runtime_event(
+    last_event: &mut Option<(Option<String>, u64, String)>,
+    event: &RuntimeControlEvent,
+) -> bool {
+    let duplicate = if event.sequence == 0 {
+        last_event
+            .as_ref()
+            .is_some_and(|(_, _, event_id)| event_id == &event.event_id)
+    } else {
+        last_event
+            .as_ref()
+            .is_some_and(|(session_id, sequence, _)| {
+                session_id == &event.provenance.session_id && event.sequence <= *sequence
+            })
+    };
+    if duplicate {
+        return false;
+    }
+    *last_event = Some((
+        event.provenance.session_id.clone(),
+        event.sequence,
+        event.event_id.clone(),
+    ));
+    true
+}
+
 /// Runtime capabilities required by the TUI controller.
 ///
 /// Implementations own execution state and transport details. They must not
@@ -61,9 +87,10 @@ pub(crate) enum RuntimeProjectionEvent {
 // in-process and scripted implementations will consume them.
 #[allow(dead_code)]
 #[async_trait]
-pub(crate) trait RuntimeClientPort: Send {
+pub(crate) trait RuntimeClientPort: Send + Sync {
     async fn snapshot(&self) -> anyhow::Result<RuntimeSnapshot>;
     async fn send(&self, command: RuntimeCommand) -> anyhow::Result<()>;
+    fn publish_snapshot(&self, snapshot: RuntimeSnapshot);
     fn subscribe(&self) -> RuntimeEventStream;
 }
 
@@ -93,10 +120,6 @@ impl InProcessRuntimeClientPort {
             command_receiver,
         )
     }
-
-    pub(crate) fn snapshot_store(&self) -> Arc<RwLock<RuntimeSnapshot>> {
-        self.snapshot.clone()
-    }
 }
 
 #[async_trait]
@@ -112,6 +135,12 @@ impl RuntimeClientPort for InProcessRuntimeClientPort {
         self.command_sender
             .send(command)
             .map_err(|_| anyhow::anyhow!("in-process runtime command channel is closed"))
+    }
+
+    fn publish_snapshot(&self, snapshot: RuntimeSnapshot) {
+        if let Ok(mut current) = self.snapshot.write() {
+            *current = snapshot;
+        }
     }
 
     fn subscribe(&self) -> RuntimeEventStream {
@@ -170,6 +199,8 @@ mod tests {
                 .push(command);
             Ok(())
         }
+
+        fn publish_snapshot(&self, _snapshot: RuntimeSnapshot) {}
 
         fn subscribe(&self) -> RuntimeEventStream {
             Box::pin(stream::empty())

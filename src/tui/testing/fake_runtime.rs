@@ -73,6 +73,10 @@ impl RuntimeClientPort for FakeRuntimeClient {
         Ok(())
     }
 
+    fn publish_snapshot(&self, snapshot: RuntimeSnapshot) {
+        self.set_snapshot(snapshot);
+    }
+
     fn subscribe(&self) -> RuntimeEventStream {
         let receiver = self.events.subscribe();
         Box::pin(futures::stream::unfold(

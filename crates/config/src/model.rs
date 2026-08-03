@@ -343,6 +343,15 @@ impl NowledgeMemPluginConfig {
         }
     }
 
+    pub fn api_url(&self) -> String {
+        let mcp_url = self.mcp_url();
+        mcp_url
+            .trim_end_matches('/')
+            .strip_suffix("/mcp")
+            .unwrap_or_else(|| mcp_url.trim_end_matches('/'))
+            .to_string()
+    }
+
     pub fn env_http_headers(&self) -> Option<BTreeMap<String, String>> {
         if self.mode != NowledgeMemMode::Cloud {
             return None;
@@ -359,6 +368,12 @@ impl NowledgeMemPluginConfig {
 
     pub fn api_key(&self) -> Option<&str> {
         self.api_key.as_ref().map(SecretString::expose_secret)
+    }
+
+    pub fn configured_space_id(&self) -> Option<String> {
+        self.space_id_env_var
+            .as_deref()
+            .and_then(|name| std::env::var(name).ok())
     }
 
     pub fn set_api_key(&mut self, value: impl Into<String>) {
@@ -1554,6 +1569,7 @@ mod tests {
         };
 
         assert_eq!(mem.mcp_url(), "https://cloud.nowledge.co/remote-api/mcp/");
+        assert_eq!(mem.api_url(), "https://cloud.nowledge.co/remote-api");
     }
 
     #[test]

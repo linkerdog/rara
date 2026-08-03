@@ -133,6 +133,10 @@ impl SubagentBackendResolver for ConfigSubagentBackendResolver {
 }
 
 impl RuntimeBootstrap {
+    pub(crate) fn nowledge_mem_config(&self) -> rara_config::NowledgeMemPluginConfig {
+        self.builtin_plugins.nowledge_mem.clone()
+    }
+
     pub(crate) async fn into_agent(self) -> Agent {
         let (agent, _, _, _, _, _, _, _, _, _, _) = self.into_parts_with_runtime_extensions().await;
         agent

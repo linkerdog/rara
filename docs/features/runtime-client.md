@@ -22,10 +22,10 @@ The intended surface is:
 ## Current Migration Slice
 
 The first slice establishes session ownership and removes the wide bootstrap
-argument list from `run_tui`. `TuiController` owns the client while `TuiApp`
-continues to hold compatibility projections used by the existing command and
-renderer modules. Those projections are not authoritative runtime state and
-must be removed as command handling moves behind the client boundary.
+argument list from `run_tui`. `TuiController` receives only an injected
+`RuntimeClientPort`, while `TuiApp` retains presentation projections used by
+the command and renderer modules. Those projections are not authoritative
+runtime state.
 
 Runtime task events and task completion are now awaited by one event-mux branch
 in the TUI event loop. A runtime event wakes the loop immediately, and a closed
@@ -46,7 +46,8 @@ and transport lifecycle notifications without exposing `Agent`, registries, or
 task join handles. The current in-process controller still uses the
 compatibility task bridge behind this boundary; an app-server client and test
 fake can be introduced without making those runtime objects part of the TUI
-contract.
+contract. Runtime events are deduplicated by session and sequence before they
+can mark the screen dirty.
 
 The lifecycle slice is now runtime-owned as well. Goal token accounting,
 completion evaluation, continuation prompt construction, plan continuation
@@ -79,9 +80,10 @@ an in-memory Ratatui backend adapter, so lifecycle tests do not create a second
 rendering path. Script actions are awaited directly; tests must not use sleeps
 to establish ordering.
 
-The current harness is intentionally a deterministic projection/lifecycle
-fixture. Virtual time, production `TuiController` construction from a port,
-and full command routing remain follow-up slices.
+The harness is a deterministic projection/lifecycle fixture. Script actions are
+awaited directly, so lifecycle ordering does not depend on wall-clock sleeps.
+Production `TuiController` construction from an injected port is covered by
+the same narrow contract.
 
 The in-process TUI now has a `RuntimeClientPort` adapter backed by the
 session's structured `RuntimeEventBus`. `TuiController` consumes that stream
@@ -115,7 +117,7 @@ owns task construction, completion, and runtime replacement access.
 5. Snapshot hydration and live events must have an explicit ordering contract;
    a late snapshot must not overwrite newer live state.
 
-## Follow-up
+## Completed Migration Notes
 
 - Remove mutable extension-registry projections from `TuiApp`; all registry
   discovery and reload should remain runtime-owned while TUI consumes typed

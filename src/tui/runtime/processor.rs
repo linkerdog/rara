@@ -1,11 +1,12 @@
-use std::sync::{Arc, RwLock};
+use std::sync::Arc;
 
 use super::super::app_event::AppEvent;
 use super::super::event_dispatch::dispatch_event_with_runtime;
 use super::super::input_control;
 use super::super::runtime_port::{RuntimeClientPort, RuntimeCommand, RuntimeMaintenanceCommand};
-use super::super::state::{RuntimeSnapshot, TaskCompletion, TuiApp};
+use super::super::state::{TaskCompletion, TuiApp};
 use crate::agent::Agent;
+use crate::memory_lifecycle::MemorySyncReason;
 use crate::oauth::OAuthManager;
 use crate::runtime_client::RuntimeClient;
 use crate::runtime_client::RuntimeTaskServices;
@@ -117,6 +118,11 @@ impl RuntimeCommandProcessor {
                 );
             }
             RuntimeCommand::Maintenance(RuntimeMaintenanceCommand::Compact) => {
+                if let Some(agent) = self.runtime.agent() {
+                    self.runtime
+                        .capture_memory(agent, MemorySyncReason::Compaction)
+                        .await;
+                }
                 if let Some(agent) = self.agent_mut().take() {
                     super::start_compact_task(app, agent);
                 } else {
@@ -154,19 +160,23 @@ impl RuntimeCommandProcessor {
         )
         .await?;
         self.runtime.update_task_services(&services);
+        if let Some(agent) = self.runtime.agent() {
+            crate::auto_memory::maybe_auto_memory(app, agent);
+            self.runtime
+                .capture_memory(agent, MemorySyncReason::TurnIdle)
+                .await;
+        }
         Ok(())
     }
 
-    pub(crate) fn sync_snapshot(
-        &self,
-        app: &mut TuiApp,
-        snapshot_store: &Arc<RwLock<RuntimeSnapshot>>,
-    ) {
+    pub(crate) async fn drain_memory(&self) {
+        self.runtime.drain_memory().await;
+        let _ = crate::auto_memory::drain_auto_memory_for_shutdown().await;
+    }
+
+    pub(crate) fn sync_snapshot(&self, app: &mut TuiApp) {
         if let Some(agent) = self.agent() {
             app.apply_runtime_snapshot(agent, self.runtime.extension_snapshot());
-            if let Ok(mut snapshot) = snapshot_store.write() {
-                *snapshot = app.snapshot.clone();
-            }
         }
     }
 }

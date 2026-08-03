@@ -113,6 +113,13 @@ when the user asks about prior cross-tool context or exact history.
 Prefer the Nowledge Mem MCP server when it is reachable. Use the plugin skills
 as routing guidance and CLI fallback procedures when MCP tools are not exposed
 in the current session.
+
+At session start, load the Context Bundle when identity, workspace scope, rules,
+or prior decisions may affect the task. Use Working Memory for the current
+briefing and search exact memories or threads when needed. After compaction,
+refresh the Context Bundle or Working Memory before continuing so important
+constraints are not lost. Memory is a context aid: continue the task with a
+warning if the service is unavailable.
 "#;
 
 const NOWLEDGE_MEM_AGENT_DEFINITION: &str = r#"---
