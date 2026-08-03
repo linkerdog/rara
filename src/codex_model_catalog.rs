@@ -2,7 +2,7 @@ use std::path::Path;
 
 use anyhow::Result;
 use codex_http_client::{HttpClientFactory, OutboundProxyPolicy};
-use codex_login::{AuthCredentialsStoreMode, AuthKeyringBackendKind, AuthManager};
+use codex_login::{AuthCredentialsStoreMode, AuthKeyringBackendKind, AuthManager, AuthRouteConfig};
 use codex_models_manager::bundled_models_response;
 use codex_models_manager::manager::{ModelsManager, RefreshStrategy, StaticModelsManager};
 
@@ -39,7 +39,9 @@ pub async fn load_codex_model_catalog(
         None,
         None,
         AuthKeyringBackendKind::default(),
-        None,
+        AuthRouteConfig::from_http_client_factory(HttpClientFactory::new(
+            OutboundProxyPolicy::ReqwestDefault,
+        )),
     )
     .await;
     let manager = StaticModelsManager::new(Some(auth_manager), bundled_models_response()?);

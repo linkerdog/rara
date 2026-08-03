@@ -41,10 +41,10 @@ tempfile = "3.17"
 ignore = "0.4.26"
 nucleo = { git = "https://github.com/helix-editor/nucleo.git", rev = "4253de9faabb4e5c6d81d946a5e35a90f87347ee" }
 rmcp = { version = "3.0", features = ["client", "transport-child-process"] }
-codex-execpolicy = { git = "https://github.com/openai/codex", tag = "rust-v0.145.0" }
-codex-http-client = { git = "https://github.com/openai/codex", tag = "rust-v0.145.0" }
-codex-login = { git = "https://github.com/openai/codex", tag = "rust-v0.145.0" }
-codex-models-manager = { git = "https://github.com/openai/codex", tag = "rust-v0.145.0" }
+codex-execpolicy = { git = "https://github.com/openai/codex", tag = "rust-v0.146.0" }
+codex-http-client = { git = "https://github.com/openai/codex", tag = "rust-v0.146.0" }
+codex-login = { git = "https://github.com/openai/codex", tag = "rust-v0.146.0" }
+codex-models-manager = { git = "https://github.com/openai/codex", tag = "rust-v0.146.0" }
 rara-instructions = { path = "crates/instructions" }
 
 [package]
