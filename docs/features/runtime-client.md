@@ -84,9 +84,11 @@ The in-process adapter now owns a typed command channel. User prompts and
 session cancellation enter the same event-loop mux as runtime projections and
 task completion, so production TUI input no longer invokes those operations
 directly from the terminal event branch. Plan, shell, and pending-input
-approval responses use the same path. The command processor still delegates
-execution to the existing in-process task bridge while the remaining command
-families are migrated.
+approval responses use the same path. Compact, rebuild, and model-catalog
+commands use the same path as well. The command processor still delegates
+execution to the existing in-process task bridge. `TuiController` no longer
+owns `RuntimeClient` or an `Agent`; an independent runtime command processor
+owns task construction, completion, and runtime replacement access.
 
 ## Ownership Rules
 
@@ -106,9 +108,9 @@ families are migrated.
 ## Follow-up
 
 - Replace compatibility projections in `TuiApp` with a typed runtime snapshot.
-- Move compact, rebuild, and model-list actions to typed `RuntimeCommand`
-  submission; prompt, cancellation, and approval commands now use that path
-  but still execute through the compatibility task bridge.
+- Remove mutable extension-registry projections from `TuiApp`; all registry
+  discovery and reload should remain runtime-owned while TUI consumes typed
+  snapshots.
 - Publish a TUI-facing typed projection event instead of converting
   `AgentEvent` into role/message strings and parsing those strings again.
 - Move goal continuation, plan completion, agent replacement, and queued

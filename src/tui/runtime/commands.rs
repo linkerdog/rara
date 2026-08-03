@@ -12,12 +12,23 @@ use crate::mcp_status::{McpStatusSnapshot, format_mcp_status};
 use crate::mcp_tool_cache::McpToolCache;
 use crate::oauth::OAuthManager;
 use crate::runtime_control::RuntimeProvenance;
+use crate::tui::runtime_port::{RuntimeClientPort, RuntimeCommand, RuntimeMaintenanceCommand};
 
 pub(super) async fn execute_local_command(
     command: LocalCommand,
     app: &mut TuiApp,
     agent_slot: &mut Option<Agent>,
     oauth_manager: &Arc<OAuthManager>,
+) -> anyhow::Result<bool> {
+    execute_local_command_with_runtime(command, app, agent_slot, oauth_manager, None).await
+}
+
+pub(super) async fn execute_local_command_with_runtime(
+    command: LocalCommand,
+    app: &mut TuiApp,
+    agent_slot: &mut Option<Agent>,
+    oauth_manager: &Arc<OAuthManager>,
+    runtime_port: Option<&dyn RuntimeClientPort>,
 ) -> anyhow::Result<bool> {
     let command_kind = command.kind;
     app.remember_command(match command.kind {
@@ -93,11 +104,13 @@ pub(super) async fn execute_local_command(
             app.reset_transcript();
         }
         LocalCommandKind::Compact => {
-            if let Some(agent) = agent_slot.take() {
-                start_compact_task(app, agent);
-            } else {
-                app.push_notice("No active agent available for compaction.");
-            }
+            request_maintenance(
+                app,
+                agent_slot,
+                runtime_port,
+                RuntimeMaintenanceCommand::Compact,
+            )
+            .await?;
         }
         LocalCommandKind::Context => {
             app.set_runtime_phase(RuntimePhase::LocalCommand, Some("opening context".into()));
@@ -123,7 +136,13 @@ pub(super) async fn execute_local_command(
                     "No saved provider credential was present.".to_string()
                 });
                 if app.config.provider == "codex" {
-                    start_rebuild_task(app);
+                    request_maintenance(
+                        app,
+                        agent_slot,
+                        runtime_port,
+                        RuntimeMaintenanceCommand::Rebuild,
+                    )
+                    .await?;
                 }
             }
         }
@@ -339,6 +358,35 @@ pub(super) async fn execute_local_command(
         app.sync_snapshot(agent);
     }
     Ok(false)
+}
+
+async fn request_maintenance(
+    app: &mut TuiApp,
+    agent_slot: &mut Option<Agent>,
+    runtime_port: Option<&dyn RuntimeClientPort>,
+    command: RuntimeMaintenanceCommand,
+) -> anyhow::Result<()> {
+    if let Some(runtime_port) = runtime_port {
+        runtime_port
+            .send(RuntimeCommand::Maintenance(command))
+            .await?;
+    } else {
+        match command {
+            RuntimeMaintenanceCommand::Compact => {
+                if let Some(agent) = agent_slot.take() {
+                    start_compact_task(app, agent);
+                } else {
+                    app.push_notice("No active agent available for compaction.");
+                }
+            }
+            RuntimeMaintenanceCommand::Rebuild => start_rebuild_task(app),
+            RuntimeMaintenanceCommand::LoadDeepSeekModels
+            | RuntimeMaintenanceCommand::LoadKimiModels => {
+                app.push_notice("Model catalog loading requires a runtime client.")
+            }
+        }
+    }
+    Ok(())
 }
 
 fn handle_connect_command(app: &mut TuiApp) -> anyhow::Result<()> {

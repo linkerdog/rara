@@ -11,17 +11,13 @@
 use futures::StreamExt;
 
 use super::app_event::AppEvent;
-use super::event_dispatch::dispatch_event_with_runtime;
-use super::input_control;
+use super::runtime::RuntimeCommandProcessor;
 use super::runtime_port::{
     InProcessRuntimeClientPort, RuntimeClientPort, RuntimeCommand, RuntimeEventStream,
     RuntimeProjectionEvent,
 };
 use super::state::{TaskCompletion, TuiApp};
-use crate::agent::Agent;
 use crate::oauth::OAuthManager;
-use crate::runtime_client::RuntimeClient;
-use crate::runtime_control::{InputControlRequest, SessionControlRequest};
 
 pub(super) enum RuntimeActivity {
     Event(Option<RuntimeProjectionEvent>),
@@ -32,7 +28,6 @@ pub(super) enum RuntimeActivity {
 /// Owns TUI presentation state and applies runtime projections to it.
 pub(super) struct TuiController {
     app: TuiApp,
-    runtime: RuntimeClient,
     runtime_port: InProcessRuntimeClientPort,
     runtime_events: RuntimeEventStream,
     runtime_commands: tokio::sync::mpsc::UnboundedReceiver<RuntimeCommand>,
@@ -41,15 +36,14 @@ pub(super) struct TuiController {
 }
 
 impl TuiController {
-    pub(super) fn new(app: TuiApp, runtime: RuntimeClient) -> Self {
-        let (runtime_port, runtime_commands) = InProcessRuntimeClientPort::new(
-            runtime.event_bus.clone(),
-            std::sync::Arc::new(std::sync::RwLock::new(app.snapshot.clone())),
-        );
+    pub(super) fn new(
+        app: TuiApp,
+        runtime_port: InProcessRuntimeClientPort,
+        runtime_commands: tokio::sync::mpsc::UnboundedReceiver<RuntimeCommand>,
+    ) -> Self {
         let runtime_events = runtime_port.subscribe();
         Self {
             app,
-            runtime,
             runtime_port,
             runtime_events,
             runtime_commands,
@@ -67,93 +61,37 @@ impl TuiController {
 
     pub(super) async fn dispatch_event(
         &mut self,
+        processor: &mut RuntimeCommandProcessor,
         event: AppEvent,
         oauth_manager: &std::sync::Arc<OAuthManager>,
     ) -> anyhow::Result<bool> {
-        let (app, runtime, runtime_port) = (&mut self.app, &mut self.runtime, &self.runtime_port);
-        dispatch_event_with_runtime(event, app, runtime.agent_mut(), oauth_manager, runtime_port)
+        processor
+            .dispatch_event(&mut self.app, event, oauth_manager, &self.runtime_port)
             .await
+    }
+
+    pub(super) async fn send_runtime_command(&self, command: RuntimeCommand) -> anyhow::Result<()> {
+        self.runtime_port.send(command).await
     }
 
     pub(super) async fn apply_runtime_command(
         &mut self,
+        processor: &mut RuntimeCommandProcessor,
         command: RuntimeCommand,
     ) -> anyhow::Result<()> {
-        match command {
-            RuntimeCommand::Input(InputControlRequest::SubmitUserPrompt { prompt }) => {
-                input_control::submit_user_prompt(&mut self.app, self.runtime.agent_mut(), prompt);
-            }
-            RuntimeCommand::Input(InputControlRequest::SubmitFollowUp { prompt }) => {
-                input_control::submit_follow_up(&mut self.app, prompt, false);
-            }
-            RuntimeCommand::Input(InputControlRequest::AnswerPendingInput { answer }) => {
-                if let Some(agent) = self.runtime.agent_mut().take() {
-                    input_control::answer_pending_input(
-                        &mut self.app,
-                        self.runtime.agent_mut(),
-                        agent,
-                        answer,
-                    );
-                } else {
-                    self.app
-                        .push_notice("Request input is still preparing. Try again.");
-                }
-            }
-            RuntimeCommand::Input(InputControlRequest::AnswerPlanApproval {
-                decision,
-                feedback,
-            }) => {
-                input_control::answer_plan_approval_with_feedback(
-                    &mut self.app,
-                    self.runtime.agent_mut(),
-                    decision,
-                    feedback,
-                );
-            }
-            RuntimeCommand::Input(InputControlRequest::AnswerShellApproval { decision }) => {
-                input_control::answer_shell_approval(
-                    &mut self.app,
-                    self.runtime.agent_mut(),
-                    decision,
-                );
-            }
-            RuntimeCommand::Session(SessionControlRequest::CancelCurrentTurn) => {
-                input_control::handle_session_control(
-                    &mut self.app,
-                    SessionControlRequest::CancelCurrentTurn,
-                );
-            }
-            command => self.app.push_notice(format!(
-                "Runtime command is not handled by the in-process TUI: {command:?}"
-            )),
-        }
+        processor.apply_command(&mut self.app, command).await?;
         self.needs_redraw = true;
         Ok(())
-    }
-
-    pub(super) fn agent(&self) -> Option<&Agent> {
-        self.runtime.agent()
-    }
-
-    /// Split borrow so callers that need independent `&mut TuiApp` and
-    /// `&mut Option<Agent>` can still use them while the controller
-    /// owns both.
-    pub(super) fn split_mut(&mut self) -> (&mut TuiApp, &mut Option<Agent>) {
-        (&mut self.app, self.runtime.agent_mut())
     }
 
     /// Drain pending agent events from the running task, apply them, and
     /// finalize the task if it has completed.
     pub(super) async fn complete_runtime_task(
         &mut self,
+        processor: &mut RuntimeCommandProcessor,
         completion: Box<Result<TaskCompletion, tokio::task::JoinError>>,
     ) -> anyhow::Result<()> {
-        super::runtime::tasks::finish_running_task_if_ready_from_runtime_port(
-            &mut self.app,
-            self.runtime.agent_mut(),
-            Some(*completion),
-        )
-        .await?;
+        processor.complete(&mut self.app, completion).await?;
         self.needs_redraw = true;
         Ok(())
     }
@@ -207,13 +145,11 @@ impl TuiController {
     }
 
     /// Sync snapshot from the active agent (must be called at the top of the event loop).
-    pub(super) async fn sync_snapshot(&mut self) -> anyhow::Result<()> {
-        if let Some(agent_ref) = self.runtime.agent() {
-            self.app.sync_snapshot(agent_ref);
-            if let Ok(mut snapshot) = self.runtime_port.snapshot_store().write() {
-                *snapshot = self.app.snapshot.clone();
-            }
-        }
+    pub(super) async fn sync_snapshot(
+        &mut self,
+        processor: &RuntimeCommandProcessor,
+    ) -> anyhow::Result<()> {
+        processor.sync_snapshot(&mut self.app, &self.runtime_port.snapshot_store());
         self.app.snapshot = self.runtime_port.snapshot().await?;
         Ok(())
     }
