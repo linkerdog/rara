@@ -166,7 +166,7 @@ fn sync_bash_prefixes_from_config(app: &TuiApp, agent: &mut Agent) {
 fn legacy_task_services(app: &TuiApp) -> RuntimeTaskServices {
     #[cfg(test)]
     {
-        return RuntimeTaskServices {
+        RuntimeTaskServices {
             prompt_source_registry: app
                 .prompt_source_registry
                 .clone()
@@ -176,7 +176,7 @@ fn legacy_task_services(app: &TuiApp) -> RuntimeTaskServices {
                 .clone()
                 .expect("skill_registry must exist"),
             hook_registry: app.hook_registry.clone().expect("hook_registry must exist"),
-        };
+        }
     }
     #[cfg(not(test))]
     {
