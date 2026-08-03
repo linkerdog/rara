@@ -34,7 +34,8 @@ same runtime shutdown boundary.
 
 ## Context Refresh
 
-Built-in Nowledge Mem instructions request Context Bundle or Working Memory at
+When the builtin plugin is enabled, the runtime appends Nowledge Mem lifecycle
+guidance to the default prompt. It requests Context Bundle or Working Memory at
 session start when scope or prior decisions matter, and again after
 compaction. This keeps prompt context current without making the runtime
 dependent on the service.

@@ -14,8 +14,9 @@ only when a projection is accepted. Local auto-memory completion and shutdown
 hooks now run from the runtime command processor, preserving local storage
 while keeping lifecycle ownership out of TUI task completion.
 
-The built-in Nowledge Mem instructions request context refresh after
-compaction, with fail-open behavior when the service is unavailable.
+The built-in Nowledge Mem instructions are now appended to the default prompt
+when the plugin is enabled. They request context refresh after compaction,
+with fail-open behavior when the service is unavailable.
 
 ## Trade-offs
 

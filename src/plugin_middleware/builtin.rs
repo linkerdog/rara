@@ -13,6 +13,14 @@ pub(super) const NOWLEDGE_MEM_MCP_URL: &str = "http://127.0.0.1:14242/mcp/";
 pub(super) const NOWLEDGE_MEM_CLOUD_MCP_URL: &str = "https://cloud.nowledge.co/remote-api/mcp/";
 
 const NOWLEDGE_MEM_PLUGIN_VERSION: &str = "0.1.29-rara.1";
+pub(crate) const NOWLEDGE_MEM_PROMPT_INSTRUCTIONS: &str = r#"## Nowledge Mem Context
+
+When Nowledge Mem is available, load the Context Bundle at session start when
+identity, workspace scope, rules, or prior decisions may affect the task. Use
+Working Memory for the current briefing and search exact memories or threads
+when needed. After context compaction, refresh the Context Bundle or Working
+Memory before continuing so important constraints are not lost. Memory is a
+context aid: continue with a runtime warning if the service is unavailable."#;
 const NOWLEDGE_MEM_SKILL_ROOTS: &[(&str, &str)] = &[
     ("working-memory", NOWLEDGE_MEM_WORKING_MEMORY_SKILL),
     ("search-memory", NOWLEDGE_MEM_SEARCH_MEMORY_SKILL),
@@ -114,12 +122,8 @@ Prefer the Nowledge Mem MCP server when it is reachable. Use the plugin skills
 as routing guidance and CLI fallback procedures when MCP tools are not exposed
 in the current session.
 
-At session start, load the Context Bundle when identity, workspace scope, rules,
-or prior decisions may affect the task. Use Working Memory for the current
-briefing and search exact memories or threads when needed. After compaction,
-refresh the Context Bundle or Working Memory before continuing so important
-constraints are not lost. Memory is a context aid: continue the task with a
-warning if the service is unavailable.
+The same lifecycle guidance is included in RARA's default prompt when this
+builtin plugin is enabled.
 "#;
 
 const NOWLEDGE_MEM_AGENT_DEFINITION: &str = r#"---
