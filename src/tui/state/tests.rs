@@ -234,7 +234,7 @@ fn sync_snapshot_reports_effective_network_access_for_pending_approval() {
         },
     });
 
-    app.sync_snapshot(&agent);
+    app.apply_runtime_snapshot(&agent, RuntimeExtensionSnapshot::default());
 
     let approval = app
         .pending_command_approval()
@@ -273,7 +273,7 @@ async fn sync_snapshot_reports_registered_runtime_hooks() {
     );
     app.hook_runtime = Some(runtime);
 
-    app.sync_snapshot_with_extensions(
+    app.apply_runtime_snapshot(
         &agent,
         RuntimeExtensionSnapshot {
             hook_count: 1,
@@ -331,7 +331,10 @@ Reloaded prompt.
     )
     .expect("updated agent definition");
 
-    app.sync_snapshot(&agent);
+    app.apply_runtime_snapshot(
+        &agent,
+        crate::runtime_client::RuntimeClient::extension_snapshot_for_agent(&agent, 0),
+    );
 
     assert!(
         app.snapshot
@@ -387,7 +390,10 @@ fn sync_snapshot_counts_runtime_agent_definition_records() {
         },
     ]);
 
-    app.sync_snapshot(&agent);
+    app.apply_runtime_snapshot(
+        &agent,
+        crate::runtime_client::RuntimeClient::extension_snapshot_for_agent(&agent, 0),
+    );
 
     assert_eq!(app.snapshot.extension_agent_count, 2);
     assert!(

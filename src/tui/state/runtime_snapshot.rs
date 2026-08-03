@@ -1,4 +1,3 @@
-use std::collections::BTreeSet;
 use std::sync::atomic::Ordering;
 
 use super::{
@@ -9,39 +8,7 @@ use super::{
 use crate::agent::Agent;
 
 impl TuiApp {
-    pub fn sync_snapshot(&mut self, agent: &Agent) {
-        let (hook_count, agent_count, agent_status_lines) =
-            discover_extension_counts(&agent.shared_runtime_context().cwd, agent);
-        let runtime_hook_count = self
-            .hook_runtime
-            .as_ref()
-            .map(|runtime| runtime.hook_count())
-            .unwrap_or(0);
-        self.sync_snapshot_with_extensions(
-            agent,
-            RuntimeExtensionSnapshot {
-                skill_count: agent.prompt_config().available_skills.len(),
-                skill_scopes: agent
-                    .prompt_config()
-                    .available_skills
-                    .iter()
-                    .map(|skill| skill.scope.clone())
-                    .collect::<BTreeSet<_>>()
-                    .into_iter()
-                    .collect(),
-                hook_count: hook_count.max(runtime_hook_count),
-                command_count: agent.plugin_command_count(),
-                agent_count,
-                agent_status_lines,
-            },
-        );
-    }
-
-    pub fn sync_snapshot_with_extensions(
-        &mut self,
-        agent: &Agent,
-        extensions: RuntimeExtensionSnapshot,
-    ) {
+    pub fn apply_runtime_snapshot(&mut self, agent: &Agent, extensions: RuntimeExtensionSnapshot) {
         let runtime_context = agent.shared_runtime_context();
         let shared_task_root = agent.workspace.rara_dir.join("tasks");
         let existing_pending_approval_id = self
@@ -247,19 +214,4 @@ impl TuiApp {
         self.skill_picker_entries
             .sort_by(|a, b| a.name.cmp(&b.name));
     }
-}
-
-fn discover_extension_counts(cwd: &str, agent: &Agent) -> (usize, usize, Vec<String>) {
-    let root = std::path::Path::new(cwd);
-    let mut hook_registry = crate::hooks::HookRegistry::new();
-    hook_registry.discover_repo_hooks(root);
-    let records = agent.agent_definition_records();
-    let agent_registry = crate::agents_ext::AgentRegistry::from_records(records, root);
-    let agent_count = agent_registry.agents.len();
-    let agent_status_lines = if agent_count == 0 {
-        Vec::new()
-    } else {
-        agent_registry.status_lines()
-    };
-    (hook_registry.hooks.len(), agent_count, agent_status_lines)
 }

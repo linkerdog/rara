@@ -355,7 +355,10 @@ pub(super) async fn execute_local_command_with_runtime(
     if command_kind != LocalCommandKind::Tasks
         && let Some(agent) = agent_slot.as_ref()
     {
-        app.sync_snapshot(agent);
+        app.apply_runtime_snapshot(
+            agent,
+            crate::runtime_client::RuntimeClient::extension_snapshot_for_agent(agent, 0),
+        );
     }
     Ok(false)
 }
@@ -582,7 +585,10 @@ fn handle_tasks_command(arg: Option<&str>, app: &mut TuiApp, agent_slot: &mut Op
 
     if let Some(agent) = agent_slot.as_mut() {
         agent.set_task_list_id(requested);
-        app.sync_snapshot(agent);
+        app.apply_runtime_snapshot(
+            agent,
+            crate::runtime_client::RuntimeClient::extension_snapshot_for_agent(agent, 0),
+        );
     } else {
         app.switch_active_shared_task_list(requested);
     }
@@ -1190,7 +1196,11 @@ command = "docs-server"
             OAuthManager::new_for_config_dir(dir.path().join("oauth")).expect("oauth manager"),
         );
         let mut agent_slot = Some(test_agent_with_shared_task_tool(&dir));
-        app.sync_snapshot(agent_slot.as_ref().expect("agent"));
+        let agent = agent_slot.as_ref().expect("agent");
+        app.apply_runtime_snapshot(
+            agent,
+            crate::runtime_client::RuntimeClient::extension_snapshot_for_agent(agent, 0),
+        );
 
         execute_local_command(
             LocalCommand {

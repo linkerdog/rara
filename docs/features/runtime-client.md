@@ -58,8 +58,8 @@ input presentation effects.
 Extension status projection now has a typed `RuntimeExtensionSnapshot`. The
 runtime command processor computes extension counts, scopes, and agent status
 lines from the session runtime and passes the projection to the TUI snapshot
-reducer. The legacy agent-based snapshot entry point remains only for restore
-and focused compatibility tests while registry ownership is migrated.
+reducer. The TUI snapshot reducer no longer discovers extension state from an
+agent; restore paths use the same runtime-owned projection helper.
 
 ## TUI Test Contract
 
@@ -113,10 +113,10 @@ owns task construction, completion, and runtime replacement access.
 
 ## Follow-up
 
-- Replace compatibility projections in `TuiApp` with a typed runtime snapshot.
 - Remove mutable extension-registry projections from `TuiApp`; all registry
   discovery and reload should remain runtime-owned while TUI consumes typed
-  snapshots.
+  snapshots. The snapshot entry point is now typed; task construction still
+  needs the registry handles during the remaining compatibility migration.
 - Publish a TUI-facing typed projection event instead of converting
   `AgentEvent` into role/message strings and parsing those strings again.
 - Move goal continuation, plan completion, agent replacement, and queued

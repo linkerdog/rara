@@ -51,8 +51,8 @@ Active backlog only. Keep this file small and current.
       runtime command processor.
 - [ ] Remove mutable extension-registry projections from `TuiApp`; registry
       discovery and reload must remain runtime-owned while TUI receives typed
-      snapshots. The first typed `RuntimeExtensionSnapshot` projection is now
-      runtime-generated; remove the compatibility fields and entry point next.
+      snapshots. Snapshot discovery and the agent-based entry point are done;
+      remove the remaining registry handles used by the task bridge next.
 - [ ] Construct `TuiController` directly from an injected port and add
       virtual-time controls to the shared harness.
 

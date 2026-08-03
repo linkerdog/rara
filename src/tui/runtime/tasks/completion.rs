@@ -142,7 +142,12 @@ async fn finish_running_task_if_ready_with_completion_mode(
                                 goal.tokens_used,
                                 goal.token_budget.unwrap_or(0)
                             ));
-                            app.sync_snapshot(&agent);
+                            app.apply_runtime_snapshot(
+                                &agent,
+                                crate::runtime_client::RuntimeClient::extension_snapshot_for_agent(
+                                    &agent, 0,
+                                ),
+                            );
                             app.finalize_active_turn();
                             *agent_slot = Some(agent);
                             start_query_task(app, prompt, agent_slot.take().expect("agent"));
@@ -151,7 +156,13 @@ async fn finish_running_task_if_ready_with_completion_mode(
                         GoalContinuation::Complete { goal } => {
                             app.goal = Some(goal);
                             *agent_slot = Some(agent);
-                            app.sync_snapshot(agent_slot.as_ref().expect("agent"));
+                            let agent = agent_slot.as_ref().expect("agent");
+                            app.apply_runtime_snapshot(
+                                agent,
+                                crate::runtime_client::RuntimeClient::extension_snapshot_for_agent(
+                                    agent, 0,
+                                ),
+                            );
                             app.release_pending_follow_ups();
                             app.finalize_agent_stream(None);
                             app.finalize_active_turn();
@@ -163,7 +174,12 @@ async fn finish_running_task_if_ready_with_completion_mode(
                         GoalContinuation::Continue { goal, prompt, reason } => {
                             app.goal = Some(goal);
                             app.push_system(reason, crate::tui::state::SystemMessageKind::Other);
-                            app.sync_snapshot(&agent);
+                            app.apply_runtime_snapshot(
+                                &agent,
+                                crate::runtime_client::RuntimeClient::extension_snapshot_for_agent(
+                                    &agent, 0,
+                                ),
+                            );
                             app.finalize_active_turn();
                             start_query_task(app, prompt, agent);
                             return Ok(());
@@ -173,7 +189,12 @@ async fn finish_running_task_if_ready_with_completion_mode(
                     *agent_slot = Some(agent);
                     app.goal = app.goal_handle.read().unwrap().clone();
                     if let Some(a) = agent_slot.as_ref() {
-                        app.sync_snapshot(a);
+                            app.apply_runtime_snapshot(
+                                a,
+                                crate::runtime_client::RuntimeClient::extension_snapshot_for_agent(
+                                    a, 0,
+                                ),
+                            );
                     }
                     app.release_pending_follow_ups();
                     app.finalize_agent_stream(None);
@@ -209,7 +230,12 @@ async fn finish_running_task_if_ready_with_completion_mode(
                     app.clear_pending_plan_approval();
                     *agent_slot = Some(agent);
                     if let Some(agent) = agent_slot.as_ref() {
-                        app.sync_snapshot(agent);
+                        app.apply_runtime_snapshot(
+                            agent,
+                            crate::runtime_client::RuntimeClient::extension_snapshot_for_agent(
+                                agent, 0,
+                            ),
+                        );
                     }
                     app.release_pending_follow_ups();
                     app.finalize_agent_stream(None);
@@ -242,7 +268,12 @@ async fn finish_running_task_if_ready_with_completion_mode(
         TaskCompletion::Compact { agent, result } => {
             *agent_slot = Some(agent);
             if let Some(agent) = agent_slot.as_ref() {
-                app.sync_snapshot(agent);
+                        app.apply_runtime_snapshot(
+                            agent,
+                            crate::runtime_client::RuntimeClient::extension_snapshot_for_agent(
+                                agent, 0,
+                            ),
+                        );
             }
             match result {
                 Ok(true) => {
@@ -325,7 +356,12 @@ async fn finish_running_task_if_ready_with_completion_mode(
                 app.bottom_pane.notice = app.setup_status.clone();
                 *agent_slot = Some(agent);
                 if let Some(agent) = agent_slot.as_ref() {
-                    app.sync_snapshot(agent);
+                    app.apply_runtime_snapshot(
+                        agent,
+                        crate::runtime_client::RuntimeClient::extension_snapshot_for_agent(
+                            agent, 0,
+                        ),
+                    );
                 }
                 app.dismiss_overlay();
                 app.set_runtime_phase(RuntimePhase::BackendReady, Some("backend ready".into()));
