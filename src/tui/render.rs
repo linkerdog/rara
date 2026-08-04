@@ -312,25 +312,58 @@ pub(crate) fn current_turn_tool_summary(
     const RESULT_LINE_LIMIT: usize = 10;
 
     let mut lines = Vec::new();
-    let mut pending_tool = false;
+    let mut pending_tool = std::collections::HashSet::<String>::new();
+    let mut pending_legacy_tool = false;
     for entry in current_turn {
+        if let Some(crate::tui::state::TranscriptEntryPayload::Tool(payload)) =
+            entry.payload.as_ref()
+        {
+            match payload.status {
+                crate::tui::state::ToolTranscriptStatus::Running => {
+                    if let Some(action) = tool_action_label(&entry.message) {
+                        lines.push(format!("└ {action}"));
+                    } else {
+                        lines.push(format!("└ {}", payload.name));
+                    }
+                    pending_tool.insert(
+                        payload
+                            .call_id
+                            .clone()
+                            .unwrap_or_else(|| payload.name.clone()),
+                    );
+                }
+                crate::tui::state::ToolTranscriptStatus::Completed
+                | crate::tui::state::ToolTranscriptStatus::Error => {
+                    let identity = payload.call_id.as_deref().unwrap_or(payload.name.as_str());
+                    if pending_tool.remove(identity) {
+                        lines.extend(
+                            tool_result_summary_lines(&entry.message, RESULT_LINE_LIMIT)
+                                .into_iter()
+                                .map(|line| format!("  {line}")),
+                        );
+                    }
+                }
+            }
+            continue;
+        }
+
         use crate::tui::message_role::MessageRole;
         match MessageRole::try_from_str(&entry.role) {
             Some(MessageRole::Tool) => {
                 if let Some(action) = tool_action_label(&entry.message) {
                     lines.push(format!("└ {action}"));
-                    pending_tool = true;
+                    pending_legacy_tool = true;
                 } else {
-                    pending_tool = false;
+                    pending_legacy_tool = false;
                 }
             }
-            Some(MessageRole::ToolResult) | Some(MessageRole::ToolError) if pending_tool => {
+            Some(MessageRole::ToolResult) | Some(MessageRole::ToolError) if pending_legacy_tool => {
                 lines.extend(
                     tool_result_summary_lines(&entry.message, RESULT_LINE_LIMIT)
                         .into_iter()
                         .map(|line| format!("  {line}")),
                 );
-                pending_tool = false;
+                pending_legacy_tool = false;
             }
             _ => {}
         }
