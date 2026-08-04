@@ -2,6 +2,7 @@ use std::path::Path;
 
 use ratatui::text::Line;
 
+use super::compaction::CompactionCell;
 use super::interaction_cells::{
     CommittedInteractionCell, PendingInteractionCell, QueuedFollowUpCell,
 };
@@ -341,7 +342,18 @@ impl ActiveCell for ActiveTurnCell<'_> {
         };
         let has_running_summary = running_summary.is_some();
         let running_active = turn_live && has_running_summary;
-        if let Some(cell) = terminal_cell_from_entries(current_turn.iter().copied()) {
+        if let Some(entry) = current_turn.iter().find(|entry| {
+            matches!(
+                entry.payload,
+                Some(crate::tui::state::TranscriptEntryPayload::Compaction(_))
+            )
+        }) {
+            if let Some(crate::tui::state::TranscriptEntryPayload::Compaction(payload)) =
+                entry.payload.as_ref()
+            {
+                cells.push(Box::new(CompactionCell::new(payload, &entry.message)));
+            }
+        } else if let Some(cell) = terminal_cell_from_entries(current_turn.iter().copied()) {
             cells.push(Box::new(cell));
         } else if let Some(summary) = running_summary {
             cells.push(Box::new(RunningCell::new(summary, running_active)));
