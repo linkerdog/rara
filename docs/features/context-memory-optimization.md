@@ -21,6 +21,23 @@ model for todo persistence and tool visibility, and add retrieval throttling
 as a RARA-specific optimization — since RARA runs a local vector database,
 each retrieval costs more than a hosted backend call.
 
+## OpenCode TUI Boundary
+
+OpenCode's TUI consumes a server-owned session projection. Messages and tool
+parts have stable identities and explicit lifecycle states; compaction is a
+first-class session item. RARA follows the same boundary incrementally:
+
+- runtime events may carry an optional `call_id` and the TUI stores a typed
+  tool payload alongside the legacy role/message representation;
+- role/message remains a persistence compatibility format, not the source of
+  runtime semantics;
+- retrieval caching and compaction decisions remain runtime-owned;
+- TUI rendering consumes snapshots and structured events and only presents
+  status, summaries, and inspectable details.
+
+The next implementation step is to complete the runtime session projection
+for tool lifecycle and compaction events before adding retrieval-cache UI.
+
 ## Goals
 
 1. Cache the previous turn's memory retrieval set. Only refresh when the
@@ -156,6 +173,13 @@ section uses its appropriate factor.
 ---
 
 ## Implementation Plan
+
+### Phase 0: Session projection
+
+- [x] Preserve optional tool call IDs in structured runtime events.
+- [x] Attach typed tool lifecycle payloads to TUI transcript entries while
+      retaining legacy role/message persistence.
+- [ ] Add runtime-owned compaction events and typed session projection records.
 
 ### Phase 1: Display
 

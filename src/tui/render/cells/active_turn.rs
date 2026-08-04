@@ -101,7 +101,10 @@ impl ActiveCell for ActiveTurnCell<'_> {
             matches!(
                 entry.role.as_str(),
                 "Tool" | "Tool Result" | "Tool Error" | "Tool Progress"
-            ) || matches!(entry.payload, Some(TranscriptEntryPayload::Terminal(_)))
+            ) || matches!(
+                entry.payload,
+                Some(TranscriptEntryPayload::Terminal(_) | TranscriptEntryPayload::Tool(_))
+            )
         });
         let user_message = current_turn
             .iter()

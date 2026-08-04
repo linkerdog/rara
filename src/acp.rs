@@ -297,7 +297,11 @@ impl RaraAcpAgent {
                     );
                 }
                 crate::runtime_control::RuntimeEvent::Tool(
-                    crate::runtime_control::ToolEvent::Use { name, input },
+                    crate::runtime_control::ToolEvent::Use {
+                        call_id: _,
+                        name,
+                        input,
+                    },
                 ) => {
                     let id = format!("{event_id}-{name}");
                     tool_ids
@@ -312,6 +316,7 @@ impl RaraAcpAgent {
                 }
                 crate::runtime_control::RuntimeEvent::Tool(
                     crate::runtime_control::ToolEvent::Result {
+                        call_id: _,
                         name,
                         content,
                         is_error,
@@ -340,6 +345,7 @@ impl RaraAcpAgent {
                 }
                 crate::runtime_control::RuntimeEvent::Tool(
                     crate::runtime_control::ToolEvent::Progress {
+                        call_id: _,
                         name,
                         stream,
                         chunk,
