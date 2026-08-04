@@ -581,18 +581,26 @@ pub(super) fn start_oauth_task(
     oauth::start_oauth_task(app, oauth_manager, mode);
 }
 
-pub(super) fn start_deepseek_model_list_task(app: &mut TuiApp) {
+pub(super) fn start_model_catalog_task(app: &mut TuiApp, provider: ModelCatalogProvider) {
     let (_sender, receiver) = mpsc::unbounded_channel();
     let api_key = app.config.api_key_secret();
     let surface = app.config.effective_provider_surface();
+    let default_base_url = match provider {
+        ModelCatalogProvider::DeepSeek => crate::config::DEFAULT_DEEPSEEK_BASE_URL,
+        ModelCatalogProvider::Kimi => crate::config::DEFAULT_KIMI_BASE_URL,
+    };
     let base_url = Some(
         surface
             .base_url
             .value
-            .unwrap_or(crate::config::DEFAULT_DEEPSEEK_BASE_URL)
+            .unwrap_or(default_base_url)
             .to_string(),
     );
-    app.bottom_pane.notice = Some("Loading DeepSeek models.".into());
+    let provider_label = match provider {
+        ModelCatalogProvider::DeepSeek => "DeepSeek",
+        ModelCatalogProvider::Kimi => "Kimi",
+    };
+    app.bottom_pane.notice = Some(format!("Loading {provider_label} models."));
     app.set_runtime_phase(
         RuntimePhase::RebuildingBackend,
         Some("loading models".into()),
@@ -600,7 +608,7 @@ pub(super) fn start_deepseek_model_list_task(app: &mut TuiApp) {
 
     let handle = tokio::spawn(async move {
         let result = load_model_catalog(
-            ModelCatalogProvider::DeepSeek,
+            provider,
             ModelCatalogRequest {
                 api_key: api_key.as_ref(),
                 base_url: base_url.as_deref(),
@@ -608,52 +616,11 @@ pub(super) fn start_deepseek_model_list_task(app: &mut TuiApp) {
         )
         .await
         .map(|catalog| catalog.models);
-        TaskCompletion::DeepSeekModels { result }
+        TaskCompletion::ModelCatalog { provider, result }
     });
 
     app.bottom_pane.running_task = Some(RunningTask {
-        kind: TaskKind::DeepSeekModels,
-        receiver,
-        handle,
-        started_at: Instant::now(),
-        next_heartbeat_after_secs: u64::MAX,
-        cancellation_token: None,
-        cancellation_requested: false,
-    });
-}
-
-pub(super) fn start_kimi_model_list_task(app: &mut TuiApp) {
-    let (_sender, receiver) = mpsc::unbounded_channel();
-    let api_key = app.config.api_key_secret();
-    let surface = app.config.effective_provider_surface();
-    let base_url = Some(
-        surface
-            .base_url
-            .value
-            .unwrap_or(crate::config::DEFAULT_KIMI_BASE_URL)
-            .to_string(),
-    );
-    app.bottom_pane.notice = Some("Loading Kimi models.".into());
-    app.set_runtime_phase(
-        RuntimePhase::RebuildingBackend,
-        Some("loading models".into()),
-    );
-
-    let handle = tokio::spawn(async move {
-        let result = load_model_catalog(
-            ModelCatalogProvider::Kimi,
-            ModelCatalogRequest {
-                api_key: api_key.as_ref(),
-                base_url: base_url.as_deref(),
-            },
-        )
-        .await
-        .map(|catalog| catalog.models);
-        TaskCompletion::KimiModels { result }
-    });
-
-    app.bottom_pane.running_task = Some(RunningTask {
-        kind: TaskKind::KimiModels,
+        kind: TaskKind::ModelCatalog,
         receiver,
         handle,
         started_at: Instant::now(),

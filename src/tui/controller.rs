@@ -226,7 +226,8 @@ mod tests {
         let mut handle = tokio::spawn(async {
             panic!("completion failure");
             #[allow(unreachable_code)]
-            crate::tui::state::TaskCompletion::KimiModels {
+            crate::tui::state::TaskCompletion::ModelCatalog {
+                provider: rara_provider_catalog::ModelCatalogProvider::Kimi,
                 result: Ok(Vec::new()),
             }
         });

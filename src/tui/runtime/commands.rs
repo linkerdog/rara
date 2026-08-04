@@ -734,9 +734,14 @@ mod tests {
     fn mark_app_busy(app: &mut TuiApp) {
         let (_sender, receiver) = mpsc::unbounded_channel();
         app.bottom_pane.running_task = Some(RunningTask {
-            kind: TaskKind::DeepSeekModels,
+            kind: TaskKind::ModelCatalog,
             receiver,
-            handle: tokio::spawn(async { TaskCompletion::DeepSeekModels { result: Ok(vec![]) } }),
+            handle: tokio::spawn(async {
+                TaskCompletion::ModelCatalog {
+                    provider: rara_provider_catalog::ModelCatalogProvider::DeepSeek,
+                    result: Ok(vec![]),
+                }
+            }),
             started_at: Instant::now(),
             next_heartbeat_after_secs: 2,
             cancellation_token: None,

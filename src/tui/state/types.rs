@@ -382,8 +382,7 @@ pub enum TaskKind {
     Compact,
     Rebuild,
     OAuth,
-    DeepSeekModels,
-    KimiModels,
+    ModelCatalog,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -411,10 +410,8 @@ pub enum TaskCompletion {
         mode: OAuthLoginMode,
         result: anyhow::Result<secrecy::SecretString>,
     },
-    DeepSeekModels {
-        result: anyhow::Result<Vec<ModelCatalogEntry>>,
-    },
-    KimiModels {
+    ModelCatalog {
+        provider: rara_provider_catalog::ModelCatalogProvider,
         result: anyhow::Result<Vec<ModelCatalogEntry>>,
     },
 }

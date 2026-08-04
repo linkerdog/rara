@@ -100,6 +100,8 @@ Catalog refresh is represented as one typed runtime command,
 `RefreshModelCatalog(provider)`, and the resulting entries are carried in
 `RuntimeSnapshot.model_catalogs` so model pickers can hydrate from the same
 projection used by future non-TUI clients.
+There are no provider-specific runtime commands or task kinds; the provider is
+data carried by the catalog request and completion.
 
 ## Future
 - Custom provider support (arbitrary API endpoint + API key)

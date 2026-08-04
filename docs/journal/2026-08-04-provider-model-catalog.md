@@ -17,6 +17,10 @@ snapshot consumer can hydrate the picker without parsing provider responses.
 API failures continue to use the static fallback catalog and mark that
 projection as fallback data.
 
+The refresh path was subsequently generalized so provider identity is data on
+one `RefreshModelCatalog(provider)` command and one model-catalog task result,
+rather than separate DeepSeek and Kimi commands.
+
 ## Why
 
 OpenCode separates a durable provider/model catalog from runtime provider

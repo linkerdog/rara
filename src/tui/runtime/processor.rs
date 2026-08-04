@@ -134,14 +134,7 @@ impl RuntimeCommandProcessor {
             }
             RuntimeCommand::Maintenance(RuntimeMaintenanceCommand::RefreshModelCatalog(
                 provider,
-            )) => match provider {
-                rara_provider_catalog::ModelCatalogProvider::DeepSeek => {
-                    super::start_deepseek_model_list_task(app)
-                }
-                rara_provider_catalog::ModelCatalogProvider::Kimi => {
-                    super::start_kimi_model_list_task(app)
-                }
-            },
+            )) => super::start_model_catalog_task(app, provider),
             command => app.push_notice(format!(
                 "Runtime command is not handled by the in-process processor: {command:?}"
             )),

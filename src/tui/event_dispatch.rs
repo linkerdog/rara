@@ -499,14 +499,6 @@ async fn dispatch_event_inner(
                 .await?;
             }
         }
-        AppEvent::RefreshDeepSeekModels => {
-            request_maintenance(
-                app,
-                runtime_port,
-                RuntimeMaintenanceCommand::RefreshModelCatalog(ModelCatalogProvider::DeepSeek),
-            )
-            .await?;
-        }
         AppEvent::SelectHelpTab(tab) => {
             app.open_overlay(Overlay::Help(tab));
         }
@@ -919,11 +911,8 @@ async fn request_maintenance(
     } else {
         match command {
             RuntimeMaintenanceCommand::Rebuild => super::runtime::start_rebuild_task(app),
-            RuntimeMaintenanceCommand::RefreshModelCatalog(ModelCatalogProvider::DeepSeek) => {
-                super::runtime::start_deepseek_model_list_task(app)
-            }
-            RuntimeMaintenanceCommand::RefreshModelCatalog(ModelCatalogProvider::Kimi) => {
-                super::runtime::start_kimi_model_list_task(app)
+            RuntimeMaintenanceCommand::RefreshModelCatalog(provider) => {
+                super::runtime::start_model_catalog_task(app, provider)
             }
             RuntimeMaintenanceCommand::Compact => {
                 app.push_notice("Compaction requires an active runtime client.")

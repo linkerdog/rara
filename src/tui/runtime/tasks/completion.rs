@@ -463,44 +463,37 @@ async fn finish_running_task_if_ready_with_completion_mode(
                 app.push_notice(message);
             }
         },
-        TaskCompletion::DeepSeekModels { result } => match result {
+        TaskCompletion::ModelCatalog { provider, result } => match result {
             Ok(models) => {
                 let count = models.len();
-                app.set_deepseek_model_catalog(models);
-                app.bottom_pane.notice = Some(format!("Loaded {count} DeepSeek models."));
+                match provider {
+                    ModelCatalogProvider::DeepSeek => app.set_deepseek_model_catalog(models),
+                    ModelCatalogProvider::Kimi => app.set_kimi_model_catalog(models),
+                }
+                let label = match provider {
+                    ModelCatalogProvider::DeepSeek => "DeepSeek",
+                    ModelCatalogProvider::Kimi => "Kimi",
+                };
+                app.bottom_pane.notice = Some(format!("Loaded {count} {label} models."));
                 app.set_runtime_phase(RuntimePhase::Idle, Some("models loaded".into()));
                 app.open_overlay(Overlay::ListPicker(ListPickerKind::Model));
             }
             Err(err) => {
-                app.set_deepseek_model_catalog_with_source(
-                    fallback_catalog(ModelCatalogProvider::DeepSeek),
-                    true,
-                );
+                let fallback = fallback_catalog(provider);
+                match provider {
+                    ModelCatalogProvider::DeepSeek => {
+                        app.set_deepseek_model_catalog_with_source(fallback, true)
+                    }
+                    ModelCatalogProvider::Kimi => {
+                        app.set_kimi_model_catalog_with_source(fallback, true)
+                    }
+                }
+                let label = match provider {
+                    ModelCatalogProvider::DeepSeek => "DeepSeek",
+                    ModelCatalogProvider::Kimi => "Kimi",
+                };
                 let message = format!(
-                    "Failed to load DeepSeek models. Showing fallback list.\n{}",
-                    format_error_chain(&err)
-                );
-                app.push_system(message.clone(), SystemMessageKind::Other);
-                app.push_notice(message);
-                app.set_runtime_phase(RuntimePhase::Idle, Some("model list fallback".into()));
-                app.open_overlay(Overlay::ListPicker(ListPickerKind::Model));
-            }
-        },
-        TaskCompletion::KimiModels { result } => match result {
-            Ok(models) => {
-                let count = models.len();
-                app.set_kimi_model_catalog(models);
-                app.bottom_pane.notice = Some(format!("Loaded {count} Kimi models."));
-                app.set_runtime_phase(RuntimePhase::Idle, Some("models loaded".into()));
-                app.open_overlay(Overlay::ListPicker(ListPickerKind::Model));
-            }
-            Err(err) => {
-                app.set_kimi_model_catalog_with_source(
-                    fallback_catalog(ModelCatalogProvider::Kimi),
-                    true,
-                );
-                let message = format!(
-                    "Failed to load Kimi models. Showing fallback list.\n{}",
+                    "Failed to load {label} models. Showing fallback list.\n{}",
                     format_error_chain(&err)
                 );
                 app.push_system(message.clone(), SystemMessageKind::Other);
