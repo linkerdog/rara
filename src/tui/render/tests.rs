@@ -23,7 +23,8 @@ use crate::tui::state::SkillPickerEntry;
 use crate::tui::state::{
     InteractionKind, ListPickerKind, Overlay, PendingApprovalSnapshot, PendingInteractionSnapshot,
     PlanningApprovalStatus, PlanningLifecycleSnapshot, ProviderFamily, RuntimeSnapshot, StatusTab,
-    TranscriptEntry, TranscriptTurn, TuiApp,
+    ToolTranscriptPayload, ToolTranscriptStatus, TranscriptEntry, TranscriptEntryPayload,
+    TranscriptTurn, TuiApp,
 };
 
 fn provider_family_idx(family: ProviderFamily) -> usize {
@@ -264,6 +265,36 @@ fn tool_summary_includes_bash_result_status_and_output_tail() {
     assert!(rendered.contains("stdout:"));
     assert!(rendered.contains("Compiling rara v0.1.0"));
     assert!(rendered.contains("error[E0425]"));
+}
+
+#[test]
+fn tool_summary_uses_typed_tool_identity_before_role_strings() {
+    let entries = [
+        TranscriptEntry {
+            role: "legacy-start".into(),
+            message: "bash cargo check".into(),
+            payload: Some(TranscriptEntryPayload::Tool(ToolTranscriptPayload {
+                call_id: Some("tool-call-1".into()),
+                name: "bash".into(),
+                status: ToolTranscriptStatus::Running,
+            })),
+        },
+        TranscriptEntry {
+            role: "legacy-end".into(),
+            message: "bash finished with exit code 0".into(),
+            payload: Some(TranscriptEntryPayload::Tool(ToolTranscriptPayload {
+                call_id: Some("tool-call-1".into()),
+                name: "bash".into(),
+                status: ToolTranscriptStatus::Completed,
+            })),
+        },
+    ];
+
+    let refs = entries.iter().collect::<Vec<_>>();
+    let rendered = current_turn_tool_summary(&refs, false, None).expect("tool summary");
+
+    assert!(rendered.contains("Run cargo check"));
+    assert!(rendered.contains("bash finished with exit code 0"));
 }
 
 #[test]

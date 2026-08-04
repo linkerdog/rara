@@ -29,6 +29,16 @@ This is an incremental compatibility boundary. Legacy transcript persistence
 continues to store role/message fields while typed projections become the
 source of live tool identity.
 
+### Completed-tool summaries
+
+- The active-turn TUI summary matches running and completed tool entries by
+  typed payload identity, preferring the provider `call_id` and otherwise the
+  runtime-assigned tool identity.
+- Role/message parsing remains only as a compatibility fallback for legacy
+  transcript entries without a typed tool payload.
+- A completed result is rendered only when it matches a pending typed tool
+  entry, so repeated tool names do not cause unrelated results to be paired.
+
 ### Edit tools
 
 - `apply_patch` tool-use rows must include the touched file paths when they can be derived from the patch.
