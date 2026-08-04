@@ -1,5 +1,6 @@
 use rara_memory::vectordb::VectorDB;
 use rara_persistence::thread_turn_log;
+use rara_provider_catalog::ModelCatalogEntry;
 use rara_state::state_db::{
     PersistedCompactState, PersistedPromptRuntimeState, PersistedStructuredRolloutEvent, StateDb,
 };
@@ -8,7 +9,7 @@ use tempfile::tempdir;
 
 use super::{
     ActivePendingInteractionKind, AgentMarkdownStreamState, InteractionKind, ListPickerKind,
-    Overlay, PROVIDER_FAMILIES, PendingInteractionSnapshot, ProviderFamily,
+    ModelCatalogSnapshot, Overlay, PROVIDER_FAMILIES, PendingInteractionSnapshot, ProviderFamily,
     RuntimeExtensionSnapshot, RuntimeSnapshot, SystemMessageKind, TranscriptEntry, TranscriptTurn,
     TuiApp, input_requests_command_palette, parse_repo_slug, state_db_status_error,
 };
@@ -648,6 +649,48 @@ fn deepseek_catalog_options_keep_current_custom_model_selectable() {
             .get(app.model_picker_idx)
             .map(String::as_str),
         Some("deepseek-v4-preview")
+    );
+}
+
+#[test]
+fn provider_catalog_context_window_flows_into_unified_model_presets() {
+    let dir = tempdir().expect("tempdir");
+    let cm = ConfigManager {
+        path: dir.path().join("config.json"),
+    };
+    let app = TuiApp::new(cm).expect("app");
+
+    let presets = app.all_unified_model_presets();
+    let kimi_k3 = presets
+        .iter()
+        .find(|preset| preset.provider_id == "kimi" && preset.model_id == "kimi-k3")
+        .expect("Kimi K3 catalog entry");
+
+    assert_eq!(kimi_k3.context_window, Some(1_048_576));
+}
+
+#[test]
+fn model_catalog_snapshot_hydrates_provider_picker_state() {
+    let dir = tempdir().expect("tempdir");
+    let cm = ConfigManager {
+        path: dir.path().join("config.json"),
+    };
+    let mut app = TuiApp::new(cm).expect("app");
+
+    let snapshot = ModelCatalogSnapshot {
+        provider_id: "kimi".to_string(),
+        models: vec![ModelCatalogEntry {
+            id: "kimi-runtime-model".to_string(),
+            context_window: Some(131_072),
+        }],
+        is_fallback: false,
+    };
+    app.apply_model_catalog_snapshots(&[snapshot]);
+
+    assert_eq!(app.kimi_model_options, vec!["kimi-runtime-model"]);
+    assert_eq!(
+        app.model_context_window(ProviderFamily::Kimi, "kimi-runtime-model"),
+        Some(131_072)
     );
 }
 

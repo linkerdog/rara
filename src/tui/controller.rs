@@ -126,7 +126,11 @@ impl TuiController {
                     super::state::TuiEvent::Runtime(event),
                 );
             }
-            RuntimeProjectionEvent::Snapshot(snapshot) => self.app.snapshot = *snapshot,
+            RuntimeProjectionEvent::Snapshot(snapshot) => {
+                self.app.snapshot = *snapshot;
+                let catalogs = self.app.snapshot.model_catalogs.clone();
+                self.app.apply_model_catalog_snapshots(&catalogs);
+            }
             RuntimeProjectionEvent::Completed { reason } => {
                 self.app
                     .set_runtime_phase(super::state::RuntimePhase::Idle, reason);
@@ -222,7 +226,8 @@ mod tests {
         let mut handle = tokio::spawn(async {
             panic!("completion failure");
             #[allow(unreachable_code)]
-            crate::tui::state::TaskCompletion::KimiModels {
+            crate::tui::state::TaskCompletion::ModelCatalog {
+                provider: rara_provider_catalog::ModelCatalogProvider::Kimi,
                 result: Ok(Vec::new()),
             }
         });

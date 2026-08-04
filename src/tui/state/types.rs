@@ -1,8 +1,10 @@
 use std::cell::RefCell;
+use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::{Arc, atomic::AtomicBool};
 use std::time::Instant;
 
+use rara_provider_catalog::ModelCatalogEntry;
 use rara_state::state_db::StateDb;
 use rara_tools::tool::ToolOutputStream;
 use ratatui::text::Line;
@@ -301,6 +303,14 @@ pub struct RuntimeSnapshot {
     pub extension_command_count: usize,
     pub extension_agent_count: usize,
     pub extension_agent_status_lines: Vec<String>,
+    pub model_catalogs: Vec<ModelCatalogSnapshot>,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct ModelCatalogSnapshot {
+    pub provider_id: String,
+    pub models: Vec<ModelCatalogEntry>,
+    pub is_fallback: bool,
 }
 
 #[derive(Default, Clone, Debug, PartialEq, Eq)]
@@ -372,8 +382,7 @@ pub enum TaskKind {
     Compact,
     Rebuild,
     OAuth,
-    DeepSeekModels,
-    KimiModels,
+    ModelCatalog,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -401,11 +410,9 @@ pub enum TaskCompletion {
         mode: OAuthLoginMode,
         result: anyhow::Result<secrecy::SecretString>,
     },
-    DeepSeekModels {
-        result: anyhow::Result<Vec<String>>,
-    },
-    KimiModels {
-        result: anyhow::Result<Vec<String>>,
+    ModelCatalog {
+        provider: rara_provider_catalog::ModelCatalogProvider,
+        result: anyhow::Result<Vec<ModelCatalogEntry>>,
     },
 }
 
@@ -801,6 +808,8 @@ pub struct TuiApp {
     pub codex_model_options: Vec<CodexModelOption>,
     pub deepseek_model_options: Vec<String>,
     pub kimi_model_options: Vec<String>,
+    pub deepseek_model_context_windows: HashMap<String, u32>,
+    pub kimi_model_context_windows: HashMap<String, u32>,
     pub recent_commands: Vec<String>,
     pub recent_threads: Vec<ThreadSummary>,
     pub resume_picker_idx: usize,

@@ -1,10 +1,12 @@
+use std::collections::HashSet;
+
 use anyhow::{Result, anyhow};
 use rara_config::DEFAULT_KIMI_BASE_URL;
 use secrecy::{ExposeSecret, SecretString};
 use serde::Deserialize;
 
-use crate::ModelCatalogRequest;
 use crate::redaction::{redact_known_secret, sanitize_url_for_display};
+use crate::{ModelCatalogEntry, ModelCatalogRequest};
 
 const MODELS_TIMEOUT_SECS: u64 = 15;
 
@@ -27,6 +29,16 @@ pub fn fallback_models() -> Vec<String> {
         .collect()
 }
 
+pub fn fallback_catalog() -> Vec<ModelCatalogEntry> {
+    MODEL_WINDOWS
+        .iter()
+        .map(|(id, context_window)| ModelCatalogEntry {
+            id: (*id).to_string(),
+            context_window: Some(*context_window),
+        })
+        .collect()
+}
+
 #[derive(Deserialize)]
 struct ModelsResponse {
     data: Vec<ModelEntry>,
@@ -35,6 +47,8 @@ struct ModelsResponse {
 #[derive(Deserialize)]
 struct ModelEntry {
     id: String,
+    #[serde(alias = "context_window", alias = "max_context_length")]
+    context_length: Option<u32>,
 }
 
 pub fn models_url(base_url: Option<&str>) -> String {
@@ -46,18 +60,29 @@ pub fn models_url(base_url: Option<&str>) -> String {
     format!("{base_url}/models")
 }
 
-pub fn parse_models(body: &str) -> Result<Vec<String>> {
+pub fn parse_models(body: &str) -> Result<Vec<ModelCatalogEntry>> {
     let response: ModelsResponse = serde_json::from_str(body)?;
+    let mut seen = HashSet::new();
     let models = response
         .data
         .into_iter()
-        .map(|model| model.id.trim().to_string())
-        .filter(|id| !id.is_empty())
+        .filter_map(|model| {
+            let id = model.id.trim().to_string();
+            (!id.is_empty() && seen.insert(id.clone())).then_some(ModelCatalogEntry {
+                context_window: model.context_length.or_else(|| {
+                    MODEL_WINDOWS
+                        .iter()
+                        .find(|(name, _)| *name == id)
+                        .map(|(_, window)| *window)
+                }),
+                id,
+            })
+        })
         .collect::<Vec<_>>();
     Ok(models)
 }
 
-pub async fn load_models(request: ModelCatalogRequest<'_>) -> Result<Vec<String>> {
+pub async fn load_models(request: ModelCatalogRequest<'_>) -> Result<Vec<ModelCatalogEntry>> {
     let api_key = request
         .api_key
         .map(SecretString::expose_secret)
@@ -109,16 +134,28 @@ mod tests {
             r#"{
                 "object": "list",
                 "data": [
+                    {"id": "kimi-k2.6", "object": "model", "context_length": 262144},
+                    {"id": "kimi-k2.5", "object": "model"},
                     {"id": "kimi-k2.6", "object": "model"},
-                    {"id": "kimi-k2.5", "object": "model"},
-                    {"id": "kimi-k2.5", "object": "model"},
                     {"id": " ", "object": "model"}
                 ]
             }"#,
         )
         .expect("parse models");
 
-        assert_eq!(models, vec!["kimi-k2.6", "kimi-k2.5", "kimi-k2.5"]);
+        assert_eq!(
+            models,
+            vec![
+                super::ModelCatalogEntry {
+                    id: "kimi-k2.6".to_string(),
+                    context_window: Some(262_144),
+                },
+                super::ModelCatalogEntry {
+                    id: "kimi-k2.5".to_string(),
+                    context_window: Some(262_144),
+                },
+            ]
+        );
     }
 
     #[test]

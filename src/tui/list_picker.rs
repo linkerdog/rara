@@ -177,32 +177,42 @@ impl ListPickerKind {
         use super::state::{PROVIDER_FAMILIES, ProviderFamily};
         let provider_label = PROVIDER_FAMILIES[app.provider_picker_idx].1;
         let family = app.selected_provider_family();
-        let mut items: Vec<ListItem<'static>> = if family == ProviderFamily::DeepSeek {
-            app.deepseek_model_options
-                .iter()
-                .enumerate()
-                .map(|(idx, model)| {
-                    ListItem::new(ratatui::text::Line::from(format!(
-                        "{} ({})",
-                        model, provider_label,
-                    )))
-                    .style(Self::selected_style(idx, selected))
-                })
-                .collect()
-        } else {
-            let presets = super::state::current_model_presets(app.provider_picker_idx);
-            presets
-                .iter()
-                .enumerate()
-                .map(|(idx, preset)| {
-                    ListItem::new(ratatui::text::Line::from(format!(
-                        "{} ({})",
-                        preset.1, provider_label,
-                    )))
-                    .style(Self::selected_style(idx, selected))
-                })
-                .collect()
-        };
+        let mut items: Vec<ListItem<'static>> =
+            if matches!(family, ProviderFamily::DeepSeek | ProviderFamily::Kimi) {
+                let models = if family == ProviderFamily::DeepSeek {
+                    &app.deepseek_model_options
+                } else {
+                    &app.kimi_model_options
+                };
+                models
+                    .iter()
+                    .enumerate()
+                    .map(|(idx, model)| {
+                        let context = app
+                            .model_context_window(family, model)
+                            .map(|tokens| format!(" · {:.0}K", tokens as f64 / 1000.0))
+                            .unwrap_or_default();
+                        ListItem::new(ratatui::text::Line::from(format!(
+                            "{} ({}){}",
+                            model, provider_label, context,
+                        )))
+                        .style(Self::selected_style(idx, selected))
+                    })
+                    .collect()
+            } else {
+                let presets = super::state::current_model_presets(app.provider_picker_idx);
+                presets
+                    .iter()
+                    .enumerate()
+                    .map(|(idx, preset)| {
+                        ListItem::new(ratatui::text::Line::from(format!(
+                            "{} ({})",
+                            preset.1, provider_label,
+                        )))
+                        .style(Self::selected_style(idx, selected))
+                    })
+                    .collect()
+            };
         if matches!(
             app.selected_provider_family(),
             ProviderFamily::OpenAiCompatible

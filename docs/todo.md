@@ -173,6 +173,11 @@ Active backlog only. Keep this file small and current.
       explicit `local_embeddings = "auto"` opt-in.
 - [x] Explicit embedding provider override beyond `off` / `auto`.
 
+## Provider Catalog
+
+- [x] Enrich connected DeepSeek/Kimi model lists with static and API-provided
+      context-window metadata and show it in model pickers.
+
 ## Patch Engine
 
 - [x] Add a typed `PatchAction` preview API for approval UI and app-server

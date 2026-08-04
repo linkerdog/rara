@@ -91,10 +91,9 @@ pub fn start_oauth_task(app: &mut TuiApp, oauth_manager: Arc<OAuthManager>, mode
     tasks::start_oauth_task(app, oauth_manager, mode);
 }
 
-pub fn start_deepseek_model_list_task(app: &mut TuiApp) {
-    tasks::start_deepseek_model_list_task(app);
-}
-
-pub fn start_kimi_model_list_task(app: &mut TuiApp) {
-    tasks::start_kimi_model_list_task(app);
+pub fn start_model_catalog_task(
+    app: &mut TuiApp,
+    provider: rara_provider_catalog::ModelCatalogProvider,
+) {
+    tasks::start_model_catalog_task(app, provider);
 }

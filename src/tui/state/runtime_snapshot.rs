@@ -190,6 +190,7 @@ impl TuiApp {
             extension_command_count: extensions.command_count,
             extension_agent_count: extensions.agent_count,
             extension_agent_status_lines: extensions.agent_status_lines,
+            model_catalogs: self.snapshot.model_catalogs.clone(),
         };
         self.agent_execution_mode = agent.execution_mode;
         self.bash_approval_mode = agent.bash_approval_mode;

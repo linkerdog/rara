@@ -13,12 +13,12 @@ Type
 Star    DeepSeek/deepseek-chat
   /h    DeepSeek/deepseek-reasoner
   /m    DeepSeek/deepseek-v4-flash
-  /s    DeepSeek/deepseek-v4-pro
-  /q    DeepSeek/deepseek-v4-preview
-        Kimi/kimi-k3
-Prom    Kimi/kimi-k2.6
-  Re    Kimi/kimi-k2.5
-› As    Kimi/kimi-k2-0905-preview                                           s.
-        Kimi/kimi-k2-turbo-preview
+  /s    DeepSeek/deepseek-v4-preview
+  /q    DeepSeek/deepseek-v4-pro
+        Kimi/kimi-k2-0905-preview
+Prom    Kimi/kimi-k2-thinking
+  Re    Kimi/kimi-k2-thinking-turbo
+› As    Kimi/kimi-k2-turbo-preview                                          s.
+        Kimi/kimi-k2.5
                      Up/Down/jk move  Enter apply  Esc back
                                                                             tion

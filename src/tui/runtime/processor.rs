@@ -132,12 +132,9 @@ impl RuntimeCommandProcessor {
             RuntimeCommand::Maintenance(RuntimeMaintenanceCommand::Rebuild) => {
                 super::start_rebuild_task(app);
             }
-            RuntimeCommand::Maintenance(RuntimeMaintenanceCommand::LoadDeepSeekModels) => {
-                super::start_deepseek_model_list_task(app);
-            }
-            RuntimeCommand::Maintenance(RuntimeMaintenanceCommand::LoadKimiModels) => {
-                super::start_kimi_model_list_task(app);
-            }
+            RuntimeCommand::Maintenance(RuntimeMaintenanceCommand::RefreshModelCatalog(
+                provider,
+            )) => super::start_model_catalog_task(app, provider),
             command => app.push_notice(format!(
                 "Runtime command is not handled by the in-process processor: {command:?}"
             )),
