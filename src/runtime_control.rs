@@ -105,6 +105,13 @@ pub enum SessionEvent {
         output_tokens: u32,
         finish_reason: Option<String>,
     },
+    Compacted {
+        count: usize,
+        before_tokens: usize,
+        after_tokens: usize,
+        summary: String,
+        recent_files: Vec<String>,
+    },
 }
 
 #[allow(dead_code)] // ACP protocol type — reserved for future lifecycle events
@@ -495,6 +502,19 @@ pub fn agent_event_to_runtime_event(event: AgentEvent) -> RuntimeEvent {
             model,
             output_tokens,
             finish_reason,
+        }),
+        AgentEvent::Compaction {
+            count,
+            before_tokens,
+            after_tokens,
+            summary,
+            recent_files,
+        } => RuntimeEvent::Session(SessionEvent::Compacted {
+            count,
+            before_tokens,
+            after_tokens,
+            summary,
+            recent_files,
         }),
     }
 }

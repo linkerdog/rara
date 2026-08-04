@@ -248,6 +248,23 @@ fn apply_runtime_control_event(app: &mut TuiApp, event: RuntimeControlEvent) {
                 ),
             );
         }
+        RuntimeEvent::Session(SessionEvent::Compacted {
+            count,
+            before_tokens,
+            after_tokens,
+            summary,
+            recent_files,
+        }) => {
+            app.snapshot.compaction_count = count;
+            app.snapshot.last_compaction_before_tokens = Some(before_tokens);
+            app.snapshot.last_compaction_after_tokens = Some(after_tokens);
+            app.snapshot.last_compaction_recent_files = recent_files.clone();
+            app.push_compaction_entry(count, before_tokens, after_tokens, summary, recent_files);
+            app.set_runtime_phase(
+                RuntimePhase::ProcessingResponse,
+                Some("context history compacted".into()),
+            );
+        }
         RuntimeEvent::Session(SessionEvent::TurnStarted)
         | RuntimeEvent::Session(SessionEvent::ModelRequest { .. }) => {}
         RuntimeEvent::Session(SessionEvent::TurnFinished { .. })

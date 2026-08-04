@@ -179,7 +179,12 @@ section uses its appropriate factor.
 - [x] Preserve optional tool call IDs in structured runtime events.
 - [x] Attach typed tool lifecycle payloads to TUI transcript entries while
       retaining legacy role/message persistence.
-- [ ] Add runtime-owned compaction events and typed session projection records.
+- [x] Add runtime-owned compaction events and typed session projection records.
+
+Compaction records reuse the existing durable `PersistedCompactionEvent` path.
+The runtime reporter publishes the same boundary as a structured session event,
+and the TUI stores a typed compaction payload while retaining role/message
+compatibility persistence.
 
 ### Phase 1: Display
 
