@@ -1,3 +1,5 @@
+use std::collections::HashSet;
+
 use anyhow::{Result, anyhow};
 use rara_config::DEFAULT_DEEPSEEK_BASE_URL;
 use secrecy::{ExposeSecret, SecretString};
@@ -66,12 +68,13 @@ pub fn models_url(base_url: Option<&str>) -> String {
 
 pub fn parse_models(body: &str) -> Result<Vec<ModelCatalogEntry>> {
     let response: ModelsResponse = serde_json::from_str(body)?;
-    let mut models = response
+    let mut seen = HashSet::new();
+    let models = response
         .data
         .into_iter()
         .filter_map(|model| {
             let id = model.id.trim().to_string();
-            (!id.is_empty()).then_some(ModelCatalogEntry {
+            (!id.is_empty() && seen.insert(id.clone())).then_some(ModelCatalogEntry {
                 context_window: model.context_length.or_else(|| {
                     MODEL_WINDOWS
                         .iter()
@@ -82,7 +85,6 @@ pub fn parse_models(body: &str) -> Result<Vec<ModelCatalogEntry>> {
             })
         })
         .collect::<Vec<_>>();
-    models.dedup_by(|left, right| left.id == right.id);
     Ok(models)
 }
 
@@ -140,7 +142,7 @@ mod tests {
                 "data": [
                     {"id": "deepseek-reasoner", "object": "model", "context_length": 65536},
                     {"id": "deepseek-chat", "object": "model"},
-                    {"id": "deepseek-chat", "object": "model"},
+                    {"id": "deepseek-reasoner", "object": "model"},
                     {"id": " ", "object": "model"}
                 ]
             }"#,

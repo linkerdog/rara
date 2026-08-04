@@ -11,8 +11,11 @@ order.
 
 The TUI keeps provider model selection compatible with existing string-based
 state while retaining context-window metadata for both provider-specific and
-unified model pickers. API failures continue to use the static fallback
-catalog.
+unified model pickers. Model refresh uses one provider-parameterized runtime
+maintenance command, and the catalog is retained in `RuntimeSnapshot` so a
+snapshot consumer can hydrate the picker without parsing provider responses.
+API failures continue to use the static fallback catalog and mark that
+projection as fallback data.
 
 ## Why
 

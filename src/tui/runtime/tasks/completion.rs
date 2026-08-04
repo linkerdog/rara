@@ -472,7 +472,10 @@ async fn finish_running_task_if_ready_with_completion_mode(
                 app.open_overlay(Overlay::ListPicker(ListPickerKind::Model));
             }
             Err(err) => {
-                app.set_deepseek_model_catalog(fallback_catalog(ModelCatalogProvider::DeepSeek));
+                app.set_deepseek_model_catalog_with_source(
+                    fallback_catalog(ModelCatalogProvider::DeepSeek),
+                    true,
+                );
                 let message = format!(
                     "Failed to load DeepSeek models. Showing fallback list.\n{}",
                     format_error_chain(&err)
@@ -492,7 +495,10 @@ async fn finish_running_task_if_ready_with_completion_mode(
                 app.open_overlay(Overlay::ListPicker(ListPickerKind::Model));
             }
             Err(err) => {
-                app.set_kimi_model_catalog(fallback_catalog(ModelCatalogProvider::Kimi));
+                app.set_kimi_model_catalog_with_source(
+                    fallback_catalog(ModelCatalogProvider::Kimi),
+                    true,
+                );
                 let message = format!(
                     "Failed to load Kimi models. Showing fallback list.\n{}",
                     format_error_chain(&err)

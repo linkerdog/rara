@@ -9,6 +9,7 @@ use std::sync::{Arc, RwLock};
 
 use async_trait::async_trait;
 use futures::Stream;
+use rara_provider_catalog::ModelCatalogProvider;
 use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender, unbounded_channel};
 
 use crate::runtime_control::{
@@ -37,8 +38,7 @@ pub(crate) enum RuntimeCommand {
 pub(crate) enum RuntimeMaintenanceCommand {
     Compact,
     Rebuild,
-    LoadDeepSeekModels,
-    LoadKimiModels,
+    RefreshModelCatalog(ModelCatalogProvider),
 }
 
 // Contract items are intentionally ahead of their adapters; the next

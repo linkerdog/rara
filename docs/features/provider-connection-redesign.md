@@ -96,6 +96,10 @@ runtime availability projection. The runtime merges the response into typed
 `ModelCatalogEntry` values, preserving catalog context windows when the API
 does not return one and preferring an API-provided context length when it does.
 The TUI consumes those entries and does not parse provider response JSON.
+Catalog refresh is represented as one typed runtime command,
+`RefreshModelCatalog(provider)`, and the resulting entries are carried in
+`RuntimeSnapshot.model_catalogs` so model pickers can hydrate from the same
+projection used by future non-TUI clients.
 
 ## Future
 - Custom provider support (arbitrary API endpoint + API key)

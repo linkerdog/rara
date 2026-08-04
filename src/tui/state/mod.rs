@@ -31,12 +31,13 @@ pub use self::types::{
     ActiveLiveEvent, ActiveLiveSections, ActivePendingInteraction, ActivePendingInteractionKind,
     AgentMarkdownStreamState, CommandSpec, CompactionTranscriptPayload,
     CompletedInteractionSnapshot, GoalHandle, GoalStatus, HelpTab, InteractionKind, ListPickerKind,
-    LocalCommand, LocalCommandKind, ModelRoutingView, OAuthLoginMode, OpenAiModelPickerAction,
-    Overlay, PROVIDER_FAMILIES, PendingApprovalSnapshot, PendingInteractionSnapshot,
-    PermissionMode, PickerIntent, ProviderFamily, RalphGoal, RunningTask, RuntimeExtensionSnapshot,
-    RuntimePhase, RuntimeSnapshot, SkillPickerEntry, StatusTab, SystemMessageKind, TaskCompletion,
-    TaskKind, TerminalDiagnosticsView, ToolTranscriptPayload, ToolTranscriptStatus,
-    TranscriptEntry, TranscriptEntryPayload, TranscriptTurn, TuiApp, TuiEvent, UnifiedModelPreset,
+    LocalCommand, LocalCommandKind, ModelCatalogSnapshot, ModelRoutingView, OAuthLoginMode,
+    OpenAiModelPickerAction, Overlay, PROVIDER_FAMILIES, PendingApprovalSnapshot,
+    PendingInteractionSnapshot, PermissionMode, PickerIntent, ProviderFamily, RalphGoal,
+    RunningTask, RuntimeExtensionSnapshot, RuntimePhase, RuntimeSnapshot, SkillPickerEntry,
+    StatusTab, SystemMessageKind, TaskCompletion, TaskKind, TerminalDiagnosticsView,
+    ToolTranscriptPayload, ToolTranscriptStatus, TranscriptEntry, TranscriptEntryPayload,
+    TranscriptTurn, TuiApp, TuiEvent, UnifiedModelPreset,
 };
 use crate::oauth::OAuthManager;
 pub(crate) use crate::runtime_client::RebuildSuccess;
@@ -338,6 +339,14 @@ impl TuiApp {
             mcp_tool_cache: None,
         };
 
+        app.set_deepseek_model_catalog_with_source(
+            rara_provider_catalog::fallback_catalog(ModelCatalogProvider::DeepSeek),
+            true,
+        );
+        app.set_kimi_model_catalog_with_source(
+            rara_provider_catalog::fallback_catalog(ModelCatalogProvider::Kimi),
+            true,
+        );
         app.refresh_provider_connection_status();
         app.refresh_recent_threads();
 
@@ -1001,6 +1010,14 @@ impl TuiApp {
     }
 
     pub fn set_deepseek_model_catalog(&mut self, catalog: Vec<ModelCatalogEntry>) {
+        self.set_deepseek_model_catalog_with_source(catalog, false);
+    }
+
+    pub fn set_deepseek_model_catalog_with_source(
+        &mut self,
+        catalog: Vec<ModelCatalogEntry>,
+        is_fallback: bool,
+    ) {
         self.deepseek_model_context_windows = catalog
             .iter()
             .filter_map(|entry| {
@@ -1009,7 +1026,8 @@ impl TuiApp {
                     .map(|window| (entry.id.clone(), window))
             })
             .collect();
-        self.set_deepseek_model_options(catalog.into_iter().map(|entry| entry.id).collect());
+        self.set_deepseek_model_options(catalog.iter().map(|entry| entry.id.clone()).collect());
+        self.upsert_model_catalog_snapshot("deepseek", catalog, is_fallback);
     }
 
     pub fn set_kimi_model_options(&mut self, options: Vec<String>) {
@@ -1035,6 +1053,14 @@ impl TuiApp {
     }
 
     pub fn set_kimi_model_catalog(&mut self, catalog: Vec<ModelCatalogEntry>) {
+        self.set_kimi_model_catalog_with_source(catalog, false);
+    }
+
+    pub fn set_kimi_model_catalog_with_source(
+        &mut self,
+        catalog: Vec<ModelCatalogEntry>,
+        is_fallback: bool,
+    ) {
         self.kimi_model_context_windows = catalog
             .iter()
             .filter_map(|entry| {
@@ -1043,7 +1069,78 @@ impl TuiApp {
                     .map(|window| (entry.id.clone(), window))
             })
             .collect();
-        self.set_kimi_model_options(catalog.into_iter().map(|entry| entry.id).collect());
+        self.set_kimi_model_options(catalog.iter().map(|entry| entry.id.clone()).collect());
+        self.upsert_model_catalog_snapshot("kimi", catalog, is_fallback);
+    }
+
+    fn upsert_model_catalog_snapshot(
+        &mut self,
+        provider_id: &str,
+        models: Vec<ModelCatalogEntry>,
+        is_fallback: bool,
+    ) {
+        if let Some(snapshot) = self
+            .snapshot
+            .model_catalogs
+            .iter_mut()
+            .find(|snapshot| snapshot.provider_id == provider_id)
+        {
+            *snapshot = ModelCatalogSnapshot {
+                provider_id: provider_id.to_string(),
+                models,
+                is_fallback,
+            };
+        } else {
+            self.snapshot.model_catalogs.push(ModelCatalogSnapshot {
+                provider_id: provider_id.to_string(),
+                models,
+                is_fallback,
+            });
+        }
+    }
+
+    pub fn apply_model_catalog_snapshots(&mut self, catalogs: &[ModelCatalogSnapshot]) {
+        for catalog in catalogs {
+            match catalog.provider_id.as_str() {
+                "deepseek" => {
+                    self.deepseek_model_context_windows = catalog
+                        .models
+                        .iter()
+                        .filter_map(|entry| {
+                            entry
+                                .context_window
+                                .map(|window| (entry.id.clone(), window))
+                        })
+                        .collect();
+                    self.set_deepseek_model_options(
+                        catalog
+                            .models
+                            .iter()
+                            .map(|entry| entry.id.clone())
+                            .collect(),
+                    );
+                }
+                "kimi" => {
+                    self.kimi_model_context_windows = catalog
+                        .models
+                        .iter()
+                        .filter_map(|entry| {
+                            entry
+                                .context_window
+                                .map(|window| (entry.id.clone(), window))
+                        })
+                        .collect();
+                    self.set_kimi_model_options(
+                        catalog
+                            .models
+                            .iter()
+                            .map(|entry| entry.id.clone())
+                            .collect(),
+                    );
+                }
+                _ => {}
+            }
+        }
     }
 
     fn selected_model_preset(&self) -> Option<(&'static str, &'static str, &'static str)> {

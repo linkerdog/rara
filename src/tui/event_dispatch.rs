@@ -1,6 +1,7 @@
 use std::sync::Arc;
 
 use codex_models_manager::manager::RefreshStrategy;
+use rara_provider_catalog::ModelCatalogProvider;
 
 use super::app_event::AppEvent;
 use super::command::{palette_command_by_index, palette_commands};
@@ -402,7 +403,9 @@ async fn dispatch_event_inner(
                     request_maintenance(
                         app,
                         runtime_port,
-                        RuntimeMaintenanceCommand::LoadDeepSeekModels,
+                        RuntimeMaintenanceCommand::RefreshModelCatalog(
+                            ModelCatalogProvider::DeepSeek,
+                        ),
                     )
                     .await?;
                 } else if was_kimi {
@@ -411,7 +414,7 @@ async fn dispatch_event_inner(
                     request_maintenance(
                         app,
                         runtime_port,
-                        RuntimeMaintenanceCommand::LoadKimiModels,
+                        RuntimeMaintenanceCommand::RefreshModelCatalog(ModelCatalogProvider::Kimi),
                     )
                     .await?;
                 } else {
@@ -500,7 +503,7 @@ async fn dispatch_event_inner(
             request_maintenance(
                 app,
                 runtime_port,
-                RuntimeMaintenanceCommand::LoadDeepSeekModels,
+                RuntimeMaintenanceCommand::RefreshModelCatalog(ModelCatalogProvider::DeepSeek),
             )
             .await?;
         }
@@ -916,10 +919,10 @@ async fn request_maintenance(
     } else {
         match command {
             RuntimeMaintenanceCommand::Rebuild => super::runtime::start_rebuild_task(app),
-            RuntimeMaintenanceCommand::LoadDeepSeekModels => {
+            RuntimeMaintenanceCommand::RefreshModelCatalog(ModelCatalogProvider::DeepSeek) => {
                 super::runtime::start_deepseek_model_list_task(app)
             }
-            RuntimeMaintenanceCommand::LoadKimiModels => {
+            RuntimeMaintenanceCommand::RefreshModelCatalog(ModelCatalogProvider::Kimi) => {
                 super::runtime::start_kimi_model_list_task(app)
             }
             RuntimeMaintenanceCommand::Compact => {

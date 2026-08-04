@@ -303,6 +303,14 @@ pub struct RuntimeSnapshot {
     pub extension_command_count: usize,
     pub extension_agent_count: usize,
     pub extension_agent_status_lines: Vec<String>,
+    pub model_catalogs: Vec<ModelCatalogSnapshot>,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct ModelCatalogSnapshot {
+    pub provider_id: String,
+    pub models: Vec<ModelCatalogEntry>,
+    pub is_fallback: bool,
 }
 
 #[derive(Default, Clone, Debug, PartialEq, Eq)]

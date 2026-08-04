@@ -383,8 +383,7 @@ async fn request_maintenance(
                 }
             }
             RuntimeMaintenanceCommand::Rebuild => start_rebuild_task(app),
-            RuntimeMaintenanceCommand::LoadDeepSeekModels
-            | RuntimeMaintenanceCommand::LoadKimiModels => {
+            RuntimeMaintenanceCommand::RefreshModelCatalog(_) => {
                 app.push_notice("Model catalog loading requires a runtime client.")
             }
         }
