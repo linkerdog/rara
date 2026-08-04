@@ -29,14 +29,14 @@ use self::types::CommittedTranscriptRenderCache;
 pub use self::types::current_unix_timestamp_secs;
 pub use self::types::{
     ActiveLiveEvent, ActiveLiveSections, ActivePendingInteraction, ActivePendingInteractionKind,
-    AgentMarkdownStreamState, CommandSpec, CompletedInteractionSnapshot, GoalHandle, GoalStatus,
-    HelpTab, InteractionKind, ListPickerKind, LocalCommand, LocalCommandKind, ModelRoutingView,
-    OAuthLoginMode, OpenAiModelPickerAction, Overlay, PROVIDER_FAMILIES, PendingApprovalSnapshot,
-    PendingInteractionSnapshot, PermissionMode, PickerIntent, ProviderFamily, RalphGoal,
-    RunningTask, RuntimeExtensionSnapshot, RuntimePhase, RuntimeSnapshot, SkillPickerEntry,
-    StatusTab, SystemMessageKind, TaskCompletion, TaskKind, TerminalDiagnosticsView,
-    ToolTranscriptPayload, ToolTranscriptStatus, TranscriptEntry, TranscriptEntryPayload,
-    TranscriptTurn, TuiApp, TuiEvent, UnifiedModelPreset,
+    AgentMarkdownStreamState, CommandSpec, CompactionTranscriptPayload,
+    CompletedInteractionSnapshot, GoalHandle, GoalStatus, HelpTab, InteractionKind, ListPickerKind,
+    LocalCommand, LocalCommandKind, ModelRoutingView, OAuthLoginMode, OpenAiModelPickerAction,
+    Overlay, PROVIDER_FAMILIES, PendingApprovalSnapshot, PendingInteractionSnapshot,
+    PermissionMode, PickerIntent, ProviderFamily, RalphGoal, RunningTask, RuntimeExtensionSnapshot,
+    RuntimePhase, RuntimeSnapshot, SkillPickerEntry, StatusTab, SystemMessageKind, TaskCompletion,
+    TaskKind, TerminalDiagnosticsView, ToolTranscriptPayload, ToolTranscriptStatus,
+    TranscriptEntry, TranscriptEntryPayload, TranscriptTurn, TuiApp, TuiEvent, UnifiedModelPreset,
 };
 use crate::oauth::OAuthManager;
 pub(crate) use crate::runtime_client::RebuildSuccess;

@@ -76,6 +76,42 @@ fn structured_tool_event_updates_running_action_without_role_parsing() {
 }
 
 #[test]
+fn structured_compaction_event_becomes_a_typed_transcript_entry() {
+    let temp = tempdir().expect("tempdir");
+    let mut app = TuiApp::new(ConfigManager {
+        path: temp.path().join("config.json"),
+    })
+    .expect("app");
+    apply_tui_event(
+        &mut app,
+        TuiEvent::Runtime(Box::new(crate::runtime_control::RuntimeControlEvent {
+            event_id: "compact-1".into(),
+            provenance: RuntimeProvenance::local_tui("session-1"),
+            sequence: 1,
+            event: RuntimeEvent::Session(crate::runtime_control::SessionEvent::Compacted {
+                count: 2,
+                before_tokens: 12_000,
+                after_tokens: 4_500,
+                summary: "Retained the active task and recent files.".into(),
+                recent_files: vec!["src/runtime_control.rs".into()],
+            }),
+        })),
+    );
+
+    assert_eq!(app.snapshot.compaction_count, 2);
+    assert_eq!(app.active_turn.entries[0].role, "Compaction");
+    match app.active_turn.entries[0].payload.as_ref() {
+        Some(TranscriptEntryPayload::Compaction(payload)) => {
+            assert_eq!(payload.count, 2);
+            assert_eq!(payload.before_tokens, 12_000);
+            assert_eq!(payload.after_tokens, 4_500);
+            assert_eq!(payload.recent_files, vec!["src/runtime_control.rs"]);
+        }
+        payload => panic!("expected compaction payload, got {payload:?}"),
+    }
+}
+
+#[test]
 fn parses_delegated_request_input_from_subagent_result() {
     let parsed = subagent_request_input(
         "plan_agent refine the workspace logic\nrequest_user_input: Which discovery strategy should we keep?\noption: Minimal | Keep the current root-level files.\noption: Generic | Scan all instruction markdown files.\nnote: We need one product decision before editing.",

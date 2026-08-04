@@ -499,6 +499,7 @@ pub struct TranscriptEntry {
 pub enum TranscriptEntryPayload {
     Terminal(TerminalEvent),
     Tool(ToolTranscriptPayload),
+    Compaction(CompactionTranscriptPayload),
     /// Reserved for semantic transcript filtering and future per-kind system
     /// rendering; current committed cells only need to know it is system text
     /// (docs/todo.md).
@@ -518,6 +519,14 @@ pub struct ToolTranscriptPayload {
     pub call_id: Option<String>,
     pub name: String,
     pub status: ToolTranscriptStatus,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct CompactionTranscriptPayload {
+    pub count: usize,
+    pub before_tokens: usize,
+    pub after_tokens: usize,
+    pub recent_files: Vec<String>,
 }
 
 #[derive(Clone, Debug, Copy, PartialEq, Eq)]
@@ -577,6 +586,27 @@ impl TranscriptEntry {
             role: "System".to_string(),
             message: message.into(),
             payload: Some(TranscriptEntryPayload::System(kind)),
+        }
+    }
+
+    pub fn compaction(
+        count: usize,
+        before_tokens: usize,
+        after_tokens: usize,
+        summary: impl Into<String>,
+        recent_files: Vec<String>,
+    ) -> Self {
+        Self {
+            role: "Compaction".to_string(),
+            message: summary.into(),
+            payload: Some(TranscriptEntryPayload::Compaction(
+                CompactionTranscriptPayload {
+                    count,
+                    before_tokens,
+                    after_tokens,
+                    recent_files,
+                },
+            )),
         }
     }
 }

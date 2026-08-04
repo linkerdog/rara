@@ -161,6 +161,15 @@ pub enum AgentEvent {
         output_tokens: u32,
         finish_reason: Option<String>,
     },
+    /// Context history was compacted and the resulting session projection is
+    /// available to presentation clients.
+    Compaction {
+        count: usize,
+        before_tokens: usize,
+        after_tokens: usize,
+        summary: String,
+        recent_files: Vec<String>,
+    },
 }
 
 #[derive(Debug)]
