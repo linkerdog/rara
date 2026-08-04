@@ -85,10 +85,17 @@ Model list: each row shows model name + context window size.
 ### Phase 4 — Model Catalog And API-List Polish (P1)
 - [x] Add Kimi as a first-class provider with catalog-backed model windows.
 - [x] Add DeepSeek v4 model-window metadata to the provider catalog.
-- [ ] Generalize ModelSearch display so every provider with catalog metadata
+- [x] Generalize ModelSearch display so every provider with catalog metadata
       shows context windows consistently.
-- [ ] Add provider API model-list loading for connected API-key providers, with
-      catalog metadata as fallback and enrichment.
+- [x] Add provider API model-list loading for connected API-key providers, with
+      catalog metadata as fallback and enrichment for DeepSeek and Kimi.
+
+The provider catalog follows the OpenCode boundary: static provider metadata
+is the durable catalog, while a connected provider's `/models` response is a
+runtime availability projection. The runtime merges the response into typed
+`ModelCatalogEntry` values, preserving catalog context windows when the API
+does not return one and preferring an API-provided context length when it does.
+The TUI consumes those entries and does not parse provider response JSON.
 
 ## Future
 - Custom provider support (arbitrary API endpoint + API key)

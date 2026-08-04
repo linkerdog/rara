@@ -466,13 +466,13 @@ async fn finish_running_task_if_ready_with_completion_mode(
         TaskCompletion::DeepSeekModels { result } => match result {
             Ok(models) => {
                 let count = models.len();
-                app.set_deepseek_model_options(models);
+                app.set_deepseek_model_catalog(models);
                 app.bottom_pane.notice = Some(format!("Loaded {count} DeepSeek models."));
                 app.set_runtime_phase(RuntimePhase::Idle, Some("models loaded".into()));
                 app.open_overlay(Overlay::ListPicker(ListPickerKind::Model));
             }
             Err(err) => {
-                app.set_deepseek_model_options(fallback_models(ModelCatalogProvider::DeepSeek));
+                app.set_deepseek_model_catalog(fallback_catalog(ModelCatalogProvider::DeepSeek));
                 let message = format!(
                     "Failed to load DeepSeek models. Showing fallback list.\n{}",
                     format_error_chain(&err)
@@ -486,13 +486,13 @@ async fn finish_running_task_if_ready_with_completion_mode(
         TaskCompletion::KimiModels { result } => match result {
             Ok(models) => {
                 let count = models.len();
-                app.set_kimi_model_options(models);
+                app.set_kimi_model_catalog(models);
                 app.bottom_pane.notice = Some(format!("Loaded {count} Kimi models."));
                 app.set_runtime_phase(RuntimePhase::Idle, Some("models loaded".into()));
                 app.open_overlay(Overlay::ListPicker(ListPickerKind::Model));
             }
             Err(err) => {
-                app.set_kimi_model_options(fallback_models(ModelCatalogProvider::Kimi));
+                app.set_kimi_model_catalog(fallback_catalog(ModelCatalogProvider::Kimi));
                 let message = format!(
                     "Failed to load Kimi models. Showing fallback list.\n{}",
                     format_error_chain(&err)

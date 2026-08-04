@@ -652,6 +652,23 @@ fn deepseek_catalog_options_keep_current_custom_model_selectable() {
 }
 
 #[test]
+fn provider_catalog_context_window_flows_into_unified_model_presets() {
+    let dir = tempdir().expect("tempdir");
+    let cm = ConfigManager {
+        path: dir.path().join("config.json"),
+    };
+    let app = TuiApp::new(cm).expect("app");
+
+    let presets = app.all_unified_model_presets();
+    let kimi_k3 = presets
+        .iter()
+        .find(|preset| preset.provider_id == "kimi" && preset.model_id == "kimi-k3")
+        .expect("Kimi K3 catalog entry");
+
+    assert_eq!(kimi_k3.context_window, Some(1_048_576));
+}
+
+#[test]
 fn model_routing_view_infers_deepseek_auxiliary_model() {
     let dir = tempdir().expect("tempdir");
     let cm = ConfigManager {

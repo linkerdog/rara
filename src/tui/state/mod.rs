@@ -132,6 +132,7 @@ fn terminal_remote_label(remote: Option<&rara_terminal_detection::RemoteSession>
 }
 
 use rara_persistence::redaction::redact_secrets;
+use rara_provider_catalog::ModelCatalogEntry;
 use rara_provider_catalog::{ModelCatalogProvider, fallback_models};
 use rara_state::state_db::StateDb;
 
@@ -277,6 +278,18 @@ impl TuiApp {
             codex_model_options: Vec::new(),
             deepseek_model_options: fallback_models(ModelCatalogProvider::DeepSeek),
             kimi_model_options: fallback_models(ModelCatalogProvider::Kimi),
+            deepseek_model_context_windows: rara_provider_catalog::fallback_catalog(
+                ModelCatalogProvider::DeepSeek,
+            )
+            .into_iter()
+            .filter_map(|entry| entry.context_window.map(|window| (entry.id, window)))
+            .collect(),
+            kimi_model_context_windows: rara_provider_catalog::fallback_catalog(
+                ModelCatalogProvider::Kimi,
+            )
+            .into_iter()
+            .filter_map(|entry| entry.context_window.map(|window| (entry.id, window)))
+            .collect(),
             recent_commands: Vec::new(),
             recent_threads: Vec::new(),
             resume_picker_idx: 0,
@@ -636,7 +649,7 @@ impl TuiApp {
                                 model_id: model.clone(),
                                 model_label: model.clone(),
                                 status: None,
-                                context_window: None,
+                                context_window: self.model_context_window(*family, model),
                             });
                         }
                     }
@@ -661,7 +674,7 @@ impl TuiApp {
                                 model_id: model.clone(),
                                 model_label: model.clone(),
                                 status: None,
-                                context_window: None,
+                                context_window: self.model_context_window(*family, model),
                             });
                         }
                     }
@@ -762,19 +775,21 @@ impl TuiApp {
             }
         }
         for p in &mut results {
-            p.context_window = Self::resolve_context_window(&p.model_id);
+            if p.context_window.is_none() {
+                p.context_window = self.model_context_window(p.family, &p.model_id);
+            }
         }
         results
     }
 
     /// Look up context window tokens for a model from provider catalogs.
-    fn resolve_context_window(model_id: &str) -> Option<u32> {
-        for &(name, tokens) in rara_provider_catalog::deepseek::MODEL_WINDOWS {
-            if model_id == name {
-                return Some(tokens);
-            }
+    pub fn model_context_window(&self, family: ProviderFamily, model_id: &str) -> Option<u32> {
+        match family {
+            ProviderFamily::DeepSeek => self.deepseek_model_context_windows.get(model_id),
+            ProviderFamily::Kimi => self.kimi_model_context_windows.get(model_id),
+            _ => None,
         }
-        None
+        .copied()
     }
 
     pub fn select_unified_model(&mut self, idx: usize) {
@@ -985,6 +1000,18 @@ impl TuiApp {
         self.model_picker_idx = self.selected_preset_idx();
     }
 
+    pub fn set_deepseek_model_catalog(&mut self, catalog: Vec<ModelCatalogEntry>) {
+        self.deepseek_model_context_windows = catalog
+            .iter()
+            .filter_map(|entry| {
+                entry
+                    .context_window
+                    .map(|window| (entry.id.clone(), window))
+            })
+            .collect();
+        self.set_deepseek_model_options(catalog.into_iter().map(|entry| entry.id).collect());
+    }
+
     pub fn set_kimi_model_options(&mut self, options: Vec<String>) {
         let mut options = if options.is_empty() {
             fallback_models(ModelCatalogProvider::Kimi)
@@ -1005,6 +1032,18 @@ impl TuiApp {
         options.dedup();
         self.kimi_model_options = options;
         self.model_picker_idx = self.selected_preset_idx();
+    }
+
+    pub fn set_kimi_model_catalog(&mut self, catalog: Vec<ModelCatalogEntry>) {
+        self.kimi_model_context_windows = catalog
+            .iter()
+            .filter_map(|entry| {
+                entry
+                    .context_window
+                    .map(|window| (entry.id.clone(), window))
+            })
+            .collect();
+        self.set_kimi_model_options(catalog.into_iter().map(|entry| entry.id).collect());
     }
 
     fn selected_model_preset(&self) -> Option<(&'static str, &'static str, &'static str)> {

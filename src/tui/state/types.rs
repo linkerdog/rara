@@ -1,8 +1,10 @@
 use std::cell::RefCell;
+use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::{Arc, atomic::AtomicBool};
 use std::time::Instant;
 
+use rara_provider_catalog::ModelCatalogEntry;
 use rara_state::state_db::StateDb;
 use rara_tools::tool::ToolOutputStream;
 use ratatui::text::Line;
@@ -402,10 +404,10 @@ pub enum TaskCompletion {
         result: anyhow::Result<secrecy::SecretString>,
     },
     DeepSeekModels {
-        result: anyhow::Result<Vec<String>>,
+        result: anyhow::Result<Vec<ModelCatalogEntry>>,
     },
     KimiModels {
-        result: anyhow::Result<Vec<String>>,
+        result: anyhow::Result<Vec<ModelCatalogEntry>>,
     },
 }
 
@@ -801,6 +803,8 @@ pub struct TuiApp {
     pub codex_model_options: Vec<CodexModelOption>,
     pub deepseek_model_options: Vec<String>,
     pub kimi_model_options: Vec<String>,
+    pub deepseek_model_context_windows: HashMap<String, u32>,
+    pub kimi_model_context_windows: HashMap<String, u32>,
     pub recent_commands: Vec<String>,
     pub recent_threads: Vec<ThreadSummary>,
     pub resume_picker_idx: usize,

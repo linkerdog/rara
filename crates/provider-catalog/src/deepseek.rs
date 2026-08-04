@@ -3,8 +3,8 @@ use rara_config::DEFAULT_DEEPSEEK_BASE_URL;
 use secrecy::{ExposeSecret, SecretString};
 use serde::Deserialize;
 
-use crate::ModelCatalogRequest;
 use crate::redaction::{redact_known_secret, sanitize_url_for_display};
+use crate::{ModelCatalogEntry, ModelCatalogRequest};
 
 const MODELS_TIMEOUT_SECS: u64 = 15;
 
@@ -33,12 +33,24 @@ struct ModelsResponse {
 #[derive(Deserialize)]
 struct ModelEntry {
     id: String,
+    #[serde(alias = "context_window", alias = "max_context_length")]
+    context_length: Option<u32>,
 }
 
 pub fn fallback_models() -> Vec<String> {
     FALLBACK_MODELS
         .iter()
         .map(|model| (*model).to_string())
+        .collect()
+}
+
+pub fn fallback_catalog() -> Vec<ModelCatalogEntry> {
+    MODEL_WINDOWS
+        .iter()
+        .map(|(id, context_window)| ModelCatalogEntry {
+            id: (*id).to_string(),
+            context_window: Some(*context_window),
+        })
         .collect()
 }
 
@@ -52,18 +64,29 @@ pub fn models_url(base_url: Option<&str>) -> String {
     format!("{root}/models")
 }
 
-pub fn parse_models(body: &str) -> Result<Vec<String>> {
+pub fn parse_models(body: &str) -> Result<Vec<ModelCatalogEntry>> {
     let response: ModelsResponse = serde_json::from_str(body)?;
-    let models = response
+    let mut models = response
         .data
         .into_iter()
-        .map(|model| model.id.trim().to_string())
-        .filter(|id| !id.is_empty())
+        .filter_map(|model| {
+            let id = model.id.trim().to_string();
+            (!id.is_empty()).then_some(ModelCatalogEntry {
+                context_window: model.context_length.or_else(|| {
+                    MODEL_WINDOWS
+                        .iter()
+                        .find(|(name, _)| *name == id)
+                        .map(|(_, window)| *window)
+                }),
+                id,
+            })
+        })
         .collect::<Vec<_>>();
+    models.dedup_by(|left, right| left.id == right.id);
     Ok(models)
 }
 
-pub async fn load_models(request: ModelCatalogRequest<'_>) -> Result<Vec<String>> {
+pub async fn load_models(request: ModelCatalogRequest<'_>) -> Result<Vec<ModelCatalogEntry>> {
     let api_key = request
         .api_key
         .map(SecretString::expose_secret)
@@ -115,7 +138,7 @@ mod tests {
             r#"{
                 "object": "list",
                 "data": [
-                    {"id": "deepseek-reasoner", "object": "model"},
+                    {"id": "deepseek-reasoner", "object": "model", "context_length": 65536},
                     {"id": "deepseek-chat", "object": "model"},
                     {"id": "deepseek-chat", "object": "model"},
                     {"id": " ", "object": "model"}
@@ -126,7 +149,16 @@ mod tests {
 
         assert_eq!(
             models,
-            vec!["deepseek-reasoner", "deepseek-chat", "deepseek-chat"]
+            vec![
+                super::ModelCatalogEntry {
+                    id: "deepseek-reasoner".to_string(),
+                    context_window: Some(65_536),
+                },
+                super::ModelCatalogEntry {
+                    id: "deepseek-chat".to_string(),
+                    context_window: Some(65_536),
+                },
+            ]
         );
     }
 }

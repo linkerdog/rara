@@ -13,7 +13,7 @@ use std::time::Instant;
 use builder::rebuild_agent_with_progress;
 use rara_persistence::redaction::sanitize_url_for_display;
 use rara_provider_catalog::{
-    ModelCatalogProvider, ModelCatalogRequest, fallback_models, load_model_catalog,
+    ModelCatalogProvider, ModelCatalogRequest, fallback_catalog, load_model_catalog,
 };
 use secrecy::ExposeSecret;
 use tokio::sync::mpsc;
