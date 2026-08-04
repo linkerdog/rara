@@ -15,6 +15,20 @@ The transcript should move toward Codex/Claude-style tool visibility:
 
 ## Current Contract
 
+### Runtime tool identity
+
+- Structured runtime tool events carry an optional `call_id`.
+- The runtime event bus assigns an ID to tool-use events that do not already
+  have one, and correlates progress and result events by session and tool name.
+- Correlation state is runtime-owned and isolated by session; TUI and ACP
+  consumers must use the projected ID instead of reconstructing it from
+  transcript text.
+- Producers that already provide a provider-native call ID retain that ID.
+
+This is an incremental compatibility boundary. Legacy transcript persistence
+continues to store role/message fields while typed projections become the
+source of live tool identity.
+
 ### Edit tools
 
 - `apply_patch` tool-use rows must include the touched file paths when they can be derived from the patch.
