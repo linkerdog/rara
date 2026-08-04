@@ -2551,7 +2551,7 @@ async fn deepseek_api_key_save_starts_model_catalog_task() {
     assert_eq!(app.config.api_key(), Some("sk-deepseek-test"));
     assert!(matches!(
         app.bottom_pane.running_task.as_ref(),
-        Some(task) if matches!(task.kind, TaskKind::DeepSeekModels)
+        Some(task) if matches!(task.kind, TaskKind::ModelCatalog)
     ));
     if let Some(task) = app.bottom_pane.running_task.take() {
         task.handle.abort();
