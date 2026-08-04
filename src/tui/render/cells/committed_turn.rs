@@ -2,6 +2,7 @@ use std::path::Path;
 
 use ratatui::text::Line;
 
+use super::compaction::CompactionCell;
 use super::interaction_cells::CommittedInteractionCell;
 use super::message_cell::MessageCell;
 use super::progress::{ProgressRole, progress_entry_message_lines, push_progress_group};
@@ -119,6 +120,11 @@ fn push_ordered_committed_activity<'a>(
 
         if let Some(cell) = terminal_cell_from_entries(std::iter::once(entry)) {
             cells.push(Box::new(cell));
+            continue;
+        }
+
+        if let Some(TranscriptEntryPayload::Compaction(payload)) = entry.payload.as_ref() {
+            cells.push(Box::new(CompactionCell::new(payload, &entry.message)));
             continue;
         }
 

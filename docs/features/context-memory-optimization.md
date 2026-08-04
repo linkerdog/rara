@@ -191,6 +191,9 @@ compatibility persistence.
 - [ ] Add completed tool summary to bottom pane footer.
 - [ ] Add `[cached]` tag to budget rows for memory section.
 
+Compaction entries use a dedicated timeline cell with token savings and recent
+file count. They are not rendered as generic assistant or tool messages.
+
 ### Phase 2: Memory retrieval throttle
 
 - [ ] Add `MemoryRetrievalCache` struct to `RalphAgent`.

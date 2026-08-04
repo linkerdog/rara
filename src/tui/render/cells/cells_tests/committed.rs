@@ -1,4 +1,33 @@
 use super::*;
+use crate::tui::state::{CompactionTranscriptPayload, TranscriptEntryPayload};
+
+#[test]
+fn committed_turn_renders_compaction_as_a_dedicated_cell() {
+    let entries = vec![TranscriptEntry {
+        role: "Compaction".into(),
+        message: "Retained the active task.".into(),
+        payload: Some(TranscriptEntryPayload::Compaction(
+            CompactionTranscriptPayload {
+                count: 2,
+                before_tokens: 12_000,
+                after_tokens: 4_500,
+                recent_files: vec!["src/runtime_control.rs".into()],
+            },
+        )),
+    }];
+
+    let rendered = CommittedTurnCell::new(entries.as_slice(), Some(Path::new(".")), false, None)
+        .display_lines(100)
+        .into_iter()
+        .map(|line| line.to_string())
+        .collect::<Vec<_>>()
+        .join("\n");
+
+    assert!(rendered.contains("Compaction #2"));
+    assert!(rendered.contains("12.0k -> 4.5k tokens"));
+    assert!(rendered.contains("saved 7.5k"));
+    assert!(rendered.contains("recent files: 1"));
+}
 
 #[test]
 fn explicit_progress_entry_groups_preserves_thinking_indentation() {

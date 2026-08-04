@@ -4,6 +4,7 @@ use crate::tui::state::{TranscriptEntry, TranscriptEntryPayload};
 
 mod active_turn;
 mod committed_turn;
+mod compaction;
 mod interaction_cells;
 mod lsp_diagnostics;
 mod message_cell;
@@ -16,6 +17,7 @@ mod user_startup;
 
 pub(crate) use self::active_turn::ActiveTurnCell;
 pub(crate) use self::committed_turn::CommittedTurnCell;
+pub(crate) use self::compaction::CompactionCell;
 pub(crate) use self::interaction_cells::{
     CommittedInteractionCell, PendingInteractionCell, QueuedFollowUpCell, TerminalCell,
 };
