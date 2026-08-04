@@ -49,6 +49,7 @@ fn structured_tool_event_updates_running_action_without_role_parsing() {
         provenance: RuntimeProvenance::local_tui("session-1"),
         sequence: 1,
         event: RuntimeEvent::Tool(crate::runtime_control::ToolEvent::Use {
+            call_id: Some("call-1".into()),
             name: "write_file".into(),
             input: json!({"path": "src/runtime.rs", "content": "fn main() {}"}),
         }),
@@ -61,6 +62,17 @@ fn structured_tool_event_updates_running_action_without_role_parsing() {
         vec!["Write src/runtime.rs".to_string()]
     );
     assert_eq!(app.active_turn.entries[0].role, "Tool");
+    match app.active_turn.entries[0].payload.as_ref() {
+        Some(crate::tui::state::TranscriptEntryPayload::Tool(payload)) => {
+            assert_eq!(payload.call_id.as_deref(), Some("call-1"));
+            assert_eq!(payload.name, "write_file");
+            assert_eq!(
+                payload.status,
+                crate::tui::state::ToolTranscriptStatus::Running
+            );
+        }
+        payload => panic!("expected structured tool payload, got {payload:?}"),
+    }
 }
 
 #[test]

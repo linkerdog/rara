@@ -35,7 +35,8 @@ pub use self::types::{
     PendingInteractionSnapshot, PermissionMode, PickerIntent, ProviderFamily, RalphGoal,
     RunningTask, RuntimeExtensionSnapshot, RuntimePhase, RuntimeSnapshot, SkillPickerEntry,
     StatusTab, SystemMessageKind, TaskCompletion, TaskKind, TerminalDiagnosticsView,
-    TranscriptEntry, TranscriptEntryPayload, TranscriptTurn, TuiApp, TuiEvent, UnifiedModelPreset,
+    ToolTranscriptPayload, ToolTranscriptStatus, TranscriptEntry, TranscriptEntryPayload,
+    TranscriptTurn, TuiApp, TuiEvent, UnifiedModelPreset,
 };
 use crate::oauth::OAuthManager;
 pub(crate) use crate::runtime_client::RebuildSuccess;

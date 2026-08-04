@@ -256,7 +256,11 @@ fn apply_runtime_control_event(app: &mut TuiApp, event: RuntimeControlEvent) {
         | RuntimeEvent::Session(SessionEvent::Created { .. })
         | RuntimeEvent::Session(SessionEvent::Resumed { .. })
         | RuntimeEvent::Session(SessionEvent::ModelResponse { .. }) => {}
-        RuntimeEvent::Tool(ToolEvent::Use { name, input }) => {
+        RuntimeEvent::Tool(ToolEvent::Use {
+            call_id,
+            name,
+            input,
+        }) => {
             if name == crate::tools::todo::TODO_WRITE_TOOL_NAME {
                 if let Ok(state) = crate::todo::normalize_todo_write_input(&input) {
                     app.snapshot.todo = crate::context::TodoContextView::from_state(Some(state));
@@ -278,9 +282,15 @@ fn apply_runtime_control_event(app: &mut TuiApp, event: RuntimeControlEvent) {
                 app.record_running_action(action);
             }
             app.set_runtime_phase(RuntimePhase::RunningTool, Some(name.clone()));
-            app.push_entry("Tool", format_tool_use(&name, &input));
+            app.push_tool_entry(
+                call_id.as_deref(),
+                &name,
+                crate::tui::state::ToolTranscriptStatus::Running,
+                format_tool_use(&name, &input),
+            );
         }
         RuntimeEvent::Tool(ToolEvent::Result {
+            call_id,
             name,
             content,
             is_error,
@@ -312,16 +322,19 @@ fn apply_runtime_control_event(app: &mut TuiApp, event: RuntimeControlEvent) {
                 app.advance_running_tool_boundary();
             }
             app.set_runtime_phase(RuntimePhase::RunningTool, Some(name.clone()));
-            app.push_entry(
+            app.push_tool_entry(
+                call_id.as_deref(),
+                &name,
                 if is_error {
-                    "Tool Error"
+                    crate::tui::state::ToolTranscriptStatus::Error
                 } else {
-                    "Tool Result"
+                    crate::tui::state::ToolTranscriptStatus::Completed
                 },
                 format_tool_result(&name, &content),
             );
         }
         RuntimeEvent::Tool(ToolEvent::Progress {
+            call_id: _,
             name,
             stream,
             chunk,

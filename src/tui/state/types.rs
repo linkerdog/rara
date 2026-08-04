@@ -498,11 +498,26 @@ pub struct TranscriptEntry {
 #[derive(Clone, Debug)]
 pub enum TranscriptEntryPayload {
     Terminal(TerminalEvent),
+    Tool(ToolTranscriptPayload),
     /// Reserved for semantic transcript filtering and future per-kind system
     /// rendering; current committed cells only need to know it is system text
     /// (docs/todo.md).
     #[allow(dead_code)]
     System(SystemMessageKind),
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ToolTranscriptStatus {
+    Running,
+    Completed,
+    Error,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ToolTranscriptPayload {
+    pub call_id: Option<String>,
+    pub name: String,
+    pub status: ToolTranscriptStatus,
 }
 
 #[derive(Clone, Debug, Copy, PartialEq, Eq)]
@@ -532,6 +547,28 @@ impl TranscriptEntry {
             role: "Terminal Event".to_string(),
             message: event.to_transcript_message(),
             payload: Some(TranscriptEntryPayload::Terminal(event)),
+        }
+    }
+
+    pub fn tool(
+        call_id: Option<&str>,
+        name: impl Into<String>,
+        status: ToolTranscriptStatus,
+        message: impl Into<String>,
+    ) -> Self {
+        let role = match status {
+            ToolTranscriptStatus::Running => "Tool",
+            ToolTranscriptStatus::Completed => "Tool Result",
+            ToolTranscriptStatus::Error => "Tool Error",
+        };
+        Self {
+            role: role.to_string(),
+            message: message.into(),
+            payload: Some(TranscriptEntryPayload::Tool(ToolTranscriptPayload {
+                call_id: call_id.map(ToString::to_string),
+                name: name.into(),
+                status,
+            })),
         }
     }
 
