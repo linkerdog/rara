@@ -178,8 +178,6 @@ Active backlog only. Keep this file small and current.
 - [x] Explicit embedding provider override beyond `off` / `auto`.
 - [x] Remove bundled local embedding runtime from memory retrieval; keep
       `local_embeddings` as deprecated config compatibility only.
-- [ ] Regenerate Bazel lock metadata after embedded vector-memory dependency
-      removal if this branch needs Bazel CI validation.
 - [ ] Decide whether to keep or migrate away the deprecated
       `local_embeddings` config field.
 
