@@ -613,7 +613,7 @@ fn memory_label_name(label: &MemoryLabel) -> &'static str {
 
 #[cfg(test)]
 mod tests {
-    use rara_memory::vectordb::VectorDB;
+    use rara_memory::memory_handle::MemoryHandle;
     use serde_json::json;
 
     use super::*;
@@ -623,8 +623,8 @@ mod tests {
     fn test_memory_store(root: &std::path::Path) -> Arc<MemoryStore> {
         Arc::new(MemoryStore::new_with_record_path(
             Arc::new(MockLlm),
-            Arc::new(VectorDB::new(
-                root.join("lancedb").to_str().expect("utf8 path"),
+            Arc::new(MemoryHandle::new(
+                root.join("memory").to_str().expect("utf8 path"),
             )),
             root.join("memories").join("records.json"),
         ))

@@ -515,21 +515,11 @@ pub fn status_runtime_text(app: &TuiApp) -> String {
     } else {
         ("remote".to_string(), "-".to_string())
     };
-    let embedding_state = match app.local_model_server.state {
-        crate::local_model_server::LocalModelServerState::Ready => "ready",
-        crate::local_model_server::LocalModelServerState::Starting => "starting",
-        crate::local_model_server::LocalModelServerState::WaitingForServer => "waiting_for_server",
-        crate::local_model_server::LocalModelServerState::CreatingVenv => "creating_venv",
-        crate::local_model_server::LocalModelServerState::InstallingDependencies => {
-            "installing_dependencies"
-        }
-        crate::local_model_server::LocalModelServerState::PreparingModel => "preparing_model",
-        crate::local_model_server::LocalModelServerState::PreparedButStopped => "prepared_stopped",
-        crate::local_model_server::LocalModelServerState::SetupRequired => "setup_required",
-        crate::local_model_server::LocalModelServerState::Error => "error",
+    let semantic_memory_state = match app.local_model_server.state {
+        crate::local_model_server::LocalModelServerState::Disabled => "disabled",
     };
     format!(
-        "provider={}\nendpoint_profile={}\nendpoint_kind={}\nmodel={}\nmodel_source={}\nauxiliary_model={}\nauxiliary_model_source={}\nauxiliary_route={}\nbase_url={}\nbase_url_source={}\nrevision={}\nrevision_source={}\nagent_mode={}\nbash_approval={}\nmode={}\napi_key={}\napi_key_source={}\ncodex_auth_mode={}\ncodex_endpoint_kind={}\nthinking={}\nreasoning_summary={}\nreasoning_summary_source={}\nreasoning_effort={}\nreasoning_effort_source={}\nplanning_status={}\nplan_path={}\nplanning_pending_age={}\nplanning_last_decision={}\napproved_plan_revision={}\nexit_plan_tool={}\ntodo={}\nshared_tasks={}\nembedding_state={}\nembedding_backend={}\nembedding_model={}\nembedding_detail={}\ndevice={}\ndtype={}\nterminal_name={}\nterminal_user_agent={}\nterminal_term={}\nterminal_term_program={}\nterminal_multiplexer={}\nterminal_remote={}\nterminal_history_mode={}\nterminal_focused={}\nterminal_width_columns={}\nphase={}\ndetail={}",
+        "provider={}\nendpoint_profile={}\nendpoint_kind={}\nmodel={}\nmodel_source={}\nauxiliary_model={}\nauxiliary_model_source={}\nauxiliary_route={}\nbase_url={}\nbase_url_source={}\nrevision={}\nrevision_source={}\nagent_mode={}\nbash_approval={}\nmode={}\napi_key={}\napi_key_source={}\ncodex_auth_mode={}\ncodex_endpoint_kind={}\nthinking={}\nreasoning_summary={}\nreasoning_summary_source={}\nreasoning_effort={}\nreasoning_effort_source={}\nplanning_status={}\nplan_path={}\nplanning_pending_age={}\nplanning_last_decision={}\napproved_plan_revision={}\nexit_plan_tool={}\ntodo={}\nshared_tasks={}\nsemantic_memory_state={}\nsemantic_memory_backend={}\nsemantic_memory_model={}\nsemantic_memory_detail={}\ndevice={}\ndtype={}\nterminal_name={}\nterminal_user_agent={}\nterminal_term={}\nterminal_term_program={}\nterminal_multiplexer={}\nterminal_remote={}\nterminal_history_mode={}\nterminal_focused={}\nterminal_width_columns={}\nphase={}\ndetail={}",
         surface.provider,
         endpoint_profile,
         endpoint_kind,
@@ -570,7 +560,7 @@ pub fn status_runtime_text(app: &TuiApp) -> String {
         app.snapshot.planning_lifecycle.tool_use_id_label(),
         todo_summary_line(app),
         shared_task_summary_line(app),
-        embedding_state,
+        semantic_memory_state,
         app.local_model_server.backend,
         app.local_model_server.model,
         app.local_model_server.detail,

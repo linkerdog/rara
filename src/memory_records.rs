@@ -1,4 +1,5 @@
 impl MemoryRecord {
+    #[cfg(test)]
     fn index_scope_key(&self) -> String {
         match self.scope {
             MemoryScope::Thread => self
@@ -24,34 +25,6 @@ impl MemoryRecord {
         self.pinned
             || self.source == MemorySource::UserCreated
             || self.importance >= HIGH_IMPORTANCE_RETENTION_THRESHOLD
-    }
-}
-
-impl From<MemoryMetadata> for MemoryRecord {
-    fn from(metadata: MemoryMetadata) -> Self {
-        let session_id = metadata.session_id.clone();
-        let turn_index = metadata.turn_index;
-        let now = unix_timestamp_seconds();
-        Self {
-            id: metadata.id.unwrap_or_else(|| {
-                format!("legacy-{}-{}", metadata.session_id, metadata.turn_index)
-            }),
-            title: title_from_content(&metadata.text),
-            content: metadata.text,
-            labels: vec![MemoryLabel::Experience],
-            importance: DEFAULT_IMPORTANCE,
-            pinned: false,
-            source: MemorySource::AgentTurn,
-            scope: memory_scope_from_key(&metadata.session_id),
-            session_id: Some(session_id),
-            thread_id: None,
-            source_span: Some(MemorySourceSpan {
-                start_turn_index: turn_index,
-                end_turn_index: turn_index,
-            }),
-            created_at_unix_seconds: now,
-            updated_at_unix_seconds: now,
-        }
     }
 }
 
@@ -101,8 +74,8 @@ impl MemoryRecordFileStore {
         }
     }
 
-    fn for_vdb_uri(uri: &str) -> Self {
-        Self::new(default_record_path_for_vdb_uri(uri))
+    fn for_memory_handle_uri(uri: &str) -> Self {
+        Self::new(default_record_path_for_memory_handle_uri(uri))
     }
 
     async fn upsert(&self, record: &MemoryRecord) -> Result<()> {

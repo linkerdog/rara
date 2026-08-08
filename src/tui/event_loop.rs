@@ -36,7 +36,6 @@ pub async fn run_tui(
     runtime: RuntimeClient,
     oauth_manager: OAuthManager,
     startup_resume: StartupResumeTarget,
-    initialize_local_embeddings: bool,
 ) -> anyhow::Result<Option<String>> {
     enable_raw_mode()?;
     let initial_size = terminal_size()?;
@@ -101,19 +100,10 @@ pub async fn run_tui(
 
     maintainer.sync_snapshot(&processor).await?;
     maintainer.start_repo_context_detection();
-    if should_start_initial_rebuild(
-        initialize_local_embeddings,
-        &maintainer.app().explicit_plugin_dirs,
-    ) {
-        if initialize_local_embeddings {
-            maintainer
-                .app_mut()
-                .push_entry("Runtime", "Initializing local embedding model.");
-        } else {
-            maintainer
-                .app_mut()
-                .push_entry("Runtime", "Loading explicit plugin directories.");
-        }
+    if should_start_initial_rebuild(&maintainer.app().explicit_plugin_dirs) {
+        maintainer
+            .app_mut()
+            .push_entry("Runtime", "Loading explicit plugin directories.");
         maintainer
             .send_runtime_command(RuntimeCommand::Maintenance(
                 RuntimeMaintenanceCommand::Rebuild,
@@ -243,11 +233,8 @@ pub async fn run_tui(
     Ok(session_id)
 }
 
-fn should_start_initial_rebuild(
-    initialize_local_embeddings: bool,
-    explicit_plugin_dirs: &[PathBuf],
-) -> bool {
-    initialize_local_embeddings || !explicit_plugin_dirs.is_empty()
+fn should_start_initial_rebuild(explicit_plugin_dirs: &[PathBuf]) -> bool {
+    !explicit_plugin_dirs.is_empty()
 }
 
 #[cfg(test)]
@@ -257,12 +244,8 @@ mod tests {
     use super::should_start_initial_rebuild;
 
     #[test]
-    fn initial_rebuild_starts_for_embeddings_or_explicit_plugin_dirs() {
-        assert!(should_start_initial_rebuild(true, &[]));
-        assert!(should_start_initial_rebuild(
-            false,
-            &[PathBuf::from("/plugins")]
-        ));
-        assert!(!should_start_initial_rebuild(false, &[]));
+    fn initial_rebuild_starts_for_explicit_plugin_dirs() {
+        assert!(should_start_initial_rebuild(&[PathBuf::from("/plugins")]));
+        assert!(!should_start_initial_rebuild(&[]));
     }
 }

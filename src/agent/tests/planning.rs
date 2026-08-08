@@ -2,7 +2,7 @@ use std::sync::{Arc, Mutex};
 
 use anyhow::Result;
 use async_trait::async_trait;
-use rara_memory::vectordb::VectorDB;
+use rara_memory::memory_handle::MemoryHandle;
 use rara_tools::planning::{EnterPlanModeTool, ExitPlanModeTool};
 use rara_tools::tool::ToolManager;
 use serde_json::json;
@@ -50,11 +50,6 @@ impl LlmBackend for CheckpointObserverBackend {
             usage: Some(TokenUsage::default()),
         })
     }
-
-    async fn embed(&self, _text: &str) -> Result<Vec<f32>> {
-        Ok(vec![0.0; 8])
-    }
-
     async fn summarize(
         &self,
         _messages: &[crate::agent::Message],
@@ -110,11 +105,6 @@ impl LlmBackend for RecoverableRuntimeErrorBackend {
             usage: Some(TokenUsage::default()),
         })
     }
-
-    async fn embed(&self, _text: &str) -> Result<Vec<f32>> {
-        Ok(vec![0.0; 8])
-    }
-
     async fn summarize(
         &self,
         _messages: &[crate::agent::Message],
@@ -145,7 +135,9 @@ async fn emits_model_request_and_response_events() {
     let mut agent = Agent::new(
         ToolManager::new(),
         backend,
-        Arc::new(VectorDB::new(&rara_dir.join("lancedb").to_string_lossy())),
+        Arc::new(MemoryHandle::new(
+            &rara_dir.join("memory").to_string_lossy(),
+        )),
         session_manager,
         workspace,
     );
@@ -208,7 +200,9 @@ async fn appends_continuation_after_tool_result() {
     let mut agent = Agent::new(
         tool_manager,
         backend.clone(),
-        Arc::new(VectorDB::new(&rara_dir.join("lancedb").to_string_lossy())),
+        Arc::new(MemoryHandle::new(
+            &rara_dir.join("memory").to_string_lossy(),
+        )),
         session_manager,
         workspace,
     );
@@ -267,7 +261,9 @@ async fn visible_text_before_tool_call_does_not_end_agent_turn() {
     let mut agent = Agent::new(
         tool_manager,
         backend.clone(),
-        Arc::new(VectorDB::new(&rara_dir.join("lancedb").to_string_lossy())),
+        Arc::new(MemoryHandle::new(
+            &rara_dir.join("memory").to_string_lossy(),
+        )),
         session_manager,
         workspace,
     );
@@ -360,7 +356,9 @@ async fn raw_leading_think_is_not_persisted_as_assistant_context_text() {
     let mut agent = Agent::new(
         tool_manager,
         backend.clone(),
-        Arc::new(VectorDB::new(&rara_dir.join("lancedb").to_string_lossy())),
+        Arc::new(MemoryHandle::new(
+            &rara_dir.join("memory").to_string_lossy(),
+        )),
         session_manager,
         workspace,
     );
@@ -432,7 +430,9 @@ async fn todo_write_updates_session_state_and_emits_event() {
     let mut agent = Agent::new(
         tool_manager,
         backend,
-        Arc::new(VectorDB::new(&rara_dir.join("lancedb").to_string_lossy())),
+        Arc::new(MemoryHandle::new(
+            &rara_dir.join("memory").to_string_lossy(),
+        )),
         session_manager.clone(),
         workspace,
     );
@@ -517,7 +517,9 @@ async fn todo_write_persistence_failure_warns_without_aborting_turn() {
     let mut agent = Agent::new(
         tool_manager,
         backend,
-        Arc::new(VectorDB::new(&rara_dir.join("lancedb").to_string_lossy())),
+        Arc::new(MemoryHandle::new(
+            &rara_dir.join("memory").to_string_lossy(),
+        )),
         session_manager,
         workspace,
     );
@@ -559,7 +561,9 @@ fn plan_mode_does_not_expose_todo_write_schema() {
     let mut agent = Agent::new(
         tool_manager,
         Arc::new(SequencedBackend::new(Vec::new())),
-        Arc::new(VectorDB::new(&rara_dir.join("lancedb").to_string_lossy())),
+        Arc::new(MemoryHandle::new(
+            &rara_dir.join("memory").to_string_lossy(),
+        )),
         session_manager,
         workspace,
     );
@@ -598,7 +602,9 @@ async fn recoverable_runtime_error_is_returned_to_model_once() {
     let mut agent = Agent::new(
         ToolManager::new(),
         backend.clone(),
-        Arc::new(VectorDB::new(&rara_dir.join("lancedb").to_string_lossy())),
+        Arc::new(MemoryHandle::new(
+            &rara_dir.join("memory").to_string_lossy(),
+        )),
         session_manager,
         workspace,
     );
@@ -653,7 +659,9 @@ async fn reasoning_only_turn_is_not_persisted_as_empty_assistant_message() {
     let mut agent = Agent::new(
         ToolManager::new(),
         backend.clone(),
-        Arc::new(VectorDB::new(&rara_dir.join("lancedb").to_string_lossy())),
+        Arc::new(MemoryHandle::new(
+            &rara_dir.join("memory").to_string_lossy(),
+        )),
         session_manager,
         workspace,
     );
@@ -720,7 +728,9 @@ async fn plan_mode_reasoning_only_initial_turn_continues_to_next_model_turn() {
     let mut agent = Agent::new(
         ToolManager::new(),
         backend.clone(),
-        Arc::new(VectorDB::new(&rara_dir.join("lancedb").to_string_lossy())),
+        Arc::new(MemoryHandle::new(
+            &rara_dir.join("memory").to_string_lossy(),
+        )),
         session_manager,
         workspace,
     );
@@ -776,7 +786,9 @@ async fn suggestion_mode_auto_allows_read_only_bash_commands() {
     let mut agent = Agent::new(
         tool_manager,
         backend.clone(),
-        Arc::new(VectorDB::new(&rara_dir.join("lancedb").to_string_lossy())),
+        Arc::new(MemoryHandle::new(
+            &rara_dir.join("memory").to_string_lossy(),
+        )),
         session_manager,
         workspace,
     );
@@ -811,7 +823,9 @@ async fn suggestion_mode_keeps_write_bash_commands_pending_approval() {
     let mut agent = Agent::new(
         tool_manager,
         backend.clone(),
-        Arc::new(VectorDB::new(&rara_dir.join("lancedb").to_string_lossy())),
+        Arc::new(MemoryHandle::new(
+            &rara_dir.join("memory").to_string_lossy(),
+        )),
         session_manager,
         workspace,
     );
@@ -855,7 +869,9 @@ async fn denied_bash_approval_is_recorded_as_tool_failure_for_next_turn() {
     let mut agent = Agent::new(
         tool_manager,
         backend.clone(),
-        Arc::new(VectorDB::new(&rara_dir.join("lancedb").to_string_lossy())),
+        Arc::new(MemoryHandle::new(
+            &rara_dir.join("memory").to_string_lossy(),
+        )),
         session_manager,
         workspace,
     );
@@ -946,7 +962,9 @@ async fn suggestion_mode_uses_escalated_sandbox_justification_for_approval() {
     let mut agent = Agent::new(
         tool_manager,
         backend.clone(),
-        Arc::new(VectorDB::new(&rara_dir.join("lancedb").to_string_lossy())),
+        Arc::new(MemoryHandle::new(
+            &rara_dir.join("memory").to_string_lossy(),
+        )),
         session_manager,
         workspace,
     );
@@ -995,7 +1013,9 @@ async fn always_mode_still_requires_approval_for_escalated_sandbox_request() {
     let mut agent = Agent::new(
         tool_manager,
         backend.clone(),
-        Arc::new(VectorDB::new(&rara_dir.join("lancedb").to_string_lossy())),
+        Arc::new(MemoryHandle::new(
+            &rara_dir.join("memory").to_string_lossy(),
+        )),
         session_manager,
         workspace,
     );
@@ -1043,7 +1063,9 @@ async fn full_access_mode_auto_allows_escalated_sandbox_request() {
     let mut agent = Agent::new(
         tool_manager,
         backend.clone(),
-        Arc::new(VectorDB::new(&rara_dir.join("lancedb").to_string_lossy())),
+        Arc::new(MemoryHandle::new(
+            &rara_dir.join("memory").to_string_lossy(),
+        )),
         session_manager,
         workspace,
     );
@@ -1096,7 +1118,9 @@ async fn full_access_mode_bypasses_auto_permission_classifier_denials() {
     let mut agent = Agent::new(
         tool_manager,
         backend.clone(),
-        Arc::new(VectorDB::new(&rara_dir.join("lancedb").to_string_lossy())),
+        Arc::new(MemoryHandle::new(
+            &rara_dir.join("memory").to_string_lossy(),
+        )),
         session_manager,
         workspace,
     );
@@ -1151,7 +1175,9 @@ async fn approved_prefix_auto_allows_matching_escalated_request() {
     let mut agent = Agent::new(
         tool_manager,
         backend.clone(),
-        Arc::new(VectorDB::new(&rara_dir.join("lancedb").to_string_lossy())),
+        Arc::new(MemoryHandle::new(
+            &rara_dir.join("memory").to_string_lossy(),
+        )),
         session_manager,
         workspace,
     );
@@ -1196,7 +1222,9 @@ async fn plan_mode_allows_read_only_bash_commands() {
     let mut agent = Agent::new(
         tool_manager,
         backend.clone(),
-        Arc::new(VectorDB::new(&rara_dir.join("lancedb").to_string_lossy())),
+        Arc::new(MemoryHandle::new(
+            &rara_dir.join("memory").to_string_lossy(),
+        )),
         session_manager,
         workspace,
     );
@@ -1241,7 +1269,9 @@ async fn plan_mode_rejects_mutating_bash_commands_without_approval() {
     let mut agent = Agent::new(
         tool_manager,
         backend.clone(),
-        Arc::new(VectorDB::new(&rara_dir.join("lancedb").to_string_lossy())),
+        Arc::new(MemoryHandle::new(
+            &rara_dir.join("memory").to_string_lossy(),
+        )),
         session_manager,
         workspace,
     );
@@ -1308,7 +1338,9 @@ async fn approved_bash_prefix_auto_allows_later_matching_commands() {
     let mut agent = Agent::new(
         tool_manager,
         backend.clone(),
-        Arc::new(VectorDB::new(&rara_dir.join("lancedb").to_string_lossy())),
+        Arc::new(MemoryHandle::new(
+            &rara_dir.join("memory").to_string_lossy(),
+        )),
         session_manager,
         workspace,
     );
@@ -1362,7 +1394,9 @@ async fn approved_bash_prefix_does_not_auto_allow_unapproved_shell_segments() {
     let mut agent = Agent::new(
         tool_manager,
         backend.clone(),
-        Arc::new(VectorDB::new(&rara_dir.join("lancedb").to_string_lossy())),
+        Arc::new(MemoryHandle::new(
+            &rara_dir.join("memory").to_string_lossy(),
+        )),
         session_manager,
         workspace,
     );
@@ -1392,8 +1426,8 @@ async fn checkpoints_user_message_before_first_model_turn() {
     let mut agent = Agent::new(
         ToolManager::new(),
         backend,
-        Arc::new(VectorDB::new(
-            &rara_dir.join("lancedb").display().to_string(),
+        Arc::new(MemoryHandle::new(
+            &rara_dir.join("memory").display().to_string(),
         )),
         session_manager,
         workspace,
@@ -1425,7 +1459,7 @@ async fn resumes_after_plan_approval_via_structured_continuation() {
     let mut agent = Agent::new(
         ToolManager::new(),
         backend.clone(),
-        Arc::new(VectorDB::new("data/lancedb")),
+        Arc::new(MemoryHandle::new("data/memory")),
         session_manager,
         workspace,
     );
@@ -1483,7 +1517,9 @@ async fn does_not_append_continuation_without_tools() {
     let mut agent = Agent::new(
         ToolManager::new(),
         backend.clone(),
-        Arc::new(VectorDB::new(&rara_dir.join("lancedb").to_string_lossy())),
+        Arc::new(MemoryHandle::new(
+            &rara_dir.join("memory").to_string_lossy(),
+        )),
         session_manager,
         workspace,
     );
@@ -1529,7 +1565,9 @@ async fn enter_plan_mode_tool_switches_to_read_only_planning() {
     let mut agent = Agent::new(
         tool_manager,
         backend.clone(),
-        Arc::new(VectorDB::new(&rara_dir.join("lancedb").to_string_lossy())),
+        Arc::new(MemoryHandle::new(
+            &rara_dir.join("memory").to_string_lossy(),
+        )),
         session_manager,
         workspace,
     );
@@ -1587,7 +1625,9 @@ async fn enter_plan_mode_prevents_earlier_mutating_tool_in_same_batch() {
     let mut agent = Agent::new(
         tool_manager,
         backend.clone(),
-        Arc::new(VectorDB::new(&rara_dir.join("lancedb").to_string_lossy())),
+        Arc::new(MemoryHandle::new(
+            &rara_dir.join("memory").to_string_lossy(),
+        )),
         session_manager,
         workspace,
     );
@@ -1643,7 +1683,9 @@ async fn exit_plan_mode_persists_plan_and_waits_for_approval() {
     let mut agent = Agent::new(
         tool_manager,
         backend.clone(),
-        Arc::new(VectorDB::new(&rara_dir.join("lancedb").to_string_lossy())),
+        Arc::new(MemoryHandle::new(
+            &rara_dir.join("memory").to_string_lossy(),
+        )),
         session_manager.clone(),
         workspace,
     );
@@ -1715,7 +1757,9 @@ async fn exit_plan_mode_accepts_structured_tool_plan_input() {
     let mut agent = Agent::new(
         tool_manager,
         backend,
-        Arc::new(VectorDB::new(&rara_dir.join("lancedb").to_string_lossy())),
+        Arc::new(MemoryHandle::new(
+            &rara_dir.join("memory").to_string_lossy(),
+        )),
         session_manager.clone(),
         workspace,
     );
@@ -1783,7 +1827,9 @@ async fn exit_plan_mode_without_plan_gets_one_structured_repair_turn() {
     let mut agent = Agent::new(
         tool_manager,
         backend.clone(),
-        Arc::new(VectorDB::new(&rara_dir.join("lancedb").to_string_lossy())),
+        Arc::new(MemoryHandle::new(
+            &rara_dir.join("memory").to_string_lossy(),
+        )),
         session_manager,
         workspace,
     );
@@ -1841,7 +1887,9 @@ async fn exit_plan_mode_requires_plan_from_same_assistant_turn() {
     let mut agent = Agent::new(
         tool_manager,
         backend.clone(),
-        Arc::new(VectorDB::new(&rara_dir.join("lancedb").to_string_lossy())),
+        Arc::new(MemoryHandle::new(
+            &rara_dir.join("memory").to_string_lossy(),
+        )),
         session_manager,
         workspace,
     );
@@ -1922,7 +1970,9 @@ async fn exit_plan_mode_with_unclosed_proposed_plan_reports_specific_error() {
     let mut agent = Agent::new(
         tool_manager,
         backend.clone(),
-        Arc::new(VectorDB::new(&rara_dir.join("lancedb").to_string_lossy())),
+        Arc::new(MemoryHandle::new(
+            &rara_dir.join("memory").to_string_lossy(),
+        )),
         session_manager,
         workspace,
     );
@@ -1983,7 +2033,9 @@ async fn continues_tool_loop_without_fixed_turn_cap() {
     let mut agent = Agent::new(
         tool_manager,
         backend.clone(),
-        Arc::new(VectorDB::new(&rara_dir.join("lancedb").to_string_lossy())),
+        Arc::new(MemoryHandle::new(
+            &rara_dir.join("memory").to_string_lossy(),
+        )),
         session_manager,
         workspace,
     );
@@ -2183,7 +2235,9 @@ fn new_planning_agent() -> Agent {
     let mut agent = Agent::new(
         ToolManager::new(),
         Arc::new(SequencedBackend::new(Vec::new())),
-        Arc::new(VectorDB::new(&rara_dir.join("lancedb").to_string_lossy())),
+        Arc::new(MemoryHandle::new(
+            &rara_dir.join("memory").to_string_lossy(),
+        )),
         session_manager,
         workspace,
     );
@@ -2245,7 +2299,7 @@ fn advances_plan_steps_during_execute_mode() {
     let mut agent = Agent::new(
         ToolManager::new(),
         Arc::new(SequencedBackend::new(Vec::new())),
-        Arc::new(VectorDB::new("data/lancedb")),
+        Arc::new(MemoryHandle::new("data/memory")),
         Arc::new(SessionManager::new().expect("session manager")),
         Arc::new(WorkspaceMemory::new().expect("workspace memory")),
     );
@@ -2275,7 +2329,7 @@ fn completes_only_active_plan_step_on_finish() {
     let mut agent = Agent::new(
         ToolManager::new(),
         Arc::new(SequencedBackend::new(Vec::new())),
-        Arc::new(VectorDB::new("data/lancedb")),
+        Arc::new(MemoryHandle::new("data/memory")),
         Arc::new(SessionManager::new().expect("session manager")),
         Arc::new(WorkspaceMemory::new().expect("workspace memory")),
     );

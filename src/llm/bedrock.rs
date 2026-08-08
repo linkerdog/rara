@@ -143,12 +143,6 @@ impl LlmBackend for BedrockBackend {
         })
     }
 
-    async fn embed(&self, _text: &str) -> Result<Vec<f32>> {
-        Err(anyhow!(
-            "Bedrock embedding not yet supported. Use a different provider for embeddings."
-        ))
-    }
-
     async fn summarize(&self, messages: &[Message], instruction: &str) -> Result<String> {
         let mut all_messages = messages.to_vec();
         all_messages.push(Message {

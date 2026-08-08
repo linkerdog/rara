@@ -22,7 +22,7 @@ use self::parser::parse_tool_aware_reply;
 use self::prompt::{build_agent_prompt, render_messages, scenario_token_cap};
 use crate::agent::Message;
 use crate::config::RaraConfig;
-use crate::llm::{ContentBlock, LlmBackend, LlmResponse, TokenUsage, hashed_embedding};
+use crate::llm::{ContentBlock, LlmBackend, LlmResponse, TokenUsage};
 
 pub type LocalProgressReporter = Arc<dyn Fn(String) + Send + Sync>;
 
@@ -199,10 +199,6 @@ impl LlmBackend for LocalLlmBackend {
                 ..TokenUsage::default()
             }),
         })
-    }
-
-    async fn embed(&self, text: &str) -> Result<Vec<f32>> {
-        Ok(hashed_embedding(text, 256))
     }
 
     async fn summarize(&self, messages: &[Message], instruction: &str) -> Result<String> {

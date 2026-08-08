@@ -1,4 +1,4 @@
-use rara_memory::vectordb::VectorDB;
+use rara_memory::memory_handle::MemoryHandle;
 use rara_persistence::thread_turn_log;
 use rara_provider_catalog::ModelCatalogEntry;
 use rara_state::state_db::{
@@ -219,7 +219,9 @@ fn sync_snapshot_reports_effective_network_access_for_pending_approval() {
     let mut agent = Agent::new(
         ToolManager::new(),
         std::sync::Arc::new(MockLlm),
-        std::sync::Arc::new(VectorDB::new(&rara_dir.join("lancedb").to_string_lossy())),
+        std::sync::Arc::new(MemoryHandle::new(
+            &rara_dir.join("memory").to_string_lossy(),
+        )),
         std::sync::Arc::new(SessionManager {
             storage_dir: rara_dir.join("rollouts"),
             legacy_storage_dir: rara_dir.join("sessions"),
@@ -258,7 +260,9 @@ async fn sync_snapshot_reports_registered_runtime_hooks() {
     let agent = Agent::new(
         ToolManager::new(),
         std::sync::Arc::new(MockLlm),
-        std::sync::Arc::new(VectorDB::new(&rara_dir.join("lancedb").to_string_lossy())),
+        std::sync::Arc::new(MemoryHandle::new(
+            &rara_dir.join("memory").to_string_lossy(),
+        )),
         std::sync::Arc::new(SessionManager {
             storage_dir: rara_dir.join("rollouts"),
             legacy_storage_dir: rara_dir.join("sessions"),
@@ -313,7 +317,9 @@ Cached prompt.
     let agent = Agent::new(
         ToolManager::new(),
         std::sync::Arc::new(MockLlm),
-        std::sync::Arc::new(VectorDB::new(&rara_dir.join("lancedb").to_string_lossy())),
+        std::sync::Arc::new(MemoryHandle::new(
+            &rara_dir.join("memory").to_string_lossy(),
+        )),
         std::sync::Arc::new(SessionManager {
             storage_dir: rara_dir.join("rollouts"),
             legacy_storage_dir: rara_dir.join("sessions"),
@@ -369,7 +375,9 @@ fn sync_snapshot_counts_runtime_agent_definition_records() {
     let mut agent = Agent::new(
         ToolManager::new(),
         std::sync::Arc::new(MockLlm),
-        std::sync::Arc::new(VectorDB::new(&rara_dir.join("lancedb").to_string_lossy())),
+        std::sync::Arc::new(MemoryHandle::new(
+            &rara_dir.join("memory").to_string_lossy(),
+        )),
         std::sync::Arc::new(SessionManager {
             storage_dir: rara_dir.join("rollouts"),
             legacy_storage_dir: rara_dir.join("sessions"),

@@ -136,24 +136,16 @@ impl SessionManager {
         session_id: &str,
         turn_index: u32,
         text: String,
-        vector: Vec<f32>,
     ) -> Result<()> {
-        session_context::append_context_checkpoint(
-            &self.storage_dir,
-            session_id,
-            turn_index,
-            text,
-            vector,
-        )
+        session_context::append_context_checkpoint(&self.storage_dir, session_id, turn_index, text)
     }
 
     pub fn search_session_context(
         &self,
         query: &str,
-        query_vector: &[f32],
         limit: usize,
     ) -> Result<Vec<SessionContextSearchHit>> {
-        session_context::search_context_shards(&self.storage_dir, query, query_vector, limit)
+        session_context::search_context_shards(&self.storage_dir, query, limit)
     }
 
     /// Reserved for manual or control-plane-triggered session shard promotion.
@@ -644,7 +636,7 @@ mod tests {
     use std::sync::Arc;
 
     use async_trait::async_trait;
-    use rara_memory::vectordb::VectorDB;
+    use rara_memory::memory_handle::MemoryHandle;
     use serde_json::Value;
     use tempfile::tempdir;
 
@@ -1095,18 +1087,16 @@ mod tests {
             1,
             "Use session shards first, then promote durable takeaways into MemoryRecords."
                 .to_string(),
-            vec![0.2; 128],
         )?;
         session_manager.save_session_context_checkpoint(
             "session-promote",
             2,
             "Promotion records must keep session_id and source span provenance.".to_string(),
-            vec![0.3; 128],
         )?;
         let memory_store = MemoryStore::new(
             Arc::new(SessionPromotionMockLlm),
-            Arc::new(VectorDB::new(
-                rara_dir.join("lancedb").to_str().expect("utf8 path"),
+            Arc::new(MemoryHandle::new(
+                rara_dir.join("memory").to_str().expect("utf8 path"),
             )),
         );
 
@@ -1148,18 +1138,16 @@ mod tests {
             "session-policy-disabled",
             1,
             "This checkpoint should not be promoted unless the policy enables writes.".to_string(),
-            vec![0.2; 128],
         )?;
         session_manager.save_session_context_checkpoint(
             "session-policy-disabled",
             2,
             "Default policy keeps periodic promotion disabled.".to_string(),
-            vec![0.3; 128],
         )?;
         let memory_store = MemoryStore::new(
             Arc::new(SessionPromotionMockLlm),
-            Arc::new(VectorDB::new(
-                rara_dir.join("lancedb").to_str().expect("utf8 path"),
+            Arc::new(MemoryHandle::new(
+                rara_dir.join("memory").to_str().expect("utf8 path"),
             )),
         );
 
@@ -1193,18 +1181,16 @@ mod tests {
             "session-policy-enabled",
             1,
             "Use policy gates before periodic session shard promotion.".to_string(),
-            vec![0.2; 128],
         )?;
         session_manager.save_session_context_checkpoint(
             "session-policy-enabled",
             2,
             "Eligible policy runs bounded distillation into MemoryRecords.".to_string(),
-            vec![0.3; 128],
         )?;
         let memory_store = MemoryStore::new(
             Arc::new(SessionPromotionMockLlm),
-            Arc::new(VectorDB::new(
-                rara_dir.join("lancedb").to_str().expect("utf8 path"),
+            Arc::new(MemoryHandle::new(
+                rara_dir.join("memory").to_str().expect("utf8 path"),
             )),
         );
 
@@ -1260,11 +1246,6 @@ mod tests {
                 usage: Some(TokenUsage::default()),
             })
         }
-
-        async fn embed(&self, _text: &str) -> Result<Vec<f32>> {
-            Ok(vec![0.1; 128])
-        }
-
         async fn summarize(&self, _messages: &[Message], _instruction: &str) -> Result<String> {
             Ok("summary".to_string())
         }

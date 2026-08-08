@@ -2,7 +2,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use crossterm::event::{Event, KeyCode, KeyEvent, KeyModifiers, MouseEvent, MouseEventKind};
-use rara_memory::vectordb::VectorDB;
+use rara_memory::memory_handle::MemoryHandle;
 use rara_tools::tool::ToolManager;
 use secrecy::ExposeSecret;
 use tempfile::tempdir;
@@ -997,8 +997,8 @@ fn test_agent_for_pending_approval(temp: &tempfile::TempDir) -> Agent {
     let mut agent = Agent::new(
         ToolManager::new(),
         Arc::new(MockLlm),
-        Arc::new(VectorDB::new(
-            &rara_dir.join("lancedb").display().to_string(),
+        Arc::new(MemoryHandle::new(
+            &rara_dir.join("memory").display().to_string(),
         )),
         Arc::new(SessionManager {
             storage_dir: rara_dir.join("rollouts"),

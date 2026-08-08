@@ -5,7 +5,7 @@ use std::sync::{
 };
 
 use async_trait::async_trait;
-use rara_memory::vectordb::VectorDB;
+use rara_memory::memory_handle::MemoryHandle;
 use rara_persistence::thread_data::PersistedStructuredRolloutEvent;
 use rara_persistence::thread_rollout_log;
 use rara_state::state_db::StateDb;
@@ -26,7 +26,7 @@ use super::{
     validate_agent_id_label,
 };
 use crate::agent::Message;
-use crate::llm::{ContentBlock, EmbeddingBackend, LlmBackend, LlmResponse, MockLlm, TokenUsage};
+use crate::llm::{ContentBlock, LlmBackend, LlmResponse, MockLlm, TokenUsage};
 use crate::prompt::PromptRuntimeConfig;
 use crate::session::SessionManager;
 use crate::session_transcript::{load_transcript, model_visible_messages};
@@ -70,10 +70,6 @@ struct BudgetedToolBackend {
 #[derive(Default)]
 struct RecordingBackendResolver {
     targets: Arc<Mutex<Vec<Option<SubagentProviderTarget>>>>,
-}
-
-fn mock_embedding_backend() -> Arc<dyn EmbeddingBackend> {
-    Arc::new(MockLlm)
 }
 
 fn inherited_backend_resolver() -> Arc<dyn SubagentBackendResolver> {
@@ -126,11 +122,6 @@ impl LlmBackend for CountingBackend {
             usage: None,
         })
     }
-
-    async fn embed(&self, _text: &str) -> anyhow::Result<Vec<f32>> {
-        Ok(vec![0.0; 4])
-    }
-
     async fn summarize(&self, _messages: &[Message], _instruction: &str) -> anyhow::Result<String> {
         Ok("summary".to_string())
     }
@@ -151,11 +142,6 @@ impl LlmBackend for PlanStateBackend {
                 usage: None,
             })
     }
-
-    async fn embed(&self, _text: &str) -> anyhow::Result<Vec<f32>> {
-        Ok(vec![0.0; 4])
-    }
-
     async fn summarize(&self, _messages: &[Message], _instruction: &str) -> anyhow::Result<String> {
         Ok("summary".to_string())
     }
@@ -184,11 +170,6 @@ impl LlmBackend for PeakBackend {
             usage: None,
         })
     }
-
-    async fn embed(&self, _text: &str) -> anyhow::Result<Vec<f32>> {
-        Ok(vec![0.0; 4])
-    }
-
     async fn summarize(&self, _messages: &[Message], _instruction: &str) -> anyhow::Result<String> {
         Ok("summary".to_string())
     }
@@ -214,11 +195,6 @@ impl LlmBackend for SlowBackend {
             usage: None,
         })
     }
-
-    async fn embed(&self, _text: &str) -> anyhow::Result<Vec<f32>> {
-        Ok(vec![0.0; 4])
-    }
-
     async fn summarize(&self, _messages: &[Message], _instruction: &str) -> anyhow::Result<String> {
         Ok("summary".to_string())
     }
@@ -249,11 +225,6 @@ impl LlmBackend for DefinitionRegressionBackend {
             usage: None,
         })
     }
-
-    async fn embed(&self, _text: &str) -> anyhow::Result<Vec<f32>> {
-        Ok(vec![0.0; 4])
-    }
-
     async fn summarize(&self, _messages: &[Message], _instruction: &str) -> anyhow::Result<String> {
         Ok("summary".to_string())
     }
@@ -292,11 +263,6 @@ impl LlmBackend for BudgetedToolBackend {
             })
         }
     }
-
-    async fn embed(&self, _text: &str) -> anyhow::Result<Vec<f32>> {
-        Ok(vec![0.0; 4])
-    }
-
     async fn summarize(&self, _messages: &[Message], _instruction: &str) -> anyhow::Result<String> {
         Ok("summary".to_string())
     }
@@ -656,9 +622,8 @@ async fn team_create_runs_real_subagents_in_order() {
     let tool = TeamCreateTool {
         backend: Arc::new(MockLlm),
         backend_resolver: inherited_backend_resolver(),
-        embedding_backend: mock_embedding_backend(),
-        vdb: Arc::new(VectorDB::new(
-            &rara_dir.join("lancedb").display().to_string(),
+        memory_handle: Arc::new(MemoryHandle::new(
+            &rara_dir.join("memory").display().to_string(),
         )),
         session_manager: Arc::new(
             SessionManager::new_for_rara_dir(rara_dir.clone()).expect("session manager"),
@@ -713,9 +678,8 @@ async fn team_create_validates_all_tasks_before_running_subagents() {
             calls: calls.clone(),
         }),
         backend_resolver: inherited_backend_resolver(),
-        embedding_backend: mock_embedding_backend(),
-        vdb: Arc::new(VectorDB::new(
-            &rara_dir.join("lancedb").display().to_string(),
+        memory_handle: Arc::new(MemoryHandle::new(
+            &rara_dir.join("memory").display().to_string(),
         )),
         session_manager: Arc::new(
             SessionManager::new_for_rara_dir(rara_dir.clone()).expect("session manager"),
@@ -758,9 +722,8 @@ async fn team_create_rejects_non_string_kind_before_running_subagents() {
             calls: calls.clone(),
         }),
         backend_resolver: inherited_backend_resolver(),
-        embedding_backend: mock_embedding_backend(),
-        vdb: Arc::new(VectorDB::new(
-            &rara_dir.join("lancedb").display().to_string(),
+        memory_handle: Arc::new(MemoryHandle::new(
+            &rara_dir.join("memory").display().to_string(),
         )),
         session_manager: Arc::new(
             SessionManager::new_for_rara_dir(rara_dir.clone()).expect("session manager"),
@@ -802,9 +765,8 @@ async fn team_create_rejects_unstable_explicit_name_before_running_subagents() {
             calls: calls.clone(),
         }),
         backend_resolver: inherited_backend_resolver(),
-        embedding_backend: mock_embedding_backend(),
-        vdb: Arc::new(VectorDB::new(
-            &rara_dir.join("lancedb").display().to_string(),
+        memory_handle: Arc::new(MemoryHandle::new(
+            &rara_dir.join("memory").display().to_string(),
         )),
         session_manager: Arc::new(
             SessionManager::new_for_rara_dir(rara_dir.clone()).expect("session manager"),
@@ -845,9 +807,8 @@ async fn spawn_agent_rejects_name_that_normalizes_empty_before_running_subagent(
             calls: calls.clone(),
         }),
         backend_resolver: inherited_backend_resolver(),
-        embedding_backend: mock_embedding_backend(),
-        vdb: Arc::new(VectorDB::new(
-            &rara_dir.join("lancedb").display().to_string(),
+        memory_handle: Arc::new(MemoryHandle::new(
+            &rara_dir.join("memory").display().to_string(),
         )),
         session_manager: Arc::new(
             SessionManager::new_for_rara_dir(rara_dir.clone()).expect("session manager"),
@@ -887,9 +848,8 @@ async fn team_create_limits_concurrent_subagents() {
             peak: peak.clone(),
         }),
         backend_resolver: inherited_backend_resolver(),
-        embedding_backend: mock_embedding_backend(),
-        vdb: Arc::new(VectorDB::new(
-            &rara_dir.join("lancedb").display().to_string(),
+        memory_handle: Arc::new(MemoryHandle::new(
+            &rara_dir.join("memory").display().to_string(),
         )),
         session_manager: Arc::new(
             SessionManager::new_for_rara_dir(rara_dir.clone()).expect("session manager"),
@@ -926,9 +886,8 @@ async fn team_create_writes_parent_scoped_sidechain_transcripts() {
             calls: Arc::new(AtomicUsize::new(0)),
         }),
         backend_resolver: inherited_backend_resolver(),
-        embedding_backend: mock_embedding_backend(),
-        vdb: Arc::new(VectorDB::new(
-            &rara_dir.join("lancedb").display().to_string(),
+        memory_handle: Arc::new(MemoryHandle::new(
+            &rara_dir.join("memory").display().to_string(),
         )),
         session_manager: Arc::new(
             SessionManager::new_for_rara_dir(rara_dir.clone()).expect("session manager"),
@@ -1019,9 +978,8 @@ async fn spawn_agent_writes_parent_scoped_sidechain_transcript() {
             calls: Arc::new(AtomicUsize::new(0)),
         }),
         backend_resolver: inherited_backend_resolver(),
-        embedding_backend: mock_embedding_backend(),
-        vdb: Arc::new(VectorDB::new(
-            &rara_dir.join("lancedb").display().to_string(),
+        memory_handle: Arc::new(MemoryHandle::new(
+            &rara_dir.join("memory").display().to_string(),
         )),
         session_manager: Arc::new(
             SessionManager::new_for_rara_dir(rara_dir.clone()).expect("session manager"),
@@ -1125,9 +1083,8 @@ Custom reviewer prompt from workspace definition.
             observed: observed.clone(),
         }),
         backend_resolver: inherited_backend_resolver(),
-        embedding_backend: mock_embedding_backend(),
-        vdb: Arc::new(VectorDB::new(
-            &rara_dir.join("lancedb").display().to_string(),
+        memory_handle: Arc::new(MemoryHandle::new(
+            &rara_dir.join("memory").display().to_string(),
         )),
         session_manager: Arc::new(
             SessionManager::new_for_rara_dir(rara_dir.clone()).expect("session manager"),
@@ -1221,9 +1178,8 @@ Use the configured DeepSeek backend.
             calls: Arc::new(AtomicUsize::new(0)),
         }),
         backend_resolver: resolver,
-        embedding_backend: mock_embedding_backend(),
-        vdb: Arc::new(VectorDB::new(
-            &rara_dir.join("lancedb").display().to_string(),
+        memory_handle: Arc::new(MemoryHandle::new(
+            &rara_dir.join("memory").display().to_string(),
         )),
         session_manager: Arc::new(
             SessionManager::new_for_rara_dir(rara_dir.clone()).expect("session manager"),
@@ -1266,9 +1222,8 @@ async fn team_create_routes_per_task_provider_model_override() {
     let tool = TeamCreateTool {
         backend: Arc::new(MockLlm),
         backend_resolver: resolver,
-        embedding_backend: mock_embedding_backend(),
-        vdb: Arc::new(VectorDB::new(
-            &rara_dir.join("lancedb").display().to_string(),
+        memory_handle: Arc::new(MemoryHandle::new(
+            &rara_dir.join("memory").display().to_string(),
         )),
         session_manager: Arc::new(
             SessionManager::new_for_rara_dir(rara_dir.clone()).expect("session manager"),
@@ -1349,9 +1304,8 @@ Review with a small budget.
             calls: calls.clone(),
         }),
         backend_resolver: inherited_backend_resolver(),
-        embedding_backend: mock_embedding_backend(),
-        vdb: Arc::new(VectorDB::new(
-            &rara_dir.join("lancedb").display().to_string(),
+        memory_handle: Arc::new(MemoryHandle::new(
+            &rara_dir.join("memory").display().to_string(),
         )),
         session_manager: Arc::new(
             SessionManager::new_for_rara_dir(rara_dir.clone()).expect("session manager"),
@@ -1425,9 +1379,8 @@ async fn background_subagent_resume_returns_completed_summary_without_inline_sid
             calls: Arc::new(AtomicUsize::new(0)),
         }),
         backend_resolver: inherited_backend_resolver(),
-        embedding_backend: mock_embedding_backend(),
-        vdb: Arc::new(VectorDB::new(
-            &rara_dir.join("lancedb").display().to_string(),
+        memory_handle: Arc::new(MemoryHandle::new(
+            &rara_dir.join("memory").display().to_string(),
         )),
         session_manager: session_manager.clone(),
         agent_definitions: test_agent_definition_cache(&root),
@@ -1504,9 +1457,8 @@ async fn subagent_resume_reconnects_completed_sidechain_after_store_restart() {
             calls: Arc::new(AtomicUsize::new(0)),
         }),
         backend_resolver: inherited_backend_resolver(),
-        embedding_backend: mock_embedding_backend(),
-        vdb: Arc::new(VectorDB::new(
-            &rara_dir.join("lancedb").display().to_string(),
+        memory_handle: Arc::new(MemoryHandle::new(
+            &rara_dir.join("memory").display().to_string(),
         )),
         session_manager: session_manager.clone(),
         agent_definitions: test_agent_definition_cache(&root),
@@ -1593,9 +1545,8 @@ async fn background_subagent_stop_marks_running_task_cancelled() {
     let tool = ExploreAgentTool {
         backend: Arc::new(SlowBackend),
         backend_resolver: inherited_backend_resolver(),
-        embedding_backend: mock_embedding_backend(),
-        vdb: Arc::new(VectorDB::new(
-            &rara_dir.join("lancedb").display().to_string(),
+        memory_handle: Arc::new(MemoryHandle::new(
+            &rara_dir.join("memory").display().to_string(),
         )),
         session_manager: session_manager.clone(),
         agent_definitions: test_agent_definition_cache(&root),
@@ -1696,9 +1647,8 @@ async fn background_plan_agent_resume_returns_plan_state() {
     let tool = PlanAgentTool {
         backend: Arc::new(PlanStateBackend),
         backend_resolver: inherited_backend_resolver(),
-        embedding_backend: mock_embedding_backend(),
-        vdb: Arc::new(VectorDB::new(
-            &rara_dir.join("lancedb").display().to_string(),
+        memory_handle: Arc::new(MemoryHandle::new(
+            &rara_dir.join("memory").display().to_string(),
         )),
         session_manager: session_manager.clone(),
         agent_definitions: test_agent_definition_cache(&root),
@@ -1756,9 +1706,8 @@ async fn plan_agent_writes_parent_scoped_sidechain_transcript() {
     let tool = PlanAgentTool {
         backend: Arc::new(PlanStateBackend),
         backend_resolver: inherited_backend_resolver(),
-        embedding_backend: mock_embedding_backend(),
-        vdb: Arc::new(VectorDB::new(
-            &rara_dir.join("lancedb").display().to_string(),
+        memory_handle: Arc::new(MemoryHandle::new(
+            &rara_dir.join("memory").display().to_string(),
         )),
         session_manager: Arc::new(
             SessionManager::new_for_rara_dir(rara_dir.clone()).expect("session manager"),
@@ -1836,9 +1785,8 @@ async fn subagent_without_parent_context_does_not_write_sidechain() {
             calls: Arc::new(AtomicUsize::new(0)),
         }),
         backend_resolver: inherited_backend_resolver(),
-        embedding_backend: mock_embedding_backend(),
-        vdb: Arc::new(VectorDB::new(
-            &rara_dir.join("lancedb").display().to_string(),
+        memory_handle: Arc::new(MemoryHandle::new(
+            &rara_dir.join("memory").display().to_string(),
         )),
         session_manager: Arc::new(
             SessionManager::new_for_rara_dir(rara_dir.clone()).expect("session manager"),
@@ -1884,9 +1832,8 @@ async fn subagent_returns_result_when_sidechain_persistence_fails() {
             calls: Arc::new(AtomicUsize::new(0)),
         }),
         backend_resolver: inherited_backend_resolver(),
-        embedding_backend: mock_embedding_backend(),
-        vdb: Arc::new(VectorDB::new(
-            &rara_dir.join("lancedb").display().to_string(),
+        memory_handle: Arc::new(MemoryHandle::new(
+            &rara_dir.join("memory").display().to_string(),
         )),
         session_manager: Arc::new(
             SessionManager::new_for_rara_dir(rara_dir.clone()).expect("session manager"),
@@ -1933,9 +1880,8 @@ async fn team_create_rejects_too_many_tasks() {
     let tool = TeamCreateTool {
         backend: Arc::new(MockLlm),
         backend_resolver: inherited_backend_resolver(),
-        embedding_backend: mock_embedding_backend(),
-        vdb: Arc::new(VectorDB::new(
-            &rara_dir.join("lancedb").display().to_string(),
+        memory_handle: Arc::new(MemoryHandle::new(
+            &rara_dir.join("memory").display().to_string(),
         )),
         session_manager: Arc::new(
             SessionManager::new_for_rara_dir(rara_dir.clone()).expect("session manager"),

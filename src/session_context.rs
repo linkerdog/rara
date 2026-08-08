@@ -65,7 +65,6 @@ pub fn append_context_checkpoint(
     session_id: &str,
     turn_index: u32,
     text: String,
-    vector: Vec<f32>,
 ) -> Result<()> {
     let path = context_shard_path(root_dir, session_id);
     if let Some(parent) = path.parent() {
@@ -75,7 +74,7 @@ pub fn append_context_checkpoint(
         session_id: session_id.to_string(),
         turn_index,
         text,
-        vector,
+        vector: Vec::new(),
         recorded_at: crate::utils::epoch_seconds(),
     };
     let _lock = AdvisoryFileLock::acquire(path.with_extension("lock"))?;
@@ -101,7 +100,6 @@ pub fn append_context_checkpoint(
 pub fn search_context_shards(
     root_dir: &Path,
     query: &str,
-    query_vector: &[f32],
     limit: usize,
 ) -> Result<Vec<SessionContextSearchHit>> {
     if query.trim().is_empty() || limit == 0 {
@@ -119,12 +117,11 @@ pub fn search_context_shards(
         .into_values()
         .filter_map(|checkpoint| {
             let keyword_score = keyword_match_score(&query_terms, &checkpoint.text);
-            let vector_score = cosine_similarity(query_vector, &checkpoint.vector);
-            let score = keyword_score * 2.0 + vector_score.unwrap_or(0.0);
+            let score = keyword_score * 2.0;
             (score > 0.0).then_some(SessionContextSearchHit {
                 checkpoint,
                 score,
-                vector_score,
+                vector_score: None,
                 keyword_score,
             })
         })
@@ -252,24 +249,6 @@ fn tokenize(value: &str) -> Vec<String> {
         .collect()
 }
 
-fn cosine_similarity(query_vector: &[f32], vector: &[f32]) -> Option<f32> {
-    if query_vector.is_empty() || query_vector.len() != vector.len() {
-        return None;
-    }
-    let mut dot = 0.0f32;
-    let mut query_norm = 0.0f32;
-    let mut vector_norm = 0.0f32;
-    for (left, right) in query_vector.iter().zip(vector.iter()) {
-        dot += left * right;
-        query_norm += left * left;
-        vector_norm += right * right;
-    }
-    if query_norm == 0.0 || vector_norm == 0.0 {
-        return None;
-    }
-    Some(dot / (query_norm.sqrt() * vector_norm.sqrt()))
-}
-
 #[cfg(unix)]
 fn sync_parent_dir_best_effort(parent: &Path) {
     if let Ok(dir) = fs::File::open(parent) {
@@ -293,7 +272,6 @@ mod tests {
             "session-a",
             3,
             "approval denial should be visible to later turns".to_string(),
-            vec![1.0, 0.0],
         )?;
 
         let path = context_shard_path(temp.path(), "session-a");
@@ -314,21 +292,19 @@ mod tests {
             "session-a",
             1,
             "the runtime records denied approvals as errored tool results".to_string(),
-            vec![1.0, 0.0],
         )?;
         append_context_checkpoint(
             temp.path(),
             "session-b",
             2,
             "model picker setup moved behind runtime bootstrap".to_string(),
-            vec![0.0, 1.0],
         )?;
 
-        let hits = search_context_shards(temp.path(), "denied approval", &[1.0, 0.0], 4)?;
+        let hits = search_context_shards(temp.path(), "denied approval", 4)?;
 
         assert_eq!(hits[0].checkpoint.session_id, "session-a");
         assert!(hits[0].keyword_score > 0.0);
-        assert!(hits[0].vector_score.is_some());
+        assert_eq!(hits[0].vector_score, None);
         Ok(())
     }
 
@@ -340,17 +316,15 @@ mod tests {
             "session-a",
             1,
             "old checkpoint text".to_string(),
-            vec![0.0, 1.0],
         )?;
         append_context_checkpoint(
             temp.path(),
             "session-a",
             1,
             "new checkpoint text".to_string(),
-            vec![1.0, 0.0],
         )?;
 
-        let hits = search_context_shards(temp.path(), "new checkpoint", &[1.0, 0.0], 4)?;
+        let hits = search_context_shards(temp.path(), "new checkpoint", 4)?;
 
         assert_eq!(hits.len(), 1);
         assert_eq!(hits[0].checkpoint.text, "new checkpoint text");
@@ -360,26 +334,18 @@ mod tests {
     #[test]
     fn loads_session_context_checkpoints_sorted_with_latest_duplicate() -> Result<()> {
         let temp = tempfile::tempdir()?;
-        append_context_checkpoint(
-            temp.path(),
-            "session-a",
-            2,
-            "second checkpoint".to_string(),
-            vec![0.0, 1.0],
-        )?;
+        append_context_checkpoint(temp.path(), "session-a", 2, "second checkpoint".to_string())?;
         append_context_checkpoint(
             temp.path(),
             "session-a",
             1,
             "old first checkpoint".to_string(),
-            vec![1.0, 0.0],
         )?;
         append_context_checkpoint(
             temp.path(),
             "session-a",
             1,
             "new first checkpoint".to_string(),
-            vec![1.0, 0.0],
         )?;
 
         let checkpoints = load_session_context_checkpoints(temp.path(), "session-a")?;
@@ -399,9 +365,8 @@ mod tests {
             "session-a",
             1,
             "old checkpoint text".to_string(),
-            vec![1.0, 0.0],
         )?;
-        let old_hits = search_context_shards(temp.path(), "old checkpoint", &[1.0, 0.0], 4)?;
+        let old_hits = search_context_shards(temp.path(), "old checkpoint", 4)?;
         assert_eq!(old_hits.len(), 1);
 
         append_context_checkpoint(
@@ -409,9 +374,8 @@ mod tests {
             "session-a",
             2,
             "new checkpoint text".to_string(),
-            vec![1.0, 0.0],
         )?;
-        let new_hits = search_context_shards(temp.path(), "new checkpoint", &[1.0, 0.0], 4)?;
+        let new_hits = search_context_shards(temp.path(), "new checkpoint", 4)?;
 
         assert!(!new_hits.is_empty());
         assert_eq!(new_hits[0].checkpoint.turn_index, 2);
@@ -426,7 +390,6 @@ mod tests {
             "session-a",
             1,
             "valid checkpoint text".to_string(),
-            vec![1.0, 0.0],
         )?;
         let path = context_shard_path(temp.path(), "session-a");
         let mut file = OpenOptions::new().append(true).open(&path)?;
@@ -466,7 +429,6 @@ mod tests {
                 &session_id,
                 index as u32,
                 format!("checkpoint {index}"),
-                vec![index as f32],
             )?;
             let path = context_shard_path(temp.path(), &session_id);
             let checkpoints = load_context_checkpoint_file_cached(&path)?;

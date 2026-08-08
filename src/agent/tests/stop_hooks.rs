@@ -1,7 +1,7 @@
 use std::fs;
 use std::sync::Arc;
 
-use rara_memory::vectordb::VectorDB;
+use rara_memory::memory_handle::MemoryHandle;
 use rara_tools::tool::ToolManager;
 use serde_json::json;
 
@@ -40,7 +40,9 @@ async fn stop_hook_blocks_completion_and_returns_feedback_to_the_model() {
     let mut agent = Agent::new(
         ToolManager::new(),
         backend.clone(),
-        Arc::new(VectorDB::new(&rara_dir.join("lancedb").to_string_lossy())),
+        Arc::new(MemoryHandle::new(
+            &rara_dir.join("memory").to_string_lossy(),
+        )),
         session_manager,
         workspace,
     );

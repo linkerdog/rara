@@ -3,7 +3,7 @@
 //! Implements `docs/features/session-global-memory.md`:
 //! session-scoped `.md` files, global `MEMORY.md`, `memory_summary.md` index,
 //! concurrent-safe writes via atomic temp-file + rename, and a unified
-//! `search_memory` that merges file grep + LanceDB results.
+//! `search_memory` that returns local text-search results.
 //!
 //! Concurrent model: every write to a memory file uses atomic
 //! temp-file + rename.  Writes that rewrite an entire file (memory_summary.md)
@@ -322,27 +322,14 @@ pub struct MemorySearchHit {
 }
 
 /// Searches all memory files with a unified `rg`-first strategy.
-///
-/// Phase 1: grep across all `.md` files in the memory directory.
-/// Phase 2: LanceDB / embedding-based retrieval (placeholder).
-/// Results are merged and deduplicated by snippet prefix.
-pub async fn search_memory(
-    query: &str,
-    rara_home: &Path,
-    db: Option<&crate::vectordb::VectorDB>,
-) -> Result<Vec<MemorySearchHit>> {
+pub async fn search_memory(query: &str, rara_home: &Path) -> Result<Vec<MemorySearchHit>> {
     let mut results = Vec::new();
 
-    // 1. rg across all memory files
     if let Ok(rg_hits) = rg_search_memory(query, rara_home) {
         results.extend(rg_hits);
     }
 
-    // 2. LanceDB / embedding results (placeholder for Phase 2)
-    let embedding_hits = search_lancedb(db, query).await;
-
-    // 3. Merge and deduplicate
-    Ok(merge_memory_results(results, embedding_hits))
+    Ok(merge_memory_results(results))
 }
 
 /// Runs rg over all `.md` files in the memory directory.
@@ -386,40 +373,11 @@ pub fn rg_search_memory(
     Ok(results)
 }
 
-/// LanceDB full-text search for memory entries.
-///
-/// Attempts to open the memory LanceDB index and run a full-text
-/// query, falling back to an empty result set when the index is
-/// unavailable or the query fails.
-pub async fn search_lancedb(
-    db: Option<&crate::vectordb::VectorDB>,
-    query: &str,
-) -> Vec<MemorySearchHit> {
-    let Some(db) = db else {
-        return Vec::new();
-    };
-    match db
-        .full_text_search_with_metadata("memory_codex", query, 20)
-        .await
-    {
-        Ok(hits) => hits
-            .into_iter()
-            .map(|h| MemorySearchHit {
-                path: h.metadata.session_id,
-                snippet: h.metadata.text,
-            })
-            .collect(),
-        Err(_) => Vec::new(),
-    }
-}
-/// Merges text and embedding results, deduplicating by snippet prefix.
-pub fn merge_memory_results(
-    text: Vec<MemorySearchHit>,
-    embedding: Vec<MemorySearchHit>,
-) -> Vec<MemorySearchHit> {
+/// Deduplicates text results by snippet prefix.
+pub fn merge_memory_results(text: Vec<MemorySearchHit>) -> Vec<MemorySearchHit> {
     let mut seen = std::collections::HashSet::new();
     let mut results = Vec::new();
-    for hit in text.into_iter().chain(embedding) {
+    for hit in text {
         if seen.insert(hit.snippet.chars().take(80).collect::<String>()) {
             results.push(hit);
         }
@@ -504,7 +462,7 @@ mod tests {
         let session_path = rara_home.join("memory").join("sessions").join("test.md");
         fs::write(&session_path, "remember: use cargo fmt before commit").unwrap();
 
-        let hits = search_memory("cargo fmt", &rara_home, None).await.unwrap();
+        let hits = search_memory("cargo fmt", &rara_home).await.unwrap();
         assert!(hits.iter().any(|h| h.snippet.contains("cargo fmt")));
     }
 }

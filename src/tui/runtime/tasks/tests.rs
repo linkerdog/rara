@@ -4,7 +4,7 @@ use std::sync::{
 };
 use std::time::{Duration, Instant};
 
-use rara_memory::vectordb::VectorDB;
+use rara_memory::memory_handle::MemoryHandle;
 use rara_tools::planning::{EnterPlanModeTool, ExitPlanModeTool};
 use rara_tools::tool::ToolManager;
 use serde_json::json;
@@ -168,11 +168,6 @@ impl LlmBackend for PlainAnswerBackend {
             usage: Some(TokenUsage::default()),
         })
     }
-
-    async fn embed(&self, _text: &str) -> anyhow::Result<Vec<f32>> {
-        Ok(vec![0.0; 8])
-    }
-
     async fn summarize(
         &self,
         _messages: &[crate::agent::Message],
@@ -196,10 +191,6 @@ impl LlmBackend for GoalEvaluatorBackend {
             stop_reason: Some("end_turn".to_string()),
             usage: Some(TokenUsage::default()),
         })
-    }
-
-    async fn embed(&self, _text: &str) -> anyhow::Result<Vec<f32>> {
-        Ok(vec![0.0; 8])
     }
 
     async fn summarize(
@@ -257,11 +248,6 @@ impl LlmBackend for AgentDrivenPlanBackend {
             usage: Some(TokenUsage::default()),
         })
     }
-
-    async fn embed(&self, _text: &str) -> anyhow::Result<Vec<f32>> {
-        Ok(vec![0.0; 8])
-    }
-
     async fn summarize(
         &self,
         _messages: &[crate::agent::Message],
@@ -296,11 +282,6 @@ impl LlmBackend for ExitPlanModeBackend {
             usage: Some(TokenUsage::default()),
         })
     }
-
-    async fn embed(&self, _text: &str) -> anyhow::Result<Vec<f32>> {
-        Ok(vec![0.0; 8])
-    }
-
     async fn summarize(
         &self,
         _messages: &[crate::agent::Message],
@@ -332,8 +313,8 @@ fn create_test_agent_with_backend(temp: &tempfile::TempDir, backend: Arc<dyn Llm
     Agent::new(
         ToolManager::new(),
         backend,
-        Arc::new(VectorDB::new(
-            &rara_dir.join("lancedb").display().to_string(),
+        Arc::new(MemoryHandle::new(
+            &rara_dir.join("memory").display().to_string(),
         )),
         session_manager,
         workspace,
@@ -570,20 +551,20 @@ async fn rebuild_success_refreshes_local_model_server_status() {
     })
     .expect("build tui app");
     app.local_model_server = LocalModelServerStatus {
-        state: LocalModelServerState::SetupRequired,
-        backend: "mlx_qwen3".to_string(),
-        model: "mlx-community/Qwen3-Embedding-0.6B-4bit-DWQ".to_string(),
-        detail: "stale startup status".to_string(),
+        state: LocalModelServerState::Disabled,
+        backend: "none".to_string(),
+        model: "none".to_string(),
+        detail: "stale memory status".to_string(),
         server_path: None,
         endpoint: None,
     };
     let ready_status = LocalModelServerStatus {
-        state: LocalModelServerState::Ready,
-        backend: "mlx_qwen3".to_string(),
-        model: "mlx-community/Qwen3-Embedding-0.6B-4bit-DWQ".to_string(),
-        detail: "started model server and prepared model".to_string(),
-        server_path: Some(temp.path().join("rara_model_server.py")),
-        endpoint: Some("http://127.0.0.1:18181".to_string()),
+        state: LocalModelServerState::Disabled,
+        backend: "none".to_string(),
+        model: "none".to_string(),
+        detail: "bundled embedding runtime is disabled".to_string(),
+        server_path: None,
+        endpoint: None,
     };
     install_completed_rebuild_task(&mut app, rebuild_success(&temp, ready_status.clone()));
 
@@ -610,14 +591,14 @@ async fn rebuild_success_keeps_long_warnings_in_transcript() {
     })
     .expect("build tui app");
     let ready_status = LocalModelServerStatus {
-        state: LocalModelServerState::Ready,
-        backend: "mlx_qwen3".to_string(),
-        model: "mlx-community/Qwen3-Embedding-0.6B-4bit-DWQ".to_string(),
-        detail: "started model server and prepared model".to_string(),
-        server_path: Some(temp.path().join("rara_model_server.py")),
-        endpoint: Some("http://127.0.0.1:18181".to_string()),
+        state: LocalModelServerState::Disabled,
+        backend: "none".to_string(),
+        model: "none".to_string(),
+        detail: "bundled embedding runtime is disabled".to_string(),
+        server_path: None,
+        endpoint: None,
     };
-    let warning = "local embedding backend bootstrap reported: failed to install model server dependencies: install model server dependencies failed with status exit status: 1: ERROR: ResolutionImpossible".to_string();
+    let warning = "backend bootstrap reported: failed to initialize optional dependency: install failed with status exit status: 1: ERROR: ResolutionImpossible".to_string();
     let mut success = rebuild_success(&temp, ready_status);
     success.warnings = vec![warning.clone()];
     install_completed_rebuild_task(&mut app, success);
@@ -711,8 +692,8 @@ fn merge_rebuilt_agent_preserves_session_and_turn_state() {
     let mut previous = Agent::new(
         ToolManager::new(),
         backend.clone(),
-        Arc::new(VectorDB::new(
-            &rara_dir.join("lancedb").display().to_string(),
+        Arc::new(MemoryHandle::new(
+            &rara_dir.join("memory").display().to_string(),
         )),
         session_manager.clone(),
         workspace.clone(),
@@ -757,8 +738,8 @@ fn merge_rebuilt_agent_preserves_session_and_turn_state() {
     let mut rebuilt = Agent::new(
         ToolManager::new(),
         backend,
-        Arc::new(VectorDB::new(
-            &rara_dir.join("other-lancedb").display().to_string(),
+        Arc::new(MemoryHandle::new(
+            &rara_dir.join("other-memory").display().to_string(),
         )),
         session_manager,
         workspace,
@@ -854,8 +835,8 @@ async fn queued_follow_ups_start_as_one_multiline_turn() {
     let agent = Agent::new(
         ToolManager::new(),
         Arc::new(crate::llm::MockLlm),
-        Arc::new(VectorDB::new(
-            &rara_dir.join("lancedb").display().to_string(),
+        Arc::new(MemoryHandle::new(
+            &rara_dir.join("memory").display().to_string(),
         )),
         session_manager,
         workspace,
@@ -1014,8 +995,8 @@ async fn plan_turn_completion_keeps_plan_mode_after_plain_answer() {
     let mut agent = Agent::new(
         ToolManager::new(),
         Arc::new(PlainAnswerBackend),
-        Arc::new(VectorDB::new(
-            &rara_dir.join("lancedb").display().to_string(),
+        Arc::new(MemoryHandle::new(
+            &rara_dir.join("memory").display().to_string(),
         )),
         session_manager,
         workspace,
@@ -1096,8 +1077,8 @@ async fn agent_driven_plan_mode_auto_approves_and_resumes_execution() {
         Arc::new(AgentDrivenPlanBackend {
             calls: Mutex::new(0),
         }),
-        Arc::new(VectorDB::new(
-            &rara_dir.join("lancedb").display().to_string(),
+        Arc::new(MemoryHandle::new(
+            &rara_dir.join("memory").display().to_string(),
         )),
         session_manager,
         workspace,
@@ -1178,8 +1159,8 @@ async fn exit_plan_mode_stops_for_plan_approval() {
     let mut agent = Agent::new(
         tool_manager,
         Arc::new(ExitPlanModeBackend),
-        Arc::new(VectorDB::new(
-            &rara_dir.join("lancedb").display().to_string(),
+        Arc::new(MemoryHandle::new(
+            &rara_dir.join("memory").display().to_string(),
         )),
         session_manager,
         workspace,

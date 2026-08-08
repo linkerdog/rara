@@ -232,25 +232,11 @@ fn push_lsp_status(lines: &mut Vec<Line<'static>>, app: &TuiApp) {
 fn push_local_model_section(lines: &mut Vec<Line<'static>>, app: &TuiApp) {
     let status = &app.local_model_server;
     lines.push(Line::from(super::section_label(
-        "Local Model",
+        "Local Memory",
         TEXT_SECONDARY,
     )));
     let (marker, style) = match status.state {
-        LocalModelServerState::Ready => ("● ready", Style::default().fg(STATUS_SUCCESS)),
-        LocalModelServerState::Starting
-        | LocalModelServerState::WaitingForServer
-        | LocalModelServerState::CreatingVenv
-        | LocalModelServerState::InstallingDependencies
-        | LocalModelServerState::PreparingModel => {
-            ("○ preparing …", Style::default().fg(STATUS_WARNING))
-        }
-        LocalModelServerState::PreparedButStopped => {
-            ("○ stopped", Style::default().fg(TEXT_SECONDARY))
-        }
-        LocalModelServerState::SetupRequired => {
-            ("○ setup required", Style::default().fg(TEXT_MUTED))
-        }
-        LocalModelServerState::Error => ("✗ error", Style::default().fg(STATUS_ERROR)),
+        LocalModelServerState::Disabled => ("○ semantic disabled", Style::default().fg(TEXT_MUTED)),
     };
     lines.push(Line::from(Span::styled(marker, style)));
     if !status.model.is_empty() {

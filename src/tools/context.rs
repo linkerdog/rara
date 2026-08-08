@@ -5,11 +5,9 @@ use rara_tool_macros::tool_spec;
 use rara_tools::tool::{Tool, ToolError};
 use serde_json::{Value, json};
 
-use crate::llm::{EmbeddingBackend, EmbeddingInputKind};
 use crate::session::SessionManager;
 
 pub struct RetrieveSessionContextTool {
-    pub embedding_backend: Arc<dyn EmbeddingBackend>,
     pub session_manager: Arc<SessionManager>,
 }
 #[tool_spec(
@@ -26,19 +24,13 @@ impl Tool for RetrieveSessionContextTool {
         if query.trim().is_empty() {
             return Ok(json!({ "status": "no_context_found", "matches": [] }));
         }
-        let vector = self
-            .embedding_backend
-            .embed(query, EmbeddingInputKind::Query)
-            .await
-            .map_err(|err| ToolError::ExecutionFailed(err.to_string()))?;
         let session_manager = self.session_manager.clone();
         let query = query.to_string();
-        let hits = tokio::task::spawn_blocking(move || {
-            session_manager.search_session_context(&query, &vector, 8)
-        })
-        .await
-        .map_err(|err| ToolError::ExecutionFailed(err.to_string()))?
-        .map_err(|err| ToolError::ExecutionFailed(err.to_string()))?;
+        let hits =
+            tokio::task::spawn_blocking(move || session_manager.search_session_context(&query, 8))
+                .await
+                .map_err(|err| ToolError::ExecutionFailed(err.to_string()))?
+                .map_err(|err| ToolError::ExecutionFailed(err.to_string()))?;
         if hits.is_empty() {
             return Ok(json!({ "status": "no_context_found", "matches": [] }));
         }
@@ -78,13 +70,9 @@ mod tests {
                 "session-a",
                 3,
                 "The approval denial should be recorded as an errored tool result.".to_string(),
-                vec![1.0; 128],
             )
             .expect("save session context checkpoint");
-        let tool = RetrieveSessionContextTool {
-            embedding_backend: Arc::new(MockLlm),
-            session_manager,
-        };
+        let tool = RetrieveSessionContextTool { session_manager };
 
         let result = tool
             .call(json!({ "query": "approval denial errored result" }))

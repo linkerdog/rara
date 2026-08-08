@@ -47,7 +47,7 @@ pub struct RuntimeContextInputs<'a> {
     pub shared_tasks: SharedTaskContextView,
     pub compact_state: CompactState,
     pub history: &'a [Message],
-    pub vdb_uri: &'a str,
+    pub memory_uri: &'a str,
     pub pending_interactions: Vec<RuntimeInteractionInput>,
     pub skill_listing: Option<String>,
     pub retrieved_memory_candidates: &'a [RetrievedMemoryCandidate],
@@ -179,7 +179,7 @@ impl<'a> ContextAssembler<'a> {
             effective_prompt.sources.as_slice(),
             inputs.history,
             inputs.session_id.as_str(),
-            inputs.vdb_uri,
+            inputs.memory_uri,
             inputs.mcp_resource_candidates,
             inputs.hook_output_candidates,
             inputs.graph_context_candidates,
@@ -209,7 +209,7 @@ impl<'a> ContextAssembler<'a> {
             query: retrieval_query.as_str(),
             session_id: inputs.session_id.as_str(),
             history: inputs.history,
-            vdb_uri: inputs.vdb_uri,
+            memory_uri: inputs.memory_uri,
         };
         let retrieval_candidates = retrieval_candidates(
             &retrieval_request,
@@ -386,7 +386,7 @@ mod tests {
                     ..Default::default()
                 },
                 history: &history,
-                vdb_uri: "memory://vdb",
+                memory_uri: "memory://local",
                 pending_interactions: Vec::new(),
                 skill_listing: None,
                 retrieved_memory_candidates: &[],
@@ -483,7 +483,7 @@ mod tests {
                     ..Default::default()
                 },
                 history: &history,
-                vdb_uri: "memory://vdb",
+                memory_uri: "memory://local",
                 pending_interactions: Vec::new(),
                 skill_listing: None,
                 retrieved_memory_candidates: &[],
@@ -521,7 +521,7 @@ mod tests {
                     {
                         "type": "tool_use",
                         "id": "tool-retrieve-1",
-                        "name": "retrieve_experience",
+                        "name": "retrieve_session_context",
                         "input": { "query": "bootstrap contract" }
                     },
                     {
@@ -538,7 +538,7 @@ mod tests {
                     {
                         "type": "tool_result",
                         "tool_use_id": "tool-retrieve-1",
-                        "content": "Tool retrieve_experience completed with relevant_experiences.\nPayload:\n{\n  \"relevant_experiences\": [\n    \"Prefer one shared bootstrap path.\",\n    \"Keep session restore aligned with direct execution.\"\n  ]\n}"
+                        "content": "Tool retrieve_session_context completed with relevant_context.\nPayload:\n{\n  \"relevant_context\": [\n    \"Prefer one shared bootstrap path.\",\n    \"Keep session restore aligned with direct execution.\"\n  ]\n}"
                     },
                     {
                         "type": "tool_result",
@@ -573,7 +573,7 @@ mod tests {
                     ..Default::default()
                 },
                 history: &history,
-                vdb_uri: "memory://vdb",
+                memory_uri: "memory://local",
                 pending_interactions: Vec::new(),
                 skill_listing: None,
                 retrieved_memory_candidates: &[],
@@ -601,9 +601,7 @@ mod tests {
             .iter()
             .map(|item| item.kind.as_str())
             .collect::<Vec<_>>();
-        assert!(!selected_kinds.contains(&"retrieved_workspace_memory"));
         assert!(!selected_kinds.contains(&"retrieved_thread_context"));
-        assert!(dropped_kinds.contains(&"retrieved_workspace_memory"));
         assert!(dropped_kinds.contains(&"retrieved_thread_context"));
         assert!(
             runtime_context
@@ -612,13 +610,11 @@ mod tests {
                 .dropped_items
                 .iter()
                 .any(|item| {
-                    matches!(
-                        item.kind.as_str(),
-                        "retrieved_workspace_memory" | "retrieved_thread_context"
-                    ) && item
-                        .dropped_reason
-                        .as_ref()
-                        .is_some_and(|r| r.reason().contains("memory-selection budget"))
+                    item.kind == "retrieved_thread_context"
+                        && item
+                            .dropped_reason
+                            .as_ref()
+                            .is_some_and(|r| r.reason().contains("memory-selection budget"))
                 })
         );
     }
@@ -655,7 +651,7 @@ mod tests {
                     ..Default::default()
                 },
                 history: &history,
-                vdb_uri: "memory://vdb",
+                memory_uri: "memory://local",
                 pending_interactions: Vec::new(),
                 skill_listing: None,
                 retrieved_memory_candidates: &[RetrievedMemoryCandidate {
@@ -736,7 +732,7 @@ mod tests {
                     ..Default::default()
                 },
                 history: &history,
-                vdb_uri: "",
+                memory_uri: "",
                 pending_interactions: vec![RuntimeInteractionInput {
                     kind: "approval".to_string(),
                     title: "Approve shell command".to_string(),

@@ -474,10 +474,9 @@ async fn run_distill_command(config: &RaraConfig, thread_id: &str) -> Result<()>
     let bootstrap = runtime_context::initialize_rara_context(config, None).await?;
     emit_bootstrap_warnings(&bootstrap.warnings);
     let state_db = rara_state::state_db::StateDb::new()?;
-    let memory_store = crate::memory_store::MemoryStore::new_with_embedding_backend(
+    let memory_store = crate::memory_store::MemoryStore::new_with_handle(
         bootstrap.backend.clone(),
-        bootstrap.embedding_backend.clone(),
-        bootstrap.vdb.clone(),
+        bootstrap.memory_handle.clone(),
     );
     let thread_store = crate::thread_store::ThreadStore::new(&bootstrap.session_manager, &state_db);
     let memories = thread_store
@@ -496,57 +495,21 @@ async fn run_tui_command(
     startup_resume: StartupResumeTarget,
     plugin_dirs: Vec<PathBuf>,
 ) -> Result<()> {
-    let initialize_local_embeddings =
-        should_initialize_local_embeddings_on_tui_startup(config).await?;
-    let bootstrap = if initialize_local_embeddings {
-        runtime_context::initialize_rara_context_with_options_and_local_embedding_bootstrap(
-            config,
-            None,
-            None,
-            runtime_context::LocalEmbeddingBootstrap::InspectOnly,
-            runtime_context::RuntimeBootstrapOptions::with_plugin_dirs(plugin_dirs.clone()),
-        )
-        .await?
-    } else {
-        runtime_context::initialize_rara_context_for_workspace_with_options(
-            config,
-            None,
-            None,
-            runtime_context::RuntimeBootstrapOptions::with_plugin_dirs(plugin_dirs.clone()),
-        )
-        .await?
-    };
-    emit_bootstrap_warnings(&bootstrap.warnings);
-    let runtime_client = crate::runtime_client::RuntimeClient::from_bootstrap(bootstrap).await;
-    let resumed_thread_id = crate::tui::run_tui(
-        runtime_client,
-        oauth_manager,
-        startup_resume,
-        initialize_local_embeddings,
+    let bootstrap = runtime_context::initialize_rara_context_for_workspace_with_options(
+        config,
+        None,
+        None,
+        runtime_context::RuntimeBootstrapOptions::with_plugin_dirs(plugin_dirs.clone()),
     )
     .await?;
+    emit_bootstrap_warnings(&bootstrap.warnings);
+    let runtime_client = crate::runtime_client::RuntimeClient::from_bootstrap(bootstrap).await;
+    let resumed_thread_id =
+        crate::tui::run_tui(runtime_client, oauth_manager, startup_resume).await?;
     if let Some(thread_id) = resumed_thread_id {
         print!("{}", rendered_resume_hint(&thread_id));
     }
     Ok(())
-}
-
-async fn should_initialize_local_embeddings_on_tui_startup(config: &RaraConfig) -> Result<bool> {
-    if !runtime_context::config_requires_local_embedding_sidecar(config) {
-        return Ok(false);
-    }
-    let rara_home = ensure_rara_home_dir()?;
-    // `inspect_local_model_server_status` uses a `reqwest::blocking` client, which spins up and
-    // drops its own Tokio runtime. Dropping a runtime inside the async context would panic, so run
-    // the blocking probe on a dedicated blocking thread where that is allowed.
-    let status = tokio::task::spawn_blocking(move || {
-        crate::local_model_server::inspect_local_model_server_status(&rara_home)
-    })
-    .await?;
-    Ok(!matches!(
-        status.state,
-        crate::local_model_server::LocalModelServerState::Ready
-    ))
 }
 
 fn startup_resume_target_for_command(command: &Commands) -> Option<StartupResumeTarget> {

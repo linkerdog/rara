@@ -20,10 +20,8 @@ pub(crate) use self::openai_compatible::is_context_window_error;
 pub use self::openai_compatible::{
     CodexBackend, OpenAiCompatibleBackend, fetch_model_context_window,
 };
-pub(crate) use self::shared::hashed_embedding;
 pub(crate) use self::shared::is_retryable_http_error;
 pub use self::shared::{
-    ContextBudget, EmbeddingBackend, EmbeddingInputKind, LlmBackend, LlmEmbeddingBackend,
-    LlmStreamEvent, LlmTurnMetadata, MockLlm, ProviderCacheProfile,
+    ContextBudget, LlmBackend, LlmStreamEvent, LlmTurnMetadata, MockLlm, ProviderCacheProfile,
 };
 pub use self::types::{ContentBlock, LlmResponse, TokenUsage};

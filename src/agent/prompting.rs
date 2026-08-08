@@ -70,7 +70,7 @@ impl Agent {
             shared_tasks: self.shared_task_context_view(),
             compact_state: self.compact_state.clone(),
             history: &self.history,
-            vdb_uri: self.vdb.uri(),
+            memory_uri: self.memory_handle.uri(),
             pending_interactions: self.pending_runtime_interactions(),
             skill_listing: prompt::render_skill_listing(&self.prompt_config.available_skills),
             retrieved_memory_candidates: &self.retrieved_memory_candidates,

@@ -4,7 +4,7 @@ use std::sync::{Arc, OnceLock, RwLock, atomic::AtomicBool};
 use rara_background_tasks::{
     BackgroundTaskListTool, BackgroundTaskStatusTool, BackgroundTaskStopTool, BackgroundTaskStore,
 };
-use rara_memory::vectordb::VectorDB;
+use rara_memory::memory_handle::MemoryHandle;
 use rara_tools::file::{
     FileReadState, ListFilesTool, MultiEditTool, ReadFileTool, ReplaceLinesTool, ReplaceTool,
     WriteFileTool,
@@ -16,7 +16,7 @@ use rara_tools::search::{GlobTool, GrepTool};
 use rara_tools::tool::ToolManager;
 
 use crate::hook_runtime::HookRuntime;
-use crate::llm::{EmbeddingBackend, LlmBackend};
+use crate::llm::LlmBackend;
 use crate::lsp_manager::LspManager;
 use crate::mcp_tool_cache::McpToolCache;
 use crate::prompt::PromptRuntimeConfig;
@@ -42,7 +42,6 @@ use crate::tools::pty::{
 use crate::tools::skill::SkillTool;
 use crate::tools::tasklist::{TaskCreateTool, TaskGetTool, TaskListTool, TaskUpdateTool};
 use crate::tools::todo::TodoWriteTool;
-use crate::tools::vector::{RememberExperienceTool, RetrieveExperienceTool};
 use crate::tools::web::{WebFetchTool, WebSearchTool};
 use crate::tools::workspace::UpdateProjectMemoryTool;
 use crate::tui::state::GoalHandle;
@@ -55,8 +54,7 @@ static BACKGROUND_SUBAGENTS: OnceLock<Arc<BackgroundSubAgentStore>> = OnceLock::
 // explicit arguments document which subsystems each tool may receive.
 pub(super) fn create_full_tool_manager(
     backend: Arc<dyn LlmBackend>,
-    embedding_backend: Arc<dyn EmbeddingBackend>,
-    vdb: Arc<VectorDB>,
+    memory_handle: Arc<MemoryHandle>,
     session_manager: Arc<SessionManager>,
     workspace: Arc<WorkspaceMemory>,
     sandbox: Arc<SandboxManager>,
@@ -73,7 +71,6 @@ pub(super) fn create_full_tool_manager(
     agent_definitions: AgentDefinitionCache,
 ) -> ToolManager {
     let mut tm = ToolManager::new();
-    let vector_db_uri = vector_db_uri_for_workspace(&workspace);
     let background_tasks = Arc::new(
         BackgroundTaskStore::new(workspace.rara_dir.join("background-tasks"))
             .expect("background task store"),
@@ -138,7 +135,6 @@ pub(super) fn create_full_tool_manager(
     tm.register(Box::new(GrepTool));
     tm.register(Box::new(SearchMemoryTool {
         rara_home: workspace.rara_dir.clone(),
-        vdb: Some(vdb.clone()),
         hook_callback: Some(Arc::new(move |query| {
             hook_runtime.dispatch_memory_query(query);
         })),
@@ -164,20 +160,7 @@ pub(super) fn create_full_tool_manager(
         store: task_list_store,
         default_task_list_id: task_list_id.clone(),
     }));
-    tm.register(Box::new(RememberExperienceTool {
-        llm_backend: backend.clone(),
-        embedding_backend: embedding_backend.clone(),
-        vdb: vdb.clone(),
-        db_uri: vector_db_uri.clone(),
-    }));
-    tm.register(Box::new(RetrieveExperienceTool {
-        llm_backend: backend.clone(),
-        embedding_backend: embedding_backend.clone(),
-        vdb: vdb.clone(),
-        db_uri: vector_db_uri,
-    }));
     tm.register(Box::new(RetrieveSessionContextTool {
-        embedding_backend: embedding_backend.clone(),
         session_manager: session_manager.clone(),
     }));
     tm.register(Box::new(UpdateProjectMemoryTool {
@@ -191,8 +174,7 @@ pub(super) fn create_full_tool_manager(
     tm.register(Box::new(AgentTool {
         backend: backend.clone(),
         backend_resolver: subagent_backend_resolver.clone(),
-        embedding_backend: embedding_backend.clone(),
-        vdb: vdb.clone(),
+        memory_handle: memory_handle.clone(),
         session_manager: session_manager.clone(),
         workspace: workspace.clone(),
         prompt_config: prompt_config.clone(),
@@ -204,8 +186,7 @@ pub(super) fn create_full_tool_manager(
     tm.register(Box::new(ExploreAgentTool {
         backend: backend.clone(),
         backend_resolver: subagent_backend_resolver.clone(),
-        embedding_backend: embedding_backend.clone(),
-        vdb: vdb.clone(),
+        memory_handle: memory_handle.clone(),
         session_manager: session_manager.clone(),
         workspace: workspace.clone(),
         prompt_config: prompt_config.clone(),
@@ -217,8 +198,7 @@ pub(super) fn create_full_tool_manager(
     tm.register(Box::new(PlanAgentTool {
         backend: backend.clone(),
         backend_resolver: subagent_backend_resolver.clone(),
-        embedding_backend: embedding_backend.clone(),
-        vdb: vdb.clone(),
+        memory_handle: memory_handle.clone(),
         session_manager: session_manager.clone(),
         workspace: workspace.clone(),
         prompt_config: prompt_config.clone(),
@@ -230,8 +210,7 @@ pub(super) fn create_full_tool_manager(
     tm.register(Box::new(TeamCreateTool {
         backend,
         backend_resolver: subagent_backend_resolver,
-        embedding_backend,
-        vdb,
+        memory_handle,
         session_manager: session_manager.clone(),
         workspace,
         prompt_config,
@@ -278,8 +257,4 @@ pub(super) fn load_skill_manager(
         }
     }
     Arc::new(RwLock::new(skill_manager))
-}
-
-pub(crate) fn vector_db_uri_for_workspace(workspace: &WorkspaceMemory) -> String {
-    workspace.rara_dir.join("lancedb").display().to_string()
 }

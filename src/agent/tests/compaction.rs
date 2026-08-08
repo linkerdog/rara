@@ -2,7 +2,7 @@ use std::sync::{Arc, Mutex};
 
 use anyhow::Result;
 use async_trait::async_trait;
-use rara_memory::vectordb::VectorDB;
+use rara_memory::memory_handle::MemoryHandle;
 use rara_state::state_db::{PersistedStructuredRolloutEvent, StateDb};
 use rara_tools::tool::ToolManager;
 use serde_json::json;
@@ -39,11 +39,6 @@ impl LlmBackend for SlowSummarizeBackend {
             usage: Some(TokenUsage::default()),
         })
     }
-
-    async fn embed(&self, _text: &str) -> Result<Vec<f32>> {
-        Ok(vec![0.0; 8])
-    }
-
     async fn summarize(&self, _messages: &[Message], _instruction: &str) -> Result<String> {
         tokio::time::sleep(std::time::Duration::from_secs(1)).await;
         Ok("slow summary".to_string())
@@ -65,11 +60,6 @@ impl LlmBackend for TinyBudgetSummaryBackend {
             usage: Some(TokenUsage::default()),
         })
     }
-
-    async fn embed(&self, _text: &str) -> Result<Vec<f32>> {
-        Ok(vec![0.0; 8])
-    }
-
     async fn summarize(&self, _messages: &[Message], _instruction: &str) -> Result<String> {
         Ok("summary".to_string())
     }
@@ -102,11 +92,6 @@ impl LlmBackend for ContextWindowOnceBackend {
             usage: Some(TokenUsage::default()),
         })
     }
-
-    async fn embed(&self, _text: &str) -> Result<Vec<f32>> {
-        Ok(vec![0.0; 8])
-    }
-
     async fn summarize(&self, messages: &[Message], _instruction: &str) -> Result<String> {
         let mut summarized_lengths = self.summarized_lengths.lock().expect("lock");
         summarized_lengths.push(messages.len());
@@ -135,7 +120,7 @@ async fn manual_compact_replaces_older_history_with_summary() {
     let mut agent = Agent::new(
         ToolManager::new(),
         backend,
-        Arc::new(VectorDB::new("data/lancedb")),
+        Arc::new(MemoryHandle::new("data/memory")),
         Arc::new(SessionManager::new().expect("session manager")),
         Arc::new(WorkspaceMemory::new().expect("workspace memory")),
     );
@@ -186,7 +171,7 @@ async fn automatic_compaction_timeout_does_not_block_query() {
     let mut agent = Agent::new(
         ToolManager::new(),
         backend,
-        Arc::new(VectorDB::new("data/lancedb")),
+        Arc::new(MemoryHandle::new("data/memory")),
         session_manager,
         workspace,
     );
@@ -234,7 +219,7 @@ async fn automatic_compaction_failure_suspends_retry_until_history_grows() {
     let mut agent = Agent::new(
         ToolManager::new(),
         backend,
-        Arc::new(VectorDB::new("data/lancedb")),
+        Arc::new(MemoryHandle::new("data/memory")),
         Arc::new(SessionManager::new().expect("session manager")),
         Arc::new(WorkspaceMemory::new().expect("workspace memory")),
     );
@@ -288,7 +273,7 @@ async fn successful_compaction_clears_auto_failure_backoff() {
     let mut agent = Agent::new(
         ToolManager::new(),
         backend,
-        Arc::new(VectorDB::new("data/lancedb")),
+        Arc::new(MemoryHandle::new("data/memory")),
         Arc::new(SessionManager::new().expect("session manager")),
         Arc::new(WorkspaceMemory::new().expect("workspace memory")),
     );
@@ -325,8 +310,8 @@ async fn compaction_retries_context_window_error_by_dropping_oldest_api_round() 
     let mut agent = Agent::new(
         ToolManager::new(),
         backend.clone(),
-        Arc::new(VectorDB::new(
-            &rara_dir.join("lancedb").display().to_string(),
+        Arc::new(MemoryHandle::new(
+            &rara_dir.join("memory").display().to_string(),
         )),
         session_manager,
         workspace,
@@ -389,7 +374,7 @@ async fn manual_compact_carries_recent_files_forward() {
     let mut agent = Agent::new(
         ToolManager::new(),
         backend,
-        Arc::new(VectorDB::new("data/lancedb")),
+        Arc::new(MemoryHandle::new("data/memory")),
         Arc::new(SessionManager::new().expect("session manager")),
         Arc::new(WorkspaceMemory::new().expect("workspace memory")),
     );
@@ -489,7 +474,7 @@ async fn manual_compact_carries_retrieved_memory_forward() {
     let mut agent = Agent::new(
         ToolManager::new(),
         backend,
-        Arc::new(VectorDB::new("data/lancedb")),
+        Arc::new(MemoryHandle::new("data/memory")),
         Arc::new(SessionManager::new().expect("session manager")),
         Arc::new(WorkspaceMemory::new().expect("workspace memory")),
     );
@@ -549,7 +534,7 @@ async fn manual_compact_carries_invoked_skill_forward() {
     let mut agent = Agent::new(
         ToolManager::new(),
         backend,
-        Arc::new(VectorDB::new("data/lancedb")),
+        Arc::new(MemoryHandle::new("data/memory")),
         Arc::new(SessionManager::new().expect("session manager")),
         Arc::new(WorkspaceMemory::new().expect("workspace memory")),
     );
@@ -632,7 +617,7 @@ async fn manual_compact_carries_hook_and_mcp_retain_hints_forward() {
     let mut agent = Agent::new(
         ToolManager::new(),
         backend,
-        Arc::new(VectorDB::new("data/lancedb")),
+        Arc::new(MemoryHandle::new("data/memory")),
         Arc::new(SessionManager::new().expect("session manager")),
         Arc::new(WorkspaceMemory::new().expect("workspace memory")),
     );
@@ -727,7 +712,7 @@ async fn manual_compact_prefers_latest_excerpt_and_tracks_apply_patch() {
     let mut agent = Agent::new(
         ToolManager::new(),
         backend,
-        Arc::new(VectorDB::new("data/lancedb")),
+        Arc::new(MemoryHandle::new("data/memory")),
         Arc::new(SessionManager::new().expect("session manager")),
         Arc::new(WorkspaceMemory::new().expect("workspace memory")),
     );
@@ -785,8 +770,8 @@ async fn partial_compact_replaces_only_selected_api_round_range() {
     let mut agent = Agent::new(
         ToolManager::new(),
         backend,
-        Arc::new(VectorDB::new(
-            &rara_dir.join("lancedb").display().to_string(),
+        Arc::new(MemoryHandle::new(
+            &rara_dir.join("memory").display().to_string(),
         )),
         session_manager.clone(),
         workspace,
@@ -867,8 +852,8 @@ async fn partial_compact_rejects_non_api_round_boundary_range() {
     let mut agent = Agent::new(
         ToolManager::new(),
         backend,
-        Arc::new(VectorDB::new(
-            &rara_dir.join("lancedb").display().to_string(),
+        Arc::new(MemoryHandle::new(
+            &rara_dir.join("memory").display().to_string(),
         )),
         session_manager,
         workspace,
@@ -909,7 +894,7 @@ async fn manual_compact_preserves_recent_api_round_pair() {
     let mut agent = Agent::new(
         ToolManager::new(),
         backend,
-        Arc::new(VectorDB::new("data/lancedb")),
+        Arc::new(MemoryHandle::new("data/memory")),
         Arc::new(SessionManager::new().expect("session manager")),
         Arc::new(WorkspaceMemory::new().expect("workspace memory")),
     );

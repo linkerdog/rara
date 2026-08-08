@@ -16,7 +16,7 @@ fn memory_selection_for_test(
     compacted_history: &[CompactionSourceContextEntry],
     history: &[Message],
     session_id: &str,
-    vdb_uri: &str,
+    memory_uri: &str,
     retrieved_memory_candidates: &[RetrievedMemoryCandidate],
     file_search_candidates: &[RetrievalCandidate],
     selection_budget_tokens: Option<usize>,
@@ -26,7 +26,7 @@ fn memory_selection_for_test(
         query: query.as_str(),
         session_id,
         history,
-        vdb_uri,
+        memory_uri,
     };
     let candidates = retrieval_candidates(
         &request,
@@ -188,7 +188,7 @@ fn thread_history_available_not_selected_when_generic_compacted_carry_over_exist
 }
 
 #[test]
-fn vector_memory_is_available_but_not_selectable() {
+fn local_memory_is_available_but_not_selectable() {
     let history: Vec<Message> = vec![];
     let result = memory_selection_for_test(
         &[],
@@ -198,7 +198,7 @@ fn vector_memory_is_available_but_not_selectable() {
         &[],
         &history,
         "session-1",
-        "memory://vdb",
+        "memory://local",
         &[],
         &[],
         Some(10_000),
@@ -210,20 +210,20 @@ fn vector_memory_is_available_but_not_selectable() {
         .map(|item| item.kind.as_str())
         .collect();
     assert!(
-        available_kinds.contains(&"vector_memory"),
-        "vector_memory should appear in available when a vdb URI is configured"
+        available_kinds.contains(&"local_memory"),
+        "local_memory should appear in available when a memory_handle URI is configured"
     );
     let vector_entry = result
         .available_items
         .iter()
-        .find(|item| item.kind == "vector_memory")
-        .expect("vector_memory should be present");
+        .find(|item| item.kind == "local_memory")
+        .expect("local_memory should be present");
     assert!(
         vector_entry
             .dropped_reason
             .as_ref()
             .is_some_and(|r| r.reason().contains("not implemented")),
-        "vector_memory should explain it is not implemented yet"
+        "local_memory should explain it is not implemented yet"
     );
 }
 
@@ -236,7 +236,7 @@ fn retrieval_tool_results_from_history_are_captured_as_candidates() {
                 {
                     "type": "tool_use",
                     "id": "tool-retrieve-1",
-                    "name": "retrieve_experience",
+                    "name": "retrieve_session_context",
                     "input": { "query": "bootstrap contract" }
                 }
             ]),
@@ -247,7 +247,7 @@ fn retrieval_tool_results_from_history_are_captured_as_candidates() {
                 {
                     "type": "tool_result",
                     "tool_use_id": "tool-retrieve-1",
-                    "content": "Tool retrieve_experience completed.\nPayload:\n{\n  \"relevant_experiences\": [\"Use shared bootstrap.\"]\n}"
+                    "content": "Tool retrieve_session_context completed.\nPayload:\n{\n  \"relevant_context\": [\"Use shared bootstrap.\"]\n}"
                 }
             ]),
         },
@@ -291,7 +291,7 @@ fn retrieval_tool_results_from_history_are_captured_as_candidates() {
         .chain(available_kinds.iter())
         .collect();
     assert!(
-        all_kinds.contains(&&"retrieved_workspace_memory"),
+        all_kinds.contains(&&"retrieved_thread_context"),
         "retrieval tool candidate from history must appear in selected, available, or dropped"
     );
 }
@@ -369,7 +369,7 @@ fn direct_retrieved_memory_candidates_are_selected_when_budget_allows() {
         &[],
         &history,
         "session-1",
-        "memory://vdb",
+        "memory://local",
         &retrieved,
         &[],
         Some(10_000),
@@ -451,7 +451,7 @@ fn typed_retrieval_candidate_priority_drives_selection_order() {
         &[],
         &history,
         "session-1",
-        "memory://vdb",
+        "memory://local",
         &retrieved,
         &[],
         Some(10_000),
@@ -577,7 +577,7 @@ fn retrieved_memory_dedupe_key_keeps_first_winner_and_reports_loser() {
         &[],
         &history,
         "session-1",
-        "memory://vdb",
+        "memory://local",
         &retrieved,
         &[],
         Some(10_000),
@@ -655,7 +655,7 @@ fn direct_retrieved_memory_candidates_charge_shared_context_overhead_once() {
         &[],
         &history,
         "session-1",
-        "memory://vdb",
+        "memory://local",
         &retrieved,
         &[],
         Some(exact_budget),
@@ -703,7 +703,7 @@ fn direct_retrieved_memory_candidates_are_dropped_when_budget_is_tight() {
         &[],
         &history,
         "session-1",
-        "memory://vdb",
+        "memory://local",
         &retrieved,
         &[],
         Some(1),
@@ -738,7 +738,7 @@ fn memory_selection_reports_all_three_categories() {
         &[],
         &history,
         "session-1",
-        "memory://vdb",
+        "memory://local",
         &[],
         &[],
         Some(10_000),
@@ -749,15 +749,15 @@ fn memory_selection_reports_all_three_categories() {
         !result.selected_items.is_empty(),
         "should have selected items"
     );
-    // Available: vector_memory should be there
+    // Available: local_memory should be there
     let available_kinds: Vec<&str> = result
         .available_items
         .iter()
         .map(|item| item.kind.as_str())
         .collect();
     assert!(
-        available_kinds.contains(&"vector_memory"),
-        "vector_memory should be in available"
+        available_kinds.contains(&"local_memory"),
+        "local_memory should be in available"
     );
     // workspace_memory_available_item is also pushed when not already selected
     let has_workspace_available = available_kinds.contains(&"workspace_memory");

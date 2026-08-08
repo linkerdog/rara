@@ -190,16 +190,6 @@ impl LlmBackend for CodexBackend {
         .await
     }
 
-    async fn embed(&self, t: &str) -> Result<Vec<f32>> {
-        OpenAiCompatibleBackend::new(
-            self.api_key.clone(),
-            self.base_url.clone(),
-            self.model.clone(),
-        )?
-        .embed(t)
-        .await
-    }
-
     async fn summarize(&self, m: &[Message], instruction: &str) -> Result<String> {
         let mut messages = m.to_vec();
         messages.push(Message {

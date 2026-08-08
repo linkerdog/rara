@@ -4,9 +4,7 @@
 
     use super::*;
     use crate::agent::Message;
-    use crate::llm::{
-        ContentBlock, EmbeddingBackend, EmbeddingInputKind, LlmBackend, LlmResponse, MockLlm,
-    };
+    use crate::llm::{ContentBlock, LlmBackend, LlmResponse, MockLlm};
 
     struct FailingLlmBackend;
 
@@ -21,29 +19,8 @@
                 usage: None,
             })
         }
-
-        async fn embed(&self, _text: &str) -> Result<Vec<f32>> {
-            Err(anyhow!("llm embedding path should stay unused"))
-        }
-
         async fn summarize(&self, _messages: &[Message], _instruction: &str) -> Result<String> {
             Ok("summary".to_string())
-        }
-    }
-
-    struct FixedEmbeddingBackend;
-
-    #[async_trait]
-    impl EmbeddingBackend for FixedEmbeddingBackend {
-        async fn embed(&self, text: &str, kind: EmbeddingInputKind) -> Result<Vec<f32>> {
-            let vector = match kind {
-                EmbeddingInputKind::Query if text.contains("parser") => vec![1.0, 0.0, 0.0, 0.0],
-                EmbeddingInputKind::Document if text.contains("DeepSeek") => {
-                    vec![1.0, 0.0, 0.0, 0.0]
-                }
-                _ => vec![0.0, 1.0, 0.0, 0.0],
-            };
-            Ok(vector)
         }
     }
 
@@ -208,7 +185,7 @@
         let temp = tempfile::tempdir().expect("tempdir");
         let store = MemoryStore::new(
             Arc::new(MockLlm),
-            Arc::new(VectorDB::new(temp.path().to_str().expect("utf8 path"))),
+            Arc::new(MemoryHandle::new(temp.path().to_str().expect("utf8 path"))),
         );
 
         let saved = store
@@ -238,12 +215,11 @@
     }
 
     #[tokio::test]
-    async fn memory_store_uses_separate_embedding_backend_for_vector_paths() {
+    async fn memory_store_uses_text_search_without_llm_calls() {
         let temp = tempfile::tempdir().expect("tempdir");
-        let store = MemoryStore::new_with_embedding_backend(
+        let store = MemoryStore::new(
             Arc::new(FailingLlmBackend),
-            Arc::new(FixedEmbeddingBackend),
-            Arc::new(VectorDB::new(temp.path().to_str().expect("utf8 path"))),
+            Arc::new(MemoryHandle::new(temp.path().to_str().expect("utf8 path"))),
         );
 
         let saved = store
@@ -251,11 +227,11 @@
                 "DeepSeek DSML requires a structured parser.",
             ))
             .await
-            .expect("insert memory with separate embedding backend");
+            .expect("insert memory without llm calls");
         let hits = store
             .search("structured parser", 8)
             .await
-            .expect("search memories with separate embedding backend");
+            .expect("search memories without llm calls");
 
         assert_eq!(hits.len(), 1);
         assert_eq!(hits[0].record.id, saved.id);
@@ -266,7 +242,7 @@
         let temp = tempfile::tempdir().expect("tempdir");
         let store = MemoryStore::new(
             Arc::new(MockLlm),
-            Arc::new(VectorDB::new(temp.path().to_str().expect("utf8 path"))),
+            Arc::new(MemoryHandle::new(temp.path().to_str().expect("utf8 path"))),
         );
 
         let saved = store
@@ -293,12 +269,12 @@
     #[tokio::test]
     async fn memory_store_persists_thread_provenance_across_instances() {
         let temp = tempfile::tempdir().expect("tempdir");
-        let db_path = temp.path().join("lancedb");
+        let db_path = temp.path().join("memory");
         let record_path = temp.path().join("memories").join("records.json");
         let backend = Arc::new(MockLlm);
-        let vdb = Arc::new(VectorDB::new(db_path.to_str().expect("utf8 path")));
+        let memory_handle = Arc::new(MemoryHandle::new(db_path.to_str().expect("utf8 path")));
         let store =
-            MemoryStore::new_with_record_path(backend.clone(), vdb.clone(), record_path.clone());
+            MemoryStore::new_with_record_path(backend.clone(), memory_handle.clone(), record_path.clone());
 
         let saved = store
             .insert(NewMemoryRecord {
@@ -319,7 +295,7 @@
             .await
             .expect("insert memory");
 
-        let reloaded = MemoryStore::new_with_record_path(backend, vdb, record_path);
+        let reloaded = MemoryStore::new_with_record_path(backend, memory_handle, record_path);
         let hits = reloaded
             .search("memory retrieval", 5)
             .await
@@ -361,12 +337,12 @@
     #[tokio::test]
     async fn memory_store_set_pinned_updates_and_persists_record_metadata() {
         let temp = tempfile::tempdir().expect("tempdir");
-        let db_path = temp.path().join("lancedb");
+        let db_path = temp.path().join("memory");
         let record_path = temp.path().join("memories").join("records.json");
         let backend = Arc::new(MockLlm);
-        let vdb = Arc::new(VectorDB::new(db_path.to_str().expect("utf8 path")));
+        let memory_handle = Arc::new(MemoryHandle::new(db_path.to_str().expect("utf8 path")));
         let store =
-            MemoryStore::new_with_record_path(backend.clone(), vdb.clone(), record_path.clone());
+            MemoryStore::new_with_record_path(backend.clone(), memory_handle.clone(), record_path.clone());
 
         let saved = store
             .insert(NewMemoryRecord::experience(
@@ -381,7 +357,7 @@
         assert!(pinned.pinned);
         assert!(pinned.is_protected_from_automatic_cleanup());
 
-        let reloaded = MemoryStore::new_with_record_path(backend, vdb, record_path);
+        let reloaded = MemoryStore::new_with_record_path(backend, memory_handle, record_path);
         let persisted = reloaded
             .get(&saved.id)
             .await
@@ -394,12 +370,12 @@
     #[tokio::test]
     async fn memory_store_updates_record_and_refreshes_search_index() {
         let temp = tempfile::tempdir().expect("tempdir");
-        let db_path = temp.path().join("lancedb");
+        let db_path = temp.path().join("memory");
         let record_path = temp.path().join("memories").join("records.json");
         let backend = Arc::new(MockLlm);
-        let vdb = Arc::new(VectorDB::new(db_path.to_str().expect("utf8 path")));
+        let memory_handle = Arc::new(MemoryHandle::new(db_path.to_str().expect("utf8 path")));
         let store =
-            MemoryStore::new_with_record_path(backend.clone(), vdb.clone(), record_path.clone());
+            MemoryStore::new_with_record_path(backend.clone(), memory_handle.clone(), record_path.clone());
 
         let saved = store
             .insert(NewMemoryRecord::experience("Old parser note."))
@@ -437,7 +413,7 @@
         assert!(updated.pinned);
         assert_eq!(updated.scope, MemoryScope::Workspace);
 
-        let reloaded = MemoryStore::new_with_record_path(backend, vdb, record_path);
+        let reloaded = MemoryStore::new_with_record_path(backend, memory_handle, record_path);
         let hits = reloaded
             .search("structured parser", 5)
             .await
@@ -446,15 +422,15 @@
     }
 
     #[tokio::test]
-    async fn memory_store_refreshes_index_metadata_for_scope_only_update() {
+    async fn memory_store_scope_only_update_keeps_record_searchable() {
         let temp = tempfile::tempdir().expect("tempdir");
         let backend = Arc::new(MockLlm);
-        let vdb = Arc::new(VectorDB::new(temp.path().to_str().expect("utf8 path")));
-        let store = MemoryStore::new(backend.clone(), vdb.clone());
+        let memory_handle = Arc::new(MemoryHandle::new(temp.path().to_str().expect("utf8 path")));
+        let store = MemoryStore::new(backend, memory_handle);
 
         let saved = store
             .insert(NewMemoryRecord::experience(
-                "Scope-only updates must refresh search index metadata.",
+                "Scope-only updates must keep local file memory searchable.",
             ))
             .await
             .expect("insert memory");
@@ -469,37 +445,27 @@
             .await
             .expect("update scope");
 
-        let metadata_hits = vdb
-            .search_with_metadata(
-                EXPERIENCES_TABLE,
-                LlmBackend::embed(backend.as_ref(), "Scope-only updates")
-                    .await
-                    .expect("embed"),
-                5,
-            )
+        let hits = store
+            .search("local file memory", 5)
             .await
-            .expect("search metadata");
-        let metadata = metadata_hits
+            .expect("search records");
+        let updated = hits
             .into_iter()
-            .map(|(metadata, _score)| metadata)
-            .find(|metadata| metadata.id.as_deref() == Some(saved.id.as_str()))
-            .expect("updated index metadata");
-        assert_eq!(
-            metadata.session_id,
-            memory_scope_key(&MemoryScope::Workspace)
-        );
+            .find(|hit| hit.record.id == saved.id)
+            .expect("updated record remains searchable");
+        assert_eq!(updated.record.scope, MemoryScope::Workspace);
     }
 
     #[tokio::test]
-    async fn memory_store_delete_hides_stale_lancedb_hits() {
+    async fn memory_store_delete_hides_removed_records_from_text_search() {
         let temp = tempfile::tempdir().expect("tempdir");
         let backend = Arc::new(MockLlm);
-        let vdb = Arc::new(VectorDB::new(temp.path().to_str().expect("utf8 path")));
-        let store = MemoryStore::new(backend, vdb);
+        let memory_handle = Arc::new(MemoryHandle::new(temp.path().to_str().expect("utf8 path")));
+        let store = MemoryStore::new(backend, memory_handle);
 
         let saved = store
             .insert(NewMemoryRecord::experience(
-                "Deleted memory should not be rehydrated from stale LanceDB rows.",
+                "Deleted memory should not appear in local file memory search.",
             ))
             .await
             .expect("insert memory");
@@ -509,10 +475,10 @@
         );
         assert_eq!(store.get(&saved.id).await.expect("get deleted"), None);
 
-        let hits = store.search("stale LanceDB rows", 5).await.expect("search");
+        let hits = store.search("local file memory", 5).await.expect("search");
         assert!(
             hits.iter().all(|hit| hit.record.id != saved.id),
-            "deleted domain records must not be reconstructed from stale LanceDB index rows"
+            "deleted records must not appear in local memory text search"
         );
     }
 
@@ -521,7 +487,7 @@
         let temp = tempfile::tempdir().expect("tempdir");
         let store = MemoryStore::new(
             Arc::new(MockLlm),
-            Arc::new(VectorDB::new(temp.path().to_str().expect("utf8 path"))),
+            Arc::new(MemoryHandle::new(temp.path().to_str().expect("utf8 path"))),
         );
 
         store
