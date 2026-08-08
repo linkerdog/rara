@@ -181,6 +181,12 @@ Active backlog only. Keep this file small and current.
 - [ ] Decide whether to keep or migrate away the deprecated
       `local_embeddings` config field.
 
+## WASM Core
+
+- [ ] Add `wasm32-unknown-unknown` CI once the Rust target is installed in CI.
+- [ ] Add a JavaScript binding package around `rara-wasm-core` when a browser
+      client is ready to consume it.
+
 ## Provider Catalog
 
 - [x] Enrich connected DeepSeek/Kimi model lists with static and API-provided
