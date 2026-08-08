@@ -219,13 +219,6 @@ impl LlmBackend for GeminiBackend {
         }
     }
 
-    async fn embed(&self, text: &str) -> Result<Vec<f32>> {
-        // Code Assist does not support embeddings. `provider=gemini` uses the
-        // OpenAI-compatible backend, so this native backend only needs a local
-        // deterministic fallback.
-        Ok(crate::llm::hashed_embedding(text, 768))
-    }
-
     async fn summarize(&self, messages: &[Message], instruction: &str) -> Result<String> {
         // Use a flash model for summarization.
         let summary_messages = {

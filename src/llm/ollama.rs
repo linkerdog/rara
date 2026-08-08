@@ -8,8 +8,8 @@ use serde_json::{Value, json};
 
 use super::shared::{
     ContextBudget, LlmBackend, LlmStreamEvent, collect_assistant_content,
-    context_budget_from_window, extract_single_tool_result, hashed_embedding,
-    http_client_for_target, parse_tool_arguments, render_openai_message_content, retry_send_json,
+    context_budget_from_window, extract_single_tool_result, http_client_for_target,
+    parse_tool_arguments, render_openai_message_content, retry_send_json,
 };
 use crate::agent::Message;
 use crate::llm::{ContentBlock, LlmResponse, TokenUsage};
@@ -257,10 +257,6 @@ impl LlmBackend for OllamaBackend {
                 ..TokenUsage::default()
             }),
         })
-    }
-
-    async fn embed(&self, text: &str) -> Result<Vec<f32>> {
-        Ok(hashed_embedding(text, 256))
     }
 
     async fn summarize(&self, messages: &[Message], instruction: &str) -> Result<String> {

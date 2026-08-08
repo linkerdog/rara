@@ -1,13 +1,13 @@
-fn default_record_path_for_vdb_uri(uri: &str) -> PathBuf {
-    let db_path = PathBuf::from(uri);
-    if db_path.file_name().and_then(|value| value.to_str()) == Some("lancedb") {
-        return db_path
+fn default_record_path_for_memory_handle_uri(uri: &str) -> PathBuf {
+    let memory_path = PathBuf::from(uri);
+    if memory_path.file_name().and_then(|value| value.to_str()) == Some("memory") {
+        return memory_path
             .parent()
             .unwrap_or_else(|| Path::new("."))
             .join("memories")
             .join("records.json");
     }
-    db_path.join("memory_records.json")
+    memory_path.join("memory_records.json")
 }
 
 fn upsert_record_sync(
@@ -189,16 +189,6 @@ fn write_record_file_sync(path: &Path, file: &PersistedMemoryRecordFile) -> Resu
     Ok(())
 }
 
-fn memory_record_for_hit(
-    records: &HashMap<String, MemoryRecord>,
-    metadata: &MemoryMetadata,
-) -> Option<MemoryRecord> {
-    match metadata.id.as_ref() {
-        Some(id) => records.get(id).cloned(),
-        None => Some(MemoryRecord::from(metadata.clone())),
-    }
-}
-
 fn normalize_memory_record_patch(mut patch: MemoryRecordPatch) -> Result<MemoryRecordPatch> {
     if let Some(title) = patch.title.take() {
         patch.title = Some(title.trim().to_string());
@@ -223,13 +213,6 @@ fn normalize_memory_record_patch(mut patch: MemoryRecordPatch) -> Result<MemoryR
         patch.thread_id = Some(normalized_optional_id(thread_id));
     }
     Ok(patch)
-}
-
-fn patch_requires_index_refresh(patch: &MemoryRecordPatch) -> bool {
-    patch.content.is_some()
-        || patch.scope.is_some()
-        || patch.session_id.is_some()
-        || patch.thread_id.is_some()
 }
 
 fn apply_memory_record_patch(record: &mut MemoryRecord, patch: MemoryRecordPatch) -> bool {
@@ -332,6 +315,7 @@ fn clamp_importance(importance: f32) -> f32 {
     importance.clamp(0.1, 1.0)
 }
 
+#[cfg(test)]
 fn memory_scope_key(scope: &MemoryScope) -> &'static str {
     match scope {
         MemoryScope::User => "user",
@@ -342,14 +326,48 @@ fn memory_scope_key(scope: &MemoryScope) -> &'static str {
     }
 }
 
-fn memory_scope_from_key(value: &str) -> MemoryScope {
-    match value {
-        "user" => MemoryScope::User,
-        "workspace" => MemoryScope::Workspace,
-        "thread" => MemoryScope::Thread,
-        "session" => MemoryScope::Session,
-        _ => MemoryScope::Project,
+fn normalized_search_terms(query: &str) -> Vec<String> {
+    query
+        .split(|ch: char| !ch.is_alphanumeric())
+        .map(str::trim)
+        .filter(|term| !term.is_empty())
+        .map(str::to_lowercase)
+        .collect()
+}
+
+fn text_match_score(record: &MemoryRecord, query_terms: &[String]) -> Option<f32> {
+    let title = record.title.to_lowercase();
+    let content = record.content.to_lowercase();
+    let mut matched = 0usize;
+    let mut title_matches = 0usize;
+    for term in query_terms {
+        if title.contains(term) || content.contains(term) {
+            matched += 1;
+            if title.contains(term) {
+                title_matches += 1;
+            }
+        }
     }
+    (matched > 0).then(|| {
+        let coverage = matched as f32 / query_terms.len() as f32;
+        coverage + title_matches as f32 * 0.25 + record.importance * 0.1
+    })
+}
+
+fn sort_memory_search_hits(hits: &mut [MemoryRecordSearchHit]) {
+    hits.sort_by(|left, right| {
+        right
+            .score
+            .total_cmp(&left.score)
+            .then_with(|| right.record.pinned.cmp(&left.record.pinned))
+            .then_with(|| {
+                right
+                    .record
+                    .updated_at_unix_seconds
+                    .cmp(&left.record.updated_at_unix_seconds)
+            })
+            .then_with(|| left.record.id.cmp(&right.record.id))
+    });
 }
 
 fn title_from_content(content: &str) -> String {
@@ -380,18 +398,4 @@ fn unix_timestamp_seconds() -> u64 {
         .duration_since(UNIX_EPOCH)
         .unwrap_or_default()
         .as_secs()
-}
-
-/// Compute the new content string after applying `patch` to `record`.
-/// Returns the record's existing content when no content-related fields
-/// are set in the patch.
-pub(crate) fn apply_patch_to_content(record: &MemoryRecord, patch: &MemoryRecordPatch) -> String {
-    match &patch.content {
-        Some(c) if !c.trim().is_empty() => c.clone(),
-        Some(_) => record.content.clone(),
-        None => match &patch.title {
-            Some(t) => format!("{}\n\n{}", t, record.content),
-            None => record.content.clone(),
-        },
-    }
 }

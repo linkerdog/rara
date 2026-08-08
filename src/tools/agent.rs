@@ -10,7 +10,7 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use async_trait::async_trait;
 use futures::stream::{self, StreamExt, TryStreamExt};
-use rara_memory::vectordb::VectorDB;
+use rara_memory::memory_handle::MemoryHandle;
 use rara_persistence::thread_data::{
     PersistedCompactState, PersistedInteraction, PersistedPlanStep, PersistedPromptRuntimeState,
 };
@@ -25,7 +25,7 @@ use serde_json::{Value, json};
 use crate::agent::{
     Agent, AgentExecutionMode, Message, PendingUserInput, PlanStep, PlanStepStatus,
 };
-use crate::llm::{EmbeddingBackend, LlmBackend};
+use crate::llm::LlmBackend;
 use crate::prompt::PromptRuntimeConfig;
 use crate::session::SessionManager;
 use crate::session_transcript::{self, TranscriptScope};
@@ -347,8 +347,7 @@ impl SubAgentKind {
 pub struct AgentTool {
     pub backend: Arc<dyn LlmBackend>,
     pub backend_resolver: Arc<dyn SubagentBackendResolver>,
-    pub embedding_backend: Arc<dyn EmbeddingBackend>,
-    pub vdb: Arc<VectorDB>,
+    pub memory_handle: Arc<MemoryHandle>,
     pub session_manager: Arc<SessionManager>,
     pub workspace: Arc<WorkspaceMemory>,
     pub prompt_config: PromptRuntimeConfig,
@@ -425,8 +424,7 @@ impl AgentTool {
                 instruction: instruction.to_string(),
                 backend: self.backend.clone(),
                 backend_resolver: self.backend_resolver.clone(),
-                embedding_backend: self.embedding_backend.clone(),
-                vdb: self.vdb.clone(),
+                memory_handle: self.memory_handle.clone(),
                 session_manager: self.session_manager.clone(),
                 workspace: self.workspace.clone(),
                 prompt_config: self.prompt_config.clone(),
@@ -447,8 +445,7 @@ impl AgentTool {
             model_target,
             self.backend.clone(),
             self.backend_resolver.clone(),
-            self.embedding_backend.clone(),
-            self.vdb.clone(),
+            self.memory_handle.clone(),
             self.session_manager.clone(),
             self.workspace.clone(),
             self.prompt_config.clone(),
@@ -480,8 +477,7 @@ impl AgentTool {
 pub struct ExploreAgentTool {
     pub backend: Arc<dyn LlmBackend>,
     pub backend_resolver: Arc<dyn SubagentBackendResolver>,
-    pub embedding_backend: Arc<dyn EmbeddingBackend>,
-    pub vdb: Arc<VectorDB>,
+    pub memory_handle: Arc<MemoryHandle>,
     pub session_manager: Arc<SessionManager>,
     pub workspace: Arc<WorkspaceMemory>,
     pub prompt_config: PromptRuntimeConfig,
@@ -549,8 +545,7 @@ impl ExploreAgentTool {
                 instruction: instruction.to_string(),
                 backend: self.backend.clone(),
                 backend_resolver: self.backend_resolver.clone(),
-                embedding_backend: self.embedding_backend.clone(),
-                vdb: self.vdb.clone(),
+                memory_handle: self.memory_handle.clone(),
                 session_manager: self.session_manager.clone(),
                 workspace: self.workspace.clone(),
                 prompt_config: self.prompt_config.clone(),
@@ -571,8 +566,7 @@ impl ExploreAgentTool {
             model_target,
             self.backend.clone(),
             self.backend_resolver.clone(),
-            self.embedding_backend.clone(),
-            self.vdb.clone(),
+            self.memory_handle.clone(),
             self.session_manager.clone(),
             self.workspace.clone(),
             self.prompt_config.clone(),
@@ -601,8 +595,7 @@ impl ExploreAgentTool {
 pub struct PlanAgentTool {
     pub backend: Arc<dyn LlmBackend>,
     pub backend_resolver: Arc<dyn SubagentBackendResolver>,
-    pub embedding_backend: Arc<dyn EmbeddingBackend>,
-    pub vdb: Arc<VectorDB>,
+    pub memory_handle: Arc<MemoryHandle>,
     pub session_manager: Arc<SessionManager>,
     pub workspace: Arc<WorkspaceMemory>,
     pub prompt_config: PromptRuntimeConfig,
@@ -670,8 +663,7 @@ impl PlanAgentTool {
                 instruction: instruction.to_string(),
                 backend: self.backend.clone(),
                 backend_resolver: self.backend_resolver.clone(),
-                embedding_backend: self.embedding_backend.clone(),
-                vdb: self.vdb.clone(),
+                memory_handle: self.memory_handle.clone(),
                 session_manager: self.session_manager.clone(),
                 workspace: self.workspace.clone(),
                 prompt_config: self.prompt_config.clone(),
@@ -692,8 +684,7 @@ impl PlanAgentTool {
             model_target,
             self.backend.clone(),
             self.backend_resolver.clone(),
-            self.embedding_backend.clone(),
-            self.vdb.clone(),
+            self.memory_handle.clone(),
             self.session_manager.clone(),
             self.workspace.clone(),
             self.prompt_config.clone(),
@@ -727,8 +718,7 @@ impl PlanAgentTool {
 pub struct TeamCreateTool {
     pub backend: Arc<dyn LlmBackend>,
     pub backend_resolver: Arc<dyn SubagentBackendResolver>,
-    pub embedding_backend: Arc<dyn EmbeddingBackend>,
-    pub vdb: Arc<VectorDB>,
+    pub memory_handle: Arc<MemoryHandle>,
     pub session_manager: Arc<SessionManager>,
     pub workspace: Arc<WorkspaceMemory>,
     pub prompt_config: PromptRuntimeConfig,
@@ -759,8 +749,7 @@ struct BackgroundSubAgentStart {
     instruction: String,
     backend: Arc<dyn LlmBackend>,
     backend_resolver: Arc<dyn SubagentBackendResolver>,
-    embedding_backend: Arc<dyn EmbeddingBackend>,
-    vdb: Arc<VectorDB>,
+    memory_handle: Arc<MemoryHandle>,
     session_manager: Arc<SessionManager>,
     workspace: Arc<WorkspaceMemory>,
     prompt_config: PromptRuntimeConfig,
@@ -854,8 +843,7 @@ impl BackgroundSubAgentStore {
                 start.model_target,
                 start.backend,
                 start.backend_resolver,
-                start.embedding_backend,
-                start.vdb,
+                start.memory_handle,
                 start.session_manager,
                 start.workspace,
                 start.prompt_config,
@@ -1239,8 +1227,7 @@ impl TeamCreateTool {
         let runs = tasks.into_iter().map(|task| {
             let backend = self.backend.clone();
             let backend_resolver = self.backend_resolver.clone();
-            let embedding_backend = self.embedding_backend.clone();
-            let vdb = self.vdb.clone();
+            let memory_handle = self.memory_handle.clone();
             let session_manager = self.session_manager.clone();
             let workspace = self.workspace.clone();
             let prompt_config = self.prompt_config.clone();
@@ -1262,8 +1249,7 @@ impl TeamCreateTool {
                     task.model_target,
                     backend,
                     backend_resolver,
-                    embedding_backend,
-                    vdb,
+                    memory_handle,
                     session_manager,
                     workspace,
                     prompt_config,
@@ -1324,8 +1310,7 @@ pub(crate) async fn run_sub_agent(
     model_target: Option<SubagentProviderTarget>,
     backend: Arc<dyn LlmBackend>,
     backend_resolver: Arc<dyn SubagentBackendResolver>,
-    embedding_backend: Arc<dyn EmbeddingBackend>,
-    vdb: Arc<VectorDB>,
+    memory_handle: Arc<MemoryHandle>,
     session_manager: Arc<SessionManager>,
     workspace: Arc<WorkspaceMemory>,
     prompt_config: PromptRuntimeConfig,
@@ -1346,11 +1331,10 @@ pub(crate) async fn run_sub_agent(
             &task_list_id,
         ))
     }?;
-    let mut sub = Agent::new_with_embedding_backend_and_agent_definitions(
+    let mut sub = Agent::new_with_agent_definitions(
         tool_manager,
         resolved_backend.backend,
-        embedding_backend,
-        vdb,
+        memory_handle,
         session_manager.clone(),
         workspace.clone(),
         agent_definitions,

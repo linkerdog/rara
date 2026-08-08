@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use rara_memory::vectordb::VectorDB;
+use rara_memory::memory_handle::MemoryHandle;
 use rara_tools::tool::ToolManager;
 use serde_json::json;
 
@@ -21,7 +21,9 @@ async fn model_request_projects_old_tool_results_without_mutating_history() {
     let mut agent = Agent::new(
         ToolManager::new(),
         backend.clone(),
-        Arc::new(VectorDB::new(&rara_dir.join("lancedb").to_string_lossy())),
+        Arc::new(MemoryHandle::new(
+            &rara_dir.join("memory").to_string_lossy(),
+        )),
         session_manager,
         workspace,
     );

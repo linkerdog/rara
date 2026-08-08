@@ -2,10 +2,10 @@
 ///
 /// After every 5 turns, collects unprocessed user/assistant messages since the
 /// last successful extraction boundary and uses the active LLM backend to
-/// extract durable facts, then writes them to the MemoryStore (JSON companion
-/// file + LanceDB index).
+/// extract durable facts, then writes them to the MemoryStore JSON companion
+/// file.
 /// No embedding model is required — the JSON file stores full content
-/// and LanceDB insertion is best-effort.
+/// for local text search.
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, OnceLock};
 use std::time::Duration;
@@ -419,7 +419,7 @@ mod tests {
     use std::time::Duration;
 
     use anyhow::Result;
-    use rara_memory::vectordb::VectorDB;
+    use rara_memory::memory_handle::MemoryHandle;
     use rara_tools::tool::ToolManager;
     use tempfile::tempdir;
     use tokio::sync::Notify;
@@ -452,11 +452,6 @@ mod tests {
                 usage: Some(TokenUsage::default()),
             })
         }
-
-        async fn embed(&self, _text: &str) -> Result<Vec<f32>> {
-            Ok(vec![0.0; 8])
-        }
-
         async fn summarize(&self, messages: &[Message], _instruction: &str) -> Result<String> {
             self.summarize_calls.fetch_add(1, Ordering::SeqCst);
             let combined = messages
@@ -496,8 +491,8 @@ mod tests {
         let agent = Agent::new(
             ToolManager::new(),
             backend,
-            Arc::new(VectorDB::new(
-                &rara_dir.join("lancedb").display().to_string(),
+            Arc::new(MemoryHandle::new(
+                &rara_dir.join("memory").display().to_string(),
             )),
             session_manager,
             workspace,
@@ -551,11 +546,6 @@ mod tests {
                 usage: Some(TokenUsage::default()),
             })
         }
-
-        async fn embed(&self, _text: &str) -> Result<Vec<f32>> {
-            Ok(vec![0.0; 8])
-        }
-
         async fn summarize(&self, messages: &[Message], _instruction: &str) -> Result<String> {
             let call_idx = self.summarize_calls.fetch_add(1, Ordering::SeqCst);
             let combined = messages

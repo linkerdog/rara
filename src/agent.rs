@@ -11,7 +11,7 @@ use std::sync::{Arc, atomic::AtomicBool};
 
 use anyhow::{Context, Result};
 use rara_instructions::HookLifecycle;
-use rara_memory::vectordb::VectorDB;
+use rara_memory::memory_handle::MemoryHandle;
 use rara_persistence::redaction::redact_secrets;
 use rara_state::state_db::StateDb;
 use rara_tools::planning::{ENTER_PLAN_MODE_TOOL_NAME, EXIT_PLAN_MODE_TOOL_NAME};
@@ -31,11 +31,7 @@ use crate::hooks::HookDefinition;
 use crate::hooks::HookParseStatus;
 use crate::hooks::HookRegistry;
 use crate::hooks::{HookOutcome, HookSandbox, run_sandboxed_hook};
-#[cfg(test)]
-use crate::llm::LlmEmbeddingBackend;
-use crate::llm::{
-    ContentBlock, EmbeddingBackend, EmbeddingInputKind, LlmBackend, LlmStreamEvent, LlmTurnMetadata,
-};
+use crate::llm::{ContentBlock, LlmBackend, LlmStreamEvent, LlmTurnMetadata};
 use crate::lsp_manager::LspManager;
 use crate::mcp_status::McpStatusSnapshot;
 use crate::memory_notice::memory_notice;
@@ -266,8 +262,7 @@ struct TurnOutput {
 pub struct Agent {
     pub tool_manager: ToolManager,
     pub llm_backend: Arc<dyn LlmBackend>,
-    pub embedding_backend: Arc<dyn EmbeddingBackend>,
-    pub vdb: Arc<VectorDB>,
+    pub memory_handle: Arc<MemoryHandle>,
     pub memory_store: Arc<MemoryStore>,
     pub session_manager: Arc<SessionManager>,
     pub consolidation_scheduler: rara_memory::consolidation::ConsolidationScheduler,
@@ -363,57 +358,33 @@ impl Agent {
     pub fn new(
         tool_manager: ToolManager,
         llm_backend: Arc<dyn LlmBackend>,
-        vdb: Arc<VectorDB>,
-        session_manager: Arc<SessionManager>,
-        workspace: Arc<WorkspaceMemory>,
-    ) -> Self {
-        let embedding_backend: Arc<dyn EmbeddingBackend> =
-            Arc::new(LlmEmbeddingBackend::new(llm_backend.clone()));
-        Self::new_with_embedding_backend(
-            tool_manager,
-            llm_backend,
-            embedding_backend,
-            vdb,
-            session_manager,
-            workspace,
-        )
-    }
-
-    #[cfg(test)]
-    pub fn new_with_embedding_backend(
-        tool_manager: ToolManager,
-        llm_backend: Arc<dyn LlmBackend>,
-        embedding_backend: Arc<dyn EmbeddingBackend>,
-        vdb: Arc<VectorDB>,
+        memory_handle: Arc<MemoryHandle>,
         session_manager: Arc<SessionManager>,
         workspace: Arc<WorkspaceMemory>,
     ) -> Self {
         let agent_definitions = AgentDefinitionCache::load(workspace.root.clone());
-        Self::new_with_embedding_backend_and_agent_definitions(
+        Self::new_with_agent_definitions(
             tool_manager,
             llm_backend,
-            embedding_backend,
-            vdb,
+            memory_handle,
             session_manager,
             workspace,
             agent_definitions,
         )
     }
 
-    pub fn new_with_embedding_backend_and_agent_definitions(
+    pub fn new_with_agent_definitions(
         tool_manager: ToolManager,
         llm_backend: Arc<dyn LlmBackend>,
-        embedding_backend: Arc<dyn EmbeddingBackend>,
-        vdb: Arc<VectorDB>,
+        memory_handle: Arc<MemoryHandle>,
         session_manager: Arc<SessionManager>,
         workspace: Arc<WorkspaceMemory>,
         agent_definitions: AgentDefinitionCache,
     ) -> Self {
         let root = workspace.root.clone();
-        let memory_store = Arc::new(MemoryStore::new_with_embedding_backend(
+        let memory_store = Arc::new(MemoryStore::new_with_handle(
             llm_backend.clone(),
-            embedding_backend.clone(),
-            vdb.clone(),
+            memory_handle.clone(),
         ));
         let state_db =
             session_manager.storage_dir.parent().and_then(
@@ -441,8 +412,7 @@ impl Agent {
         Self {
             tool_manager,
             llm_backend,
-            embedding_backend,
-            vdb,
+            memory_handle: memory_handle,
             memory_store,
             session_manager,
             consolidation_scheduler,
@@ -587,8 +557,7 @@ impl Agent {
                 if sessions.is_some() {
                     let prompt_config = self.prompt_config.clone();
                     let llm_backend = self.llm_backend.clone();
-                    let embedding_backend = self.embedding_backend.clone();
-                    let vdb = self.vdb.clone();
+                    let memory_handle = self.memory_handle.clone();
                     let session_manager = self.session_manager.clone();
                     let workspace = self.workspace.clone();
                     let scheduler = self.consolidation_scheduler.clone();
@@ -622,8 +591,7 @@ impl Agent {
                                 None,
                                 llm_backend,
                                 Arc::new(crate::tools::agent::InheritedSubagentBackendResolver),
-                                embedding_backend,
-                                vdb,
+                                memory_handle,
                                 session_manager,
                                 workspace,
                                 prompt_config,
@@ -679,27 +647,20 @@ impl Agent {
             prompt,
             self.history.last().unwrap().content
         );
-        if let Ok(vector) = self
-            .embedding_backend
-            .embed(&turn_text, EmbeddingInputKind::Document)
-            .await
-        {
-            let session_manager = self.session_manager.clone();
-            let session_id = self.session_id.clone();
-            let save_result = tokio::task::spawn_blocking(move || {
-                session_manager.save_session_context_checkpoint(
-                    &session_id,
-                    turn_start_idx as u32,
-                    turn_text,
-                    vector,
-                )
-            })
-            .await;
-            if matches!(save_result, Ok(Ok(()))) {
-                report(AgentEvent::MemoryAction {
-                    message: memory_notice("wrote session checkpoint"),
-                });
-            }
+        let session_manager = self.session_manager.clone();
+        let session_id = self.session_id.clone();
+        let save_result = tokio::task::spawn_blocking(move || {
+            session_manager.save_session_context_checkpoint(
+                &session_id,
+                turn_start_idx as u32,
+                turn_text,
+            )
+        })
+        .await;
+        if matches!(save_result, Ok(Ok(()))) {
+            report(AgentEvent::MemoryAction {
+                message: memory_notice("wrote session checkpoint"),
+            });
         }
         Ok(())
     }

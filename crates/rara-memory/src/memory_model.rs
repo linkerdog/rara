@@ -46,7 +46,7 @@ pub struct MemoryEntry {
     /// When the memory was created / extracted.
     #[serde(default)]
     pub created: Option<String>,
-    /// Optional tags for LanceDB keyword search (space-separated).
+    /// Optional tags for local keyword search (space-separated).
     #[serde(default)]
     pub tags: Option<String>,
 }

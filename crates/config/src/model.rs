@@ -87,7 +87,9 @@ impl ContextFileSearchPolicy {
     }
 }
 
-/// Controls whether RARA may start the bundled local embedding sidecar.
+/// Deprecated compatibility setting. Local semantic memory is delegated to
+/// official Mem, so this value is parsed but no longer starts a bundled
+/// embedding runtime.
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
 #[serde(rename_all = "snake_case")]
 pub enum LocalEmbeddingPolicy {

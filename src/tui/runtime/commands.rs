@@ -675,7 +675,7 @@ mod tests {
     use std::sync::Arc;
     use std::time::Instant;
 
-    use rara_memory::vectordb::VectorDB;
+    use rara_memory::memory_handle::MemoryHandle;
     use rara_tools::tool::ToolManager;
     use tokio::sync::mpsc;
 
@@ -728,8 +728,8 @@ mod tests {
         Agent::new(
             tools,
             Arc::new(MockLlm),
-            Arc::new(VectorDB::new(
-                &rara_dir.join("lancedb").display().to_string(),
+            Arc::new(MemoryHandle::new(
+                &rara_dir.join("memory").display().to_string(),
             )),
             Arc::new(SessionManager {
                 storage_dir: rara_dir.join("rollouts"),

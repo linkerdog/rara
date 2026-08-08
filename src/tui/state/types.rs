@@ -508,7 +508,6 @@ pub enum TranscriptEntryPayload {
 
 #[derive(Clone, Debug, Copy, PartialEq, Eq)]
 pub enum SystemMessageKind {
-    EmbeddingStatus,
     Memory,
     OAuth,
     SkillLoading,

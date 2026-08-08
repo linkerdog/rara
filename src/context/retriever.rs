@@ -5,9 +5,6 @@ use crate::context::assembler::latest_user_request;
 use crate::context::{
     RETRIEVED_THREAD_CONTEXT_KIND, RETRIEVED_WORKSPACE_MEMORY_KIND, RetrievedMemoryCandidate,
 };
-use crate::llm::{EmbeddingBackend, EmbeddingInputKind};
-#[cfg(test)]
-use crate::llm::{LlmBackend, LlmEmbeddingBackend};
 use crate::memory_store::{MemoryRecordSearchHit, MemoryStore};
 use crate::session::SessionManager;
 use crate::session_context::SessionContextSearchHit;
@@ -17,30 +14,16 @@ const THREAD_CONTEXT_LIMIT: usize = 4;
 const MEMORY_DETAIL_MAX_CHARS: usize = 1_200;
 
 pub(crate) struct MemoryRetrievalOrchestrator {
-    embedding_backend: Arc<dyn EmbeddingBackend>,
     session_manager: Arc<SessionManager>,
     memory_store: Arc<MemoryStore>,
 }
 
 impl MemoryRetrievalOrchestrator {
-    #[cfg(test)]
     pub(crate) fn new(
-        backend: Arc<dyn LlmBackend>,
-        session_manager: Arc<SessionManager>,
-        memory_store: Arc<MemoryStore>,
-    ) -> Self {
-        let embedding_backend: Arc<dyn EmbeddingBackend> =
-            Arc::new(LlmEmbeddingBackend::new(backend));
-        Self::new_with_embedding_backend(embedding_backend, session_manager, memory_store)
-    }
-
-    pub(crate) fn new_with_embedding_backend(
-        embedding_backend: Arc<dyn EmbeddingBackend>,
         session_manager: Arc<SessionManager>,
         memory_store: Arc<MemoryStore>,
     ) -> Self {
         Self {
-            embedding_backend,
             session_manager,
             memory_store,
         }
@@ -62,30 +45,16 @@ impl MemoryRetrievalOrchestrator {
             return Vec::new();
         }
 
-        let Ok(query_vector) = self
-            .embedding_backend
-            .embed(query, EmbeddingInputKind::Query)
-            .await
-        else {
-            return Vec::new();
-        };
         let mut candidates = Vec::new();
-        candidates.extend(
-            self.thread_context_candidates(query, query_vector.clone())
-                .await,
-        );
-        candidates.extend(self.workspace_memory_candidates(query, query_vector).await);
+        candidates.extend(self.thread_context_candidates(query).await);
+        candidates.extend(self.workspace_memory_candidates(query).await);
         candidates
     }
 
-    async fn workspace_memory_candidates(
-        &self,
-        query: &str,
-        query_vector: Vec<f32>,
-    ) -> Vec<RetrievedMemoryCandidate> {
+    async fn workspace_memory_candidates(&self, query: &str) -> Vec<RetrievedMemoryCandidate> {
         let Ok(mut hits) = self
             .memory_store
-            .search_with_embedding(query, query_vector, WORKSPACE_MEMORY_LIMIT)
+            .search(query, WORKSPACE_MEMORY_LIMIT)
             .await
         else {
             return Vec::new();
@@ -97,15 +66,11 @@ impl MemoryRetrievalOrchestrator {
             .collect()
     }
 
-    async fn thread_context_candidates(
-        &self,
-        query: &str,
-        query_vector: Vec<f32>,
-    ) -> Vec<RetrievedMemoryCandidate> {
+    async fn thread_context_candidates(&self, query: &str) -> Vec<RetrievedMemoryCandidate> {
         let session_manager = self.session_manager.clone();
         let query = query.to_string();
         let Ok(Ok(hits)) = tokio::task::spawn_blocking(move || {
-            session_manager.search_session_context(&query, &query_vector, THREAD_CONTEXT_LIMIT)
+            session_manager.search_session_context(&query, THREAD_CONTEXT_LIMIT)
         })
         .await
         else {
@@ -143,7 +108,7 @@ fn workspace_memory_candidate(rank: usize, hit: MemoryRecordSearchHit) -> Retrie
             truncate_for_memory_context(hit.record.content.as_str(), MEMORY_DETAIL_MAX_CHARS)
         ),
         selection_reason:
-            "retrieved as a candidate because LanceDB-backed MemoryStore retrieval matched the current turn query"
+            "retrieved as a candidate because local MemoryStore text retrieval matched the current turn query"
                 .to_string(),
         rank,
     }
@@ -185,21 +150,18 @@ fn truncate_for_memory_context(value: &str, max_chars: usize) -> String {
 #[cfg(test)]
 mod tests {
     use std::sync::Arc;
-    use std::sync::atomic::{AtomicUsize, Ordering};
 
     use anyhow::Result;
     use async_trait::async_trait;
-    use rara_memory::vectordb::VectorDB;
+    use rara_memory::memory_handle::MemoryHandle;
     use serde_json::Value;
 
     use super::*;
-    use crate::llm::{ContentBlock, LlmResponse};
+    use crate::llm::{ContentBlock, LlmBackend, LlmResponse};
     use crate::memory_store::{MemoryLabel, MemoryScope, MemorySource, NewMemoryRecord};
 
     #[derive(Default)]
-    struct TestBackend {
-        embed_calls: AtomicUsize,
-    }
+    struct TestBackend;
 
     #[async_trait]
     impl LlmBackend for TestBackend {
@@ -213,11 +175,6 @@ mod tests {
             })
         }
 
-        async fn embed(&self, _text: &str) -> Result<Vec<f32>> {
-            self.embed_calls.fetch_add(1, Ordering::SeqCst);
-            Ok(vec![1.0; 8])
-        }
-
         async fn summarize(&self, _messages: &[Message], _instruction: &str) -> Result<String> {
             Ok("summary".to_string())
         }
@@ -227,8 +184,8 @@ mod tests {
     async fn retrieves_memory_store_candidates_for_latest_user_request() {
         let temp = tempfile::tempdir().expect("tempdir");
         let backend = Arc::new(TestBackend::default());
-        let vdb = Arc::new(VectorDB::new(temp.path().to_str().expect("utf8 path")));
-        let store = Arc::new(MemoryStore::new(backend.clone(), vdb.clone()));
+        let memory_handle = Arc::new(MemoryHandle::new(temp.path().to_str().expect("utf8 path")));
+        let store = Arc::new(MemoryStore::new(backend.clone(), memory_handle.clone()));
         let session_manager = Arc::new(
             SessionManager::new_for_rara_dir(temp.path().join(".rara")).expect("session manager"),
         );
@@ -249,7 +206,6 @@ mod tests {
             })
             .await
             .expect("insert memory");
-        backend.embed_calls.store(0, Ordering::SeqCst);
         let history = vec![Message {
             role: "user".to_string(),
             content: serde_json::json!([
@@ -257,7 +213,7 @@ mod tests {
             ]),
         }];
 
-        let candidates = MemoryRetrievalOrchestrator::new(backend.clone(), session_manager, store)
+        let candidates = MemoryRetrievalOrchestrator::new(session_manager, store)
             .retrieve_for_history(&history)
             .await;
 
@@ -265,19 +221,14 @@ mod tests {
             candidate.kind == RETRIEVED_WORKSPACE_MEMORY_KIND
                 && candidate.detail.contains("reference-project")
         }));
-        assert_eq!(
-            backend.embed_calls.load(Ordering::SeqCst),
-            1,
-            "orchestrator should embed the latest user query once and reuse it across retrieval sources"
-        );
     }
 
     #[tokio::test]
     async fn retrieves_thread_context_candidates_from_session_shards() {
         let temp = tempfile::tempdir().expect("tempdir");
         let backend = Arc::new(TestBackend::default());
-        let vdb = Arc::new(VectorDB::new(temp.path().to_str().expect("utf8 path")));
-        let store = Arc::new(MemoryStore::new(backend.clone(), vdb));
+        let memory_handle = Arc::new(MemoryHandle::new(temp.path().to_str().expect("utf8 path")));
+        let store = Arc::new(MemoryStore::new(backend.clone(), memory_handle));
         let session_manager = Arc::new(
             SessionManager::new_for_rara_dir(temp.path().join(".rara")).expect("session manager"),
         );
@@ -286,7 +237,6 @@ mod tests {
                 "session-thread",
                 7,
                 "approval denial is stored as an errored tool result".to_string(),
-                vec![1.0; 8],
             )
             .expect("save session context checkpoint");
         let history = vec![Message {
@@ -296,7 +246,7 @@ mod tests {
             ]),
         }];
 
-        let candidates = MemoryRetrievalOrchestrator::new(backend, session_manager, store)
+        let candidates = MemoryRetrievalOrchestrator::new(session_manager, store)
             .retrieve_for_history(&history)
             .await;
 

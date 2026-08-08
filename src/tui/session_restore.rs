@@ -297,7 +297,7 @@ pub(crate) fn provider_requires_api_key(provider: &str) -> bool {
 mod tests {
     use std::fs;
 
-    use rara_memory::vectordb::VectorDB;
+    use rara_memory::memory_handle::MemoryHandle;
     use rara_state::state_db::{PersistedTurnEntry, StateDb};
     use rara_tools::tool::ToolManager;
     use serde_json::json;
@@ -332,8 +332,8 @@ mod tests {
         let mut original_agent = Agent::new(
             ToolManager::new(),
             backend.clone(),
-            Arc::new(VectorDB::new(
-                &rara_dir.join("lancedb").display().to_string(),
+            Arc::new(MemoryHandle::new(
+                &rara_dir.join("memory").display().to_string(),
             )),
             session_manager.clone(),
             workspace.clone(),
@@ -398,8 +398,8 @@ mod tests {
         let restored_agent = Agent::new(
             ToolManager::new(),
             backend,
-            Arc::new(VectorDB::new(
-                &rara_dir.join("lancedb").display().to_string(),
+            Arc::new(MemoryHandle::new(
+                &rara_dir.join("memory").display().to_string(),
             )),
             session_manager,
             workspace,
@@ -507,8 +507,8 @@ mod tests {
         let mut original_agent = Agent::new(
             ToolManager::new(),
             backend.clone(),
-            Arc::new(VectorDB::new(
-                &rara_dir.join("lancedb").display().to_string(),
+            Arc::new(MemoryHandle::new(
+                &rara_dir.join("memory").display().to_string(),
             )),
             session_manager.clone(),
             workspace.clone(),
@@ -537,8 +537,8 @@ mod tests {
         let restored_agent = Agent::new(
             ToolManager::new(),
             backend,
-            Arc::new(VectorDB::new(
-                &rara_dir.join("lancedb").display().to_string(),
+            Arc::new(MemoryHandle::new(
+                &rara_dir.join("memory").display().to_string(),
             )),
             session_manager,
             workspace,
@@ -583,8 +583,8 @@ mod tests {
         let mut original_agent = Agent::new(
             ToolManager::new(),
             backend.clone(),
-            Arc::new(VectorDB::new(
-                &rara_dir.join("lancedb").display().to_string(),
+            Arc::new(MemoryHandle::new(
+                &rara_dir.join("memory").display().to_string(),
             )),
             session_manager.clone(),
             workspace.clone(),
@@ -627,8 +627,8 @@ mod tests {
         let restored_agent = Agent::new(
             ToolManager::new(),
             backend,
-            Arc::new(VectorDB::new(
-                &rara_dir.join("lancedb").display().to_string(),
+            Arc::new(MemoryHandle::new(
+                &rara_dir.join("memory").display().to_string(),
             )),
             session_manager,
             workspace,
@@ -688,8 +688,8 @@ mod tests {
         let mut original_agent = Agent::new(
             ToolManager::new(),
             backend.clone(),
-            Arc::new(VectorDB::new(
-                &rara_dir.join("lancedb").display().to_string(),
+            Arc::new(MemoryHandle::new(
+                &rara_dir.join("memory").display().to_string(),
             )),
             session_manager.clone(),
             workspace.clone(),
@@ -740,8 +740,8 @@ mod tests {
         let restored_agent = Agent::new(
             ToolManager::new(),
             backend,
-            Arc::new(VectorDB::new(
-                &rara_dir.join("lancedb").display().to_string(),
+            Arc::new(MemoryHandle::new(
+                &rara_dir.join("memory").display().to_string(),
             )),
             session_manager,
             workspace,
@@ -807,8 +807,8 @@ mod tests {
         let mut original_agent = Agent::new(
             ToolManager::new(),
             backend.clone(),
-            Arc::new(VectorDB::new(
-                &rara_dir.join("lancedb").display().to_string(),
+            Arc::new(MemoryHandle::new(
+                &rara_dir.join("memory").display().to_string(),
             )),
             session_manager.clone(),
             workspace.clone(),
@@ -839,8 +839,8 @@ mod tests {
         let restored_agent = Agent::new(
             ToolManager::new(),
             backend,
-            Arc::new(VectorDB::new(
-                &rara_dir.join("lancedb").display().to_string(),
+            Arc::new(MemoryHandle::new(
+                &rara_dir.join("memory").display().to_string(),
             )),
             session_manager,
             workspace,
@@ -902,8 +902,8 @@ mod tests {
         let mut original_agent = Agent::new(
             ToolManager::new(),
             backend.clone(),
-            Arc::new(VectorDB::new(
-                &rara_dir.join("lancedb").display().to_string(),
+            Arc::new(MemoryHandle::new(
+                &rara_dir.join("memory").display().to_string(),
             )),
             session_manager.clone(),
             workspace.clone(),
@@ -941,8 +941,8 @@ mod tests {
         let restored_agent = Agent::new(
             ToolManager::new(),
             backend,
-            Arc::new(VectorDB::new(
-                &rara_dir.join("lancedb").display().to_string(),
+            Arc::new(MemoryHandle::new(
+                &rara_dir.join("memory").display().to_string(),
             )),
             session_manager,
             workspace,

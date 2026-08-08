@@ -824,10 +824,10 @@ mod tests {
                 query: "where is the reference project?".to_string(),
                 providers: vec![crate::context::RetrievalProviderStatus {
                     order: 1,
-                    kind: "vector_memory".to_string(),
-                    label: "Vector Memory Store".to_string(),
+                    kind: "local_memory".to_string(),
+                    label: "Local Memory Store".to_string(),
                     status: "available".to_string(),
-                    detail: "memory://vdb".to_string(),
+                    detail: "memory://local".to_string(),
                     inclusion_reason: "configured as durable memory".to_string(),
                 }],
                 candidates: vec![crate::context::RetrievalCandidateContextEntry {
@@ -873,10 +873,10 @@ mod tests {
                             "query": "where is the reference project?",
                             "providers": [{
                                 "order": 1,
-                                "kind": "vector_memory",
-                                "label": "Vector Memory Store",
+                                "kind": "local_memory",
+                                "label": "Local Memory Store",
                                 "status": "available",
-                                "detail": "memory://vdb",
+                                "detail": "memory://local",
                                 "inclusion_reason": "configured as durable memory"
                             }],
                             "candidates": [{

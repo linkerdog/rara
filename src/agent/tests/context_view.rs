@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use rara_memory::vectordb::VectorDB;
+use rara_memory::memory_handle::MemoryHandle;
 use rara_tools::tool::ToolManager;
 use serde_json::json;
 
@@ -50,8 +50,8 @@ fn shared_runtime_context_collects_prompt_plan_and_compaction_state() {
     let mut agent = Agent::new(
         ToolManager::new(),
         backend,
-        Arc::new(VectorDB::new(
-            &rara_dir.join("lancedb").display().to_string(),
+        Arc::new(MemoryHandle::new(
+            &rara_dir.join("memory").display().to_string(),
         )),
         session_manager,
         workspace,
@@ -141,7 +141,7 @@ fn shared_runtime_context_collects_prompt_plan_and_compaction_state() {
             {
                 "type": "tool_use",
                 "id": "tool-retrieve-1",
-                "name": "retrieve_experience",
+                "name": "retrieve_session_context",
                 "input": { "query": "bootstrap contract" }
             },
             {
@@ -158,7 +158,7 @@ fn shared_runtime_context_collects_prompt_plan_and_compaction_state() {
             {
                 "type": "tool_result",
                 "tool_use_id": "tool-retrieve-1",
-                "content": "Tool retrieve_experience completed with relevant_experiences.\nPayload:\n{\n  \"relevant_experiences\": [\n    \"Prefer one shared bootstrap path.\",\n    \"Keep session restore aligned with direct execution.\"\n  ]\n}"
+                "content": "Tool retrieve_session_context completed with relevant_context.\nPayload:\n{\n  \"relevant_context\": [\n    \"Prefer one shared bootstrap path.\",\n    \"Keep session restore aligned with direct execution.\"\n  ]\n}"
             },
             {
                 "type": "tool_result",
@@ -243,7 +243,7 @@ fn shared_runtime_context_collects_prompt_plan_and_compaction_state() {
     assert_eq!(runtime.retrieval.entries[0].status, "active");
     assert_eq!(runtime.retrieval.entries[1].kind, "thread_history");
     assert_eq!(runtime.retrieval.entries[1].status, "available");
-    assert_eq!(runtime.retrieval.entries[2].kind, "vector_memory");
+    assert_eq!(runtime.retrieval.entries[2].kind, "local_memory");
     assert_eq!(runtime.retrieval.entries[2].status, "available");
     assert_eq!(runtime.retrieval.entries[3].kind, "mcp_resource");
     assert_eq!(runtime.retrieval.entries[3].status, "missing");
@@ -316,17 +316,17 @@ fn shared_runtime_context_collects_prompt_plan_and_compaction_state() {
     );
     assert_eq!(
         runtime.retrieval.memory_selection.available_items[1].kind,
-        "vector_memory"
+        "local_memory"
     );
     assert_eq!(runtime.retrieval.memory_selection.dropped_items.len(), 2);
     assert_eq!(
         runtime.retrieval.memory_selection.dropped_items[0].kind,
-        "retrieved_workspace_memory"
+        "retrieved_thread_context"
     );
     assert!(
         runtime.retrieval.memory_selection.dropped_items[0]
             .detail
-            .contains("recalled=2 item(s)")
+            .contains("bootstrap contract")
     );
     assert_eq!(
         runtime.retrieval.memory_selection.dropped_items[1].kind,
@@ -390,8 +390,8 @@ fn assemble_turn_context_matches_prompt_and_runtime_views() {
     let mut agent = Agent::new(
         ToolManager::new(),
         backend,
-        Arc::new(VectorDB::new(
-            &rara_dir.join("lancedb").display().to_string(),
+        Arc::new(MemoryHandle::new(
+            &rara_dir.join("memory").display().to_string(),
         )),
         session_manager,
         workspace,
@@ -439,8 +439,8 @@ async fn protocol_prompt_registry_feeds_prompt_runtime_for_query() {
     let mut agent = Agent::new(
         ToolManager::new(),
         backend,
-        Arc::new(VectorDB::new(
-            &rara_dir.join("lancedb").display().to_string(),
+        Arc::new(MemoryHandle::new(
+            &rara_dir.join("memory").display().to_string(),
         )),
         session_manager,
         workspace,
@@ -519,10 +519,10 @@ async fn query_injects_selected_memory_context_without_persisting_it_to_history(
         stop_reason: Some("end_turn".to_string()),
         usage: None,
     }]));
-    let vdb = Arc::new(VectorDB::new(
-        &rara_dir.join("lancedb").display().to_string(),
+    let memory_handle = Arc::new(MemoryHandle::new(
+        &rara_dir.join("memory").display().to_string(),
     ));
-    let store = MemoryStore::new(backend.clone(), vdb.clone());
+    let store = MemoryStore::new(backend.clone(), memory_handle.clone());
     store
         .insert(NewMemoryRecord {
             title: Some("Reference project path".to_string()),
@@ -543,7 +543,7 @@ async fn query_injects_selected_memory_context_without_persisting_it_to_history(
     let mut agent = Agent::new(
         ToolManager::new(),
         backend.clone(),
-        vdb,
+        memory_handle,
         session_manager,
         workspace,
     );

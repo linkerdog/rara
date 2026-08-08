@@ -6,7 +6,7 @@ use std::sync::{
 
 use anyhow::Result;
 use async_trait::async_trait;
-use rara_memory::vectordb::VectorDB;
+use rara_memory::memory_handle::MemoryHandle;
 use rara_tool_macros::tool_spec;
 use rara_tools::tool::{Tool, ToolError, ToolManager};
 use serde_json::{Value, json};
@@ -27,11 +27,6 @@ impl LlmBackend for CancelledBackend {
     ) -> Result<LlmResponse> {
         anyhow::bail!("cancelled by user")
     }
-
-    async fn embed(&self, _text: &str) -> Result<Vec<f32>> {
-        Ok(vec![0.0; 8])
-    }
-
     async fn summarize(
         &self,
         _messages: &[crate::agent::Message],
@@ -101,7 +96,9 @@ async fn plugin_pre_tool_use_continue_false_blocks_tool_execution() {
     let mut agent = Agent::new(
         tool_manager,
         backend.clone(),
-        Arc::new(VectorDB::new(&rara_dir.join("lancedb").to_string_lossy())),
+        Arc::new(MemoryHandle::new(
+            &rara_dir.join("memory").to_string_lossy(),
+        )),
         session_manager,
         workspace,
     );
@@ -164,7 +161,9 @@ async fn plugin_session_end_runs_once_with_last_assistant_message() {
     let mut agent = Agent::new(
         ToolManager::new(),
         backend,
-        Arc::new(VectorDB::new(&rara_dir.join("lancedb").to_string_lossy())),
+        Arc::new(MemoryHandle::new(
+            &rara_dir.join("memory").to_string_lossy(),
+        )),
         session_manager,
         workspace,
     );
@@ -234,7 +233,9 @@ async fn plugin_session_end_marks_cancelled_model_turn_as_interrupt() {
     let mut agent = Agent::new(
         ToolManager::new(),
         Arc::new(CancelledBackend),
-        Arc::new(VectorDB::new(&rara_dir.join("lancedb").to_string_lossy())),
+        Arc::new(MemoryHandle::new(
+            &rara_dir.join("memory").to_string_lossy(),
+        )),
         session_manager,
         workspace,
     );
@@ -318,7 +319,9 @@ async fn plugin_non_tool_lifecycle_hooks_run_from_agent_query() {
     let mut agent = Agent::new(
         ToolManager::new(),
         backend,
-        Arc::new(VectorDB::new(&rara_dir.join("lancedb").to_string_lossy())),
+        Arc::new(MemoryHandle::new(
+            &rara_dir.join("memory").to_string_lossy(),
+        )),
         session_manager,
         workspace,
     );
@@ -411,7 +414,9 @@ async fn plugin_session_start_waits_until_plugin_runtime_is_attached() {
     let mut agent = Agent::new(
         ToolManager::new(),
         backend,
-        Arc::new(VectorDB::new(&rara_dir.join("lancedb").to_string_lossy())),
+        Arc::new(MemoryHandle::new(
+            &rara_dir.join("memory").to_string_lossy(),
+        )),
         session_manager,
         workspace,
     );

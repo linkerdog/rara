@@ -3,7 +3,6 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use rara_memory::files::search_memory;
-use rara_memory::vectordb::VectorDB;
 use rara_tool_macros::tool_spec;
 use serde_json::{Value, json};
 
@@ -11,11 +10,10 @@ use crate::tool::{Tool, ToolError};
 
 pub type MemoryQueryHook = Arc<dyn Fn(&str) + Send + Sync>;
 
-/// Search project memory using ripgrep text search and LanceDB vector search.
+/// Search project memory using local text files.
 #[derive(Clone)]
 pub struct SearchMemoryTool {
     pub rara_home: PathBuf,
-    pub vdb: Option<Arc<VectorDB>>,
     /// Optional MemoryQuery hook callback.
     /// Invoked with the search query before the actual search.
     /// Wired at registration time in tooling.rs.
@@ -24,13 +22,13 @@ pub struct SearchMemoryTool {
 
 #[tool_spec(
     name = "search_memory",
-    description = "Search project memory using ripgrep (text) and LanceDB (vector) search. Returns memory entries matching the query from session files, topics, and MEMORY.md.",
+    description = "Search local project memory files with text search. Durable cross-session recall should use the official Mem integration.",
     input_schema = {
         "type": "object",
         "properties": {
             "query": {
                 "type": "string",
-                "description": "Search query for text and vector search"
+                "description": "Search query for local memory text search"
             }
         },
         "required": ["query"]
@@ -50,7 +48,7 @@ impl Tool for SearchMemoryTool {
             let _ = tokio::task::spawn_blocking(move || cb(&q)).await;
         }
 
-        let hits = search_memory(query, &self.rara_home, self.vdb.as_deref())
+        let hits = search_memory(query, &self.rara_home)
             .await
             .map_err(|e| ToolError::ExecutionFailed(e.to_string()))?;
 

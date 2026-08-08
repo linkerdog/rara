@@ -84,9 +84,7 @@ Summarize the completed work, remaining blockers, and the next safest step for t
 }
 
 fn classify_system_warning(warning: &str, default_kind: SystemMessageKind) -> SystemMessageKind {
-    if warning.starts_with("embedding ·") || warning.starts_with("local embedding backend") {
-        SystemMessageKind::EmbeddingStatus
-    } else if warning.starts_with("Skill loading") {
+    if warning.starts_with("Skill loading") {
         SystemMessageKind::SkillLoading
     } else {
         default_kind

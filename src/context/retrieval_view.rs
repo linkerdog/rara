@@ -14,7 +14,7 @@ pub(crate) fn retrieval_source_entries(
     prompt_sources: &[PromptSource],
     history: &[Message],
     session_id: &str,
-    vdb_uri: &str,
+    memory_uri: &str,
     mcp_resource_candidates: &[crate::context::RetrievalCandidate],
     hook_output_candidates: &[crate::context::RetrievalCandidate],
     graph_context_candidates: &[crate::context::RetrievalCandidate],
@@ -36,7 +36,7 @@ pub(crate) fn retrieval_source_entries(
     } else {
         "available"
     };
-    let vector_memory_status = if vdb_uri.is_empty() {
+    let local_memory_status = if memory_uri.is_empty() {
         "missing"
     } else {
         "available"
@@ -84,11 +84,11 @@ pub(crate) fn retrieval_source_entries(
         },
         RetrievalSourceContextEntry {
             order: 3,
-            kind: "vector_memory".to_string(),
-            label: "Vector Memory Store".to_string(),
-            status: vector_memory_status.to_string(),
-            detail: vdb_uri.to_string(),
-            inclusion_reason: if vector_memory_status == "available" {
+            kind: "local_memory".to_string(),
+            label: "Local Memory Store".to_string(),
+            status: local_memory_status.to_string(),
+            detail: memory_uri.to_string(),
+            inclusion_reason: if local_memory_status == "available" {
                 "configured as the durable vector-backed memory store for later retrieval, even though the current recall path is still limited".to_string()
             } else {
                 "no vector-backed memory store is configured for retrieval".to_string()
@@ -240,7 +240,7 @@ fn source_kind_for_memory_selection_item(kind: &str) -> &'static str {
         "retrieved_thread_context" => "session_context",
         "retrieved_workspace_memory" => "memory_record",
         "thread_history" => "thread_history",
-        "vector_memory" => "vector_memory",
+        "local_memory" => "local_memory",
         "mcp_resource" => "mcp_resource",
         "hook_output" => "hook_output",
         "graph_context" => "graph_context",
@@ -265,10 +265,10 @@ mod tests {
     fn orchestration_view_projects_provider_status_and_candidate_sets() {
         let providers = vec![RetrievalSourceContextEntry {
             order: 1,
-            kind: "vector_memory".to_string(),
-            label: "Vector Memory Store".to_string(),
+            kind: "local_memory".to_string(),
+            label: "Local Memory Store".to_string(),
             status: "available".to_string(),
-            detail: "memory://vdb".to_string(),
+            detail: "memory://local".to_string(),
             inclusion_reason: "configured as durable memory".to_string(),
         }];
         let memory_selection = MemorySelectionContextView {
@@ -315,7 +315,7 @@ mod tests {
 
         assert_eq!(view.request_id, "s1");
         assert_eq!(view.query, "where is the reference project?");
-        assert_eq!(view.providers[0].kind, "vector_memory");
+        assert_eq!(view.providers[0].kind, "local_memory");
         assert_eq!(view.selected[0].source_kind, "memory_record");
         assert_eq!(view.available[0].source_kind, "thread_history");
         assert_eq!(
@@ -354,7 +354,7 @@ mod tests {
             &[],
             &[],
             "session-1",
-            "memory://vdb",
+            "memory://local",
             &resources,
             &[],
             &[],
@@ -380,7 +380,7 @@ mod tests {
             &[],
             &[],
             "session-1",
-            "memory://vdb",
+            "memory://local",
             &[],
             &hook_output,
             &graph_context,

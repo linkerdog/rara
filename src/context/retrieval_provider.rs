@@ -11,7 +11,7 @@ pub(crate) struct RetrievalRequest<'a> {
     pub query: &'a str,
     pub session_id: &'a str,
     pub history: &'a [Message],
-    pub vdb_uri: &'a str,
+    pub memory_uri: &'a str,
 }
 
 pub(crate) trait RetrievalSourceProvider {
@@ -34,7 +34,7 @@ pub(crate) fn retrieval_candidates(
     };
     let retrieval_tools = RetrievalToolResultProvider;
     let thread_history = ThreadHistoryProvider;
-    let vector_memory = VectorMemoryProvider;
+    let local_memory = LocalMemoryProvider;
     let file_search = PrecomputedSourceProvider {
         source_kind: "file_search",
         candidates: file_search_candidates,
@@ -55,7 +55,7 @@ pub(crate) fn retrieval_candidates(
     candidates.extend(direct_memory.candidates(request));
     candidates.extend(retrieval_tools.candidates(request));
     candidates.extend(thread_history.candidates(request));
-    candidates.extend(vector_memory.candidates(request));
+    candidates.extend(local_memory.candidates(request));
     candidates.extend(file_search.candidates(request));
     candidates.extend(mcp_resources.candidates(request));
     candidates.extend(hook_output.candidates(request));
@@ -204,15 +204,15 @@ impl RetrievalSourceProvider for ThreadHistoryProvider {
     }
 }
 
-pub(crate) struct VectorMemoryProvider;
+pub(crate) struct LocalMemoryProvider;
 
-impl RetrievalSourceProvider for VectorMemoryProvider {
+impl RetrievalSourceProvider for LocalMemoryProvider {
     fn source_kind(&self) -> &'static str {
-        "vector_memory"
+        "local_memory"
     }
 
     fn candidates(&self, request: &RetrievalRequest<'_>) -> Vec<RetrievalCandidate> {
-        vec![vector_memory_candidate(request.vdb_uri)]
+        vec![local_memory_candidate(request.memory_uri)]
     }
 }
 
@@ -335,7 +335,7 @@ fn collect_pending_retrieval_tool_uses(
         let Some(name) = item.get("name").and_then(serde_json::Value::as_str) else {
             continue;
         };
-        if !matches!(name, "retrieve_experience" | "retrieve_session_context") {
+        if !matches!(name, "retrieve_session_context") {
             continue;
         }
         let Some(tool_use_id) = item.get("id").and_then(serde_json::Value::as_str) else {
@@ -390,46 +390,6 @@ fn retrieval_tool_candidate(
     content: &str,
 ) -> RetrievalCandidate {
     match tool_name {
-        "retrieve_experience" => {
-            let experiences = extract_json_array_strings(content, "relevant_experiences");
-            let preview = if experiences.is_empty() {
-                "no recalled experiences".to_string()
-            } else {
-                format!(
-                    "recalled={} item(s); preview: {}",
-                    experiences.len(),
-                    experiences.join(" | ")
-                )
-            };
-            let query = query.unwrap_or("query unavailable");
-            let detail = format!("query={query}; {preview}");
-            RetrievalCandidate {
-                id: format!("tool:retrieve_experience:{}", stable_retrieval_text_id(&detail)),
-                source: RetrievalSourceRef {
-                    source_type: "tool_result".to_string(),
-                    source_id: None,
-                    source_path: None,
-                    source_uri: None,
-                    session_id: None,
-                    thread_id: None,
-                    workspace_id: None,
-                },
-                kind: "retrieved_workspace_memory".to_string(),
-                scope: "workspace".to_string(),
-                label: "Retrieved Experience".to_string(),
-                detail: detail.clone(),
-                summary: None,
-                rank: 0,
-                score: None,
-                priority: 10,
-                dedupe_key: None,
-                budget_impact_tokens: Some(estimate_text_tokens(detail.as_str())),
-                selection_reason: "selected because the retrieval tool returned relevant durable memory candidates for the current task".to_string(),
-                availability_reason: "available because a retrieval tool result was found in thread history".to_string(),
-                not_selected_reason: "not selected after ranking the retrieved workspace-memory candidates against the current memory-selection budget".to_string(),
-                selectable: true,
-            }
-        }
         "retrieve_session_context" => {
             let summary = extract_json_string_field(content, "summary")
                 .unwrap_or_else(|| "no session-context summary".to_string());
@@ -539,24 +499,24 @@ fn thread_history_candidate(history: &[Message], session_id: &str) -> RetrievalC
     }
 }
 
-fn vector_memory_candidate(vdb_uri: &str) -> RetrievalCandidate {
-    let configured = !vdb_uri.is_empty();
+fn local_memory_candidate(memory_uri: &str) -> RetrievalCandidate {
+    let configured = !memory_uri.is_empty();
     RetrievalCandidate {
-        id: "vector_memory".to_string(),
+        id: "local_memory".to_string(),
         source: RetrievalSourceRef {
-            source_type: "vector_memory".to_string(),
+            source_type: "local_memory".to_string(),
             source_id: None,
             source_path: None,
-            source_uri: configured.then(|| vdb_uri.to_string()),
+            source_uri: configured.then(|| memory_uri.to_string()),
             session_id: None,
             thread_id: None,
             workspace_id: None,
         },
-        kind: "vector_memory".to_string(),
+        kind: "local_memory".to_string(),
         scope: "workspace".to_string(),
-        label: "Vector Memory Store".to_string(),
+        label: "Local Memory Store".to_string(),
         detail: if configured {
-            vdb_uri.to_string()
+            memory_uri.to_string()
         } else {
             "-".to_string()
         },
@@ -581,21 +541,6 @@ fn vector_memory_candidate(vdb_uri: &str) -> RetrievalCandidate {
         },
         selectable: false,
     }
-}
-
-fn extract_json_array_strings(content: &str, key: &str) -> Vec<String> {
-    extract_tool_result_payload(content)
-        .and_then(|payload| {
-            payload
-                .get(key)
-                .and_then(serde_json::Value::as_array)
-                .cloned()
-        })
-        .into_iter()
-        .flatten()
-        .filter_map(|item| item.as_str().map(str::trim).map(str::to_string))
-        .filter(|value| !value.is_empty())
-        .collect()
 }
 
 fn extract_json_string_field(content: &str, key: &str) -> Option<String> {
@@ -635,13 +580,13 @@ mod tests {
             query: "where is the path?",
             session_id: "session-1",
             history: &history,
-            vdb_uri: "memory://vdb",
+            memory_uri: "memory://local",
         };
 
         assert_eq!(request.query, "where is the path?");
         assert_eq!(request.session_id, "session-1");
         assert_eq!(request.history.len(), 1);
-        assert_eq!(request.vdb_uri, "memory://vdb");
+        assert_eq!(request.memory_uri, "memory://local");
     }
 
     #[test]
@@ -654,7 +599,7 @@ mod tests {
             query: "where is the path?",
             session_id: "session-1",
             history: &history,
-            vdb_uri: "memory://vdb",
+            memory_uri: "memory://local",
         };
         let retrieved = vec![RetrievedMemoryCandidate {
             kind: RETRIEVED_WORKSPACE_MEMORY_KIND.to_string(),
@@ -735,7 +680,7 @@ mod tests {
             vec![
                 RETRIEVED_WORKSPACE_MEMORY_KIND,
                 "thread_history",
-                "vector_memory",
+                "local_memory",
                 "file_search",
                 "mcp_resource",
                 "hook_output",

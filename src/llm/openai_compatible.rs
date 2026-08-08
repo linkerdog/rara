@@ -476,28 +476,6 @@ impl LlmBackend for OpenAiCompatibleBackend {
         }
     }
 
-    async fn embed(&self, text: &str) -> Result<Vec<f32>> {
-        let body = json!({ "model": "text-embedding-3-small", "input": text });
-        let embeddings_url = self.endpoint_url("embeddings");
-        let api_key = self.api_key.as_ref().map(|k| k.expose_secret());
-        let res = retry_send_json(&self.client, &embeddings_url, &body, api_key).await?;
-        if !res.status().is_success() {
-            return Err(anyhow!(
-                "API Error at {}: {}",
-                sanitize_url_for_display(&embeddings_url),
-                redact_secrets(res.text().await?)
-            ));
-        }
-        let resp_json: Value = res.json().await?;
-        let embedding = resp_json["data"][0]["embedding"]
-            .as_array()
-            .ok_or_else(|| anyhow!("Failed to parse embedding"))?
-            .iter()
-            .map(|v| v.as_f64().unwrap() as f32)
-            .collect();
-        Ok(embedding)
-    }
-
     async fn summarize(&self, messages: &[Message], instruction: &str) -> Result<String> {
         let mut msgs = messages.to_vec();
         msgs.push(Message {

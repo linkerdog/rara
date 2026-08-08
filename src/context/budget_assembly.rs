@@ -134,11 +134,6 @@ mod budget_tests {
                 usage: None,
             })
         }
-
-        async fn embed(&self, _text: &str) -> Result<Vec<f32>> {
-            Ok(vec![0.0; 8])
-        }
-
         async fn summarize(&self, _messages: &[Message], _instruction: &str) -> Result<String> {
             Ok("summary".to_string())
         }

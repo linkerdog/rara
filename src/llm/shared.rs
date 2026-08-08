@@ -155,7 +155,6 @@ pub trait LlmBackend: Send + Sync {
         self.ask_streaming(messages, tools, on_event).await
     }
 
-    async fn embed(&self, text: &str) -> Result<Vec<f32>>;
     async fn summarize(&self, messages: &[Message], instruction: &str) -> Result<String>;
     /// Side-channel classifier call (auto-permission, background task status).
     ///
@@ -176,43 +175,6 @@ pub trait LlmBackend: Send + Sync {
     }
     fn cache_profile(&self) -> ProviderCacheProfile {
         ProviderCacheProfile::none()
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum EmbeddingInputKind {
-    Query,
-    Document,
-}
-
-impl EmbeddingInputKind {
-    pub const fn as_api_value(self) -> &'static str {
-        match self {
-            Self::Query => "query",
-            Self::Document => "document",
-        }
-    }
-}
-
-#[async_trait]
-pub trait EmbeddingBackend: Send + Sync {
-    async fn embed(&self, text: &str, kind: EmbeddingInputKind) -> Result<Vec<f32>>;
-}
-
-pub struct LlmEmbeddingBackend {
-    backend: Arc<dyn LlmBackend>,
-}
-
-impl LlmEmbeddingBackend {
-    pub fn new(backend: Arc<dyn LlmBackend>) -> Self {
-        Self { backend }
-    }
-}
-
-#[async_trait]
-impl EmbeddingBackend for LlmEmbeddingBackend {
-    async fn embed(&self, text: &str, _kind: EmbeddingInputKind) -> Result<Vec<f32>> {
-        self.backend.embed(text).await
     }
 }
 
@@ -244,19 +206,8 @@ impl LlmBackend for MockLlm {
         })
     }
 
-    async fn embed(&self, _text: &str) -> Result<Vec<f32>> {
-        Ok(vec![0.1; 128])
-    }
-
     async fn summarize(&self, _messages: &[Message], _instruction: &str) -> Result<String> {
         Ok("Mock summary".into())
-    }
-}
-
-#[async_trait]
-impl EmbeddingBackend for MockLlm {
-    async fn embed(&self, _text: &str, _kind: EmbeddingInputKind) -> Result<Vec<f32>> {
-        Ok(vec![0.1; 128])
     }
 }
 
@@ -537,24 +488,4 @@ pub(super) fn model_context_budget(model: &str) -> Option<ContextBudget> {
         ));
     }
     None
-}
-
-pub(crate) fn hashed_embedding(text: &str, dim: usize) -> Vec<f32> {
-    use sha2::{Digest, Sha256};
-
-    let mut values = vec![0f32; dim];
-    for token in text.split_whitespace() {
-        let digest = Sha256::digest(token.as_bytes());
-        let bucket = ((digest[0] as usize) << 8 | digest[1] as usize) % dim;
-        let sign = if digest[2] % 2 == 0 { 1.0 } else { -1.0 };
-        values[bucket] += sign;
-    }
-
-    let norm = values.iter().map(|v| v * v).sum::<f32>().sqrt();
-    if norm > 0.0 {
-        for value in &mut values {
-            *value /= norm;
-        }
-    }
-    values
 }

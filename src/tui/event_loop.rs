@@ -55,7 +55,6 @@ pub async fn run_tui(
     hook_registry: Arc<crate::hook_registry::HookRegistry>,
     hook_runtime: Arc<crate::hook_runtime::HookRuntime>,
     lsp_manager: Arc<LspManager>,
-    initialize_local_embeddings: bool,
     explicit_plugin_dirs: Vec<PathBuf>,
 ) -> anyhow::Result<Option<String>> {
     enable_raw_mode()?;
@@ -117,16 +116,9 @@ pub async fn run_tui(
 
     maintainer.sync_snapshot();
     maintainer.start_repo_context_detection();
-    if should_start_initial_rebuild(
-        initialize_local_embeddings,
-        &maintainer.app().explicit_plugin_dirs,
-    ) {
+    if should_start_initial_rebuild(&maintainer.app().explicit_plugin_dirs) {
         let (app, _) = maintainer.split_mut();
-        if initialize_local_embeddings {
-            app.push_entry("Runtime", "Initializing local embedding model.");
-        } else {
-            app.push_entry("Runtime", "Loading explicit plugin directories.");
-        }
+        app.push_entry("Runtime", "Loading explicit plugin directories.");
         super::runtime::start_rebuild_task(app);
     }
 
@@ -230,11 +222,8 @@ pub async fn run_tui(
     Ok(session_id)
 }
 
-fn should_start_initial_rebuild(
-    initialize_local_embeddings: bool,
-    explicit_plugin_dirs: &[PathBuf],
-) -> bool {
-    initialize_local_embeddings || !explicit_plugin_dirs.is_empty()
+fn should_start_initial_rebuild(explicit_plugin_dirs: &[PathBuf]) -> bool {
+    !explicit_plugin_dirs.is_empty()
 }
 
 #[cfg(test)]
@@ -244,12 +233,8 @@ mod tests {
     use super::should_start_initial_rebuild;
 
     #[test]
-    fn initial_rebuild_starts_for_embeddings_or_explicit_plugin_dirs() {
-        assert!(should_start_initial_rebuild(true, &[]));
-        assert!(should_start_initial_rebuild(
-            false,
-            &[PathBuf::from("/plugins")]
-        ));
-        assert!(!should_start_initial_rebuild(false, &[]));
+    fn initial_rebuild_starts_for_explicit_plugin_dirs() {
+        assert!(should_start_initial_rebuild(&[PathBuf::from("/plugins")]));
+        assert!(!should_start_initial_rebuild(&[]));
     }
 }

@@ -1,21 +1,16 @@
 impl MemoryStore {
     #[cfg(test)]
-    pub fn new(backend: Arc<dyn LlmBackend>, vdb: Arc<VectorDB>) -> Self {
-        let embedding_backend: Arc<dyn EmbeddingBackend> =
-            Arc::new(LlmEmbeddingBackend::new(backend.clone()));
-        Self::new_with_embedding_backend(backend, embedding_backend, vdb)
+    pub fn new(backend: Arc<dyn LlmBackend>, handle: Arc<MemoryHandle>) -> Self {
+        Self::new_with_handle(backend, handle)
     }
 
-    pub fn new_with_embedding_backend(
+    pub fn new_with_handle(
         llm_backend: Arc<dyn LlmBackend>,
-        embedding_backend: Arc<dyn EmbeddingBackend>,
-        vdb: Arc<VectorDB>,
+        handle: Arc<MemoryHandle>,
     ) -> Self {
-        let records = MemoryRecordFileStore::for_vdb_uri(vdb.uri());
+        let records = MemoryRecordFileStore::for_memory_handle_uri(handle.uri());
         Self {
             llm_backend,
-            embedding_backend,
-            vdb,
             records,
             observability: global_memory_observability(),
         }
@@ -24,30 +19,20 @@ impl MemoryStore {
     #[cfg(test)]
     pub(crate) fn new_with_record_path(
         backend: Arc<dyn LlmBackend>,
-        vdb: Arc<VectorDB>,
+        handle: Arc<MemoryHandle>,
         record_path: PathBuf,
     ) -> Self {
-        let embedding_backend: Arc<dyn EmbeddingBackend> =
-            Arc::new(LlmEmbeddingBackend::new(backend.clone()));
-        Self::new_with_embedding_backend_and_record_path(
-            backend,
-            embedding_backend,
-            vdb,
-            record_path,
-        )
+        Self::new_with_handle_and_record_path(backend, handle, record_path)
     }
 
     #[cfg(test)]
-    pub(crate) fn new_with_embedding_backend_and_record_path(
+    pub(crate) fn new_with_handle_and_record_path(
         llm_backend: Arc<dyn LlmBackend>,
-        embedding_backend: Arc<dyn EmbeddingBackend>,
-        vdb: Arc<VectorDB>,
+        _handle: Arc<MemoryHandle>,
         record_path: PathBuf,
     ) -> Self {
         Self {
             llm_backend,
-            embedding_backend,
-            vdb,
             records: MemoryRecordFileStore::new(record_path),
             observability: global_memory_observability(),
         }
@@ -101,22 +86,6 @@ impl MemoryStore {
             .filter(|id| !id.is_empty())
             .unwrap_or_else(|| format!("memory-{}", uuid::Uuid::new_v4()));
         let record = Self::build_memory_record(id, input)?;
-        let vector = self
-            .embedding_backend
-            .embed(&record.content, EmbeddingInputKind::Document)
-            .await?;
-        self.vdb
-            .upsert_turn(
-                EXPERIENCES_TABLE,
-                MemoryMetadata {
-                    id: Some(record.id.clone()),
-                    session_id: record.index_scope_key(),
-                    turn_index: MEMORY_RECORD_INDEX_PLACEHOLDER,
-                    text: record.content.clone(),
-                },
-                vector,
-            )
-            .await?;
         self.records.upsert(&record).await?;
         Ok(record)
     }
@@ -126,50 +95,36 @@ impl MemoryStore {
         if query.trim().is_empty() || limit == 0 {
             return Ok(Vec::new());
         }
-        let query_vector = self
-            .embedding_backend
-            .embed(query, EmbeddingInputKind::Query)
-            .await?;
-        self.search_with_embedding_inner(query, query_vector, limit)
-            .await
+        self.search_records_text(query, limit).await
     }
 
-    pub async fn search_with_embedding(
+    async fn search_records_text(
         &self,
         query: &str,
-        query_vector: Vec<f32>,
         limit: usize,
     ) -> Result<Vec<MemoryRecordSearchHit>> {
-        let _timer = self.observability.start_timer(MemoryOperation::Query);
-        self.search_with_embedding_inner(query, query_vector, limit)
-            .await
-    }
-
-    async fn search_with_embedding_inner(
-        &self,
-        query: &str,
-        query_vector: Vec<f32>,
-        limit: usize,
-    ) -> Result<Vec<MemoryRecordSearchHit>> {
-        if query.trim().is_empty() || query_vector.is_empty() || limit == 0 {
+        if query.trim().is_empty() || limit == 0 {
             return Ok(Vec::new());
         }
-        let hits = self
-            .vdb
-            .hybrid_search_with_metadata(EXPERIENCES_TABLE, query, query_vector, limit)
-            .await?;
         let records = self.records.load_map().await?;
-        Ok(hits
-            .into_iter()
-            .filter_map(|hit| {
-                memory_record_for_hit(&records, &hit.metadata).map(|record| MemoryRecordSearchHit {
+        let query_terms = normalized_search_terms(query);
+        if query_terms.is_empty() {
+            return Ok(Vec::new());
+        }
+        let mut hits = records
+            .into_values()
+            .filter_map(|record| {
+                text_match_score(&record, &query_terms).map(|score| MemoryRecordSearchHit {
                     record,
-                    score: hit.score,
-                    vector_distance: hit.vector_distance,
-                    fts_score: hit.fts_score,
+                    score,
+                    vector_distance: None,
+                    fts_score: None,
                 })
             })
-            .collect())
+            .collect::<Vec<_>>();
+        sort_memory_search_hits(&mut hits);
+        hits.truncate(limit);
+        Ok(hits)
     }
 
     pub async fn get(&self, id: &str) -> Result<Option<MemoryRecord>> {
@@ -188,37 +143,6 @@ impl MemoryStore {
     pub async fn update(&self, id: &str, patch: MemoryRecordPatch) -> Result<MemoryRecord> {
         let _timer = self.observability.start_timer(MemoryOperation::Write);
         let normalized_patch = normalize_memory_record_patch(patch)?;
-        // Read existing record so we can embed the *new* content before
-        // writing to the file store.  This avoids inconsistency when the
-        // VDB upsert fails after the file store has already been updated.
-        let existing = self
-            .records
-            .get(id)
-            .await?
-            .ok_or_else(|| anyhow::anyhow!("MemoryStore::update: record not found: {id}"))?;
-        let new_content = apply_patch_to_content(&existing, &normalized_patch);
-        let index_key = match &normalized_patch.scope {
-            Some(s) => memory_scope_key(s).to_string(),
-            None => existing.index_scope_key(),
-        };
-        if patch_requires_index_refresh(&normalized_patch) && !new_content.is_empty() {
-            let vector = self
-                .embedding_backend
-                .embed(&new_content, EmbeddingInputKind::Document)
-                .await?;
-            self.vdb
-                .upsert_turn(
-                    EXPERIENCES_TABLE,
-                    MemoryMetadata {
-                        id: Some(id.to_string()),
-                        session_id: index_key,
-                        turn_index: MEMORY_RECORD_INDEX_PLACEHOLDER,
-                        text: new_content,
-                    },
-                    vector,
-                )
-                .await?;
-        }
         self.records.update(id, normalized_patch).await
     }
 
@@ -228,7 +152,7 @@ impl MemoryStore {
     }
 
     /// Insert a record without requiring an embedding model.
-    /// Writes to JSON only, skips LanceDB vector index.
+    /// Writes to JSON only, without local vector indexing.
     pub async fn insert_text_only(&self, input: NewMemoryRecord) -> Result<MemoryRecord> {
         let _timer = self.observability.start_timer(MemoryOperation::Write);
         let record = Self::build_memory_record(

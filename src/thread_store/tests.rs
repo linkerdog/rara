@@ -4,7 +4,7 @@ use std::time::Duration;
 
 use anyhow::Result;
 use async_trait::async_trait;
-use rara_memory::vectordb::VectorDB;
+use rara_memory::memory_handle::MemoryHandle;
 use rara_persistence::thread_data::{
     PersistedCompactState, PersistedInteraction, PersistedPlanLifecycle, PersistedPlanStep,
     PersistedPromptRuntimeState, PersistedRuntimeRolloutItem, PersistedStructuredRolloutEvent,
@@ -1589,8 +1589,8 @@ async fn distill_thread_summary_persists_thread_linked_memory_record() -> Result
     )?;
     let memory_store = MemoryStore::new(
         std::sync::Arc::new(MockLlm),
-        std::sync::Arc::new(VectorDB::new(
-            rara_dir.join("lancedb").to_str().expect("utf8 path"),
+        std::sync::Arc::new(MemoryHandle::new(
+            rara_dir.join("memory").to_str().expect("utf8 path"),
         )),
     );
     let store = ThreadStore::new(&session_manager, &state_db);
@@ -1655,8 +1655,8 @@ async fn distill_thread_memories_persists_multiple_deduped_records() -> Result<(
     )?;
     let memory_store = MemoryStore::new(
         Arc::new(DistillMockLlm),
-        Arc::new(VectorDB::new(
-            rara_dir.join("lancedb").to_str().expect("utf8 path"),
+        Arc::new(MemoryHandle::new(
+            rara_dir.join("memory").to_str().expect("utf8 path"),
         )),
     );
     let store = ThreadStore::new(&session_manager, &state_db);
@@ -1727,11 +1727,6 @@ impl LlmBackend for DistillMockLlm {
             usage: Some(TokenUsage::default()),
         })
     }
-
-    async fn embed(&self, _text: &str) -> Result<Vec<f32>> {
-        Ok(vec![0.1; 128])
-    }
-
     async fn summarize(&self, _messages: &[Message], _instruction: &str) -> Result<String> {
         Ok("summary".to_string())
     }
