@@ -79,7 +79,8 @@ pub struct AgentDefinition {
 ### Loading And Runtime Cache
 
 `AgentDefinitionCache::load()` scans:
-1. Built-in agents (General, Explore, Plan) — hardcoded in RARA.
+1. Built-in agents (`general`, `explore`, `plan`, `code-reviewer`, `architect`,
+   and `researcher`) — hardcoded in RARA.
 2. `~/.claude/agents/*.md` files in the user home.
 3. `~/.rara/agents/*.md` files in the user home.
 4. `.claude/agents/*.md` files in the workspace root.
@@ -87,8 +88,9 @@ pub struct AgentDefinition {
 
 Resolves conflicts by loading lower-precedence roots first. Workspace agents
 override user agents, and `.rara/agents` overrides `.claude/agents` at the same
-scope. Built-in agents are always available as "general", "explore", "plan"
-when no custom definition with the requested name is loaded.
+scope. Built-in agents are always available when no custom definition with the
+requested name is loaded. A user or workspace definition with the same name
+overrides the built-in fallback through the normal definition precedence.
 
 The cache is constructed with the runtime and shared by the `spawn_agent`
 tool and `/status` extension summary. Running `spawn_agent` must resolve
@@ -103,6 +105,37 @@ The `/status` extension summary only lists repo-local agent definition records.
 Definitions with `hidden: true` are omitted from listing/status surfaces while
 remaining valid for direct `spawn_agent` resolution. Visible definitions include
 their frontmatter `description` in the status line when present.
+
+### Built-In Specialist Roles
+
+RARA exposes three reusable specialist profiles through `spawn_agent`:
+
+- `code-reviewer` performs independent, findings-first code review;
+- `architect` analyzes boundaries, invariants, failure modes, and design
+  trade-offs;
+- `researcher` answers one well-scoped question using repository, documentation,
+  and web evidence; it cites a URL or repository path for every material claim
+  and separates facts, inferences, and unknowns.
+
+All three profiles inherit the active provider and model. `code-reviewer` and
+`architect` allow only `Read`, `Glob`, and `Grep`. `researcher` adds
+`WebSearch` and `WebFetch` to that read-only repository tool set. It treats
+search results as discovery leads and fetches the primary source before relying
+on them. All three exclude shell, edit, patch, task-mutation, MCP, interactive
+browser automation, and recursive agent tools. Their descriptions live in the
+`spawn_agent` tool contract so the parent model can select a role at call time.
+The existing `plan_agent` remains the canonical implementation-planning surface;
+no separate `planner` alias is added.
+
+The researcher boundary follows the `Web researcher` pattern in the extracted
+Claude Code prompt reference: multi-source search is distinct from the built-in
+`Explore` role, whose responsibility is repository file search. The extracted
+prompt repository is a behavioral reference from compiled Claude Code packages,
+not Anthropic-maintained source code.
+
+This checkpoint does not add description-driven automatic delegation or custom
+role selection to `team_create`, whose task kinds remain `general`, `explore`,
+and `plan`.
 
 `permissionMode` controls the spawned subagent's local execution policy. Values
 are parsed ASCII case-insensitively:

@@ -126,6 +126,10 @@ Active backlog only. Keep this file small and current.
 - [x] Add a runtime-owned scoped plugin skill executor for explicit
       `AgentDefinition.pluginSkills` allowlists; child reload and discovery stay
       disabled. MCP and plugin memory authority remain parent-owned.
+- [ ] Evaluate a structured runtime agent catalog before adding
+      description-driven automatic selection for built-in and custom profiles.
+- [ ] Decide whether `team_create` should accept named agent definitions in
+      addition to the built-in `general`, `explore`, and `plan` task kinds.
 
 ## Shared Task Lists
 

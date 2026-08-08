@@ -59,6 +59,20 @@ unavailable search honestly. The target architecture is stricter:
 - `/status`, `/context`, ACP, and Wire expose the active web capability and
   reason when search is disabled.
 
+### 1.2) Subagent Capability Scoping
+
+Named `spawn_agent` profiles receive web tools only through an explicit
+`AgentDefinition.tools` allowlist. The child-owned custom tool manager registers
+`web_search` and `web_fetch` before applying the definition filter; profiles that
+do not request those names never receive them. A plan-mode or read-only
+permission override still selects the stricter repository-only manager.
+
+The built-in `researcher` profile explicitly requests both web tools alongside
+`Read`, `Glob`, and `Grep`. The built-in `code-reviewer` and `architect` profiles
+remain repository-only. This is capability construction, not inheritance from
+the parent session, and it does not grant shell, file mutation, MCP, interactive
+browser automation, or recursive delegation authority.
+
 ### 2) Search Result Handling
 
 Search results are an index, not proof. A web-backed answer should fetch or open
@@ -157,6 +171,9 @@ without changing the tool contract.
   system, developer, workspace, or user instructions.
 - Web results that are truncated must be reported as truncated and should not be
   treated as complete evidence.
+- Named subagents receive web tools only when their definition explicitly
+  allowlists them; built-in researcher access must not widen other specialist
+  profiles.
 - Runtime events should expose query, provider, source URLs, truncation state,
   and source-reporting readiness so `/context`, `/status`, ACP, and Wire can show
   what happened without parsing prose.
@@ -172,6 +189,8 @@ without changing the tool contract.
   and model-facing compact output.
 - Runtime event tests should assert structured query/source metadata for web
   search and fetch calls.
+- Subagent tests assert that `researcher` receives `web_search` and `web_fetch`,
+  while `code-reviewer` and `architect` do not.
 
 ## Open Risks
 
@@ -186,3 +205,4 @@ without changing the tool contract.
 ## Source Journals
 
 - `docs/journal/2026-05-04-web-search-prompt-guidance.md`
+- `docs/journal/2026-08-08-built-in-specialist-agents.md`
