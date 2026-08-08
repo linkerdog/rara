@@ -9144,6 +9144,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "rara-wasm-core"
+version = "0.0.15"
+dependencies = [
+ "rara-apply-patch",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.19",
+]
+
+[[package]]
 name = "ratatui"
 version = "0.30.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"

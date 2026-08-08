@@ -1,0 +1,12 @@
+[package]
+name = "rara-wasm-core"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Pure WASM-oriented core helpers for RARA clients"
+
+[dependencies]
+rara-apply-patch = { path = "../rara-apply-patch" }
+serde.workspace = true
+serde_json.workspace = true
+thiserror = "2"

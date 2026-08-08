@@ -15,6 +15,7 @@ members = [
     "crates/rara-state",
     "crates/rara-memory",
     "crates/rara-apply-patch",
+    "crates/rara-wasm-core",
     "crates/rara-observability",
     "crates/rara-tools",
     "crates/rara-plugins",
