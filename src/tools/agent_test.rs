@@ -1170,7 +1170,7 @@ Custom reviewer prompt from workspace definition.
     assert!(system_prompt.contains("Planning mode is active."));
     assert!(system_prompt.contains("You are a custom workspace sub-agent."));
     assert!(system_prompt.contains(
-        "Repository inspection is allowed only through the read-only tools exposed to you."
+        "Inspect repository or web evidence only through the read-only tools exposed to you."
     ));
     assert!(!system_prompt.contains("You do not have repository"));
     assert!(!system_prompt.contains("answer only from the provided instruction/context"));
