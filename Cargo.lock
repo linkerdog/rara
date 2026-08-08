@@ -8844,7 +8844,7 @@ dependencies = [
 
 [[package]]
 name = "rara"
-version = "0.0.15"
+version = "0.0.16"
 dependencies = [
  "agent-client-protocol",
  "anyhow",
@@ -8925,7 +8925,7 @@ dependencies = [
 
 [[package]]
 name = "rara-app-server"
-version = "0.0.15"
+version = "0.0.16"
 dependencies = [
  "rara-instructions",
  "serde",
@@ -8934,14 +8934,14 @@ dependencies = [
 
 [[package]]
 name = "rara-apply-patch"
-version = "0.0.15"
+version = "0.0.16"
 dependencies = [
  "thiserror 2.0.19",
 ]
 
 [[package]]
 name = "rara-background-tasks"
-version = "0.0.15"
+version = "0.0.16"
 dependencies = [
  "async-trait",
  "libc",
@@ -8956,7 +8956,7 @@ dependencies = [
 
 [[package]]
 name = "rara-bedrock"
-version = "0.0.15"
+version = "0.0.16"
 dependencies = [
  "anyhow",
  "aws-config",
@@ -8967,7 +8967,7 @@ dependencies = [
 
 [[package]]
 name = "rara-config"
-version = "0.0.15"
+version = "0.0.16"
 dependencies = [
  "anyhow",
  "codex-execpolicy",
@@ -8980,7 +8980,7 @@ dependencies = [
 
 [[package]]
 name = "rara-core"
-version = "0.0.15"
+version = "0.0.16"
 dependencies = [
  "serde",
  "serde_json",
@@ -8988,7 +8988,7 @@ dependencies = [
 
 [[package]]
 name = "rara-file-search"
-version = "0.0.15"
+version = "0.0.16"
 dependencies = [
  "anyhow",
  "ignore",
@@ -8999,7 +8999,7 @@ dependencies = [
 
 [[package]]
 name = "rara-instructions"
-version = "0.0.15"
+version = "0.0.16"
 dependencies = [
  "anyhow",
  "rara-config",
@@ -9009,7 +9009,7 @@ dependencies = [
 
 [[package]]
 name = "rara-mcp-client"
-version = "0.0.15"
+version = "0.0.16"
 dependencies = [
  "anyhow",
  "rmcp",
@@ -9019,7 +9019,7 @@ dependencies = [
 
 [[package]]
 name = "rara-memory"
-version = "0.0.15"
+version = "0.0.16"
 dependencies = [
  "anyhow",
  "fs2",
@@ -9034,14 +9034,14 @@ dependencies = [
 
 [[package]]
 name = "rara-observability"
-version = "0.0.15"
+version = "0.0.16"
 dependencies = [
  "serde",
 ]
 
 [[package]]
 name = "rara-persistence"
-version = "0.0.15"
+version = "0.0.16"
 dependencies = [
  "anyhow",
  "fs2",
@@ -9056,7 +9056,7 @@ dependencies = [
 
 [[package]]
 name = "rara-plugins"
-version = "0.0.15"
+version = "0.0.16"
 dependencies = [
  "serde",
  "serde_json",
@@ -9066,7 +9066,7 @@ dependencies = [
 
 [[package]]
 name = "rara-provider-catalog"
-version = "0.0.15"
+version = "0.0.16"
 dependencies = [
  "anyhow",
  "rara-config",
@@ -9079,7 +9079,7 @@ dependencies = [
 
 [[package]]
 name = "rara-sandbox"
-version = "0.0.15"
+version = "0.0.16"
 dependencies = [
  "anyhow",
  "rara-config",
@@ -9090,7 +9090,7 @@ dependencies = [
 
 [[package]]
 name = "rara-skills"
-version = "0.0.15"
+version = "0.0.16"
 dependencies = [
  "anyhow",
  "serde",
@@ -9099,7 +9099,7 @@ dependencies = [
 
 [[package]]
 name = "rara-state"
-version = "0.0.15"
+version = "0.0.16"
 dependencies = [
  "anyhow",
  "rara-config",
@@ -9112,11 +9112,11 @@ dependencies = [
 
 [[package]]
 name = "rara-terminal-detection"
-version = "0.0.15"
+version = "0.0.16"
 
 [[package]]
 name = "rara-tool-macros"
-version = "0.0.15"
+version = "0.0.16"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -9125,7 +9125,7 @@ dependencies = [
 
 [[package]]
 name = "rara-tools"
-version = "0.0.15"
+version = "0.0.16"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -9145,7 +9145,7 @@ dependencies = [
 
 [[package]]
 name = "rara-wasm-core"
-version = "0.0.15"
+version = "0.0.16"
 dependencies = [
  "rara-apply-patch",
  "serde",
