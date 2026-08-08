@@ -1,6 +1,6 @@
 //! Wire-mode consumer: subscribes to RuntimeEventBus and renders
 //! AgentEvent as Wire JSON-RPC over stdout. Peer consumer to
-//! PrintConsumer (text) and TuiMaintainer (Ratatui).
+//! PrintConsumer (text) and TuiController (Ratatui).
 //!
 //! Wire and print consumers subscribe to the same event bus.
 

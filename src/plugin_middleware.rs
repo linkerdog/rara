@@ -20,6 +20,15 @@ use crate::config::{
 use crate::hook_runtime::HookRuntime;
 use crate::runtime_control::{HookEvent as RuntimeHookEvent, HookLifecycle};
 
+pub(crate) fn nowledge_mem_prompt_instructions(
+    builtin_plugins: &BuiltinPluginConfig,
+) -> Option<&'static str> {
+    builtin_plugins
+        .nowledge_mem
+        .enabled
+        .then_some(builtin::NOWLEDGE_MEM_PROMPT_INSTRUCTIONS)
+}
+
 #[derive(Clone, Debug, Default)]
 pub(crate) struct PluginHookRuntime {
     session_id: String,
@@ -242,6 +251,8 @@ fn hook_event_to_lifecycle(event: HookEvent) -> HookLifecycle {
         HookEvent::UserPromptSubmit => HookLifecycle::UserPromptSubmit,
         HookEvent::SessionStart => HookLifecycle::SessionStart,
         HookEvent::SessionEnd => HookLifecycle::SessionEnd,
+        HookEvent::GoalCreated => HookLifecycle::GoalCreated,
+        HookEvent::GoalCompleted => HookLifecycle::GoalCompleted,
     }
 }
 

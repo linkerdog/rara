@@ -371,6 +371,67 @@ fn builtin_nowledge_mem_mcp_uses_configured_url_and_headers() {
 }
 
 #[test]
+fn builtin_nowledge_mem_mcp_supports_cloud_auth_without_persisting_secrets() {
+    let dir = tempdir().expect("tempdir");
+    let rara_home = dir.path().join("home").join(".rara");
+    let workspace_root = dir.path().join("workspace");
+    let config = BuiltinPluginConfig {
+        nowledge_mem: crate::config::NowledgeMemPluginConfig {
+            mode: crate::config::NowledgeMemMode::Cloud,
+            url: "http://127.0.0.1:14242/mcp/".to_string(),
+            api_key_env_var: "RARA_NMEM_API_KEY".to_string(),
+            space_id_env_var: Some("RARA_NMEM_SPACE".to_string()),
+            ..Default::default()
+        },
+    };
+
+    let mut registry = McpRegistry::empty();
+    append_plugin_mcp_configs(
+        &mut registry,
+        Some(&rara_home),
+        &workspace_root,
+        &[],
+        &config,
+    )
+    .expect("append builtin plugin mcp config");
+
+    let server = registry
+        .servers
+        .get("nowledge-mem")
+        .expect("nowledge mem server");
+    assert_eq!(
+        server.config.transport,
+        McpServerTransport::StreamableHttp {
+            r#type: Some("http".to_string()),
+            url: builtin::NOWLEDGE_MEM_CLOUD_MCP_URL.to_string(),
+            bearer_token_env_var: None,
+            http_headers: Some(std::collections::BTreeMap::from([(
+                "APP".to_string(),
+                "RARA".to_string()
+            )])),
+            env_http_headers: Some(std::collections::BTreeMap::from([
+                ("Authorization".to_string(), "RARA_NMEM_API_KEY".to_string()),
+                (
+                    "X-NMEM-API-Key".to_string(),
+                    "RARA_NMEM_API_KEY".to_string()
+                ),
+                ("X-Nmem-Space-Id".to_string(), "RARA_NMEM_SPACE".to_string())
+            ])),
+        }
+    );
+
+    let materialized = std::fs::read_to_string(
+        rara_home
+            .join(builtin::BUILTIN_PLUGINS_DIR)
+            .join(builtin::NOWLEDGE_MEM_PLUGIN_DIR)
+            .join(".mcp.json"),
+    )
+    .expect("materialized mcp config");
+    assert!(materialized.contains("RARA_NMEM_API_KEY"));
+    assert!(!materialized.contains("secret"));
+}
+
+#[test]
 fn builtin_nowledge_mem_mcp_yields_to_existing_registry_server() {
     let dir = tempdir().expect("tempdir");
     let rara_home = dir.path().join("home").join(".rara");

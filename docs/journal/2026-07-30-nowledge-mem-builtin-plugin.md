@@ -16,6 +16,7 @@ runtime registries:
   routing.
 - memory query event notices that show the sanitized query preview and result
   count without rendering returned memory content.
+- local/cloud mode selection with environment-backed cloud authentication.
 
 ## Background
 
@@ -33,6 +34,19 @@ same plugin state.
 - Builtin MCP servers use `builtin` provenance and yield to already registered
   user or project MCP servers with the same name. Normal non-builtin plugin MCP
   duplicates remain hard errors.
+- Local mode preserves the loopback MCP endpoint. Cloud mode defaults to
+  `https://cloud.nowledge.co` and derives `/remote-api/mcp/`. It emits API-key
+  and optional space headers as environment-variable references.
+- Cloud credentials are persisted in RARA's existing secret configuration field
+  but never written to generated plugin files. The runtime exposes the saved
+  key through NMEM_API_KEY and keeps the generated transport on an environment
+  variable reference.
+- `rara mem --api-key <key>` saves the Cloud credential and enables Cloud mode;
+  the saved key is restored after restart, and users do not need to manage
+  NMEM_API_KEY separately.
+- TUI exposes `/mem` as an argument-free picker for disabled, local, or cloud
+  mode. It saves the selected mode and requests a runtime rebuild; transport
+  construction remains runtime-owned.
 - `builtin_plugins.nowledge_mem` controls whether the plugin is materialized
   and which MCP URL or headers are written into its generated `.mcp.json`.
 - The builtin plugin accepts Codex-style `.codex-plugin/plugin.json` metadata.
@@ -59,12 +73,15 @@ cargo test plugin_middleware::tests::builtin_nowledge_mem_plugin_materializes_sk
 cargo test plugin_middleware::tests::appends_builtin_nowledge_mem_mcp_config -- --nocapture
 cargo test plugin_middleware::tests::builtin_nowledge_mem_mcp_yields_to_existing_registry_server -- --nocapture
 cargo test plugin_middleware::tests::builtin_nowledge_mem_mcp_uses_configured_url_and_headers -- --nocapture
+cargo test plugin_middleware::tests::builtin_nowledge_mem_mcp_supports_cloud_auth_without_persisting_secrets -- --nocapture
 cargo test plugin_middleware::tests::disabled_builtin_nowledge_mem_plugin_is_not_discovered -- --nocapture
+cargo test -p rara-config builtin_nowledge_mem_cloud_mode_derives_remote_mcp_and_env_headers -- --nocapture
 cargo test -p rara-plugins loads_codex_plugin_metadata_directory -- --nocapture
 cargo test -p rara-config streamable_http_localhost_bypasses_proxy -- --nocapture
 cargo test tui::status_display::tests::overview_status_reports_builtin_nowledge_mem -- --nocapture
 cargo test tui::status_display::tests::overview_status_reports_disabled_nowledge_mem -- --nocapture
 cargo test tui::status_display::tests::overview_status_reports_custom_nowledge_mem_endpoint_and_headers -- --nocapture
+cargo test tui::status_display::tests::overview_status_reports_cloud_nowledge_mem_auth_source -- --nocapture
 cargo test runtime_control::tests::memory_label_and_metadata_events_use_structured_wire_shape -- --nocapture
 cargo test protocol_sources::tests::memory_control_update_delete_and_labels_use_memory_store -- --nocapture
 cargo test tui::runtime::events::tests::memory_query_notice -- --nocapture

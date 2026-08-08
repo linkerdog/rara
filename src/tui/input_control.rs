@@ -1,4 +1,5 @@
 use crate::agent::{Agent, BashApprovalDecision};
+use crate::runtime_client::RuntimeTaskServices;
 use crate::runtime_control::{
     InputEvent, PlanApprovalDecision, RuntimeEvent, SessionControlRequest, SessionEvent,
     ShellApprovalDecision,
@@ -6,6 +7,9 @@ use crate::runtime_control::{
 use crate::tui::runtime::{
     request_running_task_cancellation, start_input_control_task, start_pending_approval_task,
     start_plan_approval_resume_task, start_query_task,
+    tasks::start_input_control_task_with_services,
+    tasks::start_pending_approval_task_with_services,
+    tasks::start_plan_approval_resume_task_with_services, tasks::start_query_task_with_services,
 };
 use crate::tui::state::{
     ActivePendingInteractionKind, InteractionKind, RuntimePhase, TaskKind, TuiApp,
@@ -25,6 +29,15 @@ pub(crate) fn submit_user_prompt(
     app: &mut TuiApp,
     agent_slot: &mut Option<Agent>,
     prompt: String,
+) -> InputControlOutcome {
+    submit_user_prompt_with_services(app, agent_slot, prompt, None)
+}
+
+pub(crate) fn submit_user_prompt_with_services(
+    app: &mut TuiApp,
+    agent_slot: &mut Option<Agent>,
+    prompt: String,
+    services: Option<RuntimeTaskServices>,
 ) -> InputControlOutcome {
     let prompt = prompt.trim().to_string();
     if prompt.is_empty() {
@@ -70,13 +83,17 @@ pub(crate) fn submit_user_prompt(
     };
 
     if app.pending_request_input().is_some() {
-        answer_pending_input(app, agent_slot, agent, prompt);
+        answer_pending_input_with_services(app, agent_slot, agent, prompt, services);
         return InputControlOutcome::Answered;
     }
 
     app.clear_pending_planning_suggestion();
     publish_input_event(app, InputEvent::UserPromptSubmitted);
-    start_query_task(app, prompt, agent);
+    if let Some(services) = services {
+        start_query_task_with_services(app, prompt, agent, services);
+    } else {
+        start_query_task(app, prompt, agent);
+    }
     InputControlOutcome::Submitted
 }
 
@@ -127,22 +144,44 @@ pub(crate) fn answer_pending_input(
     agent: Agent,
     answer: String,
 ) {
+    answer_pending_input_with_services(app, agent_slot, agent, answer, None);
+}
+
+pub(crate) fn answer_pending_input_with_services(
+    app: &mut TuiApp,
+    agent_slot: &mut Option<Agent>,
+    agent: Agent,
+    answer: String,
+    services: Option<RuntimeTaskServices>,
+) {
     publish_input_event(app, InputEvent::PendingInputAnswered);
     if app.has_local_pending_request_input() {
-        start_local_request_input_continuation(app, agent, answer);
+        start_local_request_input_continuation(app, agent, answer, services);
         return;
     }
 
     let request = crate::runtime_control::InputControlRequest::AnswerPendingInput { answer };
 
-    start_input_control_task(
-        app,
-        agent,
-        request,
-        "Answering pending input.".into(),
-        RuntimePhase::ProcessingResponse,
-        Some("resuming after input".into()),
-    );
+    if let Some(services) = services {
+        start_input_control_task_with_services(
+            app,
+            agent,
+            request,
+            "Answering pending input.".into(),
+            RuntimePhase::ProcessingResponse,
+            Some("resuming after input".into()),
+            services,
+        );
+    } else {
+        start_input_control_task(
+            app,
+            agent,
+            request,
+            "Answering pending input.".into(),
+            RuntimePhase::ProcessingResponse,
+            Some("resuming after input".into()),
+        );
+    }
     *agent_slot = None;
 }
 
@@ -159,6 +198,16 @@ pub(crate) fn answer_plan_approval_with_feedback(
     agent_slot: &mut Option<Agent>,
     decision: PlanApprovalDecision,
     feedback: Option<String>,
+) -> InputControlOutcome {
+    answer_plan_approval_with_feedback_and_services(app, agent_slot, decision, feedback, None)
+}
+
+pub(crate) fn answer_plan_approval_with_feedback_and_services(
+    app: &mut TuiApp,
+    agent_slot: &mut Option<Agent>,
+    decision: PlanApprovalDecision,
+    feedback: Option<String>,
+    services: Option<RuntimeTaskServices>,
 ) -> InputControlOutcome {
     if !app.has_pending_plan_approval() {
         app.push_notice("No pending plan approval.");
@@ -224,7 +273,11 @@ pub(crate) fn answer_plan_approval_with_feedback(
         feedback.clone(),
         plan_revision,
     );
-    start_plan_approval_resume_task(app, decision, feedback, agent);
+    if let Some(services) = services {
+        start_plan_approval_resume_task_with_services(app, decision, feedback, agent, services);
+    } else {
+        start_plan_approval_resume_task(app, decision, feedback, agent);
+    }
     InputControlOutcome::Answered
 }
 
@@ -250,6 +303,15 @@ pub(crate) fn answer_shell_approval(
     agent_slot: &mut Option<Agent>,
     decision: ShellApprovalDecision,
 ) -> InputControlOutcome {
+    answer_shell_approval_with_services(app, agent_slot, decision, None)
+}
+
+pub(crate) fn answer_shell_approval_with_services(
+    app: &mut TuiApp,
+    agent_slot: &mut Option<Agent>,
+    decision: ShellApprovalDecision,
+    services: Option<RuntimeTaskServices>,
+) -> InputControlOutcome {
     let Some(interaction) = app.active_pending_interaction() else {
         app.push_notice("No pending shell approval.");
         return InputControlOutcome::Rejected;
@@ -263,7 +325,11 @@ pub(crate) fn answer_shell_approval(
         return InputControlOutcome::Rejected;
     };
     let decision = BashApprovalDecision::from(decision);
-    start_pending_approval_task(app, decision, agent);
+    if let Some(services) = services {
+        start_pending_approval_task_with_services(app, decision, agent, services);
+    } else {
+        start_pending_approval_task(app, decision, agent);
+    }
     InputControlOutcome::Answered
 }
 
@@ -304,10 +370,19 @@ pub(crate) fn handle_session_control(
     }
 }
 
-fn start_local_request_input_continuation(app: &mut TuiApp, agent: Agent, answer: String) {
+fn start_local_request_input_continuation(
+    app: &mut TuiApp,
+    agent: Agent,
+    answer: String,
+    services: Option<RuntimeTaskServices>,
+) {
     let Some(interaction) = app.pending_request_input().cloned() else {
         app.clear_pending_planning_suggestion();
-        start_query_task(app, answer, agent);
+        if let Some(services) = services {
+            start_query_task_with_services(app, answer, agent, services);
+        } else {
+            start_query_task(app, answer, agent);
+        }
         return;
     };
 
@@ -332,7 +407,11 @@ fn start_local_request_input_continuation(app: &mut TuiApp, agent: Agent, answer
     {
         prompt.push_str(&format!("\nContext: {}", note.trim()));
     }
-    start_query_task(app, prompt, agent);
+    if let Some(services) = services {
+        start_query_task_with_services(app, prompt, agent, services);
+    } else {
+        start_query_task(app, prompt, agent);
+    }
 }
 
 fn publish_input_event(app: &TuiApp, event: InputEvent) {

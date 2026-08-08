@@ -168,7 +168,8 @@ fn lifecycle_for_event(event: &AgentEvent) -> Option<HookLifecycle> {
         | AgentEvent::PlanUpdated { .. }
         | AgentEvent::ApprovalRequested { .. }
         | AgentEvent::ApprovalAnswered { .. }
-        | AgentEvent::AgentError { .. } => None,
+        | AgentEvent::AgentError { .. }
+        | AgentEvent::Compaction { .. } => None,
     }
 }
 

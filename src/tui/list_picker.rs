@@ -32,6 +32,7 @@ impl ListPickerKind {
             Self::AuthMode => app.auth_mode_idx,
             Self::ReasoningEffort => app.reasoning_effort_picker_idx,
             Self::UnifiedModel => app.model_picker_idx,
+            Self::NowledgeMem => app.nowledge_mem_picker_idx,
         }
     }
 
@@ -47,6 +48,7 @@ impl ListPickerKind {
             Self::AuthMode => app.auth_mode_idx = i,
             Self::ReasoningEffort => app.reasoning_effort_picker_idx = i,
             Self::UnifiedModel => app.model_picker_idx = i,
+            Self::NowledgeMem => app.nowledge_mem_picker_idx = i,
         }
     }
 
@@ -61,6 +63,7 @@ impl ListPickerKind {
             Self::AuthMode => AUTH_MODE_ITEM_COUNT,
             Self::ReasoningEffort => app.selected_codex_reasoning_options().len(),
             Self::UnifiedModel => app.all_unified_model_presets().len(),
+            Self::NowledgeMem => 3,
         }
     }
 
@@ -75,6 +78,7 @@ impl ListPickerKind {
             Self::AuthMode => " Codex Auth Mode ",
             Self::ReasoningEffort => " Reasoning Level ",
             Self::UnifiedModel => " All Models ",
+            Self::NowledgeMem => " Nowledge Mem ",
         }
     }
 
@@ -89,12 +93,14 @@ impl ListPickerKind {
             Self::AuthMode => "Choose how Codex authenticates.",
             Self::ReasoningEffort => "Select the reasoning level for the chosen Codex model.",
             Self::UnifiedModel => "Select a model across all providers.",
+            Self::NowledgeMem => "Choose the builtin memory connection mode.",
         }
     }
 
     fn help_text(self) -> &'static str {
         match self {
             Self::UnifiedModel => "Up/Down/jk move  Enter apply  Esc back",
+            Self::NowledgeMem => "1-3 jump  Up/Down/jk move  Enter apply  Esc back",
             _ => "1-9 jump  Up/Down/jk move  Enter apply  Esc back",
         }
     }
@@ -111,6 +117,7 @@ impl ListPickerKind {
             Self::OpenAiEndpointKind => Self::render_endpoint_kind_items(app, selected),
             Self::OpenAiProfile => Self::render_openai_profile_items(app, selected),
             Self::UnifiedModel => Self::render_unified_model_items(app, selected),
+            Self::NowledgeMem => Self::render_nowledge_mem_items(app, selected),
         }
     }
 
@@ -170,32 +177,42 @@ impl ListPickerKind {
         use super::state::{PROVIDER_FAMILIES, ProviderFamily};
         let provider_label = PROVIDER_FAMILIES[app.provider_picker_idx].1;
         let family = app.selected_provider_family();
-        let mut items: Vec<ListItem<'static>> = if family == ProviderFamily::DeepSeek {
-            app.deepseek_model_options
-                .iter()
-                .enumerate()
-                .map(|(idx, model)| {
-                    ListItem::new(ratatui::text::Line::from(format!(
-                        "{} ({})",
-                        model, provider_label,
-                    )))
-                    .style(Self::selected_style(idx, selected))
-                })
-                .collect()
-        } else {
-            let presets = super::state::current_model_presets(app.provider_picker_idx);
-            presets
-                .iter()
-                .enumerate()
-                .map(|(idx, preset)| {
-                    ListItem::new(ratatui::text::Line::from(format!(
-                        "{} ({})",
-                        preset.1, provider_label,
-                    )))
-                    .style(Self::selected_style(idx, selected))
-                })
-                .collect()
-        };
+        let mut items: Vec<ListItem<'static>> =
+            if matches!(family, ProviderFamily::DeepSeek | ProviderFamily::Kimi) {
+                let models = if family == ProviderFamily::DeepSeek {
+                    &app.deepseek_model_options
+                } else {
+                    &app.kimi_model_options
+                };
+                models
+                    .iter()
+                    .enumerate()
+                    .map(|(idx, model)| {
+                        let context = app
+                            .model_context_window(family, model)
+                            .map(|tokens| format!(" · {:.0}K", tokens as f64 / 1000.0))
+                            .unwrap_or_default();
+                        ListItem::new(ratatui::text::Line::from(format!(
+                            "{} ({}){}",
+                            model, provider_label, context,
+                        )))
+                        .style(Self::selected_style(idx, selected))
+                    })
+                    .collect()
+            } else {
+                let presets = super::state::current_model_presets(app.provider_picker_idx);
+                presets
+                    .iter()
+                    .enumerate()
+                    .map(|(idx, preset)| {
+                        ListItem::new(ratatui::text::Line::from(format!(
+                            "{} ({})",
+                            preset.1, provider_label,
+                        )))
+                        .style(Self::selected_style(idx, selected))
+                    })
+                    .collect()
+            };
         if matches!(
             app.selected_provider_family(),
             ProviderFamily::OpenAiCompatible
@@ -251,6 +268,35 @@ impl ListPickerKind {
         .map(|(idx, label)| {
             ListItem::new(ratatui::text::Line::from(label))
                 .style(Self::selected_style(idx, selected))
+        })
+        .collect()
+    }
+
+    fn render_nowledge_mem_items(app: &TuiApp, selected: usize) -> Vec<ListItem<'static>> {
+        let config = &app.config.builtin_plugins.nowledge_mem;
+        [
+            ("Disabled", "Do not load the builtin Nowledge Mem plugin."),
+            ("Local", "Use the local loopback MCP endpoint."),
+            (
+                "Cloud",
+                "Use https://cloud.nowledge.co with env-backed auth.",
+            ),
+        ]
+        .into_iter()
+        .enumerate()
+        .map(|(idx, (label, description))| {
+            let current = match idx {
+                0 => !config.enabled,
+                1 => config.enabled && config.mode == crate::config::NowledgeMemMode::Local,
+                2 => config.enabled && config.mode == crate::config::NowledgeMemMode::Cloud,
+                _ => false,
+            };
+            let marker = if current { " (current)" } else { "" };
+            ListItem::new(vec![
+                ratatui::text::Line::from(format!("[{}] {}{}", idx + 1, label, marker)),
+                ratatui::text::Line::from(format!("    {description}")),
+            ])
+            .style(Self::selected_style(idx, selected))
         })
         .collect()
     }

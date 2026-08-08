@@ -81,6 +81,8 @@ pub enum HookEvent {
     UserPromptSubmit,
     SessionStart,
     SessionEnd,
+    GoalCreated,
+    GoalCompleted,
 }
 
 impl HookEvent {
@@ -92,6 +94,8 @@ impl HookEvent {
             Self::UserPromptSubmit => "UserPromptSubmit",
             Self::SessionStart => "SessionStart",
             Self::SessionEnd => "SessionEnd",
+            Self::GoalCreated => "GoalCreated",
+            Self::GoalCompleted => "GoalCompleted",
         }
     }
 }

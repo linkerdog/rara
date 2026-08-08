@@ -169,6 +169,7 @@ pub(super) fn create_full_tool_manager(
     tm.register(Box::new(SkillTool {
         skill_manager: skill_manager.clone(),
         plugin_roots,
+        reload_policy: crate::tools::skill::SkillReloadPolicy::Enabled,
     }));
     tm.register(Box::new(AgentTool {
         backend: backend.clone(),
@@ -180,6 +181,7 @@ pub(super) fn create_full_tool_manager(
         background_subagents: background_subagents.clone(),
         task_list_id: task_list_id.clone(),
         agent_definitions: agent_definitions.clone(),
+        skill_manager: skill_manager.clone(),
     }));
     tm.register(Box::new(ExploreAgentTool {
         backend: backend.clone(),
@@ -191,6 +193,7 @@ pub(super) fn create_full_tool_manager(
         background_subagents: background_subagents.clone(),
         task_list_id: task_list_id.clone(),
         agent_definitions: agent_definitions.clone(),
+        skill_manager: skill_manager.clone(),
     }));
     tm.register(Box::new(PlanAgentTool {
         backend: backend.clone(),
@@ -202,6 +205,7 @@ pub(super) fn create_full_tool_manager(
         background_subagents: background_subagents.clone(),
         task_list_id: task_list_id.clone(),
         agent_definitions: agent_definitions.clone(),
+        skill_manager: skill_manager.clone(),
     }));
     tm.register(Box::new(TeamCreateTool {
         backend,
@@ -212,6 +216,7 @@ pub(super) fn create_full_tool_manager(
         prompt_config,
         task_list_id,
         agent_definitions,
+        skill_manager,
     }));
     tm.register(Box::new(SubAgentResumeTool {
         background_subagents: background_subagents.clone(),

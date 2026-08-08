@@ -22,6 +22,16 @@ impl TuiApp {
             self.model_picker_idx = self.selected_unified_preset_idx();
             self.sync_reasoning_effort_picker();
         }
+        if matches!(overlay, Overlay::ListPicker(ListPickerKind::NowledgeMem)) {
+            let config = &self.config.builtin_plugins.nowledge_mem;
+            self.nowledge_mem_picker_idx = if !config.enabled {
+                0
+            } else if config.mode == crate::config::NowledgeMemMode::Cloud {
+                2
+            } else {
+                1
+            };
+        }
         if matches!(overlay, Overlay::ListPicker(ListPickerKind::Model)) {
             let selected_family = self.selected_provider_family();
             if matches!(selected_family, ProviderFamily::OpenAiCompatible) {

@@ -17,10 +17,10 @@ use crate::tui::state::{
 };
 
 #[test]
-fn parses_model_command_argument() {
-    let command = parse_local_command("/model anything").expect("command should parse");
+fn parses_model_command_without_arguments() {
+    let command = parse_local_command("/model").expect("command should parse");
     assert!(matches!(command.kind, LocalCommandKind::Model));
-    assert_eq!(command.arg.as_deref(), Some("anything"));
+    assert_eq!(command.arg, None);
 }
 
 #[test]
@@ -85,6 +85,13 @@ fn parses_base_url_command() {
     let command = parse_local_command("/base-url").expect("command should parse");
     assert!(matches!(command.kind, LocalCommandKind::BaseUrl));
     assert_eq!(command.arg.as_deref(), None);
+}
+
+#[test]
+fn parses_nowledge_mem_configuration_command() {
+    let command = parse_local_command("/mem").expect("command should parse");
+    assert!(matches!(command.kind, LocalCommandKind::NowledgeMem));
+    assert_eq!(command.arg, None);
 }
 
 #[test]

@@ -13,6 +13,8 @@ use crate::workspace::WorkspaceMemory;
 pub enum HookLifecycle {
     SessionStart,
     SessionEnd,
+    GoalCreated,
+    GoalCompleted,
     UserPromptSubmit,
     PreToolUse,
     PostToolUse,
@@ -28,6 +30,8 @@ impl HookLifecycle {
         match self {
             Self::SessionStart => "SessionStart",
             Self::SessionEnd => "SessionEnd",
+            Self::GoalCreated => "GoalCreated",
+            Self::GoalCompleted => "GoalCompleted",
             Self::UserPromptSubmit => "UserPromptSubmit",
             Self::PreToolUse => "PreToolUse",
             Self::PostToolUse => "PostToolUse",
@@ -44,6 +48,8 @@ impl HookLifecycle {
         match name {
             "session-start" | "session_start" => Some(Self::SessionStart),
             "session-end" | "session_end" => Some(Self::SessionEnd),
+            "goal-created" | "goal_created" => Some(Self::GoalCreated),
+            "goal-completed" | "goal_completed" => Some(Self::GoalCompleted),
             "user-prompt-submit" | "user_prompt_submit" => Some(Self::UserPromptSubmit),
             "pre-tool-use" | "pre_tool_use" => Some(Self::PreToolUse),
             "post-tool-use" | "post_tool_use" => Some(Self::PostToolUse),
@@ -223,6 +229,9 @@ impl PromptSection {
 pub struct PromptRuntimeConfig {
     pub system_prompt: Option<String>,
     pub append_system_prompt: Option<String>,
+    /// Final child-session capability section, kept separate from append text
+    /// so runtime policy remains observable and ordered independently.
+    pub subagent_capability_policy: Option<String>,
     pub compact_prompt: Option<String>,
     pub protocol_prompt_sources: Vec<PromptSource>,
     pub available_skills: Vec<PromptSkillSummary>,
@@ -256,6 +265,7 @@ impl PromptRuntimeConfig {
         Self {
             system_prompt,
             append_system_prompt,
+            subagent_capability_policy: None,
             compact_prompt,
             protocol_prompt_sources: Vec::new(),
             available_skills: Vec::new(),
@@ -382,6 +392,10 @@ pub fn build_effective_prompt(
     if let Some(append) = &runtime.append_system_prompt {
         final_sections.push(append.clone());
         section_keys.push("append_system_prompt");
+    }
+    if let Some(policy) = &runtime.subagent_capability_policy {
+        final_sections.push(policy.clone());
+        section_keys.push("subagent_capability_policy");
     }
 
     EffectivePrompt {

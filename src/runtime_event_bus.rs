@@ -1,3 +1,5 @@
+use std::collections::{HashMap, VecDeque};
+use std::sync::Mutex;
 use std::sync::{
     Arc,
     atomic::{AtomicU64, Ordering},
@@ -11,8 +13,8 @@ use crate::runtime_control::{
 };
 
 /// Shared runtime event bus for raw agent events and structured protocol
-/// subscribers. The TUI continues to receive events through the separate
-/// `convert_agent_event → mpsc` path.
+/// subscribers. Presentation consumers subscribe to the structured control
+/// stream and do not reconstruct semantics from transcript text.
 ///
 /// Built on a `tokio::sync::broadcast` channel so subscribers receive every
 /// event without the bus needing to know about them ahead of time.  Slow
@@ -23,6 +25,55 @@ pub struct RuntimeEventBus {
     raw_sender: broadcast::Sender<AgentEvent>,
     control_sender: broadcast::Sender<RuntimeControlEvent>,
     next_sequence: Arc<AtomicU64>,
+    tool_identities: Arc<Mutex<ToolIdentityTracker>>,
+}
+
+#[derive(Debug, Default)]
+struct ToolIdentityTracker {
+    pending: HashMap<(Option<String>, String), VecDeque<String>>,
+}
+
+impl ToolIdentityTracker {
+    fn project(&mut self, event: &mut RuntimeControlEvent) {
+        let session_id = event.provenance.session_id.clone();
+        let event_id = event.event_id.clone();
+        let RuntimeEvent::Tool(tool_event) = &mut event.event else {
+            return;
+        };
+
+        match tool_event {
+            crate::runtime_control::ToolEvent::Use { call_id, name, .. } => {
+                if call_id.is_none() {
+                    let id = format!("tool-{event_id}");
+                    *call_id = Some(id.clone());
+                    self.pending
+                        .entry((session_id, name.clone()))
+                        .or_default()
+                        .push_back(id);
+                }
+            }
+            crate::runtime_control::ToolEvent::Result { call_id, name, .. } => {
+                if call_id.is_none() {
+                    let key = (session_id, name.clone());
+                    if let Some(ids) = self.pending.get_mut(&key) {
+                        *call_id = ids.pop_front();
+                        if ids.is_empty() {
+                            self.pending.remove(&key);
+                        }
+                    }
+                }
+            }
+            crate::runtime_control::ToolEvent::Progress { call_id, name, .. } => {
+                if call_id.is_none() {
+                    *call_id = self
+                        .pending
+                        .get(&(session_id, name.clone()))
+                        .and_then(VecDeque::front)
+                        .cloned();
+                }
+            }
+        }
+    }
 }
 
 impl RuntimeEventBus {
@@ -35,6 +86,7 @@ impl RuntimeEventBus {
             raw_sender,
             control_sender,
             next_sequence: Arc::new(AtomicU64::new(0)),
+            tool_identities: Arc::new(Mutex::new(ToolIdentityTracker::default())),
         }
     }
 
@@ -49,16 +101,29 @@ impl RuntimeEventBus {
             (false, true) => {
                 let sequence = self.next_sequence.fetch_add(1, Ordering::SeqCst) + 1;
                 let event_id = format!("evt-{sequence:016x}");
-                let control_event = wrap_agent_event(event_id, sequence, provenance, event);
+                let mut control_event = wrap_agent_event(event_id, sequence, provenance, event);
+                self.project_tool_identity(&mut control_event);
                 self.control_sender.send(control_event).unwrap_or(0)
             }
             (true, true) => {
                 let sequence = self.next_sequence.fetch_add(1, Ordering::SeqCst) + 1;
                 let event_id = format!("evt-{sequence:016x}");
-                let control_event = wrap_agent_event(event_id, sequence, provenance, event.clone());
+                let mut control_event =
+                    wrap_agent_event(event_id, sequence, provenance, event.clone());
+                self.project_tool_identity(&mut control_event);
                 let raw_count = self.raw_sender.send(event).unwrap_or(0);
                 let control_count = self.control_sender.send(control_event).unwrap_or(0);
                 raw_count + control_count
+            }
+        }
+    }
+
+    fn project_tool_identity(&self, event: &mut RuntimeControlEvent) {
+        match self.tool_identities.lock() {
+            Ok(mut tracker) => tracker.project(event),
+            Err(poisoned) => {
+                log::warn!("runtime tool identity tracker lock was poisoned; recovering");
+                poisoned.into_inner().project(event);
             }
         }
     }
@@ -239,5 +304,109 @@ mod tests {
         assert_eq!(received.event_id, "acp-1");
         assert_eq!(received.sequence, 7);
         assert_eq!(received.provenance.session_id.as_deref(), Some("session-1"));
+    }
+
+    #[test]
+    fn runtime_projects_one_tool_identity_across_use_progress_and_result() {
+        let bus = RuntimeEventBus::new(8);
+        let mut control = bus.subscribe_control();
+        let provenance = RuntimeProvenance::local_tui("session-1");
+
+        bus.send_with_provenance(
+            AgentEvent::ToolUse {
+                name: "bash".into(),
+                input: json!({"command": "pwd"}),
+            },
+            provenance.clone(),
+        );
+        bus.send_with_provenance(
+            AgentEvent::ToolProgress {
+                name: "bash".into(),
+                stream: rara_tools::tool::ToolOutputStream::Stdout,
+                chunk: "/workspace\n".into(),
+            },
+            provenance.clone(),
+        );
+        bus.send_with_provenance(
+            AgentEvent::ToolResult {
+                name: "bash".into(),
+                content: "done".into(),
+                is_error: false,
+            },
+            provenance,
+        );
+
+        let use_id = match control.try_recv().expect("tool use").event {
+            RuntimeEvent::Tool(crate::runtime_control::ToolEvent::Use {
+                call_id: Some(call_id),
+                ..
+            }) => call_id,
+            event => panic!("expected identified tool use, got {event:?}"),
+        };
+        let progress_id = match control.try_recv().expect("tool progress").event {
+            RuntimeEvent::Tool(crate::runtime_control::ToolEvent::Progress {
+                call_id: Some(call_id),
+                ..
+            }) => call_id,
+            event => panic!("expected identified tool progress, got {event:?}"),
+        };
+        let result_id = match control.try_recv().expect("tool result").event {
+            RuntimeEvent::Tool(crate::runtime_control::ToolEvent::Result {
+                call_id: Some(call_id),
+                ..
+            }) => call_id,
+            event => panic!("expected identified tool result, got {event:?}"),
+        };
+
+        assert_eq!(use_id, progress_id);
+        assert_eq!(use_id, result_id);
+    }
+
+    #[test]
+    fn runtime_keeps_tool_identities_isolated_between_sessions() {
+        let bus = RuntimeEventBus::new(8);
+        let mut control = bus.subscribe_control();
+
+        for session in ["session-a", "session-b"] {
+            bus.send_with_provenance(
+                AgentEvent::ToolUse {
+                    name: "bash".into(),
+                    input: json!({"command": session}),
+                },
+                RuntimeProvenance::local_tui(session),
+            );
+        }
+        let first_id = match control.try_recv().expect("first tool use").event {
+            RuntimeEvent::Tool(crate::runtime_control::ToolEvent::Use {
+                call_id: Some(call_id),
+                ..
+            }) => call_id,
+            event => panic!("expected identified tool use, got {event:?}"),
+        };
+        let second_id = match control.try_recv().expect("second tool use").event {
+            RuntimeEvent::Tool(crate::runtime_control::ToolEvent::Use {
+                call_id: Some(call_id),
+                ..
+            }) => call_id,
+            event => panic!("expected identified tool use, got {event:?}"),
+        };
+        assert_ne!(first_id, second_id);
+
+        bus.send_with_provenance(
+            AgentEvent::ToolResult {
+                name: "bash".into(),
+                content: "done".into(),
+                is_error: false,
+            },
+            RuntimeProvenance::local_tui("session-a"),
+        );
+        let result_id = match control.try_recv().expect("session result").event {
+            RuntimeEvent::Tool(crate::runtime_control::ToolEvent::Result {
+                call_id: Some(call_id),
+                ..
+            }) => call_id,
+            event => panic!("expected identified tool result, got {event:?}"),
+        };
+        assert_eq!(result_id, first_id);
     }
 }

@@ -7,11 +7,11 @@ use super::helpers::{
     format_tool_use, is_oauth_prompt_message, planning_note_lines, scrub_internal_control_tokens,
     subagent_request_input,
 };
-use super::{apply_tui_event, convert_agent_event, format_memory_event_notice};
+use super::{apply_tui_event, format_memory_event_notice, runtime_event_from_agent_event};
 use crate::agent::{AgentEvent, AgentExecutionMode};
 use crate::config::ConfigManager;
 use crate::control_tokens::has_pending_internal_control_context;
-use crate::runtime_control::{MemoryEvent, MemoryRecordSummary};
+use crate::runtime_control::{MemoryEvent, MemoryRecordSummary, RuntimeEvent, RuntimeProvenance};
 use crate::session_promotion::{
     SessionShardPromotionDecision, SessionShardPromotionOutcome, SessionShardPromotionPlan,
     SessionShardPromotionSkipReason, SessionShardPromotionTrigger,
@@ -19,6 +19,97 @@ use crate::session_promotion::{
 use crate::tui::state::{ActivePendingInteractionKind, TranscriptEntryPayload};
 use crate::tui::state::{RuntimePhase, TuiApp, TuiEvent};
 use crate::tui::terminal_event::{TerminalEvent, TerminalTarget};
+
+#[test]
+fn runtime_agent_event_preserves_structured_semantics_for_tui() {
+    let event = runtime_event_from_agent_event(
+        AgentEvent::ToolUse {
+            name: "write_file".into(),
+            input: json!({"path": "src/runtime.rs", "content": "fn main() {}"}),
+        },
+        RuntimeProvenance::local_tui("session-1"),
+    );
+
+    assert!(matches!(
+        event,
+        TuiEvent::Runtime(envelope)
+            if matches!(envelope.event, RuntimeEvent::Tool(_))
+    ));
+}
+
+#[test]
+fn structured_tool_event_updates_running_action_without_role_parsing() {
+    let temp = tempdir().expect("tempdir");
+    let mut app = TuiApp::new(ConfigManager {
+        path: temp.path().join("config.json"),
+    })
+    .expect("app");
+    let event = TuiEvent::Runtime(Box::new(crate::runtime_control::RuntimeControlEvent {
+        event_id: "event-1".into(),
+        provenance: RuntimeProvenance::local_tui("session-1"),
+        sequence: 1,
+        event: RuntimeEvent::Tool(crate::runtime_control::ToolEvent::Use {
+            call_id: Some("call-1".into()),
+            name: "write_file".into(),
+            input: json!({"path": "src/runtime.rs", "content": "fn main() {}"}),
+        }),
+    }));
+
+    apply_tui_event(&mut app, event);
+
+    assert_eq!(
+        app.active_live.running_actions,
+        vec!["Write src/runtime.rs".to_string()]
+    );
+    assert_eq!(app.active_turn.entries[0].role, "Tool");
+    match app.active_turn.entries[0].payload.as_ref() {
+        Some(crate::tui::state::TranscriptEntryPayload::Tool(payload)) => {
+            assert_eq!(payload.call_id.as_deref(), Some("call-1"));
+            assert_eq!(payload.name, "write_file");
+            assert_eq!(
+                payload.status,
+                crate::tui::state::ToolTranscriptStatus::Running
+            );
+        }
+        payload => panic!("expected structured tool payload, got {payload:?}"),
+    }
+}
+
+#[test]
+fn structured_compaction_event_becomes_a_typed_transcript_entry() {
+    let temp = tempdir().expect("tempdir");
+    let mut app = TuiApp::new(ConfigManager {
+        path: temp.path().join("config.json"),
+    })
+    .expect("app");
+    apply_tui_event(
+        &mut app,
+        TuiEvent::Runtime(Box::new(crate::runtime_control::RuntimeControlEvent {
+            event_id: "compact-1".into(),
+            provenance: RuntimeProvenance::local_tui("session-1"),
+            sequence: 1,
+            event: RuntimeEvent::Session(crate::runtime_control::SessionEvent::Compacted {
+                count: 2,
+                before_tokens: 12_000,
+                after_tokens: 4_500,
+                summary: "Retained the active task and recent files.".into(),
+                recent_files: vec!["src/runtime_control.rs".into()],
+            }),
+        })),
+    );
+
+    assert_eq!(app.snapshot.compaction_count, 2);
+    assert_eq!(app.active_turn.entries[0].role, "Compaction");
+    match app.active_turn.entries[0].payload.as_ref() {
+        Some(TranscriptEntryPayload::Compaction(payload)) => {
+            assert_eq!(payload.count, 2);
+            assert_eq!(payload.before_tokens, 12_000);
+            assert_eq!(payload.after_tokens, 4_500);
+            assert_eq!(payload.recent_files, vec!["src/runtime_control.rs"]);
+        }
+        payload => panic!("expected compaction payload, got {payload:?}"),
+    }
+}
 
 #[test]
 fn parses_delegated_request_input_from_subagent_result() {
@@ -39,18 +130,28 @@ fn parses_delegated_request_input_from_subagent_result() {
 
 #[test]
 fn memory_action_event_becomes_renderable_system_notice() {
-    let event = convert_agent_event(AgentEvent::MemoryAction {
-        message: "Memory · querying workspace memory".into(),
+    let temp = tempdir().expect("tempdir");
+    let mut app = TuiApp::new(ConfigManager {
+        path: temp.path().join("config.json"),
     })
-    .expect("memory actions should be visible");
-
-    match event {
-        TuiEvent::Transcript { role, message } => {
-            assert_eq!(role, "System");
-            assert_eq!(message, "Memory · querying workspace memory");
-        }
-        _ => panic!("memory action should convert to transcript event"),
-    }
+    .expect("app");
+    apply_tui_event(
+        &mut app,
+        runtime_event_from_agent_event(
+            AgentEvent::MemoryAction {
+                message: "Memory · querying workspace memory".into(),
+            },
+            RuntimeProvenance::local_tui("session-1"),
+        ),
+    );
+    assert_eq!(
+        app.active_turn
+            .entries
+            .last()
+            .expect("memory entry")
+            .message,
+        "Memory · querying workspace memory"
+    );
 }
 
 #[test]
@@ -534,6 +635,39 @@ fn plan_mode_routes_planning_prose_to_planning_not_exploring() {
 }
 
 #[test]
+fn structured_assistant_text_preserves_plan_mode_routing() {
+    let temp = tempdir().expect("tempdir");
+    let mut app = TuiApp::new(ConfigManager {
+        path: temp.path().join("config.json"),
+    })
+    .expect("app");
+    app.set_agent_execution_mode(AgentExecutionMode::Plan);
+    app.record_exploration_action("Read crates/instructions/src/workspace.rs");
+    app.runtime_phase = RuntimePhase::RunningTool;
+
+    apply_tui_event(
+        &mut app,
+        TuiEvent::Runtime(Box::new(crate::runtime_control::RuntimeControlEvent {
+            event_id: "event-1".into(),
+            provenance: crate::runtime_control::RuntimeProvenance::local_tui("session-1"),
+            sequence: 1,
+            event: RuntimeEvent::Assistant(crate::runtime_control::AssistantEvent::Text(
+                "Based on the inspection of `crates/instructions/src/workspace.rs`, I propose the following plan:<channel|>\n1. Generalize prompt discovery.\n2. Keep the current merge semantics.".into(),
+            )),
+        })),
+    );
+
+    assert!(app.active_live.exploration_notes.is_empty());
+    assert_eq!(
+        app.active_live.planning_notes,
+        vec![
+            "1. Generalize prompt discovery.".to_string(),
+            "2. Keep the current merge semantics.".to_string()
+        ]
+    );
+}
+
+#[test]
 fn agent_dsml_only_message_does_not_enter_transcript() {
     let temp = tempdir().expect("tempdir");
     let mut app = TuiApp::new(ConfigManager {
@@ -560,11 +694,13 @@ fn agent_thinking_delta_updates_live_thinking_without_transcript_entry() {
     })
     .expect("app");
 
-    let event = convert_agent_event(AgentEvent::AssistantThinkingDelta(
-        "checking relevant files".to_string(),
-    ))
-    .expect("tui event");
-    apply_tui_event(&mut app, event);
+    apply_tui_event(
+        &mut app,
+        runtime_event_from_agent_event(
+            AgentEvent::AssistantThinkingDelta("checking relevant files".to_string()),
+            RuntimeProvenance::local_tui("session-1"),
+        ),
+    );
 
     assert_eq!(app.runtime_phase, RuntimePhase::ProcessingResponse);
     assert_eq!(app.runtime_phase_detail.as_deref(), Some("thinking"));
@@ -938,21 +1074,34 @@ fn formats_terminal_tool_use_without_dumping_json() {
 
 #[test]
 fn converts_terminal_tool_result_to_typed_event() {
-    let event = convert_agent_event(AgentEvent::ToolResult {
-        name: "pty_status".to_string(),
-        content: json!({
-            "session_id": "pty-123",
-            "command": "cargo test",
-            "status": "completed",
-            "output": "ok\n"
-        })
-        .to_string(),
-        is_error: false,
+    let temp = tempdir().expect("tempdir");
+    let mut app = TuiApp::new(ConfigManager {
+        path: temp.path().join("config.json"),
     })
-    .expect("tui event");
+    .expect("app");
+    let event = runtime_event_from_agent_event(
+        AgentEvent::ToolResult {
+            name: "pty_status".to_string(),
+            content: json!({
+                "session_id": "pty-123",
+                "command": "cargo test",
+                "status": "completed",
+                "output": "ok\n"
+            })
+            .to_string(),
+            is_error: false,
+        },
+        RuntimeProvenance::local_tui("session-1"),
+    );
 
-    match event {
-        TuiEvent::Terminal(TerminalEvent::End(command)) => {
+    apply_tui_event(&mut app, event);
+    match app
+        .active_turn
+        .entries
+        .last()
+        .and_then(|entry| entry.payload.as_ref())
+    {
+        Some(crate::tui::state::TranscriptEntryPayload::Terminal(TerminalEvent::End(command))) => {
             assert_eq!(command.target, TerminalTarget::Pty);
             assert_eq!(command.id.as_deref(), Some("pty-123"));
             assert_eq!(command.status, "completed");
@@ -965,6 +1114,11 @@ fn converts_terminal_tool_result_to_typed_event() {
 
 #[test]
 fn todo_write_events_render_as_compact_todo_transcript() {
+    let temp = tempdir().expect("tempdir");
+    let mut app = TuiApp::new(ConfigManager {
+        path: temp.path().join("config.json"),
+    })
+    .expect("app");
     let state = crate::todo::normalize_todo_write_input(&json!({
         "todos": [
             {"content": "Implement todo runtime", "status": "in_progress"},
@@ -973,46 +1127,32 @@ fn todo_write_events_render_as_compact_todo_transcript() {
     }))
     .expect("todo state");
 
-    assert!(matches!(
-        convert_agent_event(AgentEvent::ToolUse {
-            name: crate::tools::todo::TODO_WRITE_TOOL_NAME.to_string(),
-            input: json!({"todos": []}),
-        }),
-        Some(TuiEvent::UpdateTodo(_))
-    ));
-    assert!(
-        convert_agent_event(AgentEvent::ToolResult {
-            name: crate::tools::todo::TODO_WRITE_TOOL_NAME.to_string(),
-            content: "{}".to_string(),
-            is_error: false,
-        })
-        .is_none()
+    apply_tui_event(
+        &mut app,
+        runtime_event_from_agent_event(
+            AgentEvent::TodoUpdated(state),
+            RuntimeProvenance::local_tui("session-1"),
+        ),
     );
-
-    let event = convert_agent_event(AgentEvent::TodoUpdated(state)).expect("todo event");
-    match event {
-        TuiEvent::Transcript { role, message } => {
-            assert_eq!(role, "Todo");
-            assert!(message.contains("Todo Updated: 2 total"));
-            assert!(message.contains("Active: Implement todo runtime"));
-        }
-        _ => panic!("unexpected event"),
-    }
+    assert_eq!(app.snapshot.todo.summary.total, 2);
+    assert_eq!(app.snapshot.todo.summary.in_progress, 1);
 }
 
 #[test]
 fn mcp_status_update_events_stay_off_tui_transcript() {
-    let event = convert_agent_event(AgentEvent::McpStatusUpdated(
-        crate::mcp_status::McpStatusSnapshot { servers: vec![] },
-    ));
-
-    assert!(event.is_none());
-
-    let event = convert_agent_event(AgentEvent::McpStatusLoadFailed {
-        message: "invalid config".to_string(),
-    });
-
-    assert!(event.is_none());
+    let temp = tempdir().expect("tempdir");
+    let mut app = TuiApp::new(ConfigManager {
+        path: temp.path().join("config.json"),
+    })
+    .expect("app");
+    apply_tui_event(
+        &mut app,
+        runtime_event_from_agent_event(
+            AgentEvent::McpStatusUpdated(crate::mcp_status::McpStatusSnapshot { servers: vec![] }),
+            RuntimeProvenance::local_tui("session-1"),
+        ),
+    );
+    assert!(app.active_turn.entries.is_empty());
 }
 
 #[test]
@@ -1023,14 +1163,16 @@ fn applies_terminal_begin_event_as_running_action() {
     })
     .expect("app");
 
-    let event = convert_agent_event(AgentEvent::ToolUse {
-        name: "bash".to_string(),
-        input: json!({
-            "command": "cargo test",
-            "run_in_background": true
-        }),
-    })
-    .expect("tui event");
+    let event = runtime_event_from_agent_event(
+        AgentEvent::ToolUse {
+            name: "bash".to_string(),
+            input: json!({
+                "command": "cargo test",
+                "run_in_background": true
+            }),
+        },
+        RuntimeProvenance::local_tui("session-1"),
+    );
 
     apply_tui_event(&mut app, event);
 

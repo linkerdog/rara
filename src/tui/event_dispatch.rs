@@ -1,6 +1,7 @@
 use std::sync::Arc;
 
 use codex_models_manager::manager::RefreshStrategy;
+use rara_provider_catalog::ModelCatalogProvider;
 
 use super::app_event::AppEvent;
 use super::command::{palette_command_by_index, palette_commands};
@@ -12,27 +13,46 @@ use super::provider_flow::{
     sync_codex_credential_from_auth_store,
 };
 use super::runtime::apply_permission_mode;
-use super::runtime::{
-    start_deepseek_model_list_task, start_kimi_model_list_task, start_oauth_task,
-    start_rebuild_task,
-};
+use super::runtime::start_oauth_task;
+use super::runtime_port::{RuntimeClientPort, RuntimeCommand, RuntimeMaintenanceCommand};
 use super::session_restore::restore_thread_by_id;
 use super::state::{
     ActivePendingInteractionKind, ListPickerKind, OpenAiModelPickerAction, Overlay, PermissionMode,
     PickerIntent, ProviderFamily, TuiApp,
 };
-use super::submit::{apply_openai_model_picker_action, handle_submit};
+use super::submit::{apply_openai_model_picker_action, handle_submit, handle_submit_with_port};
 use super::terminal_ui::is_ssh_session;
 use crate::agent::Agent;
 use crate::config::DEFAULT_CODEX_BASE_URL;
 use crate::oauth::{OAuthManager, SavedCodexAuthMode};
 use crate::runtime_control::{SessionControlRequest, ShellApprovalDecision};
 
+#[cfg(test)]
 pub(crate) async fn dispatch_event(
     event: AppEvent,
     app: &mut TuiApp,
     agent_slot: &mut Option<Agent>,
     oauth_manager: &Arc<OAuthManager>,
+) -> anyhow::Result<bool> {
+    dispatch_event_inner(event, app, agent_slot, oauth_manager, None).await
+}
+
+pub(crate) async fn dispatch_event_with_runtime(
+    event: AppEvent,
+    app: &mut TuiApp,
+    agent_slot: &mut Option<Agent>,
+    oauth_manager: &Arc<OAuthManager>,
+    runtime_port: &dyn RuntimeClientPort,
+) -> anyhow::Result<bool> {
+    dispatch_event_inner(event, app, agent_slot, oauth_manager, Some(runtime_port)).await
+}
+
+async fn dispatch_event_inner(
+    event: AppEvent,
+    app: &mut TuiApp,
+    agent_slot: &mut Option<Agent>,
+    oauth_manager: &Arc<OAuthManager>,
+    runtime_port: Option<&dyn RuntimeClientPort>,
 ) -> anyhow::Result<bool> {
     match event {
         AppEvent::Noop => {}
@@ -50,7 +70,18 @@ pub(crate) async fn dispatch_event(
             app.dismiss_overlay();
         }
         AppEvent::CancelRunningTask => {
-            input_control::handle_session_control(app, SessionControlRequest::CancelCurrentTurn);
+            if let Some(runtime_port) = runtime_port {
+                runtime_port
+                    .send(RuntimeCommand::Session(
+                        SessionControlRequest::CancelCurrentTurn,
+                    ))
+                    .await?;
+            } else {
+                input_control::handle_session_control(
+                    app,
+                    SessionControlRequest::CancelCurrentTurn,
+                );
+            }
         }
         AppEvent::ClearComposer => {
             app.bottom_pane.input.clear();
@@ -64,10 +95,17 @@ pub(crate) async fn dispatch_event(
         }
         AppEvent::SubmitComposer => {
             app.bottom_pane.expand_large_paste();
-            if resume_pending_shell_approval_after_full_access(app, agent_slot) {
+            if resume_pending_shell_approval_after_full_access(app, agent_slot, runtime_port)
+                .await?
+            {
                 return Ok(false);
             }
-            if handle_submit(app, agent_slot, oauth_manager).await? {
+            let should_quit = if let Some(runtime_port) = runtime_port {
+                handle_submit_with_port(app, agent_slot, oauth_manager, runtime_port).await?
+            } else {
+                handle_submit(app, agent_slot, oauth_manager).await?
+            };
+            if should_quit {
                 return Ok(true);
             }
         }
@@ -224,7 +262,9 @@ pub(crate) async fn dispatch_event(
             app.permission_picker_idx = idx.min(3usize);
         }
         AppEvent::SelectPendingOption(idx) => {
-            if resume_pending_shell_approval_after_full_access(app, agent_slot) {
+            if resume_pending_shell_approval_after_full_access(app, agent_slot, runtime_port)
+                .await?
+            {
                 return Ok(false);
             }
             if let Some(interaction) = app.active_pending_interaction() {
@@ -232,7 +272,18 @@ pub(crate) async fn dispatch_event(
                     ActivePendingInteractionKind::PlanApproval => {
                         if let Some(decision) = input_control::plan_approval_decision_for_index(idx)
                         {
-                            input_control::answer_plan_approval(app, agent_slot, decision);
+                            if let Some(runtime_port) = runtime_port {
+                                runtime_port
+                                    .send(RuntimeCommand::Input(
+                                        crate::runtime_control::InputControlRequest::AnswerPlanApproval {
+                                            decision,
+                                            feedback: None,
+                                        },
+                                    ))
+                                    .await?;
+                            } else {
+                                input_control::answer_plan_approval(app, agent_slot, decision);
+                            }
                         } else {
                             app.push_notice("Invalid plan approval option.");
                         }
@@ -244,14 +295,32 @@ pub(crate) async fn dispatch_event(
                             2 => ShellApprovalDecision::Always,
                             _ => ShellApprovalDecision::Suggestion,
                         };
-                        input_control::answer_shell_approval(app, agent_slot, selection);
+                        if let Some(runtime_port) = runtime_port {
+                            runtime_port
+                                .send(RuntimeCommand::Input(
+                                    crate::runtime_control::InputControlRequest::AnswerShellApproval {
+                                        decision: selection,
+                                    },
+                                ))
+                                .await?;
+                        } else {
+                            input_control::answer_shell_approval(app, agent_slot, selection);
+                        }
                     }
                     ActivePendingInteractionKind::PlanningQuestion
                     | ActivePendingInteractionKind::ExplorationQuestion
                     | ActivePendingInteractionKind::SubAgentQuestion
                     | ActivePendingInteractionKind::RequestInput => {
                         if let Some(label) = app.pending_question_option_label(idx) {
-                            if let Some(agent) = agent_slot.take() {
+                            if let Some(runtime_port) = runtime_port {
+                                runtime_port
+                                        .send(RuntimeCommand::Input(
+                                            crate::runtime_control::InputControlRequest::AnswerPendingInput {
+                                                answer: label,
+                                            },
+                                        ))
+                                        .await?;
+                            } else if let Some(agent) = agent_slot.take() {
                                 input_control::answer_pending_input(app, agent_slot, agent, label);
                             } else {
                                 app.push_notice(
@@ -326,15 +395,28 @@ pub(crate) async fn dispatch_event(
                     app.bottom_pane.notice =
                         Some("Saved Codex API key. Rebuilding backend.".into());
                     app.dismiss_overlay();
-                    start_rebuild_task(app);
+                    request_maintenance(app, runtime_port, RuntimeMaintenanceCommand::Rebuild)
+                        .await?;
                 } else if was_deepseek {
                     app.bottom_pane.notice = Some("Saved DeepSeek API key. Loading models.".into());
                     app.dismiss_overlay();
-                    start_deepseek_model_list_task(app);
+                    request_maintenance(
+                        app,
+                        runtime_port,
+                        RuntimeMaintenanceCommand::RefreshModelCatalog(
+                            ModelCatalogProvider::DeepSeek,
+                        ),
+                    )
+                    .await?;
                 } else if was_kimi {
                     app.bottom_pane.notice = Some("Saved Kimi API key. Loading models.".into());
                     app.dismiss_overlay();
-                    start_kimi_model_list_task(app);
+                    request_maintenance(
+                        app,
+                        runtime_port,
+                        RuntimeMaintenanceCommand::RefreshModelCatalog(ModelCatalogProvider::Kimi),
+                    )
+                    .await?;
                 } else {
                     app.bottom_pane.notice = Some("Saved API key for the current provider.".into());
                     if app.openai_setup_steps.is_empty() {
@@ -409,11 +491,13 @@ pub(crate) async fn dispatch_event(
             if app.is_busy() {
                 app.push_notice("Wait for the current task before deleting a profile.");
             } else if app.selected_provider_family() == ProviderFamily::OpenAiCompatible {
-                apply_openai_model_picker_action(app, OpenAiModelPickerAction::DeleteProfile)?;
+                apply_openai_model_picker_action(
+                    app,
+                    OpenAiModelPickerAction::DeleteProfile,
+                    runtime_port,
+                )
+                .await?;
             }
-        }
-        AppEvent::RefreshDeepSeekModels => {
-            start_deepseek_model_list_task(app);
         }
         AppEvent::SelectHelpTab(tab) => {
             app.open_overlay(Overlay::Help(tab));
@@ -473,7 +557,13 @@ pub(crate) async fn dispatch_event(
                     app.dismiss_overlay();
                     app.bottom_pane.input = usage;
                     app.bottom_pane.input_cursor_offset = None;
-                    if handle_submit(app, agent_slot, oauth_manager).await? {
+                    let should_quit = if let Some(runtime_port) = runtime_port {
+                        handle_submit_with_port(app, agent_slot, oauth_manager, runtime_port)
+                            .await?
+                    } else {
+                        handle_submit(app, agent_slot, oauth_manager).await?
+                    };
+                    if should_quit {
                         return Ok(true);
                     }
                 }
@@ -529,7 +619,12 @@ pub(crate) async fn dispatch_event(
                                 app.select_local_model(app.model_picker_idx);
                                 if app.selected_codex_reasoning_options().len() <= 1 {
                                     app.apply_selected_codex_reasoning_effort();
-                                    start_rebuild_task(app);
+                                    request_maintenance(
+                                        app,
+                                        runtime_port,
+                                        RuntimeMaintenanceCommand::Rebuild,
+                                    )
+                                    .await?;
                                 } else {
                                     app.open_overlay(Overlay::ListPicker(
                                         ListPickerKind::ReasoningEffort,
@@ -539,7 +634,8 @@ pub(crate) async fn dispatch_event(
                                 == ProviderFamily::OpenAiCompatible
                             {
                                 if let Some(action) = app.selected_openai_model_picker_action() {
-                                    apply_openai_model_picker_action(app, action)?;
+                                    apply_openai_model_picker_action(app, action, runtime_port)
+                                        .await?;
                                 }
                             } else if app.selected_provider_family() == ProviderFamily::DeepSeek {
                                 if app.selected_deepseek_api_key_action() {
@@ -547,7 +643,12 @@ pub(crate) async fn dispatch_event(
                                 } else if app.config.has_api_key() {
                                     app.select_local_model(app.model_picker_idx);
                                     app.config.reasoning_effort = Some("max".to_string());
-                                    start_rebuild_task(app);
+                                    request_maintenance(
+                                        app,
+                                        runtime_port,
+                                        RuntimeMaintenanceCommand::Rebuild,
+                                    )
+                                    .await?;
                                 } else {
                                     app.open_overlay(Overlay::ApiKeyEditor);
                                 }
@@ -556,13 +657,23 @@ pub(crate) async fn dispatch_event(
                                     app.open_overlay(Overlay::ApiKeyEditor);
                                 } else if app.config.has_api_key() {
                                     app.select_local_model(app.model_picker_idx);
-                                    start_rebuild_task(app);
+                                    request_maintenance(
+                                        app,
+                                        runtime_port,
+                                        RuntimeMaintenanceCommand::Rebuild,
+                                    )
+                                    .await?;
                                 } else {
                                     app.open_overlay(Overlay::ApiKeyEditor);
                                 }
                             } else {
                                 app.select_local_model(app.model_picker_idx);
-                                start_rebuild_task(app);
+                                request_maintenance(
+                                    app,
+                                    runtime_port,
+                                    RuntimeMaintenanceCommand::Rebuild,
+                                )
+                                .await?;
                             }
                         }
                         ListPickerKind::UnifiedModel => {
@@ -587,7 +698,12 @@ pub(crate) async fn dispatch_event(
                                     } else {
                                         if app.selected_codex_reasoning_options().len() <= 1 {
                                             app.apply_selected_codex_reasoning_effort();
-                                            start_rebuild_task(app);
+                                            request_maintenance(
+                                                app,
+                                                runtime_port,
+                                                RuntimeMaintenanceCommand::Rebuild,
+                                            )
+                                            .await?;
                                         } else {
                                             app.open_overlay(Overlay::ListPicker(
                                                 ListPickerKind::ReasoningEffort,
@@ -615,7 +731,12 @@ pub(crate) async fn dispatch_event(
                                     if preset.family == ProviderFamily::DeepSeek {
                                         app.config.reasoning_effort = Some("max".to_string());
                                     }
-                                    start_rebuild_task(app);
+                                    request_maintenance(
+                                        app,
+                                        runtime_port,
+                                        RuntimeMaintenanceCommand::Rebuild,
+                                    )
+                                    .await?;
                                 }
                             }
                         }
@@ -652,7 +773,12 @@ pub(crate) async fn dispatch_event(
                                     .into(),
                                 );
                                 if app.config.provider == "codex" {
-                                    start_rebuild_task(app);
+                                    request_maintenance(
+                                        app,
+                                        runtime_port,
+                                        RuntimeMaintenanceCommand::Rebuild,
+                                    )
+                                    .await?;
                                 }
                             }
                             _ => {}
@@ -660,7 +786,53 @@ pub(crate) async fn dispatch_event(
                         ListPickerKind::ReasoningEffort => {
                             app.select_local_model(app.model_picker_idx);
                             app.apply_selected_codex_reasoning_effort();
-                            start_rebuild_task(app);
+                            request_maintenance(
+                                app,
+                                runtime_port,
+                                RuntimeMaintenanceCommand::Rebuild,
+                            )
+                            .await?;
+                        }
+                        ListPickerKind::NowledgeMem => {
+                            let mode_label = {
+                                let config = &mut app.config.builtin_plugins.nowledge_mem;
+                                let was_cloud =
+                                    config.mode == crate::config::NowledgeMemMode::Cloud;
+                                match app.nowledge_mem_picker_idx {
+                                    0 => config.enabled = false,
+                                    1 => {
+                                        config.enabled = true;
+                                        config.mode = crate::config::NowledgeMemMode::Local;
+                                    }
+                                    2 => {
+                                        config.enabled = true;
+                                        config.mode = crate::config::NowledgeMemMode::Cloud;
+                                        if !was_cloud {
+                                            config.url =
+                                                crate::config::DEFAULT_NOWLEDGE_MEM_CLOUD_URL
+                                                    .to_string();
+                                        }
+                                    }
+                                    _ => return Ok(false),
+                                }
+                                if config.enabled {
+                                    config.mode_label().to_string()
+                                } else {
+                                    "disabled".to_string()
+                                }
+                            };
+                            app.config_manager.save(&app.config)?;
+                            app.bottom_pane.notice = Some(format!(
+                                "Saved Nowledge Mem {} configuration. Rebuilding runtime.",
+                                mode_label
+                            ));
+                            app.dismiss_overlay();
+                            request_maintenance(
+                                app,
+                                runtime_port,
+                                RuntimeMaintenanceCommand::Rebuild,
+                            )
+                            .await?;
                         }
                         ListPickerKind::Resume => {
                             if let Some(thread_id) = list_picker::selected_resumable_thread_id(app)
@@ -710,7 +882,13 @@ pub(crate) async fn dispatch_event(
                     app.permission_mode = mode;
                     let label = mode.label();
                     app.dismiss_overlay();
-                    if !resume_pending_shell_approval_after_full_access(app, agent_slot) {
+                    if !(resume_pending_shell_approval_after_full_access(
+                        app,
+                        agent_slot,
+                        runtime_port,
+                    )
+                    .await?)
+                    {
                         app.push_notice(format!("Permission mode: {label}."));
                     }
                 }
@@ -721,23 +899,55 @@ pub(crate) async fn dispatch_event(
     Ok(false)
 }
 
-fn resume_pending_shell_approval_after_full_access(
+async fn request_maintenance(
+    app: &mut TuiApp,
+    runtime_port: Option<&dyn RuntimeClientPort>,
+    command: RuntimeMaintenanceCommand,
+) -> anyhow::Result<()> {
+    if let Some(runtime_port) = runtime_port {
+        runtime_port
+            .send(RuntimeCommand::Maintenance(command))
+            .await?;
+    } else {
+        match command {
+            RuntimeMaintenanceCommand::Rebuild => super::runtime::start_rebuild_task(app),
+            RuntimeMaintenanceCommand::RefreshModelCatalog(provider) => {
+                super::runtime::start_model_catalog_task(app, provider)
+            }
+            RuntimeMaintenanceCommand::Compact => {
+                app.push_notice("Compaction requires an active runtime client.")
+            }
+        }
+    }
+    Ok(())
+}
+
+async fn resume_pending_shell_approval_after_full_access(
     app: &mut TuiApp,
     agent_slot: &mut Option<Agent>,
-) -> bool {
+    runtime_port: Option<&dyn RuntimeClientPort>,
+) -> anyhow::Result<bool> {
     if app.permission_mode != PermissionMode::FullAccess
         || !app.active_pending_interaction().is_some_and(|interaction| {
             interaction.kind == ActivePendingInteractionKind::ShellApproval
         })
         || app.is_busy()
     {
-        return false;
+        return Ok(false);
     }
 
-    if agent_slot.is_some() {
+    if let Some(runtime_port) = runtime_port {
+        runtime_port
+            .send(RuntimeCommand::Input(
+                crate::runtime_control::InputControlRequest::AnswerShellApproval {
+                    decision: ShellApprovalDecision::Once,
+                },
+            ))
+            .await?;
+    } else if agent_slot.is_some() {
         input_control::answer_shell_approval(app, agent_slot, ShellApprovalDecision::Once);
     } else {
         app.push_notice("Permission mode: full-access. Approval is still preparing.");
     }
-    true
+    Ok(true)
 }

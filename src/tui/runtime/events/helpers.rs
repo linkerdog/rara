@@ -160,6 +160,59 @@ pub(super) fn tool_action_label(message: &str) -> Option<String> {
     }
 }
 
+fn input_text(input: &serde_json::Value, keys: &[&str]) -> Option<String> {
+    keys.iter()
+        .find_map(|key| input.get(*key).and_then(serde_json::Value::as_str))
+        .filter(|value| !value.trim().is_empty())
+        .map(ToString::to_string)
+}
+
+pub(super) fn exploration_action_label_for(
+    name: &str,
+    input: &serde_json::Value,
+) -> Option<String> {
+    let detail = input_text(input, &["path", "pattern", "query", "command", "prompt"]);
+    match name {
+        "list_files" => Some(format!("List {}", detail.as_deref().unwrap_or("."))),
+        "read_file" => Some(format!("Read {}", detail.as_deref().unwrap_or("file"))),
+        "glob" => Some(format!("Glob {}", detail.as_deref().unwrap_or("workspace"))),
+        "grep" => Some(format!(
+            "Search {}",
+            detail.as_deref().unwrap_or("workspace")
+        )),
+        "explore_agent" => Some(format!(
+            "Delegate repository exploration{}",
+            detail.map(|value| format!(": {value}")).unwrap_or_default()
+        )),
+        _ => None,
+    }
+}
+
+pub(super) fn planning_action_label_for(name: &str, input: &serde_json::Value) -> Option<String> {
+    if name != "plan_agent" {
+        return None;
+    }
+    let detail = input_text(input, &["prompt", "task", "objective"]);
+    Some(format!(
+        "Delegate plan refinement{}",
+        detail.map(|value| format!(": {value}")).unwrap_or_default()
+    ))
+}
+
+pub(super) fn tool_action_label_for(name: &str, input: &serde_json::Value) -> Option<String> {
+    let detail = input_text(input, &["command", "path", "file_path", "pattern"]);
+    match name {
+        "bash" => Some(format!("Run {}", detail.as_deref().unwrap_or("command"))),
+        "apply_patch" => Some(format!(
+            "Apply patch {}",
+            detail.as_deref().unwrap_or("changes")
+        )),
+        "write_file" => Some(format!("Write {}", detail.as_deref().unwrap_or("file"))),
+        "replace" | "multi_edit" => Some(format!("Edit {}", detail.as_deref().unwrap_or("file"))),
+        _ => None,
+    }
+}
+
 pub(super) fn exploration_note_lines(message: &str, planning_mode: bool) -> Vec<String> {
     let mut notes = Vec::new();
     for line in message

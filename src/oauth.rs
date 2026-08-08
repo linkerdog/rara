@@ -3,8 +3,9 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
 use anyhow::{Result, anyhow};
+use codex_http_client::{HttpClientFactory, OutboundProxyPolicy};
 use codex_login::{
-    AuthCredentialsStoreMode, AuthDotJson, AuthKeyringBackendKind, CLIENT_ID,
+    AuthCredentialsStoreMode, AuthDotJson, AuthKeyringBackendKind, AuthRouteConfig, CLIENT_ID,
     DeviceCode as CodexDeviceCode, LoginServer as CodexLoginServer, ServerOptions,
     complete_device_code_login as codex_complete_device_code_login, load_auth_dot_json,
     login_with_api_key as codex_login_with_api_key, logout as codex_logout,
@@ -191,7 +192,9 @@ impl OAuthManager {
             None,
             AuthCredentialsStoreMode::File,
             AuthKeyringBackendKind::default(),
-            None,
+            AuthRouteConfig::from_http_client_factory(HttpClientFactory::new(
+                OutboundProxyPolicy::ReqwestDefault,
+            )),
         );
         options.issuer = ISSUER.to_string();
         options.open_browser = open_browser;

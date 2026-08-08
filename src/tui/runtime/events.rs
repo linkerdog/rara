@@ -5,29 +5,33 @@ mod tests;
 use rara_persistence::redaction::redact_secrets;
 
 use self::helpers::{
-    append_tool_progress, exploration_action_label, exploration_note_lines,
-    exploration_result_note, format_tool_result, format_tool_use, is_exploration_tool_name,
-    is_oauth_prompt_message, planning_action_label, planning_note_lines, planning_result_note,
+    append_tool_progress, exploration_action_label, exploration_action_label_for,
+    exploration_note_lines, exploration_result_note, format_tool_result, format_tool_use,
+    is_exploration_tool_name, is_oauth_prompt_message, planning_action_label,
+    planning_action_label_for, planning_note_lines, planning_result_note,
     scrub_internal_control_tokens, subagent_request_input, tool_action_label,
+    tool_action_label_for,
 };
 use super::super::state::{
     RuntimePhase, SystemMessageKind, TuiApp, TuiEvent, contains_structured_planning_output,
 };
 use crate::agent::AgentEvent;
 use crate::memory_notice::{count_label, memory_notice};
-use crate::runtime_control::MemoryEvent;
+use crate::runtime_control::{
+    AssistantEvent, MemoryEvent, RuntimeControlEvent, RuntimeEvent, SessionEvent, ToolEvent,
+};
 use crate::session_promotion::{
     SessionShardPromotionDecision, SessionShardPromotionOutcome, SessionShardPromotionSkipReason,
 };
-use crate::todo::format_todo_update;
 use crate::tui::display_sanitize::sanitize_display_text;
 use crate::tui::terminal_event::{TerminalEvent, TerminalTarget};
 
 const TOOL_PROGRESS_LINE_LIMIT: usize = 16;
 const MEMORY_QUERY_PREVIEW_LIMIT: usize = 120;
 
-pub(super) fn apply_tui_event(app: &mut TuiApp, event: TuiEvent) {
+pub(crate) fn apply_tui_event(app: &mut TuiApp, event: TuiEvent) {
     match event {
+        TuiEvent::Runtime(event) => apply_runtime_control_event(app, *event),
         TuiEvent::Transcript { role, message } => {
             if role == "Status" {
                 app.set_runtime_phase(
@@ -107,55 +111,7 @@ pub(super) fn apply_tui_event(app: &mut TuiApp, event: TuiEvent) {
                     Some(message.lines().next().unwrap_or(role).trim().to_string()),
                 );
             } else if role == "Agent" {
-                let message = scrub_internal_control_tokens(&message);
-                if message.trim().is_empty() {
-                    app.set_runtime_phase(
-                        RuntimePhase::ProcessingResponse,
-                        Some("receiving model output".into()),
-                    );
-                    return;
-                }
-                let planning_mode = matches!(
-                    app.agent_execution_mode,
-                    crate::agent::AgentExecutionMode::Plan
-                );
-                let structured_planning_output = contains_structured_planning_output(&message);
-                let has_live_exploration = !app.active_live.exploration_actions.is_empty()
-                    || !app.active_live.exploration_notes.is_empty();
-                let planning_notes = if planning_mode && !structured_planning_output {
-                    planning_note_lines(&message)
-                } else {
-                    Vec::new()
-                };
-                if !app.active_live.exploration_actions.is_empty()
-                    && matches!(
-                        app.runtime_phase,
-                        RuntimePhase::RunningTool | RuntimePhase::SendingPrompt
-                    )
-                    && (!planning_mode
-                        || (planning_notes.is_empty() && !structured_planning_output))
-                {
-                    for note in exploration_note_lines(&message, planning_mode) {
-                        app.record_exploration_note(note);
-                    }
-                }
-                app.set_runtime_phase(
-                    RuntimePhase::ProcessingResponse,
-                    Some("receiving model output".into()),
-                );
-                if planning_mode && !structured_planning_output {
-                    for note in planning_notes {
-                        app.record_planning_note(note);
-                    }
-                    if has_live_exploration
-                        || !app.active_live.planning_actions.is_empty()
-                        || !app.active_live.planning_notes.is_empty()
-                    {
-                        app.agent_markdown_stream = None;
-                        return;
-                    }
-                }
-                app.finalize_agent_stream(Some(message));
+                apply_assistant_text(app, message);
                 return;
             } else if role == "Download" {
                 let detail = message.lines().next().unwrap_or(role).trim().to_string();
@@ -262,107 +218,260 @@ pub(super) fn apply_tui_event(app: &mut TuiApp, event: TuiEvent) {
                 Some(format!("streaming {name} output")),
             );
         }
-        TuiEvent::UpdateTodo(view) => {
-            app.snapshot.todo = view;
-        }
     }
 }
 
-pub(super) fn convert_agent_event(event: AgentEvent) -> Option<TuiEvent> {
-    match event {
-        AgentEvent::Status(message) => Some(TuiEvent::Transcript {
-            role: "Status",
-            message,
-        }),
-        AgentEvent::AssistantText(text) => Some(TuiEvent::Transcript {
-            role: "Agent",
-            message: text,
-        }),
-        AgentEvent::AssistantDelta(text) => Some(TuiEvent::Transcript {
-            role: "Agent Delta",
-            message: text,
-        }),
-        AgentEvent::AssistantThinkingDelta(text) => Some(TuiEvent::Transcript {
-            role: "Agent Thinking Delta",
-            message: text,
-        }),
-        AgentEvent::ToolUse { name, input } => {
+fn apply_runtime_control_event(app: &mut TuiApp, event: RuntimeControlEvent) {
+    match event.event {
+        RuntimeEvent::Assistant(AssistantEvent::Text(text)) => apply_assistant_text(app, text),
+        RuntimeEvent::Assistant(AssistantEvent::TextDelta(text)) => {
+            app.set_runtime_phase(
+                RuntimePhase::ProcessingResponse,
+                Some("streaming model output".into()),
+            );
+            app.append_agent_delta(&text);
+        }
+        RuntimeEvent::Assistant(AssistantEvent::ThinkingDelta(text)) => {
+            app.set_runtime_phase(RuntimePhase::ProcessingResponse, Some("thinking".into()));
+            app.append_agent_thinking_delta(&text);
+        }
+        RuntimeEvent::Session(SessionEvent::Status { message }) => {
+            app.set_runtime_phase(
+                RuntimePhase::ProcessingResponse,
+                Some(
+                    message
+                        .lines()
+                        .next()
+                        .unwrap_or("status")
+                        .trim()
+                        .to_string(),
+                ),
+            );
+        }
+        RuntimeEvent::Session(SessionEvent::Compacted {
+            count,
+            before_tokens,
+            after_tokens,
+            summary,
+            recent_files,
+        }) => {
+            app.snapshot.compaction_count = count;
+            app.snapshot.last_compaction_before_tokens = Some(before_tokens);
+            app.snapshot.last_compaction_after_tokens = Some(after_tokens);
+            app.snapshot.last_compaction_recent_files = recent_files.clone();
+            app.push_compaction_entry(count, before_tokens, after_tokens, summary, recent_files);
+            app.set_runtime_phase(
+                RuntimePhase::ProcessingResponse,
+                Some("context history compacted".into()),
+            );
+        }
+        RuntimeEvent::Session(SessionEvent::TurnStarted)
+        | RuntimeEvent::Session(SessionEvent::ModelRequest { .. }) => {}
+        RuntimeEvent::Session(SessionEvent::TurnFinished { .. })
+        | RuntimeEvent::Session(SessionEvent::TurnCancelled)
+        | RuntimeEvent::Session(SessionEvent::TurnInterrupted)
+        | RuntimeEvent::Session(SessionEvent::Created { .. })
+        | RuntimeEvent::Session(SessionEvent::Resumed { .. })
+        | RuntimeEvent::Session(SessionEvent::ModelResponse { .. }) => {}
+        RuntimeEvent::Tool(ToolEvent::Use {
+            call_id,
+            name,
+            input,
+        }) => {
             if name == crate::tools::todo::TODO_WRITE_TOOL_NAME {
-                match crate::todo::normalize_todo_write_input(&input) {
-                    Ok(state) => {
-                        return Some(TuiEvent::UpdateTodo(
-                            crate::context::TodoContextView::from_state(Some(state)),
-                        ));
-                    }
-                    Err(e) => {
-                        eprintln!("todo_write parse error: {e}");
-                    }
+                if let Ok(state) = crate::todo::normalize_todo_write_input(&input) {
+                    app.snapshot.todo = crate::context::TodoContextView::from_state(Some(state));
+                } else {
+                    log::warn!("failed to normalize todo_write runtime event");
                 }
-                return None;
+                return;
             }
             if let Some(event) = TerminalEvent::from_tool_use(&name, &input) {
-                return Some(TuiEvent::Terminal(event));
+                apply_tui_event(app, TuiEvent::Terminal(event));
+                return;
             }
-            Some(TuiEvent::Transcript {
-                role: "Tool",
-                message: format_tool_use(&name, &input),
-            })
+            app.finalize_agent_stream(None);
+            if let Some(action) = exploration_action_label_for(&name, &input) {
+                app.record_exploration_action(action);
+            } else if let Some(action) = planning_action_label_for(&name, &input) {
+                app.record_planning_action(action);
+            } else if let Some(action) = tool_action_label_for(&name, &input) {
+                app.record_running_action(action);
+            }
+            app.set_runtime_phase(RuntimePhase::RunningTool, Some(name.clone()));
+            app.push_tool_entry(
+                call_id.as_deref(),
+                &name,
+                crate::tui::state::ToolTranscriptStatus::Running,
+                format_tool_use(&name, &input),
+            );
         }
-        AgentEvent::ToolResult {
+        RuntimeEvent::Tool(ToolEvent::Result {
+            call_id,
             name,
             content,
             is_error,
-        } => {
-            if name == crate::tools::todo::TODO_WRITE_TOOL_NAME {
-                return None;
-            }
-            if is_exploration_tool_name(&name) {
-                return None;
+        }) => {
+            if name == crate::tools::todo::TODO_WRITE_TOOL_NAME || is_exploration_tool_name(&name) {
+                return;
             }
             if let Some(event) = TerminalEvent::from_tool_result(&name, &content, is_error) {
-                return Some(TuiEvent::Terminal(event));
+                apply_tui_event(app, TuiEvent::Terminal(event));
+                return;
             }
-            Some(TuiEvent::Transcript {
-                role: if is_error {
-                    "Tool Error"
+            app.finalize_agent_stream(None);
+            if let Some(request) = subagent_request_input(&content) {
+                app.advance_running_tool_boundary();
+                let source = name.as_str();
+                app.record_local_request_input(
+                    source,
+                    request.question,
+                    request.options,
+                    request.note,
+                );
+            } else if let Some(note) = exploration_result_note(&content) {
+                app.advance_running_tool_boundary();
+                app.record_exploration_note(note);
+            } else if let Some(note) = planning_result_note(&content) {
+                app.advance_running_tool_boundary();
+                app.record_planning_note(note);
+            } else {
+                app.advance_running_tool_boundary();
+            }
+            app.set_runtime_phase(RuntimePhase::RunningTool, Some(name.clone()));
+            app.push_tool_entry(
+                call_id.as_deref(),
+                &name,
+                if is_error {
+                    crate::tui::state::ToolTranscriptStatus::Error
                 } else {
-                    "Tool Result"
+                    crate::tui::state::ToolTranscriptStatus::Completed
                 },
-                message: format_tool_result(&name, &content),
-            })
+                format_tool_result(&name, &content),
+            );
         }
-        AgentEvent::ToolProgress {
+        RuntimeEvent::Tool(ToolEvent::Progress {
+            call_id: _,
             name,
             stream,
             chunk,
-        } => TerminalEvent::from_tool_progress(&name, stream, &chunk)
-            .map(TuiEvent::Terminal)
-            .or({
-                Some(TuiEvent::ToolProgress {
-                    name,
-                    stream,
-                    chunk,
+        }) => {
+            if let Some(event) = TerminalEvent::from_tool_progress(&name, stream.into(), &chunk) {
+                apply_tui_event(app, TuiEvent::Terminal(event));
+            } else {
+                apply_tui_event(
+                    app,
+                    TuiEvent::ToolProgress {
+                        name,
+                        stream: stream.into(),
+                        chunk,
+                    },
+                );
+            }
+        }
+        RuntimeEvent::Memory(event) => {
+            app.push_system(
+                format_memory_event_notice(&event),
+                SystemMessageKind::Memory,
+            );
+        }
+        RuntimeEvent::Todo(crate::runtime_control::TodoEvent::Updated { state }) => {
+            app.snapshot.todo = crate::context::TodoContextView::from_state(Some(state));
+        }
+        RuntimeEvent::Plan(crate::runtime_control::PlanEvent::Updated { steps, explanation }) => {
+            app.snapshot.plan_steps = steps
+                .into_iter()
+                .map(|step| {
+                    let status = match step.status {
+                        crate::runtime_control::PlanStepStatusEvent::Pending => "pending",
+                        crate::runtime_control::PlanStepStatusEvent::InProgress => "in_progress",
+                        crate::runtime_control::PlanStepStatusEvent::Completed => "completed",
+                    };
+                    (step.step, status.to_string())
                 })
-            }),
-        AgentEvent::MemoryAction { message } => Some(TuiEvent::Transcript {
-            role: "System",
-            message,
-        }),
-        AgentEvent::TodoUpdated(state) => Some(TuiEvent::Transcript {
-            role: "Todo",
-            message: format_todo_update(&state),
-        }),
-        AgentEvent::PlanUpdated { .. }
-        | AgentEvent::ApprovalRequested { .. }
-        | AgentEvent::ApprovalAnswered { .. } => None,
-        AgentEvent::McpStatusUpdated(_) => None,
-        AgentEvent::McpStatusLoadFailed { .. } => None,
-        AgentEvent::AgentStart => None,
-        AgentEvent::AgentStop { .. } => None,
-        AgentEvent::AgentError { .. } => None,
-        AgentEvent::ModelRequest { .. } => None,
-        AgentEvent::ModelResponse { .. } => None,
+                .collect();
+            app.snapshot.plan_explanation = explanation;
+        }
+        RuntimeEvent::Plan(_) | RuntimeEvent::Approval(_) | RuntimeEvent::Mcp(_) => {}
+        RuntimeEvent::Warning(crate::runtime_control::WarningEvent::RuntimeWarning { message }) => {
+            app.push_system(message, SystemMessageKind::Other);
+        }
+        RuntimeEvent::Error(crate::runtime_control::ErrorEvent::RuntimeError {
+            message, ..
+        }) => {
+            app.push_system(message, SystemMessageKind::Other);
+        }
+        RuntimeEvent::Input(_)
+        | RuntimeEvent::PromptSource(_)
+        | RuntimeEvent::Skill(_)
+        | RuntimeEvent::Hook(_)
+        | RuntimeEvent::Context(_)
+        | RuntimeEvent::Extension(_) => {}
     }
+}
+
+fn apply_assistant_text(app: &mut TuiApp, message: String) {
+    let message = scrub_internal_control_tokens(&message);
+    if message.trim().is_empty() {
+        app.set_runtime_phase(
+            RuntimePhase::ProcessingResponse,
+            Some("receiving model output".into()),
+        );
+        return;
+    }
+
+    let planning_mode = matches!(
+        app.agent_execution_mode,
+        crate::agent::AgentExecutionMode::Plan
+    );
+    let structured_planning_output = contains_structured_planning_output(&message);
+    let has_live_exploration = !app.active_live.exploration_actions.is_empty()
+        || !app.active_live.exploration_notes.is_empty();
+    let planning_notes = if planning_mode && !structured_planning_output {
+        planning_note_lines(&message)
+    } else {
+        Vec::new()
+    };
+    if !app.active_live.exploration_actions.is_empty()
+        && matches!(
+            app.runtime_phase,
+            RuntimePhase::RunningTool | RuntimePhase::SendingPrompt
+        )
+        && (!planning_mode || (planning_notes.is_empty() && !structured_planning_output))
+    {
+        for note in exploration_note_lines(&message, planning_mode) {
+            app.record_exploration_note(note);
+        }
+    }
+    app.set_runtime_phase(
+        RuntimePhase::ProcessingResponse,
+        Some("receiving model output".into()),
+    );
+    if planning_mode && !structured_planning_output {
+        for note in planning_notes {
+            app.record_planning_note(note);
+        }
+        if has_live_exploration
+            || !app.active_live.planning_actions.is_empty()
+            || !app.active_live.planning_notes.is_empty()
+        {
+            app.agent_markdown_stream = None;
+            return;
+        }
+    }
+    app.finalize_agent_stream(Some(message));
+}
+
+pub(super) fn runtime_event_from_agent_event(
+    event: AgentEvent,
+    provenance: crate::runtime_control::RuntimeProvenance,
+) -> TuiEvent {
+    TuiEvent::Runtime(Box::new(crate::runtime_control::wrap_agent_event(
+        uuid::Uuid::new_v4().to_string(),
+        0,
+        provenance,
+        event,
+    )))
 }
 
 pub(super) fn format_memory_event_notice(event: &MemoryEvent) -> String {

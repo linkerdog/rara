@@ -56,10 +56,6 @@ pub enum AppEvent {
     /// profile actions move out of overlay-only dispatch (docs/todo.md).
     #[allow(dead_code)]
     DeleteOpenAiProfile,
-    /// Reserved for provider catalog refresh from the active model picker
-    /// (docs/todo.md).
-    #[allow(dead_code)]
-    RefreshDeepSeekModels,
     SelectHelpTab(HelpTab),
     SelectStatusTab(StatusTab),
     ApplyOverlaySelection,

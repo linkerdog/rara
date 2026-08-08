@@ -33,7 +33,7 @@ fn legacy_active_live_sections(live: &ActiveLiveSections) -> Vec<(&'static str, 
 }
 
 fn is_agent_segment_boundary(entry: &TranscriptEntry) -> bool {
-    matches!(
+    if matches!(
         entry.role.as_str(),
         "Tool"
             | "Tool Result"
@@ -43,10 +43,15 @@ fn is_agent_segment_boundary(entry: &TranscriptEntry) -> bool {
             | "Exploring"
             | "Planning"
             | "Running"
-    ) || matches!(
-        entry.payload,
-        Some(crate::tui::state::TranscriptEntryPayload::Terminal(_))
-    )
+    ) {
+        return true;
+    }
+    match &entry.payload {
+        Some(crate::tui::state::TranscriptEntryPayload::Terminal(_)) => true,
+        Some(crate::tui::state::TranscriptEntryPayload::Tool(payload)) => !payload.name.is_empty(),
+        Some(crate::tui::state::TranscriptEntryPayload::Compaction(payload)) => payload.count > 0,
+        _ => false,
+    }
 }
 
 impl TuiApp {
@@ -94,6 +99,45 @@ impl TuiApp {
             self.commit_active_turn();
         }
         let entry = TranscriptEntry::new(role, message);
+        self.record_entry_realtime(&PersistedTurnEntry {
+            role: entry.role.clone(),
+            message: entry.message.clone(),
+        });
+        self.active_turn.entries.push(entry);
+        self.reset_transcript_scroll_if_following_tail();
+    }
+
+    pub fn push_tool_entry(
+        &mut self,
+        call_id: Option<&str>,
+        name: &str,
+        status: super::ToolTranscriptStatus,
+        message: impl Into<String>,
+    ) {
+        let entry = super::TranscriptEntry::tool(call_id, name, status, message);
+        self.record_entry_realtime(&PersistedTurnEntry {
+            role: entry.role.clone(),
+            message: entry.message.clone(),
+        });
+        self.active_turn.entries.push(entry);
+        self.reset_transcript_scroll_if_following_tail();
+    }
+
+    pub fn push_compaction_entry(
+        &mut self,
+        count: usize,
+        before_tokens: usize,
+        after_tokens: usize,
+        summary: impl Into<String>,
+        recent_files: Vec<String>,
+    ) {
+        let entry = super::TranscriptEntry::compaction(
+            count,
+            before_tokens,
+            after_tokens,
+            summary,
+            recent_files,
+        );
         self.record_entry_realtime(&PersistedTurnEntry {
             role: entry.role.clone(),
             message: entry.message.clone(),

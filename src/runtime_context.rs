@@ -127,6 +127,10 @@ impl SubagentBackendResolver for ConfigSubagentBackendResolver {
 }
 
 impl RuntimeBootstrap {
+    pub(crate) fn nowledge_mem_config(&self) -> rara_config::NowledgeMemPluginConfig {
+        self.builtin_plugins.nowledge_mem.clone()
+    }
+
     pub(crate) async fn into_agent(self) -> Agent {
         let (agent, _, _, _, _, _, _, _, _, _, _) = self.into_parts_with_runtime_extensions().await;
         agent
@@ -204,6 +208,53 @@ impl RuntimeBootstrap {
     ) {
         let workspace_root = self.workspace.root.clone();
         let plugin_dirs = self.plugin_dirs.clone();
+        self.into_parts_with_runtime_extensions_for_plugin_dirs(&workspace_root, &plugin_dirs)
+            .await
+    }
+
+    pub(crate) async fn into_runtime_client_parts(
+        mut self,
+    ) -> (
+        (
+            Agent,
+            Vec<String>,
+            Arc<AtomicBool>,
+            GoalHandle,
+            McpToolCache,
+            Arc<McpConnectionManager>,
+            Arc<PromptSourceRegistry>,
+            Arc<SkillSourceRegistry>,
+            Arc<HookRegistry>,
+            Arc<HookRuntime>,
+            Arc<LspManager>,
+        ),
+        Vec<PathBuf>,
+    ) {
+        let plugin_dirs = std::mem::take(&mut self.plugin_dirs);
+        let workspace_root = self.workspace.root.clone();
+        let parts = self
+            .into_parts_with_runtime_extensions_for_plugin_dirs(&workspace_root, &plugin_dirs)
+            .await;
+        (parts, plugin_dirs)
+    }
+
+    async fn into_parts_with_runtime_extensions_for_plugin_dirs(
+        self,
+        workspace_root: &Path,
+        plugin_dirs: &[PathBuf],
+    ) -> (
+        Agent,
+        Vec<String>,
+        Arc<AtomicBool>,
+        GoalHandle,
+        McpToolCache,
+        Arc<McpConnectionManager>,
+        Arc<PromptSourceRegistry>,
+        Arc<SkillSourceRegistry>,
+        Arc<HookRegistry>,
+        Arc<HookRuntime>,
+        Arc<LspManager>,
+    ) {
         let rara_home = self.rara_home.clone();
         let builtin_plugins = self.builtin_plugins.clone();
         let hook_runtime = self.hook_runtime.clone();
@@ -213,8 +264,8 @@ impl RuntimeBootstrap {
         let plugin_hook_runtime = crate::plugin_middleware::register_plugin_hooks(
             &hook_runtime,
             rara_home,
-            &workspace_root,
-            &plugin_dirs,
+            workspace_root,
+            plugin_dirs,
             &builtin_plugins,
             &parts.0.session_id,
         )
@@ -310,6 +361,7 @@ pub(crate) async fn initialize_rara_context_with_options(
     let plugin_agent_records = crate::plugin_middleware::plugin_agent_records(&plugins);
 
     let mut prompt_config = PromptRuntimeConfig::from_config(config);
+    append_builtin_prompt_instructions(&mut prompt_config, &config.builtin_plugins);
     let skill_manager = load_skill_manager(&mut prompt_config.warnings, &plugin_skill_roots);
     let skill_summaries = skill_manager
         .read()
@@ -459,6 +511,21 @@ pub(crate) async fn initialize_rara_context_with_options(
         rara_home: Some(rara_home),
         builtin_plugins: config.builtin_plugins.clone(),
     })
+}
+
+fn append_builtin_prompt_instructions(
+    prompt_config: &mut PromptRuntimeConfig,
+    builtin_plugins: &BuiltinPluginConfig,
+) {
+    let Some(memory_instructions) =
+        crate::plugin_middleware::nowledge_mem_prompt_instructions(builtin_plugins)
+    else {
+        return;
+    };
+    prompt_config.append_system_prompt = Some(match prompt_config.append_system_prompt.take() {
+        Some(existing) => format!("{existing}\n\n{memory_instructions}"),
+        None => memory_instructions.to_string(),
+    });
 }
 
 fn is_configured_openai_compatible_provider(config: &RaraConfig, provider: &str) -> bool {
@@ -642,8 +709,9 @@ mod tests {
     use tempfile::tempdir;
 
     use super::{
-        ConfigSubagentBackendResolver, RuntimeBootstrapOptions, build_backend_with_progress,
-        initialize_rara_context, memory_handle_uri_for_workspace, ollama_thinking_enabled,
+        ConfigSubagentBackendResolver, RuntimeBootstrapOptions, append_builtin_prompt_instructions,
+        build_backend_with_progress, initialize_rara_context, memory_handle_uri_for_workspace,
+        ollama_thinking_enabled,
     };
     use crate::config::{
         DEFAULT_REASONING_SUMMARY, ProviderConfigState, REASONING_SUMMARY_NONE, RaraConfig,
@@ -651,6 +719,21 @@ mod tests {
     use crate::llm::{LlmBackend, MockLlm};
     use crate::tools::agent::{SubagentBackendResolver, SubagentProviderTarget};
     use crate::workspace::WorkspaceMemory;
+
+    #[test]
+    fn nowledge_mem_guidance_is_injected_into_the_default_prompt() {
+        let mut prompt = crate::prompt::PromptRuntimeConfig::default();
+        append_builtin_prompt_instructions(
+            &mut prompt,
+            &crate::config::BuiltinPluginConfig::default(),
+        );
+
+        let instructions = prompt
+            .append_system_prompt
+            .expect("enabled builtin memory should add prompt guidance");
+        assert!(instructions.contains("Context Bundle"));
+        assert!(instructions.contains("After context compaction"));
+    }
 
     #[test]
     fn memory_handle_uri_is_workspace_scoped() {

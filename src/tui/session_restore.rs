@@ -213,7 +213,10 @@ pub(super) fn restore_thread_by_id(
             .map(|entry| TranscriptEntry::new(entry.role, entry.message))
             .collect();
     }
-    app.sync_snapshot(agent);
+    app.apply_runtime_snapshot(
+        agent,
+        crate::runtime_client::RuntimeClient::extension_snapshot_for_agent(agent, 0),
+    );
     let pending_plan_tool_id = latest_plan_lifecycle
         .as_ref()
         .filter(|(phase, _)| phase == "plan_ready")
@@ -226,7 +229,10 @@ pub(super) fn restore_thread_by_id(
         if let Some(tool_id) = pending_plan_tool_id {
             agent.restore_pending_plan_exit_approval(tool_id);
         }
-        app.sync_snapshot(agent);
+        app.apply_runtime_snapshot(
+            agent,
+            crate::runtime_client::RuntimeClient::extension_snapshot_for_agent(agent, 0),
+        );
         app.show_pending_plan_approval(pending_plan_tool_id);
         app.set_runtime_phase(
             super::state::RuntimePhase::Idle,
@@ -390,7 +396,10 @@ mod tests {
         })
         .expect("app");
         original_app.attach_state_db(state_db.clone());
-        original_app.sync_snapshot(&original_agent);
+        original_app.apply_runtime_snapshot(
+            &original_agent,
+            crate::runtime_client::RuntimeClient::extension_snapshot_for_agent(&original_agent, 0),
+        );
 
         original_agent.execution_mode = AgentExecutionMode::Execute;
         let expected_runtime = original_agent.shared_runtime_context();
@@ -525,7 +534,10 @@ mod tests {
         })
         .expect("app");
         original_app.attach_state_db(state_db.clone());
-        original_app.sync_snapshot(&original_agent);
+        original_app.apply_runtime_snapshot(
+            &original_agent,
+            crate::runtime_client::RuntimeClient::extension_snapshot_for_agent(&original_agent, 0),
+        );
 
         let rollout_dir = rara_dir
             .join("rollouts")
@@ -604,7 +616,10 @@ mod tests {
         })
         .expect("app");
         original_app.attach_state_db(state_db.clone());
-        original_app.sync_snapshot(&original_agent);
+        original_app.apply_runtime_snapshot(
+            &original_agent,
+            crate::runtime_client::RuntimeClient::extension_snapshot_for_agent(&original_agent, 0),
+        );
         rara_persistence::thread_turn_log::append_rollout_fragment(
             &state_db.rollout_root(),
             &original_agent.session_id,
@@ -735,7 +750,10 @@ mod tests {
         })
         .expect("app");
         original_app.attach_state_db(state_db.clone());
-        original_app.sync_snapshot(&original_agent);
+        original_app.apply_runtime_snapshot(
+            &original_agent,
+            crate::runtime_client::RuntimeClient::extension_snapshot_for_agent(&original_agent, 0),
+        );
 
         let restored_agent = Agent::new(
             ToolManager::new(),
@@ -833,7 +851,10 @@ mod tests {
         })
         .expect("app");
         original_app.attach_state_db(state_db.clone());
-        original_app.sync_snapshot(&original_agent);
+        original_app.apply_runtime_snapshot(
+            &original_agent,
+            crate::runtime_client::RuntimeClient::extension_snapshot_for_agent(&original_agent, 0),
+        );
         original_app.show_pending_plan_approval(Some("exit-plan-restore"));
 
         let restored_agent = Agent::new(
@@ -928,7 +949,10 @@ mod tests {
         })
         .expect("app");
         original_app.attach_state_db(state_db.clone());
-        original_app.sync_snapshot(&original_agent);
+        original_app.apply_runtime_snapshot(
+            &original_agent,
+            crate::runtime_client::RuntimeClient::extension_snapshot_for_agent(&original_agent, 0),
+        );
         original_app.show_pending_plan_approval(Some("exit-plan-completed"));
         original_app.clear_pending_plan_approval();
         original_app.record_completed_interaction(

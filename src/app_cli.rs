@@ -10,8 +10,8 @@ use secrecy::{ExposeSecret, SecretString};
 use crate::acp::RaraAcpAgent;
 use crate::config::{
     ConfigManager, DEFAULT_CODEX_BASE_URL, DEFAULT_CODEX_CHATGPT_BASE_URL, DEFAULT_KIMI_BASE_URL,
-    DEFAULT_KIMI_MODEL, DEFAULT_REASONING_SUMMARY, OpenAiEndpointKind, OpenAiEndpointProfile,
-    RaraConfig, ensure_rara_home_dir,
+    DEFAULT_KIMI_MODEL, DEFAULT_REASONING_SUMMARY, NowledgeMemMode, OpenAiEndpointKind,
+    OpenAiEndpointProfile, RaraConfig, ensure_rara_home_dir,
 };
 use crate::oauth::{OAuthManager, SavedCodexAuthMode};
 use crate::plugin_cli::{PluginCommands, run_plugin_command};
@@ -94,6 +94,13 @@ struct ModelsShowArgs {
 }
 
 #[derive(Debug, clap::Args)]
+struct MemArgs {
+    /// Nowledge Mem Cloud API key to save.
+    #[arg(long)]
+    api_key: String,
+}
+
+#[derive(Debug, clap::Args)]
 struct ExecArgs {
     /// Print headless execution events to stdout as JSONL.
     #[arg(long, default_value_t = false)]
@@ -143,6 +150,8 @@ enum Commands {
     /// Install, list, or remove workspace plugins
     #[command(subcommand)]
     Plugin(PluginCommands),
+    /// Configure the builtin Nowledge Mem Cloud integration.
+    Mem(MemArgs),
     Ask {
         prompt: String,
     },
@@ -194,8 +203,17 @@ pub(crate) async fn run_cli() -> Result<()> {
     let config_manager = ConfigManager::new()?;
     let mut config = config_manager.load()?;
     let command = apply_cli_overrides(&mut config, cli);
+    if matches!(command, Some(Commands::Mem(_))) {
+        config_manager.save(&config)?;
+        println!("Nowledge Mem Cloud API key saved.");
+        return Ok(());
+    }
     let plugin_dirs = effective_plugin_dirs(&config, &cli_plugin_dirs)?;
     config.apply_provider_environment_defaults();
+    let mem_config = &config.builtin_plugins.nowledge_mem;
+    if let Some(api_key) = mem_config.api_key() {
+        set_process_mem_api_key(&mem_config.api_key_env_var, api_key.to_string());
+    }
 
     let oauth_manager = OAuthManager::new()?;
 
@@ -204,6 +222,7 @@ pub(crate) async fn run_cli() -> Result<()> {
         Commands::Connect(args) => run_connect_command(&config, args)?,
         Commands::Models(cmd) => run_models_command(&config, cmd)?,
         Commands::Plugin(cmd) => run_plugin_command(cmd)?,
+        Commands::Mem(_) => unreachable!("mem configuration returns before runtime startup"),
         Commands::Ask { prompt } => run_ask_command(&config, prompt, plugin_dirs).await?,
         Commands::Exec(args) => run_exec_command(&config, args, plugin_dirs).await?,
         Commands::Fork { thread_id } => thread_cli::run_fork_command(&thread_id)?,
@@ -266,7 +285,21 @@ fn apply_cli_overrides(config: &mut RaraConfig, cli: Cli) -> Option<Commands> {
     if let Some(revision) = cli.revision {
         config.set_revision(Some(revision));
     }
+    if let Some(Commands::Mem(args)) = cli.command.as_ref() {
+        config.builtin_plugins.nowledge_mem.enabled = true;
+        config.builtin_plugins.nowledge_mem.mode = NowledgeMemMode::Cloud;
+        config
+            .builtin_plugins
+            .nowledge_mem
+            .set_api_key(args.api_key.clone());
+    }
     cli.command
+}
+
+fn set_process_mem_api_key(env_var: &str, api_key: String) {
+    // SAFETY: CLI overrides are applied before RARA starts async runtimes or
+    // worker threads, so no concurrent environment access is possible here.
+    unsafe { std::env::set_var(env_var, api_key) };
 }
 
 fn normalize_plugin_dirs(plugin_dirs: &[PathBuf]) -> Result<Vec<PathBuf>> {
@@ -470,37 +503,9 @@ async fn run_tui_command(
     )
     .await?;
     emit_bootstrap_warnings(&bootstrap.warnings);
-    let event_bus = bootstrap.event_bus.clone();
-    let (
-        agent,
-        _warnings,
-        sandbox_network_access,
-        goal_handle,
-        mcp_tool_cache,
-        mcp_manager,
-        prompt_source_registry,
-        skill_source_registry,
-        hook_registry,
-        hook_runtime,
-        lsp_manager,
-    ) = bootstrap.into_parts_with_runtime_extensions().await;
-    let resumed_thread_id = crate::tui::run_tui(
-        agent,
-        goal_handle,
-        mcp_tool_cache,
-        oauth_manager,
-        startup_resume,
-        sandbox_network_access,
-        event_bus,
-        mcp_manager,
-        prompt_source_registry,
-        skill_source_registry,
-        hook_registry,
-        hook_runtime,
-        lsp_manager,
-        plugin_dirs,
-    )
-    .await?;
+    let runtime_client = crate::runtime_client::RuntimeClient::from_bootstrap(bootstrap).await;
+    let resumed_thread_id =
+        crate::tui::run_tui(runtime_client, oauth_manager, startup_resume).await?;
     if let Some(thread_id) = resumed_thread_id {
         print!("{}", rendered_resume_hint(&thread_id));
     }
@@ -526,6 +531,7 @@ fn startup_resume_target_for_command(command: &Commands) -> Option<StartupResume
         | Commands::Connect(..)
         | Commands::Models(..)
         | Commands::Plugin(..)
+        | Commands::Mem(..)
         | Commands::Ask { .. }
         | Commands::Exec(..)
         | Commands::Distill { .. }
@@ -779,6 +785,29 @@ mod tests {
             Commands::Ask { prompt } => assert_eq!(prompt, "hello"),
             other => panic!("unexpected command: {other:?}"),
         }
+    }
+
+    #[test]
+    fn mem_api_key_cli_override_persists_cloud_configuration() {
+        let cli = Cli::try_parse_from(["rara", "mem", "--api-key", "nmem_test_key"])
+            .expect("parse mem api key");
+        let mut config = RaraConfig::default();
+        config.builtin_plugins.nowledge_mem.api_key_env_var = "CUSTOM_MEM_KEY".to_string();
+
+        assert!(matches!(
+            apply_cli_overrides(&mut config, cli),
+            Some(Commands::Mem(_))
+        ));
+        assert_eq!(
+            config.builtin_plugins.nowledge_mem.api_key_env_var,
+            "CUSTOM_MEM_KEY"
+        );
+        assert_eq!(
+            config.builtin_plugins.nowledge_mem.api_key(),
+            Some("nmem_test_key")
+        );
+        let serialized = serde_json::to_string(&config).expect("serialize config");
+        assert!(serialized.contains("nmem_test_key"));
     }
 
     #[test]

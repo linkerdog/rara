@@ -4,7 +4,6 @@ use std::sync::Arc;
 use super::super::state::{
     GoalStatus, HelpTab, ListPickerKind, LocalCommand, LocalCommandKind, Overlay, PermissionMode,
     PickerIntent, RalphGoal, RuntimePhase, StatusTab, SystemMessageKind, TuiApp,
-    UnifiedModelPreset,
 };
 use super::tasks::{start_compact_task, start_rebuild_task, start_review_task};
 use crate::agent::{Agent, AgentEvent, AgentExecutionMode, BashApprovalMode};
@@ -13,12 +12,23 @@ use crate::mcp_status::{McpStatusSnapshot, format_mcp_status};
 use crate::mcp_tool_cache::McpToolCache;
 use crate::oauth::OAuthManager;
 use crate::runtime_control::RuntimeProvenance;
+use crate::tui::runtime_port::{RuntimeClientPort, RuntimeCommand, RuntimeMaintenanceCommand};
 
 pub(super) async fn execute_local_command(
     command: LocalCommand,
     app: &mut TuiApp,
     agent_slot: &mut Option<Agent>,
     oauth_manager: &Arc<OAuthManager>,
+) -> anyhow::Result<bool> {
+    execute_local_command_with_runtime(command, app, agent_slot, oauth_manager, None).await
+}
+
+pub(super) async fn execute_local_command_with_runtime(
+    command: LocalCommand,
+    app: &mut TuiApp,
+    agent_slot: &mut Option<Agent>,
+    oauth_manager: &Arc<OAuthManager>,
+    runtime_port: Option<&dyn RuntimeClientPort>,
 ) -> anyhow::Result<bool> {
     let command_kind = command.kind;
     app.remember_command(match command.kind {
@@ -33,6 +43,7 @@ pub(super) async fn execute_local_command(
         LocalCommandKind::Logout => "logout",
         LocalCommandKind::Mcp => "mcp",
         LocalCommandKind::Model => "model",
+        LocalCommandKind::NowledgeMem => "mem",
         LocalCommandKind::Plan => "plan",
         LocalCommandKind::Quit => "quit",
         LocalCommandKind::Resume => "resume",
@@ -78,6 +89,9 @@ pub(super) async fn execute_local_command(
             app.push_notice(notice);
         }
         LocalCommandKind::BaseUrl => handle_base_url_command(command.arg.as_deref(), app)?,
+        LocalCommandKind::NowledgeMem => {
+            handle_nowledge_mem_command(command.arg.as_deref(), app)?;
+        }
         LocalCommandKind::Help => {
             app.set_runtime_phase(RuntimePhase::LocalCommand, Some("opening help".into()));
             app.open_overlay(Overlay::Help(HelpTab::General));
@@ -90,11 +104,13 @@ pub(super) async fn execute_local_command(
             app.reset_transcript();
         }
         LocalCommandKind::Compact => {
-            if let Some(agent) = agent_slot.take() {
-                start_compact_task(app, agent);
-            } else {
-                app.push_notice("No active agent available for compaction.");
-            }
+            request_maintenance(
+                app,
+                agent_slot,
+                runtime_port,
+                RuntimeMaintenanceCommand::Compact,
+            )
+            .await?;
         }
         LocalCommandKind::Context => {
             app.set_runtime_phase(RuntimePhase::LocalCommand, Some("opening context".into()));
@@ -120,7 +136,13 @@ pub(super) async fn execute_local_command(
                     "No saved provider credential was present.".to_string()
                 });
                 if app.config.provider == "codex" {
-                    start_rebuild_task(app);
+                    request_maintenance(
+                        app,
+                        agent_slot,
+                        runtime_port,
+                        RuntimeMaintenanceCommand::Rebuild,
+                    )
+                    .await?;
                 }
             }
         }
@@ -333,9 +355,40 @@ pub(super) async fn execute_local_command(
     if command_kind != LocalCommandKind::Tasks
         && let Some(agent) = agent_slot.as_ref()
     {
-        app.sync_snapshot(agent);
+        app.apply_runtime_snapshot(
+            agent,
+            crate::runtime_client::RuntimeClient::extension_snapshot_for_agent(agent, 0),
+        );
     }
     Ok(false)
+}
+
+async fn request_maintenance(
+    app: &mut TuiApp,
+    agent_slot: &mut Option<Agent>,
+    runtime_port: Option<&dyn RuntimeClientPort>,
+    command: RuntimeMaintenanceCommand,
+) -> anyhow::Result<()> {
+    if let Some(runtime_port) = runtime_port {
+        runtime_port
+            .send(RuntimeCommand::Maintenance(command))
+            .await?;
+    } else {
+        match command {
+            RuntimeMaintenanceCommand::Compact => {
+                if let Some(agent) = agent_slot.take() {
+                    start_compact_task(app, agent);
+                } else {
+                    app.push_notice("No active agent available for compaction.");
+                }
+            }
+            RuntimeMaintenanceCommand::Rebuild => start_rebuild_task(app),
+            RuntimeMaintenanceCommand::RefreshModelCatalog(_) => {
+                app.push_notice("Model catalog loading requires a runtime client.")
+            }
+        }
+    }
+    Ok(())
 }
 
 fn handle_connect_command(app: &mut TuiApp) -> anyhow::Result<()> {
@@ -344,6 +397,15 @@ fn handle_connect_command(app: &mut TuiApp) -> anyhow::Result<()> {
     app.bottom_pane.notice = Some(
         "Connect a provider — select the provider family, then configure API key and model.".into(),
     );
+    Ok(())
+}
+
+fn handle_nowledge_mem_command(arg: Option<&str>, app: &mut TuiApp) -> anyhow::Result<()> {
+    if arg.is_some_and(|value| !value.trim().is_empty()) {
+        app.push_notice("/mem does not accept arguments. Choose a mode in the TUI.");
+    }
+    app.open_overlay(Overlay::ListPicker(ListPickerKind::NowledgeMem));
+    app.bottom_pane.notice = Some("Choose the builtin Nowledge Mem mode.".into());
     Ok(())
 }
 
@@ -406,48 +468,12 @@ fn parse_goal_token_budget(input: &str) -> Option<u32> {
 }
 
 fn handle_model_command(arg: Option<&str>, app: &mut TuiApp) -> anyhow::Result<()> {
-    let query = arg.map(str::trim).filter(|a| !a.is_empty());
-
-    if let Some(query) = query {
-        let presets = app.all_unified_model_presets();
-        let query_lower = query.to_lowercase();
-
-        let matches: Vec<(usize, &UnifiedModelPreset)> = presets
-            .iter()
-            .enumerate()
-            .filter(|(_, p)| {
-                p.model_id.to_lowercase().contains(&query_lower)
-                    || p.model_label.to_lowercase().contains(&query_lower)
-            })
-            .collect();
-
-        match matches.len() {
-            1 => {
-                let (idx, preset) = matches[0];
-                app.push_notice(format!(
-                    "Switching to {} ({})",
-                    preset.model_label, preset.provider_label
-                ));
-                app.select_unified_model(idx);
-            }
-            0 => {
-                app.push_notice(format!("No model matching \"{query}\" found."));
-                app.model_picker_idx = app.selected_unified_preset_idx();
-                app.open_overlay(Overlay::ModelSearch);
-            }
-            _ => {
-                app.push_notice(format!(
-                    "Multiple models match \"{query}\" — opening picker."
-                ));
-                app.model_picker_idx = app.selected_unified_preset_idx();
-                app.open_overlay(Overlay::ModelSearch);
-            }
-        }
-    } else {
-        app.model_picker_idx = app.selected_unified_preset_idx();
-        app.open_overlay(Overlay::ModelSearch);
-        app.bottom_pane.notice = Some("Switch active model across all connected providers.".into());
+    if arg.is_some_and(|value| !value.trim().is_empty()) {
+        app.push_notice("/model does not accept arguments. Choose a model in the UI.");
     }
+    app.model_picker_idx = app.selected_unified_preset_idx();
+    app.open_overlay(Overlay::ModelSearch);
+    app.bottom_pane.notice = Some("Switch active model across all connected providers.".into());
     Ok(())
 }
 
@@ -558,7 +584,10 @@ fn handle_tasks_command(arg: Option<&str>, app: &mut TuiApp, agent_slot: &mut Op
 
     if let Some(agent) = agent_slot.as_mut() {
         agent.set_task_list_id(requested);
-        app.sync_snapshot(agent);
+        app.apply_runtime_snapshot(
+            agent,
+            crate::runtime_client::RuntimeClient::extension_snapshot_for_agent(agent, 0),
+        );
     } else {
         app.switch_active_shared_task_list(requested);
     }
@@ -680,8 +709,9 @@ mod tests {
     use tokio::sync::mpsc;
 
     use super::{
-        execute_local_command, handle_mcp_command, mcp_project_root_from_cwd,
-        parse_goal_objective_and_budget, parse_goal_token_budget, spawn_mcp_tool_cache_population,
+        execute_local_command, handle_mcp_command, handle_nowledge_mem_command,
+        mcp_project_root_from_cwd, parse_goal_objective_and_budget, parse_goal_token_budget,
+        spawn_mcp_tool_cache_population,
     };
     use crate::agent::{Agent, AgentEvent, BashApprovalMode};
     use crate::config::{
@@ -696,17 +726,22 @@ mod tests {
     use crate::tasklist::{DEFAULT_TASK_LIST_ID, NewTaskRecord, TaskListStore};
     use crate::tools::tasklist::TaskListTool;
     use crate::tui::state::{
-        LocalCommand, LocalCommandKind, Overlay, PermissionMode, RunningTask, TaskCompletion,
-        TaskKind, TuiApp,
+        ListPickerKind, LocalCommand, LocalCommandKind, Overlay, PermissionMode, RunningTask,
+        TaskCompletion, TaskKind, TuiApp,
     };
     use crate::workspace::WorkspaceMemory;
 
     fn mark_app_busy(app: &mut TuiApp) {
         let (_sender, receiver) = mpsc::unbounded_channel();
         app.bottom_pane.running_task = Some(RunningTask {
-            kind: TaskKind::DeepSeekModels,
+            kind: TaskKind::ModelCatalog,
             receiver,
-            handle: tokio::spawn(async { TaskCompletion::DeepSeekModels { result: Ok(vec![]) } }),
+            handle: tokio::spawn(async {
+                TaskCompletion::ModelCatalog {
+                    provider: rara_provider_catalog::ModelCatalogProvider::DeepSeek,
+                    result: Ok(vec![]),
+                }
+            }),
             started_at: Instant::now(),
             next_heartbeat_after_secs: 2,
             cancellation_token: None,
@@ -784,6 +819,21 @@ mod tests {
         assert_eq!(
             parse_goal_objective_and_budget("fix the build").expect("no budget"),
             ("fix the build".to_string(), None)
+        );
+    }
+
+    #[test]
+    fn nowledge_mem_command_opens_picker_without_arguments() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let mut app = TuiApp::new(ConfigManager {
+            path: dir.path().join("config.json"),
+        })
+        .expect("app");
+
+        handle_nowledge_mem_command(None, &mut app).expect("picker should open");
+        assert_eq!(
+            app.overlay,
+            Some(Overlay::ListPicker(ListPickerKind::NowledgeMem))
         );
     }
 
@@ -1150,7 +1200,11 @@ command = "docs-server"
             OAuthManager::new_for_config_dir(dir.path().join("oauth")).expect("oauth manager"),
         );
         let mut agent_slot = Some(test_agent_with_shared_task_tool(&dir));
-        app.sync_snapshot(agent_slot.as_ref().expect("agent"));
+        let agent = agent_slot.as_ref().expect("agent");
+        app.apply_runtime_snapshot(
+            agent,
+            crate::runtime_client::RuntimeClient::extension_snapshot_for_agent(agent, 0),
+        );
 
         execute_local_command(
             LocalCommand {

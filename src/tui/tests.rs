@@ -800,6 +800,76 @@ async fn slash_palette_model_selection_opens_provider_picker_in_local_and_ssh() 
     }
 }
 
+#[tokio::test]
+async fn mem_picker_persists_selected_cloud_mode() {
+    let temp = tempdir().expect("tempdir");
+    let config_path = temp.path().join("config.json");
+    let mut app = TuiApp::new(ConfigManager {
+        path: config_path.clone(),
+    })
+    .expect("build tui app");
+    app.open_overlay(Overlay::ListPicker(ListPickerKind::NowledgeMem));
+    app.nowledge_mem_picker_idx = 2;
+
+    let oauth_manager = Arc::new(
+        crate::oauth::OAuthManager::new_for_config_dir(temp.path().join(".rara"))
+            .expect("oauth manager"),
+    );
+    let mut agent_slot = None;
+    dispatch_event(
+        AppEvent::ApplyOverlaySelection,
+        &mut app,
+        &mut agent_slot,
+        &oauth_manager,
+    )
+    .await
+    .expect("apply memory mode selection");
+
+    assert!(app.config.builtin_plugins.nowledge_mem.enabled);
+    assert_eq!(
+        app.config.builtin_plugins.nowledge_mem.mode,
+        crate::config::NowledgeMemMode::Cloud
+    );
+    assert_eq!(
+        app.config.builtin_plugins.nowledge_mem.url,
+        crate::config::DEFAULT_NOWLEDGE_MEM_CLOUD_URL
+    );
+    let saved = std::fs::read_to_string(config_path).expect("saved config");
+    assert!(saved.contains("cloud"));
+}
+
+#[tokio::test]
+async fn mem_picker_preserves_existing_cloud_url() {
+    let temp = tempdir().expect("tempdir");
+    let mut app = TuiApp::new(ConfigManager {
+        path: temp.path().join("config.json"),
+    })
+    .expect("build tui app");
+    app.config.builtin_plugins.nowledge_mem.mode = crate::config::NowledgeMemMode::Cloud;
+    app.config.builtin_plugins.nowledge_mem.url = "https://custom.mem.example".to_string();
+    app.open_overlay(Overlay::ListPicker(ListPickerKind::NowledgeMem));
+    app.nowledge_mem_picker_idx = 2;
+
+    let oauth_manager = Arc::new(
+        crate::oauth::OAuthManager::new_for_config_dir(temp.path().join(".rara"))
+            .expect("oauth manager"),
+    );
+    let mut agent_slot = None;
+    dispatch_event(
+        AppEvent::ApplyOverlaySelection,
+        &mut app,
+        &mut agent_slot,
+        &oauth_manager,
+    )
+    .await
+    .expect("apply memory mode selection");
+
+    assert_eq!(
+        app.config.builtin_plugins.nowledge_mem.url,
+        "https://custom.mem.example"
+    );
+}
+
 #[test]
 fn provider_picker_number_keys_cover_current_provider_families() {
     let temp = tempdir().expect("tempdir");
@@ -2481,7 +2551,7 @@ async fn deepseek_api_key_save_starts_model_catalog_task() {
     assert_eq!(app.config.api_key(), Some("sk-deepseek-test"));
     assert!(matches!(
         app.bottom_pane.running_task.as_ref(),
-        Some(task) if matches!(task.kind, TaskKind::DeepSeekModels)
+        Some(task) if matches!(task.kind, TaskKind::ModelCatalog)
     ));
     if let Some(task) = app.bottom_pane.running_task.take() {
         task.handle.abort();

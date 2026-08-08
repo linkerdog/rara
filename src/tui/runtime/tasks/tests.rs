@@ -31,12 +31,16 @@ use crate::runtime_control::{
 use crate::runtime_event_bus::RuntimeEventBus;
 use crate::session::SessionManager;
 use crate::tui::state::{
-    OAuthLoginMode, RalphGoal, RebuildSuccess, RunningTask, RuntimePhase, TaskCompletion, TaskKind,
-    TuiApp,
+    GoalStatus, OAuthLoginMode, RalphGoal, RebuildSuccess, RunningTask, RuntimePhase,
+    TaskCompletion, TaskKind, TuiApp,
 };
 use crate::workspace::WorkspaceMemory;
 
 struct PlainAnswerBackend;
+
+struct GoalEvaluatorBackend {
+    answer: String,
+}
 
 #[test]
 fn lifecycle_helper_publishes_turn_finished_for_success() {
@@ -173,6 +177,39 @@ impl LlmBackend for PlainAnswerBackend {
     }
 }
 
+#[async_trait::async_trait]
+impl LlmBackend for GoalEvaluatorBackend {
+    async fn ask(
+        &self,
+        _messages: &[crate::agent::Message],
+        _tools: &[serde_json::Value],
+    ) -> anyhow::Result<LlmResponse> {
+        Ok(LlmResponse {
+            content: vec![ContentBlock::Text {
+                text: "turn complete".to_string(),
+            }],
+            stop_reason: Some("end_turn".to_string()),
+            usage: Some(TokenUsage::default()),
+        })
+    }
+
+    async fn summarize(
+        &self,
+        _messages: &[crate::agent::Message],
+        _instruction: &str,
+    ) -> anyhow::Result<String> {
+        Ok("summary".to_string())
+    }
+
+    async fn classify(
+        &self,
+        _instructions: &str,
+        _messages: &[crate::agent::Message],
+    ) -> anyhow::Result<String> {
+        Ok(self.answer.clone())
+    }
+}
+
 struct AgentDrivenPlanBackend {
     calls: Mutex<usize>,
 }
@@ -255,6 +292,10 @@ impl LlmBackend for ExitPlanModeBackend {
 }
 
 fn create_test_agent(temp: &tempfile::TempDir) -> Agent {
+    create_test_agent_with_backend(temp, Arc::new(crate::llm::MockLlm))
+}
+
+fn create_test_agent_with_backend(temp: &tempfile::TempDir, backend: Arc<dyn LlmBackend>) -> Agent {
     let workspace_root = temp.path().join("workspace");
     let rara_dir = workspace_root.join(".rara");
     std::fs::create_dir_all(rara_dir.join("rollouts")).expect("rollouts");
@@ -271,7 +312,7 @@ fn create_test_agent(temp: &tempfile::TempDir) -> Agent {
     });
     Agent::new(
         ToolManager::new(),
-        Arc::new(crate::llm::MockLlm),
+        backend,
         Arc::new(MemoryHandle::new(
             &rara_dir.join("memory").display().to_string(),
         )),
@@ -358,6 +399,147 @@ async fn finish_ready_query_task(app: &mut TuiApp, agent_slot: &mut Option<Agent
             return;
         }
         tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+}
+
+fn install_runtime_services(app: &mut TuiApp) {
+    let bus = Arc::new(RuntimeEventBus::new(10));
+    app.event_bus = Some(bus.clone());
+    app.prompt_source_registry = Some(Arc::new(
+        crate::protocol_sources::PromptSourceRegistry::new(bus.clone()),
+    ));
+    app.skill_source_registry = Some(Arc::new(crate::protocol_sources::SkillSourceRegistry::new(
+        bus.clone(),
+    )));
+    app.hook_registry = Some(Arc::new(crate::hook_registry::HookRegistry::new(
+        bus.clone(),
+    )));
+    app.mcp_manager = Some(Arc::new(
+        crate::mcp_connection_manager::McpConnectionManager::new(
+            Arc::new(crate::config::McpRegistry::empty()),
+            bus.clone(),
+        ),
+    ));
+    app.memory_handler = Some(Arc::new(
+        crate::protocol_sources::MemoryControlHandler::new(bus),
+    ));
+}
+
+#[tokio::test]
+async fn goal_evaluator_yes_marks_goal_complete_without_continuation() {
+    let temp = tempdir().unwrap();
+    let mut app = TuiApp::new(ConfigManager {
+        path: temp.path().join("config.json"),
+    })
+    .expect("build tui app");
+    let goal = RalphGoal::new("finish the verification".to_string(), None);
+    app.goal = Some(goal.clone());
+    *app.goal_handle.write().unwrap() = Some(goal);
+
+    let mut agent = create_test_agent_with_backend(
+        &temp,
+        Arc::new(GoalEvaluatorBackend {
+            answer: "yes".to_string(),
+        }),
+    );
+    agent.total_input_tokens = 42;
+    agent.history.push(Message {
+        role: "assistant".to_string(),
+        content: json!("Verification finished."),
+    });
+    install_completed_query_task(&mut app, agent, Ok(()));
+
+    let mut agent_slot = None;
+    for _ in 0..20 {
+        finish_running_task_if_ready(&mut app, &mut agent_slot)
+            .await
+            .expect("finish task");
+        if app.bottom_pane.running_task.is_none() {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+
+    assert!(app.bottom_pane.running_task.is_none());
+    assert_eq!(
+        app.goal.as_ref().map(|goal| goal.status),
+        Some(GoalStatus::Complete)
+    );
+    assert_eq!(
+        app.goal_handle
+            .read()
+            .unwrap()
+            .as_ref()
+            .map(|goal| goal.status),
+        Some(GoalStatus::Complete)
+    );
+    assert_eq!(
+        app.bottom_pane.notice.as_deref(),
+        Some("Goal evaluator marked the goal complete.")
+    );
+}
+
+#[tokio::test]
+async fn goal_evaluator_no_injects_reason_and_continues() {
+    let temp = tempdir().unwrap();
+    let mut app = TuiApp::new(ConfigManager {
+        path: temp.path().join("config.json"),
+    })
+    .expect("build tui app");
+    install_runtime_services(&mut app);
+    let goal = RalphGoal::new("run the missing test".to_string(), None);
+    app.goal = Some(goal.clone());
+    *app.goal_handle.write().unwrap() = Some(goal);
+
+    let mut agent = create_test_agent_with_backend(
+        &temp,
+        Arc::new(GoalEvaluatorBackend {
+            answer: "no: the focused test has not run yet".to_string(),
+        }),
+    );
+    agent.total_input_tokens = 10;
+    install_completed_query_task(&mut app, agent, Ok(()));
+
+    let mut agent_slot = None;
+    for _ in 0..20 {
+        finish_running_task_if_ready(&mut app, &mut agent_slot)
+            .await
+            .expect("finish task");
+        let reason_committed = app
+            .committed_turns
+            .iter()
+            .flat_map(|turn| turn.entries.iter())
+            .any(|entry| {
+                entry.role == "System"
+                    && entry
+                        .message
+                        .contains("no: the focused test has not run yet")
+            });
+        if reason_committed && app.bottom_pane.running_task.is_some() {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+
+    assert!(app.bottom_pane.running_task.is_some());
+    assert_eq!(
+        app.goal.as_ref().map(|goal| goal.status),
+        Some(GoalStatus::Pursuing)
+    );
+    assert!(
+        app.committed_turns
+            .iter()
+            .flat_map(|turn| turn.entries.iter())
+            .any(|entry| {
+                entry.role == "System"
+                    && entry
+                        .message
+                        .contains("no: the focused test has not run yet")
+            })
+    );
+
+    if let Some(task) = app.bottom_pane.running_task.take() {
+        task.handle.abort();
     }
 }
 
@@ -661,7 +843,7 @@ async fn queued_follow_ups_start_as_one_multiline_turn() {
     );
     let mut agent_slot = Some(agent);
 
-    try_start_queued_follow_up(&mut app, &mut agent_slot);
+    try_start_queued_follow_up(&mut app, &mut agent_slot, None);
 
     assert_eq!(app.queued_follow_up_count(), 0);
     assert!(app.bottom_pane.running_task.is_some());

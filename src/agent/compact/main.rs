@@ -99,6 +99,7 @@ impl Agent {
         });
         self.compact_state.consecutive_auto_compaction_failures = 0;
         self.compact_state.auto_compaction_retry_after_tokens = None;
+        let summary_for_event = summary.clone();
         self.persist_compaction_event(&PersistedCompactionEvent {
             event_index: self.compact_state.compaction_count,
             before_tokens: current_tokens,
@@ -110,6 +111,13 @@ impl Agent {
             recent_files: self.compact_state.last_compaction_recent_files.clone(),
             summary,
         })?;
+        report(AgentEvent::Compaction {
+            count: self.compact_state.compaction_count,
+            before_tokens: current_tokens,
+            after_tokens: compacted_tokens,
+            summary: summary_for_event,
+            recent_files: self.compact_state.last_compaction_recent_files.clone(),
+        });
         Ok(true)
     }
 
@@ -225,6 +233,7 @@ impl Agent {
         });
         self.compact_state.consecutive_auto_compaction_failures = 0;
         self.compact_state.auto_compaction_retry_after_tokens = None;
+        let summary_for_event = summary.clone();
         self.persist_compaction_event(&PersistedCompactionEvent {
             event_index: self.compact_state.compaction_count,
             before_tokens: current_tokens,
@@ -236,6 +245,13 @@ impl Agent {
             recent_files: self.compact_state.last_compaction_recent_files.clone(),
             summary,
         })?;
+        report(AgentEvent::Compaction {
+            count: self.compact_state.compaction_count,
+            before_tokens: current_tokens,
+            after_tokens: compacted_tokens,
+            summary: summary_for_event,
+            recent_files: self.compact_state.last_compaction_recent_files.clone(),
+        });
         Ok(())
     }
 

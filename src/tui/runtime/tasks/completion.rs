@@ -1,9 +1,48 @@
 use crate::tui::command;
 use crate::tui::state::Overlay;
 
+use crate::runtime_client::{GoalContinuation, RuntimeClient};
+
+#[cfg(test)]
 pub(crate) async fn finish_running_task_if_ready(
     app: &mut TuiApp,
     agent_slot: &mut Option<Agent>,
+) -> anyhow::Result<()> {
+    finish_running_task_if_ready_with_completion_mode(
+        app,
+        agent_slot,
+        None,
+        true,
+        None,
+    )
+    .await
+}
+
+/// Complete a task after the structured runtime stream has already delivered
+/// its events. The compatibility receiver is drained but not replayed, which
+/// prevents each event from being applied twice during the port migration.
+pub(crate) async fn finish_running_task_if_ready_from_runtime_port(
+    app: &mut TuiApp,
+    agent_slot: &mut Option<Agent>,
+    completion: Option<Result<TaskCompletion, tokio::task::JoinError>>,
+    runtime: Option<&mut RuntimeTaskServices>,
+) -> anyhow::Result<()> {
+    finish_running_task_if_ready_with_completion_mode(
+        app,
+        agent_slot,
+        completion,
+        false,
+        runtime,
+    )
+    .await
+}
+
+async fn finish_running_task_if_ready_with_completion_mode(
+    app: &mut TuiApp,
+    agent_slot: &mut Option<Agent>,
+    completion: Option<Result<TaskCompletion, tokio::task::JoinError>>,
+    apply_compatibility_events: bool,
+    mut runtime: Option<&mut RuntimeTaskServices>,
 ) -> anyhow::Result<()> {
     if app.bottom_pane.running_task.is_none() {
         return Ok(());
@@ -19,12 +58,14 @@ pub(crate) async fn finish_running_task_if_ready(
         while let Ok(event) = task.receiver.try_recv() {
             pending_events.push(event);
         }
-        let is_finished = task.handle.is_finished();
+        let is_finished = completion.is_some() || task.handle.is_finished();
         (pending_events, is_finished)
     };
 
-    for event in pending_events {
-        apply_tui_event(app, event);
+    if apply_compatibility_events {
+        for event in pending_events {
+            apply_tui_event(app, event);
+        }
     }
 
     if !is_finished {
@@ -37,9 +78,16 @@ pub(crate) async fn finish_running_task_if_ready(
         .running_task
         .take()
         .expect("task should exist");
-    let completion = task.handle.await?;
-    while let Ok(event) = task.receiver.try_recv() {
-        apply_tui_event(app, event);
+    let completion = match completion {
+        Some(completion) => completion?,
+        None => task.handle.await?,
+    };
+    if apply_compatibility_events {
+        while let Ok(event) = task.receiver.try_recv() {
+            apply_tui_event(app, event);
+        }
+    } else {
+        while task.receiver.try_recv().is_ok() {}
     }
     match completion {
         TaskCompletion::Query { agent, result } => {
@@ -48,7 +96,7 @@ pub(crate) async fn finish_running_task_if_ready(
                 app.agent_execution_mode,
                 crate::agent::AgentExecutionMode::Plan
             );
-            if let Err(err) = sync_bash_prefixes_to_config(app, &agent) {
+            if let Err(err) = RuntimeClient::persist_bash_prefixes(&app.config_manager, &agent) {
                 app.push_notice(format!(
                     "Failed to persist bash approval rules: {}",
                     format_error_chain(&err)
@@ -63,92 +111,107 @@ pub(crate) async fn finish_running_task_if_ready(
                     );
                     app.clear_active_live_sections();
                     if finished_plan_turn {
-                        let plan_ready =
-                            agent.last_query_produced_plan() && !agent.current_plan.is_empty();
-                        let pending_exit_plan_approval = agent.has_pending_plan_exit_approval();
-                        if plan_ready && (query_started_in_plan_mode || pending_exit_plan_approval)
-                        {
-                            app.show_pending_plan_approval(agent.pending_plan_exit_tool_id());
-                        } else {
-                            app.clear_pending_plan_approval();
-                        }
-                        if plan_ready && !query_started_in_plan_mode && !pending_exit_plan_approval
-                        {
-                            app.release_pending_follow_ups();
-                            app.finalize_agent_stream(None);
-                            start_automatic_plan_implementation_task(app, agent);
-                            return Ok(());
-                        }
-                    }
-                    let prior_total_input_tokens = app.snapshot.total_input_tokens;
-                    let should_auto_continue_goal = !finished_plan_turn
-                        && app
-                            .goal_handle
-                            .read()
-                            .unwrap()
-                            .as_ref()
-                            .is_some_and(|g| g.status == GoalStatus::Pursuing)
-                        && !app.has_pending_plan_approval();
-                    if should_auto_continue_goal {
-                        app.sync_snapshot(&agent);
-                        app.goal = app.goal_handle.read().unwrap().clone();
-                        {
-                            let turn_input_tokens = app
-                                .snapshot
-                                .total_input_tokens
-                                .saturating_sub(prior_total_input_tokens);
-                            let (goal_used, goal_budget, budget_exhausted, next_goal_prompt) = {
-                                let goal = app.goal.as_mut().expect("goal must exist");
-                                goal.tokens_used += turn_input_tokens;
-                                goal.turns_completed += 1;
-                                let exhausted =
-                                    goal.token_budget.is_some_and(|b| goal.tokens_used >= b);
-                                if exhausted {
-                                    goal.status = GoalStatus::BudgetLimited;
-                                }
-                                let prompt = if exhausted {
-                                    goal_budget_limit_prompt(goal)
-                                } else {
-                                    goal_continuation_prompt(goal)
-                                };
-                                (goal.tokens_used, goal.token_budget, exhausted, prompt)
-                            };
-                            *app.goal_handle.write().unwrap() = app.goal.clone();
-                            if budget_exhausted {
-                                app.push_notice(format!(
-                                    "Goal budget exhausted: {goal_used} / {} tokens.",
-                                    goal_budget.unwrap_or(0)
-                                ));
-                                app.finalize_active_turn();
-                                start_query_task(app, next_goal_prompt, agent);
+                        match RuntimeClient::plan_continuation(&agent, query_started_in_plan_mode) {
+                            crate::runtime_client::PlanContinuation::AwaitApproval { tool_id } => {
+                                app.show_pending_plan_approval(tool_id.as_deref());
+                            }
+                            crate::runtime_client::PlanContinuation::AutomaticImplementation => {
+                                app.release_pending_follow_ups();
+                                app.finalize_agent_stream(None);
+                                start_automatic_plan_implementation_task(
+                                    app,
+                                    agent,
+                                    runtime.as_deref().cloned(),
+                                );
                                 return Ok(());
                             }
-                            let condition = app
-                                .goal
-                                .as_ref()
-                                .and_then(|g| g.condition.as_deref())
-                                .unwrap_or_default();
-                            if !condition.is_empty() {
-                                let eval_reason =
-                                    format!("no: goal not yet complete — {condition}");
-                                app.push_system(
-                                    eval_reason.clone(),
-                                    crate::tui::state::SystemMessageKind::Other,
-                                );
-                                agent.push_history_message(crate::agent::Message {
-                                    role: "system".into(),
-                                    content: serde_json::Value::String(eval_reason),
-                                });
+                            crate::runtime_client::PlanContinuation::None => {
+                                app.clear_pending_plan_approval();
                             }
+                        }
+                    }
+                    if let Some(goal) = app.goal_handle.read().unwrap().clone() {
+                        app.goal = Some(goal);
+                    }
+                    let prior_total_input_tokens = app.snapshot.total_input_tokens;
+                    match RuntimeClient::continue_goal(
+                            &app.goal_handle,
+                            &mut agent,
+                            prior_total_input_tokens,
+                            finished_plan_turn,
+                            app.has_pending_plan_approval(),
+                        )
+                        .await
+                    {
+                        GoalContinuation::BudgetLimited { goal, prompt } => {
+                            app.goal = Some(goal.clone());
+                            app.push_notice(format!(
+                                "Goal budget exhausted: {} / {} tokens.",
+                                goal.tokens_used,
+                                goal.token_budget.unwrap_or(0)
+                            ));
+                            app.apply_runtime_snapshot(
+                                &agent,
+                                crate::runtime_client::RuntimeClient::extension_snapshot_for_agent(
+                                    &agent, 0,
+                                ),
+                            );
                             app.finalize_active_turn();
-                            start_query_task(app, next_goal_prompt, agent);
+                            *agent_slot = Some(agent);
+                            let agent = agent_slot.take().expect("agent");
+                            if let Some(services) = runtime.as_deref().cloned() {
+                                start_query_task_with_services(app, prompt, agent, services);
+                            } else {
+                                start_query_task(app, prompt, agent);
+                            }
                             return Ok(());
                         }
+                        GoalContinuation::Complete { goal } => {
+                            app.goal = Some(goal);
+                            *agent_slot = Some(agent);
+                            let agent = agent_slot.as_ref().expect("agent");
+                            app.apply_runtime_snapshot(
+                                agent,
+                                crate::runtime_client::RuntimeClient::extension_snapshot_for_agent(
+                                    agent, 0,
+                                ),
+                            );
+                            app.release_pending_follow_ups();
+                            app.finalize_agent_stream(None);
+                            app.finalize_active_turn();
+                            app.bottom_pane.notice =
+                                Some("Goal evaluator marked the goal complete.".into());
+                            app.set_runtime_phase(RuntimePhase::Idle, Some("goal complete".into()));
+                            return Ok(());
+                        }
+                        GoalContinuation::Continue { goal, prompt, reason } => {
+                            app.goal = Some(goal);
+                            app.push_system(reason, crate::tui::state::SystemMessageKind::Other);
+                            app.apply_runtime_snapshot(
+                                &agent,
+                                crate::runtime_client::RuntimeClient::extension_snapshot_for_agent(
+                                    &agent, 0,
+                                ),
+                            );
+                            app.finalize_active_turn();
+                            if let Some(services) = runtime.as_deref().cloned() {
+                                start_query_task_with_services(app, prompt, agent, services);
+                            } else {
+                                start_query_task(app, prompt, agent);
+                            }
+                            return Ok(());
+                        }
+                        GoalContinuation::NotActive => {}
                     }
                     *agent_slot = Some(agent);
                     app.goal = app.goal_handle.read().unwrap().clone();
                     if let Some(a) = agent_slot.as_ref() {
-                        app.sync_snapshot(a);
+                            app.apply_runtime_snapshot(
+                                a,
+                                crate::runtime_client::RuntimeClient::extension_snapshot_for_agent(
+                                    a, 0,
+                                ),
+                            );
                     }
                     app.release_pending_follow_ups();
                     app.finalize_agent_stream(None);
@@ -163,12 +226,9 @@ pub(crate) async fn finish_running_task_if_ready(
                             app.push_notice("Planning finished. Staying in plan mode.");
                         }
                         app.finalize_active_turn();
-                        if let Some(agent) = agent_slot.as_ref() {
-                            crate::auto_memory::maybe_auto_memory(app, agent);
-                        }
                         app.bottom_pane.notice = Some("Prompt finished.".into());
                         app.set_runtime_phase(RuntimePhase::Idle, Some("prompt finished".into()));
-                        try_start_queued_follow_up(app, agent_slot);
+                        try_start_queued_follow_up(app, agent_slot, runtime.as_deref().cloned());
                     }
                 }
                 Err(err) => {
@@ -184,7 +244,12 @@ pub(crate) async fn finish_running_task_if_ready(
                     app.clear_pending_plan_approval();
                     *agent_slot = Some(agent);
                     if let Some(agent) = agent_slot.as_ref() {
-                        app.sync_snapshot(agent);
+                        app.apply_runtime_snapshot(
+                            agent,
+                            crate::runtime_client::RuntimeClient::extension_snapshot_for_agent(
+                                agent, 0,
+                            ),
+                        );
                     }
                     app.release_pending_follow_ups();
                     app.finalize_agent_stream(None);
@@ -192,7 +257,7 @@ pub(crate) async fn finish_running_task_if_ready(
                         app.finalize_active_turn();
                         app.bottom_pane.notice = Some("Query cancelled.".into());
                         app.set_runtime_phase(RuntimePhase::Idle, Some("query cancelled".into()));
-                        try_start_queued_follow_up(app, agent_slot);
+                        try_start_queued_follow_up(app, agent_slot, runtime.as_deref().cloned());
                         return Ok(());
                     }
                     app.set_runtime_phase(RuntimePhase::Failed, Some("query failed".into()));
@@ -210,14 +275,19 @@ pub(crate) async fn finish_running_task_if_ready(
                     }
                     app.push_system(message.clone(), SystemMessageKind::Other);
                     app.push_notice(message);
-                    try_start_queued_follow_up(app, agent_slot);
+                    try_start_queued_follow_up(app, agent_slot, runtime.as_deref().cloned());
                 }
             }
         }
         TaskCompletion::Compact { agent, result } => {
             *agent_slot = Some(agent);
             if let Some(agent) = agent_slot.as_ref() {
-                app.sync_snapshot(agent);
+                        app.apply_runtime_snapshot(
+                            agent,
+                            crate::runtime_client::RuntimeClient::extension_snapshot_for_agent(
+                                agent, 0,
+                            ),
+                        );
             }
             match result {
                 Ok(true) => {
@@ -239,7 +309,7 @@ pub(crate) async fn finish_running_task_if_ready(
                     }
                     app.finalize_active_turn();
                     app.set_runtime_phase(RuntimePhase::Idle, Some("history compacted".into()));
-                    try_start_queued_follow_up(app, agent_slot);
+                    try_start_queued_follow_up(app, agent_slot, runtime.as_deref().cloned());
                 }
                 Ok(false) => {
                     app.clear_active_live_sections();
@@ -249,7 +319,7 @@ pub(crate) async fn finish_running_task_if_ready(
                     app.push_notice(message);
                     app.finalize_active_turn();
                     app.set_runtime_phase(RuntimePhase::Idle, Some("compact skipped".into()));
-                    try_start_queued_follow_up(app, agent_slot);
+                    try_start_queued_follow_up(app, agent_slot, runtime.as_deref().cloned());
                 }
                 Err(err) => {
                     app.clear_active_live_sections();
@@ -284,13 +354,26 @@ pub(crate) async fn finish_running_task_if_ready(
                 app.mcp_tool_cache = Some(rebuilt.mcp_tool_cache);
                 app.mcp_manager = Some(rebuilt.mcp_manager);
                 app.lsp_manager = Some(rebuilt.lsp_manager);
-                app.prompt_source_registry = Some(rebuilt.prompt_source_registry);
-                app.skill_source_registry = Some(rebuilt.skill_source_registry);
+                if let Some(runtime) = runtime.as_deref_mut() {
+                    *runtime = RuntimeTaskServices {
+                        prompt_source_registry: rebuilt.prompt_source_registry.clone(),
+                        skill_source_registry: rebuilt.skill_source_registry.clone(),
+                        hook_registry: rebuilt.hook_registry.clone(),
+                    };
+                }
+                #[cfg(test)]
+                {
+                    app.prompt_source_registry = Some(rebuilt.prompt_source_registry);
+                    app.skill_source_registry = Some(rebuilt.skill_source_registry);
+                }
                 app.memory_handler = Some(rebuilt.memory_handler);
-                app.hook_registry = Some(rebuilt.hook_registry);
+                #[cfg(test)]
+                {
+                    app.hook_registry = Some(rebuilt.hook_registry);
+                }
                 app.hook_runtime = Some(rebuilt.hook_runtime.clone());
                 app.local_model_server = rebuilt.local_model_server;
-                app.config_manager.save(&app.config)?;
+                RuntimeClient::persist_config(&app.config_manager, &app.config)?;
                 let is_bootstrap = app.setup_status.is_none();
                 app.setup_status = Some(format!(
                     "Applied {} / {}",
@@ -300,7 +383,12 @@ pub(crate) async fn finish_running_task_if_ready(
                 app.bottom_pane.notice = app.setup_status.clone();
                 *agent_slot = Some(agent);
                 if let Some(agent) = agent_slot.as_ref() {
-                    app.sync_snapshot(agent);
+                    app.apply_runtime_snapshot(
+                        agent,
+                        crate::runtime_client::RuntimeClient::extension_snapshot_for_agent(
+                            agent, 0,
+                        ),
+                    );
                 }
                 app.dismiss_overlay();
                 app.set_runtime_phase(RuntimePhase::BackendReady, Some("backend ready".into()));
@@ -331,7 +419,7 @@ pub(crate) async fn finish_running_task_if_ready(
                     app.bottom_pane.notice = Some(notice);
                 }
                 app.finalize_active_turn();
-                try_start_queued_follow_up(app, agent_slot);
+                try_start_queued_follow_up(app, agent_slot, runtime.as_deref().cloned());
             }
             Err(err) => {
                 app.set_runtime_phase(RuntimePhase::Failed, Some("backend rebuild failed".into()));
@@ -375,38 +463,37 @@ pub(crate) async fn finish_running_task_if_ready(
                 app.push_notice(message);
             }
         },
-        TaskCompletion::DeepSeekModels { result } => match result {
+        TaskCompletion::ModelCatalog { provider, result } => match result {
             Ok(models) => {
                 let count = models.len();
-                app.set_deepseek_model_options(models);
-                app.bottom_pane.notice = Some(format!("Loaded {count} DeepSeek models."));
+                match provider {
+                    ModelCatalogProvider::DeepSeek => app.set_deepseek_model_catalog(models),
+                    ModelCatalogProvider::Kimi => app.set_kimi_model_catalog(models),
+                }
+                let label = match provider {
+                    ModelCatalogProvider::DeepSeek => "DeepSeek",
+                    ModelCatalogProvider::Kimi => "Kimi",
+                };
+                app.bottom_pane.notice = Some(format!("Loaded {count} {label} models."));
                 app.set_runtime_phase(RuntimePhase::Idle, Some("models loaded".into()));
                 app.open_overlay(Overlay::ListPicker(ListPickerKind::Model));
             }
             Err(err) => {
-                app.set_deepseek_model_options(fallback_models(ModelCatalogProvider::DeepSeek));
+                let fallback = fallback_catalog(provider);
+                match provider {
+                    ModelCatalogProvider::DeepSeek => {
+                        app.set_deepseek_model_catalog_with_source(fallback, true)
+                    }
+                    ModelCatalogProvider::Kimi => {
+                        app.set_kimi_model_catalog_with_source(fallback, true)
+                    }
+                }
+                let label = match provider {
+                    ModelCatalogProvider::DeepSeek => "DeepSeek",
+                    ModelCatalogProvider::Kimi => "Kimi",
+                };
                 let message = format!(
-                    "Failed to load DeepSeek models. Showing fallback list.\n{}",
-                    format_error_chain(&err)
-                );
-                app.push_system(message.clone(), SystemMessageKind::Other);
-                app.push_notice(message);
-                app.set_runtime_phase(RuntimePhase::Idle, Some("model list fallback".into()));
-                app.open_overlay(Overlay::ListPicker(ListPickerKind::Model));
-            }
-        },
-        TaskCompletion::KimiModels { result } => match result {
-            Ok(models) => {
-                let count = models.len();
-                app.set_kimi_model_options(models);
-                app.bottom_pane.notice = Some(format!("Loaded {count} Kimi models."));
-                app.set_runtime_phase(RuntimePhase::Idle, Some("models loaded".into()));
-                app.open_overlay(Overlay::ListPicker(ListPickerKind::Model));
-            }
-            Err(err) => {
-                app.set_kimi_model_options(fallback_models(ModelCatalogProvider::Kimi));
-                let message = format!(
-                    "Failed to load Kimi models. Showing fallback list.\n{}",
+                    "Failed to load {label} models. Showing fallback list.\n{}",
                     format_error_chain(&err)
                 );
                 app.push_system(message.clone(), SystemMessageKind::Other);
@@ -420,18 +507,18 @@ pub(crate) async fn finish_running_task_if_ready(
     Ok(())
 }
 
-fn emit_query_heartbeat(app: &mut TuiApp) {
+pub(super) fn emit_query_heartbeat(app: &mut TuiApp) -> bool {
     let elapsed = {
         let Some(task) = app.bottom_pane.running_task.as_mut() else {
-            return;
+            return false;
         };
         if !matches!(task.kind, TaskKind::Query) {
-            return;
+            return false;
         }
 
         let elapsed = task.started_at.elapsed().as_secs();
         if elapsed < task.next_heartbeat_after_secs {
-            return;
+            return false;
         }
         task.next_heartbeat_after_secs = elapsed.saturating_add(1);
         elapsed
@@ -485,4 +572,5 @@ fn emit_query_heartbeat(app: &mut TuiApp) {
 
     app.set_runtime_phase(phase, Some(detail));
     app.bottom_pane.notice = Some(notice);
+    true
 }

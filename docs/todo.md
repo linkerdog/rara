@@ -19,6 +19,50 @@ Active backlog only. Keep this file small and current.
 
 ## TUI / UX
 
+- [x] Complete the session-scoped `RuntimeClient` migration: route typed
+      commands and runtime snapshots/events through the client, then remove
+      runtime registries and completion orchestration from `TuiApp`.
+- [x] Move goal continuation, plan continuation decisions, rebuilt-agent
+      continuity, and runtime persistence helpers out of TUI task logic.
+- [x] Deliver RuntimeControlEvent directly to TUI task consumers and stop
+      deriving runtime semantics from role/message transcript formatting.
+- [x] Establish the `RuntimeClientPort` and `TuiController` seam without
+      exposing `Agent`, registries, or task join handles to future fakes.
+- [x] Route runtime receiver events and task completion through one
+      `tokio::select!` mux, and redraw only after a visible state change.
+- [x] Add a shared scripted `TuiHarness` and `FakeRuntimeClient` for
+      snapshot, event, completion, cancel, disconnect, reconnect, and render
+      lifecycle tests without wall-clock sleeps.
+- [x] Route production TUI runtime projections and snapshots through the
+      session-scoped in-process `RuntimeClientPort` adapter; drain the legacy
+      task receiver without replaying events.
+- [x] Replace the local `AgentEvent -> role/message -> parser` compatibility
+      path with a typed TUI projection event carrying session and sequence
+      identity.
+- [x] Route interactive user prompts and session cancellation through the
+      in-process `RuntimeClientPort` command mux.
+- [x] Route plan, shell, and pending-input approval commands through the
+      in-process `RuntimeClientPort` command mux.
+- [x] Move compact, rebuild, and model-list execution behind
+      `RuntimeClientPort` while preserving the existing in-process task
+      lifecycle.
+- [x] Remove `RuntimeClient`/`Agent` ownership from `TuiController` by moving
+      task construction, completion, and runtime replacement access into the
+      runtime command processor.
+- [x] Remove mutable extension-registry projections from `TuiApp`; registry
+      discovery and reload must remain runtime-owned while TUI receives typed
+      snapshots. Production task construction now receives explicit runtime
+      services; only test-only fixtures retain local registry setup helpers.
+- [x] Construct `TuiController` directly from an injected port and add
+      deterministic scripted lifecycle controls to the shared harness.
+
+## Memory Lifecycle
+
+- [x] Own incremental session capture, compaction flush, fail-open warnings,
+      stable append deduplication, and bounded shutdown drain in the runtime.
+- [x] Load Nowledge Mem context at session start and refresh it after
+      compaction through the built-in plugin instructions.
+
 - [x] Keep `rara-file-search` as the shared backend for TUI file suggestions
       and `list_files`; keep automatic retrieval as optional low-priority
       paths-only `RetrievalCandidate` / `MemorySelection` input.
@@ -78,9 +122,14 @@ Active backlog only. Keep this file small and current.
       overrides.
 - [x] Surface configured subagent provider/model targets in runtime status for
       agent definitions.
-- [ ] Decide whether subagents should receive direct plugin skill or MCP tool
-      access. Builtin plugin agent definitions are registered, but external
-      execution authority remains parent-owned.
+- [x] Define the default-deny policy for subagent plugin skill and MCP access.
+- [x] Add a runtime-owned scoped plugin skill executor for explicit
+      `AgentDefinition.pluginSkills` allowlists; child reload and discovery stay
+      disabled. MCP and plugin memory authority remain parent-owned.
+- [ ] Evaluate a structured runtime agent catalog before adding
+      description-driven automatic selection for built-in and custom profiles.
+- [ ] Decide whether `team_create` should accept named agent definitions in
+      addition to the built-in `general`, `explore`, and `plan` task kinds.
 
 ## Shared Task Lists
 
@@ -133,6 +182,11 @@ Active backlog only. Keep this file small and current.
       removal if this branch needs Bazel CI validation.
 - [ ] Decide whether to keep or migrate away the deprecated
       `local_embeddings` config field.
+
+## Provider Catalog
+
+- [x] Enrich connected DeepSeek/Kimi model lists with static and API-provided
+      context-window metadata and show it in model pickers.
 
 ## Patch Engine
 

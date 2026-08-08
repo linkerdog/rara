@@ -20,13 +20,26 @@ pub struct ModelCatalogRequest<'a> {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ModelCatalog {
     pub provider: ModelCatalogProvider,
-    pub models: Vec<String>,
+    pub models: Vec<ModelCatalogEntry>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ModelCatalogEntry {
+    pub id: String,
+    pub context_window: Option<u32>,
 }
 
 pub fn fallback_models(provider: ModelCatalogProvider) -> Vec<String> {
     match provider {
         ModelCatalogProvider::DeepSeek => deepseek::fallback_models(),
         ModelCatalogProvider::Kimi => kimi::fallback_models(),
+    }
+}
+
+pub fn fallback_catalog(provider: ModelCatalogProvider) -> Vec<ModelCatalogEntry> {
+    match provider {
+        ModelCatalogProvider::DeepSeek => deepseek::fallback_catalog(),
+        ModelCatalogProvider::Kimi => kimi::fallback_catalog(),
     }
 }
 

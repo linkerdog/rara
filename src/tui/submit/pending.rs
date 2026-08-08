@@ -1,31 +1,41 @@
 use crate::agent::Agent;
-use crate::runtime_control::ShellApprovalDecision;
+use crate::runtime_control::{InputControlRequest, ShellApprovalDecision};
 use crate::tui::input_control;
+use crate::tui::runtime_port::{RuntimeClientPort, RuntimeCommand};
 use crate::tui::state::{ActivePendingInteractionKind, TuiApp};
 
-pub(super) fn handle_pending_option_submit(
+pub(super) async fn handle_pending_option_submit(
     app: &mut TuiApp,
     agent_slot: &mut Option<Agent>,
     trimmed: &str,
-) -> bool {
+    runtime_port: Option<&dyn RuntimeClientPort>,
+) -> anyhow::Result<bool> {
     let Some(index) = pending_option_index_from_text(trimmed) else {
-        return false;
+        return Ok(false);
     };
     if index >= app.active_pending_option_count() {
-        return false;
+        return Ok(false);
     }
     let Some(interaction) = app.active_pending_interaction() else {
-        return false;
+        return Ok(false);
     };
     match interaction.kind {
         ActivePendingInteractionKind::PlanApproval => {
             if let Some(decision) = input_control::plan_approval_decision_for_index(index) {
                 let feedback = pending_option_feedback_from_text(trimmed);
-                input_control::answer_plan_approval_with_feedback(
-                    app, agent_slot, decision, feedback,
-                );
+                if let Some(runtime_port) = runtime_port {
+                    runtime_port
+                        .send(RuntimeCommand::Input(
+                            InputControlRequest::AnswerPlanApproval { decision, feedback },
+                        ))
+                        .await?;
+                } else {
+                    input_control::answer_plan_approval_with_feedback(
+                        app, agent_slot, decision, feedback,
+                    );
+                }
             }
-            true
+            Ok(true)
         }
         ActivePendingInteractionKind::ShellApproval => {
             let selection = match index {
@@ -34,22 +44,38 @@ pub(super) fn handle_pending_option_submit(
                 2 => ShellApprovalDecision::Always,
                 _ => ShellApprovalDecision::Suggestion,
             };
-            input_control::answer_shell_approval(app, agent_slot, selection);
-            true
+            if let Some(runtime_port) = runtime_port {
+                runtime_port
+                    .send(RuntimeCommand::Input(
+                        InputControlRequest::AnswerShellApproval {
+                            decision: selection,
+                        },
+                    ))
+                    .await?;
+            } else {
+                input_control::answer_shell_approval(app, agent_slot, selection);
+            }
+            Ok(true)
         }
         ActivePendingInteractionKind::PlanningQuestion
         | ActivePendingInteractionKind::ExplorationQuestion
         | ActivePendingInteractionKind::SubAgentQuestion
         | ActivePendingInteractionKind::RequestInput => {
             if let Some(label) = app.pending_question_option_label(index) {
-                if let Some(agent) = agent_slot.take() {
+                if let Some(runtime_port) = runtime_port {
+                    runtime_port
+                        .send(RuntimeCommand::Input(
+                            InputControlRequest::AnswerPendingInput { answer: label },
+                        ))
+                        .await?;
+                } else if let Some(agent) = agent_slot.take() {
                     input_control::answer_pending_input(app, agent_slot, agent, label);
                 } else {
                     app.push_notice("Request input is still preparing. Try the shortcut again.");
                 }
-                return true;
+                return Ok(true);
             }
-            false
+            Ok(false)
         }
     }
 }

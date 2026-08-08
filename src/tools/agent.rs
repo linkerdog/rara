@@ -3,7 +3,7 @@
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::{
-    Arc, Mutex,
+    Arc, Mutex, RwLock,
     atomic::{AtomicBool, Ordering},
 };
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
@@ -29,9 +29,12 @@ use crate::llm::LlmBackend;
 use crate::prompt::PromptRuntimeConfig;
 use crate::session::SessionManager;
 use crate::session_transcript::{self, TranscriptScope};
+use crate::skill::{SkillManager, SkillScope};
 use crate::tasklist::TaskListStore;
 use crate::thread_store::{ThreadRecorder, ThreadRuntimeLineage, ThreadRuntimeState};
+use crate::tools::skill::{SkillReloadPolicy, SkillTool};
 use crate::tools::tasklist::{TaskCreateTool, TaskGetTool, TaskListTool, TaskUpdateTool};
+use crate::tools::web::{WebFetchTool, WebSearchTool};
 use crate::workspace::WorkspaceMemory;
 
 #[path = "agent_budget.rs"]
@@ -68,6 +71,7 @@ pub(super) fn agent_tool_to_internal_name(name: &str) -> &str {
         "TaskList" => "task_list",
         "TaskGet" => "task_get",
         "TaskUpdate" => "task_update",
+        "Skill" => "skill",
         "Task" | "spawn_agent" => "spawn_agent",
         n => n,
     }
@@ -354,11 +358,12 @@ pub struct AgentTool {
     pub background_subagents: Arc<BackgroundSubAgentStore>,
     pub task_list_id: String,
     pub agent_definitions: AgentDefinitionCache,
+    pub skill_manager: Arc<RwLock<SkillManager>>,
 }
 
 #[tool_spec(
     name = "spawn_agent",
-    description = "Spawn a shared-task worker sub-agent. It cannot inspect files, run shell commands, edit files, or spawn other agents; it can inspect and update shared task-list entries. Use explore_agent or plan_agent for read-only repository inspection.",
+    description = "Spawn a bounded worker sub-agent. Built-in names: general for shared-task reasoning, code-reviewer for independent code review, architect for architecture and trade-off analysis, and researcher for multi-source research with file or URL evidence. The specialist roles are read-only and cannot run shell commands, edit files, or spawn agents. Use explore_agent for generic repository inspection or plan_agent for implementation planning.",
     input_schema = {
         "type": "object",
         "properties": {
@@ -430,6 +435,7 @@ impl AgentTool {
                 prompt_config: self.prompt_config.clone(),
                 task_list_id: self.task_list_id.clone(),
                 agent_definitions: self.agent_definitions.clone(),
+                skill_manager: Some(self.skill_manager.clone()),
             })?;
             return Ok(task.to_json());
         }
@@ -451,6 +457,7 @@ impl AgentTool {
             self.prompt_config.clone(),
             self.task_list_id.clone(),
             self.agent_definitions.clone(),
+            Some(self.skill_manager.clone()),
         )
         .await?;
         Ok(json!({
@@ -484,6 +491,7 @@ pub struct ExploreAgentTool {
     pub background_subagents: Arc<BackgroundSubAgentStore>,
     pub task_list_id: String,
     pub agent_definitions: AgentDefinitionCache,
+    pub skill_manager: Arc<RwLock<SkillManager>>,
 }
 
 #[tool_spec(
@@ -551,6 +559,7 @@ impl ExploreAgentTool {
                 prompt_config: self.prompt_config.clone(),
                 task_list_id: self.task_list_id.clone(),
                 agent_definitions: self.agent_definitions.clone(),
+                skill_manager: Some(self.skill_manager.clone()),
             })?;
             return Ok(task.to_json());
         }
@@ -572,6 +581,7 @@ impl ExploreAgentTool {
             self.prompt_config.clone(),
             self.task_list_id.clone(),
             self.agent_definitions.clone(),
+            Some(self.skill_manager.clone()),
         )
         .await?;
         Ok(json!({
@@ -602,6 +612,7 @@ pub struct PlanAgentTool {
     pub background_subagents: Arc<BackgroundSubAgentStore>,
     pub task_list_id: String,
     pub agent_definitions: AgentDefinitionCache,
+    pub skill_manager: Arc<RwLock<SkillManager>>,
 }
 
 #[tool_spec(
@@ -669,6 +680,7 @@ impl PlanAgentTool {
                 prompt_config: self.prompt_config.clone(),
                 task_list_id: self.task_list_id.clone(),
                 agent_definitions: self.agent_definitions.clone(),
+                skill_manager: Some(self.skill_manager.clone()),
             })?;
             return Ok(task.to_json());
         }
@@ -690,6 +702,7 @@ impl PlanAgentTool {
             self.prompt_config.clone(),
             self.task_list_id.clone(),
             self.agent_definitions.clone(),
+            Some(self.skill_manager.clone()),
         )
         .await?;
         Ok(json!({
@@ -724,6 +737,7 @@ pub struct TeamCreateTool {
     pub prompt_config: PromptRuntimeConfig,
     pub task_list_id: String,
     pub agent_definitions: AgentDefinitionCache,
+    pub skill_manager: Arc<RwLock<SkillManager>>,
 }
 
 const BACKGROUND_SUBAGENT_COMPLETED_RETENTION: usize = 64;
@@ -755,6 +769,7 @@ struct BackgroundSubAgentStart {
     prompt_config: PromptRuntimeConfig,
     task_list_id: String,
     agent_definitions: AgentDefinitionCache,
+    skill_manager: Option<Arc<RwLock<SkillManager>>>,
 }
 
 #[derive(Clone, Debug)]
@@ -849,6 +864,7 @@ impl BackgroundSubAgentStore {
                 start.prompt_config,
                 start.task_list_id,
                 start.agent_definitions,
+                start.skill_manager,
             )
             .await;
             store.finish(&agent_id, result);
@@ -1233,6 +1249,7 @@ impl TeamCreateTool {
             let prompt_config = self.prompt_config.clone();
             let task_list_id = self.task_list_id.clone();
             let agent_definitions = self.agent_definitions.clone();
+            let skill_manager = self.skill_manager.clone();
             let parent_session_id = parent_session_id.map(str::to_string);
             let agent_id = next_subagent_id(task.kind, Some(&task.name));
 
@@ -1255,6 +1272,7 @@ impl TeamCreateTool {
                     prompt_config,
                     task_list_id,
                     agent_definitions,
+                    Some(skill_manager),
                 )
                 .await?;
                 Ok::<_, ToolError>(serialize_team_result(&task.name, result))
@@ -1316,6 +1334,7 @@ pub(crate) async fn run_sub_agent(
     prompt_config: PromptRuntimeConfig,
     task_list_id: String,
     agent_definitions: AgentDefinitionCache,
+    skill_manager: Option<Arc<RwLock<SkillManager>>>,
 ) -> Result<SubAgentResult, ToolError> {
     let permission_mode = agent_permission_mode(definition)?;
     let token_budget = agent_token_budget(definition)?;
@@ -1331,6 +1350,42 @@ pub(crate) async fn run_sub_agent(
             &task_list_id,
         ))
     }?;
+    let capability_policy = SubagentPluginCapabilityPolicy {
+        plugin_skills: definition
+            .map(|definition| definition.plugin_skills.clone())
+            .unwrap_or_default(),
+        ..Default::default()
+    };
+    let skill_tool_enabled = definition.is_none_or(|definition| {
+        let included = definition.tools.is_empty()
+            || definition
+                .tools
+                .iter()
+                .map(|name| agent_tool_to_internal_name(name))
+                .any(|name| name == "skill");
+        let excluded = definition
+            .disallowed_tools
+            .iter()
+            .map(|name| agent_tool_to_internal_name(name))
+            .any(|name| name == "skill");
+        included && !excluded
+    });
+    if kind.read_only() && !capability_policy.plugin_skills.is_empty() {
+        return Err(ToolError::InvalidInput(
+            "pluginSkills are not supported for read-only subagents".into(),
+        ));
+    }
+    if !skill_tool_enabled && !capability_policy.plugin_skills.is_empty() {
+        return Err(ToolError::InvalidInput(
+            "pluginSkills requires the skill tool to be enabled".into(),
+        ));
+    }
+    let mut tool_manager = tool_manager;
+    register_scoped_plugin_skill_tool(
+        &mut tool_manager,
+        skill_manager,
+        &capability_policy.plugin_skills,
+    )?;
     let mut sub = Agent::new_with_agent_definitions(
         tool_manager,
         resolved_backend.backend,
@@ -1361,7 +1416,9 @@ pub(crate) async fn run_sub_agent(
         Some(system_prompt) => format!("{role_prompt}\n\n{system_prompt}"),
         None => role_prompt,
     };
-    sub.set_prompt_config(append_subagent_prompt(prompt_config, &appended_prompt));
+    let mut prompt_config = append_subagent_prompt(prompt_config, &appended_prompt);
+    prompt_config.subagent_capability_policy = Some(capability_policy.prompt_instructions());
+    sub.set_prompt_config(prompt_config);
     sub.task_list_id = task_list_id;
 
     let def_max_turns = definition
@@ -1598,6 +1655,8 @@ fn build_custom_spawn_agent_tool_manager(
 ) -> ToolManager {
     let task_store = Arc::new(TaskListStore::new(task_root));
     let mut tool_manager = build_read_only_tool_manager(task_store.clone(), default_task_list_id);
+    tool_manager.register(Box::new(WebFetchTool));
+    tool_manager.register(Box::new(WebSearchTool::from_env()));
     tool_manager.register(Box::new(TaskCreateTool {
         store: task_store.clone(),
         default_task_list_id: default_task_list_id.to_string(),
@@ -1907,6 +1966,7 @@ fn resolve_kind_definition(kind: SubAgentKind) -> AgentDefinition {
         provider: None,
         tools: vec![],
         disallowed_tools: vec![],
+        plugin_skills: vec![],
         max_turns: 0,
         plan_mode_required: matches!(kind, SubAgentKind::Plan),
         permission_mode: None,
@@ -1932,9 +1992,9 @@ fn subagent_role_prompt(kind: SubAgentKind, definition: Option<&AgentDefinition>
             "- Treat the assigned instruction as the complete task contract.\n",
             "- Honor every constraint in the assigned instruction, including workspace, branch, network, and output limits.\n",
             "- Stay inside the current workspace unless the assigned instruction explicitly allows another path.\n",
-            "- Repository inspection is allowed only through the read-only tools exposed to you.\n",
+            "- Inspect repository or web evidence only through the read-only tools exposed to you.\n",
             "- You may use shared task-list tools to inspect, claim, update, or complete project tasks when they are exposed.\n",
-            "- You do not have shell, editing, patching, browser, or agent-spawning tools in this role.\n",
+            "- You do not have shell, editing, patching, interactive browser automation, or agent-spawning tools in this role.\n",
             "- If the assigned instruction requires unavailable tools, report the limitation and answer from the available context.\n",
             "- Do not delegate to another agent or spawn sub-agents; complete the assigned work directly."
         )
@@ -1952,12 +2012,51 @@ fn fallback_spawn_agent_definition(name: &str) -> AgentDefinition {
         provider: None,
         tools: vec![],
         disallowed_tools: vec![],
+        plugin_skills: vec![],
         max_turns: 0,
         plan_mode_required: false,
         permission_mode: None,
         hidden: false,
         system_prompt: String::new(),
     }
+}
+
+fn register_scoped_plugin_skill_tool(
+    tool_manager: &mut ToolManager,
+    parent_skill_manager: Option<Arc<RwLock<SkillManager>>>,
+    allowed_skills: &[String],
+) -> Result<(), ToolError> {
+    if allowed_skills.is_empty() {
+        return Ok(());
+    }
+
+    let parent_skill_manager = parent_skill_manager.ok_or_else(|| {
+        ToolError::ExecutionFailed(
+            "plugin skills require a runtime-owned skill manager".to_string(),
+        )
+    })?;
+    let parent = parent_skill_manager
+        .read()
+        .map_err(|err| ToolError::ExecutionFailed(format!("skill lock failed: {err}")))?;
+    let mut scoped = SkillManager::new();
+    for name in allowed_skills {
+        let skill = parent
+            .get_skill(name)
+            .ok_or_else(|| ToolError::InvalidInput(format!("unknown plugin skill: {name}")))?;
+        if skill.scope != SkillScope::Plugin {
+            return Err(ToolError::InvalidInput(format!(
+                "skill is not a plugin skill: {name}"
+            )));
+        }
+        scoped.skills.insert(name.clone(), skill.clone());
+    }
+
+    tool_manager.register(Box::new(SkillTool {
+        skill_manager: Arc::new(RwLock::new(scoped)),
+        plugin_roots: Vec::new(),
+        reload_policy: SkillReloadPolicy::Disabled,
+    }));
+    Ok(())
 }
 
 fn build_filtered_tool_manager(

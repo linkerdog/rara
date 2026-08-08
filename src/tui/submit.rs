@@ -3,6 +3,7 @@ use std::sync::Arc;
 use super::command::parse_local_command;
 use super::input_control;
 use super::runtime::execute_local_command;
+use super::runtime_port::{RuntimeClientPort, RuntimeCommand};
 use super::state::{
     ActivePendingInteractionKind, LocalCommandKind, OpenAiModelPickerAction, TuiApp,
 };
@@ -14,6 +15,24 @@ pub(crate) async fn handle_submit(
     app: &mut TuiApp,
     agent_slot: &mut Option<Agent>,
     oauth_manager: &Arc<crate::oauth::OAuthManager>,
+) -> anyhow::Result<bool> {
+    handle_submit_inner(app, agent_slot, oauth_manager, None).await
+}
+
+pub(crate) async fn handle_submit_with_port(
+    app: &mut TuiApp,
+    agent_slot: &mut Option<Agent>,
+    oauth_manager: &Arc<crate::oauth::OAuthManager>,
+    runtime_port: &dyn RuntimeClientPort,
+) -> anyhow::Result<bool> {
+    handle_submit_inner(app, agent_slot, oauth_manager, Some(runtime_port)).await
+}
+
+async fn handle_submit_inner(
+    app: &mut TuiApp,
+    agent_slot: &mut Option<Agent>,
+    oauth_manager: &Arc<crate::oauth::OAuthManager>,
+    runtime_port: Option<&dyn RuntimeClientPort>,
 ) -> anyhow::Result<bool> {
     if app.bottom_pane.input.is_empty() {
         if let Some(interaction) = app.active_pending_interaction()
@@ -53,11 +72,26 @@ pub(crate) async fn handle_submit(
                 && matches!(command.kind, LocalCommandKind::Quit)
             {
                 save_before_quit(app);
-                return execute_local_command(command, app, agent_slot, oauth_manager).await;
+                return execute_local_command_with_port(
+                    command,
+                    app,
+                    agent_slot,
+                    oauth_manager,
+                    runtime_port,
+                )
+                .await;
             }
             app.push_notice(
                 "A task is already running. Wait for it to finish before running a slash command.",
             );
+        } else if let Some(runtime_port) = runtime_port {
+            runtime_port
+                .send(RuntimeCommand::Input(
+                    crate::runtime_control::InputControlRequest::SubmitUserPrompt {
+                        prompt: trimmed,
+                    },
+                ))
+                .await?;
         } else {
             input_control::submit_user_prompt(app, agent_slot, trimmed);
         }
@@ -65,26 +99,56 @@ pub(crate) async fn handle_submit(
     }
 
     if app.has_pending_plan_approval() && !trimmed.starts_with('/') {
-        if pending::handle_pending_option_submit(app, agent_slot, &trimmed) {
+        if pending::handle_pending_option_submit(app, agent_slot, &trimmed, runtime_port).await? {
             return Ok(false);
         }
         handle_pending_plan_approval_submit(app);
         return Ok(false);
     }
     if let Some(command) = parse_local_command(&trimmed) {
-        let should_quit = execute_local_command(command, app, agent_slot, oauth_manager).await?;
+        let should_quit =
+            execute_local_command_with_port(command, app, agent_slot, oauth_manager, runtime_port)
+                .await?;
         if should_quit {
             save_before_quit(app);
             return Ok(true);
         }
     } else if trimmed.starts_with('/') {
         app.push_notice(format!("Unknown command '{}'. Use /help.", trimmed));
-    } else if pending::handle_pending_option_submit(app, agent_slot, &trimmed) {
+    } else if pending::handle_pending_option_submit(app, agent_slot, &trimmed, runtime_port).await?
+    {
         return Ok(false);
+    } else if let Some(runtime_port) = runtime_port {
+        runtime_port
+            .send(RuntimeCommand::Input(
+                crate::runtime_control::InputControlRequest::SubmitUserPrompt { prompt: trimmed },
+            ))
+            .await?;
     } else {
         input_control::submit_user_prompt(app, agent_slot, trimmed);
     }
     Ok(false)
+}
+
+async fn execute_local_command_with_port(
+    command: super::state::LocalCommand,
+    app: &mut TuiApp,
+    agent_slot: &mut Option<Agent>,
+    oauth_manager: &Arc<crate::oauth::OAuthManager>,
+    runtime_port: Option<&dyn RuntimeClientPort>,
+) -> anyhow::Result<bool> {
+    if let Some(runtime_port) = runtime_port {
+        super::runtime::execute_local_command_with_runtime(
+            command,
+            app,
+            agent_slot,
+            oauth_manager,
+            runtime_port,
+        )
+        .await
+    } else {
+        execute_local_command(command, app, agent_slot, oauth_manager).await
+    }
 }
 
 /// Persist the active turn and runtime state before quitting.
@@ -98,9 +162,10 @@ fn save_before_quit(app: &mut TuiApp) {
     app.persist_runtime_state();
 }
 
-pub(crate) fn apply_openai_model_picker_action(
+pub(crate) async fn apply_openai_model_picker_action(
     app: &mut TuiApp,
     action: OpenAiModelPickerAction,
+    runtime_port: Option<&dyn RuntimeClientPort>,
 ) -> anyhow::Result<()> {
     match action {
         OpenAiModelPickerAction::SelectProfile => {
@@ -110,7 +175,15 @@ pub(crate) fn apply_openai_model_picker_action(
                     app.bottom_pane.notice = Some(format!("Selected endpoint profile: {label}"));
                     app.begin_active_openai_profile_setup();
                 } else {
-                    super::runtime::start_rebuild_task(app);
+                    if let Some(runtime_port) = runtime_port {
+                        runtime_port
+                            .send(RuntimeCommand::Maintenance(
+                                super::runtime_port::RuntimeMaintenanceCommand::Rebuild,
+                            ))
+                            .await?;
+                    } else {
+                        super::runtime::start_rebuild_task(app);
+                    }
                 }
             }
         }
@@ -122,7 +195,15 @@ pub(crate) fn apply_openai_model_picker_action(
                     app.begin_active_openai_profile_setup();
                 } else {
                     app.bottom_pane.notice = Some(format!("Deleted endpoint profile: {label}"));
-                    super::runtime::start_rebuild_task(app);
+                    if let Some(runtime_port) = runtime_port {
+                        runtime_port
+                            .send(RuntimeCommand::Maintenance(
+                                super::runtime_port::RuntimeMaintenanceCommand::Rebuild,
+                            ))
+                            .await?;
+                    } else {
+                        super::runtime::start_rebuild_task(app);
+                    }
                 }
             } else {
                 app.push_notice("Cannot delete the only endpoint profile.");

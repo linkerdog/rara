@@ -1,8 +1,10 @@
 use std::cell::RefCell;
+use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::{Arc, atomic::AtomicBool};
 use std::time::Instant;
 
+use rara_provider_catalog::ModelCatalogEntry;
 use rara_state::state_db::StateDb;
 use rara_tools::tool::ToolOutputStream;
 use ratatui::text::Line;
@@ -22,12 +24,15 @@ use crate::context::{
     RetrievalSourceContextEntry,
 };
 use crate::control_tokens::{has_pending_internal_control_context, scrub_internal_control_tokens};
+#[cfg(test)]
 use crate::hook_registry::HookRegistry;
 use crate::lsp_manager::LspManager;
 use crate::mcp_connection_manager::McpConnectionManager;
 use crate::mcp_tool_cache::McpToolCache;
 use crate::oauth::SavedCodexAuthMode;
-use crate::protocol_sources::{MemoryControlHandler, PromptSourceRegistry, SkillSourceRegistry};
+use crate::protocol_sources::MemoryControlHandler;
+#[cfg(test)]
+use crate::protocol_sources::{PromptSourceRegistry, SkillSourceRegistry};
 use crate::runtime_event_bus::RuntimeEventBus;
 use crate::thread_store::ThreadSummary;
 use crate::tools::bash::BashCommandInput;
@@ -78,6 +83,7 @@ pub enum ListPickerKind {
     AuthMode,
     ReasoningEffort,
     UnifiedModel,
+    NowledgeMem,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Hash)]
@@ -153,6 +159,7 @@ pub enum LocalCommandKind {
     Model,
     Connect,
     BaseUrl,
+    NowledgeMem,
     Login,
     Mcp,
     Permissions,
@@ -296,6 +303,24 @@ pub struct RuntimeSnapshot {
     pub extension_command_count: usize,
     pub extension_agent_count: usize,
     pub extension_agent_status_lines: Vec<String>,
+    pub model_catalogs: Vec<ModelCatalogSnapshot>,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct ModelCatalogSnapshot {
+    pub provider_id: String,
+    pub models: Vec<ModelCatalogEntry>,
+    pub is_fallback: bool,
+}
+
+#[derive(Default, Clone, Debug, PartialEq, Eq)]
+pub struct RuntimeExtensionSnapshot {
+    pub skill_count: usize,
+    pub skill_scopes: Vec<String>,
+    pub hook_count: usize,
+    pub command_count: usize,
+    pub agent_count: usize,
+    pub agent_status_lines: Vec<String>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -357,8 +382,7 @@ pub enum TaskKind {
     Compact,
     Rebuild,
     OAuth,
-    DeepSeekModels,
-    KimiModels,
+    ModelCatalog,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -380,38 +404,22 @@ pub enum TaskCompletion {
         result: anyhow::Result<bool>,
     },
     Rebuild {
-        result: anyhow::Result<RebuildSuccess>,
+        result: anyhow::Result<crate::runtime_client::RebuildSuccess>,
     },
     OAuth {
         mode: OAuthLoginMode,
         result: anyhow::Result<secrecy::SecretString>,
     },
-    DeepSeekModels {
-        result: anyhow::Result<Vec<String>>,
+    ModelCatalog {
+        provider: rara_provider_catalog::ModelCatalogProvider,
+        result: anyhow::Result<Vec<ModelCatalogEntry>>,
     },
-    KimiModels {
-        result: anyhow::Result<Vec<String>>,
-    },
-}
-
-pub struct RebuildSuccess {
-    pub agent: Agent,
-    pub warnings: Vec<String>,
-    pub local_model_server: crate::local_model_server::LocalModelServerStatus,
-    pub sandbox_network_access: Arc<AtomicBool>,
-    /// Shared goal handle for model-facing tools.
-    pub goal_handle: crate::tui::state::GoalHandle,
-    pub mcp_tool_cache: crate::mcp_tool_cache::McpToolCache,
-    pub mcp_manager: Arc<McpConnectionManager>,
-    pub prompt_source_registry: Arc<PromptSourceRegistry>,
-    pub skill_source_registry: Arc<SkillSourceRegistry>,
-    pub hook_registry: Arc<HookRegistry>,
-    pub hook_runtime: Arc<crate::hook_runtime::HookRuntime>,
-    pub memory_handler: Arc<MemoryControlHandler>,
-    pub lsp_manager: Arc<LspManager>,
 }
 
 pub enum TuiEvent {
+    /// Structured runtime event. Runtime semantics must be consumed from this
+    /// variant instead of inferred from transcript role or message text.
+    Runtime(Box<crate::runtime_control::RuntimeControlEvent>),
     Transcript {
         role: &'static str,
         message: String,
@@ -422,8 +430,6 @@ pub enum TuiEvent {
         stream: ToolOutputStream,
         chunk: String,
     },
-    /// Agent called todo_write — update the sidebar todo display.
-    UpdateTodo(crate::context::TodoContextView),
 }
 
 pub struct RunningTask {
@@ -499,11 +505,35 @@ pub struct TranscriptEntry {
 #[derive(Clone, Debug)]
 pub enum TranscriptEntryPayload {
     Terminal(TerminalEvent),
+    Tool(ToolTranscriptPayload),
+    Compaction(CompactionTranscriptPayload),
     /// Reserved for semantic transcript filtering and future per-kind system
     /// rendering; current committed cells only need to know it is system text
     /// (docs/todo.md).
     #[allow(dead_code)]
     System(SystemMessageKind),
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ToolTranscriptStatus {
+    Running,
+    Completed,
+    Error,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ToolTranscriptPayload {
+    pub call_id: Option<String>,
+    pub name: String,
+    pub status: ToolTranscriptStatus,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct CompactionTranscriptPayload {
+    pub count: usize,
+    pub before_tokens: usize,
+    pub after_tokens: usize,
+    pub recent_files: Vec<String>,
 }
 
 #[derive(Clone, Debug, Copy, PartialEq, Eq)]
@@ -535,11 +565,54 @@ impl TranscriptEntry {
         }
     }
 
+    pub fn tool(
+        call_id: Option<&str>,
+        name: impl Into<String>,
+        status: ToolTranscriptStatus,
+        message: impl Into<String>,
+    ) -> Self {
+        let role = match status {
+            ToolTranscriptStatus::Running => "Tool",
+            ToolTranscriptStatus::Completed => "Tool Result",
+            ToolTranscriptStatus::Error => "Tool Error",
+        };
+        Self {
+            role: role.to_string(),
+            message: message.into(),
+            payload: Some(TranscriptEntryPayload::Tool(ToolTranscriptPayload {
+                call_id: call_id.map(ToString::to_string),
+                name: name.into(),
+                status,
+            })),
+        }
+    }
+
     pub fn system(message: impl Into<String>, kind: SystemMessageKind) -> Self {
         Self {
             role: "System".to_string(),
             message: message.into(),
             payload: Some(TranscriptEntryPayload::System(kind)),
+        }
+    }
+
+    pub fn compaction(
+        count: usize,
+        before_tokens: usize,
+        after_tokens: usize,
+        summary: impl Into<String>,
+        recent_files: Vec<String>,
+    ) -> Self {
+        Self {
+            role: "Compaction".to_string(),
+            message: summary.into(),
+            payload: Some(TranscriptEntryPayload::Compaction(
+                CompactionTranscriptPayload {
+                    count,
+                    before_tokens,
+                    after_tokens,
+                    recent_files,
+                },
+            )),
         }
     }
 }
@@ -712,6 +785,7 @@ pub struct TuiApp {
     pub openai_profile_picker_idx: usize,
     pub reasoning_effort_picker_idx: usize,
     pub auth_mode_idx: usize,
+    pub nowledge_mem_picker_idx: usize,
     pub approval_picker_idx: usize,
     pub permission_picker_idx: usize,
     pub command_palette_idx: usize,
@@ -733,6 +807,8 @@ pub struct TuiApp {
     pub codex_model_options: Vec<CodexModelOption>,
     pub deepseek_model_options: Vec<String>,
     pub kimi_model_options: Vec<String>,
+    pub deepseek_model_context_windows: HashMap<String, u32>,
+    pub kimi_model_context_windows: HashMap<String, u32>,
     pub recent_commands: Vec<String>,
     pub recent_threads: Vec<ThreadSummary>,
     pub resume_picker_idx: usize,
@@ -757,8 +833,11 @@ pub struct TuiApp {
     pub local_model_server: crate::local_model_server::LocalModelServerStatus,
     pub mcp_manager: Option<Arc<McpConnectionManager>>,
     pub lsp_manager: Option<Arc<LspManager>>,
+    #[cfg(test)]
     pub prompt_source_registry: Option<Arc<PromptSourceRegistry>>,
+    #[cfg(test)]
     pub skill_source_registry: Option<Arc<SkillSourceRegistry>>,
+    #[cfg(test)]
     pub hook_registry: Option<Arc<HookRegistry>>,
     pub hook_runtime: Option<Arc<crate::hook_runtime::HookRuntime>>,
     pub explicit_plugin_dirs: Vec<PathBuf>,

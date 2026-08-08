@@ -338,6 +338,7 @@ The builtin plugin is configurable through `config.json`:
   "builtin_plugins": {
     "nowledge_mem": {
       "enabled": true,
+      "mode": "local",
       "url": "http://127.0.0.1:14242/mcp/",
       "http_headers": {
         "APP": "RARA"
@@ -358,19 +359,41 @@ normal ordered de-duplication path. Builtin MCP servers also yield to already
 registered user or project MCP servers with the same name; normal non-builtin
 plugin MCP duplicates remain hard errors.
 
+Cloud mode is also supported. Cloud mode defaults to the fixed Nowledge Mem
+server `https://cloud.nowledge.co`. The generated endpoint is
+`/remote-api/mcp/`. The transport emits
+Authorization and X-NMEM-API-Key from the configured API key, plus the optional
+X-Nmem-Space-Id from NMEM_SPACE. The key is persisted using RARA's existing
+secret configuration field and is exposed to the runtime only through
+NMEM_API_KEY; the generated plugin file contains only the environment variable
+reference. The environment variable names can be configured with
+api_key_env_var and space_id_env_var.
+
+`rara mem --api-key <key>` saves the key to RARA's configuration and applies it
+to subsequent runs, including after restart. The user does not need to
+configure `NMEM_API_KEY` separately.
+
 Local Nowledge Mem endpoints must not use system HTTP proxies. The MCP
 transport contract exposes localhost proxy bypass detection for streamable HTTP
 URLs whose host is `localhost`, `127.0.0.1`, or `::1`. Any future streamable
 HTTP MCP connector must call this helper before constructing its HTTP client.
 
-The builtin subagent does not receive additional external execution authority.
-It is a registry-provided routing agent that can explain which Nowledge Mem
-skill, MCP tool, or CLI fallback the parent runtime should use. Opening direct
-MCP, shell, or skill invocation inside subagents is a separate tool-surface
-decision.
+The builtin subagent does not receive additional external execution authority
+by default. It is a registry-provided routing agent that can explain which
+Nowledge Mem skill, MCP tool, or CLI fallback the parent runtime should use.
+Every child runtime receives a default-deny `SubagentPluginCapabilityPolicy`.
+An agent definition may explicitly declare `pluginSkills`; runtime-owned child
+construction then copies only those plugin-scoped skills into a child-owned
+registry. The child receives no plugin roots and cannot reload the registry.
+Direct MCP, shell, and plugin memory access remain denied.
 
 TUI displays this integration in the `/status` Overview Extensions section.
-The display is read-only: it reports the builtin MCP entry as
+The `/mem` configuration command opens a picker for Disabled, Local, or Cloud;
+it does not accept command arguments. Cloud configuration accepts the server
+URL and environment variable names only; it never accepts an API-key value.
+Saving a mode choice persists the config and asks the runtime to rebuild. The
+TUI does not assemble the MCP transport itself.
+The status display reports the builtin MCP entry as
 `nowledge-mem builtin`, shows the configured endpoint with secret-bearing URL
 parts redacted, and marks localhost endpoints as `local/direct` to make the
 no-proxy contract visible. Disabled builtin configuration renders as
@@ -425,7 +448,7 @@ scope for now.
 | Builtin Nowledge Mem plugin materializes skills, MCP, and agent definition | `cargo test plugin_middleware::tests::builtin_nowledge_mem_plugin_materializes_skills_mcp_and_agent -- --nocapture` |
 | Builtin Nowledge Mem MCP registers as builtin fallback | `cargo test plugin_middleware::tests::appends_builtin_nowledge_mem_mcp_config -- --nocapture` and `cargo test plugin_middleware::tests::builtin_nowledge_mem_mcp_yields_to_existing_registry_server -- --nocapture` |
 | Builtin Nowledge Mem config controls endpoint, headers, and enabled state | `cargo test plugin_middleware::tests::builtin_nowledge_mem_mcp_uses_configured_url_and_headers -- --nocapture`, `cargo test plugin_middleware::tests::disabled_builtin_nowledge_mem_plugin_is_not_discovered -- --nocapture`, and `cargo test -p rara-config builtin_nowledge_mem_config_can_override_endpoint_and_headers -- --nocapture` |
-| TUI shows builtin Nowledge Mem status without owning runtime assembly | `cargo test tui::status_display::tests::overview_status_reports_builtin_nowledge_mem -- --nocapture`, `cargo test tui::status_display::tests::overview_status_reports_disabled_nowledge_mem -- --nocapture`, and `cargo test tui::status_display::tests::overview_status_reports_custom_nowledge_mem_endpoint_and_headers -- --nocapture` |
+| TUI configures and shows builtin Nowledge Mem without owning runtime assembly | `cargo test tui::command::tests::parses_nowledge_mem_configuration_command -- --nocapture`, `cargo test tui::status_display::tests::overview_status_reports_builtin_nowledge_mem -- --nocapture`, `cargo test tui::status_display::tests::overview_status_reports_disabled_nowledge_mem -- --nocapture`, and `cargo test tui::status_display::tests::overview_status_reports_custom_nowledge_mem_endpoint_and_headers -- --nocapture` |
 | Local streamable HTTP MCP endpoints bypass proxy | `cargo test -p rara-config streamable_http_localhost_bypasses_proxy -- --nocapture` |
 | Plugin MCP file and relative cwd handling | `cargo test plugin_middleware::tests::plugin_mcp_configs_skip_mcp_json_directories -- --nocapture` and `cargo test plugin_middleware::tests::plugin_mcp_configs_resolve_relative_cwd_from_plugin_root -- --nocapture` |
 | Plugin MCP parse and duplicate-name failures surface | `cargo test plugin_middleware::tests::plugin_mcp_configs_fail_on_duplicate_server_names -- --nocapture` and `cargo test plugin_middleware::tests::plugin_mcp_configs_fail_on_invalid_json -- --nocapture` |

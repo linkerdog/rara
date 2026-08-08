@@ -155,6 +155,7 @@ pub fn normalize_todo_write_input(input: &Value) -> Result<TodoState> {
     })
 }
 
+#[cfg(test)]
 pub fn format_todo_update(state: &TodoState) -> String {
     let summary = state.summary();
     let mut lines = vec![format!(
@@ -177,6 +178,7 @@ pub fn format_todo_update(state: &TodoState) -> String {
     lines.join("\n")
 }
 
+#[cfg(test)]
 fn status_marker(status: &TodoStatus) -> &'static str {
     match status {
         TodoStatus::Pending => "[ ]",

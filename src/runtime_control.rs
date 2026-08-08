@@ -105,6 +105,13 @@ pub enum SessionEvent {
         output_tokens: u32,
         finish_reason: Option<String>,
     },
+    Compacted {
+        count: usize,
+        before_tokens: usize,
+        after_tokens: usize,
+        summary: String,
+        recent_files: Vec<String>,
+    },
 }
 
 #[allow(dead_code)] // ACP protocol type — reserved for future lifecycle events
@@ -162,15 +169,21 @@ impl From<ToolStream> for ToolOutputStream {
 #[serde(tag = "type", content = "payload", rename_all = "snake_case")]
 pub enum ToolEvent {
     Use {
+        #[serde(default)]
+        call_id: Option<String>,
         name: String,
         input: Value,
     },
     Result {
+        #[serde(default)]
+        call_id: Option<String>,
         name: String,
         content: String,
         is_error: bool,
     },
     Progress {
+        #[serde(default)]
+        call_id: Option<String>,
         name: String,
         stream: ToolStream,
         chunk: String,
@@ -414,12 +427,17 @@ pub fn agent_event_to_runtime_event(event: AgentEvent) -> RuntimeEvent {
         AgentEvent::AssistantThinkingDelta(delta) => {
             RuntimeEvent::Assistant(AssistantEvent::ThinkingDelta(delta))
         }
-        AgentEvent::ToolUse { name, input } => RuntimeEvent::Tool(ToolEvent::Use { name, input }),
+        AgentEvent::ToolUse { name, input } => RuntimeEvent::Tool(ToolEvent::Use {
+            call_id: None,
+            name,
+            input,
+        }),
         AgentEvent::ToolResult {
             name,
             content,
             is_error,
         } => RuntimeEvent::Tool(ToolEvent::Result {
+            call_id: None,
             name,
             content,
             is_error,
@@ -429,6 +447,7 @@ pub fn agent_event_to_runtime_event(event: AgentEvent) -> RuntimeEvent {
             stream,
             chunk,
         } => RuntimeEvent::Tool(ToolEvent::Progress {
+            call_id: None,
             name,
             stream: stream.into(),
             chunk,
@@ -484,6 +503,19 @@ pub fn agent_event_to_runtime_event(event: AgentEvent) -> RuntimeEvent {
             output_tokens,
             finish_reason,
         }),
+        AgentEvent::Compaction {
+            count,
+            before_tokens,
+            after_tokens,
+            summary,
+            recent_files,
+        } => RuntimeEvent::Session(SessionEvent::Compacted {
+            count,
+            before_tokens,
+            after_tokens,
+            summary,
+            recent_files,
+        }),
     }
 }
 
@@ -519,6 +551,7 @@ mod tests {
         assert_eq!(
             event,
             RuntimeEvent::Tool(ToolEvent::Progress {
+                call_id: None,
                 name: "bash".to_string(),
                 stream: ToolStream::Stderr,
                 chunk: "error\n".to_string(),
