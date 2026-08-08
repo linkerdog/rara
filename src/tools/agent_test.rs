@@ -22,7 +22,8 @@ use super::{
     build_read_only_tool_manager, build_subagent_tool_manager, home_dir_from_vars,
     latest_assistant_text_from_history, parse_agent_permission_mode, parse_agent_token_budget,
     parse_team_task_kind, provider_target_from_parts, register_scoped_plugin_skill_tool,
-    resolve_kind_definition, resolve_spawn_agent_definition, validate_agent_id_label,
+    resolve_kind_definition, resolve_spawn_agent_definition, subagent_role_prompt,
+    validate_agent_id_label,
 };
 use crate::agent::Message;
 use crate::llm::{ContentBlock, EmbeddingBackend, LlmBackend, LlmResponse, MockLlm, TokenUsage};
@@ -2227,6 +2228,87 @@ fn resolve_spawn_agent_definition_resolves_builtin() {
     let cache = test_agent_definition_cache(temp.path());
     let def = resolve_spawn_agent_definition(&cache, "explore");
     assert_eq!(def.name, "explore");
+}
+
+#[test]
+fn resolve_spawn_agent_definition_resolves_builtin_specialists() {
+    let temp = tempdir().expect("tempdir");
+    let cache = test_agent_definition_cache(temp.path());
+
+    for (name, prompt_fragment) in [
+        ("code-reviewer", "independent code reviewer"),
+        ("architect", "software architecture specialist"),
+    ] {
+        let definition = resolve_spawn_agent_definition(&cache, name);
+
+        assert_eq!(definition.name, name);
+        assert_eq!(definition.tools, vec!["Read", "Glob", "Grep"]);
+        assert_eq!(definition.max_turns, 50);
+        assert!(!definition.plan_mode_required);
+        assert!(definition.system_prompt.contains(prompt_fragment));
+    }
+
+    let researcher = resolve_spawn_agent_definition(&cache, "researcher");
+    assert_eq!(
+        researcher.tools,
+        vec!["Read", "Glob", "Grep", "WebSearch", "WebFetch"]
+    );
+    assert_eq!(researcher.max_turns, 50);
+    assert!(!researcher.plan_mode_required);
+    assert!(
+        researcher
+            .system_prompt
+            .contains("source URL or repository file path")
+    );
+    assert!(researcher.system_prompt.contains("Treat search results as"));
+}
+
+#[test]
+fn builtin_specialist_tool_managers_are_read_only() {
+    let temp = tempdir().expect("tempdir");
+    let cache = test_agent_definition_cache(temp.path());
+
+    for name in ["code-reviewer", "architect", "researcher"] {
+        let definition = resolve_spawn_agent_definition(&cache, name);
+        let manager = build_filtered_tool_manager(
+            SubAgentKind::General,
+            &definition,
+            test_task_root(),
+            DEFAULT_TASK_LIST_ID,
+        )
+        .expect("built-in specialist tool manager");
+
+        assert!(manager.get_tool("read_file").is_some());
+        assert!(manager.get_tool("glob").is_some());
+        assert!(manager.get_tool("grep").is_some());
+        assert_eq!(
+            manager.get_tool("web_search").is_some(),
+            name == "researcher"
+        );
+        assert_eq!(
+            manager.get_tool("web_fetch").is_some(),
+            name == "researcher"
+        );
+        assert!(manager.get_tool("task_create").is_none());
+        assert!(manager.get_tool("task_update").is_none());
+        assert!(manager.get_tool("bash").is_none());
+        assert!(manager.get_tool("write_file").is_none());
+        assert!(manager.get_tool("apply_patch").is_none());
+        assert!(manager.get_tool("spawn_agent").is_none());
+    }
+}
+
+#[test]
+fn researcher_role_prompt_describes_read_only_web_evidence_access() {
+    let temp = tempdir().expect("tempdir");
+    let cache = test_agent_definition_cache(temp.path());
+    let researcher = resolve_spawn_agent_definition(&cache, "researcher");
+
+    let prompt = subagent_role_prompt(SubAgentKind::General, Some(&researcher));
+
+    assert!(prompt.contains("repository or web evidence"));
+    assert!(prompt.contains("interactive browser automation"));
+    assert!(!prompt.contains("You do not have shell, editing, patching, browser,"));
 }
 
 #[test]

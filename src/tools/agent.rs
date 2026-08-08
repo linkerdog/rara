@@ -34,6 +34,7 @@ use crate::tasklist::TaskListStore;
 use crate::thread_store::{ThreadRecorder, ThreadRuntimeLineage, ThreadRuntimeState};
 use crate::tools::skill::{SkillReloadPolicy, SkillTool};
 use crate::tools::tasklist::{TaskCreateTool, TaskGetTool, TaskListTool, TaskUpdateTool};
+use crate::tools::web::{WebFetchTool, WebSearchTool};
 use crate::workspace::WorkspaceMemory;
 
 #[path = "agent_budget.rs"]
@@ -363,7 +364,7 @@ pub struct AgentTool {
 
 #[tool_spec(
     name = "spawn_agent",
-    description = "Spawn a shared-task worker sub-agent. It cannot inspect files, run shell commands, edit files, or spawn other agents; it can inspect and update shared task-list entries. Use explore_agent or plan_agent for read-only repository inspection.",
+    description = "Spawn a bounded worker sub-agent. Built-in names: general for shared-task reasoning, code-reviewer for independent code review, architect for architecture and trade-off analysis, and researcher for multi-source research with file or URL evidence. The specialist roles are read-only and cannot run shell commands, edit files, or spawn agents. Use explore_agent for generic repository inspection or plan_agent for implementation planning.",
     input_schema = {
         "type": "object",
         "properties": {
@@ -1670,6 +1671,8 @@ fn build_custom_spawn_agent_tool_manager(
 ) -> ToolManager {
     let task_store = Arc::new(TaskListStore::new(task_root));
     let mut tool_manager = build_read_only_tool_manager(task_store.clone(), default_task_list_id);
+    tool_manager.register(Box::new(WebFetchTool));
+    tool_manager.register(Box::new(WebSearchTool::from_env()));
     tool_manager.register(Box::new(TaskCreateTool {
         store: task_store.clone(),
         default_task_list_id: default_task_list_id.to_string(),
@@ -2005,9 +2008,9 @@ fn subagent_role_prompt(kind: SubAgentKind, definition: Option<&AgentDefinition>
             "- Treat the assigned instruction as the complete task contract.\n",
             "- Honor every constraint in the assigned instruction, including workspace, branch, network, and output limits.\n",
             "- Stay inside the current workspace unless the assigned instruction explicitly allows another path.\n",
-            "- Repository inspection is allowed only through the read-only tools exposed to you.\n",
+            "- Inspect repository or web evidence only through the read-only tools exposed to you.\n",
             "- You may use shared task-list tools to inspect, claim, update, or complete project tasks when they are exposed.\n",
-            "- You do not have shell, editing, patching, browser, or agent-spawning tools in this role.\n",
+            "- You do not have shell, editing, patching, interactive browser automation, or agent-spawning tools in this role.\n",
             "- If the assigned instruction requires unavailable tools, report the limitation and answer from the available context.\n",
             "- Do not delegate to another agent or spawn sub-agents; complete the assigned work directly."
         )
