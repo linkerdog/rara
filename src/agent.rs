@@ -421,7 +421,7 @@ impl Agent {
         Self {
             tool_manager,
             llm_backend,
-            memory_handle: memory_handle,
+            memory_handle,
             memory_store,
             session_manager,
             consolidation_scheduler,

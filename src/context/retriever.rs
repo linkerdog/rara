@@ -183,7 +183,7 @@ mod tests {
     #[tokio::test]
     async fn retrieves_memory_store_candidates_for_latest_user_request() {
         let temp = tempfile::tempdir().expect("tempdir");
-        let backend = Arc::new(TestBackend::default());
+        let backend = Arc::new(TestBackend);
         let memory_handle = Arc::new(MemoryHandle::new(temp.path().to_str().expect("utf8 path")));
         let store = Arc::new(MemoryStore::new(backend.clone(), memory_handle.clone()));
         let session_manager = Arc::new(
@@ -226,7 +226,7 @@ mod tests {
     #[tokio::test]
     async fn retrieves_thread_context_candidates_from_session_shards() {
         let temp = tempfile::tempdir().expect("tempdir");
-        let backend = Arc::new(TestBackend::default());
+        let backend = Arc::new(TestBackend);
         let memory_handle = Arc::new(MemoryHandle::new(temp.path().to_str().expect("utf8 path")));
         let store = Arc::new(MemoryStore::new(backend.clone(), memory_handle));
         let session_manager = Arc::new(

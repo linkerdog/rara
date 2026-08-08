@@ -56,7 +56,7 @@ pub async fn execute_command_hook(
         60 // default 60s
     };
 
-    let mut child = match Command::new("sh")
+    let mut child = match Command::new(shell_program())
         .arg("-c")
         .arg(&handler.command)
         .current_dir(plugin_root)
@@ -156,9 +156,21 @@ pub async fn execute_command_hook(
     }
 }
 
+fn shell_program() -> &'static str {
+    if cfg!(windows) { "sh" } else { "/bin/sh" }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn assert_hook_ok(result: &HookExecutionResult) {
+        assert!(
+            result.ok,
+            "hook failed: exit_code={:?}, timed_out={}, stdout={:?}, stderr={:?}",
+            result.exit_code, result.timed_out, result.stdout, result.stderr
+        );
+    }
 
     #[tokio::test]
     async fn executes_simple_echo_hook() {
@@ -187,7 +199,7 @@ mod tests {
             },
         )
         .await;
-        assert!(result.ok);
+        assert_hook_ok(&result);
     }
 
     #[tokio::test]
@@ -223,7 +235,7 @@ mod tests {
         )
         .await;
 
-        assert!(result.ok);
+        assert_hook_ok(&result);
     }
 
     #[tokio::test]
