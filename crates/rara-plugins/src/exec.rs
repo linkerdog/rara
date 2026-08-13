@@ -3,6 +3,7 @@
 //! Spawns shell commands with JSON input on stdin, collects output
 //! and exit status, returning a structured result.
 
+use std::io::ErrorKind;
 use std::path::PathBuf;
 use std::process::Stdio;
 use std::time::Duration;
@@ -95,14 +96,16 @@ pub async fn execute_command_hook(
             }
         };
         if let Err(e) = stdin.write_all(json.as_bytes()).await {
-            let _ = child.start_kill();
-            return HookExecutionResult {
-                exit_code: Some(-1),
-                stdout: String::new(),
-                stderr: format!("failed to write hook input: {e}"),
-                timed_out: false,
-                ok: false,
-            };
+            if e.kind() != ErrorKind::BrokenPipe {
+                let _ = child.start_kill();
+                return HookExecutionResult {
+                    exit_code: Some(-1),
+                    stdout: String::new(),
+                    stderr: format!("failed to write hook input: {e}"),
+                    timed_out: false,
+                    ok: false,
+                };
+            }
         }
         // Close stdin
         drop(stdin);
@@ -235,6 +238,36 @@ mod tests {
         )
         .await;
 
+        assert_hook_ok(&result);
+    }
+
+    #[tokio::test]
+    async fn accepts_hooks_that_close_stdin_without_reading() {
+        let plugin_root = tempfile::tempdir().expect("plugin root");
+        let handler = HookHandler {
+            r#type: "command".to_string(),
+            command: "exec <&-; echo '{\"continue\": true}'".to_string(),
+            timeout: 5,
+            matcher: None,
+            once: false,
+        };
+        let result = execute_command_hook(
+            &handler,
+            &plugin_root.path().to_path_buf(),
+            HookInput {
+                session_id: "test".to_string(),
+                transcript_path: None,
+                hook_event: "Stop".to_string(),
+                plugin_root: plugin_root.path().to_string_lossy().to_string(),
+                tool_name: None,
+                tool_input: None,
+                tool_response: None,
+                last_assistant_message: None,
+                is_interrupt: None,
+                prompt: None,
+            },
+        )
+        .await;
         assert_hook_ok(&result);
     }
 
