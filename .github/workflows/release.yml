@@ -365,7 +365,7 @@ jobs:
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v3
         with:
-          name: ${{ needs.tag-check.outputs.version }}
+          name: ${{ needs.tag-check.outputs.tag }}
           tag_name: ${{ needs.tag-check.outputs.tag }}
           generate_release_notes: true
           prerelease: ${{ needs.tag-check.outputs.prerelease }}
