@@ -164,14 +164,11 @@ impl TuiHarness {
             .clone()
     }
 
-    pub(crate) fn expect_memory_warning(&mut self) {
-        assert!(matches!(
-            self.memory_events
-                .try_recv()
-                .expect("memory warning event")
-                .event,
-            crate::runtime_control::RuntimeEvent::Warning(_)
-        ));
+    pub(crate) fn expect_no_memory_warning(&mut self) {
+        assert!(
+            self.memory_events.try_recv().is_err(),
+            "memory health degradation should not publish a runtime warning"
+        );
     }
 
     pub(crate) async fn disconnect(&mut self, reason: impl Into<String>) {
@@ -434,7 +431,7 @@ mod tests {
                 MemorySyncReason::Shutdown,
             )
             .await;
-        harness.expect_memory_warning();
+        harness.expect_no_memory_warning();
         assert_eq!(harness.memory_requests().len(), 2);
         harness.set_memory_failure(false);
         harness
