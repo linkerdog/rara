@@ -377,6 +377,11 @@ Local Nowledge Mem endpoints must not use system HTTP proxies. The MCP
 transport contract exposes localhost proxy bypass detection for streamable HTTP
 URLs whose host is `localhost`, `127.0.0.1`, or `::1`. Any future streamable
 HTTP MCP connector must call this helper before constructing its HTTP client.
+Nowledge Mem reachability is optional: local MCP or capture endpoint failures
+are internal health-check degradation signals, not startup, build, CI, release,
+or agent-execution blockers. RARA may log the degraded state and retry later,
+but it must continue without injecting user-visible runtime warnings merely
+because a developer does not have Nowledge Mem installed.
 
 The builtin subagent does not receive additional external execution authority
 by default. It is a registry-provided routing agent that can explain which

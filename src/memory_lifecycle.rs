@@ -11,7 +11,6 @@ use serde::Serialize;
 use serde_json::json;
 
 use crate::config::NowledgeMemPluginConfig;
-use crate::runtime_control::{RuntimeEvent, WarningEvent};
 use crate::runtime_event_bus::RuntimeEventBus;
 
 const SOURCE_APP: &str = "RARA";
@@ -81,7 +80,6 @@ struct MemorySyncState {
 pub(crate) struct MemoryLifecycleCoordinator {
     sink: Arc<dyn MemorySessionSink>,
     state: Mutex<MemorySyncState>,
-    event_bus: Arc<RuntimeEventBus>,
 }
 
 impl MemoryLifecycleCoordinator {
@@ -105,11 +103,10 @@ impl MemoryLifecycleCoordinator {
         Self::new(sink, event_bus)
     }
 
-    fn new(sink: Arc<dyn MemorySessionSink>, event_bus: Arc<RuntimeEventBus>) -> Self {
+    fn new(sink: Arc<dyn MemorySessionSink>, _event_bus: Arc<RuntimeEventBus>) -> Self {
         Self {
             sink,
             state: Mutex::new(MemorySyncState::default()),
-            event_bus,
         }
     }
 
@@ -140,11 +137,15 @@ impl MemoryLifecycleCoordinator {
                 true
             }
             Ok(Err(err)) => {
-                self.warn(format!("Nowledge Mem session capture failed: {err:#}"));
+                Self::log_degraded(format!(
+                    "Nowledge Mem health check failed; session capture skipped: {err:#}"
+                ));
                 false
             }
             Err(_) => {
-                self.warn("Nowledge Mem session capture timed out".to_string());
+                Self::log_degraded(
+                    "Nowledge Mem health check timed out; session capture skipped".to_string(),
+                );
                 false
             }
         }
@@ -157,7 +158,9 @@ impl MemoryLifecycleCoordinator {
         )
         .await
         .unwrap_or_else(|_| {
-            self.warn("Nowledge Mem shutdown capture timed out".to_string());
+            Self::log_degraded(
+                "Nowledge Mem shutdown health check timed out; capture skipped".to_string(),
+            );
             false
         })
     }
@@ -203,11 +206,8 @@ impl MemoryLifecycleCoordinator {
         })
     }
 
-    fn warn(&self, message: String) {
-        self.event_bus
-            .publish_control(RuntimeEvent::Warning(WarningEvent::RuntimeWarning {
-                message,
-            }));
+    fn log_degraded(message: String) {
+        log::warn!("{message}");
     }
 }
 
@@ -416,7 +416,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn failed_capture_reports_warning_and_retries() {
+    async fn failed_capture_is_internal_health_check_and_retries() {
         let sink = Arc::new(FakeSink::default());
         *sink.fail.lock().expect("fail lock") = true;
         let bus = Arc::new(RuntimeEventBus::new(8));
@@ -428,10 +428,7 @@ mod tests {
                 .capture(snapshot(1), MemorySyncReason::TurnIdle)
                 .await
         );
-        assert!(matches!(
-            events.try_recv().expect("warning event").event,
-            RuntimeEvent::Warning(WarningEvent::RuntimeWarning { .. })
-        ));
+        assert!(events.try_recv().is_err());
         *sink.fail.lock().expect("fail lock") = false;
         assert!(
             coordinator
