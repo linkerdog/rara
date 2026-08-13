@@ -95,8 +95,10 @@ pub async fn execute_command_hook(
                 };
             }
         };
-        if let Err(e) = stdin.write_all(json.as_bytes()).await {
-            if e.kind() != ErrorKind::BrokenPipe {
+        match stdin.write_all(json.as_bytes()).await {
+            Ok(()) => {}
+            Err(e) if e.kind() == ErrorKind::BrokenPipe => {}
+            Err(e) => {
                 let _ = child.start_kill();
                 return HookExecutionResult {
                     exit_code: Some(-1),
