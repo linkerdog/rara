@@ -3,7 +3,7 @@ use std::sync::Arc;
 
 use super::super::state::{
     GoalStatus, HelpTab, ListPickerKind, LocalCommand, LocalCommandKind, Overlay, PermissionMode,
-    PickerIntent, RalphGoal, RuntimePhase, StatusTab, SystemMessageKind, TuiApp,
+    RalphGoal, RuntimePhase, StatusTab, SystemMessageKind, TuiApp,
 };
 use super::tasks::{start_compact_task, start_rebuild_task, start_review_task};
 use crate::agent::{Agent, AgentEvent, AgentExecutionMode, BashApprovalMode};
@@ -18,29 +18,25 @@ pub(super) async fn execute_local_command(
     command: LocalCommand,
     app: &mut TuiApp,
     agent_slot: &mut Option<Agent>,
-    oauth_manager: &Arc<OAuthManager>,
+    _oauth_manager: &Arc<OAuthManager>,
 ) -> anyhow::Result<bool> {
-    execute_local_command_with_runtime(command, app, agent_slot, oauth_manager, None).await
+    execute_local_command_with_runtime(command, app, agent_slot, None).await
 }
 
 pub(super) async fn execute_local_command_with_runtime(
     command: LocalCommand,
     app: &mut TuiApp,
     agent_slot: &mut Option<Agent>,
-    oauth_manager: &Arc<OAuthManager>,
     runtime_port: Option<&dyn RuntimeClientPort>,
 ) -> anyhow::Result<bool> {
     let command_kind = command.kind;
     app.remember_command(match command.kind {
         LocalCommandKind::Approval => "approval",
-        LocalCommandKind::BaseUrl => "base-url",
         LocalCommandKind::Clear => "clear",
         LocalCommandKind::Compact => "compact",
         LocalCommandKind::Connect => "connect",
         LocalCommandKind::Context => "context",
         LocalCommandKind::Help => "help",
-        LocalCommandKind::Login => "login",
-        LocalCommandKind::Logout => "logout",
         LocalCommandKind::Mcp => "mcp",
         LocalCommandKind::Model => "model",
         LocalCommandKind::NowledgeMem => "mem",
@@ -88,7 +84,6 @@ pub(super) async fn execute_local_command_with_runtime(
             );
             app.push_notice(notice);
         }
-        LocalCommandKind::BaseUrl => handle_base_url_command(command.arg.as_deref(), app)?,
         LocalCommandKind::NowledgeMem => {
             handle_nowledge_mem_command(command.arg.as_deref(), app)?;
         }
@@ -115,36 +110,6 @@ pub(super) async fn execute_local_command_with_runtime(
         LocalCommandKind::Context => {
             app.set_runtime_phase(RuntimePhase::LocalCommand, Some("opening context".into()));
             app.open_overlay(Overlay::Context);
-        }
-        LocalCommandKind::Login => {
-            if app.is_busy() {
-                app.push_notice("A task is already running. Wait for it to finish.");
-            } else {
-                app.open_overlay(Overlay::ListPicker(ListPickerKind::AuthMode));
-            }
-        }
-        LocalCommandKind::Logout => {
-            if app.is_busy() {
-                app.push_notice("A task is already running. Wait for it to finish.");
-            } else {
-                let removed = oauth_manager.clear_saved_auth()?;
-                app.config.clear_provider_api_key("codex");
-                app.config_manager.save(&app.config)?;
-                app.push_notice(if removed {
-                    "Cleared the saved provider credential.".to_string()
-                } else {
-                    "No saved provider credential was present.".to_string()
-                });
-                if app.config.provider == "codex" {
-                    request_maintenance(
-                        app,
-                        agent_slot,
-                        runtime_port,
-                        RuntimeMaintenanceCommand::Rebuild,
-                    )
-                    .await?;
-                }
-            }
         }
         LocalCommandKind::Model => handle_model_command(command.arg.as_deref(), app)?,
         LocalCommandKind::Connect => handle_connect_command(app)?,
@@ -392,7 +357,6 @@ async fn request_maintenance(
 }
 
 fn handle_connect_command(app: &mut TuiApp) -> anyhow::Result<()> {
-    app.picker_intent = Some(PickerIntent::ConfigureProvider);
     app.open_overlay(Overlay::ListPicker(ListPickerKind::Provider));
     app.bottom_pane.notice = Some(
         "Connect a provider — select the provider family, then configure API key and model.".into(),
@@ -471,17 +435,20 @@ fn handle_model_command(arg: Option<&str>, app: &mut TuiApp) -> anyhow::Result<(
     if arg.is_some_and(|value| !value.trim().is_empty()) {
         app.push_notice("/model does not accept arguments. Choose a model in the UI.");
     }
-    app.model_picker_idx = app.selected_unified_preset_idx();
+    app.refresh_provider_connection_status();
+    app.model_search_idx = app
+        .available_unified_model_presets()
+        .iter()
+        .position(|preset| {
+            preset.provider_id == app.config.provider
+                && app.config.model.as_deref() == Some(&preset.model_id)
+        })
+        .unwrap_or(0);
     app.open_overlay(Overlay::ModelSearch);
-    app.bottom_pane.notice = Some("Switch active model across all connected providers.".into());
-    Ok(())
-}
-
-fn handle_base_url_command(arg: Option<&str>, app: &mut TuiApp) -> anyhow::Result<()> {
-    if arg.map(str::trim).filter(|arg| !arg.is_empty()).is_some() {
-        app.push_notice("/base-url does not accept arguments. Edit the value in the TUI.");
-    }
-    app.open_overlay(Overlay::BaseUrlEditor);
+    app.bottom_pane.notice = Some(
+        "Choose a model from an available provider. Run /connect to add or manage providers."
+            .into(),
+    );
     Ok(())
 }
 

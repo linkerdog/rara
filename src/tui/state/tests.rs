@@ -678,6 +678,28 @@ fn provider_catalog_context_window_flows_into_unified_model_presets() {
 }
 
 #[test]
+fn available_unified_model_presets_exclude_unconfigured_remote_providers() {
+    let dir = tempdir().expect("tempdir");
+    let cm = ConfigManager {
+        path: dir.path().join("config.json"),
+    };
+    let mut app = TuiApp::new(cm).expect("app");
+
+    app.config
+        .select_openai_profile("kimi-default", "Kimi", OpenAiEndpointKind::Kimi);
+    app.config.set_api_key("test-kimi-key");
+    app.refresh_provider_connection_status();
+
+    let presets = app.available_unified_model_presets();
+    assert!(presets.iter().any(|preset| preset.provider_id == "kimi"));
+    assert!(
+        !presets
+            .iter()
+            .any(|preset| preset.provider_id == "deepseek")
+    );
+}
+
+#[test]
 fn model_catalog_snapshot_hydrates_provider_picker_state() {
     let dir = tempdir().expect("tempdir");
     let cm = ConfigManager {

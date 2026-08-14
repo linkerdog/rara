@@ -1,6 +1,5 @@
 use std::sync::Arc;
 
-use codex_models_manager::manager::RefreshStrategy;
 use rara_provider_catalog::ModelCatalogProvider;
 
 use super::app_event::AppEvent;
@@ -9,7 +8,7 @@ use super::input_control;
 #[allow(unused_imports)]
 use super::list_picker;
 use super::provider_flow::{
-    open_provider_family_overlay, refresh_codex_model_picker, should_open_codex_auth_guide,
+    open_provider_family_overlay, should_open_codex_auth_guide,
     sync_codex_credential_from_auth_store,
 };
 use super::runtime::apply_permission_mode;
@@ -18,7 +17,7 @@ use super::runtime_port::{RuntimeClientPort, RuntimeCommand, RuntimeMaintenanceC
 use super::session_restore::restore_thread_by_id;
 use super::state::{
     ActivePendingInteractionKind, ListPickerKind, OpenAiModelPickerAction, Overlay, PermissionMode,
-    PickerIntent, ProviderFamily, TuiApp,
+    ProviderFamily, TuiApp,
 };
 use super::submit::{apply_openai_model_picker_action, handle_submit, handle_submit_with_port};
 use super::terminal_ui::is_ssh_session;
@@ -188,7 +187,7 @@ async fn dispatch_event_inner(
         AppEvent::ScrollContext(delta) => app.scroll_context(delta),
         AppEvent::MoveCommandSelection(delta) => {
             if matches!(app.overlay, Some(Overlay::ModelSearch)) {
-                let presets = app.all_unified_model_presets();
+                let presets = app.available_unified_model_presets();
                 let q = app.model_search_query.to_ascii_lowercase();
                 let count = if q.is_empty() {
                     presets.len()
@@ -522,7 +521,7 @@ async fn dispatch_event_inner(
 
         AppEvent::ApplyOverlaySelection => match app.overlay {
             Some(Overlay::ModelSearch) => {
-                let presets = app.all_unified_model_presets();
+                let presets = app.available_unified_model_presets();
                 let q = app.model_search_query.to_ascii_lowercase();
                 let filtered: Vec<_> = if q.is_empty() {
                     presets.iter().collect()
@@ -590,20 +589,6 @@ async fn dispatch_event_inner(
                     match kind {
                         ListPickerKind::Provider => {
                             open_provider_family_overlay(app);
-                            // If opened from /model and provider was just configured, jump to model.
-                            if app.picker_intent == Some(PickerIntent::SwitchModel)
-                                && !app.config.provider.is_empty()
-                            {
-                                if app.selected_provider_family() == ProviderFamily::Codex {
-                                    refresh_codex_model_picker(
-                                        app,
-                                        oauth_manager.as_ref(),
-                                        RefreshStrategy::OnlineIfUncached,
-                                    )
-                                    .await?;
-                                }
-                                app.open_overlay(Overlay::ListPicker(ListPickerKind::Model));
-                            }
                         }
                         ListPickerKind::Model => {
                             if app.selected_provider_family() == ProviderFamily::Codex {
