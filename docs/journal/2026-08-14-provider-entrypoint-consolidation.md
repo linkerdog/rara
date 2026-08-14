@@ -25,6 +25,7 @@ configuration storage during the transition.
 - Limited `/model` to models from providers with a configured connection and
   added an empty-state recovery message pointing to `/connect`.
 - Added focused command and TUI-state tests.
+- Removed stale legacy provider commands from the hard-coded `/help` guidance.
 
 ## Key Decisions
 
@@ -41,17 +42,16 @@ Completed:
 ```bash
 cargo fmt --all
 git diff --check
+cargo test help_text_exposes_only_current_provider_entrypoints -- --nocapture
+cargo clippy -- -D warnings
 ```
 
-The focused Rust tests and `cargo check` remain pending because another build
-process holds Cargo's build-directory lock, including when an isolated target
-directory is requested. Re-run after that lock is released:
+The CI regression was caused by stale hard-coded `/help` text, rather than the
+command registry. The focused test now verifies both the absence of retired
+provider commands and the presence of `/connect` and `/model`.
 
-```bash
-CARGO_TARGET_DIR=/tmp/rara-provider-entrypoints-target cargo test provider_management_commands_are_not_tui_entry_points -- --nocapture
-CARGO_TARGET_DIR=/tmp/rara-provider-entrypoints-target cargo test available_unified_model_presets_exclude_unconfigured_remote_providers -- --nocapture
-CARGO_TARGET_DIR=/tmp/rara-provider-entrypoints-target cargo check
-```
+`cargo clippy --all-targets --all-features -- -D warnings` is not applicable
+on Linux because the all-features set enables the macOS-only `objc2` crate.
 
 ## Follow-Ups
 

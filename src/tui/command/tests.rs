@@ -219,13 +219,16 @@ fn recommended_commands_restore_context_model_resume_and_status() {
 }
 
 #[test]
-fn help_text_lists_built_in_commands_alphabetically() {
+fn help_text_exposes_only_current_provider_entrypoints() {
     let rendered = help_text();
     let approval_idx = rendered.find("/approval").expect("approval");
     let compact_idx = rendered.find("/compact").expect("compact");
     assert!(approval_idx < compact_idx);
     for command in ["/auth", "/base-url", "/login", "/logout", "/models"] {
         assert!(!rendered.contains(command), "{command}");
+    }
+    for command in ["/connect", "/model"] {
+        assert!(rendered.contains(command), "{command}");
     }
 }
 
