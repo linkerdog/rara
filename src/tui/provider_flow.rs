@@ -1,9 +1,7 @@
-use codex_models_manager::manager::RefreshStrategy;
 use secrecy::{ExposeSecret, SecretString};
 
 use super::state::{ListPickerKind, Overlay, ProviderFamily, TuiApp};
 use crate::agent::Agent;
-use crate::codex_model_catalog::load_codex_model_catalog;
 use crate::config::{OpenAiEndpointKind, ensure_rara_home_dir};
 use crate::oauth::OAuthManager;
 
@@ -120,40 +118,12 @@ pub(super) fn codex_auth_is_available(app: &TuiApp, oauth_manager: &OAuthManager
     oauth_manager.has_saved_auth().is_ok_and(|saved| saved)
 }
 
-pub(super) async fn refresh_codex_model_picker(
-    app: &mut TuiApp,
-    oauth_manager: &OAuthManager,
-    refresh_strategy: RefreshStrategy,
-) -> anyhow::Result<()> {
-    match load_codex_model_catalog(oauth_manager.codex_home(), refresh_strategy).await {
-        Ok(options) => {
-            if options.is_empty() && app.codex_model_options.is_empty() {
-                app.push_notice(
-                    "Codex model catalog is empty. Check the saved login or try again.",
-                );
-            }
-            app.set_codex_model_options(options);
-        }
-        Err(err) => {
-            app.push_notice(format!("Failed to load Codex model catalog: {err}"));
-        }
-    }
-    Ok(())
-}
-
 /// Opens the appropriate connection/configuration overlay for a provider.
-/// If already connected, shows a notice. If not, opens auth flow.
+/// Connected providers remain configurable so `/connect` is the only provider
+/// management entry point.
 pub(super) fn open_provider_connection(app: &mut TuiApp) {
     let family = app.selected_provider_family();
     let label = super::state::PROVIDER_FAMILIES[app.provider_picker_idx].1;
-
-    if super::state::is_provider_connected(app, family) {
-        app.bottom_pane.notice = Some(format!(
-            "{label} is connected ✓  Run /model to change models, /connect again to reconfigure."
-        ));
-        app.dismiss_overlay();
-        return;
-    }
 
     match family {
         ProviderFamily::DeepSeek | ProviderFamily::Kimi => {

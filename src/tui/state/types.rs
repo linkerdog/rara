@@ -104,15 +104,6 @@ pub enum OpenAiModelPickerAction {
     DeleteProfile,
 }
 
-/// Tracks whether the provider picker overlay was opened from /connect or /model.
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub enum PickerIntent {
-    /// Opened via /connect — intent is to register a new provider.
-    ConfigureProvider,
-    /// Opened via /model — intent is to switch the active model.
-    SwitchModel,
-}
-
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum PermissionMode {
     Auto,
@@ -158,12 +149,9 @@ pub enum LocalCommandKind {
     Compact,
     Model,
     Connect,
-    BaseUrl,
     NowledgeMem,
-    Login,
     Mcp,
     Permissions,
-    Logout,
     Review,
     Tasks,
     /// Reserved for `/dream` command help while consolidation execution is
@@ -791,8 +779,6 @@ pub struct TuiApp {
     pub command_palette_idx: usize,
     pub model_search_query: String,
     pub model_search_idx: usize,
-    /// Tracks whether the current picker overlay was opened from /connect or /model
-    pub picker_intent: Option<PickerIntent>,
     pub base_url_input: String,
     pub base_url_cursor_offset: Option<usize>,
     pub api_key_input: String,

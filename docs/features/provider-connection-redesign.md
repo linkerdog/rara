@@ -1,108 +1,115 @@
-# Provider Connection & Model Selection Redesign
+# Provider Connection And Model Selection
 
-## Summary
+## Problem
 
-Redesign provider connection and model selection to match OpenCode's UX:
+Provider configuration had accumulated separate TUI commands and picker
+paths for login, logout, base URLs, profiles, individual provider model
+pickers, and a unified model picker. These paths duplicated provider-specific
+state decisions in the TUI and made it unclear whether a provider was ready to
+use or merely had a credential saved.
 
-1. **Provider connection state** — green dot when credentials exist
-2. **`/connect`** — provider picker → auth → verify → list models → select
-3. **`/model`** — provider picker → model list of selected provider → select
+## Scope
 
-## Design
+The TUI has exactly two first-class provider entry points:
 
-### Connection State
+- `/connect` manages provider credentials and provider-specific connection
+  settings.
+- `/model` selects the active model from available providers.
 
-```
-Sidebar display:
-  ● DeepSeek    (connected, green dot)
-  ○ OpenAI      (not connected, no dot)
-  ● Codex       (connected, green dot)
+The existing persisted configuration remains the compatibility source during
+the transition. CLI `login`, `logout`, and `connect` commands are outside this
+TUI command-surface contract.
 
-Green dot = credentials exist for this provider.
-No dot = no credentials configured.
-```
+## Non-Goals
 
-Implementation: check `AppState` / `RuntimeConfig` for each provider family:
-- Codex: OAuth token present
-- DeepSeek: API key in config
-- OpenAI: at least one profile with API key
-- Ollama: endpoint reachable (always connected if configured)
-- Candle: always present (local)
+- Changing the persisted credential format in this rollout.
+- Removing the provider-specific backend implementations.
+- Adding provider discovery beyond the existing catalog and API model refresh.
+- Exposing a new public app-server protocol before its runtime projection is
+  stable.
 
-### /connect Flow
+## Architecture
 
-```
-/provider picker/ → select provider:
+Runtime-owned provider state is the canonical source for presentation
+surfaces. It distinguishes credential presence from runtime availability and
+projects provider-scoped model catalogs. The TUI renders that projection and
+submits explicit provider operations; it does not parse provider API responses
+or decide connection state from configuration fields.
 
-  has credentials?
-  ├─ yes → try list models
-  │        ├─ success → show models, optionally select one
-  │        └─ fail → show auth UI
-  └─ no → show auth UI
-           ├─ API key input  (DeepSeek, OpenAI, custom)
-           └─ OAuth flow     (Codex)
-           success → list models → optionally select
-```
+Until the projection fully replaces legacy state, an adapter may read
+`provider_states`, `openai_profiles`, and Codex auth storage. That adapter is a
+compatibility boundary, not a second canonical model.
 
-### /model Flow
+## Contracts
 
-```
-/provider picker (with green dots)/ → select provider →
+### `/connect`
 
-/model list/:
-  deepseek-chat       64K
-  deepseek-reasoner   64K
-  deepseek-v4-flash    1M
-  deepseek-v4-pro      1M
+`/connect` opens the provider list. Selecting a provider opens either its
+configuration flow or its management view.
 
-select → set as current model
-```
+- An unconfigured provider collects the required API key, OAuth method, or
+  endpoint fields, verifies the configuration when practical, and refreshes
+  its model catalog.
+- A configured provider remains selectable for credential replacement,
+  reconnect, and logout actions. It must not stop at an informational "already
+  connected" notice; model selection remains in `/model`.
+- API key, browser OAuth, device-code OAuth, endpoint URL, and profile details
+  are `/connect` steps, not top-level commands.
 
-### UI Style
+### `/model`
 
-Match Command Palette style (bordered block, badge title, highlight symbol).
+`/model` is the sole model picker. It searches and groups models by provider
+and only exposes models from providers that are currently available according
+to the runtime projection. Selecting a model persists the provider/profile and
+model together, then requests the normal session-stable backend rebuild.
 
-Provider picker: each row shows `●` or `○` + provider name.
-Model list: each row shows model name + context window size.
+When no provider is available, the picker presents `/connect` as the recovery
+action instead of showing synthetic fallback models as selectable.
 
-## Implementation Plan
+### Removed TUI Commands
 
-### Phase 1 — Connection state (P0) ✅ DONE (#362)
-- [x] Add `fn is_provider_connected(app: &TuiApp, family: ProviderFamily) -> bool`
-- [x] Add green/red dot rendering to list picker items
-- [x] ~~Display connected providers in sidebar~~ removed — too cluttered
+The command palette must not expose `/login`, `/auth`, `/logout`, `/base-url`,
+or `/models`. Their behavior is represented by `/connect` or `/model`.
 
-### Phase 2 — Refactor /connect (P0) ✅ DONE (#365)
-- [x] Remove forced config wizard
-- [x] Connected → notice "Provider is connected ✓"
-- [x] Not-connected → auth overlay (ApiKeyEditor, AuthMode, Profile editor)
+### Availability States
 
-### Phase 3 — Refactor /model (P1) ✅ DONE (#362)
-- [x] ModelSearch overlay with input-driven filtering
-- [ ] **Remaining**: show context window sizes from `MODEL_WINDOWS` map in ModelSearch items
-- [ ] **Remaining**: model list from API (`/v1/models`) for connected providers, fallback to `MODEL_WINDOWS`
+The stable runtime projection distinguishes at least:
 
-### Phase 4 — Model Catalog And API-List Polish (P1)
-- [x] Add Kimi as a first-class provider with catalog-backed model windows.
-- [x] Add DeepSeek v4 model-window metadata to the provider catalog.
-- [x] Generalize ModelSearch display so every provider with catalog metadata
-      shows context windows consistently.
-- [x] Add provider API model-list loading for connected API-key providers, with
-      catalog metadata as fallback and enrichment for DeepSeek and Kimi.
+- `unconfigured`
+- `credential_configured`
+- `verifying`
+- `available`
+- `failed`
 
-The provider catalog follows the OpenCode boundary: static provider metadata
-is the durable catalog, while a connected provider's `/models` response is a
-runtime availability projection. The runtime merges the response into typed
-`ModelCatalogEntry` values, preserving catalog context windows when the API
-does not return one and preferring an API-provided context length when it does.
-The TUI consumes those entries and does not parse provider response JSON.
-Catalog refresh is represented as one typed runtime command,
-`RefreshModelCatalog(provider)`, and the resulting entries are carried in
-`RuntimeSnapshot.model_catalogs` so model pickers can hydrate from the same
-projection used by future non-TUI clients.
-There are no provider-specific runtime commands or task kinds; the provider is
-data carried by the catalog request and completion.
+Credential presence alone is not presented as verified availability.
 
-## Future
-- Custom provider support (arbitrary API endpoint + API key)
-- Model list caching with manual `/refresh`
+## Validation Matrix
+
+| Contract | Verification |
+| --- | --- |
+| Command surface contains only the two provider entry points | Focused command parsing and palette tests |
+| `/connect` opens provider setup | Focused TUI state/event test |
+| `/model` opens the sole searchable model picker | Focused TUI state/event test |
+| Removed commands are not accepted by the TUI parser | Focused command tests |
+| Provider/model selection remains session-stable | Existing rebuild and runtime snapshot tests |
+
+## Operational Notes
+
+The current model catalog already treats static provider metadata as durable
+and API `/models` results as runtime availability. The two-entry TUI contract
+builds on that boundary; future runtime work must carry the provider
+availability projection alongside model catalogs.
+
+## Open Risks
+
+- Legacy config carries both global and provider-scoped values, so migration
+  must preserve precedence and existing credentials.
+- Browser OAuth and device-code completion must refresh the provider projection
+  before the model picker is shown.
+- Custom OpenAI-compatible profiles need stable provider/profile identity in a
+  future runtime projection.
+
+## Source Journals
+
+- `docs/journal/2026-08-14-provider-entrypoint-consolidation.md`
+- `docs/journal/2026-08-04-provider-model-catalog.md`

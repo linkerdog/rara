@@ -2,7 +2,7 @@
 
 use crate::tui::state::{CommandSpec, LocalCommand, LocalCommandKind, TuiApp};
 
-pub const COMMAND_SPECS: [CommandSpec; 26] = [
+pub const COMMAND_SPECS: [CommandSpec; 21] = [
     CommandSpec {
         category: "Session",
         name: "permissions",
@@ -117,45 +117,10 @@ pub const COMMAND_SPECS: [CommandSpec; 26] = [
     },
     CommandSpec {
         category: "Setup",
-        name: "base-url",
-        usage: "/base-url",
-        summary: "Open the provider base URL editor.",
-        detail: "Open the interactive base URL editor. Use this mainly for Ollama. Edit and save the value inside the TUI instead of passing command arguments.",
-    },
-    CommandSpec {
-        category: "Setup",
         name: "mem",
         usage: "/mem",
         summary: "Configure the builtin Nowledge Mem local or cloud MCP connection.",
         detail: "Open the builtin Nowledge Mem configuration picker. Cloud mode stores only the endpoint and environment variable names; it never accepts or persists an API key value.",
-    },
-    CommandSpec {
-        category: "Setup",
-        name: "login",
-        usage: "/login",
-        summary: "Open the provider auth picker.",
-        detail: "Open the auth-mode picker for the active provider. For codex, this includes browser login, device-code login, and API-key auth.",
-    },
-    CommandSpec {
-        category: "Setup",
-        name: "auth",
-        usage: "/auth",
-        summary: "Alias for /login.",
-        detail: "Open the provider auth picker for the active provider.",
-    },
-    CommandSpec {
-        category: "Setup",
-        name: "logout",
-        usage: "/logout",
-        summary: "Clear the saved provider credential.",
-        detail: "Clear the saved access token or API key from local config for the active provider. If the active provider is codex, RARA rebuilds the backend so the running session no longer uses the old credential.",
-    },
-    CommandSpec {
-        category: "Setup",
-        name: "models",
-        usage: "/models [name]",
-        summary: "Switch to a model by name, or open the unified model picker.",
-        detail: "Switch directly to a model when a name is given, e.g. /models gpt-4o or /models claude-sonnet-4. The name is matched case-insensitively against model IDs and labels. Without an argument, opens the unified model picker so you can browse all available models from every connected provider and switch the active model immediately.",
     },
     CommandSpec {
         category: "Session",
@@ -209,12 +174,9 @@ pub fn parse_local_command(input: &str) -> Option<LocalCommand> {
         "approval" => LocalCommandKind::Approval,
         "compact" => LocalCommandKind::Compact,
         "tasks" | "task-list" => LocalCommandKind::Tasks,
-        "model" | "models" => LocalCommandKind::Model,
+        "model" => LocalCommandKind::Model,
         "connect" => LocalCommandKind::Connect,
-        "base-url" => LocalCommandKind::BaseUrl,
         "mem" => LocalCommandKind::NowledgeMem,
-        "login" | "auth" => LocalCommandKind::Login,
-        "logout" => LocalCommandKind::Logout,
         "review" => LocalCommandKind::Review,
         "mcp" => LocalCommandKind::Mcp,
         "skills" => LocalCommandKind::Skills,

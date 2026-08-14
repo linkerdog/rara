@@ -30,17 +30,10 @@ pub async fn execute_local_command_with_runtime(
     command: LocalCommand,
     app: &mut TuiApp,
     agent_slot: &mut Option<Agent>,
-    oauth_manager: &Arc<OAuthManager>,
+    _oauth_manager: &Arc<OAuthManager>,
     runtime_port: &dyn RuntimeClientPort,
 ) -> anyhow::Result<bool> {
-    commands::execute_local_command_with_runtime(
-        command,
-        app,
-        agent_slot,
-        oauth_manager,
-        Some(runtime_port),
-    )
-    .await
+    commands::execute_local_command_with_runtime(command, app, agent_slot, Some(runtime_port)).await
 }
 
 pub fn start_query_task(app: &mut TuiApp, prompt: String, agent: Agent) {

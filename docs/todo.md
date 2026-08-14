@@ -191,6 +191,9 @@ Active backlog only. Keep this file small and current.
 
 - [x] Enrich connected DeepSeek/Kimi model lists with static and API-provided
       context-window metadata and show it in model pickers.
+- [ ] Move provider availability and authentication-method projection from the
+      TUI compatibility adapter into the session-scoped runtime control plane;
+      see `docs/features/provider-connection-redesign.md`.
 
 ## Patch Engine
 

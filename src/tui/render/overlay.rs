@@ -639,7 +639,7 @@ mod tests {
 
 fn render_model_search(f: &mut Frame, app: &TuiApp, area: Rect) {
     let query = app.model_search_query.as_str();
-    let presets = app.all_unified_model_presets();
+    let presets = app.available_unified_model_presets();
     let filtered: Vec<_> = if query.is_empty() {
         presets.iter().collect()
     } else {
@@ -709,6 +709,14 @@ fn render_model_search(f: &mut Frame, app: &TuiApp, area: Rect) {
             ListItem::new(Line::from(vec![name, family, window]))
         })
         .collect();
+
+    let items = if items.is_empty() {
+        vec![ListItem::new(
+            "No available provider models. Run /connect to add a provider.",
+        )]
+    } else {
+        items
+    };
 
     f.render_stateful_widget(
         List::new(items)

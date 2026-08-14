@@ -58,12 +58,6 @@ fn parses_alias_commands() {
 
     let threads = parse_local_command("/threads").expect("threads should parse");
     assert!(matches!(threads.kind, LocalCommandKind::Resume));
-
-    let auth = parse_local_command("/auth").expect("auth should parse");
-    assert!(matches!(auth.kind, LocalCommandKind::Login));
-
-    let models = parse_local_command("/models").expect("models should parse");
-    assert!(matches!(models.kind, LocalCommandKind::Model));
 }
 
 #[test]
@@ -78,13 +72,6 @@ fn parses_quit_aliases() {
 
     let exit = parse_local_command("/exit").expect("exit should parse");
     assert!(matches!(exit.kind, LocalCommandKind::Quit));
-}
-
-#[test]
-fn parses_base_url_command() {
-    let command = parse_local_command("/base-url").expect("command should parse");
-    assert!(matches!(command.kind, LocalCommandKind::BaseUrl));
-    assert_eq!(command.arg.as_deref(), None);
 }
 
 #[test]
@@ -149,14 +136,10 @@ fn parses_tasks_command() {
 }
 
 #[test]
-fn parses_login_and_logout_commands() {
-    let login = parse_local_command("/login").expect("login should parse");
-    assert!(matches!(login.kind, LocalCommandKind::Login));
-    assert_eq!(login.arg.as_deref(), None);
-
-    let logout = parse_local_command("/logout").expect("logout should parse");
-    assert!(matches!(logout.kind, LocalCommandKind::Logout));
-    assert_eq!(logout.arg.as_deref(), None);
+fn provider_management_commands_are_not_tui_entry_points() {
+    for command in ["/auth", "/base-url", "/login", "/logout", "/models"] {
+        assert!(parse_local_command(command).is_none(), "{command}");
+    }
 }
 
 #[test]
@@ -239,8 +222,11 @@ fn recommended_commands_restore_context_model_resume_and_status() {
 fn help_text_lists_built_in_commands_alphabetically() {
     let rendered = help_text();
     let approval_idx = rendered.find("/approval").expect("approval");
-    let base_url_idx = rendered.find("/base-url").expect("base-url");
-    assert!(approval_idx < base_url_idx);
+    let compact_idx = rendered.find("/compact").expect("compact");
+    assert!(approval_idx < compact_idx);
+    for command in ["/auth", "/base-url", "/login", "/logout", "/models"] {
+        assert!(!rendered.contains(command), "{command}");
+    }
 }
 
 #[test]

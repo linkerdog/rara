@@ -33,11 +33,11 @@ pub use self::types::{
     CompletedInteractionSnapshot, GoalHandle, GoalStatus, HelpTab, InteractionKind, ListPickerKind,
     LocalCommand, LocalCommandKind, ModelCatalogSnapshot, ModelRoutingView, OAuthLoginMode,
     OpenAiModelPickerAction, Overlay, PROVIDER_FAMILIES, PendingApprovalSnapshot,
-    PendingInteractionSnapshot, PermissionMode, PickerIntent, ProviderFamily, RalphGoal,
-    RunningTask, RuntimeExtensionSnapshot, RuntimePhase, RuntimeSnapshot, SkillPickerEntry,
-    StatusTab, SystemMessageKind, TaskCompletion, TaskKind, TerminalDiagnosticsView,
-    ToolTranscriptPayload, ToolTranscriptStatus, TranscriptEntry, TranscriptEntryPayload,
-    TranscriptTurn, TuiApp, TuiEvent, UnifiedModelPreset,
+    PendingInteractionSnapshot, PermissionMode, ProviderFamily, RalphGoal, RunningTask,
+    RuntimeExtensionSnapshot, RuntimePhase, RuntimeSnapshot, SkillPickerEntry, StatusTab,
+    SystemMessageKind, TaskCompletion, TaskKind, TerminalDiagnosticsView, ToolTranscriptPayload,
+    ToolTranscriptStatus, TranscriptEntry, TranscriptEntryPayload, TranscriptTurn, TuiApp,
+    TuiEvent, UnifiedModelPreset,
 };
 use crate::oauth::OAuthManager;
 pub(crate) use crate::runtime_client::RebuildSuccess;
@@ -47,63 +47,6 @@ const OPENAI_PROFILE_SETUP_KINDS: [OpenAiEndpointKind; 3] = [
     OpenAiEndpointKind::Kimi,
     OpenAiEndpointKind::Openrouter,
 ];
-
-pub fn is_provider_connected(app: &TuiApp, family: ProviderFamily) -> bool {
-    let config = &app.config;
-    match family {
-        ProviderFamily::Codex => {
-            config
-                .provider_states
-                .get("codex")
-                .and_then(|s| s.api_key.as_ref())
-                .is_some()
-                || std::env::var("CODEX_API_KEY").is_ok()
-        }
-        ProviderFamily::DeepSeek => {
-            config
-                .provider_states
-                .get("deepseek")
-                .and_then(|s| s.api_key.as_ref())
-                .is_some()
-                || std::env::var("DEEPSEEK_API_KEY").is_ok()
-        }
-        ProviderFamily::Kimi => {
-            let has_state = config
-                .provider_states
-                .get("kimi")
-                .and_then(|s| s.api_key.as_ref())
-                .is_some();
-            let has_env =
-                std::env::var("KIMI_API_KEY").is_ok() || std::env::var("MOONSHOT_API_KEY").is_ok();
-            let has_profile = config.openai_profiles.values().any(|p| {
-                p.kind == crate::config::OpenAiEndpointKind::Kimi && p.api_key.as_ref().is_some()
-            });
-            has_state || has_env || has_profile
-        }
-        ProviderFamily::Gemini => {
-            std::env::var("GEMINI_API_KEY").is_ok()
-                || config
-                    .provider_states
-                    .get("gemini")
-                    .and_then(|s| s.api_key.as_ref())
-                    .is_some()
-        }
-        ProviderFamily::OpenAiCompatible => config
-            .provider_states
-            .get("openai")
-            .and_then(|s| s.api_key.as_ref())
-            .is_some(),
-        ProviderFamily::Ollama | ProviderFamily::CandleLocal => true,
-        ProviderFamily::Bedrock => {
-            config
-                .provider_states
-                .get("bedrock")
-                .and_then(|s| s.api_key.as_ref())
-                .is_some()
-                || std::env::var("AWS_ACCESS_KEY_ID").is_ok()
-        }
-    }
-}
 
 pub(super) const INPUT_HISTORY_LIMIT: usize = 200;
 
@@ -264,7 +207,6 @@ impl TuiApp {
             command_palette_idx: 0,
             model_search_query: String::new(),
             model_search_idx: 0,
-            picker_intent: None,
             base_url_input: String::new(),
             base_url_cursor_offset: None,
             api_key_input: String::new(),
@@ -791,6 +733,22 @@ impl TuiApp {
         results
     }
 
+    /// Returns models whose provider currently has a usable configured connection.
+    ///
+    /// This is a compatibility projection until the runtime publishes provider
+    /// availability alongside its model catalogs.
+    pub fn available_unified_model_presets(&self) -> Vec<UnifiedModelPreset> {
+        self.all_unified_model_presets()
+            .into_iter()
+            .filter(|preset| {
+                self.provider_connection_status
+                    .get(&preset.family)
+                    .copied()
+                    .unwrap_or(false)
+            })
+            .collect()
+    }
+
     /// Look up context window tokens for a model from provider catalogs.
     pub fn model_context_window(&self, family: ProviderFamily, model_id: &str) -> Option<u32> {
         match family {
@@ -981,6 +939,7 @@ impl TuiApp {
             .unwrap_or(0);
     }
 
+    #[cfg(test)]
     pub fn set_codex_model_options(&mut self, options: Vec<CodexModelOption>) {
         self.codex_model_options = options;
         self.model_picker_idx = self.selected_preset_idx();
