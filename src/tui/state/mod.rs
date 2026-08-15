@@ -42,9 +42,10 @@ pub use self::types::{
 use crate::oauth::OAuthManager;
 pub(crate) use crate::runtime_client::RebuildSuccess;
 
-const OPENAI_PROFILE_SETUP_KINDS: [OpenAiEndpointKind; 3] = [
+const OPENAI_PROFILE_SETUP_KINDS: [OpenAiEndpointKind; 4] = [
     OpenAiEndpointKind::Custom,
     OpenAiEndpointKind::Kimi,
+    OpenAiEndpointKind::KimiCoding,
     OpenAiEndpointKind::Openrouter,
 ];
 
@@ -338,6 +339,15 @@ impl TuiApp {
                     });
                     has_key || has_profile
                 }
+                ProviderFamily::KimiCoding => {
+                    let has_key =
+                        self.config.provider == "kimi-coding" && self.config.has_api_key();
+                    let has_profile = self.config.openai_profiles.values().any(|profile| {
+                        profile.kind == crate::config::OpenAiEndpointKind::KimiCoding
+                            && profile.api_key.as_ref().is_some()
+                    });
+                    has_key || has_profile
+                }
                 ProviderFamily::Gemini => {
                     let has_key = self.config.provider == "gemini" && self.config.has_api_key();
                     let has_state = self
@@ -610,7 +620,7 @@ impl TuiApp {
                         results.push(UnifiedModelPreset {
                             family: *family,
                             provider_id: "kimi".into(),
-                            provider_label: "Kimi".into(),
+                            provider_label: "Moonshot AI".into(),
                             model_id: "kimi-k2.6".into(),
                             model_label: "kimi-k2.6".into(),
                             status: None,
@@ -621,7 +631,7 @@ impl TuiApp {
                             results.push(UnifiedModelPreset {
                                 family: *family,
                                 provider_id: "kimi".to_string(),
-                                provider_label: "Kimi".to_string(),
+                                provider_label: "Moonshot AI".to_string(),
                                 model_id: model.clone(),
                                 model_label: model.clone(),
                                 status: None,
@@ -630,6 +640,17 @@ impl TuiApp {
                         }
                     }
                 }
+                ProviderFamily::KimiCoding => {
+                    results.push(UnifiedModelPreset {
+                        family: *family,
+                        provider_id: "kimi-coding".into(),
+                        provider_label: "Kimi For Coding".into(),
+                        model_id: crate::config::DEFAULT_KIMI_CODING_MODEL.into(),
+                        model_label: crate::config::DEFAULT_KIMI_CODING_MODEL.into(),
+                        status: None,
+                        context_window: None,
+                    });
+                }
                 ProviderFamily::OpenAiCompatible => {
                     let mut found_profile = false;
                     for (profile_id, profile) in &self.config.openai_profiles {
@@ -637,7 +658,9 @@ impl TuiApp {
                         // provider family (these show up via their own branch).
                         if matches!(
                             profile.kind,
-                            OpenAiEndpointKind::Deepseek | OpenAiEndpointKind::Kimi
+                            OpenAiEndpointKind::Deepseek
+                                | OpenAiEndpointKind::Kimi
+                                | OpenAiEndpointKind::KimiCoding
                         ) {
                             continue;
                         }
@@ -754,6 +777,7 @@ impl TuiApp {
         match family {
             ProviderFamily::DeepSeek => self.deepseek_model_context_windows.get(model_id),
             ProviderFamily::Kimi => self.kimi_model_context_windows.get(model_id),
+            ProviderFamily::KimiCoding => None,
             _ => None,
         }
         .copied()
@@ -1365,6 +1389,7 @@ impl TuiApp {
             OpenAiEndpointKind::Custom => "custom",
             OpenAiEndpointKind::Deepseek => "deepseek",
             OpenAiEndpointKind::Kimi => "kimi",
+            OpenAiEndpointKind::KimiCoding => "kimi-coding",
             OpenAiEndpointKind::Openrouter => "openrouter",
         };
         let base = format!("{prefix}-{slug}");

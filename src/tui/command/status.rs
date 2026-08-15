@@ -489,6 +489,7 @@ pub fn status_runtime_text(app: &TuiApp) -> String {
                 rara_config::OpenAiEndpointKind::Custom => "custom",
                 rara_config::OpenAiEndpointKind::Deepseek => "deepseek",
                 rara_config::OpenAiEndpointKind::Kimi => "kimi",
+                rara_config::OpenAiEndpointKind::KimiCoding => "kimi-coding",
                 rara_config::OpenAiEndpointKind::Openrouter => "openrouter",
             })
             .unwrap_or("-")
@@ -845,6 +846,7 @@ pub fn model_help_text(app: &TuiApp) -> String {
                             ProviderFamily::Codex
                             | ProviderFamily::DeepSeek
                             | ProviderFamily::Kimi
+                            | ProviderFamily::KimiCoding
                             | ProviderFamily::OpenAiCompatible
                             | ProviderFamily::Gemini
                             | ProviderFamily::CandleLocal

@@ -14,15 +14,15 @@ Start with:     ›    [1] Codex (current)
   /help    bro          Use Codex with browser login, device-code login, or a Codex
   /model   cho       [2] DeepSeek
   /status  ins          Use DeepSeek with an API key and model list from api.deepsee
-  /quit    lea       [3] Kimi
-                        Use Moonshot Kimi with an API key from platform.kimi.ai.
-Prompt ideas:        [4] OpenAI-compatible
-  · Explain th          Use OpenAI-compatible endpoint profiles such as Custom, Kimi
-  · Find the m       [5] Gemini
-                        Use Google Gemini via AI Studio (API key) or Code Assist (OA
-                   ● [6] Candle Local
-  Warning  War          Run local Candle models directly in-process.                  er.
-› Ask about th       [7] Ollama
-                        Use an external Ollama server and choose a local tag.
+  /quit    lea       [3] Kimi For Coding
+                        Use a Kimi Code API key with the dedicated coding endpoint.
+Prompt ideas:        [4] Moonshot AI
+  · Explain th          Use the Moonshot Open Platform with a MOONSHOT_API_KEY.
+  · Find the m       [5] OpenAI-compatible
+                        Use OpenAI-compatible endpoint profiles such as Custom or Op
+                     [6] Gemini
+  Warning  War          Use Google Gemini via AI Studio (API key) or Code Assist (OA  er.
+› Ask about th     ● [7] Candle Local
+                        Run local Candle models directly in-process.
                           1-9 jump  Up/Down/jk move  Enter apply  Esc back
                                                                                       val=suggestion

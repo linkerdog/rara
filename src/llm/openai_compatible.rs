@@ -528,6 +528,7 @@ impl LlmBackend for OpenAiCompatibleBackend {
             }
             OpenAiEndpointKind::Custom
             | OpenAiEndpointKind::Kimi
+            | OpenAiEndpointKind::KimiCoding
             | OpenAiEndpointKind::Openrouter => ProviderCacheProfile::none(),
         }
     }

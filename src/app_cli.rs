@@ -765,10 +765,11 @@ fn parse_endpoint_kind(kind_str: &str) -> Result<OpenAiEndpointKind> {
     match kind_str.to_lowercase().as_str() {
         "deepseek" => Ok(OpenAiEndpointKind::Deepseek),
         "kimi" => Ok(OpenAiEndpointKind::Kimi),
+        "kimi-coding" => Ok(OpenAiEndpointKind::KimiCoding),
         "openrouter" => Ok(OpenAiEndpointKind::Openrouter),
         "custom" | "openai-compatible" => Ok(OpenAiEndpointKind::Custom),
         other => Err(anyhow::anyhow!(
-            "unknown provider kind '{}'. Supported kinds: deepseek, kimi, openrouter, custom",
+            "unknown provider kind '{}'. Supported kinds: deepseek, kimi, kimi-coding, openrouter, custom",
             other
         )),
     }
@@ -1131,6 +1132,10 @@ mod tests {
             OpenAiEndpointKind::Kimi
         );
         assert_eq!(
+            parse_endpoint_kind("kimi-coding").expect("kimi-coding"),
+            OpenAiEndpointKind::KimiCoding
+        );
+        assert_eq!(
             parse_endpoint_kind("openrouter").expect("openrouter"),
             OpenAiEndpointKind::Openrouter
         );
@@ -1177,7 +1182,7 @@ mod tests {
             "kimi".to_string(),
             OpenAiEndpointProfile {
                 id: "kimi".to_string(),
-                label: "Kimi".to_string(),
+                label: "Moonshot AI".to_string(),
                 kind: OpenAiEndpointKind::Kimi,
                 api_key: None,
                 base_url: Some(DEFAULT_KIMI_BASE_URL.to_string()),

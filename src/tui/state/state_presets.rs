@@ -3,12 +3,16 @@ use crate::config::{OpenAiEndpointKind, RaraConfig};
 
 pub const CODEX_MODEL_PRESETS: [(&str, &str, &str); 0] = [];
 
-pub const OPENAI_COMPATIBLE_MODEL_PRESETS: [(&str, &str, &str); 4] = [
+pub const OPENAI_COMPATIBLE_MODEL_PRESETS: [(&str, &str, &str); 5] = [
     ("Custom endpoint", "openai-compatible", "gpt-4o-mini"),
     ("DeepSeek", "openai-compatible", "deepseek-chat"),
-    ("Kimi", "openai-compatible", "kimi-k2.6"),
+    ("Moonshot AI", "openai-compatible", "kimi-k2.6"),
+    ("Kimi For Coding", "openai-compatible", "kimi-for-coding"),
     ("OpenRouter", "openai-compatible", "openai/gpt-4o-mini"),
 ];
+
+pub const KIMI_CODING_MODEL_PRESETS: [(&str, &str, &str); 1] =
+    [("Kimi For Coding", "kimi-coding", "kimi-for-coding")];
 
 pub const LOCAL_MODEL_PRESETS: [(&str, &str, &str); 3] = [
     ("Gemma 4 E4B (Experimental)", "gemma4", "gemma4-e4b"),
@@ -45,11 +49,14 @@ pub fn selected_provider_family_idx_for_config(config: &RaraConfig) -> usize {
                 ProviderFamily::DeepSeek
             } else if config.active_openai_profile_kind() == Some(OpenAiEndpointKind::Kimi) {
                 ProviderFamily::Kimi
+            } else if config.active_openai_profile_kind() == Some(OpenAiEndpointKind::KimiCoding) {
+                ProviderFamily::KimiCoding
             } else {
                 ProviderFamily::OpenAiCompatible
             }
         }
         "kimi" => ProviderFamily::Kimi,
+        "kimi-coding" => ProviderFamily::KimiCoding,
         "openrouter" => ProviderFamily::OpenAiCompatible,
         "gemini" | "gemini-code-assist" => ProviderFamily::Gemini,
         "ollama" | "ollama-native" | "ollama-openai" => ProviderFamily::Ollama,
@@ -74,6 +81,7 @@ pub fn current_model_presets(
         ProviderFamily::Codex => &CODEX_MODEL_PRESETS,
         ProviderFamily::DeepSeek => &[],
         ProviderFamily::Kimi => &[],
+        ProviderFamily::KimiCoding => &KIMI_CODING_MODEL_PRESETS,
         ProviderFamily::OpenAiCompatible => &OPENAI_COMPATIBLE_MODEL_PRESETS,
         ProviderFamily::Gemini => &[],
         ProviderFamily::CandleLocal => &LOCAL_MODEL_PRESETS,
@@ -104,7 +112,8 @@ pub fn openai_compatible_preset_kind(idx: usize) -> OpenAiEndpointKind {
     match idx {
         1 => OpenAiEndpointKind::Deepseek,
         2 => OpenAiEndpointKind::Kimi,
-        3 => OpenAiEndpointKind::Openrouter,
+        3 => OpenAiEndpointKind::KimiCoding,
+        4 => OpenAiEndpointKind::Openrouter,
         _ => OpenAiEndpointKind::Custom,
     }
 }
@@ -114,7 +123,8 @@ pub fn openai_compatible_preset_index(kind: OpenAiEndpointKind) -> usize {
         OpenAiEndpointKind::Custom => 0,
         OpenAiEndpointKind::Deepseek => 1,
         OpenAiEndpointKind::Kimi => 2,
-        OpenAiEndpointKind::Openrouter => 3,
+        OpenAiEndpointKind::KimiCoding => 3,
+        OpenAiEndpointKind::Openrouter => 4,
     }
 }
 
@@ -133,7 +143,7 @@ mod tests {
             ..RaraConfig::default()
         };
 
-        assert_eq!(selected_provider_family_idx_for_config(&config), 3);
+        assert_eq!(selected_provider_family_idx_for_config(&config), 4);
     }
 
     #[test]
@@ -155,10 +165,10 @@ mod tests {
             ..RaraConfig::default()
         };
 
-        assert_eq!(selected_provider_family_idx_for_config(&local), 5);
-        assert_eq!(selected_provider_family_idx_for_config(&ollama), 6);
-        assert_eq!(selected_provider_family_idx_for_config(&ollama_native), 6);
-        assert_eq!(selected_provider_family_idx_for_config(&ollama_openai), 6);
+        assert_eq!(selected_provider_family_idx_for_config(&local), 6);
+        assert_eq!(selected_provider_family_idx_for_config(&ollama), 7);
+        assert_eq!(selected_provider_family_idx_for_config(&ollama_native), 7);
+        assert_eq!(selected_provider_family_idx_for_config(&ollama_openai), 7);
     }
 
     #[test]
@@ -167,13 +177,23 @@ mod tests {
             provider: "openrouter".to_string(),
             ..RaraConfig::default()
         };
-        assert_eq!(selected_provider_family_idx_for_config(&config), 3);
+        assert_eq!(selected_provider_family_idx_for_config(&config), 4);
     }
 
     #[test]
     fn routes_kimi_provider_to_dedicated_family() {
         let config = RaraConfig {
             provider: "kimi".to_string(),
+            ..RaraConfig::default()
+        };
+
+        assert_eq!(selected_provider_family_idx_for_config(&config), 3);
+    }
+
+    #[test]
+    fn routes_kimi_coding_provider_to_dedicated_family() {
+        let config = RaraConfig {
+            provider: "kimi-coding".to_string(),
             ..RaraConfig::default()
         };
 
@@ -196,6 +216,7 @@ mod tests {
             OpenAiEndpointKind::Custom,
             OpenAiEndpointKind::Deepseek,
             OpenAiEndpointKind::Kimi,
+            OpenAiEndpointKind::KimiCoding,
             OpenAiEndpointKind::Openrouter,
         ] {
             assert_eq!(

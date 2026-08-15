@@ -686,7 +686,7 @@ fn available_unified_model_presets_exclude_unconfigured_remote_providers() {
     let mut app = TuiApp::new(cm).expect("app");
 
     app.config
-        .select_openai_profile("kimi-default", "Kimi", OpenAiEndpointKind::Kimi);
+        .select_openai_profile("kimi-default", "Moonshot AI", OpenAiEndpointKind::Kimi);
     app.config.set_api_key("test-kimi-key");
     app.refresh_provider_connection_status();
 
@@ -993,7 +993,7 @@ fn opening_openai_profile_picker_prefers_active_profile_of_selected_kind() {
         OpenAiEndpointKind::Openrouter,
     );
     app.provider_picker_idx = provider_family_idx(ProviderFamily::OpenAiCompatible);
-    app.model_picker_idx = 3;
+    app.model_picker_idx = 4;
 
     app.open_overlay(Overlay::ListPicker(ListPickerKind::OpenAiProfile));
 
@@ -1019,7 +1019,7 @@ fn openai_model_selection_keeps_non_default_profile_for_same_kind() {
         OpenAiEndpointKind::Openrouter,
     );
 
-    app.select_local_model(3);
+    app.select_local_model(4);
 
     assert_eq!(
         app.config.active_openai_profile_id(),

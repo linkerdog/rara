@@ -565,6 +565,7 @@ pub(crate) async fn build_backend_with_progress(
                 .unwrap_or(match provider {
                     "deepseek" => OpenAiEndpointKind::Deepseek,
                     "kimi" => OpenAiEndpointKind::Kimi,
+                    "kimi-coding" => OpenAiEndpointKind::KimiCoding,
                     "openrouter" => OpenAiEndpointKind::Openrouter,
                     _ => OpenAiEndpointKind::Custom,
                 });

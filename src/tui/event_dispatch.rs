@@ -388,6 +388,9 @@ async fn dispatch_event_inner(
                     ApiKeyTarget::Codex => app.config.set_provider_api_key("codex", value),
                     ApiKeyTarget::DeepSeek => app.config.set_provider_api_key("deepseek", value),
                     ApiKeyTarget::Kimi => app.config.set_provider_api_key("kimi", value),
+                    ApiKeyTarget::KimiCoding => {
+                        app.config.set_provider_api_key("kimi-coding", value)
+                    }
                     ApiKeyTarget::OpenAiCompatible => app.config.set_api_key(value),
                     ApiKeyTarget::Gemini => app.config.set_provider_api_key("gemini", value),
                 }
@@ -417,7 +420,8 @@ async fn dispatch_event_inner(
                     )
                     .await?;
                 } else if target == ApiKeyTarget::Kimi {
-                    app.bottom_pane.notice = Some("Saved Kimi API key. Loading models.".into());
+                    app.bottom_pane.notice =
+                        Some("Saved Moonshot AI API key. Loading models.".into());
                     app.dismiss_overlay();
                     request_maintenance(
                         app,
@@ -430,7 +434,8 @@ async fn dispatch_event_inner(
                         match target {
                             ApiKeyTarget::Codex => "Saved Codex API key.",
                             ApiKeyTarget::DeepSeek => "Saved DeepSeek API key.",
-                            ApiKeyTarget::Kimi => "Saved Kimi API key.",
+                            ApiKeyTarget::Kimi => "Saved Moonshot AI API key.",
+                            ApiKeyTarget::KimiCoding => "Saved Kimi For Coding API key.",
                             ApiKeyTarget::OpenAiCompatible => {
                                 "Saved API key for the current endpoint profile."
                             }
@@ -671,6 +676,20 @@ async fn dispatch_event_inner(
                                 } else {
                                     app.open_overlay(Overlay::ApiKeyEditor(ApiKeyTarget::Kimi));
                                 }
+                            } else if app.selected_provider_family() == ProviderFamily::KimiCoding {
+                                if app.config.has_api_key() {
+                                    app.select_local_model(app.model_picker_idx);
+                                    request_maintenance(
+                                        app,
+                                        runtime_port,
+                                        RuntimeMaintenanceCommand::Rebuild,
+                                    )
+                                    .await?;
+                                } else {
+                                    app.open_overlay(Overlay::ApiKeyEditor(
+                                        ApiKeyTarget::KimiCoding,
+                                    ));
+                                }
                             } else {
                                 app.select_local_model(app.model_picker_idx);
                                 request_maintenance(
@@ -727,6 +746,8 @@ async fn dispatch_event_inner(
                                 ProviderFamily::Kimi if !app.config.has_api_key() => {
                                     app.open_overlay(Overlay::ApiKeyEditor(ApiKeyTarget::Kimi))
                                 }
+                                ProviderFamily::KimiCoding if !app.config.has_api_key() => app
+                                    .open_overlay(Overlay::ApiKeyEditor(ApiKeyTarget::KimiCoding)),
                                 ProviderFamily::Gemini if !app.config.has_api_key() => {
                                     app.open_overlay(Overlay::ApiKeyEditor(ApiKeyTarget::Gemini))
                                 }

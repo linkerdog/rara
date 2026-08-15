@@ -134,6 +134,10 @@ pub(super) fn open_provider_connection(app: &mut TuiApp) {
             app.open_overlay(Overlay::ApiKeyEditor(ApiKeyTarget::Kimi));
             app.bottom_pane.notice = Some(format!("Enter your {label} API key."));
         }
+        ProviderFamily::KimiCoding => {
+            app.open_overlay(Overlay::ApiKeyEditor(ApiKeyTarget::KimiCoding));
+            app.bottom_pane.notice = Some(format!("Enter your {label} API key."));
+        }
         ProviderFamily::Gemini => {
             app.open_overlay(Overlay::ApiKeyEditor(ApiKeyTarget::Gemini));
             app.bottom_pane.notice = Some(format!("Enter your {label} API key."));

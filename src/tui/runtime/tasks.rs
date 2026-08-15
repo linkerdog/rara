@@ -585,7 +585,7 @@ pub(super) fn start_model_catalog_task(app: &mut TuiApp, provider: ModelCatalogP
     let (api_key, base_url) = model_catalog_connection(&app.config, provider);
     let provider_label = match provider {
         ModelCatalogProvider::DeepSeek => "DeepSeek",
-        ModelCatalogProvider::Kimi => "Kimi",
+        ModelCatalogProvider::Kimi => "Moonshot AI",
     };
     app.bottom_pane.notice = Some(format!("Loading {provider_label} models."));
     app.set_runtime_phase(

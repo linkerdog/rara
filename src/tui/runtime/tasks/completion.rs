@@ -472,7 +472,7 @@ async fn finish_running_task_if_ready_with_completion_mode(
                 }
                 let label = match provider {
                     ModelCatalogProvider::DeepSeek => "DeepSeek",
-                    ModelCatalogProvider::Kimi => "Kimi",
+                    ModelCatalogProvider::Kimi => "Moonshot AI",
                 };
                 app.bottom_pane.notice = Some(format!("Loaded {count} {label} models."));
                 app.set_runtime_phase(RuntimePhase::Idle, Some("models loaded".into()));
@@ -490,7 +490,7 @@ async fn finish_running_task_if_ready_with_completion_mode(
                 }
                 let label = match provider {
                     ModelCatalogProvider::DeepSeek => "DeepSeek",
-                    ModelCatalogProvider::Kimi => "Kimi",
+                    ModelCatalogProvider::Kimi => "Moonshot AI",
                 };
                 let message = format!(
                     "Failed to load {label} models. Showing fallback list.\n{}",

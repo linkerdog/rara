@@ -2563,7 +2563,7 @@ async fn deepseek_api_key_save_starts_model_catalog_task() {
 }
 
 #[tokio::test]
-async fn kimi_connection_saves_to_kimi_without_overwriting_active_codex_key() {
+async fn moonshot_connection_saves_to_moonshot_without_overwriting_active_codex_key() {
     let temp = tempdir().expect("tempdir");
     let mut app = TuiApp::new(ConfigManager {
         path: temp.path().join("config.json"),
@@ -2576,7 +2576,7 @@ async fn kimi_connection_saves_to_kimi_without_overwriting_active_codex_key() {
     open_provider_family_overlay(&mut app);
 
     assert_eq!(app.overlay, Some(Overlay::ApiKeyEditor(ApiKeyTarget::Kimi)));
-    app.api_key_input = "sk-kimi".to_string();
+    app.api_key_input = "sk-moonshot".to_string();
     let oauth_manager = Arc::new(
         crate::oauth::OAuthManager::new_for_config_dir(temp.path().join(".rara"))
             .expect("oauth manager"),
@@ -2590,7 +2590,7 @@ async fn kimi_connection_saves_to_kimi_without_overwriting_active_codex_key() {
         &oauth_manager,
     )
     .await
-    .expect("save Kimi API key");
+    .expect("save Moonshot API key");
 
     assert_eq!(app.config.provider, "codex");
     assert_eq!(app.config.api_key(), Some("sk-codex"));
@@ -2598,13 +2598,13 @@ async fn kimi_connection_saves_to_kimi_without_overwriting_active_codex_key() {
         .config
         .openai_profiles
         .get(OpenAiEndpointKind::Kimi.default_profile_id())
-        .expect("Kimi profile");
+        .expect("Moonshot profile");
     assert_eq!(
         kimi_profile
             .api_key
             .as_ref()
             .map(ExposeSecret::expose_secret),
-        Some("sk-kimi")
+        Some("sk-moonshot")
     );
     assert!(matches!(
         app.bottom_pane.running_task.as_ref(),
@@ -2613,6 +2613,83 @@ async fn kimi_connection_saves_to_kimi_without_overwriting_active_codex_key() {
     if let Some(task) = app.bottom_pane.running_task.take() {
         task.handle.abort();
     }
+}
+
+#[tokio::test]
+async fn kimi_coding_connection_uses_the_dedicated_profile_and_endpoint() {
+    let temp = tempdir().expect("tempdir");
+    let mut app = TuiApp::new(ConfigManager {
+        path: temp.path().join("config.json"),
+    })
+    .expect("build tui app");
+    app.config.set_provider("codex");
+    app.config.set_api_key("sk-codex");
+    app.provider_picker_idx = provider_family_idx(ProviderFamily::KimiCoding);
+
+    open_provider_family_overlay(&mut app);
+
+    assert_eq!(
+        app.overlay,
+        Some(Overlay::ApiKeyEditor(ApiKeyTarget::KimiCoding))
+    );
+    app.api_key_input = "sk-kimi-code".to_string();
+    let oauth_manager = Arc::new(
+        crate::oauth::OAuthManager::new_for_config_dir(temp.path().join(".rara"))
+            .expect("oauth manager"),
+    );
+    let mut agent_slot = None;
+
+    dispatch_event(
+        AppEvent::SaveApiKeyInput,
+        &mut app,
+        &mut agent_slot,
+        &oauth_manager,
+    )
+    .await
+    .expect("save Kimi For Coding API key");
+
+    assert_eq!(app.config.provider, "codex");
+    assert_eq!(app.config.api_key(), Some("sk-codex"));
+    let profile = app
+        .config
+        .openai_profiles
+        .get(OpenAiEndpointKind::KimiCoding.default_profile_id())
+        .expect("Kimi For Coding profile");
+    assert_eq!(
+        profile.api_key.as_ref().map(ExposeSecret::expose_secret),
+        Some("sk-kimi-code")
+    );
+    assert_eq!(
+        profile.base_url.as_deref(),
+        Some(crate::config::DEFAULT_KIMI_CODING_BASE_URL)
+    );
+    assert_eq!(
+        profile.model.as_deref(),
+        Some(crate::config::DEFAULT_KIMI_CODING_MODEL)
+    );
+    assert_eq!(
+        app.bottom_pane.notice.as_deref(),
+        Some("Saved Kimi For Coding API key.")
+    );
+    assert!(app.bottom_pane.running_task.is_none());
+
+    let preset_idx = app
+        .all_unified_model_presets()
+        .iter()
+        .position(|preset| preset.family == ProviderFamily::KimiCoding)
+        .expect("Kimi For Coding model preset");
+    app.select_unified_model(preset_idx);
+
+    assert_eq!(app.config.provider, "openai-compatible");
+    assert_eq!(
+        app.config.active_openai_profile_kind(),
+        Some(OpenAiEndpointKind::KimiCoding)
+    );
+    assert_eq!(app.config.api_key(), Some("sk-kimi-code"));
+    assert_eq!(
+        app.config.base_url.as_deref(),
+        Some(crate::config::DEFAULT_KIMI_CODING_BASE_URL)
+    );
 }
 
 #[tokio::test]
