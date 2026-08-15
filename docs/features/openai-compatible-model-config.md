@@ -28,6 +28,10 @@ both use the shared OpenAI-compatible backend. Their credentials and API roots
 belong to different services and must never be used as fallbacks for each
 other.
 
+Saving a Kimi For Coding credential through `/connect` must also activate its
+endpoint profile and request a backend rebuild for the current session. The
+next query must not remain on the previously active Codex or Moonshot backend.
+
 When `OpenAI-compatible` is selected, the model picker must allow editing:
 
 - `base URL`
@@ -156,6 +160,13 @@ In the model picker:
 - `Enter` applies the selected preset and rebuilds the backend
 
 The base URL editor and API key editor must use generic OpenAI-compatible wording when the active provider is `openai-compatible`, not Codex-specific auth wording.
+
+The Kimi For Coding API-key editor is provider-specific. On save, it must:
+
+- preserve credentials remembered for the previously active provider;
+- activate `kimi-coding-default`;
+- persist `endpoint_kind = "kimi_coding"` with the Kimi coding API root;
+- rebuild the current session backend before the next query.
 
 The model-name editor is a separate overlay so the user can update the remote model identifier without editing config files.
 

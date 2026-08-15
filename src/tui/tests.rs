@@ -9,6 +9,7 @@ use tempfile::tempdir;
 use tokio::sync::mpsc;
 
 use super::app_event::AppEvent;
+use super::event_dispatch::dispatch_event_with_runtime;
 use super::event_stream::{UiEvent, translate_event};
 use super::provider_flow::{
     codex_auth_is_available, open_provider_family_overlay, sync_codex_credential_from_auth_store,
@@ -44,6 +45,8 @@ use super::state::{
     InteractionKind, ListPickerKind, Overlay, PendingApprovalSnapshot, PendingInteractionSnapshot,
     PermissionMode, ProviderFamily, RunningTask, StatusTab, TaskKind, TuiApp,
 };
+use super::testing::FakeRuntimeClient;
+use super::{RuntimeCommand, RuntimeMaintenanceCommand};
 use super::{dispatch_event, map_key_to_event};
 
 fn provider_family_idx(family: ProviderFamily) -> usize {
@@ -2637,19 +2640,29 @@ async fn kimi_coding_connection_uses_the_dedicated_profile_and_endpoint() {
         crate::oauth::OAuthManager::new_for_config_dir(temp.path().join(".rara"))
             .expect("oauth manager"),
     );
+    let runtime = FakeRuntimeClient::new(Default::default());
     let mut agent_slot = None;
 
-    dispatch_event(
+    dispatch_event_with_runtime(
         AppEvent::SaveApiKeyInput,
         &mut app,
         &mut agent_slot,
         &oauth_manager,
+        &runtime,
     )
     .await
     .expect("save Kimi For Coding API key");
 
-    assert_eq!(app.config.provider, "codex");
-    assert_eq!(app.config.api_key(), Some("sk-codex"));
+    assert_eq!(app.config.provider, "openai-compatible");
+    assert_eq!(
+        app.config.active_openai_profile_kind(),
+        Some(OpenAiEndpointKind::KimiCoding)
+    );
+    assert_eq!(app.config.api_key(), Some("sk-kimi-code"));
+    assert_eq!(
+        app.config.base_url.as_deref(),
+        Some(crate::config::DEFAULT_KIMI_CODING_BASE_URL)
+    );
     let profile = app
         .config
         .openai_profiles
@@ -2668,27 +2681,23 @@ async fn kimi_coding_connection_uses_the_dedicated_profile_and_endpoint() {
         Some(crate::config::DEFAULT_KIMI_CODING_MODEL)
     );
     assert_eq!(
+        app.config
+            .provider_states
+            .get("codex")
+            .and_then(|state| state.api_key.as_ref())
+            .map(ExposeSecret::expose_secret),
+        Some("sk-codex")
+    );
+    assert_eq!(
         app.bottom_pane.notice.as_deref(),
-        Some("Saved Kimi For Coding API key.")
+        Some("Saved Kimi For Coding API key. Rebuilding backend.")
     );
     assert!(app.bottom_pane.running_task.is_none());
-
-    let preset_idx = app
-        .all_unified_model_presets()
-        .iter()
-        .position(|preset| preset.family == ProviderFamily::KimiCoding)
-        .expect("Kimi For Coding model preset");
-    app.select_unified_model(preset_idx);
-
-    assert_eq!(app.config.provider, "openai-compatible");
     assert_eq!(
-        app.config.active_openai_profile_kind(),
-        Some(OpenAiEndpointKind::KimiCoding)
-    );
-    assert_eq!(app.config.api_key(), Some("sk-kimi-code"));
-    assert_eq!(
-        app.config.base_url.as_deref(),
-        Some(crate::config::DEFAULT_KIMI_CODING_BASE_URL)
+        runtime.commands(),
+        vec![RuntimeCommand::Maintenance(
+            RuntimeMaintenanceCommand::Rebuild
+        )]
     );
 }
 

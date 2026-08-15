@@ -400,6 +400,8 @@ async fn dispatch_event_inner(
                         app.config
                             .apply_codex_defaults_for_base_url(DEFAULT_CODEX_BASE_URL);
                     }
+                } else if target == ApiKeyTarget::KimiCoding {
+                    app.config.set_provider("kimi-coding");
                 }
                 app.config_manager.save(&app.config)?;
                 if target == ApiKeyTarget::Codex && codex_is_active {
@@ -429,6 +431,12 @@ async fn dispatch_event_inner(
                         RuntimeMaintenanceCommand::RefreshModelCatalog(ModelCatalogProvider::Kimi),
                     )
                     .await?;
+                } else if target == ApiKeyTarget::KimiCoding {
+                    app.bottom_pane.notice =
+                        Some("Saved Kimi For Coding API key. Rebuilding backend.".into());
+                    app.dismiss_overlay();
+                    request_maintenance(app, runtime_port, RuntimeMaintenanceCommand::Rebuild)
+                        .await?;
                 } else {
                     app.bottom_pane.notice = Some(
                         match target {

@@ -59,6 +59,12 @@ authentication. The follow-up keeps that persisted profile as Moonshot AI for
 backward compatibility and adds an independent Kimi For Coding profile with a
 stable `kimi-for-coding` model alias.
 
+The first follow-up stored the new credential without activating its profile.
+When Moonshot was already active, the next query therefore still used the
+Moonshot URL. Saving a Kimi For Coding key now activates the coding profile and
+requests a session backend rebuild while retaining the previous provider's
+credential in provider-scoped state.
+
 ## Validation
 
 Validation commands:
