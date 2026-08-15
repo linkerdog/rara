@@ -5,8 +5,10 @@ use std::sync::{
 use std::time::{Duration, Instant};
 
 use rara_memory::memory_handle::MemoryHandle;
+use rara_provider_catalog::ModelCatalogProvider;
 use rara_tools::planning::{EnterPlanModeTool, ExitPlanModeTool};
 use rara_tools::tool::ToolManager;
+use secrecy::ExposeSecret;
 use serde_json::json;
 use tempfile::tempdir;
 use tokio::sync::{Mutex, mpsc};
@@ -14,13 +16,13 @@ use tokio::sync::{Mutex, mpsc};
 use super::{
     emit_query_heartbeat, finish_running_task_if_ready, forward_optional_lifecycle_event_to_bus,
     forward_task_result_lifecycle, goal_budget_limit_prompt, goal_continuation_prompt,
-    merge_rebuilt_agent, request_running_task_cancellation, start_oauth_task, start_query_task,
-    try_start_queued_follow_up,
+    merge_rebuilt_agent, model_catalog_connection, request_running_task_cancellation,
+    start_oauth_task, start_query_task, try_start_queued_follow_up,
 };
 use crate::agent::{
     Agent, AgentExecutionMode, BashApprovalMode, Message, PlanStep, PlanStepStatus,
 };
-use crate::config::ConfigManager;
+use crate::config::{ConfigManager, DEFAULT_CODEX_BASE_URL, DEFAULT_KIMI_BASE_URL, RaraConfig};
 use crate::llm::{ContentBlock, LlmBackend, LlmResponse, TokenUsage};
 use crate::local_model_server::{LocalModelServerState, LocalModelServerStatus};
 use crate::oauth::OAuthManager;
@@ -40,6 +42,27 @@ struct PlainAnswerBackend;
 
 struct GoalEvaluatorBackend {
     answer: String,
+}
+
+#[test]
+fn model_catalog_connection_uses_target_provider_credentials() {
+    let mut config = RaraConfig {
+        provider: "codex".to_string(),
+        ..Default::default()
+    };
+    config.set_api_key("sk-codex");
+    config.set_base_url(Some(DEFAULT_CODEX_BASE_URL.to_string()));
+    config.set_provider_api_key("kimi", "sk-kimi");
+
+    let (api_key, base_url) = model_catalog_connection(&config, ModelCatalogProvider::Kimi);
+
+    assert_eq!(config.provider, "codex");
+    assert_eq!(config.api_key(), Some("sk-codex"));
+    assert_eq!(
+        api_key.as_ref().map(ExposeSecret::expose_secret),
+        Some("sk-kimi")
+    );
+    assert_eq!(base_url, DEFAULT_KIMI_BASE_URL);
 }
 
 #[test]

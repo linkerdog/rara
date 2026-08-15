@@ -88,7 +88,7 @@ pub(crate) fn map_key_to_event(key: KeyEvent, app: &TuiApp) -> AppEvent {
             KeyCode::Char(c) => AppEvent::InputChar(c),
             _ => AppEvent::Noop,
         },
-        Some(Overlay::ApiKeyEditor) => match code {
+        Some(Overlay::ApiKeyEditor(_)) => match code {
             KeyCode::Esc => AppEvent::CloseOverlay,
             KeyCode::Enter => AppEvent::SaveApiKeyInput,
             KeyCode::Left => AppEvent::MoveCursorLeft,

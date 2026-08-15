@@ -88,7 +88,7 @@ impl TuiApp {
             });
             self.base_url_cursor_offset = None;
         }
-        if matches!(overlay, Overlay::ApiKeyEditor) {
+        if matches!(overlay, Overlay::ApiKeyEditor(_)) {
             self.api_key_input.clear();
             self.api_key_cursor_offset = None;
         }
@@ -155,7 +155,7 @@ impl TuiApp {
     pub fn dismiss_overlay(&mut self) {
         if matches!(
             self.overlay,
-            Some(Overlay::BaseUrlEditor | Overlay::ApiKeyEditor | Overlay::ModelNameEditor)
+            Some(Overlay::BaseUrlEditor | Overlay::ApiKeyEditor(_) | Overlay::ModelNameEditor)
         ) {
             self.cancel_openai_profile_setup();
         }

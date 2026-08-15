@@ -15,7 +15,7 @@ use rara_persistence::redaction::sanitize_url_for_display;
 use rara_provider_catalog::{
     ModelCatalogProvider, ModelCatalogRequest, fallback_catalog, load_model_catalog,
 };
-use secrecy::ExposeSecret;
+use secrecy::{ExposeSecret, SecretString};
 use tokio::sync::mpsc;
 
 use super::super::state::{
@@ -24,6 +24,7 @@ use super::super::state::{
 };
 use super::events::{apply_tui_event, format_error_chain, runtime_event_from_agent_event};
 use crate::agent::{Agent, AgentEvent, AgentOutputMode, BashApprovalDecision};
+use crate::config::RaraConfig;
 use crate::runtime_client::RuntimeTaskServices;
 pub(crate) use crate::runtime_client::{goal_budget_limit_prompt, goal_continuation_prompt};
 use crate::runtime_control::RuntimeProvenance;
@@ -581,19 +582,7 @@ pub(super) fn start_oauth_task(
 
 pub(super) fn start_model_catalog_task(app: &mut TuiApp, provider: ModelCatalogProvider) {
     let (_sender, receiver) = mpsc::unbounded_channel();
-    let api_key = app.config.api_key_secret();
-    let surface = app.config.effective_provider_surface();
-    let default_base_url = match provider {
-        ModelCatalogProvider::DeepSeek => crate::config::DEFAULT_DEEPSEEK_BASE_URL,
-        ModelCatalogProvider::Kimi => crate::config::DEFAULT_KIMI_BASE_URL,
-    };
-    let base_url = Some(
-        surface
-            .base_url
-            .value
-            .unwrap_or(default_base_url)
-            .to_string(),
-    );
+    let (api_key, base_url) = model_catalog_connection(&app.config, provider);
     let provider_label = match provider {
         ModelCatalogProvider::DeepSeek => "DeepSeek",
         ModelCatalogProvider::Kimi => "Kimi",
@@ -609,7 +598,7 @@ pub(super) fn start_model_catalog_task(app: &mut TuiApp, provider: ModelCatalogP
             provider,
             ModelCatalogRequest {
                 api_key: api_key.as_ref(),
-                base_url: base_url.as_deref(),
+                base_url: Some(base_url.as_str()),
             },
         )
         .await
@@ -626,6 +615,26 @@ pub(super) fn start_model_catalog_task(app: &mut TuiApp, provider: ModelCatalogP
         cancellation_token: None,
         cancellation_requested: false,
     });
+}
+
+fn model_catalog_connection(
+    config: &RaraConfig,
+    provider: ModelCatalogProvider,
+) -> (Option<SecretString>, String) {
+    let (provider_id, default_base_url) = match provider {
+        ModelCatalogProvider::DeepSeek => ("deepseek", crate::config::DEFAULT_DEEPSEEK_BASE_URL),
+        ModelCatalogProvider::Kimi => ("kimi", crate::config::DEFAULT_KIMI_BASE_URL),
+    };
+    let mut provider_config = config.clone();
+    provider_config.set_provider(provider_id);
+    let api_key = provider_config.api_key_secret();
+    let base_url = provider_config
+        .effective_provider_surface()
+        .base_url
+        .value
+        .unwrap_or(default_base_url)
+        .to_string();
+    (api_key, base_url)
 }
 
 pub(super) fn request_running_task_cancellation(app: &mut TuiApp) {

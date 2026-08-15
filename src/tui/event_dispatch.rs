@@ -16,8 +16,8 @@ use super::runtime::start_oauth_task;
 use super::runtime_port::{RuntimeClientPort, RuntimeCommand, RuntimeMaintenanceCommand};
 use super::session_restore::restore_thread_by_id;
 use super::state::{
-    ActivePendingInteractionKind, ListPickerKind, OpenAiModelPickerAction, Overlay, PermissionMode,
-    ProviderFamily, TuiApp,
+    ActivePendingInteractionKind, ApiKeyTarget, ListPickerKind, OpenAiModelPickerAction, Overlay,
+    PermissionMode, ProviderFamily, TuiApp,
 };
 use super::submit::{apply_openai_model_picker_action, handle_submit, handle_submit_with_port};
 use super::terminal_ui::is_ssh_session;
@@ -354,16 +354,18 @@ async fn dispatch_event_inner(
             }
         }
         AppEvent::SaveApiKeyInput => {
-            let value = app.api_key_input.trim();
+            let Some(Overlay::ApiKeyEditor(target)) = app.overlay else {
+                app.push_notice("API key editor is no longer active.");
+                return Ok(false);
+            };
+            let value = app.api_key_input.trim().to_string();
             if app.is_busy() {
                 app.push_notice("Wait for the current task before saving the API key.");
-            } else if value.is_empty() && app.config.provider == "codex" {
-                app.push_notice("Enter a Codex API key or press Esc to go back.");
-            } else if value.is_empty() && app.selected_provider_family() == ProviderFamily::DeepSeek
-            {
-                app.push_notice("Enter a DeepSeek API key or press Esc to go back.");
-            } else if value.is_empty() && app.selected_provider_family() == ProviderFamily::Kimi {
-                app.push_notice("Enter a Kimi API key or press Esc to go back.");
+            } else if value.is_empty() && target != ApiKeyTarget::OpenAiCompatible {
+                app.push_notice(format!(
+                    "Enter a {} API key or press Esc to go back.",
+                    target.label()
+                ));
             } else if value.is_empty() && app.openai_setup_keep_empty_api_key {
                 app.bottom_pane.notice =
                     Some("Kept existing API key for the current profile.".into());
@@ -381,22 +383,29 @@ async fn dispatch_event_inner(
                     app.advance_openai_profile_setup();
                 }
             } else {
-                let was_deepseek = app.selected_provider_family() == ProviderFamily::DeepSeek;
-                let was_kimi = app.selected_provider_family() == ProviderFamily::Kimi;
-                app.config.set_api_key(value.to_string());
-                if app.config.provider == "codex" {
+                let codex_is_active = app.config.provider == "codex";
+                match target {
+                    ApiKeyTarget::Codex => app.config.set_provider_api_key("codex", value),
+                    ApiKeyTarget::DeepSeek => app.config.set_provider_api_key("deepseek", value),
+                    ApiKeyTarget::Kimi => app.config.set_provider_api_key("kimi", value),
+                    ApiKeyTarget::OpenAiCompatible => app.config.set_api_key(value),
+                    ApiKeyTarget::Gemini => app.config.set_provider_api_key("gemini", value),
+                }
+                if target == ApiKeyTarget::Codex {
                     app.codex_auth_mode = Some(SavedCodexAuthMode::ApiKey);
-                    app.config
-                        .apply_codex_defaults_for_base_url(DEFAULT_CODEX_BASE_URL);
+                    if codex_is_active {
+                        app.config
+                            .apply_codex_defaults_for_base_url(DEFAULT_CODEX_BASE_URL);
+                    }
                 }
                 app.config_manager.save(&app.config)?;
-                if app.config.provider == "codex" {
+                if target == ApiKeyTarget::Codex && codex_is_active {
                     app.bottom_pane.notice =
                         Some("Saved Codex API key. Rebuilding backend.".into());
                     app.dismiss_overlay();
                     request_maintenance(app, runtime_port, RuntimeMaintenanceCommand::Rebuild)
                         .await?;
-                } else if was_deepseek {
+                } else if target == ApiKeyTarget::DeepSeek {
                     app.bottom_pane.notice = Some("Saved DeepSeek API key. Loading models.".into());
                     app.dismiss_overlay();
                     request_maintenance(
@@ -407,7 +416,7 @@ async fn dispatch_event_inner(
                         ),
                     )
                     .await?;
-                } else if was_kimi {
+                } else if target == ApiKeyTarget::Kimi {
                     app.bottom_pane.notice = Some("Saved Kimi API key. Loading models.".into());
                     app.dismiss_overlay();
                     request_maintenance(
@@ -417,7 +426,18 @@ async fn dispatch_event_inner(
                     )
                     .await?;
                 } else {
-                    app.bottom_pane.notice = Some("Saved API key for the current provider.".into());
+                    app.bottom_pane.notice = Some(
+                        match target {
+                            ApiKeyTarget::Codex => "Saved Codex API key.",
+                            ApiKeyTarget::DeepSeek => "Saved DeepSeek API key.",
+                            ApiKeyTarget::Kimi => "Saved Kimi API key.",
+                            ApiKeyTarget::OpenAiCompatible => {
+                                "Saved API key for the current endpoint profile."
+                            }
+                            ApiKeyTarget::Gemini => "Saved Gemini API key.",
+                        }
+                        .into(),
+                    );
                     if app.openai_setup_steps.is_empty() {
                         app.dismiss_overlay();
                     } else {
@@ -624,7 +644,7 @@ async fn dispatch_event_inner(
                                 }
                             } else if app.selected_provider_family() == ProviderFamily::DeepSeek {
                                 if app.selected_deepseek_api_key_action() {
-                                    app.open_overlay(Overlay::ApiKeyEditor);
+                                    app.open_overlay(Overlay::ApiKeyEditor(ApiKeyTarget::DeepSeek));
                                 } else if app.config.has_api_key() {
                                     app.select_local_model(app.model_picker_idx);
                                     app.config.reasoning_effort = Some("max".to_string());
@@ -635,11 +655,11 @@ async fn dispatch_event_inner(
                                     )
                                     .await?;
                                 } else {
-                                    app.open_overlay(Overlay::ApiKeyEditor);
+                                    app.open_overlay(Overlay::ApiKeyEditor(ApiKeyTarget::DeepSeek));
                                 }
                             } else if app.selected_provider_family() == ProviderFamily::Kimi {
                                 if app.selected_kimi_api_key_action() {
-                                    app.open_overlay(Overlay::ApiKeyEditor);
+                                    app.open_overlay(Overlay::ApiKeyEditor(ApiKeyTarget::Kimi));
                                 } else if app.config.has_api_key() {
                                     app.select_local_model(app.model_picker_idx);
                                     request_maintenance(
@@ -649,7 +669,7 @@ async fn dispatch_event_inner(
                                     )
                                     .await?;
                                 } else {
-                                    app.open_overlay(Overlay::ApiKeyEditor);
+                                    app.open_overlay(Overlay::ApiKeyEditor(ApiKeyTarget::Kimi));
                                 }
                             } else {
                                 app.select_local_model(app.model_picker_idx);
@@ -701,12 +721,14 @@ async fn dispatch_event_inner(
                                 {
                                     app.begin_active_openai_profile_setup();
                                 }
-                                ProviderFamily::DeepSeek
-                                | ProviderFamily::Kimi
-                                | ProviderFamily::Gemini
-                                    if !app.config.has_api_key() =>
-                                {
-                                    app.open_overlay(Overlay::ApiKeyEditor);
+                                ProviderFamily::DeepSeek if !app.config.has_api_key() => {
+                                    app.open_overlay(Overlay::ApiKeyEditor(ApiKeyTarget::DeepSeek))
+                                }
+                                ProviderFamily::Kimi if !app.config.has_api_key() => {
+                                    app.open_overlay(Overlay::ApiKeyEditor(ApiKeyTarget::Kimi))
+                                }
+                                ProviderFamily::Gemini if !app.config.has_api_key() => {
+                                    app.open_overlay(Overlay::ApiKeyEditor(ApiKeyTarget::Gemini))
                                 }
                                 ProviderFamily::CandleLocal => {
                                     app.push_notice("Local models (alpha) are for preview only.");
@@ -743,7 +765,7 @@ async fn dispatch_event_inner(
                                     super::state::OAuthLoginMode::DeviceCode,
                                 );
                             }
-                            2 => app.open_overlay(Overlay::ApiKeyEditor),
+                            2 => app.open_overlay(Overlay::ApiKeyEditor(ApiKeyTarget::Codex)),
                             3 => {
                                 let removed = oauth_manager.clear_saved_auth()?;
                                 app.config.clear_provider_api_key("codex");

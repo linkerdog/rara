@@ -86,13 +86,13 @@ pub(super) fn render_overlay(f: &mut Frame, app: &TuiApp, overlay: Overlay) -> O
             f.render_widget(popup_block(), popup);
             render_base_url_editor_modal(f, app, inner)
         }
-        Overlay::ApiKeyEditor => {
+        Overlay::ApiKeyEditor(target) => {
             let popup = setup_flow_rect(f.area());
             render_dimmer(f, f.area());
             f.render_widget(Clear, popup);
             let inner = popup_block().inner(popup);
             f.render_widget(popup_block(), popup);
-            render_api_key_editor_modal(f, app, inner)
+            render_api_key_editor_modal(f, app, target, inner)
         }
         Overlay::ModelNameEditor => {
             let popup = setup_flow_rect(f.area());

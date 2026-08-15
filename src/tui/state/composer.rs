@@ -8,7 +8,7 @@ impl TuiApp {
     fn active_text_input_target(&self) -> TextInputTarget {
         match self.overlay {
             Some(Overlay::BaseUrlEditor) => TextInputTarget::BaseUrl,
-            Some(Overlay::ApiKeyEditor) => TextInputTarget::ApiKey,
+            Some(Overlay::ApiKeyEditor(_)) => TextInputTarget::ApiKey,
             Some(Overlay::ModelNameEditor) => TextInputTarget::ModelName,
             Some(Overlay::OpenAiProfileLabelEditor) => TextInputTarget::OpenAiProfileLabel,
             _ => TextInputTarget::Composer,
