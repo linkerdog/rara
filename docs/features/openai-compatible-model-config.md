@@ -12,6 +12,8 @@ When the user opens `/model`, the provider picker includes:
 
 - `Codex`
 - `DeepSeek`
+- `Kimi For Coding`
+- `Moonshot AI`
 - `OpenAI-compatible`
 - `Candle Local`
 - `Ollama`
@@ -20,6 +22,15 @@ When the user opens `/model`, the provider picker includes:
 contract are provider-specific, but the persisted runtime provider remains
 `openai-compatible` with `endpoint_kind = "deepseek"`. This keeps backend
 construction shared while keeping the TUI surface clear.
+
+`Kimi For Coding` and `Moonshot AI` are separate provider families even though
+both use the shared OpenAI-compatible backend. Their credentials and API roots
+belong to different services and must never be used as fallbacks for each
+other.
+
+Saving a Kimi For Coding credential through `/connect` must also activate its
+endpoint profile and request a backend rebuild for the current session. The
+next query must not remain on the previously active Codex or Moonshot backend.
 
 When `OpenAI-compatible` is selected, the model picker must allow editing:
 
@@ -68,20 +79,30 @@ root with the active API key. If the model-list request fails, the picker may
 fall back to the built-in DeepSeek model list, but the failure must stay visible
 as a notice or system message.
 
-Selecting the Kimi profile sets:
+Selecting the Moonshot AI profile sets:
 
 - `provider = "openai-compatible"`
 - `endpoint_kind = "kimi"`
-- `base_url = "https://api.moonshot.ai/v1"` unless a Kimi profile override exists
-- `model = "kimi-k2.6"` unless a Kimi profile override exists
+- `base_url = "https://api.moonshot.ai/v1"` unless a Moonshot profile override exists
+- `model = "kimi-k2.6"` unless a Moonshot profile override exists
 - `revision = None`
 
-Kimi uses the shared OpenAI-compatible chat-completions backend. The runtime
-should accept a saved profile API key, `RARA_API_KEY`, or the provider-native
-`MOONSHOT_API_KEY` / `KIMI_API_KEY` environment variables. These provider-native
+Selecting the Kimi For Coding profile sets:
+
+- `provider = "openai-compatible"`
+- `endpoint_kind = "kimi_coding"`
+- `base_url = "https://api.kimi.com/coding/v1"` unless a Kimi For Coding profile override exists
+- `model = "kimi-for-coding"` unless a Kimi For Coding profile override exists
+- `revision = None`
+
+Both profiles use the shared OpenAI-compatible chat-completions backend. The
+Moonshot profile accepts its saved key or `MOONSHOT_API_KEY`; the Kimi For
+Coding profile accepts its saved key or `KIMI_API_KEY`. These provider-native
 environment variables are runtime-only credential sources and must not be
-serialized back into `config.json` unless the user explicitly saves them through
-the normal API-key editor.
+serialized back into `config.json` unless the user explicitly saves them
+through the normal API-key editor. `KIMI_API_KEY` must not authenticate the
+Moonshot profile, and `MOONSHOT_API_KEY` must not authenticate the Kimi For
+Coding profile.
 
 For thinking-capable DeepSeek models, RARA sends DeepSeek's documented
 thinking-mode controls on chat-completions requests:
@@ -140,6 +161,13 @@ In the model picker:
 
 The base URL editor and API key editor must use generic OpenAI-compatible wording when the active provider is `openai-compatible`, not Codex-specific auth wording.
 
+The Kimi For Coding API-key editor is provider-specific. On save, it must:
+
+- preserve credentials remembered for the previously active provider;
+- activate `kimi-coding-default`;
+- persist `endpoint_kind = "kimi_coding"` with the Kimi coding API root;
+- rebuild the current session backend before the next query.
+
 The model-name editor is a separate overlay so the user can update the remote model identifier without editing config files.
 
 `/status` should explain the effective model/config surface, including at least:
@@ -148,8 +176,9 @@ The model-name editor is a separate overlay so the user can update the remote mo
 - the current `base_url`;
 - the current `reasoning_summary`;
 - whether each value came from built-in defaults, provider-scoped state, or legacy global config.
-- whether the API key came from a runtime environment variable such as
-  `MOONSHOT_API_KEY` or `KIMI_API_KEY`.
+- whether the API key came from the runtime environment variable owned by the
+  selected endpoint kind: `MOONSHOT_API_KEY` for Moonshot AI or `KIMI_API_KEY`
+  for Kimi For Coding.
 - cumulative provider usage cache counters, when the response includes them:
   `cache_hit_tokens`, `cache_miss_tokens`, and
   `cache_hit_rate = hit / (hit + miss)`.

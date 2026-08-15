@@ -199,9 +199,14 @@ pub(super) fn render_api_key_editor_modal(
             "Enter save and load models  Esc back to model picker",
         ),
         ApiKeyTarget::Kimi => (
-            "Paste a Kimi API key. It is used to load /models and call the selected Kimi model.",
-            " Kimi API Key ",
+            "Paste a Moonshot AI API key. It is used to load /models and call the selected Moonshot model.",
+            " Moonshot AI API Key ",
             "Enter save and load models  Esc back to model picker",
+        ),
+        ApiKeyTarget::KimiCoding => (
+            "Paste a Kimi Code API key. It is used only with the dedicated Kimi coding endpoint.",
+            " Kimi For Coding API Key ",
+            "Enter save  Esc back to model picker",
         ),
         ApiKeyTarget::Gemini => (
             "Paste a Gemini API key. It is used to call the selected Gemini model.",

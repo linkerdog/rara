@@ -12,9 +12,10 @@ use crate::defaults::{
     DEFAULT_CODEX_BASE_URL, DEFAULT_CODEX_MODEL, DEFAULT_CONSOLIDATION_MIN_HOURS,
     DEFAULT_CONSOLIDATION_MIN_SESSIONS, DEFAULT_CONSOLIDATION_SCAN_INTERVAL_MINUTES,
     DEFAULT_DEEPSEEK_BASE_URL, DEFAULT_DEEPSEEK_MODEL, DEFAULT_GEMINI_BASE_URL,
-    DEFAULT_KIMI_BASE_URL, DEFAULT_KIMI_MODEL, DEFAULT_OPENAI_COMPATIBLE_BASE_URL,
-    DEFAULT_OPENAI_COMPATIBLE_MODEL, DEFAULT_OPENROUTER_BASE_URL, DEFAULT_OPENROUTER_MODEL,
-    DEFAULT_REASONING_SUMMARY, should_apply_codex_base_url, should_reset_codex_model,
+    DEFAULT_KIMI_BASE_URL, DEFAULT_KIMI_CODING_BASE_URL, DEFAULT_KIMI_CODING_MODEL,
+    DEFAULT_KIMI_MODEL, DEFAULT_OPENAI_COMPATIBLE_BASE_URL, DEFAULT_OPENAI_COMPATIBLE_MODEL,
+    DEFAULT_OPENROUTER_BASE_URL, DEFAULT_OPENROUTER_MODEL, DEFAULT_REASONING_SUMMARY,
+    should_apply_codex_base_url, should_reset_codex_model,
 };
 use crate::mcp::{McpRegistry, load_mcp_registry};
 use crate::migration::migrate_reasoning_summary;
@@ -133,6 +134,7 @@ pub enum OpenAiEndpointKind {
     Custom,
     Deepseek,
     Kimi,
+    KimiCoding,
     Openrouter,
 }
 
@@ -141,7 +143,8 @@ impl OpenAiEndpointKind {
         match self {
             Self::Custom => "Custom endpoint",
             Self::Deepseek => "DeepSeek",
-            Self::Kimi => "Kimi",
+            Self::Kimi => "Moonshot AI",
+            Self::KimiCoding => "Kimi For Coding",
             Self::Openrouter => "OpenRouter",
         }
     }
@@ -151,6 +154,7 @@ impl OpenAiEndpointKind {
             Self::Custom => "custom-default",
             Self::Deepseek => "deepseek-default",
             Self::Kimi => "kimi-default",
+            Self::KimiCoding => "kimi-coding-default",
             Self::Openrouter => "openrouter-default",
         }
     }
@@ -160,6 +164,7 @@ impl OpenAiEndpointKind {
             Self::Custom => DEFAULT_OPENAI_COMPATIBLE_BASE_URL,
             Self::Deepseek => DEFAULT_DEEPSEEK_BASE_URL,
             Self::Kimi => DEFAULT_KIMI_BASE_URL,
+            Self::KimiCoding => DEFAULT_KIMI_CODING_BASE_URL,
             Self::Openrouter => DEFAULT_OPENROUTER_BASE_URL,
         }
     }
@@ -169,6 +174,7 @@ impl OpenAiEndpointKind {
             Self::Custom => DEFAULT_OPENAI_COMPATIBLE_MODEL,
             Self::Deepseek => DEFAULT_DEEPSEEK_MODEL,
             Self::Kimi => DEFAULT_KIMI_MODEL,
+            Self::KimiCoding => DEFAULT_KIMI_CODING_MODEL,
             Self::Openrouter => DEFAULT_OPENROUTER_MODEL,
         }
     }
@@ -178,6 +184,7 @@ impl OpenAiEndpointKind {
             "openai-compatible" => Some(Self::Custom),
             "deepseek" => Some(Self::Deepseek),
             "kimi" => Some(Self::Kimi),
+            "kimi-coding" => Some(Self::KimiCoding),
             "openrouter" => Some(Self::Openrouter),
             _ => None,
         }
@@ -557,20 +564,18 @@ impl RaraConfig {
             };
         }
 
-        if self.has_api_key()
-            || self.effective_openai_endpoint_kind() != Some(OpenAiEndpointKind::Kimi)
-        {
+        if self.has_api_key() {
             return;
         }
-        for key in ["MOONSHOT_API_KEY", "KIMI_API_KEY"] {
-            let Some(value) = read_env(key) else {
-                continue;
-            };
-            if value.trim().is_empty() {
-                continue;
-            }
+        let env_key = match self.effective_openai_endpoint_kind() {
+            Some(OpenAiEndpointKind::Kimi) => "MOONSHOT_API_KEY",
+            Some(OpenAiEndpointKind::KimiCoding) => "KIMI_API_KEY",
+            _ => return,
+        };
+        if let Some(value) = read_env(env_key)
+            && !value.trim().is_empty()
+        {
             self.runtime_api_key = Some(SecretString::from(value));
-            return;
         }
     }
 
@@ -723,6 +728,7 @@ impl RaraConfig {
             "deepseek" => Some(DEFAULT_DEEPSEEK_BASE_URL),
             "gemini" => Some(DEFAULT_GEMINI_BASE_URL),
             "kimi" => Some(DEFAULT_KIMI_BASE_URL),
+            "kimi-coding" => Some(DEFAULT_KIMI_CODING_BASE_URL),
             _ => None,
         }
     }
@@ -1009,7 +1015,13 @@ impl RaraConfig {
         let mut should_apply_active_profile = false;
         let mut should_switch_provider = false;
 
-        for legacy_provider in ["openai-compatible", "deepseek", "kimi", "openrouter"] {
+        for legacy_provider in [
+            "openai-compatible",
+            "deepseek",
+            "kimi",
+            "kimi-coding",
+            "openrouter",
+        ] {
             let Some(kind) = OpenAiEndpointKind::from_legacy_provider(legacy_provider) else {
                 continue;
             };
@@ -1312,8 +1324,9 @@ mod tests {
     };
     use crate::defaults::{
         DEFAULT_CODEX_BASE_URL, DEFAULT_CODEX_CHATGPT_BASE_URL, DEFAULT_CODEX_MODEL,
-        DEFAULT_KIMI_BASE_URL, DEFAULT_KIMI_MODEL, DEFAULT_OPENROUTER_BASE_URL,
-        DEFAULT_OPENROUTER_MODEL, DEFAULT_REASONING_SUMMARY, REASONING_SUMMARY_NONE,
+        DEFAULT_KIMI_BASE_URL, DEFAULT_KIMI_CODING_BASE_URL, DEFAULT_KIMI_CODING_MODEL,
+        DEFAULT_KIMI_MODEL, DEFAULT_OPENROUTER_BASE_URL, DEFAULT_OPENROUTER_MODEL,
+        DEFAULT_REASONING_SUMMARY, REASONING_SUMMARY_NONE,
     };
     use crate::provider_surface::ConfigValueSource;
 
@@ -1360,6 +1373,33 @@ mod tests {
             Some(DEFAULT_KIMI_BASE_URL)
         );
         assert_eq!(kimi_profile.model.as_deref(), Some(DEFAULT_KIMI_MODEL));
+    }
+
+    #[test]
+    fn setting_inactive_kimi_coding_key_uses_the_coding_profile() {
+        let mut config = RaraConfig {
+            provider: "codex".to_string(),
+            ..Default::default()
+        };
+        config.set_api_key("sk-codex");
+
+        config.set_provider_api_key("kimi-coding", "sk-kimi-code");
+
+        assert_eq!(config.provider, "codex");
+        assert_eq!(config.api_key(), Some("sk-codex"));
+        let profile = config
+            .openai_profiles
+            .get(OpenAiEndpointKind::KimiCoding.default_profile_id())
+            .expect("Kimi For Coding profile");
+        assert_eq!(
+            profile.api_key.as_ref().map(ExposeSecret::expose_secret),
+            Some("sk-kimi-code")
+        );
+        assert_eq!(
+            profile.base_url.as_deref(),
+            Some(DEFAULT_KIMI_CODING_BASE_URL)
+        );
+        assert_eq!(profile.model.as_deref(), Some(DEFAULT_KIMI_CODING_MODEL));
     }
 
     #[test]
@@ -1816,7 +1856,7 @@ mod tests {
         let profile = config
             .active_openai_profile()
             .expect("active openai profile");
-        assert_eq!(profile.label, "Kimi");
+        assert_eq!(profile.label, "Moonshot AI");
         assert_eq!(
             profile.api_key.as_ref().map(|v| v.expose_secret()),
             Some("sk-kimi")
@@ -1849,6 +1889,28 @@ mod tests {
     }
 
     #[test]
+    fn kimi_coding_profile_uses_the_dedicated_coding_endpoint() {
+        let mut config = RaraConfig::default();
+
+        config.select_openai_profile(
+            OpenAiEndpointKind::KimiCoding.default_profile_id(),
+            OpenAiEndpointKind::KimiCoding.label(),
+            OpenAiEndpointKind::KimiCoding,
+        );
+
+        assert_eq!(config.provider, "openai-compatible");
+        assert_eq!(
+            config.active_openai_profile_kind(),
+            Some(OpenAiEndpointKind::KimiCoding)
+        );
+        assert_eq!(
+            config.base_url.as_deref(),
+            Some(DEFAULT_KIMI_CODING_BASE_URL)
+        );
+        assert_eq!(config.model.as_deref(), Some(DEFAULT_KIMI_CODING_MODEL));
+    }
+
+    #[test]
     fn kimi_profile_can_use_moonshot_api_key_from_environment_without_persisting_it() {
         let mut config = RaraConfig::default();
         config.select_openai_profile(
@@ -1872,12 +1934,32 @@ mod tests {
     }
 
     #[test]
-    fn kimi_profile_can_use_kimi_api_key_from_environment_without_persisting_it() {
+    fn moonshot_profile_does_not_use_kimi_code_environment_key() {
         let mut config = RaraConfig::default();
         config.select_openai_profile(
             OpenAiEndpointKind::Kimi.default_profile_id(),
             OpenAiEndpointKind::Kimi.label(),
             OpenAiEndpointKind::Kimi,
+        );
+
+        config.apply_provider_environment_defaults_from(|key| {
+            (key == "KIMI_API_KEY").then(|| "sk-kimi".to_string())
+        });
+
+        assert_eq!(config.api_key(), None);
+        assert_eq!(
+            config.effective_provider_surface().api_key.source,
+            ConfigValueSource::Unset
+        );
+    }
+
+    #[test]
+    fn kimi_coding_profile_uses_kimi_api_key_without_persisting_it() {
+        let mut config = RaraConfig::default();
+        config.select_openai_profile(
+            OpenAiEndpointKind::KimiCoding.default_profile_id(),
+            OpenAiEndpointKind::KimiCoding.label(),
+            OpenAiEndpointKind::KimiCoding,
         );
 
         config.apply_provider_environment_defaults_from(|key| {
@@ -1892,28 +1974,6 @@ mod tests {
         let json = serde_json::to_string(&config).expect("serialize config");
         assert!(!json.contains("sk-kimi"));
         assert!(!json.contains("runtime_api_key"));
-    }
-
-    #[test]
-    fn moonshot_api_key_takes_precedence_over_kimi_api_key() {
-        let mut config = RaraConfig::default();
-        config.select_openai_profile(
-            OpenAiEndpointKind::Kimi.default_profile_id(),
-            OpenAiEndpointKind::Kimi.label(),
-            OpenAiEndpointKind::Kimi,
-        );
-
-        config.apply_provider_environment_defaults_from(|key| match key {
-            "MOONSHOT_API_KEY" => Some("sk-moonshot".to_string()),
-            "KIMI_API_KEY" => Some("sk-kimi".to_string()),
-            _ => None,
-        });
-
-        assert_eq!(config.api_key(), Some("sk-moonshot"));
-        assert_eq!(
-            config.effective_provider_surface().api_key.source,
-            ConfigValueSource::Environment
-        );
     }
 
     #[test]

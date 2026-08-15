@@ -1007,7 +1007,7 @@ fn openai_model_picker_renders_profile_manager_not_endpoint_presets() {
     assert!(rendered.contains("Model Picker"));
     assert!(rendered.contains("Select a model"));
     assert!(!rendered.contains("DeepSeek (openai-compatible/deepseek-chat)"));
-    assert!(!rendered.contains("Kimi (openai-compatible/kimi-k2.6)"));
+    assert!(!rendered.contains("Moonshot AI (openai-compatible/kimi-k2.6)"));
     assert!(!rendered.contains("OpenRouter (openai-compatible/openai/gpt-4o-mini)"));
 }
 
@@ -1137,7 +1137,7 @@ fn deepseek_api_key_editor_uses_deepseek_copy() {
 }
 
 #[test]
-fn kimi_api_key_editor_uses_explicit_target_when_codex_is_active() {
+fn moonshot_api_key_editor_uses_explicit_target_when_codex_is_active() {
     let temp = tempdir().expect("tempdir");
     let mut app = TuiApp::new(ConfigManager {
         path: temp.path().join("config.json"),
@@ -1148,11 +1148,30 @@ fn kimi_api_key_editor_uses_explicit_target_when_codex_is_active() {
     app.open_overlay(Overlay::ApiKeyEditor(ApiKeyTarget::Kimi));
 
     let rendered = render_screen_text(&mut app, 100, 24);
-    assert!(rendered.contains("Kimi API Key"));
-    assert!(rendered.contains("Paste a Kimi API key"));
+    assert!(rendered.contains("Moonshot AI API Key"));
+    assert!(rendered.contains("Paste a Moonshot AI API key"));
     assert!(rendered.contains("Enter save and load models"));
     assert!(!rendered.contains("Codex API Key"));
     assert!(!rendered.contains("Paste a Codex API key"));
+}
+
+#[test]
+fn kimi_coding_api_key_editor_names_the_dedicated_credential_domain() {
+    let temp = tempdir().expect("tempdir");
+    let mut app = TuiApp::new(ConfigManager {
+        path: temp.path().join("config.json"),
+    })
+    .expect("build tui app");
+    app.config.set_provider("codex");
+    app.provider_picker_idx = provider_family_idx(ProviderFamily::KimiCoding);
+    app.open_overlay(Overlay::ApiKeyEditor(ApiKeyTarget::KimiCoding));
+
+    let rendered = render_screen_text(&mut app, 100, 24);
+    assert!(rendered.contains("Kimi For Coding API Key"));
+    assert!(rendered.contains("Paste a Kimi Code API key"));
+    assert!(rendered.contains("dedicated Kimi coding endpoint"));
+    assert!(!rendered.contains("Moonshot AI API Key"));
+    assert!(!rendered.contains("Codex API Key"));
 }
 
 #[test]

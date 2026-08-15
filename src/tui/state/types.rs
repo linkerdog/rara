@@ -59,6 +59,7 @@ pub enum ApiKeyTarget {
     Codex,
     DeepSeek,
     Kimi,
+    KimiCoding,
     OpenAiCompatible,
     Gemini,
 }
@@ -68,7 +69,8 @@ impl ApiKeyTarget {
         match self {
             Self::Codex => "Codex",
             Self::DeepSeek => "DeepSeek",
-            Self::Kimi => "Kimi",
+            Self::Kimi => "Moonshot AI",
+            Self::KimiCoding => "Kimi For Coding",
             Self::OpenAiCompatible => "OpenAI-compatible",
             Self::Gemini => "Gemini",
         }
@@ -112,6 +114,7 @@ pub enum ProviderFamily {
     Codex,
     DeepSeek,
     Kimi,
+    KimiCoding,
     OpenAiCompatible,
     Gemini,
     CandleLocal,
@@ -461,7 +464,7 @@ impl std::fmt::Debug for RunningTask {
     }
 }
 
-pub const PROVIDER_FAMILIES: [(ProviderFamily, &str, &str); 8] = [
+pub const PROVIDER_FAMILIES: [(ProviderFamily, &str, &str); 9] = [
     (
         ProviderFamily::Codex,
         "Codex",
@@ -473,14 +476,19 @@ pub const PROVIDER_FAMILIES: [(ProviderFamily, &str, &str); 8] = [
         "Use DeepSeek with an API key and model list from api.deepseek.com.",
     ),
     (
+        ProviderFamily::KimiCoding,
+        "Kimi For Coding",
+        "Use a Kimi Code API key with the dedicated coding endpoint.",
+    ),
+    (
         ProviderFamily::Kimi,
-        "Kimi",
-        "Use Moonshot Kimi with an API key from platform.kimi.ai.",
+        "Moonshot AI",
+        "Use the Moonshot Open Platform with a MOONSHOT_API_KEY.",
     ),
     (
         ProviderFamily::OpenAiCompatible,
         "OpenAI-compatible",
-        "Use OpenAI-compatible endpoint profiles such as Custom, Kimi, or OpenRouter.",
+        "Use OpenAI-compatible endpoint profiles such as Custom or OpenRouter.",
     ),
     (
         ProviderFamily::Gemini,

@@ -4,8 +4,9 @@
 
 The TUI API-key flow now carries an explicit provider target from `/connect`
 through prompt rendering, credential persistence, and model-catalog refresh.
-Choosing Kimi while Codex is active therefore shows Kimi copy and stores the
-key in the Kimi profile without overwriting the active Codex credential.
+Choosing a provider while Codex is active therefore shows provider-specific
+copy and stores the key in the selected profile without overwriting the active
+Codex credential.
 
 ## Background
 
@@ -30,6 +31,8 @@ method in typed flow state instead of reconstructing it from model state.
 - Routed model-catalog requests through a target-provider configuration copy so
   API keys and base URLs cannot leak across providers.
 - Added config, render, event-flow, and runtime-routing regression coverage.
+- Split Kimi For Coding from Moonshot AI so each provider owns one endpoint,
+  environment variable, and persisted endpoint profile.
 
 ## Key Decisions
 
@@ -40,6 +43,27 @@ method in typed flow state instead of reconstructing it from model state.
   ownership into the TUI.
 - Model-catalog routing switches only a cloned configuration to the target
   provider. The user's active configuration remains unchanged.
+- The existing serialized `kimi` endpoint kind remains the Moonshot Open
+  Platform profile for compatibility. The new `kimi_coding` endpoint kind uses
+  `https://api.kimi.com/coding/v1` and `KIMI_API_KEY`.
+- `MOONSHOT_API_KEY` and `KIMI_API_KEY` are not fallback aliases. Kimi documents
+  the two credential domains as non-interchangeable, and OpenCode models them
+  as separate providers.
+
+## Follow-Up Correction
+
+The first credential-targeting implementation still presented the historical
+Moonshot profile as `Kimi`. A valid Kimi Code subscription key was therefore
+sent to `https://api.moonshot.ai/v1/chat/completions` and rejected as invalid
+authentication. The follow-up keeps that persisted profile as Moonshot AI for
+backward compatibility and adds an independent Kimi For Coding profile with a
+stable `kimi-for-coding` model alias.
+
+The first follow-up stored the new credential without activating its profile.
+When Moonshot was already active, the next query therefore still used the
+Moonshot URL. Saving a Kimi For Coding key now activates the coding profile and
+requests a session backend rebuild while retaining the previous provider's
+credential in provider-scoped state.
 
 ## Validation
 
@@ -47,9 +71,11 @@ Validation commands:
 
 ```bash
 cargo fmt --all
-cargo test -p rara-config setting_inactive_provider_api_key_preserves_active_provider_credentials
-cargo test kimi_api_key_editor_uses_explicit_target_when_codex_is_active
-cargo test kimi_connection_saves_to_kimi_without_overwriting_active_codex_key
+cargo test -p rara-config setting_inactive_kimi_coding_key_uses_the_coding_profile
+cargo test -p rara-config kimi_coding_profile_uses_the_dedicated_coding_endpoint
+cargo test -p rara-config moonshot_profile_does_not_use_kimi_code_environment_key
+cargo test kimi_coding_api_key_editor_names_the_dedicated_credential_domain
+cargo test kimi_coding_connection_uses_the_dedicated_profile_and_endpoint
 cargo test model_catalog_connection_uses_target_provider_credentials
 cargo test api_key
 cargo check --workspace --all-targets
