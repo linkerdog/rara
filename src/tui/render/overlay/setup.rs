@@ -10,7 +10,7 @@ use unicode_width::UnicodeWidthChar;
 
 use super::Frame;
 use crate::tui::render::bottom_pane::composer::editor_cursor_position;
-use crate::tui::state::{PermissionMode, ProviderFamily, TuiApp};
+use crate::tui::state::{ApiKeyTarget, PermissionMode, TuiApp};
 use crate::tui::theme::{ThemeToken, theme_color};
 
 fn wrapped_text_height(text: &str, area_width: u16) -> u16 {
@@ -184,20 +184,31 @@ pub(super) fn render_skills_picker_modal(f: &mut Frame, app: &TuiApp, area: Rect
 pub(super) fn render_api_key_editor_modal(
     f: &mut Frame,
     app: &TuiApp,
+    target: ApiKeyTarget,
     area: Rect,
 ) -> Option<(u16, u16)> {
-    let (intro_text, title, footer_text) = match app.selected_provider_family() {
-        ProviderFamily::OpenAiCompatible => (
+    let (intro_text, title, footer_text) = match target {
+        ApiKeyTarget::OpenAiCompatible => (
             "Paste the API key for the selected OpenAI-compatible endpoint profile.",
             " API Key ",
             "Enter save  Esc back to model picker",
         ),
-        ProviderFamily::DeepSeek => (
+        ApiKeyTarget::DeepSeek => (
             "Paste a DeepSeek API key. It is used to load /models and call the selected DeepSeek model.",
             " DeepSeek API Key ",
             "Enter save and load models  Esc back to model picker",
         ),
-        _ => (
+        ApiKeyTarget::Kimi => (
+            "Paste a Kimi API key. It is used to load /models and call the selected Kimi model.",
+            " Kimi API Key ",
+            "Enter save and load models  Esc back to model picker",
+        ),
+        ApiKeyTarget::Gemini => (
+            "Paste a Gemini API key. It is used to call the selected Gemini model.",
+            " Gemini API Key ",
+            "Enter save  Esc back to model picker",
+        ),
+        ApiKeyTarget::Codex => (
             "Paste a Codex API key. This is the recommended path for SSH/headless sessions.",
             " Codex API Key ",
             "Enter save and rebuild  Esc back to login guide",

@@ -595,6 +595,31 @@ impl RaraConfig {
         }
     }
 
+    pub fn set_provider_api_key(&mut self, provider: &str, value: impl Into<String>) {
+        let value = value.into();
+        if let Some(kind) = OpenAiEndpointKind::from_legacy_provider(provider) {
+            if self.provider == provider
+                || (self.provider == "openai-compatible"
+                    && self.active_openai_profile_kind() == Some(kind))
+            {
+                self.set_api_key(value);
+            } else {
+                let mut profile = self.profile_for_kind_or_default(kind);
+                profile.api_key = Some(SecretString::from(value));
+                self.openai_profiles.insert(profile.id.clone(), profile);
+            }
+            return;
+        }
+        if self.provider == provider {
+            self.set_api_key(value);
+            return;
+        }
+        self.provider_states
+            .entry(provider.to_string())
+            .or_default()
+            .api_key = Some(SecretString::from(value));
+    }
+
     pub fn set_provider(&mut self, provider: impl Into<String>) {
         self.sync_active_provider_state();
         let provider = provider.into();
@@ -1305,6 +1330,36 @@ mod tests {
 
         assert_eq!(restored.api_key(), Some("sk-test-value"));
         assert!(restored.has_api_key());
+    }
+
+    #[test]
+    fn setting_inactive_provider_api_key_preserves_active_provider_credentials() {
+        let mut config = RaraConfig {
+            provider: "codex".to_string(),
+            ..Default::default()
+        };
+        config.set_api_key("sk-codex");
+
+        config.set_provider_api_key("kimi", "sk-kimi");
+
+        assert_eq!(config.provider, "codex");
+        assert_eq!(config.api_key(), Some("sk-codex"));
+        let kimi_profile = config
+            .openai_profiles
+            .get(OpenAiEndpointKind::Kimi.default_profile_id())
+            .expect("Kimi profile");
+        assert_eq!(
+            kimi_profile
+                .api_key
+                .as_ref()
+                .map(ExposeSecret::expose_secret),
+            Some("sk-kimi")
+        );
+        assert_eq!(
+            kimi_profile.base_url.as_deref(),
+            Some(DEFAULT_KIMI_BASE_URL)
+        );
+        assert_eq!(kimi_profile.model.as_deref(), Some(DEFAULT_KIMI_MODEL));
     }
 
     #[test]

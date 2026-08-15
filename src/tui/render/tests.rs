@@ -21,10 +21,10 @@ use crate::tools::bash::BashCommandInput;
 use crate::tui::custom_terminal::Frame;
 use crate::tui::state::SkillPickerEntry;
 use crate::tui::state::{
-    InteractionKind, ListPickerKind, Overlay, PendingApprovalSnapshot, PendingInteractionSnapshot,
-    PlanningApprovalStatus, PlanningLifecycleSnapshot, ProviderFamily, RuntimeSnapshot, StatusTab,
-    ToolTranscriptPayload, ToolTranscriptStatus, TranscriptEntry, TranscriptEntryPayload,
-    TranscriptTurn, TuiApp,
+    ApiKeyTarget, InteractionKind, ListPickerKind, Overlay, PendingApprovalSnapshot,
+    PendingInteractionSnapshot, PlanningApprovalStatus, PlanningLifecycleSnapshot, ProviderFamily,
+    RuntimeSnapshot, StatusTab, ToolTranscriptPayload, ToolTranscriptStatus, TranscriptEntry,
+    TranscriptEntryPayload, TranscriptTurn, TuiApp,
 };
 
 fn provider_family_idx(family: ProviderFamily) -> usize {
@@ -1108,7 +1108,7 @@ fn api_key_editor_renders_full_prompt_on_standard_terminal() {
     config.model = Some("deepseek-chat".into());
     app.config = config;
     app.provider_picker_idx = provider_family_idx(ProviderFamily::OpenAiCompatible);
-    app.open_overlay(Overlay::ApiKeyEditor);
+    app.open_overlay(Overlay::ApiKeyEditor(ApiKeyTarget::OpenAiCompatible));
 
     let rendered = render_screen_text(&mut app, 100, 24);
     assert_snapshot!("api_key_editor_standard_terminal", rendered);
@@ -1125,7 +1125,7 @@ fn deepseek_api_key_editor_uses_deepseek_copy() {
     app.config
         .select_openai_profile("deepseek-default", "DeepSeek", OpenAiEndpointKind::Deepseek);
     app.config.set_api_key("sk-deepseek");
-    app.open_overlay(Overlay::ApiKeyEditor);
+    app.open_overlay(Overlay::ApiKeyEditor(ApiKeyTarget::DeepSeek));
 
     let rendered = render_screen_text(&mut app, 100, 24);
     assert!(rendered.contains("DeepSeek API Key"));
@@ -1134,6 +1134,25 @@ fn deepseek_api_key_editor_uses_deepseek_copy() {
     assert!(rendered.contains("Esc back to model picker"));
     assert!(!rendered.contains("Codex API Key"));
     assert!(!rendered.contains("Esc back to login guide"));
+}
+
+#[test]
+fn kimi_api_key_editor_uses_explicit_target_when_codex_is_active() {
+    let temp = tempdir().expect("tempdir");
+    let mut app = TuiApp::new(ConfigManager {
+        path: temp.path().join("config.json"),
+    })
+    .expect("build tui app");
+    app.config.set_provider("codex");
+    app.provider_picker_idx = provider_family_idx(ProviderFamily::Kimi);
+    app.open_overlay(Overlay::ApiKeyEditor(ApiKeyTarget::Kimi));
+
+    let rendered = render_screen_text(&mut app, 100, 24);
+    assert!(rendered.contains("Kimi API Key"));
+    assert!(rendered.contains("Paste a Kimi API key"));
+    assert!(rendered.contains("Enter save and load models"));
+    assert!(!rendered.contains("Codex API Key"));
+    assert!(!rendered.contains("Paste a Codex API key"));
 }
 
 #[test]

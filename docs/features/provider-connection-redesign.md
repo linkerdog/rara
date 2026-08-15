@@ -55,6 +55,12 @@ configuration flow or its management view.
   connected" notice; model selection remains in `/model`.
 - API key, browser OAuth, device-code OAuth, endpoint URL, and profile details
   are `/connect` steps, not top-level commands.
+- Selecting a provider captures an immutable credential target for the rest of
+  that connection step. Prompt copy, validation, persistence, and model-catalog
+  refresh must use that target; they must not infer it from the currently
+  active model or provider.
+- Saving credentials for an inactive provider must not overwrite that active
+  provider's credentials or change the active provider/model selection.
 
 ### `/model`
 
@@ -89,6 +95,9 @@ Credential presence alone is not presented as verified availability.
 | --- | --- |
 | Command surface contains only the two provider entry points | Focused command parsing and palette tests |
 | `/connect` opens provider setup | Focused TUI state/event test |
+| Provider-specific API-key copy follows the captured connection target | Focused render test with a different active provider |
+| Saving an inactive provider key preserves the active provider key | Config and TUI event regression tests |
+| Model-catalog refresh uses the target provider key and base URL | Focused runtime task routing test |
 | `/model` opens the sole searchable model picker | Focused TUI state/event test |
 | Removed commands are not accepted by the TUI parser | Focused command tests |
 | Provider/model selection remains session-stable | Existing rebuild and runtime snapshot tests |
@@ -113,3 +122,4 @@ availability projection alongside model catalogs.
 
 - `docs/journal/2026-08-14-provider-entrypoint-consolidation.md`
 - `docs/journal/2026-08-04-provider-model-catalog.md`
+- `docs/journal/2026-08-15-provider-credential-targeting.md`

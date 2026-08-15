@@ -1,6 +1,6 @@
 use secrecy::{ExposeSecret, SecretString};
 
-use super::state::{ListPickerKind, Overlay, ProviderFamily, TuiApp};
+use super::state::{ApiKeyTarget, ListPickerKind, Overlay, ProviderFamily, TuiApp};
 use crate::agent::Agent;
 use crate::config::{OpenAiEndpointKind, ensure_rara_home_dir};
 use crate::oauth::OAuthManager;
@@ -126,12 +126,16 @@ pub(super) fn open_provider_connection(app: &mut TuiApp) {
     let label = super::state::PROVIDER_FAMILIES[app.provider_picker_idx].1;
 
     match family {
-        ProviderFamily::DeepSeek | ProviderFamily::Kimi => {
-            app.open_overlay(Overlay::ApiKeyEditor);
+        ProviderFamily::DeepSeek => {
+            app.open_overlay(Overlay::ApiKeyEditor(ApiKeyTarget::DeepSeek));
+            app.bottom_pane.notice = Some(format!("Enter your {label} API key."));
+        }
+        ProviderFamily::Kimi => {
+            app.open_overlay(Overlay::ApiKeyEditor(ApiKeyTarget::Kimi));
             app.bottom_pane.notice = Some(format!("Enter your {label} API key."));
         }
         ProviderFamily::Gemini => {
-            app.open_overlay(Overlay::ApiKeyEditor);
+            app.open_overlay(Overlay::ApiKeyEditor(ApiKeyTarget::Gemini));
             app.bottom_pane.notice = Some(format!("Enter your {label} API key."));
         }
         ProviderFamily::Codex => {

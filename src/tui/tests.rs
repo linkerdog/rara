@@ -21,6 +21,7 @@ use crate::llm::MockLlm;
 use crate::session::SessionManager;
 use crate::tools::bash::BashCommandInput;
 use crate::tui::command::palette_commands;
+use crate::tui::state::ApiKeyTarget;
 use crate::workspace::WorkspaceMemory;
 
 fn key(code: KeyCode) -> KeyEvent {
@@ -2496,7 +2497,10 @@ async fn deepseek_provider_family_prompts_for_api_key_before_model_list() {
 
     open_provider_family_overlay(&mut app);
 
-    assert_eq!(app.overlay, Some(Overlay::ApiKeyEditor));
+    assert_eq!(
+        app.overlay,
+        Some(Overlay::ApiKeyEditor(ApiKeyTarget::DeepSeek))
+    );
 }
 
 #[tokio::test]
@@ -2530,7 +2534,7 @@ async fn deepseek_api_key_save_starts_model_catalog_task() {
     app.provider_picker_idx = provider_family_idx(ProviderFamily::DeepSeek);
     app.config
         .select_openai_profile("deepseek-default", "DeepSeek", OpenAiEndpointKind::Deepseek);
-    app.open_overlay(Overlay::ApiKeyEditor);
+    app.open_overlay(Overlay::ApiKeyEditor(ApiKeyTarget::DeepSeek));
     app.api_key_input = "sk-deepseek-test".to_string();
 
     let oauth_manager = Arc::new(
@@ -2549,6 +2553,59 @@ async fn deepseek_api_key_save_starts_model_catalog_task() {
     .expect("save api key");
 
     assert_eq!(app.config.api_key(), Some("sk-deepseek-test"));
+    assert!(matches!(
+        app.bottom_pane.running_task.as_ref(),
+        Some(task) if matches!(task.kind, TaskKind::ModelCatalog)
+    ));
+    if let Some(task) = app.bottom_pane.running_task.take() {
+        task.handle.abort();
+    }
+}
+
+#[tokio::test]
+async fn kimi_connection_saves_to_kimi_without_overwriting_active_codex_key() {
+    let temp = tempdir().expect("tempdir");
+    let mut app = TuiApp::new(ConfigManager {
+        path: temp.path().join("config.json"),
+    })
+    .expect("build tui app");
+    app.config.set_provider("codex");
+    app.config.set_api_key("sk-codex");
+    app.provider_picker_idx = provider_family_idx(ProviderFamily::Kimi);
+
+    open_provider_family_overlay(&mut app);
+
+    assert_eq!(app.overlay, Some(Overlay::ApiKeyEditor(ApiKeyTarget::Kimi)));
+    app.api_key_input = "sk-kimi".to_string();
+    let oauth_manager = Arc::new(
+        crate::oauth::OAuthManager::new_for_config_dir(temp.path().join(".rara"))
+            .expect("oauth manager"),
+    );
+    let mut agent_slot = None;
+
+    dispatch_event(
+        AppEvent::SaveApiKeyInput,
+        &mut app,
+        &mut agent_slot,
+        &oauth_manager,
+    )
+    .await
+    .expect("save Kimi API key");
+
+    assert_eq!(app.config.provider, "codex");
+    assert_eq!(app.config.api_key(), Some("sk-codex"));
+    let kimi_profile = app
+        .config
+        .openai_profiles
+        .get(OpenAiEndpointKind::Kimi.default_profile_id())
+        .expect("Kimi profile");
+    assert_eq!(
+        kimi_profile
+            .api_key
+            .as_ref()
+            .map(ExposeSecret::expose_secret),
+        Some("sk-kimi")
+    );
     assert!(matches!(
         app.bottom_pane.running_task.as_ref(),
         Some(task) if matches!(task.kind, TaskKind::ModelCatalog)
@@ -2607,7 +2664,10 @@ async fn deepseek_model_picker_enter_without_api_key_opens_api_key_editor() {
     .await
     .expect("apply model selection");
 
-    assert!(matches!(app.overlay, Some(Overlay::ApiKeyEditor)));
+    assert!(matches!(
+        app.overlay,
+        Some(Overlay::ApiKeyEditor(ApiKeyTarget::DeepSeek))
+    ));
     assert!(app.bottom_pane.running_task.is_none());
 }
 
@@ -2662,7 +2722,10 @@ async fn deepseek_model_picker_api_key_action_opens_editor_even_when_key_exists(
     .await
     .expect("apply api key action");
 
-    assert!(matches!(app.overlay, Some(Overlay::ApiKeyEditor)));
+    assert!(matches!(
+        app.overlay,
+        Some(Overlay::ApiKeyEditor(ApiKeyTarget::DeepSeek))
+    ));
     assert!(app.bottom_pane.running_task.is_none());
 }
 
@@ -2730,7 +2793,10 @@ async fn openai_model_picker_edit_shortcut_starts_wizard_for_selected_profile() 
     assert!(matches!(app.overlay, Some(Overlay::BaseUrlEditor)));
     assert_eq!(
         app.openai_setup_steps,
-        vec![Overlay::ApiKeyEditor, Overlay::ModelNameEditor]
+        vec![
+            Overlay::ApiKeyEditor(ApiKeyTarget::OpenAiCompatible),
+            Overlay::ModelNameEditor
+        ]
     );
 }
 
@@ -2795,7 +2861,10 @@ async fn openai_profile_edit_wizard_keeps_existing_api_key_when_blank() {
     )
     .await
     .expect("save base url");
-    assert!(matches!(app.overlay, Some(Overlay::ApiKeyEditor)));
+    assert!(matches!(
+        app.overlay,
+        Some(Overlay::ApiKeyEditor(ApiKeyTarget::OpenAiCompatible))
+    ));
     assert!(app.api_key_input.is_empty());
 
     dispatch_event(
@@ -3062,7 +3131,10 @@ async fn saving_openai_profile_label_creates_new_openrouter_profile() {
             .openai_profiles
             .contains_key("openrouter-openrouter-backup")
     );
-    assert!(matches!(app.overlay, Some(Overlay::ApiKeyEditor)));
+    assert!(matches!(
+        app.overlay,
+        Some(Overlay::ApiKeyEditor(ApiKeyTarget::OpenAiCompatible))
+    ));
     assert_eq!(app.openai_setup_steps, vec![Overlay::ModelNameEditor]);
 }
 
@@ -3096,7 +3168,7 @@ async fn save_api_key_input_allows_clearing_openai_compatible_credentials() {
 
     app.config.set_provider("openai-compatible");
     app.config.set_api_key("sk-existing");
-    app.open_overlay(Overlay::ApiKeyEditor);
+    app.open_overlay(Overlay::ApiKeyEditor(ApiKeyTarget::OpenAiCompatible));
     app.api_key_input.clear();
 
     let oauth_manager = Arc::new(
@@ -3605,7 +3677,7 @@ async fn save_api_key_input_sets_codex_defaults_before_rebuild() {
     ));
 
     app.config.set_provider("codex");
-    app.open_overlay(Overlay::ApiKeyEditor);
+    app.open_overlay(Overlay::ApiKeyEditor(ApiKeyTarget::Codex));
     app.api_key_input = "sk-codex".into();
 
     let oauth_manager = Arc::new(

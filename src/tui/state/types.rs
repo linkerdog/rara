@@ -55,13 +55,34 @@ pub enum StatusTab {
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum ApiKeyTarget {
+    Codex,
+    DeepSeek,
+    Kimi,
+    OpenAiCompatible,
+    Gemini,
+}
+
+impl ApiKeyTarget {
+    pub const fn label(self) -> &'static str {
+        match self {
+            Self::Codex => "Codex",
+            Self::DeepSeek => "DeepSeek",
+            Self::Kimi => "Kimi",
+            Self::OpenAiCompatible => "OpenAI-compatible",
+            Self::Gemini => "Gemini",
+        }
+    }
+}
+
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Overlay {
     Help(HelpTab),
     CommandPalette,
     Status(StatusTab),
     Context,
     BaseUrlEditor,
-    ApiKeyEditor,
+    ApiKeyEditor(ApiKeyTarget),
     ModelNameEditor,
     OpenAiProfileLabelEditor,
     SkillsPicker,

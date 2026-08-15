@@ -29,7 +29,7 @@ use self::types::CommittedTranscriptRenderCache;
 pub use self::types::current_unix_timestamp_secs;
 pub use self::types::{
     ActiveLiveEvent, ActiveLiveSections, ActivePendingInteraction, ActivePendingInteractionKind,
-    AgentMarkdownStreamState, CommandSpec, CompactionTranscriptPayload,
+    AgentMarkdownStreamState, ApiKeyTarget, CommandSpec, CompactionTranscriptPayload,
     CompletedInteractionSnapshot, GoalHandle, GoalStatus, HelpTab, InteractionKind, ListPickerKind,
     LocalCommand, LocalCommandKind, ModelCatalogSnapshot, ModelRoutingView, OAuthLoginMode,
     OpenAiModelPickerAction, Overlay, PROVIDER_FAMILIES, PendingApprovalSnapshot,
@@ -1179,7 +1179,7 @@ impl TuiApp {
             steps.push(Overlay::BaseUrlEditor);
         }
         if !self.config.has_api_key() || matches!(kind, OpenAiEndpointKind::Custom) {
-            steps.push(Overlay::ApiKeyEditor);
+            steps.push(Overlay::ApiKeyEditor(ApiKeyTarget::OpenAiCompatible));
         }
         if matches!(kind, OpenAiEndpointKind::Custom)
             || self
@@ -1220,7 +1220,7 @@ impl TuiApp {
         self.openai_setup_keep_empty_api_key = true;
         self.openai_setup_steps = vec![
             Overlay::BaseUrlEditor,
-            Overlay::ApiKeyEditor,
+            Overlay::ApiKeyEditor(ApiKeyTarget::OpenAiCompatible),
             Overlay::ModelNameEditor,
         ];
         self.advance_openai_profile_setup();
