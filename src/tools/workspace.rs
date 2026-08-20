@@ -12,7 +12,7 @@ pub struct UpdateProjectMemoryTool {
 }
 #[tool_spec(
     name = "update_project_memory",
-    description = "Update memory.md",
+    description = "Update the workspace-local project memory file (.rara/memory.md). Use it for workspace-scoped, project-specific facts and decisions. For durable cross-tool or cross-workspace knowledge, use the Nowledge Mem distill-memory skill instead.",
     input_schema = {
         "type": "object",
         "properties": {
