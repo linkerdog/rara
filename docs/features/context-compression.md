@@ -162,9 +162,16 @@ The projection pass:
 - targets only high-volume tools such as shell, file read/search, web, and edit
   tools;
 - keeps the most recent compactable tool results verbatim;
-- replaces older compactable tool-result content with a short structured
-  marker only when the projected request would exceed the per-request
-  tool-result budget;
+- identifies the active turn from the latest real user-text request rather than
+  counting `tool_result` messages as new user turns;
+- reduces prior-turn results first to reference summaries that retain tool
+  identity, relevant input, and any persisted full-result path;
+- when pressure remains, reduces older active-turn results to bounded semantic
+  evidence: file/range/content excerpts for reads, query/scope/count/sample for
+  searches, and command/outcome/head-tail evidence for shell calls;
+- uses a minimal reference-only fallback only when semantic summaries still
+  exceed the request budget; it never replaces active evidence with an
+  unqualified generic cleared marker;
 - never changes `tool_use` / `tool_result` pairing or removes the block itself;
 - never rewrites stable system, tool schema, skill, or memory prompt prefixes.
 
@@ -176,9 +183,12 @@ distillation, and debugging.
 The runtime exposes projection as a transient status event when old tool
 results are projected out of a model request and as a structured context
 observability view after the request. The view records the policy, original
-chars, projected chars, saved chars, cleared result count, and retained result
-count. It is read-only accounting over the request projection and must not be
-used to rewrite persisted transcript history.
+chars, projected chars, saved chars, summarized result count, reference-only
+result count, active-turn retained result count, and retained result count.
+The legacy cleared count remains for compatibility and should stay zero unless
+a legacy input already contains the old marker. It is read-only accounting over
+the request projection and must not be used to rewrite persisted transcript
+history.
 
 The same structured projection report should be reusable by future OpenTelemetry
 exporters. `/context` remains the local debugging surface, while OTEL should

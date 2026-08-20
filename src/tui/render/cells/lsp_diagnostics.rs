@@ -14,6 +14,7 @@ const MAX_VISIBLE_DIAGNOSTICS: usize = 4;
 pub(crate) struct LspDiagnosticsCell {
     file: String,
     diagnostics: Vec<LspDiagnostic>,
+    freshness: Option<LspDiagnosticFreshness>,
     error: Option<String>,
     status: Option<LspStatus>,
 }
@@ -23,6 +24,8 @@ struct LspDiagnosticsPayload {
     file: String,
     #[serde(default)]
     diagnostics: Vec<LspDiagnostic>,
+    #[serde(default)]
+    freshness: Option<LspDiagnosticFreshness>,
     #[serde(default)]
     error: Option<String>,
     #[serde(default)]
@@ -54,6 +57,14 @@ struct LspServerStatus {
     running: bool,
 }
 
+#[derive(Clone, Copy, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+enum LspDiagnosticFreshness {
+    Current,
+    Cached,
+    Pending,
+}
+
 impl LspDiagnosticsCell {
     pub(crate) fn from_message(message: &str) -> Option<Self> {
         let payload = message.trim().strip_prefix("lsp_diagnostics\n")?;
@@ -61,6 +72,7 @@ impl LspDiagnosticsCell {
         Some(Self {
             file: payload.file,
             diagnostics: payload.diagnostics,
+            freshness: payload.freshness,
             error: payload.error,
             status: payload.status,
         })
@@ -78,10 +90,16 @@ impl HistoryCell for LspDiagnosticsCell {
 
         let status_label = if let Some(error) = self.error.as_deref() {
             format!("error: {error}")
-        } else if self.diagnostics.is_empty() {
-            "no diagnostics".to_string()
         } else {
-            format!("{} diagnostic(s)", self.diagnostics.len())
+            match (self.freshness, self.diagnostics.len()) {
+                (Some(LspDiagnosticFreshness::Pending), _) => "diagnostics pending".to_string(),
+                (Some(LspDiagnosticFreshness::Cached), 0) => "cached · no diagnostics".to_string(),
+                (Some(LspDiagnosticFreshness::Cached), count) => {
+                    format!("{count} cached diagnostic(s)")
+                }
+                (_, 0) => "no diagnostics".to_string(),
+                (_, count) => format!("{count} diagnostic(s)"),
+            }
         };
         lines.push(Line::from(vec![
             Span::styled(shorten(&self.file, width), Style::default().fg(TEXT_MUTED)),
@@ -119,6 +137,10 @@ impl LspDiagnosticsCell {
     fn summary_color(&self) -> ratatui::style::Color {
         if self.error.is_some() {
             STATUS_ERROR
+        } else if self.freshness == Some(LspDiagnosticFreshness::Pending) {
+            STATUS_INFO
+        } else if self.freshness == Some(LspDiagnosticFreshness::Cached) {
+            STATUS_WARNING
         } else if self.diagnostics.is_empty() {
             STATUS_SUCCESS
         } else {
@@ -215,6 +237,7 @@ mod tests {
         let message = r#"lsp_diagnostics
 {
   "file": "src/main.rs",
+  "freshness": "current",
   "diagnostics": [{
     "file": "src/main.rs",
     "line": 4,
@@ -262,6 +285,27 @@ mod tests {
             .join("\n");
 
         assert!(rendered.contains("src/main.rs · error: no LSP server for src/main.rs"));
+    }
+
+    #[test]
+    fn renders_pending_diagnostics_without_claiming_a_clean_file() {
+        let message = r#"lsp_diagnostics
+{
+  "file": "src/main.rs",
+  "diagnostics": [],
+  "freshness": "pending"
+}"#;
+
+        let cell = LspDiagnosticsCell::from_message(message).unwrap();
+        let rendered = cell
+            .display_lines(120)
+            .iter()
+            .map(line_text)
+            .collect::<Vec<_>>()
+            .join("\n");
+
+        assert!(rendered.contains("src/main.rs · diagnostics pending"));
+        assert!(!rendered.contains("no diagnostics"));
     }
 
     #[test]

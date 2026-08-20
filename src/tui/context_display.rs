@@ -200,9 +200,12 @@ pub(crate) fn render_context_lines(app: &TuiApp, available_width: u16) -> Vec<Li
             &mut lines,
             "projection",
             &format!(
-                "cleared={} kept={} saved={}",
-                mc.cleared_results,
+                "summarized={} referenced={} active_kept={} kept={} legacy_cleared={} saved={}",
+                mc.summarized_results,
+                mc.reference_only_results,
+                mc.active_turn_kept_results,
                 mc.kept_results,
+                mc.cleared_results,
                 format_char_count(mc.saved_chars)
             ),
             TEXT_MUTED,

@@ -974,6 +974,9 @@ mod tests {
                     projected_chars: 30_000,
                     saved_chars: 30_000,
                     cleared_results: 4,
+                    summarized_results: 2,
+                    reference_only_results: 2,
+                    active_turn_kept_results: 3,
                     kept_results: 6,
                 },
                 retrieval: crate::context::RetrievalObservationView {
@@ -1038,6 +1041,9 @@ mod tests {
                                 "projected_chars": 30000,
                                 "saved_chars": 30000,
                                 "cleared_results": 4,
+                                "summarized_results": 2,
+                                "reference_only_results": 2,
+                                "active_turn_kept_results": 3,
                                 "kept_results": 6
                             },
                             "retrieval": {

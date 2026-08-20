@@ -1,4 +1,6 @@
 use std::env;
+#[cfg(target_os = "macos")]
+use std::path::Path;
 use std::path::PathBuf;
 use std::time::Duration;
 
@@ -125,6 +127,10 @@ fn wrap_command_creates_unique_cleanup_profile_on_macos() {
 
     let profile = std::fs::read_to_string(&cleanup_path).expect("profile contents");
     assert!(
+        profile.contains("(allow file-read*)"),
+        "workspace-write should allow ordinary runtime reads"
+    );
+    assert!(
         !profile.contains("home-relative-path"),
         "profile should avoid unsupported home-relative-path forms"
     );
@@ -132,6 +138,143 @@ fn wrap_command_creates_unique_cleanup_profile_on_macos() {
         profile.contains("(deny file-read* (subpath "),
         "profile should deny sensitive home subpaths using explicit paths"
     );
+}
+
+#[cfg(target_os = "macos")]
+#[test]
+fn macos_profile_runs_basic_read_only_commands() {
+    let tempdir = tempdir().expect("tempdir");
+    let cargo = std::fs::canonicalize(env!("CARGO")).expect("canonical cargo path");
+    let cargo_bin = cargo.parent().expect("cargo bin directory").to_path_buf();
+    std::fs::create_dir(tempdir.path().join("src")).expect("src directory");
+    std::fs::write(
+        tempdir.path().join("Cargo.toml"),
+        "[package]\nname = \"sandbox-fixture\"\nversion = \"0.1.0\"\nedition = \"2024\"\n",
+    )
+    .expect("Cargo.toml");
+    std::fs::write(tempdir.path().join("src/main.rs"), "fn main() {}\n").expect("source file");
+    let git_init = std::process::Command::new("/usr/bin/git")
+        .args(["init", "--quiet"])
+        .current_dir(tempdir.path())
+        .output()
+        .expect("git init");
+    assert!(git_init.status.success(), "git init fixture");
+    let git_commit = std::process::Command::new("/usr/bin/git")
+        .args([
+            "-c",
+            "user.name=RARA Test",
+            "-c",
+            "user.email=rara-test@example.invalid",
+            "commit",
+            "--allow-empty",
+            "--quiet",
+            "-m",
+            "fixture",
+        ])
+        .current_dir(tempdir.path())
+        .output()
+        .expect("git commit");
+    assert!(git_commit.status.success(), "git commit fixture");
+    let manager = SandboxManager {
+        os: "macos".to_string(),
+        profile_dir: tempdir.path().to_path_buf(),
+        sandbox_home: tempdir.path().join("home"),
+        backend: SandboxBackend::MacosSeatbelt,
+        command_install_roots: vec![cargo_bin],
+    };
+    let cwd = tempdir.path().to_string_lossy().to_string();
+    let cargo_fmt = format!("{} fmt -- --check", shell_single_quote(&cargo));
+
+    for command in &[
+        "/bin/echo ok".to_string(),
+        "/bin/date +%F".to_string(),
+        "/bin/ls .".to_string(),
+        "/usr/bin/git log -1 --format=%cs".to_string(),
+        "/usr/bin/git branch --show-current".to_string(),
+        "/usr/bin/git status --short".to_string(),
+        "/usr/bin/git diff --stat".to_string(),
+        cargo_fmt,
+    ] {
+        let wrapped = manager
+            .wrap_shell_command(command, &cwd, false)
+            .expect("macos sandbox wrapper");
+        let output = std::process::Command::new(&wrapped.program)
+            .args(&wrapped.args)
+            .current_dir(tempdir.path())
+            .output()
+            .expect("run sandboxed command");
+
+        assert!(
+            output.status.success(),
+            "{command} failed: status={:?}, stderr={}",
+            output.status,
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+}
+
+#[cfg(target_os = "macos")]
+#[test]
+fn macos_profile_keeps_sensitive_roots_unreadable() {
+    let tempdir = tempdir().expect("tempdir");
+    let workspace = tempdir.path().join("workspace");
+    let sensitive_home = tempdir.path().join("home");
+    let ssh_dir = sensitive_home.join(".ssh");
+    let public_file = sensitive_home.join("public.txt");
+    let secret_file = ssh_dir.join("secret.txt");
+    std::fs::create_dir(&workspace).expect("workspace");
+    std::fs::create_dir_all(&ssh_dir).expect("sensitive directory");
+    std::fs::write(&public_file, "public\n").expect("public fixture");
+    std::fs::write(&secret_file, "secret\n").expect("sensitive fixture");
+    let manager = SandboxManager {
+        os: "macos".to_string(),
+        profile_dir: tempdir.path().to_path_buf(),
+        sandbox_home: sensitive_home.clone(),
+        backend: SandboxBackend::MacosSeatbelt,
+        command_install_roots: Vec::new(),
+    };
+    let profile = manager
+        .create_profile_with_sensitive_home(false, Some(&sensitive_home))
+        .expect("macos sandbox profile");
+    let cwd_definition = format!("CWD={}", workspace.display());
+
+    let public_read = std::process::Command::new(MACOS_SANDBOX_EXEC)
+        .arg("-D")
+        .arg(&cwd_definition)
+        .arg("-f")
+        .arg(&profile)
+        .arg("/bin/cat")
+        .arg(&public_file)
+        .output()
+        .expect("read ordinary home file");
+    assert!(
+        public_read.status.success(),
+        "broad read failed: {}",
+        String::from_utf8_lossy(&public_read.stderr)
+    );
+
+    let sensitive_read = std::process::Command::new(MACOS_SANDBOX_EXEC)
+        .arg("-D")
+        .arg(cwd_definition)
+        .arg("-f")
+        .arg(&profile)
+        .arg("/bin/cat")
+        .arg(secret_file)
+        .output()
+        .expect("attempt sensitive home read");
+    assert!(
+        !sensitive_read.status.success(),
+        "sensitive root must remain unreadable: status={:?}, stdout={}, stderr={}, profile={}",
+        sensitive_read.status,
+        String::from_utf8_lossy(&sensitive_read.stdout),
+        String::from_utf8_lossy(&sensitive_read.stderr),
+        std::fs::read_to_string(&profile).expect("profile contents")
+    );
+}
+
+#[cfg(target_os = "macos")]
+fn shell_single_quote(path: &Path) -> String {
+    format!("'{}'", path.display().to_string().replace('\'', "'\"'\"'"))
 }
 
 #[test]

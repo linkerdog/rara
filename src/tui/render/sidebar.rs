@@ -9,6 +9,7 @@ use ratatui::{
     widgets::{Block, Borders, Paragraph, Wrap},
 };
 
+use crate::lsp_manager::LspServerPhase;
 use crate::tui::custom_terminal::Frame;
 use crate::tui::state::{GoalStatus, TuiApp};
 use crate::tui::status_display::context_sidebar_summary;
@@ -171,18 +172,30 @@ fn push_lsp_status(lines: &mut Vec<Line<'static>>, app: &TuiApp) {
     }
 
     let running = detected.iter().filter(|server| server.running).count();
-    let available = detected.iter().filter(|server| server.available).count();
+    let starting = detected
+        .iter()
+        .filter(|server| server.phase == LspServerPhase::Starting)
+        .count();
+    let failed = detected
+        .iter()
+        .filter(|server| {
+            matches!(
+                server.phase,
+                LspServerPhase::Failed | LspServerPhase::Unavailable
+            )
+        })
+        .count();
     let status = if running > 0 {
         format!(
             "{} running · {} diagnostics",
             running, snapshot.diagnostic_count
         )
-    } else if available > 0 {
-        format!("idle · {available} available")
-    } else if detected.iter().any(|server| !server.checked) {
-        "detected · not started".to_string()
+    } else if starting > 0 {
+        format!("{starting} starting")
+    } else if failed > 0 {
+        format!("{failed} unavailable or failed")
     } else {
-        "server missing".to_string()
+        "detected · not started".to_string()
     };
     lines.push(Line::from(Span::styled(
         status,
@@ -190,32 +203,27 @@ fn push_lsp_status(lines: &mut Vec<Line<'static>>, app: &TuiApp) {
     )));
 
     for server in detected.iter().take(3) {
-        let marker = if server.running {
-            "[>]"
-        } else if server.available {
-            "[ ]"
-        } else if !server.checked {
-            "[?]"
-        } else {
-            "[!]"
+        let marker = match server.phase {
+            LspServerPhase::Ready => "[>]",
+            LspServerPhase::Starting => "[..]",
+            LspServerPhase::NotStarted => "[?]",
+            LspServerPhase::Unavailable | LspServerPhase::Failed => "[!]",
         };
-        let style = if server.running {
-            Style::default().fg(INTERACTION_SUB_AGENT)
-        } else if server.available {
-            Style::default().fg(TEXT_SECONDARY)
-        } else if !server.checked {
-            Style::default().fg(TEXT_MUTED)
-        } else {
-            Style::default().fg(STATUS_WARNING)
+        let style = match server.phase {
+            LspServerPhase::Ready => Style::default().fg(INTERACTION_SUB_AGENT),
+            LspServerPhase::Starting => Style::default().fg(STATUS_INFO),
+            LspServerPhase::NotStarted => Style::default().fg(TEXT_MUTED),
+            LspServerPhase::Unavailable | LspServerPhase::Failed => {
+                Style::default().fg(STATUS_WARNING)
+            }
         };
         lines.push(Line::from(Span::styled(
             format!("{marker} {}", server.name),
             style,
         )));
-        // Add a hint below each server showing its current phase.
         if !server.running {
             lines.push(Line::from(Span::styled(
-                "    ready",
+                format!("    {}", server.phase.label()),
                 Style::default().fg(TEXT_MUTED),
             )));
         }

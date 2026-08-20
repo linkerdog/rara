@@ -111,6 +111,16 @@ source of live tool identity.
   `model_preview_output` is the model-facing head/tail preview, with failed
   commands biased toward the tail so error diagnostics remain visible without
   requiring shell-side `2>&1` redirection.
+- Foreground results also expose a structured `termination` object. Normal
+  exits use `kind = "exit"` and `code`; Unix signals use `kind = "signal"`,
+  the numeric signal, and a stable signal name when known. `exit_code` remains
+  nullable for compatibility, but renderers must use `termination` so a signal
+  is not presented as `unknown exit status`.
+- Sandboxed failures may include a structured `sandbox_failure`. A
+  `policy_denied` classification requires captured denial evidence;
+  `sandboxed_process_signaled` reports a signal without asserting that the
+  sandbox policy caused it. The canonical capability and result contract lives
+  in [sandbox-execution.md](sandbox-execution.md).
 - Oversized tool results should be persisted to disk and replaced in model
   context with a bounded preview plus the display-oriented continuation lines
   described below. The full JSON payload remains inspectable from that path.

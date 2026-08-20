@@ -38,6 +38,8 @@ future appserver integrations can use.
 
 - `shell-approval-policy.md`: bash read-only classification and reusable prefix
   approval boundaries.
+- `sandbox-execution.md`: capability-based shell isolation, structured process
+  termination, and evidence-backed sandbox failure reporting.
 
 ## Runtime Extension Specs
 

@@ -1,234 +1,177 @@
-# Language Server Protocol (LSP) Integration
+# Language Server Protocol Integration
 
 ## Problem
 
-RARA agents currently navigate and edit code using text-based tools only — `grep`,
-`rg`, `glob`, string replacement. These have no semantic understanding:
-
-- `rg "render"` matches comments, strings, unrelated functions
-- Renaming a struct field requires manual find/replace across all files
-- Type errors and borrow-checker failures are invisible until `cargo check` runs
-- The agent wastes tokens and turns on grep/compile/edit cycles that an LSP
-  could resolve instantly
-
-OpenCode and Codex CLI both integrate LSP diagnostics as structured feedback
-to the LLM. Claude Code runs inside LSP-capable editors but has no bridge to
-the language server infrastructure.
-
-RARA should expose LSP diagnostics and, eventually, semantic operations
-(find references, rename, go-to-definition) as tools in the agent loop.
+RARA needs semantic diagnostics without turning a language-server startup into
+a synchronous tool timeout. The previous bridge waited on one response channel,
+dropped mismatched responses, discarded server stderr, repeatedly sent
+`didOpen`, slept the calling thread, and reported only `running: false` after a
+five-second initialization failure.
 
 ## Scope
 
-- Auto-detection of `rust-analyzer` (already installed in Rust toolchains)
-- `lsp_diagnostics` tool — returns current diagnostics for a file
-- Diagnostics injected into System context on each turn (like warnings)
-- Configuration surface for custom LSP servers
-- Non-Goal: advanced LSP features like completion, hover, or symbol search (phase 2)
+- Per-workspace, lazy language-server lifecycle for Rust, Go, and TypeScript.
+- Asynchronous JSON-RPC initialization and response routing.
+- Cached push diagnostics with explicit freshness.
+- Structured startup/request failures and pure cached status snapshots.
+- `lsp_diagnostics` tool and System-context diagnostic injection.
 
----
+## Non-Goals
 
-## Design
+- Auto-installing language servers.
+- Completion, hover, rename, references, or symbol search.
+- Provider-specific or editor-mediated LSP bridges.
+- Blocking until a new `publishDiagnostics` notification arrives.
+- Treating an empty diagnostic set as a startup failure.
 
-### 1. Architecture
+## Architecture
 
-```
-Agent calls lsp_diagnostics("src/main.rs")
-        │
-        ▼
-┌───────────────────┐
-│   LspManager      │  ← singleton, per-workspace
-│                   │
-│  servers:         │
-│   rust-analyzer   │  ← auto-detected, stdio transport
-│   (future: gopls) │
-│                   │
-│  diagnostics:     │
-│   file → diag[]   │  ← cached, updated on read
-└───────────────────┘
-        │
-        ▼
-  rust-analyzer (stdio)
-  → publishDiagnostics notification
+`LspManager` is session-scoped and owns one slot per detected server kind. Each
+slot has a serialized startup gate and a cached state machine:
+
+```text
+NotStarted -> Starting -> Ready
+                    |-> Unavailable
+                    `-> Failed
 ```
 
-`LspManager` holds:
-- A map of `language_id → LspServerHandle`
-- Each handle wraps a `tokio::process::Child` + JSON-RPC reader/writer
-- Diagnostics are cached per-file, invalidated on next `textDocument/didOpen` + `didChange`
+Only one startup future may run for a slot. Concurrent callers wait for that
+same startup gate and then reuse the resulting connection. A ready connection
+contains:
 
-### 2. Auto-Detection
+- one async stdin writer;
+- a response router keyed by JSON-RPC request ID;
+- an async stdout reader for responses and notifications;
+- a shared protocol writer that answers required server-to-client control
+  requests while initialization is in flight;
+- a bounded stderr tail;
+- a child supervisor that observes exit and cancellation;
+- document versions used to reject stale diagnostics.
 
-RARA auto-detects Rust projects via `Cargo.toml` presence. If `rust-analyzer`
-is on `$PATH`, it starts automatically on first `lsp_diagnostics` call.
+The manager uses filesystem markers such as `Cargo.toml`, `go.mod`, and
+`package.json` for detection. Status rendering reads cached slot state only; it
+must not execute `--version`, spawn a server, or block on I/O.
 
-Future: extend to other languages via `package.json`, `go.mod`, `deno.json`,
-etc., following OpenCode's detection table.
+## Contracts
 
-### 3. Configuration
+### Startup and retry
 
-```jsonc
-// ~/.rara/config.json
+- The first matching `lsp_diagnostics` call lazily starts the server.
+- Initialization uses a valid directory `file://` URI and waits asynchronously
+  for the matching response ID.
+- The default initialization deadline is 45 seconds; tests and embedded callers
+  may configure a shorter deadline.
+- Concurrent calls cause at most one spawn attempt.
+- Startup observes the initialize response, child exit, stderr tail, timeout,
+  and cancellation concurrently.
+- Retry uses bounded attempts and backoff. Missing binaries are
+  `Unavailable` and are not hot-looped.
+
+### Server control requests
+
+The protocol loop must continue serving server-to-client requests while a
+client request is pending. It returns valid responses for:
+
+- `window/workDoneProgress/create`;
+- `workspace/configuration`;
+- `workspace/workspaceFolders`;
+- `client/registerCapability` and `client/unregisterCapability`;
+- `workspace/diagnostic/refresh`.
+
+Unsupported server requests receive JSON-RPC `-32601` rather than being
+silently dropped. RARA advertises only the workspace configuration, workspace
+folder, work-done progress, synchronization, and push-diagnostic capabilities
+implemented by this bridge.
+
+### Structured failures
+
+Failures expose a stable kind and human-readable message. Required kinds are:
+
+- `disabled`
+- `unsupported_file`
+- `binary_missing`
+- `spawn_failed`
+- `initialize_timeout`
+- `protocol_error`
+- `server_exited`
+- `file_read_failed`
+
+When available, the failure includes the server name, process exit/signal, and
+bounded stderr tail. The legacy top-level `error` string remains in the tool
+payload for compatibility; the typed failure is canonical.
+
+### Document synchronization and diagnostics
+
+- The first synchronization sends `textDocument/didOpen` with version 1.
+- Later synchronizations send `textDocument/didChange` with monotonically
+  increasing versions; `didOpen` is never repeated for an already-open file.
+- Calls do not sleep for diagnostics. After synchronization they immediately
+  return the cache with `freshness = "current"`, `"cached"`, or `"pending"`.
+- `pending` means no diagnostic publication exists for the current document;
+  it is not an error.
+- Publications older than the current document version are discarded.
+- An empty, current publication replaces previous diagnostics with an empty
+  set.
+
+### Status and context
+
+- `status_snapshot()` is pure over cached state and cheap enough for TUI render
+  paths.
+- Each server reports its phase, detected/checked/available/running flags, and
+  last typed failure when present.
+- The workspace snapshot retains `last_error` for compatibility and also
+  exposes `last_failure`.
+- Cached diagnostics may be injected into System context. Injection never
+  starts or waits for a server.
+
+### Tool result
+
+Successful or pending calls return:
+
+```json
 {
-  "lsp": {
-    "enabled": true,           // default: true
-    "auto_install": false,     // default: false (manual opt-in)
-    "servers": {
-      "rust": {
-        "command": ["rust-analyzer"],
-        "extensions": [".rs"]
-      },
-      "custom": {
-        "command": ["my-lsp", "--stdio"],
-        "extensions": [".custom"]
-      }
-    }
-  }
+  "file": "src/main.rs",
+  "diagnostics": [],
+  "freshness": "pending",
+  "status": {}
 }
 ```
 
-Per-project override via `AGENTS.md` or `.rara/lsp.json`.
+Failed calls additionally return `failure` and the legacy `error` string. An
+empty diagnostic array with no failure is a valid result.
 
-### 4. Runtime Tool
+## Validation Matrix
 
-| Tool | Signature | Description |
-|------|-----------|-------------|
-| `lsp_diagnostics` | `(file: Path)` → `Vec<Diagnostic>` | Current LSP diagnostics for a file |
+| Contract | Focused check |
+|---|---|
+| Matching response routing | Interleave response IDs and verify each waiter receives its own response |
+| Server control request | Issue `workspace/configuration` before initialize completes and verify a shaped response |
+| Delayed initialize | Fake server responds within the configured timeout |
+| Timeout | Fake server stays alive without responding and returns `initialize_timeout` |
+| Early exit | Fake server writes stderr, exits, and returns `server_exited` with the tail |
+| Concurrent startup | Two diagnostics calls share one spawn attempt |
+| Cancelled startup | Abort an in-flight initialize and verify status changes to `Failed` and the next call can retry |
+| Document lifecycle | First call emits `didOpen`; next call emits versioned `didChange` |
+| Stale diagnostics | Older publication is dropped; current empty publication clears cache |
+| Pure status | Repeated snapshots do not execute or spawn a command |
+| Graceful absence | Missing binary reports `binary_missing` and `Unavailable` |
 
-The tool result keeps a JSON payload in the transcript so the TUI can render it
-with a dedicated diagnostics cell instead of showing generic formatted JSON.
+## Operational Notes
 
-```rust
-struct Diagnostic {
-    file: PathBuf,
-    range: Range,          // line:col start..end
-    severity: Error | Warning | Info | Hint,
-    message: String,       // e.g. "cannot find type `Foo` in this scope"
-    code: Option<String>,  // e.g. "E0425"
-    source: Option<String>,// e.g. "rustc"
-}
-```
+The child supervisor owns process waiting and cancels the server when the last
+runtime handle is dropped. Stderr capture is bounded so a broken server cannot
+grow memory without limit. Diagnostics remain a cache: compilation commands are
+still the authoritative repository validation gate.
 
-### 5. System Context Injection
+## Open Risks
 
-On each turn, RARA appends a `# LSP Diagnostics` block to the System context
-if diagnostics exist for files in the current workspace:
+- Capability-specific server requests beyond the control methods above receive
+  a JSON-RPC method-not-found response and need explicit handlers before RARA
+  advertises the corresponding capability.
+- Pull diagnostics (`textDocument/diagnostic`) remain a future fallback for
+  servers that do not publish diagnostics.
+- Custom server configuration and per-project overrides remain future work.
 
-```
-# LSP Diagnostics
-  src/local_model_server.rs:245:12 error[E0425]: cannot find type `BundledFile`
-  src/tui/render.rs:89:5 warning: unused variable `width`
-```
+## Source Journals
 
-This is analogous to how `local embedding backend bootstrap reported:` warnings
-work today. The agent sees diagnostics without needing to run `cargo check`.
-
-### 6. Lifecycle
-
-```
-1. Agent opens/edits a .rs file
-2. LspManager lazily starts rust-analyzer (first use)
-3. LspManager sends textDocument/didOpen → textDocument/didChange → textDocument/didSave
-4. rust-analyzer pushes publishDiagnostics asynchronously → LspManager caches
-5. Agent calls lsp_diagnostics("src/foo.rs") → returns last-cached diagnostics (no sync wait)
-6. Diagnostics cache persists until file modification or server push invalidates it
-```
-
-`lsp_diagnostics` reads cached diagnostics directly — it never blocks waiting
-for a server notification. This avoids the common LSP client pitfall where
-`publishDiagnostics` may be debounced or skipped when diagnostics haven't
-changed. If the server supports LSP 3.17+ pull diagnostics
-(`textDocument/diagnostic`), those can be used as a fallback.
-
----
-
----
-
-## Design Decision: Built-in Tool, Not MCP
-
-LSP is integrated as a **built-in tool** (like `bash`, `read_file`), not as
-an MCP server.
-
-| Dimension | Built-in Tool | MCP |
-|-----------|-------------|-----|
-| Lifecycle | RARA manages (lazy spawn, auto-recycle) | External process management required |
-| Diagnostic injection | Auto-inject into System context, agent sees without calling | Agent must discover + call |
-| Protocol overhead | JSON-RPC (LSP native) | JSON-RPC → MCP → LSP |
-| Configuration | `~/.rara/config.json` directly | Through MCP config layer |
-| Latency | Process already running, diagnostics cached | Every call goes through MCP round-trip |
-
-MCP is for external services (browsers, databases, third-party APIs).
-LSP is a local process under RARA's control, same as `rust-analyzer` via stdio.
-
-OpenCode follows this exact pattern — LSP diagnostics are fed directly to
-the LLM, not mediated through an MCP bridge.
-
----
-
-## Implementation Plan
-
-### Phase 1: Rust-Analyzer Bridge (~150 lines)
-
-- `LspManager` struct with lazy `rust-analyzer` spawn
-- Response-aware JSON-RPC handshake (`initialize`, then `initialized` after
-  the matching response)
-- `textDocument/didOpen`, `textDocument/didChange`, `textDocument/didSave`
-- Parse `textDocument/publishDiagnostics` notifications
-- `lsp_diagnostics` tool
-
-### Phase 2: Context Injection (~40 lines)
-
-- Append `# LSP Diagnostics` to System context when diagnostics exist
-- Deduplicate and format diagnostic messages
-- Clear on agent turn boundary
-
-### Runtime status
-
-The runtime owns a per-workspace `LspManager` and shares it with the
-`lsp_diagnostics` tool and the TUI. The wide sidebar shows:
-
-- whether LSP is initialized, disabled, detected, idle, running, or missing;
-- detected server names for the current workspace markers;
-- the current cached diagnostic count;
-- the last startup or request error when one is available.
-
-Sidebar rendering must not spawn language-server availability checks. The
-status view only reports cached availability until a tool call needs to verify
-and start a server.
-
-`lsp_diagnostics` tool results render as a structured TUI cell with the target
-file, diagnostic count, severity, source location, optional diagnostic code,
-message preview, cached runtime count, and startup/request error when present.
-
-### Phase 3: Configuration (~50 lines)
-
-- Read `~/.rara/config.json` `lsp` section
-- Per-project `.rara/lsp.json` override
-- Environment variable `RARA_LSP` to disable
-
-### Phase 4: Multi-Language (~60 lines)
-
-- Detection table (file extension → LSP server)
-- Generic LSP server spawn from config
-- `go.mod` / `package.json` / `deno.json` detection
-
----
-
-## Verification
-
-- Open a Rust file with a type error → `lsp_diagnostics` returns the error
-- Fix the error → `lsp_diagnostics` returns empty
-- Disable via `RARA_LSP=0` → `lsp_diagnostics` returns "LSP disabled"
-- `# LSP Diagnostics` block appears in System context with current errors
-- Start RARA without `rust-analyzer` on PATH → graceful degradation ("LSP not available")
-
----
-
-## Prior Art
-
-- **OpenCode** (`opencode.ai/docs/en/lsp/`): 30+ built-in LSP servers, auto-detect
-  via file extensions, `lsp: true` to enable all. Diagnostics fed to LLM.
-- **Codex CLI** (issue #8745): Proposed LSP Manager with auto-install,
-  `codex --lsp=auto`, `codex lsp status`. Built-in server mapping table.
-- **Claude Code** (issue #24249): Requested bridge from IDE LSP to Claude tools.
-  Not yet implemented.
+- [2026-08-20-agent-tool-reliability](../journal/2026-08-20-agent-tool-reliability.md)
