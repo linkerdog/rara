@@ -62,6 +62,9 @@ Active backlog only. Keep this file small and current.
       stable append deduplication, and bounded shutdown drain in the runtime.
 - [x] Load Nowledge Mem context at session start and refresh it after
       compaction through the built-in plugin instructions.
+- [ ] Pre-fetch the Nowledge Mem Context Bundle / Working Memory into assembled
+      context at session start (runtime-owned read), instead of relying on the
+      model to invoke the MCP skills.
 
 - [x] Keep `rara-file-search` as the shared backend for TUI file suggestions
       and `list_files`; keep automatic retrieval as optional low-priority

@@ -28,6 +28,21 @@ official Mem instead of an embedded vector database or bundled embedding model.
 Semantic retrieval, graph expansion, and cross-tool durable knowledge belong to
 official Mem. Local memory exists as a short-term and file-backed substrate.
 
+## Division of Labor
+
+Local memory and official Mem split ownership by durability and scope:
+
+- **Local (`memory.md` + `MemoryRecord`s)**: workspace-scoped, short-term,
+  file-backed substrate with deterministic plain-text search. It holds
+  project-specific facts and decisions that only matter inside this workspace.
+- **Official Mem (`distill-memory` skill / Nowledge Mem)**: the authority for
+  durable, cross-tool, and cross-workspace knowledge that must survive the
+  current thread or workspace.
+
+The model-facing write surfaces carry this routing rule so the same durable
+fact is not distilled into both stores: `update_project_memory` targets local
+memory, and the Nowledge Mem `distill-memory` skill targets official Mem.
+
 ## Architecture
 
 `MemoryStore` owns the local memory domain boundary:

@@ -201,13 +201,18 @@ for cross-tool state and sourced decisions.
 
 const NOWLEDGE_MEM_DISTILL_MEMORY_SKILL: &str = r#"---
 name: distill-memory
-description: Save durable decisions, procedures, or reusable project knowledge to Nowledge Mem.
+description: Save durable cross-tool or cross-workspace decisions, procedures, and reusable knowledge to Nowledge Mem, the durable/semantic memory authority. Prefer this over RARA's workspace-local memory.md for knowledge that must outlive the workspace.
 ---
 
 # Distill Memory
 
 Use this skill when the user asks to remember something, save a durable
 decision, or preserve a reusable procedure across tools.
+
+Nowledge Mem is the authority for durable, cross-tool, and cross-workspace
+knowledge. RARA's local `memory.md` and `MemoryRecord` files are workspace-local,
+short-term, plain-text substrate. Write durable or cross-tool knowledge here
+instead of local memory, and do not persist the same fact into both stores.
 
 Search first to avoid duplicates:
 
