@@ -960,6 +960,32 @@ fn formats_stderr_only_bash_tool_result_with_stream_label() {
 }
 
 #[test]
+fn formats_signaled_bash_tool_result_without_unknown_status() {
+    let rendered = format_tool_result(
+        "bash",
+        &json!({
+            "exit_code": null,
+            "termination": {
+                "kind": "signal",
+                "signal": 6,
+                "name": "SIGABRT"
+            },
+            "sandbox_failure": {
+                "kind": "sandboxed_process_signaled",
+                "backend": "macos-seatbelt"
+            },
+            "stdout": "",
+            "stderr": ""
+        })
+        .to_string(),
+    );
+
+    assert!(rendered.contains("terminated by SIGABRT (signal 6)"));
+    assert!(rendered.contains("Sandbox: process signaled (macos-seatbelt)"));
+    assert!(!rendered.contains("unknown exit status"));
+}
+
+#[test]
 fn formats_background_bash_start_as_task_summary() {
     let rendered = format_tool_result(
         "bash",

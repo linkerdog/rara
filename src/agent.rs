@@ -721,10 +721,12 @@ impl Agent {
         let (mut messages, projection_report) =
             project_tool_results_for_context(&history_for_query, &projection_policy);
         self.last_tool_result_projection_report = projection_report.clone();
-        if projection_report.cleared_results > 0 {
+        let projected_result_count = projection_report
+            .summarized_results
+            .saturating_add(projection_report.reference_only_results);
+        if projected_result_count > 0 {
             report(AgentEvent::Status(format!(
-                "Projected {} old tool result(s) out of this model request.",
-                projection_report.cleared_results
+                "Projected {projected_result_count} tool result(s) into evidence-preserving summaries for this model request."
             )));
         }
         let mut system_content = Vec::new();

@@ -45,7 +45,7 @@ async fn model_request_projects_old_tool_results_without_mutating_history() {
                     content: json!([{
                         "type": "tool_result",
                         "tool_use_id": format!("tool-{idx}"),
-                        "content": format!("old-result-{idx}\n{}", "x".repeat(12_000))
+                        "content": format!("old-result-{idx}\n{}", "x".repeat(7_000))
                     }]),
                 },
             ]
@@ -61,12 +61,33 @@ async fn model_request_projects_old_tool_results_without_mutating_history() {
     let observed = backend.observed_messages();
     let request = observed.first().expect("first model request");
     let request_text = serde_json::to_string(request).expect("request json");
-    assert!(request_text.contains("Old tool result content cleared"));
-    assert!(!request_text.contains("old-result-0"));
-    assert!(request_text.contains("old-result-7"));
     let runtime_context = agent.shared_runtime_context();
-    assert!(runtime_context.observability.microcompact.cleared_results > 0);
+    assert!(
+        request_text.contains("Tool result reference"),
+        "projection={:?}, active_summary={}, request_prefix={}",
+        runtime_context.observability.microcompact,
+        request_text.contains("Tool result summary: active turn"),
+        request_text.chars().take(1_000).collect::<String>()
+    );
+    assert!(!request_text.contains("Old tool result content cleared"));
+    assert!(request_text.contains("src/0.rs"));
+    assert!(request_text.contains("old-result-7"));
+    assert_eq!(
+        runtime_context.observability.microcompact.cleared_results,
+        0
+    );
+    assert!(
+        runtime_context
+            .observability
+            .microcompact
+            .reference_only_results
+            > 0
+    );
     assert!(runtime_context.observability.microcompact.saved_chars > 0);
+    assert!(
+        runtime_context.observability.microcompact.projected_chars
+            <= runtime_context.observability.microcompact.budget_chars
+    );
     assert_eq!(
         runtime_context.observability.microcompact.budget_chars,
         48_000

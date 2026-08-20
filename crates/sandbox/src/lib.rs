@@ -101,23 +101,41 @@ impl SandboxManager {
     }
 
     fn create_profile(&self, allow_net: bool) -> Result<PathBuf> {
+        let home = env::var_os("HOME").map(PathBuf::from);
+        self.create_profile_with_sensitive_home(allow_net, home.as_deref())
+    }
+
+    fn create_profile_with_sensitive_home(
+        &self,
+        allow_net: bool,
+        sensitive_home: Option<&Path>,
+    ) -> Result<PathBuf> {
         if self.os != "macos" {
             bail!("sandbox profile creation is only supported on macOS");
         }
 
-        let mut file_rules = String::new();
-        if let Some(home) = env::var_os("HOME").map(PathBuf::from) {
+        let mut sensitive_read_denies = String::new();
+        if let Some(home) = sensitive_home {
             for sensitive_dir in [".ssh", ".aws"] {
                 let path = home.join(sensitive_dir);
-                file_rules.push_str(&format!(
-                    "(deny file-read* (subpath \"{}\"))\n",
-                    sandbox_profile_string_literal(&path)
-                ));
+                let mut denied_paths = vec![path.clone()];
+                if let Ok(canonical_path) = fs::canonicalize(&path)
+                    && canonical_path != path
+                {
+                    denied_paths.push(canonical_path);
+                }
+                for denied_path in denied_paths {
+                    sensitive_read_denies.push_str(&format!(
+                        "(deny file-read* (subpath \"{}\"))\n",
+                        sandbox_profile_string_literal(&denied_path)
+                    ));
+                }
             }
         }
+        let mut executable_rules = String::new();
         for root in &self.command_install_roots {
             let root = sandbox_profile_string_literal(root);
-            file_rules.push_str(&format!(
+            executable_rules.push_str(&format!(
                 "(allow file-read* (subpath \"{root}\"))\n(allow file-map-executable (subpath \"{root}\"))\n"
             ));
         }
@@ -133,17 +151,23 @@ impl SandboxManager {
             r#"(version 1)
 (deny default)
 {}
+(allow file-read*)
 (allow file-read* (subpath "/usr/bin"))
 (allow file-read* (subpath "/bin"))
 (allow file-read* (subpath "/System"))
 (allow file-read* (subpath (param "CWD")))
+(allow file-map-executable (subpath "/usr/lib"))
+(allow file-map-executable (subpath "/System"))
+{}
 (allow file-write* (subpath (param "CWD")))
 (allow file-write* (subpath "/tmp"))
+(allow file-write* (subpath "/private/tmp"))
+(allow file-read* file-write* (literal "/dev/null"))
 (allow process*)
 (allow sysctl-read)
 {}
 "#,
-            file_rules, net_rules
+            sensitive_read_denies, executable_rules, net_rules
         );
         let profile_path = self
             .profile_dir

@@ -31,7 +31,7 @@ impl Tool for LspDiagnosticsTool {
     }
 
     fn description(&self) -> &str {
-        "Return cached Language Server Protocol diagnostics for a source file. Starts the matching local language server lazily when available."
+        "Return current, cached, or pending Language Server Protocol diagnostics for a source file. Starts the matching local language server lazily and reports structured startup failures."
     }
 
     fn input_schema(&self) -> Value {
@@ -50,16 +50,18 @@ impl Tool for LspDiagnosticsTool {
     async fn call(&self, input: Value) -> Result<Value, ToolError> {
         let input: LspDiagnosticsInput = serde_json::from_value(input)
             .map_err(|err| ToolError::InvalidInput(err.to_string()))?;
-        match self.manager.diagnostics_for(&input.file) {
-            Ok(diagnostics) => Ok(json!({
+        match self.manager.diagnostics_for(&input.file).await {
+            Ok(result) => Ok(json!({
                 "file": input.file.display().to_string(),
-                "diagnostics": diagnostics,
+                "diagnostics": result.diagnostics,
+                "freshness": result.freshness,
                 "status": self.manager.status_snapshot(),
             })),
-            Err(err) => Ok(json!({
+            Err(failure) => Ok(json!({
                 "file": input.file.display().to_string(),
                 "diagnostics": [],
-                "error": err.to_string(),
+                "error": failure.to_string(),
+                "failure": failure,
                 "status": self.manager.status_snapshot(),
             })),
         }

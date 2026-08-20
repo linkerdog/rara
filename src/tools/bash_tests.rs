@@ -595,6 +595,71 @@ async fn escalated_sandbox_request_runs_directly_after_approval() {
     );
 }
 
+#[cfg(unix)]
+#[tokio::test]
+async fn foreground_signal_is_reported_as_structured_termination() {
+    let temp = tempdir().expect("tempdir");
+    let sandbox = SandboxManager::new_for_rara_dir(temp.path().join(".rara")).expect("sandbox");
+    let tool = BashTool {
+        sandbox: Arc::new(sandbox),
+        background_tasks: Arc::new(
+            BackgroundTaskStore::new(temp.path().join(".rara/background-tasks"))
+                .expect("background task store"),
+        ),
+        base_env: Arc::new(HashMap::new()),
+        sandbox_network_access: Arc::new(AtomicBool::new(false)),
+    };
+
+    let result = tool
+        .call(json!({
+            "program": "/bin/sh",
+            "args": ["-c", "kill -ABRT $$"],
+            "sandbox_permissions": "require_escalated"
+        }))
+        .await
+        .expect("bash signal result");
+
+    assert_eq!(result.get("exit_code"), Some(&Value::Null));
+    assert_eq!(result["termination"]["kind"], "signal");
+    assert_eq!(result["termination"]["signal"], libc::SIGABRT);
+    assert_eq!(result["termination"]["name"], "SIGABRT");
+    assert!(result.get("sandbox_failure").is_none());
+}
+
+#[cfg(target_os = "macos")]
+#[tokio::test]
+async fn sandbox_policy_denial_is_machine_readable() {
+    let temp = tempdir().expect("tempdir");
+    let workspace = temp.path().join("workspace");
+    std::fs::create_dir(&workspace).expect("workspace");
+    let denied_path = temp.path().join("outside-workspace.txt");
+    let sandbox = SandboxManager::new_for_rara_dir(temp.path().join(".rara")).expect("sandbox");
+    let tool = BashTool {
+        sandbox: Arc::new(sandbox),
+        background_tasks: Arc::new(
+            BackgroundTaskStore::new(temp.path().join(".rara/background-tasks"))
+                .expect("background task store"),
+        ),
+        base_env: Arc::new(HashMap::new()),
+        sandbox_network_access: Arc::new(AtomicBool::new(false)),
+    };
+
+    let result = tool
+        .call(json!({
+            "program": "/usr/bin/touch",
+            "args": [denied_path],
+            "cwd": workspace,
+        }))
+        .await
+        .expect("bash denial result");
+
+    assert_eq!(result["termination"]["kind"], "exit");
+    assert_ne!(result["exit_code"], 0);
+    assert_eq!(result["sandbox_failure"]["kind"], "policy_denied");
+    assert_eq!(result["sandbox_failure"]["backend"], "macos-seatbelt");
+    assert!(!denied_path.exists(), "sandbox must contain writes");
+}
+
 #[tokio::test]
 async fn streaming_call_reports_stdout_and_stderr_chunks() {
     let temp = tempdir().expect("tempdir");

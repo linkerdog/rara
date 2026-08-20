@@ -1,6 +1,7 @@
 use rara_tools::tool::ToolOutputStream;
 
 pub(super) use crate::control_tokens::scrub_internal_control_tokens;
+use crate::tool_result::render_bash_outcome_summary;
 use crate::tools::bash::BashCommandInput;
 use crate::tui::state::TuiApp;
 use crate::tui::terminal_event::{
@@ -585,10 +586,6 @@ pub(super) fn format_tool_result(name: &str, content: &str) -> String {
     if name == "bash"
         && let Ok(value) = serde_json::from_str::<serde_json::Value>(content)
     {
-        let exit_code = value
-            .get("exit_code")
-            .and_then(serde_json::Value::as_i64)
-            .unwrap_or(-1);
         let stdout = value
             .get("stdout")
             .and_then(serde_json::Value::as_str)
@@ -601,13 +598,7 @@ pub(super) fn format_tool_result(name: &str, content: &str) -> String {
             .get("live_streamed")
             .and_then(serde_json::Value::as_bool)
             .unwrap_or(false);
-        let mut summary = if exit_code == 0 {
-            "bash finished with exit code 0".to_string()
-        } else if exit_code >= 0 {
-            format!("bash failed with exit code {exit_code}")
-        } else {
-            "bash finished with unknown exit status".to_string()
-        };
+        let mut summary = format!("bash {}", render_bash_outcome_summary(&value));
         if live_streamed {
             summary.push_str("\noutput streamed above");
         }

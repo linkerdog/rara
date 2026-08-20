@@ -180,6 +180,38 @@ mod projection_cases {
     }
 
     #[test]
+    fn compacts_bash_signal_without_unknown_exit_status() {
+        let tempdir = tempfile::tempdir().expect("tempdir");
+        let store = ToolResultStore::new(tempdir.path()).expect("store");
+        let output = store
+            .compact_result(
+                "bash",
+                "tool-bash",
+                &json!({ "program": "sh" }),
+                &json!({
+                    "stdout": "",
+                    "stderr": "",
+                    "aggregated_output": "",
+                    "exit_code": null,
+                    "termination": {
+                        "kind": "signal",
+                        "signal": 6,
+                        "name": "SIGABRT"
+                    },
+                    "sandbox_failure": {
+                        "kind": "sandboxed_process_signaled",
+                        "backend": "macos-seatbelt"
+                    },
+                    "duration_ms": 10
+                }),
+            )
+            .expect("compact bash result");
+
+        assert!(output.contains("terminated by SIGABRT (signal 6)"));
+        assert!(!output.contains("unknown exit status"));
+    }
+
+    #[test]
     fn batch_budget_shortens_largest_tool_results() {
         let large = "large-start\n".to_string() + &"middle\n".repeat(4_000) + "large-tail\n";
         let small = "small-result\n".to_string();
@@ -246,36 +278,61 @@ mod projection_cases {
     }
 
     #[test]
-    fn projects_old_compactable_tool_results_without_changing_source_messages() {
-        let messages = (0..4)
-            .flat_map(|idx| {
-                [
-                    Message {
-                        role: "assistant".to_string(),
-                        content: json!([{
-                            "type": "tool_use",
-                            "id": format!("tool-{idx}"),
-                            "name": "read_file",
-                            "input": {}
-                        }]),
-                    },
-                    Message {
-                        role: "user".to_string(),
-                        content: json!([{
-                            "type": "tool_result",
-                            "tool_use_id": format!("tool-{idx}"),
-                            "content": format!("result-{idx}-{}", "x".repeat(128))
-                        }]),
-                    },
-                ]
-            })
-            .collect::<Vec<_>>();
+    fn projects_prior_turn_results_to_references_without_changing_source_messages() {
+        let mut messages = vec![Message {
+            role: "user".to_string(),
+            content: json!([{"type": "text", "text": "inspect old files"}]),
+        }];
+        for idx in 0..3 {
+            messages.extend([
+                Message {
+                    role: "assistant".to_string(),
+                    content: json!([{
+                        "type": "tool_use",
+                        "id": format!("tool-{idx}"),
+                        "name": "read_file",
+                        "input": {"path": format!("src/{idx}.rs")}
+                    }]),
+                },
+                Message {
+                    role: "user".to_string(),
+                    content: json!([{
+                        "type": "tool_result",
+                        "tool_use_id": format!("tool-{idx}"),
+                        "content": format!("Read file src/{idx}.rs\n{}", "x".repeat(2_000))
+                    }]),
+                },
+            ]);
+        }
+        messages.push(Message {
+            role: "user".to_string(),
+            content: json!([{"type": "text", "text": "continue with the latest file"}]),
+        });
+        messages.extend([
+            Message {
+                role: "assistant".to_string(),
+                content: json!([{
+                    "type": "tool_use",
+                    "id": "tool-3",
+                    "name": "read_file",
+                    "input": {"path": "src/3.rs"}
+                }]),
+            },
+            Message {
+                role: "user".to_string(),
+                content: json!([{
+                    "type": "tool_result",
+                    "tool_use_id": "tool-3",
+                    "content": format!("Read file src/3.rs\n{}", "y".repeat(2_000))
+                }]),
+            },
+        ]);
 
         let (projected, report) = project_tool_results_for_context(
             &messages,
             &ToolResultProjectionPolicy {
                 enabled: true,
-                budget_chars: 180,
+                budget_chars: 3_000,
                 keep_recent: 1,
                 cache_edit_eligible: false,
             },
@@ -283,11 +340,67 @@ mod projection_cases {
         let projected_text = serde_json::to_string(&projected).expect("projected json");
         let source_text = serde_json::to_string(&messages).expect("source json");
 
-        assert!(report.cleared_results > 0);
-        assert!(projected_text.contains("Old tool result content cleared"));
-        assert!(!projected_text.contains("result-0-"));
-        assert!(projected_text.contains("result-3-"));
-        assert!(source_text.contains("result-0-"));
+        assert_eq!(report.cleared_results, 0);
+        assert!(report.reference_only_results > 0);
+        assert!(projected_text.contains("Tool result reference: prior turn"));
+        assert!(projected_text.contains("src/0.rs"));
+        assert!(projected_text.contains("Read file src/3.rs"));
+        assert!(!projected_text.contains("Old tool result content cleared"));
+        assert!(source_text.contains(&"x".repeat(2_000)));
+    }
+
+    #[test]
+    fn summarizes_older_active_turn_results_without_clearing_evidence() {
+        let mut messages = vec![Message {
+            role: "user".to_string(),
+            content: json!([{"type": "text", "text": "inspect these files"}]),
+        }];
+        for idx in 0..8 {
+            messages.extend([
+                Message {
+                    role: "assistant".to_string(),
+                    content: json!([{
+                        "type": "tool_use",
+                        "id": format!("active-{idx}"),
+                        "name": "read_file",
+                        "input": {"path": format!("src/active-{idx}.rs")}
+                    }]),
+                },
+                Message {
+                    role: "user".to_string(),
+                    content: json!([{
+                        "type": "tool_result",
+                        "tool_use_id": format!("active-{idx}"),
+                        "content": format!(
+                            "Read file src/active-{idx}.rs\nhead-{idx}\n{}\ntail-{idx}",
+                            "z".repeat(3_000)
+                        )
+                    }]),
+                },
+            ]);
+        }
+
+        let (projected, report) = project_tool_results_for_context(
+            &messages,
+            &ToolResultProjectionPolicy {
+                enabled: true,
+                budget_chars: 15_000,
+                keep_recent: 1,
+                cache_edit_eligible: false,
+            },
+        );
+        let projected_text = serde_json::to_string(&projected).expect("projected json");
+        let source_text = serde_json::to_string(&messages).expect("source json");
+
+        assert!(report.summarized_results > 0);
+        assert!(report.active_turn_kept_results >= 1);
+        assert_eq!(report.cleared_results, 0);
+        assert!(projected_text.contains("Tool result summary: active turn"));
+        assert!(projected_text.contains("src/active-0.rs"));
+        assert!(projected_text.contains("head-0"));
+        assert!(projected_text.contains("tail-0"));
+        assert!(!projected_text.contains("Old tool result content cleared"));
+        assert!(source_text.contains(&"z".repeat(3_000)));
     }
 
     #[test]

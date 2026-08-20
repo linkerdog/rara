@@ -442,6 +442,9 @@ pub struct MicrocompactProjectionContextView {
     pub projected_chars: usize,
     pub saved_chars: usize,
     pub cleared_results: usize,
+    pub summarized_results: usize,
+    pub reference_only_results: usize,
+    pub active_turn_kept_results: usize,
     pub kept_results: usize,
 }
 
@@ -460,6 +463,9 @@ impl MicrocompactProjectionContextView {
             projected_chars: report.projected_chars,
             saved_chars: report.original_chars.saturating_sub(report.projected_chars),
             cleared_results: report.cleared_results,
+            summarized_results: report.summarized_results,
+            reference_only_results: report.reference_only_results,
+            active_turn_kept_results: report.active_turn_kept_results,
             kept_results: report.kept_results,
         }
     }

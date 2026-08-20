@@ -29,6 +29,10 @@ use crate::sandbox::{SandboxManager, WrappedCommand, sandbox_failure_hint};
 use crate::tool_result::model_preview_bash_output;
 use crate::tools::bash_readonly::*;
 
+mod outcome;
+
+use outcome::{ProcessTermination, classify_sandbox_failure};
+
 pub struct BashTool {
     pub sandbox: Arc<SandboxManager>,
     pub background_tasks: Arc<BackgroundTaskStore>,
@@ -756,6 +760,14 @@ impl Tool for BashTool {
             if let Some(path) = wrapped.cleanup_path.as_ref() {
                 let _ = fs::remove_file(path).await;
             }
+            let termination = ProcessTermination::from_status(&status);
+            let exit_code = termination.exit_code();
+            let sandbox_failure = classify_sandbox_failure(
+                &termination,
+                wrapped.sandboxed,
+                &wrapped.sandbox_backend,
+                &aggregated_output,
+            );
             if wrapped.sandboxed
                 && let Some(hint) = sandbox_output_hint(&stderr_text)
             {
@@ -769,19 +781,24 @@ impl Tool for BashTool {
             }
             let duration_ms = started_at.elapsed().as_millis() as u64;
             let model_preview_output =
-                model_preview_bash_output(&aggregated_output, status.code().map(i64::from));
+                model_preview_bash_output(&aggregated_output, exit_code.map(i64::from));
 
-            return Ok(json!({
+            let mut result = json!({
                 "stdout": stdout_text,
                 "stderr": stderr_text,
                 "aggregated_output": aggregated_output,
                 "model_preview_output": model_preview_output,
-                "exit_code": status.code(),
+                "exit_code": exit_code,
+                "termination": termination,
                 "duration_ms": duration_ms,
                 "live_streamed": live_streamed,
                 "sandboxed": wrapped.sandboxed,
                 "sandbox_backend": wrapped.sandbox_backend,
-            }));
+            });
+            if let Some(sandbox_failure) = sandbox_failure {
+                result["sandbox_failure"] = json!(sandbox_failure);
+            }
+            return Ok(result);
         }
 
         stdout_task.abort();

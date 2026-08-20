@@ -294,15 +294,18 @@ fn format_char_count(chars: usize) -> String {
 fn render_context_observability(app: &TuiApp) -> String {
     let view = &app.snapshot.context_observability;
     format!(
-        "Observability\n  cache: hit={} miss={} hit_rate={}\n  microcompact: enabled={} cache_edit_eligible={} cache_edit_applied={} cleared={} kept={} saved={} budget={} keep_recent={}\n  retrieval: providers={} candidates={} selected={} available={} dropped={} selected_budget={}\n  agent_turn: idx={} mode={} stop={} outcome={} phase={} text={} reasoning={} reasoning_only={} streamed_text={} streamed_reasoning={} assistant_recorded={} tools={}",
+        "Observability\n  cache: hit={} miss={} hit_rate={}\n  microcompact: enabled={} cache_edit_eligible={} cache_edit_applied={} summarized={} referenced={} active_kept={} kept={} legacy_cleared={} saved={} budget={} keep_recent={}\n  retrieval: providers={} candidates={} selected={} available={} dropped={} selected_budget={}\n  agent_turn: idx={} mode={} stop={} outcome={} phase={} text={} reasoning={} reasoning_only={} streamed_text={} streamed_reasoning={} assistant_recorded={} tools={}",
         format_token_count(view.cache.hit_tokens as usize),
         format_token_count(view.cache.miss_tokens as usize),
         format_basis_points(view.cache.hit_rate_basis_points),
         view.microcompact.enabled,
         view.microcompact.cache_edit_eligible,
         view.microcompact.cache_edit_applied,
-        view.microcompact.cleared_results,
+        view.microcompact.summarized_results,
+        view.microcompact.reference_only_results,
+        view.microcompact.active_turn_kept_results,
         view.microcompact.kept_results,
+        view.microcompact.cleared_results,
         format_char_count(view.microcompact.saved_chars),
         format_char_count(view.microcompact.budget_chars),
         view.microcompact.keep_recent,
