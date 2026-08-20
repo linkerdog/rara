@@ -19,7 +19,6 @@ mod hook_runtime;
 mod hooks;
 mod llm;
 mod local_backend;
-mod local_model_server;
 mod lsp_manager;
 mod mcp_connection_manager;
 mod mcp_status;

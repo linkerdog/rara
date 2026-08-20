@@ -2,8 +2,8 @@ use ratatui::{layout::Rect, style::Color, text::Line};
 use tempfile::tempdir;
 
 use super::{
-    push_child_sessions, push_context_summary, push_lsp_status, push_model_badge,
-    push_plan_section, push_session_info,
+    push_child_sessions, push_context_summary, push_lsp_status, push_mem_status_section,
+    push_model_badge, push_plan_section, push_session_info,
 };
 use crate::config::ConfigManager;
 use crate::context::{SharedTaskContextItem, SharedTaskContextView, TodoContextView};
@@ -422,6 +422,48 @@ fn push_lsp_status_reports_no_detected_project_server() {
         .join("\n");
     assert!(text.contains("LSP"));
     assert!(text.contains("no project server detected"));
+}
+
+#[test]
+fn push_mem_status_section_reports_enabled_local_mode() {
+    let temp = tempdir().unwrap();
+    let app = TuiApp::new(ConfigManager {
+        path: temp.path().join("config.json"),
+    })
+    .expect("build tui app");
+
+    let mut lines = Vec::new();
+    push_mem_status_section(&mut lines, &app);
+
+    let text = lines
+        .iter()
+        .map(|l| l.to_string())
+        .collect::<Vec<_>>()
+        .join("\n");
+    assert!(text.contains("Memory"));
+    assert!(text.contains("enabled · local"));
+    assert!(text.contains("127.0.0.1:14242"));
+}
+
+#[test]
+fn push_mem_status_section_reports_disabled_state() {
+    let temp = tempdir().unwrap();
+    let mut app = TuiApp::new(ConfigManager {
+        path: temp.path().join("config.json"),
+    })
+    .expect("build tui app");
+    app.config.builtin_plugins.nowledge_mem.enabled = false;
+
+    let mut lines = Vec::new();
+    push_mem_status_section(&mut lines, &app);
+
+    let text = lines
+        .iter()
+        .map(|l| l.to_string())
+        .collect::<Vec<_>>()
+        .join("\n");
+    assert!(text.contains("Memory"));
+    assert!(text.contains("disabled"));
 }
 
 #[test]

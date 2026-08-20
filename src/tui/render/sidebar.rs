@@ -1,6 +1,7 @@
 // Wide-screen sidebar (≥120 cols) rendered alongside the main transcript pane.
 // Layout draws a 38-column panel on the left split by a vertical border,
 
+use rara_persistence::redaction::sanitize_url_for_display;
 use ratatui::{
     layout::{Constraint, Direction, Layout, Rect},
     style::{Color, Modifier, Style},
@@ -8,7 +9,6 @@ use ratatui::{
     widgets::{Block, Borders, Paragraph, Wrap},
 };
 
-use crate::local_model_server::LocalModelServerState;
 use crate::tui::custom_terminal::Frame;
 use crate::tui::state::{GoalStatus, TuiApp};
 use crate::tui::status_display::context_sidebar_summary;
@@ -43,7 +43,7 @@ pub(crate) fn render_sidebar(f: &mut Frame, app: &TuiApp, area: Rect) {
     lines.push(Line::from(""));
     push_lsp_status(&mut lines, app);
     lines.push(Line::from(""));
-    push_local_model_section(&mut lines, app);
+    push_mem_status_section(&mut lines, app);
     lines.push(Line::from(""));
     if push_plan_section(&mut lines, app) {
         lines.push(Line::from(""));
@@ -229,19 +229,28 @@ fn push_lsp_status(lines: &mut Vec<Line<'static>>, app: &TuiApp) {
     }
 }
 
-fn push_local_model_section(lines: &mut Vec<Line<'static>>, app: &TuiApp) {
-    let status = &app.local_model_server;
-    lines.push(Line::from(super::section_label(
-        "Local Memory",
-        TEXT_SECONDARY,
-    )));
-    let (marker, style) = match status.state {
-        LocalModelServerState::Disabled => ("○ semantic disabled", Style::default().fg(TEXT_MUTED)),
-    };
-    lines.push(Line::from(Span::styled(marker, style)));
-    if !status.model.is_empty() {
+fn push_mem_status_section(lines: &mut Vec<Line<'static>>, app: &TuiApp) {
+    let mem = &app.config.builtin_plugins.nowledge_mem;
+    lines.push(Line::from(super::section_label("Memory", TEXT_SECONDARY)));
+    if !mem.enabled {
         lines.push(Line::from(Span::styled(
-            format!("  {}", status.model),
+            "○ disabled",
+            Style::default().fg(TEXT_MUTED),
+        )));
+        return;
+    }
+    let (marker, color) = match mem.mode {
+        crate::config::NowledgeMemMode::Local => ("● enabled · local", STATUS_SUCCESS),
+        crate::config::NowledgeMemMode::Cloud => ("● enabled · cloud", STATUS_INFO),
+    };
+    lines.push(Line::from(Span::styled(marker, Style::default().fg(color))));
+    lines.push(Line::from(Span::styled(
+        format!("  {}", sanitize_url_for_display(&mem.mcp_url())),
+        Style::default().fg(TEXT_MUTED),
+    )));
+    if mem.mode == crate::config::NowledgeMemMode::Cloud {
+        lines.push(Line::from(Span::styled(
+            format!("  api key env {}", mem.api_key_env_var),
             Style::default().fg(TEXT_MUTED),
         )));
     }

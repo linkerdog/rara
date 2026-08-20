@@ -30,7 +30,6 @@ use crate::tui::state::{GoalHandle, GoalStatus, RalphGoal, RuntimeExtensionSnaps
 pub(crate) struct RebuildSuccess {
     pub(crate) agent: Agent,
     pub(crate) warnings: Vec<String>,
-    pub(crate) local_model_server: crate::local_model_server::LocalModelServerStatus,
     pub(crate) sandbox_network_access: Arc<AtomicBool>,
     pub(crate) goal_handle: GoalHandle,
     pub(crate) mcp_tool_cache: McpToolCache,

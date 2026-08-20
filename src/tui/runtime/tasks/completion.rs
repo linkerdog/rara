@@ -372,7 +372,6 @@ async fn finish_running_task_if_ready_with_completion_mode(
                     app.hook_registry = Some(rebuilt.hook_registry);
                 }
                 app.hook_runtime = Some(rebuilt.hook_runtime.clone());
-                app.local_model_server = rebuilt.local_model_server;
                 RuntimeClient::persist_config(&app.config_manager, &app.config)?;
                 let is_bootstrap = app.setup_status.is_none();
                 app.setup_status = Some(format!(

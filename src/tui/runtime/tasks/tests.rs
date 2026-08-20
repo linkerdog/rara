@@ -24,7 +24,6 @@ use crate::agent::{
 };
 use crate::config::{ConfigManager, DEFAULT_CODEX_BASE_URL, DEFAULT_KIMI_BASE_URL, RaraConfig};
 use crate::llm::{ContentBlock, LlmBackend, LlmResponse, TokenUsage};
-use crate::local_model_server::{LocalModelServerState, LocalModelServerStatus};
 use crate::oauth::OAuthManager;
 use crate::prompt::PromptRuntimeConfig;
 use crate::runtime_control::{
@@ -376,15 +375,11 @@ fn install_completed_rebuild_task(app: &mut TuiApp, success: RebuildSuccess) {
     });
 }
 
-fn rebuild_success(
-    temp: &tempfile::TempDir,
-    local_model_server: LocalModelServerStatus,
-) -> RebuildSuccess {
+fn rebuild_success(temp: &tempfile::TempDir) -> RebuildSuccess {
     let bus = Arc::new(crate::runtime_event_bus::RuntimeEventBus::new(10));
     RebuildSuccess {
         agent: create_test_agent(temp),
         warnings: Vec::new(),
-        local_model_server,
         sandbox_network_access: Arc::new(AtomicBool::new(false)),
         goal_handle: Arc::new(std::sync::RwLock::new(None)),
         mcp_tool_cache: crate::mcp_tool_cache::McpToolCache::new(),
@@ -567,62 +562,14 @@ async fn goal_evaluator_no_injects_reason_and_continues() {
 }
 
 #[tokio::test]
-async fn rebuild_success_refreshes_local_model_server_status() {
-    let temp = tempdir().unwrap();
-    let mut app = TuiApp::new(ConfigManager {
-        path: temp.path().join("config.json"),
-    })
-    .expect("build tui app");
-    app.local_model_server = LocalModelServerStatus {
-        state: LocalModelServerState::Disabled,
-        backend: "none".to_string(),
-        model: "none".to_string(),
-        detail: "stale memory status".to_string(),
-        server_path: None,
-        endpoint: None,
-    };
-    let ready_status = LocalModelServerStatus {
-        state: LocalModelServerState::Disabled,
-        backend: "none".to_string(),
-        model: "none".to_string(),
-        detail: "bundled embedding runtime is disabled".to_string(),
-        server_path: None,
-        endpoint: None,
-    };
-    install_completed_rebuild_task(&mut app, rebuild_success(&temp, ready_status.clone()));
-
-    let mut agent_slot = Some(create_test_agent(&temp));
-    for _ in 0..20 {
-        finish_running_task_if_ready(&mut app, &mut agent_slot)
-            .await
-            .expect("finish rebuild task");
-        if app.bottom_pane.running_task.is_none() {
-            break;
-        }
-        tokio::time::sleep(Duration::from_millis(10)).await;
-    }
-
-    assert_eq!(app.local_model_server, ready_status);
-    assert_eq!(app.runtime_phase, RuntimePhase::BackendReady);
-}
-
-#[tokio::test]
 async fn rebuild_success_keeps_long_warnings_in_transcript() {
     let temp = tempdir().unwrap();
     let mut app = TuiApp::new(ConfigManager {
         path: temp.path().join("config.json"),
     })
     .expect("build tui app");
-    let ready_status = LocalModelServerStatus {
-        state: LocalModelServerState::Disabled,
-        backend: "none".to_string(),
-        model: "none".to_string(),
-        detail: "bundled embedding runtime is disabled".to_string(),
-        server_path: None,
-        endpoint: None,
-    };
     let warning = "backend bootstrap reported: failed to initialize optional dependency: install failed with status exit status: 1: ERROR: ResolutionImpossible".to_string();
-    let mut success = rebuild_success(&temp, ready_status);
+    let mut success = rebuild_success(&temp);
     success.warnings = vec![warning.clone()];
     install_completed_rebuild_task(&mut app, success);
 

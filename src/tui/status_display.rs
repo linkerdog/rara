@@ -48,10 +48,6 @@ fn render_overview_status(app: &TuiApp, lines: &mut Vec<Line<'static>>) {
     }
 
     section_spacer(lines);
-    section_header(lines, "Local Memory");
-    render_local_memory_status(app, lines);
-
-    section_spacer(lines);
     section_header(lines, "Execution");
     kv(
         lines,
@@ -377,17 +373,6 @@ fn kv(lines: &mut Vec<Line<'static>>, key: &str, value: &str, value_color: Color
     lines.push(Line::from(vec![key_span, value_span]));
 }
 
-fn render_local_memory_status(app: &TuiApp, lines: &mut Vec<Line<'static>>) {
-    let status = &app.local_model_server;
-    let (label, color) = match status.state {
-        crate::local_model_server::LocalModelServerState::Disabled => ("disabled", Color::DarkGray),
-    };
-    kv(lines, "semantic", label, color);
-    kv(lines, "backend", &status.backend, Color::DarkGray);
-    kv(lines, "model", &status.model, Color::LightBlue);
-    kv(lines, "detail", &status.detail, Color::DarkGray);
-}
-
 fn render_planning_lifecycle_status(app: &TuiApp, lines: &mut Vec<Line<'static>>) {
     let lifecycle = &app.snapshot.planning_lifecycle;
     kv(
@@ -545,25 +530,6 @@ mod tests {
     use crate::tui::state::{
         PlanningApprovalStatus, PlanningLifecycleSnapshot, RuntimeSnapshot, StatusTab, TuiApp,
     };
-
-    #[test]
-    fn overview_status_reports_local_memory_component() {
-        let temp = tempdir().expect("tempdir");
-        let app = TuiApp::new(ConfigManager {
-            path: temp.path().join("config.json"),
-        })
-        .expect("app");
-
-        let rendered = render_status_lines(&app, StatusTab::Overview)
-            .into_iter()
-            .map(|line| line.to_string())
-            .collect::<Vec<_>>()
-            .join("\n");
-
-        assert!(rendered.contains("Local Memory"));
-        assert!(rendered.contains("disabled"));
-        assert!(rendered.contains("semantic"));
-    }
 
     #[test]
     fn overview_status_reports_agent_extension_details() {

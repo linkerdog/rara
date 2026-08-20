@@ -163,15 +163,6 @@ impl TuiApp {
         let provider_picker_idx = selected_provider_family_idx_for_config(&cfg);
         let model_picker_idx = selected_preset_idx_for_config(&cfg, provider_picker_idx);
         let sandbox_network = cfg.sandbox_workspace_write.network_access;
-        let local_model_server_home = cm
-            .path
-            .parent()
-            .map(std::path::Path::to_path_buf)
-            .unwrap_or_else(|| std::path::PathBuf::from("."));
-        let local_model_server =
-            crate::local_model_server::inspect_local_model_server_status_off_runtime(
-                &local_model_server_home,
-            );
         let mut app = Self {
             bottom_pane: BottomPaneModel {
                 input: String::new(),
@@ -255,7 +246,6 @@ impl TuiApp {
             shared_task_root: None,
             shared_task_fingerprint: None,
             shared_task_last_poll: None,
-            local_model_server,
             mcp_manager: None,
             lsp_manager: None,
             #[cfg(test)]
