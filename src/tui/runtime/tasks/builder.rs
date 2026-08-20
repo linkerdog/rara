@@ -14,14 +14,6 @@ pub(super) async fn rebuild_agent_with_progress(
         crate::runtime_context::RuntimeBootstrapOptions::with_plugin_dirs(plugin_dirs),
     )
     .await?;
-    // `inspect_local_model_server_status` uses a `reqwest::blocking` client, which spins up and
-    // drops its own Tokio runtime; dropping a runtime inside the async context would panic, so run
-    // it on a blocking thread where that is allowed.
-    let rara_home = crate::config::ensure_rara_home_dir()?;
-    let local_model_server = tokio::task::spawn_blocking(move || {
-        crate::local_model_server::inspect_local_model_server_status(&rara_home)
-    })
-    .await?;
     let event_bus = bootstrap.event_bus.clone();
 
     let (
@@ -44,7 +36,6 @@ pub(super) async fn rebuild_agent_with_progress(
     Ok(RebuildSuccess {
         agent,
         warnings,
-        local_model_server,
         sandbox_network_access,
         goal_handle,
         mcp_tool_cache,

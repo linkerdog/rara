@@ -845,7 +845,6 @@ pub struct TuiApp {
     pub shared_task_root: Option<PathBuf>,
     pub shared_task_fingerprint: Option<String>,
     pub shared_task_last_poll: Option<Instant>,
-    pub local_model_server: crate::local_model_server::LocalModelServerStatus,
     pub mcp_manager: Option<Arc<McpConnectionManager>>,
     pub lsp_manager: Option<Arc<LspManager>>,
     #[cfg(test)]
