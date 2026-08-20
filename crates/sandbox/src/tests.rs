@@ -1,5 +1,7 @@
 use std::env;
-use std::path::{Path, PathBuf};
+#[cfg(target_os = "macos")]
+use std::path::Path;
+use std::path::PathBuf;
 use std::time::Duration;
 
 use tempfile::tempdir;
