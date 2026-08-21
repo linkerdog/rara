@@ -27,6 +27,14 @@ impl Agent {
             .map_or(0, |runtime| runtime.command_summaries().len())
     }
 
+    pub(crate) fn disable_extension_execution(&mut self) {
+        self.hook_registry = None;
+        self.hook_sandbox = None;
+        self.hook_runtime = None;
+        self.plugin_hook_runtime = None;
+        self.plugin_session_start_hooks_ran = true;
+    }
+
     /// Accumulate subagent (auxiliary model) cache statistics.
     /// Called by consolidation and other subagent completion
     /// handlers to split cache reporting between main and aux models.
@@ -151,6 +159,7 @@ impl Agent {
             graph_context_candidates: Vec::new(),
             last_tool_result_projection_report: ToolResultProjectionReport::default(),
             last_agent_turn_trace: AgentTurnTraceView::default(),
+            last_query_report: QueryReport::default(),
             file_search_provider: FileSearchCandidateProvider::new(root, true),
             inspection_progress: InspectionProgress::default(),
             last_query_plan_updated: false,
@@ -204,6 +213,7 @@ impl Agent {
     where
         F: FnMut(AgentEvent) + Send,
     {
+        self.last_query_report = QueryReport::default();
         let turn_start_idx = self.history.len();
         self.last_interaction_time = std::time::Instant::now();
         let mut agentic_turns = 0usize;
@@ -451,6 +461,9 @@ impl Agent {
         );
 
         let model_label = self.model_event_label();
+        let request_fingerprint =
+            self.llm_backend
+                .request_cache_fingerprint(&messages, tool_schemas, &turn_metadata);
         report(AgentEvent::ModelRequest {
             model: model_label.clone(),
             // Provider token usage is only available after the response.
@@ -458,6 +471,7 @@ impl Agent {
             input_tokens: 0,
         });
 
+        let request_started_at = std::time::Instant::now();
         let mut streamed_any_text_delta = false;
         let mut streamed_any_reasoning_delta = false;
         let response = self
@@ -475,6 +489,10 @@ impl Agent {
                 }
             })
             .await?;
+        let duration_ms = request_started_at
+            .elapsed()
+            .as_millis()
+            .min(u128::from(u64::MAX)) as u64;
 
         let output_tokens = response
             .usage
@@ -482,9 +500,20 @@ impl Agent {
             .map(|usage| usage.output_tokens)
             .unwrap_or(0);
         report(AgentEvent::ModelResponse {
-            model: model_label,
+            model: model_label.clone(),
             output_tokens,
             finish_reason: response.stop_reason.clone(),
+        });
+
+        self.last_query_report.model_turns.push(ModelTurnReport {
+            model: model_label,
+            duration_ms,
+            finish_reason: response.stop_reason.clone(),
+            usage: response
+                .usage
+                .as_ref()
+                .map(ModelTokenUsage::from_provider_usage),
+            request_fingerprint,
         });
 
         if let Some(usage) = &response.usage {

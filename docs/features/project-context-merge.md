@@ -133,3 +133,4 @@ the earlier prefix.
 ## Source Journals
 
 - [2026-08-21 DeepSeek prefix cache locality](../journal/2026-08-21-deepseek-prefix-cache-locality.md)
+- [Provider cache observability](provider-cache-observability.md)

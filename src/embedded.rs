@@ -10,6 +10,7 @@ use tokio::sync::broadcast;
 
 use crate::agent::{Agent, AgentEvent, AgentOutputMode};
 use crate::config::RaraConfig;
+use crate::model_observation::QueryReport;
 use crate::runtime_context::{
     RuntimeBootstrapOptions, initialize_rara_context_for_workspace_with_options,
 };
@@ -184,5 +185,40 @@ impl EmbeddedRuntime {
         self.agent
             .query_with_mode_and_events(prompt.into(), output_mode, report)
             .await
+    }
+
+    /// Execute one prompt and return structured per-request model observations.
+    ///
+    /// The returned report contains token accounting, duration, and optional
+    /// SHA-256 request fingerprints. It never contains prompt or response text.
+    pub async fn query_with_report<F>(
+        &mut self,
+        prompt: impl Into<String>,
+        output_mode: AgentOutputMode,
+        report: F,
+    ) -> Result<QueryReport>
+    where
+        F: FnMut(AgentEvent) + Send,
+    {
+        self.agent
+            .query_with_mode_and_events(prompt.into(), output_mode, report)
+            .await?;
+        Ok(self.agent.last_query_report.clone())
+    }
+
+    pub(crate) fn replace_llm_backend(&mut self, backend: Arc<dyn crate::llm::LlmBackend>) {
+        self.agent.llm_backend = backend;
+    }
+
+    pub(crate) fn set_max_turns(&mut self, max_turns: usize) {
+        self.agent.set_max_turns(max_turns);
+    }
+
+    pub(crate) fn disable_tools(&mut self) {
+        self.agent.tool_manager.retain(|_| false);
+    }
+
+    pub(crate) fn disable_extension_execution(&mut self) {
+        self.agent.disable_extension_execution();
     }
 }

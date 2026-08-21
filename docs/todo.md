@@ -93,7 +93,9 @@ Active backlog only. Keep this file small and current.
 - [x] Keep volatile environment, mode, protocol/LSP, and retrieved-memory
       context out of the system prompt and preserve earlier model-visible
       request prefixes with typed append-only context.
-- [ ] Run an opt-in official DeepSeek API A/B measurement and record
+- [x] Add an opt-in official DeepSeek API AB/BA harness with content-free
+      request fingerprints, explicit cost gates, and hit/miss usage reporting.
+- [ ] Run the official DeepSeek API AB/BA harness with an authorized credential and record
       `prompt_cache_hit_tokens` / `prompt_cache_miss_tokens` for comparable
       repeated turns; request-shape regressions alone do not prove a cache hit.
 
