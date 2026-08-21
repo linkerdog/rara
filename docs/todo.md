@@ -101,6 +101,12 @@ Active backlog only. Keep this file small and current.
 
 ## Agent / Subagent
 
+- [x] Replace process-global background-agent state with a session-tree-owned
+      control, one shared active-child budget, and parent-scoped lifecycle tools.
+- [x] Deliver background completion and inter-agent messages through ordered,
+      bounded mailboxes at model-turn boundaries.
+- [x] Keep multi-agent policy independent from reasoning effort and support
+      per-invocation provider/model routing for every launch surface.
 - [x] Subagent token_budget field (PR #601)
 - [x] Subagent restart/reconnect — built-in capability, not a separate tool
 - [x] Subagent context budget design — token_budget on AgentDefinition
@@ -133,6 +139,19 @@ Active backlog only. Keep this file small and current.
       description-driven automatic selection for built-in and custom profiles.
 - [ ] Decide whether `team_create` should accept named agent definitions in
       addition to the built-in `general`, `explore`, and `plan` task kinds.
+- [ ] Add bounded recursive delegation with an explicit depth budget after
+      child-visible orchestration permissions are specified.
+- [ ] Add a pairing-preserving, token-budgeted parent-history projection before
+      exposing subagent context fork modes.
+- [ ] Add proactive-delegation evaluations for unnecessary delegation,
+      synthesis quality, latency, and token amplification.
+
+## Embedded Runtime
+
+- [x] Expose the root package as a Rust library with a workspace-scoped
+      `EmbeddedRuntime`, typed events, isolated state roots, and agent control.
+- [ ] Add a dependency-injection builder for programmatic backends and stores,
+      then continue the `rara-agent` / control-plane crate split.
 
 ## Shared Task Lists
 

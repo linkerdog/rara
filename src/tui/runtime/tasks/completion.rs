@@ -453,7 +453,12 @@ async fn finish_running_task_if_ready_with_completion_mode(
                 app.set_runtime_phase(RuntimePhase::OAuthSaved, Some("oauth token saved".into()));
                 app.dismiss_overlay();
                 app.push_entry("Runtime", saved_message);
-                start_rebuild_task(app);
+                start_rebuild_task(
+                    app,
+                    agent_slot
+                        .as_ref()
+                        .and_then(Agent::agent_tree_control),
+                );
             }
             Err(err) => {
                 app.set_runtime_phase(RuntimePhase::Failed, Some("oauth failed".into()));

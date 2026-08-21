@@ -2,6 +2,7 @@ mod defaults;
 mod mcp;
 mod migration;
 mod model;
+mod multi_agent;
 mod provider_surface;
 mod secrets;
 mod serde_helpers;
@@ -28,6 +29,7 @@ pub use self::model::{
     TuiThemeConfig, ensure_rara_home_dir, rara_home_dir, workspace_data_dir_for,
     workspace_data_dir_for_home,
 };
+pub use self::multi_agent::MultiAgentPolicy;
 pub use self::provider_surface::{
     ConfigValueSource, EffectiveProviderSurface, ResolvedProviderValue,
 };

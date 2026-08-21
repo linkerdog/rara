@@ -348,6 +348,19 @@ impl RuntimeClient {
 
     /// Merge session continuity into a newly rebuilt backend before swapping it in.
     pub(crate) fn merge_rebuilt_agent(mut rebuilt: Agent, previous: Agent) -> Agent {
+        let previous_agent_tree_control = previous.agent_tree_control();
+        let rebuilt_agent_tree_control = rebuilt.agent_tree_control();
+        let agent_tree_control = match (previous_agent_tree_control, rebuilt_agent_tree_control) {
+            (Some(previous), Some(rebuilt)) if Arc::ptr_eq(&previous, &rebuilt) => Some(previous),
+            (Some(_), Some(rebuilt)) => {
+                log::warn!(
+                    "rebuilt runtime did not reuse the current agent tree; keeping the rebuilt tree to avoid splitting agent tools from mailbox delivery"
+                );
+                Some(rebuilt)
+            }
+            (Some(previous), None) => Some(previous),
+            (None, rebuilt) => rebuilt,
+        };
         let previous_prompt_config = previous.prompt_config().clone();
         rebuilt.session_id = previous.session_id;
         rebuilt.history = previous.history;
@@ -382,6 +395,7 @@ impl RuntimeClient {
         prompt_config.append_system_prompt = previous_prompt_config.append_system_prompt;
         prompt_config.warnings = previous_prompt_config.warnings;
         rebuilt.set_prompt_config(prompt_config);
+        rebuilt.set_agent_tree_control(agent_tree_control);
         rebuilt
     }
 }

@@ -251,16 +251,16 @@ impl LlmBackend for GeminiBackend {
 
 fn build_gemini_request(messages: &[Message], tools: &[Value]) -> Result<Value> {
     let mut contents = Vec::new();
-    let mut system_instruction: Option<Value> = None;
+    let mut system_instructions = Vec::new();
 
     for msg in messages {
         let role = msg.role.as_str();
         match role {
             "system" => {
                 let text = extract_text_content(&msg.content);
-                system_instruction = Some(json!({
-                    "parts": [{"text": text}]
-                }));
+                if !text.trim().is_empty() {
+                    system_instructions.push(text);
+                }
             }
             "user" => {
                 let text = extract_text_content(&msg.content);
@@ -305,8 +305,10 @@ fn build_gemini_request(messages: &[Message], tools: &[Value]) -> Result<Value> 
         "contents": contents,
     });
 
-    if let Some(sys) = system_instruction {
-        request["systemInstruction"] = sys;
+    if !system_instructions.is_empty() {
+        request["systemInstruction"] = json!({
+            "parts": [{"text": system_instructions.join("\n\n")}]
+        });
     }
 
     if !tools.is_empty() {
@@ -535,6 +537,32 @@ mod tests {
         );
         assert_eq!(req["contents"][0]["role"], "user");
         assert_eq!(req["contents"][0]["parts"][0]["text"], "Hello");
+    }
+
+    #[test]
+    fn preserves_ordered_system_suffixes() {
+        let messages = vec![
+            Message {
+                role: "system".to_string(),
+                content: json!("Stable root instructions."),
+            },
+            Message {
+                role: "user".to_string(),
+                content: json!("Inspect the workspace."),
+            },
+            Message {
+                role: "system".to_string(),
+                content: json!("Volatile mailbox suffix."),
+            },
+        ];
+
+        let request = build_gemini_request(&messages, &[]).expect("request");
+
+        assert_eq!(
+            request["systemInstruction"]["parts"][0]["text"],
+            "Stable root instructions.\n\nVolatile mailbox suffix."
+        );
+        assert_eq!(request["contents"].as_array().expect("contents").len(), 1);
     }
 
     #[test]

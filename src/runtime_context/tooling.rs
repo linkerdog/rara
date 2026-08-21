@@ -1,5 +1,5 @@
 use std::collections::HashMap;
-use std::sync::{Arc, OnceLock, RwLock, atomic::AtomicBool};
+use std::sync::{Arc, RwLock, atomic::AtomicBool};
 
 use rara_background_tasks::{
     BackgroundTaskListTool, BackgroundTaskStatusTool, BackgroundTaskStopTool, BackgroundTaskStore,
@@ -15,6 +15,7 @@ use rara_tools::planning::{EnterPlanModeTool, ExitPlanModeTool};
 use rara_tools::search::{GlobTool, GrepTool};
 use rara_tools::tool::ToolManager;
 
+use crate::config::MultiAgentPolicy;
 use crate::hook_runtime::HookRuntime;
 use crate::llm::LlmBackend;
 use crate::lsp_manager::LspManager;
@@ -26,9 +27,9 @@ use crate::skill::SkillManager;
 use crate::tasklist::DEFAULT_TASK_LIST_ID;
 use crate::tasklist::TaskListStore;
 use crate::tools::agent::{
-    AgentDefinitionCache, AgentTool, BackgroundSubAgentStore, ExploreAgentTool, PlanAgentTool,
-    SubAgentListTool, SubAgentResumeTool, SubAgentStopTool, SubagentBackendResolver,
-    TeamCreateTool,
+    AgentDefinitionCache, AgentTool, AgentTreeControl, ExploreAgentTool, FollowupTaskTool,
+    InterruptAgentTool, ListAgentsTool, PlanAgentTool, SendAgentMessageTool, SubAgentListTool,
+    SubAgentResumeTool, SubAgentStopTool, SubagentBackendResolver, TeamCreateTool, WaitAgentTool,
 };
 use crate::tools::bash::BashTool;
 use crate::tools::context::RetrieveSessionContextTool;
@@ -46,8 +47,6 @@ use crate::tools::web::{WebFetchTool, WebSearchTool};
 use crate::tools::workspace::UpdateProjectMemoryTool;
 use crate::tui::state::GoalHandle;
 use crate::workspace::WorkspaceMemory;
-
-static BACKGROUND_SUBAGENTS: OnceLock<Arc<BackgroundSubAgentStore>> = OnceLock::new();
 
 #[allow(clippy::too_many_arguments)]
 // Tool manager construction is the runtime bootstrap composition point; the
@@ -67,6 +66,8 @@ pub(super) fn create_full_tool_manager(
     mcp_tool_cache: McpToolCache,
     hook_runtime: Arc<HookRuntime>,
     lsp_manager: Arc<LspManager>,
+    agent_tree_control: Arc<AgentTreeControl>,
+    multi_agent_policy: MultiAgentPolicy,
     subagent_backend_resolver: Arc<dyn SubagentBackendResolver>,
     agent_definitions: AgentDefinitionCache,
 ) -> ToolManager {
@@ -80,9 +81,7 @@ pub(super) fn create_full_tool_manager(
     );
     let task_list_store = Arc::new(TaskListStore::new(workspace.rara_dir.join("tasks")));
     let task_list_id = DEFAULT_TASK_LIST_ID.to_string();
-    let background_subagents = BACKGROUND_SUBAGENTS
-        .get_or_init(|| Arc::new(BackgroundSubAgentStore::default()))
-        .clone();
+    let background_subagents = agent_tree_control;
     let file_read_state = Arc::new(FileReadState::default());
 
     tm.register(Box::new(BashTool {
@@ -214,6 +213,7 @@ pub(super) fn create_full_tool_manager(
         session_manager: session_manager.clone(),
         workspace,
         prompt_config,
+        background_subagents: background_subagents.clone(),
         task_list_id,
         agent_definitions,
         skill_manager,
@@ -227,6 +227,21 @@ pub(super) fn create_full_tool_manager(
         session_manager: session_manager.clone(),
     }));
     tm.register(Box::new(SubAgentStopTool {
+        background_subagents: background_subagents.clone(),
+    }));
+    tm.register(Box::new(ListAgentsTool {
+        background_subagents: background_subagents.clone(),
+    }));
+    tm.register(Box::new(WaitAgentTool {
+        background_subagents: background_subagents.clone(),
+    }));
+    tm.register(Box::new(SendAgentMessageTool {
+        background_subagents: background_subagents.clone(),
+    }));
+    tm.register(Box::new(FollowupTaskTool {
+        background_subagents: background_subagents.clone(),
+    }));
+    tm.register(Box::new(InterruptAgentTool {
         background_subagents,
     }));
     tm.register(Box::new(GetGoalTool {
@@ -236,6 +251,25 @@ pub(super) fn create_full_tool_manager(
         store: goal_handle.clone(),
     }));
     tm.register(Box::new(UpdateGoalTool { store: goal_handle }));
+    if matches!(multi_agent_policy, MultiAgentPolicy::Disabled) {
+        tm.retain(|name| {
+            !matches!(
+                name,
+                "spawn_agent"
+                    | "explore_agent"
+                    | "plan_agent"
+                    | "team_create"
+                    | "subagent_resume"
+                    | "subagent_list"
+                    | "subagent_stop"
+                    | "list_agents"
+                    | "wait_agent"
+                    | "send_message"
+                    | "followup_task"
+                    | "interrupt_agent"
+            )
+        });
+    }
     tm
 }
 

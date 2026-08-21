@@ -48,6 +48,7 @@ pub(super) fn durable_subagent_records(
             kind: "reconnected",
             parent_session_id: Some(parent_session_id.to_string()),
             status,
+            path: format!("/root/{agent_id}"),
             agent_id,
             session_id: child_session_id,
             name,

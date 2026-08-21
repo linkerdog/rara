@@ -536,7 +536,10 @@ fn start_automatic_plan_implementation_task(
     }
 }
 
-pub(super) fn start_rebuild_task(app: &mut TuiApp) {
+pub(super) fn start_rebuild_task(
+    app: &mut TuiApp,
+    agent_tree_control: Option<Arc<crate::tools::agent::AgentTreeControl>>,
+) {
     let (sender, receiver) = mpsc::unbounded_channel();
     let config = app.config.clone();
     let plugin_dirs = app.explicit_plugin_dirs.clone();
@@ -557,7 +560,9 @@ pub(super) fn start_rebuild_task(app: &mut TuiApp) {
                 message,
             });
         });
-        let result = rebuild_agent_with_progress(&config, Some(progress), plugin_dirs).await;
+        let result =
+            rebuild_agent_with_progress(&config, Some(progress), plugin_dirs, agent_tree_control)
+                .await;
         TaskCompletion::Rebuild { result }
     });
 

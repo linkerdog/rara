@@ -1,6 +1,7 @@
 mod compaction;
 mod context_view;
 mod dup_detection;
+mod mailbox;
 mod microcompact;
 mod planning;
 mod plugin_hooks;
