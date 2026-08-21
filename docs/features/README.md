@@ -56,6 +56,8 @@ future appserver integrations can use.
   budget, and `/context` contract for memory/context retrieval.
 - `observability.md`: bounded process-local runtime metrics and `/status`
   context/metrics contracts.
+- `provider-cache-observability.md`: content-free per-request cache reports and
+  the opt-in official DeepSeek AB/BA measurement contract.
 - `local-embedding-runtimes.md`: local Python model server, macOS MLX/Qwen3
   backend, portable FastEmbed/ONNX backend, and server safety contract.
 - `workspace-memory-cache.md`: prompt-source and workspace-memory cache

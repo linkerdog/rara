@@ -14,6 +14,7 @@ use url::Url;
 use crate::agent::Message;
 use crate::llm::{ContentBlock, LlmResponse, TokenUsage};
 use crate::model_context::{MODEL_CONTEXT_BLOCK_TYPE, model_context_text};
+use crate::model_observation::ModelRequestFingerprint;
 
 #[derive(Debug, Clone, PartialEq)]
 pub(super) struct AssistantToolUse {
@@ -176,6 +177,19 @@ pub trait LlmBackend: Send + Sync {
     }
     fn cache_profile(&self) -> ProviderCacheProfile {
         ProviderCacheProfile::none()
+    }
+
+    /// Return content-free hashes of the exact logical request sent by this backend.
+    ///
+    /// Implementors must never place raw prompt, tool, credential, or response
+    /// content in the returned value.
+    fn request_cache_fingerprint(
+        &self,
+        _messages: &[Message],
+        _tools: &[Value],
+        _metadata: &LlmTurnMetadata,
+    ) -> Option<ModelRequestFingerprint> {
+        None
     }
 }
 

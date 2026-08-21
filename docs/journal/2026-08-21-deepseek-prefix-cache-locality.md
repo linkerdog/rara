@@ -81,9 +81,9 @@ compact-unwind `__eh_frame` size; all tests still completed successfully.
 
 ## Follow-Ups
 
-- Run an opt-in A/B test against the official DeepSeek API and compare cache
-  hit/miss usage across repeated turns. No live provider call was made in this
-  implementation checkpoint.
+- The opt-in official DeepSeek AB/BA harness is implemented in
+  [DeepSeek cache probe](2026-08-21-deepseek-cache-probe.md). A credentialed
+  live run and reviewed hit/miss artifact are still pending.
 - Evaluate whether mode-specific tool-set changes should use a stable
   capability envelope. Runtime enforcement must remain authoritative before
   changing that request shape.

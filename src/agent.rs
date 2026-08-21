@@ -38,6 +38,7 @@ use crate::lsp_manager::LspManager;
 use crate::mcp_status::McpStatusSnapshot;
 use crate::memory_notice::memory_notice;
 use crate::memory_store::MemoryStore;
+use crate::model_observation::{ModelTokenUsage, ModelTurnReport, QueryReport};
 use crate::prompt::{self, PromptMode, PromptRuntimeConfig};
 use crate::protocol_sources::{PromptSourceRegistry, SkillSourceRegistry};
 use crate::session::SessionManager;
@@ -317,6 +318,7 @@ pub struct Agent {
     pub graph_context_candidates: Vec<RetrievalCandidate>,
     pub last_tool_result_projection_report: ToolResultProjectionReport,
     pub last_agent_turn_trace: AgentTurnTraceView,
+    pub(crate) last_query_report: QueryReport,
     file_search_provider: FileSearchCandidateProvider,
     inspection_progress: InspectionProgress,
     last_query_plan_updated: bool,
