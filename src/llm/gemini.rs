@@ -527,7 +527,10 @@ mod tests {
             },
             Message {
                 role: "user".to_string(),
-                content: json!("Hello"),
+                content: json!([
+                    {"type": "rara_model_context", "kind": "environment", "text": "Workspace context."},
+                    {"type": "text", "text": "Hello"}
+                ]),
             },
         ];
         let req = build_gemini_request(&messages, &[]).unwrap();
@@ -536,7 +539,10 @@ mod tests {
             "You are helpful."
         );
         assert_eq!(req["contents"][0]["role"], "user");
-        assert_eq!(req["contents"][0]["parts"][0]["text"], "Hello");
+        assert_eq!(
+            req["contents"][0]["parts"][0]["text"],
+            "Workspace context.\nHello"
+        );
     }
 
     #[test]

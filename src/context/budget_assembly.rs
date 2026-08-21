@@ -38,8 +38,42 @@ fn active_turn_budget(
         .into_iter()
         .map(|(_, detail)| estimate_text_tokens(detail.as_str()))
         .sum::<usize>();
+    let model_context_budget = latest_user_model_context(history)
+        .into_iter()
+        .map(estimate_text_tokens)
+        .sum::<usize>();
 
-    plan_budget + interaction_budget + latest_request_budget + tool_budget
+    plan_budget
+        + interaction_budget
+        + latest_request_budget
+        + tool_budget
+        + model_context_budget
+}
+
+fn latest_user_model_context(history: &[Message]) -> Vec<&str> {
+    history
+        .iter()
+        .rev()
+        .find(|message| {
+            message.role == "user"
+                && message.content.as_array().is_some_and(|blocks| {
+                    blocks.iter().any(|block| {
+                        block.get("type").and_then(Value::as_str) == Some("text")
+                    })
+                })
+        })
+        .and_then(|message| message.content.as_array())
+        .map(|blocks| {
+            blocks
+                .iter()
+                .filter(|block| {
+                    crate::model_context::model_context_kind(block)
+                        != Some(crate::model_context::ModelContextKind::RetrievedMemory)
+                })
+                .filter_map(crate::model_context::model_context_text)
+                .collect()
+        })
+        .unwrap_or_default()
 }
 
 pub(crate) fn latest_user_request(history: &[Message]) -> Option<String> {

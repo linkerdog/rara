@@ -90,6 +90,12 @@ Active backlog only. Keep this file small and current.
 - [x] Compaction lifecycle — /compact command + PreCompact/PostCompact hooks (PR #598)
 - [x] Tool result compression — ToolResultProjectionPolicy + model_preview_bash_output
 - [x] Context file routing — FileSearchCandidateProvider → retrieval pipeline (spec-only PR #606)
+- [x] Keep volatile environment, mode, protocol/LSP, and retrieved-memory
+      context out of the system prompt and preserve earlier model-visible
+      request prefixes with typed append-only context.
+- [ ] Run an opt-in official DeepSeek API A/B measurement and record
+      `prompt_cache_hit_tokens` / `prompt_cache_miss_tokens` for comparable
+      repeated turns; request-shape regressions alone do not prove a cache hit.
 
 ## Benchmark / Evaluation
 

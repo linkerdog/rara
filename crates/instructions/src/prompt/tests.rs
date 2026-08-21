@@ -3,7 +3,7 @@ use std::fs;
 use super::{
     PromptMode, PromptRuntimeConfig, PromptSkillSummary, PromptSource, PromptSourceKind,
     build_compact_instruction, build_effective_prompt, build_system_prompt,
-    discover_prompt_sources, render_skill_listing,
+    build_turn_prompt_context, discover_prompt_sources, render_skill_listing,
 };
 use crate::workspace::WorkspaceMemory;
 
@@ -54,7 +54,7 @@ fn discover_prompt_sources_includes_workspace_and_runtime_sources() {
 }
 
 #[test]
-fn build_effective_prompt_includes_protocol_prompt_sources() {
+fn protocol_prompt_sources_are_rendered_in_turn_context() {
     let temp = tempfile::tempdir().expect("tempdir");
     let root = temp.path().join("workspace");
     let rara_dir = root.join(".rara");
@@ -71,83 +71,93 @@ fn build_effective_prompt_includes_protocol_prompt_sources() {
     };
 
     let effective = build_effective_prompt(&workspace, &runtime, PromptMode::Execute);
+    let turn = build_turn_prompt_context(&workspace, &runtime, PromptMode::Execute);
 
-    assert!(effective.section_keys.contains(&"protocol_prompt_sources"));
-    assert!(effective.text.contains("## Protocol Prompt Sources"));
-    assert!(effective.text.contains("Protocol Prompt Source acp-note"));
-    assert!(
-        effective
-            .text
-            .contains("Use the active editor selection as extra context.")
-    );
+    assert!(!effective.section_keys.contains(&"protocol_prompt_sources"));
+    assert!(!effective.text.contains("Protocol Prompt Source acp-note"));
     assert!(
         effective
             .sources
             .iter()
             .any(|source| matches!(source.kind, PromptSourceKind::ProtocolPromptSource))
     );
+    let protocol = turn
+        .protocol_prompt_sources
+        .expect("protocol prompt context");
+    assert!(protocol.contains("## Protocol Prompt Sources"));
+    assert!(protocol.contains("Protocol Prompt Source acp-note"));
+    assert!(protocol.contains("Use the active editor selection as extra context."));
 }
 
 #[test]
-fn build_system_prompt_includes_plan_mode_and_runtime_context() {
+fn environment_and_mode_are_rendered_outside_the_system_prompt() {
     let temp = tempfile::tempdir().expect("tempdir");
     let root = temp.path().join("workspace");
     let rara_dir = root.join(".rara");
     fs::create_dir_all(&rara_dir).expect("mkdir .rara");
     let workspace = WorkspaceMemory::from_paths(root, rara_dir);
-    let prompt = build_system_prompt(
+    let system = build_system_prompt(
         &workspace,
         &PromptRuntimeConfig::default(),
         PromptMode::Plan,
     );
-    assert!(prompt.contains("Current Execution Mode"));
-    assert!(prompt.contains("<environment_context>"));
-    assert!(prompt.contains("<cwd>"));
-    assert!(prompt.contains("<shell>"));
-    assert!(prompt.contains("<git_branch>"));
+    let turn = build_turn_prompt_context(
+        &workspace,
+        &PromptRuntimeConfig::default(),
+        PromptMode::Plan,
+    );
+    assert!(!system.contains("Current Execution Mode"));
+    assert!(!system.contains("<environment_context>"));
+    assert!(turn.execution_mode.contains("Current Execution Mode"));
+    assert!(turn.environment.contains("<environment_context>"));
+    assert!(turn.environment.contains("<cwd>"));
+    assert!(turn.environment.contains("<shell>"));
+    assert!(turn.environment.contains("<git_branch>"));
 }
 
 #[test]
-fn build_system_prompt_includes_execute_mode_guidance_only_in_execute_mode() {
+fn execute_mode_guidance_is_rendered_only_in_execute_turn_context() {
     let temp = tempfile::tempdir().expect("tempdir");
     let root = temp.path().join("workspace");
     let rara_dir = root.join(".rara");
     fs::create_dir_all(&rara_dir).expect("mkdir .rara");
     let workspace = WorkspaceMemory::from_paths(root, rara_dir);
 
-    let execute = build_effective_prompt(
+    let execute = build_turn_prompt_context(
         &workspace,
         &PromptRuntimeConfig::default(),
         PromptMode::Execute,
     );
-    assert!(execute.section_keys.contains(&"execute_mode"));
-    assert!(execute.text.contains("# Execute Mode"));
-    assert!(execute.text.contains("todo_write"));
-    assert!(execute.text.contains("refresh the full list"));
+    assert!(execute.execution_mode.contains("# Execute Mode"));
+    assert!(execute.execution_mode.contains("todo_write"));
+    assert!(execute.execution_mode.contains("refresh the full list"));
     assert!(
         execute
-            .text
+            .execution_mode
             .contains("do not batch status changes until the end")
     );
     assert!(
         execute
-            .text
+            .execution_mode
             .contains("relevant validation item is still pending or failing")
     );
-    assert!(execute.text.contains("stopping at 'sandbox blocked'"));
     assert!(
         execute
-            .text
+            .execution_mode
+            .contains("stopping at 'sandbox blocked'")
+    );
+    assert!(
+        execute
+            .execution_mode
             .contains("keep the relevant verification todo item pending")
     );
 
-    let plan = build_effective_prompt(
+    let plan = build_turn_prompt_context(
         &workspace,
         &PromptRuntimeConfig::default(),
         PromptMode::Plan,
     );
-    assert!(!plan.section_keys.contains(&"execute_mode"));
-    assert!(!plan.text.contains("# Execute Mode"));
+    assert!(!plan.execution_mode.contains("# Execute Mode"));
 }
 
 #[test]
@@ -391,7 +401,7 @@ fn default_system_prompt_mentions_tool_safety_and_compaction() {
     assert!(prompt.contains("available GitHub tools or the 'gh' CLI"));
     assert!(prompt.contains("never rewrite history"));
     assert!(prompt.contains("Use memory and delegation tools only when available"));
-    assert!(prompt.contains("todo_write"));
+    assert!(!prompt.contains("todo_write"));
     assert!(!prompt.contains("starts with '*** Begin Patch'"));
     assert!(!prompt.contains("Claude-style Write/Edit split"));
     assert!(!prompt.contains("Use 'spawn_agent' or 'team_create'"));
@@ -628,7 +638,7 @@ fn compact_prompt_uses_override_when_present() {
 
 #[test]
 fn environment_context_escapes_xml_values() {
-    let rendered = super::render_environment_context("/tmp/a&b", "feat/<tag>");
+    let rendered = super::turn_context::render_environment_context("/tmp/a&b", "feat/<tag>");
 
     assert!(rendered.contains("<cwd>/tmp/a&amp;b</cwd>"));
     assert!(rendered.contains("<git_branch>feat/&lt;tag&gt;</git_branch>"));
@@ -680,8 +690,7 @@ fn effective_prompt_reports_base_kind_and_active_sections() {
 
     let effective = super::build_effective_prompt(&workspace, &runtime, PromptMode::Execute);
     assert_eq!(effective.base_prompt_kind, super::BasePromptKind::Default);
-    assert!(effective.section_keys.contains(&"dynamic_boundary"));
-    assert!(effective.section_keys.contains(&"runtime_context"));
+    assert!(!effective.section_keys.contains(&"runtime_context"));
     assert!(effective.section_keys.contains(&"append_system_prompt"));
     assert!(
         effective
@@ -689,6 +698,5 @@ fn effective_prompt_reports_base_kind_and_active_sections() {
             .contains(&"subagent_capability_policy")
     );
     assert!(effective.text.ends_with("policy"));
-    assert!(effective.text.contains(super::DYNAMIC_BOUNDARY));
-    assert!(effective.dynamic_boundary_index.is_some());
+    assert!(!effective.text.contains("__DYNAMIC_BOUNDARY__"));
 }

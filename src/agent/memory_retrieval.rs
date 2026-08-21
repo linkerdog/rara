@@ -1,10 +1,18 @@
-use serde_json::{Value, json};
+use serde_json::Value;
 
 use super::{Agent, Message};
 use crate::context::{
     MemoryRetrievalOrchestrator, MemorySelectionItemContextEntry, RetrievedMemoryRenderItem,
     SharedRuntimeContext, is_retrieved_memory_kind, render_retrieved_memory_context,
 };
+use crate::model_context::{
+    ModelContextFragment, ModelContextKind, latest_model_context_text,
+    upsert_latest_user_model_context,
+};
+use crate::prompt;
+
+const CLEARED_PROTOCOL_PROMPT_SOURCES: &str =
+    "## Protocol Prompt Sources\n\nNo protocol prompt sources are active for this turn.";
 
 impl Agent {
     pub(super) async fn refresh_memory_retrieval_candidates(&mut self) {
@@ -43,59 +51,72 @@ impl Agent {
         render_selected_memory_context(selected.as_slice())
     }
 
-    pub(super) fn prepend_memory_context_to_latest_user_message(
-        messages: &mut [Message],
-        memory_context: String,
-    ) {
-        let Some(message) = messages
-            .iter_mut()
-            .rfind(|message| message.role == "user" && is_user_text_request(message))
-        else {
-            return;
-        };
+    pub(super) fn persist_model_context_for_latest_user_message(&mut self) -> bool {
+        let turn_context = prompt::build_turn_prompt_context(
+            &self.workspace,
+            &self.prompt_config,
+            self.prompt_mode(),
+        );
+        let mut fragments = Vec::new();
 
-        prepend_text_to_message(message, memory_context);
-    }
-}
-
-fn prepend_text_to_message(message: &mut Message, text: String) {
-    match &mut message.content {
-        Value::Array(items) => items.insert(0, memory_text_block(text)),
-        Value::String(existing) => {
-            let original = std::mem::take(existing);
-            *existing = format!("{text}\n\n{original}");
+        push_changed_context(
+            &self.history,
+            &mut fragments,
+            ModelContextKind::Environment,
+            turn_context.environment,
+        );
+        push_changed_context(
+            &self.history,
+            &mut fragments,
+            ModelContextKind::ExecutionMode,
+            turn_context.execution_mode,
+        );
+        match turn_context.protocol_prompt_sources {
+            Some(protocol_sources) => push_changed_context(
+                &self.history,
+                &mut fragments,
+                ModelContextKind::ProtocolPromptSources,
+                protocol_sources,
+            ),
+            None if latest_model_context_text(
+                &self.history,
+                ModelContextKind::ProtocolPromptSources,
+            )
+            .is_some_and(|text| text != CLEARED_PROTOCOL_PROMPT_SOURCES) =>
+            {
+                fragments.push(ModelContextFragment::new(
+                    ModelContextKind::ProtocolPromptSources,
+                    CLEARED_PROTOCOL_PROMPT_SOURCES,
+                ));
+            }
+            None => {}
         }
-        other => {
-            let original = other.take();
-            *other = json!([
-                memory_text_block(text),
-                {"type": "text", "text": original.to_string()}
-            ]);
+        let mut changed = upsert_latest_user_model_context(&mut self.history, fragments.as_slice());
+
+        let assembled = self.assemble_turn_context();
+        if let Some(memory_context) = Agent::selected_memory_context_text(&assembled.runtime) {
+            changed |= upsert_latest_user_model_context(
+                &mut self.history,
+                &[ModelContextFragment::new(
+                    ModelContextKind::RetrievedMemory,
+                    memory_context,
+                )],
+            );
         }
+
+        changed
     }
 }
 
-fn is_user_text_request(message: &Message) -> bool {
-    if message
-        .content
-        .as_str()
-        .is_some_and(|text| !text.trim().is_empty())
-    {
-        return true;
+fn push_changed_context(
+    history: &[Message],
+    fragments: &mut Vec<ModelContextFragment>,
+    kind: ModelContextKind,
+    text: String,
+) {
+    if latest_model_context_text(history, kind) != Some(text.as_str()) {
+        fragments.push(ModelContextFragment::new(kind, text));
     }
-    message.content.as_array().is_some_and(|items| {
-        items.iter().any(|item| {
-            item.get("type").and_then(Value::as_str) == Some("text")
-                && item
-                    .get("text")
-                    .and_then(Value::as_str)
-                    .is_some_and(|text| !text.trim().is_empty())
-        })
-    })
-}
-
-fn memory_text_block(text: String) -> Value {
-    json!({"type": "text", "text": text})
 }
 
 fn render_selected_memory_context(items: &[&MemorySelectionItemContextEntry]) -> Option<String> {

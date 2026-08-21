@@ -28,6 +28,7 @@ mod memory_files;
 mod memory_lifecycle;
 mod memory_notice;
 mod memory_store;
+mod model_context;
 mod oauth;
 mod plugin_cli;
 mod plugin_middleware;
