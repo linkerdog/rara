@@ -18,11 +18,55 @@ use super::runtime_port::{
 };
 use super::state::{TaskCompletion, TuiApp};
 use crate::oauth::OAuthManager;
+use crate::runtime_control::{ErrorEvent, RuntimeEvent, SessionEvent};
 
 pub(super) enum RuntimeActivity {
     Event(Option<RuntimeProjectionEvent>),
     Command(Option<RuntimeCommand>),
     Completed(Box<Result<TaskCompletion, tokio::task::JoinError>>),
+}
+
+#[derive(Default)]
+struct QueryCompletionBarrier {
+    terminal_event_seen: bool,
+    pending_completion: Option<Box<Result<TaskCompletion, tokio::task::JoinError>>>,
+}
+
+impl QueryCompletionBarrier {
+    fn observe_terminal_event(&mut self) {
+        self.terminal_event_seen = true;
+    }
+
+    fn defer(&mut self, completion: Box<Result<TaskCompletion, tokio::task::JoinError>>) {
+        let task_join_failed = completion.is_err();
+        if self.pending_completion.replace(completion).is_some() {
+            log::warn!("replaced a pending query completion before its terminal event");
+        }
+        if task_join_failed {
+            // A failed task no longer has a producer that can publish a
+            // terminal runtime event. Treat the join failure as that boundary
+            // so the TUI can surface the task error instead of waiting forever.
+            self.terminal_event_seen = true;
+        }
+    }
+
+    fn take_ready(&mut self) -> Option<Box<Result<TaskCompletion, tokio::task::JoinError>>> {
+        if !self.terminal_event_seen {
+            return None;
+        }
+        let completion = self.pending_completion.take()?;
+        self.terminal_event_seen = false;
+        Some(completion)
+    }
+
+    fn has_pending_completion(&self) -> bool {
+        self.pending_completion.is_some()
+    }
+
+    fn reset(&mut self) {
+        self.terminal_event_seen = false;
+        self.pending_completion = None;
+    }
 }
 
 /// Owns TUI presentation state and applies runtime projections to it.
@@ -32,6 +76,7 @@ pub(super) struct TuiController {
     runtime_events: RuntimeEventStream,
     runtime_commands: tokio::sync::mpsc::UnboundedReceiver<RuntimeCommand>,
     last_runtime_event: Option<(Option<String>, u64, String)>,
+    query_completion_barrier: QueryCompletionBarrier,
     /// Set to true every time an event is applied and the screen should repaint.
     pub(super) needs_redraw: bool,
 }
@@ -49,6 +94,7 @@ impl TuiController {
             runtime_events,
             runtime_commands,
             last_runtime_event: None,
+            query_completion_barrier: QueryCompletionBarrier::default(),
             needs_redraw: true,
         }
     }
@@ -86,20 +132,60 @@ impl TuiController {
         Ok(())
     }
 
-    /// Drain pending agent events from the running task, apply them, and
-    /// finalize the task if it has completed.
-    pub(super) async fn complete_runtime_task(
+    /// Defer query completion until the ordered runtime stream reaches a
+    /// terminal event. Maintenance tasks do not emit turn lifecycle events and
+    /// continue to complete directly from their join handle.
+    pub(super) async fn receive_runtime_task_completion(
         &mut self,
         processor: &mut RuntimeCommandProcessor,
         completion: Box<Result<TaskCompletion, tokio::task::JoinError>>,
-    ) -> anyhow::Result<()> {
+    ) -> anyhow::Result<bool> {
+        if self.running_task_is_query() {
+            self.query_completion_barrier.defer(completion);
+            return self.complete_query_if_ready(processor).await;
+        }
+        processor.complete(&mut self.app, completion).await?;
+        self.query_completion_barrier.reset();
+        self.needs_redraw = true;
+        Ok(true)
+    }
+
+    pub(super) async fn complete_query_if_ready(
+        &mut self,
+        processor: &mut RuntimeCommandProcessor,
+    ) -> anyhow::Result<bool> {
+        let Some(completion) = self.query_completion_barrier.take_ready() else {
+            return Ok(false);
+        };
         processor.complete(&mut self.app, completion).await?;
         self.needs_redraw = true;
-        Ok(())
+        Ok(true)
+    }
+
+    fn running_task_is_query(&self) -> bool {
+        self.app
+            .bottom_pane
+            .running_task
+            .as_ref()
+            .is_some_and(|task| matches!(&task.kind, super::state::TaskKind::Query))
     }
 
     /// Wait for the next runtime event or task completion without polling.
     pub(super) async fn wait_for_runtime_activity(&mut self) -> RuntimeActivity {
+        if self.query_completion_barrier.has_pending_completion() {
+            let activity = tokio::select! {
+                event = self.runtime_events.next() => RuntimeActivity::Event(event),
+                command = self.runtime_commands.recv() => RuntimeActivity::Command(command),
+            };
+            return match activity {
+                RuntimeActivity::Event(None) => {
+                    RuntimeActivity::Event(Some(RuntimeProjectionEvent::Disconnected {
+                        reason: "runtime event stream closed before turn completion".into(),
+                    }))
+                }
+                activity => activity,
+            };
+        }
         if let Some(task) = self.app.bottom_pane.running_task.as_mut() {
             select_runtime_activity(
                 &mut self.runtime_events,
@@ -116,6 +202,7 @@ impl TuiController {
     }
 
     pub(super) fn apply_runtime_event(&mut self, event: RuntimeProjectionEvent) -> bool {
+        let terminal_event = is_terminal_projection_event(&event);
         match event {
             RuntimeProjectionEvent::Runtime(event) => {
                 if !accept_runtime_event(&mut self.last_runtime_event, &event) {
@@ -143,6 +230,9 @@ impl TuiController {
                 self.app
                     .set_runtime_phase(super::state::RuntimePhase::Idle, None);
             }
+        }
+        if terminal_event && self.running_task_is_query() {
+            self.query_completion_barrier.observe_terminal_event();
         }
         self.needs_redraw = true;
         true
@@ -176,6 +266,26 @@ impl TuiController {
     }
 }
 
+fn is_terminal_projection_event(event: &RuntimeProjectionEvent) -> bool {
+    match event {
+        RuntimeProjectionEvent::Runtime(event) => matches!(
+            &event.event,
+            RuntimeEvent::Session(
+                SessionEvent::TurnFinished { .. }
+                    | SessionEvent::TurnCancelled
+                    | SessionEvent::TurnInterrupted
+            ) | RuntimeEvent::Error(ErrorEvent::RuntimeError {
+                recoverable: false,
+                ..
+            })
+        ),
+        RuntimeProjectionEvent::Completed { .. } | RuntimeProjectionEvent::Disconnected { .. } => {
+            true
+        }
+        RuntimeProjectionEvent::Snapshot(_) | RuntimeProjectionEvent::Reconnected => false,
+    }
+}
+
 async fn select_runtime_activity(
     runtime_events: &mut RuntimeEventStream,
     runtime_commands: &mut tokio::sync::mpsc::UnboundedReceiver<RuntimeCommand>,
@@ -198,9 +308,79 @@ async fn select_runtime_activity(
 mod tests {
     use futures::stream;
 
-    use super::{RuntimeActivity, RuntimeCommand, select_runtime_activity};
-    use crate::runtime_control::SessionControlRequest;
+    use super::{
+        QueryCompletionBarrier, RuntimeActivity, RuntimeCommand, is_terminal_projection_event,
+        select_runtime_activity,
+    };
+    use crate::runtime_control::{
+        RuntimeControlEvent, RuntimeEvent, RuntimeProvenance, SessionControlRequest, SessionEvent,
+    };
     use crate::tui::runtime_port::{RuntimeEventStream, RuntimeProjectionEvent};
+    use crate::tui::state::TaskCompletion;
+
+    fn test_completion() -> Box<Result<TaskCompletion, tokio::task::JoinError>> {
+        Box::new(Ok(TaskCompletion::ModelCatalog {
+            provider: rara_provider_catalog::ModelCatalogProvider::Kimi,
+            result: Ok(Vec::new()),
+        }))
+    }
+
+    fn runtime_projection(event: RuntimeEvent) -> RuntimeProjectionEvent {
+        RuntimeProjectionEvent::Runtime(Box::new(RuntimeControlEvent {
+            event_id: "test-event".into(),
+            provenance: RuntimeProvenance::local_tui("test-session"),
+            sequence: 1,
+            event,
+        }))
+    }
+
+    #[test]
+    fn query_completion_waits_for_terminal_event_when_task_finishes_first() {
+        let mut barrier = QueryCompletionBarrier::default();
+
+        barrier.defer(test_completion());
+        assert!(barrier.take_ready().is_none());
+
+        barrier.observe_terminal_event();
+        assert!(barrier.take_ready().is_some());
+        assert!(barrier.take_ready().is_none());
+    }
+
+    #[test]
+    fn query_completion_finishes_when_terminal_event_arrives_first() {
+        let mut barrier = QueryCompletionBarrier::default();
+
+        barrier.observe_terminal_event();
+        barrier.defer(test_completion());
+
+        assert!(barrier.take_ready().is_some());
+        assert!(barrier.take_ready().is_none());
+    }
+
+    #[tokio::test]
+    async fn query_join_failure_does_not_wait_for_an_event_that_cannot_arrive() {
+        let handle = tokio::spawn(async { std::future::pending::<TaskCompletion>().await });
+        handle.abort();
+        let completion = handle.await;
+        assert!(completion.is_err());
+
+        let mut barrier = QueryCompletionBarrier::default();
+        barrier.defer(Box::new(completion));
+
+        assert!(barrier.take_ready().is_some());
+    }
+
+    #[test]
+    fn turn_finished_is_a_terminal_projection_event() {
+        assert!(is_terminal_projection_event(&runtime_projection(
+            RuntimeEvent::Session(SessionEvent::TurnFinished {
+                reason: Some("turn complete".into()),
+            }),
+        )));
+        assert!(!is_terminal_projection_event(&runtime_projection(
+            RuntimeEvent::Session(SessionEvent::TurnStarted),
+        )));
+    }
 
     #[tokio::test]
     async fn runtime_mux_wakes_on_event() {

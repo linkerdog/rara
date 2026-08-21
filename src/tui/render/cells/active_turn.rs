@@ -12,7 +12,7 @@ use super::plan_cells::{
     PlanModeCell, PlanSummaryCell, PlanningSuggestionCell, planning_suggestion_text,
 };
 use super::progress::{
-    ProgressRole, explicit_progress_entry_groups, push_live_events, push_progress_group,
+    ProgressRole, explicit_progress_entry_groups, push_progress_group, push_streaming_thinking,
 };
 use super::responding_cell::RespondingCell;
 use super::summary_cells::{ExploringCell, PlanningCell, RunningCell};
@@ -148,9 +148,16 @@ impl ActiveCell for ActiveTurnCell<'_> {
         let has_live_planning = !self.app.active_live.planning_actions.is_empty()
             || !self.app.active_live.planning_notes.is_empty();
         let has_live_running = !self.app.active_live.running_actions.is_empty();
-        let live_events = self.app.active_live.events.as_slice();
-        let has_live_events = !live_events.is_empty();
+        let has_live_progress = has_live_exploration || has_live_planning || has_live_running;
         let has_active_pending_interaction = self.app.active_pending_interaction().is_some();
+        let suppress_ordered_planning_chatter = matches!(
+            self.app.agent_execution_mode,
+            crate::agent::AgentExecutionMode::Plan
+        ) && has_live_exploration
+            && latest_agent.is_some_and(|message| !contains_structured_planning_output(message))
+            && self.app.snapshot.plan_steps.is_empty()
+            && self.app.pending_request_input().is_none()
+            && !self.app.has_pending_plan_approval();
 
         if !user_message.is_empty() {
             cells.push(Box::new(UserCell::new(user_message)));
@@ -162,12 +169,7 @@ impl ActiveCell for ActiveTurnCell<'_> {
         }
 
         let ordered_exploration_agent_segments =
-            if !has_live_events && !has_live_exploration && !has_live_planning && !has_live_running
-            {
-                ordered_exploration_agent_segments(current_turn.as_slice())
-            } else {
-                None
-            };
+            ordered_exploration_agent_segments(current_turn.as_slice(), has_thinking_stream);
         let uses_ordered_exploration_agent_segments = ordered_exploration_agent_segments.is_some();
 
         if let Some(segments) = ordered_exploration_agent_segments.as_ref() {
@@ -189,30 +191,21 @@ impl ActiveCell for ActiveTurnCell<'_> {
                         );
                     }
                     OrderedActiveSegment::Agent(message) => {
-                        cells.push(Box::new(MessageCell::new(
-                            "Agent",
-                            message,
-                            usize::MAX,
-                            self.cwd,
-                        )));
+                        if !suppress_ordered_planning_chatter {
+                            cells.push(Box::new(MessageCell::new(
+                                "Agent",
+                                message,
+                                usize::MAX,
+                                self.cwd,
+                            )));
+                        }
                     }
                 }
             }
         }
 
-        let mut has_event_exploration_summary = false;
-        let mut has_event_planning_summary = false;
-        let mut has_event_running_summary = false;
         let has_live_thinking = turn_live && has_thinking_stream;
-        if has_live_events || has_live_thinking {
-            for event in live_events {
-                match ProgressRole::from_live_event(event) {
-                    ProgressRole::Exploring => has_event_exploration_summary = true,
-                    ProgressRole::Planning => has_event_planning_summary = true,
-                    ProgressRole::Running => has_event_running_summary = true,
-                    ProgressRole::Thinking => {}
-                }
-            }
+        if has_live_thinking {
             let thinking_dur = self
                 .app
                 .active_live
@@ -220,19 +213,17 @@ impl ActiveCell for ActiveTurnCell<'_> {
                 .map(|start| start.elapsed());
             // Live streaming thinking is always expanded (tail mode).
             // The toggle only affects committed (finalized) thinking blocks.
-            push_live_events(
+            push_streaming_thinking(
                 &mut cells,
-                live_events,
                 streaming_thinking_lines.filter(|_| has_live_thinking),
-                true,
                 false,
                 thinking_dur,
             );
         }
 
         let explicit_progress_groups = (!uses_ordered_exploration_agent_segments
-            && !has_live_events
             && !has_live_thinking
+            && !has_live_progress
             && !has_active_pending_interaction)
             .then(|| explicit_progress_entry_groups(current_turn.iter().copied()));
         if let Some(groups) = explicit_progress_groups.as_ref() {
@@ -256,31 +247,29 @@ impl ActiveCell for ActiveTurnCell<'_> {
             .find(|entry| entry.role == "Exploring")
             .map(|entry| entry.message.clone());
 
-        let exploration_summary = if has_live_events
-            || has_explicit_progress_groups
-            || uses_ordered_exploration_agent_segments
-        {
-            None
-        } else if has_live_exploration {
-            Some(compact_progress_summary_lines(
-                self.app.active_live.exploration_actions.as_slice(),
-                self.app.active_live.exploration_notes.as_slice(),
-                4,
-                "more exploration step(s)",
-            ))
-        } else if !turn_live {
-            None
-        } else {
-            explicit_exploration
-                .map(|summary| compact_summary_text(&summary, 4, "more exploration step(s)"))
-                .or_else(|| {
-                    current_turn_exploration_summary_from_entries(
-                        current_turn.as_slice(),
-                        self.app.is_busy() && turn_live,
-                        self.app.runtime_phase_detail.as_deref(),
-                    )
-                })
-        };
+        let exploration_summary =
+            if has_explicit_progress_groups || uses_ordered_exploration_agent_segments {
+                None
+            } else if has_live_exploration {
+                Some(compact_progress_summary_lines(
+                    self.app.active_live.exploration_actions.as_slice(),
+                    self.app.active_live.exploration_notes.as_slice(),
+                    4,
+                    "more exploration step(s)",
+                ))
+            } else if !turn_live {
+                None
+            } else {
+                explicit_exploration
+                    .map(|summary| compact_summary_text(&summary, 4, "more exploration step(s)"))
+                    .or_else(|| {
+                        current_turn_exploration_summary_from_entries(
+                            current_turn.as_slice(),
+                            self.app.is_busy() && turn_live,
+                            self.app.runtime_phase_detail.as_deref(),
+                        )
+                    })
+            };
         let has_exploration_summary = exploration_summary.is_some();
         let exploration_active = turn_live && has_exploration_summary;
         if let Some(summary) = exploration_summary {
@@ -292,22 +281,20 @@ impl ActiveCell for ActiveTurnCell<'_> {
             .find(|entry| entry.role == "Planning")
             .map(|entry| entry.message.clone());
 
-        let planning_summary = if has_live_events
-            || has_explicit_progress_groups
-            || uses_ordered_exploration_agent_segments
-        {
-            None
-        } else if has_live_planning {
-            Some(compact_progress_summary_lines(
-                self.app.active_live.planning_actions.as_slice(),
-                self.app.active_live.planning_notes.as_slice(),
-                4,
-                "more planning step(s)",
-            ))
-        } else {
-            explicit_planning
-                .map(|summary| compact_summary_text(&summary, 4, "more planning step(s)"))
-        };
+        let planning_summary =
+            if has_explicit_progress_groups || uses_ordered_exploration_agent_segments {
+                None
+            } else if has_live_planning {
+                Some(compact_progress_summary_lines(
+                    self.app.active_live.planning_actions.as_slice(),
+                    self.app.active_live.planning_notes.as_slice(),
+                    4,
+                    "more planning step(s)",
+                ))
+            } else {
+                explicit_planning
+                    .map(|summary| compact_summary_text(&summary, 4, "more planning step(s)"))
+            };
         let has_planning_summary = planning_summary.is_some();
         if let Some(summary) = planning_summary {
             cells.push(Box::new(PlanningCell::new(summary, turn_live)));
@@ -318,28 +305,26 @@ impl ActiveCell for ActiveTurnCell<'_> {
             .find(|entry| entry.role == "Running")
             .map(|entry| entry.message.clone());
 
-        let running_summary = if has_live_events
-            || has_explicit_progress_groups
-            || uses_ordered_exploration_agent_segments
-        {
-            None
-        } else if has_live_running {
-            Some(compact_recent_first_summary_lines(
-                self.app.active_live.running_actions.as_slice(),
-                4,
-                "more running step(s)",
-            ))
-        } else {
-            explicit_running
-                .map(|summary| compact_summary_text(&summary, 4, "more running step(s)"))
-                .or_else(|| {
-                    current_turn_tool_summary(
-                        current_turn.as_slice(),
-                        turn_live,
-                        self.app.runtime_phase_detail.as_deref(),
-                    )
-                })
-        };
+        let running_summary =
+            if has_explicit_progress_groups || uses_ordered_exploration_agent_segments {
+                None
+            } else if has_live_running {
+                Some(compact_recent_first_summary_lines(
+                    self.app.active_live.running_actions.as_slice(),
+                    4,
+                    "more running step(s)",
+                ))
+            } else {
+                explicit_running
+                    .map(|summary| compact_summary_text(&summary, 4, "more running step(s)"))
+                    .or_else(|| {
+                        current_turn_tool_summary(
+                            current_turn.as_slice(),
+                            turn_live,
+                            self.app.runtime_phase_detail.as_deref(),
+                        )
+                    })
+            };
         let has_running_summary = running_summary.is_some();
         let running_active = turn_live && has_running_summary;
         if let Some(entry) = current_turn.iter().find(|entry| {
@@ -358,13 +343,8 @@ impl ActiveCell for ActiveTurnCell<'_> {
         } else if let Some(summary) = running_summary {
             cells.push(Box::new(RunningCell::new(summary, running_active)));
         }
-        let compact_live_response = turn_live
-            && (has_exploration_summary
-                || has_planning_summary
-                || has_running_summary
-                || has_event_exploration_summary
-                || has_event_planning_summary
-                || has_event_running_summary);
+        let compact_live_response =
+            turn_live && (has_exploration_summary || has_planning_summary || has_running_summary);
 
         let inline_plan_summary = latest_agent.and_then(parse_render_plan_block).filter(|_| {
             self.app.snapshot.plan_steps.is_empty()
@@ -454,15 +434,16 @@ impl ActiveCell for ActiveTurnCell<'_> {
                 self.app.runtime_phase,
                 RuntimePhase::RunningTool | RuntimePhase::SendingPrompt
             );
-        let suppress_planning_chatter = matches!(
-            self.app.agent_execution_mode,
-            crate::agent::AgentExecutionMode::Plan
-        ) && (has_exploration_summary
-            || has_event_exploration_summary)
-            && latest_agent.is_some_and(|message| !contains_structured_planning_output(message))
-            && self.app.snapshot.plan_steps.is_empty()
-            && self.app.pending_request_input().is_none()
-            && !self.app.has_pending_plan_approval();
+        let suppress_planning_chatter = suppress_ordered_planning_chatter
+            || (matches!(
+                self.app.agent_execution_mode,
+                crate::agent::AgentExecutionMode::Plan
+            ) && has_exploration_summary
+                && latest_agent
+                    .is_some_and(|message| !contains_structured_planning_output(message))
+                && self.app.snapshot.plan_steps.is_empty()
+                && self.app.pending_request_input().is_none()
+                && !self.app.has_pending_plan_approval());
         let suppress_structured_plan_response = (self.app.snapshot.plan_steps.is_empty()
             && inline_plan_summary.is_some())
             || (!self.app.snapshot.plan_steps.is_empty()
@@ -477,9 +458,6 @@ impl ActiveCell for ActiveTurnCell<'_> {
             && !has_exploration_summary
             && !has_planning_summary
             && !has_running_summary
-            && !has_event_exploration_summary
-            && !has_event_planning_summary
-            && !has_event_running_summary
             && self.app.snapshot.plan_steps.is_empty()
             && !suppress_planning_chatter
             && !suppress_structured_plan_response
@@ -563,7 +541,6 @@ impl ActiveCell for ActiveTurnCell<'_> {
             )));
         } else if !has_active_pending_interaction
             && !has_live_thinking
-            && !has_live_events
             && let Some((role, tool_result)) = latest_tool_result
         {
             cells.push(Box::new(RespondingCell::from_tool_result(
@@ -575,9 +552,6 @@ impl ActiveCell for ActiveTurnCell<'_> {
             && !has_exploration_summary
             && !has_planning_summary
             && !has_running_summary
-            && !has_event_exploration_summary
-            && !has_event_planning_summary
-            && !has_event_running_summary
             && self.app.pending_request_input().is_none()
             && !self.app.has_pending_plan_approval()
             && self.app.pending_command_approval().is_none()

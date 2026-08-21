@@ -194,6 +194,23 @@ thinking and progress tails, but those live events have the same ordering
 contract: event order is the user-visible ordering boundary, with only adjacent
 same-role progress compaction allowed.
 
+Closed semantic segments have exactly one chronology owner: the active turn's
+ordered entry list. A currently open assistant-text or thinking stream may stay
+transient for incremental Markdown rendering, but it must enter that entry list
+at the boundary to the next semantic segment. In particular, the first text
+delta closes an open thinking stream before opening assistant text, and a later
+thinking delta closes an open assistant-text stream first. Turn commit must not
+append a second progress sidecar after the assistant response.
+
+Wall-clock timestamps are not an ordering source. The structured runtime stream
+sequence defines order, and in-process dispatch events are re-sequenced into the
+session bus's monotonic ordering domain before the TUI consumes them. A query
+turn may commit only after both its task result and a terminal runtime projection
+(`TurnFinished`, cancellation/interruption, an unrecoverable runtime error, or a
+transport terminal event) have arrived. This completion barrier ensures that a
+ready `JoinHandle` cannot commit the turn while earlier reasoning or progress
+events remain queued.
+
 Fallback rendering for plain tool and tool-progress messages keeps the newest
 tail lines when the message exceeds the main-view line budget. Recent command
 or tool output is usually the actionable state; full-output fidelity belongs to
@@ -221,6 +238,10 @@ terminal cells and transcript-detail surfaces.
 | Render committed mixed turn | `You`, thinking/exploring/running, tool calls, approvals, terminal output, and agent messages render in recorded order. |
 | Render long fallback tool message | The main view shows a hidden-earlier-lines marker plus the newest tail lines. |
 | Render live progress turn | Streaming thinking and progress events render in event order while adjacent same-role progress may compact. |
+| Close thinking before assistant text | The closed `Thinking` entry precedes the assistant segment in both active and committed views. |
+| Interleave assistant and progress segments | Repeated assistant, thinking, and tool/progress segments retain their structured event order. |
+| Query task finishes before terminal event | The active turn remains uncommitted until the terminal runtime projection is consumed. |
+| Start a second local dispatch | Request-local sequence resets are normalized by the runtime bus and do not cause the second turn's events to be dropped. |
 
 ## Open Risks
 
@@ -250,3 +271,4 @@ terminal cells and transcript-detail surfaces.
 - 2026-05-05-subagent-spawn-edge-index.md
 - 2026-05-05-subagent-background-control.md
 - 2026-07-03-subagent-reconnect.md
+- 2026-08-21-tui-turn-event-chronology.md

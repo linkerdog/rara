@@ -154,6 +154,30 @@ fn active_turn_cell_renders_progress_sections_as_compact_stack() {
 }
 
 #[test]
+fn active_turn_cell_keeps_open_thinking_after_prior_agent_segment() {
+    let temp = tempdir().unwrap();
+    let mut app = TuiApp::new(ConfigManager {
+        path: temp.path().join("config.json"),
+    })
+    .expect("build tui app");
+    app.runtime_phase = RuntimePhase::ProcessingResponse;
+    app.push_entry("You", "Explain the ordering");
+    app.append_agent_delta("First response segment.");
+    app.append_agent_thinking_delta("Later reasoning segment.");
+
+    let rendered = ActiveTurnCell::new(&app, Some(Path::new(".")))
+        .display_lines(100)
+        .into_iter()
+        .map(|line| line.to_string())
+        .collect::<Vec<_>>()
+        .join("\n");
+
+    let agent_idx = rendered.find("First response segment.").unwrap();
+    let thinking_idx = rendered.find("┊ Thinking").unwrap();
+    assert!(agent_idx < thinking_idx);
+}
+
+#[test]
 fn active_turn_cell_hides_background_stdout_label_and_pins_stderr() {
     let temp = tempdir().unwrap();
     let mut app = TuiApp::new(ConfigManager {
@@ -474,7 +498,7 @@ fn active_turn_cell_uses_stateful_live_exploration_sections() {
 }
 
 #[test]
-fn active_turn_cell_compacts_live_response_when_process_sections_exist() {
+fn active_turn_cell_preserves_agent_before_later_live_progress() {
     let temp = tempdir().unwrap();
     let mut app = TuiApp::new(ConfigManager {
         path: temp.path().join("config.json"),
@@ -499,12 +523,16 @@ fn active_turn_cell_compacts_live_response_when_process_sections_exist() {
         .collect::<Vec<_>>()
         .join("\n");
 
-    assert!(rendered.contains("# Exploring"));
+    let agent_idx = rendered
+        .find("• I have inspected the repository structure.")
+        .unwrap();
+    let exploring_idx = rendered.find("# Exploring").unwrap();
+
+    assert!(agent_idx < exploring_idx);
     assert!(rendered.contains("Read src/runtime_context.rs"));
-    assert!(rendered.contains("• I have inspected the repository structure."));
-    assert!(rendered.contains("• Next I will inspect the persistence layer."));
+    assert!(rendered.contains("Next I will inspect the persistence layer."));
     assert!(!rendered.contains("# Responding"));
-    assert!(!rendered.contains("Then I will verify the restore contract."));
+    assert!(rendered.contains("Then I will verify the restore contract."));
 }
 
 #[test]
@@ -1182,10 +1210,10 @@ fn active_turn_cell_flattens_thinking_and_running_events_in_order() {
     };
 
     app.append_agent_thinking_delta("first reasoning block\n");
-    app.flush_agent_thinking_stream_to_live_event();
+    app.finalize_agent_thinking_stream();
     app.record_running_action("Run cargo check");
     app.append_agent_thinking_delta("second reasoning block\n");
-    app.flush_agent_thinking_stream_to_live_event();
+    app.finalize_agent_thinking_stream();
     app.record_running_action("Run cargo test");
 
     let rendered = ActiveTurnCell::new(&app, Some(Path::new(".")))
@@ -1226,7 +1254,7 @@ fn active_turn_cell_places_streaming_thinking_after_latest_progress_event() {
     };
 
     app.append_agent_thinking_delta("first reasoning block\n");
-    app.flush_agent_thinking_stream_to_live_event();
+    app.finalize_agent_thinking_stream();
     app.record_running_action("Run cargo check");
     app.append_agent_thinking_delta("second reasoning block\n");
 
@@ -1266,7 +1294,7 @@ fn active_turn_cell_places_streaming_thinking_after_latest_exploration_event() {
     };
 
     app.append_agent_thinking_delta("first reasoning block\n");
-    app.flush_agent_thinking_stream_to_live_event();
+    app.finalize_agent_thinking_stream();
     app.record_exploration_action("Read src/tui/render/cells.rs");
     app.append_agent_thinking_delta("second reasoning block\n");
 
@@ -1306,7 +1334,7 @@ fn active_turn_cell_groups_consecutive_thinking_events_with_stream() {
     };
 
     app.append_agent_thinking_delta("first reasoning block\n");
-    app.flush_agent_thinking_stream_to_live_event();
+    app.finalize_agent_thinking_stream();
     app.append_agent_thinking_delta("second reasoning block\n");
 
     let rendered = ActiveTurnCell::new(&app, Some(Path::new(".")))
@@ -1341,7 +1369,7 @@ fn active_turn_cell_preserves_flushed_thinking_leading_indentation() {
     };
 
     app.append_agent_thinking_delta("    let value = 1;\n");
-    app.flush_agent_thinking_stream_to_live_event();
+    app.finalize_agent_thinking_stream();
 
     let rendered = ActiveTurnCell::new(&app, Some(Path::new(".")))
         .display_lines(100)

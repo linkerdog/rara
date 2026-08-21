@@ -128,6 +128,19 @@ impl RuntimeEventBus {
         }
     }
 
+    /// Publish only to legacy raw-event consumers.
+    ///
+    /// The in-process control-plane dispatcher publishes its own structured
+    /// lifecycle events. This path keeps hooks and legacy consumers informed
+    /// without duplicating those lifecycle boundaries on the ordered control
+    /// stream.
+    pub(crate) fn publish_raw(&self, event: AgentEvent) -> usize {
+        if self.raw_sender.receiver_count() == 0 {
+            return 0;
+        }
+        self.raw_sender.send(event).unwrap_or(0)
+    }
+
     /// Create a new receiver that will see all future events.  Past events
     /// are not replayed.
     pub fn subscribe(&self) -> broadcast::Receiver<AgentEvent> {
@@ -175,6 +188,26 @@ impl RuntimeEventBus {
         if self.control_sender.receiver_count() == 0 {
             return 0;
         }
+        self.control_sender.send(event).unwrap_or(0)
+    }
+
+    /// Publish an in-process control event using the bus-owned ordering domain.
+    ///
+    /// Control-plane dispatch assigns request-local sequence numbers. Local
+    /// runtime consumers need one monotonically increasing stream across
+    /// requests, while external protocol adapters must keep using
+    /// [`Self::publish_control_event`] to preserve their original identity.
+    pub(crate) fn publish_resequenced_control_event(
+        &self,
+        mut event: RuntimeControlEvent,
+    ) -> usize {
+        if self.control_sender.receiver_count() == 0 {
+            return 0;
+        }
+        let sequence = self.next_sequence.fetch_add(1, Ordering::SeqCst) + 1;
+        event.event_id = format!("ctl-{sequence:016x}");
+        event.sequence = sequence;
+        self.project_tool_identity(&mut event);
         self.control_sender.send(event).unwrap_or(0)
     }
 }
@@ -304,6 +337,50 @@ mod tests {
         assert_eq!(received.event_id, "acp-1");
         assert_eq!(received.sequence, 7);
         assert_eq!(received.provenance.session_id.as_deref(), Some("session-1"));
+    }
+
+    #[test]
+    fn in_process_events_are_resequenced_across_dispatch_requests() {
+        let bus = RuntimeEventBus::new(8);
+        let mut control = bus.subscribe_control();
+        let provenance = RuntimeProvenance::local_tui("session-1");
+
+        for event in [
+            RuntimeEvent::Session(crate::runtime_control::SessionEvent::TurnStarted),
+            RuntimeEvent::Session(crate::runtime_control::SessionEvent::TurnFinished {
+                reason: Some("turn complete".into()),
+            }),
+        ] {
+            let local_event = RuntimeControlEvent {
+                event_id: "evt-dispatch-1".into(),
+                provenance: provenance.clone(),
+                sequence: 1,
+                event,
+            };
+            assert_eq!(bus.publish_resequenced_control_event(local_event), 1);
+        }
+
+        let started = control.try_recv().expect("turn started");
+        let finished = control.try_recv().expect("turn finished");
+        assert_eq!((started.sequence, finished.sequence), (1, 2));
+        assert_eq!(started.event_id, "ctl-0000000000000001");
+        assert_eq!(finished.event_id, "ctl-0000000000000002");
+        assert_eq!(started.provenance, provenance);
+        assert_eq!(finished.provenance, provenance);
+    }
+
+    #[test]
+    fn raw_lifecycle_events_do_not_duplicate_control_boundaries() {
+        let bus = RuntimeEventBus::new(8);
+        let mut raw = bus.subscribe();
+        let mut control = bus.subscribe_control();
+
+        assert_eq!(bus.publish_raw(AgentEvent::AgentStart), 1);
+        assert!(matches!(
+            raw.try_recv().expect("raw lifecycle event"),
+            AgentEvent::AgentStart
+        ));
+        assert!(control.try_recv().is_err());
     }
 
     #[test]
