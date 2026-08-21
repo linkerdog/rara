@@ -24,6 +24,9 @@ RARA previously rendered thinking as `# Thinking` section header with full inlin
 2. **Dimmed border-left accent** (`┊ `) for expanded thinking lines
 3. **Auto-expand** during live streaming; always collapsed for committed
 4. **Unify** `ThinkingTextCell` + `ThinkingGroupCell` → single `ThinkingBlockCell`
+5. **Chronological closure** — only the currently open thinking stream is kept
+   outside the transcript; closing it inserts a `Thinking` entry at that exact
+   event boundary before assistant text, tools, or later progress
 
 ## Display state
 
@@ -56,13 +59,15 @@ Committed (collapsed):
 ## Verification
 
 - `cargo fmt` / `cargo clippy` — zero new errors
-- `cargo test tui::render::cells::tests` — 66/66 passed
+- state tests cover thinking-before-answer and interleaved assistant/progress
+  segments
+- active and committed render tests verify that closed and streaming thinking
+  remain at their recorded positions
+- controller tests cover both task-first and terminal-event-first completion
 
 ## Follow-up (planned, not implemented)
 
 - **Enter-key toggle**: committed thinking blocks currently always collapsed. Adding an
   `expanded` state independent of `is_streaming` would enable Enter to toggle.
   Needs plumbing through `input_control.rs` and `terminal_ui.rs`.
-- **Committed turn positioning**: position thinking block as a separate section
-  between `# You` and agent response in committed turns (`committed_turn.rs`).
 - **Runtime elapsed time**: display elapsed duration in the collapsed summary line.

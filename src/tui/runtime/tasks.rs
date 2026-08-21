@@ -71,7 +71,11 @@ fn forward_task_result_lifecycle<T>(
     provenance: &RuntimeProvenance,
     result: &anyhow::Result<T>,
 ) {
-    let event = match result {
+    forward_lifecycle_event_to_bus(bus, task_result_lifecycle_event(result), provenance);
+}
+
+fn task_result_lifecycle_event<T>(result: &anyhow::Result<T>) -> AgentEvent {
+    match result {
         Ok(_) => AgentEvent::AgentStop {
             reason: "turn complete".to_string(),
         },
@@ -88,8 +92,7 @@ fn forward_task_result_lifecycle<T>(
                 }
             }
         }
-    };
-    forward_lifecycle_event_to_bus(bus, event, provenance);
+    }
 }
 
 fn forward_optional_task_result_lifecycle<T>(
@@ -215,8 +218,6 @@ pub(crate) fn start_input_control_task_with_services(
     let (sender, receiver) = mpsc::unbounded_channel();
     let cancellation_token = Arc::new(AtomicBool::new(false));
     let bus = app.event_bus.clone().expect("event bus must exist");
-    let event_provenance = local_tui_event_provenance(&agent.session_id);
-
     app.clear_pending_planning_suggestion();
     app.clear_active_live_sections();
     app.begin_running_turn();
@@ -238,7 +239,7 @@ pub(crate) fn start_input_control_task_with_services(
     agent.set_full_access_mode(app.permission_mode == PermissionMode::FullAccess);
     sync_bash_prefixes_from_config(app, &mut agent);
     agent.set_cancellation_token(Some(cancellation_token.clone()));
-    forward_lifecycle_event_to_bus(&bus, AgentEvent::AgentStart, &event_provenance);
+    bus.publish_raw(AgentEvent::AgentStart);
     let handle = tokio::spawn(async move {
         let tx = sender.clone();
         let provenance =
@@ -251,7 +252,6 @@ pub(crate) fn start_input_control_task_with_services(
 
         let bus_arg = Some(bus.clone());
         let lifecycle_bus = bus.clone();
-        let lifecycle_provenance = event_provenance.clone();
         let result = crate::control_plane::dispatch(
             envelope,
             &mcp_manager,
@@ -264,14 +264,14 @@ pub(crate) fn start_input_control_task_with_services(
                 bus_arg
                     .as_ref()
                     .expect("runtime event bus must exist")
-                    .publish_control_event(control_event.clone());
+                    .publish_resequenced_control_event(control_event.clone());
                 let _ = tx.send(TuiEvent::Runtime(Box::new(control_event)));
             },
         )
         .await;
 
         let result = result.map_err(|e| anyhow::anyhow!("{e}"));
-        forward_task_result_lifecycle(&lifecycle_bus, &lifecycle_provenance, &result);
+        lifecycle_bus.publish_raw(task_result_lifecycle_event(&result));
         TaskCompletion::Query { agent, result }
     });
 

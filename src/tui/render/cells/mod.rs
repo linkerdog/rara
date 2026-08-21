@@ -81,6 +81,7 @@ pub(super) mod terminal;
 
 fn ordered_exploration_agent_segments<'a>(
     current_turn: &[&'a TranscriptEntry],
+    force_ordered_agent: bool,
 ) -> Option<Vec<OrderedActiveSegment<'a>>> {
     let mut segments = Vec::new();
     let mut exploration_items = Vec::new();
@@ -123,7 +124,14 @@ fn ordered_exploration_agent_segments<'a>(
                 if messages.is_empty() {
                     continue;
                 }
-                if !exploration_items.is_empty() || !segments.is_empty() {
+                let continues_progress_group = matches!(
+                    segments.last(),
+                    Some(OrderedActiveSegment::Progress(last_role, _))
+                        if *last_role == progress_role
+                );
+                if !exploration_items.is_empty()
+                    || (!continues_progress_group && !segments.is_empty())
+                {
                     saw_interleaving = true;
                 }
                 flush_exploration(&mut segments, &mut exploration_items);
@@ -159,7 +167,10 @@ fn ordered_exploration_agent_segments<'a>(
         && matches!(segments.first(), Some(OrderedActiveSegment::Exploration(_)))
         && matches!(segments.last(), Some(OrderedActiveSegment::Agent(_)));
 
-    if saw_interleaving || (segments.len() > 1 && !simple_exploration_then_agent) {
+    if saw_interleaving
+        || (segments.len() > 1 && !simple_exploration_then_agent)
+        || (force_ordered_agent && !segments.is_empty())
+    {
         Some(segments)
     } else {
         None

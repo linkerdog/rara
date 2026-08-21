@@ -5,32 +5,10 @@ use rara_state::state_db::PersistedTurnEntry;
 use ratatui::text::Line;
 
 use super::{
-    ActiveLiveEvent, ActiveLiveSections, PendingFollowUpMessage, RuntimePhase, SystemMessageKind,
-    TranscriptEntry, TranscriptTurn, TuiApp,
+    PendingFollowUpMessage, RuntimePhase, SystemMessageKind, TranscriptEntry, TranscriptTurn,
+    TuiApp,
 };
 use crate::tui::terminal_event::TerminalEvent;
-
-fn legacy_active_live_sections(live: &ActiveLiveSections) -> Vec<(&'static str, Vec<String>)> {
-    vec![
-        (
-            "Exploring",
-            live.exploration_actions
-                .iter()
-                .chain(live.exploration_notes.iter())
-                .cloned()
-                .collect::<Vec<_>>(),
-        ),
-        (
-            "Planning",
-            live.planning_actions
-                .iter()
-                .chain(live.planning_notes.iter())
-                .cloned()
-                .collect::<Vec<_>>(),
-        ),
-        ("Running", live.running_actions.to_vec()),
-    ]
-}
 
 fn is_agent_segment_boundary(entry: &TranscriptEntry) -> bool {
     if matches!(
@@ -167,6 +145,7 @@ impl TuiApp {
     }
 
     pub fn append_agent_delta(&mut self, delta: &str) {
+        self.finalize_agent_thinking_stream();
         let cwd = if !self.snapshot.cwd.is_empty() {
             PathBuf::from(self.snapshot.cwd.as_str())
         } else {
@@ -180,6 +159,9 @@ impl TuiApp {
     }
 
     pub fn append_agent_thinking_delta(&mut self, delta: &str) {
+        if self.agent_markdown_stream.is_some() {
+            self.finalize_agent_stream(None);
+        }
         let cwd = if !self.snapshot.cwd.is_empty() {
             PathBuf::from(self.snapshot.cwd.as_str())
         } else {
@@ -196,7 +178,7 @@ impl TuiApp {
         self.reset_transcript_scroll_if_following_tail();
     }
 
-    pub fn flush_agent_thinking_stream_to_live_event(&mut self) {
+    pub fn finalize_agent_thinking_stream(&mut self) {
         let Some(stream) = self.agent_thinking_stream.take() else {
             return;
         };
@@ -207,7 +189,7 @@ impl TuiApp {
         if message.trim().is_empty() {
             return;
         }
-        self.push_active_live_event(ActiveLiveEvent::Thinking(message));
+        self.push_active_progress_entry("Thinking", message);
         self.reset_transcript_scroll_if_following_tail();
     }
 
@@ -232,7 +214,7 @@ impl TuiApp {
     }
 
     pub fn finalize_agent_stream(&mut self, final_message: Option<String>) {
-        self.flush_agent_thinking_stream_to_live_event();
+        self.finalize_agent_thinking_stream();
         let fallback = self
             .agent_markdown_stream
             .take()
@@ -355,32 +337,8 @@ impl TuiApp {
             + self.active_turn.entries.len()
     }
 
-    fn materialize_active_live_entries(&mut self) {
-        if !self.active_live.events.is_empty() {
-            for event in &self.active_live.events {
-                self.active_turn.entries.push(TranscriptEntry::new(
-                    event.role(),
-                    event.message().to_string(),
-                ));
-            }
-            return;
-        }
-
-        let sections = legacy_active_live_sections(&self.active_live);
-
-        for (role, lines) in sections {
-            if lines.is_empty() {
-                continue;
-            }
-            self.active_turn
-                .entries
-                .push(TranscriptEntry::new(role, lines.join("\n")));
-        }
-    }
-
     fn commit_active_turn(&mut self) {
         self.finalize_agent_stream(None);
-        self.materialize_active_live_entries();
         if self.active_turn.entries.is_empty() {
             self.clear_active_live_sections();
             return;
@@ -426,13 +384,19 @@ impl TuiApp {
         self.active_live = super::ActiveLiveSections::default();
     }
 
-    fn push_active_live_event(&mut self, event: ActiveLiveEvent) {
-        self.active_live
-            .events
-            .push(sanitize_active_live_event(event));
+    fn push_active_progress_entry(&mut self, role: &'static str, message: String) {
+        let message = crate::tui::display_sanitize::sanitize_display_text(&message);
+        self.push_entry(role, message);
     }
 
+    #[cfg(test)]
     pub fn record_exploration_action(&mut self, action: impl Into<String>) {
+        let action = crate::tui::display_sanitize::sanitize_display_text(&action.into());
+        self.cache_exploration_action(action.clone());
+        self.push_active_progress_entry("Exploring", action);
+    }
+
+    pub(crate) fn cache_exploration_action(&mut self, action: impl Into<String>) {
         let action = crate::tui::display_sanitize::sanitize_display_text(&action.into());
         if !self
             .active_live
@@ -440,9 +404,8 @@ impl TuiApp {
             .iter()
             .any(|item| item == &action)
         {
-            self.active_live.exploration_actions.push(action.clone());
+            self.active_live.exploration_actions.push(action);
         }
-        self.push_active_live_event(ActiveLiveEvent::ExplorationAction(action));
     }
 
     pub fn record_exploration_note(&mut self, note: impl Into<String>) {
@@ -455,10 +418,17 @@ impl TuiApp {
         {
             self.active_live.exploration_notes.push(note.clone());
         }
-        self.push_active_live_event(ActiveLiveEvent::ExplorationNote(note));
+        self.push_active_progress_entry("Exploring", note);
     }
 
+    #[cfg(test)]
     pub fn record_running_action(&mut self, action: impl Into<String>) {
+        let action = crate::tui::display_sanitize::sanitize_display_text(&action.into());
+        self.cache_running_action(action.clone());
+        self.push_active_progress_entry("Running", action);
+    }
+
+    pub(crate) fn cache_running_action(&mut self, action: impl Into<String>) {
         let action = crate::tui::display_sanitize::sanitize_display_text(&action.into());
         if !self
             .active_live
@@ -466,12 +436,18 @@ impl TuiApp {
             .iter()
             .any(|item| item == &action)
         {
-            self.active_live.running_actions.push(action.clone());
+            self.active_live.running_actions.push(action);
         }
-        self.push_active_live_event(ActiveLiveEvent::RunningAction(action));
     }
 
+    #[cfg(test)]
     pub fn record_planning_action(&mut self, action: impl Into<String>) {
+        let action = crate::tui::display_sanitize::sanitize_display_text(&action.into());
+        self.cache_planning_action(action.clone());
+        self.push_active_progress_entry("Planning", action);
+    }
+
+    pub(crate) fn cache_planning_action(&mut self, action: impl Into<String>) {
         let action = crate::tui::display_sanitize::sanitize_display_text(&action.into());
         if !self
             .active_live
@@ -479,9 +455,8 @@ impl TuiApp {
             .iter()
             .any(|item| item == &action)
         {
-            self.active_live.planning_actions.push(action.clone());
+            self.active_live.planning_actions.push(action);
         }
-        self.push_active_live_event(ActiveLiveEvent::PlanningAction(action));
     }
 
     pub fn record_planning_note(&mut self, note: impl Into<String>) {
@@ -494,7 +469,7 @@ impl TuiApp {
         {
             self.active_live.planning_notes.push(note.clone());
         }
-        self.push_active_live_event(ActiveLiveEvent::PlanningNote(note));
+        self.push_active_progress_entry("Planning", note);
     }
 
     pub fn has_pending_planning_suggestion(&self) -> bool {
@@ -632,28 +607,5 @@ impl TuiApp {
 
     pub fn clear_pending_planning_suggestion(&mut self) {
         self.bottom_pane.pending_planning_suggestion = None;
-    }
-}
-
-fn sanitize_active_live_event(event: ActiveLiveEvent) -> ActiveLiveEvent {
-    match event {
-        ActiveLiveEvent::Thinking(message) => ActiveLiveEvent::Thinking(
-            crate::tui::display_sanitize::sanitize_display_text(&message),
-        ),
-        ActiveLiveEvent::ExplorationAction(message) => ActiveLiveEvent::ExplorationAction(
-            crate::tui::display_sanitize::sanitize_display_text(&message),
-        ),
-        ActiveLiveEvent::ExplorationNote(message) => ActiveLiveEvent::ExplorationNote(
-            crate::tui::display_sanitize::sanitize_display_text(&message),
-        ),
-        ActiveLiveEvent::PlanningAction(message) => ActiveLiveEvent::PlanningAction(
-            crate::tui::display_sanitize::sanitize_display_text(&message),
-        ),
-        ActiveLiveEvent::PlanningNote(message) => ActiveLiveEvent::PlanningNote(
-            crate::tui::display_sanitize::sanitize_display_text(&message),
-        ),
-        ActiveLiveEvent::RunningAction(message) => ActiveLiveEvent::RunningAction(
-            crate::tui::display_sanitize::sanitize_display_text(&message),
-        ),
     }
 }

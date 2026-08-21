@@ -1371,6 +1371,72 @@ fn finalized_agent_stream_does_not_replace_agent_text_before_tool_boundary() {
 }
 
 #[test]
+fn committed_turn_keeps_thinking_before_final_agent_message() {
+    let dir = tempdir().expect("tempdir");
+    let cm = ConfigManager {
+        path: dir.path().join("config.json"),
+    };
+    let mut app = TuiApp::new(cm).expect("app");
+    app.push_entry("You", "Explain the ordering bug");
+
+    app.append_agent_thinking_delta("Trace the event stream.");
+    app.append_agent_delta("The transcript has two ordering sources.");
+    app.finalize_active_turn();
+
+    let entries = &app.committed_turns[0].entries;
+    let roles = entries
+        .iter()
+        .map(|entry| entry.role.as_str())
+        .collect::<Vec<_>>();
+    assert_eq!(roles, vec!["You", "Thinking", "Agent"]);
+    assert_eq!(entries[1].message, "Trace the event stream.");
+    assert_eq!(
+        entries[2].message,
+        "The transcript has two ordering sources."
+    );
+}
+
+#[test]
+fn committed_turn_preserves_interleaved_assistant_segments() {
+    let dir = tempdir().expect("tempdir");
+    let cm = ConfigManager {
+        path: dir.path().join("config.json"),
+    };
+    let mut app = TuiApp::new(cm).expect("app");
+    app.push_entry("You", "Inspect, run a tool, and finish");
+
+    app.append_agent_thinking_delta("Inspect the implementation.");
+    app.append_agent_delta("I found the relevant state transition.");
+    app.finalize_agent_stream(None);
+    app.push_tool_entry(
+        Some("call-1"),
+        "cargo_check",
+        super::ToolTranscriptStatus::Completed,
+        "cargo check passed",
+    );
+    app.append_agent_thinking_delta("Interpret the tool result.");
+    app.append_agent_delta("The fix is ready.");
+    app.finalize_active_turn();
+
+    let entries = &app.committed_turns[0].entries;
+    let ordered = entries
+        .iter()
+        .map(|entry| (entry.role.as_str(), entry.message.as_str()))
+        .collect::<Vec<_>>();
+    assert_eq!(
+        ordered,
+        vec![
+            ("You", "Inspect, run a tool, and finish"),
+            ("Thinking", "Inspect the implementation."),
+            ("Agent", "I found the relevant state transition."),
+            ("Tool Result", "cargo check passed"),
+            ("Thinking", "Interpret the tool result."),
+            ("Agent", "The fix is ready."),
+        ]
+    );
+}
+
+#[test]
 fn flushed_agent_thinking_stream_scrubs_internal_runtime_blocks() {
     let dir = tempdir().expect("tempdir");
     let cm = ConfigManager {
@@ -1381,14 +1447,14 @@ fn flushed_agent_thinking_stream_scrubs_internal_runtime_blocks() {
     app.append_agent_thinking_delta("Visible thought.\n");
     app.append_agent_thinking_delta("<agent_runtime>\n{\"phase\":\"tool_results_available\"}");
     app.append_agent_thinking_delta("\n</agent_runtime>\nNext thought.");
-    app.flush_agent_thinking_stream_to_live_event();
+    app.finalize_agent_thinking_stream();
 
-    assert_eq!(app.active_live.events.len(), 1);
-    let event = app.active_live.events.first().expect("thinking event");
-    assert_eq!(event.role(), "Thinking");
-    assert_eq!(event.message(), "Visible thought.\n\nNext thought.");
-    assert!(!event.message().contains("agent_runtime"));
-    assert!(!event.message().contains("tool_results_available"));
+    assert_eq!(app.active_turn.entries.len(), 1);
+    let entry = app.active_turn.entries.first().expect("thinking entry");
+    assert_eq!(entry.role, "Thinking");
+    assert_eq!(entry.message, "Visible thought.\n\nNext thought.");
+    assert!(!entry.message.contains("agent_runtime"));
+    assert!(!entry.message.contains("tool_results_available"));
 }
 
 #[test]
@@ -1402,12 +1468,12 @@ fn live_progress_events_sanitize_terminal_controls() {
     app.record_running_action("Run\r\u{1b}[31mcargo check\u{1b}[0m\u{8}");
     app.record_exploration_note("Read\tfile\u{7}");
 
-    assert_eq!(app.active_live.events.len(), 2);
-    assert_eq!(app.active_live.events[0].message(), "Run\ncargo check");
-    assert_eq!(app.active_live.events[1].message(), "Read    file");
-    assert!(!app.active_live.events[0].message().contains('\r'));
-    assert!(!app.active_live.events[0].message().contains('\u{1b}'));
-    assert!(!app.active_live.events[1].message().contains('\u{7}'));
+    assert_eq!(app.active_turn.entries.len(), 2);
+    assert_eq!(app.active_turn.entries[0].message, "Run\ncargo check");
+    assert_eq!(app.active_turn.entries[1].message, "Read    file");
+    assert!(!app.active_turn.entries[0].message.contains('\r'));
+    assert!(!app.active_turn.entries[0].message.contains('\u{1b}'));
+    assert!(!app.active_turn.entries[1].message.contains('\u{7}'));
 }
 
 #[test]

@@ -54,11 +54,11 @@ pub(crate) fn apply_tui_event(app: &mut TuiApp, event: TuiEvent) {
                 app.finalize_agent_stream(None);
                 if role == "Tool" {
                     if let Some(action) = exploration_action_label(&message) {
-                        app.record_exploration_action(action);
+                        app.cache_exploration_action(action);
                     } else if let Some(action) = planning_action_label(&message) {
-                        app.record_planning_action(action);
+                        app.cache_planning_action(action);
                     } else if let Some(action) = tool_action_label(&message) {
-                        app.record_running_action(action);
+                        app.cache_running_action(action);
                     }
                 } else if let Some(request) = subagent_request_input(&message) {
                     app.advance_running_tool_boundary();
@@ -193,7 +193,7 @@ pub(crate) fn apply_tui_event(app: &mut TuiApp, event: TuiEvent) {
             if role == "Tool"
                 && let Some(action) = tool_action_label(&message)
             {
-                app.record_running_action(action);
+                app.cache_running_action(action);
             }
             if matches!(role, "Tool Result" | "Tool Error") {
                 app.advance_running_tool_boundary();
@@ -209,7 +209,7 @@ pub(crate) fn apply_tui_event(app: &mut TuiApp, event: TuiEvent) {
             stream,
             chunk,
         } => {
-            app.flush_agent_thinking_stream_to_live_event();
+            app.finalize_agent_thinking_stream();
             if !append_tool_progress(app, &name, stream, &chunk) {
                 return;
             }
@@ -292,11 +292,11 @@ fn apply_runtime_control_event(app: &mut TuiApp, event: RuntimeControlEvent) {
             }
             app.finalize_agent_stream(None);
             if let Some(action) = exploration_action_label_for(&name, &input) {
-                app.record_exploration_action(action);
+                app.cache_exploration_action(action);
             } else if let Some(action) = planning_action_label_for(&name, &input) {
-                app.record_planning_action(action);
+                app.cache_planning_action(action);
             } else if let Some(action) = tool_action_label_for(&name, &input) {
-                app.record_running_action(action);
+                app.cache_running_action(action);
             }
             app.set_runtime_phase(RuntimePhase::RunningTool, Some(name.clone()));
             app.push_tool_entry(

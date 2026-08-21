@@ -152,11 +152,13 @@ pub async fn run_tui(
                 match runtime_activity {
                     RuntimeActivity::Event(Some(event)) => {
                         needs_redraw |= maintainer.apply_runtime_event(event);
+                        needs_redraw |= maintainer.complete_query_if_ready(&mut processor).await?;
                     }
                     RuntimeActivity::Event(None) => {}
                     RuntimeActivity::Completed(completion) => {
-                        maintainer.complete_runtime_task(&mut processor, completion).await?;
-                        needs_redraw = true;
+                        needs_redraw |= maintainer
+                            .receive_runtime_task_completion(&mut processor, completion)
+                            .await?;
                     }
                     RuntimeActivity::Command(Some(command)) => {
                         maintainer.apply_runtime_command(&mut processor, command).await?;

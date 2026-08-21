@@ -937,10 +937,10 @@ fn active_turn_cell_flattens_thinking_and_running_events_in_order() {
     };
 
     app.append_agent_thinking_delta("first reasoning block\n");
-    app.flush_agent_thinking_stream_to_live_event();
+    app.finalize_agent_thinking_stream();
     app.record_running_action("Run cargo check");
     app.append_agent_thinking_delta("second reasoning block\n");
-    app.flush_agent_thinking_stream_to_live_event();
+    app.finalize_agent_thinking_stream();
     app.record_running_action("Run cargo test");
 
     let rendered = ActiveTurnCell::new(&app, Some(Path::new(".")))
@@ -980,7 +980,7 @@ fn active_turn_cell_places_streaming_thinking_after_latest_progress_event() {
     };
 
     app.append_agent_thinking_delta("first reasoning block\n");
-    app.flush_agent_thinking_stream_to_live_event();
+    app.finalize_agent_thinking_stream();
     app.record_running_action("Run cargo check");
     app.append_agent_thinking_delta("second reasoning block\n");
 
@@ -1019,7 +1019,7 @@ fn active_turn_cell_places_streaming_thinking_after_latest_exploration_event() {
     };
 
     app.append_agent_thinking_delta("first reasoning block\n");
-    app.flush_agent_thinking_stream_to_live_event();
+    app.finalize_agent_thinking_stream();
     app.record_exploration_action("Read src/tui/render/cells.rs");
     app.append_agent_thinking_delta("second reasoning block\n");
 
@@ -1058,7 +1058,7 @@ fn active_turn_cell_groups_consecutive_thinking_events_with_stream() {
     };
 
     app.append_agent_thinking_delta("first reasoning block\n");
-    app.flush_agent_thinking_stream_to_live_event();
+    app.finalize_agent_thinking_stream();
     app.append_agent_thinking_delta("second reasoning block\n");
 
     let rendered = ActiveTurnCell::new(&app, Some(Path::new(".")))
@@ -1093,7 +1093,7 @@ fn active_turn_cell_preserves_flushed_thinking_leading_indentation() {
     };
 
     app.append_agent_thinking_delta("    let value = 1;\n");
-    app.flush_agent_thinking_stream_to_live_event();
+    app.finalize_agent_thinking_stream();
 
     let rendered = ActiveTurnCell::new(&app, Some(Path::new(".")))
         .display_lines(100)

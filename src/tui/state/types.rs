@@ -722,45 +722,8 @@ impl AgentMarkdownStreamState {
     }
 }
 
-#[derive(Clone)]
-pub enum ActiveLiveEvent {
-    Thinking(String),
-    ExplorationAction(String),
-    ExplorationNote(String),
-    PlanningAction(String),
-    PlanningNote(String),
-    RunningAction(String),
-}
-
-impl ActiveLiveEvent {
-    pub fn role(&self) -> &'static str {
-        match self {
-            Self::Thinking(_) => "Thinking",
-            Self::ExplorationAction(_) | Self::ExplorationNote(_) => "Exploring",
-            Self::PlanningAction(_) | Self::PlanningNote(_) => "Planning",
-            Self::RunningAction(_) => "Running",
-        }
-    }
-
-    pub fn message(&self) -> &str {
-        match self {
-            Self::Thinking(message)
-            | Self::ExplorationAction(message)
-            | Self::ExplorationNote(message)
-            | Self::PlanningAction(message)
-            | Self::PlanningNote(message)
-            | Self::RunningAction(message) => message,
-        }
-    }
-
-    pub fn is_note(&self) -> bool {
-        matches!(self, Self::ExplorationNote(_) | Self::PlanningNote(_))
-    }
-}
-
 #[derive(Default)]
 pub struct ActiveLiveSections {
-    pub events: Vec<ActiveLiveEvent>,
     /// Timestamp of the first Thinking event in the current agent turn,
     /// used to display how long the model spent thinking.
     pub thinking_started_at: Option<std::time::Instant>,
