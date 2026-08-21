@@ -6,12 +6,14 @@ pub(super) async fn rebuild_agent_with_progress(
     config: &crate::config::RaraConfig,
     progress: Option<crate::local_backend::LocalProgressReporter>,
     plugin_dirs: Vec<std::path::PathBuf>,
+    agent_tree_control: Option<Arc<crate::tools::agent::AgentTreeControl>>,
 ) -> anyhow::Result<RebuildSuccess> {
     let bootstrap = crate::runtime_context::initialize_rara_context_for_workspace_with_options(
         config,
         None,
         progress,
-        crate::runtime_context::RuntimeBootstrapOptions::with_plugin_dirs(plugin_dirs),
+        crate::runtime_context::RuntimeBootstrapOptions::with_plugin_dirs(plugin_dirs)
+            .with_agent_tree_control(agent_tree_control),
     )
     .await?;
     let event_bus = bootstrap.event_bus.clone();

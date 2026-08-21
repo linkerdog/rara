@@ -26,6 +26,10 @@ use crate::config::DEFAULT_CODEX_BASE_URL;
 use crate::oauth::{OAuthManager, SavedCodexAuthMode};
 use crate::runtime_control::{SessionControlRequest, ShellApprovalDecision};
 
+mod maintenance;
+
+use maintenance::{request_maintenance, resume_pending_shell_approval_after_full_access};
+
 #[cfg(test)]
 pub(crate) async fn dispatch_event(
     event: AppEvent,
@@ -408,13 +412,19 @@ async fn dispatch_event_inner(
                     app.bottom_pane.notice =
                         Some("Saved Codex API key. Rebuilding backend.".into());
                     app.dismiss_overlay();
-                    request_maintenance(app, runtime_port, RuntimeMaintenanceCommand::Rebuild)
-                        .await?;
+                    request_maintenance(
+                        app,
+                        agent_slot,
+                        runtime_port,
+                        RuntimeMaintenanceCommand::Rebuild,
+                    )
+                    .await?;
                 } else if target == ApiKeyTarget::DeepSeek {
                     app.bottom_pane.notice = Some("Saved DeepSeek API key. Loading models.".into());
                     app.dismiss_overlay();
                     request_maintenance(
                         app,
+                        agent_slot,
                         runtime_port,
                         RuntimeMaintenanceCommand::RefreshModelCatalog(
                             ModelCatalogProvider::DeepSeek,
@@ -427,6 +437,7 @@ async fn dispatch_event_inner(
                     app.dismiss_overlay();
                     request_maintenance(
                         app,
+                        agent_slot,
                         runtime_port,
                         RuntimeMaintenanceCommand::RefreshModelCatalog(ModelCatalogProvider::Kimi),
                     )
@@ -435,8 +446,13 @@ async fn dispatch_event_inner(
                     app.bottom_pane.notice =
                         Some("Saved Kimi For Coding API key. Rebuilding backend.".into());
                     app.dismiss_overlay();
-                    request_maintenance(app, runtime_port, RuntimeMaintenanceCommand::Rebuild)
-                        .await?;
+                    request_maintenance(
+                        app,
+                        agent_slot,
+                        runtime_port,
+                        RuntimeMaintenanceCommand::Rebuild,
+                    )
+                    .await?;
                 } else {
                     app.bottom_pane.notice = Some(
                         match target {
@@ -527,6 +543,7 @@ async fn dispatch_event_inner(
                     app,
                     OpenAiModelPickerAction::DeleteProfile,
                     runtime_port,
+                    agent_slot.as_ref().and_then(Agent::agent_tree_control),
                 )
                 .await?;
             }
@@ -639,6 +656,7 @@ async fn dispatch_event_inner(
                                     app.apply_selected_codex_reasoning_effort();
                                     request_maintenance(
                                         app,
+                                        agent_slot,
                                         runtime_port,
                                         RuntimeMaintenanceCommand::Rebuild,
                                     )
@@ -652,8 +670,13 @@ async fn dispatch_event_inner(
                                 == ProviderFamily::OpenAiCompatible
                             {
                                 if let Some(action) = app.selected_openai_model_picker_action() {
-                                    apply_openai_model_picker_action(app, action, runtime_port)
-                                        .await?;
+                                    apply_openai_model_picker_action(
+                                        app,
+                                        action,
+                                        runtime_port,
+                                        agent_slot.as_ref().and_then(Agent::agent_tree_control),
+                                    )
+                                    .await?;
                                 }
                             } else if app.selected_provider_family() == ProviderFamily::DeepSeek {
                                 if app.selected_deepseek_api_key_action() {
@@ -663,6 +686,7 @@ async fn dispatch_event_inner(
                                     app.config.reasoning_effort = Some("max".to_string());
                                     request_maintenance(
                                         app,
+                                        agent_slot,
                                         runtime_port,
                                         RuntimeMaintenanceCommand::Rebuild,
                                     )
@@ -677,6 +701,7 @@ async fn dispatch_event_inner(
                                     app.select_local_model(app.model_picker_idx);
                                     request_maintenance(
                                         app,
+                                        agent_slot,
                                         runtime_port,
                                         RuntimeMaintenanceCommand::Rebuild,
                                     )
@@ -689,6 +714,7 @@ async fn dispatch_event_inner(
                                     app.select_local_model(app.model_picker_idx);
                                     request_maintenance(
                                         app,
+                                        agent_slot,
                                         runtime_port,
                                         RuntimeMaintenanceCommand::Rebuild,
                                     )
@@ -702,6 +728,7 @@ async fn dispatch_event_inner(
                                 app.select_local_model(app.model_picker_idx);
                                 request_maintenance(
                                     app,
+                                    agent_slot,
                                     runtime_port,
                                     RuntimeMaintenanceCommand::Rebuild,
                                 )
@@ -732,6 +759,7 @@ async fn dispatch_event_inner(
                                             app.apply_selected_codex_reasoning_effort();
                                             request_maintenance(
                                                 app,
+                                                agent_slot,
                                                 runtime_port,
                                                 RuntimeMaintenanceCommand::Rebuild,
                                             )
@@ -769,6 +797,7 @@ async fn dispatch_event_inner(
                                     }
                                     request_maintenance(
                                         app,
+                                        agent_slot,
                                         runtime_port,
                                         RuntimeMaintenanceCommand::Rebuild,
                                     )
@@ -811,6 +840,7 @@ async fn dispatch_event_inner(
                                 if app.config.provider == "codex" {
                                     request_maintenance(
                                         app,
+                                        agent_slot,
                                         runtime_port,
                                         RuntimeMaintenanceCommand::Rebuild,
                                     )
@@ -824,6 +854,7 @@ async fn dispatch_event_inner(
                             app.apply_selected_codex_reasoning_effort();
                             request_maintenance(
                                 app,
+                                agent_slot,
                                 runtime_port,
                                 RuntimeMaintenanceCommand::Rebuild,
                             )
@@ -865,6 +896,7 @@ async fn dispatch_event_inner(
                             app.dismiss_overlay();
                             request_maintenance(
                                 app,
+                                agent_slot,
                                 runtime_port,
                                 RuntimeMaintenanceCommand::Rebuild,
                             )
@@ -933,57 +965,4 @@ async fn dispatch_event_inner(
         },
     }
     Ok(false)
-}
-
-async fn request_maintenance(
-    app: &mut TuiApp,
-    runtime_port: Option<&dyn RuntimeClientPort>,
-    command: RuntimeMaintenanceCommand,
-) -> anyhow::Result<()> {
-    if let Some(runtime_port) = runtime_port {
-        runtime_port
-            .send(RuntimeCommand::Maintenance(command))
-            .await?;
-    } else {
-        match command {
-            RuntimeMaintenanceCommand::Rebuild => super::runtime::start_rebuild_task(app),
-            RuntimeMaintenanceCommand::RefreshModelCatalog(provider) => {
-                super::runtime::start_model_catalog_task(app, provider)
-            }
-            RuntimeMaintenanceCommand::Compact => {
-                app.push_notice("Compaction requires an active runtime client.")
-            }
-        }
-    }
-    Ok(())
-}
-
-async fn resume_pending_shell_approval_after_full_access(
-    app: &mut TuiApp,
-    agent_slot: &mut Option<Agent>,
-    runtime_port: Option<&dyn RuntimeClientPort>,
-) -> anyhow::Result<bool> {
-    if app.permission_mode != PermissionMode::FullAccess
-        || !app.active_pending_interaction().is_some_and(|interaction| {
-            interaction.kind == ActivePendingInteractionKind::ShellApproval
-        })
-        || app.is_busy()
-    {
-        return Ok(false);
-    }
-
-    if let Some(runtime_port) = runtime_port {
-        runtime_port
-            .send(RuntimeCommand::Input(
-                crate::runtime_control::InputControlRequest::AnswerShellApproval {
-                    decision: ShellApprovalDecision::Once,
-                },
-            ))
-            .await?;
-    } else if agent_slot.is_some() {
-        input_control::answer_shell_approval(app, agent_slot, ShellApprovalDecision::Once);
-    } else {
-        app.push_notice("Permission mode: full-access. Approval is still preparing.");
-    }
-    Ok(true)
 }

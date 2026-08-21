@@ -11,7 +11,7 @@ use self::tooling::{create_full_tool_manager, load_skill_manager};
 use crate::agent::Agent;
 use crate::config::{
     BuiltinPluginConfig, DEFAULT_CODEX_BASE_URL, DEFAULT_CODEX_MODEL, DEFAULT_GEMINI_BASE_URL,
-    DEFAULT_GEMINI_MODEL, OpenAiEndpointKind, REASONING_SUMMARY_NONE, RaraConfig,
+    DEFAULT_GEMINI_MODEL, MultiAgentPolicy, OpenAiEndpointKind, REASONING_SUMMARY_NONE, RaraConfig,
     ensure_rara_home_dir,
 };
 use crate::google_oauth::GoogleOAuthManager;
@@ -34,7 +34,8 @@ use crate::session::SessionManager;
 use crate::shell_env::capture_shell_environment_snapshot;
 use crate::skill::SkillScope;
 use crate::tools::agent::{
-    AgentDefinitionCache, ResolvedSubagentBackend, SubagentBackendResolver, SubagentProviderTarget,
+    AgentDefinitionCache, AgentTreeConfig, AgentTreeControl, ResolvedSubagentBackend,
+    SubagentBackendResolver, SubagentProviderTarget,
 };
 use crate::tui::state::GoalHandle;
 use crate::workspace::WorkspaceMemory;
@@ -59,6 +60,7 @@ pub(crate) struct RuntimeBootstrap {
     pub mcp_manager: Arc<McpConnectionManager>,
     pub lsp_manager: Arc<LspManager>,
     pub agent_definitions: AgentDefinitionCache,
+    pub agent_tree_control: Arc<AgentTreeControl>,
     extension_readiness: ExtensionReadinessSnapshot,
     plugin_dirs: Vec<PathBuf>,
     rara_home: Option<PathBuf>,
@@ -68,11 +70,23 @@ pub(crate) struct RuntimeBootstrap {
 #[derive(Clone)]
 pub(crate) struct ConfigSubagentBackendResolver {
     config: Arc<RaraConfig>,
+    rara_home: Option<PathBuf>,
 }
 
 impl ConfigSubagentBackendResolver {
+    #[cfg(test)]
     fn new(config: Arc<RaraConfig>) -> Self {
-        Self { config }
+        Self {
+            config,
+            rara_home: None,
+        }
+    }
+
+    fn new_for_rara_home(config: Arc<RaraConfig>, rara_home: PathBuf) -> Self {
+        Self {
+            config,
+            rara_home: Some(rara_home),
+        }
     }
 }
 
@@ -106,13 +120,14 @@ impl SubagentBackendResolver for ConfigSubagentBackendResolver {
         if let Some(model) = &target.model {
             config.set_model(Some(model.clone()));
         }
-        let backend = build_backend_with_progress(&config, None)
-            .await
-            .map_err(|err| {
-                rara_tools::tool::ToolError::ExecutionFailed(format!(
-                    "failed to initialize sub-agent model backend: {err}"
-                ))
-            })?;
+        let backend =
+            build_backend_with_progress_for_home(&config, None, self.rara_home.as_deref())
+                .await
+                .map_err(|err| {
+                    rara_tools::tool::ToolError::ExecutionFailed(format!(
+                        "failed to initialize sub-agent model backend: {err}"
+                    ))
+                })?;
         let backend: Arc<dyn LlmBackend> = backend.into();
         let model = backend
             .model_label()
@@ -167,6 +182,7 @@ impl RuntimeBootstrap {
         agent.set_prompt_source_registry(self.prompt_source_registry.clone());
         agent.set_skill_source_registry(self.skill_source_registry.clone());
         agent.set_lsp_manager(self.lsp_manager.clone());
+        agent.set_agent_tree_control(Some(self.agent_tree_control.clone()));
         agent.set_hook_context(
             self.command_hook_registry,
             crate::hooks::HookSandbox {
@@ -280,14 +296,38 @@ impl RuntimeBootstrap {
     }
 }
 
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Default)]
 pub(crate) struct RuntimeBootstrapOptions {
     pub plugin_dirs: Vec<PathBuf>,
+    pub rara_home: Option<PathBuf>,
+    pub agent_tree_config: AgentTreeConfig,
+    pub agent_tree_control: Option<Arc<AgentTreeControl>>,
 }
 
 impl RuntimeBootstrapOptions {
     pub(crate) fn with_plugin_dirs(plugin_dirs: Vec<PathBuf>) -> Self {
-        Self { plugin_dirs }
+        Self {
+            plugin_dirs,
+            ..Self::default()
+        }
+    }
+
+    pub(crate) fn with_rara_home(mut self, rara_home: Option<PathBuf>) -> Self {
+        self.rara_home = rara_home;
+        self
+    }
+
+    pub(crate) fn with_agent_tree_config(mut self, agent_tree_config: AgentTreeConfig) -> Self {
+        self.agent_tree_config = agent_tree_config;
+        self
+    }
+
+    pub(crate) fn with_agent_tree_control(
+        mut self,
+        agent_tree_control: Option<Arc<AgentTreeControl>>,
+    ) -> Self {
+        self.agent_tree_control = agent_tree_control;
+        self
     }
 }
 
@@ -328,13 +368,21 @@ pub(crate) async fn initialize_rara_context_with_options(
     progress: Option<LocalProgressReporter>,
     options: RuntimeBootstrapOptions,
 ) -> Result<RuntimeBootstrap> {
-    let chat_backend = build_backend_with_progress(config, progress).await?;
+    let rara_home = match options.rara_home.clone() {
+        Some(rara_home) => {
+            std::fs::create_dir_all(&rara_home)?;
+            rara_home
+        }
+        None => ensure_rara_home_dir()?,
+    };
+    let chat_backend =
+        build_backend_with_progress_for_home(config, progress, Some(&rara_home)).await?;
     let backend: Arc<dyn LlmBackend> = chat_backend.into();
 
     let workspace = match workspace_root {
         Some(root) => Arc::new(WorkspaceMemory::from_paths(
             root.to_path_buf(),
-            rara_config::workspace_data_dir_for(root)?,
+            rara_config::workspace_data_dir_for_home(root, &rara_home)?,
         )),
         None => Arc::new(WorkspaceMemory::new()?),
     };
@@ -349,8 +397,7 @@ pub(crate) async fn initialize_rara_context_with_options(
         shell_env.env.get("PATH").cloned(),
     )?);
 
-    let config_manager = crate::config::ConfigManager::new()?;
-    let rara_home = ensure_rara_home_dir()?;
+    let config_manager = crate::config::ConfigManager::new_for_rara_home(rara_home.clone())?;
     let plugins = crate::plugin_middleware::discover_runtime_plugins(
         Some(&rara_home),
         &workspace.root,
@@ -362,6 +409,7 @@ pub(crate) async fn initialize_rara_context_with_options(
 
     let mut prompt_config = PromptRuntimeConfig::from_config(config);
     append_builtin_prompt_instructions(&mut prompt_config, &config.builtin_plugins);
+    append_multi_agent_prompt_instructions(&mut prompt_config, config.multi_agent_policy);
     let skill_manager = load_skill_manager(&mut prompt_config.warnings, &plugin_skill_roots);
     let skill_summaries = skill_manager
         .read()
@@ -457,7 +505,13 @@ pub(crate) async fn initialize_rara_context_with_options(
     let agent_definitions =
         AgentDefinitionCache::load_with_records(workspace.root.clone(), plugin_agent_records);
     let subagent_backend_resolver: Arc<dyn SubagentBackendResolver> =
-        Arc::new(ConfigSubagentBackendResolver::new(Arc::new(config.clone())));
+        Arc::new(ConfigSubagentBackendResolver::new_for_rara_home(
+            Arc::new(config.clone()),
+            rara_home.clone(),
+        ));
+    let agent_tree_control = options
+        .agent_tree_control
+        .unwrap_or_else(|| Arc::new(AgentTreeControl::new(options.agent_tree_config)));
     let tool_manager = create_full_tool_manager(
         backend.clone(),
         memory_handle.clone(),
@@ -473,6 +527,8 @@ pub(crate) async fn initialize_rara_context_with_options(
         mcp_tool_cache.clone(),
         hook_runtime.clone(),
         lsp_manager.clone(),
+        agent_tree_control.clone(),
+        config.multi_agent_policy,
         subagent_backend_resolver.clone(),
         agent_definitions.clone(),
     );
@@ -499,6 +555,7 @@ pub(crate) async fn initialize_rara_context_with_options(
         mcp_manager,
         lsp_manager,
         agent_definitions,
+        agent_tree_control,
         extension_readiness: ExtensionReadinessSnapshot {
             plugin_count: plugins.len(),
             hook_count: 0,
@@ -528,6 +585,34 @@ fn append_builtin_prompt_instructions(
     });
 }
 
+fn append_multi_agent_prompt_instructions(
+    prompt_config: &mut PromptRuntimeConfig,
+    policy: MultiAgentPolicy,
+) {
+    let instructions = match policy {
+        MultiAgentPolicy::Disabled => return,
+        MultiAgentPolicy::Explicit => concat!(
+            "## Multi-Agent Policy\n",
+            "- Delegation is explicit-only for this runtime.\n",
+            "- Use agent tools only when the user requests delegation or the task contract explicitly requires parallel agent work.\n",
+            "- A higher reasoning effort does not enable proactive delegation.\n",
+            "- When delegating, assign non-overlapping tasks and synthesize the returned evidence yourself."
+        ),
+        MultiAgentPolicy::ProactiveReadOnly => concat!(
+            "## Multi-Agent Policy\n",
+            "- You may proactively delegate bounded independent research, repository exploration, planning, or review when parallel work materially improves the result.\n",
+            "- Proactive work must use read-only roles such as explore, plan, code-reviewer, architect, or researcher. Do not proactively select a general or custom mutation-capable agent.\n",
+            "- Do not delegate trivial work, duplicate a child's assignment, or use delegation as a substitute for synthesis.\n",
+            "- Launch independent tasks together when practical, continue non-overlapping work, and use wait_agent when their results are required.\n",
+            "- Model selection and permissions are independent: choose an appropriate child provider/model without weakening the selected role's tool policy."
+        ),
+    };
+    prompt_config.append_system_prompt = Some(match prompt_config.append_system_prompt.take() {
+        Some(existing) => format!("{existing}\n\n{instructions}"),
+        None => instructions.to_string(),
+    });
+}
+
 fn is_configured_openai_compatible_provider(config: &RaraConfig, provider: &str) -> bool {
     if RaraConfig::is_openai_compatible_family(provider) {
         return false;
@@ -539,9 +624,18 @@ fn is_configured_openai_compatible_provider(config: &RaraConfig, provider: &str)
         .is_some_and(|value| !value.trim().is_empty())
 }
 
+#[cfg(test)]
 pub(crate) async fn build_backend_with_progress(
     config: &RaraConfig,
     progress: Option<LocalProgressReporter>,
+) -> Result<Box<dyn LlmBackend>> {
+    build_backend_with_progress_for_home(config, progress, None).await
+}
+
+async fn build_backend_with_progress_for_home(
+    config: &RaraConfig,
+    progress: Option<LocalProgressReporter>,
+    rara_home: Option<&Path>,
 ) -> Result<Box<dyn LlmBackend>> {
     match config.provider.as_str() {
         "codex" => Ok(Box::new(
@@ -624,7 +718,10 @@ pub(crate) async fn build_backend_with_progress(
                 .model
                 .clone()
                 .unwrap_or_else(|| "gemini-2.5-flash".to_string());
-            let home = ensure_rara_home_dir()?;
+            let home = match rara_home {
+                Some(home) => home.to_path_buf(),
+                None => ensure_rara_home_dir()?,
+            };
             let oauth = GoogleOAuthManager::new(home)?;
             let backend = GeminiBackend::with_oauth(oauth, model)?;
             Ok(Box::new(backend))
@@ -703,239 +800,4 @@ fn memory_handle_uri_for_workspace(workspace: &WorkspaceMemory) -> String {
 }
 
 #[cfg(test)]
-mod tests {
-    use std::path::PathBuf;
-    use std::sync::Arc;
-
-    use tempfile::tempdir;
-
-    use super::{
-        ConfigSubagentBackendResolver, RuntimeBootstrapOptions, append_builtin_prompt_instructions,
-        build_backend_with_progress, initialize_rara_context, memory_handle_uri_for_workspace,
-        ollama_thinking_enabled,
-    };
-    use crate::config::{
-        DEFAULT_REASONING_SUMMARY, ProviderConfigState, REASONING_SUMMARY_NONE, RaraConfig,
-    };
-    use crate::llm::{LlmBackend, MockLlm};
-    use crate::tools::agent::{SubagentBackendResolver, SubagentProviderTarget};
-    use crate::workspace::WorkspaceMemory;
-
-    #[test]
-    fn nowledge_mem_guidance_is_injected_into_the_default_prompt() {
-        let mut prompt = crate::prompt::PromptRuntimeConfig::default();
-        append_builtin_prompt_instructions(
-            &mut prompt,
-            &crate::config::BuiltinPluginConfig::default(),
-        );
-
-        let instructions = prompt
-            .append_system_prompt
-            .expect("enabled builtin memory should add prompt guidance");
-        assert!(instructions.contains("Context Bundle"));
-        assert!(instructions.contains("After context compaction"));
-    }
-
-    #[test]
-    fn memory_handle_uri_is_workspace_scoped() {
-        let temp = tempdir().expect("tempdir");
-        let workspace =
-            WorkspaceMemory::from_paths(temp.path().join("repo"), temp.path().join(".rara"));
-
-        assert_eq!(
-            memory_handle_uri_for_workspace(&workspace),
-            temp.path()
-                .join(".rara")
-                .join("memory")
-                .display()
-                .to_string()
-        );
-    }
-
-    #[tokio::test]
-    async fn initialize_rara_context_surfaces_prompt_runtime_warnings() {
-        let config = RaraConfig {
-            provider: "mock".into(),
-            system_prompt_file: Some("missing-system-prompt.md".into()),
-            ..Default::default()
-        };
-
-        let bootstrap = initialize_rara_context(&config, None)
-            .await
-            .expect("bootstrap");
-
-        assert!(
-            bootstrap
-                .warnings
-                .iter()
-                .any(|warning| warning.contains("system prompt"))
-        );
-    }
-
-    #[tokio::test]
-    async fn initialize_rara_context_registers_mcp_tool_search() {
-        let config = RaraConfig {
-            provider: "mock".into(),
-            ..Default::default()
-        };
-
-        let bootstrap = initialize_rara_context(&config, None)
-            .await
-            .expect("bootstrap");
-        let schemas = bootstrap.tool_manager.get_schemas();
-        let names = schemas
-            .iter()
-            .filter_map(|schema| schema["name"].as_str())
-            .collect::<Vec<_>>();
-
-        assert!(names.contains(&"mcp_tool_search"));
-    }
-
-    #[tokio::test]
-    async fn unsupported_provider_returns_error() {
-        let config = RaraConfig {
-            provider: "does-not-exist".to_string(),
-            ..Default::default()
-        };
-
-        let err = match build_backend_with_progress(&config, None).await {
-            Ok(_) => panic!("unsupported provider should fail"),
-            Err(err) => err,
-        };
-
-        assert!(
-            err.to_string()
-                .contains("Unsupported provider 'does-not-exist'")
-        );
-    }
-
-    #[tokio::test]
-    async fn ollama_requires_explicit_model_selection() {
-        let config = RaraConfig {
-            provider: "ollama".to_string(),
-            model: None,
-            ..Default::default()
-        };
-
-        let err = match build_backend_with_progress(&config, None).await {
-            Ok(_) => panic!("ollama without model should fail"),
-            Err(err) => err,
-        };
-
-        assert!(
-            err.to_string()
-                .contains("Model required for Ollama provider")
-        );
-    }
-
-    #[tokio::test]
-    async fn ollama_openai_requires_explicit_model_selection() {
-        let config = RaraConfig {
-            provider: "ollama-openai".to_string(),
-            model: None,
-            ..Default::default()
-        };
-
-        let err = match build_backend_with_progress(&config, None).await {
-            Ok(_) => panic!("ollama-openai without model should fail"),
-            Err(err) => err,
-        };
-
-        assert!(
-            err.to_string()
-                .contains("Model required for Ollama OpenAI provider")
-        );
-    }
-
-    #[test]
-    fn ollama_thinking_respects_reasoning_summary_none() {
-        let config = RaraConfig {
-            provider: "ollama".into(),
-            thinking: Some(true),
-            reasoning_summary: Some(REASONING_SUMMARY_NONE.to_string()),
-            ..Default::default()
-        };
-
-        assert!(!ollama_thinking_enabled(&config));
-    }
-
-    #[test]
-    fn ollama_thinking_defaults_on_for_auto_reasoning_summary() {
-        let config = RaraConfig {
-            provider: "ollama".into(),
-            thinking: None,
-            reasoning_summary: Some(DEFAULT_REASONING_SUMMARY.to_string()),
-            ..Default::default()
-        };
-
-        assert!(ollama_thinking_enabled(&config));
-    }
-
-    #[test]
-    fn runtime_bootstrap_options_preserve_plugin_dirs() {
-        let plugin_dirs = vec![
-            PathBuf::from("/tmp/rara-plugin-a"),
-            PathBuf::from("plugins-b"),
-        ];
-        let options = RuntimeBootstrapOptions::with_plugin_dirs(plugin_dirs.clone());
-        assert_eq!(options.plugin_dirs, plugin_dirs);
-    }
-
-    #[tokio::test]
-    async fn config_subagent_backend_resolver_builds_target_backend() {
-        let config = Arc::new(RaraConfig {
-            provider: "codex".to_string(),
-            model: Some("gpt-5.1-codex".to_string()),
-            ..Default::default()
-        });
-        let resolver = ConfigSubagentBackendResolver::new(config);
-        let inherited: Arc<dyn LlmBackend> = Arc::new(MockLlm);
-
-        let resolved = resolver
-            .resolve_backend(
-                Some(&SubagentProviderTarget {
-                    provider: Some("mock".to_string()),
-                    model: Some("mock-worker".to_string()),
-                }),
-                inherited,
-            )
-            .await
-            .expect("resolved backend");
-
-        assert_eq!(resolved.provider, "mock");
-        assert_eq!(resolved.model, "mock-worker");
-    }
-
-    #[tokio::test]
-    async fn config_subagent_backend_resolver_builds_configured_provider_state() {
-        let mut config = RaraConfig {
-            provider: "codex".to_string(),
-            model: Some("gpt-5.1-codex".to_string()),
-            ..Default::default()
-        };
-        config.provider_states.insert(
-            "groq-fast".to_string(),
-            ProviderConfigState {
-                base_url: Some("https://api.groq.com/openai/v1".to_string()),
-                model: Some("gpt-4o-mini".to_string()),
-                ..Default::default()
-            },
-        );
-        let resolver = ConfigSubagentBackendResolver::new(Arc::new(config));
-        let inherited: Arc<dyn LlmBackend> = Arc::new(MockLlm);
-
-        let resolved = resolver
-            .resolve_backend(
-                Some(&SubagentProviderTarget {
-                    provider: Some("groq-fast".to_string()),
-                    model: None,
-                }),
-                inherited,
-            )
-            .await
-            .expect("resolved backend");
-
-        assert_eq!(resolved.provider, "groq-fast");
-        assert_eq!(resolved.model, "gpt-4o-mini");
-    }
-}
+mod tests;

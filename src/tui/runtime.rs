@@ -77,7 +77,14 @@ pub fn start_plan_approval_resume_task(
 }
 
 pub fn start_rebuild_task(app: &mut TuiApp) {
-    tasks::start_rebuild_task(app);
+    tasks::start_rebuild_task(app, None);
+}
+
+pub fn start_rebuild_task_with_agent_tree_control(
+    app: &mut TuiApp,
+    agent_tree_control: Option<Arc<crate::tools::agent::AgentTreeControl>>,
+) {
+    tasks::start_rebuild_task(app, agent_tree_control);
 }
 
 pub fn start_oauth_task(app: &mut TuiApp, oauth_manager: Arc<OAuthManager>, mode: OAuthLoginMode) {

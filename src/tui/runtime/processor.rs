@@ -130,7 +130,10 @@ impl RuntimeCommandProcessor {
                 }
             }
             RuntimeCommand::Maintenance(RuntimeMaintenanceCommand::Rebuild) => {
-                super::start_rebuild_task(app);
+                super::start_rebuild_task_with_agent_tree_control(
+                    app,
+                    self.runtime.agent().and_then(Agent::agent_tree_control),
+                );
             }
             RuntimeCommand::Maintenance(RuntimeMaintenanceCommand::RefreshModelCatalog(
                 provider,

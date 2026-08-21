@@ -166,6 +166,7 @@ pub(crate) async fn apply_openai_model_picker_action(
     app: &mut TuiApp,
     action: OpenAiModelPickerAction,
     runtime_port: Option<&dyn RuntimeClientPort>,
+    agent_tree_control: Option<Arc<crate::tools::agent::AgentTreeControl>>,
 ) -> anyhow::Result<()> {
     match action {
         OpenAiModelPickerAction::SelectProfile => {
@@ -182,7 +183,10 @@ pub(crate) async fn apply_openai_model_picker_action(
                             ))
                             .await?;
                     } else {
-                        super::runtime::start_rebuild_task(app);
+                        super::runtime::start_rebuild_task_with_agent_tree_control(
+                            app,
+                            agent_tree_control.clone(),
+                        );
                     }
                 }
             }
@@ -202,7 +206,10 @@ pub(crate) async fn apply_openai_model_picker_action(
                             ))
                             .await?;
                     } else {
-                        super::runtime::start_rebuild_task(app);
+                        super::runtime::start_rebuild_task_with_agent_tree_control(
+                            app,
+                            agent_tree_control.clone(),
+                        );
                     }
                 }
             } else {

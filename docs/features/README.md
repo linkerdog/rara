@@ -64,6 +64,8 @@ future appserver integrations can use.
   and compact TUI contracts aligned with Codex 0.130.
 - `subagent-context-optimization.md`: bounded parent/child subagent context
   inheritance, child budget, result summary, and restart/reconnect contracts.
+- `multi-agent-orchestration.md`: session-tree ownership, shared child capacity,
+  mailbox delivery, lifecycle tools, and proactive delegation policy.
 - `shared-task-lists.md`: workspace-local shared task store and
   Claude-compatible read tools for future subagent/team coordination.
 - `hooks-plugin-lifecycle.md`: hook/plugin lifecycle phases, MemoryQuery
@@ -78,6 +80,8 @@ future appserver integrations can use.
 - `app-server-architecture.md`: agent output as typed objects over a lightweight
   event bus; TUI, ACP, Wire as peer consumers. Internal = objects, external =
   protocol.
+- `embedded-runtime.md`: supported Rust library facade, workspace-scoped
+  construction, typed events, and CLI-as-adapter boundary.
 
 ## Crate Split
 
