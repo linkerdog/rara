@@ -3,6 +3,8 @@ mod codex_tools_compat;
 pub(crate) mod deepseek_dsml;
 mod gemini;
 mod gemini_schema;
+#[cfg(test)]
+mod model_context_tests;
 mod ollama;
 mod openai_compatible;
 mod shared;

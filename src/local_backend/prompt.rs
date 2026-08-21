@@ -1,6 +1,7 @@
 use serde_json::{Value, json};
 
 use crate::agent::Message;
+use crate::model_context::{MODEL_CONTEXT_BLOCK_TYPE, model_context_text};
 
 pub(super) fn scenario_token_cap(messages: &[Message], tools: &[Value]) -> usize {
     if !tools.is_empty() {
@@ -11,7 +12,7 @@ pub(super) fn scenario_token_cap(messages: &[Message], tools: &[Value]) -> usize
         .iter()
         .rev()
         .find(|message| message.role == "user")
-        .map(|message| render_content(&message.content))
+        .map(|message| render_human_text(&message.content))
         .unwrap_or_default();
     let normalized = last_user_text.to_ascii_lowercase();
     let trimmed = last_user_text.trim();
@@ -33,6 +34,23 @@ pub(super) fn scenario_token_cap(messages: &[Message], tools: &[Value]) -> usize
     } else {
         192
     }
+}
+
+fn render_human_text(content: &Value) -> String {
+    if let Some(text) = content.as_str() {
+        return text.to_string();
+    }
+    content
+        .as_array()
+        .map(|items| {
+            items
+                .iter()
+                .filter(|item| item.get("type").and_then(Value::as_str) == Some("text"))
+                .filter_map(|item| item.get("text").and_then(Value::as_str))
+                .collect::<Vec<_>>()
+                .join("\n")
+        })
+        .unwrap_or_default()
 }
 
 pub(super) fn build_agent_prompt(messages: &[Message], tools: &[Value]) -> String {
@@ -87,6 +105,9 @@ pub(super) fn render_content(content: &Value) -> String {
                         .unwrap_or("")
                         .to_string(),
                 ),
+                Some(MODEL_CONTEXT_BLOCK_TYPE) => {
+                    rendered.push(model_context_text(item).unwrap_or_default().to_string())
+                }
                 Some("tool_result") => rendered.push(format!(
                     "tool_result(id={}): {}",
                     item.get("tool_use_id")

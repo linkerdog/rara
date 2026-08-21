@@ -12,7 +12,8 @@ use rara_state::state_db::StateDb;
 use rara_tools::tool::{Tool, ToolCallContext, ToolError};
 use serde_json::json;
 use tempfile::tempdir;
-use tokio::time::{Duration, sleep};
+use tokio::sync::Barrier;
+use tokio::time::{Duration, sleep, timeout};
 
 use super::{
     AgentDefinition, AgentDefinitionCache, AgentResultDelivery,
@@ -46,6 +47,9 @@ struct CountingBackend {
 struct PeakBackend {
     in_flight: Arc<AtomicUsize>,
     peak: Arc<AtomicUsize>,
+    first_wave_arrivals: Arc<AtomicUsize>,
+    first_wave_size: usize,
+    first_wave: Arc<Barrier>,
 }
 
 struct PlanStateBackend;
@@ -156,6 +160,11 @@ impl LlmBackend for PeakBackend {
     ) -> anyhow::Result<LlmResponse> {
         let current = self.in_flight.fetch_add(1, Ordering::SeqCst) + 1;
         record_peak(current, &self.peak);
+        if self.first_wave_arrivals.fetch_add(1, Ordering::SeqCst) < self.first_wave_size {
+            timeout(Duration::from_secs(5), self.first_wave.wait())
+                .await
+                .expect("team_create should fill the configured first wave");
+        }
         sleep(Duration::from_millis(50)).await;
         self.in_flight.fetch_sub(1, Ordering::SeqCst);
         let last = messages

@@ -98,6 +98,7 @@ fn memory_message_content(content: &Value) -> String {
     if let Some(parts) = content.as_array() {
         let text = parts
             .iter()
+            .filter(|part| part.get("type").and_then(Value::as_str) == Some("text"))
             .filter_map(|part| part.get("text").and_then(Value::as_str))
             .collect::<Vec<_>>();
         if !text.is_empty() {
@@ -460,4 +461,25 @@ Summarize the completed work, remaining blockers, and the next safest step for t
         goal_budget_label(goal),
         goal_remaining_label(goal)
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use serde_json::json;
+
+    use super::memory_message_content;
+
+    #[test]
+    fn memory_capture_excludes_model_only_context() {
+        let content = json!([
+            {
+                "type": "rara_model_context",
+                "kind": "retrieved_memory",
+                "text": "internal retrieved context"
+            },
+            {"type": "text", "text": "human request"}
+        ]);
+
+        assert_eq!(memory_message_content(&content), "human request");
+    }
 }

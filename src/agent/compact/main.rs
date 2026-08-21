@@ -342,7 +342,7 @@ impl Agent {
         }
     }
 
-    fn recompute_history_token_estimate(&mut self) {
+    pub(in crate::agent) fn recompute_history_token_estimate(&mut self) {
         self.compact_state.estimated_history_tokens =
             estimate_history_tokens(&self.history).unwrap_or_default();
     }

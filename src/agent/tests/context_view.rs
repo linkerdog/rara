@@ -5,7 +5,7 @@ use rara_tools::tool::ToolManager;
 use serde_json::json;
 
 use super::support::{SequencedBackend, test_runtime_storage};
-use crate::agent::{Agent, AgentExecutionMode, Message, PlanStep, PlanStepStatus};
+use crate::agent::{Agent, AgentExecutionMode, AgentOutputMode, Message, PlanStep, PlanStepStatus};
 use crate::llm::{ContentBlock, LlmResponse};
 use crate::memory_store::{MemoryLabel, MemoryScope, MemorySource, MemoryStore, NewMemoryRecord};
 use crate::prompt::PromptRuntimeConfig;
@@ -251,11 +251,8 @@ fn shared_runtime_context_collects_prompt_plan_and_compaction_state() {
     assert_eq!(runtime.retrieval.entries[4].status, "missing");
     assert_eq!(runtime.retrieval.entries[5].kind, "graph_context");
     assert_eq!(runtime.retrieval.entries[5].status, "missing");
-    assert_eq!(runtime.retrieval.memory_selection.selected_items.len(), 9);
-    assert_eq!(
-        runtime.retrieval.memory_selection.selected_items[0].kind,
-        "workspace_memory"
-    );
+    let selected = &runtime.retrieval.memory_selection.selected_items;
+    assert_eq!(selected[0].kind, "workspace_memory");
     assert!(
         runtime.retrieval.memory_selection.selected_items[0]
             .detail
@@ -266,48 +263,26 @@ fn shared_runtime_context_collects_prompt_plan_and_compaction_state() {
             .detail
             .contains("2 non-empty lines")
     );
+    let selected_kinds = selected
+        .iter()
+        .map(|item| item.kind.as_str())
+        .collect::<Vec<_>>();
+    for expected in [
+        "compacted_summary",
+        "recent_files",
+        "recent_file_excerpts",
+        "plan_explanation",
+        "plan_steps",
+        "latest_user_request",
+    ] {
+        assert!(selected_kinds.contains(&expected), "missing {expected}");
+    }
     assert_eq!(
-        runtime.retrieval.memory_selection.selected_items[1].kind,
-        "compacted_summary"
-    );
-    assert_eq!(
-        runtime.retrieval.memory_selection.selected_items[2].kind,
-        "recent_files"
-    );
-    assert_eq!(
-        runtime.retrieval.memory_selection.selected_items[3].kind,
-        "recent_file_excerpts"
-    );
-    assert_eq!(
-        runtime.retrieval.memory_selection.selected_items[4].kind,
-        "plan_explanation"
-    );
-    assert_eq!(
-        runtime.retrieval.memory_selection.selected_items[5].kind,
-        "plan_steps"
-    );
-    assert_eq!(
-        runtime.retrieval.memory_selection.selected_items[6].kind,
-        "latest_user_request"
-    );
-    assert_eq!(
-        runtime.retrieval.memory_selection.selected_items[7].kind,
-        "tool_result"
-    );
-    assert_eq!(
-        runtime.retrieval.memory_selection.selected_items[8].kind,
-        "tool_result"
-    );
-    assert!(
-        runtime
-            .retrieval
-            .memory_selection
-            .selected_items
+        selected_kinds
             .iter()
-            .all(|item| !matches!(
-                item.kind.as_str(),
-                "retrieved_workspace_memory" | "retrieved_thread_context"
-            ))
+            .filter(|kind| **kind == "tool_result")
+            .count(),
+        2
     );
     assert_eq!(runtime.retrieval.memory_selection.available_items.len(), 2);
     assert_eq!(
@@ -318,22 +293,18 @@ fn shared_runtime_context_collects_prompt_plan_and_compaction_state() {
         runtime.retrieval.memory_selection.available_items[1].kind,
         "local_memory"
     );
-    assert_eq!(runtime.retrieval.memory_selection.dropped_items.len(), 2);
-    assert_eq!(
-        runtime.retrieval.memory_selection.dropped_items[0].kind,
-        "retrieved_thread_context"
-    );
+    let retrieved_items = runtime
+        .retrieval
+        .memory_selection
+        .selected_items
+        .iter()
+        .chain(runtime.retrieval.memory_selection.dropped_items.iter())
+        .filter(|item| item.kind == "retrieved_thread_context")
+        .collect::<Vec<_>>();
+    assert_eq!(retrieved_items.len(), 2);
+    assert!(retrieved_items[0].detail.contains("bootstrap contract"));
     assert!(
-        runtime.retrieval.memory_selection.dropped_items[0]
-            .detail
-            .contains("bootstrap contract")
-    );
-    assert_eq!(
-        runtime.retrieval.memory_selection.dropped_items[1].kind,
-        "retrieved_thread_context"
-    );
-    assert!(
-        runtime.retrieval.memory_selection.dropped_items[1]
+        retrieved_items[1]
             .detail
             .contains("Auth picker already moved behind the shared runtime bootstrap.")
     );
@@ -429,16 +400,25 @@ fn assemble_turn_context_matches_prompt_and_runtime_views() {
 #[tokio::test]
 async fn protocol_prompt_registry_feeds_prompt_runtime_for_query() {
     let (_temp, session_manager, workspace, rara_dir) = test_runtime_storage();
-    let backend = Arc::new(SequencedBackend::new(vec![LlmResponse {
-        content: vec![ContentBlock::Text {
-            text: "ok".to_string(),
-        }],
-        stop_reason: Some("end_turn".to_string()),
-        usage: None,
-    }]));
+    let backend = Arc::new(SequencedBackend::new(vec![
+        LlmResponse {
+            content: vec![ContentBlock::Text {
+                text: "ok".to_string(),
+            }],
+            stop_reason: Some("end_turn".to_string()),
+            usage: None,
+        },
+        LlmResponse {
+            content: vec![ContentBlock::Text {
+                text: "cleared".to_string(),
+            }],
+            stop_reason: Some("end_turn".to_string()),
+            usage: None,
+        },
+    ]));
     let mut agent = Agent::new(
         ToolManager::new(),
-        backend,
+        backend.clone(),
         Arc::new(MemoryHandle::new(
             &rara_dir.join("memory").display().to_string(),
         )),
@@ -461,19 +441,28 @@ async fn protocol_prompt_registry_feeds_prompt_runtime_for_query() {
         .await;
     agent.set_prompt_source_registry(registry.clone());
 
-    agent.refresh_protocol_prompt_sources_for_query().await;
+    agent
+        .query_with_mode("inspect the selection".to_string(), AgentOutputMode::Silent)
+        .await
+        .expect("query");
 
-    let effective = agent.effective_prompt();
-    assert!(effective.section_keys.contains(&"protocol_prompt_sources"));
-    assert!(effective.text.contains("## Protocol Prompt Sources"));
+    let observed = backend.observed_messages();
+    let first_request = observed.first().expect("model request").clone();
     assert!(
-        effective
-            .text
-            .contains("### Protocol Prompt Source editor-selection")
+        !first_request[0]
+            .content
+            .to_string()
+            .contains("editor-selection")
     );
+    let user = first_request
+        .iter()
+        .find(|message| message.role == "user")
+        .expect("user request");
+    assert!(user.content.to_string().contains("rara_model_context"));
+    assert!(user.content.to_string().contains("editor-selection"));
     assert!(
-        effective
-            .text
+        user.content
+            .to_string()
             .contains("The active editor selection is src/main.rs.")
     );
     assert!(
@@ -492,25 +481,36 @@ async fn protocol_prompt_registry_feeds_prompt_runtime_for_query() {
         "turn-limited source should be consumed after one user query"
     );
     assert!(
-        agent
-            .effective_prompt()
-            .section_keys
-            .contains(&"protocol_prompt_sources"),
-        "the current query keeps the snapshotted source for every model request"
-    );
-
-    agent.refresh_protocol_prompt_sources_for_query().await;
-
-    assert!(
         !agent
             .effective_prompt()
             .section_keys
             .contains(&"protocol_prompt_sources")
     );
+
+    agent
+        .query_with_mode(
+            "continue without selection".to_string(),
+            AgentOutputMode::Silent,
+        )
+        .await
+        .expect("second query");
+    let observed = backend.observed_messages();
+    let second_request = observed.get(1).expect("second model request");
+    assert_eq!(
+        &second_request[..first_request.len()],
+        first_request.as_slice()
+    );
+    let latest_user = second_request.last().expect("latest user request");
+    assert!(
+        latest_user
+            .content
+            .to_string()
+            .contains("No protocol prompt sources are active for this turn.")
+    );
 }
 
 #[tokio::test]
-async fn query_injects_selected_memory_context_without_persisting_it_to_history() {
+async fn query_persists_selected_memory_as_typed_model_context() {
     let (_temp, session_manager, workspace, rara_dir) = test_runtime_storage();
     let backend = Arc::new(SequencedBackend::new(vec![LlmResponse {
         content: vec![ContentBlock::Text {
@@ -591,11 +591,21 @@ async fn query_injects_selected_memory_context_without_persisting_it_to_history(
                 .to_string()
                 .contains("<rara_internal_history_context>")
     }));
-    assert!(!agent.history.iter().any(|message| {
+    assert!(agent.history.iter().any(|message| {
         message
             .content
             .to_string()
-            .contains("<rara_internal_history_context>")
+            .contains("\"type\":\"rara_model_context\"")
+    }));
+    let restored_history = agent
+        .session_manager
+        .load_thread_history(&agent.session_id)
+        .expect("restore persisted history");
+    assert!(restored_history.iter().any(|message| {
+        message
+            .content
+            .to_string()
+            .contains("\"type\":\"rara_model_context\"")
     }));
     assert!(
         agent
@@ -606,94 +616,4 @@ async fn query_injects_selected_memory_context_without_persisting_it_to_history(
             .iter()
             .any(|item| item.kind == crate::context::RETRIEVED_WORKSPACE_MEMORY_KIND)
     );
-}
-
-#[test]
-fn memory_context_prepends_to_existing_user_message_without_adding_user_turn() {
-    let mut messages = vec![
-        Message {
-            role: "system".to_string(),
-            content: json!("system"),
-        },
-        Message {
-            role: "user".to_string(),
-            content: json!([{"type":"text","text":"current request"}]),
-        },
-    ];
-
-    Agent::prepend_memory_context_to_latest_user_message(
-        &mut messages,
-        "<rara_internal_history_context>\nrecall\n</rara_internal_history_context>".to_string(),
-    );
-
-    assert_eq!(messages.len(), 2);
-    assert_eq!(messages[1].role, "user");
-    let text = messages[1].content.to_string();
-    assert!(text.contains("<rara_internal_history_context>"));
-    assert!(text.find("recall").expect("recall") < text.find("current request").expect("request"));
-    assert!(
-        !messages
-            .windows(2)
-            .any(|pair| pair[0].role == "user" && pair[1].role == "user")
-    );
-}
-
-#[test]
-fn memory_context_noops_without_user_text_request() {
-    let mut messages = vec![
-        Message {
-            role: "system".to_string(),
-            content: json!("system"),
-        },
-        Message {
-            role: "assistant".to_string(),
-            content: json!([{"type":"tool_use","id":"tool-1","name":"list_files","input":{}}]),
-        },
-        Message {
-            role: "user".to_string(),
-            content: json!([{"type":"tool_result","tool_use_id":"tool-1","content":"ok"}]),
-        },
-    ];
-
-    Agent::prepend_memory_context_to_latest_user_message(
-        &mut messages,
-        "<rara_internal_history_context>\nrecall\n</rara_internal_history_context>".to_string(),
-    );
-
-    assert_eq!(messages.len(), 3);
-    assert!(
-        !messages
-            .iter()
-            .any(|message| message.content.to_string().contains("recall"))
-    );
-}
-
-#[test]
-fn memory_context_skips_tool_result_user_messages() {
-    let mut messages = vec![
-        Message {
-            role: "system".to_string(),
-            content: json!("system"),
-        },
-        Message {
-            role: "user".to_string(),
-            content: json!([{"type":"text","text":"current request"}]),
-        },
-        Message {
-            role: "assistant".to_string(),
-            content: json!([{"type":"tool_use","id":"tool-1","name":"list_files","input":{}}]),
-        },
-        Message {
-            role: "user".to_string(),
-            content: json!([{"type":"tool_result","tool_use_id":"tool-1","content":"ok"}]),
-        },
-    ];
-
-    Agent::prepend_memory_context_to_latest_user_message(
-        &mut messages,
-        "<rara_internal_history_context>\nrecall\n</rara_internal_history_context>".to_string(),
-    );
-
-    assert!(messages[1].content.to_string().contains("recall"));
-    assert!(!messages[3].content.to_string().contains("recall"));
 }

@@ -239,6 +239,10 @@ impl Agent {
         self.refresh_file_search_candidates();
         self.refresh_protocol_prompt_sources_for_query().await;
         self.refresh_protocol_skill_sources_for_query().await;
+        if self.persist_model_context_for_latest_user_message() {
+            self.recompute_history_token_estimate();
+            self.checkpoint_session()?;
+        }
 
         match self
             .run_agent_loop_with_limit(output_mode, &mut report, &mut agentic_turns)
@@ -438,61 +442,13 @@ impl Agent {
                 "Projected {projected_result_count} tool result(s) into evidence-preserving summaries for this model request."
             )));
         }
-        let mut system_content = Vec::new();
-        if let Some(_index) = assembled.prompt.effective_prompt.dynamic_boundary_index {
-            let full_text = &assembled.prompt.effective_prompt.text;
-            // The text is joined by "\n\n". We want to split it back or just use the sections.
-            // But EffectivePrompt only gives us the full text and boundary index.
-            // Actually, build_effective_prompt joins them.
-
-            let parts: Vec<&str> = full_text
-                .split(rara_instructions::DYNAMIC_BOUNDARY)
-                .collect();
-            if parts.len() >= 2 {
-                let static_part = parts[0].trim();
-                let dynamic_part = parts[1..].join(rara_instructions::DYNAMIC_BOUNDARY);
-                let dynamic_part = dynamic_part.trim();
-
-                if !static_part.is_empty() {
-                    system_content.push(json!({
-                        "type": "text",
-                        "text": static_part,
-                        "cache_control": {"type": "ephemeral"} // Add hint for Anthropic-style caching
-                    }));
-                }
-                // Add the boundary itself if needed or just skip it.
-                // Claude Code keeps it to mark the boundary for future edits.
-                system_content.push(json!({
-                    "type": "text",
-                    "text": rara_instructions::DYNAMIC_BOUNDARY,
-                }));
-                if !dynamic_part.is_empty() {
-                    system_content.push(json!({
-                        "type": "text",
-                        "text": dynamic_part,
-                    }));
-                }
-            } else {
-                system_content.push(json!(assembled.prompt.effective_prompt.text));
-            }
-        } else {
-            system_content.push(json!(assembled.prompt.effective_prompt.text));
-        }
-
         messages.insert(
             0,
             Message {
                 role: "system".to_string(),
-                content: if system_content.len() == 1 {
-                    system_content.remove(0)
-                } else {
-                    Value::Array(system_content)
-                },
+                content: Value::String(assembled.prompt.effective_prompt.text),
             },
         );
-        if let Some(memory_context) = Agent::selected_memory_context_text(&assembled.runtime) {
-            Agent::prepend_memory_context_to_latest_user_message(&mut messages, memory_context);
-        }
 
         let model_label = self.model_event_label();
         report(AgentEvent::ModelRequest {

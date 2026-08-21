@@ -374,8 +374,11 @@ The display should keep details compact and path/URI-like fields visible.
 - Tight budget drops candidates with explicit `budget_exceeded` reason.
 - `/context` shows provider status, selected, available, dropped, and budget.
 - ACP/Wire view uses the same structured data as `/context`.
-- Retrieved candidates are not persisted as ordinary chat history.
-- Stable prompt-prefix bytes are unchanged when only volatile retrieval changes.
+- Retrieved candidate records are not persisted as ordinary chat history;
+  selected rendered context is persisted as a typed model-only attachment on
+  the current user message.
+- Stable system and prior-message prefix bytes are unchanged when only volatile
+  retrieval changes.
 
 ## Open Risks
 
@@ -391,3 +394,4 @@ The display should keep details compact and path/URI-like fields visible.
 ## Source Journals
 
 - `docs/journal/2026-05-07-retrieval-orchestration-spec.md`
+- `docs/journal/2026-08-21-deepseek-prefix-cache-locality.md`

@@ -131,6 +131,12 @@ fn render_message_content(content: &serde_json::Value) -> String {
         if !rendered.is_empty() {
             return rendered.join("\n\n");
         }
+        if items.iter().any(|item| {
+            item.get("type").and_then(serde_json::Value::as_str)
+                == Some(crate::model_context::MODEL_CONTEXT_BLOCK_TYPE)
+        }) {
+            return String::new();
+        }
     }
     serde_json::to_string_pretty(content).unwrap_or_else(|_| content.to_string())
 }
@@ -158,6 +164,7 @@ fn render_content_item(item: &serde_json::Value) -> Option<String> {
             .get("content")
             .and_then(serde_json::Value::as_str)
             .map(str::to_string),
+        Some(crate::model_context::MODEL_CONTEXT_BLOCK_TYPE) => None,
         _ => Some(serde_json::to_string_pretty(item).unwrap_or_else(|_| item.to_string())),
     }
 }
@@ -177,5 +184,34 @@ fn truncate_chars(value: &str, max_chars: usize) -> String {
         format!("{truncated}...")
     } else {
         truncated
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use serde_json::json;
+
+    use super::render_message_content;
+
+    #[test]
+    fn human_thread_rendering_excludes_model_context() {
+        let content = json!([
+            {
+                "type": "rara_model_context",
+                "kind": "retrieved_memory",
+                "text": "model-only context must stay out of exports"
+            },
+            {"type": "text", "text": "human request"}
+        ]);
+
+        assert_eq!(render_message_content(&content), "human request");
+        assert_eq!(
+            render_message_content(&json!([{
+                "type": "rara_model_context",
+                "kind": "environment",
+                "text": "model-only context"
+            }])),
+            ""
+        );
     }
 }

@@ -28,7 +28,7 @@ For long coding sessions, this increases the risk of losing:
 ## Non-Goals
 
 - Full recent-file snippet reattachment after compaction.
-- Token-cache aware prompt reuse.
+- Provider-specific cache retention or cache-edit execution.
 - Provider-specific remote compaction APIs.
 - Claude-style cache-edit microcompaction for providers that do not expose a
   cache-edit API.
@@ -149,12 +149,18 @@ deterministic descriptor namespace.
   excerpts.
 - The retained recent API-round suffix always comes after compact metadata, summary, and carry-over
   sources. This keeps deterministic system/context material before volatile conversation history.
+- Environment, mode, protocol/LSP, and retrieved-memory attachments use typed
+  `rara_model_context` blocks on user messages. Once a block has been sent, it
+  remains in model-visible history until durable compaction replaces that
+  history range.
 
 ### 7) Tool Result Projection
 
-Tool-result projection is a read-time microcompact pass that runs before the
-model request and before summary autocompaction pressure becomes the only
-option.
+Tool-result projection is a read-time microcompact pass for backends that do
+not declare automatic prefix caching. Backends that declare automatic prefix
+caching without cache edit preserve raw tool-result history until ordinary
+durable compaction, because changing an old request copy destroys the reusable
+provider prefix after the edited point.
 
 The projection pass:
 
@@ -175,10 +181,10 @@ The projection pass:
 - never changes `tool_use` / `tool_result` pairing or removes the block itself;
 - never rewrites stable system, tool schema, skill, or memory prompt prefixes.
 
-This is the safe baseline for DeepSeek and OpenAI-compatible providers that
-have automatic prefix caching but no cache-edit API. It reduces volatile
-history size while preserving the full local transcript for restore,
-distillation, and debugging.
+This remains useful for uncached/custom OpenAI-compatible providers because it
+reduces volatile request size while preserving the full local transcript for
+restore, distillation, and debugging. It is disabled for DeepSeek's warm-prefix
+path; normal compaction is the bounded-history mechanism there.
 
 The runtime exposes projection as a transient status event when old tool
 results are projected out of a model request and as a structured context
@@ -233,7 +239,10 @@ to no declared cache capability unless RARA has a provider-specific contract.
 
 Compression logic must choose behavior from the cache profile:
 
-- no `cache_edit`: use projection and ordinary compaction only;
+- `automatic_prefix_cache` without `cache_edit`: preserve request history and
+  use ordinary durable compaction;
+- no automatic prefix cache and no `cache_edit`: request projection remains
+  available in addition to ordinary compaction;
 - `cache_edit`: mark the request eligible for a provider cache-edit pass while
   continuing to preserve local messages; until a backend implements the actual
   executor, `cache_edit_applied` remains false;
@@ -253,15 +262,18 @@ RARA has two memory classes with different cache behavior:
 
 Retrieved memory must not be prepended to the stable system prompt or inserted
 before tool schemas. Doing so would make automatic prefix caches less useful for
-providers such as DeepSeek. The current runtime injects selected retrieved memory
-into the latest user message and does not persist that injected block to
-`Agent.history`; this is the correct baseline until RARA has a first-class
-attachment carrier for volatile context.
+providers such as DeepSeek. The runtime stores selected retrieved memory as a
+typed `rara_model_context` block on the current user message. This is the
+first-class attachment carrier: provider serializers render it, while transcript
+display, retrieval queries, and memory-lifecycle capture ignore it. Persisting
+the exact block ensures that a later request does not silently remove content
+that an earlier model request saw.
 
 When future models are added, memory placement must follow the provider cache
 profile:
 
-- providers without cache edit: keep retrieved memory in the volatile suffix;
+- providers without cache edit: attach retrieved memory to the current user
+  suffix and retain that exact attachment in later model-visible history;
 - providers with cache edit: cache-edit may optimize old tool results, but
   retrieved memory still remains per-turn volatile context unless explicitly
   promoted to workspace memory;
@@ -359,9 +371,14 @@ This is similar in spirit to sub-agent isolation, but its storage model is diffe
 
 ## Validation Matrix
 
-- `cargo check`
-- focused prompt tests for the default compact schema
-- focused agent tests ensuring manual compaction stores the structured marker
+| Contract | Validation |
+|---|---|
+| Compact schema | Focused prompt tests for the default compact instruction |
+| Durable compact marker | Focused agent compaction tests |
+| Uncached request projection | `model_request_projects_old_tool_results_without_mutating_history` |
+| Automatic-prefix preservation | `automatic_prefix_cache_preserves_tool_results_until_durable_compaction` |
+| Retrieved-memory persistence | `query_persists_selected_memory_as_typed_model_context` |
+| Compile and lint | `cargo check`; `cargo clippy --workspace --all-targets -- -D warnings` |
 
 ## Open Risks
 
@@ -372,8 +389,12 @@ This is similar in spirit to sub-agent isolation, but its storage model is diffe
   excerpt payload separately from history.
 - Partial compaction currently exists as a runtime entrypoint. TUI, ACP, and Wire command surfaces
   still need to expose the range-selection workflow.
+- Live DeepSeek cache improvement still requires an official-API A/B run using
+  `prompt_cache_hit_tokens` and `prompt_cache_miss_tokens` from comparable
+  repeated turns.
 
 ## Source Journals
 
 - [2026-04-19-context-compression](../journal/2026-04-19-context-compression.md)
 - [2026-05-06-prefix-stable-microcompact](../journal/2026-05-06-prefix-stable-microcompact.md)
+- [2026-08-21-deepseek-prefix-cache-locality](../journal/2026-08-21-deepseek-prefix-cache-locality.md)
