@@ -217,3 +217,41 @@ async fn targeted_wait_ignores_unrelated_activity() {
     assert_eq!(retained.len(), 1);
     assert_eq!(retained[0].sender_agent_id.as_deref(), Some("agent-b"));
 }
+
+#[tokio::test]
+async fn shutdown_cancels_and_waits_for_active_children() {
+    let control = Arc::new(AgentTreeControl::default());
+    let cancellation = Arc::new(AtomicBool::new(false));
+    {
+        let mut inner = control.inner.lock().expect("control");
+        inner
+            .tasks
+            .insert("agent-a".to_string(), record("agent-a", "parent-a"));
+        inner
+            .cancellations
+            .insert("agent-a".to_string(), cancellation.clone());
+        inner.active_tasks.insert("agent-a".to_string());
+    }
+
+    let shutdown_control = control.clone();
+    let shutdown = tokio::spawn(async move { shutdown_control.shutdown().await });
+    tokio::time::timeout(Duration::from_secs(1), async {
+        while !cancellation.load(Ordering::SeqCst) {
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .expect("child cancellation");
+    assert!(cancellation.load(Ordering::SeqCst));
+    assert!(!shutdown.is_finished());
+
+    control.finish(
+        "agent-a",
+        &Ok(completed_result("agent-a")),
+        AgentResultDelivery::Direct,
+    );
+    shutdown.await.expect("shutdown task").expect("shutdown");
+    let inner = control.inner.lock().expect("control");
+    assert!(inner.closing);
+    assert!(inner.active_tasks.is_empty());
+}

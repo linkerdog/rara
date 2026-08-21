@@ -16,37 +16,24 @@ pub(super) async fn rebuild_agent_with_progress(
             .with_agent_tree_control(agent_tree_control),
     )
     .await?;
-    let event_bus = bootstrap.event_bus.clone();
-
-    let (
-        agent,
-        warnings,
-        sandbox_network_access,
-        goal_handle,
-        mcp_tool_cache,
-        mcp_manager,
-        prompt_source_registry,
-        skill_source_registry,
-        hook_registry,
-        hook_runtime,
-        lsp_manager,
-    ) = bootstrap.into_parts_with_runtime_extensions().await;
+    let components = bootstrap.into_session_components().await;
+    let event_bus = components.event_bus;
     let memory_handler = Arc::new(crate::protocol_sources::MemoryControlHandler::with_store(
         event_bus,
-        agent.memory_store.clone(),
+        components.agent.memory_store.clone(),
     ));
     Ok(RebuildSuccess {
-        agent,
-        warnings,
-        sandbox_network_access,
-        goal_handle,
-        mcp_tool_cache,
-        mcp_manager,
-        prompt_source_registry,
-        skill_source_registry,
-        hook_registry,
-        hook_runtime,
+        agent: components.agent,
+        warnings: components.warnings,
+        sandbox_network_access: components.sandbox_network_access,
+        goal_handle: components.goal_handle,
+        mcp_tool_cache: components.mcp_tool_cache,
+        mcp_manager: components.mcp_manager,
+        prompt_source_registry: components.prompt_source_registry,
+        skill_source_registry: components.skill_source_registry,
+        hook_registry: components.hook_registry,
+        hook_runtime: components.hook_runtime,
         memory_handler,
-        lsp_manager,
+        lsp_manager: components.lsp_manager,
     })
 }

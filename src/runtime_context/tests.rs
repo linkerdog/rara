@@ -107,6 +107,35 @@ async fn bootstrap_reuses_supplied_agent_tree_control() {
 }
 
 #[tokio::test]
+async fn disabled_extension_discovery_ignores_ambient_agent_definitions() {
+    let temp = tempdir().expect("tempdir");
+    let workspace = temp.path().join("workspace");
+    let agents = workspace.join(".rara").join("agents");
+    std::fs::create_dir_all(&agents).expect("agent definitions directory");
+    std::fs::write(agents.join("ambient.md"), "Ambient agent instructions")
+        .expect("ambient agent definition");
+    let config = RaraConfig {
+        provider: "mock".to_string(),
+        ..Default::default()
+    };
+    let options = RuntimeBootstrapOptions::default()
+        .with_rara_home(Some(temp.path().join("state")))
+        .with_extension_discovery(false);
+
+    let bootstrap = initialize_rara_context_for_workspace_with_options(
+        &config,
+        Some(&workspace),
+        None,
+        options,
+    )
+    .await
+    .expect("bootstrap");
+    let agent = bootstrap.into_agent().await;
+
+    assert!(agent.agent_definition_records().is_empty());
+}
+
+#[tokio::test]
 async fn explicit_state_root_scopes_provider_auth_storage() {
     let temp = tempdir().expect("tempdir");
     let state_root = temp.path().join("state");

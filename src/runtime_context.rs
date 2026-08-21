@@ -1,10 +1,11 @@
 mod tooling;
 
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, atomic::AtomicBool};
+use std::sync::{Arc, RwLock, atomic::AtomicBool};
 
 use anyhow::{Context, Result, bail};
 use rara_memory::memory_handle::MemoryHandle;
+use rara_skills::SkillManager;
 use rara_tools::tool::ToolManager;
 
 use self::tooling::{create_full_tool_manager, load_skill_manager};
@@ -18,7 +19,7 @@ use crate::google_oauth::GoogleOAuthManager;
 use crate::hook_registry::HookRegistry;
 use crate::hook_runtime::HookRuntime;
 use crate::llm::{
-    BedrockBackend, CodexBackend, GeminiBackend, LlmBackend, MockLlm, OllamaBackend,
+    BedrockBackend, CodexBackend, GeminiBackend, LlmBackend, Message, MockLlm, OllamaBackend,
     OpenAiCompatibleBackend, fetch_model_context_window,
 };
 use crate::local_backend::{LocalLlmBackend, LocalProgressReporter};
@@ -65,6 +66,32 @@ pub(crate) struct RuntimeBootstrap {
     plugin_dirs: Vec<PathBuf>,
     rara_home: Option<PathBuf>,
     builtin_plugins: BuiltinPluginConfig,
+    extension_discovery: bool,
+    session_id: Option<String>,
+    initial_transcript: Vec<Message>,
+    transcript_persistence: bool,
+    memory_facilities: bool,
+}
+
+/// Named ownership bundle produced by runtime assembly for one session.
+///
+/// Keeping this as a struct prevents presentation and protocol adapters from
+/// depending on tuple position when the session graph evolves.
+pub(crate) struct RuntimeSessionComponents {
+    pub(crate) agent: Agent,
+    pub(crate) warnings: Vec<String>,
+    pub(crate) sandbox_network_access: Arc<AtomicBool>,
+    pub(crate) goal_handle: GoalHandle,
+    pub(crate) mcp_tool_cache: McpToolCache,
+    pub(crate) mcp_manager: Arc<McpConnectionManager>,
+    pub(crate) prompt_source_registry: Arc<PromptSourceRegistry>,
+    pub(crate) skill_source_registry: Arc<SkillSourceRegistry>,
+    pub(crate) hook_registry: Arc<HookRegistry>,
+    pub(crate) hook_runtime: Arc<HookRuntime>,
+    pub(crate) lsp_manager: Arc<LspManager>,
+    pub(crate) event_bus: Arc<RuntimeEventBus>,
+    pub(crate) memory_config: rara_config::NowledgeMemPluginConfig,
+    pub(crate) explicit_plugin_dirs: Vec<PathBuf>,
 }
 
 #[derive(Clone)]
@@ -142,34 +169,17 @@ impl SubagentBackendResolver for ConfigSubagentBackendResolver {
 }
 
 impl RuntimeBootstrap {
-    pub(crate) fn nowledge_mem_config(&self) -> rara_config::NowledgeMemPluginConfig {
-        self.builtin_plugins.nowledge_mem.clone()
-    }
-
+    #[cfg(test)]
     pub(crate) async fn into_agent(self) -> Agent {
-        let (agent, _, _, _, _, _, _, _, _, _, _) = self.into_parts_with_runtime_extensions().await;
-        agent
+        self.into_session_components().await.agent
     }
 
-    #[allow(clippy::type_complexity)]
-    // Bootstrap teardown returns the initialized runtime handles without
-    // introducing another wrapper around RuntimeBootstrap itself.
-    pub(crate) fn into_parts(
+    fn into_session_components_without_extensions(
         self,
-    ) -> (
-        Agent,
-        Vec<String>,
-        Arc<AtomicBool>,
-        GoalHandle,
-        McpToolCache,
-        Arc<McpConnectionManager>,
-        Arc<PromptSourceRegistry>,
-        Arc<SkillSourceRegistry>,
-        Arc<HookRegistry>,
-        Arc<HookRuntime>,
-        Arc<LspManager>,
-    ) {
+        explicit_plugin_dirs: Vec<PathBuf>,
+    ) -> RuntimeSessionComponents {
         let hook_workspace_root = self.workspace.root.clone();
+        let memory_config = self.builtin_plugins.nowledge_mem.clone();
         let mut agent = Agent::new_with_agent_definitions(
             self.tool_manager,
             self.backend,
@@ -183,6 +193,14 @@ impl RuntimeBootstrap {
         agent.set_skill_source_registry(self.skill_source_registry.clone());
         agent.set_lsp_manager(self.lsp_manager.clone());
         agent.set_agent_tree_control(Some(self.agent_tree_control.clone()));
+        if let Some(session_id) = self.session_id {
+            agent.set_session_id(session_id);
+        }
+        if !self.initial_transcript.is_empty() {
+            agent.replace_history(self.initial_transcript);
+        }
+        agent.set_transcript_persistence_enabled(self.transcript_persistence);
+        agent.set_memory_facilities_enabled(self.memory_facilities);
         agent.set_hook_context(
             self.command_hook_registry,
             crate::hooks::HookSandbox {
@@ -191,117 +209,102 @@ impl RuntimeBootstrap {
             },
             self.hook_runtime.clone(),
         );
-        (
+        RuntimeSessionComponents {
             agent,
-            self.warnings,
-            self.sandbox_network_access,
-            self.goal_handle,
-            self.mcp_tool_cache,
-            self.mcp_manager,
-            self.prompt_source_registry,
-            self.skill_source_registry,
-            self.hook_registry,
-            self.hook_runtime,
-            self.lsp_manager,
-        )
+            warnings: self.warnings,
+            sandbox_network_access: self.sandbox_network_access,
+            goal_handle: self.goal_handle,
+            mcp_tool_cache: self.mcp_tool_cache,
+            mcp_manager: self.mcp_manager,
+            prompt_source_registry: self.prompt_source_registry,
+            skill_source_registry: self.skill_source_registry,
+            hook_registry: self.hook_registry,
+            hook_runtime: self.hook_runtime,
+            lsp_manager: self.lsp_manager,
+            event_bus: self.event_bus,
+            memory_config,
+            explicit_plugin_dirs,
+        }
     }
 
-    #[allow(clippy::type_complexity)]
-    pub(crate) async fn into_parts_with_runtime_extensions(
-        self,
-    ) -> (
-        Agent,
-        Vec<String>,
-        Arc<AtomicBool>,
-        GoalHandle,
-        McpToolCache,
-        Arc<McpConnectionManager>,
-        Arc<PromptSourceRegistry>,
-        Arc<SkillSourceRegistry>,
-        Arc<HookRegistry>,
-        Arc<HookRuntime>,
-        Arc<LspManager>,
-    ) {
+    pub(crate) async fn into_session_components(self) -> RuntimeSessionComponents {
         let workspace_root = self.workspace.root.clone();
         let plugin_dirs = self.plugin_dirs.clone();
-        self.into_parts_with_runtime_extensions_for_plugin_dirs(&workspace_root, &plugin_dirs)
+        self.into_session_components_for_plugin_dirs(workspace_root, plugin_dirs)
             .await
     }
 
-    pub(crate) async fn into_runtime_client_parts(
-        mut self,
-    ) -> (
-        (
-            Agent,
-            Vec<String>,
-            Arc<AtomicBool>,
-            GoalHandle,
-            McpToolCache,
-            Arc<McpConnectionManager>,
-            Arc<PromptSourceRegistry>,
-            Arc<SkillSourceRegistry>,
-            Arc<HookRegistry>,
-            Arc<HookRuntime>,
-            Arc<LspManager>,
-        ),
-        Vec<PathBuf>,
-    ) {
-        let plugin_dirs = std::mem::take(&mut self.plugin_dirs);
-        let workspace_root = self.workspace.root.clone();
-        let parts = self
-            .into_parts_with_runtime_extensions_for_plugin_dirs(&workspace_root, &plugin_dirs)
-            .await;
-        (parts, plugin_dirs)
-    }
-
-    async fn into_parts_with_runtime_extensions_for_plugin_dirs(
+    async fn into_session_components_for_plugin_dirs(
         self,
-        workspace_root: &Path,
-        plugin_dirs: &[PathBuf],
-    ) -> (
-        Agent,
-        Vec<String>,
-        Arc<AtomicBool>,
-        GoalHandle,
-        McpToolCache,
-        Arc<McpConnectionManager>,
-        Arc<PromptSourceRegistry>,
-        Arc<SkillSourceRegistry>,
-        Arc<HookRegistry>,
-        Arc<HookRuntime>,
-        Arc<LspManager>,
-    ) {
+        workspace_root: PathBuf,
+        plugin_dirs: Vec<PathBuf>,
+    ) -> RuntimeSessionComponents {
         let rara_home = self.rara_home.clone();
         let builtin_plugins = self.builtin_plugins.clone();
+        let extension_discovery = self.extension_discovery;
         let hook_runtime = self.hook_runtime.clone();
         let event_bus = self.event_bus.clone();
         let mut extension_readiness = self.extension_readiness.clone();
-        let mut parts = self.into_parts();
+        let mut components = self.into_session_components_without_extensions(plugin_dirs.clone());
+        if !extension_discovery {
+            event_bus.publish_control(RuntimeEvent::Extension(ExtensionEvent::ReadinessUpdated {
+                snapshot: extension_readiness,
+            }));
+            return components;
+        }
         let plugin_hook_runtime = crate::plugin_middleware::register_plugin_hooks(
             &hook_runtime,
             rara_home,
-            workspace_root,
-            plugin_dirs,
+            &workspace_root,
+            &plugin_dirs,
             &builtin_plugins,
-            &parts.0.session_id,
+            &components.agent.session_id,
         )
         .await;
         extension_readiness.hook_count = plugin_hook_runtime.hook_count();
         extension_readiness.command_count = plugin_hook_runtime.command_summaries().len();
-        parts.0.set_plugin_hook_runtime(plugin_hook_runtime);
+        components
+            .agent
+            .set_plugin_hook_runtime(plugin_hook_runtime);
         event_bus.publish_control(RuntimeEvent::Extension(ExtensionEvent::ReadinessUpdated {
             snapshot: extension_readiness,
         }));
-        parts
+        components
     }
 }
 
-#[derive(Clone, Default)]
 pub(crate) struct RuntimeBootstrapOptions {
     pub plugin_dirs: Vec<PathBuf>,
     pub rara_home: Option<PathBuf>,
     pub agent_tree_config: AgentTreeConfig,
     pub agent_tree_control: Option<Arc<AgentTreeControl>>,
+    pub backend: Option<Arc<dyn LlmBackend>>,
+    pub tool_manager: Option<ToolManager>,
+    pub extension_discovery: bool,
+    pub session_id: Option<String>,
+    pub initial_transcript: Vec<Message>,
+    pub transcript_persistence: bool,
+    pub memory_facilities: bool,
+    pub event_capacity: usize,
+}
+
+impl Default for RuntimeBootstrapOptions {
+    fn default() -> Self {
+        Self {
+            plugin_dirs: Vec::new(),
+            rara_home: None,
+            agent_tree_config: AgentTreeConfig::default(),
+            agent_tree_control: None,
+            backend: None,
+            tool_manager: None,
+            extension_discovery: true,
+            session_id: None,
+            initial_transcript: Vec::new(),
+            transcript_persistence: true,
+            memory_facilities: true,
+            event_capacity: 256,
+        }
+    }
 }
 
 impl RuntimeBootstrapOptions {
@@ -327,6 +330,46 @@ impl RuntimeBootstrapOptions {
         agent_tree_control: Option<Arc<AgentTreeControl>>,
     ) -> Self {
         self.agent_tree_control = agent_tree_control;
+        self
+    }
+
+    pub(crate) fn with_backend(mut self, backend: Option<Arc<dyn LlmBackend>>) -> Self {
+        self.backend = backend;
+        self
+    }
+
+    pub(crate) fn with_tool_manager(mut self, tool_manager: Option<ToolManager>) -> Self {
+        self.tool_manager = tool_manager;
+        self
+    }
+
+    pub(crate) fn with_extension_discovery(mut self, enabled: bool) -> Self {
+        self.extension_discovery = enabled;
+        self
+    }
+
+    pub(crate) fn with_session_id(mut self, session_id: Option<String>) -> Self {
+        self.session_id = session_id;
+        self
+    }
+
+    pub(crate) fn with_initial_transcript(mut self, transcript: Vec<Message>) -> Self {
+        self.initial_transcript = transcript;
+        self
+    }
+
+    pub(crate) fn with_transcript_persistence(mut self, enabled: bool) -> Self {
+        self.transcript_persistence = enabled;
+        self
+    }
+
+    pub(crate) fn with_memory_facilities(mut self, enabled: bool) -> Self {
+        self.memory_facilities = enabled;
+        self
+    }
+
+    pub(crate) fn with_event_capacity(mut self, capacity: usize) -> Self {
+        self.event_capacity = capacity.max(1);
         self
     }
 }
@@ -366,7 +409,7 @@ pub(crate) async fn initialize_rara_context_with_options(
     config: &RaraConfig,
     workspace_root: Option<&Path>,
     progress: Option<LocalProgressReporter>,
-    options: RuntimeBootstrapOptions,
+    mut options: RuntimeBootstrapOptions,
 ) -> Result<RuntimeBootstrap> {
     let rara_home = match options.rara_home.clone() {
         Some(rara_home) => {
@@ -375,9 +418,14 @@ pub(crate) async fn initialize_rara_context_with_options(
         }
         None => ensure_rara_home_dir()?,
     };
-    let chat_backend =
-        build_backend_with_progress_for_home(config, progress, Some(&rara_home)).await?;
-    let backend: Arc<dyn LlmBackend> = chat_backend.into();
+    let backend = match options.backend.take() {
+        Some(backend) => backend,
+        None => {
+            let chat_backend =
+                build_backend_with_progress_for_home(config, progress, Some(&rara_home)).await?;
+            chat_backend.into()
+        }
+    };
 
     let workspace = match workspace_root {
         Some(root) => Arc::new(WorkspaceMemory::from_paths(
@@ -398,19 +446,29 @@ pub(crate) async fn initialize_rara_context_with_options(
     )?);
 
     let config_manager = crate::config::ConfigManager::new_for_rara_home(rara_home.clone())?;
-    let plugins = crate::plugin_middleware::discover_runtime_plugins(
-        Some(&rara_home),
-        &workspace.root,
-        &options.plugin_dirs,
-        &config.builtin_plugins,
-    );
+    let plugins = if options.extension_discovery {
+        crate::plugin_middleware::discover_runtime_plugins(
+            Some(&rara_home),
+            &workspace.root,
+            &options.plugin_dirs,
+            &config.builtin_plugins,
+        )
+    } else {
+        Vec::new()
+    };
     let plugin_skill_roots = crate::plugin_middleware::plugin_skill_roots(&plugins);
     let plugin_agent_records = crate::plugin_middleware::plugin_agent_records(&plugins);
 
     let mut prompt_config = PromptRuntimeConfig::from_config(config);
-    append_builtin_prompt_instructions(&mut prompt_config, &config.builtin_plugins);
+    if options.extension_discovery {
+        append_builtin_prompt_instructions(&mut prompt_config, &config.builtin_plugins);
+    }
     append_multi_agent_prompt_instructions(&mut prompt_config, config.multi_agent_policy);
-    let skill_manager = load_skill_manager(&mut prompt_config.warnings, &plugin_skill_roots);
+    let skill_manager = if options.extension_discovery {
+        load_skill_manager(&mut prompt_config.warnings, &plugin_skill_roots)
+    } else {
+        Arc::new(RwLock::new(SkillManager::new()))
+    };
     let skill_summaries = skill_manager
         .read()
         .map_err(|err| anyhow::anyhow!("skill manager lock failed: {err}"))?
@@ -444,7 +502,7 @@ pub(crate) async fn initialize_rara_context_with_options(
         config.sandbox_workspace_write.network_access,
     ));
 
-    let event_bus = Arc::new(RuntimeEventBus::new(256));
+    let event_bus = Arc::new(RuntimeEventBus::new(options.event_capacity));
     let hook_runtime = Arc::new(HookRuntime::new(event_bus.clone()));
     hook_runtime.start();
     let prompt_source_registry = Arc::new(PromptSourceRegistry::new(event_bus.clone()));
@@ -455,16 +513,22 @@ pub(crate) async fn initialize_rara_context_with_options(
     mcp_tool_cache.clear();
     let lsp_manager = Arc::new(LspManager::new(workspace.root.clone()));
 
-    let mut mcp_registry = config_manager
-        .load_mcp_registry_for_project(&workspace.root)
-        .unwrap_or_else(|_| crate::config::McpRegistry::empty());
-    crate::plugin_middleware::append_plugin_mcp_configs(
-        &mut mcp_registry,
-        Some(&rara_home),
-        &workspace.root,
-        &options.plugin_dirs,
-        &config.builtin_plugins,
-    )?;
+    let mut mcp_registry = if options.extension_discovery {
+        config_manager
+            .load_mcp_registry_for_project(&workspace.root)
+            .unwrap_or_else(|_| crate::config::McpRegistry::empty())
+    } else {
+        crate::config::McpRegistry::empty()
+    };
+    if options.extension_discovery {
+        crate::plugin_middleware::append_plugin_mcp_configs(
+            &mut mcp_registry,
+            Some(&rara_home),
+            &workspace.root,
+            &options.plugin_dirs,
+            &config.builtin_plugins,
+        )?;
+    }
     let extension_mcp_server_count = mcp_registry
         .servers
         .values()
@@ -484,7 +548,9 @@ pub(crate) async fn initialize_rara_context_with_options(
 
     // Discover file-based hooks and inject into prompt config
     let mut file_hooks = crate::hooks::HookRegistry::new();
-    file_hooks.discover_repo_hooks(&workspace.root);
+    if options.extension_discovery {
+        file_hooks.discover_repo_hooks(&workspace.root);
+    }
     prompt_config.hook_prompt_entries = file_hooks
         .hooks
         .values()
@@ -502,8 +568,11 @@ pub(crate) async fn initialize_rara_context_with_options(
     )
     .agents
     .len();
-    let agent_definitions =
-        AgentDefinitionCache::load_with_records(workspace.root.clone(), plugin_agent_records);
+    let agent_definitions = if options.extension_discovery {
+        AgentDefinitionCache::load_with_records(workspace.root.clone(), plugin_agent_records)
+    } else {
+        AgentDefinitionCache::empty()
+    };
     let subagent_backend_resolver: Arc<dyn SubagentBackendResolver> =
         Arc::new(ConfigSubagentBackendResolver::new_for_rara_home(
             Arc::new(config.clone()),
@@ -511,27 +580,30 @@ pub(crate) async fn initialize_rara_context_with_options(
         ));
     let agent_tree_control = options
         .agent_tree_control
+        .take()
         .unwrap_or_else(|| Arc::new(AgentTreeControl::new(options.agent_tree_config)));
-    let tool_manager = create_full_tool_manager(
-        backend.clone(),
-        memory_handle.clone(),
-        session_manager.clone(),
-        workspace.clone(),
-        sandbox_manager.clone(),
-        skill_manager,
-        plugin_skill_roots,
-        prompt_config.clone(),
-        Arc::new(shell_env.env),
-        sandbox_network_access.clone(),
-        goal_handle.clone(),
-        mcp_tool_cache.clone(),
-        hook_runtime.clone(),
-        lsp_manager.clone(),
-        agent_tree_control.clone(),
-        config.multi_agent_policy,
-        subagent_backend_resolver.clone(),
-        agent_definitions.clone(),
-    );
+    let tool_manager = options.tool_manager.take().unwrap_or_else(|| {
+        create_full_tool_manager(
+            backend.clone(),
+            memory_handle.clone(),
+            session_manager.clone(),
+            workspace.clone(),
+            sandbox_manager.clone(),
+            skill_manager,
+            plugin_skill_roots,
+            prompt_config.clone(),
+            Arc::new(shell_env.env),
+            sandbox_network_access.clone(),
+            goal_handle.clone(),
+            mcp_tool_cache.clone(),
+            hook_runtime.clone(),
+            lsp_manager.clone(),
+            agent_tree_control.clone(),
+            config.multi_agent_policy,
+            subagent_backend_resolver.clone(),
+            agent_definitions.clone(),
+        )
+    });
     let mut warnings = prompt_config.warnings.clone();
     warnings.extend(file_hook_warnings);
 
@@ -567,6 +639,11 @@ pub(crate) async fn initialize_rara_context_with_options(
         plugin_dirs: options.plugin_dirs,
         rara_home: Some(rara_home),
         builtin_plugins: config.builtin_plugins.clone(),
+        extension_discovery: options.extension_discovery,
+        session_id: options.session_id,
+        initial_transcript: options.initial_transcript,
+        transcript_persistence: options.transcript_persistence,
+        memory_facilities: options.memory_facilities,
     })
 }
 

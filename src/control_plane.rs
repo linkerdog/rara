@@ -86,6 +86,7 @@ where
                         on_event(RuntimeControlEvent {
                             event_id: uuid::Uuid::new_v4().to_string(),
                             provenance: envelope.provenance.clone(),
+                            turn_id: None,
                             sequence: 0,
                             event: RuntimeEvent::Session(event),
                         });

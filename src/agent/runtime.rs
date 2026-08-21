@@ -109,6 +109,8 @@ impl Agent {
             workspace,
             history: Vec::new(),
             session_id: Uuid::new_v4().to_string(),
+            persist_session_transcript: true,
+            memory_facilities_enabled: true,
             total_input_tokens: 0,
             total_output_tokens: 0,
             total_cache_hit_tokens: 0,
@@ -171,13 +173,9 @@ impl Agent {
             lsp_manager: None,
             agent_tree_control: None,
             cancellation_token: None,
+            runtime_turn_id: None,
             last_interaction_time: std::time::Instant::now(),
         }
-    }
-
-    pub async fn query(&mut self, prompt: String) -> Result<()> {
-        self.query_with_mode(prompt, AgentOutputMode::Terminal)
-            .await
     }
 
     pub(crate) fn set_agent_tree_control(
@@ -189,6 +187,18 @@ impl Agent {
 
     pub fn agent_tree_control(&self) -> Option<Arc<crate::tools::agent::AgentTreeControl>> {
         self.agent_tree_control.clone()
+    }
+
+    pub(crate) fn set_session_id(&mut self, session_id: String) {
+        self.session_id = session_id;
+    }
+
+    pub(crate) fn set_transcript_persistence_enabled(&mut self, enabled: bool) {
+        self.persist_session_transcript = enabled;
+    }
+
+    pub(crate) fn set_memory_facilities_enabled(&mut self, enabled: bool) {
+        self.memory_facilities_enabled = enabled;
     }
 
     pub fn agent_definition_records(&self) -> Vec<AgentDefinitionLoadRecord> {
@@ -236,16 +246,20 @@ impl Agent {
             content: json!([{"type": "text", "text": prompt.clone()}]),
         });
         self.checkpoint_session()?;
-        report(AgentEvent::MemoryAction {
-            message: memory_notice("querying workspace memory"),
-        });
-        self.refresh_memory_retrieval_candidates().await;
-        report(AgentEvent::MemoryAction {
-            message: memory_notice(
-                self.workspace
-                    .memory_notice_text(self.retrieved_memory_candidates.len()),
-            ),
-        });
+        if self.memory_facilities_enabled {
+            report(AgentEvent::MemoryAction {
+                message: memory_notice("querying workspace memory"),
+            });
+            self.refresh_memory_retrieval_candidates().await;
+            report(AgentEvent::MemoryAction {
+                message: memory_notice(
+                    self.workspace
+                        .memory_notice_text(self.retrieved_memory_candidates.len()),
+                ),
+            });
+        } else {
+            self.retrieved_memory_candidates.clear();
+        }
         self.refresh_file_search_candidates();
         self.refresh_protocol_prompt_sources_for_query().await;
         self.refresh_protocol_skill_sources_for_query().await;
@@ -260,7 +274,10 @@ impl Agent {
         {
             Ok(()) => {
                 // Post-turn consolidation check (fire-and-forget).
-                let sessions = self.consolidation_scheduler.check();
+                let sessions = self
+                    .memory_facilities_enabled
+                    .then(|| self.consolidation_scheduler.check())
+                    .flatten();
                 if sessions.is_some() {
                     let prompt_config = self.prompt_config.clone();
                     let llm_backend = self.llm_backend.clone();
@@ -351,30 +368,35 @@ impl Agent {
         }
 
         self.checkpoint_session()?;
-        let turn_text = format!(
-            "User: {}\nAgent Response: {:?}",
-            prompt,
-            self.history.last().unwrap().content
-        );
-        let session_manager = self.session_manager.clone();
-        let session_id = self.session_id.clone();
-        let save_result = tokio::task::spawn_blocking(move || {
-            session_manager.save_session_context_checkpoint(
-                &session_id,
-                turn_start_idx as u32,
-                turn_text,
-            )
-        })
-        .await;
-        if matches!(save_result, Ok(Ok(()))) {
-            report(AgentEvent::MemoryAction {
-                message: memory_notice("wrote session checkpoint"),
-            });
+        if self.persist_session_transcript {
+            let turn_text = format!(
+                "User: {}\nAgent Response: {:?}",
+                prompt,
+                self.history.last().unwrap().content
+            );
+            let session_manager = self.session_manager.clone();
+            let session_id = self.session_id.clone();
+            let save_result = tokio::task::spawn_blocking(move || {
+                session_manager.save_session_context_checkpoint(
+                    &session_id,
+                    turn_start_idx as u32,
+                    turn_text,
+                )
+            })
+            .await;
+            if matches!(save_result, Ok(Ok(()))) {
+                report(AgentEvent::MemoryAction {
+                    message: memory_notice("wrote session checkpoint"),
+                });
+            }
         }
         Ok(())
     }
 
     pub(super) fn checkpoint_session(&self) -> Result<()> {
+        if !self.persist_session_transcript {
+            return Ok(());
+        }
         if let Some(state_db) = self.state_db.as_deref() {
             let recorder = ThreadRecorder::new(state_db);
             return recorder.persist_history_checkpoint(&self.session_id, &self.history);
@@ -586,6 +608,7 @@ impl Agent {
                         None => input.clone(),
                     };
                     report(AgentEvent::ToolUse {
+                        call_id: id.clone(),
                         name: name.clone(),
                         input: modified_input.clone(),
                     });

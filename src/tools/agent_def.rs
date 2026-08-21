@@ -138,6 +138,15 @@ pub struct AgentDefinitionCache {
 }
 
 impl AgentDefinitionCache {
+    pub(crate) fn empty() -> Self {
+        Self {
+            state: Arc::new(AgentDefinitionCacheState {
+                registry: AgentRegistry::new(),
+                records: Vec::new(),
+            }),
+        }
+    }
+
     #[cfg(test)]
     pub fn load(workspace_root: impl Into<PathBuf>) -> Self {
         let workspace_root = workspace_root.into();

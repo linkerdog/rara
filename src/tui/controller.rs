@@ -272,6 +272,7 @@ fn is_terminal_projection_event(event: &RuntimeProjectionEvent) -> bool {
             &event.event,
             RuntimeEvent::Session(
                 SessionEvent::TurnFinished { .. }
+                    | SessionEvent::TurnFailed { .. }
                     | SessionEvent::TurnCancelled
                     | SessionEvent::TurnInterrupted
             ) | RuntimeEvent::Error(ErrorEvent::RuntimeError {
@@ -329,6 +330,7 @@ mod tests {
         RuntimeProjectionEvent::Runtime(Box::new(RuntimeControlEvent {
             event_id: "test-event".into(),
             provenance: RuntimeProvenance::local_tui("test-session"),
+            turn_id: None,
             sequence: 1,
             event,
         }))

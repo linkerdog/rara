@@ -42,6 +42,7 @@ mod runtime_context;
 mod runtime_control;
 mod runtime_event_bus;
 mod runtime_goal;
+pub mod runtime_session;
 mod sandbox;
 mod session;
 mod session_context;
@@ -70,10 +71,25 @@ pub use deepseek_cache_probe::{
     run_deepseek_cache_probe,
 };
 pub use embedded::{EmbeddedRuntime, EmbeddedRuntimeOptions};
+pub use llm::{
+    ContentBlock, ContextBudget, LlmBackend, LlmExecutionMode, LlmResponse, LlmStreamEvent,
+    LlmTurnMetadata, Message, ProviderCacheProfile, TokenUsage,
+};
 pub use model_observation::{
     ModelCacheUsage, ModelRequestFingerprint, ModelTokenUsage, ModelTurnReport, QueryReport,
 };
-pub use runtime_control::{RuntimeControlEvent, RuntimeEvent, RuntimeProvenance};
+pub use rara_tools::tool::{
+    Tool, ToolCallContext, ToolError, ToolManager, ToolOutputStream, ToolProgressEvent,
+};
+pub use runtime_control::{
+    AssistantEvent, ErrorEvent, RuntimeControlEvent, RuntimeEvent, RuntimeProvenance, SessionEvent,
+    ToolEvent, ToolStream, WarningEvent,
+};
+pub use runtime_session::{
+    RuntimeEventStream, RuntimeHost, RuntimeSession, RuntimeSessionBuilder, RuntimeSessionError,
+    RuntimeSessionId, RuntimeSessionPhase, RuntimeSessionSnapshot, RuntimeSessionSubscription,
+    RuntimeTurn, RuntimeTurnId, RuntimeTurnOutcome,
+};
 pub use tools::agent::{
     AgentMailboxMessage, AgentSnapshot, AgentTreeConfig, AgentTreeControl, AgentWaitResult,
 };

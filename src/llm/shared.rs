@@ -123,6 +123,12 @@ impl LlmTurnMetadata {
     }
 }
 
+/// Provider boundary used by the agent loop and embedding hosts.
+///
+/// Implementors must preserve message and tool ordering. Backends that support
+/// cooperative cancellation should override a context-aware request method
+/// and observe `LlmTurnMetadata`; the default adapters cannot interrupt a
+/// blocking `ask` implementation.
 #[async_trait]
 pub trait LlmBackend: Send + Sync {
     fn model_label(&self) -> Option<String> {

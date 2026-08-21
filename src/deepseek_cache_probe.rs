@@ -289,7 +289,7 @@ async fn run_probe_arm(run: ProbeArmRun<'_>) -> Result<Vec<DeepseekCacheProbeSam
     let state_root =
         run.run_state_root
             .join(format!("pair-{}-{}", run.pair_index, run.arm.label()));
-    let mut runtime = EmbeddedRuntime::from_config_with_options(
+    let runtime = EmbeddedRuntime::from_config_with_options(
         run.config,
         run.workspace_root,
         EmbeddedRuntimeOptions {
@@ -299,36 +299,51 @@ async fn run_probe_arm(run: ProbeArmRun<'_>) -> Result<Vec<DeepseekCacheProbeSam
     )
     .await?;
 
-    let backend = OpenAiCompatibleBackend::new_with_endpoint_kind_and_reasoning(
-        run.config.api_key_secret(),
-        DEFAULT_DEEPSEEK_BASE_URL.to_string(),
-        run.options.model.clone(),
-        OpenAiEndpointKind::Deepseek,
-        run.config.reasoning_effort.clone(),
-        Some(false),
-    )?
-    .with_max_output_tokens(run.options.max_output_tokens);
-    let backend = backend.with_deepseek_user_id(Uuid::new_v4().to_string());
-    runtime.replace_llm_backend(Arc::new(CacheProbeBackend::new(Arc::new(backend), run.arm)));
-    runtime.disable_tools();
-    runtime.disable_extension_execution();
-    runtime.set_max_turns(1);
-
-    let mut samples = Vec::with_capacity(run.options.turns_per_arm.get());
-    for turn_index in 0..run.options.turns_per_arm.get() {
-        let prompt = scripted_prompt(turn_index);
-        let query_report = runtime
-            .query_with_report(prompt, AgentOutputMode::Silent, |_| {})
+    let sample_result: Result<Vec<DeepseekCacheProbeSample>> = async {
+        let backend = OpenAiCompatibleBackend::new_with_endpoint_kind_and_reasoning(
+            run.config.api_key_secret(),
+            DEFAULT_DEEPSEEK_BASE_URL.to_string(),
+            run.options.model.clone(),
+            OpenAiEndpointKind::Deepseek,
+            run.config.reasoning_effort.clone(),
+            Some(false),
+        )?
+        .with_max_output_tokens(run.options.max_output_tokens)
+        .with_deepseek_user_id(Uuid::new_v4().to_string());
+        runtime
+            .replace_llm_backend(Arc::new(CacheProbeBackend::new(Arc::new(backend), run.arm)))
             .await?;
-        samples.push(DeepseekCacheProbeSample {
-            pair_index: run.pair_index,
-            arm_order: run.arm_order,
-            arm: run.arm,
-            turn_index,
-            query_report,
-        });
+        runtime.disable_tools().await?;
+        runtime.disable_extension_execution().await?;
+        runtime.set_max_turns(1).await?;
+
+        let mut samples = Vec::with_capacity(run.options.turns_per_arm.get());
+        for turn_index in 0..run.options.turns_per_arm.get() {
+            let prompt = scripted_prompt(turn_index);
+            let query_report = runtime
+                .query_with_report(prompt, AgentOutputMode::Silent, |_| {})
+                .await?;
+            samples.push(DeepseekCacheProbeSample {
+                pair_index: run.pair_index,
+                arm_order: run.arm_order,
+                arm: run.arm,
+                turn_index,
+                query_report,
+            });
+        }
+        Ok(samples)
     }
-    Ok(samples)
+    .await;
+    let shutdown_result = runtime.shutdown().await;
+    match (sample_result, shutdown_result) {
+        (Err(error), Err(shutdown_error)) => {
+            log::warn!("failed to shut down DeepSeek cache probe session: {shutdown_error}");
+            Err(error)
+        }
+        (Err(error), Ok(())) => Err(error),
+        (Ok(_), Err(error)) => Err(error),
+        (Ok(samples), Ok(())) => Ok(samples),
+    }
 }
 
 fn scripted_prompt(turn_index: usize) -> String {

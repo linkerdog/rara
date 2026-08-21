@@ -24,10 +24,9 @@ async fn embedded_runtime_is_workspace_scoped_and_emits_typed_events() {
         ..EmbeddedRuntimeOptions::default()
     };
 
-    let mut runtime =
-        EmbeddedRuntime::from_config_with_options(&config, &workspace, options.clone())
-            .await
-            .expect("embedded runtime");
+    let runtime = EmbeddedRuntime::from_config_with_options(&config, &workspace, options.clone())
+        .await
+        .expect("embedded runtime");
     let second = EmbeddedRuntime::from_config_with_options(&config, &workspace, options)
         .await
         .expect("second embedded runtime");

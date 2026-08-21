@@ -1,42 +1,36 @@
-//! Print-mode consumer: subscribes to RuntimeEventBus and renders
-//! AgentEvent as plain text to stdout/stderr. No TUI, no JSON.
-//!
-//! The consumer owns the agent lifecycle: it spawns the query task
-//! and consumes events until the task completes.
-
-use std::sync::Arc;
+//! Print-mode adapter over `RuntimeSession` typed events. No TUI, no JSON.
 
 use anyhow::Result;
 
-use crate::agent::Agent;
-use crate::agent::AgentEvent;
-use crate::runtime_event_bus::RuntimeEventBus;
+use crate::agent::{AgentEvent, AgentOutputMode};
+use crate::runtime_session::RuntimeSession;
 
 pub struct PrintConsumer {
-    agent: Agent,
-    event_bus: Arc<RuntimeEventBus>,
+    session: RuntimeSession,
     prompt: String,
 }
 
 impl PrintConsumer {
-    pub fn new(agent: Agent, event_bus: Arc<RuntimeEventBus>, prompt: String) -> Self {
-        Self {
-            agent,
-            event_bus,
-            prompt,
-        }
+    pub fn new(session: RuntimeSession, prompt: String) -> Self {
+        Self { session, prompt }
     }
 
     /// Run the agent query and print streaming output until completion.
-    pub async fn run(mut self) -> Result<()> {
-        let mut rx = self.event_bus.subscribe();
-        let handle = tokio::spawn(async move { self.agent.query(self.prompt).await });
-
-        while let Ok(event) = rx.recv().await {
-            Self::render_event(&event);
+    pub async fn run(self) -> Result<()> {
+        let query_result = self
+            .session
+            .query_with_events(self.prompt, AgentOutputMode::Silent, |event| {
+                Self::render_event(&event)
+            })
+            .await;
+        let shutdown_result = self.session.shutdown().await;
+        if let Err(error) = query_result {
+            if let Err(shutdown_error) = shutdown_result {
+                log::warn!("failed to shut down print runtime session: {shutdown_error}");
+            }
+            return Err(error.into());
         }
-
-        let _ = handle.await?;
+        shutdown_result?;
         println!(); // trailing newline
         Ok(())
     }

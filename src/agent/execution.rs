@@ -136,6 +136,13 @@ impl Agent {
                     missing_proposed_plan_error()
                 };
                 report(AgentEvent::ToolResult {
+                    call_id: turn_output
+                        .tool_calls
+                        .iter()
+                        .find(|tool_call| tool_call.name == EXIT_PLAN_MODE_TOOL_NAME)
+                        .expect("exit plan mode call checked above")
+                        .id
+                        .clone(),
                     name: EXIT_PLAN_MODE_TOOL_NAME.to_string(),
                     content: content.clone(),
                     is_error: true,
@@ -516,6 +523,7 @@ impl Agent {
                 })
                 .to_string();
                 report(AgentEvent::ToolResult {
+                    call_id: tool_id.clone(),
                     name: tool_name,
                     content: result_text.clone(),
                     is_error: false,
@@ -527,6 +535,7 @@ impl Agent {
                 if self.current_plan.is_empty() {
                     let error_text = missing_proposed_plan_error();
                     report(AgentEvent::ToolResult {
+                        call_id: tool_id.clone(),
                         name: tool_name.clone(),
                         content: error_text.clone(),
                         is_error: true,
@@ -553,6 +562,7 @@ impl Agent {
                     Err(err) => {
                         let error_text = format!("Error: invalid bash payload: {err}");
                         report(AgentEvent::ToolResult {
+                            call_id: tool_id.clone(),
                             name: tool_name.clone(),
                             content: error_text.clone(),
                             is_error: true,
@@ -573,6 +583,7 @@ impl Agent {
                     request.summary()
                 );
                 report(AgentEvent::ToolResult {
+                    call_id: tool_id.clone(),
                     name: tool_name.clone(),
                     content: error_text.clone(),
                     is_error: true,
@@ -633,6 +644,7 @@ impl Agent {
                                     resp.reason
                                 );
                                 report(AgentEvent::ToolResult {
+                                    call_id: tool_id.clone(),
                                     name: tool_name.clone(),
                                     content: error_text.clone(),
                                     is_error: true,
@@ -663,6 +675,7 @@ impl Agent {
                     self.execution_mode_label()
                 );
                 report(AgentEvent::ToolResult {
+                    call_id: tool_id.clone(),
                     name: tool_name.clone(),
                     content: error_text.clone(),
                     is_error: true,
@@ -712,6 +725,7 @@ impl Agent {
                     tool_name, block.plugin_name, block.message
                 );
                 report(AgentEvent::ToolResult {
+                    call_id: tool_id.clone(),
                     name: tool_name.clone(),
                     content: error_text.clone(),
                     is_error: true,
@@ -733,10 +747,11 @@ impl Agent {
                 match tool
                     .call_with_context_events(
                         tool_input.clone(),
-                        self.tool_call_context(),
+                        self.tool_call_context(&tool_id),
                         &mut |progress| match progress {
                             ToolProgressEvent::Output { stream, chunk } => {
                                 report(AgentEvent::ToolProgress {
+                                    call_id: tool_id.clone(),
                                     name: tool_name.clone(),
                                     stream,
                                     chunk,
@@ -795,6 +810,7 @@ impl Agent {
                             &result,
                         )?;
                         report(AgentEvent::ToolResult {
+                            call_id: tool_id.clone(),
                             name: tool_name.clone(),
                             content: result_text.clone(),
                             is_error: false,
@@ -804,6 +820,7 @@ impl Agent {
                     Err(e) => {
                         let error_text = format!("Error: {}", e);
                         report(AgentEvent::ToolResult {
+                            call_id: tool_id.clone(),
                             name: tool_name.clone(),
                             content: error_text.clone(),
                             is_error: true,
@@ -844,10 +861,14 @@ Rules:
         Ok(crate::classifier::parse_auto_permission_response(&raw)?)
     }
 
-    pub(super) fn tool_call_context(&self) -> ToolCallContext {
-        let context = ToolCallContext::default()
+    pub(super) fn tool_call_context(&self, call_id: &str) -> ToolCallContext {
+        let mut context = ToolCallContext::default()
             .with_session_id(self.session_id.clone())
+            .with_call_id(call_id)
             .with_workspace_root(self.workspace.root.clone());
+        if let Some(turn_id) = &self.runtime_turn_id {
+            context = context.with_turn_id(turn_id.clone());
+        }
         match self.cancellation_token.as_ref() {
             Some(token) => context.with_cancellation(token.clone()),
             None => context,

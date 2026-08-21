@@ -312,6 +312,7 @@ mod tests {
         RuntimeControlEvent {
             event_id: "event-1".into(),
             provenance: RuntimeProvenance::local_tui("test-session"),
+            turn_id: None,
             sequence: 1,
             event: RuntimeEvent::Session(event),
         }
@@ -321,6 +322,7 @@ mod tests {
         RuntimeControlEvent {
             event_id: "event-2".into(),
             provenance: RuntimeProvenance::local_tui("test-session"),
+            turn_id: None,
             sequence: 2,
             event: RuntimeEvent::Assistant(event),
         }
@@ -356,6 +358,7 @@ mod tests {
         let duplicate = RuntimeControlEvent {
             event_id: "event-3".into(),
             provenance: RuntimeProvenance::local_tui("test-session"),
+            turn_id: None,
             sequence: 3,
             event: RuntimeEvent::Assistant(AssistantEvent::Text("Inspecting again".into())),
         };

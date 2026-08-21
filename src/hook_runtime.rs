@@ -197,6 +197,7 @@ mod tests {
         );
         assert_eq!(
             lifecycle_for_event(&AgentEvent::ToolUse {
+                call_id: "call-1".into(),
                 name: "bash".into(),
                 input: serde_json::json!({}),
             }),
@@ -204,6 +205,7 @@ mod tests {
         );
         assert_eq!(
             lifecycle_for_event(&AgentEvent::ToolResult {
+                call_id: "call-1".into(),
                 name: "bash".into(),
                 content: "ok".into(),
                 is_error: false,

@@ -198,6 +198,10 @@ impl Agent {
         self.cancellation_token = cancellation_token;
     }
 
+    pub(crate) fn set_runtime_turn_id(&mut self, turn_id: Option<String>) {
+        self.runtime_turn_id = turn_id;
+    }
+
     fn pending_runtime_interactions(&self) -> Vec<RuntimeInteractionInput> {
         let mut interactions = Vec::new();
 

@@ -268,6 +268,7 @@ fn apply_runtime_control_event(app: &mut TuiApp, event: RuntimeControlEvent) {
         RuntimeEvent::Session(SessionEvent::TurnStarted)
         | RuntimeEvent::Session(SessionEvent::ModelRequest { .. }) => {}
         RuntimeEvent::Session(SessionEvent::TurnFinished { .. })
+        | RuntimeEvent::Session(SessionEvent::TurnFailed { .. })
         | RuntimeEvent::Session(SessionEvent::TurnCancelled)
         | RuntimeEvent::Session(SessionEvent::TurnInterrupted)
         | RuntimeEvent::Session(SessionEvent::Created { .. })
