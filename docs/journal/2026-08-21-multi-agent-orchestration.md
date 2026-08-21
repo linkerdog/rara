@@ -28,6 +28,11 @@ The state root also flows into root and per-child backend construction so
 provider credential storage cannot fall back to the host application's default
 RARA home.
 
+The root Bazel graph mirrors the Cargo package boundary: `rara_lib` owns the
+library sources, the `rara` binary depends on that library, and library unit
+tests plus the embedded integration test are independently addressable test
+targets.
+
 The implementation also completes real source splits required by the project
 size contract. `agent.rs` now keeps shared types and helpers while runtime
 entrypoints and the execution loop live in separate modules; configuration
@@ -137,6 +142,8 @@ embeddable path now without declaring the current internal module graph stable.
 - `cargo test --test embedded_runtime`
 - `cargo test --all-targets`
 - `cargo clippy --all-targets -- -D warnings`
+- `bazel build //:rara //:rara_lib //:rara_unit_tests //:embedded_runtime_tests`
+- `bazel test --test_output=errors //:rara_unit_tests //:embedded_runtime_tests`
 - `git diff --check`
 
 ## Remaining work

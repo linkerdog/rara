@@ -103,12 +103,13 @@ Mutable access to the raw `Agent` is not part of the initial stable facade.
 
 | Area | Validation |
 | --- | --- |
-| Package | `cargo check --lib` and `cargo check --bin rara` both succeed. |
+| Package | Cargo and Bazel both build the `rara` library and thin binary targets. |
 | Workspace | An embedded runtime constructed for a temp workspace retains that path while process cwd is unchanged. |
 | State scope | A provider with local auth storage creates it under the explicit state root. |
 | Events | A mock-backend query reports typed assistant/model lifecycle events through the callback. |
 | Isolation | Two embedded instances expose distinct session ids and agent-tree controls. |
 | CLI parity | The binary delegates to the library CLI entrypoint without duplicating module declarations. |
+| Bazel parity | `rara_lib`, `rara`, library unit tests, and the embedded integration test are separate Bazel targets. |
 | Warning hygiene | Library and binary targets add no compiler or Clippy warnings. |
 
 ## Open Risks

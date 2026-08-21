@@ -1,9 +1,12 @@
 load("@crate_index//:defs.bzl", "aliases", "all_crate_deps")
-load("@rules_rust//rust:defs.bzl", "rust_binary", "rust_test")
+load("@rules_rust//rust:defs.bzl", "rust_binary", "rust_library", "rust_test")
 
 package(default_visibility = ["//visibility:public"])
 
-RARA_SRCS = glob(["src/**/*.rs"])
+RARA_SRCS = glob(
+    ["src/**/*.rs"],
+    exclude = ["src/main.rs"],
+)
 
 RARA_DEPS = all_crate_deps(normal = True) + [
     "//crates/bedrock:rara_bedrock",
@@ -34,37 +37,60 @@ MODEL_SERVER_DATA = [
 
 SNAPSHOT_DATA = glob(["src/**/snapshots/*.snap"])
 
-rust_binary(
-    name = "rara",
+rust_library(
+    name = "rara_lib",
     srcs = RARA_SRCS,
     aliases = aliases(),
     compile_data = MODEL_SERVER_DATA,
     crate_name = "rara",
-    crate_root = "src/main.rs",
+    crate_root = "src/lib.rs",
     edition = "2024",
     deps = RARA_DEPS,
     proc_macro_deps = all_crate_deps(proc_macro = True) + ["//crates/tool-macros:rara_tool_macros"],
 )
 
+rust_binary(
+    name = "rara",
+    srcs = ["src/main.rs"],
+    aliases = aliases(),
+    compile_data = MODEL_SERVER_DATA,
+    crate_name = "rara",
+    crate_root = "src/main.rs",
+    edition = "2024",
+    deps = RARA_DEPS + [":rara_lib"],
+    proc_macro_deps = all_crate_deps(proc_macro = True) + ["//crates/tool-macros:rara_tool_macros"],
+)
+
 rust_test(
     name = "rara_unit_tests",
-    srcs = RARA_SRCS,
+    crate = ":rara_lib",
+    aliases = aliases(
+        normal_dev = True,
+        proc_macro_dev = True,
+    ),
+    edition = "2024",
+    data = SNAPSHOT_DATA,
+    deps = all_crate_deps(normal_dev = True),
+    env = {
+        "INSTA_WORKSPACE_ROOT": ".",
+        "RARA_SKIP_MANAGED_VENV_TESTS": "1",
+    },
+    proc_macro_deps = all_crate_deps(proc_macro_dev = True),
+    timeout = "long",
+)
+
+rust_test(
+    name = "embedded_runtime_tests",
+    srcs = ["tests/embedded_runtime.rs"],
     aliases = aliases(
         normal = True,
         normal_dev = True,
         proc_macro = True,
         proc_macro_dev = True,
     ),
-    compile_data = MODEL_SERVER_DATA,
-    crate_name = "rara",
-    crate_root = "src/main.rs",
+    crate_name = "embedded_runtime_tests",
     edition = "2024",
-    data = SNAPSHOT_DATA,
-    deps = RARA_DEPS + all_crate_deps(normal_dev = True),
-    env = {
-        "INSTA_WORKSPACE_ROOT": ".",
-        "RARA_SKIP_MANAGED_VENV_TESTS": "1",
-    },
-    proc_macro_deps = all_crate_deps(proc_macro = True) + all_crate_deps(proc_macro_dev = True) + ["//crates/tool-macros:rara_tool_macros"],
+    deps = [":rara_lib"] + all_crate_deps(normal = True) + all_crate_deps(normal_dev = True),
+    proc_macro_deps = all_crate_deps(proc_macro = True) + all_crate_deps(proc_macro_dev = True),
     timeout = "long",
 )
