@@ -144,19 +144,9 @@ warning for hard failures.
 
 ### Configuration Policy
 
-Local embeddings default to `auto` so ordinary CLI, TUI, ACP, and memory
-workflows keep the provider-aware sidecar behavior. This preserves the normal
-local-first memory path.
-
-Benchmark adapters can disable sidecar routing for faster startup by setting:
-
-```text
-RARA_LOCAL_EMBEDDINGS=off
-```
-
-`auto` preserves the provider-aware routing policy: providers with a usable
-embedding surface can keep using the current backend, while local or
-embedding-limited chat providers may use the bundled local model server.
+The bundled local embedding sidecar and its `local_embeddings` /
+`RARA_LOCAL_EMBEDDINGS` configuration surface have been removed. Local
+semantic memory is delegated to Nowledge Mem.
 
 `off` always routes embedding calls through the current `LlmBackend`
 implementation. The Harbor Terminal-Bench adapter uses this mode so benchmark
@@ -525,8 +515,7 @@ Valid preparation states:
   versioned by profile.
 - LanceDB table versioning still needs a separate migration plan before mixed
   embedding dimensions or model profiles are enabled.
-- Explicit provider/local embedding route overrides are available through
-  `local_embeddings = "provider"` and `local_embeddings = "local"`.
+- The `local_embeddings` provider/local route override field has been removed.
 
 ## Source Journals
 

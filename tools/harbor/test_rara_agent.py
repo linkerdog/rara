@@ -285,7 +285,7 @@ class RaraAgentTests(unittest.TestCase):
         self.assertIn("--cwd /app", agent._build_exec_command())
         self.assertIn("Work only in the benchmark workspace: /app", uploaded_instruction)
 
-    def test_run_disables_local_embeddings_for_benchmark(self) -> None:
+    def test_run_sets_home_and_cwd_for_benchmark(self) -> None:
         with tempfile.TemporaryDirectory(dir=Path.cwd()) as temp:
             agent = RaraAgent(logs_dir=Path(temp), binary_path="/tmp/rara")
             context = AgentContext()
@@ -293,7 +293,6 @@ class RaraAgentTests(unittest.TestCase):
 
             asyncio.run(agent.run("solve task", environment, context))  # type: ignore[arg-type]
 
-        self.assertEqual(environment.exec_env["RARA_LOCAL_EMBEDDINGS"], "off")
         self.assertEqual(environment.exec_env["RARA_HOME"], "/logs/agent/rara-home")
         self.assertEqual(environment.exec_cwd, "/app")
 
