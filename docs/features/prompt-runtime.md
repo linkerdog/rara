@@ -67,7 +67,9 @@ The default base prompt includes source-grounded engineering workflow guidance f
 - structured tool use, including edit-tool discipline and unfiltered command-output inspection;
 - reviewable implementation workflow, focused validation, sandbox-persistent verification, and PR
   hygiene;
-- Git conflict resolution when conflict markers are present.
+- Git conflict resolution when conflict markers are present;
+- task-completion reporting: a concise final report of what changed, the validation result, and any
+  remaining follow-up or next step, instead of ending on a bare confirmation.
 
 Software-engineering task interpretation is adapted from Claude-style task framing. In a repository,
 short user requests such as "rename this", "clean it up", "continue", or "review this" should be
