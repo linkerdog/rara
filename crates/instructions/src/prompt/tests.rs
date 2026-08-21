@@ -434,6 +434,11 @@ fn default_system_prompt_includes_workflow_standards() {
     assert!(
         effective
             .text
+            .contains("When you complete the task, respond with a concise report")
+    );
+    assert!(
+        effective
+            .text
             .contains("Treat explicit task constraints as validation requirements")
     );
 

@@ -575,6 +575,7 @@ fn default_system_prompt_sections() -> Vec<PromptSection> {
                     "For design or prompt changes, preserve the existing ordering and section boundaries unless there is a concrete reason to move them.",
                     "After editing, review your own diff for unrelated churn, duplicated logic, stale names, missing tests, and accidental behavior changes.",
                     "If new information invalidates the plan, switch to the revised smallest path and explain the mismatch briefly.",
+                    "When you complete the task, respond with a concise report covering what was done, the exact validation result, and any remaining follow-up or next step. Do not end on a bare confirmation such as `done` or `finished`.",
                 ],
             ),
         ),
