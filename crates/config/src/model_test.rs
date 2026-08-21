@@ -6,9 +6,9 @@ use secrecy::ExposeSecret;
 use tempfile::tempdir;
 
 use super::{
-    ConfigManager, ContextFileSearchPolicy, LocalEmbeddingPolicy, NowledgeMemMode,
-    NowledgeMemPluginConfig, OpenAiEndpointKind, OpenAiEndpointProfile, ProviderConfigState,
-    RaraConfig, workspace_data_dir_for_home,
+    ConfigManager, ContextFileSearchPolicy, NowledgeMemMode, NowledgeMemPluginConfig,
+    OpenAiEndpointKind, OpenAiEndpointProfile, ProviderConfigState, RaraConfig,
+    workspace_data_dir_for_home,
 };
 use crate::defaults::{
     DEFAULT_CODEX_BASE_URL, DEFAULT_CODEX_CHATGPT_BASE_URL, DEFAULT_CODEX_MODEL,
@@ -161,83 +161,6 @@ fn context_file_search_can_disable_automatic_retrieval_candidates() {
     .expect("deserialize config");
 
     assert_eq!(config.context_file_search, ContextFileSearchPolicy::Off);
-}
-
-#[test]
-fn local_embeddings_default_off_and_omitted() {
-    let config = RaraConfig::default();
-
-    assert_eq!(config.local_embeddings, LocalEmbeddingPolicy::Off);
-
-    let json = serde_json::to_string(&config).expect("serialize config");
-    assert!(!json.contains("local_embeddings"));
-}
-
-#[test]
-fn local_embeddings_can_enable_sidecar_policy() {
-    let config: RaraConfig = serde_json::from_str(
-        r#"{
-            "provider": "deepseek",
-            "local_embeddings": "auto"
-        }"#,
-    )
-    .expect("deserialize config");
-
-    assert_eq!(config.local_embeddings, LocalEmbeddingPolicy::Auto);
-}
-
-#[test]
-fn local_embeddings_accepts_explicit_provider_and_local_overrides() {
-    let provider: RaraConfig = serde_json::from_str(
-        r#"{
-            "provider": "deepseek",
-            "local_embeddings": "provider"
-        }"#,
-    )
-    .expect("deserialize provider override");
-    assert_eq!(provider.local_embeddings, LocalEmbeddingPolicy::Provider);
-
-    let local: RaraConfig = serde_json::from_str(
-        r#"{
-            "provider": "codex",
-            "local_embeddings": "local"
-        }"#,
-    )
-    .expect("deserialize local override");
-    assert_eq!(local.local_embeddings, LocalEmbeddingPolicy::Local);
-}
-
-#[test]
-fn local_embeddings_can_be_enabled_and_disabled_by_environment() {
-    let mut config = RaraConfig::default();
-
-    config.apply_provider_environment_defaults_from(|key| match key {
-        "RARA_LOCAL_EMBEDDINGS" => Some("on".to_string()),
-        _ => None,
-    });
-
-    assert_eq!(config.local_embeddings, LocalEmbeddingPolicy::Auto);
-
-    config.apply_provider_environment_defaults_from(|key| match key {
-        "RARA_LOCAL_EMBEDDINGS" => Some("provider".to_string()),
-        _ => None,
-    });
-
-    assert_eq!(config.local_embeddings, LocalEmbeddingPolicy::Provider);
-
-    config.apply_provider_environment_defaults_from(|key| match key {
-        "RARA_LOCAL_EMBEDDINGS" => Some("local".to_string()),
-        _ => None,
-    });
-
-    assert_eq!(config.local_embeddings, LocalEmbeddingPolicy::Local);
-
-    config.apply_provider_environment_defaults_from(|key| match key {
-        "RARA_LOCAL_EMBEDDINGS" => Some("off".to_string()),
-        _ => None,
-    });
-
-    assert_eq!(config.local_embeddings, LocalEmbeddingPolicy::Off);
 }
 
 #[test]

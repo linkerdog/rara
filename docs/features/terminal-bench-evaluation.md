@@ -58,9 +58,7 @@ Recommended components:
   binary_path=$PWD/target/release/rara`. The adapter defaults to `/app` as the
   benchmark cwd, passes that cwd explicitly to `rara exec`, and preserves the
   `rara exec` exit code while teeing JSONL output into
-  `/logs/agent/rara-exec.jsonl`. It also sets
-  `RARA_LOCAL_EMBEDDINGS=off` so benchmark startup does not prepare the bundled
-  local embedding sidecar. The adapter wraps task text with generic
+  `/logs/agent/rara-exec.jsonl`. The adapter wraps task text with generic
   non-interactive benchmark guidance so RARA treats named output files as
   required artifacts rather than optional final-answer prose.
 - `rara eval terminal-bench` may be added later as a convenience wrapper, but
