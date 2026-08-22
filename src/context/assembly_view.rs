@@ -6,6 +6,7 @@ use crate::context::{
     CompactionSourceContextEntry, ContextAssemblyEntry, ContextAssemblyView,
     MemorySelectionItemContextEntry, is_retrieved_memory_kind,
 };
+use crate::model_context::{ModelContextKind, model_context_kind, model_context_text};
 use crate::prompt::EffectivePrompt;
 
 #[allow(clippy::too_many_arguments)]
@@ -50,6 +51,7 @@ pub(crate) fn assemble_context_view(
             "user_instruction" => "stable_instructions",
             "project_instruction" => "stable_instructions",
             "local_memory" => "workspace_prompt_sources",
+            "protocol_prompt_source" => "active_turn_state",
             _ => "workspace_prompt_sources",
         };
         push(ContextAssemblyEntry {
@@ -139,6 +141,55 @@ pub(crate) fn assemble_context_view(
             budget_impact_tokens: Some(estimate_text_tokens(user_request.as_str())),
             dropped_reason: None,
         });
+    }
+
+    if let Some(message) = history.iter().rev().find(|message| {
+        message.role == "user"
+            && message.content.as_array().is_some_and(|blocks| {
+                blocks.iter().any(|block| {
+                    block.get("type").and_then(serde_json::Value::as_str) == Some("text")
+                })
+            })
+    }) && let Some(blocks) = message.content.as_array()
+    {
+        for block in blocks {
+            let Some(kind) = model_context_kind(block) else {
+                continue;
+            };
+            if kind == ModelContextKind::RetrievedMemory
+                && selected_memory_items
+                    .iter()
+                    .any(|item| is_retrieved_memory_kind(item.kind.as_str()))
+            {
+                continue;
+            }
+            let Some(text) = model_context_text(block) else {
+                continue;
+            };
+            let (kind, label) = match kind {
+                ModelContextKind::Environment => ("environment", "Environment Context"),
+                ModelContextKind::ExecutionMode => ("execution_mode", "Execution Mode"),
+                ModelContextKind::ProtocolPromptSources => {
+                    ("protocol_prompt_sources", "Protocol Prompt Sources")
+                }
+                ModelContextKind::RetrievedMemory => {
+                    ("retrieved_memory", "Persisted Retrieved Memory")
+                }
+            };
+            push(ContextAssemblyEntry {
+                order: 0,
+                cache_status: None,
+                layer: "active_turn_state".to_string(),
+                kind: kind.to_string(),
+                label: label.to_string(),
+                source_path: None,
+                injected: true,
+                inclusion_reason:
+                    "persisted as append-only model context on the latest user request".to_string(),
+                budget_impact_tokens: Some(estimate_text_tokens(text)),
+                dropped_reason: None,
+            });
+        }
     }
 
     for (label, detail) in latest_tool_results(history) {

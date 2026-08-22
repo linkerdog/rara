@@ -9,6 +9,7 @@ use serde_json::{Value, json};
 use super::shared::{ContextBudget, LlmBackend};
 use crate::agent::Message;
 use crate::llm::{ContentBlock, LlmResponse, TokenUsage};
+use crate::model_context::{MODEL_CONTEXT_BLOCK_TYPE, model_context_text};
 
 pub struct BedrockBackend {
     client: BedrockConverseClient,
@@ -55,6 +56,9 @@ fn convert_content_to_bedrock(content: &Value) -> Vec<BedrockChatContent> {
                 .get("text")
                 .and_then(Value::as_str)
                 .map(|text| BedrockChatContent::Text(text.to_string())),
+            Some(MODEL_CONTEXT_BLOCK_TYPE) => {
+                model_context_text(item).map(|text| BedrockChatContent::Text(text.to_string()))
+            }
             Some("tool_use") => Some(BedrockChatContent::ToolUse {
                 id: item["id"].as_str().unwrap_or_default().to_string(),
                 name: item["name"].as_str().unwrap_or_default().to_string(),
@@ -184,6 +188,7 @@ mod tests {
             Message {
                 role: "user".to_string(),
                 content: json!([
+                    {"type": "rara_model_context", "kind": "environment", "text": "workspace context"},
                     {"type": "text", "text": "hello"},
                     {"type": "tool_result", "tool_use_id": "call-1", "content": "ok", "is_error": false}
                 ]),
@@ -197,6 +202,7 @@ mod tests {
         assert_eq!(
             converted[0].content,
             vec![
+                BedrockChatContent::Text("workspace context".to_string()),
                 BedrockChatContent::Text("hello".to_string()),
                 BedrockChatContent::ToolResult {
                     tool_use_id: "call-1".to_string(),

@@ -90,6 +90,14 @@ Active backlog only. Keep this file small and current.
 - [x] Compaction lifecycle — /compact command + PreCompact/PostCompact hooks (PR #598)
 - [x] Tool result compression — ToolResultProjectionPolicy + model_preview_bash_output
 - [x] Context file routing — FileSearchCandidateProvider → retrieval pipeline (spec-only PR #606)
+- [x] Keep volatile environment, mode, protocol/LSP, and retrieved-memory
+      context out of the system prompt and preserve earlier model-visible
+      request prefixes with typed append-only context.
+- [x] Add an opt-in official DeepSeek API AB/BA harness with content-free
+      request fingerprints, explicit cost gates, and hit/miss usage reporting.
+- [ ] Run the official DeepSeek API AB/BA harness with an authorized credential and record
+      `prompt_cache_hit_tokens` / `prompt_cache_miss_tokens` for comparable
+      repeated turns; request-shape regressions alone do not prove a cache hit.
 
 ## Benchmark / Evaluation
 
@@ -150,8 +158,27 @@ Active backlog only. Keep this file small and current.
 
 - [x] Expose the root package as a Rust library with a workspace-scoped
       `EmbeddedRuntime`, typed events, isolated state roots, and agent control.
-- [ ] Add a dependency-injection builder for programmatic backends and stores,
-      then continue the `rara-agent` / control-plane crate split.
+- [x] Add host-controlled backend and tool injection, with explicit opt-out
+      from ambient extension discovery, RARA-owned memory facilities, and
+      local transcript checkpoints.
+- [x] Add stable host session IDs plus transcript hydration, replacement,
+      completed-turn handoff, and failure evidence.
+- [ ] Add async transcript and context store traits, then continue the
+      `rara-agent` / control-plane crate split.
+
+## Runtime Session
+
+- [x] Add the library-first `RuntimeSession` actor, bounded commands, typed
+      turn handles, cancellation, snapshots, replay, and explicit shutdown.
+- [x] Move ACP, Wire, print, exec, ask, and embedded execution onto the session
+      handle and add a non-global multi-session `RuntimeHost`.
+- [ ] Move the TUI rebuild, approval, goal, and maintenance pipeline from its
+      compatibility `RuntimeClient` owner into `RuntimeSession` commands.
+- [ ] Extract the minimal runtime dependency graph so external Rust hosts do
+      not pull TUI, local-model, ACP, or OAuth implementations.
+- [ ] Add a Nowledge Mem compatibility harness for provider, tool, event,
+      transcript, usage, cancellation, and MCP parity before replacing Rig in
+      production lanes.
 
 ## Shared Task Lists
 
@@ -195,13 +222,8 @@ Active backlog only. Keep this file small and current.
 
 ## Configuration
 
-- [x] Default bundled local embedding sidecar startup to off while preserving
-      explicit `local_embeddings = "auto"` opt-in.
-- [x] Explicit embedding provider override beyond `off` / `auto`.
-- [x] Remove bundled local embedding runtime from memory retrieval; keep
-      `local_embeddings` as deprecated config compatibility only.
-- [ ] Decide whether to keep or migrate away the deprecated
-      `local_embeddings` config field.
+- [x] Remove the bundled local embedding sidecar, the provider/local embedding
+      overrides, and the deprecated `local_embeddings` config field entirely.
 
 ## WASM Core
 

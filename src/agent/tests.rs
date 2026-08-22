@@ -5,5 +5,6 @@ mod mailbox;
 mod microcompact;
 mod planning;
 mod plugin_hooks;
+mod prompt_cache;
 mod stop_hooks;
 mod support;

@@ -44,8 +44,6 @@ pub struct RaraConfig {
     pub memory_consolidation: MemoryConsolidationConfig,
     #[serde(default, skip_serializing_if = "ContextFileSearchPolicy::is_default")]
     pub context_file_search: ContextFileSearchPolicy,
-    #[serde(default, skip_serializing_if = "LocalEmbeddingPolicy::is_default")]
-    pub local_embeddings: LocalEmbeddingPolicy,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub plugin_dirs: Vec<PathBuf>,
     #[serde(default, skip_serializing_if = "BuiltinPluginConfig::is_default")]
@@ -96,16 +94,6 @@ impl RaraConfig {
     where
         F: FnMut(&str) -> Option<String>,
     {
-        if let Some(value) = read_env("RARA_LOCAL_EMBEDDINGS") {
-            self.local_embeddings = match value.trim().to_ascii_lowercase().as_str() {
-                "off" | "false" | "0" | "no" => LocalEmbeddingPolicy::Off,
-                "auto" | "on" | "true" | "1" | "yes" => LocalEmbeddingPolicy::Auto,
-                "provider" | "native" | "llm" => LocalEmbeddingPolicy::Provider,
-                "local" | "sidecar" => LocalEmbeddingPolicy::Local,
-                _ => self.local_embeddings,
-            };
-        }
-
         if self.has_api_key() {
             return;
         }

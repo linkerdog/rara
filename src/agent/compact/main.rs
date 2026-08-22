@@ -256,6 +256,9 @@ impl Agent {
     }
 
     fn persist_compaction_event(&self, event: &PersistedCompactionEvent) -> Result<()> {
+        if !self.persist_session_transcript {
+            return Ok(());
+        }
         if let Some(state_db) = self.state_db.as_deref() {
             let recorder = ThreadRecorder::new(state_db);
             return recorder.persist_compaction_event(&self.session_id, event);
@@ -342,7 +345,7 @@ impl Agent {
         }
     }
 
-    fn recompute_history_token_estimate(&mut self) {
+    pub(in crate::agent) fn recompute_history_token_estimate(&mut self) {
         self.compact_state.estimated_history_tokens =
             estimate_history_tokens(&self.history).unwrap_or_default();
     }

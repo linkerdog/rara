@@ -2,167 +2,135 @@
 
 ## Problem
 
-RARA currently injects project-level instructions and session memory as two
-separate dynamic prompt sections (`instructions` and `memory`).  Claude Code
-takes the opposite approach: all file-based context (CLAUDE.md, auto-memory,
-rules) is merged into a single `claudeMd` string with labeled sub-sections,
-injected into the system prompt as one `## Memory section` block.
-
-This split model has downsides:
-
-- The model sees instructions and memory as disconnected regions, leading to
-  weaker cross-referencing between project rules and remembered facts.
-- Adding a new injection path (e.g. charter sync) requires deciding which
-  section it belongs to, introducing fragmentation.
-- Two sections with small dynamic content each creates section bloat.
+RARA needs one deterministic system-prompt prefix for durable repository
+instructions while keeping per-turn state close to the user request. Mixing
+environment, execution mode, live protocol sources, or retrieved memory into
+the system message invalidates automatic prefix caches before reusable history
+can be reached.
 
 ## Scope
 
-- Merge the current `instructions` and `memory` dynamic sections into a single
-  `project_context` section.
-- Sub-sections within `project_context` mirror Claude Code's labeling:
-  `### Project Instructions` and `### Session Memory`.
-- Accept a one-time provider-cache invalidation.
-- Do not change content sources, discovery, or `WorkspaceCache` behavior.
+- Merge file-based project instructions and stable workspace memory into one
+  `project_context` system section.
+- Keep stable skill metadata and language guidance in the system prompt.
+- Route environment, execution mode, protocol/LSP sources, and retrieved memory
+  through typed model context on the current user message.
+- Preserve typed model context in model-visible history so later requests keep
+  the exact bytes that earlier requests sent.
 
 ## Non-Goals
 
 - Changing how `ProjectInstruction`, `UserInstruction`, or `LocalMemory`
-  sources are discovered or cached.
-- Adding the memdir-style semantic retrieval path (that is a separate feature).
-- Changing `PromptSourceKind` variants or their semantics.
-- Changing the `DYNAMIC_BOUNDARY` or static prefix sections.
+  sources are discovered.
+- Treating query-dependent retrieval as stable workspace memory.
+- Adding provider-specific cache keys or Anthropic `cache_control` fields.
+- Guaranteeing a provider cache hit; providers may evict or decline an
+  otherwise reusable prefix.
 
 ## Architecture
 
-### Section before
+The request is assembled in this order:
 
-```
-static prefix
-...
-__DYNAMIC_BOUNDARY__
-## instructions
-  ## <UserInstruction.label>
-  ## <ProjectInstruction.label>
-## memory
-  ## <LocalMemory.label>
-## protocol_prompt_sources
-## skills
-## language_best_practices
-## runtime_context
-## execute_mode / plan_mode / review_mode
-```
-
-### Section after
-
-```
-static prefix
-...
-__DYNAMIC_BOUNDARY__
-## project_context
-  ### Project Instructions
-  <UserInstruction content>
-  <ProjectInstruction content>
-  ### Session Memory
-  <LocalMemory content>
-## protocol_prompt_sources
-## skills
-## language_best_practices
-## runtime_context
-## execute_mode / plan_mode / review_mode
+```text
+deterministically ordered tool schemas and stable system prompt
+  base prompt
+  project_context
+    project instructions
+    stable workspace memory
+  skills
+  language best practices
+  append prompt and session capability policy
+append-only conversation history
+current user message
+  changed environment context, if any
+  changed execution-mode context, if any
+  changed protocol/LSP context, if any
+  selected retrieved memory, if any
+  human-authored request text
 ```
 
-### Implementation
+`rara_model_context` is the typed carrier for the current-user attachments:
 
-In `crates/instructions/src/prompt.rs`, the function that builds dynamic
-sections currently does:
-
-```rust
-let instruction_block = /* concat UserInstruction + ProjectInstruction sources */;
-let memory_block = /* find LocalMemory source */;
-
-vec![
-    PromptSection::optional("instructions", instruction_block),
-    PromptSection::optional("memory", memory_block),
-    PromptSection::optional("protocol_prompt_sources", protocol_prompt_sources_block),
-    PromptSection::optional("skills", skills_block),
-    PromptSection::optional("language_best_practices", language_prompt),
-    PromptSection::new("runtime_context", render_environment_context(&cwd, &branch)),
-    PromptSection::optional("execute_mode", ...),
-    PromptSection::optional("plan_mode", ...),
-    PromptSection::optional("review_mode", ...),
-]
+```json
+{
+  "type": "rara_model_context",
+  "kind": "environment",
+  "text": "<environment_context>...</environment_context>"
+}
 ```
 
-After the change, the two blocks are merged into one:
+The carrier is persisted with the user message. Transcript rendering, memory
+retrieval queries, and memory-lifecycle capture ignore the carrier, while model
+provider serializers render its `text` field. This makes the model-visible
+history append-only without presenting runtime attachments as user-authored
+text.
 
-```rust
-let project_context_block = build_project_context_block(sources);
+### Project context rendering
 
-vec![
-    PromptSection::optional("project_context", project_context_block),
-    PromptSection::optional("protocol_prompt_sources", protocol_prompt_sources_block),
-    PromptSection::optional("skills", skills_block),
-    PromptSection::optional("language_best_practices", language_prompt),
-    PromptSection::new("runtime_context", render_environment_context(&cwd, &branch)),
-    PromptSection::optional("execute_mode", ...),
-    PromptSection::optional("plan_mode", ...),
-    PromptSection::optional("review_mode", ...),
-]
-```
+`project_context` contains up to two labeled subsections:
 
-Where `build_project_context_block`:
+- `### Project Instructions` contains ordered user and project instruction
+  sources.
+- `### Session Memory` contains stable local workspace memory.
 
-1. Collects `UserInstruction` and `ProjectInstruction` sources — if any exist,
-   renders them under `### Project Instructions`.
-2. Finds the `LocalMemory` source — if it exists, renders it under
-   `### Session Memory`.
-3. Wraps both sub-sections under `## Project Context`.
-4. Returns `None` when both sub-sections are empty (preserving the existing
-   behavior where absent sources produce no section).
+The complete section is omitted when both source classes are absent.
+
+### Turn-context deltas
+
+Environment, execution mode, and protocol prompt sources are appended only
+when their rendered value differs from the latest value of the same kind in
+history. Retrieved memory is query-dependent and is attached to every turn
+where selection returns content. When protocol sources disappear, the runtime
+appends an explicit cleared-state context so stale instructions do not remain
+authoritative.
 
 ### Prefix stability
 
-The change reduces the dynamic section count from 9 to 8.  Section keys change
-from `[instructions, memory, ...]` to `[project_context, ...]`.  This is a
-**one-time cache invalidation** for every provider.  After the merge, the
-`project_context` section becomes the new stable prefix boundary, and future
-changes within it (new source content) do not invalidate again (the section
-key stays the same).
+The literal `__DYNAMIC_BOUNDARY__` marker is not a provider cache primitive and
+must not appear in requests. RARA sends a plain system string. Stable-source
+changes may intentionally produce a new system prefix, but ordinary changes to
+cwd, branch, mode, diagnostics, protocol sources, or retrieval do not rewrite
+the earlier prefix.
 
 ## Contracts
 
 | Contract | Detail |
-|----------|--------|
-| **Merged section** | `project_context` is the only section for file-based context. |
-| **Sub-section labeling** | `### Project Instructions` for instruction sources, `### Session Memory` for memory sources. |
-| **Empty handling** | If no instruction sources AND no memory sources, `project_context` is absent (no empty section rendered). |
-| **Source kinds unchanged** | `UserInstruction`, `ProjectInstruction`, `LocalMemory` remain as is; only the renderer changes. |
-| **Section count** | Dynamic sections reduce by 1 (two sections → one). |
-| **DYNAMIC_BOUNDARY** | Unchanged. `project_context` is below the boundary, as instructions and memory were. |
+|---|---|
+| Stable system | Environment, mode, protocol/LSP data, and retrieved memory are absent from the system message. |
+| Merged project context | File instructions and stable workspace memory share the `project_context` section. |
+| Append-only model view | A later request preserves all earlier model-visible messages byte-for-byte until durable compaction. |
+| Hidden runtime attachments | `rara_model_context` is rendered to providers but omitted from human transcript and memory-query text. |
+| Cleared protocol state | Removal of previously active protocol sources is represented by a new turn-context delta. |
+| Provider neutrality | OpenAI-compatible, Codex Responses, Ollama, Gemini, Bedrock, and local prompt serializers preserve model-context text. |
 
 ## Validation Matrix
 
 | Check | Method | Expected |
-|-------|--------|----------|
-| Project instructions appear under `### Project Instructions` | Unit test with instruction sources | Content wrapped with sub-section header |
-| Session memory appears under `### Session Memory` | Unit test with LocalMemory source | Content wrapped with sub-section header |
-| No LocalMemory source | Unit test | `### Session Memory` sub-section absent |
-| No instruction sources | Unit test | `### Project Instructions` sub-section absent |
-| Both absent | Unit test | `project_context` section absent |
-| Section count | Assert on vec len | 8 instead of 9 |
-| `cargo build` | `cargo build` | No new warnings |
-| `cargo test` | `cargo test` | All existing tests pass, snapshot tests may need update |
-| Prefix cache key change | Manual: inspect `section_keys` | `project_context` replaces `instructions` + `memory` |
+|---|---|---|
+| Stable project merge | `rara-instructions` prompt tests | Project instructions and memory remain in `project_context`. |
+| Dynamic placement | `rara-instructions` turn-context tests | Environment, mode, and protocol sources are absent from system and present in turn context. |
+| Prefix invariant | Agent two-query regression | Request two starts with every message from request one. |
+| Memory placement | Agent retrieval regression | Selected memory is a persisted `rara_model_context` block before user text. |
+| Provider serialization | DeepSeek, Codex Responses, Gemini, Bedrock, and local-renderer regressions | Context text is model-visible; DeepSeek sends no fake boundary or `cache_control`. |
+| Quality gates | `cargo fmt`, focused tests, `cargo check`, Clippy | No new formatting, compile, or lint failures. |
 
 ## Operational Notes
 
-- This is a one-time break in provider prefix caches.  The new section key
-  `project_context` becomes the stable boundary going forward.
-- Snapshot tests that assert on the full prompt output will need regeneration.
-- Existing journal entries referencing `instructions` or `memory` section keys
-  are historical records and do not need updating.
+- Shipping this layout causes a one-time cold prefix for existing sessions.
+- DeepSeek cache effectiveness must be measured from official
+  `prompt_cache_hit_tokens` and `prompt_cache_miss_tokens`; request shape alone
+  is not proof of a hit.
+- Mode-specific tool availability remains a separate request field and can
+  intentionally create a new provider prefix when the mode changes.
+
+## Open Risks
+
+- Live edits to stable project instructions still change the system prompt and
+  intentionally invalidate the provider prefix.
+- A future protocol source with stronger authority requirements may need a
+  dedicated signed context class rather than generic user-role placement.
 
 ## Source Journals
 
-- _(this spec, written before implementation)_
+- [2026-08-21 DeepSeek prefix cache locality](../journal/2026-08-21-deepseek-prefix-cache-locality.md)
+- [Provider cache observability](provider-cache-observability.md)

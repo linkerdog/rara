@@ -1,45 +1,37 @@
-//! Wire-mode consumer: subscribes to RuntimeEventBus and renders
-//! AgentEvent as Wire JSON-RPC over stdout. Peer consumer to
-//! PrintConsumer (text) and TuiController (Ratatui).
-//!
-//! Wire and print consumers subscribe to the same event bus.
-
-use std::sync::Arc;
+//! Wire-mode adapter over `RuntimeSession` typed events.
 
 use anyhow::Result;
 
-use crate::agent::Agent;
-use crate::agent::AgentEvent;
-use crate::runtime_event_bus::RuntimeEventBus;
+use crate::agent::{AgentEvent, AgentOutputMode};
+use crate::runtime_session::RuntimeSession;
 
-/// Spawns the agent query and emits Wire JSON-RPC messages to stdout
-/// for each AgentEvent until completion.
+/// Emits Wire JSON-RPC messages to stdout for each turn event.
 pub struct WireConsumer {
-    agent: Agent,
-    event_bus: Arc<RuntimeEventBus>,
+    session: RuntimeSession,
     prompt: String,
 }
 
 impl WireConsumer {
-    pub fn new(agent: Agent, event_bus: Arc<RuntimeEventBus>, prompt: String) -> Self {
-        Self {
-            agent,
-            event_bus,
-            prompt,
-        }
+    pub fn new(session: RuntimeSession, prompt: String) -> Self {
+        Self { session, prompt }
     }
 
     /// Run the agent query and emit Wire messages to stdout.
-    pub async fn run(mut self) -> Result<()> {
-        let mut rx = self.event_bus.subscribe();
-        // Spawn agent in background; it publishes AgentEvent to the bus.
-        let handle = tokio::spawn(async move { self.agent.query(self.prompt).await });
-
-        while let Ok(event) = rx.recv().await {
-            Self::emit_wire(&event);
+    pub async fn run(self) -> Result<()> {
+        let query_result = self
+            .session
+            .query_with_events(self.prompt, AgentOutputMode::Silent, |event| {
+                Self::emit_wire(&event)
+            })
+            .await;
+        let shutdown_result = self.session.shutdown().await;
+        if let Err(error) = query_result {
+            if let Err(shutdown_error) = shutdown_result {
+                log::warn!("failed to shut down Wire runtime session: {shutdown_error}");
+            }
+            return Err(error.into());
         }
-
-        let _ = handle.await?;
+        shutdown_result?;
         Ok(())
     }
 
@@ -60,21 +52,28 @@ impl WireConsumer {
                 });
                 println!("{}", serde_json::to_string(&msg).unwrap_or_default());
             }
-            AgentEvent::ToolUse { name, input } => {
+            AgentEvent::ToolUse {
+                call_id,
+                name,
+                input,
+            } => {
                 let msg = serde_json::json!({
                     "type": "tool_use",
+                    "call_id": call_id,
                     "name": name,
                     "input": input,
                 });
                 println!("{}", serde_json::to_string(&msg).unwrap_or_default());
             }
             AgentEvent::ToolResult {
+                call_id,
                 name,
                 content,
                 is_error,
             } => {
                 let msg = serde_json::json!({
                     "type": "tool_result",
+                    "call_id": call_id,
                     "name": name,
                     "content": content,
                     "is_error": is_error,

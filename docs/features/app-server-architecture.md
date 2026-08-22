@@ -1,69 +1,71 @@
 # AppServer Architecture
 
-## Problem Revisited
+The canonical session ownership, command, snapshot, and replay contract lives
+in `runtime-session.md`. AppServer is a transport adapter over `RuntimeHost`; it
+must not own raw agents or reconstruct lifecycle semantics.
 
-The agent already broadcasts `AgentEvent` through `RuntimeEventBus` via
-`forward_event_to_bus`. `AgentEvent` contains all the structured output the
-agent loop produces: `AssistantText`, `AssistantDelta`, `ToolUse`,
-`ToolResult`, `ToolProgress`, `TodoUpdated`, `Status`, etc.
+## Current Boundary
 
-`TuiMaintainer` already owns `TuiApp` privately (PR #276). The TUI is one
-consumer among many; the event bus is the canonical fan-out mechanism.
+RARA currently provides two pieces of the AppServer boundary:
 
-**What's missing**: non-TUI consumers. ACP, Wire, and print-mode stubs exist
-but don't subscribe to `RuntimeEventBus`.
+- `rara-app-server` contains transport-neutral control request and provenance
+  contracts;
+- the root library exposes `RuntimeSession`, ordered control events, replay,
+  and the non-global multi-session `RuntimeHost` used by ACP.
 
-## Architecture (current state + planned)
+Ask, print, exec, Wire, embedded, and ACP execution use the canonical session
+handle. The TUI still uses its internal `RuntimeClient` compatibility owner.
+There is no network AppServer listener in the current checkpoint.
 
-```
-agent (tokio::spawn)
-  │
-  │  AgentEvent (typed, no JSON)
-  ▼
-RuntimeEventBus ──┬── TuiMaintainer   (Ratatui, via mpsc + event_bus)
-                  ├── [planned] Acp   (ACP JSON-RPC → IDE)
-                  ├── [planned] Wire  (Wire JSON-RPC → external programs)
-                  └── [planned] Print (agent events → plain text)
-```
+## Target Architecture
 
-### What Already Works
-
-1. `forward_event_to_bus` publishes every `AgentEvent` to the bus.
-   Callers: `start_query_task`, `start_compact_task`, `start_review_task`.
-   See `src/tui/runtime/tasks.rs:36`.
-
-2. `RuntimeEventBus::subscribe_control()` returns an `mpsc::UnboundedReceiver`
-   for any consumer. No shared state, no locks.
-
-3. The TUI consumes both the mpsc channel (`TuiEvent`) AND the event bus
-   (`AgentEvent` on `subscribe_control`) — it's already a dual consumer.
-
-### Adding a Non-TUI Consumer
-
-Any consumer subscribes the same way:
-
-```rust
-let rx = event_bus.subscribe_control();
-while let Some(envelope) = rx.recv().await {
-    match &envelope.event {
-        RuntimeEvent::Agent(event) => {
-            // event is AgentEvent::AssistantText(...)
-            translate_and_send_to_acp(event);
-        }
-        _ => {}
-    }
-}
+```text
+                    +---------------- RuntimeHost ----------------+
+connection ingress -> session command routing -> RuntimeSession(s)
+                    |                         -> snapshot + replay |
+                    +---------------------------------------------+
+                                      |
+                                      v
+                          bounded connection egress
 ```
 
-No JSON serialization inside the process. Serialization happens only at
-the consumer boundary (ACP/Wire).
+The transport owns connection authentication, negotiated capabilities,
+subscription cursors, and outbound backpressure. `RuntimeHost` owns the
+process-local mapping from stable runtime session IDs to cloneable session
+handles. Each `SessionActor` owns the mutable runtime graph for exactly one
+session.
 
-## Concrete Plan
+Transport disconnect does not implicitly destroy a host-owned session. A
+reconnecting client supplies a cursor, consumes bounded replay, or receives
+`ResyncRequired` and fetches a new snapshot.
 
-| # | PR | Change |
-|---|----|--------|
-| done | #276 | `TuiMaintainer` owns `TuiApp`, event loop uses `split_mut()` |
-| done | #280, #281 | ACP publishes `AgentEvent` to `RuntimeEventBus`; injection via `Arc<Self>` |
-| done | #286 | `PrintConsumer` — plain text, `--print` CLI |
-| superseded | #287 | Removed the unused `AcpConsumer`; ACP now maps runtime-control events directly in the session adapter |
-| done | #289 | `WireConsumer` — Wire JSON lines, `--wire` CLI |
+## Adapter Contract
+
+An AppServer adapter may:
+
+- authenticate a request and select an authorized session;
+- translate a supported control request to one `RuntimeSession` command;
+- subscribe from a snapshot and serialize ordered `RuntimeControlEvent`
+  values;
+- apply independent ingress and egress queue bounds;
+- remove or shut down a session only when the host lifecycle requests it.
+
+It must not:
+
+- retain a mutable `Agent`;
+- assign a second event sequence or synthesize tool-call IDs by tool name;
+- accept tenant, workspace, or authorization identity from model-generated
+  tool arguments;
+- make memory the owner of runtime sessions;
+- retry an ambiguously dispatched provider request after observable output or
+  a tool side effect.
+
+## Delivery History
+
+| Status | Change |
+| --- | --- |
+| done | ACP, print, and Wire adapters consume the shared runtime event model. |
+| done | `RuntimeSession` owns bounded command, cancellation, terminal, snapshot, and replay behavior. |
+| done | ACP uses `RuntimeHost` for independent sessions without a process-global registry. |
+| pending | Move the TUI compatibility command processor behind `RuntimeSession`. |
+| pending | Add a concrete network transport only when an external deployment requires it. |

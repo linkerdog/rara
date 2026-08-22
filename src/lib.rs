@@ -12,6 +12,7 @@ mod config;
 mod context;
 mod control_plane;
 mod control_tokens;
+pub mod deepseek_cache_probe;
 mod exec_consumer;
 mod google_oauth;
 mod hook_registry;
@@ -28,6 +29,8 @@ mod memory_files;
 mod memory_lifecycle;
 mod memory_notice;
 mod memory_store;
+mod model_context;
+mod model_observation;
 mod oauth;
 mod plugin_cli;
 mod plugin_middleware;
@@ -39,6 +42,7 @@ mod runtime_context;
 mod runtime_control;
 mod runtime_event_bus;
 mod runtime_goal;
+pub mod runtime_session;
 mod sandbox;
 mod session;
 mod session_context;
@@ -61,8 +65,31 @@ pub mod embedded;
 
 pub use agent::{AgentEvent, AgentOutputMode};
 pub use config::{MultiAgentPolicy, RaraConfig};
+pub use deepseek_cache_probe::{
+    DEFAULT_DEEPSEEK_CACHE_PROBE_MODEL, DeepseekCacheProbeArm, DeepseekCacheProbeOptions,
+    DeepseekCacheProbeReport, DeepseekCacheProbeSample, DeepseekCacheProbeSummary,
+    run_deepseek_cache_probe,
+};
 pub use embedded::{EmbeddedRuntime, EmbeddedRuntimeOptions};
-pub use runtime_control::{RuntimeControlEvent, RuntimeEvent, RuntimeProvenance};
+pub use llm::{
+    ContentBlock, ContextBudget, LlmBackend, LlmExecutionMode, LlmResponse, LlmStreamEvent,
+    LlmTurnMetadata, Message, ProviderCacheProfile, TokenUsage,
+};
+pub use model_observation::{
+    ModelCacheUsage, ModelRequestFingerprint, ModelTokenUsage, ModelTurnReport, QueryReport,
+};
+pub use rara_tools::tool::{
+    Tool, ToolCallContext, ToolError, ToolManager, ToolOutputStream, ToolProgressEvent,
+};
+pub use runtime_control::{
+    AssistantEvent, ErrorEvent, RuntimeControlEvent, RuntimeEvent, RuntimeProvenance, SessionEvent,
+    ToolEvent, ToolStream, WarningEvent,
+};
+pub use runtime_session::{
+    RuntimeEventStream, RuntimeHost, RuntimeSession, RuntimeSessionBuilder, RuntimeSessionError,
+    RuntimeSessionId, RuntimeSessionPhase, RuntimeSessionSnapshot, RuntimeSessionSubscription,
+    RuntimeTurn, RuntimeTurnId, RuntimeTurnOutcome,
+};
 pub use tools::agent::{
     AgentMailboxMessage, AgentSnapshot, AgentTreeConfig, AgentTreeControl, AgentWaitResult,
 };

@@ -13,6 +13,8 @@ use url::Url;
 
 use crate::agent::Message;
 use crate::llm::{ContentBlock, LlmResponse, TokenUsage};
+use crate::model_context::{MODEL_CONTEXT_BLOCK_TYPE, model_context_text};
+use crate::model_observation::ModelRequestFingerprint;
 
 #[derive(Debug, Clone, PartialEq)]
 pub(super) struct AssistantToolUse {
@@ -121,6 +123,12 @@ impl LlmTurnMetadata {
     }
 }
 
+/// Provider boundary used by the agent loop and embedding hosts.
+///
+/// Implementors must preserve message and tool ordering. Backends that support
+/// cooperative cancellation should override a context-aware request method
+/// and observe `LlmTurnMetadata`; the default adapters cannot interrupt a
+/// blocking `ask` implementation.
 #[async_trait]
 pub trait LlmBackend: Send + Sync {
     fn model_label(&self) -> Option<String> {
@@ -176,6 +184,19 @@ pub trait LlmBackend: Send + Sync {
     fn cache_profile(&self) -> ProviderCacheProfile {
         ProviderCacheProfile::none()
     }
+
+    /// Return content-free hashes of the exact logical request sent by this backend.
+    ///
+    /// Implementors must never place raw prompt, tool, credential, or response
+    /// content in the returned value.
+    fn request_cache_fingerprint(
+        &self,
+        _messages: &[Message],
+        _tools: &[Value],
+        _metadata: &LlmTurnMetadata,
+    ) -> Option<ModelRequestFingerprint> {
+        None
+    }
 }
 
 pub struct MockLlm;
@@ -186,7 +207,13 @@ impl LlmBackend for MockLlm {
         let last_msg_json = &messages.last().unwrap().content;
         let last_msg_text = if last_msg_json.is_array() {
             last_msg_json
-                .get(0)
+                .as_array()
+                .and_then(|blocks| {
+                    blocks
+                        .iter()
+                        .rev()
+                        .find(|block| block.get("type").and_then(Value::as_str) == Some("text"))
+                })
                 .and_then(|b| b.get("text"))
                 .and_then(|v| v.as_str())
                 .unwrap_or("")
@@ -220,6 +247,7 @@ pub(super) fn render_openai_message_content(content: &Value) -> String {
             .iter()
             .filter_map(|item| match item.get("type").and_then(Value::as_str) {
                 Some("text") => item.get("text").and_then(Value::as_str).map(str::to_string),
+                Some(MODEL_CONTEXT_BLOCK_TYPE) => model_context_text(item).map(str::to_string),
                 Some("tool_result") => item
                     .get("content")
                     .and_then(Value::as_str)

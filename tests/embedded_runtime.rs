@@ -24,10 +24,9 @@ async fn embedded_runtime_is_workspace_scoped_and_emits_typed_events() {
         ..EmbeddedRuntimeOptions::default()
     };
 
-    let mut runtime =
-        EmbeddedRuntime::from_config_with_options(&config, &workspace, options.clone())
-            .await
-            .expect("embedded runtime");
+    let runtime = EmbeddedRuntime::from_config_with_options(&config, &workspace, options.clone())
+        .await
+        .expect("embedded runtime");
     let second = EmbeddedRuntime::from_config_with_options(&config, &workspace, options)
         .await
         .expect("second embedded runtime");
@@ -43,11 +42,28 @@ async fn embedded_runtime_is_workspace_scoped_and_emits_typed_events() {
     assert!(runtime.list_agents().expect("agent snapshots").is_empty());
 
     let mut events = Vec::new();
-    runtime
-        .query_with_events("hello", AgentOutputMode::Silent, |event| events.push(event))
+    let report = runtime
+        .query_with_report("hello", AgentOutputMode::Silent, |event| events.push(event))
         .await
         .expect("query");
     assert!(events.iter().any(
         |event| matches!(event, AgentEvent::AssistantText(text) if text.contains("Mock Response"))
     ));
+    assert_eq!(report.model_turns.len(), 1);
+    assert_eq!(report.model_turns[0].model, "unknown");
+    assert_eq!(
+        report.model_turns[0]
+            .usage
+            .expect("mock usage")
+            .input_tokens,
+        10
+    );
+    assert!(
+        report.model_turns[0]
+            .usage
+            .expect("mock usage")
+            .cache
+            .is_none()
+    );
+    assert!(report.model_turns[0].request_fingerprint.is_none());
 }

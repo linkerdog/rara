@@ -89,25 +89,6 @@ impl ContextFileSearchPolicy {
     }
 }
 
-/// Deprecated compatibility setting. Local semantic memory is delegated to
-/// official Mem, so this value is parsed but no longer starts a bundled
-/// embedding runtime.
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
-#[serde(rename_all = "snake_case")]
-pub enum LocalEmbeddingPolicy {
-    #[default]
-    Off,
-    Auto,
-    Provider,
-    Local,
-}
-
-impl LocalEmbeddingPolicy {
-    pub fn is_default(&self) -> bool {
-        *self == Self::default()
-    }
-}
-
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct ProviderConfigState {
     #[serde(

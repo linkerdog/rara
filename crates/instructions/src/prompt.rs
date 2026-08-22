@@ -6,6 +6,10 @@ use rara_config::RaraConfig;
 
 use crate::workspace::WorkspaceMemory;
 
+mod turn_context;
+
+pub use self::turn_context::{TurnPromptContext, build_turn_prompt_context};
+
 /// Agent lifecycle phase.  File-based hooks are tagged with this phase
 /// and only injected into the prompt when the assembler requests the
 /// matching phase.
@@ -158,7 +162,7 @@ impl PromptSource {
                 "included as durable workspace memory from the local RARA memory file"
             }
             PromptSourceKind::ProtocolPromptSource => {
-                "included as a structured protocol-registered prompt source with runtime-control provenance"
+                "included as append-only model context with runtime-control provenance"
             }
             PromptSourceKind::CustomSystemPrompt => "included as the configured base system prompt",
             PromptSourceKind::AppendSystemPrompt => {
@@ -186,15 +190,12 @@ impl BasePromptKind {
     }
 }
 
-pub const DYNAMIC_BOUNDARY: &str = "__DYNAMIC_BOUNDARY__";
-
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct EffectivePrompt {
     pub text: String,
     pub base_prompt_kind: BasePromptKind,
     pub section_keys: Vec<&'static str>,
     pub sources: Vec<PromptSource>,
-    pub dynamic_boundary_index: Option<usize>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -352,11 +353,11 @@ pub fn build_compact_instruction(runtime: &PromptRuntimeConfig) -> String {
 pub fn build_effective_prompt(
     workspace: &WorkspaceMemory,
     runtime: &PromptRuntimeConfig,
-    mode: PromptMode,
+    _mode: PromptMode,
 ) -> EffectivePrompt {
     let sources = discover_prompt_sources(workspace, runtime);
-    let dynamic_sections =
-        dynamic_system_prompt_sections(workspace, &sources, &runtime.available_skills, mode);
+    let system_sections =
+        session_system_prompt_sections(workspace, &sources, &runtime.available_skills);
     let (base_prompt_kind, base_prompt_text, mut section_keys) =
         if let Some(custom_prompt) = &runtime.system_prompt {
             (
@@ -375,20 +376,14 @@ pub fn build_effective_prompt(
         };
 
     let mut final_sections = vec![base_prompt_text];
-
-    // Boundary separates static rules from session-specific context.
-    final_sections.push(DYNAMIC_BOUNDARY.to_string());
-    let dynamic_boundary_index = Some(final_sections.len() - 1);
-    section_keys.push("dynamic_boundary");
-
     section_keys.extend(
-        dynamic_sections
+        system_sections
             .iter()
             .filter(|section| section.content.is_some())
             .map(|section| section.key),
     );
 
-    final_sections.extend(resolve_sections(dynamic_sections));
+    final_sections.extend(resolve_sections(system_sections));
     if let Some(append) = &runtime.append_system_prompt {
         final_sections.push(append.clone());
         section_keys.push("append_system_prompt");
@@ -403,7 +398,6 @@ pub fn build_effective_prompt(
         base_prompt_kind,
         section_keys,
         sources,
-        dynamic_boundary_index,
     }
 }
 
@@ -575,6 +569,7 @@ fn default_system_prompt_sections() -> Vec<PromptSection> {
                     "For design or prompt changes, preserve the existing ordering and section boundaries unless there is a concrete reason to move them.",
                     "After editing, review your own diff for unrelated churn, duplicated logic, stale names, missing tests, and accidental behavior changes.",
                     "If new information invalidates the plan, switch to the revised smallest path and explain the mismatch briefly.",
+                    "When you complete the task, respond with a concise report covering what was done, the exact validation result, and any remaining follow-up or next step. Do not end on a bare confirmation such as `done` or `finished`.",
                 ],
             ),
         ),
@@ -714,13 +709,12 @@ fn default_system_prompt_sections() -> Vec<PromptSection> {
     ]
 }
 
-fn dynamic_system_prompt_sections(
+fn session_system_prompt_sections(
     workspace: &WorkspaceMemory,
     sources: &[PromptSource],
     available_skills: &[PromptSkillSummary],
-    mode: PromptMode,
 ) -> Vec<PromptSection> {
-    let (cwd, branch) = workspace.get_env_info();
+    let (cwd, _) = workspace.get_env_info();
     let instruction_sections = sources
         .iter()
         .filter(|source| {
@@ -754,89 +748,14 @@ fn dynamic_system_prompt_sections(
         )),
     };
 
-    let protocol_prompt_sources_block = render_protocol_prompt_sources_section(sources);
     let skills_block = render_available_skills_section(available_skills);
     let language_prompt = crate::languages::get_language_prompt(&cwd);
 
     vec![
         PromptSection::optional("project_context", project_context_block),
-        PromptSection::optional("protocol_prompt_sources", protocol_prompt_sources_block),
         PromptSection::optional("skills", skills_block),
         PromptSection::optional("language_best_practices", language_prompt),
-        PromptSection::new("runtime_context", render_environment_context(&cwd, &branch)),
-        PromptSection::optional(
-            "execute_mode",
-            matches!(mode, PromptMode::Execute).then(execute_mode_prompt),
-        ),
-        PromptSection::optional(
-            "plan_mode",
-            matches!(mode, PromptMode::Plan).then(plan_mode_prompt),
-        ),
-        PromptSection::optional(
-            "review_mode",
-            matches!(mode, PromptMode::Review).then(review_mode_prompt),
-        ),
     ]
-}
-
-fn render_protocol_prompt_sources_section(sources: &[PromptSource]) -> Option<String> {
-    let sections = sources
-        .iter()
-        .filter(|source| matches!(source.kind, PromptSourceKind::ProtocolPromptSource))
-        .map(|source| {
-            format!(
-                "### {}\nSource: {}\n\n{}",
-                source.label, source.display_path, source.content
-            )
-        })
-        .collect::<Vec<_>>();
-    if sections.is_empty() {
-        None
-    } else {
-        Some(format!(
-            "## Protocol Prompt Sources\n\n{}",
-            sections.join("\n\n")
-        ))
-    }
-}
-
-fn render_environment_context(cwd: &str, branch: &str) -> String {
-    let shell = std::env::var("SHELL")
-        .ok()
-        .and_then(|value| {
-            Path::new(&value)
-                .file_name()
-                .map(|name| name.to_string_lossy().to_string())
-        })
-        .filter(|value| !value.trim().is_empty())
-        .unwrap_or_else(|| "unknown".to_string());
-
-    format!(
-        "<environment_context>\n  \
-         <cwd>{}</cwd>\n  \
-         <shell>{}</shell>\n  \
-         <git_branch>{}</git_branch>\n  \
-         Note: This is a snapshot at conversation start and will not update.\n\
-         </environment_context>",
-        escape_xml_text(cwd),
-        escape_xml_text(&shell),
-        escape_xml_text(branch),
-    )
-}
-
-fn escape_xml_text(value: &str) -> String {
-    let mut escaped = String::with_capacity(value.len());
-    for ch in value.chars() {
-        match ch {
-            '&' => escaped.push_str("&amp;"),
-            '<' => escaped.push_str("&lt;"),
-            '>' => escaped.push_str("&gt;"),
-            '"' => escaped.push_str("&quot;"),
-            '\'' => escaped.push_str("&apos;"),
-            ch => escaped.push(ch),
-        }
-    }
-    escaped
 }
 
 fn render_available_skills_section(skills: &[PromptSkillSummary]) -> Option<String> {

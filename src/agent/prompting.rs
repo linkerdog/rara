@@ -15,13 +15,7 @@ impl Agent {
     /// docs/features/prompt-runtime.md.
     #[allow(dead_code)]
     pub fn assemble_context(&self) -> AssembledContext {
-        self.context_assembler().assemble({
-            match self.execution_mode {
-                AgentExecutionMode::Execute => PromptMode::Execute,
-                AgentExecutionMode::Plan => PromptMode::Plan,
-                AgentExecutionMode::Review => PromptMode::Review,
-            }
-        })
+        self.context_assembler().assemble(self.prompt_mode())
     }
 
     pub(super) fn context_assembler(&self) -> ContextAssembler<'_> {
@@ -29,23 +23,21 @@ impl Agent {
     }
 
     pub fn assemble_turn_context(&self) -> AssembledTurnContext {
-        let mode = match self.execution_mode {
-            AgentExecutionMode::Execute => PromptMode::Execute,
-            AgentExecutionMode::Plan => PromptMode::Plan,
-            AgentExecutionMode::Review => PromptMode::Review,
-        };
         self.context_assembler()
-            .assemble_turn(mode, self.runtime_context_inputs())
+            .assemble_turn(self.prompt_mode(), self.runtime_context_inputs())
     }
 
     pub fn assemble_runtime_context(&self) -> crate::context::SharedRuntimeContext {
-        let mode = match self.execution_mode {
+        self.context_assembler()
+            .assemble_runtime(self.prompt_mode(), self.runtime_context_inputs())
+    }
+
+    pub(super) fn prompt_mode(&self) -> PromptMode {
+        match self.execution_mode {
             AgentExecutionMode::Execute => PromptMode::Execute,
             AgentExecutionMode::Plan => PromptMode::Plan,
             AgentExecutionMode::Review => PromptMode::Review,
-        };
-        self.context_assembler()
-            .assemble_runtime(mode, self.runtime_context_inputs())
+        }
     }
 
     fn runtime_context_inputs(&self) -> RuntimeContextInputs<'_> {
@@ -99,8 +91,13 @@ impl Agent {
     }
 
     pub(super) fn tool_result_projection_policy(&self) -> ToolResultProjectionPolicy {
-        let mut policy = ToolResultProjectionPolicy::default()
-            .for_provider_cache_edit(self.llm_backend.cache_profile().cache_edit);
+        let cache_profile = self.llm_backend.cache_profile();
+        let mut policy =
+            ToolResultProjectionPolicy::default().for_provider_cache_edit(cache_profile.cache_edit);
+
+        if cache_profile.automatic_prefix_cache && !cache_profile.cache_edit {
+            policy.enabled = false;
+        }
 
         // Time-based trigger (Claude Code microcompact style):
         // When the gap since the last interaction exceeds 60 minutes, the
@@ -199,6 +196,10 @@ impl Agent {
         cancellation_token: Option<std::sync::Arc<std::sync::atomic::AtomicBool>>,
     ) {
         self.cancellation_token = cancellation_token;
+    }
+
+    pub(crate) fn set_runtime_turn_id(&mut self, turn_id: Option<String>) {
+        self.runtime_turn_id = turn_id;
     }
 
     fn pending_runtime_interactions(&self) -> Vec<RuntimeInteractionInput> {

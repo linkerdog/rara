@@ -87,6 +87,7 @@ pub(crate) struct RuntimeClient {
     pub(crate) sandbox_network_access: Arc<AtomicBool>,
     pub(crate) event_bus: Arc<RuntimeEventBus>,
     pub(crate) memory_lifecycle: Arc<MemoryLifecycleCoordinator>,
+    memory_lifecycle_enabled: bool,
     memory_space_id: Option<String>,
     pub(crate) explicit_plugin_dirs: Vec<PathBuf>,
 }
@@ -98,6 +99,7 @@ fn memory_message_content(content: &Value) -> String {
     if let Some(parts) = content.as_array() {
         let text = parts
             .iter()
+            .filter(|part| part.get("type").and_then(Value::as_str) == Some("text"))
             .filter_map(|part| part.get("text").and_then(Value::as_str))
             .collect::<Vec<_>>();
         if !text.is_empty() {
@@ -130,41 +132,28 @@ impl RuntimeClient {
 
     /// Convert a fully bootstrapped runtime into a session-owned client.
     pub(crate) async fn from_bootstrap(bootstrap: RuntimeBootstrap) -> Self {
-        let event_bus = bootstrap.event_bus.clone();
-        let memory_config = bootstrap.nowledge_mem_config();
-        let (
-            (
-                agent,
-                _warnings,
-                sandbox_network_access,
-                goal_handle,
-                mcp_tool_cache,
-                mcp_manager,
-                prompt_source_registry,
-                skill_source_registry,
-                hook_registry,
-                hook_runtime,
-                lsp_manager,
-            ),
-            explicit_plugin_dirs,
-        ) = bootstrap.into_runtime_client_parts().await;
+        let components = bootstrap.into_session_components().await;
+        let event_bus = components.event_bus;
+        let memory_config = components.memory_config;
+        let memory_lifecycle_enabled = memory_config.enabled;
         Self {
-            agent: Some(agent),
-            goal_handle,
-            mcp_tool_cache,
-            mcp_manager,
-            prompt_source_registry,
-            skill_source_registry,
-            hook_registry,
-            hook_runtime,
-            lsp_manager,
-            sandbox_network_access,
+            agent: Some(components.agent),
+            goal_handle: components.goal_handle,
+            mcp_tool_cache: components.mcp_tool_cache,
+            mcp_manager: components.mcp_manager,
+            prompt_source_registry: components.prompt_source_registry,
+            skill_source_registry: components.skill_source_registry,
+            hook_registry: components.hook_registry,
+            hook_runtime: components.hook_runtime,
+            lsp_manager: components.lsp_manager,
+            sandbox_network_access: components.sandbox_network_access,
             event_bus: event_bus.clone(),
-            explicit_plugin_dirs,
+            explicit_plugin_dirs: components.explicit_plugin_dirs,
             memory_lifecycle: Arc::new(MemoryLifecycleCoordinator::from_config(
                 &memory_config,
                 event_bus,
             )),
+            memory_lifecycle_enabled,
             memory_space_id: memory_config.configured_space_id(),
         }
     }
@@ -186,11 +175,17 @@ impl RuntimeClient {
     }
 
     pub(crate) async fn capture_memory(&self, agent: &Agent, reason: MemorySyncReason) {
+        if !self.memory_lifecycle_enabled {
+            return;
+        }
         let snapshot = self.memory_snapshot(agent);
         let _ = self.memory_lifecycle.capture(snapshot, reason).await;
     }
 
     pub(crate) async fn drain_memory(&self) {
+        if !self.memory_lifecycle_enabled {
+            return;
+        }
         let Some(agent) = self.agent() else {
             return;
         };
@@ -460,4 +455,25 @@ Summarize the completed work, remaining blockers, and the next safest step for t
         goal_budget_label(goal),
         goal_remaining_label(goal)
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use serde_json::json;
+
+    use super::memory_message_content;
+
+    #[test]
+    fn memory_capture_excludes_model_only_context() {
+        let content = json!([
+            {
+                "type": "rara_model_context",
+                "kind": "retrieved_memory",
+                "text": "internal retrieved context"
+            },
+            {"type": "text", "text": "human request"}
+        ]);
+
+        assert_eq!(memory_message_content(&content), "human request");
+    }
 }

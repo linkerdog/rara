@@ -13,11 +13,13 @@ to align with the prompt-management patterns used by mature coding agents.
 - Prompt override and append behavior from config.
 - Dedicated prompt handling for context compaction.
 - Shared runtime bootstrap wiring for prompt runtime inputs.
+- Stable-prefix request assembly for providers with automatic prompt caching.
+- Typed, append-only model context for volatile per-turn inputs.
 
 ## Non-Goals
 
 - Codex-style state DB driven instruction layering.
-- Prompt caching or token-level prompt reuse.
+- Provider-controlled cache retention or cache-edit APIs.
 - Full coordinator / worker prompt families.
 
 ## Architecture
@@ -32,28 +34,35 @@ The effective prompt may draw from:
 - an optional final subagent capability policy section;
 - workspace instruction files;
 - local memory files;
-- protocol-registered prompt sources routed through the runtime control plane;
-- runtime context;
-- plan-mode specific guidance.
+- stable protocol-independent project context;
+- append-only runtime context attached to the current user message;
+- mode-specific guidance attached to the current user message.
 
 ### 2) Base Prompt Selection
 
 - If `system_prompt` or `system_prompt_file` is configured, that content replaces the default base
   prompt family.
 - Otherwise the default built-in prompt family is used.
-- Dynamic runtime sections still apply even when a custom base prompt is configured.
+- Stable project, skill, language, append, and capability sections still apply
+  when a custom base prompt is configured.
 
 ### 3) Effective Prompt Composition
 
-The effective prompt is assembled in this order:
+The model request is assembled in this order:
 
-1. base prompt;
-2. dynamic instruction sources;
-3. memory sources;
-4. runtime context;
-5. mode-specific addenda such as execute mode, plan mode, and review mode;
-6. append prompt.
-7. subagent capability policy section, when a child session is active.
+1. tool schemas in deterministic registry order;
+2. one plain system message containing the base prompt, project context,
+   stable skills, language guidance, append prompt, and child capability policy;
+3. persisted append-only conversation history;
+4. typed environment, mode, protocol/LSP, and retrieved-memory context on the
+   latest user message;
+5. the human-authored user request.
+
+The system prompt does not contain a synthetic dynamic-boundary marker or
+Anthropic-style `cache_control`. Provider cache reuse is based on repeated
+request prefixes. Volatile context is persisted as `rara_model_context` blocks
+so the bytes sent in one turn remain present in subsequent turns until durable
+history compaction replaces an older prefix.
 
 ### 3.1) Built-In Engineering Workflow Guidance
 
@@ -67,7 +76,9 @@ The default base prompt includes source-grounded engineering workflow guidance f
 - structured tool use, including edit-tool discipline and unfiltered command-output inspection;
 - reviewable implementation workflow, focused validation, sandbox-persistent verification, and PR
   hygiene;
-- Git conflict resolution when conflict markers are present.
+- Git conflict resolution when conflict markers are present;
+- task-completion reporting: a concise final report of what changed, the validation result, and any
+  remaining follow-up or next step, instead of ending on a bare confirmation.
 
 Software-engineering task interpretation is adapted from Claude-style task framing. In a repository,
 short user requests such as "rename this", "clean it up", "continue", or "review this" should be
@@ -198,7 +209,21 @@ Examples:
 
 ## Contracts
 
-### 1) Prompt Observability
+### 1) Stable Prefix And Model Context
+
+- Environment, cwd, branch, execution mode, protocol/LSP sources, and selected
+  retrieved memory must not be rendered into the system message.
+- Environment, execution mode, and protocol sources are appended only when the
+  value differs from the latest persisted context of the same kind.
+- Retrieved memory remains query-dependent but is persisted with the current
+  user message as typed model context after selection.
+- A later model request must preserve the previous model-visible message prefix
+  byte-for-byte unless stable sources intentionally changed or durable
+  compaction replaced history.
+- Human transcript rendering, memory retrieval queries, and memory lifecycle
+  capture must ignore typed model-context blocks.
+
+### 2) Prompt Observability
 
 - The TUI status view must be able to report:
   - whether the base prompt is default or custom;
@@ -233,13 +258,13 @@ Examples:
 - Session restore must rebuild the same prompt/runtime surface that a direct run would produce for
   persisted session-scoped state such as execution mode, append prompt text, and prompt warnings.
 
-### 2) Workspace Prompt Sources
+### 3) Workspace Prompt Sources
 
 - Workspace instructions and local memory are treated as explicit prompt sources instead of opaque
   text blobs.
 - Prompt source discovery must remain reusable across agent runtime and TUI status reporting.
 
-### 3) Protocol Prompt Sources
+### 4) Protocol Prompt Sources
 
 - ACP, Wire, and future appserver integrations may register prompt-affecting
   material only through structured prompt source objects.
@@ -253,29 +278,30 @@ Examples:
   into a `PromptSourceKind::ProtocolPromptSource` entry before prompt assembly,
   preserving the source id in the label, protocol provenance in the display
   path, and adapter-provided content as the source body.
-- Protocol prompt sources are rendered in a dedicated dynamic
-  `protocol_prompt_sources` section. This keeps workspace instructions,
-  workspace memory, skills, runtime environment, and append prompts in their
-  existing relative order while still making protocol input visible in the
-  effective prompt and prompt-source context view.
+- Protocol prompt sources are rendered as a typed
+  `protocol_prompt_sources` model-context block on the current user message.
+  They never edit the stable system message. If the active source set changes
+  or clears, the next user turn carries a new delta while prior model-visible
+  history remains unchanged.
 - Runtime bootstrap owns the live `PromptSourceRegistry` and attaches it to the
   agent. At the start of each user query, the agent atomically snapshots
   turn-active registry entries into `PromptRuntimeConfig::protocol_prompt_sources`
   and advances turn-limited lifetimes under the same registry lock. The
-  snapshotted sources remain active for every model request inside that query's
-  agent loop. This keeps live protocol input on the normal prompt-runtime path
-  instead of letting adapters edit final prompt text.
+  snapshotted sources are persisted on that query's user message and remain
+  active for every model request inside the query's agent loop. This keeps live
+  protocol input on the normal prompt-runtime path instead of letting adapters
+  edit final prompt text.
 - The registry emits lifecycle events for protocol prompt sources:
   `Registered` when accepted, `Injected` when snapshotted into a user query, and
   `Dropped` when a turn-limited source expires or is removed from the registry.
 
-### 4) Agent Loop Integration
+### 5) Agent Loop Integration
 
 - `Agent::build_system_prompt()` must delegate to the prompt runtime instead of hand-building the
   prompt inline.
 - Compaction must pass the dedicated compact instruction down to every backend summarization path.
 
-### 5) Runtime Bootstrap Contract
+### 6) Runtime Bootstrap Contract
 
 - Runtime/bootstrap callers must initialize workspace, prompt runtime config, skills, and tools
   through one shared entrypoint instead of wiring those pieces independently in `main.rs` and TUI
@@ -288,9 +314,14 @@ Examples:
 
 ## Validation Matrix
 
-- `cargo check`
-- focused prompt runtime tests for source discovery and prompt precedence
-- focused agent tests for compaction instruction wiring
+| Contract | Validation |
+|---|---|
+| Stable system placement | `cargo test -p rara-instructions` |
+| Append-only request prefix | `cargo test -p rara agent::tests::prompt_cache::later_request_preserves_the_previous_model_visible_prefix` |
+| Protocol and memory attachment | Focused `agent::tests::context_view` regressions |
+| Official DeepSeek request shape | `llm::tests::deepseek_request_uses_plain_prefix_without_anthropic_cache_controls` |
+| Provider-neutral typed context | Provider conversion unit tests plus `cargo check` |
+| Warning cleanliness | `cargo clippy --workspace --all-targets -- -D warnings` |
 
 ## Open Risks
 
@@ -301,6 +332,10 @@ Examples:
   vector/thread selection instead of only prompt-injected or compacted carry-over.
 - Protocol-registered prompt sources need strict provenance and lifetime rules
   before ACP/Wire can safely control prompt material.
+- Mode-dependent tool sets remain outside `messages` and can intentionally
+  break provider prefix reuse on a mode transition.
+- Cache request locality does not prove a provider hit; production validation
+  must use official provider usage accounting.
 
 ## Source Journals
 
@@ -311,4 +346,5 @@ Examples:
 - [2026-05-07-engineering-guidance-placement](../journal/2026-05-07-engineering-guidance-placement.md)
 - [2026-05-13-claude-prompt-locality](../journal/2026-05-13-claude-prompt-locality.md)
 - [2026-05-14-sandbox-denial-escalation-guidance](../journal/2026-05-14-sandbox-denial-escalation-guidance.md)
+- [2026-08-21-deepseek-prefix-cache-locality](../journal/2026-08-21-deepseek-prefix-cache-locality.md)
 - [Runtime Control Plane](runtime-control-plane.md)

@@ -54,9 +54,11 @@ fn parses_tool_reply() {
 #[test]
 fn renders_tool_results_for_prompting() {
     let rendered = render_content(&json!([
+        {"type": "rara_model_context", "kind": "environment", "text": "workspace context"},
         {"type": "text", "text": "hello"},
         {"type": "tool_result", "tool_use_id": "1", "content": "world"}
     ]));
+    assert!(rendered.contains("workspace context"));
     assert!(rendered.contains("hello"));
     assert!(rendered.contains("tool_result(id=1): world"));
 }
@@ -75,7 +77,14 @@ fn extracts_context_window_from_text_config() {
 fn uses_smaller_budget_for_short_and_tool_prompts() {
     let short_messages = vec![Message {
         role: "user".to_string(),
-        content: json!([{"type": "text", "text": "你好"}]),
+        content: json!([
+            {
+                "type": "rara_model_context",
+                "kind": "environment",
+                "text": "a deliberately long model-only environment context"
+            },
+            {"type": "text", "text": "你好"}
+        ]),
     }];
     assert_eq!(scenario_token_cap(&short_messages, &[]), 96);
 

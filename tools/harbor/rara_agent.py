@@ -149,7 +149,6 @@ class RaraAgent(BaseInstalledAgent):
             **self._provider_env(),
             **self.extra_env,
             "RARA_HOME": self.rara_home.as_posix(),
-            "RARA_LOCAL_EMBEDDINGS": "off",
         }
         command = self._build_exec_command()
         result = await environment.exec(command=command, cwd=cwd, env=env)

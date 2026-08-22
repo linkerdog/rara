@@ -37,6 +37,8 @@ pub enum ToolProgressEvent {
 pub struct ToolCallContext {
     cancellation: Option<Arc<AtomicBool>>,
     session_id: Option<String>,
+    turn_id: Option<String>,
+    call_id: Option<String>,
     workspace_root: Option<PathBuf>,
 }
 
@@ -51,6 +53,16 @@ impl ToolCallContext {
         self
     }
 
+    pub fn with_turn_id(mut self, turn_id: impl Into<String>) -> Self {
+        self.turn_id = Some(turn_id.into());
+        self
+    }
+
+    pub fn with_call_id(mut self, call_id: impl Into<String>) -> Self {
+        self.call_id = Some(call_id.into());
+        self
+    }
+
     pub fn with_workspace_root(mut self, workspace_root: impl Into<PathBuf>) -> Self {
         self.workspace_root = Some(workspace_root.into());
         self
@@ -58,6 +70,14 @@ impl ToolCallContext {
 
     pub fn session_id(&self) -> Option<&str> {
         self.session_id.as_deref()
+    }
+
+    pub fn turn_id(&self) -> Option<&str> {
+        self.turn_id.as_deref()
+    }
+
+    pub fn call_id(&self) -> Option<&str> {
+        self.call_id.as_deref()
     }
 
     pub fn workspace_root(&self) -> Option<&Path> {
@@ -209,8 +229,15 @@ mod tests {
 
     #[test]
     fn call_context_retains_workspace_root() {
-        let context = ToolCallContext::default().with_workspace_root("/tmp/rara-workspace");
+        let context = ToolCallContext::default()
+            .with_session_id("session-1")
+            .with_turn_id("turn-1")
+            .with_call_id("call-1")
+            .with_workspace_root("/tmp/rara-workspace");
 
+        assert_eq!(context.session_id(), Some("session-1"));
+        assert_eq!(context.turn_id(), Some("turn-1"));
+        assert_eq!(context.call_id(), Some("call-1"));
         assert_eq!(
             context.workspace_root(),
             Some(Path::new("/tmp/rara-workspace"))

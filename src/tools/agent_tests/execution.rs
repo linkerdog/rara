@@ -233,10 +233,15 @@ async fn team_create_limits_concurrent_subagents() {
     let root = temp.path().join("workspace");
     let rara_dir = temp.path().join(".rara");
     std::fs::create_dir_all(&root).expect("workspace");
+    let background_subagents = Arc::new(BackgroundSubAgentStore::default());
+    let active_capacity = background_subagents.max_active_subagents();
     let tool = TeamCreateTool {
         backend: Arc::new(PeakBackend {
             in_flight,
             peak: peak.clone(),
+            first_wave_arrivals: Arc::new(AtomicUsize::new(0)),
+            first_wave_size: active_capacity,
+            first_wave: Arc::new(Barrier::new(active_capacity)),
         }),
         backend_resolver: inherited_backend_resolver(),
         memory_handle: Arc::new(MemoryHandle::new(
@@ -249,14 +254,12 @@ async fn team_create_limits_concurrent_subagents() {
         skill_manager: Arc::new(std::sync::RwLock::new(SkillManager::new())),
         workspace: Arc::new(WorkspaceMemory::from_paths(root, rara_dir)),
         prompt_config: PromptRuntimeConfig::default(),
-        background_subagents: Arc::new(BackgroundSubAgentStore::default()),
+        background_subagents,
         task_list_id: test_task_list_id(),
     };
     let tasks = (0..8)
         .map(|idx| json!({ "kind": "general", "instruction": format!("task {idx}") }))
         .collect::<Vec<_>>();
-    let active_capacity = tool.background_subagents.max_active_subagents();
-
     let result = tool
         .call(json!({ "tasks": tasks }))
         .await
@@ -517,7 +520,19 @@ Custom reviewer prompt from workspace definition.
         .find(|message| message.role == "system")
         .map(message_text)
         .expect("system prompt");
-    assert!(system_prompt.contains("Planning mode is active."));
+    assert!(!system_prompt.contains("Planning mode is active."));
+    assert!(request.messages.iter().any(|message| {
+        message.role == "user"
+            && message.content.as_array().is_some_and(|blocks| {
+                blocks.iter().any(|block| {
+                    block.get("kind").and_then(serde_json::Value::as_str) == Some("execution_mode")
+                        && block
+                            .get("text")
+                            .and_then(serde_json::Value::as_str)
+                            .is_some_and(|text| text.contains("Planning mode is active."))
+                })
+            })
+    }));
     assert!(system_prompt.contains("You are a custom workspace sub-agent."));
     assert!(system_prompt.contains(
         "Inspect repository or web evidence only through the read-only tools exposed to you."

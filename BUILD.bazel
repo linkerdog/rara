@@ -94,3 +94,19 @@ rust_test(
     proc_macro_deps = all_crate_deps(proc_macro = True) + all_crate_deps(proc_macro_dev = True),
     timeout = "long",
 )
+
+rust_test(
+    name = "runtime_session_tests",
+    srcs = ["tests/runtime_session.rs"],
+    aliases = aliases(
+        normal = True,
+        normal_dev = True,
+        proc_macro = True,
+        proc_macro_dev = True,
+    ),
+    crate_name = "runtime_session_tests",
+    edition = "2024",
+    deps = [":rara_lib"] + all_crate_deps(normal = True) + all_crate_deps(normal_dev = True),
+    proc_macro_deps = all_crate_deps(proc_macro = True) + all_crate_deps(proc_macro_dev = True),
+    timeout = "long",
+)

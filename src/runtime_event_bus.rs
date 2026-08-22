@@ -1,4 +1,4 @@
-use std::collections::{HashMap, VecDeque};
+use std::collections::VecDeque;
 use std::sync::Mutex;
 use std::sync::{
     Arc,
@@ -25,107 +25,79 @@ pub struct RuntimeEventBus {
     raw_sender: broadcast::Sender<AgentEvent>,
     control_sender: broadcast::Sender<RuntimeControlEvent>,
     next_sequence: Arc<AtomicU64>,
-    tool_identities: Arc<Mutex<ToolIdentityTracker>>,
+    publication: Arc<Mutex<()>>,
+    replay_capacity: usize,
+    replay: Arc<Mutex<VecDeque<RuntimeControlEvent>>>,
 }
 
-#[derive(Debug, Default)]
-struct ToolIdentityTracker {
-    pending: HashMap<(Option<String>, String), VecDeque<String>>,
-}
-
-impl ToolIdentityTracker {
-    fn project(&mut self, event: &mut RuntimeControlEvent) {
-        let session_id = event.provenance.session_id.clone();
-        let event_id = event.event_id.clone();
-        let RuntimeEvent::Tool(tool_event) = &mut event.event else {
-            return;
-        };
-
-        match tool_event {
-            crate::runtime_control::ToolEvent::Use { call_id, name, .. } => {
-                if call_id.is_none() {
-                    let id = format!("tool-{event_id}");
-                    *call_id = Some(id.clone());
-                    self.pending
-                        .entry((session_id, name.clone()))
-                        .or_default()
-                        .push_back(id);
-                }
-            }
-            crate::runtime_control::ToolEvent::Result { call_id, name, .. } => {
-                if call_id.is_none() {
-                    let key = (session_id, name.clone());
-                    if let Some(ids) = self.pending.get_mut(&key) {
-                        *call_id = ids.pop_front();
-                        if ids.is_empty() {
-                            self.pending.remove(&key);
-                        }
-                    }
-                }
-            }
-            crate::runtime_control::ToolEvent::Progress { call_id, name, .. } => {
-                if call_id.is_none() {
-                    *call_id = self
-                        .pending
-                        .get(&(session_id, name.clone()))
-                        .and_then(VecDeque::front)
-                        .cloned();
-                }
-            }
-        }
-    }
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct RuntimeReplayGap {
+    pub(crate) requested: u64,
+    pub(crate) oldest_available: u64,
+    pub(crate) latest: u64,
 }
 
 impl RuntimeEventBus {
     /// Create a new bus with a fixed ring-buffer capacity.  When the buffer
     /// is full the oldest event is dropped for the slowest subscriber.
     pub fn new(capacity: usize) -> Self {
+        let capacity = capacity.max(1);
         let (raw_sender, _) = broadcast::channel(capacity);
         let (control_sender, _) = broadcast::channel(capacity);
         Self {
             raw_sender,
             control_sender,
             next_sequence: Arc::new(AtomicU64::new(0)),
-            tool_identities: Arc::new(Mutex::new(ToolIdentityTracker::default())),
+            publication: Arc::new(Mutex::new(())),
+            replay_capacity: capacity,
+            replay: Arc::new(Mutex::new(VecDeque::with_capacity(capacity))),
         }
     }
 
     /// Push an event with explicit provenance for protocol-ready subscribers.
     pub fn send_with_provenance(&self, event: AgentEvent, provenance: RuntimeProvenance) -> usize {
-        let raw_receivers = self.raw_sender.receiver_count();
-        let control_receivers = self.control_sender.receiver_count();
-
-        match (raw_receivers > 0, control_receivers > 0) {
-            (false, false) => 0,
-            (true, false) => self.raw_sender.send(event).unwrap_or(0),
-            (false, true) => {
-                let sequence = self.next_sequence.fetch_add(1, Ordering::SeqCst) + 1;
-                let event_id = format!("evt-{sequence:016x}");
-                let mut control_event = wrap_agent_event(event_id, sequence, provenance, event);
-                self.project_tool_identity(&mut control_event);
-                self.control_sender.send(control_event).unwrap_or(0)
-            }
-            (true, true) => {
-                let sequence = self.next_sequence.fetch_add(1, Ordering::SeqCst) + 1;
-                let event_id = format!("evt-{sequence:016x}");
-                let mut control_event =
-                    wrap_agent_event(event_id, sequence, provenance, event.clone());
-                self.project_tool_identity(&mut control_event);
-                let raw_count = self.raw_sender.send(event).unwrap_or(0);
-                let control_count = self.control_sender.send(control_event).unwrap_or(0);
-                raw_count + control_count
-            }
-        }
+        self.send_with_turn(event, provenance, None)
     }
 
-    fn project_tool_identity(&self, event: &mut RuntimeControlEvent) {
-        match self.tool_identities.lock() {
-            Ok(mut tracker) => tracker.project(event),
-            Err(poisoned) => {
-                log::warn!("runtime tool identity tracker lock was poisoned; recovering");
-                poisoned.into_inner().project(event);
-            }
+    /// Push an event in the ordered session stream with optional turn identity.
+    pub(crate) fn send_with_turn(
+        &self,
+        event: AgentEvent,
+        provenance: RuntimeProvenance,
+        turn_id: Option<&str>,
+    ) -> usize {
+        let _publication = self.lock_publication();
+        let raw_receivers = self.raw_sender.receiver_count();
+        let control_receivers = self.control_sender.receiver_count();
+        let sequence = self.next_sequence.fetch_add(1, Ordering::SeqCst) + 1;
+        let event_id = format!("evt-{sequence:016x}");
+        let mut control_event = wrap_agent_event(event_id, sequence, provenance, event.clone());
+        control_event.turn_id = turn_id.map(str::to_string);
+        self.record_control_event(control_event.clone());
+        let raw_count = if raw_receivers > 0 {
+            self.raw_sender.send(event).unwrap_or(0)
+        } else {
+            0
+        };
+        let control_count = if control_receivers > 0 {
+            self.control_sender.send(control_event).unwrap_or(0)
+        } else {
+            0
+        };
+        raw_count + control_count
+    }
+
+    /// Publish only to legacy raw-event consumers.
+    ///
+    /// The in-process control-plane dispatcher publishes its own structured
+    /// lifecycle events. This path keeps hooks and legacy consumers informed
+    /// without duplicating those lifecycle boundaries on the ordered control
+    /// stream.
+    pub(crate) fn publish_raw(&self, event: AgentEvent) -> usize {
+        if self.raw_sender.receiver_count() == 0 {
+            return 0;
         }
+        self.raw_sender.send(event).unwrap_or(0)
     }
 
     /// Create a new receiver that will see all future events.  Past events
@@ -138,9 +110,6 @@ impl RuntimeEventBus {
     ///
     /// Past events are not replayed. Use the embedded sequence and event id to
     /// preserve stream order and adapter acknowledgements.
-    /// Reserved for external structured event subscribers as specified in
-    /// docs/features/runtime-control-plane.md.
-    #[allow(dead_code)]
     pub fn subscribe_control(&self) -> broadcast::Receiver<RuntimeControlEvent> {
         self.control_sender.subscribe()
     }
@@ -150,32 +119,131 @@ impl RuntimeEventBus {
         self.raw_sender.receiver_count() + self.control_sender.receiver_count()
     }
 
+    /// Return the latest sequence assigned in this bus ordering domain.
+    pub fn current_sequence(&self) -> u64 {
+        let _publication = self.lock_publication();
+        self.next_sequence.load(Ordering::SeqCst)
+    }
+
+    pub(crate) fn replay_after(
+        &self,
+        sequence: u64,
+    ) -> Result<Vec<RuntimeControlEvent>, RuntimeReplayGap> {
+        let _publication = self.lock_publication();
+        let latest = self.next_sequence.load(Ordering::SeqCst);
+        if sequence >= latest {
+            return Ok(Vec::new());
+        }
+        let replay = match self.replay.lock() {
+            Ok(replay) => replay,
+            Err(poisoned) => {
+                log::warn!("runtime event replay lock was poisoned; recovering");
+                poisoned.into_inner()
+            }
+        };
+        let oldest_available = replay
+            .front()
+            .map(|event| event.sequence)
+            .unwrap_or(latest + 1);
+        if sequence.saturating_add(1) < oldest_available {
+            return Err(RuntimeReplayGap {
+                requested: sequence,
+                oldest_available,
+                latest,
+            });
+        }
+        Ok(replay
+            .iter()
+            .filter(|event| event.sequence > sequence)
+            .cloned()
+            .collect())
+    }
+
     /// Publish a structured `RuntimeEvent` on the control bus without wrapping
     /// an `AgentEvent`. Used for protocol-native events (MCP, hooks, etc.) that
     /// originate from the runtime itself rather than from agent execution.
     pub fn publish_control(&self, event: RuntimeEvent) -> usize {
-        if self.control_sender.receiver_count() == 0 {
-            return 0;
-        }
+        self.publish_control_with_turn(event, RuntimeProvenance::runtime(None), None)
+    }
+
+    pub(crate) fn publish_control_with_turn(
+        &self,
+        event: RuntimeEvent,
+        provenance: RuntimeProvenance,
+        turn_id: Option<&str>,
+    ) -> usize {
+        let _publication = self.lock_publication();
         let sequence = self.next_sequence.fetch_add(1, Ordering::SeqCst) + 1;
         let event_id = format!("ctl-{sequence:016x}");
         let control_event = RuntimeControlEvent {
             event_id,
-            provenance: RuntimeProvenance::runtime(None),
+            provenance,
+            turn_id: turn_id.map(str::to_string),
             sequence,
             event,
         };
-        self.control_sender.send(control_event).unwrap_or(0)
+        self.record_control_event(control_event.clone());
+        if self.control_sender.receiver_count() > 0 {
+            self.control_sender.send(control_event).unwrap_or(0)
+        } else {
+            0
+        }
     }
 
     /// Publish an adapter-produced event without changing its provenance or
     /// sequence. Protocol adapters use this after `control_plane::dispatch`
     /// has already wrapped an agent event for the originating session.
+    #[cfg(test)]
     pub fn publish_control_event(&self, event: RuntimeControlEvent) -> usize {
         if self.control_sender.receiver_count() == 0 {
             return 0;
         }
         self.control_sender.send(event).unwrap_or(0)
+    }
+
+    /// Publish an in-process control event using the bus-owned ordering domain.
+    ///
+    /// Control-plane dispatch assigns request-local sequence numbers. Local
+    /// runtime consumers need one monotonically increasing stream across
+    /// requests.
+    pub(crate) fn publish_resequenced_control_event(
+        &self,
+        mut event: RuntimeControlEvent,
+    ) -> usize {
+        let _publication = self.lock_publication();
+        let sequence = self.next_sequence.fetch_add(1, Ordering::SeqCst) + 1;
+        event.event_id = format!("ctl-{sequence:016x}");
+        event.sequence = sequence;
+        self.record_control_event(event.clone());
+        if self.control_sender.receiver_count() > 0 {
+            self.control_sender.send(event).unwrap_or(0)
+        } else {
+            0
+        }
+    }
+
+    fn record_control_event(&self, event: RuntimeControlEvent) {
+        let mut replay = match self.replay.lock() {
+            Ok(replay) => replay,
+            Err(poisoned) => {
+                log::warn!("runtime event replay lock was poisoned; recovering");
+                poisoned.into_inner()
+            }
+        };
+        replay.push_back(event);
+        while replay.len() > self.replay_capacity {
+            replay.pop_front();
+        }
+    }
+
+    fn lock_publication(&self) -> std::sync::MutexGuard<'_, ()> {
+        match self.publication.lock() {
+            Ok(publication) => publication,
+            Err(poisoned) => {
+                log::warn!("runtime event publication lock was poisoned; recovering");
+                poisoned.into_inner()
+            }
+        }
     }
 }
 
@@ -244,7 +312,7 @@ mod tests {
     }
 
     #[test]
-    fn unsubscribed_events_do_not_advance_control_sequence() {
+    fn sequence_advances_even_without_control_subscribers() {
         let bus = RuntimeEventBus::new(8);
 
         assert_eq!(
@@ -279,8 +347,37 @@ mod tests {
         );
 
         let event = control.try_recv().expect("control event");
-        assert_eq!(event.sequence, 1);
-        assert_eq!(event.event_id, "evt-0000000000000001");
+        assert_eq!(event.sequence, 3);
+        assert_eq!(event.event_id, "evt-0000000000000003");
+        assert_eq!(bus.current_sequence(), 3);
+    }
+
+    #[test]
+    fn replay_reports_a_gap_after_the_bounded_window_is_exhausted() {
+        let bus = RuntimeEventBus::new(2);
+        for message in ["one", "two", "three"] {
+            bus.send_with_provenance(
+                AgentEvent::Status(message.to_string()),
+                RuntimeProvenance::runtime(Some("session-1".to_string())),
+            );
+        }
+
+        assert_eq!(
+            bus.replay_after(0),
+            Err(RuntimeReplayGap {
+                requested: 0,
+                oldest_available: 2,
+                latest: 3,
+            })
+        );
+        let replay = bus.replay_after(1).expect("bounded replay");
+        assert_eq!(
+            replay
+                .iter()
+                .map(|event| event.sequence)
+                .collect::<Vec<_>>(),
+            vec![2, 3]
+        );
     }
 
     #[test]
@@ -295,6 +392,7 @@ mod tests {
                 Some("session-1".to_string()),
                 None,
             ),
+            turn_id: None,
             sequence: 7,
             event: RuntimeEvent::Session(crate::runtime_control::SessionEvent::TurnCancelled),
         };
@@ -307,13 +405,59 @@ mod tests {
     }
 
     #[test]
-    fn runtime_projects_one_tool_identity_across_use_progress_and_result() {
+    fn in_process_events_are_resequenced_across_dispatch_requests() {
+        let bus = RuntimeEventBus::new(8);
+        let mut control = bus.subscribe_control();
+        let provenance = RuntimeProvenance::local_tui("session-1");
+
+        for event in [
+            RuntimeEvent::Session(crate::runtime_control::SessionEvent::TurnStarted),
+            RuntimeEvent::Session(crate::runtime_control::SessionEvent::TurnFinished {
+                reason: Some("turn complete".into()),
+            }),
+        ] {
+            let local_event = RuntimeControlEvent {
+                event_id: "evt-dispatch-1".into(),
+                provenance: provenance.clone(),
+                turn_id: None,
+                sequence: 1,
+                event,
+            };
+            assert_eq!(bus.publish_resequenced_control_event(local_event), 1);
+        }
+
+        let started = control.try_recv().expect("turn started");
+        let finished = control.try_recv().expect("turn finished");
+        assert_eq!((started.sequence, finished.sequence), (1, 2));
+        assert_eq!(started.event_id, "ctl-0000000000000001");
+        assert_eq!(finished.event_id, "ctl-0000000000000002");
+        assert_eq!(started.provenance, provenance);
+        assert_eq!(finished.provenance, provenance);
+    }
+
+    #[test]
+    fn raw_lifecycle_events_do_not_duplicate_control_boundaries() {
+        let bus = RuntimeEventBus::new(8);
+        let mut raw = bus.subscribe();
+        let mut control = bus.subscribe_control();
+
+        assert_eq!(bus.publish_raw(AgentEvent::AgentStart), 1);
+        assert!(matches!(
+            raw.try_recv().expect("raw lifecycle event"),
+            AgentEvent::AgentStart
+        ));
+        assert!(control.try_recv().is_err());
+    }
+
+    #[test]
+    fn runtime_preserves_provider_tool_identity_across_use_progress_and_result() {
         let bus = RuntimeEventBus::new(8);
         let mut control = bus.subscribe_control();
         let provenance = RuntimeProvenance::local_tui("session-1");
 
         bus.send_with_provenance(
             AgentEvent::ToolUse {
+                call_id: "provider-call-1".into(),
                 name: "bash".into(),
                 input: json!({"command": "pwd"}),
             },
@@ -321,6 +465,7 @@ mod tests {
         );
         bus.send_with_provenance(
             AgentEvent::ToolProgress {
+                call_id: "provider-call-1".into(),
                 name: "bash".into(),
                 stream: rara_tools::tool::ToolOutputStream::Stdout,
                 chunk: "/workspace\n".into(),
@@ -329,6 +474,7 @@ mod tests {
         );
         bus.send_with_provenance(
             AgentEvent::ToolResult {
+                call_id: "provider-call-1".into(),
                 name: "bash".into(),
                 content: "done".into(),
                 is_error: false,
@@ -370,6 +516,7 @@ mod tests {
         for session in ["session-a", "session-b"] {
             bus.send_with_provenance(
                 AgentEvent::ToolUse {
+                    call_id: format!("{session}-call"),
                     name: "bash".into(),
                     input: json!({"command": session}),
                 },
@@ -394,6 +541,7 @@ mod tests {
 
         bus.send_with_provenance(
             AgentEvent::ToolResult {
+                call_id: "session-a-call".into(),
                 name: "bash".into(),
                 content: "done".into(),
                 is_error: false,
@@ -408,5 +556,47 @@ mod tests {
             event => panic!("expected identified tool result, got {event:?}"),
         };
         assert_eq!(result_id, first_id);
+    }
+
+    #[test]
+    fn concurrent_publication_keeps_live_and_replay_sequence_order() {
+        const PUBLISHERS: usize = 8;
+        const EVENTS_PER_PUBLISHER: usize = 64;
+        let event_count = PUBLISHERS * EVENTS_PER_PUBLISHER;
+        let bus = Arc::new(RuntimeEventBus::new(event_count));
+        let mut control = bus.subscribe_control();
+        let barrier = Arc::new(std::sync::Barrier::new(PUBLISHERS));
+
+        let publishers = (0..PUBLISHERS)
+            .map(|publisher| {
+                let bus = bus.clone();
+                let barrier = barrier.clone();
+                std::thread::spawn(move || {
+                    barrier.wait();
+                    for event in 0..EVENTS_PER_PUBLISHER {
+                        bus.send_with_provenance(
+                            AgentEvent::Status(format!("{publisher}:{event}")),
+                            RuntimeProvenance::local_tui(format!("session-{publisher}")),
+                        );
+                    }
+                })
+            })
+            .collect::<Vec<_>>();
+        for publisher in publishers {
+            publisher.join().expect("event publisher");
+        }
+
+        let expected = (1..=event_count as u64).collect::<Vec<_>>();
+        let live = (0..event_count)
+            .map(|_| control.try_recv().expect("live event").sequence)
+            .collect::<Vec<_>>();
+        let replay = bus
+            .replay_after(0)
+            .expect("complete replay")
+            .into_iter()
+            .map(|event| event.sequence)
+            .collect::<Vec<_>>();
+        assert_eq!(live, expected);
+        assert_eq!(replay, expected);
     }
 }

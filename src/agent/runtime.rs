@@ -27,6 +27,14 @@ impl Agent {
             .map_or(0, |runtime| runtime.command_summaries().len())
     }
 
+    pub(crate) fn disable_extension_execution(&mut self) {
+        self.hook_registry = None;
+        self.hook_sandbox = None;
+        self.hook_runtime = None;
+        self.plugin_hook_runtime = None;
+        self.plugin_session_start_hooks_ran = true;
+    }
+
     /// Accumulate subagent (auxiliary model) cache statistics.
     /// Called by consolidation and other subagent completion
     /// handlers to split cache reporting between main and aux models.
@@ -101,6 +109,8 @@ impl Agent {
             workspace,
             history: Vec::new(),
             session_id: Uuid::new_v4().to_string(),
+            persist_session_transcript: true,
+            memory_facilities_enabled: true,
             total_input_tokens: 0,
             total_output_tokens: 0,
             total_cache_hit_tokens: 0,
@@ -151,6 +161,7 @@ impl Agent {
             graph_context_candidates: Vec::new(),
             last_tool_result_projection_report: ToolResultProjectionReport::default(),
             last_agent_turn_trace: AgentTurnTraceView::default(),
+            last_query_report: QueryReport::default(),
             file_search_provider: FileSearchCandidateProvider::new(root, true),
             inspection_progress: InspectionProgress::default(),
             last_query_plan_updated: false,
@@ -162,13 +173,9 @@ impl Agent {
             lsp_manager: None,
             agent_tree_control: None,
             cancellation_token: None,
+            runtime_turn_id: None,
             last_interaction_time: std::time::Instant::now(),
         }
-    }
-
-    pub async fn query(&mut self, prompt: String) -> Result<()> {
-        self.query_with_mode(prompt, AgentOutputMode::Terminal)
-            .await
     }
 
     pub(crate) fn set_agent_tree_control(
@@ -180,6 +187,18 @@ impl Agent {
 
     pub fn agent_tree_control(&self) -> Option<Arc<crate::tools::agent::AgentTreeControl>> {
         self.agent_tree_control.clone()
+    }
+
+    pub(crate) fn set_session_id(&mut self, session_id: String) {
+        self.session_id = session_id;
+    }
+
+    pub(crate) fn set_transcript_persistence_enabled(&mut self, enabled: bool) {
+        self.persist_session_transcript = enabled;
+    }
+
+    pub(crate) fn set_memory_facilities_enabled(&mut self, enabled: bool) {
+        self.memory_facilities_enabled = enabled;
     }
 
     pub fn agent_definition_records(&self) -> Vec<AgentDefinitionLoadRecord> {
@@ -204,6 +223,7 @@ impl Agent {
     where
         F: FnMut(AgentEvent) + Send,
     {
+        self.last_query_report = QueryReport::default();
         let turn_start_idx = self.history.len();
         self.last_interaction_time = std::time::Instant::now();
         let mut agentic_turns = 0usize;
@@ -226,19 +246,27 @@ impl Agent {
             content: json!([{"type": "text", "text": prompt.clone()}]),
         });
         self.checkpoint_session()?;
-        report(AgentEvent::MemoryAction {
-            message: memory_notice("querying workspace memory"),
-        });
-        self.refresh_memory_retrieval_candidates().await;
-        report(AgentEvent::MemoryAction {
-            message: memory_notice(
-                self.workspace
-                    .memory_notice_text(self.retrieved_memory_candidates.len()),
-            ),
-        });
+        if self.memory_facilities_enabled {
+            report(AgentEvent::MemoryAction {
+                message: memory_notice("querying workspace memory"),
+            });
+            self.refresh_memory_retrieval_candidates().await;
+            report(AgentEvent::MemoryAction {
+                message: memory_notice(
+                    self.workspace
+                        .memory_notice_text(self.retrieved_memory_candidates.len()),
+                ),
+            });
+        } else {
+            self.retrieved_memory_candidates.clear();
+        }
         self.refresh_file_search_candidates();
         self.refresh_protocol_prompt_sources_for_query().await;
         self.refresh_protocol_skill_sources_for_query().await;
+        if self.persist_model_context_for_latest_user_message() {
+            self.recompute_history_token_estimate();
+            self.checkpoint_session()?;
+        }
 
         match self
             .run_agent_loop_with_limit(output_mode, &mut report, &mut agentic_turns)
@@ -246,7 +274,10 @@ impl Agent {
         {
             Ok(()) => {
                 // Post-turn consolidation check (fire-and-forget).
-                let sessions = self.consolidation_scheduler.check();
+                let sessions = self
+                    .memory_facilities_enabled
+                    .then(|| self.consolidation_scheduler.check())
+                    .flatten();
                 if sessions.is_some() {
                     let prompt_config = self.prompt_config.clone();
                     let llm_backend = self.llm_backend.clone();
@@ -337,30 +368,35 @@ impl Agent {
         }
 
         self.checkpoint_session()?;
-        let turn_text = format!(
-            "User: {}\nAgent Response: {:?}",
-            prompt,
-            self.history.last().unwrap().content
-        );
-        let session_manager = self.session_manager.clone();
-        let session_id = self.session_id.clone();
-        let save_result = tokio::task::spawn_blocking(move || {
-            session_manager.save_session_context_checkpoint(
-                &session_id,
-                turn_start_idx as u32,
-                turn_text,
-            )
-        })
-        .await;
-        if matches!(save_result, Ok(Ok(()))) {
-            report(AgentEvent::MemoryAction {
-                message: memory_notice("wrote session checkpoint"),
-            });
+        if self.persist_session_transcript {
+            let turn_text = format!(
+                "User: {}\nAgent Response: {:?}",
+                prompt,
+                self.history.last().unwrap().content
+            );
+            let session_manager = self.session_manager.clone();
+            let session_id = self.session_id.clone();
+            let save_result = tokio::task::spawn_blocking(move || {
+                session_manager.save_session_context_checkpoint(
+                    &session_id,
+                    turn_start_idx as u32,
+                    turn_text,
+                )
+            })
+            .await;
+            if matches!(save_result, Ok(Ok(()))) {
+                report(AgentEvent::MemoryAction {
+                    message: memory_notice("wrote session checkpoint"),
+                });
+            }
         }
         Ok(())
     }
 
     pub(super) fn checkpoint_session(&self) -> Result<()> {
+        if !self.persist_session_transcript {
+            return Ok(());
+        }
         if let Some(state_db) = self.state_db.as_deref() {
             let recorder = ThreadRecorder::new(state_db);
             return recorder.persist_history_checkpoint(&self.session_id, &self.history);
@@ -438,63 +474,18 @@ impl Agent {
                 "Projected {projected_result_count} tool result(s) into evidence-preserving summaries for this model request."
             )));
         }
-        let mut system_content = Vec::new();
-        if let Some(_index) = assembled.prompt.effective_prompt.dynamic_boundary_index {
-            let full_text = &assembled.prompt.effective_prompt.text;
-            // The text is joined by "\n\n". We want to split it back or just use the sections.
-            // But EffectivePrompt only gives us the full text and boundary index.
-            // Actually, build_effective_prompt joins them.
-
-            let parts: Vec<&str> = full_text
-                .split(rara_instructions::DYNAMIC_BOUNDARY)
-                .collect();
-            if parts.len() >= 2 {
-                let static_part = parts[0].trim();
-                let dynamic_part = parts[1..].join(rara_instructions::DYNAMIC_BOUNDARY);
-                let dynamic_part = dynamic_part.trim();
-
-                if !static_part.is_empty() {
-                    system_content.push(json!({
-                        "type": "text",
-                        "text": static_part,
-                        "cache_control": {"type": "ephemeral"} // Add hint for Anthropic-style caching
-                    }));
-                }
-                // Add the boundary itself if needed or just skip it.
-                // Claude Code keeps it to mark the boundary for future edits.
-                system_content.push(json!({
-                    "type": "text",
-                    "text": rara_instructions::DYNAMIC_BOUNDARY,
-                }));
-                if !dynamic_part.is_empty() {
-                    system_content.push(json!({
-                        "type": "text",
-                        "text": dynamic_part,
-                    }));
-                }
-            } else {
-                system_content.push(json!(assembled.prompt.effective_prompt.text));
-            }
-        } else {
-            system_content.push(json!(assembled.prompt.effective_prompt.text));
-        }
-
         messages.insert(
             0,
             Message {
                 role: "system".to_string(),
-                content: if system_content.len() == 1 {
-                    system_content.remove(0)
-                } else {
-                    Value::Array(system_content)
-                },
+                content: Value::String(assembled.prompt.effective_prompt.text),
             },
         );
-        if let Some(memory_context) = Agent::selected_memory_context_text(&assembled.runtime) {
-            Agent::prepend_memory_context_to_latest_user_message(&mut messages, memory_context);
-        }
 
         let model_label = self.model_event_label();
+        let request_fingerprint =
+            self.llm_backend
+                .request_cache_fingerprint(&messages, tool_schemas, &turn_metadata);
         report(AgentEvent::ModelRequest {
             model: model_label.clone(),
             // Provider token usage is only available after the response.
@@ -502,6 +493,7 @@ impl Agent {
             input_tokens: 0,
         });
 
+        let request_started_at = std::time::Instant::now();
         let mut streamed_any_text_delta = false;
         let mut streamed_any_reasoning_delta = false;
         let response = self
@@ -519,6 +511,10 @@ impl Agent {
                 }
             })
             .await?;
+        let duration_ms = request_started_at
+            .elapsed()
+            .as_millis()
+            .min(u128::from(u64::MAX)) as u64;
 
         let output_tokens = response
             .usage
@@ -526,9 +522,20 @@ impl Agent {
             .map(|usage| usage.output_tokens)
             .unwrap_or(0);
         report(AgentEvent::ModelResponse {
-            model: model_label,
+            model: model_label.clone(),
             output_tokens,
             finish_reason: response.stop_reason.clone(),
+        });
+
+        self.last_query_report.model_turns.push(ModelTurnReport {
+            model: model_label,
+            duration_ms,
+            finish_reason: response.stop_reason.clone(),
+            usage: response
+                .usage
+                .as_ref()
+                .map(ModelTokenUsage::from_provider_usage),
+            request_fingerprint,
         });
 
         if let Some(usage) = &response.usage {
@@ -601,6 +608,7 @@ impl Agent {
                         None => input.clone(),
                     };
                     report(AgentEvent::ToolUse {
+                        call_id: id.clone(),
                         name: name.clone(),
                         input: modified_input.clone(),
                     });

@@ -125,4 +125,15 @@ mod tests {
         assert_eq!(usage.cache_hit_tokens, 0);
         assert_eq!(usage.cache_miss_tokens, 100);
     }
+
+    #[test]
+    fn leaves_cache_accounting_absent_when_provider_omits_cache_fields() {
+        let usage = parse_openai_token_usage(&json!({
+            "prompt_tokens": 100,
+            "completion_tokens": 12
+        }));
+
+        assert_eq!(usage.cache_hit_tokens, 0);
+        assert_eq!(usage.cache_miss_tokens, 0);
+    }
 }

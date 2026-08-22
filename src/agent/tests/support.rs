@@ -11,8 +11,7 @@ use serde_json::{Value, json};
 use tempfile::tempdir;
 
 use crate::agent::Message;
-use crate::llm::LlmBackend;
-use crate::llm::LlmResponse;
+use crate::llm::{LlmBackend, LlmResponse, ProviderCacheProfile};
 use crate::session::SessionManager;
 use crate::workspace::WorkspaceMemory;
 
@@ -50,6 +49,7 @@ pub(super) struct SequencedBackend {
     model_label: Mutex<Option<String>>,
     classifier_responses: Mutex<Vec<String>>,
     classifier_calls: AtomicUsize,
+    cache_profile: ProviderCacheProfile,
 }
 
 impl SequencedBackend {
@@ -61,6 +61,7 @@ impl SequencedBackend {
             model_label: Mutex::new(None),
             classifier_responses: Mutex::new(Vec::new()),
             classifier_calls: AtomicUsize::new(0),
+            cache_profile: ProviderCacheProfile::none(),
         }
     }
 
@@ -74,6 +75,11 @@ impl SequencedBackend {
             .lock()
             .expect("lock")
             .push(response.into());
+        self
+    }
+
+    pub(super) fn with_cache_profile(mut self, cache_profile: ProviderCacheProfile) -> Self {
+        self.cache_profile = cache_profile;
         self
     }
 
@@ -148,5 +154,9 @@ impl LlmBackend for SequencedBackend {
             Some(response) => Ok(response),
             None => self.summarize(messages, instructions).await,
         }
+    }
+
+    fn cache_profile(&self) -> ProviderCacheProfile {
+        self.cache_profile
     }
 }

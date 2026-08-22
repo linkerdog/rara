@@ -126,7 +126,8 @@ async fn plugin_pre_tool_use_continue_false_blocks_tool_execution() {
         AgentEvent::ToolResult {
             name,
             content,
-            is_error: true
+            is_error: true,
+            ..
         } if name == "stub_tool" && content.contains("blocked by policy")
     )));
     assert!(backend.observed_messages()[1].iter().any(|message| {

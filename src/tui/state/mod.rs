@@ -28,7 +28,7 @@ use self::types::CommittedTranscriptRenderCache;
 #[cfg(test)]
 pub use self::types::current_unix_timestamp_secs;
 pub use self::types::{
-    ActiveLiveEvent, ActiveLiveSections, ActivePendingInteraction, ActivePendingInteractionKind,
+    ActiveLiveSections, ActivePendingInteraction, ActivePendingInteractionKind,
     AgentMarkdownStreamState, ApiKeyTarget, CommandSpec, CompactionTranscriptPayload,
     CompletedInteractionSnapshot, GoalHandle, GoalStatus, HelpTab, InteractionKind, ListPickerKind,
     LocalCommand, LocalCommandKind, ModelCatalogSnapshot, ModelRoutingView, OAuthLoginMode,

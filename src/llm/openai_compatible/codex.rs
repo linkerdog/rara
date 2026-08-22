@@ -543,7 +543,7 @@ fn render_codex_user_items(content: &Value) -> Vec<Value> {
                     rendered.push(tool_result);
                 }
             }
-            Some("text") => {
+            Some("text") | Some(crate::model_context::MODEL_CONTEXT_BLOCK_TYPE) => {
                 if let Some(text) = item.get("text").and_then(Value::as_str)
                     && !text.trim().is_empty()
                 {

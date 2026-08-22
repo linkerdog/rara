@@ -6,29 +6,10 @@ use serde_json::json;
 
 use super::support::{SequencedBackend, test_runtime_storage};
 use crate::agent::{Agent, AgentOutputMode, Message};
-use crate::llm::{ContentBlock, LlmResponse, TokenUsage};
+use crate::llm::{ContentBlock, LlmResponse, ProviderCacheProfile, TokenUsage};
 
-#[tokio::test]
-async fn model_request_projects_old_tool_results_without_mutating_history() {
-    let backend = Arc::new(SequencedBackend::new(vec![LlmResponse {
-        content: vec![ContentBlock::Text {
-            text: "done".to_string(),
-        }],
-        stop_reason: Some("end_turn".to_string()),
-        usage: Some(TokenUsage::default()),
-    }]));
-    let (_temp, session_manager, workspace, rara_dir) = test_runtime_storage();
-    let mut agent = Agent::new(
-        ToolManager::new(),
-        backend.clone(),
-        Arc::new(MemoryHandle::new(
-            &rara_dir.join("memory").to_string_lossy(),
-        )),
-        session_manager,
-        workspace,
-    );
-
-    agent.history = (0..8)
+fn large_tool_history() -> Vec<Message> {
+    (0..8)
         .flat_map(|idx| {
             [
                 Message {
@@ -50,7 +31,30 @@ async fn model_request_projects_old_tool_results_without_mutating_history() {
                 },
             ]
         })
-        .collect();
+        .collect()
+}
+
+#[tokio::test]
+async fn model_request_projects_old_tool_results_without_mutating_history() {
+    let backend = Arc::new(SequencedBackend::new(vec![LlmResponse {
+        content: vec![ContentBlock::Text {
+            text: "done".to_string(),
+        }],
+        stop_reason: Some("end_turn".to_string()),
+        usage: Some(TokenUsage::default()),
+    }]));
+    let (_temp, session_manager, workspace, rara_dir) = test_runtime_storage();
+    let mut agent = Agent::new(
+        ToolManager::new(),
+        backend.clone(),
+        Arc::new(MemoryHandle::new(
+            &rara_dir.join("memory").to_string_lossy(),
+        )),
+        session_manager,
+        workspace,
+    );
+
+    agent.history = large_tool_history();
     agent.compact_state.estimated_history_tokens = 1;
 
     agent
@@ -96,4 +100,48 @@ async fn model_request_projects_old_tool_results_without_mutating_history() {
     let persisted_history = serde_json::to_string(&agent.history).expect("history json");
     assert!(persisted_history.contains("old-result-0"));
     assert!(persisted_history.contains("old-result-7"));
+}
+
+#[tokio::test]
+async fn automatic_prefix_cache_preserves_tool_results_until_durable_compaction() {
+    let backend = Arc::new(
+        SequencedBackend::new(vec![LlmResponse {
+            content: vec![ContentBlock::Text {
+                text: "done".to_string(),
+            }],
+            stop_reason: Some("end_turn".to_string()),
+            usage: Some(TokenUsage::default()),
+        }])
+        .with_cache_profile(ProviderCacheProfile::automatic_prefix_cache_with_usage()),
+    );
+    let (_temp, session_manager, workspace, rara_dir) = test_runtime_storage();
+    let mut agent = Agent::new(
+        ToolManager::new(),
+        backend.clone(),
+        Arc::new(MemoryHandle::new(
+            &rara_dir.join("memory").to_string_lossy(),
+        )),
+        session_manager,
+        workspace,
+    );
+    agent.history = large_tool_history();
+    agent.compact_state.estimated_history_tokens = 1;
+
+    agent
+        .query_with_mode("continue".to_string(), AgentOutputMode::Silent)
+        .await
+        .expect("query");
+
+    let request = backend
+        .observed_messages()
+        .into_iter()
+        .next()
+        .expect("model request");
+    let request_text = serde_json::to_string(&request).expect("request json");
+    assert!(request_text.contains("old-result-0"));
+    assert!(request_text.contains("old-result-7"));
+    assert!(!request_text.contains("Tool result reference"));
+    let projection = agent.shared_runtime_context().observability.microcompact;
+    assert!(!projection.enabled);
+    assert_eq!(projection.saved_chars, 0);
 }
