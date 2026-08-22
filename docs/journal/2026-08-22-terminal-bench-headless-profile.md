@@ -93,17 +93,83 @@ The Rust test link step still reports the existing macOS compact-unwind
 `__eh_frame` size warning. It does not appear in workspace Clippy and is not
 caused by this runtime-profile change.
 
-Focused Bazel validation did not reach loading or compilation because the
-user-global Bazel configuration supplied an unsupported
-`--experimental-disk-cache-gc-max-size=200G` startup option. The repository
-Bazel configuration was not changed or bypassed.
+### Official Terminal-Bench 2.1 smoke
 
-The official Terminal-Bench 2.1 smoke remains separate because it requires a
-running Docker daemon, a Linux RARA binary, provider credentials, and the
-official verifier. Docker was unavailable at this checkpoint, so no benchmark
-pass is claimed.
+Docker became available after the initial implementation checkpoint. A
+content-addressed `terminal-bench/regex-log` run completed on 2026-08-23 with
+these frozen inputs:
+
+- RARA commit `94a5ddf1c8dc5c8d789b6e0a15cab1fdbd6410d3` and version
+  `0.0.21`;
+- Harbor `0.20.0` at `459ff6ec99417589b7f679d14ddf3b3f0ae4f1dc`;
+- Terminal-Bench 2.1 dataset ref
+  `sha256:7d7bdc1cbedad549fc1140404bd4dc45e5fd0ea7c4186773687d177ad3a0699a`;
+- `terminal-bench/regex-log` package ref
+  `sha256:802c16cfd132e6c457529cb864be5a757c1b23b6cadc57f2d01983cb0110292a`;
+- the `alexgshaw/regex-log:20251031` `linux/amd64` task image at
+  `sha256:90101b2e815323a8da20528a1439bebc407eb9761c9c68a3d557730856c878e9`;
+- an `x86-64` Linux RARA binary with SHA-256
+  `12fda6286efd4a0460eb95b52d0be260be57172f98f3cae0ac21ca8c716a2e01`;
+- the official DeepSeek API with provider `deepseek`, model
+  `deepseek-v4-pro`, and runtime profile `headless-coding-v1`.
+
+The registry resolved the dataset and downloaded the task package before a
+later metadata request became unavailable. The scored run therefore used
+Harbor's local `--path` mode against that exact content-addressed task package;
+the task container, task instructions, and official verifier were unchanged.
+The provider credential remained in the process environment and was selected
+through `api_key_env=DEEPSEEK_API_KEY`; it was not written into the command or
+artifacts.
+
+The successful Harbor invocation was:
+
+```bash
+PYTHONPATH=$PWD/tools/harbor harbor run \
+  --path "$TERMINAL_BENCH_REGEX_LOG_TASK_DIR" \
+  --n-concurrent 1 \
+  --agent rara_agent:RaraAgent \
+  --agent-kwarg binary_path="$RARA_LINUX_AMD64_BIN" \
+  --agent-kwarg provider=deepseek \
+  --agent-kwarg model=deepseek-v4-pro \
+  --agent-kwarg api_key_env=DEEPSEEK_API_KEY \
+  --jobs-dir "$HARBOR_JOBS_DIR" \
+  --job-name rara-tbench21-regex-log-94a5ddf-20260823-local \
+  --yes
+```
+
+Harbor job `6c3f7fe6-ed08-4514-8541-50b9d1b1ad6e` completed one trial with
+zero exceptions in 8 minutes 2 seconds. The RARA process status was `0`, and
+the official verifier reward was `1.0`. The ATIF-v1.7 trajectory recorded RARA
+`0.0.21`, `deepseek-v4-pro`, `headless-coding-v1`, 249 steps, 226,386 input
+tokens, and 25,722 output tokens.
+
+The local evidence was retained outside the repository. Its primary artifact
+hashes are:
+
+- trial `result.json`:
+  `69cc798967665cda07fe30098202c7d8d6f54cb033a0cf071631b6f8c9c7d346`;
+- verifier `reward.txt`:
+  `4355a46b19d348dc2f57c046f8ef63d4538ebb936000f3c9ee954a27460dd865`;
+- raw `rara-exec.jsonl`:
+  `16a4700cd52aaa5d516502e83093f5158c25c3e2b5a6839c670237ee67ef7ede`;
+- ATIF `trajectory.json`:
+  `0aec4b6abf9a2a9e1fce463f8e78e8560d7977322ee8338adb3306e2d2018468`.
+
+The selected artifacts and a content manifest were bundled locally as
+`rara-tbench21-regex-log-94a5ddf-20260823-evidence.tar.gz`, with SHA-256
+`d39dcabc04425a16e8b16be6c86cdf165a1e18dee8a48f1b9281022a189cad98`.
+No task prompt, trajectory, model payload, or verifier implementation was
+committed to the repository; the trajectory exists only in that local evidence
+bundle.
+
+The PR's Bazel CI subsequently passed. An earlier local Bazel attempt did not
+reach loading or compilation because the user-global Bazel configuration
+supplied an unsupported `--experimental-disk-cache-gc-max-size=200G` startup
+option; the repository Bazel configuration was not changed or bypassed.
 
 ## Follow-Ups
 
-- Run the recorded Terminal-Bench 2.1 smoke cohort and attach JSONL, ATIF, and
-  official verifier artifacts before claiming a benchmark pass.
+- Expand the single-task smoke into a multi-task cohort and repeat selected
+  tasks before reporting a suite-level score. The recorded reward proves the
+  end-to-end RARA path can pass an official Terminal-Bench 2.1 verifier, but it
+  is not a full-suite result or a variance estimate.

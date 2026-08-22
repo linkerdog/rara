@@ -106,10 +106,13 @@ Active backlog only. Keep this file small and current.
       benchmark task workspace.
 - [x] Convert RARA JSONL events into full ATIF-compatible trajectory logs for
       Harbor result artifacts. See `docs/features/terminal-bench-evaluation.md`.
-- [ ] Run a Terminal-Bench 2.1 smoke cohort with the versioned
+- [x] Run a Terminal-Bench 2.1 single-task smoke with the versioned
       `headless-coding-v1` profile and record the RARA revision, Harbor version,
       provider/model, run command, JSONL/ATIF artifacts, and official verifier
       reward. Process exit status alone is not a pass result.
+- [ ] Expand the Terminal-Bench 2.1 smoke into a multi-task cohort and repeat
+      selected tasks before reporting a suite-level score or comparing harness
+      quality.
 
 ## Agent / Subagent
 
