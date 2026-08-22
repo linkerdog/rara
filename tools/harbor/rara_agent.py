@@ -2,7 +2,7 @@
 
 Load dynamically with:
 
-    PYTHONPATH=$PWD/tools/harbor harbor run -d terminal-bench/terminal-bench-2 \
+    PYTHONPATH=$PWD/tools/harbor harbor run -d terminal-bench/terminal-bench-2-1 \
       --agent rara_agent:RaraAgent \
       --agent-kwarg binary_path=$PWD/target/release/rara
 """
@@ -40,6 +40,7 @@ DEFAULT_INSTRUCTION_PATH = EnvironmentPaths.agent_dir / "instruction.txt"
 DEFAULT_LAST_MESSAGE_PATH = EnvironmentPaths.agent_dir / "last-message.txt"
 DEFAULT_TRAJECTORY_PATH = EnvironmentPaths.agent_dir / "trajectory.json"
 DEFAULT_BENCHMARK_CWD = "/app"
+DEFAULT_RUNTIME_PROFILE = "headless-coding-v1"
 CA_CERTIFICATE_BUNDLE = PurePosixPath("/etc/ssl/certs/ca-certificates.crt")
 PROVIDER_API_KEY_ENVS = {
     "deepseek": ("DEEPSEEK_API_KEY",),
@@ -69,6 +70,7 @@ class RaraAgent(BaseInstalledAgent):
         model: str | None = None,
         base_url: str | None = None,
         api_key_env: str | None = None,
+        runtime_profile: str = DEFAULT_RUNTIME_PROFILE,
         **kwargs: Any,
     ) -> None:
         super().__init__(*args, **kwargs)
@@ -82,6 +84,7 @@ class RaraAgent(BaseInstalledAgent):
         self.model = model
         self.base_url = base_url
         self.api_key_env = api_key_env
+        self.runtime_profile = runtime_profile or DEFAULT_RUNTIME_PROFILE
 
     @staticmethod
     def name() -> str:
@@ -182,7 +185,8 @@ class RaraAgent(BaseInstalledAgent):
             f"mkdir -p {shlex.quote(EnvironmentPaths.agent_dir.as_posix())} "
             f"{shlex.quote(self.rara_home.as_posix())} || exit $?; "
             "{ "
-            f"{binary_invocation} exec --json --full-access --cwd {cwd} "
+            f"{binary_invocation} exec --json --full-access "
+            f"--runtime-profile {shlex.quote(self.runtime_profile)} --cwd {cwd} "
             f"--run-id {run_id} --task-id {task_id} "
             f"--output-last-message {last_message_path} - "
             f"< {instruction_path}; "
@@ -262,12 +266,17 @@ class RaraAgent(BaseInstalledAgent):
         input_tokens = 0
         output_tokens = 0
         event_counts: dict[str, int] = {}
+        runtime_profile: str | None = None
 
         for event in events:
             event_type = event.get("type")
             if isinstance(event_type, str):
                 event_counts[event_type] = event_counts.get(event_type, 0) + 1
-            if event_type == "turn.completed":
+            if event_type == "thread.started":
+                metadata = event.get("metadata") or {}
+                if isinstance(metadata, dict):
+                    runtime_profile = _string_value(metadata.get("runtime_profile"))
+            elif event_type == "turn.completed":
                 usage = event.get("usage") or {}
                 u_input = usage.get("input_tokens")
                 if u_input is not None:
@@ -293,6 +302,7 @@ class RaraAgent(BaseInstalledAgent):
             "jsonl_path": DEFAULT_JSONL_PATH.as_posix(),
             "last_message_path": DEFAULT_LAST_MESSAGE_PATH.as_posix(),
             "trajectory_path": DEFAULT_TRAJECTORY_PATH.as_posix(),
+            "runtime_profile": runtime_profile,
         }
 
     def _write_trajectory(
@@ -352,11 +362,13 @@ Work only in the benchmark workspace: {cwd}.
 Read the task carefully and create every file path that the task asks for exactly as specified.
 If the task names an absolute output path under the workspace, write that artifact before you finish.
 Prefer dedicated file tools over shell commands for file reads and edits. \
-Use read_file to inspect files, and use apply_patch, replace, replace_lines, \
-multi_edit, or write_file for file modifications. Do not use shell redirection, \
+Use read_file to inspect files, and use apply_patch or write_file for file \
+modifications. Do not use shell redirection, \
 heredocs, sed, awk, perl, or ad-hoc scripts to edit files when a direct edit \
 tool can do the job.
 Use shell commands for process execution and focused validation commands.
+Use bash with run_in_background for long-running non-interactive processes, then poll the background task status. Use PTY tools only for commands that require terminal input or terminal control.
+If the verifier must reach a service after the agent exits, leave that service running in the background and verify it from a separate client before finishing.
 Treat task constraints as validation requirements. If the task says only certain edits are allowed, files must not be edited, output must match an exact format, or substitutions must come from an allowed list, verify those constraints directly before finishing.
 When a task requires a command to be available in PATH, verify it in a fresh non-interactive process without a command-local PATH export. Updating shell startup files alone does not prove that the verifier can resolve the command.
 When running shell commands, request escalated sandbox permissions; Harbor already isolates this task inside its container.
@@ -397,6 +409,7 @@ def convert_rara_events_to_trajectory(
     session_id = "unknown"
     run_id: str | None = None
     task_id: str | None = None
+    runtime_profile: str | None = None
     event_counts: dict[str, int] = {}
     steps: list[Step] = []
     next_step_id = 1
@@ -433,6 +446,7 @@ def convert_rara_events_to_trajectory(
                 session_id = _string_value(metadata.get("session_id")) or session_id
                 run_id = _string_value(metadata.get("run_id"))
                 task_id = _string_value(metadata.get("task_id"))
+                runtime_profile = _string_value(metadata.get("runtime_profile"))
             continue
 
         if event_type == "turn.completed":
@@ -588,6 +602,7 @@ def convert_rara_events_to_trajectory(
         "event_counts": event_counts,
         "run_id": run_id,
         "task_id": task_id,
+        "runtime_profile": runtime_profile,
         "final_message": final_message,
         "failure": failure_message,
     }

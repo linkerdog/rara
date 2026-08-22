@@ -15,6 +15,7 @@ use crate::config::{
     RaraConfig,
 };
 use crate::llm::{LlmBackend, MockLlm};
+use crate::runtime_session::RuntimeSessionProfile;
 use crate::tools::agent::{AgentTreeControl, SubagentBackendResolver, SubagentProviderTarget};
 use crate::workspace::WorkspaceMemory;
 
@@ -73,6 +74,64 @@ async fn disabled_multi_agent_policy_removes_orchestration_tools() {
     assert!(!names.iter().any(|name| name == "spawn_agent"));
     assert!(!names.iter().any(|name| name == "wait_agent"));
     assert!(names.iter().any(|name| name == "read_file"));
+}
+
+#[tokio::test]
+async fn headless_coding_profile_freezes_runtime_composition() {
+    let temp = tempdir().expect("tempdir");
+    let workspace = temp.path().join("workspace");
+    std::fs::create_dir_all(&workspace).expect("workspace");
+    let config = RaraConfig {
+        provider: "mock".to_string(),
+        system_prompt: Some("ambient system prompt".to_string()),
+        append_system_prompt: Some("ambient append prompt".to_string()),
+        multi_agent_policy: MultiAgentPolicy::ProactiveReadOnly,
+        ..Default::default()
+    };
+    let profile = RuntimeSessionProfile::HeadlessCodingV1;
+    let options = RuntimeBootstrapOptions::default()
+        .with_rara_home(Some(temp.path().join("state")))
+        .with_extension_discovery(true)
+        .with_transcript_persistence(true)
+        .with_memory_facilities(true)
+        .with_session_profile(profile);
+
+    let bootstrap = initialize_rara_context_for_workspace_with_options(
+        &config,
+        Some(&workspace),
+        None,
+        options,
+    )
+    .await
+    .expect("bootstrap");
+    let actual_names = bootstrap
+        .tool_manager
+        .get_schemas()
+        .into_iter()
+        .filter_map(|schema| schema["name"].as_str().map(str::to_string))
+        .collect::<Vec<_>>();
+    let mut expected_names = profile
+        .tool_names()
+        .expect("versioned profile tool names")
+        .iter()
+        .map(|name| (*name).to_string())
+        .collect::<Vec<_>>();
+    expected_names.sort();
+
+    assert_eq!(actual_names, expected_names);
+    assert!(!bootstrap.extension_discovery);
+    assert!(!bootstrap.transcript_persistence);
+    assert!(!bootstrap.memory_facilities);
+    assert_eq!(
+        bootstrap.prompt_config.system_prompt.as_deref(),
+        profile.system_prompt()
+    );
+    assert!(bootstrap.prompt_config.append_system_prompt.is_none());
+    assert!(bootstrap.prompt_config.available_skills.is_empty());
+    assert_eq!(
+        bootstrap.prompt_config.context_file_search,
+        rara_config::ContextFileSearchPolicy::Off
+    );
 }
 
 #[tokio::test]

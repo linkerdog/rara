@@ -54,13 +54,28 @@ pub struct OAuthManager {
 impl OAuthManager {
     pub fn new() -> Result<Self> {
         let config_dir = rara_config::ensure_rara_home_dir()?;
-        Self::new_for_config_dir(config_dir)
+        if std::env::var_os("RARA_HOME").is_some_and(|value| !value.is_empty()) {
+            Self::new_for_isolated_rara_home(config_dir)
+        } else {
+            Self::new_for_config_dir(config_dir)
+        }
     }
 
     pub fn new_for_config_dir(config_dir: PathBuf) -> Result<Self> {
         std::fs::create_dir_all(&config_dir)?;
         let codex_home = preferred_codex_home(&config_dir);
         let legacy_codex_home = config_dir.join("codex-auth");
+        Self::new_for_auth_homes(codex_home, legacy_codex_home)
+    }
+
+    pub fn new_for_isolated_rara_home(rara_home: PathBuf) -> Result<Self> {
+        std::fs::create_dir_all(&rara_home)?;
+        let codex_home = rara_home.join(".codex");
+        let legacy_codex_home = rara_home.join("codex-auth");
+        Self::new_for_auth_homes(codex_home, legacy_codex_home)
+    }
+
+    fn new_for_auth_homes(codex_home: PathBuf, legacy_codex_home: PathBuf) -> Result<Self> {
         std::fs::create_dir_all(&codex_home)?;
         std::fs::create_dir_all(&legacy_codex_home)?;
         Ok(Self {
@@ -352,6 +367,20 @@ mod tests {
         .expect("auth file");
         assert_eq!(auth.openai_api_key.as_deref(), Some("sk-test-123"));
         assert!(auth.tokens.is_none());
+    }
+
+    #[test]
+    fn isolated_rara_home_keeps_oauth_storage_inside_the_override() {
+        let temp = tempdir().expect("tempdir");
+        let rara_home = temp.path().join("isolated-rara-home");
+
+        let manager = OAuthManager::new_for_isolated_rara_home(rara_home.clone())
+            .expect("isolated oauth manager");
+
+        assert_eq!(manager.codex_home, rara_home.join(".codex"));
+        assert_eq!(manager.legacy_codex_home, rara_home.join("codex-auth"));
+        assert!(manager.codex_home.is_dir());
+        assert!(manager.legacy_codex_home.is_dir());
     }
 
     #[test]

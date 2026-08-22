@@ -30,6 +30,7 @@ use crate::prompt::{PromptRuntimeConfig, PromptSkillSummary};
 use crate::protocol_sources::{PromptSourceRegistry, SkillSourceRegistry};
 use crate::runtime_control::{ExtensionEvent, ExtensionReadinessSnapshot, RuntimeEvent};
 use crate::runtime_event_bus::RuntimeEventBus;
+use crate::runtime_session::RuntimeSessionProfile;
 use crate::sandbox::SandboxManager;
 use crate::session::SessionManager;
 use crate::shell_env::capture_shell_environment_snapshot;
@@ -285,6 +286,7 @@ pub(crate) struct RuntimeBootstrapOptions {
     pub initial_transcript: Vec<Message>,
     pub transcript_persistence: bool,
     pub memory_facilities: bool,
+    pub session_profile: RuntimeSessionProfile,
     pub event_capacity: usize,
 }
 
@@ -302,6 +304,7 @@ impl Default for RuntimeBootstrapOptions {
             initial_transcript: Vec::new(),
             transcript_persistence: true,
             memory_facilities: true,
+            session_profile: RuntimeSessionProfile::Default,
             event_capacity: 256,
         }
     }
@@ -368,6 +371,11 @@ impl RuntimeBootstrapOptions {
         self
     }
 
+    pub(crate) fn with_session_profile(mut self, profile: RuntimeSessionProfile) -> Self {
+        self.session_profile = profile;
+        self
+    }
+
     pub(crate) fn with_event_capacity(mut self, capacity: usize) -> Self {
         self.event_capacity = capacity.max(1);
         self
@@ -411,6 +419,16 @@ pub(crate) async fn initialize_rara_context_with_options(
     progress: Option<LocalProgressReporter>,
     mut options: RuntimeBootstrapOptions,
 ) -> Result<RuntimeBootstrap> {
+    let session_profile = options.session_profile;
+    if session_profile.disables_ambient_facilities() {
+        options.extension_discovery = false;
+        options.transcript_persistence = false;
+        options.memory_facilities = false;
+    }
+    let multi_agent_policy = match session_profile {
+        RuntimeSessionProfile::Default => config.multi_agent_policy,
+        RuntimeSessionProfile::HeadlessCodingV1 => MultiAgentPolicy::Disabled,
+    };
     let rara_home = match options.rara_home.clone() {
         Some(rara_home) => {
             std::fs::create_dir_all(&rara_home)?;
@@ -460,10 +478,16 @@ pub(crate) async fn initialize_rara_context_with_options(
     let plugin_agent_records = crate::plugin_middleware::plugin_agent_records(&plugins);
 
     let mut prompt_config = PromptRuntimeConfig::from_config(config);
+    if let Some(system_prompt) = session_profile.system_prompt() {
+        prompt_config.system_prompt = Some(system_prompt.to_string());
+        prompt_config.append_system_prompt = None;
+        prompt_config.compact_prompt = None;
+        prompt_config.context_file_search = rara_config::ContextFileSearchPolicy::Off;
+    }
     if options.extension_discovery {
         append_builtin_prompt_instructions(&mut prompt_config, &config.builtin_plugins);
     }
-    append_multi_agent_prompt_instructions(&mut prompt_config, config.multi_agent_policy);
+    append_multi_agent_prompt_instructions(&mut prompt_config, multi_agent_policy);
     let skill_manager = if options.extension_discovery {
         load_skill_manager(&mut prompt_config.warnings, &plugin_skill_roots)
     } else {
@@ -582,7 +606,7 @@ pub(crate) async fn initialize_rara_context_with_options(
         .agent_tree_control
         .take()
         .unwrap_or_else(|| Arc::new(AgentTreeControl::new(options.agent_tree_config)));
-    let tool_manager = options.tool_manager.take().unwrap_or_else(|| {
+    let mut tool_manager = options.tool_manager.take().unwrap_or_else(|| {
         create_full_tool_manager(
             backend.clone(),
             memory_handle.clone(),
@@ -599,11 +623,12 @@ pub(crate) async fn initialize_rara_context_with_options(
             hook_runtime.clone(),
             lsp_manager.clone(),
             agent_tree_control.clone(),
-            config.multi_agent_policy,
+            multi_agent_policy,
             subagent_backend_resolver.clone(),
             agent_definitions.clone(),
         )
     });
+    session_profile.project_tools(&mut tool_manager);
     let mut warnings = prompt_config.warnings.clone();
     warnings.extend(file_hook_warnings);
 

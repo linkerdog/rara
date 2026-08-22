@@ -4,7 +4,7 @@ use std::sync::Arc;
 use anyhow::Result;
 use rara_tools::tool::ToolManager;
 
-use super::RuntimeSession;
+use super::{RuntimeSession, RuntimeSessionProfile};
 use crate::config::RaraConfig;
 use crate::llm::{LlmBackend, Message};
 use crate::runtime_client::RuntimeClient;
@@ -32,6 +32,7 @@ pub struct RuntimeSessionBuilder {
     enable_memory_facilities: bool,
     enable_extension_discovery: bool,
     require_state_root: bool,
+    profile: RuntimeSessionProfile,
 }
 
 impl RuntimeSessionBuilder {
@@ -53,6 +54,7 @@ impl RuntimeSessionBuilder {
             enable_memory_facilities: true,
             enable_extension_discovery: true,
             require_state_root: false,
+            profile: RuntimeSessionProfile::Default,
         }
     }
 
@@ -110,6 +112,15 @@ impl RuntimeSessionBuilder {
     /// Use a stable host-owned session identity.
     pub fn with_session_id(mut self, session_id: impl Into<String>) -> Self {
         self.session_id = Some(session_id.into());
+        self
+    }
+
+    /// Select a stable runtime composition for this session.
+    ///
+    /// Versioned profiles override ambient extension, memory, transcript, and
+    /// tool-registry settings at build time so call order cannot widen them.
+    pub fn with_profile(mut self, profile: RuntimeSessionProfile) -> Self {
+        self.profile = profile;
         self
     }
 
@@ -179,6 +190,11 @@ impl RuntimeSessionBuilder {
         if self.require_state_root && self.state_root.is_none() {
             anyhow::bail!("host runtime requires an explicit state root");
         }
+        if self.profile.disables_ambient_facilities() {
+            self.enable_extension_discovery = false;
+            self.enable_memory_facilities = false;
+            self.persist_transcript = false;
+        }
         if !self.enable_memory_facilities {
             self.config.builtin_plugins.nowledge_mem.enabled = false;
         }
@@ -192,6 +208,7 @@ impl RuntimeSessionBuilder {
             .with_initial_transcript(self.initial_transcript)
             .with_transcript_persistence(self.persist_transcript)
             .with_memory_facilities(self.enable_memory_facilities)
+            .with_session_profile(self.profile)
             .with_event_capacity(self.event_capacity);
         let bootstrap = initialize_rara_context_for_workspace_with_options(
             &self.config,

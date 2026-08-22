@@ -87,8 +87,8 @@ pub use runtime_control::{
 };
 pub use runtime_session::{
     RuntimeEventStream, RuntimeHost, RuntimeSession, RuntimeSessionBuilder, RuntimeSessionError,
-    RuntimeSessionId, RuntimeSessionPhase, RuntimeSessionSnapshot, RuntimeSessionSubscription,
-    RuntimeTurn, RuntimeTurnId, RuntimeTurnOutcome,
+    RuntimeSessionId, RuntimeSessionPhase, RuntimeSessionProfile, RuntimeSessionSnapshot,
+    RuntimeSessionSubscription, RuntimeTurn, RuntimeTurnId, RuntimeTurnOutcome,
 };
 pub use tools::agent::{
     AgentMailboxMessage, AgentSnapshot, AgentTreeConfig, AgentTreeControl, AgentWaitResult,

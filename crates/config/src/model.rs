@@ -546,8 +546,28 @@ impl ConfigManager {
 }
 
 pub fn rara_home_dir() -> Result<PathBuf> {
-    let home = std::env::var_os("HOME")
-        .or_else(|| std::env::var_os("USERPROFILE"))
+    resolve_rara_home_dir(
+        std::env::var_os("RARA_HOME"),
+        std::env::var_os("HOME"),
+        std::env::var_os("USERPROFILE"),
+    )
+}
+
+fn resolve_rara_home_dir(
+    rara_home: Option<std::ffi::OsString>,
+    home: Option<std::ffi::OsString>,
+    user_profile: Option<std::ffi::OsString>,
+) -> Result<PathBuf> {
+    if let Some(rara_home) = rara_home.filter(|value| !value.is_empty()) {
+        let path = PathBuf::from(rara_home);
+        if !path.is_absolute() {
+            anyhow::bail!("RARA_HOME must be an absolute path");
+        }
+        return Ok(path);
+    }
+
+    let home = home
+        .or(user_profile)
         .map(PathBuf::from)
         .ok_or_else(|| anyhow::anyhow!("HOME or USERPROFILE environment variable not set"))?;
     Ok(home.join(".rara"))
