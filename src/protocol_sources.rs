@@ -328,6 +328,7 @@ pub struct MemoryControlHandler {
 }
 
 impl MemoryControlHandler {
+    #[cfg(test)]
     pub fn new(event_bus: Arc<RuntimeEventBus>) -> Self {
         Self {
             event_bus,

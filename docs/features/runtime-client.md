@@ -1,5 +1,9 @@
 # Session Runtime Client
 
+> Compatibility note: `docs/features/runtime-session.md` is the canonical
+> post-migration contract. This document records the earlier TUI-focused
+> `RuntimeClient` migration and remains useful only for compatibility history.
+
 ## Contract
 
 RARA owns one runtime execution graph per interactive session. The graph

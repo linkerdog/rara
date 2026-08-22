@@ -165,6 +165,40 @@ async fn manual_compact_replaces_older_history_with_summary() {
 }
 
 #[tokio::test]
+async fn host_owned_transcript_does_not_persist_compaction_artifacts() {
+    let (_temp, session_manager, workspace, rara_dir) = test_runtime_storage();
+    let mut agent = Agent::new(
+        ToolManager::new(),
+        Arc::new(SequencedBackend::new(Vec::new())),
+        Arc::new(MemoryHandle::new(
+            &rara_dir.join("memory").display().to_string(),
+        )),
+        session_manager,
+        workspace,
+    );
+    agent.set_session_id("host-compaction-session".to_string());
+    agent.set_transcript_persistence_enabled(false);
+    agent.history = vec![
+        Message {
+            role: "user".to_string(),
+            content: json!("inspect the repo"),
+        },
+        Message {
+            role: "assistant".to_string(),
+            content: json!("I checked the runtime boundary"),
+        },
+    ];
+
+    assert!(
+        agent
+            .compact_now_with_reporter(|_| {})
+            .await
+            .expect("manual compaction")
+    );
+    assert!(!rara_dir.join("rollouts/host-compaction-session").exists());
+}
+
+#[tokio::test]
 async fn automatic_compaction_timeout_does_not_block_query() {
     let backend = Arc::new(SlowSummarizeBackend);
     let (_temp, session_manager, workspace, _rara_dir) = test_runtime_storage();

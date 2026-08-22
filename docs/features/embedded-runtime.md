@@ -30,10 +30,15 @@ owner of runtime behavior.
 - Add an FFI, C ABI, WASM agent loop, or network server wrapper.
 - Let embedded callers bypass sandbox, permission, or workspace ownership
   checks.
-- Make `EmbeddedRuntime` thread-safe for concurrent mutable prompt submission;
-  callers own serialization or create separate runtime instances.
+- Run two root turns concurrently inside one session. The session actor rejects
+  the second turn with `Busy`; callers create separate sessions for parallel
+  execution.
 
 ## Architecture
+
+The canonical execution boundary is now specified in
+`runtime-session.md`. `EmbeddedRuntime` is a compatibility facade over one
+`RuntimeSession`; it must not own a separate `Agent` or registry graph.
 
 ### Package Boundary
 

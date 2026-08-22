@@ -79,6 +79,8 @@ future appserver integrations can use.
 
 ## App Server Architecture
 
+- `runtime-session.md`: canonical single-session ownership, host injection,
+  bounded commands, ordered replay, cancellation, and multi-session hosting.
 - `app-server-architecture.md`: agent output as typed objects over a lightweight
   event bus; TUI, ACP, Wire as peer consumers. Internal = objects, external =
   protocol.

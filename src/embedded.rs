@@ -8,14 +8,12 @@ use std::time::Duration;
 use anyhow::Result;
 use tokio::sync::broadcast;
 
-use crate::agent::{Agent, AgentEvent, AgentOutputMode};
+use crate::agent::{AgentEvent, AgentOutputMode};
 use crate::config::RaraConfig;
+use crate::llm::LlmBackend;
 use crate::model_observation::QueryReport;
-use crate::runtime_context::{
-    RuntimeBootstrapOptions, initialize_rara_context_for_workspace_with_options,
-};
 use crate::runtime_control::RuntimeControlEvent;
-use crate::runtime_event_bus::RuntimeEventBus;
+use crate::runtime_session::RuntimeSession;
 use crate::tools::agent::{
     AgentMailboxMessage, AgentSnapshot, AgentTreeConfig, AgentTreeControl, AgentWaitResult,
 };
@@ -36,10 +34,7 @@ pub struct EmbeddedRuntimeOptions {
 /// One workspace-scoped RARA runtime that can be embedded in another Rust
 /// application without routing through the CLI or TUI.
 pub struct EmbeddedRuntime {
-    agent: Agent,
-    workspace_root: PathBuf,
-    event_bus: Arc<RuntimeEventBus>,
-    agent_tree_control: Arc<AgentTreeControl>,
+    session: RuntimeSession,
 }
 
 impl EmbeddedRuntime {
@@ -59,45 +54,36 @@ impl EmbeddedRuntime {
         options: EmbeddedRuntimeOptions,
     ) -> Result<Self> {
         let workspace_root = workspace_root.as_ref().to_path_buf();
-        let bootstrap = initialize_rara_context_for_workspace_with_options(
-            config,
-            Some(&workspace_root),
-            None,
-            RuntimeBootstrapOptions::with_plugin_dirs(options.plugin_dirs)
-                .with_rara_home(options.state_root)
-                .with_agent_tree_config(options.agent_tree_config),
-        )
-        .await?;
-        let event_bus = bootstrap.event_bus.clone();
-        let agent_tree_control = bootstrap.agent_tree_control.clone();
-        let agent = bootstrap.into_agent().await;
-        Ok(Self {
-            agent,
-            workspace_root,
-            event_bus,
-            agent_tree_control,
-        })
+        let mut builder = RuntimeSession::builder(config.clone(), &workspace_root)
+            .with_plugin_dirs(options.plugin_dirs)
+            .with_agent_tree_config(options.agent_tree_config);
+        if let Some(state_root) = options.state_root {
+            builder = builder.with_state_root(state_root);
+        }
+        let session = builder.build().await?;
+        Ok(Self { session })
     }
 
     /// Return the root runtime session id.
     pub fn session_id(&self) -> &str {
-        &self.agent.session_id
+        self.session.id().as_str()
     }
 
     /// Return the workspace owned by this runtime instance.
     pub fn workspace_root(&self) -> &Path {
-        &self.workspace_root
+        self.session.workspace_root()
     }
 
     /// Clone the opaque session-tree control handle.
     pub fn agent_tree_control(&self) -> Arc<AgentTreeControl> {
-        self.agent_tree_control.clone()
+        self.session.agent_tree_control()
     }
 
     /// List children owned by this runtime's root session.
     pub fn list_agents(&self) -> Result<Vec<AgentSnapshot>> {
         let mut agents = self
-            .agent_tree_control
+            .session
+            .agent_tree_control()
             .snapshots_for_parent(self.session_id())?;
         agents.sort_by(|left, right| left.path.cmp(&right.path));
         Ok(agents)
@@ -116,14 +102,16 @@ impl EmbeddedRuntime {
                 targets
                     .iter()
                     .map(|target| {
-                        self.agent_tree_control
+                        self.session
+                            .agent_tree_control()
                             .resolve_agent_id_for_parent(target, self.session_id())
                     })
                     .collect::<Result<HashSet<_>, _>>()?,
             )
         };
         let (messages, timed_out) = self
-            .agent_tree_control
+            .session
+            .agent_tree_control()
             .wait_for_messages(self.session_id(), targets.as_ref(), timeout)
             .await?;
         Ok(AgentWaitResult {
@@ -138,7 +126,7 @@ impl EmbeddedRuntime {
         target: &str,
         message: impl Into<String>,
     ) -> Result<AgentMailboxMessage> {
-        Ok(self.agent_tree_control.send_to_child(
+        Ok(self.session.agent_tree_control().send_to_child(
             self.session_id(),
             target,
             "message",
@@ -152,7 +140,7 @@ impl EmbeddedRuntime {
         target: &str,
         instruction: impl Into<String>,
     ) -> Result<AgentMailboxMessage> {
-        Ok(self.agent_tree_control.send_to_child(
+        Ok(self.session.agent_tree_control().send_to_child(
             self.session_id(),
             target,
             "followup",
@@ -163,18 +151,24 @@ impl EmbeddedRuntime {
     /// Signal cancellation for a child owned by this runtime.
     pub fn interrupt_agent(&self, target: &str) -> Result<AgentSnapshot> {
         Ok(self
-            .agent_tree_control
+            .session
+            .agent_tree_control()
             .interrupt_for_parent(target, self.session_id())?)
     }
 
     /// Subscribe to typed control-plane events for this runtime.
     pub fn subscribe_control(&self) -> broadcast::Receiver<RuntimeControlEvent> {
-        self.event_bus.subscribe_control()
+        self.session.subscribe_control()
+    }
+
+    /// Clone the canonical session handle used by this compatibility facade.
+    pub fn runtime_session(&self) -> RuntimeSession {
+        self.session.clone()
     }
 
     /// Execute one prompt and report typed agent events to the callback.
     pub async fn query_with_events<F>(
-        &mut self,
+        &self,
         prompt: impl Into<String>,
         output_mode: AgentOutputMode,
         report: F,
@@ -182,9 +176,10 @@ impl EmbeddedRuntime {
     where
         F: FnMut(AgentEvent) + Send,
     {
-        self.agent
-            .query_with_mode_and_events(prompt.into(), output_mode, report)
-            .await
+        self.session
+            .query_with_events(prompt, output_mode, report)
+            .await?;
+        Ok(())
     }
 
     /// Execute one prompt and return structured per-request model observations.
@@ -192,7 +187,7 @@ impl EmbeddedRuntime {
     /// The returned report contains token accounting, duration, and optional
     /// SHA-256 request fingerprints. It never contains prompt or response text.
     pub async fn query_with_report<F>(
-        &mut self,
+        &self,
         prompt: impl Into<String>,
         output_mode: AgentOutputMode,
         report: F,
@@ -200,25 +195,35 @@ impl EmbeddedRuntime {
     where
         F: FnMut(AgentEvent) + Send,
     {
-        self.agent
-            .query_with_mode_and_events(prompt.into(), output_mode, report)
-            .await?;
-        Ok(self.agent.last_query_report.clone())
+        Ok(self
+            .session
+            .query_with_report(prompt, output_mode, report)
+            .await?)
     }
 
-    pub(crate) fn replace_llm_backend(&mut self, backend: Arc<dyn crate::llm::LlmBackend>) {
-        self.agent.llm_backend = backend;
+    pub(crate) async fn replace_llm_backend(&self, backend: Arc<dyn LlmBackend>) -> Result<()> {
+        self.session.replace_llm_backend(backend).await?;
+        Ok(())
     }
 
-    pub(crate) fn set_max_turns(&mut self, max_turns: usize) {
-        self.agent.set_max_turns(max_turns);
+    pub(crate) async fn set_max_turns(&self, max_turns: usize) -> Result<()> {
+        self.session.set_max_turns(max_turns).await?;
+        Ok(())
     }
 
-    pub(crate) fn disable_tools(&mut self) {
-        self.agent.tool_manager.retain(|_| false);
+    pub(crate) async fn disable_tools(&self) -> Result<()> {
+        self.session.disable_tools().await?;
+        Ok(())
     }
 
-    pub(crate) fn disable_extension_execution(&mut self) {
-        self.agent.disable_extension_execution();
+    pub(crate) async fn disable_extension_execution(&self) -> Result<()> {
+        self.session.disable_extension_execution().await?;
+        Ok(())
+    }
+
+    /// Explicitly drain and stop the canonical session actor.
+    pub async fn shutdown(&self) -> Result<()> {
+        self.session.shutdown().await?;
+        Ok(())
     }
 }

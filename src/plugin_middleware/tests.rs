@@ -678,10 +678,12 @@ fn hook_matcher_filters_tool_events_by_tool_name() {
         once: false,
     };
     let bash_event = AgentEvent::ToolUse {
+        call_id: "call-1".to_string(),
         name: "bash".to_string(),
         input: serde_json::json!({}),
     };
     let edit_event = AgentEvent::ToolUse {
+        call_id: "call-2".to_string(),
         name: "Edit".to_string(),
         input: serde_json::json!({}),
     };
@@ -694,6 +696,7 @@ fn hook_matcher_filters_tool_events_by_tool_name() {
 #[test]
 fn extracts_tool_result_content_for_post_tool_use_hooks() {
     let event = AgentEvent::ToolResult {
+        call_id: "call-1".to_string(),
         name: "stub_tool".to_string(),
         content: json!({ "status": "ok" }).to_string(),
         is_error: false,

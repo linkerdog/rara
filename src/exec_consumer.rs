@@ -8,7 +8,8 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use time::OffsetDateTime;
 
-use crate::agent::{Agent, AgentEvent, AgentOutputMode};
+use crate::agent::{AgentEvent, AgentOutputMode};
+use crate::runtime_session::RuntimeSession;
 
 #[derive(Debug, Clone)]
 pub struct ExecRunOptions {
@@ -20,20 +21,20 @@ pub struct ExecRunOptions {
 }
 
 pub struct ExecConsumer {
-    agent: Agent,
+    session: RuntimeSession,
     options: ExecRunOptions,
 }
 
 impl ExecConsumer {
-    pub fn new(agent: Agent, options: ExecRunOptions) -> Self {
-        Self { agent, options }
+    pub fn new(session: RuntimeSession, options: ExecRunOptions) -> Self {
+        Self { session, options }
     }
 
-    pub async fn run(mut self) -> Result<()> {
+    pub async fn run(self) -> Result<()> {
         let prompt = read_exec_prompt(self.options.prompt.clone())?;
         let mut processor = ExecJsonlProcessor::new(
             ExecRunMetadata {
-                session_id: self.agent.session_id.clone(),
+                session_id: self.session.id().to_string(),
                 run_id: self.options.run_id.clone(),
                 task_id: self.options.task_id.clone(),
             },
@@ -44,47 +45,72 @@ impl ExecConsumer {
         processor.emit_turn_started()?;
 
         let result = self
-            .agent
-            .query_with_mode_and_events(prompt, AgentOutputMode::Silent, |event| {
+            .session
+            .query_with_report(prompt, AgentOutputMode::Silent, |event| {
                 if let Err(err) = processor.process_event(event) {
                     eprintln!("failed to process exec event: {err}");
                 }
             })
             .await;
 
-        match result {
-            Ok(()) => {
-                processor.update_usage(
-                    self.agent.total_input_tokens,
-                    self.agent.total_output_tokens,
-                );
-                if processor.final_message().is_none() {
-                    let message =
-                        "headless exec completed without a final assistant message".to_string();
-                    processor.emit_turn_failed(message.clone())?;
-                    bail!("{message}");
+        let run_result = (|| -> Result<()> {
+            match result {
+                Ok(report) => {
+                    let (input_tokens, output_tokens) = query_report_usage(&report);
+                    processor.update_usage(input_tokens, output_tokens);
+                    if processor.final_message().is_none() {
+                        let message =
+                            "headless exec completed without a final assistant message".to_string();
+                        processor.emit_turn_failed(message.clone())?;
+                        Err(anyhow::anyhow!(message))
+                    } else {
+                        processor.emit_turn_completed()?;
+                        if !self.options.json
+                            && let Some(message) = processor.final_message()
+                        {
+                            println!("{message}");
+                        }
+                        if let Some(path) = self.options.output_last_message.as_deref() {
+                            write_last_message(path, processor.final_message())?;
+                        }
+                        Ok(())
+                    }
                 }
-                processor.emit_turn_completed()?;
-                if !self.options.json
-                    && let Some(message) = processor.final_message()
-                {
-                    println!("{message}");
+                Err(err) => {
+                    if let Some(outcome) = err.turn_outcome() {
+                        let (input_tokens, output_tokens) =
+                            query_report_usage(&outcome.query_report);
+                        processor.update_usage(input_tokens, output_tokens);
+                    }
+                    processor.emit_turn_failed(err.to_string())?;
+                    Err(err.into())
                 }
-                if let Some(path) = self.options.output_last_message.as_deref() {
-                    write_last_message(path, processor.final_message())?;
-                }
-                Ok(())
             }
-            Err(err) => {
-                processor.update_usage(
-                    self.agent.total_input_tokens,
-                    self.agent.total_output_tokens,
-                );
-                processor.emit_turn_failed(err.to_string())?;
-                Err(err)
+        })();
+        let shutdown_result = self.session.shutdown().await.map_err(anyhow::Error::from);
+        match (run_result, shutdown_result) {
+            (Err(error), Err(shutdown_error)) => {
+                log::warn!("failed to shut down exec runtime session: {shutdown_error}");
+                Err(error)
             }
+            (Err(error), Ok(())) => Err(error),
+            (Ok(()), Err(error)) => Err(error),
+            (Ok(()), Ok(())) => Ok(()),
         }
     }
+}
+
+fn query_report_usage(report: &crate::model_observation::QueryReport) -> (u32, u32) {
+    report
+        .model_turns
+        .iter()
+        .filter_map(|turn| turn.usage)
+        .fold((0_u32, 0_u32), |(input, output), usage| {
+            (
+                input.saturating_add(usage.input_tokens),
+                output.saturating_add(usage.output_tokens),
+            )
+        })
 }
 
 pub fn emit_exec_startup_failure_jsonl(
@@ -183,15 +209,18 @@ pub enum ExecItemDetails {
         text: String,
     },
     ToolCall {
+        call_id: String,
         name: String,
         input: Value,
     },
     ToolResult {
+        call_id: String,
         name: String,
         content: String,
         is_error: bool,
     },
     ToolProgress {
+        call_id: String,
         name: String,
         stream: ExecToolStream,
         chunk: String,
@@ -317,23 +346,33 @@ impl ExecJsonlProcessor {
                 self.emit_item(ExecItemDetails::Reasoning { text })
             }
             AgentEvent::Status(message) => self.emit_item(ExecItemDetails::Status { message }),
-            AgentEvent::ToolUse { name, input } => {
-                self.emit_item(ExecItemDetails::ToolCall { name, input })
-            }
+            AgentEvent::ToolUse {
+                call_id,
+                name,
+                input,
+            } => self.emit_item(ExecItemDetails::ToolCall {
+                call_id,
+                name,
+                input,
+            }),
             AgentEvent::ToolResult {
+                call_id,
                 name,
                 content,
                 is_error,
             } => self.emit_item(ExecItemDetails::ToolResult {
+                call_id,
                 name,
                 content,
                 is_error,
             }),
             AgentEvent::ToolProgress {
+                call_id,
                 name,
                 stream,
                 chunk,
             } => self.emit_item(ExecItemDetails::ToolProgress {
+                call_id,
                 name,
                 stream: stream.into(),
                 chunk,
@@ -495,6 +534,7 @@ mod tests {
             .expect("assistant event");
         processor
             .process_event(AgentEvent::ToolUse {
+                call_id: "call-1".to_string(),
                 name: "bash".to_string(),
                 input: json!({"cmd": "true"}),
             })

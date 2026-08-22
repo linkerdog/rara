@@ -158,8 +158,27 @@ Active backlog only. Keep this file small and current.
 
 - [x] Expose the root package as a Rust library with a workspace-scoped
       `EmbeddedRuntime`, typed events, isolated state roots, and agent control.
-- [ ] Add a dependency-injection builder for programmatic backends and stores,
-      then continue the `rara-agent` / control-plane crate split.
+- [x] Add host-controlled backend and tool injection, with explicit opt-out
+      from ambient extension discovery, RARA-owned memory facilities, and
+      local transcript checkpoints.
+- [x] Add stable host session IDs plus transcript hydration, replacement,
+      completed-turn handoff, and failure evidence.
+- [ ] Add async transcript and context store traits, then continue the
+      `rara-agent` / control-plane crate split.
+
+## Runtime Session
+
+- [x] Add the library-first `RuntimeSession` actor, bounded commands, typed
+      turn handles, cancellation, snapshots, replay, and explicit shutdown.
+- [x] Move ACP, Wire, print, exec, ask, and embedded execution onto the session
+      handle and add a non-global multi-session `RuntimeHost`.
+- [ ] Move the TUI rebuild, approval, goal, and maintenance pipeline from its
+      compatibility `RuntimeClient` owner into `RuntimeSession` commands.
+- [ ] Extract the minimal runtime dependency graph so external Rust hosts do
+      not pull TUI, local-model, ACP, or OAuth implementations.
+- [ ] Add a Nowledge Mem compatibility harness for provider, tool, event,
+      transcript, usage, cancellation, and MCP parity before replacing Rig in
+      production lanes.
 
 ## Shared Task Lists
 

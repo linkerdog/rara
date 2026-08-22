@@ -24,6 +24,7 @@ pub use self::openai_compatible::{
 };
 pub(crate) use self::shared::is_retryable_http_error;
 pub use self::shared::{
-    ContextBudget, LlmBackend, LlmStreamEvent, LlmTurnMetadata, MockLlm, ProviderCacheProfile,
+    ContextBudget, LlmBackend, LlmExecutionMode, LlmStreamEvent, LlmTurnMetadata, MockLlm,
+    ProviderCacheProfile,
 };
-pub use self::types::{ContentBlock, LlmResponse, TokenUsage};
+pub use self::types::{ContentBlock, LlmResponse, Message, TokenUsage};

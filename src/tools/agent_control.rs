@@ -222,8 +222,10 @@ pub type BackgroundSubAgentStore = AgentTreeControl;
 pub(super) struct AgentTreeState {
     pub(super) tasks: HashMap<String, BackgroundSubAgentRecord>,
     cancellations: HashMap<String, Arc<AtomicBool>>,
+    active_tasks: HashSet<String>,
     mailboxes: HashMap<String, VecDeque<AgentMailboxMessage>>,
     next_sequence: u64,
+    closing: bool,
 }
 
 impl Default for AgentTreeState {
@@ -231,8 +233,10 @@ impl Default for AgentTreeState {
         Self {
             tasks: HashMap::new(),
             cancellations: HashMap::new(),
+            active_tasks: HashSet::new(),
             mailboxes: HashMap::new(),
             next_sequence: 1,
+            closing: false,
         }
     }
 }
@@ -344,6 +348,11 @@ impl AgentTreeControl {
         let session_id = uuid::Uuid::new_v4().to_string();
         let cancellation = Arc::new(AtomicBool::new(false));
         let mut inner = self.lock()?;
+        if inner.closing {
+            return Err(ToolError::ExecutionFailed(
+                "sub-agent control is closing".to_string(),
+            ));
+        }
         if inner.tasks.contains_key(&start.agent_id) {
             return Err(ToolError::InvalidInput(format!(
                 "duplicate sub-agent id: {}",
@@ -380,6 +389,7 @@ impl AgentTreeControl {
             finished_at: None,
         };
         inner.tasks.insert(start.agent_id.clone(), record.clone());
+        inner.active_tasks.insert(start.agent_id.clone());
         inner
             .cancellations
             .insert(start.agent_id.clone(), cancellation.clone());
@@ -475,7 +485,7 @@ impl AgentTreeControl {
         target: &str,
         parent_session_id: Option<&str>,
     ) -> Result<BackgroundSubAgentRecord, ToolError> {
-        let (stopped, token, mailbox_parent) = {
+        let (stopped, token) = {
             let mut inner = self.lock()?;
             let agent_id = resolve_record(&inner, target)
                 .filter(|record| {
@@ -500,15 +510,45 @@ impl AgentTreeControl {
                 enqueue_completion(&mut inner, parent, &stopped);
             }
             prune_completed_subagents(&mut inner, Some(&agent_id));
-            (stopped, token, mailbox_parent)
+            (stopped, token)
         };
         if let Some(token) = token {
             token.store(true, Ordering::SeqCst);
         }
-        if mailbox_parent.is_some() {
-            self.activity.notify_waiters();
-        }
+        self.activity.notify_waiters();
         Ok(stopped)
+    }
+
+    pub(crate) fn cancel_running(&self) -> Result<usize, ToolError> {
+        let cancellations = self
+            .lock()?
+            .cancellations
+            .values()
+            .cloned()
+            .collect::<Vec<_>>();
+        for cancellation in &cancellations {
+            cancellation.store(true, Ordering::SeqCst);
+        }
+        Ok(cancellations.len())
+    }
+
+    pub(crate) fn begin_shutdown(&self) -> Result<(), ToolError> {
+        self.lock()?.closing = true;
+        Ok(())
+    }
+
+    pub(crate) async fn shutdown(&self) -> Result<(), ToolError> {
+        self.begin_shutdown()?;
+        self.cancel_running()?;
+        loop {
+            let notified = self.activity.notified();
+            tokio::pin!(notified);
+            let _ = notified.as_mut().enable();
+            if self.lock()?.active_tasks.is_empty() {
+                return Ok(());
+            }
+            notified.await;
+        }
     }
 
     pub(super) fn finish(
@@ -517,17 +557,21 @@ impl AgentTreeControl {
         result: &Result<SubAgentResult, ToolError>,
         delivery: AgentResultDelivery,
     ) {
-        let mut notify = false;
         let Ok(mut inner) = self.inner.lock() else {
             log::warn!("sub-agent store poisoned while finishing {agent_id}");
             return;
         };
         inner.cancellations.remove(agent_id);
+        inner.active_tasks.remove(agent_id);
         let Some(record) = inner.tasks.get_mut(agent_id) else {
+            drop(inner);
+            self.activity.notify_waiters();
             return;
         };
         if !record.is_running() {
             prune_completed_subagents(&mut inner, Some(agent_id));
+            drop(inner);
+            self.activity.notify_waiters();
             return;
         }
         record.finished_at = Some(unix_timestamp_secs());
@@ -557,13 +601,10 @@ impl AgentTreeControl {
             && let Some(parent) = completed.parent_session_id.as_deref()
         {
             enqueue_completion(&mut inner, parent, &completed);
-            notify = true;
         }
         prune_completed_subagents(&mut inner, Some(agent_id));
         drop(inner);
-        if notify {
-            self.activity.notify_waiters();
-        }
+        self.activity.notify_waiters();
     }
 
     pub(crate) fn drain_mailbox(&self, session_id: &str) -> Vec<AgentMailboxMessage> {

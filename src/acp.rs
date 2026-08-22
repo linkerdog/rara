@@ -1,8 +1,7 @@
 //! ACP (Agent Client Protocol) adapter with workspace-scoped session runtimes.
 
-use std::collections::{HashMap, VecDeque};
+use std::collections::HashMap;
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, RwLock};
 
 use agent_client_protocol::{
@@ -18,30 +17,14 @@ use agent_client_protocol::{
 use tokio::io::{stdin, stdout};
 use tokio_util::compat::{TokioAsyncReadCompatExt, TokioAsyncWriteCompatExt};
 
-use crate::agent::Agent;
+use crate::agent::{AgentEvent, AgentOutputMode};
 use crate::config::RaraConfig;
-use crate::hook_registry::HookRegistry;
-use crate::mcp_connection_manager::McpConnectionManager;
-use crate::protocol_sources::{MemoryControlHandler, PromptSourceRegistry, SkillSourceRegistry};
-use crate::runtime_control::{
-    RuntimeControlEnvelope, RuntimeControlRequest, RuntimeControllerKind, RuntimeProvenance,
-};
-use crate::runtime_event_bus::RuntimeEventBus;
-
-struct AcpSessionRuntime {
-    agent: Agent,
-    event_bus: Arc<RuntimeEventBus>,
-    mcp_manager: Arc<McpConnectionManager>,
-    prompt_registry: Arc<PromptSourceRegistry>,
-    skill_registry: Arc<SkillSourceRegistry>,
-    hook_registry: Arc<HookRegistry>,
-    memory_handler: Arc<MemoryControlHandler>,
-}
+use crate::runtime_session::{RuntimeHost, RuntimeSession, RuntimeSessionError};
 
 struct AcpSession {
+    id: String,
     cwd: PathBuf,
-    runtime: tokio::sync::Mutex<Option<AcpSessionRuntime>>,
-    cancellation_token: Arc<AtomicBool>,
+    runtime: tokio::sync::Mutex<Option<RuntimeSession>>,
 }
 
 /// ACP adapter state. Every ACP session owns an independent RARA runtime.
@@ -49,6 +32,7 @@ pub struct RaraAcpAgent {
     config: RaraConfig,
     plugin_dirs: Vec<PathBuf>,
     sessions: RwLock<HashMap<String, Arc<AcpSession>>>,
+    runtime_host: RuntimeHost,
 }
 
 impl RaraAcpAgent {
@@ -57,6 +41,7 @@ impl RaraAcpAgent {
             config,
             plugin_dirs,
             sessions: RwLock::new(HashMap::new()),
+            runtime_host: RuntimeHost::new(),
         }
     }
 
@@ -65,7 +50,7 @@ impl RaraAcpAgent {
         let transport =
             agent_client_protocol::ByteStreams::new(stdout().compat_write(), stdin().compat());
 
-        AcpRoleAgent::builder(AcpRoleAgent)
+        let result = AcpRoleAgent::builder(AcpRoleAgent)
             .name("rara")
             .on_receive_request(
                 async move |initialize: InitializeRequest, responder, _cx| {
@@ -100,9 +85,9 @@ impl RaraAcpAgent {
                                 .insert(
                                     session_id.to_string(),
                                     Arc::new(AcpSession {
+                                        id: session_id.to_string(),
                                         cwd: req.cwd,
                                         runtime: tokio::sync::Mutex::new(None),
-                                        cancellation_token: Arc::new(AtomicBool::new(false)),
                                     }),
                                 );
                             responder.respond(NewSessionResponse::new(session_id))
@@ -141,7 +126,11 @@ impl RaraAcpAgent {
                 agent_client_protocol::on_receive_dispatch!(),
             )
             .connect_to(transport)
-            .await
+            .await;
+        if let Err(err) = this.runtime_host.shutdown().await {
+            log::warn!("ACP runtime host shutdown failed: {err}");
+        }
+        result
     }
 
     fn session(&self, session_id: &SessionId) -> Option<Arc<AcpSession>> {
@@ -155,69 +144,46 @@ impl RaraAcpAgent {
             .cloned()
     }
 
-    async fn ensure_runtime(&self, session: &AcpSession) -> Result<AcpSessionRuntime, String> {
+    fn runtime_options(
+        &self,
+        session: &AcpSession,
+    ) -> crate::runtime_context::RuntimeBootstrapOptions {
+        crate::runtime_context::RuntimeBootstrapOptions::with_plugin_dirs(self.plugin_dirs.clone())
+            .with_session_id(Some(session.id.clone()))
+    }
+
+    async fn ensure_runtime(&self, session: &AcpSession) -> Result<RuntimeSession, String> {
         let bootstrap = crate::runtime_context::initialize_rara_context_for_workspace_with_options(
             &self.config,
             Some(&session.cwd),
             None,
-            crate::runtime_context::RuntimeBootstrapOptions::with_plugin_dirs(
-                self.plugin_dirs.clone(),
-            ),
+            self.runtime_options(session),
         )
         .await
         .map_err(|err| err.to_string())?;
-        let event_bus = bootstrap.event_bus.clone();
-        let (
-            agent,
-            _,
-            _,
-            _,
-            _,
-            mcp_manager,
-            prompt_registry,
-            skill_registry,
-            hook_registry,
-            _hook_runtime,
-            _,
-        ) = bootstrap.into_parts_with_runtime_extensions().await;
-        Ok(AcpSessionRuntime {
-            agent,
-            event_bus: event_bus.clone(),
-            mcp_manager,
-            prompt_registry,
-            skill_registry,
-            hook_registry,
-            memory_handler: Arc::new(MemoryControlHandler::new(event_bus)),
-        })
+        let runtime = RuntimeSession::from_bootstrap(bootstrap)
+            .await
+            .map_err(|err| err.to_string())?;
+        self.runtime_host
+            .insert(runtime.clone())
+            .await
+            .map_err(|err| err.to_string())?;
+        Ok(runtime)
     }
 
     async fn cancel_session(&self, session_id: SessionId) {
         let Some(session) = self.session(&session_id) else {
             return;
         };
-        session.cancellation_token.store(true, Ordering::SeqCst);
-
-        if let Ok(mut runtime) = session.runtime.try_lock()
-            && let Some(runtime) = runtime.as_mut()
-        {
-            let event_bus = runtime.event_bus.clone();
-            let envelope = cancel_envelope(session_id.clone());
-            if let Err(err) = crate::control_plane::dispatch(
-                envelope,
-                &runtime.mcp_manager,
-                &runtime.prompt_registry,
-                &runtime.skill_registry,
-                &runtime.memory_handler,
-                &runtime.hook_registry,
-                Some(&mut runtime.agent),
-                move |event| {
-                    event_bus.publish_control_event(event);
-                },
+        let runtime = session.runtime.lock().await.clone();
+        if let Some(runtime) = runtime
+            && let Err(err) = runtime.cancel().await
+            && !matches!(
+                err,
+                RuntimeSessionError::NotRunning | RuntimeSessionError::Closed
             )
-            .await
-            {
-                log::warn!("ACP cancellation failed for session {session_id}: {err}");
-            }
+        {
+            log::warn!("ACP cancellation failed for session {session_id}: {err}");
         }
     }
 
@@ -236,7 +202,6 @@ impl RaraAcpAgent {
             responder.respond(PromptResponse::new(StopReason::EndTurn))?;
             return Ok(());
         };
-        session.cancellation_token.store(false, Ordering::SeqCst);
         let mut runtime = session.runtime.lock().await;
         if runtime.is_none() {
             match self.ensure_runtime(&session).await {
@@ -248,166 +213,115 @@ impl RaraAcpAgent {
                 }
             }
         }
-        let runtime = runtime.as_mut().expect("runtime initialized");
-        runtime
-            .agent
-            .set_cancellation_token(Some(session.cancellation_token.clone()));
-        let provenance = RuntimeProvenance::protocol(
-            RuntimeControllerKind::Acp,
-            "acp",
-            Some(req.session_id.to_string()),
-            None,
-        );
-        let envelope = RuntimeControlEnvelope {
-            request_id: uuid::Uuid::new_v4().to_string(),
-            provenance: provenance.clone(),
-            request: RuntimeControlRequest::Input(
-                crate::runtime_control::InputControlRequest::SubmitUserPrompt { prompt },
-            ),
-        };
+        let runtime_handle = runtime.as_ref().expect("runtime initialized").clone();
+        drop(runtime);
         let session_id = req.session_id.clone();
-        let event_bus = runtime.event_bus.clone();
-        let mut tool_ids = HashMap::<String, VecDeque<String>>::new();
-        let mut sequence = 0_u64;
-        let mut report = move |event: crate::runtime_control::RuntimeControlEvent| {
-            sequence += 1;
-            let event_id = format!("acp-{sequence:016x}");
-            let _ = event_bus.publish_control_event(event.clone());
-            match event.event {
-                crate::runtime_control::RuntimeEvent::Assistant(
-                    crate::runtime_control::AssistantEvent::TextDelta(text),
-                ) => {
-                    send_update(
-                        &cx,
-                        &session_id,
-                        SessionUpdate::AgentMessageChunk(ContentChunk::new(AcpContentBlock::Text(
-                            TextContent::new(text),
-                        ))),
-                    );
-                }
-                crate::runtime_control::RuntimeEvent::Assistant(
-                    crate::runtime_control::AssistantEvent::ThinkingDelta(text),
-                ) => {
-                    send_update(
-                        &cx,
-                        &session_id,
-                        SessionUpdate::AgentThoughtChunk(ContentChunk::new(AcpContentBlock::Text(
-                            TextContent::new(text),
-                        ))),
-                    );
-                }
-                crate::runtime_control::RuntimeEvent::Tool(
-                    crate::runtime_control::ToolEvent::Use {
-                        call_id: _,
-                        name,
-                        input,
-                    },
-                ) => {
-                    let id = format!("{event_id}-{name}");
-                    tool_ids
-                        .entry(name.clone())
-                        .or_default()
-                        .push_back(id.clone());
-                    send_update(
-                        &cx,
-                        &session_id,
-                        SessionUpdate::ToolCall(ToolCall::new(id, name).raw_input(input)),
-                    );
-                }
-                crate::runtime_control::RuntimeEvent::Tool(
-                    crate::runtime_control::ToolEvent::Result {
-                        call_id: _,
-                        name,
-                        content,
-                        is_error,
-                    },
-                ) => {
-                    if let Some(id) = tool_ids.get_mut(&name).and_then(VecDeque::pop_front) {
-                        let status = if is_error {
-                            ToolCallStatus::Failed
-                        } else {
-                            ToolCallStatus::Completed
-                        };
-                        send_update(
-                            &cx,
-                            &session_id,
-                            SessionUpdate::ToolCallUpdate(ToolCallUpdate::new(
-                                id,
-                                ToolCallUpdateFields::new().status(status).raw_output(
-                                    serde_json::json!({
-                                        "content": content,
-                                        "is_error": is_error,
-                                    }),
-                                ),
-                            )),
-                        );
-                    }
-                }
-                crate::runtime_control::RuntimeEvent::Tool(
-                    crate::runtime_control::ToolEvent::Progress {
-                        call_id: _,
-                        name,
-                        stream,
-                        chunk,
-                    },
-                ) => {
-                    if let Some(id) = tool_ids.get(&name).and_then(|ids| ids.front()) {
-                        send_update(
-                            &cx,
-                            &session_id,
-                            SessionUpdate::ToolCallUpdate(ToolCallUpdate::new(
-                                id.clone(),
-                                ToolCallUpdateFields::new().raw_output(serde_json::json!({
-                                    "stream": stream,
-                                    "chunk": chunk,
-                                })),
-                            )),
-                        );
-                    }
-                }
-                crate::runtime_control::RuntimeEvent::Plan(
-                    crate::runtime_control::PlanEvent::Updated { steps, .. },
-                ) => {
-                    send_update(&cx, &session_id, acp_plan_update(steps));
-                }
-                _ => {}
+        let mut saw_text_delta = false;
+        let mut report = move |event: AgentEvent| match event {
+            AgentEvent::AssistantDelta(text) => {
+                saw_text_delta = true;
+                send_update(
+                    &cx,
+                    &session_id,
+                    SessionUpdate::AgentMessageChunk(ContentChunk::new(AcpContentBlock::Text(
+                        TextContent::new(text),
+                    ))),
+                );
             }
+            AgentEvent::AssistantText(text) if !saw_text_delta => {
+                send_update(
+                    &cx,
+                    &session_id,
+                    SessionUpdate::AgentMessageChunk(ContentChunk::new(AcpContentBlock::Text(
+                        TextContent::new(text),
+                    ))),
+                );
+            }
+            AgentEvent::AssistantText(_) => {}
+            AgentEvent::AssistantThinkingDelta(text) => {
+                send_update(
+                    &cx,
+                    &session_id,
+                    SessionUpdate::AgentThoughtChunk(ContentChunk::new(AcpContentBlock::Text(
+                        TextContent::new(text),
+                    ))),
+                );
+            }
+            AgentEvent::ToolUse {
+                call_id,
+                name,
+                input,
+            } => {
+                send_update(
+                    &cx,
+                    &session_id,
+                    SessionUpdate::ToolCall(ToolCall::new(call_id, name).raw_input(input)),
+                );
+            }
+            AgentEvent::ToolResult {
+                call_id,
+                content,
+                is_error,
+                ..
+            } => {
+                let status = if is_error {
+                    ToolCallStatus::Failed
+                } else {
+                    ToolCallStatus::Completed
+                };
+                send_update(
+                    &cx,
+                    &session_id,
+                    SessionUpdate::ToolCallUpdate(ToolCallUpdate::new(
+                        call_id,
+                        ToolCallUpdateFields::new()
+                            .status(status)
+                            .raw_output(serde_json::json!({
+                                "content": content,
+                                "is_error": is_error,
+                            })),
+                    )),
+                );
+            }
+            AgentEvent::ToolProgress {
+                call_id,
+                stream,
+                chunk,
+                ..
+            } => {
+                send_update(
+                    &cx,
+                    &session_id,
+                    SessionUpdate::ToolCallUpdate(ToolCallUpdate::new(
+                        call_id,
+                        ToolCallUpdateFields::new().raw_output(serde_json::json!({
+                            "stream": crate::runtime_control::ToolStream::from(stream),
+                            "chunk": chunk,
+                        })),
+                    )),
+                );
+            }
+            AgentEvent::PlanUpdated { steps, .. } => {
+                send_update(
+                    &cx,
+                    &session_id,
+                    acp_plan_update(steps.into_iter().map(Into::into).collect()),
+                );
+            }
+            _ => {}
         };
-        let result = crate::control_plane::dispatch(
-            envelope,
-            &runtime.mcp_manager,
-            &runtime.prompt_registry,
-            &runtime.skill_registry,
-            &runtime.memory_handler,
-            &runtime.hook_registry,
-            Some(&mut runtime.agent),
-            &mut report,
-        )
-        .await;
+        let result = runtime_handle
+            .query_with_events(prompt, AgentOutputMode::Silent, &mut report)
+            .await;
         responder.respond(PromptResponse::new(match result {
-            Ok(()) => StopReason::EndTurn,
-            Err(err) if err.contains("cancelled") => StopReason::Cancelled,
+            Ok(_) => StopReason::EndTurn,
+            Err(RuntimeSessionError::Cancelled { .. }) => StopReason::Cancelled,
             Err(err) => {
                 log::warn!("ACP prompt failed: {err}");
                 StopReason::EndTurn
             }
         }))?;
         Ok(())
-    }
-}
-
-fn cancel_envelope(session_id: SessionId) -> RuntimeControlEnvelope {
-    RuntimeControlEnvelope {
-        request_id: uuid::Uuid::new_v4().to_string(),
-        provenance: RuntimeProvenance::protocol(
-            RuntimeControllerKind::Acp,
-            "acp",
-            Some(session_id.to_string()),
-            None,
-        ),
-        request: RuntimeControlRequest::Session(
-            crate::runtime_control::SessionControlRequest::CancelCurrentTurn,
-        ),
     }
 }
 
@@ -459,17 +373,17 @@ mod tests {
         agent.sessions.write().expect("session registry").insert(
             first.to_string(),
             Arc::new(AcpSession {
+                id: first.to_string(),
                 cwd: PathBuf::from("/tmp/rara-acp-first"),
                 runtime: tokio::sync::Mutex::new(None),
-                cancellation_token: Arc::new(AtomicBool::new(false)),
             }),
         );
         agent.sessions.write().expect("session registry").insert(
             second.to_string(),
             Arc::new(AcpSession {
+                id: second.to_string(),
                 cwd: PathBuf::from("/tmp/rara-acp-second"),
                 runtime: tokio::sync::Mutex::new(None),
-                cancellation_token: Arc::new(AtomicBool::new(false)),
             }),
         );
 
@@ -477,9 +391,18 @@ mod tests {
             agent.session(&first).expect("first session").cwd,
             PathBuf::from("/tmp/rara-acp-first")
         );
+        assert_eq!(agent.session(&first).expect("first session").id, "first");
         assert_eq!(
             agent.session(&second).expect("second session").cwd,
             PathBuf::from("/tmp/rara-acp-second")
+        );
+        assert_eq!(agent.session(&second).expect("second session").id, "second");
+        assert_eq!(
+            agent
+                .runtime_options(&agent.session(&second).expect("second session"))
+                .session_id
+                .as_deref(),
+            Some("second")
         );
     }
 
@@ -497,32 +420,5 @@ mod tests {
                 && entries[0].content == "verify cancellation"
                 && entries[0].status == PlanEntryStatus::Completed
         ));
-    }
-
-    #[test]
-    fn cancellation_envelope_targets_the_notified_session() {
-        let envelope = cancel_envelope(SessionId::from("second"));
-
-        assert_eq!(envelope.provenance.session_id.as_deref(), Some("second"));
-        assert!(matches!(
-            envelope.request,
-            RuntimeControlRequest::Session(
-                crate::runtime_control::SessionControlRequest::CancelCurrentTurn
-            )
-        ));
-    }
-
-    #[test]
-    fn cancellation_token_is_shared_without_waiting_for_runtime() {
-        let session = AcpSession {
-            cwd: PathBuf::from("/tmp/rara-acp-cancel"),
-            runtime: tokio::sync::Mutex::new(None),
-            cancellation_token: Arc::new(AtomicBool::new(false)),
-        };
-
-        let _runtime_guard = session.runtime.try_lock().expect("runtime lock");
-        session.cancellation_token.store(true, Ordering::SeqCst);
-
-        assert!(session.cancellation_token.load(Ordering::SeqCst));
     }
 }

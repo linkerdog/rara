@@ -102,15 +102,18 @@ pub enum AgentEvent {
     AssistantDelta(String),
     AssistantThinkingDelta(String),
     ToolUse {
+        call_id: String,
         name: String,
         input: Value,
     },
     ToolResult {
+        call_id: String,
         name: String,
         content: String,
         is_error: bool,
     },
     ToolProgress {
+        call_id: String,
         name: String,
         stream: ToolOutputStream,
         chunk: String,
@@ -282,6 +285,8 @@ pub struct Agent {
     pub workspace: Arc<WorkspaceMemory>,
     pub history: Vec<Message>,
     pub session_id: String,
+    persist_session_transcript: bool,
+    memory_facilities_enabled: bool,
     pub total_input_tokens: u32,
     pub total_output_tokens: u32,
     pub total_cache_hit_tokens: u32,
@@ -330,6 +335,7 @@ pub struct Agent {
     lsp_manager: Option<Arc<LspManager>>,
     agent_tree_control: Option<Arc<crate::tools::agent::AgentTreeControl>>,
     cancellation_token: Option<Arc<AtomicBool>>,
+    runtime_turn_id: Option<String>,
     last_interaction_time: std::time::Instant,
 }
 
