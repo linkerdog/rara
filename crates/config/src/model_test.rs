@@ -1,4 +1,5 @@
 use std::collections::BTreeMap;
+use std::ffi::OsString;
 use std::fs;
 use std::path::PathBuf;
 
@@ -8,7 +9,7 @@ use tempfile::tempdir;
 use super::{
     ConfigManager, ContextFileSearchPolicy, NowledgeMemMode, NowledgeMemPluginConfig,
     OpenAiEndpointKind, OpenAiEndpointProfile, ProviderConfigState, RaraConfig,
-    workspace_data_dir_for_home,
+    resolve_rara_home_dir, workspace_data_dir_for_home,
 };
 use crate::defaults::{
     DEFAULT_CODEX_BASE_URL, DEFAULT_CODEX_CHATGPT_BASE_URL, DEFAULT_CODEX_MODEL,
@@ -31,6 +32,44 @@ fn secret_api_key_roundtrips_through_json() {
 
     assert_eq!(restored.api_key(), Some("sk-test-value"));
     assert!(restored.has_api_key());
+}
+
+#[test]
+fn rara_home_override_is_absolute_and_precedes_user_home() {
+    let temp = tempdir().expect("tempdir");
+    let override_path = temp.path().join("rara-isolated-home");
+    let home_path = temp.path().join("user-home");
+
+    assert_eq!(
+        resolve_rara_home_dir(
+            Some(override_path.clone().into_os_string()),
+            Some(home_path.clone().into_os_string()),
+            None,
+        )
+        .expect("absolute RARA_HOME"),
+        override_path
+    );
+    assert_eq!(
+        resolve_rara_home_dir(
+            None,
+            Some(home_path.clone().into_os_string()),
+            Some(temp.path().join("user-profile").into_os_string()),
+        )
+        .expect("HOME fallback"),
+        home_path.join(".rara")
+    );
+}
+
+#[test]
+fn relative_rara_home_is_rejected() {
+    let error = resolve_rara_home_dir(
+        Some(OsString::from("relative-rara-home")),
+        Some(OsString::from("/home/example")),
+        None,
+    )
+    .expect_err("relative RARA_HOME");
+
+    assert_eq!(error.to_string(), "RARA_HOME must be an absolute path");
 }
 
 #[test]

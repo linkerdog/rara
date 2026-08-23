@@ -9,7 +9,7 @@ use serde_json::Value;
 use time::OffsetDateTime;
 
 use crate::agent::{AgentEvent, AgentOutputMode};
-use crate::runtime_session::RuntimeSession;
+use crate::runtime_session::{RuntimeSession, RuntimeSessionProfile};
 
 #[derive(Debug, Clone)]
 pub struct ExecRunOptions {
@@ -18,6 +18,7 @@ pub struct ExecRunOptions {
     pub output_last_message: Option<PathBuf>,
     pub run_id: Option<String>,
     pub task_id: Option<String>,
+    pub runtime_profile: RuntimeSessionProfile,
 }
 
 pub struct ExecConsumer {
@@ -37,6 +38,7 @@ impl ExecConsumer {
                 session_id: self.session.id().to_string(),
                 run_id: self.options.run_id.clone(),
                 task_id: self.options.task_id.clone(),
+                runtime_profile: self.options.runtime_profile,
             },
             self.options.json,
         );
@@ -116,9 +118,10 @@ fn query_report_usage(report: &crate::model_observation::QueryReport) -> (u32, u
 pub fn emit_exec_startup_failure_jsonl(
     run_id: Option<String>,
     task_id: Option<String>,
+    runtime_profile: RuntimeSessionProfile,
     message: String,
 ) {
-    for event in exec_startup_failure_events(run_id, task_id, message) {
+    for event in exec_startup_failure_events(run_id, task_id, runtime_profile, message) {
         let _ = emit_jsonl(&event);
     }
 }
@@ -126,6 +129,7 @@ pub fn emit_exec_startup_failure_jsonl(
 pub fn exec_startup_failure_events(
     run_id: Option<String>,
     task_id: Option<String>,
+    runtime_profile: RuntimeSessionProfile,
     message: String,
 ) -> Vec<ExecEvent> {
     vec![
@@ -134,6 +138,7 @@ pub fn exec_startup_failure_events(
                 session_id: "startup".to_string(),
                 run_id,
                 task_id,
+                runtime_profile,
             },
             timestamp: timestamp_now(),
         },
@@ -154,6 +159,8 @@ pub struct ExecRunMetadata {
     pub run_id: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub task_id: Option<String>,
+    #[serde(default)]
+    pub runtime_profile: RuntimeSessionProfile,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -525,6 +532,7 @@ mod tests {
                 session_id: "session-1".to_string(),
                 run_id: Some("run-1".to_string()),
                 task_id: Some("task-1".to_string()),
+                runtime_profile: RuntimeSessionProfile::HeadlessCodingV1,
             },
             false,
         );
@@ -589,6 +597,7 @@ mod tests {
         let events = exec_startup_failure_events(
             Some("run-1".to_string()),
             Some("task-1".to_string()),
+            RuntimeSessionProfile::HeadlessCodingV1,
             "rara exec panicked during startup".to_string(),
         );
 
@@ -598,6 +607,10 @@ mod tests {
                 assert_eq!(metadata.session_id, "startup");
                 assert_eq!(metadata.run_id.as_deref(), Some("run-1"));
                 assert_eq!(metadata.task_id.as_deref(), Some("task-1"));
+                assert_eq!(
+                    metadata.runtime_profile,
+                    RuntimeSessionProfile::HeadlessCodingV1
+                );
             }
             other => panic!("unexpected first event: {other:?}"),
         }
@@ -610,11 +623,24 @@ mod tests {
         }
     }
 
+    #[test]
+    fn metadata_from_older_jsonl_defaults_runtime_profile() {
+        let metadata: ExecRunMetadata = serde_json::from_value(json!({
+            "session_id": "session-1",
+            "run_id": "run-1",
+            "task_id": "task-1"
+        }))
+        .expect("legacy metadata");
+
+        assert_eq!(metadata.runtime_profile, RuntimeSessionProfile::Default);
+    }
+
     fn test_metadata() -> ExecRunMetadata {
         ExecRunMetadata {
             session_id: "session-1".to_string(),
             run_id: Some("run-1".to_string()),
             task_id: Some("task-1".to_string()),
+            runtime_profile: RuntimeSessionProfile::Default,
         }
     }
 }

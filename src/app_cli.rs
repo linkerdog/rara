@@ -2,7 +2,7 @@ use std::path::{Component, Path, PathBuf};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
-use anyhow::{Result, bail};
+use anyhow::{Context, Result, bail};
 use clap::{Parser, Subcommand};
 use rara_persistence::redaction::redact_secrets;
 use secrecy::{ExposeSecret, SecretString};
@@ -17,6 +17,7 @@ use crate::oauth::{OAuthManager, SavedCodexAuthMode};
 use crate::plugin_cli::{PluginCommands, run_plugin_command};
 use crate::print_consumer::PrintConsumer;
 use crate::runtime_context;
+use crate::runtime_session::RuntimeSessionProfile;
 use crate::thread_cli;
 use crate::tui::StartupResumeTarget;
 use crate::wire_consumer::WireConsumer;
@@ -126,6 +127,14 @@ struct ExecArgs {
     #[arg(long = "full-access", default_value_t = false)]
     full_access: bool,
 
+    /// Stable runtime composition for this headless run: default or headless-coding-v1.
+    #[arg(
+        long = "runtime-profile",
+        value_name = "PROFILE",
+        default_value = "default"
+    )]
+    runtime_profile: RuntimeSessionProfile,
+
     /// Initial instructions. If omitted, or if `-` is used, read from stdin.
     #[arg(value_name = "PROMPT")]
     prompt: Option<String>,
@@ -200,8 +209,11 @@ enum Commands {
 pub(crate) async fn run_cli() -> Result<()> {
     let cli = Cli::parse();
     let cli_plugin_dirs = cli.plugin_dirs.clone();
-    let config_manager = ConfigManager::new()?;
-    let mut config = config_manager.load()?;
+    let config_manager =
+        ConfigManager::new().context("failed to initialize the RARA configuration root")?;
+    let mut config = config_manager
+        .load()
+        .context("failed to load the RARA configuration")?;
     let command = apply_cli_overrides(&mut config, cli);
     if matches!(command, Some(Commands::Mem(_))) {
         config_manager.save(&config)?;
@@ -214,8 +226,6 @@ pub(crate) async fn run_cli() -> Result<()> {
     if let Some(api_key) = mem_config.api_key() {
         set_process_mem_api_key(&mem_config.api_key_env_var, api_key.to_string());
     }
-
-    let oauth_manager = OAuthManager::new()?;
 
     match command.unwrap_or(Commands::Tui) {
         Commands::Acp => run_acp_command(&config, plugin_dirs).await?,
@@ -230,6 +240,7 @@ pub(crate) async fn run_cli() -> Result<()> {
         Commands::Thread { thread_id } => thread_cli::run_thread_command(&thread_id)?,
         Commands::Threads { limit } => thread_cli::run_threads_command(limit)?,
         Commands::Resume { thread_id, last } => {
+            let oauth_manager = initialize_oauth_manager()?;
             run_tui_command(
                 &config,
                 oauth_manager,
@@ -243,6 +254,7 @@ pub(crate) async fn run_cli() -> Result<()> {
             device_auth,
             with_api_key,
         } => {
+            let oauth_manager = initialize_oauth_manager()?;
             run_login_command(
                 &mut config,
                 &config_manager,
@@ -252,10 +264,14 @@ pub(crate) async fn run_cli() -> Result<()> {
             )
             .await?
         }
-        Commands::Logout => run_logout_command(&mut config, &config_manager, &oauth_manager)?,
+        Commands::Logout => {
+            let oauth_manager = initialize_oauth_manager()?;
+            run_logout_command(&mut config, &config_manager, &oauth_manager)?
+        }
         Commands::Print { prompt } => run_print_command(&config, prompt, plugin_dirs).await?,
         Commands::Wire { prompt } => run_wire_command(&config, prompt, plugin_dirs).await?,
         Commands::Tui => {
+            let oauth_manager = initialize_oauth_manager()?;
             run_tui_command(
                 &config,
                 oauth_manager,
@@ -267,6 +283,10 @@ pub(crate) async fn run_cli() -> Result<()> {
         }
     }
     Ok(())
+}
+
+fn initialize_oauth_manager() -> Result<OAuthManager> {
+    OAuthManager::new().context("failed to initialize OAuth storage")
 }
 
 fn apply_cli_overrides(config: &mut RaraConfig, cli: Cli) -> Option<Commands> {
@@ -415,9 +435,11 @@ async fn run_exec_command(
         config,
         None,
         None,
-        runtime_context::RuntimeBootstrapOptions::with_plugin_dirs(plugin_dirs),
+        runtime_context::RuntimeBootstrapOptions::with_plugin_dirs(plugin_dirs)
+            .with_session_profile(args.runtime_profile),
     )
-    .await?;
+    .await
+    .context("failed to initialize the exec runtime")?;
     emit_bootstrap_warnings(&bootstrap.warnings);
     let session = crate::runtime_session::RuntimeSession::from_bootstrap(bootstrap).await?;
     if args.full_access {
@@ -431,6 +453,7 @@ async fn run_exec_command(
             output_last_message: args.output_last_message,
             run_id: args.run_id,
             task_id: args.task_id,
+            runtime_profile: args.runtime_profile,
         },
     );
     if let Some(startup_complete) = startup_complete {
@@ -447,12 +470,14 @@ fn install_exec_panic_hook(args: &ExecArgs) -> Option<Arc<AtomicBool>> {
     let startup_complete_for_hook = startup_complete.clone();
     let run_id = args.run_id.clone();
     let task_id = args.task_id.clone();
+    let runtime_profile = args.runtime_profile;
     let default_hook = std::panic::take_hook();
     std::panic::set_hook(Box::new(move |info| {
         if !startup_complete_for_hook.load(Ordering::Acquire) {
             crate::exec_consumer::emit_exec_startup_failure_jsonl(
                 run_id.clone(),
                 task_id.clone(),
+                runtime_profile,
                 format!("rara exec panicked during startup: {info}"),
             );
         }

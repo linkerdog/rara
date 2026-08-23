@@ -15,8 +15,8 @@ from failures, and final task verification. These are core RARA capabilities.
 
 RARA should support a Terminal-Bench-compatible evaluation path that can:
 
-- run under Harbor's Terminal-Bench tutorial flow:
-  `harbor run -d terminal-bench/terminal-bench-2 -a <rara-agent>`;
+- run under Harbor's Terminal-Bench 2.1 flow:
+  `harbor run -d terminal-bench/terminal-bench-2-1 --agent <rara-agent>`;
 - run RARA inside the benchmark task container;
 - map benchmark task instructions into a single RARA session;
 - expose the working directory and terminal environment without requiring TUI
@@ -27,8 +27,8 @@ RARA should support a Terminal-Bench-compatible evaluation path that can:
 - make failures attributable to agent behavior, provider behavior, tool
   failures, sandbox limitations, or harness integration.
 
-The initial target is compatibility and diagnosability, not leaderboard
-optimization.
+The target is reproducible compatibility and diagnosability, not
+task-specific leaderboard optimization.
 
 ## Non-Goals
 
@@ -50,14 +50,17 @@ Recommended components:
   without TUI chrome. Initial support includes prompt/stdin input,
   `--json` JSONL events, explicit cwd selection, run/task metadata, and
   `--output-last-message`.
+- A versioned `headless-coding-v1` runtime profile that freezes the system
+  prompt, tool surface, and ambient-facility policy used by benchmark runs.
 - A Harbor installed-agent adapter that invokes `rara exec` for the task and
   converts RARA's structured output into ATIF-compatible trajectory artifacts.
   The first local integration ships as a dynamic Harbor import-path adapter:
-  `PYTHONPATH=$PWD/tools/harbor harbor run -d terminal-bench/terminal-bench-2
+  `PYTHONPATH=$PWD/tools/harbor harbor run -d terminal-bench/terminal-bench-2-1
   --agent rara_agent:RaraAgent --agent-kwarg
   binary_path=$PWD/target/release/rara`. The adapter defaults to `/app` as the
   benchmark cwd, passes that cwd explicitly to `rara exec`, and preserves the
-  `rara exec` exit code while teeing JSONL output into
+  `rara exec` exit code while selecting `--runtime-profile
+  headless-coding-v1` and teeing JSONL output into
   `/logs/agent/rara-exec.jsonl`. The adapter wraps task text with generic
   non-interactive benchmark guidance so RARA treats named output files as
   required artifacts rather than optional final-answer prose.
@@ -69,6 +72,10 @@ Recommended components:
     requires another path;
   - shell execution uses the same sandbox and approval policy as normal RARA
     sessions, with benchmark-specific defaults made explicit.
+  - each trial sets an absolute `RARA_HOME` under its Harbor agent log
+    directory; config, OAuth storage, workspace state, transcripts, and tool
+    lifecycle state must resolve under that root instead of the container
+    user's default home.
 - Structured trajectory output:
   - user instruction;
   - assistant messages;
@@ -82,6 +89,7 @@ Recommended components:
   - provider and model;
   - sandbox mode;
   - token and tool-loop limits;
+  - runtime profile;
   - task id;
   - Harbor run id / trial id when provided by the harness;
   - start/end timestamps;
@@ -110,6 +118,11 @@ task-named output files, focused validation, and blocker reporting. It must not
 embed task-specific solutions, hidden verifier knowledge, or benchmark oracle
 content.
 
+`RARA_HOME` is the supported process-level state-root override. It must be an
+absolute path. When absent, RARA retains the normal `$HOME/.rara` (or
+`%USERPROFILE%/.rara`) fallback and the existing sibling `.codex` auth
+compatibility path. When present, OAuth storage stays inside `RARA_HOME`.
+
 ### Headless Execution Contract
 
 `rara exec` is the stable automation surface:
@@ -118,10 +131,24 @@ content.
 - support explicit cwd selection for task workspaces;
 - support scriptable provider/model/API-key selection through existing config
   and CLI overrides;
+- support `--runtime-profile headless-coding-v1` as a versioned runtime
+  composition rather than a benchmark-specific code path;
 - emit JSONL trajectory events when requested;
 - optionally write the final assistant message to a file;
 - fail fast when interactive approval, user input, or auth refresh is required
   in headless mode.
+
+`RuntimeSessionProfile::HeadlessCodingV1` is also available through the public
+`RuntimeSessionBuilder` API. This keeps CLI, app-server, and embedded hosts on
+the same runtime assembly contract. The profile is an upper bound: selecting it
+removes tools outside its allowlist even when a host supplies a custom tool
+manager.
+
+The profile disables ambient plugin, hook, skill, agent, and MCP discovery;
+RARA memory retrieval and capture; local transcript persistence; automatic
+file-search context; and multi-agent orchestration. It replaces configured
+system/append prompts with a stable coding prompt while continuing to honor
+task-workspace instructions discovered inside the selected workspace.
 
 The JSONL event schema is RARA-owned and stable enough for the Harbor adapter
 boundary. It includes thread start, turn start/completion/failure, assistant
@@ -164,6 +191,20 @@ Important tool requirements:
 - sandbox failures produce actionable diagnostics;
 - tool-loop exhaustion reports whether the agent stopped without a final answer.
 
+The `headless-coding-v1` tool allowlist is intentionally exact and versioned:
+
+- foreground/background shell: `bash`, `background_task_list`,
+  `background_task_status`, `background_task_stop`;
+- interactive process lifecycle: `pty_start`, `pty_read`, `pty_list`,
+  `pty_status`, `pty_write`, `pty_kill`, `pty_stop`;
+- workspace inspection and edits: `read_file`, `write_file`, `apply_patch`,
+  `replace`, `replace_lines`, `glob`, `grep`;
+- bounded execution progress: `todo_write`.
+
+Changing this list or the profile prompt requires a new profile version. The
+default runtime remains unprojected and keeps its configured tools and ambient
+facilities.
+
 ### Prompt Contract
 
 The default prompt may describe general terminal-agent discipline:
@@ -202,6 +243,8 @@ Each trial should end with one of:
 - Run a small smoke subset locally through the adapter.
 - Run Harbor's Terminal-Bench tutorial command with a RARA installed agent and
   record the exact `harbor run` invocation.
+- Run adapter compatibility tests against Harbor `0.20.0`, which is the pinned
+  Maka comparison runtime, and current Harbor `0.22.0`.
 - For local dynamic-adapter smoke runs, build `target/release/rara` first and
   pass it through `--agent-kwarg binary_path=$PWD/target/release/rara`. The
   binary must be executable inside the benchmark environment; Linux Docker
@@ -221,6 +264,9 @@ Each trial should end with one of:
   decision.
 - Confirm headless configuration can select provider/model/API key without TUI
   overlays.
+- Confirm JSONL and ATIF metadata both record `headless-coding-v1`.
+- Confirm the profile exposes exactly its versioned tool allowlist and cannot
+  be widened by ambient configuration.
 - Confirm file edits and shell commands use the same runtime paths as normal
   sessions.
 - Confirm benchmark data is not persisted into prompts, memories, specs, or
@@ -234,6 +280,8 @@ Each trial should end with one of:
   unavailable in some local developer setups.
 - Full benchmark runs are expensive and slow, so CI should start with a smoke
   subset instead of every task.
+- A local macOS checkout cannot validate Linux task containers without a
+  running Docker daemon and a Linux RARA binary.
 - Provider differences can hide RARA runtime issues; reports must always include
   provider/model metadata.
 - TUI-only configuration or auth flows can block headless evaluation unless the
@@ -248,3 +296,4 @@ Each trial should end with one of:
 - `docs/journal/2026-07-14-harbor-full-access-path-validation.md`
 - `docs/journal/2026-07-11-harbor-atif-trajectory.md`
 - `docs/journal/2026-07-14-terminal-bench-results.md`
+- `docs/journal/2026-08-22-terminal-bench-headless-profile.md`

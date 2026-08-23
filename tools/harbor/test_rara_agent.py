@@ -83,6 +83,7 @@ class FakeTrajectoryEnvironment(FakeRunEnvironment):
                     "session_id": "session-1",
                     "run_id": "run-1",
                     "task_id": "task-1",
+                    "runtime_profile": "headless-coding-v1",
                 },
                 "timestamp": "2026-07-11T00:00:00Z",
             },
@@ -236,6 +237,7 @@ class RaraAgentTests(unittest.TestCase):
             command = agent._build_exec_command()
 
         self.assertIn("/opt/rara exec --json --full-access", command)
+        self.assertIn("--runtime-profile headless-coding-v1", command)
         self.assertIn("--cwd /app", command)
         self.assertIn("--run-id 00000000000000000000000000000123", command)
         self.assertIn("--task-id trial-agent", command)
@@ -312,6 +314,7 @@ class RaraAgentTests(unittest.TestCase):
         self.assertIn('"name": "rara"', data)
         self.assertIn('"function_name": "bash"', data)
         self.assertIn('"source_call_id": "item_2"', data)
+        self.assertIn('"runtime_profile": "headless-coding-v1"', data)
         self.assertEqual(context.n_input_tokens, 13)
         self.assertEqual(context.n_output_tokens, 9)
 
@@ -577,11 +580,14 @@ class RaraAgentTests(unittest.TestCase):
         self.assertIn("create every file path that the task asks for", uploaded_instruction)
         self.assertIn("Prefer dedicated file tools over shell commands", uploaded_instruction)
         self.assertIn(
-            "apply_patch, replace, replace_lines, multi_edit, or write_file",
+            "use apply_patch or write_file for file modifications",
             uploaded_instruction,
         )
         self.assertIn("Do not use shell redirection, heredocs, sed, awk, perl", uploaded_instruction)
         self.assertIn("Use shell commands for process execution", uploaded_instruction)
+        self.assertIn("run_in_background for long-running", uploaded_instruction)
+        self.assertIn("Use PTY tools only", uploaded_instruction)
+        self.assertIn("leave that service running in the background", uploaded_instruction)
         self.assertIn("Treat task constraints as validation requirements", uploaded_instruction)
         self.assertIn("substitutions must come from an allowed list", uploaded_instruction)
         self.assertIn("fresh non-interactive process", uploaded_instruction)

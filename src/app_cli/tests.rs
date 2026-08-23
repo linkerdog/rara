@@ -119,6 +119,8 @@ mod tests {
             "--output-last-message",
             "final.txt",
             "--full-access",
+            "--runtime-profile",
+            "headless-coding-v1",
             "-",
         ])
         .expect("parse exec");
@@ -130,6 +132,10 @@ mod tests {
                 assert_eq!(args.task_id.as_deref(), Some("task-1"));
                 assert_eq!(args.output_last_message, Some(PathBuf::from("final.txt")));
                 assert!(args.full_access);
+                assert_eq!(
+                    args.runtime_profile,
+                    RuntimeSessionProfile::HeadlessCodingV1
+                );
                 assert_eq!(args.prompt.as_deref(), Some("-"));
             }
             other => panic!("unexpected command: {other:?}"),
@@ -215,6 +221,7 @@ mod tests {
                 run_id: None,
                 task_id: None,
                 full_access: false,
+                runtime_profile: RuntimeSessionProfile::Default,
                 prompt: Some("hello".to_string()),
             }))
             .is_none()

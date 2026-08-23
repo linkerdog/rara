@@ -9,6 +9,10 @@ on:
 jobs:
   harbor-adapter:
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        harbor-version: ["0.20.0", "0.22.0"]
 
     steps:
       - name: Checkout
@@ -22,7 +26,7 @@ jobs:
       - name: Install Harbor
         run: |
           python -m pip install --upgrade pip
-          python -m pip install "harbor==0.17.1"
+          python -m pip install "harbor==${{ matrix.harbor-version }}"
 
       - name: Run Harbor adapter tests
         run: PYTHONPATH=$PWD/tools/harbor python -m unittest tools.harbor.test_rara_agent
