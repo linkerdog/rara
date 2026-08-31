@@ -29,7 +29,11 @@ jobs:
           python -m pip install "harbor==${{ matrix.harbor-version }}"
 
       - name: Run Harbor adapter tests
-        run: PYTHONPATH=$PWD/tools/harbor python -m unittest tools.harbor.test_rara_agent
+        run: |
+          PYTHONPATH=$PWD/tools/harbor python -m unittest \
+            tools.harbor.test_rara_agent \
+            tools.harbor.test_rara_agent_prompts \
+            tools.harbor.test_rara_agent_trajectory
 
   exec-cli:
     runs-on: ubuntu-latest

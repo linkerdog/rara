@@ -12,6 +12,7 @@ from __future__ import annotations
 import json
 import os
 import shlex
+from enum import Enum
 from pathlib import Path, PurePosixPath
 from typing import Any
 
@@ -30,6 +31,12 @@ from harbor.models.trajectories import (
 )
 from harbor.models.trial.paths import EnvironmentPaths
 from harbor.utils.trajectory_utils import format_trajectory_json
+from rara_agent_prompts import (
+    build_benchmark_instruction,
+    build_verification_instruction,
+    last_completed_message,
+    parse_optional_bool,
+)
 
 
 DEFAULT_REMOTE_BINARY = PurePosixPath("/installed-agent/rara")
@@ -37,6 +44,16 @@ DEFAULT_RARA_HOME = PurePosixPath("/logs/agent/rara-home")
 DEFAULT_JSONL_PATH = EnvironmentPaths.agent_dir / "rara-exec.jsonl"
 DEFAULT_EXIT_STATUS_PATH = EnvironmentPaths.agent_dir / "rara-exec.status"
 DEFAULT_INSTRUCTION_PATH = EnvironmentPaths.agent_dir / "instruction.txt"
+DEFAULT_IMPLEMENTATION_LAST_MESSAGE_PATH = (
+    EnvironmentPaths.agent_dir / "implementation-last-message.txt"
+)
+DEFAULT_VERIFICATION_JSONL_PATH = EnvironmentPaths.agent_dir / "rara-verification.jsonl"
+DEFAULT_VERIFICATION_EXIT_STATUS_PATH = (
+    EnvironmentPaths.agent_dir / "rara-verification.status"
+)
+DEFAULT_VERIFICATION_INSTRUCTION_PATH = (
+    EnvironmentPaths.agent_dir / "verification-instruction.txt"
+)
 DEFAULT_LAST_MESSAGE_PATH = EnvironmentPaths.agent_dir / "last-message.txt"
 DEFAULT_TRAJECTORY_PATH = EnvironmentPaths.agent_dir / "trajectory.json"
 DEFAULT_BENCHMARK_CWD = "/app"
@@ -51,6 +68,15 @@ PROVIDER_API_KEY_ENVS = {
     "openai-compatible": ("RARA_API_KEY", "OPENAI_API_KEY"),
 }
 PROVIDER_INFERENCE_ORDER = ("deepseek", "kimi", "gemini", "openrouter", "codex")
+
+
+class VerificationStatus(str, Enum):
+    """Track whether the optional verification process actually ran."""
+
+    DISABLED = "disabled"
+    NOT_STARTED = "not_started"
+    FAILED = "failed"
+    COMPLETED = "completed"
 
 
 class RaraAgent(BaseInstalledAgent):
@@ -68,9 +94,12 @@ class RaraAgent(BaseInstalledAgent):
         rara_home: str | None = None,
         provider: str | None = None,
         model: str | None = None,
+        reasoning_effort: str | None = None,
+        thinking: bool | str | None = None,
         base_url: str | None = None,
         api_key_env: str | None = None,
         runtime_profile: str = DEFAULT_RUNTIME_PROFILE,
+        verification_pass: bool | str = True,
         **kwargs: Any,
     ) -> None:
         super().__init__(*args, **kwargs)
@@ -82,9 +111,17 @@ class RaraAgent(BaseInstalledAgent):
         self.rara_home = PurePosixPath(rara_home or DEFAULT_RARA_HOME)
         self.provider = provider
         self.model = model
+        self.reasoning_effort = reasoning_effort
+        self.thinking = parse_optional_bool(thinking, name="thinking")
         self.base_url = base_url
         self.api_key_env = api_key_env
         self.runtime_profile = runtime_profile or DEFAULT_RUNTIME_PROFILE
+        parsed_verification_pass = parse_optional_bool(
+            verification_pass, name="verification_pass"
+        )
+        self.verification_pass = (
+            True if parsed_verification_pass is None else parsed_verification_pass
+        )
 
     @staticmethod
     def name() -> str:
@@ -153,14 +190,29 @@ class RaraAgent(BaseInstalledAgent):
             **self.extra_env,
             "RARA_HOME": self.rara_home.as_posix(),
         }
-        command = self._build_exec_command()
+        verification_status = (
+            VerificationStatus.NOT_STARTED
+            if self.verification_pass
+            else VerificationStatus.DISABLED
+        )
+        implementation_last_message_path = (
+            DEFAULT_IMPLEMENTATION_LAST_MESSAGE_PATH
+            if self.verification_pass
+            else DEFAULT_LAST_MESSAGE_PATH
+        )
+        command = self._build_exec_command(
+            last_message_path=implementation_last_message_path
+        )
         result = await environment.exec(command=command, cwd=cwd, env=env)
 
-        stdout = result.stdout or ""
-        events = parse_rara_jsonl(stdout)
-        self._populate_context(context, events)
-        self._write_trajectory(context, instruction=benchmark_instruction, events=events)
+        events = parse_rara_jsonl(result.stdout or "")
         if self._completed_with_mock_backend(events):
+            self._record_run(
+                context,
+                instruction=benchmark_instruction,
+                events=events,
+                verification_status=verification_status,
+            )
             raise RuntimeError(
                 "RARA completed with the mock backend. Pass provider/model credentials "
                 "to the Harbor adapter, for example "
@@ -168,19 +220,112 @@ class RaraAgent(BaseInstalledAgent):
                 "or expose a supported provider API key in the Harbor process environment."
             )
         if result.return_code != 0:
+            self._record_run(
+                context,
+                instruction=benchmark_instruction,
+                events=events,
+                verification_status=verification_status,
+            )
             raise self._classify_exec_error(command, result)
 
-    def _build_exec_command(self) -> str:
+        if self.verification_pass:
+            implementation_summary = last_completed_message(events)
+            verification_instruction = build_verification_instruction(
+                instruction,
+                cwd,
+                implementation_summary=implementation_summary,
+            )
+            verification_instruction_path = self.logs_dir / "verification-instruction.txt"
+            verification_instruction_path.write_text(
+                verification_instruction, encoding="utf-8"
+            )
+            await environment.upload_file(
+                verification_instruction_path,
+                DEFAULT_VERIFICATION_INSTRUCTION_PATH.as_posix(),
+            )
+            verification_command = self._build_exec_command(
+                instruction_path=DEFAULT_VERIFICATION_INSTRUCTION_PATH,
+                jsonl_path=DEFAULT_VERIFICATION_JSONL_PATH,
+                status_path=DEFAULT_VERIFICATION_EXIT_STATUS_PATH,
+                last_message_path=DEFAULT_LAST_MESSAGE_PATH,
+                combined_jsonl_path=DEFAULT_JSONL_PATH,
+                task_id_suffix="-verification",
+            )
+            verification_status = VerificationStatus.FAILED
+            try:
+                verification_result = await environment.exec(
+                    command=verification_command, cwd=cwd, env=env
+                )
+            except Exception:
+                self._record_run(
+                    context,
+                    instruction=benchmark_instruction,
+                    events=events,
+                    verification_status=verification_status,
+                )
+                raise
+            verification_events = parse_rara_jsonl(verification_result.stdout or "")
+            events.append(
+                {
+                    "type": "adapter.user_message",
+                    "phase": "verification",
+                    "message": verification_instruction,
+                }
+            )
+            events.extend(verification_events)
+            if self._completed_with_mock_backend(verification_events):
+                self._record_run(
+                    context,
+                    instruction=benchmark_instruction,
+                    events=events,
+                    verification_status=verification_status,
+                )
+                raise RuntimeError(
+                    "RARA verification completed with the mock backend. Pass "
+                    "provider/model credentials to the Harbor adapter."
+                )
+            if verification_result.return_code != 0:
+                self._record_run(
+                    context,
+                    instruction=benchmark_instruction,
+                    events=events,
+                    verification_status=verification_status,
+                )
+                raise self._classify_exec_error(
+                    verification_command, verification_result
+                )
+            verification_status = VerificationStatus.COMPLETED
+
+        self._record_run(
+            context,
+            instruction=benchmark_instruction,
+            events=events,
+            verification_status=verification_status,
+        )
+
+    def _build_exec_command(
+        self,
+        *,
+        instruction_path: PurePosixPath = DEFAULT_INSTRUCTION_PATH,
+        jsonl_path: PurePosixPath = DEFAULT_JSONL_PATH,
+        status_path: PurePosixPath = DEFAULT_EXIT_STATUS_PATH,
+        last_message_path: PurePosixPath = DEFAULT_LAST_MESSAGE_PATH,
+        combined_jsonl_path: PurePosixPath | None = None,
+        task_id_suffix: str = "",
+    ) -> str:
         binary = shlex.quote(self.remote_binary.as_posix())
         cwd = shlex.quote(self.effective_cwd())
-        jsonl_path = shlex.quote(DEFAULT_JSONL_PATH.as_posix())
-        status_path = shlex.quote(DEFAULT_EXIT_STATUS_PATH.as_posix())
-        instruction_path = shlex.quote(DEFAULT_INSTRUCTION_PATH.as_posix())
-        last_message_path = shlex.quote(DEFAULT_LAST_MESSAGE_PATH.as_posix())
+        quoted_jsonl_path = shlex.quote(jsonl_path.as_posix())
+        quoted_status_path = shlex.quote(status_path.as_posix())
+        quoted_instruction_path = shlex.quote(instruction_path.as_posix())
+        quoted_last_message_path = shlex.quote(last_message_path.as_posix())
         run_id = shlex.quote(self.context_id.hex if self.context_id else "harbor")
-        task_id = shlex.quote(self.session_id or "harbor-task")
+        task_id = shlex.quote(f"{self.session_id or 'harbor-task'}{task_id_suffix}")
         global_flags = self._build_rara_global_flags()
         binary_invocation = f"{binary} {global_flags}".rstrip()
+        jsonl_sink = f"tee {quoted_jsonl_path}"
+        if combined_jsonl_path is not None:
+            jsonl_sink += f" | tee -a {shlex.quote(combined_jsonl_path.as_posix())}"
         return (
             f"mkdir -p {shlex.quote(EnvironmentPaths.agent_dir.as_posix())} "
             f"{shlex.quote(self.rara_home.as_posix())} || exit $?; "
@@ -188,13 +333,32 @@ class RaraAgent(BaseInstalledAgent):
             f"{binary_invocation} exec --json --full-access "
             f"--runtime-profile {shlex.quote(self.runtime_profile)} --cwd {cwd} "
             f"--run-id {run_id} --task-id {task_id} "
-            f"--output-last-message {last_message_path} - "
-            f"< {instruction_path}; "
-            f"printf '%s\\n' \"$?\" > {status_path}; "
-            f"}} | tee {jsonl_path}; "
-            f"status=$(cat {status_path} 2>/dev/null || printf '1'); "
+            f"--output-last-message {quoted_last_message_path} - "
+            f"< {quoted_instruction_path}; "
+            f"printf '%s\\n' \"$?\" > {quoted_status_path}; "
+            f"}} | {jsonl_sink}; "
+            f"status=$(cat {quoted_status_path} 2>/dev/null || printf '1'); "
             'exit "$status"'
         )
+
+    def _record_run(
+        self,
+        context: AgentContext,
+        *,
+        instruction: str,
+        events: list[dict[str, Any]],
+        verification_status: VerificationStatus,
+    ) -> None:
+        self._populate_context(context, events)
+        context.metadata["verification_pass"] = self.verification_pass
+        context.metadata["verification_status"] = verification_status.value
+        context.metadata["verification_jsonl_path"] = (
+            DEFAULT_VERIFICATION_JSONL_PATH.as_posix()
+            if verification_status
+            in {VerificationStatus.FAILED, VerificationStatus.COMPLETED}
+            else None
+        )
+        self._write_trajectory(context, instruction=instruction, events=events)
 
     @staticmethod
     def _ca_certificate_install_command() -> str:
@@ -230,6 +394,17 @@ class RaraAgent(BaseInstalledAgent):
             flags.extend(["--base-url", shlex.quote(self.base_url)])
         if self.model:
             flags.extend(["--model", shlex.quote(self.model)])
+        if self.reasoning_effort:
+            flags.extend(["--reasoning-effort", shlex.quote(self.reasoning_effort)])
+        thinking = self.thinking
+        if (
+            thinking is None
+            and self.reasoning_effort
+            and self.effective_provider() == "deepseek"
+        ):
+            thinking = True
+        if thinking is not None:
+            flags.extend(["--thinking", str(thinking).lower()])
         return " ".join(flags)
 
     def _provider_env(self) -> dict[str, str]:
@@ -280,10 +455,10 @@ class RaraAgent(BaseInstalledAgent):
                 usage = event.get("usage") or {}
                 u_input = usage.get("input_tokens")
                 if u_input is not None:
-                    input_tokens = int(u_input)
+                    input_tokens += int(u_input)
                 u_output = usage.get("output_tokens")
                 if u_output is not None:
-                    output_tokens = int(u_output)
+                    output_tokens += int(u_output)
                 if isinstance(event.get("final_message"), str):
                     final_message = event["final_message"]
             elif event_type == "turn.failed":
@@ -354,31 +529,6 @@ class RaraAgent(BaseInstalledAgent):
         return self.cwd or DEFAULT_BENCHMARK_CWD
 
 
-def build_benchmark_instruction(instruction: str, cwd: str) -> str:
-    """Wrap Harbor task text with generic non-interactive benchmark guidance."""
-    return f"""You are running inside a non-interactive Terminal-Bench task container.
-
-Work only in the benchmark workspace: {cwd}.
-Read the task carefully and create every file path that the task asks for exactly as specified.
-If the task names an absolute output path under the workspace, write that artifact before you finish.
-Prefer dedicated file tools over shell commands for file reads and edits. \
-Use read_file to inspect files, and use apply_patch or write_file for file \
-modifications. Do not use shell redirection, \
-heredocs, sed, awk, perl, or ad-hoc scripts to edit files when a direct edit \
-tool can do the job.
-Use shell commands for process execution and focused validation commands.
-Use bash with run_in_background for long-running non-interactive processes, then poll the background task status. Use PTY tools only for commands that require terminal input or terminal control.
-If the verifier must reach a service after the agent exits, leave that service running in the background and verify it from a separate client before finishing.
-Treat task constraints as validation requirements. If the task says only certain edits are allowed, files must not be edited, output must match an exact format, or substitutions must come from an allowed list, verify those constraints directly before finishing.
-When a task requires a command to be available in PATH, verify it in a fresh non-interactive process without a command-local PATH export. Updating shell startup files alone does not prove that the verifier can resolve the command.
-When running shell commands, request escalated sandbox permissions; Harbor already isolates this task inside its container.
-Do not finish with only an explanation. Finish only after the requested artifacts exist, or report the exact blocker if you cannot create them.
-
-Task instructions:
-{instruction.strip()}
-"""
-
-
 def parse_rara_jsonl(output: str) -> list[dict[str, Any]]:
     """Extract RARA JSONL events from mixed stdout/stderr output."""
     events: list[dict[str, Any]] = []
@@ -418,6 +568,13 @@ def convert_rara_events_to_trajectory(
     pending_reasoning: list[str] = []
     pending_tool_calls: list[tuple[str, str]] = []
     tool_call_steps: dict[str, Step] = {}
+    rara_sessions: list[dict[str, Any]] = []
+    has_multiple_sessions = (
+        sum(1 for event in events if event.get("type") == "thread.started") > 1
+        or any(event.get("type") == "adapter.user_message" for event in events)
+    )
+    current_phase = "implementation"
+    turn_step_start = 0
     total_input_tokens: int | None = None
     total_output_tokens: int | None = None
     final_message: str | None = None
@@ -443,10 +600,51 @@ def convert_rara_events_to_trajectory(
         if event_type == "thread.started":
             metadata = event.get("metadata") or {}
             if isinstance(metadata, dict):
-                session_id = _string_value(metadata.get("session_id")) or session_id
-                run_id = _string_value(metadata.get("run_id"))
-                task_id = _string_value(metadata.get("task_id"))
-                runtime_profile = _string_value(metadata.get("runtime_profile"))
+                is_primary_session = not rara_sessions
+                if not is_primary_session and current_phase == "implementation":
+                    current_phase = "verification"
+                pass_metadata = {
+                    "phase": current_phase,
+                    "session_id": _string_value(metadata.get("session_id")),
+                    "run_id": _string_value(metadata.get("run_id")),
+                    "task_id": _string_value(metadata.get("task_id")),
+                    "runtime_profile": _string_value(
+                        metadata.get("runtime_profile")
+                    ),
+                }
+                rara_sessions.append(
+                    {key: value for key, value in pass_metadata.items() if value is not None}
+                )
+                if is_primary_session:
+                    session_id = pass_metadata["session_id"] or session_id
+                    run_id = pass_metadata["run_id"]
+                    task_id = pass_metadata["task_id"]
+                    runtime_profile = pass_metadata["runtime_profile"]
+            turn_step_start = len(steps)
+            pending_model_input = None
+            pending_reasoning.clear()
+            pending_tool_calls.clear()
+            tool_call_steps.clear()
+            continue
+
+        if event_type == "adapter.user_message":
+            message = _string_value(event.get("message"))
+            if message:
+                append_step(source="user", timestamp=timestamp, message=message)
+            current_phase = _string_value(event.get("phase")) or "verification"
+            turn_step_start = len(steps)
+            pending_model_input = None
+            pending_reasoning.clear()
+            pending_tool_calls.clear()
+            tool_call_steps.clear()
+            continue
+
+        if event_type == "turn.started":
+            turn_step_start = len(steps)
+            pending_model_input = None
+            pending_reasoning.clear()
+            pending_tool_calls.clear()
+            tool_call_steps.clear()
             continue
 
         if event_type == "turn.completed":
@@ -459,14 +657,20 @@ def convert_rara_events_to_trajectory(
                     total_output_tokens, _int_value(usage.get("output_tokens"))
                 )
             final_message = _string_value(event.get("final_message"))
-            if final_message and not _has_agent_message_step(steps, final_message):
+            if final_message and not _has_agent_message_step(
+                steps[turn_step_start:], final_message
+            ):
                 append_step(
                     source="agent",
                     timestamp=timestamp,
                     model_name=last_model_name,
                     message=final_message,
                 )
+            turn_step_start = len(steps)
+            pending_model_input = None
+            pending_reasoning.clear()
             pending_tool_calls.clear()
+            tool_call_steps.clear()
             continue
 
         if event_type == "turn.failed":
@@ -479,7 +683,11 @@ def convert_rara_events_to_trajectory(
                     timestamp=timestamp,
                     message=f"RARA exec failed: {failure_message}",
                 )
+            turn_step_start = len(steps)
+            pending_model_input = None
+            pending_reasoning.clear()
             pending_tool_calls.clear()
+            tool_call_steps.clear()
             continue
 
         if event_type != "item.completed":
@@ -488,7 +696,12 @@ def convert_rara_events_to_trajectory(
         item = event.get("item") or {}
         if not isinstance(item, dict):
             continue
-        item_id = _string_value(item.get("id")) or f"item_{next_step_id}"
+        raw_item_id = _string_value(item.get("id")) or f"item_{next_step_id}"
+        item_id = (
+            f"{current_phase}:{raw_item_id}"
+            if has_multiple_sessions
+            else raw_item_id
+        )
         item_type = item.get("type")
 
         if item_type == "reasoning":
@@ -603,6 +816,7 @@ def convert_rara_events_to_trajectory(
         "run_id": run_id,
         "task_id": task_id,
         "runtime_profile": runtime_profile,
+        "rara_sessions": rara_sessions or None,
         "final_message": final_message,
         "failure": failure_message,
     }

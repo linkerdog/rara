@@ -41,6 +41,14 @@ pub(crate) struct Cli {
     #[arg(short, long, global = true)]
     model: Option<String>,
 
+    /// Provider reasoning effort override for this process.
+    #[arg(long, global = true)]
+    reasoning_effort: Option<String>,
+
+    /// Explicitly enable or disable provider thinking mode for this process.
+    #[arg(long, global = true)]
+    thinking: Option<bool>,
+
     #[arg(long, global = true)]
     revision: Option<String>,
 
@@ -301,6 +309,12 @@ fn apply_cli_overrides(config: &mut RaraConfig, cli: Cli) -> Option<Commands> {
     }
     if let Some(model) = cli.model {
         config.set_model(Some(model));
+    }
+    if let Some(reasoning_effort) = cli.reasoning_effort {
+        config.set_reasoning_effort(Some(reasoning_effort));
+    }
+    if let Some(thinking) = cli.thinking {
+        config.set_thinking(Some(thinking));
     }
     if let Some(revision) = cli.revision {
         config.set_revision(Some(revision));

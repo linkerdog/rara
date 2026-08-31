@@ -110,6 +110,11 @@ Active backlog only. Keep this file small and current.
       `headless-coding-v1` profile and record the RARA revision, Harbor version,
       provider/model, run command, JSONL/ATIF artifacts, and official verifier
       reward. Process exit status alone is not a pass result.
+- [ ] Re-run `terminal-bench/headless-terminal` with the evidence-delta
+      verification-and-repair pass, musl binary, and active DeepSeek reasoning
+      controls; confirm the reviewer starts with risks absent from the first
+      summary, inspect both trajectories, and record the official verifier
+      reward before treating the regression as closed.
 - [ ] Expand the Terminal-Bench 2.1 smoke into a multi-task cohort and repeat
       selected tasks before reporting a suite-level score or comparing harness
       quality.

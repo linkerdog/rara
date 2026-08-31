@@ -18,7 +18,8 @@ RARA should support a Terminal-Bench-compatible evaluation path that can:
 - run under Harbor's Terminal-Bench 2.1 flow:
   `harbor run -d terminal-bench/terminal-bench-2-1 --agent <rara-agent>`;
 - run RARA inside the benchmark task container;
-- map benchmark task instructions into a single RARA session;
+- map benchmark task instructions into one implementation session followed by
+  at most one bounded verification-and-repair session;
 - expose the working directory and terminal environment without requiring TUI
   interaction;
 - allow file edits, shell commands, and validation commands through the same
@@ -64,6 +65,18 @@ Recommended components:
   `/logs/agent/rara-exec.jsonl`. The adapter wraps task text with generic
   non-interactive benchmark guidance so RARA treats named output files as
   required artifacts rather than optional final-answer prose.
+- After a successful implementation pass, the adapter runs one independent
+  verification-and-repair pass by default in the same workspace with the same
+  runtime profile and provider configuration. The pass receives the original
+  task plus the implementation pass's reported validation evidence. It treats
+  that summary as an untrusted coverage map, starts with applicable artifact
+  risks missing from the report, and may repair the artifact.
+  `verification_pass=false` disables this bounded extra pass when cost or
+  latency is the controlling constraint.
+- Linux benchmark uploads use an `x86_64-unknown-linux-musl` release binary so
+  the installed agent does not depend on the task image's glibc or OpenSSL
+  runtime. The adapter's install-time `--version` check remains the final
+  compatibility guard inside each task container.
 - `rara eval terminal-bench` may be added later as a convenience wrapper, but
   the first integration target is Harbor compatibility.
 - Stable workspace setup contract:
@@ -112,11 +125,53 @@ The adapter must not require interactive TUI-only features. Any configuration
 that is currently only exposed through `/model`, `/auth`, or overlays must also
 have a headless path.
 
+Provider reasoning controls are part of that headless path. `rara exec` accepts
+process-local `--reasoning-effort <value>` and `--thinking <true|false>` global
+overrides. The Harbor adapter forwards matching agent kwargs. For DeepSeek, an
+explicit `reasoning_effort` with no explicit `thinking` value enables thinking
+so the requested effort is not silently ignored; an explicit `thinking=false`
+always wins.
+
 The adapter may add generic harness guidance around the raw task instruction.
 That guidance can require non-interactive operation, exact creation of
 task-named output files, focused validation, and blocker reporting. It must not
 embed task-specific solutions, hidden verifier knowledge, or benchmark oracle
-content.
+content. Because long tasks can dilute guidance placed before the raw task, the
+adapter repeats a concise completion gate after the task text. The gate requires
+the agent to reconcile direct public-interface evidence with applicable
+interaction and lifecycle modes before claiming completion; failed or unrun
+checks remain explicit instead of being silently treated as passed.
+
+Prompt placement is not the final correctness boundary. After the implementation
+pass exits successfully, the adapter starts one fresh verification-and-repair
+session by default. The reviewer works in the same task workspace but uses a
+separate instruction, task ID, status file, and JSONL stream. It must derive the
+contract from the original task and public artifact rather than inspecting
+benchmark verifier code. The implementation summary is injected as an
+evidence index so the reviewer does not spend its budget repeating already
+reported checks. Missing artifact-class lifecycle risks take priority over
+optional performance, scale, or robustness exploration. The reviewer's final
+answer becomes
+`/logs/agent/last-message.txt`; both sessions are represented in the combined
+ATIF trajectory and token totals. The implementation summary remains available
+as `/logs/agent/implementation-last-message.txt`, and the review stream remains
+available as `/logs/agent/rara-verification.jsonl`.
+
+The combined ATIF artifact keeps the implementation session as its canonical
+top-level `session_id`, `run_id`, and `task_id`. Ordered per-pass metadata lives
+in `final_metrics.extra.rara_sessions`, with an explicit `implementation` or
+`verification` phase for each independent RARA session. Turn-local state and
+final-message deduplication reset at each pass boundary so equal text or reused
+item IDs cannot collapse evidence from separate sessions. Tool-call IDs are
+namespaced by pass in a combined trajectory so observation references remain
+unambiguous to downstream consumers.
+
+Harbor context metadata distinguishes configuration from execution.
+`verification_pass` records whether the optional pass was enabled, while
+`verification_status` is one of `disabled`, `not_started`, `failed`, or
+`completed`. `verification_jsonl_path` is non-null only after the verification
+invocation was attempted; an implementation failure therefore cannot advertise
+an artifact that was never created.
 
 `RARA_HOME` is the supported process-level state-root override. It must be an
 absolute path. When absent, RARA retains the normal `$HOME/.rara` (or
@@ -213,13 +268,21 @@ The default prompt may describe general terminal-agent discipline:
 - prefer `rg` for search only after checking it is available, then fall back to an equivalent
   available or POSIX tool;
 - use patch/file tools instead of shell redirection for edits;
+- derive a short checklist from every requested behavior and constraint before
+  editing, then validate each applicable interaction and lifecycle mode through
+  the artifact's public interface;
 - run focused verification;
 - verify PATH requirements from a fresh non-interactive process rather than a
   shell with a command-local PATH override;
 - for a background process, daemon, or network service, verify the required
-  behavior through a separate client with readiness polling, a real request or
-  connection, an expected-response assertion, and cleanup of temporary
-  services unless the task requires them to remain running;
+  behavior through the surface under test and a separate client or process,
+  with readiness polling, a real request or connection, an expected-response
+  assertion, and cleanup of temporary services unless the task requires them
+  to remain running;
+- prefer the smallest implementation that satisfies the requested interface,
+  stop investigating dependency internals after a direct behavior check answers
+  the question, and reconcile validation evidence with the original task before
+  claiming completion;
 - summarize unresolved failures.
 
 The default prompt must not contain benchmark task answers, benchmark-specific
@@ -251,7 +314,8 @@ Each trial should end with one of:
   tasks require a Linux RARA binary, not a macOS host build.
 - For single-task smoke runs, filter the dataset with `--task
   terminal-bench/<task-name>` and inspect `/logs/agent/rara-exec.jsonl`,
-  `/logs/agent/rara-exec.status`, and verifier output when reward is `0.0`.
+  `/logs/agent/rara-exec.status`, `/logs/agent/rara-verification.jsonl`, and
+  verifier output when reward is `0.0`.
 - Confirm the Harbor run receives an ATIF-compatible `agent/trajectory.json`
   artifact. The adapter writes this file by converting `rara exec --json`
   events into Harbor's ATIF model and keeps `/logs/agent/rara-exec.jsonl` as
@@ -262,6 +326,22 @@ Each trial should end with one of:
   the next completed or failed turn.
 - Confirm failures include enough trajectory data to reproduce the final
   decision.
+- Confirm a successful implementation pass starts exactly one independent
+  verification pass by default, while an implementation failure does not.
+- Confirm the verification pass uses separate instruction, task ID, status,
+  last-message, and JSONL artifacts; its events and usage must be included in
+  the final ATIF trajectory and aggregate metrics.
+- Confirm the combined ATIF artifact preserves the implementation session as
+  its top-level identity, lists both sessions in ordered `rara_sessions`
+  metadata, keeps equal final messages from both passes, and namespaces reused
+  tool-call IDs by pass.
+- Confirm Harbor metadata distinguishes disabled, not-started, failed, and
+  completed verification states and only publishes the verification JSONL path
+  after invocation is attempted.
+- Confirm the verification instruction includes the implementation summary as
+  an untrusted evidence map, prioritizes applicable risks absent from that map,
+  and defers optional robustness work until the behavior matrix is covered.
+- Confirm `verification_pass=false` retains the single-pass adapter path.
 - Confirm headless configuration can select provider/model/API key without TUI
   overlays.
 - Confirm JSONL and ATIF metadata both record `headless-coding-v1`.
@@ -297,3 +377,4 @@ Each trial should end with one of:
 - `docs/journal/2026-07-11-harbor-atif-trajectory.md`
 - `docs/journal/2026-07-14-terminal-bench-results.md`
 - `docs/journal/2026-08-22-terminal-bench-headless-profile.md`
+- `docs/journal/2026-08-23-terminal-bench-headless-lifecycle.md`
