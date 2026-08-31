@@ -131,7 +131,7 @@ ethnum = "1.5.3"
 tempfile = "3.17"
 insta = "1.43"
 
-[target.'cfg(all(target_os = "linux", target_arch = "aarch64"))'.dependencies]
+[target.'cfg(all(target_os = "linux", any(target_arch = "aarch64", target_env = "musl")))'.dependencies]
 openssl = { version = "0.10", features = ["vendored"] }
 
 [patch.crates-io]

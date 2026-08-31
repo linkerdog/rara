@@ -63,6 +63,28 @@ mod tests {
     }
 
     #[test]
+    fn cli_reasoning_overrides_apply_to_headless_config() {
+        let cli = Cli::try_parse_from([
+            "rara",
+            "exec",
+            "--reasoning-effort",
+            "high",
+            "--thinking",
+            "true",
+            "-",
+        ])
+        .expect("parse reasoning overrides");
+        let mut config = RaraConfig::default();
+
+        assert!(matches!(
+            apply_cli_overrides(&mut config, cli),
+            Some(Commands::Exec(_))
+        ));
+        assert_eq!(config.reasoning_effort.as_deref(), Some("high"));
+        assert_eq!(config.thinking, Some(true));
+    }
+
+    #[test]
     fn normalize_plugin_dirs_returns_absolute_paths() {
         let cwd = std::env::current_dir().expect("cwd");
         let normalized = normalize_plugin_dirs(&[

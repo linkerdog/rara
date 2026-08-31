@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import tempfile
 import unittest
 from pathlib import Path
@@ -11,8 +12,7 @@ from harbor.models.agent.context import AgentContext
 
 from rara_agent import (
     RaraAgent,
-    build_benchmark_instruction,
-    convert_rara_events_to_trajectory,
+    VerificationStatus,
     parse_rara_jsonl,
 )
 
@@ -49,6 +49,7 @@ class FakeRunEnvironment:
         self.uploads: list[tuple[Path, str]] = []
         self.exec_env: dict[str, str] | None = None
         self.exec_cwd: str | None = None
+        self.commands: list[str] = []
 
     async def upload_file(self, source: Path, destination: str) -> None:
         self.uploads.append((source, destination))
@@ -61,6 +62,7 @@ class FakeRunEnvironment:
     ) -> FakeExecResult:
         self.exec_cwd = cwd
         self.exec_env = dict(env or {})
+        self.commands.append(command)
         return FakeExecResult(
             0,
             stdout='{"type":"turn.completed","usage":{"input_tokens":1,"output_tokens":1},"final_message":"done"}\n',
@@ -76,6 +78,7 @@ class FakeTrajectoryEnvironment(FakeRunEnvironment):
     ) -> FakeExecResult:
         self.exec_cwd = cwd
         self.exec_env = dict(env or {})
+        self.commands.append(command)
         events = [
             {
                 "type": "thread.started",
@@ -163,8 +166,6 @@ class FakeTrajectoryEnvironment(FakeRunEnvironment):
 
 
 def json_line(value: dict[str, object]) -> str:
-    import json
-
     return json.dumps(value)
 
 
@@ -223,6 +224,27 @@ class RaraAgentTests(unittest.TestCase):
         self.assertEqual(context.n_input_tokens, 0)
         self.assertEqual(context.n_output_tokens, 0)
 
+    def test_populate_context_accumulates_multiple_passes(self) -> None:
+        context = AgentContext()
+        events = [
+            {
+                "type": "turn.completed",
+                "usage": {"input_tokens": 5, "output_tokens": 2},
+                "final_message": "implemented",
+            },
+            {
+                "type": "turn.completed",
+                "usage": {"input_tokens": 7, "output_tokens": 3},
+                "final_message": "verified",
+            },
+        ]
+
+        RaraAgent._populate_context(context, events)
+
+        self.assertEqual(context.n_input_tokens, 12)
+        self.assertEqual(context.n_output_tokens, 5)
+        self.assertEqual(context.metadata["final_message"], "verified")
+
     def test_build_exec_command_uses_context_and_session_ids(self) -> None:
         agent = RaraAgent(
             logs_dir=Path("/tmp/logs"),
@@ -267,6 +289,46 @@ class RaraAgentTests(unittest.TestCase):
         )
         self.assertNotIn("--api-key", command)
 
+    def test_build_exec_command_enables_deepseek_thinking_for_reasoning_effort(self) -> None:
+        agent = RaraAgent(
+            logs_dir=Path("/tmp/logs"),
+            binary_path="/tmp/rara",
+            remote_binary="/opt/rara",
+            provider="deepseek",
+            model="deepseek-v4-pro",
+            reasoning_effort="high",
+        )
+
+        command = agent._build_exec_command()
+
+        self.assertIn("--reasoning-effort high", command)
+        self.assertIn("--thinking true", command)
+
+    def test_explicit_thinking_override_wins_over_deepseek_inference(self) -> None:
+        agent = RaraAgent(
+            logs_dir=Path("/tmp/logs"),
+            binary_path="/tmp/rara",
+            provider="deepseek",
+            reasoning_effort="high",
+            thinking="false",
+        )
+
+        flags = agent._build_rara_global_flags()
+
+        self.assertIn("--reasoning-effort high", flags)
+        self.assertIn("--thinking false", flags)
+
+    def test_verification_pass_defaults_on_and_accepts_explicit_false(self) -> None:
+        default_agent = RaraAgent(logs_dir=Path("/tmp/logs"), binary_path="/tmp/rara")
+        disabled_agent = RaraAgent(
+            logs_dir=Path("/tmp/logs"),
+            binary_path="/tmp/rara",
+            verification_pass="false",
+        )
+
+        self.assertTrue(default_agent.verification_pass)
+        self.assertFalse(disabled_agent.verification_pass)
+
     def test_default_cwd_matches_terminal_bench_workdir(self) -> None:
         agent = RaraAgent(logs_dir=Path("/tmp/logs"), binary_path="/tmp/rara")
 
@@ -300,7 +362,11 @@ class RaraAgentTests(unittest.TestCase):
 
     def test_run_writes_atif_trajectory(self) -> None:
         with tempfile.TemporaryDirectory(dir=Path.cwd()) as temp:
-            agent = RaraAgent(logs_dir=Path(temp), binary_path="/tmp/rara")
+            agent = RaraAgent(
+                logs_dir=Path(temp),
+                binary_path="/tmp/rara",
+                verification_pass=False,
+            )
             context = AgentContext()
             environment = FakeTrajectoryEnvironment()
 
@@ -318,112 +384,217 @@ class RaraAgentTests(unittest.TestCase):
         self.assertEqual(context.n_input_tokens, 13)
         self.assertEqual(context.n_output_tokens, 9)
 
-    def test_convert_rara_events_to_trajectory_links_tool_observations(self) -> None:
-        events = parse_rara_jsonl(
-            "\n".join(
-                [
-                    '{"type":"thread.started","metadata":{"session_id":"s"},"timestamp":"2026-07-11T00:00:00Z"}',
-                    '{"type":"item.completed","item":{"id":"call_1","type":"tool_call","name":"bash","input":{"command":"true"}}}',
-                    '{"type":"item.completed","item":{"id":"result_1","type":"tool_result","name":"bash","content":"ok","is_error":false}}',
-                    '{"type":"turn.completed","usage":{"input_tokens":5,"output_tokens":2},"final_message":"done","timestamp":"2026-07-11T00:00:01Z"}',
-                ]
+    def test_run_executes_independent_verification_and_aggregates_usage(self) -> None:
+        class FakeTwoPassEnvironment(FakeRunEnvironment):
+            async def exec(
+                self,
+                command: str,
+                cwd: str | None = None,
+                env: dict[str, str] | None = None,
+            ) -> FakeExecResult:
+                self.exec_cwd = cwd
+                self.exec_env = dict(env or {})
+                self.commands.append(command)
+                is_implementation = len(self.commands) == 1
+                session_id = (
+                    "implementation-session"
+                    if is_implementation
+                    else "verification-session"
+                )
+                task_id = (
+                    "harbor-task"
+                    if is_implementation
+                    else "harbor-task-verification"
+                )
+                usage = (
+                    {"input_tokens": 5, "output_tokens": 2}
+                    if is_implementation
+                    else {"input_tokens": 7, "output_tokens": 3}
+                )
+                return FakeExecResult(
+                    0,
+                    stdout="\n".join(
+                        json_line(event)
+                        for event in [
+                            {
+                                "type": "thread.started",
+                                "metadata": {
+                                    "session_id": session_id,
+                                    "run_id": "harbor-run",
+                                    "task_id": task_id,
+                                    "runtime_profile": "headless-coding-v1",
+                                },
+                            },
+                            {"type": "turn.started"},
+                            {
+                                "type": "item.completed",
+                                "item": {
+                                    "id": "call_0",
+                                    "type": "tool_call",
+                                    "name": "bash",
+                                    "input": {"command": task_id},
+                                },
+                            },
+                            {
+                                "type": "item.completed",
+                                "item": {
+                                    "id": "result_0",
+                                    "type": "tool_result",
+                                    "name": "bash",
+                                    "content": task_id,
+                                    "is_error": False,
+                                },
+                            },
+                            {
+                                "type": "turn.completed",
+                                "usage": usage,
+                                "final_message": "completed",
+                            },
+                        ]
+                    ),
+                )
+
+        with tempfile.TemporaryDirectory(dir=Path.cwd()) as temp:
+            agent = RaraAgent(logs_dir=Path(temp), binary_path="/tmp/rara")
+            context = AgentContext()
+            environment = FakeTwoPassEnvironment()
+
+            asyncio.run(agent.run("Implement /app/tool.py.", environment, context))  # type: ignore[arg-type]
+
+            verification_instruction = Path(
+                temp, "verification-instruction.txt"
+            ).read_text(encoding="utf-8")
+            trajectory = json.loads(
+                Path(temp, "trajectory.json").read_text(encoding="utf-8")
             )
+
+        self.assertEqual(len(environment.commands), 2)
+        self.assertIn(
+            "--output-last-message /logs/agent/implementation-last-message.txt",
+            environment.commands[0],
         )
-
-        trajectory = convert_rara_events_to_trajectory(
-            events,
-            instruction="Run a command.",
-            agent_version="test",
-            default_model_name="mock",
+        self.assertIn("< /logs/agent/verification-instruction.txt", environment.commands[1])
+        self.assertIn("| tee /logs/agent/rara-verification.jsonl", environment.commands[1])
+        self.assertIn("| tee -a /logs/agent/rara-exec.jsonl", environment.commands[1])
+        self.assertIn("--task-id harbor-task-verification", environment.commands[1])
+        self.assertIn("independent final verification and repair pass", verification_instruction)
+        self.assertIn("Original task:\nImplement /app/tool.py.", verification_instruction)
+        self.assertIn(
+            "Reported implementation and validation evidence:\ncompleted",
+            verification_instruction,
         )
-
-        self.assertIsNotNone(trajectory)
-        assert trajectory is not None
-        tool_step = next(step for step in trajectory.steps if step.tool_calls)
-        self.assertEqual(tool_step.tool_calls[0].tool_call_id, "call_1")
-        self.assertIsNotNone(tool_step.observation)
-        assert tool_step.observation is not None
-        self.assertEqual(tool_step.observation.results[0].source_call_id, "call_1")
-        self.assertEqual(tool_step.observation.results[0].content, "ok")
-        self.assertEqual(trajectory.final_metrics.total_prompt_tokens, 5)
-        self.assertEqual(trajectory.final_metrics.total_completion_tokens, 2)
-
-    def test_convert_rara_events_to_trajectory_keeps_same_name_results_with_calls(self) -> None:
-        events = parse_rara_jsonl(
-            "\n".join(
-                [
-                    '{"type":"item.completed","item":{"id":"call_1","type":"tool_call","name":"read_file","input":{"path":"/app/main.tex"}}}',
-                    '{"type":"item.completed","item":{"id":"call_2","type":"tool_call","name":"read_file","input":{"path":"/app/input.tex"}}}',
-                    '{"type":"item.completed","item":{"id":"call_3","type":"tool_call","name":"read_file","input":{"path":"/app/synonyms.txt"}}}',
-                    '{"type":"item.completed","item":{"id":"progress_1","type":"tool_progress","name":"read_file","stream":"stdout","chunk":"main progress"}}',
-                    '{"type":"item.completed","item":{"id":"result_1","type":"tool_result","name":"read_file","content":"main result","is_error":false}}',
-                    '{"type":"item.completed","item":{"id":"result_2","type":"tool_result","name":"read_file","content":"input result","is_error":false}}',
-                    '{"type":"item.completed","item":{"id":"result_3","type":"tool_result","name":"read_file","content":"synonyms result","is_error":false}}',
-                ]
-            )
-        )
-
-        trajectory = convert_rara_events_to_trajectory(
-            events,
-            instruction="Read the input files.",
-        )
-
-        self.assertIsNotNone(trajectory)
-        assert trajectory is not None
-        tool_steps = [step for step in trajectory.steps if step.tool_calls]
+        self.assertIn("Do not repeat already evidenced checks", verification_instruction)
+        self.assertIn("missing from the reported evidence", verification_instruction)
+        self.assertIn("background or detached child behavior", verification_instruction)
+        self.assertEqual(trajectory["session_id"], "implementation-session")
+        sessions = trajectory["final_metrics"]["extra"]["rara_sessions"]
         self.assertEqual(
-            [step.tool_calls[0].tool_call_id for step in tool_steps],
-            ["call_1", "call_2", "call_3"],
+            [session["phase"] for session in sessions],
+            ["implementation", "verification"],
+        )
+        self.assertEqual(
+            [session["session_id"] for session in sessions],
+            ["implementation-session", "verification-session"],
+        )
+        self.assertEqual(
+            [session["task_id"] for session in sessions],
+            ["harbor-task", "harbor-task-verification"],
+        )
+        agent_messages = [
+            step.get("message")
+            for step in trajectory["steps"]
+            if step["source"] == "agent"
+        ]
+        self.assertEqual(agent_messages.count("completed"), 2)
+        tool_steps = [step for step in trajectory["steps"] if step.get("tool_calls")]
+        self.assertEqual(
+            [step["tool_calls"][0]["tool_call_id"] for step in tool_steps],
+            ["implementation:call_0", "verification:call_0"],
+        )
+        self.assertEqual(
+            [step["observation"]["results"][0]["content"] for step in tool_steps],
+            ["harbor-task", "harbor-task-verification"],
         )
         self.assertEqual(
             [
-                [(result.source_call_id, result.content) for result in step.observation.results]
+                step["observation"]["results"][0]["source_call_id"]
                 for step in tool_steps
             ],
-            [
-                [("call_1", "main progress"), ("call_1", "main result")],
-                [("call_2", "input result")],
-                [("call_3", "synonyms result")],
-            ],
+            ["implementation:call_0", "verification:call_0"],
         )
+        self.assertEqual(context.n_input_tokens, 12)
+        self.assertEqual(context.n_output_tokens, 5)
+        self.assertEqual(context.metadata["final_message"], "completed")
+        self.assertEqual(context.metadata["verification_status"], "completed")
 
-    def test_convert_rara_events_to_trajectory_drops_orphaned_calls_at_turn_boundaries(self) -> None:
-        events = parse_rara_jsonl(
-            "\n".join(
-                [
-                    '{"type":"item.completed","item":{"id":"completed_orphan","type":"tool_call","name":"read_file","input":{"path":"/app/orphan-after-completion"}}}',
-                    '{"type":"turn.completed","usage":{"input_tokens":1,"output_tokens":1},"final_message":"first"}',
-                    '{"type":"item.completed","item":{"id":"after_completion","type":"tool_call","name":"read_file","input":{"path":"/app/after-completion"}}}',
-                    '{"type":"item.completed","item":{"id":"result_after_completion","type":"tool_result","name":"read_file","content":"after completion","is_error":false}}',
-                    '{"type":"item.completed","item":{"id":"failed_orphan","type":"tool_call","name":"read_file","input":{"path":"/app/orphan-after-failure"}}}',
-                    '{"type":"turn.failed","error":{"message":"interrupted"}}',
-                    '{"type":"item.completed","item":{"id":"after_failure","type":"tool_call","name":"read_file","input":{"path":"/app/after-failure"}}}',
-                    '{"type":"item.completed","item":{"id":"result_after_failure","type":"tool_result","name":"read_file","content":"after failure","is_error":false}}',
-                ]
+    def test_run_skips_verification_when_explicitly_disabled(self) -> None:
+        with tempfile.TemporaryDirectory(dir=Path.cwd()) as temp:
+            agent = RaraAgent(
+                logs_dir=Path(temp),
+                binary_path="/tmp/rara",
+                verification_pass=False,
             )
-        )
+            context = AgentContext()
+            environment = FakeRunEnvironment()
 
-        trajectory = convert_rara_events_to_trajectory(
-            events,
-            instruction="Read the files.",
-        )
+            asyncio.run(agent.run("Implement /app/tool.py.", environment, context))  # type: ignore[arg-type]
 
-        self.assertIsNotNone(trajectory)
-        assert trajectory is not None
-        tool_steps = {
-            step.tool_calls[0].tool_call_id: step
-            for step in trajectory.steps
-            if step.tool_calls
-        }
-        self.assertIsNone(tool_steps["completed_orphan"].observation)
+        self.assertEqual(len(environment.commands), 1)
+        self.assertNotIn("verification-instruction.txt", environment.commands[0])
+        self.assertFalse(context.metadata["verification_pass"])
+        self.assertEqual(context.metadata["verification_status"], "disabled")
+        self.assertIsNone(context.metadata["verification_jsonl_path"])
+
+    def test_run_does_not_verify_after_implementation_failure(self) -> None:
+        class FakeFailedEnvironment(FakeRunEnvironment):
+            async def exec(
+                self,
+                command: str,
+                cwd: str | None = None,
+                env: dict[str, str] | None = None,
+            ) -> FakeExecResult:
+                self.exec_cwd = cwd
+                self.exec_env = dict(env or {})
+                self.commands.append(command)
+                return FakeExecResult(
+                    2,
+                    stdout=json_line(
+                        {
+                            "type": "turn.failed",
+                            "error": {"message": "implementation failed"},
+                        }
+                    ),
+                    stderr="implementation failed",
+                )
+
+        with tempfile.TemporaryDirectory(dir=Path.cwd()) as temp:
+            agent = RaraAgent(logs_dir=Path(temp), binary_path="/tmp/rara")
+            context = AgentContext()
+            environment = FakeFailedEnvironment()
+
+            with self.assertRaises(RuntimeError):
+                asyncio.run(agent.run("Implement /app/tool.py.", environment, context))  # type: ignore[arg-type]
+
+        self.assertEqual(len(environment.commands), 1)
+        self.assertEqual(context.metadata["failure"], "implementation failed")
+        self.assertEqual(context.metadata["verification_status"], "not_started")
+        self.assertIsNone(context.metadata["verification_jsonl_path"])
+
+    def test_record_run_exposes_verification_artifact_after_failure(self) -> None:
+        with tempfile.TemporaryDirectory(dir=Path.cwd()) as temp:
+            agent = RaraAgent(logs_dir=Path(temp), binary_path="/tmp/rara")
+            context = AgentContext()
+            agent._record_run(
+                context,
+                instruction="Verify /app/tool.py.",
+                events=[],
+                verification_status=VerificationStatus.FAILED,
+            )
+
+        self.assertEqual(context.metadata["verification_status"], "failed")
         self.assertEqual(
-            tool_steps["after_completion"].observation.results[0].source_call_id,
-            "after_completion",
-        )
-        self.assertIsNone(tool_steps["failed_orphan"].observation)
-        self.assertEqual(
-            tool_steps["after_failure"].observation.results[0].source_call_id,
-            "after_failure",
+            context.metadata["verification_jsonl_path"],
+            "/logs/agent/rara-verification.jsonl",
         )
 
     def test_write_trajectory_preserves_zero_token_context_metrics(self) -> None:
@@ -440,73 +611,6 @@ class RaraAgentTests(unittest.TestCase):
 
         self.assertEqual(context.n_input_tokens, 0)
         self.assertEqual(context.n_output_tokens, 0)
-
-    def test_convert_rara_events_to_trajectory_accumulates_turn_usage(self) -> None:
-        events = parse_rara_jsonl(
-            "\n".join(
-                [
-                    '{"type":"turn.completed","usage":{"input_tokens":5,"output_tokens":2},"final_message":"first"}',
-                    '{"type":"turn.completed","usage":{"input_tokens":7,"output_tokens":3},"final_message":"second"}',
-                ]
-            )
-        )
-
-        trajectory = convert_rara_events_to_trajectory(
-            events,
-            instruction="Run multiple turns.",
-        )
-
-        self.assertIsNotNone(trajectory)
-        assert trajectory is not None
-        self.assertEqual(trajectory.final_metrics.total_prompt_tokens, 12)
-        self.assertEqual(trajectory.final_metrics.total_completion_tokens, 5)
-
-    def test_unmatched_tool_result_does_not_borrow_other_tool_call_id(self) -> None:
-        events = parse_rara_jsonl(
-            "\n".join(
-                [
-                    '{"type":"item.completed","item":{"id":"call_1","type":"tool_call","name":"read_file","input":{"path":"/app/a"}}}',
-                    '{"type":"item.completed","item":{"id":"result_1","type":"tool_result","name":"bash","content":"ok","is_error":false}}',
-                    '{"type":"turn.completed","usage":{"input_tokens":1,"output_tokens":1},"final_message":"done"}',
-                ]
-            )
-        )
-
-        trajectory = convert_rara_events_to_trajectory(
-            events,
-            instruction="Run one tool.",
-        )
-
-        self.assertIsNotNone(trajectory)
-        assert trajectory is not None
-        tool_step = next(step for step in trajectory.steps if step.tool_calls)
-        self.assertIsNotNone(tool_step.observation)
-        assert tool_step.observation is not None
-        self.assertIsNone(tool_step.observation.results[0].source_call_id)
-
-    def test_model_response_does_not_attach_metrics_to_older_agent_step(self) -> None:
-        events = parse_rara_jsonl(
-            "\n".join(
-                [
-                    '{"type":"item.completed","item":{"id":"msg_1","type":"agent_message","text":"first"}}',
-                    '{"type":"item.completed","item":{"id":"resp_1","type":"model_response","model":"mock","output_tokens":1,"finish_reason":"stop"}}',
-                    '{"type":"item.completed","item":{"id":"msg_2","type":"agent_message","text":"second"}}',
-                    '{"type":"item.completed","item":{"id":"resp_2","type":"model_response","model":"mock","output_tokens":2,"finish_reason":"stop"}}',
-                    '{"type":"item.completed","item":{"id":"resp_3","type":"model_response","model":"mock","output_tokens":3,"finish_reason":"stop"}}',
-                ]
-            )
-        )
-
-        trajectory = convert_rara_events_to_trajectory(
-            events,
-            instruction="Check metrics.",
-        )
-
-        self.assertIsNotNone(trajectory)
-        assert trajectory is not None
-        agent_steps = [step for step in trajectory.steps if step.source == "agent"]
-        self.assertEqual(agent_steps[0].metrics.completion_tokens, 1)
-        self.assertEqual(agent_steps[1].metrics.completion_tokens, 2)
 
     def test_run_maps_inferred_provider_api_key_to_rara_api_key(self) -> None:
         with tempfile.TemporaryDirectory(dir=Path.cwd()) as temp:
@@ -587,21 +691,26 @@ class RaraAgentTests(unittest.TestCase):
         self.assertIn("Use shell commands for process execution", uploaded_instruction)
         self.assertIn("run_in_background for long-running", uploaded_instruction)
         self.assertIn("Use PTY tools only", uploaded_instruction)
-        self.assertIn("leave that service running in the background", uploaded_instruction)
+        self.assertIn("short validation checklist", uploaded_instruction)
+        self.assertIn("through the artifact's public interface", uploaded_instruction)
+        self.assertIn("poll readiness", uploaded_instruction)
+        self.assertIn("separate client or process", uploaded_instruction)
+        self.assertIn("Do not infer success from launch output", uploaded_instruction)
         self.assertIn("Treat task constraints as validation requirements", uploaded_instruction)
         self.assertIn("substitutions must come from an allowed list", uploaded_instruction)
         self.assertIn("fresh non-interactive process", uploaded_instruction)
         self.assertIn("shell startup files alone does not prove", uploaded_instruction)
+        self.assertIn("smallest implementation that satisfies", uploaded_instruction)
+        self.assertIn("move to uncovered checklist items", uploaded_instruction)
+        self.assertIn("compare the implementation and validation evidence", uploaded_instruction)
         self.assertIn("request escalated sandbox permissions", uploaded_instruction)
         self.assertIn("/app/solution.sparql", uploaded_instruction)
         self.assertIn("Do not finish with only an explanation", uploaded_instruction)
-
-    def test_build_benchmark_instruction_preserves_task_text(self) -> None:
-        instruction = "\nCreate /app/solution.sparql.\n"
-
-        wrapped = build_benchmark_instruction(instruction, "/app")
-
-        self.assertTrue(wrapped.endswith("Create /app/solution.sparql.\n"))
+        self.assertIn("Completion gate:", uploaded_instruction)
+        self.assertIn("Before your final answer, re-read the task", uploaded_instruction)
+        self.assertIn("every applicable interaction and lifecycle mode", uploaded_instruction)
+        self.assertIn("Long-running or detached work", uploaded_instruction)
+        self.assertIn("keep working or report it as unverified", uploaded_instruction)
 
     def test_binary_path_is_resolved(self) -> None:
         with tempfile.TemporaryDirectory(dir=Path.cwd()) as temp:
