@@ -9,7 +9,10 @@ use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
 
 use crate::config::McpServerTransport;
+pub(crate) use crate::tui::format::format_token_count;
 use crate::tui::state::{PlanningApprovalStatus, StatusTab, TuiApp};
+use crate::tui::sub_agent_display::SubAgentActivityDisplay;
+use crate::tui::theme::TEXT_MUTED;
 
 pub(crate) fn render_status_lines(app: &TuiApp, tab: StatusTab) -> Vec<Line<'static>> {
     let mut lines: Vec<Line<'static>> = Vec::new();
@@ -71,6 +74,23 @@ fn render_overview_status(app: &TuiApp, lines: &mut Vec<Line<'static>>) {
         app.bash_approval_mode_label(),
         Color::DarkGray,
     );
+
+    if !app.snapshot.subagents.is_empty() {
+        section_spacer(lines);
+        section_header(lines, "Sub-agents");
+        for agent in &app.snapshot.subagents {
+            let display = SubAgentActivityDisplay::new(agent);
+            let (_, color) = display.marker_and_color();
+            lines.push(Line::from(Span::styled(
+                display.status_header(),
+                Style::default().fg(color),
+            )));
+            lines.push(Line::from(Span::styled(
+                display.progress_line("      "),
+                Style::default().fg(TEXT_MUTED),
+            )));
+        }
+    }
 
     section_spacer(lines);
     section_header(lines, "Planning");
@@ -453,16 +473,6 @@ fn format_metric(n: u64) -> String {
 
 /// Shared token count formatter: "1.0k", "2.5M", or plain number.
 /// Keep format stable — sidebar, footer, and context display all use this.
-pub(crate) fn format_token_count(tokens: usize) -> String {
-    if tokens >= 1_000_000 {
-        format!("{:.1}M", tokens as f64 / 1_000_000.0)
-    } else if tokens >= 1_000 {
-        format!("{:.1}k", tokens as f64 / 1_000.0)
-    } else {
-        tokens.to_string()
-    }
-}
-
 /// One-line context summary used by sidebar.
 pub(crate) fn context_sidebar_summary(snap: &crate::tui::state::RuntimeSnapshot) -> String {
     let used = snap
@@ -527,6 +537,7 @@ mod tests {
 
     use super::render_status_lines;
     use crate::config::ConfigManager;
+    use crate::tools::agent::AgentActivitySnapshot;
     use crate::tui::state::{
         PlanningApprovalStatus, PlanningLifecycleSnapshot, RuntimeSnapshot, StatusTab, TuiApp,
     };
@@ -558,6 +569,41 @@ mod tests {
         assert!(rendered.contains("2"));
         assert!(rendered.contains("code-reviewer"));
         assert!(rendered.contains(".rara/agents/code-reviewer.md"));
+    }
+
+    #[test]
+    fn overview_status_reports_live_subagents() {
+        let temp = tempdir().expect("tempdir");
+        let mut app = TuiApp::new(ConfigManager {
+            path: temp.path().join("config.json"),
+        })
+        .expect("app");
+        app.snapshot = RuntimeSnapshot {
+            subagents: vec![AgentActivitySnapshot {
+                name: Some("review-runtime".into()),
+                kind: "general".into(),
+                status: "running".into(),
+                provider: Some("openai".into()),
+                model: Some("gpt-5".into()),
+                tool_use_count: 2,
+                total_tokens: 1_500,
+                latest_activity: Some("Using read_file".into()),
+                ..AgentActivitySnapshot::default()
+            }],
+            ..RuntimeSnapshot::default()
+        };
+
+        let rendered = render_status_lines(&app, StatusTab::Overview)
+            .into_iter()
+            .map(|line| line.to_string())
+            .collect::<Vec<_>>()
+            .join("\n");
+
+        assert!(rendered.contains("Sub-agents"));
+        assert!(rendered.contains("review-runtime"));
+        assert!(rendered.contains("running"));
+        assert!(rendered.contains("2 tools · 1.5k tokens · Using read_file"));
+        assert!(rendered.contains("openai/gpt-5"));
     }
 
     #[test]

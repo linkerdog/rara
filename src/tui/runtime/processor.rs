@@ -160,6 +160,7 @@ impl RuntimeCommandProcessor {
         )
         .await?;
         self.runtime.update_task_services(&services);
+        self.runtime.refresh_agent_tree_identity();
         if let Some(agent) = self.runtime.agent() {
             crate::auto_memory::maybe_auto_memory(app, agent);
             self.runtime
@@ -174,9 +175,26 @@ impl RuntimeCommandProcessor {
         let _ = crate::auto_memory::drain_auto_memory_for_shutdown().await;
     }
 
-    pub(crate) fn sync_snapshot(&self, app: &mut TuiApp) {
+    pub(crate) fn sync_snapshot(&mut self, app: &mut TuiApp) {
+        self.runtime.refresh_agent_tree_identity();
         if let Some(agent) = self.agent() {
             app.apply_runtime_snapshot(agent, self.runtime.extension_snapshot());
         }
+        self.sync_agent_activity(app);
+    }
+
+    pub(crate) fn sync_agent_activity(&self, app: &mut TuiApp) -> bool {
+        let snapshots = match self.runtime.agent_activity_snapshots() {
+            Ok(snapshots) => snapshots,
+            Err(error) => {
+                log::warn!("failed to project sub-agent activity into the TUI: {error}");
+                return false;
+            }
+        };
+        if app.snapshot.subagents == snapshots {
+            return false;
+        }
+        app.snapshot.subagents = snapshots;
+        true
     }
 }

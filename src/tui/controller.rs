@@ -246,7 +246,7 @@ impl TuiController {
     /// Sync snapshot from the active agent (must be called at the top of the event loop).
     pub(super) async fn sync_snapshot(
         &mut self,
-        processor: &RuntimeCommandProcessor,
+        processor: &mut RuntimeCommandProcessor,
     ) -> anyhow::Result<()> {
         processor.sync_snapshot(&mut self.app);
         self.app.snapshot = self.runtime_port.snapshot().await?;

@@ -13,6 +13,7 @@ use crate::lsp_manager::LspServerPhase;
 use crate::tui::custom_terminal::Frame;
 use crate::tui::state::{GoalStatus, TuiApp};
 use crate::tui::status_display::context_sidebar_summary;
+use crate::tui::sub_agent_display::SubAgentActivityDisplay;
 use crate::tui::theme::*;
 
 /// Width allocated to the sidebar when the terminal is wide enough.
@@ -420,7 +421,7 @@ fn push_shared_tasks_section(lines: &mut Vec<Line<'static>>, app: &TuiApp) -> bo
 }
 
 fn push_child_sessions(lines: &mut Vec<Line<'static>>, app: &TuiApp) {
-    let child_count = app.snapshot.pending_interactions.len();
+    let child_count = app.snapshot.subagents.len();
     if child_count == 0 {
         return;
     }
@@ -430,12 +431,16 @@ fn push_child_sessions(lines: &mut Vec<Line<'static>>, app: &TuiApp) {
         TEXT_SECONDARY,
     )));
 
-    // Show running sub-agents up to 5.
-    for pi in app.snapshot.pending_interactions.iter().take(5) {
-        let label = format!("  {} (running)", pi.title);
+    for agent in app.snapshot.subagents.iter().take(5) {
+        let display = SubAgentActivityDisplay::new(agent);
+        let (_, color) = display.marker_and_color();
         lines.push(Line::from(Span::styled(
-            label,
-            Style::default().fg(INTERACTION_SUB_AGENT),
+            display.sidebar_header(),
+            Style::default().fg(color),
+        )));
+        lines.push(Line::from(Span::styled(
+            display.progress_line("    "),
+            Style::default().fg(TEXT_MUTED),
         )));
     }
 

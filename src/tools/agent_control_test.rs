@@ -1,4 +1,5 @@
 use super::*;
+use crate::agent::AgentEvent;
 
 fn record(agent_id: &str, parent_session_id: &str) -> BackgroundSubAgentRecord {
     BackgroundSubAgentRecord {
@@ -103,6 +104,96 @@ fn resolved_model_replaces_requested_route_metadata() {
         .expect("record");
     assert_eq!(record.provider.as_deref(), Some("gemini"));
     assert_eq!(record.model.as_deref(), Some("gemini-2.5-pro"));
+}
+
+#[test]
+fn typed_events_update_bounded_agent_activity_snapshot() {
+    let control = AgentTreeControl::default();
+    control
+        .inner
+        .lock()
+        .expect("control")
+        .tasks
+        .insert("agent-a".to_string(), record("agent-a", "parent-a"));
+
+    control
+        .record_progress_event("agent-a", &AgentEvent::Status("Searching workspace".into()))
+        .expect("status progress");
+    control
+        .record_progress_event(
+            "agent-a",
+            &AgentEvent::ToolUse {
+                call_id: "call-1".into(),
+                name: "grep".into(),
+                input: json!({"pattern": "AgentTreeControl"}),
+            },
+        )
+        .expect("tool progress");
+    control
+        .record_progress_event(
+            "agent-a",
+            &AgentEvent::ModelRequest {
+                model: "mock-model".into(),
+                input_tokens: 12,
+            },
+        )
+        .expect("input tokens");
+    control
+        .record_progress_event(
+            "agent-a",
+            &AgentEvent::ModelResponse {
+                model: "mock-model".into(),
+                output_tokens: 7,
+                finish_reason: Some("tool_use".into()),
+            },
+        )
+        .expect("output tokens");
+
+    let snapshots = control
+        .activity_snapshots_for_root("parent-a")
+        .expect("snapshots");
+    assert_eq!(snapshots.len(), 1);
+    assert_eq!(snapshots[0].tool_use_count, 1);
+    assert_eq!(snapshots[0].total_tokens, 19);
+    assert_eq!(snapshots[0].latest_activity.as_deref(), Some("Using grep"));
+
+    control
+        .record_progress_event("agent-a", &AgentEvent::Status("x".repeat(200)))
+        .expect("bounded status");
+    let bounded = control
+        .activity_snapshots_for_root("parent-a")
+        .expect("bounded snapshot")[0]
+        .latest_activity
+        .clone()
+        .expect("activity");
+    assert_eq!(bounded.chars().count(), 121);
+    assert!(bounded.ends_with('…'));
+}
+
+#[test]
+fn activity_projection_includes_descendants_but_not_other_roots() {
+    let control = AgentTreeControl::default();
+    let mut inner = control.inner.lock().expect("control");
+    inner
+        .tasks
+        .insert("agent-a".to_string(), record("agent-a", "root-a"));
+    inner.tasks.insert(
+        "agent-a-child".to_string(),
+        record("agent-a-child", "session-agent-a"),
+    );
+    inner
+        .tasks
+        .insert("agent-b".to_string(), record("agent-b", "root-b"));
+    drop(inner);
+
+    let snapshots = control
+        .activity_snapshots_for_root("root-a")
+        .expect("snapshots");
+    let ids = snapshots
+        .iter()
+        .map(|snapshot| snapshot.agent_id.as_str())
+        .collect::<HashSet<_>>();
+    assert_eq!(ids, HashSet::from(["agent-a", "agent-a-child"]));
 }
 
 #[test]

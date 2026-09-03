@@ -37,6 +37,8 @@ use crate::tools::tasklist::{TaskCreateTool, TaskGetTool, TaskListTool, TaskUpda
 use crate::tools::web::{WebFetchTool, WebSearchTool};
 use crate::workspace::WorkspaceMemory;
 
+#[path = "agent_activity.rs"]
+mod agent_activity;
 #[path = "agent_budget.rs"]
 mod agent_budget;
 #[path = "agent_permission.rs"]
@@ -50,6 +52,7 @@ use agent_budget::{agent_token_budget, parse_agent_token_budget};
 mod agent_control;
 #[path = "agent_control_tools.rs"]
 mod agent_control_tools;
+pub(crate) use agent_activity::AgentActivitySnapshot;
 pub use agent_control::{
     AgentMailboxMessage, AgentSnapshot, AgentTreeConfig, AgentTreeControl, AgentWaitResult,
     BackgroundSubAgentStore,
@@ -182,10 +185,6 @@ impl SubagentProgress {
         }
     }
 
-    /// Reserved for per-tool subagent activity summaries.
-    /// Will be activated with subagent progress tracking
-    /// (docs/features/subagent-and-aux-compression.md).
-    #[allow(dead_code)]
     pub fn record_activity(&mut self, desc: impl Into<String>) {
         let s = desc.into();
         self.activity.push(s);

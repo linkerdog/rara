@@ -24,6 +24,7 @@ use crate::protocol_sources::{PromptSourceRegistry, SkillSourceRegistry};
 use crate::runtime_context::RuntimeBootstrap;
 use crate::runtime_event_bus::RuntimeEventBus;
 use crate::runtime_goal::{GoalEvaluation, evaluate_goal_completion};
+use crate::tools::agent::{AgentActivitySnapshot, AgentTreeControl};
 use crate::tui::state::{GoalHandle, GoalStatus, RalphGoal, RuntimeExtensionSnapshot};
 
 /// Fully initialized replacement runtime returned by a backend rebuild.
@@ -76,6 +77,8 @@ pub(crate) enum GoalContinuation {
 /// Runtime objects owned by one interactive session.
 pub(crate) struct RuntimeClient {
     agent: Option<Agent>,
+    agent_tree_control: Arc<AgentTreeControl>,
+    root_session_id: String,
     pub(crate) goal_handle: GoalHandle,
     pub(crate) mcp_tool_cache: McpToolCache,
     pub(crate) mcp_manager: Arc<McpConnectionManager>,
@@ -136,8 +139,15 @@ impl RuntimeClient {
         let event_bus = components.event_bus;
         let memory_config = components.memory_config;
         let memory_lifecycle_enabled = memory_config.enabled;
+        let root_session_id = components.agent.session_id.clone();
+        let agent_tree_control = components
+            .agent
+            .agent_tree_control()
+            .expect("runtime bootstrap must attach an agent tree control");
         Self {
             agent: Some(components.agent),
+            agent_tree_control,
+            root_session_id,
             goal_handle: components.goal_handle,
             mcp_tool_cache: components.mcp_tool_cache,
             mcp_manager: components.mcp_manager,
@@ -164,6 +174,23 @@ impl RuntimeClient {
 
     pub(crate) fn agent_mut(&mut self) -> &mut Option<Agent> {
         &mut self.agent
+    }
+
+    pub(crate) fn refresh_agent_tree_identity(&mut self) {
+        let Some(agent) = self.agent.as_ref() else {
+            return;
+        };
+        self.root_session_id.clone_from(&agent.session_id);
+        if let Some(control) = agent.agent_tree_control() {
+            self.agent_tree_control = control;
+        }
+    }
+
+    pub(crate) fn agent_activity_snapshots(
+        &self,
+    ) -> Result<Vec<AgentActivitySnapshot>, rara_tools::tool::ToolError> {
+        self.agent_tree_control
+            .activity_snapshots_for_root(&self.root_session_id)
     }
 
     pub(crate) fn task_services(&self) -> RuntimeTaskServices {

@@ -98,7 +98,7 @@ pub async fn run_tui(
     let mut tick = interval(Duration::from_millis(166));
     tick.set_missed_tick_behavior(MissedTickBehavior::Delay);
 
-    maintainer.sync_snapshot(&processor).await?;
+    maintainer.sync_snapshot(&mut processor).await?;
     maintainer.start_repo_context_detection();
     if should_start_initial_rebuild(&maintainer.app().explicit_plugin_dirs) {
         maintainer
@@ -145,6 +145,7 @@ pub async fn run_tui(
                     changed = true;
                 }
                 changed |= app.poll_shared_task_files();
+                changed |= processor.sync_agent_activity(app);
                 changed |= super::runtime::emit_query_heartbeat(app);
                 needs_redraw |= changed;
             }
@@ -202,7 +203,7 @@ pub async fn run_tui(
                             needs_redraw = true;
                         }
                         Some(UiEvent::FocusChanged(_focused)) => {
-                            maintainer.sync_snapshot(&processor).await?;
+                            maintainer.sync_snapshot(&mut processor).await?;
                             maintainer.publish_snapshot_projection();
                             needs_redraw = true;
                         }
