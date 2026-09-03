@@ -92,7 +92,7 @@ pub(crate) async fn run_sub_agent(
     if let Some(session_id) = session_id {
         sub.session_id = session_id;
     }
-    sub.set_agent_tree_control(agent_tree_control);
+    sub.set_agent_tree_control(agent_tree_control.clone());
     sub.set_cancellation_token(cancellation_token);
     let plan_required =
         definition.is_some_and(|d| d.plan_mode_required) || permission_mode.requires_plan_mode();
@@ -128,9 +128,18 @@ pub(crate) async fn run_sub_agent(
         .unwrap_or_else(|| kind.default_max_turns());
     sub.set_max_turns(def_max_turns);
 
-    let query_fut = sub.query_with_mode(
+    let progress_agent_id = agent_id.to_string();
+    let progress_control = agent_tree_control;
+    let query_fut = sub.query_with_mode_and_events(
         instruction.to_string(),
         crate::agent::AgentOutputMode::Silent,
+        move |event| {
+            if let Some(control) = progress_control.as_ref()
+                && let Err(error) = control.record_progress_event(&progress_agent_id, &event)
+            {
+                log::warn!("failed to record progress for sub-agent {progress_agent_id}: {error}");
+            }
+        },
     );
 
     tokio::time::timeout(Duration::from_secs(SUBAGENT_TIMEOUT_SECS), query_fut)

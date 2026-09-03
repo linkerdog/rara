@@ -291,6 +291,7 @@ pub struct RuntimeSnapshot {
     pub todo: crate::context::TodoContextView,
     pub todo_artifact_path: Option<String>,
     pub shared_tasks: crate::context::SharedTaskContextView,
+    pub(crate) subagents: Vec<crate::tools::agent::AgentActivitySnapshot>,
     pub prompt_base_kind: String,
     pub prompt_section_keys: Vec<String>,
     pub prompt_source_entries: Vec<PromptSourceContextEntry>,

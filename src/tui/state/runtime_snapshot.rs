@@ -122,6 +122,7 @@ impl TuiApp {
             &pending_interactions,
             &completed_interactions,
         );
+        let subagents = self.snapshot.subagents.clone();
         self.snapshot = RuntimeSnapshot {
             cwd: runtime_context.cwd,
             branch: runtime_context.branch,
@@ -173,6 +174,7 @@ impl TuiApp {
             },
             todo: runtime_context.todo,
             shared_tasks: runtime_context.shared_tasks,
+            subagents,
             prompt_base_kind: runtime_context.prompt.base_prompt_kind,
             prompt_section_keys: runtime_context.prompt.section_keys,
             prompt_source_entries: runtime_context.prompt.source_entries,

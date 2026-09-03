@@ -11,14 +11,13 @@ Codex, and OpenCode subagent implementations:
    retrieval candidates before injecting them into the main model context.
 
 Neither Claude Code, Codex, nor OpenCode implements aux-model retrieval
-compression — this is a RARA-specific design.  Claude Code uses subagents
-for task decomposition (the reference implementation), OpenCode has its own
-TaskTool subagent system, and Codex has no subagent support (only a config
-migration tool).
+compression — this is a RARA-specific design. Claude Code, Codex, and OpenCode
+all expose structured subagent lifecycle state rather than deriving it from
+ordinary interaction prompts or tool-result text.
 
 ## Reference Systems
 
-### Claude Code (`LocalAgentTask.tsx`)
+### Claude Code (`LocalAgentTask.tsx`, `CoordinatorAgentStatus.tsx`)
 
 - `ProgressTracker`: `{ toolUseCount, latestInputTokens, cumulativeOutputTokens, recentActivities }`
 - `updateProgressFromMessage()`: called per turn to accumulate progress.
@@ -26,12 +25,12 @@ migration tool).
 - Activity descriptions pre-computed from tool `getActivityDescription()`.
 - Tasks can be backgrounded, mid-turn messages queued via `pendingMessages`.
 
-### Codex (`external-agent-migration/`)
+### Codex (`tui/src/app/agent_status_feed.rs`, `tui/src/multi_agents.rs`)
 
-* Not a subagent system.  `external-agent-migration` is a **configuration
-  migration tool** that reads Claude Code config files (`.mcp.json`, hooks,
-  agents) and converts them to Codex's native format.  It does not spawn,
-  track, or manage subagents.
+- Agent status is projected from typed child-thread lifecycle events.
+- `/agent` reports active and recently completed agents by structured status.
+- Activity previews are bounded by item count, line count, and grapheme count.
+- Raw reasoning deltas are excluded from agent activity previews.
 
 ### OpenCode (`tool/task.ts`)
 
@@ -49,17 +48,20 @@ TaskTool supports full subagent delegation:
 
 ### Current State (RARA)
 
-`src/tools/agent.rs` `BackgroundSubAgentRecord` has:
-- `AgentStatus`: `Spawning`, `Running`, `Completed`
-- `created_at`: `Instant`
-- `last_output`: `Vec<ContentBlock>`
+`AgentTreeControl` already owns session-scoped child records, concurrency,
+cancellation, mailboxes, background execution, resolved provider/model data,
+and final token totals. `SubagentProgress` already defines bounded recent
+activity and live token/tool counters.
 
-Missing:
-- Token usage per subagent
-- Per-tool activity tracking (bash, file read, search)
-- Background execution
-- Mid-turn message queuing
-- Shareable output data (`SharedData` in Claude Code)
+The missing integration is projection and display:
+
+- subagent execution does not feed its typed `AgentEvent` stream into
+  `SubagentProgress` while it is running;
+- `RuntimeSnapshot` does not contain child-agent lifecycle state;
+- the sidebar incorrectly labels pending approval/input interactions as
+  subagents, so the displayed identities do not represent the agent tree;
+- `/status` reports configured agent definitions but not live or recently
+  completed child agents.
 
 ### Design
 
@@ -67,58 +69,53 @@ Missing:
 
 ```rust
 pub struct SubagentProgress {
-    pub tool_use_count: u32,
-    pub total_input_tokens: u32,
-    pub total_output_tokens: u32,
-    pub recent_activities: Vec<SubagentActivity>,
-}
-
-pub struct SubagentActivity {
-    pub tool_name: String,
-    pub activity_description: String,
+    pub tool_use_count: usize,
+    pub tool_use_total: Option<usize>,
+    pub total_input_tokens: usize,
+    pub total_output_tokens: usize,
+    pub activity: Vec<String>,
 }
 ```
 
-Update `SpawnAgent`:
+The subagent query reporter updates this state from typed events:
 
-```rust
-pub struct SpawnAgent {
-    pub status: AgentStatus,
-    pub started_at: u64,                      // Unix timestamp
-    pub last_output: Vec<ContentBlock>,
-    pub progress: SubagentProgress,           // NEW
-    pub pending_messages: Vec<String>,         // NEW
-    pub abort_token: Option<CancellationToken>, // NEW
-}
-```
+- `ToolUse` increments the tool count and records a bounded tool label;
+- `Status` records a sanitized, bounded activity label;
+- `ModelRequest` and `ModelResponse` accumulate reported token counts;
+- assistant text and reasoning deltas are not copied into the progress view;
+- final completion metrics replace provisional live counters.
 
-#### Integration with RARA's existing AgentTool
+#### Runtime Projection
 
-RARA already has `src/tools/agent.rs` with `AgentTool::call()`. The
-enhancements wire into the existing `spawn_agent` path:
+The TUI reads a bounded snapshot of the root's full descendant tree from the
+session-owned `AgentTreeControl`.
+The runtime client retains both the tree handle and root session identity even
+while the root `Agent` is moved into an asynchronous task. The existing TUI
+tick refreshes this projection and requests a redraw only when it changes.
 
-1. `spawn_agent(subagent_id, instruction)` creates `SpawnAgent` with
-   `SubagentProgress::default()` and registers it in `self.spawning_agents`.
-2. Each subagent turn calls `update_progress_from_turn()` accumulating
-   tool_use_count and tokens.
-3. Activity descriptions use existing tool output (e.g. "bash: cargo check").
-4. `pending_messages` drained via `send_message_to_subagent()` (future).
+Presentation state contains values only. It must not own `AgentTreeControl`,
+task handles, cancellation tokens, mailboxes, or other mutable runtime
+behavior.
 
 #### Display
 
-In the TUI, subagent progress shows as:
+The wide sidebar and `/status` overview show the same structured projection:
 
 ```
-  explore_agent: analyzing crates/               [4 tools · 12.3K tokens]
-    Reading crates/rara-tools/src/tool.rs
-    Running bash: cargo check
+  [>] explore_agent (explore)
+      4 tools · 12.3k tokens · Using read_file
 ```
+
+Running agents sort before terminal agents. The sidebar displays at most five
+records and reports how many additional records are hidden. Status markers and
+semantic colors distinguish running, completed, failed, and cancelled agents.
 
 ### Non-Goals for Part 1
 
 - Full Claude Code-compatible `SharedData` output format.
-- Subagent streaming to TUI (uses existing `AgentEvent` subscribers).
-- Subagent tool restrictions or permission scoping.
+- Raw subagent assistant or reasoning streaming in the parent transcript.
+- New subagent control actions in the TUI.
+- Changes to subagent tool restrictions or permission scoping.
 
 ---
 
@@ -213,11 +210,12 @@ aux-model compression was applied.
 
 ### Subagent Enhancement
 
-1. Add `SubagentProgress` and `SubagentActivity` structs.
-2. Extend `SpawnAgent` with progress, pending_messages, abort_token.
-3. Add `update_progress_from_turn()` to accumulate per-turn metrics.
-4. Wire progress into existing `sub_agent_display.rs` rendering.
-5. Add snapshot tests for progress display.
+1. Feed typed child events into the existing `SubagentProgress` record.
+2. Add a bounded child-agent activity projection to `AgentTreeControl`.
+3. Retain the session tree handle in `RuntimeClient` while the root agent runs.
+4. Refresh projection state on the existing TUI tick.
+5. Render the projection in the sidebar and `/status` overview.
+6. Add focused progress, state projection, and rendering tests.
 
 ### Aux-Model Compression
 
@@ -233,9 +231,13 @@ aux-model compression was applied.
 
 ### Subagent Enhancement
 
-- Unit test: `SubagentProgress` accumulation.
-- TUI snapshot: subagent with progress bar and activity list.
-- Manual: `spawn_agent` a task, verify progress updates in sidebar.
+- Unit test: typed events update bounded `SubagentProgress` state.
+- Unit test: only children of the current root session are projected.
+- Render test: pending approvals are not rendered as subagents.
+- Render test: running and completed agent identities, status, tool count,
+  tokens, and recent activity appear in the sidebar and `/status`.
+- Manual: spawn parallel agents and verify progress changes without waiting for
+  the root turn to finish.
 
 ### Aux-Model Compression
 

@@ -205,6 +205,7 @@ impl Agent {
         self.agent_definitions.records()
     }
 
+    #[cfg(test)]
     pub async fn query_with_mode(
         &mut self,
         prompt: String,

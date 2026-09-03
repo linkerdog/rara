@@ -8,6 +8,7 @@ use super::{
 use crate::config::ConfigManager;
 use crate::context::{SharedTaskContextItem, SharedTaskContextView, TodoContextView};
 use crate::todo::TodoSummary;
+use crate::tools::agent::AgentActivitySnapshot;
 use crate::tui::state::{
     InteractionKind, PendingInteractionSnapshot, RuntimeSnapshot, TranscriptEntry, TranscriptTurn,
     TuiApp,
@@ -495,28 +496,28 @@ fn push_plan_section_shows_progress_and_items() {
     assert!(text.contains("[ ] Check nearby side effects"));
     assert!(text.contains("[-] Broader cleanup"));
 }
-// Now shows "# Sub-agents" section header + each title (running).
-
 #[test]
-fn push_child_sessions_shows_titles_running() {
+fn push_child_sessions_shows_runtime_agent_activity() {
     let temp = tempdir().unwrap();
     let mut app = TuiApp::new(ConfigManager {
         path: temp.path().join("config.json"),
     })
     .expect("build tui app");
     app.snapshot = RuntimeSnapshot {
-        pending_interactions: vec![
-            PendingInteractionSnapshot {
-                kind: InteractionKind::Approval,
-                title: "explore-sidebar".into(),
-                ..Default::default()
-            },
-            PendingInteractionSnapshot {
-                kind: InteractionKind::PlanApproval,
-                title: "plan-refactor".into(),
-                ..Default::default()
-            },
-        ],
+        subagents: vec![AgentActivitySnapshot {
+            name: Some("explore-sidebar".into()),
+            kind: "explore".into(),
+            status: "running".into(),
+            tool_use_count: 4,
+            total_tokens: 12_300,
+            latest_activity: Some("Using grep".into()),
+            ..AgentActivitySnapshot::default()
+        }],
+        pending_interactions: vec![PendingInteractionSnapshot {
+            kind: InteractionKind::Approval,
+            title: "approve-command".into(),
+            ..Default::default()
+        }],
         ..RuntimeSnapshot::default()
     };
 
@@ -532,9 +533,11 @@ fn push_child_sessions_shows_titles_running() {
         "should show # Sub-agents section label"
     );
     assert!(
-        text.contains("explore-sidebar (running)"),
-        "should show sub-agent title + (running)"
+        text.contains("[>] explore-sidebar (explore)"),
+        "should show the runtime agent identity and kind"
     );
+    assert!(text.contains("4 tools · 12.3k tokens · Using grep"));
+    assert!(!text.contains("approve-command"));
 }
 
 #[test]
@@ -546,7 +549,7 @@ fn push_child_sessions_skip_when_empty() {
     .expect("build tui app");
     let mut lines = Vec::new();
     push_child_sessions(&mut lines, &app);
-    assert!(lines.is_empty(), "empty when no pending interactions");
+    assert!(lines.is_empty(), "empty when no subagents exist");
 }
 
 // ── PendingInteractionSnapshot default helper ───────────────────────
