@@ -145,6 +145,10 @@ source of live tool identity.
   keeps final transcript rows human-readable while preserving a stable path for
   full output inspection.
 - When shell execution pauses on a human approval request, the approval card should take visual priority over older live stdout/stderr progress from the same turn.
+- Terminal input must not detach or invalidate the runtime event subscription
+  while an approval is pending. After navigation or selection input, the TUI
+  must continue receiving the approval response, resumed tool progress, and
+  terminal turn event from the same session stream.
 - Approval choices should describe both the action and its scope, such as:
   - allow only the current command;
   - allow commands with the matching prefix for the current session;

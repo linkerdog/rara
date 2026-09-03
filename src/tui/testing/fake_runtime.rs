@@ -1,7 +1,9 @@
 use std::sync::{Arc, Mutex};
 
 use async_trait::async_trait;
+use futures::StreamExt;
 use tokio::sync::broadcast;
+use tokio_stream::wrappers::BroadcastStream;
 
 use crate::tui::runtime_port::{
     RuntimeClientPort, RuntimeCommand, RuntimeEventStream, RuntimeProjectionEvent,
@@ -79,17 +81,16 @@ impl RuntimeClientPort for FakeRuntimeClient {
 
     fn subscribe(&self) -> RuntimeEventStream {
         let receiver = self.events.subscribe();
-        Box::pin(futures::stream::unfold(
-            receiver,
-            |mut receiver| async move {
-                loop {
-                    match receiver.recv().await {
-                        Ok(event) => return Some((event, receiver)),
-                        Err(broadcast::error::RecvError::Lagged(_)) => continue,
-                        Err(broadcast::error::RecvError::Closed) => return None,
+        Box::pin(
+            BroadcastStream::new(receiver).filter_map(|event| async move {
+                match event {
+                    Ok(event) => Some(event),
+                    Err(error) => {
+                        log::warn!("fake runtime event stream lagged: {error}");
+                        None
                     }
                 }
-            },
-        ))
+            }),
+        )
     }
 }

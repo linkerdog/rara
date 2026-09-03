@@ -9,8 +9,10 @@ use std::sync::{Arc, RwLock};
 
 use async_trait::async_trait;
 use futures::Stream;
+use futures::StreamExt;
 use rara_provider_catalog::ModelCatalogProvider;
 use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender, unbounded_channel};
+use tokio_stream::wrappers::BroadcastStream;
 
 use crate::runtime_control::{
     ApprovalControlRequest, InputControlRequest, RuntimeControlEvent, SessionControlRequest,
@@ -145,29 +147,24 @@ impl RuntimeClientPort for InProcessRuntimeClientPort {
 
     fn subscribe(&self) -> RuntimeEventStream {
         let receiver = self.event_bus.subscribe_control();
-        Box::pin(futures::stream::unfold(
-            receiver,
-            |mut receiver| async move {
-                loop {
-                    match receiver.recv().await {
-                        Ok(event) => {
-                            return Some((
-                                RuntimeProjectionEvent::Runtime(Box::new(event)),
-                                receiver,
-                            ));
-                        }
-                        Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => continue,
-                        Err(tokio::sync::broadcast::error::RecvError::Closed) => return None,
+        Box::pin(
+            BroadcastStream::new(receiver).filter_map(|event| async move {
+                match event {
+                    Ok(event) => Some(RuntimeProjectionEvent::Runtime(Box::new(event))),
+                    Err(error) => {
+                        log::warn!("TUI runtime event stream lagged: {error}");
+                        None
                     }
                 }
-            },
-        ))
+            }),
+        )
     }
 }
 
 #[cfg(test)]
 mod tests {
     use std::sync::{Arc, Mutex};
+    use std::time::Duration;
 
     use async_trait::async_trait;
     use futures::{StreamExt, stream};
@@ -245,6 +242,33 @@ mod tests {
         assert!(matches!(
             events.next().await,
             Some(RuntimeProjectionEvent::Runtime(event))
+                if event.sequence == 1
+        ));
+    }
+
+    #[tokio::test]
+    async fn in_process_event_stream_survives_cancelled_receive() {
+        let bus = std::sync::Arc::new(RuntimeEventBus::new(8));
+        let (port, _commands) = InProcessRuntimeClientPort::new(
+            bus.clone(),
+            std::sync::Arc::new(std::sync::RwLock::new(RuntimeSnapshot::default())),
+        );
+        let mut events = port.subscribe();
+
+        assert!(
+            tokio::time::timeout(Duration::from_millis(1), events.next())
+                .await
+                .is_err()
+        );
+
+        bus.send_with_provenance(
+            AgentEvent::Status("ready after input".into()),
+            RuntimeProvenance::local_tui("test-session"),
+        );
+
+        assert!(matches!(
+            tokio::time::timeout(Duration::from_secs(1), events.next()).await,
+            Ok(Some(RuntimeProjectionEvent::Runtime(event)))
                 if event.sequence == 1
         ));
     }

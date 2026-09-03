@@ -8965,6 +8965,7 @@ dependencies = [
  "time",
  "tokenizers 0.23.1",
  "tokio",
+ "tokio-stream",
  "tokio-util",
  "two-face",
  "unicode-width 0.2.2",
@@ -11430,6 +11431,7 @@ dependencies = [
  "futures-core",
  "pin-project-lite",
  "tokio",
+ "tokio-util",
 ]
 
 [[package]]

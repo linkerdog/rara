@@ -65,6 +65,7 @@ rara-state = { path = "crates/rara-state" }
 rara-core = { path = "crates/rara-core" }
 rara-background-tasks = { path = "crates/rara-background-tasks" }
 tokio = { version = "1.0", features = ["full"] }
+tokio-stream = { version = "0.1", features = ["sync"] }
 tokio-util = { version = "0.7", features = ["compat"] }
 clap = { version = "4.0", features = ["derive", "env"] }
 serde = { version = "1.0", features = ["derive"] }
