@@ -22,6 +22,25 @@ pub(super) async fn send_json(
         let attempt = metadata.start_attempt(provider, model);
         let result = request.send().await.map_err(anyhow::Error::from);
         match result {
+            Ok(response)
+                if response.status() == reqwest::StatusCode::TOO_MANY_REQUESTS
+                    || response.status().is_server_error() =>
+            {
+                let error = response
+                    .error_for_status_ref()
+                    .expect_err("retryable status must be an HTTP error");
+                if attempt.is_some() {
+                    match response.json::<Value>().await {
+                        Ok(body) => record_final_usage(&attempt, body.get("usage")),
+                        Err(_) => log::warn!(
+                            "Could not decode usage from a retryable model response; its bill remains incomplete"
+                        ),
+                    }
+                }
+                let result = Err(anyhow::Error::from(error));
+                finish_attempt(attempt, &result);
+                result
+            }
             Ok(response) => Ok((response, attempt)),
             Err(error) => {
                 let result = Err(error);

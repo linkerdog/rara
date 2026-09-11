@@ -27,6 +27,7 @@ impl SummaryPrefix {
             .take_while(|message| message.role == "system")
             .count();
         leading > 0
+            && messages.len() >= self.messages.len() - leading
             && self.messages[leading..]
                 .iter()
                 .zip(messages)

@@ -14,8 +14,13 @@ enum Reply {
     Timeout,
 }
 
+struct CapturedRequest {
+    body: Value,
+    authorization: Option<String>,
+}
+
 // Capture actual HTTP bodies, including tool schemas and provider options.
-async fn server(replies: Vec<Reply>) -> (String, tokio::task::JoinHandle<Vec<Value>>) {
+async fn server(replies: Vec<Reply>) -> (String, tokio::task::JoinHandle<Vec<CapturedRequest>>) {
     let listener = TcpListener::bind("127.0.0.1:0")
         .await
         .expect("bind fixture");
@@ -52,8 +57,18 @@ async fn server(replies: Vec<Reply>) -> (String, tokio::task::JoinHandle<Vec<Val
                 assert!(count > 0, "unexpected body EOF");
                 bytes.extend_from_slice(&buffer[..count]);
             }
-            requests
-                .push(serde_json::from_slice(&bytes[start..start + length]).expect("JSON body"));
+            let authorization = std::str::from_utf8(&bytes[..start])
+                .unwrap()
+                .lines()
+                .find_map(|line| {
+                    let (name, value) = line.split_once(':')?;
+                    name.eq_ignore_ascii_case("authorization")
+                        .then(|| value.trim().to_owned())
+                });
+            requests.push(CapturedRequest {
+                body: serde_json::from_slice(&bytes[start..start + length]).expect("JSON body"),
+                authorization,
+            });
             let (status, content_type, body) = match reply {
                 Reply::Json(status, value) => (status, "application/json", value.to_string()),
                 Reply::Stream(body) => (200, "text/event-stream", body),
@@ -166,8 +181,8 @@ async fn inference_summary_fallback_records_both_model_identities() {
     call.finish(&result);
     drop(agent);
     let bodies = requests.await.unwrap();
-    assert_eq!(bodies[0]["model"], "summary-model");
-    assert_eq!(bodies[1]["model"], "main-model");
+    assert_eq!(bodies[0].body["model"], "summary-model");
+    assert_eq!(bodies[1].body["model"], "main-model");
     let snapshot = task.snapshot();
     assert_eq!(snapshot.calls[0].purpose, InferencePurpose::Summary);
     assert_eq!(snapshot.attempts.len(), 2);
@@ -284,12 +299,12 @@ async fn cached_summary_reuses_wire_prefix_tools_model_and_reasoning_options() {
     call.finish(&result);
     drop(agent);
     let bodies = requests.await.unwrap();
-    assert_eq!(bodies[1]["model"], "deepseek-v4-pro");
+    assert_eq!(bodies[1].body["model"], "deepseek-v4-pro");
     for field in ["tools", "reasoning_effort", "thinking", "tool_choice"] {
-        assert_eq!(bodies[0][field], bodies[1][field], "{field}");
+        assert_eq!(bodies[0].body[field], bodies[1].body[field], "{field}");
     }
-    let before = bodies[0]["messages"].as_array().unwrap();
-    let after = bodies[1]["messages"].as_array().unwrap();
+    let before = bodies[0].body["messages"].as_array().unwrap();
+    let after = bodies[1].body["messages"].as_array().unwrap();
     assert_eq!(&after[..before.len()], before.as_slice());
     assert_eq!(task.snapshot().attempts[0].model, "deepseek-v4-pro");
 }
@@ -324,4 +339,188 @@ async fn cached_summary_rejects_generated_tools_without_executing_them() {
             .contains("no tool was executed")
     );
     assert_eq!(requests.await.unwrap().len(), 1);
+}
+
+#[tokio::test]
+async fn inference_status_retries_preserve_responses_authentication_and_usage() {
+    let stream = format!(
+        "data: {}\n\n",
+        json!({"type":"response.completed", "response": {
+            "output": [], "usage": {"input_tokens":100,"output_tokens":10,
+            "input_tokens_details":{"cached_tokens":80,"cache_write_tokens":0}}
+        }})
+    );
+    let (url, requests) = server(vec![
+        Reply::Json(429, json!({"error":{"message":"busy"},"usage":usage()})),
+        Reply::Json(503, json!({"error":{"message":"unavailable"}})),
+        Reply::Stream(stream),
+    ])
+    .await;
+    let backend = CodexBackend::new(
+        Some("fixture-response-key".into()),
+        url,
+        "test-model".into(),
+        None,
+    )
+    .unwrap();
+    let task = InferenceTask::default();
+    let agent = task.start_agent(None);
+    let call = agent.start_call(InferencePurpose::Main);
+    let result = backend
+        .ask_with_context(
+            &prompt(),
+            &[],
+            LlmTurnMetadata::default().with_inference(call.context()),
+        )
+        .await;
+    assert!(result.is_ok(), "{result:?}");
+    call.finish(&result);
+    drop(agent);
+    let requests = requests.await.unwrap();
+    assert_eq!(requests.len(), 3);
+    for request in &requests {
+        assert_eq!(
+            request.authorization.as_deref(),
+            Some("Bearer fixture-response-key")
+        );
+        assert_eq!(request.body, requests[0].body);
+    }
+    let snapshot = task.snapshot();
+    assert!(snapshot.is_terminal());
+    assert_eq!(snapshot.attempts.len(), 3);
+    assert_eq!(snapshot.attempts[0].status, InferenceStatus::Failed);
+    assert_eq!(snapshot.attempts[0].usage.unwrap().input_tokens, 100);
+    assert!(snapshot.attempts[0].usage_complete);
+    assert_eq!(snapshot.attempts[1].status, InferenceStatus::Failed);
+    assert!(snapshot.attempts[1].usage.is_none());
+    assert!(snapshot.attempts[2].usage_complete);
+}
+
+#[tokio::test]
+async fn inference_status_retries_cover_chat_and_auxiliary_summaries() {
+    for purpose in [InferencePurpose::Main, InferencePurpose::Summary] {
+        let (url, requests) = server(vec![
+            Reply::Json(503, json!({"usage":usage()})),
+            Reply::Json(200, answer()),
+        ])
+        .await;
+        let backend = OpenAiCompatibleBackend::new_with_endpoint_kind(
+            None,
+            url,
+            "main-model".into(),
+            OpenAiEndpointKind::Deepseek,
+        )
+        .unwrap()
+        .with_auxiliary_model(Some("summary-model".into()));
+        let task = InferenceTask::default();
+        let agent = task.start_agent(None);
+        let call = agent.start_call(purpose);
+        let metadata = LlmTurnMetadata::default().with_inference(call.context());
+        let result = match purpose {
+            InferencePurpose::Main => backend
+                .ask_with_context(&prompt(), &[], metadata)
+                .await
+                .map(|_| ()),
+            InferencePurpose::Summary => backend
+                .summarize_with_context(&prompt(), "summarize", metadata)
+                .await
+                .map(|_| ()),
+            InferencePurpose::Classifier => unreachable!(),
+        };
+        assert!(result.is_ok(), "{result:?}");
+        call.finish(&result);
+        drop(agent);
+        let requests = requests.await.unwrap();
+        assert_eq!(requests.len(), 2);
+        assert_eq!(requests[0].body, requests[1].body);
+        let snapshot = task.snapshot();
+        assert_eq!(snapshot.attempts.len(), 2);
+        assert!(
+            snapshot
+                .attempts
+                .iter()
+                .all(|attempt| attempt.usage_complete)
+        );
+        assert_eq!(snapshot.attempts[0].status, InferenceStatus::Failed);
+    }
+}
+
+#[tokio::test]
+async fn inference_status_retries_stop_at_the_physical_attempt_bound() {
+    let replies = (0..=super::inference_transport::MAX_SEND_RETRIES)
+        .map(|_| Reply::Json(429, json!({"usage":usage()})))
+        .collect();
+    let (url, requests) = server(replies).await;
+    let backend = OpenAiCompatibleBackend::new(None, url, "test-model".into()).unwrap();
+    let task = InferenceTask::default();
+    let agent = task.start_agent(None);
+    let call = agent.start_call(InferencePurpose::Main);
+    let result = backend
+        .ask_with_context(
+            &prompt(),
+            &[],
+            LlmTurnMetadata::default().with_inference(call.context()),
+        )
+        .await;
+    assert!(result.is_err());
+    call.finish(&result);
+    drop(agent);
+    assert_eq!(
+        requests.await.unwrap().len(),
+        super::inference_transport::MAX_SEND_RETRIES + 1
+    );
+    let snapshot = task.snapshot();
+    assert_eq!(
+        snapshot.attempts.len(),
+        super::inference_transport::MAX_SEND_RETRIES + 1
+    );
+    assert!(
+        snapshot
+            .attempts
+            .iter()
+            .all(|attempt| attempt.status == InferenceStatus::Failed && attempt.usage_complete)
+    );
+}
+
+#[test]
+fn cached_summary_requires_the_entire_captured_history_prefix() {
+    let messages = vec![
+        Message {
+            role: "system".into(),
+            content: json!("stable"),
+        },
+        Message {
+            role: "user".into(),
+            content: json!("first"),
+        },
+        Message {
+            role: "assistant".into(),
+            content: json!("evidence"),
+        },
+        Message {
+            role: "user".into(),
+            content: json!("second"),
+        },
+    ];
+    let prefix = super::SummaryPrefix {
+        messages: messages.clone(),
+        tools: vec![],
+        execution_mode: super::LlmExecutionMode::Execute,
+    };
+    for length in 0..messages.len() - 1 {
+        assert!(!prefix.matches_history(&messages[1..1 + length]));
+        assert!(
+            prefix
+                .messages_for_summary(&messages[1..1 + length], "summarize")
+                .is_err()
+        );
+    }
+    assert!(prefix.matches_history(&messages[1..]));
+    let mut extended = messages[1..].to_vec();
+    extended.push(Message {
+        role: "assistant".into(),
+        content: json!("more evidence"),
+    });
+    assert!(prefix.matches_history(&extended));
+    assert!(!prefix.matches_history(&messages[2..]));
 }

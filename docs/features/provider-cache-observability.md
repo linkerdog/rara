@@ -186,6 +186,18 @@ blocks subsequent calls; grader failure preserves costs and an unknown grade.
 The grader runs within the surrounding task sandbox, not a sandbox created by
 the driver. Actual provider artifacts remain the gate for changing defaults.
 
+Retryable HTTP statuses must enter the bounded transport retry loop, with each
+failed attempt finalized and any returned usage retained. Missing Anthropic
+cache categories preserve the known counters while leaving the bill incomplete.
+Cached summaries require the entire captured history prefix, including its
+length; a shorter matching slice uses the auxiliary route.
+
+Candidate modules execute in a worker process that receives call inputs only.
+Expected results and pass/fail decisions stay in the verifier process. Worker
+output is bounded JSON, never executable serialization. Protected policy inputs
+are checked before and after execution, including failure and timeout paths.
+Process separation does not replace the surrounding filesystem/network sandbox.
+
 ### Content-free request fingerprints
 
 The DeepSeek backend fingerprints the exact logical JSON body constructed by
