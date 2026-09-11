@@ -548,8 +548,30 @@ impl LlmBackend for CacheProbeBackend {
         self.inner.summarize(messages, instruction).await
     }
 
+    async fn summarize_with_context(
+        &self,
+        messages: &[Message],
+        instruction: &str,
+        metadata: LlmTurnMetadata,
+    ) -> Result<String> {
+        self.inner
+            .summarize_with_context(messages, instruction, metadata)
+            .await
+    }
+
     async fn classify(&self, instructions: &str, messages: &[Message]) -> Result<String> {
         self.inner.classify(instructions, messages).await
+    }
+
+    async fn classify_with_context(
+        &self,
+        instructions: &str,
+        messages: &[Message],
+        metadata: LlmTurnMetadata,
+    ) -> Result<String> {
+        self.inner
+            .classify_with_context(instructions, messages, metadata)
+            .await
     }
 
     fn context_budget(&self, messages: &[Message], tools: &[Value]) -> Option<ContextBudget> {

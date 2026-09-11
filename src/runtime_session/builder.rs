@@ -33,6 +33,7 @@ pub struct RuntimeSessionBuilder {
     enable_extension_discovery: bool,
     require_state_root: bool,
     profile: RuntimeSessionProfile,
+    cache_experiment: crate::agent::CacheExperimentOptions,
 }
 
 impl RuntimeSessionBuilder {
@@ -55,6 +56,7 @@ impl RuntimeSessionBuilder {
             enable_extension_discovery: true,
             require_state_root: false,
             profile: RuntimeSessionProfile::Default,
+            cache_experiment: crate::agent::CacheExperimentOptions::default(),
         }
     }
 
@@ -100,6 +102,11 @@ impl RuntimeSessionBuilder {
     /// Inject a host-owned model backend instead of constructing a provider.
     pub fn with_backend(mut self, backend: Arc<dyn LlmBackend>) -> Self {
         self.backend = Some(backend);
+        self
+    }
+
+    pub fn with_cache_experiment(mut self, options: crate::agent::CacheExperimentOptions) -> Self {
+        self.cache_experiment = options;
         self
     }
 
@@ -217,7 +224,10 @@ impl RuntimeSessionBuilder {
             options,
         )
         .await?;
-        let client = RuntimeClient::from_bootstrap(bootstrap).await;
+        let mut client = RuntimeClient::from_bootstrap(bootstrap).await;
+        if let Some(agent) = client.agent_mut() {
+            agent.configure_cache_experiment(self.cache_experiment);
+        }
         RuntimeSession::start(client, self.command_capacity)
     }
 }

@@ -9013,8 +9013,11 @@ dependencies = [
  "anyhow",
  "aws-config",
  "aws-sdk-bedrockruntime",
+ "aws-smithy-runtime-api",
  "aws-smithy-types",
+ "rara-observability",
  "serde_json",
+ "tokio",
 ]
 
 [[package]]
@@ -9185,6 +9188,7 @@ dependencies = [
  "rara-apply-patch",
  "rara-file-search",
  "rara-memory",
+ "rara-observability",
  "rara-tool-macros",
  "regex",
  "serde",

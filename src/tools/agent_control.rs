@@ -34,6 +34,7 @@ pub(super) enum AgentResultDelivery {
 }
 
 pub(super) struct BackgroundSubAgentStart {
+    pub(super) inference_agent: Option<rara_observability::InferenceAgent>,
     pub(super) kind: SubAgentKind,
     pub(super) agent_id: String,
     pub(super) name: Option<String>,
@@ -337,6 +338,7 @@ impl AgentTreeControl {
             start.agent_definitions,
             start.skill_manager,
             Some(self.clone()),
+            start.inference_agent,
         )
         .await
     }

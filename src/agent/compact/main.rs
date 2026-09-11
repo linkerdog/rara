@@ -1,5 +1,4 @@
 use std::sync::OnceLock;
-use std::time::Duration;
 
 use super::types::*;
 use crate::agent::*;
@@ -285,11 +284,45 @@ impl Agent {
         let mut input_start = 0usize;
         loop {
             let input = &messages[input_start..];
-            let summary_result = tokio::time::timeout(
-                compaction_summary_timeout(),
-                self.llm_backend.summarize(input, instruction),
-            )
-            .await;
+            let call = self
+                .inference_context
+                .as_ref()
+                .map(|context| context.start_call(rara_observability::InferencePurpose::Summary));
+            let mut metadata = self.llm_turn_metadata();
+            if let Some(call) = &call {
+                metadata = metadata.with_inference(call.context());
+            }
+            let summary_result =
+                tokio::time::timeout(self.compact_state.summary_timeout(), async {
+                    let cached_input = (self.cache_experiment.summary
+                        == crate::llm::SummaryStrategy::CachedMainModel)
+                        .then(|| {
+                            input
+                                .iter()
+                                .filter(|message| !is_compact_boundary_message(message))
+                                .cloned()
+                                .collect::<Vec<_>>()
+                        });
+                    if let Some(cached_input) = cached_input
+                        && let Some(prefix) = &self.summary_prefix
+                        && prefix.matches_history(&cached_input)
+                    {
+                        self.llm_backend
+                            .summarize_with_prefix(&cached_input, instruction, prefix, metadata)
+                            .await
+                    } else {
+                        self.llm_backend
+                            .summarize_with_context(input, instruction, metadata)
+                            .await
+                    }
+                })
+                .await;
+            if let Some(call) = call {
+                match &summary_result {
+                    Ok(result) => call.finish(result),
+                    Err(_) => drop(call),
+                }
+            }
             match summary_result {
                 Ok(Ok(summary)) => return Ok(summary),
                 Ok(Err(err)) if is_context_window_error(&err) => {

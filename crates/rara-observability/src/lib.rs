@@ -4,6 +4,21 @@ use std::time::{Duration, Instant};
 
 use serde::{Deserialize, Serialize};
 
+mod inference;
+mod inference_comparison;
+mod inference_pricing;
+
+pub use inference::{
+    InferenceAgent, InferenceAgentContext, InferenceAttempt, InferenceAttemptReport, InferenceCall,
+    InferenceCallContext, InferenceCallReport, InferencePurpose, InferenceSnapshot,
+    InferenceStatus, InferenceTask, InferenceTokenUsage,
+};
+pub use inference_comparison::{
+    InferenceArmReport, InferenceComparisonReport, InferenceExperimentArm,
+    InferenceExperimentSample,
+};
+pub use inference_pricing::{InferenceCostReport, InferencePrice, InferencePriceTable};
+
 const DEFAULT_LATENCY_CAPACITY: usize = 128;
 
 static GLOBAL_MEMORY_OBSERVABILITY: OnceLock<Arc<MemoryObservability>> = OnceLock::new();

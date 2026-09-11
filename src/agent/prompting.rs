@@ -1,5 +1,3 @@
-use std::time::Duration;
-
 use super::*;
 use crate::context::{
     AssembledContext, AssembledTurnContext, ContextAssembler, RuntimeContextInputs,
@@ -95,27 +93,14 @@ impl Agent {
         let mut policy =
             ToolResultProjectionPolicy::default().for_provider_cache_edit(cache_profile.cache_edit);
 
-        if cache_profile.automatic_prefix_cache && !cache_profile.cache_edit {
+        if (cache_profile.automatic_prefix_cache || cache_profile.explicit_prefix_cache)
+            && !cache_profile.cache_edit
+        {
             policy.enabled = false;
         }
 
-        // Time-based trigger (Claude Code microcompact style):
-        // When the gap since the last interaction exceeds 60 minutes, the
-        // provider prompt cache has expired (typical TTL is ~1 hour).
-        // We tighten keep_recent to send a smaller payload — we're paying
-        // the cache-miss cost anyway, so there's no benefit to preserving
-        // old tool results for cache stability.
-        let idle_duration = self.last_interaction_time.elapsed();
-        const CACHE_TTL_IDLE_THRESHOLD: Duration = Duration::from_secs(3600);
-        const CACHE_EDIT_IDLE_THRESHOLD: Duration = Duration::from_secs(300);
-
-        if idle_duration > CACHE_TTL_IDLE_THRESHOLD {
-            policy.keep_recent = 2;
-            policy.cache_edit_eligible = false;
-        } else if idle_duration > CACHE_EDIT_IDLE_THRESHOLD {
-            policy.cache_edit_eligible = false;
-        }
-
+        // Idle time alone is not evidence that a provider cache expired.
+        // Context pressure and explicit task boundaries own compaction decisions.
         policy
     }
 

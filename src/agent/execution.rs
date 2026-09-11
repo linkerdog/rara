@@ -498,7 +498,8 @@ impl Agent {
         let mut tool_results = Vec::new();
         let entering_plan_mode = tool_calls
             .iter()
-            .any(|tool_call| tool_call.name == ENTER_PLAN_MODE_TOOL_NAME);
+            .any(|tool_call| tool_call.name == ENTER_PLAN_MODE_TOOL_NAME)
+            && self.is_tool_allowed_in_current_mode(ENTER_PLAN_MODE_TOOL_NAME);
         if entering_plan_mode && !matches!(self.execution_mode, AgentExecutionMode::Plan) {
             self.execution_mode = AgentExecutionMode::Plan;
             report(AgentEvent::Status(
@@ -509,6 +510,29 @@ impl Agent {
             let tool_name = tool_call.name.clone();
             let tool_id = tool_call.id.clone();
             let tool_input = tool_call.input.clone();
+            if let Some(context) = &self.inference_context {
+                context.record_tool_request();
+            }
+            if !(self.is_tool_allowed_in_current_mode(&tool_name)
+                || (tool_name == ENTER_PLAN_MODE_TOOL_NAME && entering_plan_mode))
+            {
+                if let Some(context) = &self.inference_context {
+                    context.record_tool_rejection();
+                }
+                let error_text = format!(
+                    "Error: tool '{}' is unavailable in {} mode. Inspect with read-only tools and return a plan instead.",
+                    tool_name,
+                    self.execution_mode_label()
+                );
+                report(AgentEvent::ToolResult {
+                    call_id: tool_id.clone(),
+                    name: tool_name.clone(),
+                    content: error_text.clone(),
+                    is_error: true,
+                });
+                tool_results.push(tool_result_message(&tool_id, error_text, true));
+                continue;
+            }
             if tool_name == ENTER_PLAN_MODE_TOOL_NAME {
                 let result_text = json!({
                     "status": "entered_plan_mode",
@@ -668,21 +692,6 @@ impl Agent {
             }
             // ── end auto-permission classifier ───────────────────────────────────
 
-            if !self.is_tool_allowed_in_current_mode(&tool_name) {
-                let error_text = format!(
-                    "Error: tool '{}' is unavailable in {} mode. Inspect with read-only tools and return a plan instead.",
-                    tool_name,
-                    self.execution_mode_label()
-                );
-                report(AgentEvent::ToolResult {
-                    call_id: tool_id.clone(),
-                    name: tool_name.clone(),
-                    content: error_text.clone(),
-                    is_error: true,
-                });
-                tool_results.push(tool_result_message(&tool_id, error_text, true));
-                continue;
-            }
             // PreToolUse hook: run registered hooks that can allow/block.
             if let (Some(registry), Some(sandbox)) = (&self.hook_registry, &self.hook_sandbox) {
                 let hooks = registry.executable_hooks_for_phase(HookLifecycle::PreToolUse);
@@ -828,6 +837,19 @@ impl Agent {
                         tool_results.push(tool_result_message(&tool_id, error_text, true));
                     }
                 }
+            } else {
+                if let Some(context) = &self.inference_context {
+                    context.record_tool_rejection();
+                }
+                let error_text =
+                    format!("Error: tool '{tool_name}' is not registered in this session.");
+                report(AgentEvent::ToolResult {
+                    call_id: tool_id.clone(),
+                    name: tool_name,
+                    content: error_text.clone(),
+                    is_error: true,
+                });
+                tool_results.push(tool_result_message(&tool_id, error_text, true));
             }
         }
         Ok(enforce_tool_result_batch_budget(tool_results))
@@ -857,7 +879,22 @@ Rules:
             &request.tool_name,
             &request.tool_input,
         );
-        let raw = self.llm_backend.classify(instructions, &messages).await?;
+        let call = self
+            .inference_context
+            .as_ref()
+            .map(|context| context.start_call(rara_observability::InferencePurpose::Classifier));
+        let mut metadata = self.llm_turn_metadata();
+        if let Some(call) = &call {
+            metadata = metadata.with_inference(call.context());
+        }
+        let raw = self
+            .llm_backend
+            .classify_with_context(instructions, &messages, metadata)
+            .await;
+        if let Some(call) = call {
+            call.finish(&raw);
+        }
+        let raw = raw?;
         Ok(crate::classifier::parse_auto_permission_response(&raw)?)
     }
 
@@ -868,6 +905,9 @@ Rules:
             .with_workspace_root(self.workspace.root.clone());
         if let Some(turn_id) = &self.runtime_turn_id {
             context = context.with_turn_id(turn_id.clone());
+        }
+        if let Some(inference) = &self.inference_context {
+            context = context.with_inference(inference.clone());
         }
         match self.cancellation_token.as_ref() {
             Some(token) => context.with_cancellation(token.clone()),

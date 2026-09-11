@@ -395,7 +395,7 @@ pub struct AgentTool {
 #[async_trait]
 impl Tool for AgentTool {
     async fn call(&self, i: Value) -> Result<Value, ToolError> {
-        self.call_with_parent_session(i, None).await
+        self.call_with_parent_session(i, None, None).await
     }
 
     async fn call_with_context_events(
@@ -404,7 +404,7 @@ impl Tool for AgentTool {
         context: ToolCallContext,
         _report: &mut (dyn FnMut(rara_tools::tool::ToolProgressEvent) + Send),
     ) -> Result<Value, ToolError> {
-        self.call_with_parent_session(input, context.session_id())
+        self.call_with_parent_session(input, context.session_id(), context.inference())
             .await
     }
 }
@@ -414,6 +414,7 @@ impl AgentTool {
         &self,
         i: Value,
         parent_session_id: Option<&str>,
+        inference: Option<&rara_observability::InferenceAgentContext>,
     ) -> Result<Value, ToolError> {
         let name = i["name"]
             .as_str()
@@ -430,6 +431,7 @@ impl AgentTool {
         let definition = resolve_spawn_agent_definition(&self.agent_definitions, &agent_label);
         let model_target = model_target_from_input(&i, Some(&definition))?;
         let start = BackgroundSubAgentStart {
+            inference_agent: inference.map(|context| context.start_child()),
             kind: SubAgentKind::General,
             agent_id,
             name: Some(name.to_string()),
@@ -516,7 +518,7 @@ pub struct ExploreAgentTool {
 #[async_trait]
 impl Tool for ExploreAgentTool {
     async fn call(&self, i: Value) -> Result<Value, ToolError> {
-        self.call_with_parent_session(i, None).await
+        self.call_with_parent_session(i, None, None).await
     }
 
     async fn call_with_context_events(
@@ -525,7 +527,7 @@ impl Tool for ExploreAgentTool {
         context: ToolCallContext,
         _report: &mut (dyn FnMut(rara_tools::tool::ToolProgressEvent) + Send),
     ) -> Result<Value, ToolError> {
-        self.call_with_parent_session(input, context.session_id())
+        self.call_with_parent_session(input, context.session_id(), context.inference())
             .await
     }
 }
@@ -535,6 +537,7 @@ impl ExploreAgentTool {
         &self,
         i: Value,
         parent_session_id: Option<&str>,
+        inference: Option<&rara_observability::InferenceAgentContext>,
     ) -> Result<Value, ToolError> {
         let instruction = i["instruction"]
             .as_str()
@@ -543,6 +546,7 @@ impl ExploreAgentTool {
         let definition = resolve_kind_definition(SubAgentKind::Explore);
         let model_target = model_target_from_input(&i, Some(&definition))?;
         let start = BackgroundSubAgentStart {
+            inference_agent: inference.map(|context| context.start_child()),
             kind: SubAgentKind::Explore,
             agent_id,
             name: None,
@@ -626,7 +630,7 @@ pub struct PlanAgentTool {
 #[async_trait]
 impl Tool for PlanAgentTool {
     async fn call(&self, i: Value) -> Result<Value, ToolError> {
-        self.call_with_parent_session(i, None).await
+        self.call_with_parent_session(i, None, None).await
     }
 
     async fn call_with_context_events(
@@ -635,7 +639,7 @@ impl Tool for PlanAgentTool {
         context: ToolCallContext,
         _report: &mut (dyn FnMut(rara_tools::tool::ToolProgressEvent) + Send),
     ) -> Result<Value, ToolError> {
-        self.call_with_parent_session(input, context.session_id())
+        self.call_with_parent_session(input, context.session_id(), context.inference())
             .await
     }
 }
@@ -645,6 +649,7 @@ impl PlanAgentTool {
         &self,
         i: Value,
         parent_session_id: Option<&str>,
+        inference: Option<&rara_observability::InferenceAgentContext>,
     ) -> Result<Value, ToolError> {
         let instruction = i["instruction"]
             .as_str()
@@ -653,6 +658,7 @@ impl PlanAgentTool {
         let definition = resolve_kind_definition(SubAgentKind::Plan);
         let model_target = model_target_from_input(&i, Some(&definition))?;
         let start = BackgroundSubAgentStart {
+            inference_agent: inference.map(|context| context.start_child()),
             kind: SubAgentKind::Plan,
             agent_id,
             name: None,
@@ -751,7 +757,7 @@ pub struct TeamCreateTool {
 #[async_trait]
 impl Tool for TeamCreateTool {
     async fn call(&self, i: Value) -> Result<Value, ToolError> {
-        self.call_with_parent_session(i, None).await
+        self.call_with_parent_session(i, None, None).await
     }
 
     async fn call_with_context_events(
@@ -760,7 +766,7 @@ impl Tool for TeamCreateTool {
         context: ToolCallContext,
         _report: &mut (dyn FnMut(rara_tools::tool::ToolProgressEvent) + Send),
     ) -> Result<Value, ToolError> {
-        self.call_with_parent_session(input, context.session_id())
+        self.call_with_parent_session(input, context.session_id(), context.inference())
             .await
     }
 }
@@ -770,6 +776,7 @@ impl TeamCreateTool {
         &self,
         i: Value,
         parent_session_id: Option<&str>,
+        inference: Option<&rara_observability::InferenceAgentContext>,
     ) -> Result<Value, ToolError> {
         let tasks = i["tasks"]
             .as_array()
@@ -784,6 +791,7 @@ impl TeamCreateTool {
         let runs = tasks.into_iter().map(|task| {
             let control = self.background_subagents.clone();
             let start = BackgroundSubAgentStart {
+                inference_agent: inference.map(|context| context.start_child()),
                 kind: task.kind,
                 agent_id: next_subagent_id(task.kind, Some(&task.name)),
                 name: Some(task.name.clone()),

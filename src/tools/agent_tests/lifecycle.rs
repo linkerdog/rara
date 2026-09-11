@@ -41,13 +41,18 @@ async fn background_subagent_resume_returns_completed_summary_without_inline_sid
     };
 
     let mut progress = |_| {};
+    let accounting = rara_observability::InferenceTask::default();
+    let root_lease = accounting.start_agent(None);
+    let root_id = root_lease.id();
     let started = tool
         .call_with_context_events(
             json!({
                 "instruction": "inspect this in the background",
                 "run_in_background": true
             }),
-            ToolCallContext::default().with_session_id("parent-session"),
+            ToolCallContext::default()
+                .with_session_id("parent-session")
+                .with_inference(root_lease.context()),
             &mut progress,
         )
         .await
@@ -55,6 +60,7 @@ async fn background_subagent_resume_returns_completed_summary_without_inline_sid
     let agent_id = started["agent_id"].as_str().expect("agent_id");
     let child_session_id = started["session_id"].as_str().expect("session_id");
     assert_eq!(started["status"], "running");
+    drop(root_lease);
 
     let mut completed = None;
     for _ in 0..20 {
@@ -90,6 +96,13 @@ async fn background_subagent_resume_returns_completed_summary_without_inline_sid
     let transcript = load_transcript(&transcript_path).expect("transcript");
     assert_eq!(transcript.parse_errors, 0);
     assert!(model_visible_messages(&transcript.entries).is_empty());
+    let snapshot = accounting.snapshot();
+    assert!(snapshot.is_terminal());
+    assert_eq!(snapshot.calls.len(), 1);
+    assert_eq!(snapshot.calls[0].parent_agent_id, Some(root_id));
+    assert_eq!(snapshot.attempts.len(), 1);
+    assert_eq!(snapshot.attempts[0].model, "child-model");
+    assert_eq!(snapshot.attempts[0].usage.unwrap().input_tokens, 100);
 }
 
 #[tokio::test]

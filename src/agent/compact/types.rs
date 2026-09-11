@@ -99,6 +99,8 @@ impl std::error::Error for CompactionSummaryTimeout {}
 
 #[derive(Debug, Clone, Default)]
 pub struct CompactState {
+    #[cfg(test)]
+    pub(crate) test_summary_timeout: Option<Duration>,
     pub estimated_history_tokens: usize,
     pub context_window_tokens: Option<usize>,
     pub compact_threshold_tokens: usize,
@@ -110,4 +112,23 @@ pub struct CompactState {
     pub last_compaction_boundary: Option<CompactBoundaryMetadata>,
     pub consecutive_auto_compaction_failures: usize,
     pub auto_compaction_retry_after_tokens: Option<usize>,
+}
+
+impl CompactState {
+    pub(crate) fn summary_timeout(&self) -> Duration {
+        #[cfg(test)]
+        {
+            self.test_summary_timeout
+                .unwrap_or(TEST_COMPACTION_SUMMARY_TIMEOUT)
+        }
+        #[cfg(not(test))]
+        {
+            COMPACTION_SUMMARY_TIMEOUT
+        }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn use_production_summary_timeout(&mut self) {
+        self.test_summary_timeout = Some(COMPACTION_SUMMARY_TIMEOUT);
+    }
 }

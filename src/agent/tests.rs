@@ -1,3 +1,6 @@
+mod cache_experiment;
+#[path = "tests/cache_trial/driver.rs"]
+mod cache_trial;
 mod compaction;
 mod context_view;
 mod dup_detection;

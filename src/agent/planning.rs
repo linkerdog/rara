@@ -449,6 +449,9 @@ impl Agent {
     }
 
     pub(super) fn visible_tool_schemas(&self) -> Vec<Value> {
+        if let Some(schemas) = &self.stable_tool_schemas {
+            return schemas.clone();
+        }
         self.tool_manager
             .get_schemas_filtered(|name| self.is_tool_allowed_in_current_mode(name))
     }

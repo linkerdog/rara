@@ -26,11 +26,21 @@ pub(crate) async fn evaluate_goal_completion(agent: &Agent, goal: &RalphGoal) ->
         .filter(|condition| !condition.trim().is_empty())
         .unwrap_or(goal.objective.as_str());
     let messages = build_goal_evaluator_messages(condition, &agent.history);
-    match agent
+    let call = agent
+        .inference_context()
+        .map(|context| context.start_call(rara_observability::InferencePurpose::Classifier));
+    let mut metadata = crate::llm::LlmTurnMetadata::default();
+    if let Some(call) = &call {
+        metadata = metadata.with_inference(call.context());
+    }
+    let result = agent
         .llm_backend
-        .classify(GOAL_EVALUATOR_INSTRUCTIONS, messages.as_slice())
-        .await
-    {
+        .classify_with_context(GOAL_EVALUATOR_INSTRUCTIONS, messages.as_slice(), metadata)
+        .await;
+    if let Some(call) = call {
+        call.finish(&result);
+    }
+    match result {
         Ok(raw) => parse_goal_evaluation(raw.as_str()),
         Err(err) => GoalEvaluation::Continue {
             reason: format!("goal evaluator unavailable: {err}"),

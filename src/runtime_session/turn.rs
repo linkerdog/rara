@@ -20,22 +20,30 @@ pub struct RuntimeTurnOutcome {
 pub struct RuntimeTurn {
     turn_id: RuntimeTurnId,
     completion: oneshot::Receiver<Result<RuntimeTurnOutcome, RuntimeSessionError>>,
+    accounting: rara_observability::InferenceTask,
 }
 
 impl RuntimeTurn {
     pub(crate) fn new(
         turn_id: RuntimeTurnId,
         completion: oneshot::Receiver<Result<RuntimeTurnOutcome, RuntimeSessionError>>,
+        accounting: rara_observability::InferenceTask,
     ) -> Self {
         Self {
             turn_id,
             completion,
+            accounting,
         }
     }
 
     /// Return this turn's stable identity.
     pub fn id(&self) -> &RuntimeTurnId {
         &self.turn_id
+    }
+
+    /// Live accounting remains available after an error or parent completion.
+    pub fn accounting(&self) -> rara_observability::InferenceTask {
+        self.accounting.clone()
     }
 
     /// Wait for the terminal turn outcome.

@@ -108,6 +108,28 @@ fn record_peak(current: usize, peak: &AtomicUsize) {
 
 #[async_trait]
 impl LlmBackend for CountingBackend {
+    async fn ask_streaming_with_context(
+        &self,
+        messages: &[Message],
+        tools: &[serde_json::Value],
+        metadata: crate::llm::LlmTurnMetadata,
+        _on_event: &mut (dyn FnMut(crate::llm::LlmStreamEvent) + Send),
+    ) -> anyhow::Result<LlmResponse> {
+        let attempt = metadata.start_attempt("fixture", "child-model");
+        let result = self.ask(messages, tools).await;
+        if let Some(attempt) = attempt {
+            attempt.record_final_usage(rara_observability::InferenceTokenUsage {
+                input_tokens: 100,
+                output_tokens: 10,
+                cache_read_tokens: Some(0),
+                cache_write_tokens: Some(0),
+                cache_write_5m_tokens: Some(0),
+                cache_write_1h_tokens: Some(0),
+            });
+            attempt.finish(&result);
+        }
+        result
+    }
     async fn ask(
         &self,
         messages: &[Message],

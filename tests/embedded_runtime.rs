@@ -66,4 +66,28 @@ async fn embedded_runtime_is_workspace_scoped_and_emits_typed_events() {
             .is_none()
     );
     assert!(report.model_turns[0].request_fingerprint.is_none());
+
+    let accounting = rara::InferenceTask::default();
+    runtime
+        .query_with_accounting(
+            "next task",
+            AgentOutputMode::Silent,
+            accounting.clone(),
+            |_| {},
+        )
+        .await
+        .expect("accounted query");
+    let snapshot = accounting.snapshot();
+    assert!(snapshot.is_terminal());
+    assert_eq!(snapshot.calls.len(), 1);
+    assert_eq!(snapshot.calls[0].purpose, rara::InferencePurpose::Main);
+    assert_eq!(snapshot.calls[0].status, rara::InferenceStatus::Succeeded);
+    // Mock turn usage is not a provider receipt: the host must see missing coverage.
+    let cost = rara::InferencePriceTable {
+        revision: "fixture".into(),
+        prices: vec![],
+    }
+    .cost(&snapshot);
+    assert_eq!(cost.unobserved_calls, 1);
+    assert!(!cost.complete);
 }

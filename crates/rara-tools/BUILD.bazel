@@ -13,6 +13,7 @@ rust_library(
         "//crates/file-search:rara_file_search",
         "//crates/rara-apply-patch:rara_apply_patch",
         "//crates/rara-memory:rara_memory",
+        "//crates/rara-observability:rara_observability",
     ],
     proc_macro_deps = all_crate_deps(proc_macro = True) + ["//crates/tool-macros:rara_tool_macros"],
 )
@@ -29,6 +30,7 @@ rust_test(
         "//crates/file-search:rara_file_search",
         "//crates/rara-apply-patch:rara_apply_patch",
         "//crates/rara-memory:rara_memory",
+        "//crates/rara-observability:rara_observability",
     ],
     proc_macro_deps = all_crate_deps(proc_macro_dev = True) + ["//crates/tool-macros:rara_tool_macros"],
 )

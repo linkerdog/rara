@@ -42,6 +42,7 @@ struct AutoMemoryRequest {
     transcript_turns: Vec<TranscriptTurn>,
     backend: Arc<dyn LlmBackend>,
     store: Arc<MemoryStore>,
+    inference_agent: Option<Arc<rara_observability::InferenceAgent>>,
 }
 
 #[derive(Clone, PartialEq, Eq)]
@@ -127,6 +128,9 @@ impl AutoMemoryService {
                 transcript_turns: collect_turn_window(app, last_completed_turns, completed_turns),
                 backend: agent.llm_backend.clone(),
                 store: agent.memory_store.clone(),
+                inference_agent: agent
+                    .inference_context()
+                    .map(|context| Arc::new(context.start_child())),
             };
 
             if request.transcript_turns.is_empty() {
@@ -304,11 +308,22 @@ async fn process_request(request: &AutoMemoryRequest, effective_start_turn_exclu
     let source_span = request_source_span(effective_start_turn_exclusive, request.completed_turns);
     let start_turn_index = effective_start_turn_exclusive.saturating_add(1);
 
-    let result = match request
+    let call = request
+        .inference_agent
+        .as_ref()
+        .map(|agent| agent.start_call(rara_observability::InferencePurpose::Summary));
+    let mut metadata = crate::llm::LlmTurnMetadata::default();
+    if let Some(call) = &call {
+        metadata = metadata.with_inference(call.context());
+    }
+    let result = request
         .backend
-        .summarize(&messages, EXTRACTION_INSTRUCTION)
-        .await
-    {
+        .summarize_with_context(&messages, EXTRACTION_INSTRUCTION, metadata)
+        .await;
+    if let Some(call) = call {
+        call.finish(&result);
+    }
+    let result = match result {
         Ok(r) => r,
         Err(err) => {
             eprintln!(

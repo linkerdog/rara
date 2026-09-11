@@ -1,3 +1,7 @@
+mod accounting;
+mod cache;
+#[cfg(test)]
+mod request_tests;
 use anyhow::{Result, anyhow};
 use aws_config::BehaviorVersion;
 use aws_sdk_bedrockruntime::Client as BedrockClient;
@@ -8,6 +12,7 @@ use aws_sdk_bedrockruntime::types::{
     ToolUseBlock,
 };
 use aws_smithy_types::{Document, Number};
+pub use cache::{BedrockCacheTtl, supports_claude_cache};
 use serde_json::Value;
 
 const DEFAULT_CONTEXT_WINDOW: usize = 200_000;
@@ -76,6 +81,12 @@ pub struct BedrockConverseClient {
     region: String,
 }
 
+#[derive(Clone, Debug, Default)]
+pub struct BedrockRequestOptions {
+    pub cache_ttl: Option<BedrockCacheTtl>,
+    pub inference: Option<rara_observability::InferenceCallContext>,
+}
+
 impl BedrockConverseClient {
     pub async fn new(region: Option<String>, model_id: String) -> Result<Self> {
         let mut config_loader = aws_config::defaults(BehaviorVersion::latest());
@@ -83,12 +94,16 @@ impl BedrockConverseClient {
             config_loader = config_loader.region(aws_config::Region::new(region.to_string()));
         }
         let sdk_config = config_loader.load().await;
+        let resolved_region = sdk_config
+            .region()
+            .map(|region| region.as_ref().to_string())
+            .unwrap_or_else(|| "unknown".into());
         let client = BedrockClient::new(&sdk_config);
 
         Ok(Self {
             client,
             model_id,
-            region: region.unwrap_or_else(|| "default".to_string()),
+            region: resolved_region,
         })
     }
 
@@ -106,7 +121,30 @@ impl BedrockConverseClient {
         messages: &[BedrockChatMessage],
         tools: &[BedrockToolSpec],
     ) -> Result<BedrockChatResponse> {
-        let bedrock_messages = to_bedrock_messages(messages)?;
+        self.ask_with_options(system, messages, tools, BedrockRequestOptions::default())
+            .await
+    }
+
+    pub async fn ask_with_options(
+        &self,
+        system: &[String],
+        messages: &[BedrockChatMessage],
+        tools: &[BedrockToolSpec],
+        options: BedrockRequestOptions,
+    ) -> Result<BedrockChatResponse> {
+        let mut bedrock_messages = to_bedrock_messages(messages)?;
+        let mut system_blocks: Vec<SystemContentBlock> = system
+            .iter()
+            .map(|s| SystemContentBlock::Text(s.clone()))
+            .collect();
+        if let Some(ttl) = options.cache_ttl {
+            if !cache::supports_cache_ttl(&self.model_id, ttl) {
+                return Err(anyhow!(
+                    "the requested cache TTL is not verified for this Bedrock model"
+                ));
+            }
+            cache::checkpoints(&mut system_blocks, &mut bedrock_messages, ttl);
+        }
 
         let mut builder = self
             .client
@@ -115,10 +153,6 @@ impl BedrockConverseClient {
             .set_messages(Some(bedrock_messages));
 
         if !system.is_empty() {
-            let system_blocks: Vec<SystemContentBlock> = system
-                .iter()
-                .map(|s| SystemContentBlock::Text(s.clone()))
-                .collect();
             builder = builder.set_system(Some(system_blocks));
         }
 
@@ -137,7 +171,15 @@ impl BedrockConverseClient {
                 .build(),
         );
 
-        let output = builder.send().await.map_err(|err| {
+        let mut operation = builder.customize();
+        if let Some(inference) = options.inference {
+            operation = operation.interceptor(accounting::AttemptAccounting::new(
+                inference,
+                self.model_id.clone(),
+                &self.region,
+            ));
+        }
+        let output = operation.send().await.map_err(|err| {
             anyhow!(
                 "Bedrock API error (region={}, model={}): {err}",
                 self.region,

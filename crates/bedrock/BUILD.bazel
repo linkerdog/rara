@@ -9,7 +9,7 @@ rust_library(
     aliases = aliases(),
     crate_name = "rara_bedrock",
     edition = "2024",
-    deps = all_crate_deps(normal = True),
+    deps = ["//crates/rara-observability:rara_observability"] + all_crate_deps(normal = True),
     proc_macro_deps = all_crate_deps(proc_macro = True),
 )
 
@@ -21,6 +21,6 @@ rust_test(
         proc_macro_dev = True,
     ),
     edition = "2024",
-    deps = all_crate_deps(normal_dev = True),
+    deps = ["//crates/rara-observability:rara_observability"] + all_crate_deps(normal_dev = True),
     proc_macro_deps = all_crate_deps(proc_macro_dev = True),
 )

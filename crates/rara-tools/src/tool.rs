@@ -40,9 +40,19 @@ pub struct ToolCallContext {
     turn_id: Option<String>,
     call_id: Option<String>,
     workspace_root: Option<PathBuf>,
+    inference: Option<rara_observability::InferenceAgentContext>,
 }
 
 impl ToolCallContext {
+    pub fn with_inference(mut self, context: rara_observability::InferenceAgentContext) -> Self {
+        self.inference = Some(context);
+        self
+    }
+
+    pub fn inference(&self) -> Option<&rara_observability::InferenceAgentContext> {
+        self.inference.as_ref()
+    }
+
     pub fn with_cancellation(mut self, cancellation: Arc<AtomicBool>) -> Self {
         self.cancellation = Some(cancellation);
         self
