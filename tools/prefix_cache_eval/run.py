@@ -4,17 +4,16 @@ import argparse
 import hashlib
 import json
 from pathlib import Path
-import subprocess
 import sys
-import tempfile
 
 from cases import CASES
+from grader import grade_candidate
 
 
 def corpus_digest():
     root = Path(__file__).parent
     digest = hashlib.sha256()
-    for name in ["cases.py", "grader.py", "run.py"]:
+    for name in ["cases.py", "grader.py", "worker.py", "run.py"]:
         digest.update(name.encode())
         digest.update((root / name).read_bytes())
     return digest.hexdigest()
@@ -27,54 +26,29 @@ def initialize(case_id, workspace):
         (workspace / name).write_text(content)
 
 
-def grade(case_id, phase, workspace, timeout=10):
-    workspace = workspace.resolve()
-    result = {"case_id": case_id, "phase": phase, "passed": False}
-    root = Path(__file__).resolve().parent
+def protected_input_reason(case_id, workspace):
     policy = CASES[case_id]["files"].get("POLICY.md")
     if policy is not None:
         try:
             if (workspace / "POLICY.md").read_text() != policy:
-                return {**result, "reason": "protected_input_changed"}
-        except OSError:
-            return {**result, "reason": "protected_input_missing"}
-    # Keep verifier code outside the model's workspace. The subprocess inherits
-    # the surrounding task sandbox; -I isolates Python imports, not filesystem access.
-    with tempfile.TemporaryFile() as output:
-        try:
-            completed = subprocess.run(
-                [
-                    sys.executable,
-                    "-I",
-                    str(root / "grader.py"),
-                    str(case_id),
-                    str(phase),
-                    str(workspace),
-                ],
-                cwd=workspace,
-                stdin=subprocess.DEVNULL,
-                stdout=output,
-                stderr=subprocess.DEVNULL,
-                timeout=timeout,
-                check=False,
-            )
-        except subprocess.TimeoutExpired:
-            return {**result, "reason": "timeout"}
-        except OSError:
-            return {**result, "passed": None, "reason": "grader_unavailable"}
-        output.seek(0)
-        try:
-            receipt = json.loads(output.read(4096))
-        except (ValueError, UnicodeDecodeError):
-            return {**result, "passed": None, "reason": "invalid_grader_receipt"}
-        if (
-            completed.returncode != 0
-            or not isinstance(receipt, dict)
-            or receipt != {**result, "passed": receipt.get("passed")}
-            or not isinstance(receipt.get("passed"), bool)
-        ):
-            return {**result, "passed": None, "reason": "invalid_grader_receipt"}
-    return receipt
+                return "protected_input_changed"
+        except (OSError, UnicodeError):
+            return "protected_input_missing"
+    return None
+
+
+def grade(case_id, phase, workspace, timeout=10):
+    workspace = workspace.resolve()
+    result = {"case_id": case_id, "phase": phase, "passed": False}
+    reason = protected_input_reason(case_id, workspace)
+    if reason is not None:
+        return {**result, "reason": reason}
+    receipt = grade_candidate(case_id, phase, workspace, timeout)
+    # Revalidate even when the worker failed, timed out, or returned no receipt.
+    reason = protected_input_reason(case_id, workspace)
+    if reason is not None:
+        return {**result, "reason": reason}
+    return {**result, **receipt}
 
 
 def main():

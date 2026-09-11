@@ -10,7 +10,6 @@ import unittest
 from cases import CASES
 from run import corpus_digest, grade, initialize
 
-
 REPAIRS = {
     1: """def window(items, offset, limit):
     if offset < 0 or limit < 0:
@@ -110,11 +109,69 @@ class GraderCalibration(unittest.TestCase):
         self.assertFalse(receipt["passed"])
         self.assertEqual(receipt["reason"], "protected_input_changed")
 
+    def test_candidate_cannot_replace_verifier_functions(self):
+        for case_id in CASES:
+            with self.subTest(case_id=case_id):
+                source = CASES[case_id]["files"]["task.py"] + "\nimport __main__\n"
+                source += "__main__.check_window = lambda *args: None\n"
+                source += "__main__.check_records = lambda *args: None\n"
+                source += "__main__.check_identity = lambda *args: None\n"
+                source += "__main__.grade = lambda *args: True\n"
+                self.assertIs(
+                    grade(
+                        case_id,
+                        2 if case_id == 3 else 1,
+                        self.workspace(case_id, source),
+                    )["passed"],
+                    False,
+                )
+
+    def test_policy_changes_during_candidate_execution_fail(self):
+        for mutation in ["write_text('changed')", "unlink()"]:
+            with self.subTest(
+                mutation=mutation
+            ), tempfile.TemporaryDirectory() as directory:
+                workspace = Path(directory) / "workspace"
+                initialize(3, workspace)
+                source = (
+                    "from pathlib import Path\nPath('POLICY.md')."
+                    + mutation
+                    + "\n"
+                    + REPAIRS[3]
+                )
+                (workspace / "task.py").write_text(source)
+                self.assertIs(grade(3, 2, workspace)["passed"], False)
+
     def test_workspace_reuse_cannot_copy_repairs_between_arms(self):
         workspace = self.workspace(1, REPAIRS[1])
         with self.assertRaises(FileExistsError):
             initialize(1, workspace)
         self.assertEqual((workspace / "task.py").read_text(), REPAIRS[1])
+
+    def test_policy_is_rechecked_after_timeout_or_missing_receipt(self):
+        for ending in ["while True:\n    pass\n", "import os\nos._exit(0)\n"]:
+            with self.subTest(
+                ending=ending
+            ), tempfile.TemporaryDirectory() as directory:
+                workspace = Path(directory) / "workspace"
+                initialize(3, workspace)
+                (workspace / "task.py").write_text(
+                    "from pathlib import Path\nPath('POLICY.md').write_text('changed')\n"
+                    + ending
+                )
+                receipt = grade(3, 2, workspace, timeout=0.2)
+                self.assertIs(receipt["passed"], False)
+                self.assertEqual(receipt["reason"], "protected_input_changed")
+
+    def test_worker_receipts_cannot_bypass_observation_validation(self):
+        source = """import json
+import os
+os.write(1, json.dumps({"case_id": 1, "phase": 1, "passed": True}).encode())
+os._exit(0)
+"""
+        receipt = grade(1, 1, self.workspace(1, source))
+        self.assertIsNone(receipt["passed"])
+        self.assertEqual(receipt["reason"], "invalid_grader_receipt")
 
     def test_timeout_and_candidate_errors_are_failed_grades(self):
         workspace = self.workspace(1, "while True:\n    pass\n")

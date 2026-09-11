@@ -37,8 +37,16 @@ the fixed grader time limit.
 The grader uses independent contract examples and boundary sweeps, not generated
 model tests or a model's self-report. Calibration checks require all starters
 to fail, known repairs to pass, and plausible incorrect repairs to fail.
+Candidate modules execute in `worker.py`; the parent verifier never imports
+them or exposes its expected results in the worker request. JSON observations
+include returned values, input mutation, object-origin indices, and error
+categories. The verifier checks these observations and caps accepted output at
+2 MB. A worker's own pass/fail receipt is invalid. This process boundary does
+not replace the surrounding filesystem/network sandbox.
 Case 3 also rejects changes to the policy source. Its first phase deliberately
 does not require the second task's implementation.
+The protected policy is checked before and after worker execution, including
+timeouts and missing receipts. Corpus hashing includes the worker implementation.
 
 ## Paired Trial Contract
 
@@ -146,6 +154,10 @@ Live execution evidence is recorded in the
 [implementation journal](../../docs/journal/2026-09-11-prefix-cache-optimization.md).
 The [2026-09-11 aggregate report](results/2026-09-11-deepseek.json) includes
 all three paired comparisons and the dated tariff; raw receipts remain local.
+Its quality figures predate worker isolation and post-execution policy checks.
+They retain their historical corpus hash and are explicitly unvalidated for
+strategy promotion; the per-phase sources needed for a complete regrade were
+not retained. Inference cost receipts are unchanged.
 These small fixtures calibrate the mechanism; they do not establish statistical
 quality parity on a broad workload. The driver explicitly selects production
 compaction timing per session, avoiding the fast unit-test timeout.

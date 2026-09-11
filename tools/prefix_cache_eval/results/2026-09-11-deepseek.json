@@ -214,5 +214,10 @@
     "compaction.jsonl": "e6c957aaac04f5a7a2e92bca4772bd447be7500b799b80efaaa6afeac2dba1c4"
   },
   "receipt_availability": "Aggregate results are included here. Content-free raw receipts and measured source hashes were retained locally by the author; raw receipts are not included in this repository.",
-  "billing_note": "Costs use the recorded tariff, not a reconciled provider invoice. The execution ceiling was selected for the run, not supplied by the user."
+  "billing_note": "Costs use the recorded tariff, not a reconciled provider invoice. The execution ceiling was selected for the run, not supplied by the user.",
+  "quality_validation": {
+    "status": "historical_grader_not_revalidated",
+    "eligible_for_strategy_promotion": false,
+    "note": "Original quality figures used a verifier that executed candidate modules in-process and checked protected policy only before execution. The PR review repair separates the worker and rechecks policy after execution. Original per-phase source snapshots were not retained, so complete paired quality cannot be reconstructed from final workspaces. Cost receipts and the original corpus hash are preserved; these grades are not evidence for strategy promotion."
+  }
 }

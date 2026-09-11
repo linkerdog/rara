@@ -1,40 +1,44 @@
-"""External contract checks. Execute inside the task's isolated environment."""
+"""Verify worker observations without importing or executing candidate modules."""
 
-import contextlib
 import copy
 import json
 import os
 from pathlib import Path
+import signal
+import subprocess
 import sys
-import types
+import tempfile
 
 
-def check_window(candidate):
+def window_checks():
     for length in range(9):
         items = list(range(length))
         for offset in range(12):
             for limit in range(12):
-                before = items.copy()
+                arguments = [items, offset, limit]
                 expected = [
                     item
                     for index, item in enumerate(items)
                     if offset <= index < offset + limit
                 ]
-                actual = candidate.window(items, offset, limit)
-                assert actual == expected and actual is not items
-                assert items == before
+                yield {"function": "window", "arguments": arguments}, {
+                    "value": expected,
+                    "arguments": copy.deepcopy(arguments),
+                    "aliases_arguments": [False, False, False],
+                    "error": None,
+                }
     for items in [[], [1, 2]]:
         for offset, limit in [(-1, 2), (1, -1), (-1, -1)]:
-            try:
-                candidate.window(items, offset, limit)
-            except ValueError:
-                pass
-            else:
-                raise AssertionError("negative bound accepted")
-    assert candidate.window([1, 2], 0, 10**30) == [1, 2]
+            yield {"function": "window", "arguments": [items, offset, limit]}, {
+                "error": {"value_error": True}
+            }
+    yield {"function": "window", "arguments": [[1, 2], 0, 10**30]}, {
+        "value": [1, 2],
+        "error": None,
+    }
 
 
-def check_records(candidate):
+def record_checks():
     for text, expected in [
         ("", []),
         (" \n\t\r\n", []),
@@ -44,7 +48,10 @@ def check_records(candidate):
         ),
         ('{"id":1}\n{"id":1}', [{"id": 1}, {"id": 1}]),
     ]:
-        assert candidate.parse_objects(text) == expected
+        yield {"function": "parse_objects", "arguments": [text]}, {
+            "value": expected,
+            "error": None,
+        }
     for text, line_number, decode_error in [
         ('{\n{"id":1}', 1, True),
         ('\n{"id":1}\n \n{\n', 4, True),
@@ -54,18 +61,17 @@ def check_records(candidate):
         ('"record"', 1, False),
         ("42", 1, False),
     ]:
-        try:
-            candidate.parse_objects(text)
-        except candidate.RecordError as error:
-            assert error.line_number == line_number
-            assert isinstance(error, ValueError)
-            if decode_error:
-                assert isinstance(error.__cause__, json.JSONDecodeError)
-        else:
-            raise AssertionError("invalid record accepted")
+        error = {
+            "line_number": line_number,
+            "value_error": True,
+            "record_error": True,
+        }
+        if decode_error:
+            error["json_decode_cause"] = True
+        yield {"function": "parse_objects", "arguments": [text]}, {"error": error}
 
 
-def check_identity(candidate, phase):
+def identity_checks(phase):
     inputs = [
         [],
         [{"id": "B", "value": 1}, {"id": "A", "value": 2}],
@@ -74,61 +80,94 @@ def check_identity(candidate, phase):
         [{"id": "\u00df", "value": 1}, {"id": "ss", "value": 2}],
         [{"id": "A", "value": {"nested": [1, 2]}}, {"id": "A", "value": 3}],
     ]
-    for records in inputs:
-        before = copy.deepcopy(records)
-        expected = [
-            record
-            for i, record in enumerate(records)
-            if all(old["id"] != record["id"] for old in records[:i])
+    calls = [("stable_unique", [records]) for records in inputs]
+    if phase == 2:
+        calls.extend(
+            ("merge_unique", [existing, incoming])
+            for existing in inputs
+            for incoming in inputs
+        )
+    for function, arguments in calls:
+        combined = [record for records in arguments for record in records]
+        origins = [
+            i
+            for i, record in enumerate(combined)
+            if all(old["id"] != record["id"] for old in combined[:i])
         ]
-        result = candidate.stable_unique(records)
-        assert result == expected and result is not records
-        assert all(actual is original for actual, original in zip(result, expected))
-        assert records == before
-    if phase == 1:
-        return
-    for existing in inputs:
-        for incoming in inputs:
-            before = copy.deepcopy((existing, incoming))
-            combined = existing + incoming
-            expected = [
-                record
-                for i, record in enumerate(combined)
-                if all(old["id"] != record["id"] for old in combined[:i])
-            ]
-            result = candidate.merge_unique(existing, incoming)
-            assert (
-                result == expected and result is not existing and result is not incoming
-            )
-            assert all(actual is original for actual, original in zip(result, expected))
-            assert (existing, incoming) == before
+        yield {"function": function, "arguments": arguments}, {
+            "value": [combined[i] for i in origins],
+            "item_origins": origins,
+            "arguments": copy.deepcopy(arguments),
+            "aliases_arguments": [False] * len(arguments),
+            "error": None,
+        }
 
 
-def grade(case_id, phase, workspace):
-    candidate = types.ModuleType("candidate")
-    candidate.__file__ = str(workspace / "task.py")
-    sys.modules[candidate.__name__] = candidate
-    try:
-        with open(os.devnull, "w") as sink, contextlib.redirect_stdout(
-            sink
-        ), contextlib.redirect_stderr(sink):
-            source = (workspace / "task.py").read_text()
-            exec(compile(source, candidate.__file__, "exec"), candidate.__dict__)
-            if case_id == 1:
-                check_window(candidate)
-            elif case_id == 2:
-                check_records(candidate)
-            elif case_id == 3:
-                check_identity(candidate, phase)
-            else:
-                raise ValueError("unknown case")
-    except BaseException:
-        # Candidate source and exception messages do not belong in cost artifacts.
-        return False
-    return True
-
-
-if __name__ == "__main__":
-    case_id, phase = int(sys.argv[1]), int(sys.argv[2])
-    passed = grade(case_id, phase, Path(sys.argv[3]))
-    print(json.dumps({"case_id": case_id, "phase": phase, "passed": passed}))
+def grade_candidate(case_id, phase, workspace, timeout):
+    if case_id == 1:
+        checks = list(window_checks())
+    elif case_id == 2:
+        checks = list(record_checks())
+    elif case_id == 3:
+        checks = list(identity_checks(phase))
+    else:
+        raise ValueError("unknown case")
+    # Only calls cross into the worker; expected results remain in this process.
+    with tempfile.TemporaryFile() as source, tempfile.TemporaryFile() as output:
+        source.write(json.dumps([request for request, _ in checks]).encode())
+        source.seek(0)
+        try:
+            with subprocess.Popen(
+                [
+                    sys.executable,
+                    "-I",
+                    str(Path(__file__).with_name("worker.py")),
+                    str(workspace),
+                ],
+                cwd=workspace,
+                stdin=source,
+                stdout=output,
+                stderr=subprocess.DEVNULL,
+                start_new_session=os.name == "posix",
+            ) as worker:
+                try:
+                    worker.wait(timeout=timeout)
+                except subprocess.TimeoutExpired:
+                    if os.name == "posix":
+                        try:
+                            os.killpg(worker.pid, signal.SIGKILL)
+                        except ProcessLookupError:
+                            pass
+                    else:
+                        worker.kill()
+                    worker.wait()
+                    return {"passed": False, "reason": "timeout"}
+        except OSError:
+            return {"passed": None, "reason": "grader_unavailable"}
+        output.seek(0)
+        try:
+            receipt = json.loads(output.read(2_000_001))
+            if worker.returncode != 0 or output.tell() > 2_000_000:
+                raise ValueError("invalid worker output")
+            if receipt == {"candidate_error": True}:
+                return {"passed": False}
+            if not isinstance(receipt, dict) or set(receipt) != {"observations"}:
+                raise ValueError("invalid worker receipt")
+            observations = receipt["observations"]
+            if not isinstance(observations, list) or len(observations) != len(checks):
+                raise ValueError("missing worker observations")
+            if not all(isinstance(observation, dict) for observation in observations):
+                raise ValueError("invalid worker observation")
+        except (ValueError, UnicodeDecodeError):
+            return {"passed": None, "reason": "invalid_grader_receipt"}
+    for observation, (_, expected) in zip(observations, checks):
+        for key, value in expected.items():
+            actual = observation.get(key)
+            if key == "error" and isinstance(value, dict):
+                if not isinstance(actual, dict) or any(
+                    actual.get(k) != v for k, v in value.items()
+                ):
+                    return {"passed": False}
+            elif actual != value:
+                return {"passed": False}
+    return {"passed": True}

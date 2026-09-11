@@ -75,6 +75,8 @@ Stages 1 and 2 are implemented. Task accounting has explicit physical-attempt
 coverage for Chat Completions, Responses, and Bedrock Converse; other backends
 remain visibly unobserved. Stage 3 now includes selectable summary/tool
 strategies, an offline paired report, and three completed live comparisons.
+Their historical quality receipts remain unvalidated after the grader issues
+identified in PR review; see the review checkpoint below.
 
 Focused validation at this checkpoint:
 
@@ -165,6 +167,12 @@ bound is deducted before any new run. No strategy default has been promoted.
 
 ## Initial Live Summary Comparison
 
+The live quality figures in this and the next two sections are historical.
+PR review reproduced verifier tampering and missing post-execution policy
+checks in the original grader. They have not been revalidated with the isolated
+worker; the published artifact now marks them ineligible for strategy promotion.
+The original task costs and corpus identity remain unchanged.
+
 The corrected driver completed two paired repetitions of case 3, alternating
 arm order. The main model was `deepseek-v4-pro`, configured reasoning effort
 `max`, with 4096 output tokens per request. The auxiliary alias
@@ -210,7 +218,7 @@ therefore includes generation variability as well as cache-related input savings
 The candidate did not increase observed rejected tool calls, and Plan/Review
 workspace checks passed. The sole baseline task failure was in case 3 phase 2.
 
-This supports the opt-in stable-schema strategy for this measured setup. The
+The original result suggested evaluating the opt-in stable-schema strategy. The
 corpus exposes two real file tools, not the runtime's full extension/tool set;
 six samples per arm do not establish broader quality or cost parity. Keep the
 strategy selectable rather than promoting a global default from this result.
@@ -273,8 +281,9 @@ the subsequent Bazel runfiles repair changes test resource lookup only.
 Keep auxiliary summaries as the default. Keep stable tool schemas selectable:
 they are promising for the measured two-tool workload, but the full tool set
 and additional providers need their own evidence before default promotion.
-The measured comparisons complete stage three for the selected profile; they
-do not establish a global minimum cost or statistical quality equivalence.
+The original comparisons record task costs for the selected profile. Their
+quality results predate the grader repair and cannot establish a promotion
+gate, global minimum cost, or statistical quality equivalence.
 
 ## Live Comparison Protocol
 
@@ -302,10 +311,56 @@ usage or an unsupported billing category makes the comparison inconclusive.
 Require paired task quality and invalid-call evidence before changing defaults;
 report savings only as a point estimate for the tested workload.
 
+## PR Review Checkpoint
+
+Review of `e7432df58432a10993041ab98d799a15a876ceaa` identified status retries,
+truncated summary-prefix acceptance, partial Anthropic usage loss, shared-process
+grading, and missing post-execution policy checks. Regressions reproduced all
+five issues before the repairs. The authentication report does not match the
+source: Responses already interpolates the exposed key, and the HTTP capture
+now verifies the configured fixture credential across retries.
+
+The Codex retry policy explicitly classifies HTTP 429 and server errors; the
+Claude Code compact fork preserves the main request's cache-key parameters.
+The repair adapts these patterns with the existing retry bound, per-attempt
+usage retention, and full-length prefix matching. Missing cache categories stay
+unknown while their known input/output counters survive normalization.
+
+Candidate code now runs in a worker process that receives call inputs but no
+expected values. The verifier independently compares JSON observations, and
+rejects candidate-authored pass/fail receipts. The host rechecks protected policy
+inputs after success, failure, missing output, and timeout; POSIX timeouts kill
+the worker process group. Surrounding filesystem/network isolation is still
+required. The corpus digest includes the new worker.
+
+The original live aggregate retains its receipt hashes, costs, and corpus
+identity, but explicitly marks its old quality figures as unvalidated and
+ineligible for promotion. Complete per-phase source snapshots were not retained,
+so final workspaces cannot reconstruct every original grade. No additional paid
+model calls were made for this review repair.
+
+Review validation:
+
+- `cargo test -p rara --lib inference_ -- --test-threads=1`: 14 tests pass,
+  including HTTP status retries, authentication capture, full-prefix matching,
+  and incomplete-category pricing.
+- `python3 -m unittest discover -s tools/prefix_cache_eval -p 'test_*.py'`:
+  17 tests pass, including verifier replacement, forged receipts, policy
+  writes/deletion, and post-timeout checks.
+- `cargo test -p rara --lib agent::tests::cache_trial`: five offline driver
+  tests pass; the paid test stays ignored.
+- `bazel test //:rara_unit_tests --test_arg=agent::tests::cache_trial`:
+  one target executes and passes, with five tests passed and one ignored.
+  The actual grader/worker path is exercised through Bazel runfiles.
+- `cargo clippy -p rara --lib --tests -- -D warnings`, Rust formatting,
+  Python Black formatting, and `git diff --check` pass. The incidental Bazel
+  lock refresh is excluded from the repair.
+
 ## Follow-Ups
 
 - Before promoting stable tool schemas globally, evaluate the full runtime
   tool set and longer tasks with more repetitions and independently refreshed
-  model routing and prices.
+  model routing and prices. Use the repaired grader and retain per-phase source
+  snapshots so later grader changes can be evaluated without another model run.
 - Expand physical-attempt instrumentation and known-zero billing contracts only
   when evaluating additional providers; do not infer them from API compatibility.
