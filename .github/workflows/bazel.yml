@@ -14,8 +14,8 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v7
 
-      - name: Install protoc
-        run: sudo apt-get update && sudo apt-get install -y protobuf-compiler
+      - name: Install test dependencies
+        run: sudo apt-get update && sudo apt-get install -y protobuf-compiler bubblewrap
 
       - name: Install Bazel
         uses: bazel-contrib/setup-bazel@0.19.0

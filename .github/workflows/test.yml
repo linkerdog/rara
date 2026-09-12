@@ -14,8 +14,8 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v7
 
-      - name: Install protoc
-        run: sudo apt-get update && sudo apt-get install -y protobuf-compiler
+      - name: Install test dependencies
+        run: sudo apt-get update && sudo apt-get install -y protobuf-compiler bubblewrap
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@master
@@ -27,3 +27,6 @@ jobs:
 
       - name: Run tests
         run: cargo test --locked
+
+      - name: Calibrate isolated cache trial graders
+        run: python3 -m unittest discover -s tools/prefix_cache_eval -p 'test_*.py'

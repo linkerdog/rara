@@ -97,6 +97,89 @@ fn cancellation_retains_received_usage_and_missing_usage_is_not_free() {
 }
 
 #[test]
+fn partial_categories_keep_known_charges_without_guessing_ordinary_input() {
+    for (partial, expected) in [
+        (
+            InferenceTokenUsage {
+                cache_read_tokens: None,
+                ..usage()
+            },
+            0.002475,
+        ),
+        (
+            InferenceTokenUsage {
+                cache_write_tokens: None,
+                ..usage()
+            },
+            0.002655,
+        ),
+        (
+            InferenceTokenUsage {
+                cache_write_5m_tokens: None,
+                ..usage()
+            },
+            0.00228,
+        ),
+        (
+            InferenceTokenUsage {
+                cache_write_1h_tokens: None,
+                ..usage()
+            },
+            0.002055,
+        ),
+        (
+            InferenceTokenUsage {
+                cache_read_tokens: None,
+                cache_write_tokens: None,
+                cache_write_5m_tokens: None,
+                cache_write_1h_tokens: None,
+                ..usage()
+            },
+            0.0015,
+        ),
+    ] {
+        let task = InferenceTask::default();
+        let agent = task.start_agent(None);
+        let call = agent.start_call(InferencePurpose::Main);
+        let attempt = call.context().start_attempt("test", "model");
+        attempt.record_final_usage(partial);
+        attempt.finish(&Ok::<_, ()>(()));
+        call.finish(&Ok::<_, ()>(()));
+        drop(agent);
+        let cost = prices().cost(&task.snapshot());
+        assert!(!cost.complete);
+        assert_eq!(cost.unpriced_attempts, 1);
+        assert!((cost.known_cost_usd - expected).abs() < 1e-12, "{cost:?}");
+    }
+}
+
+#[test]
+fn running_attempts_price_the_latest_cumulative_usage_without_double_counting() {
+    let task = InferenceTask::default();
+    let agent = task.start_agent(None);
+    let call = agent.start_call(InferencePurpose::Main);
+    let attempt = call.context().start_attempt("test", "model");
+    for output_tokens in [100, 200] {
+        attempt.record_usage(InferenceTokenUsage {
+            output_tokens,
+            ..usage()
+        });
+        let cost = prices().cost(&task.snapshot());
+        assert!(!cost.complete);
+        assert_eq!(cost.unpriced_attempts, 1);
+        let expected = 0.001755 + output_tokens as f64 * 15.0 / 1_000_000.0;
+        assert!((cost.known_cost_usd - expected).abs() < 1e-12);
+    }
+    attempt.record_final_usage(usage());
+    attempt.finish(&Ok::<_, ()>(()));
+    call.finish(&Ok::<_, ()>(()));
+    drop(agent);
+    let cost = prices().cost(&task.snapshot());
+    assert!(cost.complete);
+    assert!((cost.known_cost_usd - 0.003255).abs() < 1e-12);
+}
+
+#[test]
 fn uninstrumented_backends_cannot_claim_complete_cost() {
     let task = InferenceTask::default();
     let agent = task.start_agent(None);

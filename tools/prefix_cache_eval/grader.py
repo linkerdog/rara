@@ -2,12 +2,10 @@
 
 import copy
 import json
-import os
-from pathlib import Path
-import signal
 import subprocess
-import sys
 import tempfile
+
+from isolation import isolated_worker
 
 
 def window_checks():
@@ -117,30 +115,10 @@ def grade_candidate(case_id, phase, workspace, timeout):
         source.write(json.dumps([request for request, _ in checks]).encode())
         source.seek(0)
         try:
-            with subprocess.Popen(
-                [
-                    sys.executable,
-                    "-I",
-                    str(Path(__file__).with_name("worker.py")),
-                    str(workspace),
-                ],
-                cwd=workspace,
-                stdin=source,
-                stdout=output,
-                stderr=subprocess.DEVNULL,
-                start_new_session=os.name == "posix",
-            ) as worker:
+            with isolated_worker(workspace, source, output) as worker:
                 try:
                     worker.wait(timeout=timeout)
                 except subprocess.TimeoutExpired:
-                    if os.name == "posix":
-                        try:
-                            os.killpg(worker.pid, signal.SIGKILL)
-                        except ProcessLookupError:
-                            pass
-                    else:
-                        worker.kill()
-                    worker.wait()
                     return {"passed": False, "reason": "timeout"}
         except OSError:
             return {"passed": None, "reason": "grader_unavailable"}

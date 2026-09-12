@@ -27,6 +27,15 @@ impl BedrockBackend {
     }
 }
 
+fn cache_profile_for_ttl(ttl: Option<BedrockCacheTtl>) -> ProviderCacheProfile {
+    ProviderCacheProfile {
+        explicit_prefix_cache: ttl.is_some(),
+        cache_usage_accounting: ttl.is_some(),
+        cache_retention_control: ttl.is_some(),
+        ..ProviderCacheProfile::none()
+    }
+}
+
 fn to_bedrock_messages(messages: &[Message]) -> Vec<BedrockChatMessage> {
     messages
         .iter()
@@ -126,11 +135,7 @@ impl LlmBackend for BedrockBackend {
         super::summary::summary_text(response)
     }
     fn cache_profile(&self) -> ProviderCacheProfile {
-        ProviderCacheProfile {
-            explicit_prefix_cache: self.cache_ttl.is_some(),
-            cache_usage_accounting: self.cache_ttl.is_some(),
-            ..ProviderCacheProfile::none()
-        }
+        cache_profile_for_ttl(self.cache_ttl)
     }
     fn model_label(&self) -> Option<String> {
         Some(self.client.model_id().to_string())
@@ -254,6 +259,19 @@ mod tests {
     use serde_json::json;
 
     use super::*;
+
+    #[test]
+    fn inference_cache_capabilities_require_an_explicit_ttl() {
+        assert_eq!(cache_profile_for_ttl(None), ProviderCacheProfile::none());
+        for ttl in [BedrockCacheTtl::FiveMinutes, BedrockCacheTtl::OneHour] {
+            let profile = cache_profile_for_ttl(Some(ttl));
+            assert!(profile.explicit_prefix_cache);
+            assert!(profile.cache_usage_accounting);
+            assert!(profile.cache_retention_control);
+            assert!(!profile.automatic_prefix_cache);
+            assert!(!profile.cache_edit);
+        }
+    }
 
     #[test]
     fn converts_rara_messages_to_bedrock_messages() {

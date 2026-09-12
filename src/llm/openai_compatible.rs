@@ -749,7 +749,7 @@ pub(super) async fn api_error_from_response(
     let body = response.text().await.unwrap_or_default();
     let sanitized_body = redact_secrets(body);
     let parsed = serde_json::from_str::<Value>(&sanitized_body).ok();
-    record_usage(attempt, parsed.as_ref().and_then(|body| body.get("usage")));
+    record_final_usage(attempt, parsed.as_ref().and_then(|body| body.get("usage")));
     let error = parsed.as_ref().and_then(|value| value.get("error"));
     OpenAiApiError {
         status: Some(status),

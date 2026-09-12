@@ -189,6 +189,8 @@ async fn inference_summary_fallback_records_both_model_identities() {
     assert_eq!(snapshot.attempts[0].model, "summary-model");
     assert_eq!(snapshot.attempts[1].model, "main-model");
     assert!(snapshot.attempts[0].usage.is_some());
+    assert!(snapshot.attempts[0].usage_complete);
+    assert!(snapshot.attempts[1].usage_complete);
     assert_eq!(snapshot.attempts[0].status, InferenceStatus::Failed);
 }
 

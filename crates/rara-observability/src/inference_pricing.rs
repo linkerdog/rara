@@ -58,16 +58,20 @@ impl InferencePriceTable {
                 attempt.usage.as_ref().and_then(|usage| price.cost(usage))
             });
             match cost {
-                Some(cost) if attempt.status != InferenceStatus::Running => {
-                    let total = report.known_cost_usd + cost;
+                Some(cost) => {
+                    let total = report.known_cost_usd + cost.known_usd;
                     if total.is_finite() {
                         report.known_cost_usd = total;
                     }
-                    if !total.is_finite() || !attempt.usage_complete {
+                    if !total.is_finite()
+                        || !cost.complete
+                        || !attempt.usage_complete
+                        || attempt.status == InferenceStatus::Running
+                    {
                         report.unpriced_attempts += 1;
                     }
                 }
-                Some(_) | None => report.unpriced_attempts += 1,
+                None => report.unpriced_attempts += 1,
             }
         }
         report.complete = snapshot.is_terminal()
@@ -78,20 +82,29 @@ impl InferencePriceTable {
     }
 }
 
+struct PricedUsage {
+    known_usd: f64,
+    complete: bool,
+}
+
 impl InferencePrice {
-    fn cost(&self, usage: &InferenceTokenUsage) -> Option<f64> {
-        let read = usage.cache_read_tokens?;
-        let write = usage.cache_write_tokens?;
-        let short = usage.cache_write_5m_tokens?;
-        let long = usage.cache_write_1h_tokens?;
+    fn cost(&self, usage: &InferenceTokenUsage) -> Option<PricedUsage> {
+        let read = usage.cache_read_tokens;
+        let write = usage.cache_write_tokens;
+        let short = usage.cache_write_5m_tokens;
+        let long = usage.cache_write_1h_tokens;
+        let complete = [read, write, short, long].iter().all(Option::is_some);
         let cached = read
-            .checked_add(write)?
-            .checked_add(short)?
-            .checked_add(long)?;
+            .unwrap_or(0)
+            .checked_add(write.unwrap_or(0))?
+            .checked_add(short.unwrap_or(0))?
+            .checked_add(long.unwrap_or(0))?;
+        // Missing categories may account for the remaining input. Price only
+        // independently known charges until the full breakdown is available.
         let ordinary = usage.input_tokens.checked_sub(cached)?;
         let categories = [
-            (ordinary, self.input),
-            (usage.output_tokens, self.output),
+            (complete.then_some(ordinary), self.input),
+            (Some(usage.output_tokens), self.output),
             (read, self.cache_read),
             (write, self.cache_write),
             (short, self.cache_write_5m),
@@ -102,8 +115,13 @@ impl InferencePrice {
             if !rate.is_finite() || rate < 0.0 {
                 return None;
             }
-            cost += (tokens as f64 / 1_000_000.0) * rate;
+            if let Some(tokens) = tokens {
+                cost += (tokens as f64 / 1_000_000.0) * rate;
+            }
         }
-        cost.is_finite().then_some(cost)
+        cost.is_finite().then_some(PricedUsage {
+            known_usd: cost,
+            complete,
+        })
     }
 }

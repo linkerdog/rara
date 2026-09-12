@@ -41,12 +41,27 @@ Candidate modules execute in `worker.py`; the parent verifier never imports
 them or exposes its expected results in the worker request. JSON observations
 include returned values, input mutation, object-origin indices, and error
 categories. The verifier checks these observations and caps accepted output at
-2 MB. A worker's own pass/fail receipt is invalid. This process boundary does
-not replace the surrounding filesystem/network sandbox.
+2 MB. A worker's own pass/fail receipt is invalid. The worker is staged away
+from verifier sources and executes in an OS sandbox with an empty environment.
+macOS uses `/usr/bin/sandbox-exec` with a read allowlist and no process creation;
+Linux requires `/usr/bin/bwrap` and permitted user/PID/network namespaces.
+The Linux sandbox mounts only runtime paths, the staged worker, and the fixture.
+Verifier source cannot be read through absolute paths or fixture symlinks.
+All exit paths drain the process group before protected inputs are rechecked.
+Windows and hosts that cannot establish this boundary return an unknown grade;
+there is no unsandboxed fallback. An outer sandbox must permit starting this
+inner sandbox. Check the local environment without calling a provider:
+
+```sh
+python3 tools/prefix_cache_eval/run.py preflight
+```
+
+The paid driver requires a successful preflight before the first model call.
 Case 3 also rejects changes to the policy source. Its first phase deliberately
 does not require the second task's implementation.
 The protected policy is checked before and after worker execution, including
-timeouts and missing receipts. Corpus hashing includes the worker implementation.
+timeouts and missing receipts. Corpus hashing includes the worker and isolation
+implementations. OS sandbox policies and Python are additional host dependencies.
 
 ## Paired Trial Contract
 
@@ -115,7 +130,7 @@ invalidate an otherwise identical comparison. Reports price received tokens
 under the supplied tariff; they are not a provider invoice. A missing receipt
 or a cancelled remote request cannot be assumed free.
 
-After authorizing a ceiling and entering the surrounding task sandbox, run:
+After authorizing a ceiling and verifying the sandbox preflight, run:
 
 ```sh
 export CACHE_TRIAL_ALLOW_PAID=yes

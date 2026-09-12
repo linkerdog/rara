@@ -257,6 +257,11 @@ async fn run_paid_prefix_cache_comparison() -> Result<()> {
         PathBuf::from(std::env::var("CACHE_TRIAL_PYTHON").unwrap_or_else(|_| "python3".into()));
     let corpus: Corpus =
         serde_json::from_value(python_receipt(&python, &["export".into()]).await?)?;
+    let sandbox = python_receipt(&python, &["preflight".into()]).await?;
+    ensure!(
+        sandbox["sandbox_available"] == true,
+        "candidate execution requires a working OS sandbox before paid calls"
+    );
     let config_path = crate::config::rara_home_dir()?.join("config.json");
     let config = crate::config::ConfigManager { path: config_path }.load()?;
     ensure!(

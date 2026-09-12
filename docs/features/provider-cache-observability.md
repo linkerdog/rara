@@ -70,7 +70,12 @@ cancelled; provider usage already received is retained. A backend without
 attempt instrumentation is explicitly reported as incomplete coverage.
 
 Final usage receipts and intermediate stream counters are distinct. Partial
-charges contribute to known cost but cannot make total cost complete. A terminal
+charges, including counters from still-running attempts, contribute to known
+cost but cannot make total cost complete. Missing cache categories do not erase
+known output or separately reported cache charges. Ordinary input is priced only
+when every cache category is known and can be subtracted from inclusive input.
+A terminal error response with usage is a final receipt; its category coverage
+is still checked independently. A terminal
 snapshot means currently admitted work has drained; hosts must finish scheduling
 post-turn extraction, evaluators, and children before treating it as a task bill.
 
@@ -183,8 +188,8 @@ per-run budget reserves the bounded worst-case charge before polling each
 logical call, including its physical retry/fallback bound. Only complete
 receipts release unused reservations. Cancellation or incomplete accounting
 blocks subsequent calls; grader failure preserves costs and an unknown grade.
-The grader runs within the surrounding task sandbox, not a sandbox created by
-the driver. Actual provider artifacts remain the gate for changing defaults.
+The paid driver checks grader isolation before admitting any provider call.
+Actual provider artifacts remain the gate for changing defaults.
 
 Retryable HTTP statuses must enter the bounded transport retry loop, with each
 failed attempt finalized and any returned usage retained. Missing Anthropic
@@ -196,7 +201,14 @@ Candidate modules execute in a worker process that receives call inputs only.
 Expected results and pass/fail decisions stay in the verifier process. Worker
 output is bounded JSON, never executable serialization. Protected policy inputs
 are checked before and after execution, including failure and timeout paths.
-Process separation does not replace the surrounding filesystem/network sandbox.
+The worker additionally requires OS-enforced filesystem and network isolation.
+Only the Python runtime, staged observation worker, and fixture workspace are
+readable; verifier sources and inherited host credentials are unavailable.
+macOS uses Seatbelt and denies process creation; Linux uses Bubblewrap with a
+private PID namespace. Every exit path tears down the worker process group
+before policy revalidation. Unsupported platforms (including Windows) or failed
+sandbox setup return an unknown grade without executing candidate code; there
+is no unsandboxed fallback.
 
 ### Content-free request fingerprints
 

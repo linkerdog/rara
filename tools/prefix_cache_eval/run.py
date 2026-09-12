@@ -8,12 +8,13 @@ import sys
 
 from cases import CASES
 from grader import grade_candidate
+from isolation import preflight
 
 
 def corpus_digest():
     root = Path(__file__).parent
     digest = hashlib.sha256()
-    for name in ["cases.py", "grader.py", "worker.py", "run.py"]:
+    for name in ["cases.py", "grader.py", "worker.py", "isolation.py", "run.py"]:
         digest.update(name.encode())
         digest.update((root / name).read_bytes())
     return digest.hexdigest()
@@ -53,11 +54,17 @@ def grade(case_id, phase, workspace, timeout=10):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("action", choices=["show", "init", "grade", "export"])
+    parser.add_argument(
+        "action", choices=["show", "init", "grade", "export", "preflight"]
+    )
     parser.add_argument("--case", type=int, choices=CASES)
     parser.add_argument("--workspace", type=Path)
     parser.add_argument("--phase", type=int, choices=[1, 2], default=1)
     args = parser.parse_args()
+    if args.action == "preflight":
+        available = preflight()
+        print(json.dumps({"sandbox_available": available}))
+        return 0 if available else 1
     if args.action == "export":
         selected = CASES if args.case is None else {args.case: CASES[args.case]}
         print(

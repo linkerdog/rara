@@ -1,14 +1,19 @@
 """Calibrate the graders with known repairs and deliberately wrong implementations."""
 
 import json
+import os
 from pathlib import Path
+import socket
 import subprocess
 import sys
 import tempfile
+import time
 import unittest
+from unittest.mock import patch
 
 from cases import CASES
 from run import corpus_digest, grade, initialize
+from isolation import preflight
 
 REPAIRS = {
     1: """def window(items, offset, limit):
@@ -147,6 +152,99 @@ class GraderCalibration(unittest.TestCase):
         with self.assertRaises(FileExistsError):
             initialize(1, workspace)
         self.assertEqual((workspace / "task.py").read_text(), REPAIRS[1])
+
+    def test_verifier_is_unreadable_by_absolute_path_argv_or_symlink(self):
+        verifier = Path(__file__).resolve().parent
+        workspace = self.workspace(1)
+        (workspace / "oracle.py").symlink_to(verifier / "grader.py")
+        source = f"""from pathlib import Path
+import sys
+paths = [Path(sys.argv[0]).with_name('grader.py'), Path('oracle.py')]
+paths.extend(Path({str(verifier)!r}) / name for name in ['grader.py', 'cases.py', 'test_eval.py'])
+for path in paths:
+    try:
+        path.read_bytes()
+    except OSError:
+        continue
+    raise RuntimeError('verifier source was exposed')
+""" + REPAIRS[1]
+        (workspace / "task.py").write_text(source)
+        self.assertIs(grade(1, 1, workspace)["passed"], True)
+
+    def test_worker_has_no_inherited_host_credentials(self):
+        source = "import os\nassert 'CACHE_TRIAL_FAKE_SECRET' not in os.environ\n"
+        with patch.dict(os.environ, {"CACHE_TRIAL_FAKE_SECRET": "fixture-secret"}):
+            self.assertIs(
+                grade(1, 1, self.workspace(1, source + REPAIRS[1]))["passed"], True
+            )
+
+    def test_worker_cannot_connect_to_a_host_service(self):
+        with socket.socket() as listener:
+            listener.bind(("127.0.0.1", 0))
+            listener.listen()
+            port = listener.getsockname()[1]
+            source = f"""import socket
+try:
+    socket.create_connection(('127.0.0.1', {port}), timeout=0.1)
+except OSError:
+    pass
+else:
+    raise RuntimeError('host network was exposed')
+""" + REPAIRS[1]
+            self.assertIs(grade(1, 1, self.workspace(1, source))["passed"], True)
+
+    def test_delayed_descendants_cannot_outlive_any_worker_exit(self):
+        for ending, expected in [
+            (REPAIRS[3], True),
+            ("os._exit(0)\n", None),
+            ("raise RuntimeError('failed')\n", False),
+            ("while True:\n    pass\n", False),
+        ]:
+            with self.subTest(expected=expected), tempfile.TemporaryDirectory() as d:
+                workspace = Path(d) / "workspace"
+                initialize(3, workspace)
+                child = "import time; from pathlib import Path; time.sleep(0.6); Path('POLICY.md').write_text('late mutation')"
+                source = f"""import os
+import subprocess
+import sys
+from pathlib import Path
+try:
+    subprocess.Popen([sys.executable, '-I', '-S', '-c', {child!r}], start_new_session=True)
+    Path('spawned').touch()
+except OSError:
+    pass
+""" + ending
+                (workspace / "task.py").write_text(source)
+                receipt = grade(3, 2, workspace, timeout=0.4)
+                self.assertIs(receipt["passed"], expected)
+                if sys.platform == "linux":
+                    self.assertTrue((workspace / "spawned").exists())
+                time.sleep(0.7)
+                self.assertEqual(
+                    (workspace / "POLICY.md").read_text(),
+                    CASES[3]["files"]["POLICY.md"],
+                )
+
+    def test_unsupported_platform_never_executes_candidate_code(self):
+        workspace = self.workspace(1, "from pathlib import Path\nPath('ran').touch()\n")
+        with patch("isolation.sys.platform", "win32"):
+            receipt = grade(1, 1, workspace)
+            self.assertIsNone(receipt["passed"])
+            self.assertEqual(receipt["reason"], "grader_unavailable")
+            self.assertFalse(preflight())
+        self.assertFalse((workspace / "ran").exists())
+
+    def test_sandbox_start_failure_never_falls_back_to_bare_python(self):
+        workspace = self.workspace(1, "from pathlib import Path\nPath('ran').touch()\n")
+        with patch(
+            "isolation.sandbox_command", return_value=["/missing/cache-sandbox"]
+        ):
+            self.assertIsNone(grade(1, 1, workspace)["passed"])
+            self.assertFalse(preflight())
+        self.assertFalse((workspace / "ran").exists())
+
+    def test_preflight_proves_the_worker_can_execute_before_paid_calls(self):
+        self.assertTrue(preflight())
 
     def test_policy_is_rechecked_after_timeout_or_missing_receipt(self):
         for ending in ["while True:\n    pass\n", "import os\nos._exit(0)\n"]:
