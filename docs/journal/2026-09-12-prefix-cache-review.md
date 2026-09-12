@@ -107,6 +107,30 @@ Additional local validation passed: 27 Python calibration tests, 3 Bedrock
 accounting tests, 15 inference/provider tests, and 5 offline driver tests
 (the paid test remains ignored), plus Clippy with warnings denied.
 
+## Context identity and future categories
+
+The final review also found that future TTL categories could inherit the generic
+write tariff and that a cached summary could outlive its backend or execution
+context. Unknown Bedrock/Anthropic creation details now keep the generic category
+unknown while retaining recognized counters. A private captured-prefix wrapper
+binds reuse to backend object identity, runtime mode, and visible tool schemas;
+any mismatch selects the auxiliary path. A weak backend reference avoids keeping
+replaced providers alive and distinguishes identical labels at different endpoints.
+Focused regressions cover unknown TTLs and real compaction after backend,
+tool-schema, and Execute-to-Plan/Review changes under both schema policies.
+
+The local Codex compaction path constructs requests from the current turn's
+model, instructions, and client session. This implementation adapts that
+pattern by retaining the captured request only while its current context agrees.
+
+Four Bedrock accounting tests and three cache-experiment tests passed locally;
+the context-change test exercises six distinct changes with real compaction.
+The latest local Bazel attempt timed out during Cargo manifest splicing before
+any tests started. Its generated lock-file format change was discarded. Linux
+CI for `b57c4a9c` passed Bazel and all 27 strict Python calibration tests; Cargo's
+full suite encountered the unrelated LSP early-exit status assertion. The next
+commit requires its own CI receipts.
+
 ## Follow-ups
 
 The historical September 11 quality aggregate remains ineligible for strategy

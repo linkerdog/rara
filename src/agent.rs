@@ -331,7 +331,7 @@ pub struct Agent {
     inference_context: Option<rara_observability::InferenceAgentContext>,
     cache_experiment: CacheExperimentOptions,
     stable_tool_schemas: Option<Vec<Value>>,
-    summary_prefix: Option<crate::llm::SummaryPrefix>,
+    summary_prefix: Option<cache_experiment::CapturedSummaryPrefix>,
     file_search_provider: FileSearchCandidateProvider,
     inspection_progress: InspectionProgress,
     last_query_plan_updated: bool,

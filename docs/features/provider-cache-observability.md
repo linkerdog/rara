@@ -156,6 +156,11 @@ uses the auxiliary path and is accounted as such. The comparison includes this
 fallback, summary attempts, and the following cache rebuild request. A strategy
 is not promoted based on hit ratio alone.
 
+Reuse also requires the same backend instance, runtime execution mode, and
+current tool schemas. A backend replacement or a mode/schema change uses the
+auxiliary route until a new main request captures that context. Backend labels
+alone are insufficient because endpoints and credentials may differ.
+
 ### Cost and quality comparison artifact
 
 `InferencePriceTable::compare_tasks` pairs externally graded task samples by
@@ -223,6 +228,9 @@ reported. Bedrock's explicitly reported detail list is exhaustive, including an
 empty list for no creation; an absent list must not be confused with empty.
 Known detail totals still contribute to inclusive input when the aggregate is
 missing, without fabricating a complete bill.
+Unrecognized TTL details must not become generic writes: known input and
+recognized TTL totals survive, but the generic category remains unknown until
+the new category has a normalization and pricing contract.
 
 ### Content-free request fingerprints
 

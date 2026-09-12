@@ -16,6 +16,7 @@ use crate::llm::{
 struct SummaryBackend {
     main_requests: Mutex<Vec<Vec<Message>>>,
     summary_requests: Mutex<Vec<SummaryPrefix>>,
+    auxiliary_requests: Mutex<usize>,
 }
 
 fn record_attempt(metadata: &LlmTurnMetadata, result: &anyhow::Result<impl Sized>) {
@@ -62,7 +63,8 @@ impl LlmBackend for SummaryBackend {
     }
 
     async fn summarize(&self, _messages: &[Message], _instruction: &str) -> anyhow::Result<String> {
-        anyhow::bail!("unexpected auxiliary summary")
+        *self.auxiliary_requests.lock().unwrap() += 1;
+        Ok("Objective: continue the review. Next: verify the result.".into())
     }
 
     async fn summarize_with_prefix(
@@ -108,6 +110,7 @@ async fn task_accounting_includes_boundary_summary_and_cache_rebuild() {
     }
     assert!(agent.compact_now_with_reporter(|_| {}).await.unwrap());
     assert_eq!(backend.summary_requests.lock().unwrap().len(), 1);
+    assert_eq!(*backend.auxiliary_requests.lock().unwrap(), 0);
     agent.pending_inference_agent = Some(accounting.start_agent(None));
     agent
         .query_with_mode(
@@ -131,6 +134,71 @@ async fn task_accounting_includes_boundary_summary_and_cache_rebuild() {
     let requests = backend.main_requests.lock().unwrap();
     assert_eq!(requests[0][0], requests[2][0]);
     assert_ne!(requests[1][1], requests[2][1]);
+}
+
+#[tokio::test]
+async fn cached_summary_falls_back_after_context_changes() {
+    enum Change {
+        Mode(AgentExecutionMode),
+        Tools,
+        Backend,
+    }
+    for (policy, change) in [
+        (
+            ToolSchemaPolicy::ModeFiltered,
+            Change::Mode(AgentExecutionMode::Plan),
+        ),
+        (
+            ToolSchemaPolicy::ModeFiltered,
+            Change::Mode(AgentExecutionMode::Review),
+        ),
+        (
+            ToolSchemaPolicy::SessionStable,
+            Change::Mode(AgentExecutionMode::Plan),
+        ),
+        (
+            ToolSchemaPolicy::SessionStable,
+            Change::Mode(AgentExecutionMode::Review),
+        ),
+        (ToolSchemaPolicy::ModeFiltered, Change::Tools),
+        (ToolSchemaPolicy::ModeFiltered, Change::Backend),
+    ] {
+        let (_temp, sessions, workspace, state) = test_runtime_storage();
+        let mut tools = ToolManager::new();
+        tools.register(Box::<rara_tools::file::ReadFileTool>::default());
+        let mut backend = Arc::new(SummaryBackend::default());
+        let mut agent = Agent::new(
+            tools,
+            backend.clone(),
+            Arc::new(MemoryHandle::new(&state.join("memory").to_string_lossy())),
+            sessions,
+            workspace,
+        );
+        agent.configure_cache_experiment(CacheExperimentOptions {
+            tool_schemas: policy,
+            summary: SummaryStrategy::CachedMainModel,
+        });
+        for prompt in ["inspect the first source", "inspect the second source"] {
+            agent
+                .query_with_mode(prompt.into(), crate::agent::AgentOutputMode::Silent)
+                .await
+                .unwrap();
+        }
+        assert!(agent.cached_summary_prefix(&agent.history).is_some());
+        match change {
+            Change::Mode(mode) => agent.execution_mode = mode,
+            Change::Tools => agent.tool_manager.retain(|_| false),
+            Change::Backend => {
+                // The session hot-swap command replaces this same backend handle.
+                backend = Arc::new(SummaryBackend::default());
+                agent.llm_backend = backend.clone();
+            }
+        }
+        assert!(agent.cached_summary_prefix(&agent.history).is_none());
+        assert!(agent.compact_now_with_reporter(|_| {}).await.unwrap());
+        assert!(backend.summary_requests.lock().unwrap().is_empty());
+        assert_eq!(*backend.auxiliary_requests.lock().unwrap(), 1);
+    }
 }
 
 #[tokio::test]

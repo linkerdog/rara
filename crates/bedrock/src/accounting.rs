@@ -91,14 +91,15 @@ fn normalize_usage(usage: &TokenUsage) -> Option<InferenceTokenUsage> {
     let mut short = 0_u64;
     let mut long = 0_u64;
     let mut detailed_writes = 0_u64;
+    let mut unknown_ttl = false;
     for detail in usage.cache_details() {
         let tokens = u64::try_from(detail.input_tokens).ok()?;
         detailed_writes = detailed_writes.checked_add(tokens)?;
         match detail.ttl.as_str() {
             "5m" => short = short.checked_add(tokens)?,
             "1h" => long = long.checked_add(tokens)?,
-            // Future TTLs remain generic writes and require their own tariff.
-            _ => {}
+            // A future TTL cannot inherit the generic-write tariff.
+            _ => unknown_ttl = true,
         }
     }
     Some(InferenceTokenUsage {
@@ -107,7 +108,9 @@ fn normalize_usage(usage: &TokenUsage) -> Option<InferenceTokenUsage> {
             .checked_add(write.unwrap_or(detailed_writes))?,
         output_tokens: u64::try_from(usage.output_tokens).ok()?,
         cache_read_tokens: read,
-        cache_write_tokens: write.and_then(|write| write.checked_sub(short.checked_add(long)?)),
+        cache_write_tokens: write
+            .filter(|_| !unknown_ttl)
+            .and_then(|write| write.checked_sub(short.checked_add(long)?)),
         // A reported breakdown is exhaustive (empty means no creation), while
         // the SDK getter also returns [] when the field is absent.
         cache_write_5m_tokens: usage.cache_details.as_ref().map(|_| short),
@@ -177,6 +180,37 @@ mod tests {
             .unwrap();
         let parsed = normalize_usage(&usage).unwrap();
         assert_eq!(parsed.input_tokens, 70);
+        assert_eq!(parsed.cache_write_tokens, None);
+        assert_eq!(parsed.cache_write_5m_tokens, Some(40));
+        assert_eq!(parsed.cache_write_1h_tokens, Some(0));
+    }
+
+    #[test]
+    fn converse_usage_does_not_price_unknown_ttls_as_generic_writes() {
+        let usage = TokenUsage::builder()
+            .input_tokens(20)
+            .output_tokens(1)
+            .total_tokens(121)
+            .cache_read_input_tokens(10)
+            .cache_write_input_tokens(90)
+            .cache_details(
+                CacheDetail::builder()
+                    .ttl(CacheTtl::FiveMinutes)
+                    .input_tokens(40)
+                    .build()
+                    .unwrap(),
+            )
+            .cache_details(
+                CacheDetail::builder()
+                    .ttl(CacheTtl::from("24h"))
+                    .input_tokens(50)
+                    .build()
+                    .unwrap(),
+            )
+            .build()
+            .unwrap();
+        let parsed = normalize_usage(&usage).unwrap();
+        assert_eq!(parsed.input_tokens, 120);
         assert_eq!(parsed.cache_write_tokens, None);
         assert_eq!(parsed.cache_write_5m_tokens, Some(40));
         assert_eq!(parsed.cache_write_1h_tokens, Some(0));

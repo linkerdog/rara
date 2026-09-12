@@ -15,6 +15,17 @@ pub(in crate::llm) fn parse_inference_usage(usage: &Value) -> Option<InferenceTo
     let creation = count(usage, &["cache_creation_input_tokens"]);
     let short = count(usage, &["cache_creation", "ephemeral_5m_input_tokens"]);
     let long = count(usage, &["cache_creation", "ephemeral_1h_input_tokens"]);
+    let unknown_creation = usage
+        .get("cache_creation")
+        .and_then(Value::as_object)
+        .is_some_and(|details| {
+            details.keys().any(|key| {
+                !matches!(
+                    key.as_str(),
+                    "ephemeral_5m_input_tokens" | "ephemeral_1h_input_tokens"
+                )
+            })
+        });
     let anthropic = usage.get("cache_read_input_tokens").is_some()
         || usage.get("cache_creation_input_tokens").is_some()
         || usage.get("cache_creation").is_some();
@@ -31,14 +42,16 @@ pub(in crate::llm) fn parse_inference_usage(usage: &Value) -> Option<InferenceTo
         match (short, long) {
             (Some(short), Some(long)) => (
                 match creation {
-                    Some(created) => Some(created.checked_sub(short.checked_add(long)?)?),
-                    None => None,
+                    Some(created) if !unknown_creation => {
+                        Some(created.checked_sub(short.checked_add(long)?)?)
+                    }
+                    Some(_) | None => None,
                 },
                 Some(short),
                 Some(long),
             ),
             // An undifferentiated write is priced only by an explicit generic-write tariff.
-            (None, None) => (creation, None, None),
+            (None, None) => (creation.filter(|_| !unknown_creation), None, None),
             _ => (None, short, long),
         }
     } else {
@@ -120,6 +133,34 @@ mod tests {
     #[test]
     fn partial_anthropic_cache_categories_retain_known_usage() {
         for (fields, input, read, write, short, long) in [
+            (
+                json!({
+                    "cache_read_input_tokens": 10,
+                    "cache_creation_input_tokens": 90,
+                    "cache_creation": {
+                        "ephemeral_5m_input_tokens": 40,
+                        "ephemeral_1h_input_tokens": 0,
+                        "ephemeral_24h_input_tokens": 50
+                    }
+                }),
+                300,
+                Some(10),
+                None,
+                Some(40),
+                Some(0),
+            ),
+            (
+                json!({
+                    "cache_read_input_tokens": 10,
+                    "cache_creation_input_tokens": 50,
+                    "cache_creation": {"ephemeral_24h_input_tokens": 50}
+                }),
+                260,
+                Some(10),
+                None,
+                None,
+                None,
+            ),
             (
                 json!({"cache_read_input_tokens":600}),
                 800,

@@ -304,8 +304,7 @@ impl Agent {
                                 .collect::<Vec<_>>()
                         });
                     if let Some(cached_input) = cached_input
-                        && let Some(prefix) = &self.summary_prefix
-                        && prefix.matches_history(&cached_input)
+                        && let Some(prefix) = self.cached_summary_prefix(&cached_input)
                     {
                         self.llm_backend
                             .summarize_with_prefix(&cached_input, instruction, prefix, metadata)
