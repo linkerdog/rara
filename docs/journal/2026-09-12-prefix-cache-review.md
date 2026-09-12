@@ -64,6 +64,20 @@ An outer sandbox that denies starting the inner OS sandbox cannot produce valid
 grades; run the tests from a host that supports this boundary. No sandbox bypass
 or default-strategy change is introduced.
 
+The macOS Bazel sandbox rejects nested Seatbelt. The offline driver integration
+test checks that unavailable grading preserves cost accounting with unknown
+quality; when preflight succeeds, it still requires both real grades to pass.
+The standalone Python calibration unconditionally requires a working sandbox,
+so this conditional integration assertion cannot replace execution coverage.
+No Bazel configuration or test sandbox policy is changed.
+
+Ubuntu CI probes namespace creation before testing and, only if blocked, loads
+an AppArmor profile attached to `/usr/bin/bwrap` on the ephemeral runner. This
+follows Ubuntu's [per-application user namespace policy](https://ubuntu.com/blog/ubuntu-23-10-restricted-unprivileged-user-namespaces)
+without changing global sysctls. Both the actual grader preflight and the full
+Python calibration are mandatory before the Cargo suite, so setup failures have
+direct diagnostics and cannot hide behind unknown integration grades.
+
 ## Follow-ups
 
 The historical September 11 quality aggregate remains ineligible for strategy

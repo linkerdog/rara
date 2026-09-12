@@ -203,8 +203,13 @@ async fn missing_or_cancelled_receipts_block_all_later_provider_calls() {
 }
 
 #[tokio::test]
-async fn paid_driver_runs_real_tools_grades_and_boundary_accounting_offline() {
+async fn offline_driver_preserves_tools_accounting_and_grading_availability() {
     let python = Path::new("python3");
+    // Nested Seatbelt and unsupported hosts must keep quality unknown. The
+    // standalone Python calibration requires a working sandbox and real grades.
+    let sandbox = python_receipt(python, &["preflight".into()]).await.unwrap();
+    let sandbox_available = sandbox["sandbox_available"].as_bool().unwrap();
+    let expected_grade = sandbox_available.then_some(true);
     let corpus: Corpus = serde_json::from_value(
         python_receipt(python, &["export".into(), "--case".into(), "3".into()])
             .await
@@ -243,7 +248,18 @@ async fn paid_driver_runs_real_tools_grades_and_boundary_accounting_offline() {
         })
         .await
         .unwrap();
-        assert_eq!(sample.passed, Some(true), "{detail}");
+        assert_eq!(sample.passed, expected_grade, "{detail}");
+        let grades = detail["grades"].as_array().unwrap();
+        assert_eq!(grades.len(), 2);
+        for grade in grades {
+            assert_eq!(grade["passed"].as_bool(), expected_grade, "{grade}");
+            if !sandbox_available {
+                assert!(matches!(
+                    grade["reason"].as_str(),
+                    Some("grader_unavailable" | "invalid_grader_receipt")
+                ));
+            }
+        }
         assert_eq!(detail["compactions"], 1);
         assert_eq!(
             sample
@@ -263,7 +279,7 @@ async fn paid_driver_runs_real_tools_grades_and_boundary_accounting_offline() {
     }
     let comparison = prices.compare_tasks(&samples);
     assert!(comparison.paired);
-    assert_eq!(comparison.quality_preserved, Some(true));
+    assert_eq!(comparison.quality_preserved, expected_grade);
     assert!(comparison.baseline.cost_complete && comparison.candidate.cost_complete);
 }
 

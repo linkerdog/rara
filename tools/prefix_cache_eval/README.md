@@ -57,6 +57,9 @@ python3 tools/prefix_cache_eval/run.py preflight
 ```
 
 The paid driver requires a successful preflight before the first model call.
+Ubuntu hosts may also require an administrator-approved AppArmor user namespace
+policy for `/usr/bin/bwrap`. CI carries a runner-only profile and verifies the
+actual grader before running tests; the paid driver never changes host policy.
 Case 3 also rejects changes to the policy source. Its first phase deliberately
 does not require the second task's implementation.
 The protected policy is checked before and after worker execution, including
