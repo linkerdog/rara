@@ -83,6 +83,11 @@ Provider adapters normalize total input tokens to include cache reads and
 writes. They preserve separate creation categories, including short and long
 TTL writes where reported. Pricing must not charge cache reads or writes again
 as ordinary input. Unknown cache categories cannot be treated as known zeros.
+If inclusive-input arithmetic overflows, retain the reported base input as a
+lower bound and set `input_tokens_incomplete`. Independently known output and
+cache categories still contribute to cost; ordinary-input pricing requires an
+exact total. A contradictory creation aggregate makes only the generic-write
+category unknown, without discarding known TTL/read/output counters.
 Prices have an explicit revision and provider/model match; no global model-name
 guess supplies a price for a custom endpoint.
 
@@ -123,10 +128,12 @@ retries. Its input counter excludes reads and writes; task accounting adds them
 once and preserves the `cacheDetails` TTL breakdown. Gemini Code Assist and
 coding subscriptions remain conservative until their own cache contract is verified.
 
-Bedrock long TTL is separately validated: the documented one-hour option is
-enabled only for Claude Sonnet 4.5, Opus 4.5, and Haiku 4.5 model IDs, including
+Bedrock long TTL is separately validated: this adapter's selected one-hour
+support is limited to Claude Sonnet 4.5, Opus 4.5, and Haiku 4.5 model IDs, including
 regional inference-profile prefixes. Unknown models and unsupported TTLs fail
-before a request is sent. Model support must be refreshed from AWS rather than
+before a request is sent. Matching uses exact known model IDs after removing
+one supported regional prefix; arbitrary family suffixes are not accepted.
+Model support must be refreshed from AWS rather than
 inferred from a newer family name.
 
 | Adapter | Physical-attempt coverage | Completeness limit |
@@ -160,6 +167,13 @@ Reuse also requires the same backend instance, runtime execution mode, and
 current tool schemas. A backend replacement or a mode/schema change uses the
 auxiliary route until a new main request captures that context. Backend labels
 alone are insufficient because endpoints and credentials may differ.
+Capture is committed only after a successful main response. A failed main
+request clears the capture, so subsequent compaction uses the auxiliary route
+until another main request succeeds. Success permits reuse but does not claim
+that the provider actually created or retained a cache entry.
+Only the runtime's first generated system message is separated from history.
+Leading system messages inside history, including prior compact summaries,
+remain part of the exact captured prefix and appear once in the summary request.
 
 ### Cost and quality comparison artifact
 
@@ -362,6 +376,7 @@ own retention or removal of the isolated state directory.
 - [2026-08-21 DeepSeek prefix cache locality](../journal/2026-08-21-deepseek-prefix-cache-locality.md)
 - [2026-09-11 Prefix cache optimization](../journal/2026-09-11-prefix-cache-optimization.md)
 - [2026-09-12 Prefix cache review](../journal/2026-09-12-prefix-cache-review.md)
+- [2026-09-13 Prefix cache receipt and capture review](../journal/2026-09-13-prefix-cache-review.md)
 
 ## References
 

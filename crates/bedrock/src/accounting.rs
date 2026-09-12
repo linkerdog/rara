@@ -103,6 +103,7 @@ fn normalize_usage(usage: &TokenUsage) -> Option<InferenceTokenUsage> {
         }
     }
     Some(InferenceTokenUsage {
+        input_tokens_incomplete: read.is_none() || write.is_none(),
         input_tokens: ordinary
             .checked_add(read.unwrap_or(0))?
             .checked_add(write.unwrap_or(detailed_writes))?,

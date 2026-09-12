@@ -8,6 +8,9 @@ use serde::{Deserialize, Serialize};
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct InferenceTokenUsage {
     pub input_tokens: u64,
+    /// True when input_tokens is only a lower bound and cannot price ordinary input.
+    #[serde(default)]
+    pub input_tokens_incomplete: bool,
     pub output_tokens: u64,
     pub cache_read_tokens: Option<u64>,
     pub cache_write_tokens: Option<u64>,

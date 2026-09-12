@@ -523,7 +523,7 @@ impl Agent {
             },
         );
 
-        self.capture_summary_prefix(&messages, tool_schemas, &turn_metadata);
+        self.summary_prefix = None;
         let model_label = self.model_event_label();
         let request_fingerprint =
             self.llm_backend
@@ -540,8 +540,11 @@ impl Agent {
         let mut streamed_any_reasoning_delta = false;
         let response = self
             .llm_backend
-            .ask_streaming_with_context(&messages, tool_schemas, turn_metadata, &mut |event| {
-                match event {
+            .ask_streaming_with_context(
+                &messages,
+                tool_schemas,
+                turn_metadata.clone(),
+                &mut |event| match event {
                     LlmStreamEvent::TextDelta(delta) => {
                         streamed_any_text_delta = true;
                         report(AgentEvent::AssistantDelta(delta));
@@ -550,13 +553,14 @@ impl Agent {
                         streamed_any_reasoning_delta = true;
                         report(AgentEvent::AssistantThinkingDelta(delta));
                     }
-                }
-            })
+                },
+            )
             .await;
         if let Some(call) = inference_call {
             call.finish(&response);
         }
         let response = response?;
+        self.capture_summary_prefix(&messages, tool_schemas, &turn_metadata);
         let duration_ms = request_started_at
             .elapsed()
             .as_millis()

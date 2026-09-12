@@ -210,6 +210,7 @@ mod tests {
         let call = agent.start_call(InferencePurpose::Main);
         let attempt = call.context().start_attempt("fixture", "main");
         attempt.record_final_usage(InferenceTokenUsage {
+            input_tokens_incomplete: false,
             input_tokens: 100,
             output_tokens: output,
             cache_read_tokens: Some(80),

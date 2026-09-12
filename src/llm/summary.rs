@@ -11,7 +11,8 @@ pub enum SummaryStrategy {
     CachedMainModel,
 }
 
-/// Exact main-request context captured before sending, without accounting handles.
+/// Exact main-request context retained after success, without accounting handles.
+/// The first message is the generated system prompt; the rest is projected history.
 #[derive(Clone, Debug)]
 pub struct SummaryPrefix {
     pub messages: Vec<Message>,
@@ -21,17 +22,12 @@ pub struct SummaryPrefix {
 
 impl SummaryPrefix {
     pub(crate) fn matches_history(&self, messages: &[Message]) -> bool {
-        let leading = self
-            .messages
-            .iter()
-            .take_while(|message| message.role == "system")
-            .count();
-        leading > 0
-            && messages.len() >= self.messages.len() - leading
-            && self.messages[leading..]
-                .iter()
-                .zip(messages)
-                .all(|(old, new)| old == new)
+        let Some((system, history)) = self.messages.split_first() else {
+            return false;
+        };
+        system.role == "system"
+            && messages.len() >= history.len()
+            && history.iter().zip(messages).all(|(old, new)| old == new)
     }
 
     pub(crate) fn messages_for_summary(
@@ -39,17 +35,13 @@ impl SummaryPrefix {
         messages: &[Message],
         instruction: &str,
     ) -> Result<Vec<Message>> {
-        let leading = self
-            .messages
-            .iter()
-            .take_while(|message| message.role == "system")
-            .count();
         // A trimmed suffix or a different projection is not a cache-sharing fork.
         // The caller can retry on the auxiliary route without mislabelling it.
         if !self.matches_history(messages) {
             bail!("summary input does not share the captured main-request prefix");
         }
-        let mut request = self.messages[..leading].to_vec();
+        // Leading system messages within history include prior compact summaries.
+        let mut request = self.messages[..1].to_vec();
         request.extend_from_slice(messages);
         request.push(Message {
             role: "user".into(),

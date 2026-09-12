@@ -8,6 +8,7 @@ pub(in crate::llm) fn parse_inference_usage(usage: &Value) -> Option<InferenceTo
         count(usage, &["prompt_tokens"]).or_else(|| count(usage, &["input_tokens"]))?;
     let output_tokens =
         count(usage, &["completion_tokens"]).or_else(|| count(usage, &["output_tokens"]))?;
+    let mut input_tokens_incomplete = false;
     let cache_read_tokens = count(usage, &["prompt_cache_hit_tokens"])
         .or_else(|| count(usage, &["cache_read_input_tokens"]))
         .or_else(|| count(usage, &["prompt_tokens_details", "cached_tokens"]))
@@ -32,19 +33,21 @@ pub(in crate::llm) fn parse_inference_usage(usage: &Value) -> Option<InferenceTo
     let (cache_write_tokens, cache_write_5m_tokens, cache_write_1h_tokens) = if anthropic {
         // Keep a lower bound on inclusive input when a category is missing.
         // The corresponding None still prevents pricing this as a complete bill.
-        let known_created = match creation {
-            Some(created) => created,
-            None => short.unwrap_or(0).checked_add(long.unwrap_or(0))?,
-        };
-        input_tokens = input_tokens
-            .checked_add(cache_read_tokens.unwrap_or(0))?
-            .checked_add(known_created)?;
+        let known_created = creation.or_else(|| short.unwrap_or(0).checked_add(long.unwrap_or(0)));
+        let inclusive = known_created.and_then(|created| {
+            input_tokens
+                .checked_add(cache_read_tokens.unwrap_or(0))?
+                .checked_add(created)
+        });
+        input_tokens_incomplete =
+            inclusive.is_none() || cache_read_tokens.is_none() || creation.is_none();
+        input_tokens = inclusive.unwrap_or(input_tokens);
         match (short, long) {
             (Some(short), Some(long)) => (
                 match creation {
-                    Some(created) if !unknown_creation => {
-                        Some(created.checked_sub(short.checked_add(long)?)?)
-                    }
+                    Some(created) if !unknown_creation => short
+                        .checked_add(long)
+                        .and_then(|details| created.checked_sub(details)),
                     Some(_) | None => None,
                 },
                 Some(short),
@@ -62,6 +65,7 @@ pub(in crate::llm) fn parse_inference_usage(usage: &Value) -> Option<InferenceTo
     };
     Some(InferenceTokenUsage {
         input_tokens,
+        input_tokens_incomplete,
         output_tokens,
         cache_read_tokens,
         cache_write_tokens,
@@ -85,6 +89,33 @@ mod tests {
     use super::*;
 
     #[test]
+    fn inference_usage_completeness_roundtrips_partial_and_legacy_totals() {
+        let complete = parse_inference_usage(&json!({
+            "prompt_tokens": 20, "completion_tokens": 1,
+            "prompt_cache_hit_tokens": 0, "prompt_cache_miss_tokens": 20
+        }))
+        .unwrap();
+        let mut legacy = serde_json::to_value(complete).unwrap();
+        legacy
+            .as_object_mut()
+            .unwrap()
+            .remove("input_tokens_incomplete");
+        assert_eq!(
+            serde_json::from_value::<InferenceTokenUsage>(legacy).unwrap(),
+            complete
+        );
+        let partial = InferenceTokenUsage {
+            input_tokens_incomplete: true,
+            ..complete
+        };
+        assert_eq!(
+            serde_json::from_value::<InferenceTokenUsage>(serde_json::to_value(partial).unwrap())
+                .unwrap(),
+            partial
+        );
+    }
+
+    #[test]
     fn anthropic_input_is_inclusive_and_ttl_writes_are_disjoint() {
         let usage = parse_inference_usage(&json!({
             "input_tokens": 200, "output_tokens": 100,
@@ -95,6 +126,7 @@ mod tests {
         assert_eq!(
             usage,
             InferenceTokenUsage {
+                input_tokens_incomplete: false,
                 input_tokens: 1_000,
                 output_tokens: 100,
                 cache_read_tokens: Some(600),
@@ -103,6 +135,83 @@ mod tests {
                 cache_write_1h_tokens: Some(100),
             }
         );
+    }
+
+    #[test]
+    fn inconsistent_anthropic_totals_do_not_discard_known_usage() {
+        for (base, read, creation, short, long, input, incomplete, generic, known_cost) in [
+            (
+                u64::MAX,
+                1,
+                Some(0),
+                0,
+                0,
+                u64::MAX,
+                true,
+                Some(0),
+                0.000101,
+            ),
+            (200, 10, Some(20), 40, 50, 230, false, None, 0.0002),
+            (
+                200,
+                u64::MAX,
+                Some(5),
+                2,
+                3,
+                200,
+                true,
+                Some(0),
+                u64::MAX as f64 / 1_000_000.0,
+            ),
+            (
+                200,
+                0,
+                None,
+                u64::MAX,
+                1,
+                200,
+                true,
+                None,
+                u64::MAX as f64 / 1_000_000.0,
+            ),
+            (
+                200,
+                0,
+                Some(u64::MAX),
+                u64::MAX,
+                1,
+                200,
+                true,
+                None,
+                u64::MAX as f64 / 1_000_000.0,
+            ),
+        ] {
+            let receipt = json!({
+                "input_tokens": base, "output_tokens": 100,
+                "cache_read_input_tokens": read, "cache_creation_input_tokens": creation,
+                "cache_creation": {"ephemeral_5m_input_tokens": short, "ephemeral_1h_input_tokens": long}
+            });
+            let usage = parse_inference_usage(&receipt).expect("known usage must survive");
+            assert_eq!(
+                usage,
+                InferenceTokenUsage {
+                    input_tokens: input,
+                    input_tokens_incomplete: incomplete,
+                    output_tokens: 100,
+                    cache_read_tokens: Some(read),
+                    cache_write_tokens: generic,
+                    cache_write_5m_tokens: Some(short),
+                    cache_write_1h_tokens: Some(long),
+                }
+            );
+            let cost = price_usage(usage);
+            assert!(!cost.complete);
+            assert_eq!(cost.unpriced_attempts, 1);
+            assert!(
+                (cost.known_cost_usd - known_cost).abs() <= 1e-12 * known_cost.max(1.0),
+                "{cost:?}"
+            );
+        }
     }
 
     #[test]
@@ -132,7 +241,7 @@ mod tests {
     }
     #[test]
     fn partial_anthropic_cache_categories_retain_known_usage() {
-        for (fields, input, read, write, short, long) in [
+        for (fields, input, read, write, short, long, incomplete) in [
             (
                 json!({
                     "cache_read_input_tokens": 10,
@@ -148,6 +257,7 @@ mod tests {
                 None,
                 Some(40),
                 Some(0),
+                false,
             ),
             (
                 json!({
@@ -160,6 +270,7 @@ mod tests {
                 None,
                 None,
                 None,
+                false,
             ),
             (
                 json!({"cache_read_input_tokens":600}),
@@ -168,6 +279,7 @@ mod tests {
                 None,
                 None,
                 None,
+                true,
             ),
             (
                 json!({"cache_creation_input_tokens":200}),
@@ -176,6 +288,7 @@ mod tests {
                 Some(200),
                 None,
                 None,
+                true,
             ),
             (
                 json!({"cache_read_input_tokens":600,"cache_creation_input_tokens":200}),
@@ -184,6 +297,7 @@ mod tests {
                 Some(200),
                 None,
                 None,
+                false,
             ),
             (
                 json!({"cache_creation":{"ephemeral_5m_input_tokens":50}}),
@@ -192,6 +306,7 @@ mod tests {
                 None,
                 Some(50),
                 None,
+                true,
             ),
             (
                 json!({"cache_creation":{"ephemeral_5m_input_tokens":50,"ephemeral_1h_input_tokens":100}}),
@@ -200,6 +315,7 @@ mod tests {
                 None,
                 Some(50),
                 Some(100),
+                true,
             ),
         ] {
             let mut receipt = json!({"input_tokens":200,"output_tokens":100});
@@ -211,6 +327,7 @@ mod tests {
             assert_eq!(
                 usage,
                 InferenceTokenUsage {
+                    input_tokens_incomplete: incomplete,
                     input_tokens: input,
                     output_tokens: 100,
                     cache_read_tokens: read,
@@ -229,32 +346,36 @@ mod tests {
                 .iter()
                 .any(Option::is_none)
             );
-            let task = rara_observability::InferenceTask::default();
-            let agent = task.start_agent(None);
-            let call = agent.start_call(rara_observability::InferencePurpose::Main);
-            let attempt = call.context().start_attempt("Anthropic", "fixture-model");
-            attempt.record_final_usage(usage);
-            let result: Result<(), ()> = Ok(());
-            attempt.finish(&result);
-            call.finish(&result);
-            drop(agent);
-            let table = rara_observability::InferencePriceTable {
-                revision: "fixture".into(),
-                prices: vec![rara_observability::InferencePrice {
-                    provider: "Anthropic".into(),
-                    model: "fixture-model".into(),
-                    input: 1.0,
-                    output: 1.0,
-                    cache_read: 1.0,
-                    cache_write: 1.0,
-                    cache_write_5m: 1.0,
-                    cache_write_1h: 1.0,
-                }],
-            };
-            let snapshot = task.snapshot();
-            assert_eq!(snapshot.attempts[0].usage, Some(usage));
-            assert!(!table.cost(&snapshot).complete);
-            assert_eq!(table.cost(&snapshot).unpriced_attempts, 1);
+            let cost = price_usage(usage);
+            assert!(!cost.complete);
+            assert_eq!(cost.unpriced_attempts, 1);
         }
+    }
+    fn price_usage(usage: InferenceTokenUsage) -> rara_observability::InferenceCostReport {
+        let task = rara_observability::InferenceTask::default();
+        let agent = task.start_agent(None);
+        let call = agent.start_call(rara_observability::InferencePurpose::Main);
+        let attempt = call.context().start_attempt("Anthropic", "fixture-model");
+        attempt.record_final_usage(usage);
+        let result: Result<(), ()> = Ok(());
+        attempt.finish(&result);
+        call.finish(&result);
+        drop(agent);
+        let table = rara_observability::InferencePriceTable {
+            revision: "fixture".into(),
+            prices: vec![rara_observability::InferencePrice {
+                provider: "Anthropic".into(),
+                model: "fixture-model".into(),
+                input: 1.0,
+                output: 1.0,
+                cache_read: 1.0,
+                cache_write: 1.0,
+                cache_write_5m: 1.0,
+                cache_write_1h: 1.0,
+            }],
+        };
+        let snapshot = task.snapshot();
+        assert_eq!(snapshot.attempts[0].usage, Some(usage));
+        table.cost(&snapshot)
     }
 }

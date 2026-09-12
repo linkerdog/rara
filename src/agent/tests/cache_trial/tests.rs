@@ -50,6 +50,7 @@ async fn record(metadata: &LlmTurnMetadata, receipt: Receipt) {
         Receipt::Complete => {}
     }
     attempt.record_final_usage(InferenceTokenUsage {
+        input_tokens_incomplete: false,
         input_tokens: 100,
         output_tokens: 10,
         cache_read_tokens: Some(80),

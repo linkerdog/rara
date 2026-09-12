@@ -18,29 +18,25 @@ pub(crate) fn supports_cache_ttl(model: &str, ttl: BedrockCacheTtl) -> bool {
         .iter()
         .find_map(|region| model.strip_prefix(region))
         .unwrap_or(model);
-    let families: &[&str] = match ttl {
+    let models: &[&str] = match ttl {
         BedrockCacheTtl::FiveMinutes => &[
-            "anthropic.claude-sonnet-4-5",
+            "anthropic.claude-sonnet-4-5-20250929-v1:0",
             "anthropic.claude-sonnet-4-6",
-            "anthropic.claude-opus-4-20250514",
-            "anthropic.claude-opus-4-5",
-            "anthropic.claude-opus-4-6",
-            "anthropic.claude-haiku-4-5",
-            "anthropic.claude-3-7-sonnet",
-            "anthropic.claude-3-5-sonnet-20241022-v2",
+            "anthropic.claude-opus-4-20250514-v1:0",
+            "anthropic.claude-opus-4-5-20251101-v1:0",
+            "anthropic.claude-opus-4-6-v1",
+            "anthropic.claude-haiku-4-5-20251001-v1:0",
+            "anthropic.claude-3-7-sonnet-20250219-v1:0",
+            "anthropic.claude-3-5-sonnet-20241022-v2:0",
         ],
-        // Bedrock's documented TTL support is narrower than the direct API.
+        // Keep the adapter's selected support pinned to verified model versions.
         BedrockCacheTtl::OneHour => &[
-            "anthropic.claude-sonnet-4-5",
-            "anthropic.claude-opus-4-5",
-            "anthropic.claude-haiku-4-5",
+            "anthropic.claude-sonnet-4-5-20250929-v1:0",
+            "anthropic.claude-opus-4-5-20251101-v1:0",
+            "anthropic.claude-haiku-4-5-20251001-v1:0",
         ],
     };
-    families.iter().any(|family| {
-        model.strip_prefix(family).is_some_and(|suffix| {
-            suffix.is_empty() || suffix.starts_with('-') || suffix.starts_with(':')
-        })
-    })
+    models.contains(&model)
 }
 
 pub(crate) fn checkpoints(
@@ -81,6 +77,11 @@ mod tests {
             assert!(supports_cache_ttl(model, BedrockCacheTtl::OneHour));
         }
         for model in [
+            "anthropic.claude-sonnet-4-5-future",
+            "anthropic.claude-sonnet-4-5:999",
+            "anthropic.claude-opus-4-5-20251101-v2:0",
+            "us.anthropic.claude-haiku-4-5-20251001-v1:0-extra",
+            "anthropic.claude-haiku-4-5",
             "anthropic.claude-opus-4-20250514-v1:0",
             "us.anthropic.claude-sonnet-4-6",
             "anthropic.claude-opus-4-6-v1",
@@ -90,6 +91,14 @@ mod tests {
             assert!(!supports_cache_ttl(model, BedrockCacheTtl::OneHour));
         }
         assert!(!supports_claude_cache("anthropic.claude-opus-5"));
+        for model in [
+            "anthropic.claude-sonnet-4-5-future",
+            "anthropic.claude-opus-4-6-v2",
+            "anthropic.claude-sonnet-4-6-extra",
+            "anthropic.claude-3-7-sonnet-20990101-v1:0",
+        ] {
+            assert!(!supports_claude_cache(model), "unverified model: {model}");
+        }
     }
 
     #[test]

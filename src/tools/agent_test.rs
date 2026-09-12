@@ -119,6 +119,7 @@ impl LlmBackend for CountingBackend {
         let result = self.ask(messages, tools).await;
         if let Some(attempt) = attempt {
             attempt.record_final_usage(rara_observability::InferenceTokenUsage {
+                input_tokens_incomplete: false,
                 input_tokens: 100,
                 output_tokens: 10,
                 cache_read_tokens: Some(0),

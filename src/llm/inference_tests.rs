@@ -485,6 +485,34 @@ async fn inference_status_retries_stop_at_the_physical_attempt_bound() {
 }
 
 #[test]
+fn cached_summary_keeps_system_messages_within_captured_history() {
+    let prefix = super::SummaryPrefix {
+        messages: vec![
+            Message {
+                role: "system".into(),
+                content: json!("stable instructions"),
+            },
+            Message {
+                role: "system".into(),
+                content: json!("previous compact summary"),
+            },
+            Message {
+                role: "user".into(),
+                content: json!("continue the review"),
+            },
+        ],
+        tools: vec![],
+        execution_mode: super::LlmExecutionMode::Execute,
+    };
+    let request = prefix
+        .messages_for_summary(&prefix.messages[1..], "summarize")
+        .unwrap();
+    assert_eq!(&request[..prefix.messages.len()], &prefix.messages);
+    assert_eq!(request.len(), prefix.messages.len() + 1);
+    assert!(!prefix.matches_history(&prefix.messages[2..]));
+}
+
+#[test]
 fn cached_summary_requires_the_entire_captured_history_prefix() {
     let messages = vec![
         Message {

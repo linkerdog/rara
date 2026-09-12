@@ -3,6 +3,7 @@ use crate::{InferencePrice, InferencePriceTable};
 
 fn usage() -> InferenceTokenUsage {
     InferenceTokenUsage {
+        input_tokens_incomplete: false,
         input_tokens: 1_000,
         output_tokens: 100,
         cache_read_tokens: Some(600),
@@ -99,6 +100,13 @@ fn cancellation_retains_received_usage_and_missing_usage_is_not_free() {
 #[test]
 fn partial_categories_keep_known_charges_without_guessing_ordinary_input() {
     for (partial, expected) in [
+        (
+            InferenceTokenUsage {
+                input_tokens_incomplete: true,
+                ..usage()
+            },
+            0.002655,
+        ),
         (
             InferenceTokenUsage {
                 input_tokens: 0,

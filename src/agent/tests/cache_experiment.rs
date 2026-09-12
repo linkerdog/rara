@@ -1,3 +1,4 @@
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
 use rara_memory::memory_handle::MemoryHandle;
@@ -17,11 +18,13 @@ struct SummaryBackend {
     main_requests: Mutex<Vec<Vec<Message>>>,
     summary_requests: Mutex<Vec<SummaryPrefix>>,
     auxiliary_requests: Mutex<usize>,
+    fail_next: AtomicBool,
 }
 
 fn record_attempt(metadata: &LlmTurnMetadata, result: &anyhow::Result<impl Sized>) {
     if let Some(attempt) = metadata.start_attempt("fixture", "main") {
         attempt.record_final_usage(rara_observability::InferenceTokenUsage {
+            input_tokens_incomplete: false,
             input_tokens: 100,
             output_tokens: 10,
             cache_read_tokens: Some(80),
@@ -41,6 +44,9 @@ impl LlmBackend for SummaryBackend {
         _tools: &[serde_json::Value],
     ) -> anyhow::Result<LlmResponse> {
         self.main_requests.lock().unwrap().push(messages.to_vec());
+        if self.fail_next.swap(false, Ordering::SeqCst) {
+            anyhow::bail!("main request failed");
+        }
         Ok(LlmResponse {
             content: vec![ContentBlock::Text {
                 text: "checked the relevant source".into(),
@@ -199,6 +205,58 @@ async fn cached_summary_falls_back_after_context_changes() {
         assert!(backend.summary_requests.lock().unwrap().is_empty());
         assert_eq!(*backend.auxiliary_requests.lock().unwrap(), 1);
     }
+}
+
+#[tokio::test]
+async fn failed_main_request_invalidates_summary_capture_until_success() {
+    let (_temp, sessions, workspace, state) = test_runtime_storage();
+    let mut tools = ToolManager::new();
+    tools.register(Box::<rara_tools::file::ReadFileTool>::default());
+    let backend = Arc::new(SummaryBackend::default());
+    let mut agent = Agent::new(
+        tools,
+        backend.clone(),
+        Arc::new(MemoryHandle::new(&state.join("memory").to_string_lossy())),
+        sessions,
+        workspace,
+    );
+    agent.configure_cache_experiment(CacheExperimentOptions {
+        summary: SummaryStrategy::CachedMainModel,
+        ..Default::default()
+    });
+    agent
+        .query_with_mode(
+            "inspect a source".into(),
+            crate::agent::AgentOutputMode::Silent,
+        )
+        .await
+        .unwrap();
+    assert!(agent.cached_summary_prefix(&agent.history).is_some());
+    backend.fail_next.store(true, Ordering::SeqCst);
+    assert!(
+        agent
+            .query_with_mode(
+                "inspect another source".into(),
+                crate::agent::AgentOutputMode::Silent
+            )
+            .await
+            .is_err()
+    );
+    assert!(agent.cached_summary_prefix(&agent.history).is_none());
+    assert!(agent.compact_now_with_reporter(|_| {}).await.unwrap());
+    assert_eq!(*backend.auxiliary_requests.lock().unwrap(), 1);
+    assert!(backend.summary_requests.lock().unwrap().is_empty());
+    agent
+        .query_with_mode(
+            "retry the source review".into(),
+            crate::agent::AgentOutputMode::Silent,
+        )
+        .await
+        .unwrap();
+    assert!(agent.summary_prefix.is_some());
+    assert!(agent.compact_now_with_reporter(|_| {}).await.unwrap());
+    assert_eq!(backend.summary_requests.lock().unwrap().len(), 1);
+    assert_eq!(*backend.auxiliary_requests.lock().unwrap(), 1);
 }
 
 #[tokio::test]

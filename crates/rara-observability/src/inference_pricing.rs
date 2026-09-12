@@ -101,7 +101,9 @@ impl InferencePrice {
         // Missing categories may account for the remaining input. Price only
         // independently known charges until the full breakdown is available.
         let ordinary = cached.and_then(|cached| usage.input_tokens.checked_sub(cached));
-        let complete = ordinary.is_some() && [read, write, short, long].iter().all(Option::is_some);
+        let complete = !usage.input_tokens_incomplete
+            && ordinary.is_some()
+            && [read, write, short, long].iter().all(Option::is_some);
         let categories = [
             (ordinary.filter(|_| complete), self.input),
             (Some(usage.output_tokens), self.output),
