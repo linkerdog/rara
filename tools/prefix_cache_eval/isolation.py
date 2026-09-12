@@ -26,37 +26,6 @@ def sandbox_command(worker, workspace):
         str(workspace),
         str(worker.with_name("task.py")),
     ]
-    if sys.platform == "darwin":
-        read_roots = [
-            Path("/System/Library"),
-            Path("/usr/lib"),
-            runtime,
-            python.parent,
-            worker.parent,
-            workspace,
-        ]
-        reads = " ".join(f"(subpath {json.dumps(str(p))})" for p in read_roots)
-        profile = "\n".join(
-            [
-                "(version 1)",
-                "(deny default)",
-                '(import "/System/Library/Sandbox/Profiles/dyld-support.sb")',
-                "(allow sysctl-read)",
-                "(allow process-exec)",
-                # Metadata permits resolving runtime symlinks, not reading sources.
-                "(allow file-read-metadata)",
-                f"(allow file-map-executable {reads})",
-                f'(allow file-read* (literal "/") {reads})',
-                '(allow file-read* (literal "/dev/random") (literal "/dev/urandom"))',
-                '(allow file-read* file-write* (literal "/dev/null"))',
-                f"(allow file-write* (subpath {json.dumps(str(workspace))}))",
-                # Also excludes verifier symlinks and unusual runtime layouts.
-                f"(deny file-read* (subpath {json.dumps(str(verifier))}))",
-                # These pure function fixtures never need descendants or network.
-                "(deny process-fork)",
-            ]
-        )
-        return ["/usr/bin/sandbox-exec", "-p", profile, *command]
     if sys.platform == "linux":
         # Start from an empty filesystem; never bind the repository or host home.
         roots = [Path(p) for p in ["/usr", "/lib", "/lib64", "/bin"]]
@@ -88,8 +57,18 @@ def sandbox_command(worker, workspace):
         args.extend(["--ro-bind", str(worker.parent), str(worker.parent)])
         args.extend(["--bind", str(workspace), str(workspace)])
         args.extend(["--chdir", str(workspace), "--", *command])
-        return args
-    # In particular, never run candidate code on Windows without a job/sandbox.
+        # prlimit lowers hard limits before Bubblewrap or Python can run.
+        return [
+            "/usr/bin/prlimit",
+            "--as=268435456:268435456",
+            "--cpu=2:3",
+            "--fsize=2000000:2000000",
+            "--core=0:0",
+            "--",
+            *args,
+        ]
+    # Seatbelt does not provide a hard memory ceiling. Other hosts require
+    # a Linux VM/container until an equivalent resource boundary is available.
     raise OSError("no supported worker sandbox")
 
 

@@ -131,6 +131,31 @@ CI for `b57c4a9c` passed Bazel and all 27 strict Python calibration tests; Cargo
 full suite encountered the unrelated LSP early-exit status assertion. The next
 commit requires its own CI receipts.
 
+## Resource limits and inconsistent totals
+
+A subsequent resource-bound review added Linux `prlimit` before Bubblewrap and
+Python start: 256 MiB address space, 2/3-second soft/hard CPU limits, 2 MB file
+output, and disabled core dumps. Memory failures, CPU/file-limit termination,
+and wall-clock timeouts produce unknown quality. Parent source reads are also
+bounded before AST admission. Limits are part of the corpus implementation hash.
+The new regressions exercise admitted huge allocations, infinite computation,
+and output exhaustion; the original isolation/tampering calibration remains.
+
+This narrows supported grading hosts to Linux. Seatbelt supplies filesystem and
+network isolation but lacks the required hard memory ceiling; macOS and Windows
+now fail preflight before candidate or paid provider execution. Their local
+Python run checks admission/unavailability and explicitly skips Linux execution
+calibration. Linux CI must run all 31 tests without skips. This replaces the
+earlier macOS execution support described above; it does not weaken the boundary
+to keep that platform enabled. Limits follow the Linux
+[getrlimit contract](https://man7.org/linux/man-pages/man2/getrlimit.2.html).
+
+Pricing also retains individually known output/cache charges when cache totals
+exceed inclusive input or overflow the integer sum. Ordinary-input cost remains
+unknown and the report incomplete. Thirteen observability tests passed locally,
+including both new inconsistent-total cases. The local Docker daemon was not
+available, so Linux resource enforcement requires remote CI evidence.
+
 ## Follow-ups
 
 The historical September 11 quality aggregate remains ineligible for strategy

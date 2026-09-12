@@ -101,6 +101,20 @@ fn partial_categories_keep_known_charges_without_guessing_ordinary_input() {
     for (partial, expected) in [
         (
             InferenceTokenUsage {
+                input_tokens: 0,
+                ..usage()
+            },
+            0.002655,
+        ),
+        (
+            InferenceTokenUsage {
+                cache_read_tokens: Some(u64::MAX),
+                ..usage()
+            },
+            (u64::MAX as f64 / 1_000_000.0) * 0.3 + 0.002475,
+        ),
+        (
+            InferenceTokenUsage {
                 cache_read_tokens: None,
                 ..usage()
             },

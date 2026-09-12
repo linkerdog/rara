@@ -93,17 +93,17 @@ impl InferencePrice {
         let write = usage.cache_write_tokens;
         let short = usage.cache_write_5m_tokens;
         let long = usage.cache_write_1h_tokens;
-        let complete = [read, write, short, long].iter().all(Option::is_some);
         let cached = read
             .unwrap_or(0)
-            .checked_add(write.unwrap_or(0))?
-            .checked_add(short.unwrap_or(0))?
-            .checked_add(long.unwrap_or(0))?;
+            .checked_add(write.unwrap_or(0))
+            .and_then(|tokens| tokens.checked_add(short.unwrap_or(0)))
+            .and_then(|tokens| tokens.checked_add(long.unwrap_or(0)));
         // Missing categories may account for the remaining input. Price only
         // independently known charges until the full breakdown is available.
-        let ordinary = usage.input_tokens.checked_sub(cached)?;
+        let ordinary = cached.and_then(|cached| usage.input_tokens.checked_sub(cached));
+        let complete = ordinary.is_some() && [read, write, short, long].iter().all(Option::is_some);
         let categories = [
-            (complete.then_some(ordinary), self.input),
+            (ordinary.filter(|_| complete), self.input),
             (Some(usage.output_tokens), self.output),
             (read, self.cache_read),
             (write, self.cache_write),

@@ -31,8 +31,7 @@ outside the model's tools. Execute the grader within the surrounding isolated
 task environment; its subprocess timeout and Python `-I` flag do not create a
 filesystem or network sandbox. A grade exits with status 1 when the task fails.
 Missing or invalid grader receipts produce `passed: null`, which must remain
-ungraded in the task comparison. A timed-out candidate is a failed task under
-the fixed grader time limit.
+ungraded in the task comparison. A timeout or resource-limit violation produces an unknown grade.
 
 The grader uses independent contract examples and boundary sweeps, not generated
 model tests or a model's self-report. Calibration checks require all starters
@@ -43,12 +42,14 @@ include returned values, input mutation, object-origin indices, and error
 categories. The verifier checks these observations and caps accepted output at
 2 MB. A worker's own pass/fail receipt is invalid. The worker is staged away
 from verifier sources and executes in an OS sandbox with an empty environment.
-macOS uses `/usr/bin/sandbox-exec` with a read allowlist and no process creation;
-Linux requires `/usr/bin/bwrap` and permitted user/PID/network namespaces.
+Linux requires `/usr/bin/bwrap`, `/usr/bin/prlimit`, and permitted user/PID/network
+namespaces. Hard limits are installed before Python starts: 256 MiB of address
+space, 3 CPU seconds (2-second soft limit), 2 MB per output file, and no core files.
 The Linux sandbox mounts only runtime paths, the staged worker, and the fixture.
 Verifier source cannot be read through absolute paths or fixture symlinks.
 All exit paths drain the process group before protected inputs are rechecked.
-Windows and hosts that cannot establish this boundary return an unknown grade;
+macOS Seatbelt does not provide a hard memory limit; use a Linux VM/container
+for grading. macOS, Windows, and other unsupported hosts return an unknown grade;
 there is no unsandboxed fallback. An outer sandbox must permit starting this
 inner sandbox. Check the local environment without calling a provider:
 
@@ -60,6 +61,9 @@ The paid driver requires a successful preflight before the first model call.
 Ubuntu hosts may also require an administrator-approved AppArmor user namespace
 policy for `/usr/bin/bwrap`. CI carries a runner-only profile and verifies the
 actual grader before running tests; the paid driver never changes host policy.
+The strict execution calibration requires Linux; other platforms run availability
+and admission checks and explicitly skip execution calibration. Linux CI must
+run every test, including huge allocations, infinite CPU work, and oversized output.
 
 These three fixtures accept a restricted source language, documented in
 [source_policy.py](source_policy.py): ordinary function definitions, control

@@ -2,6 +2,8 @@
 
 import copy
 import json
+import os
+import signal
 import subprocess
 import tempfile
 
@@ -104,7 +106,11 @@ def identity_checks(phase):
 
 def grade_candidate(case_id, phase, workspace, timeout):
     try:
-        candidate_source = (workspace / "task.py").read_text()
+        with (workspace / "task.py").open("rb") as candidate:
+            source_bytes = candidate.read(64_001)
+        if len(source_bytes) > 64_000:
+            return {"passed": False, "reason": "unsupported_candidate_source"}
+        candidate_source = source_bytes.decode("utf-8")
     except (OSError, UnicodeError):
         return {"passed": False, "reason": "candidate_source_unavailable"}
     if not admitted_source(candidate_source):
@@ -128,9 +134,18 @@ def grade_candidate(case_id, phase, workspace, timeout):
                 try:
                     worker.wait(timeout=timeout)
                 except subprocess.TimeoutExpired:
-                    return {"passed": False, "reason": "timeout"}
+                    return {"passed": None, "reason": "timeout"}
         except OSError:
             return {"passed": None, "reason": "grader_unavailable"}
+        limit_signals = (signal.SIGXCPU, signal.SIGXFSZ, signal.SIGKILL)
+        if (
+            worker.returncode == 75
+            or os.fstat(output.fileno()).st_size >= 2_000_000
+            or any(
+                worker.returncode in (-number, 128 + number) for number in limit_signals
+            )
+        ):
+            return {"passed": None, "reason": "resource_limit"}
         output.seek(0)
         try:
             receipt = json.loads(output.read(2_000_001))
@@ -138,6 +153,8 @@ def grade_candidate(case_id, phase, workspace, timeout):
                 raise ValueError("invalid worker output")
             if receipt == {"candidate_error": True}:
                 return {"passed": False}
+            if receipt == {"resource_limit": True}:
+                return {"passed": None, "reason": "resource_limit"}
             if not isinstance(receipt, dict) or set(receipt) != {"observations"}:
                 raise ValueError("invalid worker receipt")
             observations = receipt["observations"]

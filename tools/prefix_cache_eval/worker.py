@@ -1,6 +1,7 @@
 """Execute candidate calls and report observations, without contract expectations."""
 
 import contextlib
+import errno
 import json
 import os
 from pathlib import Path
@@ -18,6 +19,8 @@ def observe(candidate, request):
     ]
     try:
         value = getattr(candidate, request["function"])(*arguments)
+    except MemoryError:
+        raise
     except BaseException as error:
         record_error = getattr(candidate, "RecordError", None)
         line_number = getattr(error, "line_number", None)
@@ -65,11 +68,23 @@ def execute(workspace, source_path, requests):
             observations = [
                 decode(encode(observe_call(candidate, request))) for request in requests
             ]
+    except MemoryError:
+        return {"resource_limit": True}
     except BaseException:
         return {"candidate_error": True}
     return {"observations": observations}
 
 
 if __name__ == "__main__":
-    requests = json.load(sys.stdin)
-    print(json.dumps(execute(Path(sys.argv[1]), Path(sys.argv[2]), requests)))
+    try:
+        requests = json.load(sys.stdin)
+        print(
+            json.dumps(execute(Path(sys.argv[1]), Path(sys.argv[2]), requests)),
+            flush=True,
+        )
+    except MemoryError:
+        sys.exit(75)
+    except OSError as error:
+        if error.errno == errno.EFBIG:
+            sys.exit(75)
+        raise

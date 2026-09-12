@@ -209,9 +209,13 @@ are checked before and after execution, including failure and timeout paths.
 The worker additionally requires OS-enforced filesystem and network isolation.
 Only the Python runtime, staged observation worker, and fixture workspace are
 readable; verifier sources and inherited host credentials are unavailable.
-macOS uses Seatbelt and denies process creation; Linux uses Bubblewrap with a
-private PID namespace. Every exit path tears down the worker process group
-before policy revalidation. Unsupported platforms (including Windows) or failed
+Linux uses Bubblewrap with a private PID namespace, launched through `prlimit`
+with hard address-space (256 MiB), CPU (3 seconds, soft limit 2 seconds), output
+file (2 MB), and core-file (zero) limits before Python starts. Resource exhaustion
+and wall-clock timeouts produce unknown grades. macOS Seatbelt does not provide
+the required hard memory boundary; grading there requires a Linux VM/container.
+Every exit path tears down the worker process group before policy revalidation.
+Unsupported platforms (including macOS and Windows) or failed
 sandbox setup return an unknown grade without executing candidate code; there
 is no unsandboxed fallback.
 
@@ -231,6 +235,8 @@ missing, without fabricating a complete bill.
 Unrecognized TTL details must not become generic writes: known input and
 recognized TTL totals survive, but the generic category remains unknown until
 the new category has a normalization and pricing contract.
+Inconsistent or overflowing cache totals suppress ordinary-input pricing but
+retain independently reported cache/output charges and an incomplete bill.
 
 ### Content-free request fingerprints
 

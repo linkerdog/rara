@@ -61,6 +61,32 @@ def execution_boundary_grade(*args, **kwargs):
         return grade(*args, **kwargs)
 
 
+class GraderAvailability(unittest.TestCase):
+    def test_hosts_without_hard_resource_limits_never_start_candidates(self):
+        for platform in ["darwin", "win32"]:
+            with self.subTest(platform=platform), tempfile.TemporaryDirectory() as d:
+                workspace = Path(d)
+                (workspace / "task.py").write_text(REPAIRS[1])
+                with patch("isolation.sys.platform", platform), patch(
+                    "isolation.subprocess.Popen"
+                ) as spawn:
+                    from grader import grade_candidate
+
+                    receipt = grade_candidate(1, 1, workspace, timeout=1)
+                    self.assertIsNone(receipt["passed"])
+                    self.assertEqual(receipt["reason"], "grader_unavailable")
+                    self.assertFalse(preflight())
+                    spawn.assert_not_called()
+
+    def test_admission_is_independent_of_host_resource_support(self):
+        for source in REPAIRS.values():
+            self.assertTrue(admitted_source(source))
+        self.assertFalse(admitted_source("import __main__\n"))
+
+
+@unittest.skipUnless(
+    sys.platform == "linux", "strict execution calibration requires Linux"
+)
 class GraderCalibration(unittest.TestCase):
     def setUp(self):
         self.temporary = tempfile.TemporaryDirectory()
@@ -269,7 +295,7 @@ else:
             (REPAIRS[3], True),
             ("os._exit(0)\n", None),
             ("raise RuntimeError('failed')\n", False),
-            ("while True:\n    pass\n", False),
+            ("while True:\n    pass\n", None),
         ]:
             with self.subTest(expected=expected), tempfile.TemporaryDirectory() as d:
                 workspace = Path(d) / "workspace"
@@ -342,15 +368,36 @@ os._exit(0)
         self.assertIsNone(receipt["passed"])
         self.assertEqual(receipt["reason"], "invalid_grader_receipt")
 
-    def test_timeout_and_candidate_errors_are_failed_grades(self):
+    def test_timeout_is_unknown_and_candidate_errors_are_failed_grades(self):
         workspace = self.workspace(1, "while True:\n    pass\n")
-        self.assertEqual(grade(1, 1, workspace, timeout=0.2)["reason"], "timeout")
+        receipt = grade(1, 1, workspace, timeout=0.2)
+        self.assertIsNone(receipt["passed"])
+        self.assertEqual(receipt["reason"], "timeout")
         (workspace / "task.py").write_text(
             'print("private-sentinel")\nraise RuntimeError("private-sentinel")'
         )
         receipt = grade(1, 1, workspace)
         self.assertFalse(receipt["passed"])
         self.assertNotIn("private-sentinel", json.dumps(receipt))
+
+    def test_admitted_allocations_and_cpu_work_are_os_bounded(self):
+        workspace = self.workspace(1)
+        for source in [
+            "def window(items, offset, limit):\n    return [0] * (10 ** 12)\n",
+            "while True:\n    pass\n",
+        ]:
+            self.assertTrue(admitted_source(source))
+            (workspace / "task.py").write_text(source)
+            receipt = grade(1, 1, workspace, timeout=5)
+            self.assertIsNone(receipt["passed"])
+            self.assertEqual(receipt["reason"], "resource_limit")
+
+    def test_output_limit_is_enforced_during_generation(self):
+        source = "def parse_objects(text):\n    return 'x' * 250000\n"
+        self.assertTrue(admitted_source(source))
+        receipt = grade(2, 1, self.workspace(2, source))
+        self.assertIsNone(receipt["passed"])
+        self.assertEqual(receipt["reason"], "resource_limit")
 
     def test_cli_exposes_phases_and_emits_content_free_grades(self):
         script = Path(__file__).with_name("run.py")
