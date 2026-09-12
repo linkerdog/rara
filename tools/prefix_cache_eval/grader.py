@@ -6,6 +6,7 @@ import subprocess
 import tempfile
 
 from isolation import isolated_worker
+from source_policy import admitted_source
 
 
 def window_checks():
@@ -102,6 +103,12 @@ def identity_checks(phase):
 
 
 def grade_candidate(case_id, phase, workspace, timeout):
+    try:
+        candidate_source = (workspace / "task.py").read_text()
+    except (OSError, UnicodeError):
+        return {"passed": False, "reason": "candidate_source_unavailable"}
+    if not admitted_source(candidate_source):
+        return {"passed": False, "reason": "unsupported_candidate_source"}
     if case_id == 1:
         checks = list(window_checks())
     elif case_id == 2:
@@ -115,7 +122,9 @@ def grade_candidate(case_id, phase, workspace, timeout):
         source.write(json.dumps([request for request, _ in checks]).encode())
         source.seek(0)
         try:
-            with isolated_worker(workspace, source, output) as worker:
+            with isolated_worker(
+                workspace, source, output, candidate_source=candidate_source
+            ) as worker:
                 try:
                     worker.wait(timeout=timeout)
                 except subprocess.TimeoutExpired:

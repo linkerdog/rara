@@ -14,7 +14,14 @@ from isolation import preflight
 def corpus_digest():
     root = Path(__file__).parent
     digest = hashlib.sha256()
-    for name in ["cases.py", "grader.py", "worker.py", "isolation.py", "run.py"]:
+    for name in [
+        "cases.py",
+        "grader.py",
+        "worker.py",
+        "isolation.py",
+        "source_policy.py",
+        "run.py",
+    ]:
         digest.update(name.encode())
         digest.update((root / name).read_bytes())
     return digest.hexdigest()

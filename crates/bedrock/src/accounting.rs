@@ -90,8 +90,10 @@ fn normalize_usage(usage: &TokenUsage) -> Option<InferenceTokenUsage> {
         .and_then(|value| u64::try_from(value).ok());
     let mut short = 0_u64;
     let mut long = 0_u64;
+    let mut detailed_writes = 0_u64;
     for detail in usage.cache_details() {
         let tokens = u64::try_from(detail.input_tokens).ok()?;
+        detailed_writes = detailed_writes.checked_add(tokens)?;
         match detail.ttl.as_str() {
             "5m" => short = short.checked_add(tokens)?,
             "1h" => long = long.checked_add(tokens)?,
@@ -102,12 +104,14 @@ fn normalize_usage(usage: &TokenUsage) -> Option<InferenceTokenUsage> {
     Some(InferenceTokenUsage {
         input_tokens: ordinary
             .checked_add(read.unwrap_or(0))?
-            .checked_add(write.unwrap_or(0))?,
+            .checked_add(write.unwrap_or(detailed_writes))?,
         output_tokens: u64::try_from(usage.output_tokens).ok()?,
         cache_read_tokens: read,
         cache_write_tokens: write.and_then(|write| write.checked_sub(short.checked_add(long)?)),
-        cache_write_5m_tokens: Some(short),
-        cache_write_1h_tokens: Some(long),
+        // A reported breakdown is exhaustive (empty means no creation), while
+        // the SDK getter also returns [] when the field is absent.
+        cache_write_5m_tokens: usage.cache_details.as_ref().map(|_| short),
+        cache_write_1h_tokens: usage.cache_details.as_ref().map(|_| long),
     })
 }
 
@@ -153,5 +157,48 @@ mod tests {
             .build()
             .unwrap();
         assert_eq!(normalize_usage(&absent).unwrap().cache_read_tokens, None);
+    }
+
+    #[test]
+    fn converse_usage_retains_detail_totals_without_an_aggregate() {
+        let usage = TokenUsage::builder()
+            .input_tokens(20)
+            .output_tokens(1)
+            .total_tokens(71)
+            .cache_read_input_tokens(10)
+            .cache_details(
+                CacheDetail::builder()
+                    .ttl(CacheTtl::FiveMinutes)
+                    .input_tokens(40)
+                    .build()
+                    .unwrap(),
+            )
+            .build()
+            .unwrap();
+        let parsed = normalize_usage(&usage).unwrap();
+        assert_eq!(parsed.input_tokens, 70);
+        assert_eq!(parsed.cache_write_tokens, None);
+        assert_eq!(parsed.cache_write_5m_tokens, Some(40));
+        assert_eq!(parsed.cache_write_1h_tokens, Some(0));
+    }
+
+    #[test]
+    fn converse_usage_distinguishes_absent_and_empty_details() {
+        let usage = TokenUsage::builder()
+            .input_tokens(20)
+            .output_tokens(1)
+            .total_tokens(21)
+            .cache_read_input_tokens(0)
+            .cache_write_input_tokens(0)
+            .build()
+            .unwrap();
+        let absent = normalize_usage(&usage).unwrap();
+        assert_eq!(absent.cache_write_5m_tokens, None);
+        assert_eq!(absent.cache_write_1h_tokens, None);
+        let mut empty = usage;
+        empty.cache_details = Some(vec![]);
+        let parsed = normalize_usage(&empty).unwrap();
+        assert_eq!(parsed.cache_write_5m_tokens, Some(0));
+        assert_eq!(parsed.cache_write_1h_tokens, Some(0));
     }
 }

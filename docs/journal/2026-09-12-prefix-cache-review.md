@@ -78,6 +78,35 @@ without changing global sysctls. Both the actual grader preflight and the full
 Python calibration are mandatory before the Cargo suite, so setup failures have
 direct diagnostics and cannot hide behind unknown integration grades.
 
+## Additional review checkpoint
+
+A later review reproduced a wrong `window` implementation passing after it
+replaced `__main__.observe.__code__`. The parent now admits only the fixture's
+restricted pure-function source language and freezes accepted source in the
+worker directory before execution. Observer mutation and forged full JSON
+observations are rejected before process creation. Reference repairs and
+incorrect ordinary implementations still exercise the real observer. The task
+prompts and corpus identity change with this explicit submission contract; this
+does not claim support for arbitrary Python programs or revive earlier grades.
+
+The same review found that missing Bedrock aggregate writes dropped known TTL
+totals from inclusive input, and absent TTL detail fields became known zeros.
+Normalization now preserves those known totals and distinguishes absent details
+from a reported exhaustive list. AWS documents an explicitly empty list as no
+creation, so that case remains known zero. Anthropic aggregate-only creation
+also retains unknown TTL categories and cannot produce complete billing.
+
+The new OpenRouter suggestion is not applicable: its official
+[usage accounting contract](https://openrouter.ai/docs/cookbook/administration/usage-accounting)
+always includes usage in the final streaming chunk and deprecates both usage
+request parameters. Both repeated authentication suggestions remain contradicted
+by the actual source and HTTP capture test. No production change follows those
+three suggestions.
+
+Additional local validation passed: 27 Python calibration tests, 3 Bedrock
+accounting tests, 15 inference/provider tests, and 5 offline driver tests
+(the paid test remains ignored), plus Clippy with warnings denied.
+
 ## Follow-ups
 
 The historical September 11 quality aggregate remains ineligible for strategy

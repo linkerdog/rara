@@ -60,6 +60,19 @@ The paid driver requires a successful preflight before the first model call.
 Ubuntu hosts may also require an administrator-approved AppArmor user namespace
 policy for `/usr/bin/bwrap`. CI carries a runner-only profile and verifies the
 actual grader before running tests; the paid driver never changes host policy.
+
+These three fixtures accept a restricted source language, documented in
+[source_policy.py](source_policy.py): ordinary function definitions, control
+flow, comprehensions, built-in data operations, the fixed `RecordError` class,
+and `import json`. Reflection, dynamic calls, decorators, other imports, I/O,
+and process control are invalid submissions, even if they are valid Python.
+The initial task prompt declares this restriction. Validation happens in the
+parent before any execution, and the accepted source is copied into the
+read-only worker directory so later workspace edits cannot replace it.
+This admission rule prevents submitted code from reaching observer functions or
+writing forged receipts through process APIs; it is not a general Python sandbox.
+The OS and process tests deliberately bypass admission with fixed test code to
+keep validating those independent boundaries. Normal grading has no bypass.
 Case 3 also rejects changes to the policy source. Its first phase deliberately
 does not require the second task's implementation.
 The protected policy is checked before and after worker execution, including

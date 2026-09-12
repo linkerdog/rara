@@ -106,3 +106,12 @@ def merge_unique(existing, incoming):
         ],
     },
 }
+
+
+SUBMISSION_RULES = (
+    " Keep task.py self-contained: use ordinary functions, built-in data "
+    "structures, and json only. Other imports, decorators, reflection, dynamic "
+    "calls, I/O, and process control are outside this fixture's submission contract."
+)
+for case in CASES.values():
+    case["turns"][0]["prompt"] += SUBMISSION_RULES

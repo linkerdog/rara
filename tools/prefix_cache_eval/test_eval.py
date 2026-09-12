@@ -14,6 +14,7 @@ from unittest.mock import patch
 from cases import CASES
 from run import corpus_digest, grade, initialize
 from isolation import preflight
+from source_policy import admitted_source
 
 REPAIRS = {
     1: """def window(items, offset, limit):
@@ -53,6 +54,13 @@ def merge_unique(existing, incoming):
 }
 
 
+def execution_boundary_grade(*args, **kwargs):
+    # Fixed adversarial fixtures deliberately bypass source admission here so
+    # these tests continue exercising the independent OS/process boundary.
+    with patch("grader.admitted_source", return_value=True):
+        return grade(*args, **kwargs)
+
+
 class GraderCalibration(unittest.TestCase):
     def setUp(self):
         self.temporary = tempfile.TemporaryDirectory()
@@ -78,6 +86,61 @@ class GraderCalibration(unittest.TestCase):
     def test_negative_bounds_are_not_hidden_by_a_correct_slice(self):
         source = "def window(items, offset, limit):\n    return list(items[offset:offset + limit])\n"
         self.assertFalse(grade(1, 1, self.workspace(1, source))["passed"])
+
+    def test_observer_mutation_and_forged_observations_are_rejected_before_execution(
+        self,
+    ):
+        oracle = """import __main__
+def forged_observe(candidate, request):
+    items, offset, limit = request['arguments']
+    if offset < 0 or limit < 0:
+        return {'error': {'value_error': True}}
+    return {'value': list(items[offset:offset + limit]), 'arguments': request['arguments'], 'aliases_arguments': [False, False, False], 'error': None}
+def window(items, offset, limit):
+    return ['incorrect']
+"""
+        attacks = [
+            oracle + "__main__.observe.__code__ = forged_observe.__code__\n",
+            oracle + """import json
+import os
+os.write(1, json.dumps({'observations': [forged_observe(None, request) for request in __main__.requests]}).encode())
+os._exit(0)
+""",
+        ]
+        workspace = self.workspace(1)
+        for source in attacks:
+            (workspace / "task.py").write_text(source)
+            with patch("isolation.subprocess.Popen") as spawn:
+                receipt = grade(1, 1, workspace)
+                spawn.assert_not_called()
+            self.assertIs(receipt["passed"], False)
+            self.assertEqual(receipt["reason"], "unsupported_candidate_source")
+
+    def test_source_admission_rejects_reflection_and_library_mutation(self):
+        for source in [
+            "import json\njson.loads.__globals__.clear()",
+            "import json\njson.loads = list",
+            "import json\ngetattr(json.loads, '__globals__').clear()",
+            "reader = open\nreader('grader.py')",
+            "class RecordError(ValueError):\n    def __getattribute__(self, name):\n        return 1",
+            "@print\ndef window(items, offset, limit):\n    return []",
+            "from json import loads",
+            "import json as observer",
+        ]:
+            with self.subTest(source=source):
+                self.assertFalse(admitted_source(source))
+
+    def test_worker_executes_the_frozen_admitted_source(self):
+        from isolation import isolated_worker
+
+        workspace = self.workspace(1, REPAIRS[1])
+
+        def changed_workspace(*args, **kwargs):
+            (workspace / "task.py").write_text("raise RuntimeError('changed')\n")
+            return isolated_worker(*args, **kwargs)
+
+        with patch("grader.isolated_worker", side_effect=changed_workspace):
+            self.assertIs(grade(1, 1, workspace)["passed"], True)
 
     def test_physical_line_numbers_survive_blank_lines(self):
         source = REPAIRS[2].replace(
@@ -145,7 +208,9 @@ class GraderCalibration(unittest.TestCase):
                     + REPAIRS[3]
                 )
                 (workspace / "task.py").write_text(source)
-                self.assertIs(grade(3, 2, workspace)["passed"], False)
+                self.assertIs(
+                    execution_boundary_grade(3, 2, workspace)["passed"], False
+                )
 
     def test_workspace_reuse_cannot_copy_repairs_between_arms(self):
         workspace = self.workspace(1, REPAIRS[1])
@@ -169,13 +234,16 @@ for path in paths:
     raise RuntimeError('verifier source was exposed')
 """ + REPAIRS[1]
         (workspace / "task.py").write_text(source)
-        self.assertIs(grade(1, 1, workspace)["passed"], True)
+        self.assertIs(execution_boundary_grade(1, 1, workspace)["passed"], True)
 
     def test_worker_has_no_inherited_host_credentials(self):
         source = "import os\nassert 'CACHE_TRIAL_FAKE_SECRET' not in os.environ\n"
         with patch.dict(os.environ, {"CACHE_TRIAL_FAKE_SECRET": "fixture-secret"}):
             self.assertIs(
-                grade(1, 1, self.workspace(1, source + REPAIRS[1]))["passed"], True
+                execution_boundary_grade(1, 1, self.workspace(1, source + REPAIRS[1]))[
+                    "passed"
+                ],
+                True,
             )
 
     def test_worker_cannot_connect_to_a_host_service(self):
@@ -191,7 +259,10 @@ except OSError:
 else:
     raise RuntimeError('host network was exposed')
 """ + REPAIRS[1]
-            self.assertIs(grade(1, 1, self.workspace(1, source))["passed"], True)
+            self.assertIs(
+                execution_boundary_grade(1, 1, self.workspace(1, source))["passed"],
+                True,
+            )
 
     def test_delayed_descendants_cannot_outlive_any_worker_exit(self):
         for ending, expected in [
@@ -215,7 +286,7 @@ except OSError:
     pass
 """ + ending
                 (workspace / "task.py").write_text(source)
-                receipt = grade(3, 2, workspace, timeout=0.4)
+                receipt = execution_boundary_grade(3, 2, workspace, timeout=0.4)
                 self.assertIs(receipt["passed"], expected)
                 if sys.platform == "linux":
                     self.assertTrue((workspace / "spawned").exists())
@@ -228,7 +299,7 @@ except OSError:
     def test_unsupported_platform_never_executes_candidate_code(self):
         workspace = self.workspace(1, "from pathlib import Path\nPath('ran').touch()\n")
         with patch("isolation.sys.platform", "win32"):
-            receipt = grade(1, 1, workspace)
+            receipt = execution_boundary_grade(1, 1, workspace)
             self.assertIsNone(receipt["passed"])
             self.assertEqual(receipt["reason"], "grader_unavailable")
             self.assertFalse(preflight())
@@ -239,7 +310,7 @@ except OSError:
         with patch(
             "isolation.sandbox_command", return_value=["/missing/cache-sandbox"]
         ):
-            self.assertIsNone(grade(1, 1, workspace)["passed"])
+            self.assertIsNone(execution_boundary_grade(1, 1, workspace)["passed"])
             self.assertFalse(preflight())
         self.assertFalse((workspace / "ran").exists())
 
@@ -257,7 +328,7 @@ except OSError:
                     "from pathlib import Path\nPath('POLICY.md').write_text('changed')\n"
                     + ending
                 )
-                receipt = grade(3, 2, workspace, timeout=0.2)
+                receipt = execution_boundary_grade(3, 2, workspace, timeout=0.2)
                 self.assertIs(receipt["passed"], False)
                 self.assertEqual(receipt["reason"], "protected_input_changed")
 
@@ -267,7 +338,7 @@ import os
 os.write(1, json.dumps({"case_id": 1, "phase": 1, "passed": True}).encode())
 os._exit(0)
 """
-        receipt = grade(1, 1, self.workspace(1, source))
+        receipt = execution_boundary_grade(1, 1, self.workspace(1, source))
         self.assertIsNone(receipt["passed"])
         self.assertEqual(receipt["reason"], "invalid_grader_receipt")
 
@@ -316,7 +387,7 @@ os._exit(0)
 
     def test_missing_grader_receipt_is_unknown_instead_of_a_quality_result(self):
         workspace = self.workspace(1, "import os\nos._exit(0)\n")
-        receipt = grade(1, 1, workspace)
+        receipt = execution_boundary_grade(1, 1, workspace)
         self.assertIsNone(receipt["passed"])
         self.assertEqual(receipt["reason"], "invalid_grader_receipt")
 

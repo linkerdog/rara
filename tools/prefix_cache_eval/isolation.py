@@ -18,7 +18,14 @@ def sandbox_command(worker, workspace):
     for root in [runtime, workspace, worker.parent]:
         if root == verifier or root in verifier.parents:
             raise OSError("sandbox roots overlap the verifier")
-    command = [str(python), "-I", "-S", str(worker), str(workspace)]
+    command = [
+        str(python),
+        "-I",
+        "-S",
+        str(worker),
+        str(workspace),
+        str(worker.with_name("task.py")),
+    ]
     if sys.platform == "darwin":
         read_roots = [
             Path("/System/Library"),
@@ -87,10 +94,13 @@ def sandbox_command(worker, workspace):
 
 
 @contextmanager
-def isolated_worker(workspace, source, output):
+def isolated_worker(workspace, source, output, *, candidate_source=None):
     with tempfile.TemporaryDirectory(prefix="cache-worker-") as directory:
         worker_path = Path(directory).resolve() / "worker.py"
         worker_path.write_bytes(Path(__file__).with_name("worker.py").read_bytes())
+        if candidate_source is None:
+            candidate_source = (workspace / "task.py").read_text()
+        worker_path.with_name("task.py").write_text(candidate_source)
         worker = subprocess.Popen(
             sandbox_command(worker_path, workspace),
             cwd=workspace,

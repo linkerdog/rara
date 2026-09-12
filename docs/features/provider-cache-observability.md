@@ -210,6 +210,20 @@ before policy revalidation. Unsupported platforms (including Windows) or failed
 sandbox setup return an unknown grade without executing candidate code; there
 is no unsandboxed fallback.
 
+The three pure-function fixtures admit a deliberately restricted Python source
+language before executing a submission. Only ordinary function/data operations,
+the fixed `RecordError` exception shape, and the `json` import are accepted.
+Reflection, dynamic calls, decorators, arbitrary attributes/imports, I/O, and
+process control are invalid submissions. The verifier validates and freezes
+the exact source passed to the worker. This is a corpus acceptance rule, not a
+general-purpose Python security sandbox. OS isolation remains mandatory.
+
+An absent TTL breakdown remains unknown even when an aggregate cache write is
+reported. Bedrock's explicitly reported detail list is exhaustive, including an
+empty list for no creation; an absent list must not be confused with empty.
+Known detail totals still contribute to inclusive input when the aggregate is
+missing, without fabricating a complete bill.
+
 ### Content-free request fingerprints
 
 The DeepSeek backend fingerprints the exact logical JSON body constructed by
@@ -333,6 +347,7 @@ own retention or removal of the isolated state directory.
 - [2026-08-21 DeepSeek cache probe](../journal/2026-08-21-deepseek-cache-probe.md)
 - [2026-08-21 DeepSeek prefix cache locality](../journal/2026-08-21-deepseek-prefix-cache-locality.md)
 - [2026-09-11 Prefix cache optimization](../journal/2026-09-11-prefix-cache-optimization.md)
+- [2026-09-12 Prefix cache review](../journal/2026-09-12-prefix-cache-review.md)
 
 ## References
 

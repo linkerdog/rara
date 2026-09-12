@@ -38,7 +38,7 @@ pub(in crate::llm) fn parse_inference_usage(usage: &Value) -> Option<InferenceTo
                 Some(long),
             ),
             // An undifferentiated write is priced only by an explicit generic-write tariff.
-            (None, None) => (creation, Some(0), Some(0)),
+            (None, None) => (creation, None, None),
             _ => (None, short, long),
         }
     } else {
@@ -125,16 +125,24 @@ mod tests {
                 800,
                 Some(600),
                 None,
-                Some(0),
-                Some(0),
+                None,
+                None,
             ),
             (
                 json!({"cache_creation_input_tokens":200}),
                 400,
                 None,
                 Some(200),
-                Some(0),
-                Some(0),
+                None,
+                None,
+            ),
+            (
+                json!({"cache_read_input_tokens":600,"cache_creation_input_tokens":200}),
+                1000,
+                Some(600),
+                Some(200),
+                None,
+                None,
             ),
             (
                 json!({"cache_creation":{"ephemeral_5m_input_tokens":50}}),
@@ -170,7 +178,16 @@ mod tests {
                     cache_write_1h_tokens: long
                 }
             );
-            assert!(usage.cache_read_tokens.is_none() || usage.cache_write_tokens.is_none());
+            assert!(
+                [
+                    usage.cache_read_tokens,
+                    usage.cache_write_tokens,
+                    usage.cache_write_5m_tokens,
+                    usage.cache_write_1h_tokens,
+                ]
+                .iter()
+                .any(Option::is_none)
+            );
             let task = rara_observability::InferenceTask::default();
             let agent = task.start_agent(None);
             let call = agent.start_call(rara_observability::InferencePurpose::Main);

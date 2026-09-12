@@ -49,7 +49,7 @@ def observe(candidate, request):
     }
 
 
-def execute(workspace, requests):
+def execute(workspace, source_path, requests):
     observe_call = observe
     encode, decode = json.dumps, json.loads
     candidate = types.ModuleType("candidate")
@@ -59,7 +59,7 @@ def execute(workspace, requests):
         with open(os.devnull, "w") as sink, contextlib.redirect_stdout(
             sink
         ), contextlib.redirect_stderr(sink):
-            source = (workspace / "task.py").read_text()
+            source = source_path.read_text()
             exec(compile(source, candidate.__file__, "exec"), candidate.__dict__)
             # Snapshot each observation before later calls can mutate shared objects.
             observations = [
@@ -72,4 +72,4 @@ def execute(workspace, requests):
 
 if __name__ == "__main__":
     requests = json.load(sys.stdin)
-    print(json.dumps(execute(Path(sys.argv[1]), requests)))
+    print(json.dumps(execute(Path(sys.argv[1]), Path(sys.argv[2]), requests)))
