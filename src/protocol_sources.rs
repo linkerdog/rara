@@ -202,7 +202,7 @@ pub struct SkillSourceEntry {
     pub source_id: String,
     /// Reserved for protocol skill ordering. Will be activated when external
     /// skill roots are merged into local skill discovery (docs/features/runtime-control-plane.md).
-    #[allow(dead_code)]
+    #[allow(dead_code)] // Reserved for source precedence resolution
     pub precedence_hint: Option<i32>,
 }
 

@@ -11,7 +11,7 @@ use crate::tool_result::ToolResultProjectionPolicy;
 impl Agent {
     /// Reserved for the prompt-runtime compatibility API documented in
     /// docs/features/prompt-runtime.md.
-    #[allow(dead_code)]
+    #[allow(dead_code)] // Reserved for prompt-runtime compatibility API (docs/features/prompt-runtime.md)
     pub fn assemble_context(&self) -> AssembledContext {
         self.context_assembler().assemble(self.prompt_mode())
     }
@@ -107,14 +107,14 @@ impl Agent {
     /// Reserved for prompt-runtime callers that need only the assembled system
     /// prompt; docs/features/prompt-runtime.md keeps this as the compatibility
     /// boundary.
-    #[allow(dead_code)]
+    #[allow(dead_code)] // Reserved for prompt-runtime callers (docs/features/prompt-runtime.md)
     pub fn build_system_prompt(&self) -> String {
         self.assemble_context().effective_prompt.text
     }
 
     /// Reserved for prompt-runtime callers that need source/provenance details
     /// from the effective prompt; see docs/features/prompt-runtime.md.
-    #[allow(dead_code)]
+    #[allow(dead_code)] // Reserved for prompt-runtime callers (docs/features/prompt-runtime.md)
     pub fn effective_prompt(&self) -> prompt::EffectivePrompt {
         self.assemble_context().effective_prompt
     }

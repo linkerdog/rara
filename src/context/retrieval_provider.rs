@@ -105,7 +105,7 @@ impl RetrievalSourceProvider for PrecomputedSourceProvider<'_> {
 
 /// Reserved MCP resource adapter for protocol/MCP references; resource body
 /// loading is tracked in docs/features/mcp-runtime.md.
-#[allow(dead_code)]
+#[allow(dead_code)] // Reserved MCP resource adapter (docs/features/mcp-runtime.md)
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct McpResourceReference {
     pub server_name: String,
@@ -119,7 +119,7 @@ pub(crate) struct McpResourceReference {
 
 /// Reserved for MCP resource candidates supplied by protocol/MCP adapters; see
 /// docs/journal/2026-05-09-mcp-resource-context.md.
-#[allow(dead_code)]
+#[allow(dead_code)] // Reserved for MCP resource candidates (docs/journal/2026-05-09-mcp-resource-context.md)
 pub(crate) fn mcp_resource_candidate(
     reference: McpResourceReference,
     rank: usize,

@@ -134,7 +134,7 @@ impl MemoryStore {
 
     /// Reserved for the memory-record pinning API documented in
     /// docs/features/memory-records.md.
-    #[allow(dead_code)]
+    #[allow(dead_code)] // Reserved for durable memory pinning (docs/features/memory-records.md)
     pub async fn set_pinned(&self, id: &str, pinned: bool) -> Result<MemoryRecord> {
         let _timer = self.observability.start_timer(MemoryOperation::Write);
         self.records.set_pinned(id, pinned).await
@@ -166,7 +166,7 @@ impl MemoryStore {
     /// Returns the most recent records for a scope. No embedding required.
     /// Reserved for the memory-record listing API documented in
     /// docs/features/memory-records.md.
-    #[allow(dead_code)]
+    #[allow(dead_code)] // Reserved for recent-memory listing
     pub async fn list_recent(
         &self,
         scope: Option<MemoryScope>,

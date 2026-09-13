@@ -9,3 +9,11 @@ jobs/
 .tmp-pr-*
 .tmp-pr*.md
 lancedb.lock
+
+# Local build and release artifacts
+/rara
+*.tar.gz
+
+# Python caches
+__pycache__/
+*.py[cod]

@@ -12,7 +12,7 @@ use crate::prompt::{PromptSource, PromptSourceKind};
 const PROJECT_INSTRUCTION_FILES: [&str; 3] = ["CLAUDE.md", "GEMINI.md", "AGENTS.md"];
 const RULES_DIR_NAME: &str = ".rara/rules";
 // Reserved for private per-user rules (gitignored).
-#[allow(dead_code)]
+#[allow(dead_code)] // Reserved for local instruction file support
 const LOCAL_INSTRUCTION_FILE: &str = ".rara/local.md";
 const USER_INSTRUCTION_FILE: &str = "AGENTS.md";
 

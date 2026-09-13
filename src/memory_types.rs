@@ -16,7 +16,7 @@ use crate::llm::LlmBackend;
 const DEFAULT_IMPORTANCE: f32 = 0.5;
 /// Reserved for automatic memory cleanup protection; see
 /// docs/journal/2026-05-05-memory-retention.md.
-#[allow(dead_code)]
+#[allow(dead_code)] // Reserved for automatic memory cleanup protection (docs/journal/2026-05-05-memory-retention.md)
 const HIGH_IMPORTANCE_RETENTION_THRESHOLD: f32 = 0.8;
 const MEMORY_RECORDS_FILE_VERSION: u32 = 1;
 
@@ -106,7 +106,7 @@ pub enum MemoryPromotionTarget {
     },
     /// Reserved for session-context promotion; the promotion path is tracked in
     /// docs/journal/2026-05-09-memory-scope-promotion-rules.md.
-    #[allow(dead_code)]
+    #[allow(dead_code)] // Reserved for session-context promotion (docs/journal/2026-05-09-memory-scope-promotion-rules.md)
     Session {
         session_id: String,
         source_span: Option<MemorySourceSpan>,

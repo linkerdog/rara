@@ -43,7 +43,7 @@ pub(super) fn format_thread_markdown(thread: &ThreadSnapshot) -> String {
 /// Reserved compatibility formatter for summary-style thread distillation.
 /// Activated through `distill_thread_summary` when callers need the legacy
 /// one-record path documented in docs/features/memory-records.md.
-#[allow(dead_code)]
+#[allow(dead_code)] // Reserved for thread-summary memory distillation
 pub(super) fn thread_summary_memory_record(thread: &ThreadSnapshot) -> Option<NewMemoryRecord> {
     let summary = thread
         .compaction

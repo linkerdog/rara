@@ -257,7 +257,7 @@ impl OAuthManager {
     }
 
     /// Reserved for Codex model catalog refresh wiring (docs/todo.md).
-    #[allow(dead_code)]
+    #[allow(dead_code)] // Reserved for codex home path accessors
     pub fn codex_home(&self) -> &Path {
         self.codex_home.as_path()
     }

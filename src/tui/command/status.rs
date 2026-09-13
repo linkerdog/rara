@@ -333,7 +333,7 @@ fn render_context_observability(app: &TuiApp) -> String {
 include!("status_sections.rs");
 
 /// Reserved for the richer `/status` context tab tracked in docs/todo.md.
-#[allow(dead_code)]
+#[allow(dead_code)] // Reserved for status-panel context section
 pub fn status_context_text(app: &TuiApp) -> String {
     let prompt_warnings = if app.snapshot.prompt_warnings.is_empty() {
         None
@@ -589,7 +589,7 @@ pub fn status_workspace_text(app: &TuiApp) -> String {
 }
 
 /// Reserved for the richer `/status` resources tab tracked in docs/todo.md.
-#[allow(dead_code)]
+#[allow(dead_code)] // Reserved for status-panel resources section
 pub fn status_resources_text(app: &TuiApp) -> String {
     let cache = if is_local_provider(&app.config.provider) {
         crate::local_backend::default_local_model_cache_dir()
