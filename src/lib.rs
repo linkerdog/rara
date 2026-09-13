@@ -1,5 +1,14 @@
 #![recursion_limit = "512"]
 #![allow(unused_imports)]
+// Grandfathered monolith violations; shrink as src/ is split into clean crates
+// (issue #871, Phase 0).
+#![allow(
+    clippy::expect_used,
+    clippy::unwrap_used,
+    clippy::panic,
+    clippy::todo,
+    clippy::unimplemented
+)]
 
 mod acp;
 mod agent;

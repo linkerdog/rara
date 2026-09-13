@@ -6,3 +6,7 @@ license.workspace = true
 
 [dependencies]
 thiserror = "2"
+
+# Grandfathered legacy lints via source-level #![allow]; remove as cleaned (issue #871).
+[lints]
+workspace = true

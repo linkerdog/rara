@@ -12,3 +12,7 @@ secrecy.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 url = "2.5"
+
+# Grandfathered legacy lints via source-level #![allow]; remove as cleaned (issue #871).
+[lints]
+workspace = true

@@ -15,3 +15,7 @@ serde_json.workspace = true
 
 [dev-dependencies]
 tokio = { version = "1.0", features = ["macros", "rt", "time", "net", "io-util"] }
+
+# Grandfathered legacy lints via source-level #![allow]; remove as cleaned (issue #871).
+[lints]
+workspace = true
