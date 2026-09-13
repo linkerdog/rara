@@ -161,12 +161,12 @@ pub struct SubagentProgress {
     /// Reserved for background subagent UI state.
     /// Will be activated with queued background subagent messages
     /// (docs/features/subagent-and-aux-compression.md).
-    #[allow(dead_code)]
+    #[allow(dead_code)] // Reserved for background subagent progress rendering
     pub is_backgrounded: bool,
     /// Reserved for background subagent progress labels.
     /// Will be activated with queued background subagent messages
     /// (docs/features/subagent-and-aux-compression.md).
-    #[allow(dead_code)]
+    #[allow(dead_code)] // Reserved for background subagent progress labels
     pub subagent_name: String,
 }
 

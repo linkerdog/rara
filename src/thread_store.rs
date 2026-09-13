@@ -122,7 +122,7 @@ impl<'a> ThreadStore<'a> {
 
     /// Reserved portable export boundary for external thread inspection.
     /// This is part of the thread contract documented in docs/features/threads.md.
-    #[allow(dead_code)]
+    #[allow(dead_code)] // Reserved for thread markdown export
     pub fn export_thread_markdown(&self, session_id: &str) -> Result<String> {
         Ok(format::format_thread_markdown(
             &self.load_thread(session_id)?,
@@ -132,7 +132,7 @@ impl<'a> ThreadStore<'a> {
     /// Reserved compatibility path for one-record thread distillation.
     /// The active product path is `distill_thread_memories`; this remains part
     /// of the thread contract documented in docs/features/memory-records.md.
-    #[allow(dead_code)]
+    #[allow(dead_code)] // Reserved for thread-summary distillation
     pub async fn distill_thread_summary(
         &self,
         memory_store: &MemoryStore,

@@ -151,7 +151,7 @@ impl SessionManager {
     /// Reserved for manual or control-plane-triggered session shard promotion.
     /// Will be activated by the periodic promotion scheduler tracked in
     /// docs/features/memory-records.md.
-    #[allow(dead_code)]
+    #[allow(dead_code)] // Reserved for session-context memory promotion (docs/features/memory-records.md)
     pub async fn promote_session_context_memories(
         &self,
         memory_store: &MemoryStore,
@@ -209,7 +209,7 @@ impl SessionManager {
     /// Reserved for scheduler-style session shard promotion policy checks.
     /// Will be activated by the periodic promotion scheduler tracked in
     /// docs/features/memory-records.md.
-    #[allow(dead_code)]
+    #[allow(dead_code)] // Reserved for session-context memory promotion (docs/features/memory-records.md)
     pub fn plan_session_context_memory_promotion(
         &self,
         session_id: &str,
@@ -224,7 +224,7 @@ impl SessionManager {
     /// Reserved for scheduler-style session shard promotion execution.
     /// Will be activated by the periodic promotion scheduler tracked in
     /// docs/features/memory-records.md.
-    #[allow(dead_code)]
+    #[allow(dead_code)] // Reserved for session-context memory promotion (docs/features/memory-records.md)
     pub async fn promote_session_context_memories_with_policy(
         &self,
         memory_store: &MemoryStore,
@@ -585,7 +585,7 @@ impl SessionManager {
 
 /// Reserved for manual session shard promotion. Will be activated by the
 /// periodic promotion scheduler tracked in docs/features/memory-records.md.
-#[allow(dead_code)]
+#[allow(dead_code)] // Reserved for session-context memory promotion rendering
 fn session_context_promotion_markdown(
     session_id: &str,
     checkpoints: &[session_context::SessionContextCheckpoint],

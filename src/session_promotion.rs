@@ -11,7 +11,7 @@ pub enum SessionShardPromotionTrigger {
 /// Reserved policy gate for periodic session shard promotion. Will be activated
 /// by the scheduler tracked in docs/features/memory-records.md.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[allow(dead_code)]
+#[allow(dead_code)] // Reserved for periodic session shard promotion (docs/features/memory-records.md)
 pub struct SessionShardPromotionPolicy {
     pub enabled: bool,
     pub min_checkpoints: usize,
@@ -65,7 +65,7 @@ pub struct SessionShardPromotionOutcome {
 impl SessionShardPromotionPolicy {
     /// Reserved for scheduler-style promotion checks. Will be activated by the
     /// periodic promotion scheduler tracked in docs/features/memory-records.md.
-    #[allow(dead_code)]
+    #[allow(dead_code)] // Reserved for scheduler-style promotion checks (docs/features/memory-records.md)
     pub fn evaluate(
         self,
         session_id: impl Into<String>,
@@ -106,7 +106,7 @@ impl SessionShardPromotionPolicy {
 impl SessionShardPromotionPlan {
     /// Reserved for scheduler-style promotion checks. Will be activated by the
     /// periodic promotion scheduler tracked in docs/features/memory-records.md.
-    #[allow(dead_code)]
+    #[allow(dead_code)] // Reserved for scheduler-style promotion checks (docs/features/memory-records.md)
     pub fn is_eligible(&self) -> bool {
         matches!(self.decision, SessionShardPromotionDecision::Eligible)
     }

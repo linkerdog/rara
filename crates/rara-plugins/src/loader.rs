@@ -38,7 +38,7 @@ struct HooksJson {
 #[derive(Debug, Clone, Deserialize)]
 struct MatcherGroup {
     #[serde(default)]
-    #[allow(dead_code)]
+    #[allow(dead_code)] // Reserved for plugin hook matching
     matcher: Option<String>,
     hooks: Vec<HookHandler>,
 }

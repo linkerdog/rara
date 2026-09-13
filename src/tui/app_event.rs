@@ -6,7 +6,7 @@ pub enum AppEvent {
     Noop,
     /// Reserved for protocol/UI-control callers that should request overlays
     /// without reaching into TUI state directly (docs/todo.md).
-    #[allow(dead_code)]
+    #[allow(dead_code)] // Reserved for protocol/UI-control callers (docs/todo.md)
     OpenOverlay(Overlay),
     CloseOverlay,
     SubmitComposer,
@@ -38,7 +38,7 @@ pub enum AppEvent {
     SelectPendingOption(usize),
     /// Reserved for legacy setup picker navigation until provider selection is
     /// fully consolidated into list-picker events (docs/todo.md).
-    #[allow(dead_code)]
+    #[allow(dead_code)] // Reserved for legacy setup picker navigation (docs/todo.md)
     CycleModelSelection,
     SaveBaseUrlInput,
     SaveApiKeyInput,
@@ -46,15 +46,15 @@ pub enum AppEvent {
     SaveOpenAiProfileLabelInput,
     /// Reserved for direct OpenAI-compatible profile creation shortcuts once
     /// profile actions move out of overlay-only dispatch (docs/todo.md).
-    #[allow(dead_code)]
+    #[allow(dead_code)] // Reserved for direct profile creation shortcuts (docs/todo.md)
     CreateOpenAiProfile,
     /// Reserved for direct OpenAI-compatible profile edit shortcuts once
     /// profile actions move out of overlay-only dispatch (docs/todo.md).
-    #[allow(dead_code)]
+    #[allow(dead_code)] // Reserved for direct profile edit shortcuts (docs/todo.md)
     EditOpenAiProfile,
     /// Reserved for direct OpenAI-compatible profile deletion shortcuts once
     /// profile actions move out of overlay-only dispatch (docs/todo.md).
-    #[allow(dead_code)]
+    #[allow(dead_code)] // Reserved for direct profile deletion shortcuts (docs/todo.md)
     DeleteOpenAiProfile,
     SelectHelpTab(HelpTab),
     SelectStatusTab(StatusTab),

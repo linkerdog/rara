@@ -180,7 +180,7 @@ pub enum LocalCommandKind {
     Tasks,
     /// Reserved for `/dream` command help while consolidation execution is
     /// still tracked as follow-up work (docs/todo.md).
-    #[allow(dead_code)]
+    #[allow(dead_code)] // Reserved for /dream command help (docs/todo.md)
     Dream,
     Goal,
     Quit,
@@ -217,13 +217,13 @@ pub struct TerminalDiagnosticsView {
 
 pub struct CommandSpec {
     /// Reserved for grouped command palette/help rendering (docs/todo.md).
-    #[allow(dead_code)]
+    #[allow(dead_code)] // Reserved for grouped command palette/help rendering (docs/todo.md)
     pub category: &'static str,
     pub name: &'static str,
     pub usage: &'static str,
     pub summary: &'static str,
     /// Reserved for command detail panes and picker descriptions (docs/todo.md).
-    #[allow(dead_code)]
+    #[allow(dead_code)] // Reserved for command detail panes and picker descriptions
     pub detail: &'static str,
 }
 
@@ -243,14 +243,14 @@ pub enum RuntimePhase {
     OAuthDeviceCodePrompt,
     OAuthPollingDeviceCode,
     /// Reserved for granular OAuth status rendering (docs/todo.md).
-    #[allow(dead_code)]
+    #[allow(dead_code)] // Reserved for granular OAuth status rendering (docs/todo.md)
     OAuthVerifying,
     /// Reserved for granular OAuth status rendering (docs/todo.md).
-    #[allow(dead_code)]
+    #[allow(dead_code)] // Reserved for granular OAuth status rendering (docs/todo.md)
     OAuthSuccess,
     OAuthSaved,
     /// Reserved for granular OAuth status rendering (docs/todo.md).
-    #[allow(dead_code)]
+    #[allow(dead_code)] // Reserved for granular OAuth status rendering (docs/todo.md)
     OAuthError,
     Failed,
 }
@@ -297,13 +297,13 @@ pub struct RuntimeSnapshot {
     pub prompt_source_entries: Vec<PromptSourceContextEntry>,
     /// Reserved for compact `/status` prompt-source summaries; rich context
     /// surfaces currently read `prompt_source_entries` directly (docs/todo.md).
-    #[allow(dead_code)]
+    #[allow(dead_code)] // Reserved for compact /status prompt-source summaries (docs/todo.md)
     pub prompt_source_status_lines: Vec<String>,
     pub prompt_append_system_prompt: Option<String>,
     pub prompt_warnings: Vec<String>,
     /// Reserved for the next `/context` retrieval-source display pass; current
     /// UI reads `retrieval_orchestration` instead (docs/todo.md).
-    #[allow(dead_code)]
+    #[allow(dead_code)] // Reserved for the next /context retrieval-source display pass
     pub retrieval_source_entries: Vec<RetrievalSourceContextEntry>,
     pub retrieval_orchestration: crate::context::RetrievalOrchestrationView,
     pub memory_selection: crate::context::MemorySelectionContextView,
@@ -528,7 +528,7 @@ pub enum TranscriptEntryPayload {
     /// Reserved for semantic transcript filtering and future per-kind system
     /// rendering; current committed cells only need to know it is system text
     /// (docs/todo.md).
-    #[allow(dead_code)]
+    #[allow(dead_code)] // Reserved for semantic transcript filtering (docs/todo.md)
     System(SystemMessageKind),
 }
 

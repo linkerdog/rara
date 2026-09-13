@@ -93,7 +93,7 @@ impl<'a> ContextAssembler<'a> {
 
     /// Reserved for per-phase file-hook injection; docs/features/file-hooks.md
     /// tracks the follow-up beyond the current all-hooks-every-turn behavior.
-    #[allow(dead_code)]
+    #[allow(dead_code)] // Reserved until hook-phase assembly is wired into /context
     pub fn with_hook_phase(mut self, phase: HookLifecycle) -> Self {
         self.hook_phase = Some(phase);
         self

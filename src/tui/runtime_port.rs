@@ -22,12 +22,12 @@ use crate::tui::state::RuntimeSnapshot;
 
 // Contract items are intentionally ahead of their adapters; the next
 // in-process and scripted implementations will consume them.
-#[allow(dead_code)]
+#[allow(dead_code)] // Contract item ahead of its adapters
 pub(crate) type RuntimeEventStream = Pin<Box<dyn Stream<Item = RuntimeProjectionEvent> + Send>>;
 
 // Contract items are intentionally ahead of their adapters; the next
 // in-process and scripted implementations will consume them.
-#[allow(dead_code)]
+#[allow(dead_code)] // Contract item ahead of its adapters
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) enum RuntimeCommand {
     Session(SessionControlRequest),
@@ -45,7 +45,7 @@ pub(crate) enum RuntimeMaintenanceCommand {
 
 // Contract items are intentionally ahead of their adapters; the next
 // in-process and scripted implementations will consume them.
-#[allow(dead_code)]
+#[allow(dead_code)] // Contract item ahead of its adapters
 #[derive(Clone)]
 pub(crate) enum RuntimeProjectionEvent {
     Snapshot(Box<RuntimeSnapshot>),
@@ -87,7 +87,7 @@ pub(crate) fn accept_runtime_event(
 /// require the controller to know about agents, registries, or task handles.
 // Contract items are intentionally ahead of their adapters; the next
 // in-process and scripted implementations will consume them.
-#[allow(dead_code)]
+#[allow(dead_code)] // Contract item ahead of its adapters
 #[async_trait]
 pub(crate) trait RuntimeClientPort: Send + Sync {
     async fn snapshot(&self) -> anyhow::Result<RuntimeSnapshot>;

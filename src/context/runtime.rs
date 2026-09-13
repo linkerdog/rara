@@ -9,17 +9,17 @@ pub enum CacheStatus {
     /// Content was served from the in-memory cache (mtime unchanged).
     /// Reserved until WorkspaceMemory cache signals are wired into /context;
     /// tracked in docs/journal/2026-05-01-cache-status-context.md.
-    #[allow(dead_code)]
+    #[allow(dead_code)] // Reserved until cache-status is wired into /context
     Hit,
     /// Content was re-read from disk (mtime changed or first read).
     /// Reserved until WorkspaceMemory cache signals are wired into /context;
     /// tracked in docs/journal/2026-05-01-cache-status-context.md.
-    #[allow(dead_code)]
+    #[allow(dead_code)] // Reserved until WorkspaceMemory cache signals are wired into /context
     Miss,
     /// Cache does not apply (non-file source, e.g. append-system-prompt).
     /// Reserved for non-file /context entries once cache status is fully wired;
     /// tracked in docs/journal/2026-05-01-cache-status-context.md.
-    #[allow(dead_code)]
+    #[allow(dead_code)] // Reserved for non-file /context entries
     NoCache,
 }
 

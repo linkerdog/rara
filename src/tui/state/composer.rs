@@ -82,7 +82,7 @@ impl TuiApp {
     }
 
     /// Test helper for seeding composer input without simulating key events.
-    #[allow(dead_code)]
+    #[allow(dead_code)] // Reserved for programmatic input control
     pub fn set_input(&mut self, input: String) {
         self.bottom_pane.input = input;
         self.bottom_pane.input_cursor_offset = None;

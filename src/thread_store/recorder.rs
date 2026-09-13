@@ -86,7 +86,7 @@ impl<'a> ThreadRecorder<'a> {
     /// Reserved explicit durability barrier for transcript/event persistence.
     /// The session transcript contract documents both flush and shutdown
     /// boundaries in docs/features/session-transcript.md.
-    #[allow(dead_code)]
+    #[allow(dead_code)] // Reserved until rollout recorder is consumed by thread export
     pub fn flush(&self, session_id: &str) -> Result<()> {
         self.rollout_recorder(session_id).flush()
     }
