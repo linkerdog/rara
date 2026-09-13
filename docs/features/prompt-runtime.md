@@ -58,11 +58,20 @@ The model request is assembled in this order:
    latest user message;
 5. the human-authored user request.
 
-The system prompt does not contain a synthetic dynamic-boundary marker or
-Anthropic-style `cache_control`. Provider cache reuse is based on repeated
-request prefixes. Volatile context is persisted as `rara_model_context` blocks
+The shared system prompt does not contain a synthetic dynamic-boundary marker
+or provider-specific cache fields. Verified provider serializers may add their
+own checkpoint blocks; they must not move later system controls ahead of the
+initial instructions. Responses puts only the leading system messages into
+`instructions` and keeps later controls chronological. Volatile context is
+persisted as `rara_model_context` blocks
 so the bytes sent in one turn remain present in subsequent turns until durable
 history compaction replaces an older prefix.
+
+Tool schemas remain mode-filtered by default. The opt-in session-stable schema
+experiment snapshots the registered tools at runtime assembly and leaves mode
+permission checks in execution. It requires measured invalid-tool-call and task
+quality comparisons before promotion. See
+[provider cache observability](provider-cache-observability.md).
 
 ### 3.1) Built-In Engineering Workflow Guidance
 

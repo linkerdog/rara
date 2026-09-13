@@ -1,0 +1,8 @@
+# Ephemeral Ubuntu CI runners only. Permit the sandbox launcher to create
+# namespaces without disabling the host-wide AppArmor user namespace policy.
+abi <abi/4.0>,
+include <tunables/global>
+
+profile bwrap /usr/bin/bwrap flags=(unconfined) {
+    userns,
+}

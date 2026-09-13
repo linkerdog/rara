@@ -2,6 +2,13 @@
 
 Active backlog only. Keep this file small and current.
 
+## Prefix Cache Cost Evaluation
+
+- [ ] Before promoting session-stable tool schemas globally, extend the completed
+      paired trials to the full runtime tool set and longer tasks with more
+      repetitions. Refresh provider/model routing and prices for each run. See
+      [the implementation checkpoint](journal/2026-09-11-prefix-cache-optimization.md).
+
 ## Execution Plan (2026-08-28)
 
 1. ✅ Plugin/runtime status correctness.

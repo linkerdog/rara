@@ -23,6 +23,7 @@ pub(crate) async fn run_sub_agent(
     agent_definitions: AgentDefinitionCache,
     skill_manager: Option<Arc<RwLock<SkillManager>>>,
     agent_tree_control: Option<Arc<AgentTreeControl>>,
+    inference_agent: Option<rara_observability::InferenceAgent>,
 ) -> Result<SubAgentResult, ToolError> {
     let permission_mode = agent_permission_mode(definition)?;
     let token_budget = agent_token_budget(definition)?;
@@ -93,6 +94,7 @@ pub(crate) async fn run_sub_agent(
         sub.session_id = session_id;
     }
     sub.set_agent_tree_control(agent_tree_control.clone());
+    sub.pending_inference_agent = inference_agent;
     sub.set_cancellation_token(cancellation_token);
     let plan_required =
         definition.is_some_and(|d| d.plan_mode_required) || permission_mode.requires_plan_mode();

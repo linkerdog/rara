@@ -14,8 +14,15 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v7
 
-      - name: Install protoc
-        run: sudo apt-get update && sudo apt-get install -y protobuf-compiler
+      - name: Install test dependencies
+        run: sudo apt-get update && sudo apt-get install -y protobuf-compiler bubblewrap
+
+      - name: Verify grader sandbox
+        run: |
+          if ! bwrap --unshare-all --ro-bind / / -- /usr/bin/true; then
+            sudo apparmor_parser -r tools/prefix_cache_eval/ci-bwrap.apparmor
+          fi
+          python3 tools/prefix_cache_eval/run.py preflight
 
       - name: Install Bazel
         uses: bazel-contrib/setup-bazel@0.19.0

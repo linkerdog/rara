@@ -227,6 +227,8 @@ Model backends expose a cache profile with these independent capabilities:
 
 - `automatic_prefix_cache`: repeated prompt prefixes may be cached by the
   provider without request parameters.
+- `explicit_prefix_cache`: verified provider checkpoints can preserve the
+  repeated request prefix.
 - `cache_usage_accounting`: usage metadata can report cache hit/miss tokens.
 - `cache_edit`: the provider can delete or edit cached content without
   rewriting the local prompt content.
@@ -239,15 +241,30 @@ to no declared cache capability unless RARA has a provider-specific contract.
 
 Compression logic must choose behavior from the cache profile:
 
-- `automatic_prefix_cache` without `cache_edit`: preserve request history and
+- automatic or explicit prefix caching without `cache_edit`: preserve request history and
   use ordinary durable compaction;
-- no automatic prefix cache and no `cache_edit`: request projection remains
+- neither prefix-cache capability and no `cache_edit`: request projection remains
   available in addition to ordinary compaction;
 - `cache_edit`: mark the request eligible for a provider cache-edit pass while
   continuing to preserve local messages; until a backend implements the actual
   executor, `cache_edit_applied` remains false;
 - no `cache_retention_control`: do not inject provider-specific retention
   parameters.
+
+Idle time alone does not prove cache expiry. Cache-sensitive history stays
+append-only until context pressure or explicit task-boundary compaction. No
+universal one-hour retention estimate authorizes rewriting old tool results.
+
+Hosts can select the experimental `CachedMainModel` summary strategy. It reuses
+the captured main request's stable instructions, tool schemas, model, and mode
+options when the compacted range shares that prefix. It requests text only and
+rejects generated tools without executing them. Mismatched or trimmed ranges
+fall back to the auxiliary route. The default remains `AuxiliaryModel`.
+
+Compare complete task receipts, including failed summaries and the first
+post-compaction cache rebuild, before selecting a route or compaction cadence.
+The [provider accounting contract](provider-cache-observability.md) defines
+missing-usage handling and paired cost/quality reports.
 
 ### 9) Memory Placement
 

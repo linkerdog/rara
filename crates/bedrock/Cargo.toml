@@ -9,4 +9,9 @@ anyhow.workspace = true
 aws-config = { version = "1.8.18", features = ["behavior-version-latest"] }
 aws-sdk-bedrockruntime = { version = "1.133", features = ["behavior-version-latest"] }
 aws-smithy-types = "1.4"
+aws-smithy-runtime-api = { version = "1.15", features = ["client"] }
+rara-observability = { path = "../rara-observability" }
 serde_json.workspace = true
+
+[dev-dependencies]
+tokio = { version = "1.0", features = ["macros", "rt", "time", "net", "io-util"] }

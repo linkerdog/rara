@@ -31,6 +31,11 @@ mod memory_notice;
 mod memory_store;
 mod model_context;
 mod model_observation;
+pub use rara_observability::{
+    InferenceArmReport, InferenceComparisonReport, InferenceCostReport, InferenceExperimentArm,
+    InferenceExperimentSample, InferencePrice, InferencePriceTable, InferencePurpose,
+    InferenceSnapshot, InferenceStatus, InferenceTask, InferenceTokenUsage,
+};
 mod oauth;
 mod plugin_cli;
 mod plugin_middleware;
@@ -63,7 +68,7 @@ mod workspace;
 
 pub mod embedded;
 
-pub use agent::{AgentEvent, AgentOutputMode};
+pub use agent::{AgentEvent, AgentOutputMode, CacheExperimentOptions, ToolSchemaPolicy};
 pub use config::{MultiAgentPolicy, RaraConfig};
 pub use deepseek_cache_probe::{
     DEFAULT_DEEPSEEK_CACHE_PROBE_MODEL, DeepseekCacheProbeArm, DeepseekCacheProbeOptions,
@@ -72,8 +77,9 @@ pub use deepseek_cache_probe::{
 };
 pub use embedded::{EmbeddedRuntime, EmbeddedRuntimeOptions};
 pub use llm::{
-    ContentBlock, ContextBudget, LlmBackend, LlmExecutionMode, LlmResponse, LlmStreamEvent,
-    LlmTurnMetadata, Message, ProviderCacheProfile, TokenUsage,
+    AnthropicCacheTtl, CodexBackend, ContentBlock, ContextBudget, LlmBackend, LlmExecutionMode,
+    LlmResponse, LlmStreamEvent, LlmTurnMetadata, Message, OpenAiCompatibleBackend,
+    ProviderCacheProfile, SummaryPrefix, SummaryStrategy, TokenUsage,
 };
 pub use model_observation::{
     ModelCacheUsage, ModelRequestFingerprint, ModelTokenUsage, ModelTurnReport, QueryReport,

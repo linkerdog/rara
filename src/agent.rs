@@ -1,3 +1,6 @@
+mod cache_experiment;
+pub use cache_experiment::{CacheExperimentOptions, ToolSchemaPolicy};
+
 mod compact;
 mod context_view;
 mod control_handler;
@@ -324,6 +327,11 @@ pub struct Agent {
     pub last_tool_result_projection_report: ToolResultProjectionReport,
     pub last_agent_turn_trace: AgentTurnTraceView,
     pub(crate) last_query_report: QueryReport,
+    pub(crate) pending_inference_agent: Option<rara_observability::InferenceAgent>,
+    inference_context: Option<rara_observability::InferenceAgentContext>,
+    cache_experiment: CacheExperimentOptions,
+    stable_tool_schemas: Option<Vec<Value>>,
+    summary_prefix: Option<cache_experiment::CapturedSummaryPrefix>,
     file_search_provider: FileSearchCandidateProvider,
     inspection_progress: InspectionProgress,
     last_query_plan_updated: bool,
@@ -336,7 +344,6 @@ pub struct Agent {
     agent_tree_control: Option<Arc<crate::tools::agent::AgentTreeControl>>,
     cancellation_token: Option<Arc<AtomicBool>>,
     runtime_turn_id: Option<String>,
-    last_interaction_time: std::time::Instant,
 }
 
 fn hook_output_candidate(text: &str, index: usize, session_id: &str) -> RetrievalCandidate {

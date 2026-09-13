@@ -29,6 +29,7 @@ enum SessionCommand {
         output_mode: AgentOutputMode,
         accepted: oneshot::Sender<Result<(), RuntimeSessionError>>,
         completed: TurnResultSender,
+        inference_agent: rara_observability::InferenceAgent,
     },
     Cancel {
         response: oneshot::Sender<Result<RuntimeTurnId, RuntimeSessionError>>,
@@ -205,6 +206,21 @@ impl RuntimeSession {
         prompt: impl Into<String>,
         output_mode: AgentOutputMode,
     ) -> Result<RuntimeTurn, RuntimeSessionError> {
+        self.submit_with_accounting(
+            prompt,
+            output_mode,
+            rara_observability::InferenceTask::default(),
+        )
+        .await
+    }
+
+    /// Submit a prompt using an explicit task ledger that also follows descendants.
+    pub async fn submit_with_accounting(
+        &self,
+        prompt: impl Into<String>,
+        output_mode: AgentOutputMode,
+        accounting: rara_observability::InferenceTask,
+    ) -> Result<RuntimeTurn, RuntimeSessionError> {
         let turn_id = RuntimeTurnId::generate();
         let (accepted_sender, accepted_receiver) = oneshot::channel();
         let (completion_sender, completion_receiver) = oneshot::channel();
@@ -214,11 +230,12 @@ impl RuntimeSession {
             output_mode,
             accepted: accepted_sender,
             completed: completion_sender,
+            inference_agent: accounting.start_agent(None),
         })?;
         accepted_receiver
             .await
             .map_err(|_| RuntimeSessionError::ActorStopped)??;
-        Ok(RuntimeTurn::new(turn_id, completion_receiver))
+        Ok(RuntimeTurn::new(turn_id, completion_receiver, accounting))
     }
 
     /// Execute a prompt and stream its typed events to the caller.
@@ -226,13 +243,35 @@ impl RuntimeSession {
         &self,
         prompt: impl Into<String>,
         output_mode: AgentOutputMode,
+        report: F,
+    ) -> Result<RuntimeTurnOutcome, RuntimeSessionError>
+    where
+        F: FnMut(AgentEvent) + Send,
+    {
+        self.query_with_accounting(
+            prompt,
+            output_mode,
+            rara_observability::InferenceTask::default(),
+            report,
+        )
+        .await
+    }
+
+    /// Retain the supplied handle to inspect costs on error or after late children finish.
+    pub async fn query_with_accounting<F>(
+        &self,
+        prompt: impl Into<String>,
+        output_mode: AgentOutputMode,
+        accounting: rara_observability::InferenceTask,
         mut report: F,
     ) -> Result<RuntimeTurnOutcome, RuntimeSessionError>
     where
         F: FnMut(AgentEvent) + Send,
     {
         let mut events = self.subscribe_events();
-        let turn = self.submit(prompt, output_mode).await?;
+        let turn = self
+            .submit_with_accounting(prompt, output_mode, accounting)
+            .await?;
         let mut completion = Box::pin(turn.wait());
         let mut outcome = None;
         let mut terminal_seen = false;
@@ -520,6 +559,7 @@ impl SessionActor {
                 output_mode,
                 accepted,
                 completed,
+                inference_agent,
             } => {
                 if let Some(active) = &self.active {
                     let _ = accepted.send(Err(RuntimeSessionError::Busy {
@@ -534,6 +574,7 @@ impl SessionActor {
                 let cancellation = Arc::new(AtomicBool::new(false));
                 agent.set_cancellation_token(Some(cancellation.clone()));
                 agent.set_runtime_turn_id(Some(turn_id.to_string()));
+                agent.pending_inference_agent = Some(inference_agent);
                 let active = ActiveTurn {
                     turn_id: turn_id.clone(),
                     generation: self.generation,

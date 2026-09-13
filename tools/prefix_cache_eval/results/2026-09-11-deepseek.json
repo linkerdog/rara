@@ -1,0 +1,223 @@
+{
+  "paired_samples": 20,
+  "complete_paired_attempts": 205,
+  "paired_trials_cost_usd": 1.013929176,
+  "pilot_known_cost_usd": 0.01378828,
+  "pilot_unpriced_attempts": [
+    {
+      "attempt_id": 5,
+      "model": "deepseek-v4-flash",
+      "max_charge_usd": 0.319488,
+      "receipt_complete": false
+    }
+  ],
+  "all_runs_known_cost_usd": 1.027717456,
+  "all_runs_charge_upper_bound_usd": 1.347205456,
+  "execution_ceiling_usd": 20,
+  "reports": {
+    "summary": {
+      "price_revision": "deepseek-official-2026-09-11-0600-1000-UTC-peak",
+      "baseline": {
+        "tasks": 2,
+        "graded_tasks": 2,
+        "passed_tasks": 2,
+        "known_cost_usd": 0.138691924,
+        "mean_cost_usd": 0.069345962,
+        "cost_per_passed_task_usd": 0.069345962,
+        "request_count": 24,
+        "failed_or_cancelled_requests": 0,
+        "unpriced_requests": 0,
+        "unobserved_calls": 0,
+        "known_input_tokens": 166519,
+        "known_output_tokens": 20078,
+        "known_cache_read_tokens": 118016,
+        "known_cache_write_tokens": 0,
+        "tool_requests": 21,
+        "rejected_tool_requests": 1,
+        "p50_task_duration_ms": 145797,
+        "p95_task_duration_ms": 207065,
+        "cost_complete": true
+      },
+      "candidate": {
+        "tasks": 2,
+        "graded_tasks": 2,
+        "passed_tasks": 0,
+        "known_cost_usd": 0.154163856,
+        "mean_cost_usd": 0.077081928,
+        "cost_per_passed_task_usd": null,
+        "request_count": 26,
+        "failed_or_cancelled_requests": 0,
+        "unpriced_requests": 0,
+        "unobserved_calls": 0,
+        "known_input_tokens": 205364,
+        "known_output_tokens": 21330,
+        "known_cache_read_tokens": 157824,
+        "known_cache_write_tokens": 0,
+        "tool_requests": 26,
+        "rejected_tool_requests": 0,
+        "p50_task_duration_ms": 201865,
+        "p95_task_duration_ms": 227222,
+        "cost_complete": true
+      },
+      "paired": true,
+      "quality_preserved": false,
+      "savings_fraction": -0.11155611338984661
+    },
+    "tools": {
+      "price_revision": "deepseek-official-2026-09-11-0600-1000-UTC-peak",
+      "baseline": {
+        "tasks": 6,
+        "graded_tasks": 6,
+        "passed_tasks": 5,
+        "known_cost_usd": 0.30454380000000003,
+        "mean_cost_usd": 0.050757300000000005,
+        "cost_per_passed_task_usd": 0.060908760000000006,
+        "request_count": 54,
+        "failed_or_cancelled_requests": 0,
+        "unpriced_requests": 0,
+        "unobserved_calls": 0,
+        "known_input_tokens": 413804,
+        "known_output_tokens": 37957,
+        "known_cache_read_tokens": 307200,
+        "known_cache_write_tokens": 0,
+        "tool_requests": 47,
+        "rejected_tool_requests": 1,
+        "p50_task_duration_ms": 84218,
+        "p95_task_duration_ms": 142238,
+        "cost_complete": true
+      },
+      "candidate": {
+        "tasks": 6,
+        "graded_tasks": 6,
+        "passed_tasks": 6,
+        "known_cost_usd": 0.203630416,
+        "mean_cost_usd": 0.033938402666666666,
+        "cost_per_passed_task_usd": 0.033938402666666666,
+        "request_count": 56,
+        "failed_or_cancelled_requests": 0,
+        "unpriced_requests": 0,
+        "unobserved_calls": 0,
+        "known_input_tokens": 442797,
+        "known_output_tokens": 30567,
+        "known_cache_read_tokens": 393344,
+        "known_cache_write_tokens": 0,
+        "tool_requests": 48,
+        "rejected_tool_requests": 1,
+        "p50_task_duration_ms": 89653,
+        "p95_task_duration_ms": 128260,
+        "cost_complete": true
+      },
+      "paired": true,
+      "quality_preserved": true,
+      "savings_fraction": 0.33135918051853297
+    },
+    "compaction": {
+      "price_revision": "deepseek-official-2026-09-11-0600-1000-UTC-peak",
+      "baseline": {
+        "tasks": 2,
+        "graded_tasks": 2,
+        "passed_tasks": 1,
+        "known_cost_usd": 0.10892288,
+        "mean_cost_usd": 0.05446144,
+        "cost_per_passed_task_usd": 0.10892288,
+        "request_count": 22,
+        "failed_or_cancelled_requests": 0,
+        "unpriced_requests": 0,
+        "unobserved_calls": 0,
+        "known_input_tokens": 171924,
+        "known_output_tokens": 13092,
+        "known_cache_read_tokens": 133120,
+        "known_cache_write_tokens": 0,
+        "tool_requests": 24,
+        "rejected_tool_requests": 0,
+        "p50_task_duration_ms": 94850,
+        "p95_task_duration_ms": 118161,
+        "cost_complete": true
+      },
+      "candidate": {
+        "tasks": 2,
+        "graded_tasks": 2,
+        "passed_tasks": 2,
+        "known_cost_usd": 0.10397630000000002,
+        "mean_cost_usd": 0.05198815000000001,
+        "cost_per_passed_task_usd": 0.05198815000000001,
+        "request_count": 23,
+        "failed_or_cancelled_requests": 0,
+        "unpriced_requests": 0,
+        "unobserved_calls": 0,
+        "known_input_tokens": 147643,
+        "known_output_tokens": 13309,
+        "known_cache_read_tokens": 102400,
+        "known_cache_write_tokens": 0,
+        "tool_requests": 21,
+        "rejected_tool_requests": 0,
+        "p50_task_duration_ms": 88499,
+        "p95_task_duration_ms": 102493,
+        "cost_complete": true
+      },
+      "paired": true,
+      "quality_preserved": true,
+      "savings_fraction": 0.045413599052834264
+    }
+  },
+  "limitations": [
+    "Two repetitions per case; two real file tools; one provider profile.",
+    "Summary candidate failures occurred before compaction, so they do not establish a causal summary quality regression.",
+    "Original pilot missing usage stays unpriced; the ceiling includes its reviewed upper bound.",
+    "Strategies remain opt-in; measurements do not establish a global optimum."
+  ],
+  "measurement": {
+    "endpoint": "https://api.deepseek.com/v1",
+    "model": "deepseek-v4-pro",
+    "auxiliary_model": "deepseek-v4-flash",
+    "corpus_sha256": "7c9f9ac3af8d52e47a7fc296eee4062e6605581728a774169b41bf85edbd2b91",
+    "python_version": "3.9.6",
+    "repetitions": 2,
+    "max_output_tokens": 4096,
+    "max_model_turns": 6,
+    "tariff_validity": {
+      "valid_from_unix_ms": 1789106400000,
+      "valid_until_unix_ms": 1789120800000
+    },
+    "prices": {
+      "revision": "deepseek-official-2026-09-11-0600-1000-UTC-peak",
+      "prices": [
+        {
+          "provider": "DeepSeek",
+          "model": "deepseek-v4-pro",
+          "input": 1.32,
+          "output": 3.96,
+          "cache_read": 0.044,
+          "cache_write": 0.0,
+          "cache_write_5m": 0.0,
+          "cache_write_1h": 0.0
+        },
+        {
+          "provider": "DeepSeek",
+          "model": "deepseek-v4-flash",
+          "input": 0.3,
+          "output": 1.2,
+          "cache_read": 0.006,
+          "cache_write": 0.0,
+          "cache_write_5m": 0.0,
+          "cache_write_1h": 0.0
+        }
+      ]
+    },
+    "reasoning_effort": "max"
+  },
+  "source_base_commit": "682b22a51362fa010895f0ec0cbbf073f54cb5d5",
+  "raw_receipt_sha256": {
+    "summary-pilot.jsonl": "1ae2de4678a0f6411053ea1800e63271e6e814c056aa81a44f6a67ecdede2d51",
+    "summary.jsonl": "0b63d17929bb28db28cb16be2bd8e108f39c4fe472d61087a50ce8a3d03172ec",
+    "tools.jsonl": "0e880920e5e0c7c6e242e26398ad3776929f3e06da0a82750fc6b1e192781c68",
+    "compaction.jsonl": "e6c957aaac04f5a7a2e92bca4772bd447be7500b799b80efaaa6afeac2dba1c4"
+  },
+  "receipt_availability": "Aggregate results are included here. Content-free raw receipts and measured source hashes were retained locally by the author; raw receipts are not included in this repository.",
+  "billing_note": "Costs use the recorded tariff, not a reconciled provider invoice. The execution ceiling was selected for the run, not supplied by the user.",
+  "quality_validation": {
+    "status": "historical_grader_not_revalidated",
+    "eligible_for_strategy_promotion": false,
+    "note": "Original quality figures used a verifier that executed candidate modules in-process and checked protected policy only before execution. The PR review repair separates the worker and rechecks policy after execution. Original per-phase source snapshots were not retained, so complete paired quality cannot be reconstructed from final workspaces. Cost receipts and the original corpus hash are preserved; these grades are not evidence for strategy promotion."
+  }
+}

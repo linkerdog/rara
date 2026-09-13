@@ -69,7 +69,7 @@ rust_test(
         proc_macro_dev = True,
     ),
     edition = "2024",
-    data = SNAPSHOT_DATA,
+    data = SNAPSHOT_DATA + glob(["tools/prefix_cache_eval/*.py"]),
     deps = all_crate_deps(normal_dev = True),
     env = {
         "INSTA_WORKSPACE_ROOT": ".",

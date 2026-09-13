@@ -27,8 +27,11 @@ async fn later_request_preserves_the_previous_model_visible_prefix() {
         .with_cache_profile(ProviderCacheProfile::automatic_prefix_cache_with_usage()),
     );
     let (_temp, session_manager, workspace, rara_dir) = test_runtime_storage();
+    let mut tools = ToolManager::new();
+    tools.register(Box::<rara_tools::file::ReadFileTool>::default());
+    tools.register(Box::<rara_tools::file::WriteFileTool>::default());
     let mut agent = Agent::new(
-        ToolManager::new(),
+        tools,
         backend.clone(),
         Arc::new(MemoryHandle::new(
             &rara_dir.join("memory").to_string_lossy(),
@@ -48,6 +51,10 @@ async fn later_request_preserves_the_previous_model_visible_prefix() {
         .expect("second query");
 
     let observed = backend.observed_messages();
+    let observed_tools = backend.observed_tools();
+    assert!(observed_tools[0].iter().any(|name| name == "write_file"));
+    assert!(!observed_tools[1].iter().any(|name| name == "write_file"));
+    assert!(observed_tools[1].iter().any(|name| name == "read_file"));
     let first = observed.first().expect("first model request");
     let second = observed.get(1).expect("second model request");
     assert_eq!(&second[..first.len()], first.as_slice());

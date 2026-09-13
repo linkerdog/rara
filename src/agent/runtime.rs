@@ -162,6 +162,11 @@ impl Agent {
             last_tool_result_projection_report: ToolResultProjectionReport::default(),
             last_agent_turn_trace: AgentTurnTraceView::default(),
             last_query_report: QueryReport::default(),
+            pending_inference_agent: None,
+            inference_context: None,
+            cache_experiment: CacheExperimentOptions::default(),
+            stable_tool_schemas: None,
+            summary_prefix: None,
             file_search_provider: FileSearchCandidateProvider::new(root, true),
             inspection_progress: InspectionProgress::default(),
             last_query_plan_updated: false,
@@ -174,7 +179,6 @@ impl Agent {
             agent_tree_control: None,
             cancellation_token: None,
             runtime_turn_id: None,
-            last_interaction_time: std::time::Instant::now(),
         }
     }
 
@@ -219,6 +223,31 @@ impl Agent {
         &mut self,
         prompt: String,
         output_mode: AgentOutputMode,
+        report: F,
+    ) -> Result<()>
+    where
+        F: FnMut(AgentEvent) + Send,
+    {
+        let lease = self
+            .pending_inference_agent
+            .take()
+            .unwrap_or_else(|| rara_observability::InferenceTask::default().start_agent(None));
+        self.inference_context = Some(lease.context());
+        let result = self.query_inner(prompt, output_mode, report).await;
+        // Post-turn extraction and goal evaluation still belong to this task.
+        // The next query replaces the context before it starts new work.
+        drop(lease);
+        result
+    }
+
+    pub(crate) fn inference_context(&self) -> Option<rara_observability::InferenceAgentContext> {
+        self.inference_context.clone()
+    }
+
+    async fn query_inner<F>(
+        &mut self,
+        prompt: String,
+        output_mode: AgentOutputMode,
         mut report: F,
     ) -> Result<()>
     where
@@ -226,7 +255,6 @@ impl Agent {
     {
         self.last_query_report = QueryReport::default();
         let turn_start_idx = self.history.len();
-        self.last_interaction_time = std::time::Instant::now();
         let mut agentic_turns = 0usize;
         let mut runtime_error_recoveries = 0usize;
         self.inspection_progress = InspectionProgress::default();
@@ -288,6 +316,10 @@ impl Agent {
                     let scheduler = self.consolidation_scheduler.clone();
                     let task_list_id = self.task_list_id.clone();
                     let agent_definitions = self.agent_definitions.clone();
+                    let inference_agent = self
+                        .inference_context
+                        .as_ref()
+                        .map(|context| context.start_child());
                     std::thread::spawn(move || {
                         let rt = tokio::runtime::Builder::new_current_thread()
                             .enable_all()
@@ -324,6 +356,7 @@ impl Agent {
                                 agent_definitions,
                                 None,
                                 None,
+                                inference_agent,
                             )
                             .await;
                             match result {
@@ -454,7 +487,14 @@ impl Agent {
         F: FnMut(AgentEvent) + Send,
     {
         report(AgentEvent::Status("Sending prompt to model.".to_string()));
-        let turn_metadata = self.llm_turn_metadata();
+        let inference_call = self
+            .inference_context
+            .as_ref()
+            .map(|context| context.start_call(rara_observability::InferencePurpose::Main));
+        let mut turn_metadata = self.llm_turn_metadata();
+        if let Some(call) = &inference_call {
+            turn_metadata = turn_metadata.with_inference(call.context());
+        }
         turn_metadata.ensure_not_cancelled()?;
         let assembled = self.assemble_turn_context();
         let history_for_query = self
@@ -483,6 +523,7 @@ impl Agent {
             },
         );
 
+        self.summary_prefix = None;
         let model_label = self.model_event_label();
         let request_fingerprint =
             self.llm_backend
@@ -499,8 +540,11 @@ impl Agent {
         let mut streamed_any_reasoning_delta = false;
         let response = self
             .llm_backend
-            .ask_streaming_with_context(&messages, tool_schemas, turn_metadata, &mut |event| {
-                match event {
+            .ask_streaming_with_context(
+                &messages,
+                tool_schemas,
+                turn_metadata.clone(),
+                &mut |event| match event {
                     LlmStreamEvent::TextDelta(delta) => {
                         streamed_any_text_delta = true;
                         report(AgentEvent::AssistantDelta(delta));
@@ -509,9 +553,14 @@ impl Agent {
                         streamed_any_reasoning_delta = true;
                         report(AgentEvent::AssistantThinkingDelta(delta));
                     }
-                }
-            })
-            .await?;
+                },
+            )
+            .await;
+        if let Some(call) = inference_call {
+            call.finish(&response);
+        }
+        let response = response?;
+        self.capture_summary_prefix(&messages, tool_schemas, &turn_metadata);
         let duration_ms = request_started_at
             .elapsed()
             .as_millis()

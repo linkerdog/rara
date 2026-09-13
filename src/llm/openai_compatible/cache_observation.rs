@@ -35,6 +35,7 @@ pub(super) fn fingerprint_request(
 ) -> ModelRequestFingerprint {
     let messages = body
         .get("messages")
+        .or_else(|| body.get("input"))
         .and_then(Value::as_array)
         .cloned()
         .unwrap_or_default();
@@ -48,6 +49,10 @@ pub(super) fn fingerprint_request(
         .take_while(|message| message.get("role").and_then(Value::as_str) == Some("system"))
         .cloned()
         .collect::<Vec<_>>();
+    let instructions = body
+        .get("instructions")
+        .cloned()
+        .or_else(|| (!system_messages.is_empty()).then_some(Value::Array(system_messages)));
 
     let mut logical_request = body.clone();
     remove_transport_fields(&mut logical_request);
@@ -55,6 +60,8 @@ pub(super) fn fingerprint_request(
     let mut options = logical_request.clone();
     if let Some(options) = options.as_object_mut() {
         options.remove("messages");
+        options.remove("input");
+        options.remove("instructions");
         options.remove("tools");
     }
 
@@ -62,8 +69,9 @@ pub(super) fn fingerprint_request(
         version: 1,
         hash_scope: hash_scope.to_string(),
         request_sha256: sha256_json(&logical_request, hash_salt),
-        system_sha256: (!system_messages.is_empty())
-            .then(|| sha256_json(&Value::Array(system_messages), hash_salt)),
+        system_sha256: instructions
+            .as_ref()
+            .map(|value| sha256_json(value, hash_salt)),
         messages_sha256: sha256_json(&Value::Array(messages.clone()), hash_salt),
         tools_sha256: sha256_json(&Value::Array(tools.clone()), hash_salt),
         options_sha256: sha256_json(&options, hash_salt),

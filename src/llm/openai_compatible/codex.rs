@@ -1,6 +1,5 @@
 use anyhow::{Result, anyhow};
 use async_trait::async_trait;
-use backon::{ExponentialBuilder, Retryable};
 use codex_login::default_client::default_headers as codex_default_headers;
 use eventsource_stream::Eventsource;
 use rara_persistence::redaction::sanitize_url_for_display;
@@ -12,8 +11,11 @@ use super::super::codex_tools_compat::ToolSpec;
 use super::super::codex_tools_compat::create_tools_json_for_responses_api;
 use super::super::codex_tools_compat::parse_tool_input_schema;
 use super::super::codex_tools_compat::tool_definition_to_responses_api_tool;
+use super::super::inference_transport::{
+    finish_attempt, record_final_usage, record_usage, send_json,
+};
 use super::super::shared::{
-    ContextBudget, LlmBackend, LlmStreamEvent, collect_assistant_content, is_retryable_http_error,
+    ContextBudget, LlmBackend, LlmStreamEvent, LlmTurnMetadata, collect_assistant_content,
     model_context_budget, next_stream_item_with_idle_timeout, parse_tool_arguments,
     render_openai_message_content,
 };
@@ -38,6 +40,8 @@ impl CodexBackend {
             model,
             auxiliary_model: None,
             reasoning_effort,
+            request_fingerprint_scope: uuid::Uuid::new_v4().to_string(),
+            request_fingerprint_salt: *uuid::Uuid::new_v4().as_bytes(),
         })
     }
 
@@ -76,85 +80,151 @@ impl CodexBackend {
         )?;
         let responses_url = self.endpoint_url("responses");
         let api_key = self.api_key.as_ref().map(|k| k.expose_secret());
-        let res = (|| async {
-            let mut request = self.client.post(&responses_url);
-            for (name, value) in &codex_default_headers() {
-                request = request.header(name, value);
-            }
-            if let Some(key) = api_key
-                && !key.is_empty()
-            {
-                request = request.header("Authorization", format!("Bearer {key}"));
-            }
-            request.json(&body).send().await.map_err(|e| anyhow!(e))
-        })
-        .retry(ExponentialBuilder::default().with_jitter())
-        .when(|e: &anyhow::Error| is_retryable_http_error(e))
-        .await?;
-        if !res.status().is_success() {
-            return Err(
-                anyhow::Error::new(api_error_from_response(res).await).context(format!(
-                    "API Error at {}",
-                    sanitize_url_for_display(&responses_url)
-                )),
-            );
+        let mut request = self.client.post(&responses_url);
+        for (name, value) in &codex_default_headers() {
+            request = request.header(name, value);
         }
-
-        let mut stream = res.bytes_stream().eventsource();
-        let mut output_items = Vec::new();
-        let mut usage = None;
-        let mut completed = false;
-        let mut streamed_text = String::new();
-
-        while let Some(event) = next_stream_item_with_idle_timeout(&mut stream, "Codex SSE").await?
+        if let Some(key) = api_key
+            && !key.is_empty()
         {
-            metadata.ensure_not_cancelled()?;
-            let event =
-                event.map_err(|error| anyhow!("Failed to decode Codex SSE event: {error}"))?;
-            if event.data.trim().is_empty() {
-                continue;
+            request = request.header("Authorization", format!("Bearer {key}"));
+        }
+        let (res, attempt) = send_json(
+            request.json(&body),
+            &metadata,
+            &super::super::cache_policy::responses_billing_provider(&self.base_url),
+            model,
+        )
+        .await?;
+        let result = async {
+            if !res.status().is_success() {
+                return Err(
+                    anyhow::Error::new(api_error_from_response(res, &attempt).await).context(
+                        format!("API Error at {}", sanitize_url_for_display(&responses_url)),
+                    ),
+                );
             }
-            let payload: Value = serde_json::from_str(&event.data)
-                .map_err(|error| anyhow!("Failed to parse Codex SSE payload: {error}"))?;
-            completed |= apply_codex_stream_event(
-                &payload,
-                &mut output_items,
-                &mut usage,
-                &mut streamed_text,
-                &mut on_event,
-            )?;
-        }
 
-        if !completed {
-            return Err(anyhow!(
-                "Codex response stream ended before response.completed"
-            ));
-        }
+            let mut stream = res.bytes_stream().eventsource();
+            let mut output_items = Vec::new();
+            let mut usage = None;
+            let mut completed = false;
+            let mut streamed_text = String::new();
 
-        parse_codex_response(&build_codex_stream_response(
-            output_items,
-            usage,
-            streamed_text,
-            "completed",
-        ))
+            while let Some(event) =
+                next_stream_item_with_idle_timeout(&mut stream, "Codex SSE").await?
+            {
+                metadata.ensure_not_cancelled()?;
+                let event =
+                    event.map_err(|error| anyhow!("Failed to decode Codex SSE event: {error}"))?;
+                if event.data.trim().is_empty() {
+                    continue;
+                }
+                let payload: Value = serde_json::from_str(&event.data)
+                    .map_err(|error| anyhow!("Failed to parse Codex SSE payload: {error}"))?;
+                record_usage(
+                    &attempt,
+                    payload
+                        .get("response")
+                        .and_then(|response| response.get("usage"))
+                        .or_else(|| payload.get("usage")),
+                );
+                completed |= apply_codex_stream_event(
+                    &payload,
+                    &mut output_items,
+                    &mut usage,
+                    &mut streamed_text,
+                    &mut on_event,
+                )?;
+                if completed {
+                    record_final_usage(&attempt, usage.as_ref());
+                }
+            }
+
+            if !completed {
+                return Err(anyhow!(
+                    "Codex response stream ended before response.completed"
+                ));
+            }
+
+            parse_codex_response(&build_codex_stream_response(
+                output_items,
+                usage,
+                streamed_text,
+                "completed",
+            ))
+        }
+        .await;
+        finish_attempt(attempt, &result);
+        result
     }
 }
 
 #[async_trait]
 impl LlmBackend for CodexBackend {
+    async fn summarize_with_prefix(
+        &self,
+        messages: &[Message],
+        instruction: &str,
+        prefix: &crate::llm::SummaryPrefix,
+        metadata: LlmTurnMetadata,
+    ) -> Result<String> {
+        let messages = prefix.messages_for_summary(messages, instruction)?;
+        let response = self
+            .ask_responses_streaming(
+                &self.model,
+                &messages,
+                &prefix.tools,
+                metadata.with_execution_mode(prefix.execution_mode),
+                None,
+            )
+            .await?;
+        super::super::summary::summary_text(response)
+    }
+    fn cache_profile(&self) -> crate::llm::ProviderCacheProfile {
+        super::super::cache_policy::responses_cache_profile(&self.base_url, &self.model)
+    }
+
+    fn request_cache_fingerprint(
+        &self,
+        messages: &[Message],
+        tools: &[Value],
+        _metadata: &LlmTurnMetadata,
+    ) -> Option<crate::model_observation::ModelRequestFingerprint> {
+        match build_codex_responses_request(
+            &self.model,
+            messages,
+            tools,
+            self.reasoning_effort.as_deref(),
+        ) {
+            Ok(body) => Some(super::cache_observation::fingerprint_request(
+                &body,
+                &self.request_fingerprint_scope,
+                &self.request_fingerprint_salt,
+            )),
+            Err(error) => {
+                log::warn!("Cannot fingerprint Responses request: {error}");
+                None
+            }
+        }
+    }
     fn model_label(&self) -> Option<String> {
         Some(self.model.clone())
     }
 
     async fn ask(&self, m: &[Message], t: &[Value]) -> Result<LlmResponse> {
-        self.ask_responses_streaming(
-            self.model.as_str(),
-            m,
-            t,
-            crate::llm::LlmTurnMetadata::default(),
-            None,
-        )
-        .await
+        self.ask_with_context(m, t, LlmTurnMetadata::default())
+            .await
+    }
+
+    async fn ask_with_context(
+        &self,
+        m: &[Message],
+        t: &[Value],
+        metadata: LlmTurnMetadata,
+    ) -> Result<LlmResponse> {
+        self.ask_responses_streaming(self.model.as_str(), m, t, metadata, None)
+            .await
     }
 
     async fn ask_streaming(
@@ -191,6 +261,16 @@ impl LlmBackend for CodexBackend {
     }
 
     async fn summarize(&self, m: &[Message], instruction: &str) -> Result<String> {
+        self.summarize_with_context(m, instruction, LlmTurnMetadata::default())
+            .await
+    }
+
+    async fn summarize_with_context(
+        &self,
+        m: &[Message],
+        instruction: &str,
+        metadata: LlmTurnMetadata,
+    ) -> Result<String> {
         let mut messages = m.to_vec();
         messages.push(Message {
             role: "user".to_string(),
@@ -198,27 +278,15 @@ impl LlmBackend for CodexBackend {
         });
         let summary_model = self.summary_model();
         let response = self
-            .ask_responses_streaming(
-                summary_model,
-                &messages,
-                &[],
-                crate::llm::LlmTurnMetadata::default(),
-                None,
-            )
+            .ask_responses_streaming(summary_model, &messages, &[], metadata.clone(), None)
             .await;
         let response = if summary_model != self.model.as_str()
             && response
                 .as_ref()
                 .is_err_and(is_auxiliary_model_retryable_error)
         {
-            self.ask_responses_streaming(
-                self.model.as_str(),
-                &messages,
-                &[],
-                crate::llm::LlmTurnMetadata::default(),
-                None,
-            )
-            .await?
+            self.ask_responses_streaming(self.model.as_str(), &messages, &[], metadata, None)
+                .await?
         } else {
             response?
         };
@@ -231,6 +299,24 @@ impl LlmBackend for CodexBackend {
             })
             .collect::<Vec<_>>()
             .join("\n\n"))
+    }
+
+    async fn classify_with_context(
+        &self,
+        instructions: &str,
+        messages: &[Message],
+        metadata: LlmTurnMetadata,
+    ) -> Result<String> {
+        let mut messages = messages.to_vec();
+        messages.insert(
+            0,
+            Message {
+                role: "system".into(),
+                content: json!(instructions),
+            },
+        );
+        self.summarize_with_context(&messages, instructions, metadata)
+            .await
     }
 
     fn context_budget(&self, messages: &[Message], tools: &[Value]) -> Option<ContextBudget> {
@@ -457,11 +543,15 @@ fn normalize_chatgpt_codex_function_schema(tool: &mut Value) {
 
 pub(crate) fn to_codex_input_items(messages: &[Message]) -> Vec<Value> {
     let mut items = Vec::new();
-    for message in messages {
+    // Only the initial system prefix is carried in top-level instructions.
+    // Later controls retain their position and instruction authority.
+    for message in messages
+        .iter()
+        .skip_while(|message| message.role == "system")
+    {
         match message.role.as_str() {
             "assistant" => items.extend(render_codex_assistant_items(&message.content)),
             "user" => items.extend(render_codex_user_items(&message.content)),
-            "system" => {}
             role => items.push(render_codex_message(role, &message.content, false)),
         }
     }
@@ -471,7 +561,7 @@ pub(crate) fn to_codex_input_items(messages: &[Message]) -> Vec<Value> {
 fn build_codex_instructions(messages: &[Message]) -> String {
     messages
         .iter()
-        .filter(|message| message.role == "system")
+        .take_while(|message| message.role == "system")
         .map(|message| render_openai_message_content(&message.content))
         .filter(|text| !text.trim().is_empty())
         .collect::<Vec<_>>()

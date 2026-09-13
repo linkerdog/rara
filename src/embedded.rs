@@ -206,6 +206,25 @@ impl EmbeddedRuntime {
         Ok(())
     }
 
+    /// Execute with a task-owned ledger. Keep a clone to inspect failed requests
+    /// and background descendants after this future returns.
+    pub async fn query_with_accounting<F>(
+        &self,
+        prompt: impl Into<String>,
+        output_mode: AgentOutputMode,
+        accounting: rara_observability::InferenceTask,
+        report: F,
+    ) -> Result<QueryReport>
+    where
+        F: FnMut(AgentEvent) + Send,
+    {
+        Ok(self
+            .session
+            .query_with_accounting(prompt, output_mode, accounting, report)
+            .await?
+            .query_report)
+    }
+
     pub(crate) async fn set_max_turns(&self, max_turns: usize) -> Result<()> {
         self.session.set_max_turns(max_turns).await?;
         Ok(())

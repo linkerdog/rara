@@ -33,6 +33,7 @@ pub struct ContextBudget {
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct ProviderCacheProfile {
     pub automatic_prefix_cache: bool,
+    pub explicit_prefix_cache: bool,
     pub cache_usage_accounting: bool,
     pub cache_edit: bool,
     pub cache_retention_control: bool,
@@ -42,6 +43,7 @@ impl ProviderCacheProfile {
     pub const fn none() -> Self {
         Self {
             automatic_prefix_cache: false,
+            explicit_prefix_cache: false,
             cache_usage_accounting: false,
             cache_edit: false,
             cache_retention_control: false,
@@ -51,6 +53,7 @@ impl ProviderCacheProfile {
     pub const fn automatic_prefix_cache_with_usage() -> Self {
         Self {
             automatic_prefix_cache: true,
+            explicit_prefix_cache: false,
             cache_usage_accounting: true,
             cache_edit: false,
             cache_retention_control: false,
@@ -74,6 +77,7 @@ pub enum LlmStreamEvent {
 pub struct LlmTurnMetadata {
     execution_mode: LlmExecutionMode,
     cancellation: Option<Arc<AtomicBool>>,
+    inference: Option<rara_observability::InferenceCallContext>,
 }
 
 impl Default for LlmTurnMetadata {
@@ -81,6 +85,7 @@ impl Default for LlmTurnMetadata {
         Self {
             execution_mode: LlmExecutionMode::Execute,
             cancellation: None,
+            inference: None,
         }
     }
 }
@@ -90,6 +95,7 @@ impl LlmTurnMetadata {
         Self {
             execution_mode: LlmExecutionMode::Execute,
             cancellation: None,
+            inference: None,
         }
     }
 
@@ -97,12 +103,41 @@ impl LlmTurnMetadata {
         Self {
             execution_mode: LlmExecutionMode::Plan,
             cancellation: None,
+            inference: None,
         }
     }
 
     pub fn with_cancellation(mut self, cancellation: Arc<AtomicBool>) -> Self {
         self.cancellation = Some(cancellation);
         self
+    }
+
+    pub fn with_inference(mut self, inference: rara_observability::InferenceCallContext) -> Self {
+        self.inference = Some(inference);
+        self
+    }
+
+    pub(crate) fn inference(&self) -> Option<rara_observability::InferenceCallContext> {
+        self.inference.clone()
+    }
+
+    pub(crate) fn execution_mode(&self) -> LlmExecutionMode {
+        self.execution_mode
+    }
+
+    pub(crate) fn with_execution_mode(mut self, mode: LlmExecutionMode) -> Self {
+        self.execution_mode = mode;
+        self
+    }
+
+    pub fn start_attempt(
+        &self,
+        provider: &str,
+        model: &str,
+    ) -> Option<rara_observability::InferenceAttempt> {
+        self.inference
+            .as_ref()
+            .map(|context| context.start_attempt(provider, model))
     }
 
     pub fn is_cancelled(&self) -> bool {
@@ -164,6 +199,28 @@ pub trait LlmBackend: Send + Sync {
     }
 
     async fn summarize(&self, messages: &[Message], instruction: &str) -> Result<String>;
+    /// Summarize within the originating task's accounting and cancellation scope.
+    async fn summarize_with_context(
+        &self,
+        messages: &[Message],
+        instruction: &str,
+        _metadata: LlmTurnMetadata,
+    ) -> Result<String> {
+        self.summarize(messages, instruction).await
+    }
+
+    /// Reuse a captured main prefix when supported. Compatibility backends keep
+    /// their existing summary route; attempt identities reveal the actual model.
+    async fn summarize_with_prefix(
+        &self,
+        messages: &[Message],
+        instruction: &str,
+        _prefix: &super::SummaryPrefix,
+        metadata: LlmTurnMetadata,
+    ) -> Result<String> {
+        self.summarize_with_context(messages, instruction, metadata)
+            .await
+    }
     /// Side-channel classifier call (auto-permission, background task status).
     ///
     /// Default implementation prepends an instructions message and delegates to
@@ -176,6 +233,17 @@ pub trait LlmBackend: Send + Sync {
         }];
         classify_msgs.extend(messages.iter().cloned());
         self.summarize(&classify_msgs, instructions).await
+    }
+
+    /// Compatibility backends retain their classifier override and report missing
+    /// attempt coverage until they implement this method.
+    async fn classify_with_context(
+        &self,
+        instructions: &str,
+        messages: &[Message],
+        _metadata: LlmTurnMetadata,
+    ) -> Result<String> {
+        self.classify(instructions, messages).await
     }
 
     fn context_budget(&self, _messages: &[Message], _tools: &[Value]) -> Option<ContextBudget> {

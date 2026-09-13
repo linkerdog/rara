@@ -8,17 +8,6 @@ fn compact_source_content(text: String, source_item: Value) -> Value {
     ])
 }
 
-pub(crate) fn compaction_summary_timeout() -> Duration {
-    #[cfg(test)]
-    {
-        TEST_COMPACTION_SUMMARY_TIMEOUT
-    }
-    #[cfg(not(test))]
-    {
-        COMPACTION_SUMMARY_TIMEOUT
-    }
-}
-
 fn estimate_history_tokens(history: &[Message]) -> Result<usize> {
     let bpe = tokenizer()?;
     history
@@ -414,4 +403,3 @@ fn render_retained_context_carry_over(entries: &[RetainedContextCarryOver]) -> S
         .collect::<Vec<_>>()
         .join("\n")
 }
-

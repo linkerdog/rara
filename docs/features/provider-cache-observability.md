@@ -17,11 +17,17 @@ protocol.
   deliberately invalidated first-message prefixes.
 - Emit JSONL measurement artifacts without prompt, response, credential, tool
   name, or workspace-path content.
+- Attribute all inference attempts for a task, including summaries, classifiers,
+  descendants, retries, failures, and cancellation. Keep logical calls distinct
+  from transport attempts and retain usage observed before a stream failure.
+- Price disjoint uncached input, cache read, cache write, and output categories
+  using an explicit provider/model tariff. Missing usage or a missing tariff
+  makes the task cost incomplete, never zero.
 
 ## Non-Goals
 
 - Guaranteeing that DeepSeek retains or reuses any request prefix.
-- Adding Anthropic `cache_control` fields or emulating provider cache edits.
+- Emulating provider cache edits or assuming all compatible endpoints cache.
 - Sending live provider requests from tests or ordinary runtime startup.
 - Changing existing `AgentEvent`, `SessionEvent`, or runtime-control protocol
   variants.
@@ -47,6 +53,204 @@ Each turn reports:
 
 Existing typed events remain unchanged. Consumers that do not request the
 report retain their current source and protocol behavior.
+
+### Task accounting contract
+
+Task accounting uses an explicitly propagated, task-owned handle. Concurrent
+root tasks have independent ledgers; descendants retain their originating task
+even when they finish after the parent's first response. A report taken while
+work is active is a snapshot, not a final bill. Callers can keep the accounting
+handle to read the completed report after background work finishes.
+
+Each logical call has a purpose and an opaque agent identity. Each actual model
+request has its own attempt identity, model/provider identity, elapsed time,
+terminal status, and optional token accounting. Transport retries and fallback
+models produce additional attempts. A dropped in-flight request is reported as
+cancelled; provider usage already received is retained. A backend without
+attempt instrumentation is explicitly reported as incomplete coverage.
+
+Final usage receipts and intermediate stream counters are distinct. Partial
+charges, including counters from still-running attempts, contribute to known
+cost but cannot make total cost complete. Missing cache categories do not erase
+known output or separately reported cache charges. Ordinary input is priced only
+when every cache category is known and can be subtracted from inclusive input.
+A terminal error response with usage is a final receipt; its category coverage
+is still checked independently. A terminal
+snapshot means currently admitted work has drained; hosts must finish scheduling
+post-turn extraction, evaluators, and children before treating it as a task bill.
+
+Provider adapters normalize total input tokens to include cache reads and
+writes. They preserve separate creation categories, including short and long
+TTL writes where reported. Pricing must not charge cache reads or writes again
+as ordinary input. Unknown cache categories cannot be treated as known zeros.
+If inclusive-input arithmetic overflows, retain the reported base input as a
+lower bound and set `input_tokens_incomplete`. Independently known output and
+cache categories still contribute to cost; ordinary-input pricing requires an
+exact total. A contradictory creation aggregate makes only the generic-write
+category unknown, without discarding known TTL/read/output counters.
+Prices have an explicit revision and provider/model match; no global model-name
+guess supplies a price for a custom endpoint.
+
+Billing identities distinguish custom endpoint hashes, OpenAI API versus Codex
+subscriptions, and Bedrock regions. A supplied tariff must match the reported
+identity; a gateway named like a direct provider does not inherit its price.
+
+Request-prefix regressions compare production serialization, including tools
+and request options. Message-only tests with an empty tool manager cannot prove
+that mode switching preserves a cacheable prefix.
+
+### Responses instruction ordering
+
+Only the initial consecutive system messages populate top-level `instructions`.
+System controls appended after user or assistant history remain chronological
+`system` input messages. They keep instruction authority without moving ahead
+of earlier observations. Appending a control must preserve existing input items,
+tools, reasoning options, and top-level instructions byte for byte.
+
+Cache capability selection must check the endpoint identity and model family.
+A custom gateway does not inherit capabilities from its API shape or model name.
+Profiles describe supported behavior, not evidence of a cache hit. Unknown
+retention never authorizes a time-based claim that the cache has expired.
+
+Verified OpenRouter Anthropic routes use two explicit content-block checkpoints:
+the last leading system block and the newest eligible conversation block,
+including a tool-result text block during consecutive tool calls. Tool call IDs
+and result roles are preserved; no synthetic user message is inserted. This
+keeps a reusable static checkpoint even across independent tasks. The default is
+five minutes; `with_anthropic_cache_ttl` can select one hour for known pause-heavy
+workflows. Both checkpoints use the same TTL. No top-level automatic control is
+sent, because it would exclude some OpenRouter routes. DeepSeek, OpenAI, custom
+gateways, and unsupported model routes never receive Anthropic controls.
+
+Native Bedrock uses Converse `cachePoint` blocks for verified Claude models and
+records physical requests through SDK transmit/attempt hooks, including internal
+retries. Its input counter excludes reads and writes; task accounting adds them
+once and preserves the `cacheDetails` TTL breakdown. Gemini Code Assist and
+coding subscriptions remain conservative until their own cache contract is verified.
+
+Bedrock long TTL is separately validated: this adapter's selected one-hour
+support is limited to Claude Sonnet 4.5, Opus 4.5, and Haiku 4.5 model IDs, including
+regional inference-profile prefixes. Unknown models and unsupported TTLs fail
+before a request is sent. Matching uses exact known model IDs after removing
+one supported regional prefix; arbitrary family suffixes are not accepted.
+Model support must be refreshed from AWS rather than
+inferred from a newer family name.
+
+| Adapter | Physical-attempt coverage | Completeness limit |
+|---|---|---|
+| Chat Completions | Main, summary, classifier, transport retry and fallback | Requires terminal usage with all cache billing categories. |
+| Responses | Main, summary, classifier and transport retries | Partial stream usage is retained but never a final bill. Subscription tariffs are separate. |
+| Bedrock Converse | SDK transmit and attempt hooks, including SDK retries | Requires inclusive normalized usage and the matching regional tariff. |
+| Other or custom backend implementations | Logical calls are recorded | Missing attempt instrumentation remains unobserved; total cost stays incomplete. |
+
+Old OpenAI or compatible responses that omit a write category remain incomplete
+in this accounting adapter until their precise endpoint/model billing contract
+can establish a known zero. Capability declarations alone never fill in usage.
+
+### Selectable summary and tool experiments
+
+Host sessions can select a fixed tool schema snapshot and a cached-main summary
+strategy. Both defaults retain existing mode filtering and auxiliary summaries.
+The stable schema option does not widen execution permissions: tools forbidden
+in the active mode remain rejected by the runtime.
+
+The cached-main strategy captures the rendered system, conversation, tools, and
+execution-mode request options. Compaction reuses its matching prefix, keeps the
+main model, and appends a text-only summary instruction. Tool schemas remain
+visible, but any generated tool call makes the summary fail; no summary tool is
+executed. A range or overflow retry that no longer matches the captured prefix
+uses the auxiliary path and is accounted as such. The comparison includes this
+fallback, summary attempts, and the following cache rebuild request. A strategy
+is not promoted based on hit ratio alone.
+
+Reuse also requires the same backend instance, runtime execution mode, and
+current tool schemas. A backend replacement or a mode/schema change uses the
+auxiliary route until a new main request captures that context. Backend labels
+alone are insufficient because endpoints and credentials may differ.
+Capture is committed only after a successful main response. A failed main
+request clears the capture, so subsequent compaction uses the auxiliary route
+until another main request succeeds. Success permits reuse but does not claim
+that the provider actually created or retained a cache entry.
+Only the runtime's first generated system message is separated from history.
+Leading system messages inside history, including prior compact summaries,
+remain part of the exact captured prefix and appear once in the summary request.
+
+### Cost and quality comparison artifact
+
+`InferencePriceTable::compare_tasks` pairs externally graded task samples by
+opaque case ID and repetition. It reports full task cost, cost per passed task
+(including charges from failed tasks), request counts, cache reads/writes,
+rejected tool requests, and p50/p95 task duration. Quality regression is checked
+per paired case. Missing prices, partial usage, unobserved calls, active children,
+duplicate cases, and missing partners prevent a complete cost comparison.
+Missing grades remain unknown. Savings are point estimates and never prove
+statistical significance or trigger a default-strategy change.
+
+`cargo run --example inference_cost_report` reads a JSON object with `prices`
+and `samples` from standard input and emits the comparison. This executable
+does not make model requests. Real trials must use identical task fixtures and
+graders, alternate arm order, account for warm-up and cache rebuilds explicitly,
+and record the selected provider/model, tariff revision, and spending ceiling.
+
+The [offline task corpus](../../tools/prefix_cache_eval/README.md) provides
+three coding contracts, ordered mode transitions, a two-task compaction boundary,
+and external graders. Each arm starts from a fresh workspace. Grader calibration
+requires known repairs to pass and plausible incorrect repairs to fail. Corpus
+and grader hashes belong in run metadata; grade receipts contain no workspace
+path, source code, or model output. Missing grader receipts remain ungraded.
+
+An ignored, opt-in provider driver binds that corpus to the real execution
+loop and file tools. It compares mode-dependent schemas, summary routes, or
+task-boundary compaction one factor at a time. Paid calls require a selected
+supported profile, an explicit ceiling, and a tariff validity window. A shared
+per-run budget reserves the bounded worst-case charge before polling each
+logical call, including its physical retry/fallback bound. Only complete
+receipts release unused reservations. Cancellation or incomplete accounting
+blocks subsequent calls; grader failure preserves costs and an unknown grade.
+The paid driver checks grader isolation before admitting any provider call.
+Actual provider artifacts remain the gate for changing defaults.
+
+Retryable HTTP statuses must enter the bounded transport retry loop, with each
+failed attempt finalized and any returned usage retained. Missing Anthropic
+cache categories preserve the known counters while leaving the bill incomplete.
+Cached summaries require the entire captured history prefix, including its
+length; a shorter matching slice uses the auxiliary route.
+
+Candidate modules execute in a worker process that receives call inputs only.
+Expected results and pass/fail decisions stay in the verifier process. Worker
+output is bounded JSON, never executable serialization. Protected policy inputs
+are checked before and after execution, including failure and timeout paths.
+The worker additionally requires OS-enforced filesystem and network isolation.
+Only the Python runtime, staged observation worker, and fixture workspace are
+readable; verifier sources and inherited host credentials are unavailable.
+Linux uses Bubblewrap with a private PID namespace, launched through `prlimit`
+with hard address-space (256 MiB), CPU (3 seconds, soft limit 2 seconds), output
+file (2 MB), and core-file (zero) limits before Python starts. Resource exhaustion
+and wall-clock timeouts produce unknown grades. macOS Seatbelt does not provide
+the required hard memory boundary; grading there requires a Linux VM/container.
+Every exit path tears down the worker process group before policy revalidation.
+Unsupported platforms (including macOS and Windows) or failed
+sandbox setup return an unknown grade without executing candidate code; there
+is no unsandboxed fallback.
+
+The three pure-function fixtures admit a deliberately restricted Python source
+language before executing a submission. Only ordinary function/data operations,
+the fixed `RecordError` exception shape, and the `json` import are accepted.
+Reflection, dynamic calls, decorators, arbitrary attributes/imports, I/O, and
+process control are invalid submissions. The verifier validates and freezes
+the exact source passed to the worker. This is a corpus acceptance rule, not a
+general-purpose Python security sandbox. OS isolation remains mandatory.
+
+An absent TTL breakdown remains unknown even when an aggregate cache write is
+reported. Bedrock's explicitly reported detail list is exhaustive, including an
+empty list for no creation; an absent list must not be confused with empty.
+Known detail totals still contribute to inclusive input when the aggregate is
+missing, without fabricating a complete bill.
+Unrecognized TTL details must not become generic writes: known input and
+recognized TTL totals survive, but the generic category remains unknown until
+the new category has a normalization and pricing contract.
+Inconsistent or overflowing cache totals suppress ordinary-input pricing but
+retain independently reported cache/output charges and an incomplete bill.
 
 ### Content-free request fingerprints
 
@@ -121,6 +325,7 @@ own retention or removal of the isolated state directory.
 | Contract | Detail |
 |---|---|
 | Additive library API | Existing embedded query and event APIs remain source-compatible. |
+| Profile extension | `ProviderCacheProfile` adds an explicit-cache capability; exhaustive external struct literals must include it or use a constructor. |
 | Exact serializer | Fingerprints derive from the same request builder used for the provider call. |
 | Content-free artifact | Reports contain hashes, counts, usage, durations, and labels only. |
 | Accounting honesty | Missing provider cache accounting is represented as absent, not as a zero-token hit or miss. |
@@ -134,7 +339,10 @@ own retention or removal of the isolated state directory.
 
 | Check | Method | Expected |
 |---|---|---|
-| DeepSeek streaming usage | Request-body unit test | `include_usage` is present only for DeepSeek. |
+| Streaming usage | Request-body unit test | `include_usage` is set for verified DeepSeek and official OpenAI chat routes. |
+| Full task bill | Ledger, SDK/HTTP fixture, child and compaction tests | Retries, summaries, late children and rebuilds remain charged; absent receipts stay incomplete. |
+| Explicit checkpoint gating | Production builder and Converse HTTP fixture | Correct static/advancing blocks, model-specific TTL, no cross-provider fields. |
+| Stable tool experiment | Mode-boundary regression | Review writes and mode escalation are rejected despite visible schemas. |
 | Canonical fingerprint | Hash unit test with reordered JSON keys | Equivalent request bodies produce identical hashes. |
 | Report privacy | Serialize a fingerprint built from sentinel private strings | No sentinel appears in output. |
 | Arm perturbation | Fake-backend test | Stable system hash is unchanged; busted system hash changes. |
@@ -166,8 +374,18 @@ own retention or removal of the isolated state directory.
 
 - [2026-08-21 DeepSeek cache probe](../journal/2026-08-21-deepseek-cache-probe.md)
 - [2026-08-21 DeepSeek prefix cache locality](../journal/2026-08-21-deepseek-prefix-cache-locality.md)
+- [2026-09-11 Prefix cache optimization](../journal/2026-09-11-prefix-cache-optimization.md)
+- [2026-09-12 Prefix cache review](../journal/2026-09-12-prefix-cache-review.md)
+- [2026-09-13 Prefix cache receipt and capture review](../journal/2026-09-13-prefix-cache-review.md)
 
 ## References
 
 - [DeepSeek context caching](https://api-docs.deepseek.com/guides/kv_cache)
 - [DeepSeek chat completions](https://api-docs.deepseek.com/api/create-chat-completion/)
+- [Anthropic cost optimization cookbook](https://github.com/anthropics/claude-cookbooks/blob/main/cost_optimization/cost_optimization.ipynb)
+- [Anthropic prompt caching](https://platform.claude.com/docs/en/build-with-claude/prompt-caching)
+- [OpenRouter prompt caching](https://openrouter.ai/docs/guides/best-practices/prompt-caching)
+- [OpenRouter tool-message content schema](https://github.com/OpenRouterTeam/typescript-sdk/blob/main/src/models/chattoolmessage.ts)
+- [OpenRouter text-block cache controls](https://github.com/OpenRouterTeam/typescript-sdk/blob/main/src/models/chatcontenttext.ts)
+- [OpenAI prompt caching](https://developers.openai.com/api/docs/guides/prompt-caching)
+- [Bedrock prompt caching](https://docs.aws.amazon.com/bedrock/latest/userguide/prompt-caching.html)

@@ -1,5 +1,8 @@
 mod cache_observation;
+#[cfg(test)]
+mod cache_request_tests;
 mod codex;
+pub(super) mod inference_usage;
 mod protocol;
 mod usage;
 
@@ -29,11 +32,11 @@ pub(super) use self::protocol::{
     to_openai_messages_for_endpoint,
 };
 use self::usage::parse_openai_token_usage;
+use super::inference_transport::{finish_attempt, record_final_usage, record_usage, send_json};
 use super::shared::{
     ContextBudget, LlmBackend, LlmStreamEvent, LlmTurnMetadata, ProviderCacheProfile,
     context_budget_from_window, extract_message_text, http_client_for_target,
     is_retryable_http_error, model_context_budget, next_stream_item_with_idle_timeout,
-    retry_send_json,
 };
 use crate::agent::Message;
 use crate::config::OpenAiEndpointKind;
@@ -41,7 +44,7 @@ use crate::control_tokens::{has_deepseek_control_evidence, scrub_deepseek_visibl
 use crate::llm::{ContentBlock, LlmResponse};
 use crate::model_observation::ModelRequestFingerprint;
 
-const STREAM_IDLE_RETRY_ATTEMPTS: usize = 1;
+pub(super) const STREAM_IDLE_RETRY_ATTEMPTS: usize = 1;
 const DEEPSEEK_THINK_OPEN: &str = "<think>";
 
 #[derive(Debug)]
@@ -187,6 +190,7 @@ pub struct OpenAiCompatibleBackend {
     deepseek_user_id: Option<String>,
     request_fingerprint_scope: String,
     request_fingerprint_salt: [u8; 16],
+    anthropic_cache_ttl: super::AnthropicCacheTtl,
 }
 
 impl OpenAiCompatibleBackend {
@@ -234,6 +238,7 @@ impl OpenAiCompatibleBackend {
             deepseek_user_id: None,
             request_fingerprint_scope: fingerprint_scope.to_string(),
             request_fingerprint_salt: *fingerprint_salt.as_bytes(),
+            anthropic_cache_ttl: super::AnthropicCacheTtl::FiveMinutes,
         })
     }
 
@@ -242,6 +247,16 @@ impl OpenAiCompatibleBackend {
             .map(|model| model.trim().to_string())
             .filter(|model| !model.is_empty());
         self
+    }
+
+    pub fn with_anthropic_cache_ttl(mut self, ttl: super::AnthropicCacheTtl) -> Self {
+        self.anthropic_cache_ttl = ttl;
+        self
+    }
+
+    /// Exact endpoint billing identity to use in a supplied price table.
+    pub fn billing_provider(&self) -> String {
+        super::cache_policy::chat_billing_provider(&self.base_url, self.endpoint_kind)
     }
 
     /// Bound provider output tokens for callers such as opt-in measurement tools.
@@ -279,6 +294,9 @@ impl OpenAiCompatibleBackend {
             self.endpoint_kind,
             self.deepseek_user_id.as_deref(),
         );
+        if super::cache_policy::openrouter_anthropic(&self.base_url, self.endpoint_kind, model) {
+            super::cache_policy::apply_anthropic_breakpoints(&mut body, self.anthropic_cache_ttl);
+        }
         body
     }
 
@@ -293,6 +311,17 @@ impl OpenAiCompatibleBackend {
         format!("{normalized_base}/{path}")
     }
 
+    fn completion_request(&self, body: &Value) -> reqwest::RequestBuilder {
+        let request = self
+            .client
+            .post(self.endpoint_url("chat/completions"))
+            .json(body);
+        match &self.api_key {
+            Some(key) => request.bearer_auth(key.expose_secret()),
+            None => request,
+        }
+    }
+
     async fn ask_streaming_once(
         &self,
         messages: &[Message],
@@ -303,103 +332,120 @@ impl OpenAiCompatibleBackend {
         let mut body =
             self.chat_completion_request_body(&self.model, messages, tools, metadata.clone());
         enable_streaming_usage(&mut body, self.endpoint_kind);
+        if self.endpoint_kind == OpenAiEndpointKind::Custom
+            && self.cache_profile().cache_usage_accounting
+        {
+            body["stream_options"] = json!({"include_usage": true});
+        }
 
         let completions_url = self.endpoint_url("chat/completions");
-        let api_key = self.api_key.as_ref().map(|k| k.expose_secret());
-        let res = retry_send_json(&self.client, &completions_url, &body, api_key).await?;
-
-        if !res.status().is_success() {
-            return Err(anyhow!(
-                "API Error at {}: {}",
-                sanitize_url_for_display(&completions_url),
-                redact_secrets(res.text().await?)
-            ));
-        }
-
-        let mut stream = res.bytes_stream().eventsource();
-        let mut streamed_text = String::new();
-        let mut streamed_reasoning_content = String::new();
-        let mut streamed_tool_calls: Vec<Value> = Vec::new();
-        let mut deepseek_text_scrubber = (self.endpoint_kind == OpenAiEndpointKind::Deepseek)
-            .then(|| DeepseekTextStreamScrubber::new(self.thinking == Some(true)));
-        let mut stop_reason = None;
-        let mut usage = None;
-
-        while let Some(event) =
-            next_stream_item_with_idle_timeout(&mut stream, "OpenAI-compatible SSE").await?
-        {
-            metadata.ensure_not_cancelled()?;
-            let event = event.map_err(|error| anyhow!("Failed to decode SSE event: {error}"))?;
-            let data = event.data.trim();
-            if data.is_empty() {
-                continue;
+        let (res, attempt) = send_json(
+            self.completion_request(&body),
+            &metadata,
+            &self.billing_provider(),
+            &self.model,
+        )
+        .await?;
+        let result = async {
+            if !res.status().is_success() {
+                return Err(api_error_from_response(res, &attempt)
+                    .await
+                    .context_url(&completions_url));
             }
-            if data == "[DONE]" {
-                break;
-            }
-            let payload: Value = serde_json::from_str(data)
-                .map_err(|error| anyhow!("Failed to parse SSE payload: {error}"))?;
 
-            if let Some(choice) = payload
-                .get("choices")
-                .and_then(Value::as_array)
-                .and_then(|choices| choices.first())
+            let mut stream = res.bytes_stream().eventsource();
+            let mut streamed_text = String::new();
+            let mut streamed_reasoning_content = String::new();
+            let mut streamed_tool_calls: Vec<Value> = Vec::new();
+            let mut deepseek_text_scrubber = (self.endpoint_kind == OpenAiEndpointKind::Deepseek)
+                .then(|| DeepseekTextStreamScrubber::new(self.thinking == Some(true)));
+            let mut stop_reason = None;
+            let mut usage = None;
+
+            while let Some(event) =
+                next_stream_item_with_idle_timeout(&mut stream, "OpenAI-compatible SSE").await?
             {
-                if let Some(delta) = choice.get("delta") {
-                    if let Some(content) = delta.get("content").and_then(Value::as_str)
-                        && !content.is_empty()
-                    {
-                        if let Some(scrubber) = deepseek_text_scrubber.as_mut() {
-                            let visible = scrubber.push(content);
-                            if !visible.is_empty() {
-                                on_event(LlmStreamEvent::TextDelta(visible));
+                metadata.ensure_not_cancelled()?;
+                let event =
+                    event.map_err(|error| anyhow!("Failed to decode SSE event: {error}"))?;
+                let data = event.data.trim();
+                if data.is_empty() {
+                    continue;
+                }
+                if data == "[DONE]" {
+                    record_final_usage(&attempt, usage.as_ref());
+                    break;
+                }
+                let payload: Value = serde_json::from_str(data)
+                    .map_err(|error| anyhow!("Failed to parse SSE payload: {error}"))?;
+                record_usage(&attempt, payload.get("usage"));
+
+                if let Some(choice) = payload
+                    .get("choices")
+                    .and_then(Value::as_array)
+                    .and_then(|choices| choices.first())
+                {
+                    if let Some(delta) = choice.get("delta") {
+                        if let Some(content) = delta.get("content").and_then(Value::as_str)
+                            && !content.is_empty()
+                        {
+                            if let Some(scrubber) = deepseek_text_scrubber.as_mut() {
+                                let visible = scrubber.push(content);
+                                if !visible.is_empty() {
+                                    on_event(LlmStreamEvent::TextDelta(visible));
+                                }
+                            } else {
+                                on_event(LlmStreamEvent::TextDelta(content.to_string()));
                             }
-                        } else {
-                            on_event(LlmStreamEvent::TextDelta(content.to_string()));
+                            streamed_text.push_str(content);
                         }
-                        streamed_text.push_str(content);
-                    }
-                    if let Some(reasoning) = delta.get("reasoning_content").and_then(Value::as_str)
-                    {
-                        if !reasoning.is_empty() {
-                            on_event(LlmStreamEvent::ReasoningDelta(reasoning.to_string()));
+                        if let Some(reasoning) =
+                            delta.get("reasoning_content").and_then(Value::as_str)
+                        {
+                            if !reasoning.is_empty() {
+                                on_event(LlmStreamEvent::ReasoningDelta(reasoning.to_string()));
+                            }
+                            streamed_reasoning_content.push_str(reasoning);
                         }
-                        streamed_reasoning_content.push_str(reasoning);
+                        if let Some(tool_deltas) = delta.get("tool_calls").and_then(Value::as_array)
+                        {
+                            merge_streaming_tool_calls(&mut streamed_tool_calls, tool_deltas)?;
+                        }
                     }
-                    if let Some(tool_deltas) = delta.get("tool_calls").and_then(Value::as_array) {
-                        merge_streaming_tool_calls(&mut streamed_tool_calls, tool_deltas)?;
+                    if let Some(finish) = choice.get("finish_reason").and_then(Value::as_str) {
+                        stop_reason = Some(finish.to_string());
                     }
                 }
-                if let Some(finish) = choice.get("finish_reason").and_then(Value::as_str) {
-                    stop_reason = Some(finish.to_string());
+                if let Some(u) = payload.get("usage")
+                    && !u.is_null()
+                {
+                    usage = Some(u.clone());
                 }
             }
-            if let Some(u) = payload.get("usage")
-                && !u.is_null()
-            {
-                usage = Some(u.clone());
+
+            if let Some(scrubber) = deepseek_text_scrubber.as_mut() {
+                let visible = scrubber.finish();
+                if !visible.is_empty() {
+                    on_event(LlmStreamEvent::TextDelta(visible));
+                }
             }
+
+            let content = build_streaming_response_content(
+                self.endpoint_kind,
+                streamed_text,
+                streamed_reasoning_content,
+                &streamed_tool_calls,
+            )?;
+
+            Ok(LlmResponse {
+                content,
+                stop_reason,
+                usage: usage.as_ref().map(parse_openai_token_usage),
+            })
         }
-
-        if let Some(scrubber) = deepseek_text_scrubber.as_mut() {
-            let visible = scrubber.finish();
-            if !visible.is_empty() {
-                on_event(LlmStreamEvent::TextDelta(visible));
-            }
-        }
-
-        let content = build_streaming_response_content(
-            self.endpoint_kind,
-            streamed_text,
-            streamed_reasoning_content,
-            &streamed_tool_calls,
-        )?;
-
-        Ok(LlmResponse {
-            content,
-            stop_reason,
-            usage: usage.as_ref().map(parse_openai_token_usage),
-        })
+        .await;
+        finish_attempt(attempt, &result);
+        result
     }
 }
 
@@ -475,18 +521,26 @@ impl LlmBackend for OpenAiCompatibleBackend {
             self.chat_completion_request_body(&self.model, messages, tools, metadata.clone());
 
         let completions_url = self.endpoint_url("chat/completions");
-        let api_key = self.api_key.as_ref().map(|k| k.expose_secret());
-        let res = retry_send_json(&self.client, &completions_url, &body, api_key).await?;
-
-        if !res.status().is_success() {
-            return Err(anyhow!(
-                "API Error at {}: {}",
-                sanitize_url_for_display(&completions_url),
-                redact_secrets(res.text().await?)
-            ));
+        let (res, attempt) = send_json(
+            self.completion_request(&body),
+            &metadata,
+            &self.billing_provider(),
+            &self.model,
+        )
+        .await?;
+        let result = async {
+            if !res.status().is_success() {
+                return Err(api_error_from_response(res, &attempt)
+                    .await
+                    .context_url(&completions_url));
+            }
+            let resp_json: Value = res.json().await?;
+            record_final_usage(&attempt, resp_json.get("usage"));
+            parse_chat_completion_response(&resp_json, self.endpoint_kind)
         }
-        let resp_json: Value = res.json().await?;
-        parse_chat_completion_response(&resp_json, self.endpoint_kind)
+        .await;
+        finish_attempt(attempt, &result);
+        result
     }
 
     async fn ask_streaming_with_context(
@@ -523,6 +577,16 @@ impl LlmBackend for OpenAiCompatibleBackend {
     }
 
     async fn summarize(&self, messages: &[Message], instruction: &str) -> Result<String> {
+        self.summarize_with_context(messages, instruction, LlmTurnMetadata::default())
+            .await
+    }
+
+    async fn summarize_with_context(
+        &self,
+        messages: &[Message],
+        instruction: &str,
+        metadata: LlmTurnMetadata,
+    ) -> Result<String> {
         let mut msgs = messages.to_vec();
         msgs.push(Message {
             role: "user".to_string(),
@@ -530,16 +594,54 @@ impl LlmBackend for OpenAiCompatibleBackend {
         });
         let summary_model = self.summary_model();
         let summary = self
-            .summarize_with_model(summary_model.as_ref(), &msgs)
+            .summarize_with_model(summary_model.as_ref(), &msgs, metadata.clone())
             .await;
         if summary_model.as_ref() != self.model.as_str()
             && summary
                 .as_ref()
                 .is_err_and(is_auxiliary_model_retryable_error)
         {
-            return self.summarize_with_model(self.model.as_str(), &msgs).await;
+            return self
+                .summarize_with_model(self.model.as_str(), &msgs, metadata)
+                .await;
         }
         summary
+    }
+
+    async fn classify_with_context(
+        &self,
+        instructions: &str,
+        messages: &[Message],
+        metadata: LlmTurnMetadata,
+    ) -> Result<String> {
+        let mut messages = messages.to_vec();
+        messages.insert(
+            0,
+            Message {
+                role: "system".into(),
+                content: json!(instructions),
+            },
+        );
+        self.summarize_with_context(&messages, instructions, metadata)
+            .await
+    }
+
+    async fn summarize_with_prefix(
+        &self,
+        messages: &[Message],
+        instruction: &str,
+        prefix: &super::SummaryPrefix,
+        metadata: LlmTurnMetadata,
+    ) -> Result<String> {
+        let messages = prefix.messages_for_summary(messages, instruction)?;
+        let response = self
+            .ask_with_context(
+                &messages,
+                &prefix.tools,
+                metadata.with_execution_mode(prefix.execution_mode),
+            )
+            .await?;
+        super::summary::summary_text(response)
     }
 
     fn context_budget(&self, _messages: &[Message], _tools: &[Value]) -> Option<ContextBudget> {
@@ -568,15 +670,7 @@ impl LlmBackend for OpenAiCompatibleBackend {
     }
 
     fn cache_profile(&self) -> ProviderCacheProfile {
-        match self.endpoint_kind {
-            OpenAiEndpointKind::Deepseek => {
-                ProviderCacheProfile::automatic_prefix_cache_with_usage()
-            }
-            OpenAiEndpointKind::Custom
-            | OpenAiEndpointKind::Kimi
-            | OpenAiEndpointKind::KimiCoding
-            | OpenAiEndpointKind::Openrouter => ProviderCacheProfile::none(),
-        }
+        super::cache_policy::chat_cache_profile(&self.base_url, self.endpoint_kind, &self.model)
     }
 
     fn request_cache_fingerprint(
@@ -585,7 +679,7 @@ impl LlmBackend for OpenAiCompatibleBackend {
         tools: &[Value],
         metadata: &LlmTurnMetadata,
     ) -> Option<ModelRequestFingerprint> {
-        (self.endpoint_kind == OpenAiEndpointKind::Deepseek).then(|| {
+        self.cache_profile().cache_usage_accounting.then(|| {
             fingerprint_request(
                 &self.chat_completion_request_body(&self.model, messages, tools, metadata.clone()),
                 &self.request_fingerprint_scope,
@@ -596,21 +690,37 @@ impl LlmBackend for OpenAiCompatibleBackend {
 }
 
 impl OpenAiCompatibleBackend {
-    async fn summarize_with_model(&self, model: &str, msgs: &[Message]) -> Result<String> {
-        let body = self.chat_completion_request_body(model, msgs, &[], LlmTurnMetadata::default());
+    async fn summarize_with_model(
+        &self,
+        model: &str,
+        msgs: &[Message],
+        metadata: LlmTurnMetadata,
+    ) -> Result<String> {
+        let body = self.chat_completion_request_body(model, msgs, &[], metadata.clone());
         let completions_url = self.endpoint_url("chat/completions");
-        let api_key = self.api_key.as_ref().map(|k| k.expose_secret());
-        let res = retry_send_json(&self.client, &completions_url, &body, api_key).await?;
-        if !res.status().is_success() {
-            return Err(api_error_from_response(res)
-                .await
-                .context_url(&completions_url));
-        }
-        let resp_json: Value = res.json().await?;
-        Ok(
-            extract_message_text(resp_json["choices"][0]["message"].get("content"))
-                .unwrap_or_default(),
+        let (res, attempt) = send_json(
+            self.completion_request(&body),
+            &metadata,
+            &self.billing_provider(),
+            model,
         )
+        .await?;
+        let result = async {
+            if !res.status().is_success() {
+                return Err(api_error_from_response(res, &attempt)
+                    .await
+                    .context_url(&completions_url));
+            }
+            let resp_json: Value = res.json().await?;
+            record_final_usage(&attempt, resp_json.get("usage"));
+            Ok(
+                extract_message_text(resp_json["choices"][0]["message"].get("content"))
+                    .unwrap_or_default(),
+            )
+        }
+        .await;
+        finish_attempt(attempt, &result);
+        result
     }
     fn summary_model(&self) -> Cow<'_, str> {
         self.auxiliary_model
@@ -631,11 +741,15 @@ impl OpenAiApiErrorContext for OpenAiApiError {
     }
 }
 
-pub(super) async fn api_error_from_response(response: Response) -> OpenAiApiError {
+pub(super) async fn api_error_from_response(
+    response: Response,
+    attempt: &Option<rara_observability::InferenceAttempt>,
+) -> OpenAiApiError {
     let status = response.status();
     let body = response.text().await.unwrap_or_default();
     let sanitized_body = redact_secrets(body);
     let parsed = serde_json::from_str::<Value>(&sanitized_body).ok();
+    record_final_usage(attempt, parsed.as_ref().and_then(|body| body.get("usage")));
     let error = parsed.as_ref().and_then(|value| value.get("error"));
     OpenAiApiError {
         status: Some(status),
@@ -716,4 +830,6 @@ pub struct CodexBackend {
     base_url: String,
     model: String,
     auxiliary_model: Option<String>,
+    request_fingerprint_scope: String,
+    request_fingerprint_salt: [u8; 16],
 }
