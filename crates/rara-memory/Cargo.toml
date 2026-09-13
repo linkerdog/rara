@@ -17,3 +17,7 @@ tokio = { version = "1", features = ["sync"] }
 [dev-dependencies]
 tempfile = "3"
 tokio = { version = "1", features = ["rt", "macros"] }
+
+# Grandfathered legacy lints via source-level #![allow]; remove as cleaned (issue #871).
+[lints]
+workspace = true

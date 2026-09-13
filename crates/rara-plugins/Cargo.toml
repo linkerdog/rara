@@ -10,3 +10,7 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 tokio = { version = "1", features = ["process", "io-util", "time", "rt", "macros"] }
 tempfile = "3"
+
+# Grandfathered legacy lints via source-level #![allow]; remove as cleaned (issue #871).
+[lints]
+workspace = true

@@ -25,6 +25,13 @@ members = [
 ]
 resolver = "2"
 
+[workspace.lints.clippy]
+expect_used = "deny"
+unwrap_used = "deny"
+panic = "deny"
+todo = "deny"
+unimplemented = "deny"
+
 [workspace.package]
 version = "0.0.22"
 edition = "2024"
@@ -148,3 +155,8 @@ cuda = ["candle/cuda", "candle-nn/cuda", "candle-transformers/cuda"]
 metal = ["candle/metal", "candle-nn/metal", "candle-transformers/metal"]
 accelerate = ["candle/accelerate", "candle-nn/accelerate", "candle-transformers/accelerate"]
 mkl = ["candle/mkl", "candle-nn/mkl", "candle-transformers/mkl"]
+
+# The root crate holds the legacy monolith; its violations are grandfathered
+# via a source-level #![allow] in src/lib.rs until src/ is split (issue #871).
+[lints]
+workspace = true

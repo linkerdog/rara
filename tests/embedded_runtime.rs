@@ -1,3 +1,12 @@
+// Test code uses expect/unwrap idiomatically (issue #871).
+#![allow(
+    clippy::expect_used,
+    clippy::unwrap_used,
+    clippy::panic,
+    clippy::todo,
+    clippy::unimplemented
+)]
+
 use std::num::NonZeroUsize;
 use std::sync::Arc;
 

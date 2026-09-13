@@ -22,3 +22,7 @@ tokio = { version = "1", features = ["full"] }
 
 [dev-dependencies]
 tempfile.workspace = true
+
+# Grandfathered legacy lints via source-level #![allow]; remove as cleaned (issue #871).
+[lints]
+workspace = true

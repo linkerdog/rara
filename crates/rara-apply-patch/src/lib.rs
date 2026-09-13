@@ -1,3 +1,12 @@
+// Grandfathered legacy lints; remove as this crate is cleaned (issue #871).
+#![allow(
+    clippy::expect_used,
+    clippy::unwrap_used,
+    clippy::panic,
+    clippy::todo,
+    clippy::unimplemented
+)]
+
 //! Pure parser and text engine for RARA's structured `apply_patch` format.
 
 use thiserror::Error;

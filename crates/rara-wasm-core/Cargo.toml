@@ -10,3 +10,7 @@ rara-apply-patch = { path = "../rara-apply-patch" }
 serde.workspace = true
 serde_json.workspace = true
 thiserror = "2"
+
+# Grandfathered legacy lints via source-level #![allow]; remove as cleaned (issue #871).
+[lints]
+workspace = true

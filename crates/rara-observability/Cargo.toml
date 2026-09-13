@@ -10,3 +10,7 @@ path = "src/lib.rs"
 
 [dependencies]
 serde = { workspace = true }
+
+# Grandfathered legacy lints via source-level #![allow]; remove as cleaned (issue #871).
+[lints]
+workspace = true

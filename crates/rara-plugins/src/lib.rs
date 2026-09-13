@@ -1,3 +1,12 @@
+// Grandfathered legacy lints; remove as this crate is cleaned (issue #871).
+#![allow(
+    clippy::expect_used,
+    clippy::unwrap_used,
+    clippy::panic,
+    clippy::todo,
+    clippy::unimplemented
+)]
+
 //! Claude Code plugin loader and command hook executor for RARA.
 //!
 //! Provides plugin discovery (scan directories, parse plugin.json and
