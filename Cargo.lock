@@ -9037,6 +9037,9 @@ dependencies = [
 name = "rara-core"
 version = "0.0.22"
 dependencies = [
+ "anyhow",
+ "async-trait",
+ "rara-observability",
  "serde",
  "serde_json",
 ]

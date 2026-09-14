@@ -45,9 +45,10 @@ The main crate keeps a thin adapter in `src/llm/bedrock.rs`:
   `TokenUsage`;
 - implements `LlmBackend` for RARA's runtime.
 
-This split avoids a circular dependency. `LlmBackend` and `Message` still live
-in the main crate, so the provider crate cannot implement the runtime trait
-directly.
+The provider-neutral `LlmBackend` and `Message` contracts now live in
+`rara-core`, with compatibility re-exports in the main crate. The Bedrock
+adapter remains in the main crate in this phase; moving it into the provider
+crate is a separate extraction. See [portable LLM contracts](portable-llm-contracts.md).
 
 ## Contracts
 
@@ -70,9 +71,8 @@ directly.
 
 ## Open Risks
 
-- The adapter boundary still depends on RARA runtime types in the main crate.
-  A later shared runtime-types crate would allow provider crates to implement
-  more of the backend contract directly.
+- The adapter still lives in the main crate even though its provider-neutral
+  contracts are available from `rara-core`.
 - AWS profile support remains a follow-up configuration task.
 - Streaming support remains inherited from the default `LlmBackend`
   non-streaming fallback for this provider.

@@ -89,6 +89,8 @@ future appserver integrations can use.
 
 ## Crate Split
 
+- `portable-llm-contracts.md`: canonical provider-neutral types and backend
+  trait, root compatibility re-exports, and browser-target compilation scope.
 - `crate-split.md`: dependency-ordered split of the monolithic binary crate
   into `rara-app`, `rara-agent`, `rara-tui`, `rara-memory`, `rara-tools`,
   `rara-control-plane`, `rara-oauth`, and `rara-state`. Each PR green on

@@ -384,6 +384,7 @@ pub(super) async fn spawn_server(
         exit_rx,
     });
     if let Err(mut failure) = runtime.initialize(workspace_root, initialize_timeout).await {
+        failure = resolve_startup_failure(failure, runtime.exit_rx.clone()).await;
         if failure.stderr_tail.is_none() {
             let tail = String::from_utf8_lossy(&runtime.stderr_tail.lock().unwrap()).to_string();
             failure.stderr_tail = (!tail.trim().is_empty()).then_some(tail);
@@ -401,6 +402,26 @@ pub(super) async fn spawn_server(
         }));
     }
     Ok(runtime)
+}
+
+async fn resolve_startup_failure(
+    failure: LspFailure,
+    mut exit_rx: watch::Receiver<Option<LspFailure>>,
+) -> LspFailure {
+    if failure.kind != LspFailureKind::ProtocolError || !failure.retryable {
+        return failure;
+    }
+    // Broken pipes can arrive before child.wait() and stderr draining finish.
+    // Keep the runtime alive briefly so cancellation does not erase that receipt.
+    match tokio::time::timeout(
+        Duration::from_millis(250),
+        exit_rx.wait_for(Option::is_some),
+    )
+    .await
+    {
+        Ok(Ok(observed)) => observed.as_ref().cloned().unwrap_or(failure),
+        Ok(Err(_)) | Err(_) => failure,
+    }
 }
 
 fn spawn_failure(kind: ServerKind, program: &OsString, err: io::Error) -> LspFailure {
@@ -458,3 +479,6 @@ fn append_bounded_tail(tail: &Mutex<Vec<u8>>, chunk: &[u8]) {
         tail.drain(..remove);
     }
 }
+
+#[cfg(test)]
+mod tests;

@@ -2,6 +2,11 @@
 
 ## Current State
 
+Provider-neutral LLM contracts have a canonical home in `rara-core`. See
+[portable LLM contracts](portable-llm-contracts.md) for the current ownership,
+compatibility paths, and browser-target compilation boundary. The size inventory
+below records the original split motivation, not current line counts.
+
 The main binary crate carries ~16k lines of top-level `src/*.rs` plus ~20k lines
 of `src/tui/`. 9 sub-crates exist but the core logic (agent, session, memory,
 control plane, TUI) is still in the binary crate.
@@ -106,8 +111,9 @@ Each split is an independent PR, each green on `cargo test`. No behavior change.
 
 ## What Doesn't Move
 
-- `llm/` — stays in `rara-app` or moves to `rara-agent` depending on coupling.
-  Evaluated per split.
+- Provider implementations under `src/llm/` remain in the root crate for now.
+  Shared messages, responses, backend metadata, and the backend trait live in
+  `rara-core`; root paths re-export them. Provider extraction is a later phase.
 - `prompt/` — stays, or absorbed by `instructions` crate.
 - `config/` — already a crate, stays.
 - `sandbox/` — already a crate, stays.
