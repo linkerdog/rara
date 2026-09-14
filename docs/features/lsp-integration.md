@@ -100,6 +100,13 @@ When available, the failure includes the server name, process exit/signal, and
 bounded stderr tail. The legacy top-level `error` string remains in the tool
 payload for compatibility; the typed failure is canonical.
 
+A retryable protocol failure during initialization may race child exit (for
+example, a broken stdin pipe before the supervisor collects the exit code).
+Allow up to 250 milliseconds for the supervisor to publish its exit receipt
+before dropping the runtime. Prefer that receipt, including stderr, when it
+arrives. Otherwise preserve the original protocol failure. Initialization
+timeouts and non-retryable failures retain their original kinds immediately.
+
 ### Document synchronization and diagnostics
 
 - The first synchronization sends `textDocument/didOpen` with version 1.
@@ -149,6 +156,7 @@ empty diagnostic array with no failure is a valid result.
 | Delayed initialize | Fake server responds within the configured timeout |
 | Timeout | Fake server stays alive without responding and returns `initialize_timeout` |
 | Early exit | Fake server writes stderr, exits, and returns `server_exited` with the tail |
+| Exit/write race | Delayed supervisor receipt replaces a startup protocol error; a live child retains the protocol error within the bounded grace period |
 | Concurrent startup | Two diagnostics calls share one spawn attempt |
 | Cancelled startup | Abort an in-flight initialize and verify status changes to `Failed` and the next call can retry |
 | Document lifecycle | First call emits `didOpen`; next call emits versioned `didChange` |
@@ -174,4 +182,5 @@ still the authoritative repository validation gate.
 
 ## Source Journals
 
+- [2026-09-14-lsp-startup-exit-race](../journal/2026-09-14-lsp-startup-exit-race.md)
 - [2026-08-20-agent-tool-reliability](../journal/2026-08-20-agent-tool-reliability.md)
