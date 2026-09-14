@@ -21,9 +21,13 @@ jobs:
         uses: dtolnay/rust-toolchain@master
         with:
           toolchain: nightly-2026-05-02
+          targets: wasm32-unknown-unknown
 
       - name: Cache cargo
         uses: Swatinem/rust-cache@v2
 
       - name: Build
         run: cargo build
+
+      - name: Check portable LLM contracts
+        run: cargo check --locked --target wasm32-unknown-unknown -p rara-core

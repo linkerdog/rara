@@ -2,6 +2,14 @@
 
 Active backlog only. Keep this file small and current.
 
+## Portable Provider Boundary
+
+- [ ] Continue [#871](https://github.com/linkerdog/rara/issues/871) after the
+      core contract extraction: provider crates, browser HTTP/SSE transport,
+      host-compatible accounting clocks and future bounds, and browser runtime
+      tests. The [contract](features/portable-llm-contracts.md) currently proves
+      browser-target compilation only.
+
 ## Prefix Cache Cost Evaluation
 
 - [ ] Before promoting session-stable tool schemas globally, extend the completed
