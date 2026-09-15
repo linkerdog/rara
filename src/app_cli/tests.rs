@@ -63,6 +63,27 @@ mod tests {
     }
 
     #[test]
+    fn agent_trace_dir_is_a_global_config_override() {
+        let cli = Cli::try_parse_from([
+            "rara",
+            "tui",
+            "--agent-trace-dir",
+            "diagnostics/traces",
+        ])
+        .expect("parse trace directory");
+        let mut config = RaraConfig::default();
+
+        assert!(matches!(
+            apply_cli_overrides(&mut config, cli),
+            Some(Commands::Tui)
+        ));
+        assert_eq!(
+            config.agent_trace_dir,
+            Some(PathBuf::from("diagnostics/traces"))
+        );
+    }
+
+    #[test]
     fn cli_reasoning_overrides_apply_to_headless_config() {
         let cli = Cli::try_parse_from([
             "rara",
