@@ -229,6 +229,30 @@ fn plugin_dirs_can_be_loaded_from_config() {
 }
 
 #[test]
+fn agent_trace_dir_is_opt_in_and_roundtrips_through_config() {
+    let config = RaraConfig::default();
+    assert!(config.agent_trace_dir.is_none());
+    assert!(
+        !serde_json::to_string(&config)
+            .expect("serialize default config")
+            .contains("agent_trace_dir")
+    );
+
+    let config: RaraConfig = serde_json::from_str(
+        r#"{
+            "provider": "deepseek",
+            "agent_trace_dir": "diagnostics/traces"
+        }"#,
+    )
+    .expect("deserialize trace config");
+
+    assert_eq!(
+        config.agent_trace_dir,
+        Some(PathBuf::from("diagnostics/traces"))
+    );
+}
+
+#[test]
 fn builtin_plugins_default_enabled_and_omitted() {
     let config = RaraConfig::default();
 

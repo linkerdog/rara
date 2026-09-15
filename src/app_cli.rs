@@ -55,6 +55,10 @@ pub(crate) struct Cli {
     /// Additional Claude plugin directory to scan during TUI startup.
     #[arg(long = "plugin-dir", value_name = "DIR", global = true)]
     plugin_dirs: Vec<PathBuf>,
+
+    /// Write a content-free agent trace bundle under this directory.
+    #[arg(long, env = "RARA_AGENT_TRACE_DIR", value_name = "DIR", global = true)]
+    agent_trace_dir: Option<PathBuf>,
 }
 
 /// Register a model provider.
@@ -318,6 +322,9 @@ fn apply_cli_overrides(config: &mut RaraConfig, cli: Cli) -> Option<Commands> {
     }
     if let Some(revision) = cli.revision {
         config.set_revision(Some(revision));
+    }
+    if let Some(agent_trace_dir) = cli.agent_trace_dir {
+        config.agent_trace_dir = Some(agent_trace_dir);
     }
     if let Some(Commands::Mem(args)) = cli.command.as_ref() {
         config.builtin_plugins.nowledge_mem.enabled = true;
