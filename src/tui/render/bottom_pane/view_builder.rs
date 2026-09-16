@@ -60,6 +60,7 @@ fn goal_label_text(status: GoalStatus) -> (&'static str, Color) {
     match status {
         GoalStatus::Pursuing => ("pursuing", STATUS_INFO),
         GoalStatus::Paused => ("paused", STATUS_WARNING),
+        GoalStatus::Blocked => ("blocked", STATUS_WARNING),
         GoalStatus::Complete => ("done", STATUS_SUCCESS),
         GoalStatus::BudgetLimited => ("budget", STATUS_WARNING),
     }

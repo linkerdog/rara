@@ -1862,21 +1862,18 @@ fn clearing_slash_closes_palette() {
 }
 
 #[test]
-fn ralph_goal_sets_condition_from_objective() {
+fn ralph_goal_starts_pursuing_objective() {
     let goal = crate::tui::state::RalphGoal::new("run tests".into(), None);
     assert_eq!(goal.objective, "run tests");
-    assert_eq!(goal.condition, Some("run tests".into()));
     assert_eq!(goal.status, crate::tui::state::GoalStatus::Pursuing);
     assert_eq!(goal.tokens_used, 0);
 }
 
 #[test]
-fn ralph_goal_condition_populated_after_construction() {
+fn ralph_goal_tracks_blocked_status() {
     let mut goal = crate::tui::state::RalphGoal::new("test".into(), Some(100));
-    assert!(goal.condition.is_some());
-    // condition can be updated independently
-    goal.condition = Some("different condition".into());
-    assert_eq!(goal.condition, Some("different condition".into()));
+    goal.status = crate::tui::state::GoalStatus::Blocked;
+    assert_eq!(goal.status, crate::tui::state::GoalStatus::Blocked);
 }
 
 #[test]

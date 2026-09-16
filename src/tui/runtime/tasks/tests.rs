@@ -39,10 +39,6 @@ use crate::workspace::WorkspaceMemory;
 
 struct PlainAnswerBackend;
 
-struct GoalEvaluatorBackend {
-    answer: String,
-}
-
 #[test]
 fn model_catalog_connection_uses_target_provider_credentials() {
     let mut config = RaraConfig {
@@ -147,19 +143,21 @@ fn optional_lifecycle_helper_publishes_turn_started_when_bus_exists() {
 }
 
 #[test]
-fn goal_continuation_prompt_contains_budget_and_completion_audit() {
-    let mut goal = RalphGoal::new("ship Codex 0.130 goal parity".to_string(), Some(10_000));
+fn goal_continuation_prompt_contains_budget_and_goal_status_rules() {
+    let mut goal = RalphGoal::new("ship Codex goal parity".to_string(), Some(10_000));
     goal.tokens_used = 2_500;
     goal.turns_completed = 2;
 
     let prompt = goal_continuation_prompt(&goal);
 
     assert!(prompt.contains("<untrusted_objective>"));
-    assert!(prompt.contains("ship Codex 0.130 goal parity"));
+    assert!(prompt.contains("ship Codex goal parity"));
     assert!(prompt.contains("Tokens used: 2500"));
     assert!(prompt.contains("Token budget: 10000"));
     assert!(prompt.contains("Tokens remaining: 7500"));
     assert!(prompt.contains("call update_goal with status \"complete\""));
+    assert!(prompt.contains("at least three consecutive goal turns"));
+    assert!(prompt.contains("status \"blocked\""));
 }
 
 #[test]
@@ -196,39 +194,6 @@ impl LlmBackend for PlainAnswerBackend {
         _instruction: &str,
     ) -> anyhow::Result<String> {
         Ok("summary".to_string())
-    }
-}
-
-#[async_trait::async_trait]
-impl LlmBackend for GoalEvaluatorBackend {
-    async fn ask(
-        &self,
-        _messages: &[crate::agent::Message],
-        _tools: &[serde_json::Value],
-    ) -> anyhow::Result<LlmResponse> {
-        Ok(LlmResponse {
-            content: vec![ContentBlock::Text {
-                text: "turn complete".to_string(),
-            }],
-            stop_reason: Some("end_turn".to_string()),
-            usage: Some(TokenUsage::default()),
-        })
-    }
-
-    async fn summarize(
-        &self,
-        _messages: &[crate::agent::Message],
-        _instruction: &str,
-    ) -> anyhow::Result<String> {
-        Ok("summary".to_string())
-    }
-
-    async fn classify(
-        &self,
-        _instructions: &str,
-        _messages: &[crate::agent::Message],
-    ) -> anyhow::Result<String> {
-        Ok(self.answer.clone())
     }
 }
 
@@ -444,61 +409,7 @@ fn install_runtime_services(app: &mut TuiApp) {
 }
 
 #[tokio::test]
-async fn goal_evaluator_yes_marks_goal_complete_without_continuation() {
-    let temp = tempdir().unwrap();
-    let mut app = TuiApp::new(ConfigManager {
-        path: temp.path().join("config.json"),
-    })
-    .expect("build tui app");
-    let goal = RalphGoal::new("finish the verification".to_string(), None);
-    app.goal = Some(goal.clone());
-    *app.goal_handle.write().unwrap() = Some(goal);
-
-    let mut agent = create_test_agent_with_backend(
-        &temp,
-        Arc::new(GoalEvaluatorBackend {
-            answer: "yes".to_string(),
-        }),
-    );
-    agent.total_input_tokens = 42;
-    agent.history.push(Message {
-        role: "assistant".to_string(),
-        content: json!("Verification finished."),
-    });
-    install_completed_query_task(&mut app, agent, Ok(()));
-
-    let mut agent_slot = None;
-    for _ in 0..20 {
-        finish_running_task_if_ready(&mut app, &mut agent_slot)
-            .await
-            .expect("finish task");
-        if app.bottom_pane.running_task.is_none() {
-            break;
-        }
-        tokio::time::sleep(Duration::from_millis(10)).await;
-    }
-
-    assert!(app.bottom_pane.running_task.is_none());
-    assert_eq!(
-        app.goal.as_ref().map(|goal| goal.status),
-        Some(GoalStatus::Complete)
-    );
-    assert_eq!(
-        app.goal_handle
-            .read()
-            .unwrap()
-            .as_ref()
-            .map(|goal| goal.status),
-        Some(GoalStatus::Complete)
-    );
-    assert_eq!(
-        app.bottom_pane.notice.as_deref(),
-        Some("Goal evaluator marked the goal complete.")
-    );
-}
-
-#[tokio::test]
-async fn goal_evaluator_no_injects_reason_and_continues() {
+async fn pursuing_goal_continues_without_a_hidden_completion_classifier() {
     let temp = tempdir().unwrap();
     let mut app = TuiApp::new(ConfigManager {
         path: temp.path().join("config.json"),
@@ -509,12 +420,7 @@ async fn goal_evaluator_no_injects_reason_and_continues() {
     app.goal = Some(goal.clone());
     *app.goal_handle.write().unwrap() = Some(goal);
 
-    let mut agent = create_test_agent_with_backend(
-        &temp,
-        Arc::new(GoalEvaluatorBackend {
-            answer: "no: the focused test has not run yet".to_string(),
-        }),
-    );
+    let mut agent = create_test_agent_with_backend(&temp, Arc::new(PlainAnswerBackend));
     agent.total_input_tokens = 10;
     install_completed_query_task(&mut app, agent, Ok(()));
 
@@ -523,17 +429,7 @@ async fn goal_evaluator_no_injects_reason_and_continues() {
         finish_running_task_if_ready(&mut app, &mut agent_slot)
             .await
             .expect("finish task");
-        let reason_committed = app
-            .committed_turns
-            .iter()
-            .flat_map(|turn| turn.entries.iter())
-            .any(|entry| {
-                entry.role == "System"
-                    && entry
-                        .message
-                        .contains("no: the focused test has not run yet")
-            });
-        if reason_committed && app.bottom_pane.running_task.is_some() {
+        if app.bottom_pane.running_task.is_some() {
             break;
         }
         tokio::time::sleep(Duration::from_millis(10)).await;
@@ -544,16 +440,19 @@ async fn goal_evaluator_no_injects_reason_and_continues() {
         app.goal.as_ref().map(|goal| goal.status),
         Some(GoalStatus::Pursuing)
     );
+    assert_eq!(
+        app.goal_handle
+            .read()
+            .unwrap()
+            .as_ref()
+            .map(|goal| goal.status),
+        Some(GoalStatus::Pursuing)
+    );
     assert!(
         app.committed_turns
             .iter()
             .flat_map(|turn| turn.entries.iter())
-            .any(|entry| {
-                entry.role == "System"
-                    && entry
-                        .message
-                        .contains("no: the focused test has not run yet")
-            })
+            .all(|entry| !(entry.role == "System" && entry.message.starts_with("no:")))
     );
 
     if let Some(task) = app.bottom_pane.running_task.take() {
