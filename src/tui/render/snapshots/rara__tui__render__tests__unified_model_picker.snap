@@ -1,5 +1,6 @@
 ---
 source: src/tui/render/tests.rs
+assertion_line: 1463
 expression: rendered
 ---
 ── RARA ──────────────────────────────────────────────────
@@ -10,15 +11,15 @@ Read  All Models
 ──    Select a model across all providers.
 Type
       › Codex/gpt-4o
-Star    DeepSeek/deepseek-chat
-  /h    DeepSeek/deepseek-reasoner
-  /m    DeepSeek/deepseek-v4-flash
-  /s    DeepSeek/deepseek-v4-preview
-  /q    DeepSeek/deepseek-v4-pro
-        Kimi For Coding/kimi-for-coding
-Prom    Moonshot AI/kimi-k2-0905-preview
-  Re    Moonshot AI/kimi-k2-thinking
-› As    Moonshot AI/kimi-k2-thinking-turbo                                  s.
-        Moonshot AI/kimi-k2-turbo-preview
+Star    DeepSeek/deepseek-flash
+  /h    DeepSeek/deepseek-v4-pro
+  /m    Kimi For Coding/kimi-for-coding
+  /s    Moonshot AI/kimi-k2-0905-preview
+  /q    Moonshot AI/kimi-k2-thinking
+        Moonshot AI/kimi-k2-thinking-turbo
+Prom    Moonshot AI/kimi-k2-turbo-preview
+  Re    Moonshot AI/kimi-k2.5
+› As    Moonshot AI/kimi-k2.6                                               s.
+        Moonshot AI/kimi-k3
                      Up/Down/jk move  Enter apply  Esc back
                                                                             tion

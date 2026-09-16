@@ -81,6 +81,10 @@ card is the canonical local approval surface:
 - numeric shortcuts `1` through `4` remain valid direct-selection shortcuts;
 - the TUI must not open a second picker or modal for the same pending shell
   approval.
+- the dock uses the standard bottom-pane surface rather than a full-width alert
+  background; its heading and selected action use the semantic warning color,
+  matching the lightweight section headers and selection treatment elsewhere
+  in the TUI.
 
 ## Contracts
 

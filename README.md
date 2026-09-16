@@ -40,7 +40,7 @@ For `RARA_API_KEY`, set the environment variable or pass `--api-key`.
 
 ```bash
 # Start a TUI session with a specific provider
-rara --provider deepseek --model deepseek-chat tui
+rara --provider deepseek --model deepseek-flash tui
 
 # Ask a one-shot question
 rara ask "summarize this repo"

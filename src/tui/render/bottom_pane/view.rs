@@ -18,6 +18,7 @@ pub(crate) struct BottomPaneView {
 
 pub(crate) struct InteractionPanelView {
     pub(crate) title: &'static str,
+    pub(crate) color: Color,
     pub(crate) detail: String,
     pub(crate) actions: Vec<InteractionAction>,
     pub(crate) selected: usize,

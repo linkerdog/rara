@@ -177,11 +177,52 @@ fn shell_approval_panel_keeps_actions_visible() {
 
     let rendered = render_screen_text(&mut app, 80, 14);
 
-    assert!(rendered.contains("Permission Required"));
+    assert!(rendered.contains("# Permission Required"));
     assert!(rendered.contains("[1] Allow once"));
     assert!(rendered.contains("[2] Allow prefix"));
     assert!(rendered.contains("[3] Allow always"));
     assert!(rendered.contains("[4] Deny"));
+}
+
+#[test]
+fn shell_approval_panel_uses_the_standard_bottom_pane_surface() {
+    let temp = tempdir().expect("tempdir");
+    let mut app = TuiApp::new(ConfigManager {
+        path: temp.path().join("config.json"),
+    })
+    .expect("build tui app");
+    app.snapshot
+        .pending_interactions
+        .push(PendingInteractionSnapshot {
+            kind: InteractionKind::Approval,
+            title: "Shell Approval".into(),
+            summary: "cargo check".into(),
+            options: Vec::new(),
+            note: None,
+            approval: Some(PendingApprovalSnapshot {
+                tool_use_id: "toolu_123".into(),
+                command: "cargo check".into(),
+                allow_net: false,
+                payload: BashCommandInput::default(),
+            }),
+            source: None,
+            created_at_epoch_seconds: None,
+        });
+
+    let width = 80;
+    let height = 14;
+    let buffer = render_screen_buffer(&mut app, width, height);
+    let bottom_start = height.saturating_sub(desired_bottom_pane_height(&app, width, height));
+
+    for y in bottom_start..height {
+        for x in 0..width {
+            assert_eq!(
+                buffer[(x, y)].bg,
+                Color::Reset,
+                "approval dock must not replace the standard bottom-pane surface at ({x}, {y})"
+            );
+        }
+    }
 }
 
 #[test]
