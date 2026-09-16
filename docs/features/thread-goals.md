@@ -56,7 +56,8 @@ The lifecycle is:
 The TUI owns local lifecycle controls:
 
 - `/goal <objective>` creates a goal when none exists or replaces a completed
-  goal; it rejects every unfinished goal.
+  goal; it rejects every unfinished goal and immediately starts its first
+  continuation when the session is idle and the runtime agent is ready.
 - `/goal --tokens <N> <objective>` creates a budgeted goal.
 - `/goal pause`, `/goal resume`, and `/goal clear` mutate local lifecycle state.
   Resume accepts paused and blocked goals; resuming a blocked goal restarts its
@@ -115,6 +116,11 @@ call `update_goal` itself. The prompt also includes:
 - tokens remaining;
 - completion and blocked-state audit instructions before calling `update_goal`.
 
+When the model marks a goal blocked, it must finish that same turn with the
+blocking condition, attempted work, required user input or external change,
+and the safe condition for `/goal resume`. The blocked state then stops further
+automatic continuation.
+
 Continuation prompts are runtime control messages, not user-authored
 transcript entries. The TUI shows goal progress through the compact status
 surface rather than exposing the internal continuation prompt as a new `You`
@@ -147,9 +153,11 @@ Detailed goal state belongs in `/goal`, not the bottom pane.
 - `update_goal` rejects every status other than `complete` and `blocked`.
 - `/goal --tokens 98.5K <objective>` parses human-readable budgets.
 - `/goal` refuses to replace an unfinished goal, replaces a completed one, and
-  resumes blocked goals as a fresh audit with a new continuation turn.
+  starts a newly created or resumed blocked goal with a continuation turn.
 - A resumed goal does not add its internal continuation prompt to the user
   transcript.
+- A blocked goal produces its final user-facing blocker report in the same turn
+  and does not continue automatically afterward.
 - Continuation prompts include untrusted objective boundaries and budget fields.
 - A pursuing goal continues without an out-of-band completion classifier or a
   classifier-injected system reason.

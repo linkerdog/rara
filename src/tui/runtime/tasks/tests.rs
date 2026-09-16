@@ -158,6 +158,7 @@ fn goal_continuation_prompt_contains_budget_and_goal_status_rules() {
     assert!(prompt.contains("call update_goal with status \"complete\""));
     assert!(prompt.contains("at least three consecutive goal turns"));
     assert!(prompt.contains("status \"blocked\""));
+    assert!(prompt.contains("After marking a goal blocked"));
 }
 
 #[test]

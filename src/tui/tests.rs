@@ -575,7 +575,7 @@ async fn empty_submit_keeps_shell_approval_on_card_surface() {
         app.bottom_pane
             .notice
             .as_deref()
-            .is_some_and(|value| value.contains("Up/Down and Enter"))
+            .is_some_and(|value| value.contains("Left/Right and Enter"))
     );
 }
 

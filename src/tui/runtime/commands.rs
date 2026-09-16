@@ -300,6 +300,14 @@ pub(super) async fn execute_local_command_with_runtime(
                             if let Some(b) = budget {
                                 notice.push_str(&format!(" [budget: {b} tokens]"));
                             }
+                            if !app.is_busy()
+                                && app.active_pending_interaction().is_none()
+                                && agent_slot.is_some()
+                            {
+                                start_active_goal_continuation(app, agent_slot, runtime_port)
+                                    .await?;
+                                notice.push_str(". Continuing active goal.");
+                            }
                             app.push_notice(notice);
                         }
                         Err(message) => app.push_notice(message),
@@ -360,27 +368,41 @@ async fn resume_goal_continuation(
         }
     };
     goal.status = GoalStatus::Pursuing;
-    let prompt = crate::runtime_client::goal_continuation_prompt(goal);
     *app.goal_handle.write().unwrap() = app.goal.clone();
 
-    if let Some(runtime_port) = runtime_port {
-        if let Err(error) = runtime_port
-            .send(RuntimeCommand::ContinueGoal { prompt })
-            .await
-        {
-            if let Some(goal) = app.goal.as_mut() {
-                goal.status = previous_status;
-            }
-            *app.goal_handle.write().unwrap() = app.goal.clone();
-            return Err(error);
+    if let Err(error) = start_active_goal_continuation(app, agent_slot, runtime_port).await {
+        if let Some(goal) = app.goal.as_mut() {
+            goal.status = previous_status;
         }
+        *app.goal_handle.write().unwrap() = app.goal.clone();
+        return Err(error);
+    }
+    app.push_notice(notice);
+    Ok(())
+}
+
+async fn start_active_goal_continuation(
+    app: &mut TuiApp,
+    agent_slot: &mut Option<Agent>,
+    runtime_port: Option<&dyn RuntimeClientPort>,
+) -> anyhow::Result<()> {
+    let prompt = app
+        .goal
+        .as_ref()
+        .filter(|goal| goal.status == GoalStatus::Pursuing)
+        .map(crate::runtime_client::goal_continuation_prompt)
+        .expect("goal continuation requires an active goal");
+
+    if let Some(runtime_port) = runtime_port {
+        runtime_port
+            .send(RuntimeCommand::ContinueGoal { prompt })
+            .await?;
     } else {
         let agent = agent_slot
             .take()
-            .expect("goal resume checked that the runtime agent is ready");
+            .expect("goal continuation requires a ready runtime agent");
         start_goal_continuation_task(app, prompt, agent);
     }
-    app.push_notice(notice);
     Ok(())
 }
 

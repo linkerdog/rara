@@ -448,6 +448,53 @@ async fn goal_command_resumes_blocked_goal() {
 }
 
 #[tokio::test]
+async fn goal_command_starts_an_active_goal_continuation_when_idle() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let mut app = TuiApp::new(ConfigManager {
+        path: dir.path().join("config.json"),
+    })
+    .expect("app");
+    attach_task_services(&mut app);
+    let oauth_manager = Arc::new(
+        OAuthManager::new_for_config_dir(dir.path().join("oauth")).expect("oauth manager"),
+    );
+    let mut agent_slot = Some(test_agent_with_shared_task_tool(&dir));
+
+    execute_local_command(
+        LocalCommand {
+            kind: LocalCommandKind::Goal,
+            arg: Some("finish the migration".to_string()),
+        },
+        &mut app,
+        &mut agent_slot,
+        &oauth_manager,
+    )
+    .await
+    .expect("goal command should be handled");
+
+    assert_eq!(
+        app.goal.as_ref().map(|goal| goal.status),
+        Some(crate::tui::state::GoalStatus::Pursuing)
+    );
+    assert!(app.bottom_pane.running_task.is_some());
+    assert!(
+        app.bottom_pane
+            .notice
+            .as_deref()
+            .is_some_and(|notice| notice.contains("Continuing active goal."))
+    );
+    assert!(
+        app.active_turn
+            .entries
+            .iter()
+            .all(|entry| entry.role != "You")
+    );
+    if let Some(task) = app.bottom_pane.running_task.take() {
+        task.handle.abort();
+    }
+}
+
+#[tokio::test]
 async fn goal_command_keeps_paused_goal_while_another_task_is_running() {
     let dir = tempfile::tempdir().expect("tempdir");
     let mut app = TuiApp::new(ConfigManager {

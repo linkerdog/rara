@@ -11,6 +11,9 @@ runtime boundary.
 - `/goal resume` now changes a paused or blocked goal to pursuing only when the
   session is idle and its runtime agent is available, then immediately starts a
   dedicated goal-continuation turn.
+- Creating a goal from `/goal <objective>` follows the same idle-continuation
+  path, so a local goal starts work without waiting for an unrelated prompt to
+  finish first.
 - Goal-continuation prompts no longer render as synthetic user (`You`)
   transcript entries. The TUI reports the continuation through its normal goal
   activity state instead.
@@ -22,6 +25,8 @@ runtime boundary.
   numeric shortcuts remain compatible, and `Esc` rejects the command.
 - Reworded approval actions to expose their scopes: once, matching prefix,
   current session, and reject.
+- Required a model that marks a goal blocked to finish its current turn with a
+  concise user-facing blocker report and the condition for safe resumption.
 - Removed two implicit privilege escalations: choosing `Full Access` no longer
   approves a command that is already pending, and choosing the session shell
   grant no longer enables global full-access or network access.
@@ -32,15 +37,16 @@ runtime boundary.
 
 ## Why
 
-The old goal command announced that work would continue after changing state,
-but it did not submit a new turn. The old permission surface also displayed a
-horizontal choice row while requiring vertical navigation, and its broad
-approval labels hid global capability changes. Codex resumes active goals
-through its idle continuation path and presents explicit per-request decisions;
-OpenCode keeps permission choices in a single session interaction with
-left/right selection and explicit confirmation. RARA now preserves those
-interaction properties without copying either implementation's unrelated
-runtime architecture.
+The old local goal command only recorded the objective, so its automatic loop
+could not begin until an unrelated query finished. The old permission surface
+also displayed a horizontal choice row while requiring vertical navigation, and
+its broad approval labels hid global capability changes. Codex resumes active
+goals through an idle continuation path and avoids starting when the thread is
+not idle; Claude Code applies the same explicit continuation-or-stop pattern
+to token-budget loops. OpenCode keeps permission choices in a single session
+interaction with left/right selection and explicit confirmation. RARA now
+preserves those interaction properties without copying unrelated runtime
+architecture.
 
 ## Trade-Offs
 
