@@ -7,13 +7,14 @@ mod view_builder;
 
 use ratatui::{
     layout::{Constraint, Direction, Layout, Rect},
-    style::{Color, Style},
-    widgets::Block,
+    style::{Color, Modifier, Style},
+    text::{Line, Span},
+    widgets::{Block, Paragraph, Wrap},
 };
 
 use super::super::custom_terminal::Frame;
 use super::super::state::TuiApp;
-use crate::tui::theme::{STATUS_SUCCESS, STATUS_WARNING, SURFACE_BOTTOM_PANE_BG, TEXT_ACCENT};
+use crate::tui::theme::{SURFACE_BOTTOM_PANE_BG, TEXT_PRIMARY, TEXT_SECONDARY};
 
 const BOTTOM_PANE_BG: Color = SURFACE_BOTTOM_PANE_BG;
 
@@ -57,17 +58,7 @@ pub(super) fn render_bottom_pane(
 ) -> Option<(u16, u16)> {
     let view = view_builder::build_bottom_pane_view(app, area.width, area.height);
 
-    let style = if let Some(pending) = app.active_pending_interaction() {
-        let color = match pending.kind {
-            super::super::state::ActivePendingInteractionKind::ShellApproval => STATUS_WARNING,
-            super::super::state::ActivePendingInteractionKind::PlanApproval => TEXT_ACCENT,
-            _ => STATUS_SUCCESS,
-        };
-        Style::default().bg(color).fg(Color::Black)
-    } else {
-        bottom_pane_style()
-    };
-    f.render_widget(Block::default().style(style), area);
+    f.render_widget(Block::default().style(bottom_pane_style()), area);
 
     let has_panel = view.interaction_panel.is_some();
     let composer_height = area
@@ -104,45 +95,98 @@ pub(super) fn render_bottom_pane(
 }
 
 fn render_interaction_panel(f: &mut Frame, panel: &view::InteractionPanelView, area: Rect) {
-    use ratatui::text::Line;
-    use ratatui::widgets::{Paragraph, Wrap};
-
     let mut lines: Vec<Line<'static>> = Vec::new();
-    lines.push(Line::from(format!("  ⚠  {}", panel.title)));
+    lines.push(Line::from(vec![
+        Span::raw("  "),
+        Span::styled(
+            format!("# {}", panel.title),
+            Style::default().fg(panel.color),
+        ),
+    ]));
     lines.push(Line::from(""));
     if panel.detail.is_empty() {
         for (i, action) in panel.actions.iter().enumerate() {
-            let prefix = if i == panel.selected { "▸" } else { " " };
-            lines.push(Line::from(format!(
-                "  {prefix}{} {}",
-                action.key, action.label
-            )));
+            lines.push(interaction_action_row(panel, i, action));
         }
     } else {
-        let action_line = interaction_action_line(panel);
         let detail_rows = usize::from(area.height).saturating_sub(3);
         for line in panel.detail.lines().take(detail_rows) {
-            lines.push(Line::from(format!("  {}", line)));
+            lines.push(Line::from(vec![
+                Span::raw("  "),
+                Span::styled(line.to_string(), Style::default().fg(TEXT_SECONDARY)),
+            ]));
         }
-        lines.push(Line::from(format!("  {}", action_line)));
+        lines.push(interaction_action_line(panel));
     }
 
-    let block = Block::default();
     let para = Paragraph::new(lines)
-        .block(block)
+        .style(bottom_pane_style())
         .wrap(Wrap { trim: false });
     f.render_widget(para, area);
 }
 
-fn interaction_action_line(panel: &view::InteractionPanelView) -> String {
-    panel
-        .actions
-        .iter()
-        .enumerate()
-        .map(|(i, action)| {
-            let prefix = if i == panel.selected { "▸" } else { " " };
-            format!("{}[{}] {}", prefix, action.key, action.label)
-        })
-        .collect::<Vec<_>>()
-        .join("    ")
+fn interaction_action_row(
+    panel: &view::InteractionPanelView,
+    index: usize,
+    action: &view::InteractionAction,
+) -> Line<'static> {
+    let selected = index == panel.selected;
+    let marker = if selected { "▸ " } else { "  " };
+    let label_style = if selected {
+        Style::default()
+            .fg(TEXT_PRIMARY)
+            .add_modifier(Modifier::BOLD)
+    } else {
+        Style::default().fg(TEXT_SECONDARY)
+    };
+    Line::from(vec![
+        Span::raw("  "),
+        Span::styled(
+            marker,
+            Style::default()
+                .fg(panel.color)
+                .add_modifier(Modifier::BOLD),
+        ),
+        Span::styled(
+            format!("[{}]", action.key),
+            Style::default()
+                .fg(panel.color)
+                .add_modifier(Modifier::BOLD),
+        ),
+        Span::raw(" "),
+        Span::styled(action.label, label_style),
+    ])
+}
+
+fn interaction_action_line(panel: &view::InteractionPanelView) -> Line<'static> {
+    let mut spans = vec![Span::raw("  ")];
+    for (index, action) in panel.actions.iter().enumerate() {
+        if index > 0 {
+            spans.push(Span::raw("    "));
+        }
+        let selected = index == panel.selected;
+        let marker = if selected { "▸" } else { " " };
+        let label_style = if selected {
+            Style::default()
+                .fg(TEXT_PRIMARY)
+                .add_modifier(Modifier::BOLD)
+        } else {
+            Style::default().fg(TEXT_SECONDARY)
+        };
+        spans.push(Span::styled(
+            marker,
+            Style::default()
+                .fg(panel.color)
+                .add_modifier(Modifier::BOLD),
+        ));
+        spans.push(Span::styled(
+            format!("[{}]", action.key),
+            Style::default()
+                .fg(panel.color)
+                .add_modifier(Modifier::BOLD),
+        ));
+        spans.push(Span::raw(" "));
+        spans.push(Span::styled(action.label, label_style));
+    }
+    Line::from(spans)
 }

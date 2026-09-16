@@ -11,22 +11,20 @@ use crate::{ModelCatalogEntry, ModelCatalogRequest};
 const MODELS_TIMEOUT_SECS: u64 = 15;
 
 /// Model name → context window tokens (for budget calculation).
-/// Also serves as the fallback model list when the API is unavailable.
+///
+/// This includes accepted compatibility aliases which must retain their correct
+/// context budget, even though the picker only advertises current model IDs.
 pub const MODEL_WINDOWS: &[(&str, u32)] = &[
-    ("deepseek-chat", 65_536),
-    ("deepseek-reasoner", 65_536),
-    ("deepseek-v4-flash", 1_048_576),
+    ("deepseek-flash", 1_048_576),
     ("deepseek-v4-pro", 1_048_576),
-    ("deepseek-v4-preview", 1_048_576),
+    ("deepseek-v4-flash", 1_048_576),
+    ("deepseek-v4-flash-vision-exp", 1_048_576),
 ];
 
-pub const FALLBACK_MODELS: [&str; 5] = [
-    "deepseek-chat",
-    "deepseek-reasoner",
-    "deepseek-v4-flash",
-    "deepseek-v4-pro",
-    "deepseek-v4-preview",
-];
+/// Current model IDs documented by DeepSeek and shown when API discovery is
+/// unavailable. Compatibility aliases remain usable through manual or saved
+/// configuration but are deliberately not advertised here.
+pub const FALLBACK_MODELS: [&str; 2] = ["deepseek-flash", "deepseek-v4-pro"];
 #[derive(Deserialize)]
 struct ModelsResponse {
     data: Vec<ModelEntry>,
@@ -47,11 +45,14 @@ pub fn fallback_models() -> Vec<String> {
 }
 
 pub fn fallback_catalog() -> Vec<ModelCatalogEntry> {
-    MODEL_WINDOWS
+    FALLBACK_MODELS
         .iter()
-        .map(|(id, context_window)| ModelCatalogEntry {
+        .map(|id| ModelCatalogEntry {
             id: (*id).to_string(),
-            context_window: Some(*context_window),
+            context_window: MODEL_WINDOWS
+                .iter()
+                .find(|(known_id, _)| known_id == id)
+                .map(|(_, window)| *window),
         })
         .collect()
 }
@@ -135,14 +136,14 @@ mod tests {
     }
 
     #[test]
-    fn parses_deepseek_models_in_provider_order() {
+    fn parses_current_deepseek_models_with_known_context_windows() {
         let models = parse_models(
             r#"{
                 "object": "list",
                 "data": [
-                    {"id": "deepseek-reasoner", "object": "model", "context_length": 65536},
-                    {"id": "deepseek-chat", "object": "model"},
-                    {"id": "deepseek-reasoner", "object": "model"},
+                    {"id": "deepseek-flash", "object": "model"},
+                    {"id": "deepseek-v4-pro", "object": "model"},
+                    {"id": "deepseek-flash", "object": "model"},
                     {"id": " ", "object": "model"}
                 ]
             }"#,
@@ -153,12 +154,33 @@ mod tests {
             models,
             vec![
                 super::ModelCatalogEntry {
-                    id: "deepseek-reasoner".to_string(),
-                    context_window: Some(65_536),
+                    id: "deepseek-flash".to_string(),
+                    context_window: Some(1_048_576),
                 },
                 super::ModelCatalogEntry {
-                    id: "deepseek-chat".to_string(),
-                    context_window: Some(65_536),
+                    id: "deepseek-v4-pro".to_string(),
+                    context_window: Some(1_048_576),
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn fallback_catalog_lists_only_current_deepseek_model_ids() {
+        assert_eq!(
+            super::fallback_models(),
+            vec!["deepseek-flash".to_string(), "deepseek-v4-pro".to_string()]
+        );
+        assert_eq!(
+            super::fallback_catalog(),
+            vec![
+                super::ModelCatalogEntry {
+                    id: "deepseek-flash".to_string(),
+                    context_window: Some(1_048_576),
+                },
+                super::ModelCatalogEntry {
+                    id: "deepseek-v4-pro".to_string(),
+                    context_window: Some(1_048_576),
                 },
             ]
         );

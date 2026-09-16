@@ -627,7 +627,7 @@ fn deepseek_family_selects_deepseek_profile_and_model() {
         app.config.base_url.as_deref(),
         Some("https://api.deepseek.com/v1")
     );
-    assert_eq!(app.config.model.as_deref(), Some("deepseek-chat"));
+    assert_eq!(app.config.model.as_deref(), Some("deepseek-flash"));
 }
 
 #[test]
@@ -739,7 +739,7 @@ fn model_routing_view_infers_deepseek_auxiliary_model() {
     let routing = app.model_routing_view();
 
     assert_eq!(routing.main_model, "deepseek-v4-pro");
-    assert_eq!(routing.auxiliary_model, "deepseek-v4-flash");
+    assert_eq!(routing.auxiliary_model, "deepseek-flash");
     assert_eq!(routing.auxiliary_route, "provider_lite");
     assert_eq!(routing.auxiliary_source, "inferred");
     assert!(!routing.auxiliary_uses_main_model);

@@ -3708,6 +3708,7 @@ fn codex_chatgpt_auth_store_sets_chatgpt_base_url_before_model_flow() {
             agent_identity: None,
             personal_access_token: None,
             bedrock_api_key: None,
+            bedrock_access_keys: None,
         },
         codex_login::AuthCredentialsStoreMode::File,
         codex_login::AuthKeyringBackendKind::default(),
@@ -3813,8 +3814,8 @@ async fn deepseek_model_picker_shows_dynamic_models_after_list_load() {
     );
 
     app.set_deepseek_model_options(vec![
-        "deepseek-chat".to_string(),
-        "deepseek-reasoner".to_string(),
+        "deepseek-flash".to_string(),
+        "deepseek-v4-pro".to_string(),
     ]);
     let loaded_count = ListPickerKind::Model.item_count(&app);
     assert_eq!(

@@ -257,6 +257,7 @@ fn build_interaction_panel(app: &TuiApp) -> Option<InteractionPanelView> {
     match pending.kind {
         ActivePendingInteractionKind::ShellApproval => Some(InteractionPanelView {
             title: "Permission Required",
+            color: STATUS_WARNING,
             detail: compact_shell_approval_detail(app),
             actions: vec![
                 InteractionAction {
@@ -280,6 +281,7 @@ fn build_interaction_panel(app: &TuiApp) -> Option<InteractionPanelView> {
         }),
         ActivePendingInteractionKind::PlanApproval => Some(InteractionPanelView {
             title: "Plan Approval",
+            color: TEXT_ACCENT,
             detail: String::new(),
             actions: vec![
                 InteractionAction {
@@ -299,6 +301,7 @@ fn build_interaction_panel(app: &TuiApp) -> Option<InteractionPanelView> {
         }),
         ActivePendingInteractionKind::PlanningQuestion => Some(InteractionPanelView {
             title: "Planning Question",
+            color: TEXT_ACCENT,
             detail: app
                 .pending_request_input()
                 .map(|interaction| interaction.title.clone())

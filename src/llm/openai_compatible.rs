@@ -816,9 +816,8 @@ fn infer_deepseek_lite_model(model: &str) -> Option<Cow<'_, str>> {
     if !lower.contains("deepseek") || lower.contains("flash") {
         return None;
     }
-    if lower.contains("v4") && lower.ends_with("-pro") {
-        let prefix = &trimmed[..trimmed.len().saturating_sub("-pro".len())];
-        return Some(Cow::Owned(format!("{prefix}-flash")));
+    if lower == "deepseek-v4-pro" {
+        return Some(Cow::Borrowed("deepseek-flash"));
     }
     None
 }

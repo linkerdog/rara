@@ -756,12 +756,12 @@ fn deepseek_v4_pro_infers_flash_auxiliary_model() {
     assert_eq!(
         infer_openai_compatible_auxiliary_model("deepseek-v4-pro", OpenAiEndpointKind::Deepseek)
             .as_deref(),
-        Some("deepseek-v4-flash")
+        Some("deepseek-flash")
     );
     assert_eq!(
         infer_openai_compatible_auxiliary_model("DeepSeek-V4-PRO", OpenAiEndpointKind::Deepseek)
             .as_deref(),
-        Some("DeepSeek-V4-flash")
+        Some("deepseek-flash")
     );
     assert_eq!(
         infer_openai_compatible_auxiliary_model("deepseek-v4-flash", OpenAiEndpointKind::Deepseek),
@@ -2419,11 +2419,17 @@ fn derives_context_budget_for_codex_like_models() {
 }
 
 #[test]
-fn derives_context_budget_for_deepseek_v4_models() {
-    let budget = model_context_budget("deepseek-v4-preview").expect("budget");
+fn derives_context_budget_for_deepseek_v41_flash_and_compatibility_aliases() {
+    let budget = model_context_budget("deepseek-flash").expect("budget");
     assert_eq!(budget.context_window_tokens, 1_048_576);
     assert_eq!(budget.reserved_output_tokens, 32_768);
     assert!(budget.compact_threshold_tokens > 900_000);
+    assert_eq!(
+        model_context_budget("deepseek-v4-flash")
+            .expect("compatibility budget")
+            .context_window_tokens,
+        1_048_576
+    );
 }
 
 #[test]
