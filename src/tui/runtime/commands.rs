@@ -5,7 +5,9 @@ use super::super::state::{
     GoalStatus, HelpTab, ListPickerKind, LocalCommand, LocalCommandKind, Overlay, PermissionMode,
     RalphGoal, RuntimePhase, StatusTab, SystemMessageKind, TuiApp,
 };
-use super::tasks::{start_compact_task, start_rebuild_task, start_review_task};
+use super::tasks::{
+    start_compact_task, start_goal_continuation_task, start_rebuild_task, start_review_task,
+};
 use crate::agent::{Agent, AgentEvent, AgentExecutionMode, BashApprovalMode};
 use crate::config::{McpRegistry, SourcedMcpServerConfig};
 use crate::mcp_status::{McpStatusSnapshot, format_mcp_status};
@@ -57,16 +59,17 @@ pub(super) async fn execute_local_command_with_runtime(
                 app.push_notice("A task is already running. Wait for it to finish.");
                 return Ok(false);
             }
+            if app.permission_mode == PermissionMode::FullAccess {
+                app.push_notice(
+                    "Full Access already allows bash. Use /permissions to change the profile.",
+                );
+                return Ok(false);
+            }
             let next_mode = match app.bash_approval_mode {
                 BashApprovalMode::Suggestion => BashApprovalMode::Always,
                 BashApprovalMode::Once => BashApprovalMode::Suggestion,
                 BashApprovalMode::Always => BashApprovalMode::Suggestion,
             };
-            if next_mode == BashApprovalMode::Always {
-                apply_permission_mode(app, agent_slot, PermissionMode::FullAccess);
-                app.push_notice("Permission mode: full-access.");
-                return Ok(false);
-            }
             app.bash_approval_mode = next_mode;
             app.permission_mode = PermissionMode::Custom;
             if let Some(agent) = agent_slot.as_mut() {
@@ -249,27 +252,7 @@ pub(super) async fn execute_local_command_with_runtime(
                     }
                 }
                 "resume" => {
-                    if let Some(goal) = app.goal.as_mut() {
-                        match goal.status {
-                            GoalStatus::Paused => {
-                                goal.status = GoalStatus::Pursuing;
-                                *app.goal_handle.write().unwrap() = app.goal.clone();
-                                app.push_notice("Goal resumed. The agent will continue working.");
-                            }
-                            GoalStatus::Blocked => {
-                                goal.status = GoalStatus::Pursuing;
-                                *app.goal_handle.write().unwrap() = app.goal.clone();
-                                app.push_notice(
-                                    "Goal resumed. The blocked-goal audit has restarted.",
-                                );
-                            }
-                            _ => {
-                                app.push_notice("Goal is not paused or blocked; nothing to resume.")
-                            }
-                        }
-                    } else {
-                        app.push_notice("No active goal to resume.");
-                    }
+                    resume_goal_continuation(app, agent_slot, runtime_port).await?;
                 }
                 "clear" => {
                     if app.goal.is_some() {
@@ -317,6 +300,14 @@ pub(super) async fn execute_local_command_with_runtime(
                             if let Some(b) = budget {
                                 notice.push_str(&format!(" [budget: {b} tokens]"));
                             }
+                            if !app.is_busy()
+                                && app.active_pending_interaction().is_none()
+                                && agent_slot.is_some()
+                            {
+                                start_active_goal_continuation(app, agent_slot, runtime_port)
+                                    .await?;
+                                notice.push_str(". Continuing active goal.");
+                            }
                             app.push_notice(notice);
                         }
                         Err(message) => app.push_notice(message),
@@ -341,6 +332,78 @@ pub(super) async fn execute_local_command_with_runtime(
         );
     }
     Ok(false)
+}
+
+async fn resume_goal_continuation(
+    app: &mut TuiApp,
+    agent_slot: &mut Option<Agent>,
+    runtime_port: Option<&dyn RuntimeClientPort>,
+) -> anyhow::Result<()> {
+    if app.is_busy() {
+        app.push_notice("A task is already running. Wait for it to finish before resuming a goal.");
+        return Ok(());
+    }
+    if app.active_pending_interaction().is_some() {
+        app.push_notice("Resolve the pending interaction before resuming a goal.");
+        return Ok(());
+    }
+    if agent_slot.is_none() {
+        app.push_notice("Goal resume is unavailable until the runtime agent is ready.");
+        return Ok(());
+    }
+
+    let Some(goal) = app.goal.as_mut() else {
+        app.push_notice("No active goal to resume.");
+        return Ok(());
+    };
+    let (previous_status, notice) = match goal.status {
+        GoalStatus::Paused => (GoalStatus::Paused, "Goal resumed. Continuing active goal."),
+        GoalStatus::Blocked => (
+            GoalStatus::Blocked,
+            "Goal resumed. The blocked-goal audit has restarted.",
+        ),
+        _ => {
+            app.push_notice("Goal is not paused or blocked; nothing to resume.");
+            return Ok(());
+        }
+    };
+    goal.status = GoalStatus::Pursuing;
+    *app.goal_handle.write().unwrap() = app.goal.clone();
+
+    if let Err(error) = start_active_goal_continuation(app, agent_slot, runtime_port).await {
+        if let Some(goal) = app.goal.as_mut() {
+            goal.status = previous_status;
+        }
+        *app.goal_handle.write().unwrap() = app.goal.clone();
+        return Err(error);
+    }
+    app.push_notice(notice);
+    Ok(())
+}
+
+async fn start_active_goal_continuation(
+    app: &mut TuiApp,
+    agent_slot: &mut Option<Agent>,
+    runtime_port: Option<&dyn RuntimeClientPort>,
+) -> anyhow::Result<()> {
+    let prompt = app
+        .goal
+        .as_ref()
+        .filter(|goal| goal.status == GoalStatus::Pursuing)
+        .map(crate::runtime_client::goal_continuation_prompt)
+        .expect("goal continuation requires an active goal");
+
+    if let Some(runtime_port) = runtime_port {
+        runtime_port
+            .send(RuntimeCommand::ContinueGoal { prompt })
+            .await?;
+    } else {
+        let agent = agent_slot
+            .take()
+            .expect("goal continuation requires a ready runtime agent");
+        start_goal_continuation_task(app, prompt, agent);
+    }
+    Ok(())
 }
 
 async fn request_maintenance(

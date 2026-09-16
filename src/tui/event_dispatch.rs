@@ -24,11 +24,11 @@ use super::terminal_ui::is_ssh_session;
 use crate::agent::Agent;
 use crate::config::DEFAULT_CODEX_BASE_URL;
 use crate::oauth::{OAuthManager, SavedCodexAuthMode};
-use crate::runtime_control::{SessionControlRequest, ShellApprovalDecision};
+use crate::runtime_control::SessionControlRequest;
 
 mod maintenance;
 
-use maintenance::{request_maintenance, resume_pending_shell_approval_after_full_access};
+use maintenance::request_maintenance;
 
 #[cfg(test)]
 pub(crate) async fn dispatch_event(
@@ -98,11 +98,6 @@ async fn dispatch_event_inner(
         }
         AppEvent::SubmitComposer => {
             app.bottom_pane.expand_large_paste();
-            if resume_pending_shell_approval_after_full_access(app, agent_slot, runtime_port)
-                .await?
-            {
-                return Ok(false);
-            }
             let should_quit = if let Some(runtime_port) = runtime_port {
                 handle_submit_with_port(app, agent_slot, oauth_manager, runtime_port).await?
             } else {
@@ -265,11 +260,6 @@ async fn dispatch_event_inner(
             app.permission_picker_idx = idx.min(3usize);
         }
         AppEvent::SelectPendingOption(idx) => {
-            if resume_pending_shell_approval_after_full_access(app, agent_slot, runtime_port)
-                .await?
-            {
-                return Ok(false);
-            }
             if let Some(interaction) = app.active_pending_interaction() {
                 match interaction.kind {
                     ActivePendingInteractionKind::PlanApproval => {
@@ -292,22 +282,22 @@ async fn dispatch_event_inner(
                         }
                     }
                     ActivePendingInteractionKind::ShellApproval => {
-                        let selection = match idx {
-                            0 => ShellApprovalDecision::Once,
-                            1 => ShellApprovalDecision::Prefix,
-                            2 => ShellApprovalDecision::Always,
-                            _ => ShellApprovalDecision::Suggestion,
-                        };
-                        if let Some(runtime_port) = runtime_port {
-                            runtime_port
-                                .send(RuntimeCommand::Input(
-                                    crate::runtime_control::InputControlRequest::AnswerShellApproval {
-                                        decision: selection,
-                                    },
-                                ))
-                                .await?;
+                        if let Some(selection) =
+                            input_control::shell_approval_decision_for_index(idx)
+                        {
+                            if let Some(runtime_port) = runtime_port {
+                                runtime_port
+                                    .send(RuntimeCommand::Input(
+                                        crate::runtime_control::InputControlRequest::AnswerShellApproval {
+                                            decision: selection,
+                                        },
+                                    ))
+                                    .await?;
+                            } else {
+                                input_control::answer_shell_approval(app, agent_slot, selection);
+                            }
                         } else {
-                            input_control::answer_shell_approval(app, agent_slot, selection);
+                            app.push_notice("Invalid shell approval option.");
                         }
                     }
                     ActivePendingInteractionKind::PlanningQuestion
@@ -950,15 +940,7 @@ async fn dispatch_event_inner(
                     app.permission_mode = mode;
                     let label = mode.label();
                     app.dismiss_overlay();
-                    if !(resume_pending_shell_approval_after_full_access(
-                        app,
-                        agent_slot,
-                        runtime_port,
-                    )
-                    .await?)
-                    {
-                        app.push_notice(format!("Permission mode: {label}."));
-                    }
+                    app.push_notice(format!("Permission mode: {label}."));
                 }
             }
             _ => {}

@@ -69,6 +69,17 @@ impl RuntimeCommandProcessor {
                     Some(services),
                 );
             }
+            RuntimeCommand::ContinueGoal { prompt } => {
+                let services = self.runtime.task_services();
+                let agent_slot = self.runtime.agent_mut();
+                if let Some(agent) = agent_slot.take() {
+                    super::tasks::start_goal_continuation_task_with_services(
+                        app, prompt, agent, services,
+                    );
+                } else {
+                    app.push_notice("Goal resume is waiting for the runtime agent. Try again.");
+                }
+            }
             RuntimeCommand::Input(InputControlRequest::SubmitFollowUp { prompt }) => {
                 input_control::submit_follow_up(app, prompt, false);
             }

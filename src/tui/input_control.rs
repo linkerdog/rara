@@ -298,6 +298,16 @@ pub(crate) fn plan_approval_decision_for_index(index: usize) -> Option<PlanAppro
     }
 }
 
+pub(crate) fn shell_approval_decision_for_index(index: usize) -> Option<ShellApprovalDecision> {
+    match index {
+        0 => Some(ShellApprovalDecision::Once),
+        1 => Some(ShellApprovalDecision::Prefix),
+        2 => Some(ShellApprovalDecision::Always),
+        3 => Some(ShellApprovalDecision::Suggestion),
+        _ => None,
+    }
+}
+
 pub(crate) fn answer_shell_approval(
     app: &mut TuiApp,
     agent_slot: &mut Option<Agent>,
@@ -459,6 +469,27 @@ mod tests {
             cancellation_token,
             cancellation_requested: false,
         });
+    }
+
+    #[test]
+    fn shell_approval_options_keep_rejection_explicit() {
+        assert_eq!(
+            shell_approval_decision_for_index(0),
+            Some(ShellApprovalDecision::Once)
+        );
+        assert_eq!(
+            shell_approval_decision_for_index(1),
+            Some(ShellApprovalDecision::Prefix)
+        );
+        assert_eq!(
+            shell_approval_decision_for_index(2),
+            Some(ShellApprovalDecision::Always)
+        );
+        assert_eq!(
+            shell_approval_decision_for_index(3),
+            Some(ShellApprovalDecision::Suggestion)
+        );
+        assert_eq!(shell_approval_decision_for_index(4), None);
     }
 
     #[tokio::test]

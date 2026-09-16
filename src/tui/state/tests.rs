@@ -206,6 +206,20 @@ fn clear_pending_command_approval_removes_only_shell_approval() {
 }
 
 #[test]
+fn showing_plan_approval_resets_the_shared_action_selection() {
+    let dir = tempdir().expect("tempdir");
+    let mut app = TuiApp::new(ConfigManager {
+        path: dir.path().join("config.json"),
+    })
+    .expect("app");
+    app.approval_picker_idx = 3;
+
+    app.show_pending_plan_approval(None);
+
+    assert_eq!(app.approval_picker_idx, 0);
+}
+
+#[test]
 fn sync_snapshot_reports_effective_network_access_for_pending_approval() {
     let dir = tempdir().expect("tempdir");
     let root = dir.path().to_path_buf();

@@ -271,11 +271,11 @@ fn build_interaction_panel(app: &TuiApp) -> Option<InteractionPanelView> {
                 },
                 InteractionAction {
                     key: "3",
-                    label: "Allow always",
+                    label: "Allow session",
                 },
                 InteractionAction {
                     key: "4",
-                    label: "Deny",
+                    label: "Reject",
                 },
             ],
             selected: app.approval_picker_idx,

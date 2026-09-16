@@ -575,7 +575,7 @@ async fn empty_submit_keeps_shell_approval_on_card_surface() {
         app.bottom_pane
             .notice
             .as_deref()
-            .is_some_and(|value| value.contains("Up/Down and Enter"))
+            .is_some_and(|value| value.contains("Left/Right and Enter"))
     );
 }
 
@@ -1099,8 +1099,20 @@ fn pending_shell_approval_number_shortcuts_work_in_local_and_ssh() {
             AppEvent::MoveApprovalSelection(1)
         ));
         assert!(matches!(
+            map_key_to_event(key(KeyCode::Right), &app),
+            AppEvent::MoveApprovalSelection(1)
+        ));
+        assert!(matches!(
+            map_key_to_event(key(KeyCode::Char('h')), &app),
+            AppEvent::MoveApprovalSelection(-1)
+        ));
+        assert!(matches!(
             map_key_to_event(key(KeyCode::Char('k')), &app),
             AppEvent::MoveApprovalSelection(-1)
+        ));
+        assert!(matches!(
+            map_key_to_event(key(KeyCode::Esc), &app),
+            AppEvent::SelectPendingOption(3)
         ));
         assert!(matches!(
             map_key_to_event(key(KeyCode::Enter), &app),
@@ -1149,6 +1161,11 @@ fn pending_shell_approval_preserves_modifier_shortcuts() {
             &app
         ),
         AppEvent::InsertNewline
+    ));
+    app.bottom_pane.input = "draft follow-up".into();
+    assert!(matches!(
+        map_key_to_event(key(KeyCode::Enter), &app),
+        AppEvent::SubmitComposer
     ));
 }
 
@@ -1251,7 +1268,7 @@ fn pending_shell_approval_does_not_render_as_request_input() {
 }
 
 #[tokio::test]
-async fn full_access_permission_picker_resumes_pending_shell_approval_in_local_and_ssh() {
+async fn full_access_permission_picker_preserves_pending_shell_approval_in_local_and_ssh() {
     for ssh in [false, true] {
         let _ssh_env = super::terminal_ui::test_env::set_ssh_session(ssh);
         let temp = tempdir().expect("tempdir");
@@ -1307,15 +1324,14 @@ async fn full_access_permission_picker_resumes_pending_shell_approval_in_local_a
         .expect("apply full access");
 
         assert_eq!(app.permission_mode, PermissionMode::FullAccess);
-        assert!(app.pending_command_approval().is_none());
-        assert!(agent_slot.is_none());
-        assert!(app.bottom_pane.running_task.is_some());
-        abort_running_task(&mut app);
+        assert!(app.pending_command_approval().is_some());
+        assert!(agent_slot.is_some());
+        assert!(app.bottom_pane.running_task.is_none());
     }
 }
 
 #[tokio::test]
-async fn always_shell_approval_promotes_full_access_for_follow_up_commands() {
+async fn session_shell_approval_does_not_promote_full_access_or_network_access() {
     let temp = tempdir().expect("tempdir");
     let mut app = TuiApp::new(ConfigManager {
         path: temp.path().join("config.json"),
@@ -1343,6 +1359,9 @@ async fn always_shell_approval_promotes_full_access_for_follow_up_commands() {
     ));
 
     add_pending_shell_approval(&mut app);
+    let network_access_before = app
+        .sandbox_network_access
+        .load(std::sync::atomic::Ordering::Relaxed);
 
     let oauth_manager = Arc::new(
         crate::oauth::OAuthManager::new_for_config_dir(temp.path().join(".rara"))
@@ -1359,11 +1378,12 @@ async fn always_shell_approval_promotes_full_access_for_follow_up_commands() {
     .await
     .expect("approve for session");
 
-    assert_eq!(app.permission_mode, PermissionMode::FullAccess);
+    assert_eq!(app.permission_mode, PermissionMode::Custom);
     assert_eq!(app.bash_approval_mode_label(), "always");
-    assert!(
+    assert_eq!(
         app.sandbox_network_access
-            .load(std::sync::atomic::Ordering::Relaxed)
+            .load(std::sync::atomic::Ordering::Relaxed),
+        network_access_before
     );
     assert!(app.pending_command_approval().is_none());
     assert!(agent_slot.is_none());
@@ -1372,52 +1392,33 @@ async fn always_shell_approval_promotes_full_access_for_follow_up_commands() {
 }
 
 #[tokio::test]
-async fn full_access_mode_resumes_stale_pending_shell_approval_from_shortcuts() {
-    for event in [AppEvent::SelectPendingOption(3), AppEvent::SubmitComposer] {
-        let temp = tempdir().expect("tempdir");
-        let mut app = TuiApp::new(ConfigManager {
-            path: temp.path().join("config.json"),
-        })
-        .expect("build tui app");
-        let bus = Arc::new(crate::runtime_event_bus::RuntimeEventBus::new(10));
-        app.event_bus = Some(bus.clone());
-        app.prompt_source_registry = Some(Arc::new(
-            crate::protocol_sources::PromptSourceRegistry::new(bus.clone()),
-        ));
-        app.skill_source_registry = Some(Arc::new(
-            crate::protocol_sources::SkillSourceRegistry::new(bus.clone()),
-        ));
-        app.hook_registry = Some(Arc::new(crate::hook_registry::HookRegistry::new(
-            bus.clone(),
-        )));
-        app.mcp_manager = Some(Arc::new(
-            crate::mcp_connection_manager::McpConnectionManager::new(
-                Arc::new(crate::config::McpRegistry::empty()),
-                bus.clone(),
-            ),
-        ));
-        app.memory_handler = Some(Arc::new(
-            crate::protocol_sources::MemoryControlHandler::new(bus.clone()),
-        ));
+async fn full_access_mode_keeps_pending_shell_approval_until_an_explicit_choice() {
+    let temp = tempdir().expect("tempdir");
+    let mut app = TuiApp::new(ConfigManager {
+        path: temp.path().join("config.json"),
+    })
+    .expect("build tui app");
+    add_pending_shell_approval(&mut app);
+    app.permission_mode = PermissionMode::FullAccess;
 
-        add_pending_shell_approval(&mut app);
-        app.permission_mode = PermissionMode::FullAccess;
+    let oauth_manager = Arc::new(
+        crate::oauth::OAuthManager::new_for_config_dir(temp.path().join(".rara"))
+            .expect("oauth manager"),
+    );
+    let mut agent_slot = Some(test_agent_for_pending_approval(&temp));
 
-        let oauth_manager = Arc::new(
-            crate::oauth::OAuthManager::new_for_config_dir(temp.path().join(".rara"))
-                .expect("oauth manager"),
-        );
-        let mut agent_slot = Some(test_agent_for_pending_approval(&temp));
+    dispatch_event(
+        AppEvent::SubmitComposer,
+        &mut app,
+        &mut agent_slot,
+        &oauth_manager,
+    )
+    .await
+    .expect("dispatch pending approval");
 
-        dispatch_event(event.clone(), &mut app, &mut agent_slot, &oauth_manager)
-            .await
-            .expect("dispatch stale approval");
-
-        assert!(app.pending_command_approval().is_none());
-        assert!(agent_slot.is_none());
-        assert!(app.bottom_pane.running_task.is_some());
-        abort_running_task(&mut app);
-    }
+    assert!(app.pending_command_approval().is_some());
+    assert!(agent_slot.is_some());
+    assert!(app.bottom_pane.running_task.is_none());
 }
 
 #[tokio::test]

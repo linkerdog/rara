@@ -157,9 +157,11 @@ async fn finish_running_task_if_ready_with_completion_mode(
                             *agent_slot = Some(agent);
                             let agent = agent_slot.take().expect("agent");
                             if let Some(services) = runtime.as_deref().cloned() {
-                                start_query_task_with_services(app, prompt, agent, services);
+                                start_goal_continuation_task_with_services(
+                                    app, prompt, agent, services,
+                                );
                             } else {
-                                start_query_task(app, prompt, agent);
+                                start_goal_continuation_task(app, prompt, agent);
                             }
                             return Ok(());
                         }
@@ -173,9 +175,11 @@ async fn finish_running_task_if_ready_with_completion_mode(
                             );
                             app.finalize_active_turn();
                             if let Some(services) = runtime.as_deref().cloned() {
-                                start_query_task_with_services(app, prompt, agent, services);
+                                start_goal_continuation_task_with_services(
+                                    app, prompt, agent, services,
+                                );
                             } else {
-                                start_query_task(app, prompt, agent);
+                                start_goal_continuation_task(app, prompt, agent);
                             }
                             return Ok(());
                         }

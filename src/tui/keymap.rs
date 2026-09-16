@@ -130,8 +130,8 @@ pub(crate) fn map_key_to_event(key: KeyEvent, app: &TuiApp) -> AppEvent {
             {
                 return AppEvent::SelectPendingOption(index);
             }
-            // Approval cards: Enter always selects, even with text in the composer.
-            // j/k navigation requires empty composer so regular typing works.
+            // Approval cards keep their horizontal visual order in keyboard navigation.
+            // Navigation requires an empty composer so regular typing still works.
             if app.active_pending_interaction().is_some_and(|interaction| {
                 matches!(
                     interaction.kind,
@@ -139,15 +139,34 @@ pub(crate) fn map_key_to_event(key: KeyEvent, app: &TuiApp) -> AppEvent {
                         | super::state::ActivePendingInteractionKind::PlanApproval
                 )
             }) {
-                if code == KeyCode::Enter && modifiers.is_empty() {
+                if code == KeyCode::Enter
+                    && modifiers.is_empty()
+                    && app.bottom_pane.input.is_empty()
+                {
                     return AppEvent::SelectPendingOption(app.approval_picker_idx);
+                }
+                if app.active_pending_interaction().is_some_and(|interaction| {
+                    interaction.kind == super::state::ActivePendingInteractionKind::ShellApproval
+                }) && code == KeyCode::Esc
+                    && modifiers.is_empty()
+                {
+                    return AppEvent::SelectPendingOption(3);
                 }
                 if app.bottom_pane.input.is_empty() {
                     match (code, modifiers) {
-                        (KeyCode::Up | KeyCode::Char('k'), KeyModifiers::NONE) => {
+                        (
+                            KeyCode::Left | KeyCode::Char('h') | KeyCode::Up | KeyCode::Char('k'),
+                            KeyModifiers::NONE,
+                        ) => {
                             return AppEvent::MoveApprovalSelection(-1);
                         }
-                        (KeyCode::Down | KeyCode::Char('j'), KeyModifiers::NONE) => {
+                        (
+                            KeyCode::Right
+                            | KeyCode::Char('l')
+                            | KeyCode::Down
+                            | KeyCode::Char('j'),
+                            KeyModifiers::NONE,
+                        ) => {
                             return AppEvent::MoveApprovalSelection(1);
                         }
                         _ => {}

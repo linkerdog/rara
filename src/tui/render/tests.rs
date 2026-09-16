@@ -180,8 +180,8 @@ fn shell_approval_panel_keeps_actions_visible() {
     assert!(rendered.contains("# Permission Required"));
     assert!(rendered.contains("[1] Allow once"));
     assert!(rendered.contains("[2] Allow prefix"));
-    assert!(rendered.contains("[3] Allow always"));
-    assert!(rendered.contains("[4] Deny"));
+    assert!(rendered.contains("[3] Allow session"));
+    assert!(rendered.contains("[4] Reject"));
 }
 
 #[test]
