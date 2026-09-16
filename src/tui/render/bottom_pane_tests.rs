@@ -4,7 +4,9 @@ use ratatui::{layout::Rect, style::Color, text::Line};
 use tempfile::tempdir;
 use tokio::sync::mpsc;
 
-use super::super::view_builder::{activity_status_line, footer_summary_text, should_show_spinner};
+use super::super::view_builder::{
+    activity_status_line, build_bottom_pane_view, footer_summary_text, should_show_spinner,
+};
 use crate::config::ConfigManager;
 use crate::tui::render::bottom_pane::composer::{
     composer_hint, composer_hint_line, desired_composer_height, wrapped_text_cursor_position,
@@ -437,6 +439,24 @@ fn setting_goal_preserves_activity_status_label() {
     // Goal rendering is in render_activity_bar (badge), not in activity_status_line.
     let (label, _, _) = activity_status_line(&app);
     assert_eq!(label, "Ready");
+}
+
+#[test]
+fn blocked_goal_uses_compact_warning_badge() {
+    use crate::tui::state::{GoalStatus, RalphGoal};
+
+    let temp = tempdir().unwrap();
+    let mut app = TuiApp::new(ConfigManager {
+        path: temp.path().join("config.json"),
+    })
+    .expect("build tui app");
+    let mut goal = RalphGoal::new("wait for external change".into(), None);
+    goal.status = GoalStatus::Blocked;
+    app.goal = Some(goal);
+
+    let view = build_bottom_pane_view(&app, 80, 24);
+
+    assert_eq!(view.activity.goal_label, Some(("blocked", STATUS_WARNING)));
 }
 
 #[test]

@@ -91,7 +91,6 @@ async fn finish_running_task_if_ready_with_completion_mode(
     }
     match completion {
         TaskCompletion::Query { agent, result } => {
-            let mut agent = agent;
             let query_started_in_plan_mode = matches!(
                 app.agent_execution_mode,
                 crate::agent::AgentExecutionMode::Plan
@@ -136,13 +135,11 @@ async fn finish_running_task_if_ready_with_completion_mode(
                     let prior_total_input_tokens = app.snapshot.total_input_tokens;
                     match RuntimeClient::continue_goal(
                             &app.goal_handle,
-                            &mut agent,
+                            &agent,
                             prior_total_input_tokens,
                             finished_plan_turn,
                             app.has_pending_plan_approval(),
-                        )
-                        .await
-                    {
+                        ) {
                         GoalContinuation::BudgetLimited { goal, prompt } => {
                             app.goal = Some(goal.clone());
                             app.push_notice(format!(
@@ -166,27 +163,8 @@ async fn finish_running_task_if_ready_with_completion_mode(
                             }
                             return Ok(());
                         }
-                        GoalContinuation::Complete { goal } => {
+                        GoalContinuation::Continue { goal, prompt } => {
                             app.goal = Some(goal);
-                            *agent_slot = Some(agent);
-                            let agent = agent_slot.as_ref().expect("agent");
-                            app.apply_runtime_snapshot(
-                                agent,
-                                crate::runtime_client::RuntimeClient::extension_snapshot_for_agent(
-                                    agent, 0,
-                                ),
-                            );
-                            app.release_pending_follow_ups();
-                            app.finalize_agent_stream(None);
-                            app.finalize_active_turn();
-                            app.bottom_pane.notice =
-                                Some("Goal evaluator marked the goal complete.".into());
-                            app.set_runtime_phase(RuntimePhase::Idle, Some("goal complete".into()));
-                            return Ok(());
-                        }
-                        GoalContinuation::Continue { goal, prompt, reason } => {
-                            app.goal = Some(goal);
-                            app.push_system(reason, crate::tui::state::SystemMessageKind::Other);
                             app.apply_runtime_snapshot(
                                 &agent,
                                 crate::runtime_client::RuntimeClient::extension_snapshot_for_agent(

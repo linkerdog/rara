@@ -248,15 +248,14 @@ pub(super) fn restore_thread_by_id(
         let budget: Option<u32> = goal_json["token_budget"].as_u64().map(|v| v as u32);
         if !objective.is_empty() {
             let mut goal = RalphGoal::new(objective.to_string(), budget);
-            if let Some(condition) = goal_json["condition"].as_str() {
-                goal.condition = Some(condition.to_string());
-            }
             goal.tokens_used = goal_json["tokens_used"].as_u64().unwrap_or(0) as u32;
             goal.turns_completed = goal_json["turns_completed"].as_u64().unwrap_or(0) as u32;
             if let Some(status) = goal_json["status"].as_str() {
                 goal.status = match status {
                     "Complete" => GoalStatus::Complete,
                     "Paused" => GoalStatus::Paused,
+                    "Blocked" => GoalStatus::Blocked,
+                    "BudgetLimited" => GoalStatus::BudgetLimited,
                     _ => GoalStatus::Pursuing,
                 };
             }

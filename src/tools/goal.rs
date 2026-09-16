@@ -35,13 +35,13 @@ pub struct CreateGoalTool {
 
 #[tool_spec(
     name = CREATE_GOAL_TOOL_NAME,
-    description = "Create a goal only when explicitly requested by the user or system/developer instructions; do not infer goals from ordinary tasks.\nSet token_budget only when an explicit token budget is requested. Fails if a goal exists; use update_goal only for status.",
+    description = "Create a goal only when explicitly requested by the user or system/developer instructions; do not infer goals from ordinary tasks.\nSet token_budget only when an explicit token budget is requested. Fails if an unfinished goal exists; use update_goal only for status.",
     input_schema = {
         "type": "object",
         "properties": {
             "objective": {
                 "type": "string",
-                "description": "Required. The concrete objective to start pursuing. This starts a new active goal only when no goal is currently defined; if a goal already exists, this tool fails."
+                "description": "Required. The concrete objective to start pursuing. This starts a new active goal when no goal exists or replaces the current goal when it is complete."
             },
             "token_budget": {
                 "type": "integer",
@@ -55,9 +55,15 @@ pub struct CreateGoalTool {
 #[async_trait]
 impl Tool for CreateGoalTool {
     async fn call(&self, input: Value) -> Result<Value, ToolError> {
-        if self.store.read().unwrap().is_some() {
+        if self
+            .store
+            .read()
+            .unwrap()
+            .as_ref()
+            .is_some_and(|goal| goal.status != GoalStatus::Complete)
+        {
             return Err(ToolError::InvalidInput(
-                "cannot create a new goal because this thread already has a goal; use update_goal only when the existing goal is complete".into(),
+                "cannot create a new goal because this thread already has an unfinished goal; use update_goal only when the existing goal is complete".into(),
             ));
         }
 
@@ -99,14 +105,14 @@ pub struct UpdateGoalTool {
 
 #[tool_spec(
     name = UPDATE_GOAL_TOOL_NAME,
-    description = "Update the existing goal.\nUse this tool only to mark the goal achieved.\nSet status to `complete` only when the objective has actually been achieved and no required work remains.\nDo not mark a goal complete merely because its budget is nearly exhausted or because you are stopping work.\nYou cannot use this tool to pause, resume, or budget-limit a goal; those status changes are controlled by the user or system.\nWhen marking a budgeted goal achieved with status `complete`, report the final token usage from the tool result to the user.",
+    description = "Update the existing goal.\nUse this tool only to mark the goal achieved or genuinely blocked.\nSet status to `complete` only when the objective has actually been achieved and no required work remains.\nSet status to `blocked` only after the same blocking condition has repeated for at least three consecutive goal turns, counting the original user-triggered turn and automatic continuations, and the agent cannot make meaningful progress without user input or an external-state change. If the user resumes a goal that was previously marked `blocked`, treat the resumed run as a fresh blocked audit.\nDo not use `blocked` merely because the work is hard, slow, uncertain, incomplete, or would benefit from clarification.\nDo not mark a goal complete merely because its budget is nearly exhausted or because you are stopping work.\nYou cannot use this tool to pause, resume, or budget-limit a goal; those status changes are controlled by the user or system.\nWhen marking a budgeted goal achieved with status `complete`, report the final token usage from the tool result to the user.",
     input_schema = {
         "type": "object",
         "properties": {
             "status": {
                 "type": "string",
-                "enum": ["complete"],
-                "description": "Required. Set to complete only when the objective is achieved and no required work remains."
+                "enum": ["complete", "blocked"],
+                "description": "Required. Set to complete only when the objective is achieved and no required work remains, or blocked only after a repeated blocking condition prevents meaningful progress."
             }
         },
         "required": ["status"]
@@ -119,23 +125,27 @@ impl Tool for UpdateGoalTool {
             .as_str()
             .ok_or_else(|| ToolError::InvalidInput("status must be a string".into()))?;
 
-        match new_status {
-            "complete" => {}
+        let status = match new_status {
+            "complete" => GoalStatus::Complete,
+            "blocked" => GoalStatus::Blocked,
             other => {
                 return Err(ToolError::InvalidInput(format!(
-                    "update_goal can only mark the existing goal complete; pause, resume, and budget-limited status changes are controlled by the user or system (got '{other}')"
+                    "update_goal can only mark the existing goal complete or blocked; pause, resume, and budget-limited status changes are controlled by the user or system (got '{other}')"
                 )));
             }
-        }
+        };
 
         let mut guard = self.store.write().unwrap();
         let goal = guard
             .as_mut()
             .ok_or_else(|| ToolError::InvalidInput("No active goal to update.".into()))?;
 
-        goal.status = GoalStatus::Complete;
+        goal.status = status;
 
-        Ok(goal_tool_response(Some(goal), true))
+        Ok(goal_tool_response(
+            Some(goal),
+            status == GoalStatus::Complete,
+        ))
     }
 }
 
@@ -143,6 +153,7 @@ fn goal_status_str(status: GoalStatus) -> &'static str {
     match status {
         GoalStatus::Pursuing => "active",
         GoalStatus::Paused => "paused",
+        GoalStatus::Blocked => "blocked",
         GoalStatus::Complete => "complete",
         GoalStatus::BudgetLimited => "budget_limited",
     }
@@ -244,7 +255,7 @@ mod tests {
     }
 
     #[test]
-    fn create_goal_fails_when_goal_exists() {
+    fn create_goal_fails_when_goal_is_unfinished() {
         let store = goal_handle();
         *store.write().unwrap() = Some(RalphGoal::new("existing".into(), None));
 
@@ -252,7 +263,23 @@ mod tests {
             store: store.clone(),
         };
         let err = block(create.call(serde_json::json!({"objective": "new"}))).unwrap_err();
-        assert!(err.to_string().contains("already has a goal"));
+        assert!(err.to_string().contains("unfinished goal"));
+    }
+
+    #[test]
+    fn create_goal_replaces_completed_goal_only() {
+        let store = goal_handle();
+        let mut completed = RalphGoal::new("existing".into(), None);
+        completed.status = GoalStatus::Complete;
+        *store.write().unwrap() = Some(completed);
+
+        let create = CreateGoalTool {
+            store: store.clone(),
+        };
+        let result = block(create.call(serde_json::json!({"objective": "new"}))).unwrap();
+
+        assert_eq!(result["goal"]["objective"], "new");
+        assert_eq!(result["goal"]["status"], "active");
     }
 
     #[test]
@@ -292,14 +319,14 @@ mod tests {
     }
 
     #[test]
-    fn update_goal_schema_only_exposes_complete_status() {
+    fn update_goal_schema_exposes_complete_and_blocked_statuses() {
         let store = goal_handle();
         let update = UpdateGoalTool { store };
         let schema = update.input_schema();
 
         assert_eq!(
             schema["properties"]["status"]["enum"],
-            serde_json::json!(["complete"])
+            serde_json::json!(["complete", "blocked"])
         );
     }
 
@@ -331,6 +358,18 @@ mod tests {
     }
 
     #[test]
+    fn update_goal_marks_blocked_without_completion_report() {
+        let store = goal_handle();
+        *store.write().unwrap() = Some(RalphGoal::new("test".into(), None));
+
+        let update = UpdateGoalTool { store };
+        let result = block(update.call(serde_json::json!({"status": "blocked"}))).unwrap();
+
+        assert_eq!(result["goal"]["status"], "blocked");
+        assert_eq!(result["completionBudgetReport"], serde_json::Value::Null);
+    }
+
+    #[test]
     fn update_goal_rejects_invalid_status() {
         let store = goal_handle();
         *store.write().unwrap() = Some(RalphGoal::new("test".into(), None));
@@ -339,7 +378,7 @@ mod tests {
         let err = block(update.call(serde_json::json!({"status": "pursuing"}))).unwrap_err();
         assert!(
             err.to_string()
-                .contains("only mark the existing goal complete")
+                .contains("only mark the existing goal complete or blocked")
         );
     }
 

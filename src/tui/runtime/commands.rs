@@ -218,6 +218,7 @@ pub(super) async fn execute_local_command_with_runtime(
                         let status_str = match goal.status {
                             GoalStatus::Pursuing => "active",
                             GoalStatus::Paused => "paused",
+                            GoalStatus::Blocked => "blocked",
                             GoalStatus::Complete => "complete",
                             GoalStatus::BudgetLimited => "budget-limited",
                         };
@@ -249,12 +250,22 @@ pub(super) async fn execute_local_command_with_runtime(
                 }
                 "resume" => {
                     if let Some(goal) = app.goal.as_mut() {
-                        if goal.status == GoalStatus::Paused {
-                            goal.status = GoalStatus::Pursuing;
-                            *app.goal_handle.write().unwrap() = app.goal.clone();
-                            app.push_notice("Goal resumed. The agent will continue working.");
-                        } else {
-                            app.push_notice("Goal is not paused; nothing to resume.");
+                        match goal.status {
+                            GoalStatus::Paused => {
+                                goal.status = GoalStatus::Pursuing;
+                                *app.goal_handle.write().unwrap() = app.goal.clone();
+                                app.push_notice("Goal resumed. The agent will continue working.");
+                            }
+                            GoalStatus::Blocked => {
+                                goal.status = GoalStatus::Pursuing;
+                                *app.goal_handle.write().unwrap() = app.goal.clone();
+                                app.push_notice(
+                                    "Goal resumed. The blocked-goal audit has restarted.",
+                                );
+                            }
+                            _ => {
+                                app.push_notice("Goal is not paused or blocked; nothing to resume.")
+                            }
                         }
                     } else {
                         app.push_notice("No active goal to resume.");
@@ -270,9 +281,13 @@ pub(super) async fn execute_local_command_with_runtime(
                     }
                 }
                 objective => {
-                    if app.goal.is_some() {
+                    if app
+                        .goal
+                        .as_ref()
+                        .is_some_and(|goal| goal.status != GoalStatus::Complete)
+                    {
                         app.push_notice(
-                            "A goal already exists. Use /goal clear before setting a new goal.",
+                            "An unfinished goal already exists. Use /goal clear before setting a new goal.",
                         );
                         return Ok(false);
                     }

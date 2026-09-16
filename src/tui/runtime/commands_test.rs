@@ -304,7 +304,7 @@ async fn mode_changing_commands_are_rejected_while_busy() {
 }
 
 #[tokio::test]
-async fn goal_command_refuses_to_replace_existing_goal_without_clear() {
+async fn goal_command_refuses_to_replace_unfinished_goal_without_clear() {
     let dir = tempfile::tempdir().expect("tempdir");
     let mut app = TuiApp::new(ConfigManager {
         path: dir.path().join("config.json"),
@@ -338,7 +338,79 @@ async fn goal_command_refuses_to_replace_existing_goal_without_clear() {
     );
     assert_eq!(
         app.bottom_pane.notice.as_deref(),
-        Some("A goal already exists. Use /goal clear before setting a new goal.")
+        Some("An unfinished goal already exists. Use /goal clear before setting a new goal.")
+    );
+}
+
+#[tokio::test]
+async fn goal_command_replaces_completed_goal() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let mut app = TuiApp::new(ConfigManager {
+        path: dir.path().join("config.json"),
+    })
+    .expect("app");
+    let mut completed = crate::tui::state::RalphGoal::new("existing goal".to_string(), None);
+    completed.status = crate::tui::state::GoalStatus::Complete;
+    app.goal = Some(completed);
+    *app.goal_handle.write().unwrap() = app.goal.clone();
+    let oauth_manager = Arc::new(
+        OAuthManager::new_for_config_dir(dir.path().join("oauth")).expect("oauth manager"),
+    );
+    let mut agent_slot = None;
+
+    execute_local_command(
+        LocalCommand {
+            kind: LocalCommandKind::Goal,
+            arg: Some("new goal".to_string()),
+        },
+        &mut app,
+        &mut agent_slot,
+        &oauth_manager,
+    )
+    .await
+    .expect("goal command should be handled");
+
+    assert_eq!(
+        app.goal.as_ref().map(|goal| goal.objective.as_str()),
+        Some("new goal")
+    );
+}
+
+#[tokio::test]
+async fn goal_command_resumes_blocked_goal() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let mut app = TuiApp::new(ConfigManager {
+        path: dir.path().join("config.json"),
+    })
+    .expect("app");
+    let mut goal = crate::tui::state::RalphGoal::new("existing goal".to_string(), None);
+    goal.status = crate::tui::state::GoalStatus::Blocked;
+    app.goal = Some(goal);
+    *app.goal_handle.write().unwrap() = app.goal.clone();
+    let oauth_manager = Arc::new(
+        OAuthManager::new_for_config_dir(dir.path().join("oauth")).expect("oauth manager"),
+    );
+    let mut agent_slot = None;
+
+    execute_local_command(
+        LocalCommand {
+            kind: LocalCommandKind::Goal,
+            arg: Some("resume".to_string()),
+        },
+        &mut app,
+        &mut agent_slot,
+        &oauth_manager,
+    )
+    .await
+    .expect("goal command should be handled");
+
+    assert_eq!(
+        app.goal.as_ref().map(|goal| goal.status),
+        Some(crate::tui::state::GoalStatus::Pursuing)
+    );
+    assert_eq!(
+        app.bottom_pane.notice.as_deref(),
+        Some("Goal resumed. The blocked-goal audit has restarted.")
     );
 }
 

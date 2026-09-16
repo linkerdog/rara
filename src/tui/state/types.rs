@@ -856,6 +856,8 @@ pub enum GoalStatus {
     Pursuing,
     /// User paused the goal; can be resumed.
     Paused,
+    /// Agent reported a genuine blocker after repeated attempts to resolve it.
+    Blocked,
     /// Goal was completed successfully.
     Complete,
     /// Goal exceeded its configured token budget; soft-stop.
@@ -867,9 +869,6 @@ pub enum GoalStatus {
 pub struct RalphGoal {
     /// The objective text set by `/goal <objective>`.
     pub objective: String,
-    /// Condition string used by the evaluator to check completion.
-    /// Defaults to the objective if not explicitly set.
-    pub condition: Option<String>,
     /// Current lifecycle status.
     pub status: GoalStatus,
     /// Optional token budget (input tokens). None = unlimited.
@@ -885,8 +884,7 @@ pub struct RalphGoal {
 impl RalphGoal {
     pub fn new(objective: String, token_budget: Option<u32>) -> Self {
         Self {
-            objective: objective.clone(),
-            condition: Some(objective),
+            objective,
             status: GoalStatus::Pursuing,
             token_budget,
             tokens_used: 0,

@@ -316,11 +316,13 @@ fn push_plan_section(lines: &mut Vec<Line<'static>>, app: &TuiApp) -> bool {
             GoalStatus::Pursuing => "\u{1f3af}",
             GoalStatus::Complete => "\u{2705}",
             GoalStatus::Paused => "\u{23f8}",
+            GoalStatus::Blocked => "\u{26d4}",
             GoalStatus::BudgetLimited => "\u{23f1}",
         };
         let style = match goal.status {
             GoalStatus::Pursuing => STATUS_WARNING,
             GoalStatus::Complete => STATUS_SUCCESS,
+            GoalStatus::Blocked => STATUS_WARNING,
             _ => TEXT_MUTED,
         };
         lines.push(Line::from(Span::styled(

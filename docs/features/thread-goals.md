@@ -3,14 +3,17 @@
 ## Problem
 
 RARA has a persistent `/goal` loop that lets a user ask the agent to keep
-working across turns. The older contract allowed the model to mark a goal as
-`achieved` or `unmet`, but that made completion semantics loose and gave the
-model control over states that should belong to the runtime or TUI.
+working across turns. RARA previously added an out-of-band classifier that
+could complete a goal independently of the agent's `update_goal` call. That
+made a second model decision authoritative and diverged from Codex's goal
+contract.
 
-Codex 0.130 narrows this surface:
+Codex 0.154 defines this surface:
 
 - the model can create a goal only when explicitly asked;
-- the model can only mark an existing goal as `complete`;
+- the model can mark an existing goal as `complete` or `blocked`;
+- a completed goal can be replaced, while every unfinished goal rejects a new
+  `create_goal` call;
 - pause, resume, clear, and budget-limited states are controlled outside the
   model-facing update tool;
 - budget and elapsed-time usage are visible in the tool result and TUI.
@@ -28,34 +31,48 @@ RARA should mirror that shape while keeping its local TUI command surface.
 ## Non-Goals
 
 - Multi-goal scheduling.
-- Goal persistence across process restarts.
+- Durable synchronization of every lifecycle mutation across process restarts.
 - A full Codex-style goal confirmation menu.
 - Auxiliary-model planning or compression for goals.
+- A runtime classifier or durable counter that second-guesses model goal
+  completion or blocked-state decisions.
 
 ## Architecture
 
-`RalphGoal` remains the in-memory runtime state shared by the TUI and
-model-facing goal tools through `GoalHandle`.
+`RalphGoal` remains in-memory session state shared by the TUI and model-facing
+goal tools through `GoalHandle`. The local command may save a goal snapshot,
+and session restoration recognizes every lifecycle status present in that
+snapshot; durable synchronization of every lifecycle mutation is out of scope.
 
 The lifecycle is:
 
 - `Pursuing`: runtime may auto-continue after tool-using turns.
 - `Paused`: user/TUI paused the goal; model tools cannot set this.
+- `Blocked`: model reported a repeated, genuine blocker; user/TUI can resume
+  it as a fresh blocked-state audit.
 - `Complete`: model marked the goal complete through `update_goal`.
 - `BudgetLimited`: runtime marked the goal over budget and asks for a wrap-up.
 
 The TUI owns local lifecycle controls:
 
-- `/goal <objective>` creates a goal when none exists.
+- `/goal <objective>` creates a goal when none exists or replaces a completed
+  goal; it rejects every unfinished goal.
 - `/goal --tokens <N> <objective>` creates a budgeted goal.
 - `/goal pause`, `/goal resume`, and `/goal clear` mutate local lifecycle state.
+  Resume accepts paused and blocked goals; resuming a blocked goal restarts its
+  audit.
 - `/goal` shows the current objective, lifecycle state, elapsed seconds, turns,
   tokens used, budget, and remaining tokens.
 
 The model-facing tool contract is intentionally narrower:
 
-- `create_goal` fails if any goal exists.
-- `update_goal` accepts only `status: "complete"`.
+- `create_goal` fails only if an unfinished goal exists and replaces a
+  completed goal.
+- `update_goal` accepts `status: "complete"` or `status: "blocked"`.
+- `blocked` is valid only when the same blocker recurs for at least three
+  consecutive goal turns and no meaningful progress is possible without user
+  input or an external-state change. This is enforced by the tool instruction,
+  matching Codex; the runtime does not keep a competing hidden audit counter.
 - `get_goal` returns a structured object plus `remainingTokens`.
 - completing a budgeted goal returns `completionBudgetReport` so the model can
   report final token usage without guessing.
@@ -86,14 +103,15 @@ When no goal exists, all three top-level fields are present and nullable.
 ### Continuation Prompt
 
 Automatic continuation wraps the objective in `<untrusted_objective>` so the
-stored objective cannot override higher-priority instructions. The prompt also
-includes:
+stored objective cannot override higher-priority instructions. It does not run
+a separate completion classifier: the main agent must audit actual state and
+call `update_goal` itself. The prompt also includes:
 
 - elapsed time;
 - tokens used;
 - token budget;
 - tokens remaining;
-- a completion audit instruction before calling `update_goal`.
+- completion and blocked-state audit instructions before calling `update_goal`.
 
 ### Budget Limit Prompt
 
@@ -107,7 +125,7 @@ complete.
 
 The bottom pane should show only compact state:
 
-- lifecycle badge: `active`, `paused`, `done`, or `budget`;
+- lifecycle badge: `active`, `paused`, `blocked`, `done`, or `budget`;
 - turn count;
 - token usage with explicit `tokens` units;
 - remaining budget when present.
@@ -116,25 +134,30 @@ Detailed goal state belongs in `/goal`, not the bottom pane.
 
 ## Validation Matrix
 
-- Tool schema exposes only `complete` as an `update_goal` status.
+- Tool schema exposes `complete` and `blocked` as `update_goal` statuses.
 - `create_goal` rejects empty objectives, zero budgets, oversized budgets, and
-  duplicate active goals.
-- `update_goal` rejects all statuses except `complete`.
+  unfinished goals, while allowing a completed goal to be replaced.
+- `update_goal` rejects every status other than `complete` and `blocked`.
 - `/goal --tokens 98.5K <objective>` parses human-readable budgets.
-- `/goal` refuses to replace an existing goal without an explicit clear.
+- `/goal` refuses to replace an unfinished goal, replaces a completed one, and
+  resumes blocked goals as a fresh audit.
 - Continuation prompts include untrusted objective boundaries and budget fields.
+- A pursuing goal continues without an out-of-band completion classifier or a
+  classifier-injected system reason.
 - Budget-limit prompts ask for wrap-up without new work.
 - Bottom-pane rendering keeps the goal label compact and uses `tokens` units.
 
 ## Open Risks
 
-- Goal state is still in-memory. Restart persistence should be considered only
-  after the session-state boundary is stable.
-- RARA does not yet have Codex's full confirmation menu for replacing a goal.
-  The current safer behavior is to require `/goal clear` first.
+- RARA does not yet have Codex's full confirmation menu for replacing a goal;
+  the local `/goal` command replaces only a completed goal.
+- The three-turn blocked audit is intentionally prompt/tool-contract enforced,
+  like Codex, rather than a second runtime state machine. A malicious or weak
+  model can still misuse the tool, so provider behavior should be observed.
 - Budget accounting is based on available input-token deltas. Providers that do
   not report usage precisely may undercount.
 
 ## Source Journals
 
 - `docs/journal/2026-05-08-codex-129-goals.md`
+- `docs/journal/2026-09-16-codex-v0154-goals.md`
