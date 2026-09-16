@@ -42,7 +42,7 @@ async fn handle_submit_inner(
             )
         {
             app.push_notice(
-                "Approval pending. Use Up/Down and Enter, or press 1-4 to choose an option.",
+                "Approval pending. Use Left/Right and Enter, or press 1-4 to choose an option.",
             );
             return Ok(false);
         }

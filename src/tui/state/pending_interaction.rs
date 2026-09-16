@@ -74,6 +74,7 @@ impl TuiApp {
         self.snapshot
             .pending_interactions
             .push(self.plan_approval_interaction(tool_use_id));
+        self.approval_picker_idx = 0;
         self.persist_runtime_state();
     }
 

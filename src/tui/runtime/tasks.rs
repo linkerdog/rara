@@ -311,6 +311,28 @@ pub(crate) fn start_query_task_with_services(
     );
 }
 
+pub(super) fn start_goal_continuation_task(app: &mut TuiApp, prompt: String, agent: Agent) {
+    start_goal_continuation_task_with_services(app, prompt, agent, legacy_task_services(app));
+}
+
+pub(crate) fn start_goal_continuation_task_with_services(
+    app: &mut TuiApp,
+    prompt: String,
+    agent: Agent,
+    services: RuntimeTaskServices,
+) {
+    let request = crate::runtime_control::InputControlRequest::SubmitUserPrompt { prompt };
+    start_input_control_task_with_services(
+        app,
+        agent,
+        request,
+        "Continuing active goal.".into(),
+        RuntimePhase::SendingPrompt,
+        Some("continuing active goal".into()),
+        services,
+    );
+}
+
 pub(super) fn start_compact_task(app: &mut TuiApp, mut agent: Agent) {
     let (sender, receiver) = mpsc::unbounded_channel();
     let bus = app.event_bus.clone();
@@ -421,21 +443,18 @@ pub(crate) fn start_pending_approval_task_with_services(
     services: RuntimeTaskServices,
 ) {
     if selection == BashApprovalDecision::Always {
-        app.permission_mode = PermissionMode::FullAccess;
-        app.sandbox_network_access
-            .store(true, std::sync::atomic::Ordering::Relaxed);
-        app.set_agent_execution_mode(crate::agent::AgentExecutionMode::Execute);
         app.bash_approval_mode = crate::agent::BashApprovalMode::Always;
-        agent.set_execution_mode(crate::agent::AgentExecutionMode::Execute);
+        if app.permission_mode != PermissionMode::FullAccess {
+            app.permission_mode = PermissionMode::Custom;
+        }
         agent.set_bash_approval_mode(crate::agent::BashApprovalMode::Always);
-        agent.set_full_access_mode(true);
     }
 
     let selection_label = match selection {
         BashApprovalDecision::Once => "run once",
         BashApprovalDecision::Prefix => "allow matching prefix",
-        BashApprovalDecision::Always => "always allow bash",
-        BashApprovalDecision::Suggestion => "suggestion only",
+        BashApprovalDecision::Always => "allow for this session",
+        BashApprovalDecision::Suggestion => "reject",
     };
 
     let request = crate::runtime_control::InputControlRequest::AnswerShellApproval {

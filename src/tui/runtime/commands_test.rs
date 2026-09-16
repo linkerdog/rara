@@ -75,6 +75,29 @@ fn test_agent_with_shared_task_tool(dir: &tempfile::TempDir) -> Agent {
     )
 }
 
+fn attach_task_services(app: &mut TuiApp) {
+    let bus = Arc::new(RuntimeEventBus::new(8));
+    app.event_bus = Some(bus.clone());
+    app.prompt_source_registry = Some(Arc::new(
+        crate::protocol_sources::PromptSourceRegistry::new(bus.clone()),
+    ));
+    app.skill_source_registry = Some(Arc::new(crate::protocol_sources::SkillSourceRegistry::new(
+        bus.clone(),
+    )));
+    app.hook_registry = Some(Arc::new(crate::hook_registry::HookRegistry::new(
+        bus.clone(),
+    )));
+    app.mcp_manager = Some(Arc::new(
+        crate::mcp_connection_manager::McpConnectionManager::new(
+            Arc::new(McpRegistry::empty()),
+            bus.clone(),
+        ),
+    ));
+    app.memory_handler = Some(Arc::new(
+        crate::protocol_sources::MemoryControlHandler::new(bus),
+    ));
+}
+
 #[test]
 fn mcp_project_root_walks_up_to_project_config() {
     let dir = tempfile::tempdir().expect("tempdir");
@@ -319,7 +342,6 @@ async fn goal_command_refuses_to_replace_unfinished_goal_without_clear() {
         OAuthManager::new_for_config_dir(dir.path().join("oauth")).expect("oauth manager"),
     );
     let mut agent_slot = None;
-
     execute_local_command(
         LocalCommand {
             kind: LocalCommandKind::Goal,
@@ -383,8 +405,96 @@ async fn goal_command_resumes_blocked_goal() {
         path: dir.path().join("config.json"),
     })
     .expect("app");
+    attach_task_services(&mut app);
     let mut goal = crate::tui::state::RalphGoal::new("existing goal".to_string(), None);
     goal.status = crate::tui::state::GoalStatus::Blocked;
+    app.goal = Some(goal);
+    *app.goal_handle.write().unwrap() = app.goal.clone();
+    let oauth_manager = Arc::new(
+        OAuthManager::new_for_config_dir(dir.path().join("oauth")).expect("oauth manager"),
+    );
+    let mut agent_slot = Some(test_agent_with_shared_task_tool(&dir));
+
+    execute_local_command(
+        LocalCommand {
+            kind: LocalCommandKind::Goal,
+            arg: Some("resume".to_string()),
+        },
+        &mut app,
+        &mut agent_slot,
+        &oauth_manager,
+    )
+    .await
+    .expect("goal command should be handled");
+
+    assert_eq!(
+        app.goal.as_ref().map(|goal| goal.status),
+        Some(crate::tui::state::GoalStatus::Pursuing)
+    );
+    assert_eq!(
+        app.bottom_pane.notice.as_deref(),
+        Some("Goal resumed. The blocked-goal audit has restarted.")
+    );
+    assert!(app.bottom_pane.running_task.is_some());
+    assert!(
+        app.active_turn
+            .entries
+            .iter()
+            .all(|entry| entry.role != "You")
+    );
+    if let Some(task) = app.bottom_pane.running_task.take() {
+        task.handle.abort();
+    }
+}
+
+#[tokio::test]
+async fn goal_command_keeps_paused_goal_while_another_task_is_running() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let mut app = TuiApp::new(ConfigManager {
+        path: dir.path().join("config.json"),
+    })
+    .expect("app");
+    let mut goal = crate::tui::state::RalphGoal::new("existing goal".to_string(), None);
+    goal.status = crate::tui::state::GoalStatus::Paused;
+    app.goal = Some(goal);
+    *app.goal_handle.write().unwrap() = app.goal.clone();
+    mark_app_busy(&mut app);
+    let oauth_manager = Arc::new(
+        OAuthManager::new_for_config_dir(dir.path().join("oauth")).expect("oauth manager"),
+    );
+    let mut agent_slot = None;
+
+    execute_local_command(
+        LocalCommand {
+            kind: LocalCommandKind::Goal,
+            arg: Some("resume".to_string()),
+        },
+        &mut app,
+        &mut agent_slot,
+        &oauth_manager,
+    )
+    .await
+    .expect("goal command should be handled");
+
+    assert_eq!(
+        app.goal.as_ref().map(|goal| goal.status),
+        Some(crate::tui::state::GoalStatus::Paused)
+    );
+    assert_eq!(
+        app.bottom_pane.notice.as_deref(),
+        Some("A task is already running. Wait for it to finish before resuming a goal.")
+    );
+}
+
+#[tokio::test]
+async fn goal_command_keeps_paused_goal_without_a_runtime_agent() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let mut app = TuiApp::new(ConfigManager {
+        path: dir.path().join("config.json"),
+    })
+    .expect("app");
+    let mut goal = crate::tui::state::RalphGoal::new("existing goal".to_string(), None);
+    goal.status = crate::tui::state::GoalStatus::Paused;
     app.goal = Some(goal);
     *app.goal_handle.write().unwrap() = app.goal.clone();
     let oauth_manager = Arc::new(
@@ -406,11 +516,11 @@ async fn goal_command_resumes_blocked_goal() {
 
     assert_eq!(
         app.goal.as_ref().map(|goal| goal.status),
-        Some(crate::tui::state::GoalStatus::Pursuing)
+        Some(crate::tui::state::GoalStatus::Paused)
     );
     assert_eq!(
         app.bottom_pane.notice.as_deref(),
-        Some("Goal resumed. The blocked-goal audit has restarted.")
+        Some("Goal resume is unavailable until the runtime agent is ready.")
     );
 }
 
@@ -602,7 +712,7 @@ async fn tasks_command_switches_agent_and_tool_default_list() {
 }
 
 #[tokio::test]
-async fn approval_command_switches_always_to_full_access() {
+async fn approval_command_scopes_always_to_bash_without_enabling_full_access() {
     let dir = tempfile::tempdir().expect("tempdir");
     let mut app = TuiApp::new(ConfigManager {
         path: dir.path().join("config.json"),
@@ -612,6 +722,9 @@ async fn approval_command_switches_always_to_full_access() {
         OAuthManager::new_for_config_dir(dir.path().join("oauth")).expect("oauth manager"),
     );
     let mut agent_slot = None;
+    let initial_network_access = app
+        .sandbox_network_access
+        .load(std::sync::atomic::Ordering::Relaxed);
 
     execute_local_command(
         LocalCommand {
@@ -625,14 +738,15 @@ async fn approval_command_switches_always_to_full_access() {
     .await
     .expect("approval command should be handled");
 
-    assert_eq!(app.permission_mode, PermissionMode::FullAccess);
+    assert_eq!(app.permission_mode, PermissionMode::Custom);
     assert_eq!(app.bash_approval_mode_label(), "always");
-    assert!(
+    assert_eq!(
         app.sandbox_network_access
-            .load(std::sync::atomic::Ordering::Relaxed)
+            .load(std::sync::atomic::Ordering::Relaxed),
+        initial_network_access
     );
     assert_eq!(
         app.bottom_pane.notice.as_deref(),
-        Some("Permission mode: full-access.")
+        Some("Bash approval set to always.")
     );
 }
