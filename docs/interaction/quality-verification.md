@@ -59,6 +59,9 @@ Suggested local checks for this surface:
 
 ```bash
 cargo test --locked --lib tui::interaction_tests
+cargo test --locked --lib tui::input_ownership_tests
+cargo test --locked --lib permission
+cargo test --locked --lib tui::render::tests::approval_layout
 cargo test --locked --lib tui::command::tests
 cargo fmt --all -- --check
 cargo check --locked
@@ -90,3 +93,5 @@ evidence before becoming required jobs. Track the open work in [TODO](../todo.md
 ## Source Journals
 
 - [TUI interaction contracts and reference analysis](../journal/2026-09-17-tui-interaction-contracts.md)
+- [Input ownership and draft preservation](../journal/2026-09-17-tui-input-ownership.md)
+- [Permission controls and approval layout](../journal/2026-09-17-tui-permission-controls.md)

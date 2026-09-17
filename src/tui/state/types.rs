@@ -767,6 +767,7 @@ pub struct TuiApp {
     pub permission_picker_idx: usize,
     pub command_palette_idx: usize,
     pub model_search_query: String,
+    pub model_search_cursor_offset: Option<usize>,
     pub model_search_idx: usize,
     pub base_url_input: String,
     pub base_url_cursor_offset: Option<usize>,
@@ -825,6 +826,7 @@ pub struct TuiApp {
     pub skill_picker_entries: Vec<SkillPickerEntry>,
     pub sandbox_network_access: Arc<AtomicBool>,
     pub permission_mode: PermissionMode,
+    pub(crate) pending_permission_mode: Option<PermissionMode>,
     /// Currently active ralph loop goal, if any.
     pub goal: Option<RalphGoal>,
     /// Shared handle that model-facing goal tools write to.

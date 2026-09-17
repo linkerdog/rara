@@ -55,9 +55,9 @@ not inherit the plain-list j/k shortcuts.
 - Pasted content uses the paste event path, including large-paste expansion at
   submission; it must not be replayed as individual shortcut key presses.
 
-Legacy behavior: an empty ordinary composer reserves j/k for transcript
-scrolling, and an empty approval composer reserves navigation letters for the
-approval picker. Changing that behavior to opt-in Vim navigation remains open.
+An ordinary composer accepts j/k as text even when empty. Transcript scrolling
+uses arrows, PageUp/PageDown, or the mouse. An empty approval composer retains
+its explicit navigation shortcuts. A configurable Vim mode is not provided.
 
 ### INPUT-03: Overlay Lifecycle
 
@@ -67,8 +67,12 @@ approval picker. Changing that behavior to opt-in Vim navigation remains open.
   immediately. Selecting a command dismisses the palette before dispatch.
 - Esc affects the top overlay. Setup cancellation follows the owning setup
   flow; it must not implicitly submit a credential or change permissions.
-- Search dismissal resets search state. General overlay dismissal is not an
-  unconditional promise to preserve every composer draft; see Open Risks.
+- Model-search dismissal resets only its query, cursor, and selection. It
+  preserves the underlying composer text, cursor, and pending paste content.
+- Nested setup/search overlays edit their own field. Closing them restores
+  focus to the previous surface without clearing the underlying composer.
+- The command palette still clears its slash token on explicit dismissal;
+  that token is command input, not an unrelated composer draft.
 
 ### INPUT-04: Visible Model Rows Are Selectable Rows
 
@@ -79,6 +83,17 @@ an empty result set performs no model selection.
 
 Changing the query resets the selection when necessary. A provider-name match
 must not render an empty list while Enter selects an invisible model.
+
+The model query owns its cursor. Left/Right, Home/End, Backspace, and Delete
+operate on that query, including insertion before existing Unicode text.
+The renderer keeps the query cursor visible when the input is wider than the
+available row. Editing the query never edits the underlying composer.
+
+Paste is routed to the active text surface. Single-line search/setup fields
+normalize pasted line breaks to spaces and receive the full text directly;
+they do not put placeholders into the conversation composer. Read-only
+overlays ignore paste. Composer paste retains the existing burst/placeholder
+behavior.
 
 ### INPUT-05: Model Selection Uses The Existing Setup/Runtime Path
 
@@ -107,15 +122,14 @@ fake does not prove that a live provider accepted the new model.
 
 ## Open Risks
 
-- Model search currently appends characters to its query. Cursor-editing
-  semantics should be unified with a dedicated search composer in a separate
-  change; do not advertise arbitrary insertion as implemented.
 - Help General and Runtime do not yet support scrolling. Narrow/short terminal
   acceptance needs clipping tests and an explicit scrolling design.
-- Draft restoration across nested setup/search surfaces needs its own tests.
-- Empty-composer j/k navigation conflicts with starting an ordinary message
-  with those letters. Retiring it requires updating the existing key contract.
+- Resume search retains append/backspace editing; full cursor editing there
+  remains a separate follow-up.
+- Grapheme-cluster editing and a configurable Vim mode are outside the current
+  character-offset editor contract.
 
 ## Source Journals
 
 - [TUI interaction contracts](../journal/2026-09-17-tui-interaction-contracts.md)
+- [Input ownership and draft preservation](../journal/2026-09-17-tui-input-ownership.md)

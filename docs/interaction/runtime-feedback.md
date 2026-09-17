@@ -27,7 +27,7 @@ runtime extension registries.
 | --- | --- | --- |
 | Idle, no pending decision | Submit ordinary text | Start or enqueue runtime input; clear the submitted composer |
 | Running turn | Submit ordinary text | Queue a follow-up; keep the current turn and its progress visible |
-| Running turn | Submit a slash command | Reject with a running-task notice, except quit aliases |
+| Running turn | Submit a slash command | Apply the shared command availability policy; inspection preserves running progress |
 | Empty/whitespace input | Enter | No task; lightweight Ready feedback may be shown |
 | Pending decision | Choose a displayed option | Send the corresponding typed decision; do not submit the option as a new task |
 | Runtime rebuilding | Submit ordinary text | Preserve queued input until the runtime can accept it |
@@ -64,6 +64,12 @@ input. The visible card, option count, and keyboard mapping must agree.
   contract requires an explicit answer.
 - Queue state, stale completed cards, or an unrelated overlay must not grant
   authorization. Approval scope is owned by the runtime policy.
+- Pending decisions can use the full terminal viewport. Reserve action rows
+  before allocating space to command previews. Long or multiline commands must
+  not push choices below the visible panel. Measure visual rows after wrapping,
+  elide excess preview with a visible marker, and stack choices when they do not
+  fit on one line. The selected action stays visible through terminal resizing.
+  This layout is shared by local and SSH sessions.
 
 See [planning mode](../features/planning-mode.md),
 [shell approval](../features/shell-approval-policy.md), and
@@ -95,8 +101,8 @@ restored committed output, restored pending state, and newly running work.
   encoding, clipboard integration, or PTY restoration.
 - New reconnect, event-ordering, or approval changes require targeted event
   sequences; existing happy-path coverage is not a universal safety proof.
-- Busy-time command availability and queue-vs-steering semantics need an
-  explicit product decision before new shortcuts are exposed.
+- Queue-vs-steering semantics need an explicit product decision before new
+  shortcuts are exposed. Busy-time command availability follows CMD-03.
 
 ## Source Journals
 

@@ -172,6 +172,10 @@ impl TuiController {
 
     /// Wait for the next runtime event or task completion without polling.
     pub(super) async fn wait_for_runtime_activity(&mut self) -> RuntimeActivity {
+        // Honor submitted controls before completion can start queued work.
+        if let Ok(command) = self.runtime_commands.try_recv() {
+            return RuntimeActivity::Command(Some(command));
+        }
         if self.query_completion_barrier.has_pending_completion() {
             let activity = tokio::select! {
                 event = self.runtime_events.next() => RuntimeActivity::Event(event),
@@ -318,6 +322,60 @@ mod tests {
     };
     use crate::tui::runtime_port::{RuntimeEventStream, RuntimeProjectionEvent};
     use crate::tui::state::TaskCompletion;
+
+    #[tokio::test]
+    async fn submitted_permissions_precede_ready_runtime_completion() {
+        use std::sync::Arc;
+        use std::time::Instant;
+
+        use crate::tui::state::{PermissionMode, RunningTask, RuntimeSnapshot, TaskKind, TuiApp};
+        use crate::tui::testing::FakeRuntimeClient;
+
+        for deferred in [false, true] {
+            let temp = tempfile::tempdir().unwrap();
+            let mut app = TuiApp::new(crate::config::ConfigManager {
+                path: temp.path().join("config.json"),
+            })
+            .unwrap();
+            let (_, receiver) = tokio::sync::mpsc::unbounded_channel();
+            app.bottom_pane.running_task = Some(RunningTask {
+                kind: TaskKind::Query,
+                receiver,
+                handle: tokio::spawn(async { (*test_completion()).unwrap() }),
+                started_at: Instant::now(),
+                next_heartbeat_after_secs: 2,
+                cancellation_token: None,
+                cancellation_requested: false,
+            });
+            tokio::task::yield_now().await;
+            let port = Arc::new(FakeRuntimeClient::new(RuntimeSnapshot::default()));
+            let (sender, receiver) = tokio::sync::mpsc::unbounded_channel();
+            let mut controller = super::TuiController::new(app, port.clone(), receiver);
+            if deferred {
+                controller.query_completion_barrier.defer(test_completion());
+            }
+            port.emit(crate::tui::runtime_port::RuntimeProjectionEvent::Completed { reason: None });
+            sender
+                .send(RuntimeCommand::SetPermissionMode(
+                    PermissionMode::FullAccess,
+                ))
+                .unwrap();
+            assert!(matches!(
+                controller.wait_for_runtime_activity().await,
+                RuntimeActivity::Command(Some(RuntimeCommand::SetPermissionMode(
+                    PermissionMode::FullAccess
+                )))
+            ));
+            controller
+                .app
+                .bottom_pane
+                .running_task
+                .take()
+                .unwrap()
+                .handle
+                .abort();
+        }
+    }
 
     fn test_completion() -> Box<Result<TaskCompletion, tokio::task::JoinError>> {
         Box::new(Ok(TaskCompletion::ModelCatalog {

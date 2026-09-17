@@ -96,7 +96,7 @@ impl TuiApp {
     }
 
     pub fn permission_mode_label(&self) -> &'static str {
-        self.permission_mode.label()
+        self.effective_permission_mode().label()
     }
 
     pub fn bash_approval_mode_label(&self) -> &'static str {

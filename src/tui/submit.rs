@@ -4,9 +4,7 @@ use super::command::parse_local_command;
 use super::input_control;
 use super::runtime::execute_local_command;
 use super::runtime_port::{RuntimeClientPort, RuntimeCommand};
-use super::state::{
-    ActivePendingInteractionKind, LocalCommandKind, OpenAiModelPickerAction, TuiApp,
-};
+use super::state::{ActivePendingInteractionKind, OpenAiModelPickerAction, TuiApp};
 use crate::agent::Agent;
 
 mod pending;
@@ -66,25 +64,8 @@ async fn handle_submit_inner(
     }
     app.record_input_history(&trimmed);
 
-    if app.is_busy() {
-        if trimmed.starts_with('/') {
-            if let Some(command) = parse_local_command(&trimmed)
-                && matches!(command.kind, LocalCommandKind::Quit)
-            {
-                save_before_quit(app);
-                return execute_local_command_with_port(
-                    command,
-                    app,
-                    agent_slot,
-                    oauth_manager,
-                    runtime_port,
-                )
-                .await;
-            }
-            app.push_notice(
-                "A task is already running. Wait for it to finish before running a slash command.",
-            );
-        } else if let Some(runtime_port) = runtime_port {
+    if app.is_busy() && !trimmed.starts_with('/') {
+        if let Some(runtime_port) = runtime_port {
             runtime_port
                 .send(RuntimeCommand::Input(
                     crate::runtime_control::InputControlRequest::SubmitUserPrompt {

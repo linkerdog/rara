@@ -21,8 +21,8 @@ Prompt ideas:
   · Find the main agent loop and summarize it.
 
 
-  Warning  Warning: openai-compatible is missing an API key. Use /model to configure the current pro
+  Warning  perm=custom   Warning: openai-compatible is missing an API key. Use /model to configure t
 › Ask about the repo, request a code change, or type /help to browse commands.
 
 
-                                                                       perm=auto approval=suggestion
+                                                                     perm=custom approval=suggestion

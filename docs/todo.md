@@ -34,12 +34,9 @@ Active backlog only. Keep this file small and current.
 
 ## TUI / UX
 
-- [ ] Share busy-time command availability between discovery and submission;
-      decide whether read-only status/context/help should remain usable during
-      running turns. See [CMD-03](interaction/commands.md#cmd-03-local-submission-and-errors).
-- [ ] Complete keyboard/draft contracts: opt-in empty-composer Vim navigation,
-      model-search cursor editing, help scrolling, and nested-overlay draft
-      restoration. See [input risks](interaction/composer-and-overlays.md#open-risks).
+- [ ] Complete remaining keyboard contracts: resume-search cursor editing,
+      Help General/Runtime scrolling, grapheme-cluster editing, and an explicit
+      opt-in Vim mode. See [input risks](interaction/composer-and-overlays.md#open-risks).
 - [ ] Add a runtime-owned skill enablement update and readback before restoring
       editing controls to the read-only `/skills` inspector. See
       [CMD-05](interaction/commands.md#cmd-05-skill-inspection-does-not-pretend-to-change-runtime-policy).

@@ -14,6 +14,19 @@ use super::state::TuiApp;
 
 pub(super) fn handle_paste(text: String, app: &mut TuiApp) {
     let normalized = text.replace("\r\n", "\n").replace('\r', "\n");
+    if !app.composer_input_is_active() {
+        let text = normalized.replace('\n', " ");
+        if app.overlay
+            == Some(super::state::Overlay::ListPicker(
+                super::state::ListPickerKind::Resume,
+            ))
+        {
+            app.insert_resume_search_text(&text);
+        } else {
+            app.insert_active_input_text(&text);
+        }
+        return;
+    }
     if normalized.contains('\n') || normalized.len() > 1000 {
         // Large or multi-line paste — use burst buffer to avoid
         // O(n²) per-frame redraws. The buffer will be flushed after

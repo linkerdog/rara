@@ -219,12 +219,6 @@ pub(crate) fn map_key_to_event(key: KeyEvent, app: &TuiApp) -> AppEvent {
                     AppEvent::ScrollTranscript(1)
                 }
                 (KeyCode::Down, _) => AppEvent::MoveCursorDown,
-                (KeyCode::Char('k'), _) if app.bottom_pane.input.is_empty() => {
-                    AppEvent::ScrollTranscript(-1)
-                }
-                (KeyCode::Char('j'), _) if app.bottom_pane.input.is_empty() => {
-                    AppEvent::ScrollTranscript(1)
-                }
                 (KeyCode::PageUp, _) if app.bottom_pane.input.is_empty() => {
                     AppEvent::ScrollTranscript(-8)
                 }

@@ -3,6 +3,18 @@ mod tests {
     use super::*;
 
     #[test]
+    fn clap_accepts_explicit_permission_bypass() {
+        for args in [
+            vec!["rara", "--dangerously-skip-permissions"],
+            vec!["rara", "tui", "--dangerously-skip-permissions"],
+            vec!["rara", "resume", "--last", "--dangerously-skip-permissions"],
+            vec!["rara", "exec", "--dangerously-skip-permissions", "hello"],
+        ] {
+            assert!(Cli::try_parse_from(&args).is_ok(), "{args:?}");
+        }
+    }
+
+    #[test]
     fn clap_parses_ask_command() {
         let cli = Cli::try_parse_from(["rara", "ask", "hello"]).expect("parse ask");
         match cli.command.expect("command") {
