@@ -232,6 +232,27 @@ impl TuiApp {
                 p.context_window = self.model_context_window(p.family, &p.model_id);
             }
         }
+        let registry = &self.config.provider_registry;
+        results.retain(|preset| !registry.document.provider.contains_key(&preset.provider_id));
+        for (provider_id, definition) in &registry.document.provider {
+            for (model_id, model) in &definition.models {
+                if !registry.model_allowed(provider_id, model_id) {
+                    continue;
+                }
+                results.push(UnifiedModelPreset {
+                    family: ProviderFamily::OpenAiCompatible,
+                    provider_id: provider_id.clone(),
+                    provider_label: definition
+                        .name
+                        .clone()
+                        .unwrap_or_else(|| provider_id.clone()),
+                    model_id: model_id.clone(),
+                    model_label: model.name.clone().unwrap_or_else(|| model_id.clone()),
+                    status: None,
+                    context_window: model.limit.context,
+                });
+            }
+        }
         results
     }
 
@@ -243,6 +264,15 @@ impl TuiApp {
         self.all_unified_model_presets()
             .into_iter()
             .filter(|preset| {
+                if self
+                    .config
+                    .provider_registry
+                    .document
+                    .provider
+                    .contains_key(&preset.provider_id)
+                {
+                    return self.config.provider_registry.available(&preset.provider_id);
+                }
                 self.provider_connection_status
                     .get(&preset.family)
                     .copied()
@@ -267,6 +297,11 @@ impl TuiApp {
         presets
             .iter()
             .position(|p| {
+                if let Some((provider, model)) = &self.config.provider_registry.selected
+                    && self.config.selected_registry_model().is_some()
+                {
+                    return &p.provider_id == provider && &p.model_id == model;
+                }
                 p.provider_id == self.config.provider
                     && self.config.model.as_deref() == Some(&p.model_id)
             })
@@ -282,7 +317,21 @@ impl TuiApp {
     }
 
     pub fn selected_provider_family(&self) -> ProviderFamily {
-        PROVIDER_FAMILIES[self.provider_picker_idx].0
+        PROVIDER_FAMILIES
+            .get(self.provider_picker_idx)
+            .map(|entry| entry.0)
+            .unwrap_or(ProviderFamily::OpenAiCompatible)
+    }
+
+    pub fn registry_provider_ids(&self) -> Vec<String> {
+        self.config
+            .provider_registry
+            .document
+            .provider
+            .keys()
+            .filter(|id| self.config.provider_registry.provider_allowed(id))
+            .cloned()
+            .collect()
     }
 
     pub fn current_model_picker_len(&self) -> usize {

@@ -477,7 +477,49 @@ impl ConfigManager {
     }
 
     pub fn save(&self, config: &RaraConfig) -> Result<()> {
-        let content = serde_json::to_string_pretty(config)?;
+        let mut value = serde_json::to_value(config)?;
+        if let Some(baseline) = &config.provider_baseline
+            && config
+                .provider_registry
+                .document
+                .provider
+                .contains_key(&config.provider)
+        {
+            let original = serde_json::to_value(baseline)?;
+            for key in [
+                "provider",
+                "api_key",
+                "base_url",
+                "model",
+                "auxiliary_model",
+                "reasoning_effort",
+                "reasoning_summary",
+                "revision",
+                "thinking",
+                "num_ctx",
+                "active_openai_profile_id",
+            ] {
+                if let Some(original) = original.get(key) {
+                    value[key] = original.clone();
+                } else if let Some(object) = value.as_object_mut() {
+                    object.remove(key);
+                }
+            }
+            if config.selected_registry_model().is_some()
+                && let Some((provider, model)) = &config.provider_registry.selected
+            {
+                let path = self.path.with_file_name("model-selection.json");
+                fs::write(path, serde_json::to_string(&format!("{provider}/{model}"))?)?;
+            }
+        }
+        if config.provider_baseline.is_some() && config.selected_registry_model().is_none() {
+            match fs::remove_file(self.path.with_file_name("model-selection.json")) {
+                Ok(()) => {}
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+                Err(error) => return Err(error.into()),
+            }
+        }
+        let content = serde_json::to_string_pretty(&value)?;
         fs::write(&self.path, content)?;
         Ok(())
     }

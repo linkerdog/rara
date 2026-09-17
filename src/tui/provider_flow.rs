@@ -122,6 +122,18 @@ pub(super) fn codex_auth_is_available(app: &TuiApp, oauth_manager: &OAuthManager
 /// Connected providers remain configurable so `/connect` is the only provider
 /// management entry point.
 pub(super) fn open_provider_connection(app: &mut TuiApp) {
+    if let Some(index) = app
+        .provider_picker_idx
+        .checked_sub(super::state::PROVIDER_FAMILIES.len())
+        && let Some(provider) = app.registry_provider_ids().get(index).cloned()
+    {
+        app.registry_credential_target = Some(provider.clone());
+        app.open_overlay(Overlay::ApiKeyEditor(ApiKeyTarget::Registry));
+        app.push_notice(format!(
+            "Enter the API key for {provider}. Model selection stays in /model."
+        ));
+        return;
+    }
     let family = app.selected_provider_family();
     let label = super::state::PROVIDER_FAMILIES[app.provider_picker_idx].1;
 

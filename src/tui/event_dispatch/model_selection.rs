@@ -28,6 +28,26 @@ pub(super) async fn apply_model_selection(
         app.push_notice("The selected model is no longer available. Reopen /model.");
         return Ok(());
     };
+    if app
+        .config
+        .provider_registry
+        .document
+        .provider
+        .contains_key(&preset.provider_id)
+    {
+        app.config
+            .select_registry_model(&preset.provider_id, &preset.model_id)?;
+        app.provider_picker_idx =
+            crate::tui::state::selected_provider_family_idx_for_config(&app.config);
+        request_maintenance(
+            app,
+            agent_slot,
+            runtime_port,
+            RuntimeMaintenanceCommand::Rebuild,
+        )
+        .await?;
+        return Ok(());
+    }
     app.select_unified_model(index);
 
     match preset.family {

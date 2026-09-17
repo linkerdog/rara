@@ -15,6 +15,7 @@ enum Reply {
 }
 
 struct CapturedRequest {
+    request_line: String,
     body: Value,
     authorization: Option<String>,
 }
@@ -66,6 +67,12 @@ async fn server(replies: Vec<Reply>) -> (String, tokio::task::JoinHandle<Vec<Cap
                         .then(|| value.trim().to_owned())
                 });
             requests.push(CapturedRequest {
+                request_line: std::str::from_utf8(&bytes[..start])
+                    .unwrap()
+                    .lines()
+                    .next()
+                    .unwrap()
+                    .to_string(),
                 body: serde_json::from_slice(&bytes[start..start + length]).expect("JSON body"),
                 authorization,
             });
@@ -105,6 +112,59 @@ fn prompt() -> Vec<Message> {
         role: "user".into(),
         content: json!("complete the task"),
     }]
+}
+
+#[tokio::test]
+async fn configured_provider_preserves_api_root_alias_credentials_and_limits() {
+    let (url, requests) = server(vec![Reply::Json(200, answer())]).await;
+    let temp = tempfile::tempdir().unwrap();
+    std::fs::create_dir(temp.path().join(".git")).unwrap();
+    let manager =
+        crate::config::ConfigManager::new_for_rara_home(temp.path().join("home")).unwrap();
+    let document = json!({"model":"zai/alias", "provider":{"zai":{
+        "options":{"baseURL":format!("{url}/api/paas/v4"),"apiKey":"fixture-key"},
+        "models":{"alias":{"id":"organization/model", "limit":{"context":64000,"output":1234},
+            "options":{"temperature":0.3,"topP":0.8,"reasoningEffort":"high"}}}
+    }}})
+    .to_string();
+    let config = manager
+        .load_for_project_with_env(temp.path(), &|key| {
+            (key == "RARA_CONFIG_CONTENT").then(|| document.clone())
+        })
+        .unwrap();
+    let backend = crate::runtime_context::build_backend_with_progress(&config, None)
+        .await
+        .unwrap();
+    assert_eq!(
+        backend
+            .context_budget(&[], &[])
+            .unwrap()
+            .context_window_tokens,
+        64000
+    );
+    assert_eq!(
+        backend
+            .context_budget(&[], &[])
+            .unwrap()
+            .reserved_output_tokens,
+        1234
+    );
+    let response = backend.ask(&prompt(), &[]).await.unwrap();
+    assert!(!response.content.is_empty());
+    let requests = requests.await.unwrap();
+    assert_eq!(
+        requests[0].request_line,
+        "POST /api/paas/v4/chat/completions HTTP/1.1"
+    );
+    assert_eq!(
+        requests[0].authorization.as_deref(),
+        Some("Bearer fixture-key")
+    );
+    assert_eq!(requests[0].body["model"], "organization/model");
+    assert_eq!(requests[0].body["max_tokens"], 1234);
+    assert_eq!(requests[0].body["temperature"], 0.3);
+    assert_eq!(requests[0].body["top_p"], 0.8);
+    assert_eq!(requests[0].body["reasoning_effort"], "high");
 }
 
 #[tokio::test]

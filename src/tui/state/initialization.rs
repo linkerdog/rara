@@ -1,8 +1,16 @@
 use super::*;
 
 impl TuiApp {
+    #[cfg(test)]
     pub fn new(cm: ConfigManager) -> anyhow::Result<Self> {
-        let mut cfg = cm.load()?;
+        let cfg = cm.load()?;
+        Self::with_config(cm, cfg)
+    }
+
+    pub fn with_config(
+        cm: ConfigManager,
+        mut cfg: crate::config::RaraConfig,
+    ) -> anyhow::Result<Self> {
         cfg.apply_provider_environment_defaults();
         crate::tui::theme::install_config(&cfg.tui.theme);
         let overlay = None;
@@ -50,6 +58,7 @@ impl TuiApp {
             base_url_input: String::new(),
             base_url_cursor_offset: None,
             api_key_input: String::new(),
+            registry_credential_target: None,
             api_key_cursor_offset: None,
             model_name_input: String::new(),
             model_name_cursor_offset: None,

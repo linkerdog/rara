@@ -33,6 +33,7 @@ pub enum StartupResumeTarget {
 }
 
 pub struct TuiStartupOptions {
+    pub config: crate::config::RaraConfig,
     pub resume: StartupResumeTarget,
     pub permission_override: Option<super::state::PermissionMode>,
 }
@@ -44,7 +45,7 @@ pub async fn run_tui(
 ) -> anyhow::Result<Option<String>> {
     enable_raw_mode()?;
     let initial_size = terminal_size()?;
-    let mut app = TuiApp::new(crate::config::ConfigManager::new()?)?;
+    let mut app = TuiApp::with_config(crate::config::ConfigManager::new()?, startup.config)?;
     app.goal_handle = runtime.goal_handle.clone();
     app.goal = runtime.goal_handle.read().unwrap().clone();
     app.mcp_tool_cache = Some(runtime.mcp_tool_cache.clone());

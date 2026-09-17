@@ -325,6 +325,45 @@ async fn dispatch_event_inner(
                 return Ok(false);
             };
             let value = app.api_key_input.trim().to_string();
+            if target == ApiKeyTarget::Registry {
+                if app.is_busy() {
+                    app.push_notice("Wait for the current task before saving the API key.");
+                    return Ok(false);
+                }
+                if value.is_empty() {
+                    app.push_notice("Enter an API key or press Esc to go back.");
+                    return Ok(false);
+                }
+                let provider = app
+                    .registry_credential_target
+                    .clone()
+                    .ok_or_else(|| anyhow::anyhow!("Provider credential target is missing"))?;
+                app.config_manager
+                    .save_registry_api_key(&provider, secrecy::SecretString::from(value.clone()))?;
+                let mut overridden = false;
+                if let Some(definition) = app
+                    .config
+                    .provider_registry
+                    .document
+                    .provider
+                    .get_mut(&provider)
+                {
+                    overridden = definition.credential_override;
+                    if !overridden {
+                        definition.options.api_key = Some(secrecy::SecretString::from(value));
+                    }
+                }
+                app.api_key_input.clear();
+                app.registry_credential_target = None;
+                app.dismiss_overlay();
+                app.push_notice(format!(
+                    "Saved {provider} API key. Select a model with /model."
+                ));
+                if overridden {
+                    app.push_notice("The configured or environment API key takes precedence over the saved credential.");
+                }
+                return Ok(false);
+            }
             if app.is_busy() {
                 app.push_notice("Wait for the current task before saving the API key.");
             } else if value.is_empty() && target != ApiKeyTarget::OpenAiCompatible {
@@ -351,6 +390,7 @@ async fn dispatch_event_inner(
             } else {
                 let codex_is_active = app.config.provider == "codex";
                 match target {
+                    ApiKeyTarget::Registry => unreachable!("registry credential handled above"),
                     ApiKeyTarget::Codex => app.config.set_provider_api_key("codex", value),
                     ApiKeyTarget::DeepSeek => app.config.set_provider_api_key("deepseek", value),
                     ApiKeyTarget::Kimi => app.config.set_provider_api_key("kimi", value),
@@ -418,6 +458,7 @@ async fn dispatch_event_inner(
                 } else {
                     app.bottom_pane.notice = Some(
                         match target {
+                            ApiKeyTarget::Registry => "Saved provider API key.",
                             ApiKeyTarget::Codex => "Saved Codex API key.",
                             ApiKeyTarget::DeepSeek => "Saved DeepSeek API key.",
                             ApiKeyTarget::Kimi => "Saved Moonshot AI API key.",

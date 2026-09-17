@@ -191,6 +191,8 @@ pub struct OpenAiCompatibleBackend {
     request_fingerprint_scope: String,
     request_fingerprint_salt: [u8; 16],
     anthropic_cache_ttl: super::AnthropicCacheTtl,
+    configured_api_root: Option<String>,
+    configured_model_options: crate::config::ModelOptions,
 }
 
 impl OpenAiCompatibleBackend {
@@ -225,6 +227,8 @@ impl OpenAiCompatibleBackend {
         let fingerprint_scope = Uuid::new_v4();
         let fingerprint_salt = Uuid::new_v4();
         Ok(Self {
+            configured_api_root: None,
+            configured_model_options: Default::default(),
             client: http_client_for_target(&base_url)?,
             api_key,
             base_url,
@@ -265,6 +269,14 @@ impl OpenAiCompatibleBackend {
         self
     }
 
+    pub(crate) fn with_provider_model(mut self, model: &crate::config::ProviderModel) -> Self {
+        self.configured_api_root = Some(self.base_url.trim_end_matches('/').to_string());
+        self.configured_model_options = model.options.clone();
+        self.context_window_override = model.limit.context.map(|value| value as usize);
+        self.max_output_tokens = model.limit.output.and_then(NonZeroU32::new);
+        self
+    }
+
     pub(crate) fn with_deepseek_user_id(mut self, user_id: String) -> Self {
         self.deepseek_user_id = Some(user_id);
         self
@@ -289,6 +301,17 @@ impl OpenAiCompatibleBackend {
         if let Some(max_output_tokens) = self.max_output_tokens {
             body["max_tokens"] = json!(max_output_tokens.get());
         }
+        if let Some(value) = self.configured_model_options.temperature {
+            body["temperature"] = json!(value);
+        }
+        if let Some(value) = self.configured_model_options.top_p {
+            body["top_p"] = json!(value);
+        }
+        if self.endpoint_kind != OpenAiEndpointKind::Deepseek
+            && let Some(value) = &self.configured_model_options.reasoning_effort
+        {
+            body["reasoning_effort"] = json!(value);
+        }
         apply_deepseek_user_id(
             &mut body,
             self.endpoint_kind,
@@ -301,6 +324,9 @@ impl OpenAiCompatibleBackend {
     }
 
     fn endpoint_url(&self, path: &str) -> String {
+        if let Some(root) = &self.configured_api_root {
+            return format!("{root}/{}", path.trim_start_matches('/'));
+        }
         let base = self.base_url.trim_end_matches('/');
         let path = path.trim_start_matches('/');
         let normalized_base = if base.ends_with("/v1") {
@@ -655,7 +681,7 @@ impl LlmBackend for OpenAiCompatibleBackend {
         } else {
             model_context_budget(summary_model.as_ref()).or(main_budget)
         };
-        match (main_budget, summary_budget) {
+        let budget = match (main_budget, summary_budget) {
             (Some(main), Some(summary)) => {
                 if summary.context_window_tokens < main.context_window_tokens {
                     Some(summary)
@@ -666,7 +692,24 @@ impl LlmBackend for OpenAiCompatibleBackend {
             (Some(main), None) => Some(main),
             (None, Some(summary)) => Some(summary),
             (None, None) => None,
-        }
+        };
+        budget.map(|mut budget| {
+            if self.configured_api_root.is_some()
+                && let Some(output) = self.max_output_tokens
+            {
+                let slack = budget
+                    .context_window_tokens
+                    .saturating_sub(budget.reserved_output_tokens)
+                    .saturating_sub(budget.compact_threshold_tokens);
+                budget.reserved_output_tokens =
+                    (output.get() as usize).min(budget.context_window_tokens);
+                budget.compact_threshold_tokens = budget
+                    .context_window_tokens
+                    .saturating_sub(budget.reserved_output_tokens)
+                    .saturating_sub(slack);
+            }
+            budget
+        })
     }
 
     fn cache_profile(&self) -> ProviderCacheProfile {

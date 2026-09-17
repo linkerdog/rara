@@ -765,6 +765,35 @@ async fn build_backend_with_progress_for_home(
     progress: Option<LocalProgressReporter>,
     rara_home: Option<&Path>,
 ) -> Result<Box<dyn LlmBackend>> {
+    let mut resolved = config.clone();
+    resolved.resolve_registry_model_reference()?;
+    let config = &resolved;
+    if let Some(model) = config.selected_registry_model() {
+        let kind = match config.provider.as_str() {
+            "deepseek" => OpenAiEndpointKind::Deepseek,
+            "moonshotai" => OpenAiEndpointKind::Kimi,
+            "openrouter" => OpenAiEndpointKind::Openrouter,
+            _ => OpenAiEndpointKind::Custom,
+        };
+        return Ok(Box::new(
+            OpenAiCompatibleBackend::new_with_endpoint_kind_and_reasoning(
+                config.api_key_secret(),
+                config
+                    .base_url
+                    .clone()
+                    .context("Configured provider requires an API root")?,
+                config
+                    .model
+                    .clone()
+                    .context("Configured provider requires a model")?,
+                kind,
+                config.reasoning_effort.clone(),
+                config.thinking,
+            )?
+            .with_provider_model(model)
+            .with_auxiliary_model(config.auxiliary_model.clone()),
+        ));
+    }
     match config.provider.as_str() {
         "codex" => Ok(Box::new(
             CodexBackend::new(

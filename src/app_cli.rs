@@ -242,14 +242,35 @@ enum Commands {
 }
 
 pub(crate) async fn run_cli() -> Result<()> {
-    let cli = Cli::parse();
+    let mut cli = Cli::parse();
     let startup_permissions = StartupPermissions::from_cli(&cli)?;
     let cli_plugin_dirs = cli.plugin_dirs.clone();
     let config_manager =
         ConfigManager::new().context("failed to initialize the RARA configuration root")?;
+    let working_directory = std::env::current_dir()?;
+    let config_directory = match &cli.command {
+        Some(Commands::Exec(args)) => args
+            .cwd
+            .as_ref()
+            .map(|path| working_directory.join(path))
+            .unwrap_or(working_directory),
+        _ => working_directory,
+    };
     let mut config = config_manager
-        .load()
+        .load_for_project_with_overrides(
+            &config_directory,
+            &crate::config::ProviderSelectionOverrides {
+                provider: cli.provider.clone(),
+                model: cli.model.clone(),
+                api_key: cli.api_key.clone().map(secrecy::SecretString::from),
+            },
+        )
         .context("failed to load the RARA configuration")?;
+    // Registry selection has already applied CLI provider/model overrides.
+    if config.selected_registry_model().is_some() {
+        cli.model = None;
+        cli.provider = None;
+    }
     let command = apply_cli_overrides(&mut config, cli);
     if matches!(command, Some(Commands::Mem(_))) {
         config_manager.save(&config)?;
@@ -621,6 +642,7 @@ async fn run_tui_command(
         runtime_client,
         oauth_manager,
         crate::tui::TuiStartupOptions {
+            config: config.clone(),
             resume: startup_resume,
             permission_override: startup_permissions.tui_override(),
         },
