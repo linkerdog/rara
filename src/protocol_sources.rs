@@ -27,8 +27,7 @@ use crate::memory_store::{
 };
 use crate::runtime_control::{
     MemoryControlRequest, MemoryEvent, MemoryLabelSummary, MemoryRecordControlPatch,
-    MemoryRecordSummary, MemoryScope as ControlMemoryScope, RuntimeEvent, SkillEvent,
-    SkillSourceControlRequest,
+    MemoryRecordSummary, MemoryScope as ControlMemoryScope, RuntimeEvent,
 };
 use crate::runtime_event_bus::RuntimeEventBus;
 
@@ -36,129 +35,9 @@ mod prompt;
 pub(crate) use prompt::PromptSourceError;
 pub use prompt::{PromptSourceRegistry, ProtocolPromptSourceSnapshot};
 
-// ── Skill source registry ───────────────────────────────────────────────
-
-/// Stored entry for a protocol-registered skill or skill root.
-#[derive(Clone, Debug)]
-pub struct SkillSourceEntry {
-    pub source_id: String,
-    /// Reserved for protocol skill ordering. Will be activated when external
-    /// skill roots are merged into local skill discovery (docs/features/runtime-control-plane.md).
-    #[allow(dead_code)] // Reserved for source precedence resolution
-    pub precedence_hint: Option<i32>,
-}
-
-/// Registry for protocol-registered skill sources.
-///
-/// This is intentionally thin: it records protocol-origin metadata that
-/// augments the local skill discovery path. Protocol skills enter the
-/// same precedence/resolution as local `SKILL.md` files.
-pub struct SkillSourceRegistry {
-    event_bus: Arc<RuntimeEventBus>,
-    /// Protocol-registered skill roots (path overrides).
-    roots: RwLock<BTreeMap<String, SkillSourceEntry>>,
-    /// Protocol-registered inline skills (name → entry).
-    skills: RwLock<BTreeMap<String, SkillSourceEntry>>,
-    /// Disabled skill names.
-    disabled: RwLock<Vec<String>>,
-}
-
-impl SkillSourceRegistry {
-    pub fn new(event_bus: Arc<RuntimeEventBus>) -> Self {
-        Self {
-            event_bus,
-            roots: RwLock::new(BTreeMap::new()),
-            skills: RwLock::new(BTreeMap::new()),
-            disabled: RwLock::new(Vec::new()),
-        }
-    }
-
-    pub async fn handle_control(&self, request: &SkillSourceControlRequest) {
-        match request {
-            SkillSourceControlRequest::RegisterRoot {
-                source_id,
-                root: _root,
-                precedence_hint,
-            } => {
-                self.roots.write().await.insert(
-                    source_id.clone(),
-                    SkillSourceEntry {
-                        source_id: source_id.clone(),
-                        precedence_hint: *precedence_hint,
-                    },
-                );
-                let _ =
-                    self.event_bus
-                        .publish_control(RuntimeEvent::Skill(SkillEvent::Registered {
-                            source_id: source_id.clone(),
-                            name: "root".to_string(),
-                        }));
-            }
-            SkillSourceControlRequest::RegisterSkill {
-                source_id,
-                name,
-                content: _content,
-                precedence_hint,
-            } => {
-                self.skills.write().await.insert(
-                    name.clone(),
-                    SkillSourceEntry {
-                        source_id: source_id.clone(),
-                        precedence_hint: *precedence_hint,
-                    },
-                );
-                let _ =
-                    self.event_bus
-                        .publish_control(RuntimeEvent::Skill(SkillEvent::Registered {
-                            source_id: source_id.clone(),
-                            name: name.clone(),
-                        }));
-            }
-            SkillSourceControlRequest::DisableSkill {
-                name,
-                source_id: _source_id,
-            } => {
-                self.disabled.write().await.push(name.clone());
-            }
-            SkillSourceControlRequest::QuerySkills => {
-                let roots = self.roots.read().await;
-                for (source_id, _entry) in roots.iter() {
-                    let _ = self.event_bus.publish_control(RuntimeEvent::Skill(
-                        SkillEvent::Registered {
-                            source_id: source_id.clone(),
-                            name: "root".to_string(),
-                        },
-                    ));
-                }
-                let skills = self.skills.read().await;
-                for (name, entry) in skills.iter() {
-                    let _ = self.event_bus.publish_control(RuntimeEvent::Skill(
-                        SkillEvent::Registered {
-                            source_id: entry.source_id.clone(),
-                            name: name.clone(),
-                        },
-                    ));
-                }
-            }
-        }
-    }
-
-    /// Atomically snapshot active protocol skills and emit Injected events.
-    pub async fn list_skills_for_query(&self) -> Vec<(String, SkillSourceEntry)> {
-        let skills = self.skills.read().await;
-        let mut results = Vec::new();
-        for (name, entry) in skills.iter() {
-            let _ = self
-                .event_bus
-                .publish_control(RuntimeEvent::Skill(SkillEvent::Injected {
-                    source_id: entry.source_id.clone(),
-                    name: name.clone(),
-                }));
-            results.push((name.clone(), entry.clone()));
-        }
-        results
-    }
-}
+mod skill;
+pub(crate) use skill::SkillSourceError;
+pub use skill::SkillSourceRegistry;
 
 // ── Memory control handler ──────────────────────────────────────────────
 

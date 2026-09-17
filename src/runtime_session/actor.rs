@@ -12,7 +12,7 @@ use super::{
 use crate::agent::{Agent, AgentEvent};
 use crate::memory_lifecycle::MemorySyncReason;
 use crate::model_observation::QueryReport;
-use crate::protocol_sources::PromptSourceError;
+use crate::protocol_sources::{PromptSourceError, SkillSourceError};
 use crate::runtime_client::RuntimeClient;
 use crate::runtime_control::{
     InputDiscardReason, InputEvent, RuntimeEvent, RuntimeProvenance, SessionEvent,
@@ -298,6 +298,35 @@ impl SessionActor {
                     self.finish_shutdown().await;
                     return true;
                 }
+            }
+            SessionCommand::SkillSource {
+                request,
+                provenance,
+                response,
+            } => {
+                let result = if let Some(active) = &self.active {
+                    Err(RuntimeSessionError::Busy {
+                        active_turn: active.turn_id.clone(),
+                    })
+                } else if !self
+                    .client
+                    .agent()
+                    .is_some_and(|agent| agent.tool_manager.get_tool("skill").is_some())
+                {
+                    Err(RuntimeSessionError::UnsupportedSource)
+                } else {
+                    self.client
+                        .skill_source_registry
+                        .handle_control_with_provenance(&request, provenance)
+                        .await
+                        .map_err(|error| match error {
+                            SkillSourceError::Invalid => RuntimeSessionError::InvalidSource,
+                            SkillSourceError::Unsupported => RuntimeSessionError::UnsupportedSource,
+                            SkillSourceError::Capacity => RuntimeSessionError::SourceCapacity,
+                            SkillSourceError::Unavailable => RuntimeSessionError::SourceUnavailable,
+                        })
+                };
+                let _ = response.send(result);
             }
         }
         false
@@ -626,7 +655,8 @@ impl SessionActor {
             | SessionCommand::DisableExtensionExecution { response }
             | SessionCommand::SetFullAccess { response, .. }
             | SessionCommand::ReplaceTranscript { response, .. }
-            | SessionCommand::PromptSource { response, .. } => {
+            | SessionCommand::PromptSource { response, .. }
+            | SessionCommand::SkillSource { response, .. } => {
                 let _ = response.send(Err(RuntimeSessionError::Closed));
             }
             SessionCommand::GetTranscript { response } => {

@@ -6,7 +6,9 @@ use crate::context::{
     CompactionSourceContextEntry, ContextAssemblyEntry, ContextAssemblyView,
     MemorySelectionItemContextEntry, is_retrieved_memory_kind,
 };
-use crate::model_context::{ModelContextKind, model_context_kind, model_context_text};
+use crate::model_context::{
+    ModelContextKind, latest_model_context_text, model_context_kind, model_context_text,
+};
 use crate::prompt::EffectivePrompt;
 
 #[allow(clippy::too_many_arguments)]
@@ -163,6 +165,9 @@ pub(crate) fn assemble_context_view(
             {
                 continue;
             }
+            if kind == ModelContextKind::SkillListing && skill_listing.is_some() {
+                continue;
+            }
             let Some(text) = model_context_text(block) else {
                 continue;
             };
@@ -172,6 +177,7 @@ pub(crate) fn assemble_context_view(
                 ModelContextKind::ProtocolPromptSources => {
                     ("protocol_prompt_sources", "Protocol Prompt Sources")
                 }
+                ModelContextKind::SkillListing => ("skill_listing", "Available Skills"),
                 ModelContextKind::RetrievedMemory => {
                     ("retrieved_memory", "Persisted Retrieved Memory")
                 }
@@ -273,6 +279,8 @@ pub(crate) fn assemble_context_view(
     }
 
     if let Some(skill_text) = skill_listing.filter(|v| !v.trim().is_empty()) {
+        let injected =
+            latest_model_context_text(history, ModelContextKind::SkillListing) == Some(skill_text);
         push(ContextAssemblyEntry {
             order: 0,
             cache_status: None,
@@ -280,9 +288,13 @@ pub(crate) fn assemble_context_view(
             kind: "skill_listing".to_string(),
             label: "Available Skills".to_string(),
             source_path: None,
-            injected: true,
-            inclusion_reason: "injected as a per-turn skill_listing attachment for agent discovery"
-                .to_string(),
+            injected,
+            inclusion_reason: if injected {
+                "persisted in model-visible user context for skill discovery"
+            } else {
+                "catalogue metadata is available but has not reached model-visible context"
+            }
+            .to_string(),
             budget_impact_tokens: Some(estimate_text_tokens(skill_text)),
             dropped_reason: None,
         });

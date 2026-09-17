@@ -21,6 +21,7 @@ use crate::llm::LlmBackend;
 use crate::lsp_manager::LspManager;
 use crate::mcp_tool_cache::McpToolCache;
 use crate::prompt::PromptRuntimeConfig;
+use crate::protocol_sources::SkillSourceRegistry;
 use crate::sandbox::SandboxManager;
 use crate::session::SessionManager;
 use crate::skill::SkillManager;
@@ -40,7 +41,7 @@ use crate::tools::pty::{
     PtyKillTool, PtyListTool, PtyReadTool, PtySessionStore, PtyStartTool, PtyStatusTool,
     PtyStopTool, PtyWriteTool,
 };
-use crate::tools::skill::SkillTool;
+use crate::tools::skill::{SkillReloadPolicy, SkillTool};
 use crate::tools::tasklist::{TaskCreateTool, TaskGetTool, TaskListTool, TaskUpdateTool};
 use crate::tools::todo::TodoWriteTool;
 use crate::tools::web::{WebFetchTool, WebSearchTool};
@@ -58,6 +59,8 @@ pub(super) fn create_full_tool_manager(
     workspace: Arc<WorkspaceMemory>,
     sandbox: Arc<SandboxManager>,
     skill_manager: Arc<RwLock<SkillManager>>,
+    skill_source_registry: Arc<SkillSourceRegistry>,
+    skill_reload_policy: SkillReloadPolicy,
     plugin_roots: Vec<(String, std::path::PathBuf)>,
     prompt_config: PromptRuntimeConfig,
     shell_env: Arc<HashMap<String, String>>,
@@ -168,7 +171,8 @@ pub(super) fn create_full_tool_manager(
     tm.register(Box::new(SkillTool {
         skill_manager: skill_manager.clone(),
         plugin_roots,
-        reload_policy: crate::tools::skill::SkillReloadPolicy::Enabled,
+        reload_policy: skill_reload_policy,
+        protocol_events: Some(skill_source_registry),
     }));
     tm.register(Box::new(AgentTool {
         backend: backend.clone(),
@@ -274,11 +278,12 @@ pub(super) fn create_full_tool_manager(
 }
 
 pub(super) fn load_skill_manager(
+    workspace_root: &std::path::Path,
     warnings: &mut Vec<String>,
     plugin_roots: &[(String, std::path::PathBuf)],
 ) -> Arc<RwLock<SkillManager>> {
     let mut skill_manager = SkillManager::new();
-    if let Err(err) = skill_manager.load_all() {
+    if let Err(err) = skill_manager.load_for_workspace(workspace_root) {
         warnings.push(format!("Skill loading failed: {err}"));
     }
     for (plugin_name, plugin_root) in plugin_roots {

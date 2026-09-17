@@ -52,7 +52,7 @@ impl Agent {
                 let lease = self.begin_inference_turn();
                 if !matches!(decision, PlanApprovalDecision::Reject) {
                     self.refresh_protocol_prompt_sources_for_query().await;
-                    self.refresh_protocol_skill_sources_for_query().await;
+                    self.refresh_protocol_skill_sources_for_query().await?;
                 }
                 Some(lease)
             }
@@ -62,7 +62,7 @@ impl Agent {
                 }
                 let lease = self.begin_inference_turn();
                 self.refresh_protocol_prompt_sources_for_query().await;
-                self.refresh_protocol_skill_sources_for_query().await;
+                self.refresh_protocol_skill_sources_for_query().await?;
                 Some(lease)
             }
             InputControlRequest::AnswerPendingInput { .. } => {

@@ -132,13 +132,26 @@ listing exposes source identity, selection/disabled state and compact metadata; 
 instructions are returned only by invocation. Registered paths are virtual
 source labels, not implicit filesystem-read authority.
 
-This catalogue is the prerequisite for runtime registration. Inline registration,
-disable and query must share the native SkillTool manager before advertisement.
+Canonical inline registration, disable and query now share the native SkillTool
+manager through `RuntimeSession::apply_skill_source`. Host-injected tool managers
+and profiles without the native tool reject this capability. Catalogue events
+are body-free; real invocation emits source provenance and the invoking turn.
 Protocol root discovery remains unsupported until its filesystem and resource
-bounds are implemented and verified separately. Existing local discovery roots
-retain their normal behavior.
+bounds are implemented and verified separately. Runtime discovery and reload use
+the session's explicit workspace; disabling extension discovery also disables
+local reload. Backend replacement retains the session catalogue.
 
 ### 4) Available Skills Prompt
+
+The current native runtime renders sorted compact metadata as a `skill_listing`
+model-context block on the latest user or approval-continuation message. Changes
+append a new context delta; an emptied catalogue appends an explicit clear marker
+once. Old transcript and tool-result evidence remain intact. Static Skills system
+guidance follows native tool availability from initial assembly, preserving the
+system prefix across empty/nonempty catalogue transitions. Context inspection
+marks metadata injected only when its text is present in model-visible history.
+Descriptions use the existing native Markdown fallback and compact renderer;
+this does not establish full frontmatter parsing or a new budget-omission policy.
 
 The model-facing skills section should stay compact and stable:
 

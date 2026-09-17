@@ -6,7 +6,9 @@ use super::input::TurnInput;
 use super::{RuntimeSessionError, RuntimeTurnId, RuntimeTurnOutcome};
 use crate::agent::AgentOutputMode;
 use crate::llm::{LlmBackend, Message};
-use crate::runtime_control::{PromptSourceControlRequest, RuntimeProvenance};
+use crate::runtime_control::{
+    PromptSourceControlRequest, RuntimeProvenance, SkillSourceControlRequest,
+};
 
 pub(super) type TurnResultSender = oneshot::Sender<Result<RuntimeTurnOutcome, RuntimeSessionError>>;
 
@@ -61,6 +63,11 @@ pub(super) enum SessionCommand {
         response: oneshot::Sender<Result<(), RuntimeSessionError>>,
     },
     Shutdown {
+        response: oneshot::Sender<Result<(), RuntimeSessionError>>,
+    },
+    SkillSource {
+        request: SkillSourceControlRequest,
+        provenance: RuntimeProvenance,
         response: oneshot::Sender<Result<(), RuntimeSessionError>>,
     },
 }

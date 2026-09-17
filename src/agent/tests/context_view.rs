@@ -618,3 +618,65 @@ async fn query_persists_selected_memory_as_typed_model_context() {
             .any(|item| item.kind == crate::context::RETRIEVED_WORKSPACE_MEMORY_KIND)
     );
 }
+
+#[test]
+fn skill_listing_view_distinguishes_available_metadata_from_persisted_context() {
+    let (_temp, session_manager, workspace, rara_dir) = test_runtime_storage();
+    let mut agent = Agent::new(
+        ToolManager::new(),
+        Arc::new(SequencedBackend::new(Vec::new())),
+        Arc::new(MemoryHandle::new(
+            &rara_dir.join("memory").to_string_lossy(),
+        )),
+        session_manager,
+        workspace,
+    );
+    agent.set_prompt_config(PromptRuntimeConfig {
+        skill_tool_available: true,
+        available_skills: vec![crate::prompt::PromptSkillSummary {
+            name: "visible-skill".into(),
+            title: None,
+            description: "Review the context.".into(),
+            scope: "protocol".into(),
+            disable_model_invocation: false,
+        }],
+        ..Default::default()
+    });
+    agent.history.push(Message {
+        role: "user".into(),
+        content: json!("inspect"),
+    });
+    let before = agent.assemble_turn_context();
+    let before_entries = before
+        .runtime
+        .assembly
+        .entries
+        .iter()
+        .filter(|entry| entry.kind == "skill_listing")
+        .collect::<Vec<_>>();
+    assert_eq!(before_entries.len(), 1);
+    assert!(!before_entries[0].injected);
+    assert!(agent.persist_model_context_for_latest_user_message());
+    let after = agent.assemble_turn_context();
+    let after_entries = after
+        .runtime
+        .assembly
+        .entries
+        .iter()
+        .filter(|entry| entry.kind == "skill_listing")
+        .collect::<Vec<_>>();
+    assert_eq!(after_entries.len(), 1);
+    assert!(after_entries[0].injected);
+    agent.prompt_config.available_skills[0].description = "A changed description.".into();
+    let changed = agent.assemble_turn_context();
+    assert!(
+        !changed
+            .runtime
+            .assembly
+            .entries
+            .iter()
+            .find(|entry| entry.kind == "skill_listing")
+            .expect("listing")
+            .injected
+    );
+}

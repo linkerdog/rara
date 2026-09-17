@@ -8,6 +8,7 @@ pub(crate) enum ModelContextKind {
     Environment,
     ExecutionMode,
     ProtocolPromptSources,
+    SkillListing,
     RetrievedMemory,
 }
 
@@ -17,6 +18,7 @@ impl ModelContextKind {
             Self::Environment => "environment",
             Self::ExecutionMode => "execution_mode",
             Self::ProtocolPromptSources => "protocol_prompt_sources",
+            Self::SkillListing => "skill_listing",
             Self::RetrievedMemory => "retrieved_memory",
         }
     }
@@ -26,7 +28,8 @@ impl ModelContextKind {
             Self::Environment => 0,
             Self::ExecutionMode => 1,
             Self::ProtocolPromptSources => 2,
-            Self::RetrievedMemory => 3,
+            Self::SkillListing => 3,
+            Self::RetrievedMemory => 4,
         }
     }
 }
@@ -117,6 +120,7 @@ pub(crate) fn model_context_kind(block: &Value) -> Option<ModelContextKind> {
         "environment" => Some(ModelContextKind::Environment),
         "execution_mode" => Some(ModelContextKind::ExecutionMode),
         "protocol_prompt_sources" => Some(ModelContextKind::ProtocolPromptSources),
+        "skill_listing" => Some(ModelContextKind::SkillListing),
         "retrieved_memory" => Some(ModelContextKind::RetrievedMemory),
         _ => None,
     }

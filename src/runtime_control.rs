@@ -279,11 +279,33 @@ pub enum PromptSourceEvent {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "type", content = "payload", rename_all = "snake_case")]
 pub enum SkillEvent {
-    Registered { source_id: String, name: String },
-    Unregistered { source_id: String, name: String },
-    Injected { source_id: String, name: String },
-    Shadowed { name: String, by_source_id: String },
-    Failed { source_id: String, reason: String },
+    Catalogue {
+        skills: Vec<rara_skills::ProtocolSkillStatus>,
+    },
+    Disabled {
+        source_id: String,
+        name: String,
+    },
+    Registered {
+        source_id: String,
+        name: String,
+    },
+    Unregistered {
+        source_id: String,
+        name: String,
+    },
+    Injected {
+        source_id: String,
+        name: String,
+    },
+    Shadowed {
+        name: String,
+        by_source_id: String,
+    },
+    Failed {
+        source_id: String,
+        reason: String,
+    },
 }
 
 #[allow(dead_code)] // ACP protocol type — reserved for future lifecycle events

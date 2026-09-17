@@ -3,9 +3,10 @@ use std::sync::{Arc, RwLock};
 
 use async_trait::async_trait;
 use rara_tool_macros::tool_spec;
-use rara_tools::tool::{Tool, ToolError};
+use rara_tools::tool::{Tool, ToolCallContext, ToolError, ToolProgressEvent};
 use serde_json::{Value, json};
 
+use crate::protocol_sources::SkillSourceRegistry;
 use crate::skill::SkillManager;
 
 #[cfg(test)]
@@ -13,9 +14,9 @@ fn shared_skill_manager(manager: SkillManager) -> Arc<RwLock<SkillManager>> {
     Arc::new(RwLock::new(manager))
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum SkillReloadPolicy {
-    Enabled,
+    Enabled { workspace_root: PathBuf },
     Disabled,
 }
 
@@ -23,6 +24,7 @@ pub struct SkillTool {
     pub skill_manager: Arc<RwLock<SkillManager>>,
     pub plugin_roots: Vec<(String, PathBuf)>,
     pub reload_policy: SkillReloadPolicy,
+    pub protocol_events: Option<Arc<SkillSourceRegistry>>,
 }
 #[tool_spec(
     name = "skill",
@@ -49,7 +51,22 @@ pub struct SkillTool {
 )]
 #[async_trait]
 impl Tool for SkillTool {
-    async fn call(&self, i: Value) -> Result<Value, ToolError> {
+    async fn call(&self, input: Value) -> Result<Value, ToolError> {
+        self.execute(input, None)
+    }
+
+    async fn call_with_context_events(
+        &self,
+        input: Value,
+        context: ToolCallContext,
+        _report: &mut (dyn FnMut(ToolProgressEvent) + Send),
+    ) -> Result<Value, ToolError> {
+        self.execute(input, Some(&context))
+    }
+}
+
+impl SkillTool {
+    fn execute(&self, i: Value, context: Option<&ToolCallContext>) -> Result<Value, ToolError> {
         let action = i["action"]
             .as_str()
             .ok_or(ToolError::InvalidInput("action".into()))?;
@@ -109,26 +126,40 @@ impl Tool for SkillTool {
                     .iter()
                     .map(|o| o.scope.as_str().to_string())
                     .collect();
-                Ok(json!({
+                let source_id = skill_manager
+                    .winning_protocol_source(name)
+                    .map(str::to_owned);
+                let result = json!({
                     "name": skill.name,
                     "title": skill.title,
                     "scope": skill.scope.as_str(),
                     "instructions": skill.instructions(),
                     "args": args,
                     "disable_model_invocation": skill.disable_model_invocation,
-                    "source_id": skill_manager.winning_protocol_source(name),
+                    "source_id": source_id,
                     "overrides_others": !shadowed_scopes.is_empty(),
                     "shadowed_scopes": shadowed_scopes,
-                }))
+                });
+                drop(skill_manager);
+                if let (Some(events), Some(source_id)) = (&self.protocol_events, source_id) {
+                    events
+                        .record_invocation(
+                            &source_id,
+                            name,
+                            context.and_then(ToolCallContext::turn_id),
+                        )
+                        .map_err(|error| ToolError::ExecutionFailed(error.to_string()))?;
+                }
+                Ok(result)
             }
             "reload" => {
-                if self.reload_policy == SkillReloadPolicy::Disabled {
+                let SkillReloadPolicy::Enabled { workspace_root } = &self.reload_policy else {
                     return Err(ToolError::ExecutionFailed(
-                        "skill reload is not available in this subagent".into(),
+                        "skill reload is not available in this session".into(),
                     ));
-                }
+                };
                 let mut verify = SkillManager::new();
-                if let Err(err) = verify.load_all() {
+                if let Err(err) = verify.load_for_workspace(workspace_root) {
                     return Err(ToolError::ExecutionFailed(err.to_string()));
                 }
                 for (plugin_name, plugin_root) in &self.plugin_roots {
@@ -166,7 +197,8 @@ async fn list_returns_scopes_and_skills() {
     let tool = SkillTool {
         skill_manager: shared_skill_manager(manager),
         plugin_roots: Vec::new(),
-        reload_policy: SkillReloadPolicy::Enabled,
+        reload_policy: SkillReloadPolicy::Disabled,
+        protocol_events: None,
     };
 
     let result = tool.call(json!({"action": "list"})).await.expect("list");
@@ -194,6 +226,7 @@ async fn protocol_skill_uses_native_list_invoke_and_disable() {
         skill_manager: manager.clone(),
         plugin_roots: Vec::new(),
         reload_policy: SkillReloadPolicy::Disabled,
+        protocol_events: None,
     };
     let listing = tool.call(json!({"action": "list"})).await.expect("list");
     assert_eq!(listing["skills"][0]["source_id"], "activation-entry");
@@ -240,7 +273,8 @@ fn skill_tool_description_requires_exact_pre_task_invocation() {
     let tool = SkillTool {
         skill_manager: shared_skill_manager(manager),
         plugin_roots: Vec::new(),
-        reload_policy: SkillReloadPolicy::Enabled,
+        reload_policy: SkillReloadPolicy::Disabled,
+        protocol_events: None,
     };
     let description = tool.description();
 
@@ -276,7 +310,8 @@ async fn invoke_returns_overridden_by_when_present() {
     let tool = SkillTool {
         skill_manager: shared_skill_manager(manager),
         plugin_roots: Vec::new(),
-        reload_policy: SkillReloadPolicy::Enabled,
+        reload_policy: SkillReloadPolicy::Disabled,
+        protocol_events: None,
     };
 
     let result = tool
@@ -298,7 +333,8 @@ async fn invoke_missing_skill_returns_error() {
     let tool = SkillTool {
         skill_manager: shared_skill_manager(manager),
         plugin_roots: Vec::new(),
-        reload_policy: SkillReloadPolicy::Enabled,
+        reload_policy: SkillReloadPolicy::Disabled,
+        protocol_events: None,
     };
 
     let err = tool
@@ -340,7 +376,8 @@ async fn list_shows_overridden_flag() {
     let tool = SkillTool {
         skill_manager: shared_skill_manager(manager),
         plugin_roots: Vec::new(),
-        reload_policy: SkillReloadPolicy::Enabled,
+        reload_policy: SkillReloadPolicy::Disabled,
+        protocol_events: None,
     };
 
     let result = tool.call(json!({"action": "list"})).await.expect("list");
@@ -386,7 +423,8 @@ async fn list_returns_active_scopes() {
     let tool = SkillTool {
         skill_manager: shared_skill_manager(manager),
         plugin_roots: Vec::new(),
-        reload_policy: SkillReloadPolicy::Enabled,
+        reload_policy: SkillReloadPolicy::Disabled,
+        protocol_events: None,
     };
 
     let result = tool.call(json!({"action": "list"})).await.expect("list");
@@ -408,11 +446,32 @@ async fn reload_updates_running_manager_with_plugin_skills() {
     )
     .expect("skill");
 
-    let manager = shared_skill_manager(SkillManager::new());
+    let workspace_skill = temp
+        .path()
+        .join(".agents/skills/test-explicit-workspace-only");
+    std::fs::create_dir_all(&workspace_skill).expect("workspace skill directory");
+    std::fs::write(
+        workspace_skill.join("SKILL.md"),
+        "# Explicit workspace\nUse only this workspace.",
+    )
+    .expect("workspace skill");
+    let mut initial = SkillManager::new();
+    initial
+        .register_protocol_skill(rara_skills::ProtocolSkillRegistration {
+            source_id: "retained-source".into(),
+            name: "retained-skill".into(),
+            content: "# Retained\nProtocol body survives local reload.".into(),
+            precedence_hint: None,
+        })
+        .expect("protocol definition");
+    let manager = shared_skill_manager(initial);
     let tool = SkillTool {
         skill_manager: manager.clone(),
         plugin_roots: vec![("quality".to_string(), plugin_root)],
-        reload_policy: SkillReloadPolicy::Enabled,
+        reload_policy: SkillReloadPolicy::Enabled {
+            workspace_root: temp.path().to_path_buf(),
+        },
+        protocol_events: None,
     };
 
     let result = tool
@@ -433,4 +492,15 @@ async fn reload_updates_running_manager_with_plugin_skills() {
 
     let guard = manager.read().expect("manager");
     assert!(guard.get_skill("quality:reviewer").is_some());
+    assert_eq!(
+        guard
+            .get_skill("test-explicit-workspace-only")
+            .expect("explicit workspace skill")
+            .scope,
+        crate::skill::SkillScope::Workspace
+    );
+    assert_eq!(
+        guard.winning_protocol_source("retained-skill"),
+        Some("retained-source")
+    );
 }

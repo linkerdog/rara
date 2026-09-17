@@ -31,6 +31,8 @@ pub enum RuntimeSessionError {
     UnsupportedSource,
     #[error("runtime source capacity exceeded")]
     SourceCapacity,
+    #[error("runtime source registry is unavailable")]
+    SourceUnavailable,
     #[error("runtime host already contains session {0}")]
     AlreadyExists(super::RuntimeSessionId),
     #[error("runtime session command queue is full")]

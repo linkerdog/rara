@@ -297,7 +297,7 @@ impl Agent {
         }
         self.refresh_file_search_candidates();
         self.refresh_protocol_prompt_sources_for_query().await;
-        self.refresh_protocol_skill_sources_for_query().await;
+        self.refresh_protocol_skill_sources_for_query().await?;
         if self.persist_model_context_for_latest_user_message() {
             self.recompute_history_token_estimate();
             self.checkpoint_session()?;

@@ -2,7 +2,7 @@ use std::collections::BTreeMap;
 use std::fmt;
 use std::path::PathBuf;
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 use crate::{Skill, SkillManager, SkillScope, strip_frontmatter};
 
@@ -21,7 +21,7 @@ pub struct ProtocolSkillRegistration {
 }
 
 /// Body-free status for protocol queries, including retained disabled/shadowed entries.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ProtocolSkillStatus {
     pub source_id: String,
     pub name: String,

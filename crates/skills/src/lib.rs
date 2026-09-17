@@ -103,7 +103,12 @@ impl SkillManager {
 
     pub fn discover_and_load(&mut self) -> Result<()> {
         let workspace_root = std::env::current_dir()?;
-        self.discover_workspace_skills(&workspace_root)?;
+        self.load_for_workspace(&workspace_root)
+    }
+
+    /// Load explicit workspace and shared user roots without changing process cwd.
+    pub fn load_for_workspace(&mut self, workspace_root: &Path) -> Result<()> {
+        self.discover_workspace_skills(workspace_root)?;
         self.discover_global_skills()?;
         self.load_bundled_skills()?;
         Ok(())

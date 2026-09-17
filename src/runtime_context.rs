@@ -489,7 +489,11 @@ pub(crate) async fn initialize_rara_context_with_options(
     }
     append_multi_agent_prompt_instructions(&mut prompt_config, multi_agent_policy);
     let skill_manager = if options.extension_discovery {
-        load_skill_manager(&mut prompt_config.warnings, &plugin_skill_roots)
+        load_skill_manager(
+            &workspace.root,
+            &mut prompt_config.warnings,
+            &plugin_skill_roots,
+        )
     } else {
         Arc::new(RwLock::new(SkillManager::new()))
     };
@@ -531,7 +535,26 @@ pub(crate) async fn initialize_rara_context_with_options(
     let hook_runtime = Arc::new(HookRuntime::new(event_bus.clone()));
     hook_runtime.start();
     let prompt_source_registry = Arc::new(PromptSourceRegistry::new(event_bus.clone()));
-    let skill_source_registry = Arc::new(SkillSourceRegistry::new(event_bus.clone()));
+    let native_skill_available = options.tool_manager.is_none()
+        && session_profile
+            .tool_names()
+            .is_none_or(|names| names.contains(&"skill"));
+    prompt_config.skill_tool_available = native_skill_available;
+    if !native_skill_available {
+        prompt_config.available_skills.clear();
+    }
+    let skill_source_registry = Arc::new(if native_skill_available {
+        SkillSourceRegistry::with_manager(event_bus.clone(), skill_manager.clone())
+    } else {
+        SkillSourceRegistry::unavailable(event_bus.clone())
+    });
+    let skill_reload_policy = if options.extension_discovery {
+        crate::tools::skill::SkillReloadPolicy::Enabled {
+            workspace_root: workspace.root.clone(),
+        }
+    } else {
+        crate::tools::skill::SkillReloadPolicy::Disabled
+    };
     let hook_registry = Arc::new(HookRegistry::new(event_bus.clone()));
     let goal_handle: GoalHandle = Arc::new(std::sync::RwLock::new(None));
     let mcp_tool_cache = McpToolCache::new();
@@ -615,6 +638,8 @@ pub(crate) async fn initialize_rara_context_with_options(
             workspace.clone(),
             sandbox_manager.clone(),
             skill_manager,
+            skill_source_registry.clone(),
+            skill_reload_policy,
             plugin_skill_roots,
             prompt_config.clone(),
             Arc::new(shell_env.env),

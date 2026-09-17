@@ -9,10 +9,11 @@ native input/approval commands are implemented. The wire control frame carries t
 expected turn for stops and answers. This does not yet make the app-server command available or complete
 a downstream provider integration.
 
-The native skill catalogue now resolves bounded inline protocol definitions and
-the native skill tool can list/invoke them. Canonical registration ownership and
-model-visible discovery metadata are still follow-up work; the old protocol
-registry has not yet been connected to this catalogue.
+The native skill catalogue resolves bounded inline protocol definitions through
+canonical session registration and the real SkillTool. Compact metadata reaches
+model-visible context; invocation records source and turn provenance. Static
+system guidance stays stable across catalogue changes. Process transport and
+capability advertisement still require the remaining CLI work.
 
 ## Background
 
@@ -64,6 +65,15 @@ raw-Agent dispatcher would bypass the canonical session owner.
   and shadowed definitions retain metadata. Enforce count/body/aggregate limits
   before replacement. Native tool listing stays body-free, invocation returns
   instructions with source identity, and local reload preserves protocol records.
+- Bind inline skill commands and the native tool to one session catalogue.
+  Reject active turns, foreign provenance, unowned host tools, restricted profiles
+  and unsupported root discovery. Local reload uses the explicit workspace and
+  preserves protocol definitions; disabled ambient discovery cannot be reopened
+  by tool reload. Replace synthetic injection events with native invocation evidence.
+- Persist compact skill metadata on the latest model-visible user/continuation
+  context, including a single clear marker after removal. Preserve historical
+  bytes and static system guidance. Context inspection no longer reports available
+  metadata as injected before it reaches model history.
 - Mirror connection gating and bounded ordered output from the inspected Codex
   transport, and correlated/cancelled control responses from the inspected Claude
   Code transport, without adopting either wire schema or implementation.
@@ -137,8 +147,19 @@ resolution, local authority, atomic invalid replacements, count/byte bounds,
 disabled metadata, reload and explicit body disclosure. All 8 native skill-tool
 tests pass, including a new list/invoke/disable workflow with source identity and
 body-free disabled status. The skill crate passes all-target Clippy with warnings
-denied. These tests establish the catalogue/tool boundary, not live protocol
-registration or automatic model-context delivery.
+denied. The following binding checkpoint additionally establishes canonical
+registration and model-context delivery.
+
+The binding checkpoint has 26 passing focused root tests: session source/input
+workflows, native skill tools, context inspection, typed context and cache-prefix
+regressions. Three new canonical workflows prove actual native list/invoke tool
+results, source/turn events, no premature body disclosure, disable, stable system
+prefixes, append-only history, cross-session isolation, busy rejection, backend
+replacement and unsupported tool/profile/root cases. A new context-view regression
+separates available from persisted metadata. Local reload coverage verifies the
+explicit workspace and retained protocol records. All 35 instruction-crate tests
+and 9 skill-crate tests pass, including a new empty/nonempty catalogue prefix
+regression. Root all-target Clippy passes with warnings denied.
 
 ```bash
 cargo fmt --all
@@ -154,6 +175,8 @@ CARGO_INCREMENTAL=0 cargo test --locked --offline --lib runtime_session::source_
 CARGO_INCREMENTAL=0 cargo test --locked --offline --lib runtime_session::input_tests::
 CARGO_INCREMENTAL=0 cargo test --locked --offline --lib agent::tests::planning
 CARGO_INCREMENTAL=0 cargo test --locked --offline --lib tools::skill
+CARGO_INCREMENTAL=0 cargo test --locked --offline --lib -- runtime_session:: tools::skill agent::tests::context_view agent::tests::prompt_cache model_context::
+cargo test --locked --offline -p rara-instructions -p rara-skills --lib
 cargo clippy --locked --all-targets --no-deps --offline -- -D warnings
 git diff --check
 ```
@@ -164,9 +187,7 @@ evidence remain open until their implementations exist.
 
 ## Follow-Ups
 
-Bind canonical skill registration to the native catalogue/tool manager, deliver
-compact metadata to model context with stable system guidance, and emit real
-invocation provenance. Keep unsupported root discovery explicit. Implement bounded process transport,
+Keep unsupported root discovery explicit. Implement bounded process transport,
 receipt/replay behavior and real isolated child-process smoke before advertising
 the protocol. The owning contract is
 [App Server Stdio Protocol](../features/app-server-stdio.md).

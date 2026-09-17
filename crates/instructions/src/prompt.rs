@@ -236,6 +236,8 @@ pub struct PromptRuntimeConfig {
     pub compact_prompt: Option<String>,
     pub protocol_prompt_sources: Vec<PromptSource>,
     pub available_skills: Vec<PromptSkillSummary>,
+    /// Keep generic skill guidance stable while the native catalogue changes.
+    pub skill_tool_available: bool,
     pub context_file_search: rara_config::ContextFileSearchPolicy,
     /// Hook prompt entries, each tagged with its lifecycle phase.
     /// Populated at startup from `.claude/hooks/*.md`.
@@ -270,6 +272,7 @@ impl PromptRuntimeConfig {
             compact_prompt,
             protocol_prompt_sources: Vec::new(),
             available_skills: Vec::new(),
+            skill_tool_available: false,
             context_file_search: config.context_file_search,
             hook_prompt_entries: Vec::new(),
             warnings,
@@ -356,8 +359,7 @@ pub fn build_effective_prompt(
     _mode: PromptMode,
 ) -> EffectivePrompt {
     let sources = discover_prompt_sources(workspace, runtime);
-    let system_sections =
-        session_system_prompt_sections(workspace, &sources, &runtime.available_skills);
+    let system_sections = session_system_prompt_sections(workspace, &sources, runtime);
     let (base_prompt_kind, base_prompt_text, mut section_keys) =
         if let Some(custom_prompt) = &runtime.system_prompt {
             (
@@ -712,7 +714,7 @@ fn default_system_prompt_sections() -> Vec<PromptSection> {
 fn session_system_prompt_sections(
     workspace: &WorkspaceMemory,
     sources: &[PromptSource],
-    available_skills: &[PromptSkillSummary],
+    runtime: &PromptRuntimeConfig,
 ) -> Vec<PromptSection> {
     let (cwd, _) = workspace.get_env_info();
     let instruction_sections = sources
@@ -748,7 +750,7 @@ fn session_system_prompt_sections(
         )),
     };
 
-    let skills_block = render_available_skills_section(available_skills);
+    let skills_block = render_available_skills_section(runtime);
     let language_prompt = crate::languages::get_language_prompt(&cwd);
 
     vec![
@@ -758,8 +760,8 @@ fn session_system_prompt_sections(
     ]
 }
 
-fn render_available_skills_section(skills: &[PromptSkillSummary]) -> Option<String> {
-    if skills.is_empty() {
+fn render_available_skills_section(runtime: &PromptRuntimeConfig) -> Option<String> {
+    if !runtime.skill_tool_available && runtime.available_skills.is_empty() {
         return None;
     }
 

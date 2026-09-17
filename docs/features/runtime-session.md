@@ -200,6 +200,23 @@ ASCII identifier bytes. A session retains at most32 sources,64KiB per source and
 Lifecycle events retain source provenance; expiry affects subsequent query
 assembly and does not erase historical transcript content.
 
+### Skill Source Control
+
+`apply_skill_source` serializes inline skill registration, source-scoped disable
+and catalogue queries with session commands. It rejects active turns and foreign
+session provenance. Registration requires the native skill tool and its shared
+session catalogue; injected tool registries and profiles without that tool cannot
+advertise this capability. Protocol root discovery is explicitly unsupported.
+
+Registration and query events contain source identity and selection/disabled
+metadata, never full bodies. `Injected` is emitted only when the native skill
+tool returns a protocol body, with the invoking turn and original source
+provenance. Compact winning metadata reaches the latest model-visible context;
+removal is explicit and old transcript evidence remains intact. Static system
+guidance follows tool availability from initial assembly, so registering a first
+skill does not change the system prefix. Local discovery/reload uses the explicit
+workspace; disabling ambient discovery also disables local reload.
+
 ### Turn Stop Control
 
 `cancel_turn(expected_turn)` and `interrupt_turn(expected_turn)` target a specific

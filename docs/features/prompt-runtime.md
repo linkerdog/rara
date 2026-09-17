@@ -304,6 +304,18 @@ Examples:
   `Registered` when accepted, `Injected` when snapshotted into a user query, and
   `Dropped` when a turn-limited source expires or is removed from the registry.
 
+### 4.1) Skill Catalogue Context
+
+Native skill discovery uses the session-owned catalogue shared with the skill
+tool. Compact metadata is persisted as `skill_listing` on the latest user or
+approval-continuation message; a later removal appends an explicit clear marker
+without rewriting historical context or tool pairs. The Skills system section
+is static and enabled from initial native tool availability, so catalogue changes
+do not alter the system prefix. Context inspection distinguishes available
+metadata from text already persisted in model-visible history. Full instructions
+remain the native invocation result, with protocol source/turn evidence emitted
+only for that invocation. See [the skill contract](skill-tool.md).
+
 ### 5) Agent Loop Integration
 
 - `Agent::build_system_prompt()` must delegate to the prompt runtime instead of hand-building the
