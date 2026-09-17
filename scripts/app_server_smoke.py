@@ -81,6 +81,7 @@ class Child:
         )
         self.buffer = bytearray()
         self.frames = []
+        self.sessions = set()
         self.diagnostics = bytearray()
         self.selector = selectors.DefaultSelector()
         self.selector.register(self.process.stdout, selectors.EVENT_READ)
@@ -120,6 +121,9 @@ class Child:
         self.buffer = bytearray(remainder)
         assert len(line) <= 1048576
         frame = json.loads(line)
+        if frame["type"] == "event":
+            assert frame["payload"]["runtime_id"] == self.runtime_id
+            assert frame["payload"]["session_id"] in self.sessions
         self.frames.append(frame)
         return frame
 
@@ -149,6 +153,7 @@ class Child:
         self.send(request)
         result = self.ack("create")
         assert result["status"] == "accepted", result
+        self.sessions.add(result["session_id"])
         self.send(request)
         assert self.ack("create") == result
         return result["session_id"]

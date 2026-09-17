@@ -143,8 +143,11 @@ run. Cross-process receipt persistence is not advertised by this version.
 
 ### Events And Replay
 
-An `event` frame carries `runtime_id` and the canonical RuntimeControlEvent as
-`event`. Event identity is scoped by runtime/session, independent of request ID.
+An `event` frame carries `runtime_id`, the owning `session_id`, and the canonical
+RuntimeControlEvent as `event`. Event identity is scoped by runtime/session,
+independent of request ID. The outer session identity comes from the owned stream,
+not event provenance: native startup events can lack provenance session IDs and
+separate session buses can allocate the same local event ID and sequence.
 The event remains typed by the runtime; the shared codec is generic over that
 event type so the protocol crate does not depend on the application runtime.
 

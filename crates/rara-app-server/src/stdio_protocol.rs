@@ -92,6 +92,7 @@ pub enum ServerFrame<Event> {
     Ack(Acknowledgement),
     Event {
         runtime_id: String,
+        session_id: String,
         event: Event,
     },
     ReplayGap(ReplayGap),

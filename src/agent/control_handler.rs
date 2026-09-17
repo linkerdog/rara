@@ -2,7 +2,7 @@ use std::sync::atomic::Ordering;
 
 use anyhow::{Result, anyhow};
 
-use crate::agent::{Agent, AgentEvent, AgentOutputMode, BashApprovalDecision};
+use crate::agent::{Agent, AgentEvent, AgentExecutionMode, AgentOutputMode, BashApprovalDecision};
 use crate::runtime_control::{InputControlRequest, PlanApprovalDecision, SessionControlRequest};
 
 impl Agent {
@@ -46,7 +46,12 @@ impl Agent {
     {
         let _lease = match request {
             InputControlRequest::AnswerPlanApproval { decision, .. } => {
-                if !self.has_pending_plan_exit_approval() {
+                // Local TUI continuation can approve a generated plan without an exit tool.
+                // External session replies are fenced to a pending interaction by the actor.
+                if !self.has_pending_plan_exit_approval()
+                    && !(self.execution_mode == AgentExecutionMode::Plan
+                        && !self.current_plan.is_empty())
+                {
                     return Err(anyhow!("no pending plan approval"));
                 }
                 let lease = self.begin_inference_turn();
@@ -103,15 +108,14 @@ impl Agent {
                     .await?;
                 }
                 PlanApprovalDecision::Reject => {
-                    let approval_id = self
-                        .pending_plan_exit_tool_id()
-                        .ok_or_else(|| anyhow!("no pending plan approval"))?
-                        .to_owned();
+                    let approval_id = self.pending_plan_exit_tool_id().map(str::to_owned);
                     self.reject_pending_plan_approval(feedback.as_deref())?;
-                    report(AgentEvent::ApprovalAnswered {
-                        approval_id,
-                        approved: false,
-                    });
+                    if let Some(approval_id) = approval_id {
+                        report(AgentEvent::ApprovalAnswered {
+                            approval_id,
+                            approved: false,
+                        });
+                    }
                 }
             },
             InputControlRequest::AnswerShellApproval { decision } => {

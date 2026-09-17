@@ -376,7 +376,10 @@ impl Server {
                     Some(session) => match session.replay_events(*after_sequence) {
                         Ok(events) => {
                             let latest = events.last().map(|event| event.sequence);
-                            replay = events;
+                            replay = events
+                                .into_iter()
+                                .map(|event| (session_id.clone(), event))
+                                .collect();
                             Ok(RequestResult::Accepted {
                                 session_id: Some(session_id.clone()),
                                 turn_id: None,
@@ -418,10 +421,11 @@ impl Server {
         if let Some(session) = new_session {
             self.forward(session, request_id.clone())?;
         }
-        for event in replay {
+        for (session_id, event) in replay {
             self.output
                 .send(Frame::Event {
                     runtime_id: self.runtime_id.clone(),
+                    session_id,
                     event,
                 })
                 .await?;
@@ -443,6 +447,7 @@ impl Server {
                         output
                             .send(Frame::Event {
                                 runtime_id: runtime_id.clone(),
+                                session_id: session.id().to_string(),
                                 event,
                             })
                             .await?

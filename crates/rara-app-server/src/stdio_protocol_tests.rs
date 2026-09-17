@@ -405,9 +405,31 @@ fn acknowledgements_do_not_imply_turn_completion() {
 }
 
 #[test]
+fn event_envelope_identifies_the_owned_session_independently_of_provenance() {
+    let frame = ServerFrame::Event {
+        runtime_id: "runtime-1".into(),
+        session_id: "session-1".into(),
+        event: json!({"event_id": "ctl-1", "sequence": 1}),
+    };
+    let encoded = encode_server_frame(&frame).expect("event encoding");
+    assert_eq!(
+        serde_json::from_slice::<Value>(&encoded).unwrap(),
+        json!({"type": "event", "payload": {
+            "runtime_id": "runtime-1", "session_id": "session-1",
+            "event": {"event_id": "ctl-1", "sequence": 1}
+        }})
+    );
+    assert_eq!(
+        serde_json::from_slice::<ServerFrame<Value>>(&encoded).unwrap(),
+        frame
+    );
+}
+
+#[test]
 fn output_serialization_stops_at_the_frame_limit() {
     let event = ServerFrame::Event {
         runtime_id: "r".into(),
+        session_id: "s".into(),
         event: "x".repeat(MAX_FRAME_BYTES + 1),
     };
     assert_eq!(
@@ -434,6 +456,7 @@ fn serializer_errors_do_not_expose_private_details() {
     }
     let frame = ServerFrame::Event {
         runtime_id: "r".into(),
+        session_id: "s".into(),
         event: PrivateError,
     };
     assert_eq!(

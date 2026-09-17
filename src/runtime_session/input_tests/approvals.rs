@@ -48,6 +48,44 @@ async fn register_context(session: &RuntimeSession) {
 }
 
 #[tokio::test]
+async fn generated_plan_without_a_pending_interaction_rejects_protocol_approval() {
+    let root = tempfile::tempdir().expect("workspace");
+    let backend = Arc::new(ScriptedBackend::new(vec![text_response(
+        "<proposed_plan>\n- [pending] Inspect the change\n- [pending] Verify the change\n</proposed_plan>",
+        10,
+    )]));
+    let session = session(
+        root.path(),
+        backend.clone(),
+        Arc::default(),
+        AgentExecutionMode::Plan,
+    )
+    .await;
+    let turn = finish(
+        session
+            .submit_input(RuntimeInput::Prompt("plan".into()))
+            .await
+            .unwrap(),
+    )
+    .await;
+    assert!(session.snapshot().pending_input.is_none());
+    assert!(matches!(
+        session
+            .submit_input(RuntimeInput::Answer {
+                waiting_turn: turn.turn_id,
+                answer: RuntimeInputAnswer::Plan {
+                    decision: PlanApprovalDecision::Approve,
+                    feedback: None
+                },
+            })
+            .await,
+        Err(RuntimeSessionError::NoPendingInput)
+    ));
+    assert_eq!(backend.request_count(), 1);
+    session.shutdown().await.expect("shutdown");
+}
+
+#[tokio::test]
 async fn native_plan_decisions_preserve_identity_sources_and_fresh_accounting() {
     for decision in [
         PlanApprovalDecision::Approve,

@@ -103,6 +103,18 @@ and exits even when the supervisor leaves stdin open. The native permission bypa
 still requires an explicit startup flag; the transport does not accept claimed
 client trust as runtime authority.
 
+Event frames also carry their server-owned session ID independently of canonical
+event provenance. Native startup events can have null provenance session IDs,
+and different session buses can allocate identical local event IDs and sequences.
+Both live forwarding and replay preserve the original event inside this explicit
+session envelope.
+
+Native plan continuation retains the existing local TUI behavior for a generated
+nonempty plan without an exit-plan tool. Canonical protocol replies still require
+the matching pending interaction and originating turn. The scoped plugin skill
+test uses the shared session-level reload denial wording and retains its denied
+reload and allowlisted skill assertions.
+
 ## Validation
 
 The protocol library has16 passing tests, including12 new cases for golden wire
@@ -182,7 +194,7 @@ explicit workspace and retained protocol records. All 35 instruction-crate tests
 and 9 skill-crate tests pass, including a new empty/nonempty catalogue prefix
 regression. Root all-target Clippy passes with warnings denied.
 
-The final focused root selection has35 passing tests. Nine new transport/CLI
+The initial focused root selection has35 passing tests. Nine new transport/CLI
 tests pass and cover: retained duplicate/conflict receipts, capacity
 and the shutdown reservation, pending uncertainty, turn-target fingerprints,
 LF/CRLF and inclusive frame limits, actual session dispatch, canonical replay/gaps,
@@ -196,6 +208,14 @@ used. The debug smoke binary alone was linked without debug information to fit
 available disk space; project build configuration and dependencies are unchanged.
 The test workflow also runs this process smoke against its built binary so that
 open-stdin shutdown and transport-failure behavior remain CI regression gates.
+
+The compatibility follow-up has20 passing protocol tests and58 passing focused
+root tests, including both CI regressions, TUI task workflows, multi-session
+live/replay event ownership and rejection of protocol approval without a pending
+interaction. Cargo and Bazel CI exposed the same reload-message assertion and
+native plan-continuation regression; their assertions remain covered. A local
+linker resource failure was resolved by removing inactive task-generated binaries
+before rebuilding; no source, user state or build configuration was removed.
 
 ```bash
 cargo fmt --all
@@ -214,6 +234,7 @@ CARGO_INCREMENTAL=0 cargo test --locked --offline --lib tools::skill
 CARGO_INCREMENTAL=0 cargo test --locked --offline --lib -- runtime_session:: tools::skill agent::tests::context_view agent::tests::prompt_cache model_context::
 cargo test --locked --offline -p rara-instructions -p rara-skills --lib
 CARGO_INCREMENTAL=0 cargo test --locked --offline --lib -- app_server_stdio:: app_cli::tests::app_server_requires
+CARGO_INCREMENTAL=0 cargo test --locked --offline --lib -- app_server_stdio:: app_cli::tests::app_server_requires runtime_session:: tools::skill tools::agent::tests::scoped_plugin_skill_tool tui::runtime::tasks::tests:: agent::tests::context_view agent::tests::prompt_cache model_context::
 CARGO_INCREMENTAL=0 cargo rustc --locked --offline --bin rara -- -C strip=debuginfo
 python3 scripts/app_server_smoke.py target/debug/rara
 cargo clippy --locked --all-targets --no-deps --offline -- -D warnings

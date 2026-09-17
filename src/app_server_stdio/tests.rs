@@ -579,6 +579,84 @@ async fn wire_turn_targets_reject_stale_stops_and_preserve_native_cancellation()
 }
 
 #[tokio::test]
+async fn multiple_sessions_preserve_event_ownership_and_replay_identity() {
+    let root = tempfile::tempdir().expect("workspace");
+    let mut client = Harness::start(root.path(), Arc::new(Backend::default())).await;
+    let first = client.create().await;
+    let create = client.control(
+        "create-second",
+        None,
+        RuntimeControlRequest::Session(SessionControlRequest::CreateSession),
+    );
+    client.send(&create).await;
+    let RequestResult::Accepted {
+        session_id: Some(second),
+        ..
+    } = client.ack("create-second").await.result
+    else {
+        panic!("second session");
+    };
+    assert_ne!(first, second);
+    for id in [&first, &second] {
+        while !client.observed.iter().any(|frame| {
+            matches!(frame,
+                Frame::Event { session_id, event, .. } if session_id == id && event.sequence == 1
+            )
+        }) {
+            client.next().await;
+        }
+    }
+    let mut first_events = Vec::new();
+    for id in [&first, &second] {
+        let session = client
+            .host
+            .get(&RuntimeSessionId::new(id.clone()))
+            .await
+            .unwrap();
+        let expected = session.replay_events(0).expect("canonical replay");
+        assert_eq!(expected.len(), 1);
+        assert!(expected[0].provenance.session_id.is_none());
+        let original = client
+            .observed
+            .iter()
+            .find_map(|frame| match frame {
+                Frame::Event {
+                    session_id, event, ..
+                } if session_id == id => Some(event.clone()),
+                _ => None,
+            })
+            .expect("live event");
+        assert_eq!(original, expected[0]);
+        first_events.push(original);
+        let request_id = format!("replay-{id}");
+        client
+            .send(&ClientFrame::Replay {
+                runtime_id: client.runtime_id.clone(),
+                request_id: request_id.clone(),
+                session_id: id.clone(),
+                after_sequence: 0,
+            })
+            .await;
+        assert!(matches!(
+            client.ack(&request_id).await.result,
+            RequestResult::Accepted { .. }
+        ));
+        let Frame::Event {
+            session_id, event, ..
+        } = client.next().await
+        else {
+            panic!("replayed event");
+        };
+        assert_eq!(&session_id, id);
+        assert_eq!(event, expected[0]);
+    }
+    // The canonical buses reuse local sequence/event IDs; the envelope disambiguates them.
+    assert_eq!(first_events[0].event_id, first_events[1].event_id);
+    assert_eq!(first_events[0].sequence, first_events[1].sequence);
+    client.shutdown().await;
+}
+
+#[tokio::test]
 async fn closing_replays_receipts_while_rejecting_new_work() {
     let root = tempfile::tempdir().expect("workspace");
     let backend = Arc::new(Backend {
