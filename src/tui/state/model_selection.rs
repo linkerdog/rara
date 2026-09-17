@@ -6,6 +6,22 @@ impl TuiApp {
         let Some(preset) = presets.get(idx).cloned() else {
             return;
         };
+        if self
+            .config
+            .provider_registry
+            .document
+            .provider
+            .contains_key(&preset.provider_id)
+        {
+            if let Err(error) = self
+                .config
+                .select_registry_model(&preset.provider_id, &preset.model_id)
+            {
+                self.push_notice(error.to_string());
+            }
+            self.provider_picker_idx = selected_provider_family_idx_for_config(&self.config);
+            return;
+        }
 
         // Update provider picker index to match the selected model's family.
         if let Some(family_idx) = PROVIDER_FAMILIES

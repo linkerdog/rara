@@ -183,7 +183,18 @@ pub(super) fn render_api_key_editor_modal(
     target: ApiKeyTarget,
     area: Rect,
 ) -> Option<(u16, u16)> {
+    let registry_intro = format!(
+        "Paste an API key for {}. Credentials are saved separately from model configuration.",
+        app.registry_credential_target
+            .as_deref()
+            .unwrap_or("the selected provider")
+    );
     let (intro_text, title, footer_text) = match target {
+        ApiKeyTarget::Registry => (
+            registry_intro.as_str(),
+            " Provider API Key ",
+            "Enter save  Esc back",
+        ),
         ApiKeyTarget::OpenAiCompatible => (
             "Paste the API key for the selected OpenAI-compatible endpoint profile.",
             " API Key ",

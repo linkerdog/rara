@@ -28,6 +28,10 @@ TUI command-surface contract.
 - Exposing a new public app-server protocol before its runtime projection is
   stable.
 
+The [provider registry](provider-registry.md) adds configured compatible providers
+and model maps without changing these two entry points. Its scoped configuration,
+credential precedence, and rollout limitations are defined in that contract.
+
 ## Architecture
 
 Runtime-owned provider state is the canonical source for presentation

@@ -2,6 +2,10 @@ use super::*;
 
 #[derive(Debug, Serialize, Deserialize, Clone, Default)]
 pub struct RaraConfig {
+    #[serde(skip)]
+    pub provider_registry: crate::ProviderRegistry,
+    #[serde(skip)]
+    pub provider_baseline: Option<Box<RaraConfig>>,
     pub provider: String,
     #[serde(
         default,
@@ -94,7 +98,7 @@ impl RaraConfig {
     where
         F: FnMut(&str) -> Option<String>,
     {
-        if self.has_api_key() {
+        if self.selected_registry_model().is_some() || self.has_api_key() {
             return;
         }
         let env_key = match self.effective_openai_endpoint_kind() {
@@ -157,7 +161,23 @@ impl RaraConfig {
 
     pub fn set_provider(&mut self, provider: impl Into<String>) {
         self.sync_active_provider_state();
+        self.provider_registry.selected = None;
         let provider = provider.into();
+        if self
+            .provider_registry
+            .document
+            .provider
+            .contains_key(&provider)
+        {
+            self.provider = provider.clone();
+            self.reset_provider_scoped_fields();
+            self.model = self.provider_registry.document.provider[&provider]
+                .models
+                .keys()
+                .find(|model| self.provider_registry.model_allowed(&provider, model))
+                .cloned();
+            return;
+        }
         if provider != "openai-compatible"
             && let Some(kind) = OpenAiEndpointKind::from_legacy_provider(provider.as_str())
         {
@@ -264,16 +284,18 @@ impl RaraConfig {
     }
 
     pub fn effective_provider_surface(&self) -> EffectiveProviderSurface<'_> {
-        let provider_state = if self.provider == "openai-compatible" {
-            None
-        } else {
-            self.provider_states.get(&self.provider)
-        };
-        let profile = if self.provider == "openai-compatible" {
-            self.active_openai_profile()
-        } else {
-            None
-        };
+        let provider_state =
+            if self.provider == "openai-compatible" || self.selected_registry_model().is_some() {
+                None
+            } else {
+                self.provider_states.get(&self.provider)
+            };
+        let profile =
+            if self.provider == "openai-compatible" && self.selected_registry_model().is_none() {
+                self.active_openai_profile()
+            } else {
+                None
+            };
         EffectiveProviderSurface {
             provider: self.provider.as_str(),
             model: resolve_provider_value(
@@ -412,6 +434,14 @@ impl RaraConfig {
     }
 
     fn sync_active_provider_state(&mut self) {
+        if self
+            .provider_registry
+            .document
+            .provider
+            .contains_key(&self.provider)
+        {
+            return;
+        }
         if self.provider.trim().is_empty() {
             return;
         }

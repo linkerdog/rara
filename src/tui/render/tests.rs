@@ -126,6 +126,34 @@ fn provider_picker_renders_as_full_overlay_on_standard_terminal() {
 }
 
 #[test]
+fn configured_provider_renders_named_target_and_masks_credentials() {
+    let temp = tempdir().expect("tempdir");
+    std::fs::create_dir(temp.path().join(".git")).expect("git boundary");
+    let manager = ConfigManager::new_for_rara_home(temp.path().join("home")).expect("config");
+    let config = manager
+        .load_for_project_with_env(temp.path(), &|key| {
+            (key == "RARA_CONFIG_CONTENT").then(|| {
+                r#"{"provider":{"groq":{"name":"Groq connection","models":{"fast":{}}}}}"#.into()
+            })
+        })
+        .expect("provider document");
+    let mut app = TuiApp::with_config(manager, config).expect("app");
+    app.open_overlay(Overlay::ListPicker(ListPickerKind::Provider));
+    app.provider_picker_idx = crate::tui::state::PROVIDER_FAMILIES.len();
+    for (width, height) in [(100, 30), (60, 20)] {
+        let screen = render_screen_text(&mut app, width, height);
+        assert!(screen.contains("Groq connection"));
+        assert!(screen.contains("API key required"));
+    }
+    crate::tui::provider_flow::open_provider_connection(&mut app);
+    app.api_key_input = "secret-never-render".into();
+    let screen = render_screen_text(&mut app, 100, 30);
+    assert!(screen.contains("API key for groq"));
+    assert!(screen.contains("*******************"));
+    assert!(!screen.contains("secret-never-render"));
+}
+
+#[test]
 fn openai_model_picker_renders_profile_manager_not_endpoint_presets() {
     let temp = tempdir().expect("tempdir");
     let mut app = TuiApp::new(ConfigManager {

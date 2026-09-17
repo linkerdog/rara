@@ -97,6 +97,28 @@ Provider state includes API key, base URL, model name, reasoning effort,
 and context window size. OpenAI-compatible providers can be saved as named
 profiles for quick switching.
 
+Additional compatible services can be configured using OpenCode-style provider
+and model maps in `rara.json` or `rara.jsonc`. Presets include Groq, Together,
+xAI, Mistral, MiniMax, Z.ai, and Hyperbolic; custom API roots are also supported.
+
+```jsonc
+{
+  "provider": {
+    "groq": {
+      "models": {
+        "llama-3.3-70b-versatile": { "name": "Llama 3.3 70B" }
+      }
+    }
+  }
+}
+```
+
+Use `/connect` to save the provider key, then `/model` to select a model, or set
+`GROQ_API_KEY` and pass `--model groq/llama-3.3-70b-versatile`. Global provider
+documents live in `$RARA_HOME` (default `~/.rara`); project documents override
+global fields. See the [configuration contract](docs/features/provider-registry.md)
+for merge precedence, variable references, and the supported compatibility scope.
+
 ---
 
 ## Tools
@@ -142,7 +164,7 @@ PTY/seatbelt interaction constraints.
 
 ## Where State Lives
 
-- `~/.config/rara/` — config, profiles, auth, access logs
+- `$RARA_HOME` (default `~/.rara/`) — configuration, profiles, and credentials
 - `~/.cache/rara/` — model downloads, runtime metadata
 - `~/.local/share/rara/` — workspace thread logs and session data
 - `<workspace>/.rara/` — per-project memory and lock files

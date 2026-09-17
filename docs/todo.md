@@ -2,6 +2,15 @@
 
 Active backlog only. Keep this file small and current.
 
+## Provider Coverage
+
+- [ ] Extend the [provider registry](features/provider-registry.md) with native
+      Anthropic/Azure/Cohere adapters and per-provider tool/reasoning conformance
+      fixtures before claiming full Rig parity.
+- [ ] Add registry model discovery, credential removal, cross-provider
+      `small_model`, and model variants. Preserve the documented configuration
+      precedence and keep remote capability verification separate from key presence.
+
 ## Portable Provider Boundary
 
 - [ ] Continue [#871](https://github.com/linkerdog/rara/issues/871) after the

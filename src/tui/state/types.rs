@@ -56,6 +56,7 @@ pub enum StatusTab {
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum ApiKeyTarget {
+    Registry,
     Codex,
     DeepSeek,
     Kimi,
@@ -67,6 +68,7 @@ pub enum ApiKeyTarget {
 impl ApiKeyTarget {
     pub const fn label(self) -> &'static str {
         match self {
+            Self::Registry => "configured provider",
             Self::Codex => "Codex",
             Self::DeepSeek => "DeepSeek",
             Self::Kimi => "Moonshot AI",
@@ -772,6 +774,7 @@ pub struct TuiApp {
     pub base_url_input: String,
     pub base_url_cursor_offset: Option<usize>,
     pub api_key_input: String,
+    pub registry_credential_target: Option<String>,
     pub api_key_cursor_offset: Option<usize>,
     pub model_name_input: String,
     pub model_name_cursor_offset: Option<usize>,

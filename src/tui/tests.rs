@@ -152,4 +152,5 @@ mod composer_editing;
 mod composer_keys;
 mod provider_connections;
 mod provider_profiles;
+mod provider_registry;
 mod session_commands;
