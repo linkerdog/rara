@@ -45,6 +45,46 @@ fn initial_permission_label_matches_effective_policy() {
     assert_eq!(tui.app().permission_mode_label(), "accept-edits");
 }
 
+#[tokio::test]
+async fn permission_badge_appears_above_composer_only_in_narrow_windows() {
+    let mut tui = harness();
+    mark_busy(&mut tui);
+    tui.app_mut().permission_mode = PermissionMode::FullAccess;
+    tui.app_mut().bash_approval_mode = BashApprovalMode::Always;
+    tui.app()
+        .sandbox_network_access
+        .store(true, Ordering::Relaxed);
+
+    for width in [180, 80, 79, 60, 180] {
+        let screen = tui.screen_text(width, 24);
+        let activity = screen
+            .lines()
+            .find(|line| line.contains("Working"))
+            .unwrap();
+        assert_eq!(
+            activity.contains("perm=full-access"),
+            width < 80,
+            "width={width}:\n{screen}"
+        );
+        assert!(
+            screen.lines().last().unwrap().contains("perm=full-access"),
+            "footer lost permissions at width={width}:\n{screen}"
+        );
+        assert_eq!(
+            screen.matches("perm=full-access").count(),
+            if width < 80 { 2 } else { 1 },
+            "width={width}:\n{screen}"
+        );
+    }
+    tui.app_mut()
+        .bottom_pane
+        .running_task
+        .take()
+        .unwrap()
+        .handle
+        .abort();
+}
+
 #[test]
 fn configured_network_without_full_access_remains_custom() {
     let tui = harness();

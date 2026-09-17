@@ -12,6 +12,8 @@ use crate::tui::theme::{
     INTERACTION_SUB_AGENT, STATUS_INFO, STATUS_READY, STATUS_SUCCESS, STATUS_WARNING, TEXT_ACCENT,
 };
 
+const PERMISSION_BADGE_BREAKPOINT: u16 = 80;
+
 pub(super) fn build_bottom_pane_view(app: &TuiApp, width: u16, _height: u16) -> BottomPaneView {
     BottomPaneView {
         activity: build_activity_view(app, width),
@@ -20,7 +22,7 @@ pub(super) fn build_bottom_pane_view(app: &TuiApp, width: u16, _height: u16) -> 
     }
 }
 
-fn build_activity_view(app: &TuiApp, _width: u16) -> ActivityView {
+fn build_activity_view(app: &TuiApp, width: u16) -> ActivityView {
     let (label, label_color, detail) = activity_status_line(app);
     let spinner = should_show_spinner(app, label);
     let spinner_elapsed = app
@@ -37,7 +39,7 @@ fn build_activity_view(app: &TuiApp, _width: u16) -> ActivityView {
         )
     ) || matches!(label, "Planning");
     let plan_badge = app.agent_execution_mode_label() == "plan" && !label_already_reflects_planning;
-    let perm_badge = app.permission_mode_label() != "auto";
+    let perm_badge = width < PERMISSION_BADGE_BREAKPOINT && app.permission_mode_label() != "auto";
     let perm_label = app.permission_mode_label();
     let goal_label = app.goal.as_ref().map(|goal| goal_label_text(goal.status));
     let goal_detail = app.goal.as_ref().map(goal_detail_text);
