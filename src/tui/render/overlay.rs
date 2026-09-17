@@ -43,8 +43,7 @@ pub(super) fn render_overlay(f: &mut Frame, app: &TuiApp, overlay: Overlay) -> O
         Overlay::ModelSearch => {
             let popup = command_palette_rect(f.area(), app);
             f.render_widget(Clear, popup);
-            render_model_search(f, app, popup);
-            None
+            render_model_search(f, app, popup)
         }
         Overlay::Status(tab) => {
             let popup = popup_rect(f.area(), 80, 60);
@@ -637,7 +636,7 @@ mod tests {
     }
 }
 
-fn render_model_search(f: &mut Frame, app: &TuiApp, area: Rect) {
+fn render_model_search(f: &mut Frame, app: &TuiApp, area: Rect) -> Option<(u16, u16)> {
     let query = app.model_search_query.as_str();
     let filtered = super::super::model_search::matching_model_presets(app);
 
@@ -664,18 +663,34 @@ fn render_model_search(f: &mut Frame, app: &TuiApp, area: Rect) {
         ])
         .split(inner);
 
-    // Search input
+    let query_area = Rect {
+        x: chunks[0].x.saturating_add(2),
+        width: chunks[0].width.saturating_sub(2),
+        ..chunks[0]
+    };
+    let prefix_end =
+        crate::tui::state::char_offset_to_byte_index(query, app.model_search_cursor_offset());
+    let display_query = crate::tui::display_sanitize::sanitize_display_line(query);
+    let display_prefix = crate::tui::display_sanitize::sanitize_display_line(&query[..prefix_end]);
+    let prefix_width = super::display_width(&display_prefix);
+    let scroll =
+        u16::try_from(prefix_width.saturating_sub(usize::from(query_area.width.saturating_sub(1))))
+            .unwrap_or(u16::MAX);
+
     let search_text = if query.is_empty() {
-        Span::styled("  Type to filter models…", token_fg(ThemeToken::TextMuted))
+        Span::styled("Type to filter models…", token_fg(ThemeToken::TextMuted))
     } else {
         Span::styled(
-            format!("  {}", query),
+            display_query,
             Style::default()
                 .fg(theme_color(ThemeToken::BadgeFgDark))
                 .add_modifier(Modifier::BOLD),
         )
     };
-    f.render_widget(Paragraph::new(Line::from(search_text)), chunks[0]);
+    f.render_widget(
+        Paragraph::new(Line::from(search_text)).scroll((0, scroll)),
+        query_area,
+    );
 
     // Model list
     let items: Vec<ListItem> = filtered
@@ -730,4 +745,10 @@ fn render_model_search(f: &mut Frame, app: &TuiApp, area: Rect) {
         token_fg(ThemeToken::TextMuted),
     )]);
     f.render_widget(Paragraph::new(footer), chunks[2]);
+    (query_area.width > 0 && query_area.height > 0).then(|| {
+        let offset = prefix_width
+            .saturating_sub(usize::from(scroll))
+            .min(usize::from(query_area.width.saturating_sub(1))) as u16;
+        (query_area.x.saturating_add(offset), query_area.y)
+    })
 }

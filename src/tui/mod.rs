@@ -13,6 +13,8 @@ mod format;
 mod highlight;
 mod input_control;
 #[cfg(test)]
+mod input_ownership_tests;
+#[cfg(test)]
 mod interaction_tests;
 mod interaction_text;
 mod keymap;

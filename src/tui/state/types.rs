@@ -767,6 +767,7 @@ pub struct TuiApp {
     pub permission_picker_idx: usize,
     pub command_palette_idx: usize,
     pub model_search_query: String,
+    pub model_search_cursor_offset: Option<usize>,
     pub model_search_idx: usize,
     pub base_url_input: String,
     pub base_url_cursor_offset: Option<usize>,

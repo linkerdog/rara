@@ -162,12 +162,16 @@ impl TuiApp {
 
         // When dismissing the command palette, clear the `/` input so
         // sync_command_palette_with_input won't immediately re-open it.
-        if matches!(
-            self.overlay,
-            Some(Overlay::CommandPalette | Overlay::ModelSearch)
-        ) {
+        if matches!(self.overlay, Some(Overlay::CommandPalette)) {
             self.bottom_pane.input.clear();
+            self.bottom_pane.input_cursor_offset = None;
             self.command_palette_idx = 0;
+        }
+
+        if matches!(self.overlay, Some(Overlay::ModelSearch)) {
+            self.model_search_query.clear();
+            self.model_search_cursor_offset = None;
+            self.model_search_idx = 0;
         }
 
         self.hide_overlay();

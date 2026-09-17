@@ -127,15 +127,16 @@ impl TuiHarness {
     }
 
     pub(crate) fn screen_text(&mut self, width: u16, height: u16) -> String {
-        let area = Rect::new(0, 0, width, height);
-        let mut buffer = Buffer::empty(area);
-        let mut frame = Frame {
-            cursor_position: None,
-            viewport_area: area,
-            buffer: &mut buffer,
-        };
-        render::render(&mut frame, &mut self.app);
-        (0..height)
+        self.screen_with_cursor(width, height).0
+    }
+
+    pub(crate) fn screen_with_cursor(
+        &mut self,
+        width: u16,
+        height: u16,
+    ) -> (String, Option<(u16, u16)>) {
+        let (buffer, cursor) = self.screen_buffer(width, height);
+        let text = (0..height)
             .map(|y| {
                 (0..width)
                     .map(|x| buffer[(x, y)].symbol())
@@ -144,7 +145,27 @@ impl TuiHarness {
                     .to_string()
             })
             .collect::<Vec<_>>()
-            .join("\n")
+            .join("\n");
+        (text, cursor)
+    }
+
+    pub(crate) fn screen_buffer(
+        &mut self,
+        width: u16,
+        height: u16,
+    ) -> (Buffer, Option<(u16, u16)>) {
+        let area = Rect::new(0, 0, width, height);
+        let mut buffer = Buffer::empty(area);
+        let mut frame = Frame {
+            cursor_position: None,
+            viewport_area: area,
+            buffer: &mut buffer,
+        };
+        render::render(&mut frame, &mut self.app);
+        let cursor = frame
+            .cursor_position
+            .map(|position| (position.x, position.y));
+        (buffer, cursor)
     }
 
     pub(crate) fn expect_no_commands(&self) {

@@ -64,9 +64,6 @@ async fn dispatch_event_inner(
         AppEvent::Noop => {}
         AppEvent::OpenOverlay(overlay) => app.open_overlay(overlay),
         AppEvent::CloseOverlay => {
-            if matches!(app.overlay, Some(Overlay::ModelSearch)) {
-                app.model_search_query.clear();
-            }
             if matches!(
                 app.overlay,
                 Some(Overlay::ListPicker(ListPickerKind::Resume))
@@ -114,11 +111,6 @@ async fn dispatch_event_inner(
             app.insert_newline_in_composer();
         }
         AppEvent::InputChar(c) => {
-            if matches!(app.overlay, Some(Overlay::ModelSearch)) {
-                app.model_search_query.push(c);
-                app.model_search_idx = 0;
-                return Ok(false);
-            }
             if matches!(
                 app.overlay,
                 Some(Overlay::ListPicker(ListPickerKind::Resume))
@@ -126,16 +118,12 @@ async fn dispatch_event_inner(
                 app.push_resume_search_char(c);
                 return Ok(false);
             }
-            if app.bottom_pane.input.is_empty() {
+            if app.composer_input_is_active() && app.bottom_pane.input.is_empty() {
                 app.transcript_scroll = 0;
             }
             app.insert_active_input_char(c);
         }
         AppEvent::Backspace => {
-            if matches!(app.overlay, Some(Overlay::ModelSearch)) {
-                app.model_search_query.pop();
-                return Ok(false);
-            }
             if matches!(
                 app.overlay,
                 Some(Overlay::ListPicker(ListPickerKind::Resume))
@@ -551,7 +539,6 @@ async fn dispatch_event_inner(
                     .cloned()
                 {
                     app.dismiss_overlay();
-                    app.model_search_query.clear();
                     apply_model_selection(
                         preset,
                         app,

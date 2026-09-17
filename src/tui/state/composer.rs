@@ -5,14 +5,27 @@ use super::{
 };
 
 impl TuiApp {
-    fn active_text_input_target(&self) -> TextInputTarget {
+    fn active_text_input_target(&self) -> Option<TextInputTarget> {
         match self.overlay {
-            Some(Overlay::BaseUrlEditor) => TextInputTarget::BaseUrl,
-            Some(Overlay::ApiKeyEditor(_)) => TextInputTarget::ApiKey,
-            Some(Overlay::ModelNameEditor) => TextInputTarget::ModelName,
-            Some(Overlay::OpenAiProfileLabelEditor) => TextInputTarget::OpenAiProfileLabel,
-            _ => TextInputTarget::Composer,
+            None | Some(Overlay::CommandPalette) => Some(TextInputTarget::Composer),
+            Some(Overlay::ModelSearch) => Some(TextInputTarget::ModelSearch),
+            Some(Overlay::BaseUrlEditor) => Some(TextInputTarget::BaseUrl),
+            Some(Overlay::ApiKeyEditor(_)) => Some(TextInputTarget::ApiKey),
+            Some(Overlay::ModelNameEditor) => Some(TextInputTarget::ModelName),
+            Some(Overlay::OpenAiProfileLabelEditor) => Some(TextInputTarget::OpenAiProfileLabel),
+            Some(
+                Overlay::Help(_)
+                | Overlay::Status(_)
+                | Overlay::Context
+                | Overlay::SkillsPicker
+                | Overlay::PermissionPicker
+                | Overlay::ListPicker(_),
+            ) => None,
         }
+    }
+
+    pub(crate) fn composer_input_is_active(&self) -> bool {
+        self.active_text_input_target() == Some(TextInputTarget::Composer)
     }
 
     fn text_and_cursor_mut(
@@ -23,6 +36,10 @@ impl TuiApp {
             TextInputTarget::Composer => (
                 &mut self.bottom_pane.input,
                 &mut self.bottom_pane.input_cursor_offset,
+            ),
+            TextInputTarget::ModelSearch => (
+                &mut self.model_search_query,
+                &mut self.model_search_cursor_offset,
             ),
             TextInputTarget::BaseUrl => {
                 (&mut self.base_url_input, &mut self.base_url_cursor_offset)
@@ -39,11 +56,22 @@ impl TuiApp {
         }
     }
 
-    fn update_composer_after_edit_if_needed(&mut self, target: TextInputTarget) {
-        if matches!(target, TextInputTarget::Composer) {
-            self.reset_input_history_navigation();
-            self.sync_command_palette_with_input();
+    fn update_after_active_input_edit(&mut self, target: TextInputTarget) {
+        match target {
+            TextInputTarget::Composer => {
+                self.reset_input_history_navigation();
+                self.sync_command_palette_with_input();
+            }
+            TextInputTarget::ModelSearch => self.model_search_idx = 0,
+            TextInputTarget::BaseUrl
+            | TextInputTarget::ApiKey
+            | TextInputTarget::ModelName
+            | TextInputTarget::OpenAiProfileLabel => {}
         }
+    }
+
+    pub(crate) fn model_search_cursor_offset(&self) -> usize {
+        effective_cursor_offset(&self.model_search_query, self.model_search_cursor_offset)
     }
 
     /// Returns the slash-command query string with the leading `/` stripped.
@@ -171,26 +199,30 @@ impl TuiApp {
     }
 
     pub fn insert_active_input_char(&mut self, ch: char) {
-        let target = self.active_text_input_target();
+        let Some(target) = self.active_text_input_target() else {
+            return;
+        };
         let (text, cursor_offset) = self.text_and_cursor_mut(target);
         let cursor = effective_cursor_offset(text.as_str(), *cursor_offset);
         let byte_idx = char_offset_to_byte_index(text.as_str(), cursor);
         text.insert(byte_idx, ch);
         *cursor_offset = Some(cursor.saturating_add(1));
-        self.update_composer_after_edit_if_needed(target);
+        self.update_after_active_input_edit(target);
     }
 
     pub fn insert_active_input_text(&mut self, inserted: &str) {
         if inserted.is_empty() {
             return;
         }
-        let target = self.active_text_input_target();
+        let Some(target) = self.active_text_input_target() else {
+            return;
+        };
         let (text, cursor_offset) = self.text_and_cursor_mut(target);
         let cursor = effective_cursor_offset(text.as_str(), *cursor_offset);
         let byte_idx = char_offset_to_byte_index(text.as_str(), cursor);
         text.insert_str(byte_idx, inserted);
         *cursor_offset = Some(cursor.saturating_add(inserted.chars().count()));
-        self.update_composer_after_edit_if_needed(target);
+        self.update_after_active_input_edit(target);
     }
 
     pub fn insert_newline_in_composer(&mut self) {
@@ -326,7 +358,9 @@ impl TuiApp {
     }
 
     pub fn backspace_active_input(&mut self) {
-        let target = self.active_text_input_target();
+        let Some(target) = self.active_text_input_target() else {
+            return;
+        };
         let (text, cursor_offset) = self.text_and_cursor_mut(target);
         let cursor = effective_cursor_offset(text.as_str(), *cursor_offset);
         if cursor == 0 {
@@ -336,11 +370,13 @@ impl TuiApp {
         let end = char_offset_to_byte_index(text.as_str(), cursor);
         text.replace_range(start..end, "");
         *cursor_offset = Some(cursor - 1);
-        self.update_composer_after_edit_if_needed(target);
+        self.update_after_active_input_edit(target);
     }
 
     pub fn delete_forward_active_input(&mut self) {
-        let target = self.active_text_input_target();
+        let Some(target) = self.active_text_input_target() else {
+            return;
+        };
         let (text, cursor_offset) = self.text_and_cursor_mut(target);
         let cursor = effective_cursor_offset(text.as_str(), *cursor_offset);
         if cursor >= text.chars().count() {
@@ -350,31 +386,39 @@ impl TuiApp {
         let end = char_offset_to_byte_index(text.as_str(), cursor + 1);
         text.replace_range(start..end, "");
         *cursor_offset = Some(cursor);
-        self.update_composer_after_edit_if_needed(target);
+        self.update_after_active_input_edit(target);
     }
 
     pub fn move_active_input_cursor_left(&mut self) {
-        let target = self.active_text_input_target();
+        let Some(target) = self.active_text_input_target() else {
+            return;
+        };
         let (text, cursor_offset) = self.text_and_cursor_mut(target);
         let cursor = effective_cursor_offset(text.as_str(), *cursor_offset);
         *cursor_offset = Some(cursor.saturating_sub(1));
     }
 
     pub fn move_active_input_cursor_right(&mut self) {
-        let target = self.active_text_input_target();
+        let Some(target) = self.active_text_input_target() else {
+            return;
+        };
         let (text, cursor_offset) = self.text_and_cursor_mut(target);
         let cursor = effective_cursor_offset(text.as_str(), *cursor_offset);
         *cursor_offset = Some((cursor + 1).min(text.chars().count()));
     }
 
     pub fn move_active_input_cursor_home(&mut self) {
-        let target = self.active_text_input_target();
+        let Some(target) = self.active_text_input_target() else {
+            return;
+        };
         let (_, cursor_offset) = self.text_and_cursor_mut(target);
         *cursor_offset = Some(0);
     }
 
     pub fn move_active_input_cursor_end(&mut self) {
-        let target = self.active_text_input_target();
+        let Some(target) = self.active_text_input_target() else {
+            return;
+        };
         let (text, cursor_offset) = self.text_and_cursor_mut(target);
         *cursor_offset = Some(text.chars().count());
     }

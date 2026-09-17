@@ -66,7 +66,11 @@ impl TuiApp {
     }
 
     pub(crate) fn push_resume_search_char(&mut self, c: char) {
-        self.resume_search_query.push(c);
+        self.insert_resume_search_text(&c.to_string());
+    }
+
+    pub(crate) fn insert_resume_search_text(&mut self, text: &str) {
+        self.resume_search_query.push_str(text);
         self.resume_picker_idx = 0;
         self.refresh_recent_threads_for_resume_picker();
     }
