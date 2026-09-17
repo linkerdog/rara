@@ -2,13 +2,13 @@
 
 use crate::tui::state::{CommandSpec, LocalCommand, LocalCommandKind, TuiApp};
 
-pub const COMMAND_SPECS: [CommandSpec; 21] = [
+pub const COMMAND_SPECS: [CommandSpec; 18] = [
     CommandSpec {
         category: "Session",
         name: "permissions",
         usage: "/permissions",
-        summary: "Cycle permission mode (Auto → AcceptEdits → ReadOnly → FullAccess).",
-        detail: "Set what RARA can do without asking first. Cycles through Auto (sandbox workspace-write, bash always-approve), AcceptEdits (auto-approve file edits, suggestion bash), ReadOnly (plan mode, no edits), and FullAccess (network access, bash always-approve).",
+        summary: "Choose a permission preset.",
+        detail: "Open the permission picker and choose Auto, AcceptEdits, ReadOnly, or FullAccess. Review the selected preset before applying it.",
     },
     CommandSpec {
         category: "Session",
@@ -26,24 +26,10 @@ pub const COMMAND_SPECS: [CommandSpec; 21] = [
     },
     CommandSpec {
         category: "Session",
-        name: "runtime",
-        usage: "/runtime",
-        summary: "Alias for /status.",
-        detail: "Open the runtime status modal. This matches the runtime-focused naming used by other agent CLIs.",
-    },
-    CommandSpec {
-        category: "Session",
         name: "context",
         usage: "/context",
         summary: "Inspect the effective runtime context for the current turn.",
         detail: "Open a context modal that explains the effective prompt sources, active sections, workspace/runtime state, plan state, compaction metadata, and pending interaction inputs for the current turn.",
-    },
-    CommandSpec {
-        category: "Session",
-        name: "memory",
-        usage: "/memory",
-        summary: "Alias for /context.",
-        detail: "Open the context modal to inspect the effective assembled context, memory selection, and active runtime state.",
     },
     CommandSpec {
         category: "Session",
@@ -58,13 +44,6 @@ pub const COMMAND_SPECS: [CommandSpec; 21] = [
         usage: "/resume",
         summary: "Pick and restore a recent local thread.",
         detail: "Open the recent thread picker backed by the local thread store and rollout artifacts. This restores committed turns, plan state, and interaction cards for the selected thread.",
-    },
-    CommandSpec {
-        category: "Session",
-        name: "threads",
-        usage: "/threads",
-        summary: "Alias for /resume.",
-        detail: "Open the recent thread picker and choose a local thread to restore.",
     },
     CommandSpec {
         category: "Session",
@@ -140,8 +119,8 @@ pub const COMMAND_SPECS: [CommandSpec; 21] = [
         category: "Session",
         name: "skills",
         usage: "/skills",
-        summary: "View and toggle loaded skills.",
-        detail: "Open a skills picker that shows all loaded skills grouped by scope. Use space to toggle enable/disable. Changes take effect on next turn context assembly.",
+        summary: "Inspect loaded skills and invocation availability.",
+        detail: "Open a read-only view of loaded skills and their runtime invocation availability. Runtime skill enablement cannot be changed from this view.",
     },
     CommandSpec {
         category: "Session",
@@ -163,24 +142,24 @@ pub fn parse_local_command(input: &str) -> Option<LocalCommand> {
         .filter(|value| !value.is_empty())
         .map(str::to_string);
 
-    let kind = match name {
-        "quit" | "exit" => LocalCommandKind::Quit,
+    let kind = match canonical_command_name(name) {
+        "quit" => LocalCommandKind::Quit,
         "help" => LocalCommandKind::Help,
-        "status" | "runtime" => LocalCommandKind::Status,
-        "context" | "memory" => LocalCommandKind::Context,
+        "status" => LocalCommandKind::Status,
+        "context" => LocalCommandKind::Context,
         "clear" => LocalCommandKind::Clear,
-        "resume" | "threads" => LocalCommandKind::Resume,
+        "resume" => LocalCommandKind::Resume,
         "plan" => LocalCommandKind::Plan,
         "approval" => LocalCommandKind::Approval,
         "compact" => LocalCommandKind::Compact,
-        "tasks" | "task-list" => LocalCommandKind::Tasks,
+        "tasks" => LocalCommandKind::Tasks,
         "model" => LocalCommandKind::Model,
         "connect" => LocalCommandKind::Connect,
         "mem" => LocalCommandKind::NowledgeMem,
         "review" => LocalCommandKind::Review,
         "mcp" => LocalCommandKind::Mcp,
         "skills" => LocalCommandKind::Skills,
-        "permissions" | "permission" => LocalCommandKind::Permissions,
+        "permissions" => LocalCommandKind::Permissions,
         "goal" => LocalCommandKind::Goal,
         _ => return None,
     };
@@ -188,36 +167,27 @@ pub fn parse_local_command(input: &str) -> Option<LocalCommand> {
     Some(LocalCommand { kind, arg })
 }
 
+fn canonical_command_name(name: &str) -> &str {
+    match name {
+        "exit" => "quit",
+        "runtime" => "status",
+        "memory" => "context",
+        "threads" => "resume",
+        "task-list" => "tasks",
+        "permission" => "permissions",
+        _ => name,
+    }
+}
+
 pub fn matching_commands(query: &str) -> Vec<&'static CommandSpec> {
+    let query = query.to_ascii_lowercase();
+    let query = canonical_command_name(&query);
     let mut candidates: Vec<_> = COMMAND_SPECS
         .iter()
         .filter_map(|spec| Some((command_score(spec, query)?, spec)))
         .collect();
     candidates.sort_by_key(|(score, spec)| (*score, spec.usage));
     candidates.into_iter().map(|(_, spec)| spec).collect()
-}
-
-#[cfg(test)]
-pub fn command_spec_by_name(name: &str) -> Option<&'static CommandSpec> {
-    COMMAND_SPECS.iter().find(|spec| spec.name == name)
-}
-
-#[cfg(test)]
-pub fn recommended_commands(app: &TuiApp) -> Vec<&'static CommandSpec> {
-    let names = if app.is_busy() {
-        vec!["context", "help", "status"]
-    } else {
-        let mut n = vec!["context", "help", "model", "resume", "status"];
-        if !app.committed_turns.is_empty() || !app.active_turn.entries.is_empty() {
-            n.push("compact");
-            n.push("plan");
-        }
-        n
-    };
-    names
-        .iter()
-        .filter_map(|name| command_spec_by_name(name))
-        .collect()
 }
 
 pub fn palette_commands(_app: &TuiApp, query: &str) -> Vec<&'static CommandSpec> {
@@ -239,7 +209,23 @@ pub fn palette_command_by_index(
 }
 
 pub fn general_help_text() -> &'static str {
-    "RARA uses a single composer as the control surface.\n\nNormal input goes to the current agent.\nSlash commands stay local and open overlays or update runtime state.\n\nCompaction:\n  /compact forces one history compaction pass\n\nContext:\n  /context shows the effective runtime context for the current turn\n\nModes:\n  /permissions cycles through permission presets (auto, accept-edits, read-only, full-access)\n  /plan enters planning mode for the current task\n  The agent may call enter_plan_mode for non-trivial repository work\n  /approval toggles bash approval between suggestion and always\n\nAuth:\n  /login opens the provider auth picker\n  /logout clears the saved provider credential\n\nEditing:\n  apply_patch is the default tool for updating existing files\n  replace_lines is for verified large line-range edits\n  write_file is for new files or full rewrites\n  replace is only a simple fallback for unique string swaps\n\nKeyboard:\n  Enter submit current composer input\n  Shift+Enter insert a newline in the composer\n  Esc close the current overlay only\n  Up/Down or j/k move inside lists\n  1/2/3 switch help tabs or choose guided model options\n\nExit:\n  /quit or /exit leave the TUI."
+    concat!(
+        "Enter sends a message; while running, it queues a follow-up.\n\n",
+        "/connect  Manage provider connections\n",
+        "/model  Choose an available model\n",
+        "/permissions  Choose a permission preset\n",
+        "/plan  Enter read-only planning mode\n",
+        "/status  Inspect runtime status\n",
+        "/context  Inspect assembled context\n",
+        "/compact  Summarize older conversation history\n",
+        "/resume  Restore a recent thread\n\n",
+        "Shift+Enter or Ctrl+J: insert a newline\n",
+        "Esc: close an overlay, reject shell approval, or cancel a task\n",
+        "Ctrl+C: cancel a task; otherwise clear the composer\n",
+        "Up/Down: navigate lists; type to filter search pickers\n",
+        "1/2/3: switch help tabs\n",
+        "/quit or /exit: leave the TUI"
+    )
 }
 
 fn command_score(spec: &CommandSpec, query: &str) -> Option<u8> {
@@ -276,28 +262,4 @@ fn subsequence_match(haystack: &str, needle: &str) -> bool {
         }
     }
     current.is_none()
-}
-
-#[cfg(test)]
-pub fn help_text() -> String {
-    let mut specs = COMMAND_SPECS.iter().collect::<Vec<_>>();
-    specs.sort_by_key(|spec| spec.name);
-    let commands = specs
-        .into_iter()
-        .map(|spec| format!("  {}  {}", spec.usage, spec.summary))
-        .collect::<Vec<_>>()
-        .join("\n");
-    format!(
-        "Built-in commands:\n{}\n\nCompaction:\n  /compact   summarize older conversation history now\n\nThreads:\n  /resume    reopen a recent local thread\n\nModes:\n  /permissions   cycle permission presets (auto, accept-edits, read-only, full-access)\n  /plan      enter planning mode for the current task\n  Agent may call enter_plan_mode automatically\n  /approval  toggle bash approval mode\n\nProvider setup:\n  /connect   manage provider credentials and connection settings\n  /model     choose a model from available providers\n\nEditing:\n  apply_patch    preferred for editing existing files\n  replace_lines  use for verified large line-range edits\n  write_file     use for new files or full rewrites\n  replace        simple fallback for unique string replacement\n\nKeyboard:\n  Enter submit\n  Shift+Enter insert newline\n  Esc close current overlay\n\nExit:\n  /quit\n  /exit",
-        commands
-    )
-}
-
-#[cfg(test)]
-pub fn normalize_command_token(value: &str) -> String {
-    value
-        .chars()
-        .filter(|ch| ch.is_ascii_alphanumeric())
-        .flat_map(|ch| ch.to_lowercase())
-        .collect()
 }

@@ -2,6 +2,10 @@
 
 This directory stores stable, domain-oriented technical specifications.
 Chronological implementation records belong in `docs/journal/`.
+User interaction contracts live in [docs/interaction/](../interaction/README.md),
+including command discovery, keyboard routing, overlays, runtime feedback, and
+their validation requirements. Reference those specs rather than duplicating
+key tables or command inventories in feature docs.
 
 ## Required Structure
 
@@ -19,6 +23,7 @@ Each active feature spec should include:
 ## File Policy
 
 - `docs/features/`: stable theme/domain docs only
+- `docs/interaction/`: canonical user interaction contracts
 - `docs/journal/`: date-prefixed implementation records
 - When a feature evolves, update the canonical feature doc and add or append a journal note.
 

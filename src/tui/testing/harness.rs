@@ -2,9 +2,10 @@ use std::io::{self, Write};
 use std::sync::{Arc, Mutex};
 
 use async_trait::async_trait;
+use crossterm::event::KeyEvent;
 use futures::StreamExt;
 use ratatui::backend::{Backend, ClearType, TestBackend, WindowSize};
-use ratatui::buffer::Cell;
+use ratatui::buffer::{Buffer, Cell};
 use ratatui::layout::{Position, Rect, Size};
 use tempfile::TempDir;
 
@@ -14,9 +15,12 @@ use crate::memory_lifecycle::{
     MemoryAppendRequest, MemoryLifecycleCoordinator, MemorySessionMessage, MemorySessionSink,
     MemorySessionSnapshot, MemorySyncReason,
 };
+use crate::oauth::OAuthManager;
 use crate::runtime_control::{RuntimeControlEvent, SessionControlRequest};
 use crate::runtime_event_bus::RuntimeEventBus;
-use crate::tui::custom_terminal::Terminal;
+use crate::tui::custom_terminal::{Frame, Terminal};
+use crate::tui::event_dispatch::dispatch_event_with_runtime;
+use crate::tui::keymap::map_key_to_event;
 use crate::tui::render;
 use crate::tui::runtime::apply_tui_event;
 use crate::tui::runtime_port::{
@@ -33,6 +37,7 @@ const DEFAULT_HEIGHT: u16 = 30;
 pub(crate) struct TuiHarness {
     _config_dir: TempDir,
     app: TuiApp,
+    oauth_manager: Arc<OAuthManager>,
     runtime: FakeRuntimeClient,
     events: RuntimeEventStream,
     terminal: Terminal<TestBackendAdapter>,
@@ -69,6 +74,9 @@ impl TuiHarness {
             path: config_dir.path().join("config.json"),
         })?;
         app.snapshot = snapshot.clone();
+        let oauth_manager = Arc::new(OAuthManager::new_for_config_dir(
+            config_dir.path().join("oauth"),
+        )?);
 
         let runtime = FakeRuntimeClient::new(snapshot);
         let events = runtime.subscribe();
@@ -85,6 +93,7 @@ impl TuiHarness {
         Ok(Self {
             _config_dir: config_dir,
             app,
+            oauth_manager,
             runtime,
             events,
             terminal,
@@ -93,6 +102,53 @@ impl TuiHarness {
             memory_events,
             last_runtime_event: None,
         })
+    }
+
+    pub(crate) fn app(&self) -> &TuiApp {
+        &self.app
+    }
+
+    pub(crate) fn app_mut(&mut self) -> &mut TuiApp {
+        &mut self.app
+    }
+
+    /// Exercise production key routing and dispatch, with runtime I/O captured
+    /// at the same port used by the live controller.
+    pub(crate) async fn press_key(&mut self, key: KeyEvent) -> anyhow::Result<bool> {
+        let event = map_key_to_event(key, &self.app);
+        dispatch_event_with_runtime(
+            event,
+            &mut self.app,
+            &mut None,
+            &self.oauth_manager,
+            &self.runtime,
+        )
+        .await
+    }
+
+    pub(crate) fn screen_text(&mut self, width: u16, height: u16) -> String {
+        let area = Rect::new(0, 0, width, height);
+        let mut buffer = Buffer::empty(area);
+        let mut frame = Frame {
+            cursor_position: None,
+            viewport_area: area,
+            buffer: &mut buffer,
+        };
+        render::render(&mut frame, &mut self.app);
+        (0..height)
+            .map(|y| {
+                (0..width)
+                    .map(|x| buffer[(x, y)].symbol())
+                    .collect::<String>()
+                    .trim_end()
+                    .to_string()
+            })
+            .collect::<Vec<_>>()
+            .join("\n")
+    }
+
+    pub(crate) fn expect_no_commands(&self) {
+        assert!(self.runtime.commands().is_empty());
     }
 
     pub(crate) async fn sync_snapshot(&mut self, snapshot: RuntimeSnapshot) {

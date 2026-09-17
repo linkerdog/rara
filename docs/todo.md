@@ -34,6 +34,19 @@ Active backlog only. Keep this file small and current.
 
 ## TUI / UX
 
+- [ ] Share busy-time command availability between discovery and submission;
+      decide whether read-only status/context/help should remain usable during
+      running turns. See [CMD-03](interaction/commands.md#cmd-03-local-submission-and-errors).
+- [ ] Complete keyboard/draft contracts: opt-in empty-composer Vim navigation,
+      model-search cursor editing, help scrolling, and nested-overlay draft
+      restoration. See [input risks](interaction/composer-and-overlays.md#open-risks).
+- [ ] Add a runtime-owned skill enablement update and readback before restoring
+      editing controls to the read-only `/skills` inspector. See
+      [CMD-05](interaction/commands.md#cmd-05-skill-inspection-does-not-pretend-to-change-runtime-policy).
+- [ ] Extend [interaction quality verification](interaction/quality-verification.md)
+      with narrow/CJK/paste render cases, cancel/completion interleavings,
+      monotonic style/boundary checks, and bounded PTY acceptance. Each new gate
+      needs a concrete protected defect and RED evidence before becoming required.
 - [x] Complete the session-scoped `RuntimeClient` migration: route typed
       commands and runtime snapshots/events through the client, then remove
       runtime registries and completion orchestration from `TuiApp`.

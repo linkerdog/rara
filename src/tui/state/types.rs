@@ -178,10 +178,6 @@ pub enum LocalCommandKind {
     Permissions,
     Review,
     Tasks,
-    /// Reserved for `/dream` command help while consolidation execution is
-    /// still tracked as follow-up work (docs/todo.md).
-    #[allow(dead_code)] // Reserved for /dream command help (docs/todo.md)
-    Dream,
     Goal,
     Quit,
     Skills,
@@ -845,7 +841,6 @@ pub struct SkillPickerEntry {
     pub name: String,
     pub title: String,
     pub scope: String,
-    pub enabled: bool,
     pub disable_model_invocation: bool,
 }
 

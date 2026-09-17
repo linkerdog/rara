@@ -1,11 +1,10 @@
 use tempfile::tempdir;
 
-use super::specs::normalize_command_token;
 use super::status::truncate_preview;
 use super::{
-    COMMAND_SPECS, help_text, matching_commands, model_help_text, palette_commands,
-    parse_local_command, recommended_commands, status_context_text, status_metrics_text,
-    status_prompt_sources_text, status_resources_text, status_runtime_text,
+    COMMAND_SPECS, matching_commands, model_help_text, palette_commands, parse_local_command,
+    status_context_text, status_metrics_text, status_prompt_sources_text, status_resources_text,
+    status_runtime_text,
 };
 use crate::config::{ConfigManager, OpenAiEndpointKind};
 use crate::context::{
@@ -153,12 +152,6 @@ fn matches_commands_by_prefix() {
 }
 
 #[test]
-fn normalizes_model_labels_for_command_matching() {
-    assert_eq!(normalize_command_token("Gemma 4 E4B"), "gemma4e4b");
-    assert_eq!(normalize_command_token("Qwn3 8B"), "qwn38b");
-}
-
-#[test]
 fn exact_and_prefix_matches_rank_ahead_of_fuzzy_matches() {
     let names = matching_commands("model")
         .into_iter()
@@ -200,36 +193,6 @@ fn palette_commands_show_full_command_list_for_empty_query() {
     let mut sorted = names.clone();
     sorted.sort();
     assert_eq!(names, sorted);
-}
-
-#[test]
-fn recommended_commands_restore_context_model_resume_and_status() {
-    let dir = tempdir().expect("tempdir");
-    let app = TuiApp::new(ConfigManager {
-        path: dir.path().join("config.json"),
-    })
-    .expect("app");
-
-    let names = recommended_commands(&app)
-        .into_iter()
-        .map(|spec| spec.name)
-        .collect::<Vec<_>>();
-
-    assert_eq!(names, vec!["context", "help", "model", "resume", "status"]);
-}
-
-#[test]
-fn help_text_exposes_only_current_provider_entrypoints() {
-    let rendered = help_text();
-    let approval_idx = rendered.find("/approval").expect("approval");
-    let compact_idx = rendered.find("/compact").expect("compact");
-    assert!(approval_idx < compact_idx);
-    for command in ["/auth", "/base-url", "/login", "/logout", "/models"] {
-        assert!(!rendered.contains(command), "{command}");
-    }
-    for command in ["/connect", "/model"] {
-        assert!(rendered.contains(command), "{command}");
-    }
 }
 
 #[test]
@@ -828,44 +791,7 @@ fn skills_command_spec_is_registered() {
         .find(|s| s.name == "skills")
         .expect("skills should be in COMMAND_SPECS");
     assert_eq!(spec.usage, "/skills");
-    assert!(spec.summary.contains("View and toggle"));
-}
-
-#[test]
-fn skills_picker_render_shows_entries() {
-    use crate::tui::state::SkillPickerEntry;
-
-    let dir = tempdir().expect("tempdir");
-    let mut app = TuiApp::new(ConfigManager {
-        path: dir.path().join("config.json"),
-    })
-    .expect("app");
-
-    app.skill_picker_entries = vec![
-        SkillPickerEntry {
-            name: "reviewer".into(),
-            title: "Reviewer".into(),
-            scope: "cwd".into(),
-            enabled: true,
-            disable_model_invocation: false,
-        },
-        SkillPickerEntry {
-            name: "restricted".into(),
-            title: "Restricted".into(),
-            scope: "home".into(),
-            enabled: false,
-            disable_model_invocation: true,
-        },
-    ];
-    app.skill_picker_idx = 1;
-    app.overlay = Some(crate::tui::state::Overlay::SkillsPicker);
-
-    // Verify entries exist and the correct one is selected
-    assert_eq!(app.skill_picker_entries.len(), 2);
-    assert_eq!(app.skill_picker_idx, 1);
-    assert!(!app.skill_picker_entries[1].enabled);
-    assert!(app.skill_picker_entries[1].disable_model_invocation);
-    assert!(app.skill_picker_entries[0].enabled);
+    assert!(spec.summary.contains("Inspect loaded skills"));
 }
 
 #[test]

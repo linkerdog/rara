@@ -51,7 +51,6 @@ pub(super) async fn execute_local_command_with_runtime(
         LocalCommandKind::Skills => "skills",
         LocalCommandKind::Permissions => "permissions",
         LocalCommandKind::Goal => "goal",
-        LocalCommandKind::Dream => "dream",
     });
     match command.kind {
         LocalCommandKind::Approval => {
@@ -199,15 +198,6 @@ pub(super) async fn execute_local_command_with_runtime(
         LocalCommandKind::Tasks => {
             handle_tasks_command(command.arg.as_deref(), app, agent_slot);
         }
-        LocalCommandKind::Dream => {
-            if let Some(agent) = agent_slot.as_mut() {
-                let summary = agent.consolidation_scheduler.status();
-                app.set_runtime_phase(RuntimePhase::LocalCommand, Some(summary));
-            } else {
-                app.push_notice("Memory consolidation is not available until an agent is ready.");
-            }
-        }
-
         LocalCommandKind::Goal => {
             app.set_runtime_phase(
                 RuntimePhase::LocalCommand,

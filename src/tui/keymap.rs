@@ -7,7 +7,14 @@ pub(crate) fn map_key_to_event(key: KeyEvent, app: &TuiApp) -> AppEvent {
     let code = key.code;
     let modifiers = key.modifiers;
     match app.overlay {
-        Some(Overlay::Help(_)) => match key {
+        Some(Overlay::Help(tab)) => match key {
+            KeyEvent {
+                code: KeyCode::Up, ..
+            } if tab == HelpTab::Commands => AppEvent::MoveCommandSelection(-1),
+            KeyEvent {
+                code: KeyCode::Down,
+                ..
+            } if tab == HelpTab::Commands => AppEvent::MoveCommandSelection(1),
             KeyEvent {
                 code: KeyCode::Esc, ..
             } => AppEvent::CloseOverlay,
@@ -27,8 +34,8 @@ pub(crate) fn map_key_to_event(key: KeyEvent, app: &TuiApp) -> AppEvent {
         },
         Some(Overlay::CommandPalette | Overlay::ModelSearch) => match code {
             KeyCode::Esc => AppEvent::CloseOverlay,
-            KeyCode::Up | KeyCode::Char('k') => AppEvent::MoveCommandSelection(-1),
-            KeyCode::Down | KeyCode::Char('j') => AppEvent::MoveCommandSelection(1),
+            KeyCode::Up => AppEvent::MoveCommandSelection(-1),
+            KeyCode::Down => AppEvent::MoveCommandSelection(1),
             KeyCode::Enter => AppEvent::ApplyOverlaySelection,
             KeyCode::Left => AppEvent::MoveCursorLeft,
             KeyCode::Right => AppEvent::MoveCursorRight,
@@ -60,7 +67,6 @@ pub(crate) fn map_key_to_event(key: KeyEvent, app: &TuiApp) -> AppEvent {
             KeyCode::Esc => AppEvent::CloseOverlay,
             KeyCode::Up | KeyCode::Char('k') => AppEvent::MoveSkillsSelection(-1),
             KeyCode::Down | KeyCode::Char('j') => AppEvent::MoveSkillsSelection(1),
-            KeyCode::Char(' ') => AppEvent::ToggleSkillSelection,
             KeyCode::Enter => AppEvent::CloseOverlay,
             _ => AppEvent::Noop,
         },

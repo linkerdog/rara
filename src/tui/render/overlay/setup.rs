@@ -125,7 +125,11 @@ pub(super) fn render_skills_picker_modal(f: &mut Frame, app: &TuiApp, area: Rect
             .iter()
             .enumerate()
             .map(|(idx, entry)| {
-                let checkbox = if entry.enabled { "[x]" } else { "[ ]" };
+                let availability = if entry.disable_model_invocation {
+                    "manual"
+                } else {
+                    "auto"
+                };
                 let style = if idx == app.skill_picker_idx {
                     Style::default()
                         .fg(theme_color(ThemeToken::TextAccent))
@@ -134,8 +138,8 @@ pub(super) fn render_skills_picker_modal(f: &mut Frame, app: &TuiApp, area: Rect
                     Style::default()
                 };
                 ListItem::new(Line::from(format!(
-                    "{} {} [{}] - {}",
-                    checkbox, entry.name, entry.scope, entry.title
+                    "[{}] {} [{}] - {}",
+                    availability, entry.name, entry.scope, entry.title
                 )))
                 .style(style)
             })
@@ -156,7 +160,7 @@ pub(super) fn render_skills_picker_modal(f: &mut Frame, app: &TuiApp, area: Rect
         ])
         .areas(area);
     f.render_widget(
-        Paragraph::new("Toggle skills on/off with Space. Press Enter to apply.").block(
+        Paragraph::new("Read-only: auto = model-invocable; manual = explicit invocation.").block(
             Block::default()
                 .style(element_bg())
                 .padding(Padding::horizontal(1))
@@ -175,10 +179,7 @@ pub(super) fn render_skills_picker_modal(f: &mut Frame, app: &TuiApp, area: Rect
         list,
         &mut list_state,
     );
-    f.render_widget(
-        Paragraph::new("Space toggle  Up/Down navigate  Enter confirm  Esc cancel"),
-        footer,
-    );
+    f.render_widget(Paragraph::new("Up/Down navigate  Enter/Esc close"), footer);
 }
 
 pub(super) fn render_api_key_editor_modal(
