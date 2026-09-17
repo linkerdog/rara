@@ -70,6 +70,7 @@ impl Tool for SkillTool {
                             "description": s.description,
                             "scope": s.scope.as_str(),
                             "disable_model_invocation": s.disable_model_invocation,
+                            "source_id": s.source_id,
                             "overrides_others": shadows,
                             "shadowed_scopes": if shadows {
                                 skill_manager.override_chain(&s.name)
@@ -87,6 +88,7 @@ impl Tool for SkillTool {
                     "scopes": scopes,
                     "overrides": skill_manager.list_overrides(),
                     "load_warnings": &skill_manager.load_warnings,
+                    "protocol_sources": skill_manager.protocol_skill_statuses(),
                 }))
             }
             "invoke" => {
@@ -114,6 +116,7 @@ impl Tool for SkillTool {
                     "instructions": skill.instructions(),
                     "args": args,
                     "disable_model_invocation": skill.disable_model_invocation,
+                    "source_id": skill_manager.winning_protocol_source(name),
                     "overrides_others": !shadowed_scopes.is_empty(),
                     "shadowed_scopes": shadowed_scopes,
                 }))
@@ -138,12 +141,12 @@ impl Tool for SkillTool {
                         ));
                     }
                 }
-                let skill_count = verify.list_summaries().len();
                 let warnings = verify.load_warnings.clone();
                 let mut skill_manager = self.skill_manager.write().map_err(|err| {
                     ToolError::ExecutionFailed(format!("skill lock failed: {err}"))
                 })?;
-                *skill_manager = verify;
+                skill_manager.replace_local_catalogue(verify);
+                let skill_count = skill_manager.list_summaries().len();
                 Ok(json!({
                     "reloaded": true,
                     "skill_count": skill_count,
@@ -172,6 +175,63 @@ async fn list_returns_scopes_and_skills() {
     assert!(skills.is_empty());
     assert!(scopes.is_empty());
     assert_eq!(result["load_warnings"][0].as_str(), Some("test warning"));
+}
+
+#[tokio::test]
+async fn protocol_skill_uses_native_list_invoke_and_disable() {
+    let mut manager = SkillManager::new();
+    manager
+        .register_protocol_skill(rara_skills::ProtocolSkillRegistration {
+            source_id: "activation-entry".into(),
+            name: "scoped-review".into(),
+            content: "# Review\nReview the scoped task.\n\nBody is disclosed only by invocation."
+                .into(),
+            precedence_hint: Some(10),
+        })
+        .expect("protocol definition");
+    let manager = shared_skill_manager(manager);
+    let tool = SkillTool {
+        skill_manager: manager.clone(),
+        plugin_roots: Vec::new(),
+        reload_policy: SkillReloadPolicy::Disabled,
+    };
+    let listing = tool.call(json!({"action": "list"})).await.expect("list");
+    assert_eq!(listing["skills"][0]["source_id"], "activation-entry");
+    assert_eq!(listing["skills"][0]["scope"], "protocol");
+    assert!(
+        !listing
+            .to_string()
+            .contains("Body is disclosed only by invocation.")
+    );
+    let body = tool
+        .call(json!({"action": "invoke", "skill_name": "scoped-review", "args": "current task"}))
+        .await
+        .expect("invoke");
+    assert_eq!(body["source_id"], "activation-entry");
+    assert_eq!(body["args"], "current task");
+    assert!(
+        body["instructions"]
+            .as_str()
+            .unwrap()
+            .contains("Body is disclosed only by invocation.")
+    );
+    manager
+        .write()
+        .expect("manager")
+        .disable_protocol_skill("scoped-review", Some("activation-entry"))
+        .expect("disable");
+    let listing = tool
+        .call(json!({"action": "list"}))
+        .await
+        .expect("disabled status");
+    assert_eq!(listing["skills"], json!([]));
+    assert_eq!(listing["protocol_sources"][0]["enabled"], false);
+    assert_eq!(listing["protocol_sources"][0]["selected"], false);
+    assert!(
+        tool.call(json!({"action": "invoke", "skill_name": "scoped-review"}))
+            .await
+            .is_err()
+    );
 }
 
 #[test]

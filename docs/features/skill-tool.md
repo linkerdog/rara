@@ -115,6 +115,29 @@ RARA's current effective order lets later roots win. The desired precedence is:
 This keeps RARA's source-aware roots explicit while preserving the existing repo/cwd override
 behavior. RARA should not import `~/.codex/skills` as a default compatibility root.
 
+### Protocol Catalogue
+
+Inline protocol skills enter the native catalogue below every local winner.
+Higher numeric priority wins between protocol definitions; ties use earlier
+registration order and then source ID. Replacing the same source/name preserves
+its original order. Disabled definitions remain visible as metadata but cannot
+be selected or invoked. A source-scoped disable never disables a local skill or
+another protocol source. Local reload replaces local records and retains this
+session's protocol registrations.
+
+The protocol layer holds at most 32 definitions, 64 KiB per body and 256 KiB of body
+text in total, including disabled definitions. Identifiers are bounded ASCII.
+Validation and capacity rejection leave the prior definition intact. Skill
+listing exposes source identity, selection/disabled state and compact metadata; full native Markdown
+instructions are returned only by invocation. Registered paths are virtual
+source labels, not implicit filesystem-read authority.
+
+This catalogue is the prerequisite for runtime registration. Inline registration,
+disable and query must share the native SkillTool manager before advertisement.
+Protocol root discovery remains unsupported until its filesystem and resource
+bounds are implemented and verified separately. Existing local discovery roots
+retain their normal behavior.
+
 ### 4) Available Skills Prompt
 
 The model-facing skills section should stay compact and stable:

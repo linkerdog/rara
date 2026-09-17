@@ -510,6 +510,7 @@ pub(crate) async fn initialize_rara_context_with_options(
                 | rara_skills::SkillScope::Repo
                 | rara_skills::SkillScope::Cwd => "workspace",
                 rara_skills::SkillScope::Plugin => "plugin",
+                rara_skills::SkillScope::Protocol => "protocol",
                 rara_skills::SkillScope::System => "system",
             };
             PromptSkillSummary {

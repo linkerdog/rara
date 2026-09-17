@@ -219,10 +219,10 @@ Active backlog only. Keep this file small and current.
 
 ## App Server Stdio
 
-- [ ] Complete real skill registration through SkillManager/SkillTool before
-      advertising those methods. Canonical input/approval fencing, wire turn targets,
-      bounded prompt sources, replay cursors, turn-targeted stop and retained
-      shutdown outcomes are implemented.
+- [ ] Bind canonical skill registration to the native catalogue/tool manager,
+      deliver compact metadata to model context and emit invocation provenance
+      before advertising those methods. The bounded native catalogue and tool
+      list/invoke path are implemented; protocol root discovery remains unsupported.
 - [ ] Connect the version1 codec to the exact stdio CLI command with bounded
       request receipts, one ordered writer, and explicit host cleanup.
 - [ ] Prove handshake-first startup, prompt/event correlation, duplicate and gap

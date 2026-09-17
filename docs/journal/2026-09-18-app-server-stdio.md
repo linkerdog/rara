@@ -9,6 +9,11 @@ native input/approval commands are implemented. The wire control frame carries t
 expected turn for stops and answers. This does not yet make the app-server command available or complete
 a downstream provider integration.
 
+The native skill catalogue now resolves bounded inline protocol definitions and
+the native skill tool can list/invoke them. Canonical registration ownership and
+model-visible discovery metadata are still follow-up work; the old protocol
+registry has not yet been connected to this catalogue.
+
 ## Background
 
 The canonical runtime already owns sessions, cancellation, ordered in-memory
@@ -54,6 +59,11 @@ raw-Agent dispatcher would bypass the canonical session owner.
   Other methods cannot silently ignore a supplied target. The codec validates
   shape and bounded identity; the actor validates current ownership. Receipt
   equality will include the target when the transport is implemented.
+- Resolve inline skills through the native catalogue, below local definitions.
+  Protocol priority then original registration order chooses a winner; disabled
+  and shadowed definitions retain metadata. Enforce count/body/aggregate limits
+  before replacement. Native tool listing stays body-free, invocation returns
+  instructions with source identity, and local reload preserves protocol records.
 - Mirror connection gating and bounded ordered output from the inspected Codex
   transport, and correlated/cancelled control responses from the inspected Claude
   Code transport, without adopting either wire schema or implementation.
@@ -122,10 +132,20 @@ messages. Existing prompt, replay, shutdown and handshake golden shapes remain
 unchanged. Generic approval frame validity does not advertise that method as
 implemented; runtime capability negotiation remains authoritative.
 
+The native skill crate has 9 passing tests, including 5 new cases for deterministic
+resolution, local authority, atomic invalid replacements, count/byte bounds,
+disabled metadata, reload and explicit body disclosure. All 8 native skill-tool
+tests pass, including a new list/invoke/disable workflow with source identity and
+body-free disabled status. The skill crate passes all-target Clippy with warnings
+denied. These tests establish the catalogue/tool boundary, not live protocol
+registration or automatic model-context delivery.
+
 ```bash
 cargo fmt --all
 cargo test -p rara-app-server --lib --locked --offline
 cargo clippy -p rara-app-server --all-targets --locked --offline -- -D warnings
+cargo test -p rara-skills --locked --offline
+cargo clippy -p rara-skills --all-targets --locked --offline -- -D warnings
 CARGO_INCREMENTAL=0 cargo test --locked --offline --test runtime_session
 CARGO_INCREMENTAL=0 cargo test --locked --offline --lib tools::agent::agent_control::tests
 CARGO_INCREMENTAL=0 cargo test --locked --offline --lib protocol_sources::
@@ -133,6 +153,7 @@ CARGO_INCREMENTAL=0 cargo test --locked --offline --lib agent::tests::context_vi
 CARGO_INCREMENTAL=0 cargo test --locked --offline --lib runtime_session::source_tests::
 CARGO_INCREMENTAL=0 cargo test --locked --offline --lib runtime_session::input_tests::
 CARGO_INCREMENTAL=0 cargo test --locked --offline --lib agent::tests::planning
+CARGO_INCREMENTAL=0 cargo test --locked --offline --lib tools::skill
 cargo clippy --locked --all-targets --no-deps --offline -- -D warnings
 git diff --check
 ```
@@ -143,7 +164,9 @@ evidence remain open until their implementations exist.
 
 ## Follow-Ups
 
-Implement actual skill registration through SkillManager/SkillTool, bounded process transport,
+Bind canonical skill registration to the native catalogue/tool manager, deliver
+compact metadata to model context with stable system guidance, and emit real
+invocation provenance. Keep unsupported root discovery explicit. Implement bounded process transport,
 receipt/replay behavior and real isolated child-process smoke before advertising
 the protocol. The owning contract is
 [App Server Stdio Protocol](../features/app-server-stdio.md).

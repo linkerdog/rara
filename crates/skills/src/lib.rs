@@ -14,12 +14,19 @@ use std::path::{Path, PathBuf};
 use anyhow::{Result, anyhow};
 use serde::Serialize;
 
+mod protocol;
+pub use protocol::{
+    MAX_PROTOCOL_SKILL_BYTES, MAX_PROTOCOL_SKILLS, MAX_PROTOCOL_TOTAL_BYTES, ProtocolSkillError,
+    ProtocolSkillRegistration, ProtocolSkillStatus,
+};
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum SkillScope {
     Workspace,
     Global,
     Plugin,
+    Protocol,
     // Legacy variants for compatibility
     Home,
     Repo,
@@ -33,6 +40,7 @@ impl SkillScope {
             Self::Workspace => "workspace",
             Self::Global => "global",
             Self::Plugin => "plugin",
+            Self::Protocol => "protocol",
             Self::Home => "home",
             Self::Repo => "repo",
             Self::Cwd => "cwd",
@@ -66,12 +74,15 @@ pub struct SkillSummary {
     pub path: PathBuf,
     pub scope: SkillScope,
     pub disable_model_invocation: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub source_id: Option<String>,
 }
 
 pub struct SkillManager {
     pub skills: HashMap<String, Skill>,
     pub overrides: HashMap<String, Vec<Skill>>,
     pub load_warnings: Vec<String>,
+    protocol: protocol::ProtocolCatalogue,
 }
 
 impl Default for SkillManager {
@@ -86,6 +97,7 @@ impl SkillManager {
             skills: HashMap::new(),
             overrides: HashMap::new(),
             load_warnings: Vec::new(),
+            protocol: protocol::ProtocolCatalogue::default(),
         }
     }
 
@@ -114,8 +126,15 @@ impl SkillManager {
     }
 
     pub fn list_summaries(&self) -> Vec<SkillSummary> {
-        self.skills
-            .values()
+        let names = self
+            .skills
+            .keys()
+            .map(String::as_str)
+            .chain(self.protocol_names())
+            .collect::<std::collections::BTreeSet<_>>();
+        names
+            .into_iter()
+            .filter_map(|name| self.get_skill(name))
             .map(|s| SkillSummary {
                 name: s.name.clone(),
                 title: s.title.clone(),
@@ -123,17 +142,20 @@ impl SkillManager {
                 path: s.path.clone(),
                 scope: s.scope,
                 disable_model_invocation: s.disable_model_invocation,
+                source_id: self.winning_protocol_source(&s.name).map(str::to_owned),
             })
             .collect()
     }
 
     pub fn get_skill(&self, name: &str) -> Option<&Skill> {
-        self.skills.get(name)
+        self.skills
+            .get(name)
+            .or_else(|| self.protocol_winner(name).map(|entry| &entry.skill))
     }
 
     pub fn active_scopes(&self) -> Vec<String> {
         let mut scopes = HashSet::new();
-        for skill in self.skills.values() {
+        for skill in self.list_summaries() {
             scopes.insert(skill.scope.as_str().to_string());
         }
         let mut result: Vec<String> = scopes.into_iter().collect();
@@ -142,18 +164,31 @@ impl SkillManager {
     }
 
     pub fn shadows_others(&self, name: &str) -> bool {
-        self.overrides.contains_key(name)
+        !self.override_chain(name).is_empty()
     }
 
     pub fn override_chain(&self, name: &str) -> Vec<Skill> {
-        self.overrides.get(name).cloned().unwrap_or_default()
+        let mut chain = self.overrides.get(name).cloned().unwrap_or_default();
+        let winner = self.winning_protocol_source(name);
+        chain.extend(
+            self.protocol_candidates(name)
+                .into_iter()
+                .filter(|entry| Some(entry.source_id.as_str()) != winner)
+                .map(|entry| entry.skill.clone()),
+        );
+        chain
     }
 
     pub fn list_overrides(&self) -> HashMap<String, Vec<String>> {
         let mut result = HashMap::new();
-        for (name, chain) in &self.overrides {
+        for summary in self.list_summaries() {
+            let name = summary.name;
+            let chain = self.override_chain(&name);
+            if chain.is_empty() {
+                continue;
+            }
             result.insert(
-                name.clone(),
+                name,
                 chain
                     .iter()
                     .map(|s| format!("{} ({})", s.name, s.scope.as_str()))
@@ -161,6 +196,13 @@ impl SkillManager {
             );
         }
         result
+    }
+
+    /// Replace filesystem discovery results while preserving session registrations.
+    pub fn replace_local_catalogue(&mut self, fresh: Self) {
+        self.skills = fresh.skills;
+        self.overrides = fresh.overrides;
+        self.load_warnings = fresh.load_warnings;
     }
 
     fn discover_workspace_skills(&mut self, root: &Path) -> Result<()> {
