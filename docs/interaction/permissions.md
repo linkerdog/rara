@@ -24,6 +24,12 @@ to select the current preset; `custom` means no exact match, not a running or
 error state. The picker always explains execution, shell policy, and sandbox
 network state, including for Custom. Selection and rendering use the same order.
 
+The bottom footer is the primary permission status. At a main-content width of
+80 columns or more, omit the duplicate permission badge from the activity row.
+Below 80 columns, retain the compact activity badge for non-Auto policies as a
+fallback. Measure the actual content width after any sidebar, and recompute this
+choice on resize. Permission policy and footer content remain unchanged.
+
 | Preset | Execution | Shell approval | Sandbox network | Full-access bypass |
 | --- | --- | --- | --- | --- |
 | Auto | Execute | Always, retaining escalation checks | Off | Off |
@@ -96,3 +102,4 @@ do not establish PTY acceptance.
 ## Source Journal
 
 - [Busy commands and permission controls](../journal/2026-09-17-tui-permission-controls.md)
+- [Permission badge placement](../journal/2026-09-17-tui-permission-badge-placement.md)
