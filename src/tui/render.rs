@@ -2,6 +2,7 @@ mod bottom_pane;
 pub(crate) mod cells;
 pub(crate) mod diff;
 mod helpers;
+mod layout;
 mod overlay;
 mod sidebar;
 mod spinner;
@@ -19,12 +20,13 @@ use ratatui::{
     widgets::{Paragraph, Wrap},
 };
 
+#[cfg(test)]
+use self::bottom_pane::desired_bottom_pane_height;
 pub(crate) use self::bottom_pane::desired_viewport_height;
-use self::bottom_pane::{desired_bottom_pane_height, render_bottom_pane};
 pub(crate) use self::cells::{ActiveCell, HistoryCell};
 use self::cells::{ActiveTurnCell, CommittedTurnCell, StartupCardCell};
+pub use self::layout::render;
 pub(crate) use self::overlay::popup_block;
-use self::overlay::render_overlay;
 use self::viewport::TranscriptViewport;
 use super::custom_terminal::Frame;
 use super::line_utils::prefix_lines;
@@ -34,65 +36,6 @@ use super::tool_text::{
 };
 use crate::tui::sub_agent_display::SubAgentKind;
 use crate::tui::theme::*;
-
-pub fn render(f: &mut Frame, app: &mut TuiApp) {
-    let bottom_pane_height = desired_bottom_pane_height(app, f.area().width, f.area().height);
-
-    if f.area().width > 120 && app.sidebar_visible {
-        render_wide(f, app, bottom_pane_height);
-    } else {
-        render_narrow(f, app, bottom_pane_height);
-    }
-}
-
-fn render_narrow(f: &mut Frame, app: &mut TuiApp, bottom_pane_height: u16) {
-    let layout = Layout::default()
-        .direction(Direction::Vertical)
-        .constraints([Constraint::Fill(1), Constraint::Length(bottom_pane_height)])
-        .split(f.area());
-
-    let transcript_area = render_startup_header(f, app, layout[0]);
-    render_transcript(f, app, transcript_area);
-    let mut cursor = render_bottom_pane(f, app, layout[1]);
-
-    if let Some(overlay) = app.overlay {
-        cursor = render_overlay(f, app, overlay).or(cursor);
-    }
-
-    if let Some((x, y)) = cursor {
-        f.set_cursor_position((x, y));
-    }
-}
-
-fn render_wide(f: &mut Frame, app: &mut TuiApp, bottom_pane_height: u16) {
-    let layout = Layout::default()
-        .direction(Direction::Horizontal)
-        .constraints([
-            Constraint::Length(sidebar::SIDEBAR_WIDTH),
-            Constraint::Fill(1),
-        ])
-        .split(f.area());
-
-    sidebar::render_sidebar(f, app, layout[0]);
-
-    // Main transcript panel — same vertical split as narrow mode.
-    let main = Layout::default()
-        .direction(Direction::Vertical)
-        .constraints([Constraint::Fill(1), Constraint::Length(bottom_pane_height)])
-        .split(layout[1]);
-
-    let transcript_area = render_startup_header(f, app, main[0]);
-    render_transcript(f, app, transcript_area);
-    let mut cursor = render_bottom_pane(f, app, main[1]);
-
-    if let Some(overlay) = app.overlay {
-        cursor = render_overlay(f, app, overlay).or(cursor);
-    }
-
-    if let Some((x, y)) = cursor {
-        f.set_cursor_position((x, y));
-    }
-}
 
 fn render_startup_header(f: &mut Frame, app: &TuiApp, area: Rect) -> Rect {
     if !shows_startup_header(app) {

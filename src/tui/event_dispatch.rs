@@ -12,13 +12,12 @@ use super::provider_flow::{
     open_provider_family_overlay, should_open_codex_auth_guide,
     sync_codex_credential_from_auth_store,
 };
-use super::runtime::apply_permission_mode;
 use super::runtime::start_oauth_task;
 use super::runtime_port::{RuntimeClientPort, RuntimeCommand, RuntimeMaintenanceCommand};
 use super::session_restore::restore_thread_by_id;
 use super::state::{
     ActivePendingInteractionKind, ApiKeyTarget, ListPickerKind, OpenAiModelPickerAction, Overlay,
-    PermissionMode, ProviderFamily, TuiApp,
+    ProviderFamily, TuiApp,
 };
 use super::submit::{apply_openai_model_picker_action, handle_submit, handle_submit_with_port};
 use super::terminal_ui::is_ssh_session;
@@ -805,6 +804,18 @@ async fn dispatch_event_inner(
                             if let Some(thread_id) = list_picker::selected_resumable_thread_id(app)
                             {
                                 restore_thread_by_id(thread_id.as_str(), app, agent_slot)?;
+                                let mode = app.permission_mode;
+                                if mode == super::state::PermissionMode::FullAccess {
+                                    if let Some(runtime_port) = runtime_port {
+                                        runtime_port
+                                            .send(RuntimeCommand::SetPermissionMode(mode))
+                                            .await?;
+                                    } else {
+                                        super::runtime::request_permission_mode(
+                                            app, agent_slot, mode,
+                                        );
+                                    }
+                                }
                                 app.dismiss_overlay();
                             }
                         }
@@ -835,21 +846,21 @@ async fn dispatch_event_inner(
                 }
             }
             Some(Overlay::PermissionPicker) => {
-                if app.is_busy() {
-                    app.push_notice("A task is already running. Wait for it to finish.");
-                } else {
-                    let mode = match app.permission_picker_idx {
-                        0 => PermissionMode::Auto,
-                        1 => PermissionMode::AcceptEdits,
-                        2 => PermissionMode::ReadOnly,
-                        3 => PermissionMode::FullAccess,
-                        _ => PermissionMode::Auto,
-                    };
-                    apply_permission_mode(app, agent_slot, mode);
-                    app.permission_mode = mode;
-                    let label = mode.label();
+                if let Some(preset) =
+                    crate::tui::permission_policy::PERMISSION_PRESETS.get(app.permission_picker_idx)
+                {
+                    if let Some(runtime_port) = runtime_port {
+                        runtime_port
+                            .send(RuntimeCommand::SetPermissionMode(preset.mode))
+                            .await?;
+                        app.push_notice(format!(
+                            "Permission change requested: {}.",
+                            preset.mode.label()
+                        ));
+                    } else {
+                        super::runtime::request_permission_mode(app, agent_slot, preset.mode);
+                    }
                     app.dismiss_overlay();
-                    app.push_notice(format!("Permission mode: {label}."));
                 }
             }
             _ => {}

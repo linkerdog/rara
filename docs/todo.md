@@ -34,9 +34,6 @@ Active backlog only. Keep this file small and current.
 
 ## TUI / UX
 
-- [ ] Share busy-time command availability between discovery and submission;
-      decide whether read-only status/context/help should remain usable during
-      running turns. See [CMD-03](interaction/commands.md#cmd-03-local-submission-and-errors).
 - [ ] Complete remaining keyboard contracts: resume-search cursor editing,
       Help General/Runtime scrolling, grapheme-cluster editing, and an explicit
       opt-in Vim mode. See [input risks](interaction/composer-and-overlays.md#open-risks).

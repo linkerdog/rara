@@ -31,6 +31,10 @@ pub(super) async fn execute_local_command_with_runtime(
     agent_slot: &mut Option<Agent>,
     runtime_port: Option<&dyn RuntimeClientPort>,
 ) -> anyhow::Result<bool> {
+    if let Some(reason) = crate::tui::command::command_unavailable_reason(app, &command) {
+        app.push_notice(reason);
+        return Ok(false);
+    }
     let command_kind = command.kind;
     app.remember_command(match command.kind {
         LocalCommandKind::Approval => "approval",
@@ -80,24 +84,18 @@ pub(super) async fn execute_local_command_with_runtime(
                 BashApprovalMode::Once => "Bash approval set to once.",
                 BashApprovalMode::Suggestion => "Bash approval set to suggestion.",
             };
-            app.set_runtime_phase(
-                RuntimePhase::LocalCommand,
-                Some("updating approval mode".into()),
-            );
+            mark_local_command(app, Some("updating approval mode".into()));
             app.push_notice(notice);
         }
         LocalCommandKind::NowledgeMem => {
             handle_nowledge_mem_command(command.arg.as_deref(), app)?;
         }
         LocalCommandKind::Help => {
-            app.set_runtime_phase(RuntimePhase::LocalCommand, Some("opening help".into()));
+            mark_local_command(app, Some("opening help".into()));
             app.open_overlay(Overlay::Help(HelpTab::General));
         }
         LocalCommandKind::Clear => {
-            app.set_runtime_phase(
-                RuntimePhase::LocalCommand,
-                Some("clearing transcript".into()),
-            );
+            mark_local_command(app, Some("clearing transcript".into()));
             app.reset_transcript();
         }
         LocalCommandKind::Compact => {
@@ -110,7 +108,7 @@ pub(super) async fn execute_local_command_with_runtime(
             .await?;
         }
         LocalCommandKind::Context => {
-            app.set_runtime_phase(RuntimePhase::LocalCommand, Some("opening context".into()));
+            mark_local_command(app, Some("opening context".into()));
             app.open_overlay(Overlay::Context);
         }
         LocalCommandKind::Model => handle_model_command(command.arg.as_deref(), app)?,
@@ -121,10 +119,7 @@ pub(super) async fn execute_local_command_with_runtime(
                 app.push_notice("A task is already running. Wait for it to finish.");
                 return Ok(false);
             }
-            app.set_runtime_phase(
-                RuntimePhase::LocalCommand,
-                Some("entering planning mode".into()),
-            );
+            mark_local_command(app, Some("entering planning mode".into()));
             app.clear_pending_plan_approval();
             app.permission_mode = PermissionMode::Custom;
             app.set_agent_execution_mode(AgentExecutionMode::Plan);
@@ -161,48 +156,33 @@ pub(super) async fn execute_local_command_with_runtime(
             }
         }
         LocalCommandKind::Permissions => {
-            if app.is_busy() {
-                app.push_notice("A task is already running. Wait for it to finish.");
-                return Ok(false);
-            }
-            // Sync picker index to current mode before opening.
-            let current_idx = match app.permission_mode {
-                PermissionMode::Auto => 0,
-                PermissionMode::AcceptEdits => 1,
-                PermissionMode::ReadOnly => 2,
-                PermissionMode::FullAccess => 3,
-                PermissionMode::Custom => 0,
-            };
-            app.permission_picker_idx = current_idx;
-            app.set_runtime_phase(
-                RuntimePhase::LocalCommand,
-                Some("opening permission picker".into()),
-            );
+            let selected = app
+                .pending_permission_mode
+                .unwrap_or_else(|| app.effective_permission_mode());
+            app.permission_picker_idx = crate::tui::permission_policy::PERMISSION_PRESETS
+                .iter()
+                .position(|preset| preset.mode == selected)
+                .unwrap_or(0);
+            mark_local_command(app, Some("opening permission picker".into()));
             app.open_overlay(Overlay::PermissionPicker);
         }
         LocalCommandKind::Quit => {
-            app.set_runtime_phase(RuntimePhase::LocalCommand, Some("quitting".into()));
+            mark_local_command(app, Some("quitting".into()));
             return Ok(true);
         }
         LocalCommandKind::Resume => {
-            app.set_runtime_phase(
-                RuntimePhase::LocalCommand,
-                Some("opening resume picker".into()),
-            );
+            mark_local_command(app, Some("opening resume picker".into()));
             app.open_overlay(Overlay::ListPicker(ListPickerKind::Resume));
         }
         LocalCommandKind::Status => {
-            app.set_runtime_phase(RuntimePhase::LocalCommand, Some("opening status".into()));
+            mark_local_command(app, Some("opening status".into()));
             app.open_overlay(Overlay::Status(StatusTab::Overview));
         }
         LocalCommandKind::Tasks => {
             handle_tasks_command(command.arg.as_deref(), app, agent_slot);
         }
         LocalCommandKind::Goal => {
-            app.set_runtime_phase(
-                RuntimePhase::LocalCommand,
-                Some("processing goal command".into()),
-            );
+            mark_local_command(app, Some("processing goal command".into()));
             let arg = command.arg.as_deref().unwrap_or("").trim();
             match arg {
                 "" => {
@@ -306,10 +286,7 @@ pub(super) async fn execute_local_command_with_runtime(
             }
         }
         LocalCommandKind::Skills => {
-            app.set_runtime_phase(
-                RuntimePhase::LocalCommand,
-                Some("opening skills picker".into()),
-            );
+            mark_local_command(app, Some("opening skills picker".into()));
             app.open_overlay(Overlay::SkillsPicker);
         }
     }
@@ -523,10 +500,7 @@ fn handle_model_command(arg: Option<&str>, app: &mut TuiApp) -> anyhow::Result<(
 }
 
 fn handle_mcp_command(app: &mut TuiApp) {
-    app.set_runtime_phase(
-        RuntimePhase::LocalCommand,
-        Some("showing mcp status".into()),
-    );
+    mark_local_command(app, Some("showing mcp status".into()));
     let project_root = command_project_root(app);
     match app
         .config_manager
@@ -606,10 +580,7 @@ fn command_project_root(app: &TuiApp) -> PathBuf {
 }
 
 fn handle_tasks_command(arg: Option<&str>, app: &mut TuiApp, agent_slot: &mut Option<Agent>) {
-    app.set_runtime_phase(
-        RuntimePhase::LocalCommand,
-        Some("processing shared task command".into()),
-    );
+    mark_local_command(app, Some("processing shared task command".into()));
     let Some(requested) = arg.map(str::trim).filter(|value| !value.is_empty()) else {
         let tasks = &app.snapshot.shared_tasks;
         app.push_notice(format!(
@@ -681,58 +652,10 @@ fn capture_git_diff(cwd: &str) -> String {
     }
 }
 
-pub(crate) fn apply_permission_mode(
-    app: &mut TuiApp,
-    agent_slot: &mut Option<Agent>,
-    mode: PermissionMode,
-) {
-    use std::sync::atomic::Ordering;
-
-    let (execution, approval, allow_net, full_access) = match mode {
-        PermissionMode::Auto => (
-            AgentExecutionMode::Execute,
-            BashApprovalMode::Always,
-            false,
-            false,
-        ),
-        PermissionMode::AcceptEdits => (
-            AgentExecutionMode::Execute,
-            BashApprovalMode::Suggestion,
-            false,
-            false,
-        ),
-        PermissionMode::ReadOnly => (
-            AgentExecutionMode::Plan,
-            BashApprovalMode::Suggestion,
-            false,
-            false,
-        ),
-        PermissionMode::FullAccess => (
-            AgentExecutionMode::Execute,
-            BashApprovalMode::Always,
-            true,
-            true,
-        ),
-        PermissionMode::Custom => return,
-    };
-
-    app.permission_mode = mode;
-    app.set_agent_execution_mode(execution);
-    app.bash_approval_mode = approval;
-    app.sandbox_network_access
-        .store(allow_net, Ordering::Relaxed);
-
-    if let Some(agent) = agent_slot.as_mut() {
-        agent.set_execution_mode(execution);
-        agent.set_bash_approval_mode(approval);
-        agent.set_full_access_mode(full_access);
+fn mark_local_command(app: &mut TuiApp, detail: Option<String>) {
+    if !app.is_busy() {
+        app.set_runtime_phase(RuntimePhase::LocalCommand, detail);
     }
-
-    app.set_runtime_phase(
-        RuntimePhase::LocalCommand,
-        Some("updating permissions".into()),
-    );
-    app.clear_pending_plan_approval();
 }
 
 #[cfg(test)]

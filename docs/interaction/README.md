@@ -11,6 +11,7 @@ Implementation checkpoints and reference comparisons belong in [journal](../jour
 | [Commands](commands.md) | Discovery, canonical names, aliases, execution, and help |
 | [Composer and overlays](composer-and-overlays.md) | Input ownership, key priority, search, selection, and dismissal |
 | [Runtime feedback](runtime-feedback.md) | Running turns, queued input, cancellation, approvals, and recovery |
+| [Permissions](permissions.md) | Effective presets, pending changes, approval boundaries, and runtime receipts |
 | [Quality verification](quality-verification.md) | Observable contracts, regression evidence, rendering, and CI boundaries |
 
 ## Reading And Change Rules

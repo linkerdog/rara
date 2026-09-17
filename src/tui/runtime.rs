@@ -1,5 +1,6 @@
 mod commands;
-pub(crate) use commands::apply_permission_mode;
+mod permissions;
+pub(crate) use permissions::request_permission_mode;
 mod events;
 pub(super) use events::apply_tui_event;
 mod processor;

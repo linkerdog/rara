@@ -47,6 +47,9 @@ rara ask "summarize this repo"
 
 # Resume your last session
 rara resume --last
+
+# Start this session with local permission checks bypassed
+rara --dangerously-skip-permissions
 ```
 
 ---
@@ -62,7 +65,13 @@ The terminal UI gives you a full development environment:
   child sessions at a glance.
 - **Slash commands** — `/model` to switch providers, `/status` for runtime
   state, `/context` for prompt diagnostics, `/help` for available commands.
-  All slash commands work during agent rebuild.
+  Inspection commands remain available during work; runtime mutations show a
+  disabled reason until the current task finishes.
+- **Permission controls** — `/permissions` shows the effective policy and pending
+  changes. `Full access (always allow)` skips local tool approval and classifier
+  checks and enables sandbox network access. Start directly in this mode with
+  `--dangerously-skip-permissions`; the flag does not change saved defaults or
+  disable OS/container isolation.
 - **Approval card** — when a shell command needs approval, use Up/Down plus
   Enter, or press `1`-`4`, directly on the transcript card.
 - **Follow-up queuing** — type ahead while the agent is busy; your messages

@@ -113,13 +113,15 @@ impl TuiApp {
             skill_picker_idx: 0,
             skill_picker_entries: Vec::new(),
             sandbox_network_access: Arc::new(AtomicBool::new(sandbox_network)),
-            permission_mode: PermissionMode::Auto,
+            permission_mode: PermissionMode::Custom,
+            pending_permission_mode: None,
             goal: None,
             goal_handle: Arc::new(std::sync::RwLock::new(None)),
             event_bus: None,
             mcp_tool_cache: None,
         };
 
+        app.permission_mode = app.effective_permission_mode();
         app.set_deepseek_model_catalog_with_source(
             rara_provider_catalog::fallback_catalog(ModelCatalogProvider::DeepSeek),
             true,

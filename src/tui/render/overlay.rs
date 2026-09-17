@@ -161,7 +161,7 @@ fn render_help_modal(f: &mut Frame, app: &TuiApp, area: Rect, tab: HelpTab) {
             let query = app.command_query();
             let items = help_command_items(query)
                 .into_iter()
-                .map(command_palette_item)
+                .map(|spec| command_palette_item(app, spec))
                 .collect::<Vec<_>>();
             let mut state = command_palette_list_state(app.command_palette_idx);
             f.render_stateful_widget(
@@ -310,14 +310,14 @@ fn command_palette_list_state(selected_index: usize) -> ListState {
 fn palette_items_for_empty_query(app: &TuiApp) -> Vec<ListItem<'static>> {
     palette_commands(app, "")
         .into_iter()
-        .map(command_palette_item)
+        .map(|spec| command_palette_item(app, spec))
         .collect()
 }
 
-fn palette_items_for_matches(_app: &TuiApp, query: &str) -> Vec<ListItem<'static>> {
+fn palette_items_for_matches(app: &TuiApp, query: &str) -> Vec<ListItem<'static>> {
     matching_commands(query)
         .into_iter()
-        .map(command_palette_item)
+        .map(|spec| command_palette_item(app, spec))
         .collect()
 }
 
@@ -325,15 +325,18 @@ fn help_command_items(query: &str) -> Vec<&'static CommandSpec> {
     matching_commands(query)
 }
 
-fn command_palette_item(spec: &CommandSpec) -> ListItem<'static> {
+fn command_palette_item(app: &TuiApp, spec: &CommandSpec) -> ListItem<'static> {
     // Display name with leading slash for consistent width
     let full_name = format!("/{}", spec.name);
+    let command = crate::tui::command::parse_local_command(&full_name).expect("registered command");
+    let description =
+        crate::tui::command::command_unavailable_reason(app, &command).unwrap_or(spec.summary);
     ListItem::new(Line::from(vec![
         Span::styled(
             format!("{full_name:<12}"),
             Style::default().add_modifier(Modifier::BOLD),
         ),
-        Span::styled(spec.summary, token_fg(ThemeToken::TextMuted)),
+        Span::styled(description, token_fg(ThemeToken::TextMuted)),
     ]))
 }
 
