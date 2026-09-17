@@ -52,17 +52,16 @@ Provider aliases may resolve to the same local backend path so the CLI and TUI c
 
 ### 4) TUI Interaction Direction
 
-Current state:
+The canonical interaction contract is in
+[composer and overlays](../interaction/composer-and-overlays.md) and
+[commands](../interaction/commands.md).
 
-- the TUI includes a setup screen that can switch local model presets;
+- `/connect` owns provider setup and `/model` opens the unified model picker;
 - local providers do not require an API key;
-- model changes rebuild the backend and agent in-process.
-
-Target state:
-
-- common runtime actions should move into slash commands inside the main prompt flow;
-- setup should become a first-run onboarding and fallback configuration surface, not the primary UX;
-- the TUI should expose current provider/model/runtime status continuously.
+- ready provider selections request an in-process backend and agent rebuild;
+  Candle selection retains its preview-only notice;
+- provider/model/runtime status remains visible in the main prompt flow;
+- model search uses the same filtered rows for rendering and selection.
 
 ## Contracts
 
@@ -97,9 +96,11 @@ Target state:
 - The JSON tool-call shim is more brittle than model-native function calling.
 - Prompt formatting and stop behavior may diverge across Gemma 4 and Qwen3 variants.
 - The current hash embedding fallback is operational but weak for semantic retrieval.
-- The setup screen still carries too much product responsibility compared with the intended inline command UX.
+- Provider/model configuration still has multiple nested picker/editor paths;
+  draft restoration and narrow-terminal behavior need explicit acceptance.
 
 ## Source Journals
 
 - [2026-04-11-local-model-bootstrap](../journal/2026-04-11-local-model-bootstrap.md)
 - [2026-07-13-hf-hub-v1-migration](../journal/2026-07-13-hf-hub-v1-migration.md)
+- [2026-09-17-tui-interaction-contracts](../journal/2026-09-17-tui-interaction-contracts.md)

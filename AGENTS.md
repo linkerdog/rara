@@ -18,6 +18,7 @@ It is the baseline index for future implementation and evolution.
 - [8. Commit Rules](#8-commit-rules)
 
 ### Docs
+- [docs/interaction/](docs/interaction/README.md) — canonical TUI interaction specifications
 - [docs/features/](docs/features/README.md) — engineering specs and contracts (28 files)
 - [docs/journal/](docs/journal/) — dated implementation notes and checkpoints
 - [docs/journal/2026-05-07-file-split-lessons.md](docs/journal/2026-05-07-file-split-lessons.md) — file splitting patterns, pitfalls, and workflow
@@ -136,10 +137,13 @@ The current product direction is to make local inference a first-class path inst
   that touches behavior, contracts, or architecture should be merged without
   the corresponding spec or journal update.
 - `docs/features/` stores stable engineering specs and contracts.
+- `docs/interaction/` stores canonical user interaction specs: commands, input
+  ownership, overlays, runtime feedback, and interaction verification. Runtime
+  and protocol semantics remain in the owning `docs/features/` spec.
 - `docs/journal/` stores dated implementation notes and checkpoints.
 - `docs/todo.md` stores active follow-up work only.
 - Non-trivial changes MUST update:
-  - the relevant feature spec when a contract or behavior changed;
+  - the relevant feature or interaction spec when a contract or behavior changed;
   - a dated journal note for the implementation checkpoint;
   - `docs/todo.md` only when open follow-up work remains.
 - When creating or revising feature specs, follow the patterns in existing

@@ -639,16 +639,7 @@ mod tests {
 
 fn render_model_search(f: &mut Frame, app: &TuiApp, area: Rect) {
     let query = app.model_search_query.as_str();
-    let presets = app.available_unified_model_presets();
-    let filtered: Vec<_> = if query.is_empty() {
-        presets.iter().collect()
-    } else {
-        let q = query.to_ascii_lowercase();
-        presets
-            .iter()
-            .filter(|p| p.model_label.to_ascii_lowercase().contains(&q))
-            .collect()
-    };
+    let filtered = super::super::model_search::matching_model_presets(app);
 
     let mut state = ListState::default();
     state.select(Some(

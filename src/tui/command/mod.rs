@@ -9,8 +9,6 @@ pub use self::specs::{
     general_help_text, matching_commands, palette_command_by_index, palette_commands,
     parse_local_command,
 };
-#[cfg(test)]
-pub use self::specs::{help_text, recommended_commands};
 pub use self::status::{
     api_key_status, is_local_provider, model_help_text, recent_transcript_preview,
     status_context_text, status_metrics_text, status_prompt_sources_text, status_resources_text,

@@ -34,7 +34,6 @@ pub enum AppEvent {
     /// Generic list-picker move/set events — used by Overlay::ListPicker.
     MoveListPickerSelection(i32),
     SetListPickerSelection(usize),
-    ToggleSkillSelection,
     SelectPendingOption(usize),
     /// Reserved for legacy setup picker navigation until provider selection is
     /// fully consolidated into list-picker events (docs/todo.md).

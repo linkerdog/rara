@@ -12,6 +12,8 @@ mod event_stream;
 mod format;
 mod highlight;
 mod input_control;
+#[cfg(test)]
+mod interaction_tests;
 mod interaction_text;
 mod keymap;
 mod layout_utils;
@@ -21,6 +23,7 @@ mod markdown;
 mod markdown_render;
 mod markdown_stream;
 mod message_role;
+mod model_search;
 mod plan_display;
 mod provider_flow;
 mod queued_input;

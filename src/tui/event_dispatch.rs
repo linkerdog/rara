@@ -7,6 +7,7 @@ use super::command::{palette_command_by_index, palette_commands};
 use super::input_control;
 #[allow(unused_imports)]
 use super::list_picker;
+use super::model_search::matching_model_presets;
 use super::provider_flow::{
     open_provider_family_overlay, should_open_codex_auth_guide,
     sync_codex_credential_from_auth_store,
@@ -27,8 +28,10 @@ use crate::oauth::{OAuthManager, SavedCodexAuthMode};
 use crate::runtime_control::SessionControlRequest;
 
 mod maintenance;
+mod model_selection;
 
 use maintenance::request_maintenance;
+use model_selection::apply_model_selection;
 
 #[cfg(test)]
 pub(crate) async fn dispatch_event(
@@ -186,19 +189,7 @@ async fn dispatch_event_inner(
         AppEvent::ScrollContext(delta) => app.scroll_context(delta),
         AppEvent::MoveCommandSelection(delta) => {
             if matches!(app.overlay, Some(Overlay::ModelSearch)) {
-                let presets = app.available_unified_model_presets();
-                let q = app.model_search_query.to_ascii_lowercase();
-                let count = if q.is_empty() {
-                    presets.len()
-                } else {
-                    presets
-                        .iter()
-                        .filter(|p| {
-                            p.model_label.to_ascii_lowercase().contains(&q)
-                                || p.provider_label.to_ascii_lowercase().contains(&q)
-                        })
-                        .count()
-                };
+                let count = matching_model_presets(app).len();
                 if count > 0 {
                     let next = (app.model_search_idx as i32 + delta).clamp(0, count as i32 - 1);
                     app.model_search_idx = next as usize;
@@ -216,12 +207,6 @@ async fn dispatch_event_inner(
             if len > 0 {
                 let next = (app.skill_picker_idx as i32 + delta).clamp(0, len as i32 - 1);
                 app.skill_picker_idx = next as usize;
-            }
-        }
-        AppEvent::ToggleSkillSelection => {
-            if let Some(entry) = app.skill_picker_entries.get_mut(app.skill_picker_idx) {
-                entry.enabled = !entry.enabled;
-                entry.disable_model_invocation = !entry.enabled;
             }
         }
         AppEvent::MoveListPickerSelection(delta) => {
@@ -561,29 +546,20 @@ async fn dispatch_event_inner(
 
         AppEvent::ApplyOverlaySelection => match app.overlay {
             Some(Overlay::ModelSearch) => {
-                let presets = app.available_unified_model_presets();
-                let q = app.model_search_query.to_ascii_lowercase();
-                let filtered: Vec<_> = if q.is_empty() {
-                    presets.iter().collect()
-                } else {
-                    presets
-                        .iter()
-                        .filter(|p| {
-                            p.model_label.to_ascii_lowercase().contains(&q)
-                                || p.provider_label.to_ascii_lowercase().contains(&q)
-                        })
-                        .collect()
-                };
-                if let Some(preset) = filtered.get(app.model_search_idx) {
-                    let all = app.all_unified_model_presets();
-                    if let Some(global_idx) = all
-                        .iter()
-                        .position(|p| p.model_id == preset.model_id && p.family == preset.family)
-                    {
-                        app.dismiss_overlay();
-                        app.model_search_query.clear();
-                        app.select_unified_model(global_idx);
-                    }
+                if let Some(preset) = matching_model_presets(app)
+                    .get(app.model_search_idx)
+                    .cloned()
+                {
+                    app.dismiss_overlay();
+                    app.model_search_query.clear();
+                    apply_model_selection(
+                        preset,
+                        app,
+                        agent_slot,
+                        oauth_manager.as_ref(),
+                        runtime_port,
+                    )
+                    .await?;
                 }
             }
             Some(Overlay::CommandPalette) => {
@@ -592,9 +568,9 @@ async fn dispatch_event_inner(
                     // Save the command text before close_overlay, which clears
                     // the composer input for CommandPalette to prevent immediate
                     // re-open via sync_command_palette_with_input.
-                    let usage = spec.usage.to_string();
+                    let invocation = format!("/{}", spec.name);
                     app.dismiss_overlay();
-                    app.bottom_pane.input = usage;
+                    app.bottom_pane.input = invocation;
                     app.bottom_pane.input_cursor_offset = None;
                     let should_quit = if let Some(runtime_port) = runtime_port {
                         handle_submit_with_port(app, agent_slot, oauth_manager, runtime_port)
@@ -726,73 +702,19 @@ async fn dispatch_event_inner(
                             }
                         }
                         ListPickerKind::UnifiedModel => {
-                            let idx = app.model_picker_idx;
-                            let presets = app.all_unified_model_presets();
-                            let Some(preset) = presets.get(idx).cloned() else {
-                                return Ok(false);
-                            };
-
-                            app.select_unified_model(idx);
-
-                            match preset.family {
-                                ProviderFamily::Codex => {
-                                    let _ = sync_codex_credential_from_auth_store(
-                                        app,
-                                        oauth_manager.as_ref(),
-                                    )?;
-                                    if should_open_codex_auth_guide(app, oauth_manager.as_ref()) {
-                                        app.open_overlay(Overlay::ListPicker(
-                                            ListPickerKind::AuthMode,
-                                        ));
-                                    } else {
-                                        if app.selected_codex_reasoning_options().len() <= 1 {
-                                            app.apply_selected_codex_reasoning_effort();
-                                            request_maintenance(
-                                                app,
-                                                agent_slot,
-                                                runtime_port,
-                                                RuntimeMaintenanceCommand::Rebuild,
-                                            )
-                                            .await?;
-                                        } else {
-                                            app.open_overlay(Overlay::ListPicker(
-                                                ListPickerKind::ReasoningEffort,
-                                            ));
-                                        }
-                                    }
-                                }
-                                ProviderFamily::OpenAiCompatible
-                                    if app.openai_profile_needs_setup() =>
-                                {
-                                    app.begin_active_openai_profile_setup();
-                                }
-                                ProviderFamily::DeepSeek if !app.config.has_api_key() => {
-                                    app.open_overlay(Overlay::ApiKeyEditor(ApiKeyTarget::DeepSeek))
-                                }
-                                ProviderFamily::Kimi if !app.config.has_api_key() => {
-                                    app.open_overlay(Overlay::ApiKeyEditor(ApiKeyTarget::Kimi))
-                                }
-                                ProviderFamily::KimiCoding if !app.config.has_api_key() => app
-                                    .open_overlay(Overlay::ApiKeyEditor(ApiKeyTarget::KimiCoding)),
-                                ProviderFamily::Gemini if !app.config.has_api_key() => {
-                                    app.open_overlay(Overlay::ApiKeyEditor(ApiKeyTarget::Gemini))
-                                }
-                                ProviderFamily::CandleLocal => {
-                                    app.push_notice("Local models (alpha) are for preview only.");
-                                    app.dismiss_overlay();
-                                }
-                                _ => {
-                                    if preset.family == ProviderFamily::DeepSeek {
-                                        app.config.reasoning_effort = Some("max".to_string());
-                                    }
-                                    request_maintenance(
-                                        app,
-                                        agent_slot,
-                                        runtime_port,
-                                        RuntimeMaintenanceCommand::Rebuild,
-                                    )
-                                    .await?;
-                                }
+                            if let Some(preset) = app
+                                .all_unified_model_presets()
+                                .get(app.model_picker_idx)
+                                .cloned()
+                            {
+                                apply_model_selection(
+                                    preset,
+                                    app,
+                                    agent_slot,
+                                    oauth_manager.as_ref(),
+                                    runtime_port,
+                                )
+                                .await?;
                             }
                         }
                         ListPickerKind::AuthMode => match app.auth_mode_idx {
