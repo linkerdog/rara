@@ -14,6 +14,7 @@ mod acp;
 mod agent;
 mod agents_ext;
 mod app_cli;
+mod app_server_stdio;
 mod auto_memory;
 mod classifier;
 mod codex_model_catalog;

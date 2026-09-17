@@ -219,12 +219,11 @@ Active backlog only. Keep this file small and current.
 
 ## App Server Stdio
 
-- [ ] Connect the version1 codec to the exact stdio CLI command with bounded
-      request receipts, one ordered writer, and explicit host cleanup.
-- [ ] Prove handshake-first startup, prompt/event correlation, duplicate and gap
-      behavior, and shutdown with an isolated real child process before enabling
-      external supervisors. See [the protocol contract](features/app-server-stdio.md)
-      and [the implementation journal](journal/2026-09-18-app-server-stdio.md).
+- [ ] Add durable resume, root discovery or additional control families only with
+      independent ownership, bounds and recovery evidence. The version1 CLI now
+      explicitly rejects these unsupported methods. See
+      [the protocol contract](features/app-server-stdio.md) and
+      [the implementation journal](journal/2026-09-18-app-server-stdio.md).
 
 ## Shared Task Lists
 

@@ -253,6 +253,12 @@ releasing its identity, and checks actor identity before deleting the entry.
 
 ### Events And Snapshots
 
+`query_runtime_state` publishes a canonical `session.runtime_state` event through
+the actor, including session identity, lifecycle phase and observed cursor.
+`replay_events(after_sequence)` reads a finite bounded event batch without changing
+original identities; exhausted and future cursors use the same explicit resync
+error as live subscriptions. The stdio adapter consumes these owned APIs.
+
 Each event envelope contains:
 
 - `session_id`;

@@ -31,6 +31,11 @@ impl fmt::Display for RuntimeSessionId {
 pub struct RuntimeTurnId(String);
 
 impl RuntimeTurnId {
+    /// Construct a target identity previously observed from this runtime.
+    pub fn new(value: impl Into<String>) -> Self {
+        Self(value.into())
+    }
+
     pub(crate) fn generate() -> Self {
         Self(uuid::Uuid::new_v4().to_string())
     }

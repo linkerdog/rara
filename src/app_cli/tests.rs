@@ -3,6 +3,23 @@ mod tests {
     use super::*;
 
     #[test]
+    fn app_server_requires_the_exact_protocol_and_transport() {
+        let args = ["rara", "app-server", "--protocol-version", "1", "--transport", "stdio-jsonl"];
+        let cli = Cli::try_parse_from(args).expect("exact command");
+        assert!(matches!(cli.command, Some(Commands::AppServer(_))));
+        for args in [
+            vec!["rara", "app-server"],
+            vec!["rara", "app-server", "--protocol-version", "2", "--transport", "stdio-jsonl"],
+            vec!["rara", "app-server", "--protocol-version", "1", "--transport", "wire"],
+        ] {
+            assert!(Cli::try_parse_from(args).is_err());
+        }
+        let cli = Cli::try_parse_from(args.into_iter().chain(["--dangerously-skip-permissions"]))
+            .expect("explicit permissions");
+        assert_eq!(StartupPermissions::from_cli(&cli).expect("supported permission flag"), StartupPermissions::FullAccess);
+    }
+
+    #[test]
     fn clap_accepts_explicit_permission_bypass() {
         for args in [
             vec!["rara", "--dangerously-skip-permissions"],

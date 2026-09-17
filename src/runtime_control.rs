@@ -81,6 +81,9 @@ pub enum RuntimeEvent {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "type", content = "payload", rename_all = "snake_case")]
 pub enum SessionEvent {
+    RuntimeState {
+        snapshot: crate::runtime_session::RuntimeSessionSnapshot,
+    },
     Created {
         session_id: String,
     },

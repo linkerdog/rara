@@ -62,6 +62,9 @@ pub(super) enum SessionCommand {
         provenance: RuntimeProvenance,
         response: oneshot::Sender<Result<(), RuntimeSessionError>>,
     },
+    QueryState {
+        response: oneshot::Sender<Result<(), RuntimeSessionError>>,
+    },
     Shutdown {
         response: oneshot::Sender<Result<(), RuntimeSessionError>>,
     },

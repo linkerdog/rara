@@ -1,4 +1,4 @@
-# App Server Stdio Protocol Foundation
+# App Server Stdio Runtime Control
 
 ## Summary
 
@@ -6,14 +6,14 @@ Define the version1 server-first stdio boundary needed by an external process
 supervisor. The shared codec, explicit cursor subscription, retained shutdown
 outcomes, targeted turn stop commands, bounded prompt source commands and strict
 native input/approval commands are implemented. The wire control frame carries the
-expected turn for stops and answers. This does not yet make the app-server command available or complete
-a downstream provider integration.
+expected turn for stops and answers. The exact version1 stdio CLI now runs through
+canonical session/host ownership. This does not complete downstream integration.
 
 The native skill catalogue resolves bounded inline protocol definitions through
 canonical session registration and the real SkillTool. Compact metadata reaches
 model-visible context; invocation records source and turn provenance. Static
-system guidance stays stable across catalogue changes. Process transport and
-capability advertisement still require the remaining CLI work.
+system guidance stays stable across catalogue changes. Process transport advertises
+only the implemented method set and has isolated real-child evidence.
 
 ## Background
 
@@ -81,6 +81,27 @@ raw-Agent dispatcher would bypass the canonical session owner.
 Reference revisions: Codex `f959e7fc9832dfa0ebfb6542ab1bbf829638ac24` and the local
 Claude Code checkout `4b9d30f7953273e567a18eb819f4eddd45fcc877`. These are pinned
 source observations, not claims about current released versions.
+
+## Process Transport Checkpoint
+
+The exact CLI flags now select a bounded stdio adapter. It flushes the server-first
+handshake, normalizes client source provenance, dispatches through canonical
+sessions and forwards their original event identities. State query and finite
+replay have owned session API seams. Unsupported methods remain explicit rejects.
+
+A bounded receipt table fingerprints canonical request JSON with the existing
+SHA-256 dependency and retains pending/resolved identity without eviction. A
+reserved slot permits shutdown after ordinary request capacity is exhausted.
+Duplicates repeat the ACK; conflicting content cannot reapply an operation.
+
+Dedicated standard I/O threads keep blocking stdin outside Tokio teardown. One
+writer preserves frame order, with bounded queues and write/drain deadlines. EOF
+before semantic shutdown,
+framing failure and output loss drain owned sessions without claiming semantic
+shutdown. Successful shutdown drains event forwarding before the completion frame
+and exits even when the supervisor leaves stdin open. The native permission bypass
+still requires an explicit startup flag; the transport does not accept claimed
+client trust as runtime authority.
 
 ## Validation
 
@@ -161,6 +182,21 @@ explicit workspace and retained protocol records. All 35 instruction-crate tests
 and 9 skill-crate tests pass, including a new empty/nonempty catalogue prefix
 regression. Root all-target Clippy passes with warnings denied.
 
+The final focused root selection has35 passing tests. Nine new transport/CLI
+tests pass and cover: retained duplicate/conflict receipts, capacity
+and the shutdown reservation, pending uncertainty, turn-target fingerprints,
+LF/CRLF and inclusive frame limits, actual session dispatch, canonical replay/gaps,
+source provenance, stale runtime/session/turn rejection, cancellation, duplicate
+receipts during shutdown drain, rejection of new closing work and owned
+cleanup after input/output failure. The real binary passes five isolated process
+scenarios through `scripts/app_server_smoke.py`: one fake-provider request and
+semantic shutdown with stdin still open; EOF; malformed input; truncated input;
+and stdout loss. No personal credentials, memory services or paid provider are
+used. The debug smoke binary alone was linked without debug information to fit
+available disk space; project build configuration and dependencies are unchanged.
+The test workflow also runs this process smoke against its built binary so that
+open-stdin shutdown and transport-failure behavior remain CI regression gates.
+
 ```bash
 cargo fmt --all
 cargo test -p rara-app-server --lib --locked --offline
@@ -177,17 +213,18 @@ CARGO_INCREMENTAL=0 cargo test --locked --offline --lib agent::tests::planning
 CARGO_INCREMENTAL=0 cargo test --locked --offline --lib tools::skill
 CARGO_INCREMENTAL=0 cargo test --locked --offline --lib -- runtime_session:: tools::skill agent::tests::context_view agent::tests::prompt_cache model_context::
 cargo test --locked --offline -p rara-instructions -p rara-skills --lib
+CARGO_INCREMENTAL=0 cargo test --locked --offline --lib -- app_server_stdio:: app_cli::tests::app_server_requires
+CARGO_INCREMENTAL=0 cargo rustc --locked --offline --bin rara -- -C strip=debuginfo
+python3 scripts/app_server_smoke.py target/debug/rara
 cargo clippy --locked --all-targets --no-deps --offline -- -D warnings
 git diff --check
 ```
 
-These checks cover the codec and canonical session/cursor behavior. The remaining
-runtime command seam, process transport, remote CI and child-process smoke
-evidence remain open until their implementations exist.
+These checks cover the codec, canonical session behavior and actual process
+transport. Remote CI and downstream supervisor integration remain separate gates.
 
 ## Follow-Ups
 
-Keep unsupported root discovery explicit. Implement bounded process transport,
-receipt/replay behavior and real isolated child-process smoke before advertising
-the protocol. The owning contract is
+Keep unsupported root discovery, durable resume and additional control families
+explicit until their own ownership and recovery contracts are implemented. The owning contract is
 [App Server Stdio Protocol](../features/app-server-stdio.md).

@@ -39,3 +39,8 @@ jobs:
         run: |
           cargo test --locked -p rara-core
           cargo test --locked
+
+      - name: Verify app-server process lifecycle
+        run: |
+          cargo build --locked --bin rara
+          python3 scripts/app_server_smoke.py target/debug/rara

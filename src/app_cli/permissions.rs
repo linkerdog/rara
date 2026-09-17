@@ -22,7 +22,8 @@ impl StartupPermissions {
                 | Commands::Ask { .. }
                 | Commands::Print { .. }
                 | Commands::Wire { .. }
-                | Commands::Exec(_),
+                | Commands::Exec(_)
+                | Commands::AppServer(_),
             ) => Ok(Self::FullAccess),
             Some(
                 Commands::Acp
@@ -37,7 +38,7 @@ impl StartupPermissions {
                 | Commands::Login { .. }
                 | Commands::Logout,
             ) => anyhow::bail!(
-                "--dangerously-skip-permissions is supported by tui, resume, ask, print, wire, and exec"
+                "--dangerously-skip-permissions is supported by tui, resume, ask, print, wire, exec, and app-server"
             ),
         }
     }

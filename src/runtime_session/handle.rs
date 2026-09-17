@@ -145,6 +145,25 @@ impl RuntimeSession {
         Ok(RuntimeSessionSubscription { snapshot, events })
     }
 
+    /// Read a finite bounded replay without allocating replacement event identities.
+    pub fn replay_events(
+        &self,
+        after_sequence: u64,
+    ) -> Result<Vec<RuntimeControlEvent>, RuntimeSessionError> {
+        self.event_bus
+            .replay_after(after_sequence)
+            .map_err(replay_gap_error)
+    }
+
+    /// Publish session state through the canonical ordered control stream.
+    pub async fn query_runtime_state(&self) -> Result<(), RuntimeSessionError> {
+        let (sender, receiver) = oneshot::channel();
+        self.try_send(SessionCommand::QueryState { response: sender })?;
+        receiver
+            .await
+            .map_err(|_| RuntimeSessionError::ActorStopped)?
+    }
+
     /// Replay after an exclusive cursor, then follow the same ordered live stream.
     pub fn subscribe_after(
         &self,

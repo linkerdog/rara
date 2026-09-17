@@ -273,6 +273,7 @@ fn apply_runtime_control_event(app: &mut TuiApp, event: RuntimeControlEvent) {
         | RuntimeEvent::Session(SessionEvent::TurnInterrupted)
         | RuntimeEvent::Session(SessionEvent::Created { .. })
         | RuntimeEvent::Session(SessionEvent::Resumed { .. })
+        | RuntimeEvent::Session(SessionEvent::RuntimeState { .. })
         | RuntimeEvent::Session(SessionEvent::ModelResponse { .. }) => {}
         RuntimeEvent::Tool(ToolEvent::Use {
             call_id,

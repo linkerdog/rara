@@ -15,10 +15,10 @@ print, Wire, or ACP output cannot establish this contract.
 - Bounded frames and safe protocol errors.
 - Canonical RuntimeSession ownership, event ordering, and cleanup.
 
-The codec is the first implementation checkpoint. The CLI, session dispatcher,
-receipt registry, and child-process smoke remain required before this protocol is
-advertised as available. Declaring a request or acknowledgement type does not
-establish that the runtime implements that capability.
+The version1 CLI, canonical session dispatcher, bounded receipt registry and
+isolated real-child smoke are implemented. The handshake advertises only the
+methods supported by this process boundary. Declaring other request or
+acknowledgement variants does not establish their implementation.
 
 ## Non-Goals
 
@@ -102,6 +102,22 @@ incarnation ID is rejected before dispatch. Unknown top-level frame fields are
 rejected. Runtime-control request semantics remain owned by the shared request
 types and their session dispatcher.
 
+### Implemented Method Boundary
+
+The process dispatcher supports session creation and state query, targeted cancel
+and interrupt, native prompt/follow-up and user/plan/shell answers, bounded prompt
+sources, inline skill registration/disable/query, finite output replay and semantic
+shutdown. Session creation has no caller-supplied target; all other controls name
+an owned session. Source provenance is normalized to the untrusted app-server
+boundary regardless of claimed controller/trust/authorship fields.
+
+Resume, protocol skill roots, generic approval, subscription mutation and
+memory/MCP/hook controls remain explicitly unsupported and are absent from the
+method list. Their enum presence must not widen negotiated capabilities. A state
+query emits a canonical `session.runtime_state` event. Finite replay returns
+original event identities through the existing output channel; duplicate receipts
+repeat the ACK without repeating replay side effects.
+
 ### Request Acknowledgements
 
 An `ack` frame carries `runtime_id`, `request_id`, and a tagged `result`:
@@ -140,12 +156,13 @@ The advertised lifetime is `runtime`, not durable storage or process restart.
 
 ### Shutdown And Failure
 
-An accepted shutdown request starts drain. `shutdown_complete`, correlated to the
+An accepted shutdown request starts drain. During drain, retained request IDs
+still return their original ACK while new work receives a closed rejection. `shutdown_complete`, correlated to the
 same request ID, is emitted only after owned session/child cleanup succeeds. An
 acknowledgement alone is not cleanup evidence. The supervisor may enforce its
 own timeout and force-stop policy when shutdown cannot finish.
 
-EOF, write failure, invalid framing, and oversized output cause transport failure
+EOF before an accepted shutdown, write failure, invalid framing, and oversized output cause transport failure
 and explicit runtime cleanup. They must not be reported as successful semantic
 shutdown. Live approval callbacks cannot survive this boundary unless a future
 capability explicitly implements and proves persistence.
@@ -155,9 +172,16 @@ capability explicitly implements and proves persistence.
 Each JSON payload is at most1,048,576 bytes excluding its LF delimiter. A frame
 must be a single UTF-8 JSON object. Encoders append exactly one LF. Serialization
 must enforce the bound while writing, not after allocating an arbitrarily large
-event. The transport reader must independently enforce its buffer limit before
-decoding. CRLF compatibility, partial EOF handling and connection queue capacities
-must be proved when the process transport is added.
+event. The transport reader independently enforces its buffer limit before decoding.
+LF and CRLF delimiters are accepted; blank lines and partial EOF frames fail.
+The process admits at most8 sessions in its explicit workspace, retains1024
+request identities (including a reserved shutdown slot), and uses input/output
+channel capacities of8/32. Receipts fingerprint canonical request JSON with SHA-256,
+including the runtime, target and expected turn, without retaining full bodies.
+There is no receipt eviction. Output admission, initial handshake flush and final
+writer drain use a10-second deadline; a stalled writer causes transport failure.
+Dedicated standard I/O threads keep blocked stdin outside Tokio runtime teardown,
+so semantic shutdown does not require the supervisor to close its input pipe.
 
 Protocol codec failures expose fixed error categories, without reflecting raw
 input, JSON values, paths, provider errors, or secrets. Runtime rejection messages
@@ -184,8 +208,6 @@ attempt/event journal and cleanup authority independently of this transport.
 
 ## Open Risks
 
-- The transport and canonical command seam must be implemented before the CLI
-  capability is available; codec fixtures alone are not a production adapter.
 - The existing session API does not yet expose every shared control request.
 - In-memory receipts and replay do not make external side effects crash-safe.
 

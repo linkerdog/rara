@@ -299,6 +299,16 @@ impl SessionActor {
                     return true;
                 }
             }
+            SessionCommand::QueryState { response } => {
+                let mut snapshot = self.snapshot.borrow().clone();
+                snapshot.last_sequence = self.client.event_bus.current_sequence();
+                self.client.event_bus.publish_control_with_turn(
+                    RuntimeEvent::Session(SessionEvent::RuntimeState { snapshot }),
+                    RuntimeProvenance::runtime(Some(self.id.to_string())),
+                    None,
+                );
+                let _ = response.send(Ok(()));
+            }
             SessionCommand::SkillSource {
                 request,
                 provenance,
@@ -656,7 +666,8 @@ impl SessionActor {
             | SessionCommand::SetFullAccess { response, .. }
             | SessionCommand::ReplaceTranscript { response, .. }
             | SessionCommand::PromptSource { response, .. }
-            | SessionCommand::SkillSource { response, .. } => {
+            | SessionCommand::SkillSource { response, .. }
+            | SessionCommand::QueryState { response } => {
                 let _ = response.send(Err(RuntimeSessionError::Closed));
             }
             SessionCommand::GetTranscript { response } => {
