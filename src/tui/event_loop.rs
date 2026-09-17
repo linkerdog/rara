@@ -32,10 +32,15 @@ pub enum StartupResumeTarget {
     Picker,
 }
 
+pub struct TuiStartupOptions {
+    pub resume: StartupResumeTarget,
+    pub permission_override: Option<super::state::PermissionMode>,
+}
+
 pub async fn run_tui(
     runtime: RuntimeClient,
     oauth_manager: OAuthManager,
-    startup_resume: StartupResumeTarget,
+    startup: TuiStartupOptions,
 ) -> anyhow::Result<Option<String>> {
     enable_raw_mode()?;
     let initial_size = terminal_size()?;
@@ -73,7 +78,7 @@ pub async fn run_tui(
             let app = maintainer.app_mut();
             let agent_slot = processor.agent_mut();
             app.attach_state_db(state_db);
-            match &startup_resume {
+            match &startup.resume {
                 StartupResumeTarget::Fresh => {
                     let _ = agent_slot;
                 }
@@ -91,6 +96,14 @@ pub async fn run_tui(
             }
         }
         Err(err) => maintainer.app_mut().set_state_db_error(err.to_string()),
+    }
+    if let Some(mode) = startup.permission_override {
+        processor
+            .apply_command(
+                maintainer.app_mut(),
+                RuntimeCommand::SetPermissionMode(mode),
+            )
+            .await?;
     }
     let oauth_manager = Arc::new(oauth_manager);
     maintainer.app_mut().codex_auth_mode = oauth_manager.saved_auth_mode().ok().flatten();

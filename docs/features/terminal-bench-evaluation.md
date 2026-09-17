@@ -231,6 +231,12 @@ an out-of-workspace host operation. The outer Harbor task container remains the
 isolation boundary; ordinary TUI and `rara exec` invocations retain their normal
 permission policy unless the caller explicitly selects full access.
 
+`rara exec --dangerously-skip-permissions` is also an explicit startup path for
+local approval/classifier bypass and enables the session sandbox network flag.
+It leaves saved configuration unchanged; the existing `--full-access` switch
+retains its behavior. The interaction and CLI boundary is specified in
+[permissions](../interaction/permissions.md#perm-03-explicit-startup-bypass).
+
 ### Tool Contract
 
 The same file and shell tools used in ordinary sessions must be available in the

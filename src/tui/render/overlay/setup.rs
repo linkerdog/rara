@@ -10,7 +10,7 @@ use unicode_width::UnicodeWidthChar;
 
 use super::Frame;
 use crate::tui::render::bottom_pane::composer::editor_cursor_position;
-use crate::tui::state::{ApiKeyTarget, PermissionMode, TuiApp};
+use crate::tui::state::{ApiKeyTarget, TuiApp};
 use crate::tui::theme::{ThemeToken, theme_color};
 
 fn wrapped_text_height(text: &str, area_width: u16) -> u16 {
@@ -37,83 +37,78 @@ fn wrapped_text_height(text: &str, area_width: u16) -> u16 {
 }
 
 pub(super) fn render_permission_picker_modal(f: &mut Frame, app: &TuiApp, area: Rect) {
-    // Keep in sync with PermissionMode enum order (skip Custom).
-    let modes: &[(PermissionMode, &str, &str)] = &[
-        (
-            PermissionMode::Auto,
-            "Ask Permissions",
-            "Ask before file edits and commands. Only reads are auto-approved. Best for sensitive work.",
-        ),
-        (
-            PermissionMode::AcceptEdits,
-            "Auto Accept Edits",
-            "Auto-approve file edits and common filesystem commands. Ask for network and destructive operations.",
-        ),
-        (
-            PermissionMode::ReadOnly,
-            "Plan Mode",
-            "Read and explore only. No file changes permitted. Best for codebase analysis.",
-        ),
-        (
-            PermissionMode::FullAccess,
-            "Full Access",
-            "Auto-approve everything including network access. For isolated, trusted tasks.",
-        ),
-    ];
+    use std::sync::atomic::Ordering;
 
-    let title = " Permission Mode ";
-    let items = modes
+    use crate::tui::permission_policy::PERMISSION_PRESETS;
+
+    let current = app.effective_permission_mode();
+    let selected = app.permission_picker_idx.min(PERMISSION_PRESETS.len() - 1);
+    let header_text = format!(
+        "Current: {}\nmode={} shell={}\nnetwork={} bypass={}\n{}",
+        current.label(),
+        app.agent_execution_mode_label(),
+        app.bash_approval_mode_label(),
+        if app.sandbox_network_access.load(Ordering::Relaxed) {
+            "on"
+        } else {
+            "off"
+        },
+        if app.permission_mode == crate::tui::state::PermissionMode::FullAccess {
+            "on"
+        } else {
+            "off"
+        },
+        match app.pending_permission_mode {
+            Some(mode) => format!("Pending: {} (after current task)", mode.label()),
+            None if app.is_busy() => "Changes apply after the current task.".into(),
+            None => "Changes apply to this session.".into(),
+        }
+    );
+    let block = Block::default()
+        .style(element_bg())
+        .padding(Padding::horizontal(1))
+        .title(" Permissions ");
+    let inner = block.inner(area);
+    f.render_widget(block, area);
+    let [header, list, detail, footer] = Layout::vertical([
+        Constraint::Length(4),
+        Constraint::Length(4),
+        Constraint::Min(1),
+        Constraint::Length(1),
+    ])
+    .areas(inner);
+    f.render_widget(Paragraph::new(header_text), header);
+    let items = PERMISSION_PRESETS
         .iter()
         .enumerate()
-        .map(|(idx, (mode, label, desc))| {
-            let is_current = app.permission_mode == *mode
-                || (app.permission_mode == PermissionMode::Custom
-                    && idx == app.permission_picker_idx);
-            let style = if idx == app.permission_picker_idx {
-                Style::default()
-                    .fg(theme_color(ThemeToken::TextAccent))
-                    .add_modifier(Modifier::BOLD)
-            } else {
-                Style::default()
-            };
-            let current_marker = if is_current && app.permission_mode != PermissionMode::Custom {
+        .map(|(idx, preset)| {
+            let marker = if app.pending_permission_mode == Some(preset.mode) {
+                " (pending)"
+            } else if current == preset.mode {
                 " (current)"
             } else {
                 ""
             };
-            let mode_label = format!("[{}] {}{}", idx + 1, label, current_marker);
-            ListItem::new(vec![
-                Line::from(mode_label),
-                Line::from(desc.to_string()),
-                Line::from(""),
-            ])
-            .style(style)
+            ListItem::new(format!("[{}] {}{}", idx + 1, preset.title, marker))
         })
         .collect::<Vec<_>>();
-
-    let [header, list, footer] = Layout::default()
-        .direction(Direction::Vertical)
-        .constraints([
-            Constraint::Length(3),
-            Constraint::Min(8),
-            Constraint::Length(2),
-        ])
-        .areas(area);
-    f.render_widget(
-        Paragraph::new("Choose how RARA handles file edits, commands, and network access. Press Enter to apply the selected mode.")
-            .block(
-                Block::default()
-                    .style(element_bg())
-                    .padding(Padding::horizontal(1))
-                    .title(title),
-            ),
-        header,
+    let mut state = ListState::default().with_selected(Some(selected));
+    f.render_stateful_widget(
+        List::new(items)
+            .highlight_style(
+                Style::default()
+                    .fg(theme_color(ThemeToken::TextAccent))
+                    .add_modifier(Modifier::BOLD),
+            )
+            .highlight_symbol("> "),
+        list,
+        &mut state,
     );
-    f.render_widget(List::new(items), list);
     f.render_widget(
-        Paragraph::new("1-4 jump  Up/Down navigate  Enter select  Esc cancel"),
-        footer,
+        Paragraph::new(PERMISSION_PRESETS[selected].description).wrap(Wrap { trim: false }),
+        detail,
     );
+    f.render_widget(Paragraph::new("1-4 select  Enter apply  Esc close"), footer);
 }
 
 pub(super) fn render_skills_picker_modal(f: &mut Frame, app: &TuiApp, area: Rect) {

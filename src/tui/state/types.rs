@@ -826,6 +826,7 @@ pub struct TuiApp {
     pub skill_picker_entries: Vec<SkillPickerEntry>,
     pub sandbox_network_access: Arc<AtomicBool>,
     pub permission_mode: PermissionMode,
+    pub(crate) pending_permission_mode: Option<PermissionMode>,
     /// Currently active ralph loop goal, if any.
     pub goal: Option<RalphGoal>,
     /// Shared handle that model-facing goal tools write to.

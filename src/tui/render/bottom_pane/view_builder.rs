@@ -235,11 +235,15 @@ pub(super) fn footer_summary_text(app: &TuiApp) -> String {
 }
 
 fn footer_permission_status(app: &TuiApp) -> String {
-    format!(
+    let mut status = format!(
         "perm={} approval={}",
         app.permission_mode_label(),
         app.bash_approval_mode_label()
-    )
+    );
+    if let Some(mode) = app.pending_permission_mode {
+        status.push_str(&format!(" pending={} (after task)", mode.label()));
+    }
+    status
 }
 
 fn shows_live_task_stats(app: &TuiApp) -> bool {
@@ -252,7 +256,7 @@ fn shows_live_task_stats(app: &TuiApp) -> bool {
         )
 }
 
-fn build_interaction_panel(app: &TuiApp) -> Option<InteractionPanelView> {
+pub(super) fn build_interaction_panel(app: &TuiApp) -> Option<InteractionPanelView> {
     let pending = app.active_pending_interaction()?;
 
     match pending.kind {

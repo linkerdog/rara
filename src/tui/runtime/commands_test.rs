@@ -279,6 +279,7 @@ async fn mode_changing_commands_are_rejected_while_busy() {
     );
     let mut agent_slot = None;
 
+    let original_permission_mode = app.permission_mode;
     mark_app_busy(&mut app);
     execute_local_command(
         LocalCommand {
@@ -292,10 +293,10 @@ async fn mode_changing_commands_are_rejected_while_busy() {
     .await
     .expect("approval command should be handled");
     assert_eq!(app.bash_approval_mode_label(), "suggestion");
-    assert_eq!(app.permission_mode, PermissionMode::Auto);
+    assert_eq!(app.permission_mode, original_permission_mode);
     assert_eq!(
         app.bottom_pane.notice.as_deref(),
-        Some("A task is already running. Wait for it to finish.")
+        Some("Unavailable while a task is running. Wait or cancel it first.")
     );
 
     execute_local_command(
@@ -322,8 +323,7 @@ async fn mode_changing_commands_are_rejected_while_busy() {
     )
     .await
     .expect("permissions command should be handled");
-    assert!(app.overlay.is_none());
-    assert_ne!(app.overlay, Some(Overlay::PermissionPicker));
+    assert_eq!(app.overlay, Some(Overlay::PermissionPicker));
 }
 
 #[tokio::test]
@@ -529,7 +529,7 @@ async fn goal_command_keeps_paused_goal_while_another_task_is_running() {
     );
     assert_eq!(
         app.bottom_pane.notice.as_deref(),
-        Some("A task is already running. Wait for it to finish before resuming a goal.")
+        Some("Unavailable while a task is running. Wait or cancel it first.")
     );
 }
 

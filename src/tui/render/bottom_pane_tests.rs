@@ -32,7 +32,7 @@ fn footer_summary_text_reports_permission_and_approval_when_idle() {
     };
 
     let rendered = footer_summary_text(&app);
-    assert_eq!(rendered, "perm=auto approval=suggestion");
+    assert_eq!(rendered, "perm=custom approval=suggestion");
     assert!(!rendered.contains("tokens="));
     assert!(!rendered.contains("ctx~="));
 }
@@ -54,7 +54,7 @@ fn footer_summary_text_shows_tokens_while_busy() {
     };
 
     let rendered = footer_summary_text(&app);
-    assert_eq!(rendered, "perm=auto approval=suggestion  tokens=2.0k");
+    assert_eq!(rendered, "perm=custom approval=suggestion  tokens=2.0k");
     assert!(!rendered.contains("history="));
     assert!(!rendered.contains("local="));
     assert!(!rendered.contains("key="));

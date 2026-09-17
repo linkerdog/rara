@@ -34,6 +34,7 @@ fn provider_family_idx(family: ProviderFamily) -> usize {
         .expect("provider family present")
 }
 
+mod approval_layout;
 mod transcript_and_layout;
 
 #[test]

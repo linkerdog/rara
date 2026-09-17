@@ -157,6 +157,10 @@ fn shell_approval_panel_uses_the_standard_bottom_pane_surface() {
         path: temp.path().join("config.json"),
     })
     .expect("build tui app");
+    // Keep the permission badge out of this standard-surface assertion.
+    app.bash_approval_mode = crate::agent::BashApprovalMode::Always;
+    app.sandbox_network_access
+        .store(false, std::sync::atomic::Ordering::Relaxed);
     app.snapshot
         .pending_interactions
         .push(PendingInteractionSnapshot {
@@ -225,6 +229,10 @@ fn bottom_pane_background_covers_hint_and_footer_rows() {
         path: temp.path().join("config.json"),
     })
     .expect("build tui app");
+    // Keep the permission badge out of this standard-surface assertion.
+    app.bash_approval_mode = crate::agent::BashApprovalMode::Always;
+    app.sandbox_network_access
+        .store(false, std::sync::atomic::Ordering::Relaxed);
     app.bottom_pane.notice = Some("Prompt finished.".into());
     app.repo_slug = Some("hawkingrei/rara".into());
     app.snapshot.branch = "main".into();

@@ -35,6 +35,7 @@ pub(crate) enum RuntimeCommand {
     ContinueGoal { prompt: String },
     Approval(ApprovalControlRequest),
     Maintenance(RuntimeMaintenanceCommand),
+    SetPermissionMode(crate::tui::state::PermissionMode),
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]

@@ -27,7 +27,7 @@ complete alias in the palette ranks its canonical command first.
 
 | Canonical command | Result | Compatibility spelling |
 | --- | --- | --- |
-| `/approval` | Toggle the bash approval policy; expose Custom permission mode | None |
+| `/approval` | Toggle the bash approval policy; derive the matching permission preset | None |
 | `/clear` | Reset local transcript, live display, and local queued/pending presentation state; retain the backend session | None |
 | `/compact` | Request one history compaction pass | None |
 | `/connect` | Open provider connection setup | None |
@@ -66,9 +66,13 @@ a list named `[task_list_id]`.
 - A parsed built-in command is handled locally, without becoming an LLM prompt.
 - An unknown slash command produces an explicit notice and is not submitted
   as ordinary task input.
-- While busy, the current submission policy allows `/quit` and `/exit` only;
-  other slash commands report that a task is running. Ordinary text follows
-  [RUN-01](runtime-feedback.md#run-01-submission-and-queueing).
+- During a running task, allow `/help`, `/status`, `/context`, `/permissions`,
+  `/skills`, `/mcp`, `/tasks` without an argument, `/goal` without an argument,
+  and `/quit`, including aliases. Inspection must preserve the running phase.
+- Commands that replace or mutate the active runtime wait until the task ends.
+  The palette and Commands help show the same disabled reason that submission
+  enforces. `/tasks <id>` and goal mutations remain unavailable while busy.
+  Ordinary text follows [RUN-01](runtime-feedback.md#run-01-submission-and-queueing).
 - `/goal` argument semantics are owned by [thread goals](../features/thread-goals.md).
 - `/tasks` argument semantics are owned by [shared task lists](../features/shared-task-lists.md).
 
@@ -93,15 +97,12 @@ mutation alone is not a successful setting change.
 | --- | --- |
 | CMD-01 | Render the palette and Commands help; verify canonical entries and absence of duplicate aliases; submit complete aliases |
 | CMD-02 | Select `/tasks` through key dispatch; assert that the active list is unchanged and the status is rendered |
-| CMD-03 | Existing busy-submit, unknown-command, and quit routing tests |
+| CMD-03 | Busy inspection preserves progress; mutations and aliases use the same policy in palette, help, and submission |
 | CMD-04 | Open `/help` through submission and inspect the production-rendered General page |
 | CMD-05 | Render runtime-projected skill status; press Space and verify no local toggle or runtime command |
 
 ## Open Risks
 
-- Busy-time discovery still shows commands that submission rejects. A shared
-  availability policy is follow-up work; read-only status commands are not yet
-  generally allowed during a running turn.
 - `/clear` does not start a new runtime session. New-session semantics require
   a separate lifecycle design; do not assume another client's `/clear` contract.
 - Command parsing and execution still have separate match tables. New entries
@@ -110,3 +111,4 @@ mutation alone is not a successful setting change.
 ## Source Journals
 
 - [TUI interaction contracts](../journal/2026-09-17-tui-interaction-contracts.md)
+- [Busy commands and permission controls](../journal/2026-09-17-tui-permission-controls.md)

@@ -97,9 +97,14 @@ session-scoped approval action changes only bash approval behavior; it does
 not implicitly enable global full-access mode or network access.
 
 The legacy `/approval` command follows the same boundary: it toggles only the
-session bash policy and moves the profile to `Custom`; it cannot promote the
-session to `Full Access`. A session already using `Full Access` must use
+session bash policy; the TUI derives the matching preset or reports `Custom`
+when no preset matches. It cannot promote the session to `Full Access`.
+A session already using `Full Access` must use
 `/permissions` to change that profile deliberately.
+
+The TUI [permission interaction contract](../interaction/permissions.md) defines
+effective/pending feedback and task-boundary application. Changing a preset
+does not answer or clear a pending plan or shell decision.
 
 ## Contracts
 

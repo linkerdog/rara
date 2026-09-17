@@ -59,6 +59,9 @@ impl RuntimeCommandProcessor {
         command: RuntimeCommand,
     ) -> anyhow::Result<()> {
         match command {
+            RuntimeCommand::SetPermissionMode(mode) => {
+                super::permissions::request_permission_mode(app, self.agent_mut(), mode);
+            }
             RuntimeCommand::Input(InputControlRequest::SubmitUserPrompt { prompt }) => {
                 let services = self.runtime.task_services();
                 let agent_slot = self.runtime.agent_mut();

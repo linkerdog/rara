@@ -67,3 +67,4 @@ pub use support::{input_requests_command_palette, openai_profile_setup_kinds};
 
 mod helpers;
 pub(crate) use helpers::*;
+mod permissions;

@@ -26,6 +26,9 @@ mod markdown_render;
 mod markdown_stream;
 mod message_role;
 mod model_search;
+#[cfg(test)]
+mod permission_controls_tests;
+mod permission_policy;
 mod plan_display;
 mod provider_flow;
 mod queued_input;
@@ -53,7 +56,7 @@ mod tool_text;
 
 #[cfg(test)]
 pub(crate) use self::event_dispatch::dispatch_event;
-pub use self::event_loop::{StartupResumeTarget, run_tui};
+pub use self::event_loop::{StartupResumeTarget, TuiStartupOptions, run_tui};
 pub(crate) use self::keymap::map_key_to_event;
 pub(crate) use self::session_restore::provider_requires_api_key;
 #[cfg(test)]

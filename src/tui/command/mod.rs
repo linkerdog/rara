@@ -14,3 +14,5 @@ pub use self::status::{
     status_context_text, status_metrics_text, status_prompt_sources_text, status_resources_text,
     status_runtime_text, status_workspace_text,
 };
+mod availability;
+pub(crate) use availability::command_unavailable_reason;

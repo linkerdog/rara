@@ -1,21 +1,13 @@
+use crate::runtime_client::{GoalContinuation, RuntimeClient};
 use crate::tui::command;
 use crate::tui::state::Overlay;
-
-use crate::runtime_client::{GoalContinuation, RuntimeClient};
 
 #[cfg(test)]
 pub(crate) async fn finish_running_task_if_ready(
     app: &mut TuiApp,
     agent_slot: &mut Option<Agent>,
 ) -> anyhow::Result<()> {
-    finish_running_task_if_ready_with_completion_mode(
-        app,
-        agent_slot,
-        None,
-        true,
-        None,
-    )
-    .await
+    finish_running_task_if_ready_with_completion_mode(app, agent_slot, None, true, None).await
 }
 
 /// Complete a task after the structured runtime stream has already delivered
@@ -27,14 +19,8 @@ pub(crate) async fn finish_running_task_if_ready_from_runtime_port(
     completion: Option<Result<TaskCompletion, tokio::task::JoinError>>,
     runtime: Option<&mut RuntimeTaskServices>,
 ) -> anyhow::Result<()> {
-    finish_running_task_if_ready_with_completion_mode(
-        app,
-        agent_slot,
-        completion,
-        false,
-        runtime,
-    )
-    .await
+    finish_running_task_if_ready_with_completion_mode(app, agent_slot, completion, false, runtime)
+        .await
 }
 
 async fn finish_running_task_if_ready_with_completion_mode(
@@ -79,8 +65,20 @@ async fn finish_running_task_if_ready_with_completion_mode(
         .take()
         .expect("task should exist");
     let completion = match completion {
-        Some(completion) => completion?,
-        None => task.handle.await?,
+        Some(completion) => completion,
+        None => task.handle.await,
+    };
+    let completion = match completion {
+        Ok(completion) => completion,
+        Err(error) => {
+            if let Some(mode) = app.pending_permission_mode.take() {
+                app.push_notice(format!(
+                    "Permissions not applied: {}. The task failed to return its runtime agent.",
+                    mode.label()
+                ));
+            }
+            return Err(error.into());
+        }
     };
     if apply_compatibility_events {
         while let Ok(event) = task.receiver.try_recv() {
@@ -90,7 +88,7 @@ async fn finish_running_task_if_ready_with_completion_mode(
         while task.receiver.try_recv().is_ok() {}
     }
     match completion {
-        TaskCompletion::Query { agent, result } => {
+        TaskCompletion::Query { mut agent, result } => {
             let query_started_in_plan_mode = matches!(
                 app.agent_execution_mode,
                 crate::agent::AgentExecutionMode::Plan
@@ -108,11 +106,20 @@ async fn finish_running_task_if_ready_with_completion_mode(
                         app.agent_execution_mode,
                         crate::agent::AgentExecutionMode::Plan
                     );
+                    let plan_continuation =
+                        RuntimeClient::plan_continuation(&agent, query_started_in_plan_mode);
+                    let permission_changed =
+                        super::permissions::apply_pending_permission_mode(app, &mut agent);
                     app.clear_active_live_sections();
                     if finished_plan_turn {
-                        match RuntimeClient::plan_continuation(&agent, query_started_in_plan_mode) {
+                        match plan_continuation {
                             crate::runtime_client::PlanContinuation::AwaitApproval { tool_id } => {
                                 app.show_pending_plan_approval(tool_id.as_deref());
+                            }
+                            crate::runtime_client::PlanContinuation::AutomaticImplementation
+                                if permission_changed =>
+                            {
+                                app.show_pending_plan_approval(None);
                             }
                             crate::runtime_client::PlanContinuation::AutomaticImplementation => {
                                 app.release_pending_follow_ups();
@@ -134,12 +141,12 @@ async fn finish_running_task_if_ready_with_completion_mode(
                     }
                     let prior_total_input_tokens = app.snapshot.total_input_tokens;
                     match RuntimeClient::continue_goal(
-                            &app.goal_handle,
-                            &agent,
-                            prior_total_input_tokens,
-                            finished_plan_turn,
-                            app.has_pending_plan_approval(),
-                        ) {
+                        &app.goal_handle,
+                        &agent,
+                        prior_total_input_tokens,
+                        finished_plan_turn,
+                        app.has_pending_plan_approval(),
+                    ) {
                         GoalContinuation::BudgetLimited { goal, prompt } => {
                             app.goal = Some(goal.clone());
                             app.push_notice(format!(
@@ -188,12 +195,12 @@ async fn finish_running_task_if_ready_with_completion_mode(
                     *agent_slot = Some(agent);
                     app.goal = app.goal_handle.read().unwrap().clone();
                     if let Some(a) = agent_slot.as_ref() {
-                            app.apply_runtime_snapshot(
-                                a,
-                                crate::runtime_client::RuntimeClient::extension_snapshot_for_agent(
-                                    a, 0,
-                                ),
-                            );
+                        app.apply_runtime_snapshot(
+                            a,
+                            crate::runtime_client::RuntimeClient::extension_snapshot_for_agent(
+                                a, 0,
+                            ),
+                        );
                     }
                     app.release_pending_follow_ups();
                     app.finalize_agent_stream(None);
@@ -204,7 +211,9 @@ async fn finish_running_task_if_ready_with_completion_mode(
                             Some("awaiting plan approval".into()),
                         );
                     } else {
-                        if finished_plan_turn {
+                        if finished_plan_turn
+                            && app.agent_execution_mode == crate::agent::AgentExecutionMode::Plan
+                        {
                             app.push_notice("Planning finished. Staying in plan mode.");
                         }
                         app.finalize_active_turn();
@@ -217,10 +226,7 @@ async fn finish_running_task_if_ready_with_completion_mode(
                     let error_message = format_error_chain(&err);
                     let cancelled = error_message.contains("cancelled by user");
                     app.set_agent_execution_mode(agent.execution_mode);
-                    let _finished_plan_turn = matches!(
-                        app.agent_execution_mode,
-                        crate::agent::AgentExecutionMode::Plan
-                    );
+                    super::permissions::apply_pending_permission_mode(app, &mut agent);
                     app.clear_active_live_sections();
 
                     app.clear_pending_plan_approval();
@@ -261,15 +267,14 @@ async fn finish_running_task_if_ready_with_completion_mode(
                 }
             }
         }
-        TaskCompletion::Compact { agent, result } => {
+        TaskCompletion::Compact { mut agent, result } => {
+            super::permissions::apply_pending_permission_mode(app, &mut agent);
             *agent_slot = Some(agent);
             if let Some(agent) = agent_slot.as_ref() {
-                        app.apply_runtime_snapshot(
-                            agent,
-                            crate::runtime_client::RuntimeClient::extension_snapshot_for_agent(
-                                agent, 0,
-                            ),
-                        );
+                app.apply_runtime_snapshot(
+                    agent,
+                    crate::runtime_client::RuntimeClient::extension_snapshot_for_agent(agent, 0),
+                );
             }
             match result {
                 Ok(true) => {
@@ -328,6 +333,7 @@ async fn finish_running_task_if_ready_with_completion_mode(
                     std::sync::atomic::Ordering::Relaxed,
                 );
                 app.sandbox_network_access = rebuilt.sandbox_network_access;
+                super::permissions::apply_pending_permission_mode(app, &mut agent);
                 if let Some(goal) = app.goal.as_ref() {
                     *rebuilt.goal_handle.write().unwrap() = Some(goal.clone());
                 }
@@ -435,12 +441,7 @@ async fn finish_running_task_if_ready_with_completion_mode(
                 app.set_runtime_phase(RuntimePhase::OAuthSaved, Some("oauth token saved".into()));
                 app.dismiss_overlay();
                 app.push_entry("Runtime", saved_message);
-                start_rebuild_task(
-                    app,
-                    agent_slot
-                        .as_ref()
-                        .and_then(Agent::agent_tree_control),
-                );
+                start_rebuild_task(app, agent_slot.as_ref().and_then(Agent::agent_tree_control));
             }
             Err(err) => {
                 app.set_runtime_phase(RuntimePhase::Failed, Some("oauth failed".into()));
@@ -490,6 +491,11 @@ async fn finish_running_task_if_ready_with_completion_mode(
         },
     }
 
+    if !app.is_busy()
+        && let Some(mode) = app.pending_permission_mode.take()
+    {
+        super::permissions::request_permission_mode(app, agent_slot, mode);
+    }
     Ok(())
 }
 
