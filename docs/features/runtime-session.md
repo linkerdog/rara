@@ -153,6 +153,25 @@ boundary; `Queue` waits for the current turn to finish. The runtime must not
 silently reinterpret one mode as the other. Neither command is implemented in
 the current checkpoint.
 
+### Shutdown Receipts
+
+Closing a session stops admission, cancels active work, and waits for the root
+turn and child tree to drain. The actor retains one cleanup outcome before
+publishing `Closed`. Concurrent and repeated shutdown calls observe that same
+outcome; a failed child-tree drain returns `ShutdownFailed` on every retry.
+An ended event stream or a `Closed` snapshot alone does not prove cleanup.
+Memory draining retains its existing diagnostic behavior; this receipt does not
+claim a durable memory commit.
+
+A host keeps each session registered until successful cleanup. One owned task
+drains each host shutdown generation, so cancelling a caller does not cancel
+cleanup and simultaneous callers cannot return early from an emptied registry.
+Failed session handles and the failed outcome remain retained. Admission is
+rejected during pending or failed cleanup. After successful shutdown, explicit
+insertion may start a new host generation; shutdown without new admission
+returns the retained success. Removing a session also waits for cleanup before
+releasing its identity, and checks actor identity before deleting the entry.
+
 ### Events And Snapshots
 
 Each event envelope contains:

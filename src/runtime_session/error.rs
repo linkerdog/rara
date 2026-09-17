@@ -13,6 +13,8 @@ pub enum RuntimeSessionError {
     Overloaded,
     #[error("runtime session is closing or closed")]
     Closed,
+    #[error("runtime session cleanup failed")]
+    ShutdownFailed,
     #[error("runtime session actor stopped before acknowledging the command")]
     ActorStopped,
     #[error("runtime turn was cancelled")]

@@ -2,17 +2,20 @@
 
 mod actor;
 mod builder;
+mod command;
 mod error;
+mod handle;
 mod host;
 mod ids;
 mod profile;
+mod shutdown;
 mod snapshot;
 mod subscription;
 mod turn;
 
-pub use actor::RuntimeSession;
 pub use builder::RuntimeSessionBuilder;
 pub use error::RuntimeSessionError;
+pub use handle::RuntimeSession;
 pub use host::RuntimeHost;
 pub use ids::{RuntimeSessionId, RuntimeTurnId};
 pub use profile::RuntimeSessionProfile;
