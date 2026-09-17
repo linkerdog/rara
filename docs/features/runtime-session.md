@@ -175,6 +175,14 @@ sequence. A bounded replay gap produces `ResyncRequired`; lag must not be
 discarded silently. After shutdown, an observer drains every event already
 published to its stream before receiving the typed `Closed` boundary.
 
+`RuntimeSession::subscribe_after` starts an ordered stream after an explicit,
+exclusive session cursor, retaining original event IDs and sequence values.
+Live subscription is established before reading replay so concurrent publication
+cannot fall between the two paths. An exhausted window or a cursor ahead of the
+current session produces `ResyncRequired`; an invalid future cursor must not
+silently suppress subsequent events. A closed session can still replay retained
+events and then returns `Closed`.
+
 Thinking, assistant output, and tool lifecycle events for a turn precede its
 terminal event because the actor publishes that boundary only after the root
 execution callback returns. Diagnosing events from future externally managed

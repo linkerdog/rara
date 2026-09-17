@@ -573,6 +573,7 @@ async fn closed_event_stream_drains_published_events_before_closing() {
     session.shutdown().await.expect("shutdown");
 
     let mut observed_terminal = false;
+    let mut observed = Vec::new();
     loop {
         match timeout(TEST_TIMEOUT, subscription.events.recv())
             .await
@@ -583,6 +584,7 @@ async fn closed_event_stream_drains_published_events_before_closing() {
                     event.event,
                     RuntimeEvent::Session(SessionEvent::TurnFailed { .. })
                 );
+                observed.push(event);
             }
             Err(RuntimeSessionError::Closed) => break,
             Err(error) => panic!("unexpected event stream error: {error}"),
@@ -590,11 +592,66 @@ async fn closed_event_stream_drains_published_events_before_closing() {
     }
     assert!(observed_terminal);
 
+    let after = observed[0].sequence;
+    let mut replay = session.subscribe_after(after).expect("cursor subscription");
+    for expected in observed.iter().filter(|event| event.sequence > after) {
+        let event = timeout(TEST_TIMEOUT, replay.recv())
+            .await
+            .expect("replay timeout")
+            .expect("retained event");
+        assert_eq!(&event, expected);
+    }
+    assert!(matches!(
+        replay.recv().await,
+        Err(RuntimeSessionError::Closed)
+    ));
+
     let mut closed_subscription = session
         .subscribe_from_snapshot()
         .expect("closed snapshot subscription");
     assert!(matches!(
         closed_subscription.events.recv().await,
+        Err(RuntimeSessionError::Closed)
+    ));
+}
+
+#[tokio::test]
+async fn cursor_subscription_reports_exhausted_and_future_cursors() {
+    let temp = tempdir().expect("tempdir");
+    let session = RuntimeSessionBuilder::for_host(
+        RaraConfig::default(),
+        temp.path(),
+        Arc::new(FailingBackend),
+        ToolManager::new(),
+    )
+    .with_state_root(temp.path().join("state"))
+    .with_event_capacity(2)
+    .build()
+    .await
+    .expect("runtime session");
+    session
+        .submit("fail", AgentOutputMode::Silent)
+        .await
+        .expect("accepted turn")
+        .wait()
+        .await
+        .expect_err("failed provider turn");
+    let latest = session.snapshot().last_sequence;
+    assert!(latest > 2);
+    assert!(matches!(
+        session.subscribe_after(0).err().expect("exhausted replay"),
+        RuntimeSessionError::ResyncRequired { requested: 0, oldest_available, latest: seen }
+            if oldest_available > 1 && seen == latest
+    ));
+    assert!(matches!(
+        session.subscribe_after(u64::MAX).err().expect("future cursor"),
+        RuntimeSessionError::ResyncRequired { requested: u64::MAX, latest: seen, .. }
+            if seen == latest
+    ));
+    let mut tail = session.subscribe_after(latest).expect("current cursor");
+    session.shutdown().await.expect("shutdown");
+    assert!(matches!(
+        tail.recv().await,
         Err(RuntimeSessionError::Closed)
     ));
 }

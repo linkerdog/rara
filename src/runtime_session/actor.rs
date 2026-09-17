@@ -186,18 +186,34 @@ impl RuntimeSession {
     ) -> Result<RuntimeSessionSubscription, RuntimeSessionError> {
         let live = self.event_bus.subscribe_control();
         let snapshot = self.snapshot();
+        let events = self.event_stream(live, snapshot.last_sequence)?;
+        Ok(RuntimeSessionSubscription { snapshot, events })
+    }
+
+    /// Replay after an exclusive cursor, then follow the same ordered live stream.
+    pub fn subscribe_after(
+        &self,
+        after_sequence: u64,
+    ) -> Result<RuntimeEventStream, RuntimeSessionError> {
+        self.event_stream(self.event_bus.subscribe_control(), after_sequence)
+    }
+
+    fn event_stream(
+        &self,
+        live: broadcast::Receiver<RuntimeControlEvent>,
+        after_sequence: u64,
+    ) -> Result<RuntimeEventStream, RuntimeSessionError> {
         let replay = self
             .event_bus
-            .replay_after(snapshot.last_sequence)
+            .replay_after(after_sequence)
             .map_err(replay_gap_error)?;
-        let events = RuntimeEventStream::new(
+        Ok(RuntimeEventStream::new(
             self.event_bus.clone(),
             live,
             self.snapshot.clone(),
             replay,
-            snapshot.last_sequence,
-        );
-        Ok(RuntimeSessionSubscription { snapshot, events })
+            after_sequence,
+        ))
     }
 
     /// Submit one prompt. A busy session rejects rather than running two root turns.
