@@ -4,8 +4,8 @@
 
 Define the version1 server-first stdio boundary needed by an external process
 supervisor. The shared codec, explicit cursor subscription, retained shutdown
-outcomes, targeted turn stop commands and bounded prompt source commands are
-implemented. This does not yet make the app-server command available or complete
+outcomes, targeted turn stop commands, bounded prompt source commands and strict
+native input/approval commands are implemented. This does not yet make the app-server command available or complete
 a downstream provider integration.
 
 ## Background
@@ -40,6 +40,15 @@ raw-Agent dispatcher would bypass the canonical session owner.
   unsupported scope/layer/persistence claims. Extract the prompt registry from
   the near-limit protocol sources module. Skill bodies still require the owning
   SkillManager/SkillTool path and are not appended indiscriminately to prompts.
+- Own pending interaction identity in the session actor. Strict answers name the
+  originating turn and native response kind; new prompts cannot replace a wait.
+  Snapshots and replay carry the same descriptor before the terminal turn event.
+  Busy follow-up rejects explicitly. Stops/close discard callbacks; legacy plain
+  submission records replacement. No persistent approval lifetime is claimed.
+- Give native plan/shell continuations their own inference lease and query report.
+  The old direct continuation path could retain the preceding query's report and
+  accounting context. Refresh sources only for continuations that need a model
+  call, attach them to new continuation context, and emit plan rejection settlement.
 - Mirror connection gating and bounded ordered output from the inspected Codex
   transport, and correlated/cancelled control responses from the inspected Claude
   Code transport, without adopting either wire schema or implementation.
@@ -91,6 +100,16 @@ layers or persist sources across process exit. The final session workflow lives
 in the library test target so both Cargo and the existing Bazel source glob
 discover it without a build configuration change.
 
+Four new input workflow tests cover successive questions, wrong-kind/stale/duplicate
+answers, busy follow-up, blocked prompt/transcript replacement, immutable event
+replay, stop/close and legacy discard, all three native plan decisions, shell
+approval/denial, provider tool identity, fresh accounting and continuation context.
+The fixtures set the native mode before actor ownership and use explicit isolated
+state, fake providers and a shell recorder that never launches commands. All47
+existing planning tests and8 runtime-session integration tests pass. Plan rejection
+performs no model request, preserves one-query source eligibility and reports no
+stale usage. Native question parsing remains limited to plan mode.
+
 ```bash
 cargo fmt --all
 cargo test -p rara-app-server --lib --locked --offline
@@ -100,6 +119,8 @@ CARGO_INCREMENTAL=0 cargo test --locked --offline --lib tools::agent::agent_cont
 CARGO_INCREMENTAL=0 cargo test --locked --offline --lib protocol_sources::
 CARGO_INCREMENTAL=0 cargo test --locked --offline --lib agent::tests::context_view::
 CARGO_INCREMENTAL=0 cargo test --locked --offline --lib runtime_session::source_tests::
+CARGO_INCREMENTAL=0 cargo test --locked --offline --lib runtime_session::input_tests::
+CARGO_INCREMENTAL=0 cargo test --locked --offline --lib agent::tests::planning
 cargo clippy --locked --all-targets --no-deps --offline -- -D warnings
 git diff --check
 ```
@@ -110,7 +131,8 @@ evidence remain open until their implementations exist.
 
 ## Follow-Ups
 
-Implement and validate pending-input/approval interaction fencing, actual skill
+Add an explicit expected-turn field to the upstream wire control frame before
+advertising fenced stop or answer methods. Implement actual skill
 registration through SkillManager/SkillTool, bounded process transport,
 receipt/replay behavior and real isolated child-process smoke before advertising
 the protocol. The owning contract is

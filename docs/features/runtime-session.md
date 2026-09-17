@@ -153,6 +153,38 @@ boundary; `Queue` waits for the current turn to finish. The runtime must not
 silently reinterpret one mode as the other. Neither command is implemented in
 the current checkpoint.
 
+### Structured Input And Waiting
+
+The strict `submit_input` API accepts typed prompt, follow-up and answer commands.
+An answer includes the originating waiting turn and a user, plan or shell
+response. Admission validates the active/pending state, turn identity and answer
+kind before consuming native state. Busy follow-up returns `Busy`; it does not
+queue, steer or cancel. A fresh strict prompt cannot replace a pending approval.
+The existing plain `submit` path remains a compatibility API, not the app-server
+input boundary. It explicitly supersedes any pending interaction and clears its
+native callback state. A transcript replacement is rejected while input is
+pending so an approval cannot act against a different transcript.
+
+After root execution returns, the actor derives a typed pending descriptor from
+the native agent and publishes it with its original turn identity. Snapshots use
+`AwaitingInput` and retain the same descriptor. A wait is distinct from an active
+provider call, and a terminal turn event does not imply the interaction is done.
+Approvals take precedence over a simultaneous plain question. Late, duplicate
+or wrong-kind answers do not consume a newer wait. Stops and shutdown discard
+pending ownership; live approvals are not advertised as surviving process exit.
+Ordered input events distinguish a requested wait, an accepted answer naming its
+original waiting turn, and discard by cancel, interrupt, shutdown or legacy
+replacement. Discarding an already waiting turn does not emit another terminal
+turn event. The native parser still determines when a question exists: structured
+question and plan blocks are interpreted in plan mode.
+
+Accepted answers use the native input/plan/shell execution paths and receive a
+new turn identity. Native approval continuations start fresh turn observations
+and inference accounting. Sources refresh when a continuation will call the
+model; rejecting a plan without model execution does not consume source TTL.
+Refreshed context is attached after the native continuation message is appended,
+so it reaches the next provider request without modifying the system prefix.
+
 ### Prompt Source Control
 
 `apply_prompt_source` serializes source changes with session commands and rejects

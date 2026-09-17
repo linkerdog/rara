@@ -228,16 +228,23 @@ impl Agent {
     where
         F: FnMut(AgentEvent) + Send,
     {
-        let lease = self
-            .pending_inference_agent
-            .take()
-            .unwrap_or_else(|| rara_observability::InferenceTask::default().start_agent(None));
-        self.inference_context = Some(lease.context());
+        let lease = self.begin_inference_turn();
         let result = self.query_inner(prompt, output_mode, report).await;
         // Post-turn extraction and goal evaluation still belong to this task.
         // The next query replaces the context before it starts new work.
         drop(lease);
         result
+    }
+
+    /// Start fresh observations and hold this lease through a prompt or native continuation.
+    pub(crate) fn begin_inference_turn(&mut self) -> rara_observability::InferenceAgent {
+        let lease = self
+            .pending_inference_agent
+            .take()
+            .unwrap_or_else(|| rara_observability::InferenceTask::default().start_agent(None));
+        self.inference_context = Some(lease.context());
+        self.last_query_report = QueryReport::default();
+        lease
     }
 
     pub(crate) fn inference_context(&self) -> Option<rara_observability::InferenceAgentContext> {
@@ -253,7 +260,6 @@ impl Agent {
     where
         F: FnMut(AgentEvent) + Send,
     {
-        self.last_query_report = QueryReport::default();
         let turn_start_idx = self.history.len();
         let mut agentic_turns = 0usize;
         let mut runtime_error_recoveries = 0usize;

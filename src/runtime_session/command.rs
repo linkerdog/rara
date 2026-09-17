@@ -2,6 +2,7 @@ use std::sync::Arc;
 
 use tokio::sync::oneshot;
 
+use super::input::TurnInput;
 use super::{RuntimeSessionError, RuntimeTurnId, RuntimeTurnOutcome};
 use crate::agent::AgentOutputMode;
 use crate::llm::{LlmBackend, Message};
@@ -18,7 +19,7 @@ pub(super) enum TurnStopKind {
 pub(super) enum SessionCommand {
     StartTurn {
         turn_id: RuntimeTurnId,
-        prompt: String,
+        input: TurnInput,
         output_mode: AgentOutputMode,
         accepted: oneshot::Sender<Result<(), RuntimeSessionError>>,
         completed: TurnResultSender,

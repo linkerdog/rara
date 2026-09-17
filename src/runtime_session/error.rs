@@ -7,6 +7,17 @@ pub enum RuntimeSessionError {
     Busy { active_turn: RuntimeTurnId },
     #[error("runtime session has no active turn")]
     NotRunning,
+    #[error("runtime session is waiting for input from turn {waiting_turn}")]
+    AwaitingInput { waiting_turn: RuntimeTurnId },
+    #[error("runtime session has no pending input")]
+    NoPendingInput,
+    #[error("runtime reply targets turn {expected} but the current wait belongs to {waiting}")]
+    StaleInput {
+        expected: RuntimeTurnId,
+        waiting: RuntimeTurnId,
+    },
+    #[error("runtime reply kind does not match the pending interaction")]
+    InputKindMismatch,
     #[error("runtime turn target {expected} does not match active turn {active}")]
     StaleTurn {
         expected: RuntimeTurnId,

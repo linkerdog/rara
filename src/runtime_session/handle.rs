@@ -6,10 +6,11 @@ use tokio::sync::{broadcast, mpsc, oneshot, watch};
 
 use super::actor::SessionActor;
 use super::command::{SessionCommand, TurnStopKind};
+use super::input::TurnInput;
 use super::shutdown::ShutdownOutcome;
 use super::subscription::replay_gap_error;
 use super::{
-    RuntimeEventStream, RuntimeSessionBuilder, RuntimeSessionError, RuntimeSessionId,
+    RuntimeEventStream, RuntimeInput, RuntimeSessionBuilder, RuntimeSessionError, RuntimeSessionId,
     RuntimeSessionPhase, RuntimeSessionSnapshot, RuntimeSessionSubscription, RuntimeTurn,
     RuntimeTurnId, RuntimeTurnOutcome,
 };
@@ -64,6 +65,7 @@ impl RuntimeSession {
             phase: RuntimeSessionPhase::Idle,
             generation: 0,
             last_sequence: event_bus.current_sequence(),
+            pending_input: None,
         };
         let (snapshot_sender, snapshot_receiver) = watch::channel(snapshot);
         let (commands, command_receiver) = mpsc::channel(command_capacity.max(1));
@@ -188,12 +190,49 @@ impl RuntimeSession {
         output_mode: AgentOutputMode,
         accounting: rara_observability::InferenceTask,
     ) -> Result<RuntimeTurn, RuntimeSessionError> {
+        self.submit_turn(
+            TurnInput::LegacyPrompt(prompt.into()),
+            output_mode,
+            accounting,
+        )
+        .await
+    }
+
+    /// Submit strict protocol input without bypassing a pending question or approval.
+    pub async fn submit_input(
+        &self,
+        input: RuntimeInput,
+    ) -> Result<RuntimeTurn, RuntimeSessionError> {
+        self.submit_input_with_accounting(input, rara_observability::InferenceTask::default())
+            .await
+    }
+
+    /// Submit strict input with an explicit ledger inherited by its native descendants.
+    pub async fn submit_input_with_accounting(
+        &self,
+        input: RuntimeInput,
+        accounting: rara_observability::InferenceTask,
+    ) -> Result<RuntimeTurn, RuntimeSessionError> {
+        self.submit_turn(
+            TurnInput::Controlled(input),
+            AgentOutputMode::Silent,
+            accounting,
+        )
+        .await
+    }
+
+    async fn submit_turn(
+        &self,
+        input: TurnInput,
+        output_mode: AgentOutputMode,
+        accounting: rara_observability::InferenceTask,
+    ) -> Result<RuntimeTurn, RuntimeSessionError> {
         let turn_id = RuntimeTurnId::generate();
         let (accepted_sender, accepted_receiver) = oneshot::channel();
         let (completion_sender, completion_receiver) = oneshot::channel();
         self.try_send(SessionCommand::StartTurn {
             turn_id: turn_id.clone(),
-            prompt: prompt.into(),
+            input,
             output_mode,
             accepted: accepted_sender,
             completed: completion_sender,

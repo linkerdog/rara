@@ -9,6 +9,12 @@ impl Agent {
     where
         F: FnMut(AgentEvent) + Send,
     {
+        // Native approval helpers have appended their tool result and continuation.
+        // Persist refreshed sources on that new context before the next model call.
+        if self.persist_model_context_for_latest_user_message() {
+            self.recompute_history_token_estimate();
+            self.checkpoint_session()?;
+        }
         let mut agentic_turns = 0usize;
         self.run_agent_loop_with_limit(output_mode, report, &mut agentic_turns)
             .await

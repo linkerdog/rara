@@ -6,15 +6,17 @@ use tokio::sync::{mpsc, oneshot, watch};
 use super::command::{SessionCommand, TurnResultSender, TurnStopKind};
 use super::shutdown::ShutdownOutcome;
 use super::{
-    RuntimeSessionError, RuntimeSessionId, RuntimeSessionPhase, RuntimeSessionSnapshot,
-    RuntimeTurnId, RuntimeTurnOutcome,
+    RuntimePendingInput, RuntimeSessionError, RuntimeSessionId, RuntimeSessionPhase,
+    RuntimeSessionSnapshot, RuntimeTurnId, RuntimeTurnOutcome,
 };
 use crate::agent::{Agent, AgentEvent};
 use crate::memory_lifecycle::MemorySyncReason;
 use crate::model_observation::QueryReport;
 use crate::protocol_sources::PromptSourceError;
 use crate::runtime_client::RuntimeClient;
-use crate::runtime_control::{RuntimeEvent, RuntimeProvenance, SessionEvent};
+use crate::runtime_control::{
+    InputDiscardReason, InputEvent, RuntimeEvent, RuntimeProvenance, SessionEvent,
+};
 use crate::tools::agent::AgentTreeControl;
 
 struct ActiveTurn {
@@ -44,6 +46,7 @@ pub(super) struct SessionActor {
     generation: u64,
     active: Option<ActiveTurn>,
     closing: bool,
+    pending_input: Option<RuntimePendingInput>,
     shutdown_waiters: Vec<oneshot::Sender<Result<(), RuntimeSessionError>>>,
     shutdown_outcome: Arc<OnceLock<ShutdownOutcome>>,
 }
@@ -69,6 +72,7 @@ impl SessionActor {
             generation: 0,
             active: None,
             closing: false,
+            pending_input: None,
             shutdown_waiters: Vec::new(),
             shutdown_outcome,
         }
@@ -95,10 +99,7 @@ impl SessionActor {
                             }
                         }
                         None => {
-                            self.closing = true;
-                            self.begin_agent_tree_shutdown();
-                            self.cancel_active();
-                            self.publish_snapshot(RuntimeSessionPhase::Closing);
+                            self.begin_shutdown();
                             if self.active.is_none() {
                                 self.finish_shutdown().await;
                                 return;
@@ -119,7 +120,7 @@ impl SessionActor {
         match command {
             SessionCommand::StartTurn {
                 turn_id,
-                prompt,
+                input,
                 output_mode,
                 accepted,
                 completed,
@@ -131,10 +132,31 @@ impl SessionActor {
                     }));
                     return false;
                 }
+                if let Err(error) = input.validate(self.pending_input.as_ref()) {
+                    let _ = accepted.send(Err(error));
+                    return false;
+                }
                 let Some(mut agent) = self.client.agent_mut().take() else {
                     let _ = accepted.send(Err(RuntimeSessionError::ActorStopped));
                     return false;
                 };
+                if let Some(pending) = self.pending_input.take() {
+                    if input.is_answer() {
+                        self.client.event_bus.publish_control_with_turn(
+                            RuntimeEvent::Input(InputEvent::Answered {
+                                waiting_turn: pending.turn_id.to_string(),
+                            }),
+                            RuntimeProvenance::runtime(Some(self.id.to_string())),
+                            Some(turn_id.as_str()),
+                        );
+                    } else {
+                        agent.discard_pending_interactions();
+                        self.publish_discarded_input(
+                            pending.turn_id,
+                            InputDiscardReason::Superseded,
+                        );
+                    }
+                }
                 let cancellation = Arc::new(AtomicBool::new(false));
                 agent.set_cancellation_token(Some(cancellation.clone()));
                 agent.set_runtime_turn_id(Some(turn_id.to_string()));
@@ -159,8 +181,8 @@ impl SessionActor {
                 let execution_turn_id = turn_id.clone();
                 tokio::spawn(async move {
                     let event_turn_id = execution_turn_id.clone();
-                    let result = agent
-                        .query_with_mode_and_events(prompt, output_mode, move |event| {
+                    let result = input
+                        .execute(&mut agent, output_mode, move |event| {
                             event_bus.send_with_turn(
                                 event,
                                 provenance.clone(),
@@ -232,7 +254,13 @@ impl SessionActor {
                 transcript,
                 response,
             } => {
-                let result = self.with_idle_agent(|agent| agent.replace_history(transcript));
+                let result = if let Some(pending) = &self.pending_input {
+                    Err(RuntimeSessionError::AwaitingInput {
+                        waiting_turn: pending.turn_id.clone(),
+                    })
+                } else {
+                    self.with_idle_agent(|agent| agent.replace_history(transcript))
+                };
                 let _ = response.send(result);
             }
             SessionCommand::PromptSource {
@@ -260,11 +288,8 @@ impl SessionActor {
                 let _ = response.send(result);
             }
             SessionCommand::Shutdown { response } => {
-                self.closing = true;
                 self.shutdown_waiters.push(response);
-                self.begin_agent_tree_shutdown();
-                self.cancel_active();
-                self.publish_snapshot(RuntimeSessionPhase::Closing);
+                self.begin_shutdown();
                 self.commands.close();
                 while let Ok(command) = self.commands.try_recv() {
                     Self::reject_closed(command);
@@ -318,6 +343,33 @@ impl SessionActor {
         completion.agent.set_cancellation_token(None);
         completion.agent.set_runtime_turn_id(None);
         let cancelled = active.cancellation.load(Ordering::SeqCst);
+        let pending =
+            RuntimePendingInput::from_agent(completion.turn_id.clone(), &completion.agent);
+        if cancelled || self.closing {
+            completion.agent.discard_pending_interactions();
+            if let Some(pending) = pending {
+                let reason = if self.closing {
+                    InputDiscardReason::Shutdown
+                } else {
+                    match active.stop_kind.unwrap_or(TurnStopKind::Cancel) {
+                        TurnStopKind::Cancel => InputDiscardReason::Cancelled,
+                        TurnStopKind::Interrupt => InputDiscardReason::Interrupted,
+                    }
+                };
+                self.publish_discarded_input(pending.turn_id, reason);
+            }
+        } else {
+            self.pending_input = pending;
+            if let Some(pending) = &self.pending_input {
+                self.client.event_bus.publish_control_with_turn(
+                    RuntimeEvent::Input(InputEvent::Requested {
+                        pending: Box::new(pending.clone()),
+                    }),
+                    RuntimeProvenance::runtime(Some(self.id.to_string())),
+                    Some(completion.turn_id.as_str()),
+                );
+            }
+        }
         *self.client.agent_mut() = Some(completion.agent);
         if let Some(agent) = self.client.agent() {
             self.client
@@ -357,11 +409,16 @@ impl SessionActor {
         } else {
             match completion.result {
                 Ok(()) => {
+                    let reason = if self.pending_input.is_some() {
+                        "awaiting_input"
+                    } else {
+                        "completed"
+                    };
                     self.publish_terminal_event(
                         &completion.turn_id,
-                        "completed",
+                        reason,
                         SessionEvent::TurnFinished {
-                            reason: Some("completed".to_string()),
+                            reason: Some(reason.to_owned()),
                         },
                     );
                     Ok(outcome)
@@ -387,7 +444,13 @@ impl SessionActor {
             }
         };
         if !self.closing {
-            self.publish_snapshot(RuntimeSessionPhase::Idle);
+            let phase = match &self.pending_input {
+                Some(pending) => RuntimeSessionPhase::AwaitingInput {
+                    turn_id: pending.turn_id.clone(),
+                },
+                None => RuntimeSessionPhase::Idle,
+            };
+            self.publish_snapshot(phase);
         }
         let _ = active.completed.send(result);
     }
@@ -397,6 +460,30 @@ impl SessionActor {
         expected_turn: Option<RuntimeTurnId>,
         kind: TurnStopKind,
     ) -> Result<RuntimeTurnId, RuntimeSessionError> {
+        if self.active.is_none() {
+            let pending = self
+                .pending_input
+                .as_ref()
+                .ok_or(RuntimeSessionError::NotRunning)?;
+            if let Some(expected) = expected_turn
+                && expected != pending.turn_id
+            {
+                return Err(RuntimeSessionError::StaleInput {
+                    expected,
+                    waiting: pending.turn_id.clone(),
+                });
+            }
+            let reason = match kind {
+                TurnStopKind::Cancel => InputDiscardReason::Cancelled,
+                TurnStopKind::Interrupt => InputDiscardReason::Interrupted,
+            };
+            let turn_id = self
+                .discard_pending_input(reason)?
+                .ok_or(RuntimeSessionError::NotRunning)?;
+            self.cancel_active();
+            self.publish_snapshot(RuntimeSessionPhase::Idle);
+            return Ok(turn_id);
+        }
         let active = self
             .active
             .as_mut()
@@ -431,6 +518,47 @@ impl SessionActor {
         if let Err(error) = self.agent_tree_control.cancel_running() {
             log::warn!("failed to cancel active sub-agents: {error}");
         }
+    }
+
+    fn discard_pending_input(
+        &mut self,
+        reason: InputDiscardReason,
+    ) -> Result<Option<RuntimeTurnId>, RuntimeSessionError> {
+        let Some(pending) = &self.pending_input else {
+            return Ok(None);
+        };
+        let turn_id = pending.turn_id.clone();
+        self.client
+            .agent_mut()
+            .as_mut()
+            .ok_or(RuntimeSessionError::ActorStopped)?
+            .discard_pending_interactions();
+        self.pending_input = None;
+        self.publish_discarded_input(turn_id.clone(), reason);
+        Ok(Some(turn_id))
+    }
+
+    fn publish_discarded_input(&self, turn_id: RuntimeTurnId, reason: InputDiscardReason) {
+        self.client.event_bus.publish_control_with_turn(
+            RuntimeEvent::Input(InputEvent::Discarded {
+                waiting_turn: turn_id.to_string(),
+                reason,
+            }),
+            RuntimeProvenance::runtime(Some(self.id.to_string())),
+            Some(turn_id.as_str()),
+        );
+    }
+
+    fn begin_shutdown(&mut self) {
+        self.closing = true;
+        if let Err(error) = self.discard_pending_input(InputDiscardReason::Shutdown) {
+            log::warn!("failed to discard pending session input: {error}");
+            self.shutdown_outcome
+                .get_or_init(|| ShutdownOutcome::Failed);
+        }
+        self.begin_agent_tree_shutdown();
+        self.cancel_active();
+        self.publish_snapshot(RuntimeSessionPhase::Closing);
     }
 
     fn begin_agent_tree_shutdown(&self) {
@@ -480,6 +608,7 @@ impl SessionActor {
             phase,
             generation: self.generation,
             last_sequence: self.client.event_bus.current_sequence(),
+            pending_input: self.pending_input.clone(),
         });
     }
 

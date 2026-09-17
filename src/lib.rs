@@ -96,17 +96,20 @@ pub use rara_tools::tool::{
     Tool, ToolCallContext, ToolError, ToolManager, ToolOutputStream, ToolProgressEvent,
 };
 pub use runtime_control::{
-    AssistantEvent, ErrorEvent, RuntimeControlEvent, RuntimeEvent, RuntimeProvenance, SessionEvent,
+    AssistantEvent, ErrorEvent, InputDiscardReason, InputEvent, PlanApprovalDecision,
+    RuntimeControlEvent, RuntimeEvent, RuntimeProvenance, SessionEvent, ShellApprovalDecision,
     ToolEvent, ToolStream, WarningEvent,
 };
 pub use runtime_session::{
-    RuntimeEventStream, RuntimeHost, RuntimeSession, RuntimeSessionBuilder, RuntimeSessionError,
+    RuntimeEventStream, RuntimeHost, RuntimeInput, RuntimeInputAnswer, RuntimePendingInput,
+    RuntimePendingInputKind, RuntimeSession, RuntimeSessionBuilder, RuntimeSessionError,
     RuntimeSessionId, RuntimeSessionPhase, RuntimeSessionProfile, RuntimeSessionSnapshot,
     RuntimeSessionSubscription, RuntimeTurn, RuntimeTurnId, RuntimeTurnOutcome,
 };
 pub use tools::agent::{
     AgentMailboxMessage, AgentSnapshot, AgentTreeConfig, AgentTreeControl, AgentWaitResult,
 };
+pub use tools::bash::{BashCommandInput, BashSandboxPermissions};
 
 /// Run the standard RARA CLI using the same runtime assembly exposed to
 /// embedding applications.
