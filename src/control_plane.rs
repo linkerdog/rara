@@ -46,12 +46,10 @@ where
             mcp_manager.handle_control(mcp_request).await;
             Ok(())
         }
-        RuntimeControlRequest::PromptSource(prompt_request) => {
-            prompt_registry
-                .handle_control_with_provenance(prompt_request, envelope.provenance.clone())
-                .await;
-            Ok(())
-        }
+        RuntimeControlRequest::PromptSource(prompt_request) => prompt_registry
+            .handle_control_with_provenance(prompt_request, envelope.provenance.clone())
+            .await
+            .map_err(|error| error.to_string()),
         RuntimeControlRequest::SkillSource(skill_request) => {
             skill_registry.handle_control(skill_request).await;
             Ok(())

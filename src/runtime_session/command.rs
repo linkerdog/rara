@@ -5,6 +5,7 @@ use tokio::sync::oneshot;
 use super::{RuntimeSessionError, RuntimeTurnId, RuntimeTurnOutcome};
 use crate::agent::AgentOutputMode;
 use crate::llm::{LlmBackend, Message};
+use crate::runtime_control::{PromptSourceControlRequest, RuntimeProvenance};
 
 pub(super) type TurnResultSender = oneshot::Sender<Result<RuntimeTurnOutcome, RuntimeSessionError>>;
 
@@ -51,6 +52,11 @@ pub(super) enum SessionCommand {
     },
     ReplaceTranscript {
         transcript: Vec<Message>,
+        response: oneshot::Sender<Result<(), RuntimeSessionError>>,
+    },
+    PromptSource {
+        request: PromptSourceControlRequest,
+        provenance: RuntimeProvenance,
         response: oneshot::Sender<Result<(), RuntimeSessionError>>,
     },
     Shutdown {

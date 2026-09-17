@@ -153,6 +153,21 @@ boundary; `Queue` waits for the current turn to finish. The runtime must not
 silently reinterpret one mode as the other. Neither command is implemented in
 the current checkpoint.
 
+### Prompt Source Control
+
+`apply_prompt_source` serializes source changes with session commands and rejects
+mutations while a root turn is active. Provenance is scoped to the target session;
+an explicitly different session ID is rejected. Source content enters the normal
+appended per-turn user context, preserving the stable top-level prompt.
+
+The supported registration contract is protocol/session scope, user layer, and
+session or positive turn-count lifetime. Unsupported scope/layer and persistent
+lifetime requests fail explicitly. IDs and provenance labels are bounded to128
+ASCII identifier bytes. A session retains at most32 sources,64KiB per source and
+256KiB aggregate content. Replacements check the final budget before mutation.
+Lifecycle events retain source provenance; expiry affects subsequent query
+assembly and does not erase historical transcript content.
+
 ### Turn Stop Control
 
 `cancel_turn(expected_turn)` and `interrupt_turn(expected_turn)` target a specific

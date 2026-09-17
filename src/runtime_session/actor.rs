@@ -12,6 +12,7 @@ use super::{
 use crate::agent::{Agent, AgentEvent};
 use crate::memory_lifecycle::MemorySyncReason;
 use crate::model_observation::QueryReport;
+use crate::protocol_sources::PromptSourceError;
 use crate::runtime_client::RuntimeClient;
 use crate::runtime_control::{RuntimeEvent, RuntimeProvenance, SessionEvent};
 use crate::tools::agent::AgentTreeControl;
@@ -232,6 +233,30 @@ impl SessionActor {
                 response,
             } => {
                 let result = self.with_idle_agent(|agent| agent.replace_history(transcript));
+                let _ = response.send(result);
+            }
+            SessionCommand::PromptSource {
+                request,
+                provenance,
+                response,
+            } => {
+                let result = if let Some(active) = &self.active {
+                    Err(RuntimeSessionError::Busy {
+                        active_turn: active.turn_id.clone(),
+                    })
+                } else {
+                    self.client
+                        .prompt_source_registry
+                        .handle_control_with_provenance(&request, provenance)
+                        .await
+                        .map_err(|error| match error {
+                            PromptSourceError::Invalid => RuntimeSessionError::InvalidSource,
+                            PromptSourceError::Unsupported => {
+                                RuntimeSessionError::UnsupportedSource
+                            }
+                            PromptSourceError::Capacity => RuntimeSessionError::SourceCapacity,
+                        })
+                };
                 let _ = response.send(result);
             }
             SessionCommand::Shutdown { response } => {
@@ -471,7 +496,8 @@ impl SessionActor {
             | SessionCommand::DisableTools { response }
             | SessionCommand::DisableExtensionExecution { response }
             | SessionCommand::SetFullAccess { response, .. }
-            | SessionCommand::ReplaceTranscript { response, .. } => {
+            | SessionCommand::ReplaceTranscript { response, .. }
+            | SessionCommand::PromptSource { response, .. } => {
                 let _ = response.send(Err(RuntimeSessionError::Closed));
             }
             SessionCommand::GetTranscript { response } => {

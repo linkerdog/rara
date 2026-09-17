@@ -14,6 +14,12 @@ pub enum RuntimeSessionError {
     },
     #[error("runtime turn {active_turn} already has a different stop request")]
     StopInProgress { active_turn: RuntimeTurnId },
+    #[error("runtime source request is invalid or targets a different session")]
+    InvalidSource,
+    #[error("runtime source scope, layer, or lifetime is unsupported")]
+    UnsupportedSource,
+    #[error("runtime source capacity exceeded")]
+    SourceCapacity,
     #[error("runtime host already contains session {0}")]
     AlreadyExists(super::RuntimeSessionId),
     #[error("runtime session command queue is full")]

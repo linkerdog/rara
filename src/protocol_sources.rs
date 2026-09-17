@@ -25,174 +25,16 @@ use crate::memory_store::{
     MemoryLabel, MemoryLabelCount, MemoryPromotionTarget, MemoryRecord, MemoryRecordPatch,
     MemoryScope as StoreMemoryScope, MemorySource, MemoryStore, NewMemoryRecord,
 };
-use crate::prompt::{PromptSource, PromptSourceKind};
 use crate::runtime_control::{
     MemoryControlRequest, MemoryEvent, MemoryLabelSummary, MemoryRecordControlPatch,
-    MemoryRecordSummary, MemoryScope as ControlMemoryScope, PromptSourceControlRequest,
-    PromptSourceEvent, PromptSourceLifetime, PromptSourceRegistration, RuntimeEvent,
-    RuntimeProvenance, SkillEvent, SkillSourceControlRequest,
+    MemoryRecordSummary, MemoryScope as ControlMemoryScope, RuntimeEvent, SkillEvent,
+    SkillSourceControlRequest,
 };
 use crate::runtime_event_bus::RuntimeEventBus;
 
-// ── Prompt source registry ──────────────────────────────────────────────
-
-/// Stored entry for a protocol-registered prompt source.
-#[derive(Clone, Debug)]
-struct PromptSourceEntry {
-    registration: PromptSourceRegistration,
-    provenance: RuntimeProvenance,
-    /// Remaining turn count (only meaningful for `Turns` lifetime).
-    remaining_turns: Option<u32>,
-}
-
-/// Stable snapshot of a protocol-registered prompt source.
-///
-/// Unlike `list_sources`, this keeps the control-plane provenance and the
-/// current turn-lifetime state that prompt runtime and `/context` integration
-/// need for explainable source injection.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct ProtocolPromptSourceSnapshot {
-    pub registration: PromptSourceRegistration,
-    pub provenance: RuntimeProvenance,
-    pub remaining_turns: Option<u32>,
-}
-
-impl From<&PromptSourceEntry> for ProtocolPromptSourceSnapshot {
-    fn from(entry: &PromptSourceEntry) -> Self {
-        Self {
-            registration: entry.registration.clone(),
-            provenance: entry.provenance.clone(),
-            remaining_turns: entry.remaining_turns,
-        }
-    }
-}
-
-impl ProtocolPromptSourceSnapshot {
-    pub fn to_prompt_source(&self) -> PromptSource {
-        PromptSource {
-            kind: PromptSourceKind::ProtocolPromptSource,
-            label: format!("Protocol Prompt Source {}", self.registration.source_id),
-            display_path: self.display_path(),
-            content: self.registration.content.clone(),
-        }
-    }
-
-    fn display_path(&self) -> String {
-        let controller = format!("{:?}", self.provenance.controller).to_lowercase();
-        match self.provenance.adapter.as_deref() {
-            Some(adapter) if !adapter.trim().is_empty() => {
-                format!(
-                    "protocol:{controller}:{adapter}:{}",
-                    self.registration.source_id
-                )
-            }
-            _ => format!("protocol:{controller}:{}", self.registration.source_id),
-        }
-    }
-}
-
-/// Registry for protocol-registered prompt sources.
-pub struct PromptSourceRegistry {
-    event_bus: Arc<RuntimeEventBus>,
-    sources: RwLock<BTreeMap<String, PromptSourceEntry>>,
-}
-
-impl PromptSourceRegistry {
-    pub fn new(event_bus: Arc<RuntimeEventBus>) -> Self {
-        Self {
-            event_bus,
-            sources: RwLock::new(BTreeMap::new()),
-        }
-    }
-
-    /// Handle a prompt source control request while explicitly recording the
-    /// provenance of the runtime-control envelope that carried it.
-    pub async fn handle_control_with_provenance(
-        &self,
-        request: &PromptSourceControlRequest,
-        provenance: RuntimeProvenance,
-    ) {
-        match request {
-            PromptSourceControlRequest::Register(registration) => {
-                let mut sources = self.sources.write().await;
-                let turns = match registration.lifetime {
-                    PromptSourceLifetime::Turns(n) => Some(n),
-                    PromptSourceLifetime::Session | PromptSourceLifetime::Persistent => None,
-                };
-                sources.insert(
-                    registration.source_id.clone(),
-                    PromptSourceEntry {
-                        registration: registration.clone(),
-                        provenance,
-                        remaining_turns: turns,
-                    },
-                );
-                let _ = self.event_bus.publish_control(RuntimeEvent::PromptSource(
-                    PromptSourceEvent::Registered {
-                        source_id: registration.source_id.clone(),
-                    },
-                ));
-            }
-            PromptSourceControlRequest::Unregister { source_id } => {
-                let removed = self.sources.write().await.remove(source_id).is_some();
-                if removed {
-                    let _ = self.event_bus.publish_control(RuntimeEvent::PromptSource(
-                        PromptSourceEvent::Unregistered {
-                            source_id: source_id.clone(),
-                        },
-                    ));
-                }
-            }
-            PromptSourceControlRequest::QuerySources => {
-                let sources = self.sources.read().await;
-                let ids: Vec<String> = sources.keys().cloned().collect();
-                for id in ids {
-                    let _ = self.event_bus.publish_control(RuntimeEvent::PromptSource(
-                        PromptSourceEvent::Registered { source_id: id },
-                    ));
-                }
-            }
-        }
-    }
-
-    /// Atomically snapshot active prompt sources for one query and advance
-    /// turn-limited lifetimes under the same registry lock.
-    pub async fn list_prompt_sources_for_query(&self) -> Vec<PromptSource> {
-        let mut sources = self.sources.write().await;
-        let mut injected = Vec::with_capacity(sources.len());
-        let mut prompt_sources = Vec::with_capacity(sources.len());
-        let mut expired = Vec::new();
-        for (id, entry) in sources.iter_mut() {
-            injected.push(id.clone());
-            prompt_sources.push(ProtocolPromptSourceSnapshot::from(&*entry).to_prompt_source());
-            if let Some(ref mut remaining) = entry.remaining_turns {
-                if *remaining <= 1 {
-                    expired.push(id.clone());
-                } else {
-                    *remaining -= 1;
-                }
-            }
-        }
-        for id in &expired {
-            sources.remove(id);
-        }
-        drop(sources);
-        for id in injected {
-            let _ = self.event_bus.publish_control(RuntimeEvent::PromptSource(
-                PromptSourceEvent::Injected { source_id: id },
-            ));
-        }
-        for id in expired {
-            let _ = self.event_bus.publish_control(RuntimeEvent::PromptSource(
-                PromptSourceEvent::Dropped {
-                    source_id: id,
-                    reason: "turn limit expired".into(),
-                },
-            ));
-        }
-        prompt_sources
-    }
-}
+mod prompt;
+pub(crate) use prompt::PromptSourceError;
+pub use prompt::{PromptSourceRegistry, ProtocolPromptSourceSnapshot};
 
 // ── Skill source registry ───────────────────────────────────────────────
 
@@ -619,7 +461,11 @@ mod tests {
 
     use super::*;
     use crate::llm::MockLlm;
-    use crate::runtime_control::RuntimeEvent;
+    use crate::prompt::PromptSourceKind;
+    use crate::runtime_control::{
+        PromptSourceControlRequest, PromptSourceEvent, PromptSourceLifetime,
+        PromptSourceRegistration, RuntimeEvent, RuntimeProvenance,
+    };
 
     fn test_memory_store(root: &std::path::Path) -> Arc<MemoryStore> {
         Arc::new(MemoryStore::new_with_record_path(
@@ -654,7 +500,8 @@ mod tests {
                 }),
                 provenance.clone(),
             )
-            .await;
+            .await
+            .expect("prompt source registration");
 
         let prompt_sources = registry.list_prompt_sources_for_query().await;
         assert_eq!(prompt_sources.len(), 1);
@@ -705,7 +552,8 @@ mod tests {
                 }),
                 RuntimeProvenance::runtime(None),
             )
-            .await;
+            .await
+            .expect("prompt source registration");
         let registered = events.recv().await.expect("registered event");
         assert!(matches!(
             registered.event,

@@ -4,8 +4,9 @@
 
 Define the version1 server-first stdio boundary needed by an external process
 supervisor. The shared codec, explicit cursor subscription, retained shutdown
-outcomes and targeted turn stop commands are implemented. This does not yet make
-the app-server command available or complete a downstream provider integration.
+outcomes, targeted turn stop commands and bounded prompt source commands are
+implemented. This does not yet make the app-server command available or complete
+a downstream provider integration.
 
 ## Background
 
@@ -34,6 +35,11 @@ raw-Agent dispatcher would bypass the canonical session owner.
   outcomes and retain the first accepted stop kind while execution drains.
   Repeat requests do not relabel that kind; shutdown preserves an accepted
   interruption. A receipt acknowledges the stop request, not provider completion.
+- Route bounded prompt source registration through the idle session actor and
+  existing per-query context assembly. Preserve lifecycle provenance and reject
+  unsupported scope/layer/persistence claims. Extract the prompt registry from
+  the near-limit protocol sources module. Skill bodies still require the owning
+  SkillManager/SkillTool path and are not appended indiscriminately to prompts.
 - Mirror connection gating and bounded ordered output from the inspected Codex
   transport, and correlated/cancelled control responses from the inspected Claude
   Code transport, without adopting either wire schema or implementation.
@@ -74,12 +80,26 @@ cancellation/interruption events, partial evidence, and shutdown preserving a
 previously accepted interruption. Neither a queue nor approval persistence is
 claimed by these commands.
 
+Prompt source validation has11 passing registry tests, including4 new cases for
+invalid/unsupported registration, count/aggregate capacity, atomic replacement,
+and lifecycle provenance. All5 existing context-view tests pass. One new isolated
+runtime-source workflow proves actual backend request delivery,
+stable system prefix, cross-session rejection/isolation, busy mutation rejection,
+query-count expiry and rejection after close. The source limits are explicit;
+the current user-context renderer does not pretend to apply system/developer
+layers or persist sources across process exit. The final session workflow lives
+in the library test target so both Cargo and the existing Bazel source glob
+discover it without a build configuration change.
+
 ```bash
 cargo fmt --all
 cargo test -p rara-app-server --lib --locked --offline
 cargo clippy -p rara-app-server --all-targets --locked --offline -- -D warnings
 CARGO_INCREMENTAL=0 cargo test --locked --offline --test runtime_session
 CARGO_INCREMENTAL=0 cargo test --locked --offline --lib tools::agent::agent_control::tests
+CARGO_INCREMENTAL=0 cargo test --locked --offline --lib protocol_sources::
+CARGO_INCREMENTAL=0 cargo test --locked --offline --lib agent::tests::context_view::
+CARGO_INCREMENTAL=0 cargo test --locked --offline --lib runtime_session::source_tests::
 cargo clippy --locked --all-targets --no-deps --offline -- -D warnings
 git diff --check
 ```
@@ -90,7 +110,8 @@ evidence remain open until their implementations exist.
 
 ## Follow-Ups
 
-Implement and validate the canonical session command seam, bounded process
-transport, receipt/replay behavior and real isolated child-process smoke before
-advertising the protocol. The owning contract is
+Implement and validate pending-input/approval interaction fencing, actual skill
+registration through SkillManager/SkillTool, bounded process transport,
+receipt/replay behavior and real isolated child-process smoke before advertising
+the protocol. The owning contract is
 [App Server Stdio Protocol](../features/app-server-stdio.md).

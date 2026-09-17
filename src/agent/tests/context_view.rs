@@ -438,7 +438,8 @@ async fn protocol_prompt_registry_feeds_prompt_runtime_for_query() {
             }),
             RuntimeProvenance::runtime(None),
         )
-        .await;
+        .await
+        .expect("prompt source registration");
     agent.set_prompt_source_registry(registry.clone());
 
     agent

@@ -22,3 +22,6 @@ pub use profile::RuntimeSessionProfile;
 pub use snapshot::{RuntimeSessionPhase, RuntimeSessionSnapshot};
 pub use subscription::{RuntimeEventStream, RuntimeSessionSubscription};
 pub use turn::{RuntimeTurn, RuntimeTurnOutcome};
+
+#[cfg(test)]
+mod source_tests;

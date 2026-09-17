@@ -18,7 +18,7 @@ use crate::llm::{LlmBackend, Message};
 use crate::model_observation::QueryReport;
 use crate::runtime_client::RuntimeClient;
 use crate::runtime_context::RuntimeBootstrap;
-use crate::runtime_control::RuntimeControlEvent;
+use crate::runtime_control::{PromptSourceControlRequest, RuntimeControlEvent, RuntimeProvenance};
 use crate::runtime_event_bus::RuntimeEventBus;
 use crate::tools::agent::{AgentTreeConfig, AgentTreeControl};
 
@@ -345,6 +345,31 @@ impl RuntimeSession {
         let (sender, receiver) = oneshot::channel();
         self.try_send(SessionCommand::ReplaceTranscript {
             transcript,
+            response: sender,
+        })?;
+        receiver
+            .await
+            .map_err(|_| RuntimeSessionError::ActorStopped)?
+    }
+
+    /// Apply a bounded prompt source while idle, keeping its authority session-scoped.
+    pub async fn apply_prompt_source(
+        &self,
+        request: PromptSourceControlRequest,
+        mut provenance: RuntimeProvenance,
+    ) -> Result<(), RuntimeSessionError> {
+        if provenance
+            .session_id
+            .as_deref()
+            .is_some_and(|id| id != self.id.as_str())
+        {
+            return Err(RuntimeSessionError::InvalidSource);
+        }
+        provenance.session_id = Some(self.id.to_string());
+        let (sender, receiver) = oneshot::channel();
+        self.try_send(SessionCommand::PromptSource {
+            request,
+            provenance,
             response: sender,
         })?;
         receiver
