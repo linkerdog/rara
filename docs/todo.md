@@ -17,6 +17,12 @@ Active backlog only. Keep this file small and current.
       repetitions. Refresh provider/model routing and prices for each run. See
       [the implementation checkpoint](journal/2026-09-11-prefix-cache-optimization.md).
 
+## Agent Trace
+
+- [ ] Add an OTLP exporter over the typed local agent-trace event model, using
+      the current OpenTelemetry GenAI semantic conventions and explicit
+      parent/child subagent context. See [the contract](features/agent-trace.md).
+
 ## Execution Plan (2026-08-28)
 
 1. ✅ Plugin/runtime status correctness.

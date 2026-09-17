@@ -17,6 +17,7 @@ members = [
     "crates/rara-apply-patch",
     "crates/rara-wasm-core",
     "crates/rara-observability",
+    "crates/rara-agent-trace",
     "crates/rara-tools",
     "crates/rara-plugins",
     "crates/rara-app-server",
@@ -65,6 +66,7 @@ rara-persistence = { path = "crates/rara-persistence" }
 rara-mcp-client = { path = "crates/rara-mcp-client" }
 rara-memory = { path = "crates/rara-memory" }
 rara-observability = { path = "crates/rara-observability" }
+rara-agent-trace = { path = "crates/rara-agent-trace" }
 rara-tools = { path = "crates/rara-tools" }
 rara-plugins = { path = "crates/rara-plugins" }
 rara-app-server = { path = "crates/rara-app-server" }

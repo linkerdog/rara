@@ -63,6 +63,8 @@ future appserver integrations can use.
   context/metrics contracts.
 - `provider-cache-observability.md`: content-free per-request cache reports and
   the opt-in official DeepSeek AB/BA measurement contract.
+- `agent-trace.md`: opt-in session-scoped JSONL diagnostics for model cache,
+  memory selection, and agent-loop state transitions.
 - `local-embedding-runtimes.md`: local Python model server, macOS MLX/Qwen3
   backend, portable FastEmbed/ONNX backend, and server safety contract.
 - `workspace-memory-cache.md`: prompt-source and workspace-memory cache

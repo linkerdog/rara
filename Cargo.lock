@@ -8960,6 +8960,7 @@ dependencies = [
  "portable-pty",
  "pulldown-cmark",
  "rand 0.10.2",
+ "rara-agent-trace",
  "rara-app-server",
  "rara-background-tasks",
  "rara-bedrock",
@@ -9005,6 +9006,15 @@ dependencies = [
  "urlencoding",
  "uuid",
  "walkdir",
+]
+
+[[package]]
+name = "rara-agent-trace"
+version = "0.0.22"
+dependencies = [
+ "serde",
+ "serde_json",
+ "tempfile",
 ]
 
 [[package]]

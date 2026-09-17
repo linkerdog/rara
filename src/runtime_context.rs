@@ -4,6 +4,7 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, RwLock, atomic::AtomicBool};
 
 use anyhow::{Context, Result, bail};
+use rara_agent_trace::AgentTraceRecorder;
 use rara_memory::memory_handle::MemoryHandle;
 use rara_skills::SkillManager;
 use rara_tools::tool::ToolManager;
@@ -72,6 +73,7 @@ pub(crate) struct RuntimeBootstrap {
     initial_transcript: Vec<Message>,
     transcript_persistence: bool,
     memory_facilities: bool,
+    agent_trace_dir: Option<PathBuf>,
 }
 
 /// Named ownership bundle produced by runtime assembly for one session.
@@ -181,6 +183,8 @@ impl RuntimeBootstrap {
     ) -> RuntimeSessionComponents {
         let hook_workspace_root = self.workspace.root.clone();
         let memory_config = self.builtin_plugins.nowledge_mem.clone();
+        let agent_trace_dir = self.agent_trace_dir;
+        let mut warnings = self.warnings;
         let mut agent = Agent::new_with_agent_definitions(
             self.tool_manager,
             self.backend,
@@ -197,6 +201,14 @@ impl RuntimeBootstrap {
         if let Some(session_id) = self.session_id {
             agent.set_session_id(session_id);
         }
+        if let Some(agent_trace_dir) = agent_trace_dir {
+            match AgentTraceRecorder::new(agent_trace_dir, agent.session_id.clone()) {
+                Ok(recorder) => agent.set_agent_trace_recorder(recorder),
+                Err(error) => warnings.push(format!(
+                    "Failed to initialize agent trace recorder; tracing is disabled: {error}"
+                )),
+            }
+        }
         if !self.initial_transcript.is_empty() {
             agent.replace_history(self.initial_transcript);
         }
@@ -212,7 +224,7 @@ impl RuntimeBootstrap {
         );
         RuntimeSessionComponents {
             agent,
-            warnings: self.warnings,
+            warnings,
             sandbox_network_access: self.sandbox_network_access,
             goal_handle: self.goal_handle,
             mcp_tool_cache: self.mcp_tool_cache,
@@ -669,6 +681,7 @@ pub(crate) async fn initialize_rara_context_with_options(
         initial_transcript: options.initial_transcript,
         transcript_persistence: options.transcript_persistence,
         memory_facilities: options.memory_facilities,
+        agent_trace_dir: config.agent_trace_dir.clone(),
     })
 }
 

@@ -46,6 +46,9 @@ pub struct RaraConfig {
     pub context_file_search: ContextFileSearchPolicy,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub plugin_dirs: Vec<PathBuf>,
+    /// Opt-in directory for local content-free agent trace bundles.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub agent_trace_dir: Option<PathBuf>,
     #[serde(default, skip_serializing_if = "BuiltinPluginConfig::is_default")]
     pub builtin_plugins: BuiltinPluginConfig,
     #[serde(default, skip_serializing_if = "TuiConfig::is_default")]

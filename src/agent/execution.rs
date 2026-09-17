@@ -458,6 +458,7 @@ impl Agent {
             continue_inspection: turn_output.continue_inspection,
             malformed_proposed_plan: turn_output.malformed_proposed_plan,
         };
+        self.record_agent_trace_step();
     }
 
     pub(super) async fn try_continue_after_recoverable_runtime_error<F>(

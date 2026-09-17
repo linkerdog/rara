@@ -179,6 +179,7 @@ impl Agent {
             agent_tree_control: None,
             cancellation_token: None,
             runtime_turn_id: None,
+            agent_trace: rara_agent_trace::AgentTraceRecorder::disabled(),
         }
     }
 
@@ -233,7 +234,9 @@ impl Agent {
             .take()
             .unwrap_or_else(|| rara_observability::InferenceTask::default().start_agent(None));
         self.inference_context = Some(lease.context());
+        self.record_agent_trace_turn_started();
         let result = self.query_inner(prompt, output_mode, report).await;
+        self.record_agent_trace_turn_finished(result.is_ok());
         // Post-turn extraction and goal evaluation still belong to this task.
         // The next query replaces the context before it starts new work.
         drop(lease);
@@ -497,6 +500,7 @@ impl Agent {
         }
         turn_metadata.ensure_not_cancelled()?;
         let assembled = self.assemble_turn_context();
+        self.record_agent_trace_context_assembled(&assembled.runtime);
         let history_for_query = self
             .history
             .iter()
@@ -559,12 +563,24 @@ impl Agent {
         if let Some(call) = inference_call {
             call.finish(&response);
         }
-        let response = response?;
-        self.capture_summary_prefix(&messages, tool_schemas, &turn_metadata);
         let duration_ms = request_started_at
             .elapsed()
             .as_millis()
             .min(u128::from(u64::MAX)) as u64;
+        let response = match response {
+            Ok(response) => response,
+            Err(error) => {
+                self.record_agent_trace_model_finished(
+                    model_label,
+                    duration_ms,
+                    rara_agent_trace::TraceModelStatus::Failed,
+                    None,
+                    None,
+                );
+                return Err(error);
+            }
+        };
+        self.capture_summary_prefix(&messages, tool_schemas, &turn_metadata);
 
         let output_tokens = response
             .usage
@@ -576,6 +592,14 @@ impl Agent {
             output_tokens,
             finish_reason: response.stop_reason.clone(),
         });
+
+        self.record_agent_trace_model_finished(
+            model_label.clone(),
+            duration_ms,
+            rara_agent_trace::TraceModelStatus::Succeeded,
+            response.stop_reason.clone(),
+            response.usage.as_ref(),
+        );
 
         self.last_query_report.model_turns.push(ModelTurnReport {
             model: model_label,
