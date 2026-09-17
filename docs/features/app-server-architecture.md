@@ -9,13 +9,16 @@ must not own raw agents or reconstruct lifecycle semantics.
 RARA currently provides two pieces of the AppServer boundary:
 
 - `rara-app-server` contains transport-neutral control request and provenance
-  contracts;
+  contracts and the version1 stdio codec foundation specified in
+  [App Server Stdio Protocol](app-server-stdio.md);
 - the root library exposes `RuntimeSession`, ordered control events, replay,
   and the non-global multi-session `RuntimeHost` used by ACP.
 
 Ask, print, exec, Wire, embedded, and ACP execution use the canonical session
 handle. The TUI still uses its internal `RuntimeClient` compatibility owner.
 There is no network AppServer listener in the current checkpoint.
+The stdio codec does not yet provide a runnable app-server CLI; command routing,
+bounded process transport and child-process validation remain implementation gates.
 
 ## Target Architecture
 
@@ -38,6 +41,10 @@ session.
 Transport disconnect does not implicitly destroy a host-owned session. A
 reconnecting client supplies a cursor, consumes bounded replay, or receives
 `ResyncRequired` and fetches a new snapshot.
+
+A dedicated stdio child owns its entire host. Its process lifecycle may explicitly
+shut the host down when the sole parent connection ends; dropping a generic
+session observer still does not implicitly cancel host-owned execution.
 
 ## Adapter Contract
 

@@ -131,7 +131,7 @@ impl RuntimeEventBus {
     ) -> Result<Vec<RuntimeControlEvent>, RuntimeReplayGap> {
         let _publication = self.lock_publication();
         let latest = self.next_sequence.load(Ordering::SeqCst);
-        if sequence >= latest {
+        if sequence == latest {
             return Ok(Vec::new());
         }
         let replay = match self.replay.lock() {
@@ -144,8 +144,8 @@ impl RuntimeEventBus {
         let oldest_available = replay
             .front()
             .map(|event| event.sequence)
-            .unwrap_or(latest + 1);
-        if sequence.saturating_add(1) < oldest_available {
+            .unwrap_or_else(|| latest.saturating_add(1));
+        if sequence > latest || sequence.saturating_add(1) < oldest_available {
             return Err(RuntimeReplayGap {
                 requested: sequence,
                 oldest_available,

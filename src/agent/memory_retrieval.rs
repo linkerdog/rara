@@ -14,6 +14,8 @@ use crate::prompt;
 const CLEARED_PROTOCOL_PROMPT_SOURCES: &str =
     "## Protocol Prompt Sources\n\nNo protocol prompt sources are active for this turn.";
 
+const CLEARED_SKILL_LISTING: &str = "### Available Skills\n\nNo skills are currently available.";
+
 impl Agent {
     pub(super) async fn refresh_memory_retrieval_candidates(&mut self) {
         self.retrieved_memory_candidates = MemoryRetrievalOrchestrator::new(
@@ -87,6 +89,23 @@ impl Agent {
                 fragments.push(ModelContextFragment::new(
                     ModelContextKind::ProtocolPromptSources,
                     CLEARED_PROTOCOL_PROMPT_SOURCES,
+                ));
+            }
+            None => {}
+        }
+        match prompt::render_skill_listing(&self.prompt_config.available_skills) {
+            Some(listing) => push_changed_context(
+                &self.history,
+                &mut fragments,
+                ModelContextKind::SkillListing,
+                listing,
+            ),
+            None if latest_model_context_text(&self.history, ModelContextKind::SkillListing)
+                .is_some_and(|text| text != CLEARED_SKILL_LISTING) =>
+            {
+                fragments.push(ModelContextFragment::new(
+                    ModelContextKind::SkillListing,
+                    CLEARED_SKILL_LISTING,
                 ));
             }
             None => {}

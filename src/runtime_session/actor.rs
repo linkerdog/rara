@@ -1,73 +1,29 @@
-use std::path::{Path, PathBuf};
-use std::sync::{Arc, atomic::AtomicBool, atomic::Ordering};
+use std::sync::{Arc, OnceLock, atomic::AtomicBool, atomic::Ordering};
 
 use anyhow::Result;
-use tokio::sync::{broadcast, mpsc, oneshot, watch};
+use tokio::sync::{mpsc, oneshot, watch};
 
-use super::subscription::replay_gap_error;
+use super::command::{SessionCommand, TurnResultSender, TurnStopKind};
+use super::shutdown::ShutdownOutcome;
 use super::{
-    RuntimeEventStream, RuntimeSessionBuilder, RuntimeSessionError, RuntimeSessionId,
-    RuntimeSessionPhase, RuntimeSessionSnapshot, RuntimeSessionSubscription, RuntimeTurn,
-    RuntimeTurnId, RuntimeTurnOutcome,
+    RuntimePendingInput, RuntimeSessionError, RuntimeSessionId, RuntimeSessionPhase,
+    RuntimeSessionSnapshot, RuntimeTurnId, RuntimeTurnOutcome,
 };
-use crate::agent::{Agent, AgentEvent, AgentOutputMode};
-use crate::llm::{LlmBackend, Message};
+use crate::agent::{Agent, AgentEvent};
 use crate::memory_lifecycle::MemorySyncReason;
 use crate::model_observation::QueryReport;
+use crate::protocol_sources::{PromptSourceError, SkillSourceError};
 use crate::runtime_client::RuntimeClient;
-use crate::runtime_context::RuntimeBootstrap;
-use crate::runtime_control::{RuntimeControlEvent, RuntimeEvent, RuntimeProvenance, SessionEvent};
-use crate::runtime_event_bus::RuntimeEventBus;
-use crate::tools::agent::{AgentTreeConfig, AgentTreeControl};
-
-type TurnResultSender = oneshot::Sender<Result<RuntimeTurnOutcome, RuntimeSessionError>>;
-
-enum SessionCommand {
-    StartTurn {
-        turn_id: RuntimeTurnId,
-        prompt: String,
-        output_mode: AgentOutputMode,
-        accepted: oneshot::Sender<Result<(), RuntimeSessionError>>,
-        completed: TurnResultSender,
-        inference_agent: rara_observability::InferenceAgent,
-    },
-    Cancel {
-        response: oneshot::Sender<Result<RuntimeTurnId, RuntimeSessionError>>,
-    },
-    ReplaceBackend {
-        backend: Arc<dyn LlmBackend>,
-        response: oneshot::Sender<Result<(), RuntimeSessionError>>,
-    },
-    SetMaxTurns {
-        max_turns: usize,
-        response: oneshot::Sender<Result<(), RuntimeSessionError>>,
-    },
-    DisableTools {
-        response: oneshot::Sender<Result<(), RuntimeSessionError>>,
-    },
-    DisableExtensionExecution {
-        response: oneshot::Sender<Result<(), RuntimeSessionError>>,
-    },
-    SetFullAccess {
-        enabled: bool,
-        response: oneshot::Sender<Result<(), RuntimeSessionError>>,
-    },
-    GetTranscript {
-        response: oneshot::Sender<Result<Vec<Message>, RuntimeSessionError>>,
-    },
-    ReplaceTranscript {
-        transcript: Vec<Message>,
-        response: oneshot::Sender<Result<(), RuntimeSessionError>>,
-    },
-    Shutdown {
-        response: oneshot::Sender<Result<(), RuntimeSessionError>>,
-    },
-}
+use crate::runtime_control::{
+    InputDiscardReason, InputEvent, RuntimeEvent, RuntimeProvenance, SessionEvent,
+};
+use crate::tools::agent::AgentTreeControl;
 
 struct ActiveTurn {
     turn_id: RuntimeTurnId,
     generation: u64,
     cancellation: Arc<AtomicBool>,
+    stop_kind: Option<TurnStopKind>,
     completed: TurnResultSender,
 }
 
@@ -79,400 +35,7 @@ struct TurnCompletion {
     query_report: QueryReport,
 }
 
-/// Cloneable command and observation handle for one runtime session.
-#[derive(Clone)]
-pub struct RuntimeSession {
-    id: RuntimeSessionId,
-    workspace_root: Arc<PathBuf>,
-    commands: mpsc::Sender<SessionCommand>,
-    snapshot: watch::Receiver<RuntimeSessionSnapshot>,
-    event_bus: Arc<RuntimeEventBus>,
-    agent_tree_control: Arc<AgentTreeControl>,
-}
-
-impl RuntimeSession {
-    /// Start building one session from application configuration.
-    pub fn builder(
-        config: crate::RaraConfig,
-        workspace_root: impl AsRef<Path>,
-    ) -> RuntimeSessionBuilder {
-        RuntimeSessionBuilder::new(config, workspace_root)
-    }
-
-    pub(crate) async fn from_bootstrap(bootstrap: RuntimeBootstrap) -> Result<Self> {
-        let client = RuntimeClient::from_bootstrap(bootstrap).await;
-        Self::start(client, super::builder::DEFAULT_COMMAND_CAPACITY)
-    }
-
-    pub(crate) fn start(client: RuntimeClient, command_capacity: usize) -> Result<Self> {
-        let agent = client
-            .agent()
-            .ok_or_else(|| anyhow::anyhow!("runtime bootstrap did not produce an agent"))?;
-        let id = RuntimeSessionId::new(agent.session_id.clone());
-        let workspace_root = agent.workspace.root.clone();
-        let agent_tree_control = agent
-            .agent_tree_control()
-            .unwrap_or_else(|| Arc::new(AgentTreeControl::new(AgentTreeConfig::default())));
-        let actor_agent_tree_control = agent_tree_control.clone();
-        let event_bus = client.event_bus.clone();
-        let snapshot = RuntimeSessionSnapshot {
-            session_id: id.clone(),
-            phase: RuntimeSessionPhase::Idle,
-            generation: 0,
-            last_sequence: event_bus.current_sequence(),
-        };
-        let (snapshot_sender, snapshot_receiver) = watch::channel(snapshot);
-        let (commands, command_receiver) = mpsc::channel(command_capacity.max(1));
-        let session = Self {
-            id: id.clone(),
-            workspace_root: Arc::new(workspace_root),
-            commands,
-            snapshot: snapshot_receiver,
-            event_bus: event_bus.clone(),
-            agent_tree_control,
-        };
-        tokio::spawn(async move {
-            SessionActor::new(
-                id,
-                client,
-                command_receiver,
-                snapshot_sender,
-                actor_agent_tree_control,
-            )
-            .run()
-            .await;
-        });
-        Ok(session)
-    }
-
-    /// Return the stable session identity.
-    pub fn id(&self) -> &RuntimeSessionId {
-        &self.id
-    }
-
-    /// Return the workspace owned by this session.
-    pub fn workspace_root(&self) -> &Path {
-        self.workspace_root.as_path()
-    }
-
-    /// Clone the session-scoped child-agent control handle.
-    pub fn agent_tree_control(&self) -> Arc<AgentTreeControl> {
-        self.agent_tree_control.clone()
-    }
-
-    /// Read the latest lifecycle snapshot without waiting for the actor.
-    pub fn snapshot(&self) -> RuntimeSessionSnapshot {
-        self.snapshot.borrow().clone()
-    }
-
-    /// Subscribe to coalesced lifecycle snapshots for this session.
-    pub fn subscribe_snapshots(&self) -> watch::Receiver<RuntimeSessionSnapshot> {
-        self.snapshot.clone()
-    }
-
-    /// Subscribe to raw typed agent events for compatibility consumers.
-    pub fn subscribe_events(&self) -> broadcast::Receiver<AgentEvent> {
-        self.event_bus.subscribe()
-    }
-
-    /// Subscribe to ordered protocol events.
-    pub fn subscribe_control(&self) -> broadcast::Receiver<RuntimeControlEvent> {
-        self.event_bus.subscribe_control()
-    }
-
-    /// Atomically pair the latest snapshot with replay and a live event stream.
-    pub fn subscribe_from_snapshot(
-        &self,
-    ) -> Result<RuntimeSessionSubscription, RuntimeSessionError> {
-        let live = self.event_bus.subscribe_control();
-        let snapshot = self.snapshot();
-        let replay = self
-            .event_bus
-            .replay_after(snapshot.last_sequence)
-            .map_err(replay_gap_error)?;
-        let events = RuntimeEventStream::new(
-            self.event_bus.clone(),
-            live,
-            self.snapshot.clone(),
-            replay,
-            snapshot.last_sequence,
-        );
-        Ok(RuntimeSessionSubscription { snapshot, events })
-    }
-
-    /// Submit one prompt. A busy session rejects rather than running two root turns.
-    pub async fn submit(
-        &self,
-        prompt: impl Into<String>,
-        output_mode: AgentOutputMode,
-    ) -> Result<RuntimeTurn, RuntimeSessionError> {
-        self.submit_with_accounting(
-            prompt,
-            output_mode,
-            rara_observability::InferenceTask::default(),
-        )
-        .await
-    }
-
-    /// Submit a prompt using an explicit task ledger that also follows descendants.
-    pub async fn submit_with_accounting(
-        &self,
-        prompt: impl Into<String>,
-        output_mode: AgentOutputMode,
-        accounting: rara_observability::InferenceTask,
-    ) -> Result<RuntimeTurn, RuntimeSessionError> {
-        let turn_id = RuntimeTurnId::generate();
-        let (accepted_sender, accepted_receiver) = oneshot::channel();
-        let (completion_sender, completion_receiver) = oneshot::channel();
-        self.try_send(SessionCommand::StartTurn {
-            turn_id: turn_id.clone(),
-            prompt: prompt.into(),
-            output_mode,
-            accepted: accepted_sender,
-            completed: completion_sender,
-            inference_agent: accounting.start_agent(None),
-        })?;
-        accepted_receiver
-            .await
-            .map_err(|_| RuntimeSessionError::ActorStopped)??;
-        Ok(RuntimeTurn::new(turn_id, completion_receiver, accounting))
-    }
-
-    /// Execute a prompt and stream its typed events to the caller.
-    pub async fn query_with_events<F>(
-        &self,
-        prompt: impl Into<String>,
-        output_mode: AgentOutputMode,
-        report: F,
-    ) -> Result<RuntimeTurnOutcome, RuntimeSessionError>
-    where
-        F: FnMut(AgentEvent) + Send,
-    {
-        self.query_with_accounting(
-            prompt,
-            output_mode,
-            rara_observability::InferenceTask::default(),
-            report,
-        )
-        .await
-    }
-
-    /// Retain the supplied handle to inspect costs on error or after late children finish.
-    pub async fn query_with_accounting<F>(
-        &self,
-        prompt: impl Into<String>,
-        output_mode: AgentOutputMode,
-        accounting: rara_observability::InferenceTask,
-        mut report: F,
-    ) -> Result<RuntimeTurnOutcome, RuntimeSessionError>
-    where
-        F: FnMut(AgentEvent) + Send,
-    {
-        let mut events = self.subscribe_events();
-        let turn = self
-            .submit_with_accounting(prompt, output_mode, accounting)
-            .await?;
-        let mut completion = Box::pin(turn.wait());
-        let mut outcome = None;
-        let mut terminal_seen = false;
-
-        loop {
-            tokio::select! {
-                result = &mut completion, if outcome.is_none() => {
-                    if matches!(&result, Err(RuntimeSessionError::ActorStopped)) {
-                        return result;
-                    }
-                    outcome = Some(result);
-                }
-                event = events.recv(), if !terminal_seen => {
-                    match event {
-                        Ok(event) => {
-                            terminal_seen = matches!(event, AgentEvent::AgentStop { .. });
-                            report(event);
-                        }
-                        Err(broadcast::error::RecvError::Lagged(count)) => {
-                            return Err(RuntimeSessionError::EventLagged(count));
-                        }
-                        Err(broadcast::error::RecvError::Closed) => {
-                            return Err(RuntimeSessionError::ActorStopped);
-                        }
-                    }
-                }
-            }
-
-            if terminal_seen && let Some(outcome) = outcome {
-                return outcome;
-            }
-        }
-    }
-
-    /// Execute a prompt and return its structured model observations.
-    pub async fn query_with_report<F>(
-        &self,
-        prompt: impl Into<String>,
-        output_mode: AgentOutputMode,
-        report: F,
-    ) -> Result<QueryReport, RuntimeSessionError>
-    where
-        F: FnMut(AgentEvent) + Send,
-    {
-        Ok(self
-            .query_with_events(prompt, output_mode, report)
-            .await?
-            .query_report)
-    }
-
-    /// Request cancellation without waiting for the running agent to return.
-    pub async fn cancel(&self) -> Result<RuntimeTurnId, RuntimeSessionError> {
-        let (sender, receiver) = oneshot::channel();
-        self.try_send(SessionCommand::Cancel { response: sender })?;
-        receiver
-            .await
-            .map_err(|_| RuntimeSessionError::ActorStopped)?
-    }
-
-    /// Return a consistent transcript snapshot while the session is idle.
-    pub async fn transcript(&self) -> Result<Vec<Message>, RuntimeSessionError> {
-        let (sender, receiver) = oneshot::channel();
-        self.try_send(SessionCommand::GetTranscript { response: sender })?;
-        receiver
-            .await
-            .map_err(|_| RuntimeSessionError::ActorStopped)?
-    }
-
-    /// Replace the transcript while idle, for host-controlled hydration.
-    pub async fn replace_transcript(
-        &self,
-        transcript: Vec<Message>,
-    ) -> Result<(), RuntimeSessionError> {
-        let (sender, receiver) = oneshot::channel();
-        self.try_send(SessionCommand::ReplaceTranscript {
-            transcript,
-            response: sender,
-        })?;
-        receiver
-            .await
-            .map_err(|_| RuntimeSessionError::ActorStopped)?
-    }
-
-    /// Drain the session-owned memory lifecycle and stop the actor.
-    pub async fn shutdown(&self) -> Result<(), RuntimeSessionError> {
-        if matches!(self.snapshot().phase, RuntimeSessionPhase::Closed) {
-            return Ok(());
-        }
-        if matches!(self.snapshot().phase, RuntimeSessionPhase::Closing) {
-            return self.wait_until_closed().await;
-        }
-        let (sender, receiver) = oneshot::channel();
-        if self
-            .commands
-            .send(SessionCommand::Shutdown { response: sender })
-            .await
-            .is_err()
-        {
-            return if self.is_closing_or_closed() {
-                self.wait_until_closed().await
-            } else {
-                Err(RuntimeSessionError::ActorStopped)
-            };
-        }
-        match receiver.await {
-            Ok(Ok(())) => Ok(()),
-            Ok(Err(RuntimeSessionError::Closed)) if self.is_closing_or_closed() => {
-                self.wait_until_closed().await
-            }
-            Ok(Err(error)) => Err(error),
-            Err(_) if self.is_closing_or_closed() => self.wait_until_closed().await,
-            Err(_) => Err(RuntimeSessionError::ActorStopped),
-        }
-    }
-
-    /// Replace the provider backend while the session is idle.
-    pub async fn replace_llm_backend(
-        &self,
-        backend: Arc<dyn LlmBackend>,
-    ) -> Result<(), RuntimeSessionError> {
-        let (sender, receiver) = oneshot::channel();
-        self.try_send(SessionCommand::ReplaceBackend {
-            backend,
-            response: sender,
-        })?;
-        receiver
-            .await
-            .map_err(|_| RuntimeSessionError::ActorStopped)?
-    }
-
-    /// Set the maximum number of model turns allowed for each submitted turn.
-    pub async fn set_max_turns(&self, max_turns: usize) -> Result<(), RuntimeSessionError> {
-        let (sender, receiver) = oneshot::channel();
-        self.try_send(SessionCommand::SetMaxTurns {
-            max_turns,
-            response: sender,
-        })?;
-        receiver
-            .await
-            .map_err(|_| RuntimeSessionError::ActorStopped)?
-    }
-
-    pub(crate) async fn disable_tools(&self) -> Result<(), RuntimeSessionError> {
-        let (sender, receiver) = oneshot::channel();
-        self.try_send(SessionCommand::DisableTools { response: sender })?;
-        receiver
-            .await
-            .map_err(|_| RuntimeSessionError::ActorStopped)?
-    }
-
-    pub(crate) async fn disable_extension_execution(&self) -> Result<(), RuntimeSessionError> {
-        let (sender, receiver) = oneshot::channel();
-        self.try_send(SessionCommand::DisableExtensionExecution { response: sender })?;
-        receiver
-            .await
-            .map_err(|_| RuntimeSessionError::ActorStopped)?
-    }
-
-    /// Change the local tool-approval policy while the session is idle.
-    pub async fn set_full_access_mode(&self, enabled: bool) -> Result<(), RuntimeSessionError> {
-        let (sender, receiver) = oneshot::channel();
-        self.try_send(SessionCommand::SetFullAccess {
-            enabled,
-            response: sender,
-        })?;
-        receiver
-            .await
-            .map_err(|_| RuntimeSessionError::ActorStopped)?
-    }
-
-    fn try_send(&self, command: SessionCommand) -> Result<(), RuntimeSessionError> {
-        self.commands
-            .try_send(command)
-            .map_err(|error| match error {
-                mpsc::error::TrySendError::Full(_) => RuntimeSessionError::Overloaded,
-                mpsc::error::TrySendError::Closed(_) => RuntimeSessionError::Closed,
-            })
-    }
-
-    async fn wait_until_closed(&self) -> Result<(), RuntimeSessionError> {
-        let mut snapshot = self.snapshot.clone();
-        loop {
-            if matches!(snapshot.borrow().phase, RuntimeSessionPhase::Closed) {
-                return Ok(());
-            }
-            snapshot
-                .changed()
-                .await
-                .map_err(|_| RuntimeSessionError::ActorStopped)?;
-        }
-    }
-
-    fn is_closing_or_closed(&self) -> bool {
-        matches!(
-            self.snapshot().phase,
-            RuntimeSessionPhase::Closing | RuntimeSessionPhase::Closed
-        )
-    }
-}
-
-struct SessionActor {
+pub(super) struct SessionActor {
     id: RuntimeSessionId,
     client: RuntimeClient,
     commands: mpsc::Receiver<SessionCommand>,
@@ -483,16 +46,19 @@ struct SessionActor {
     generation: u64,
     active: Option<ActiveTurn>,
     closing: bool,
+    pending_input: Option<RuntimePendingInput>,
     shutdown_waiters: Vec<oneshot::Sender<Result<(), RuntimeSessionError>>>,
+    shutdown_outcome: Arc<OnceLock<ShutdownOutcome>>,
 }
 
 impl SessionActor {
-    fn new(
+    pub(super) fn new(
         id: RuntimeSessionId,
         client: RuntimeClient,
         commands: mpsc::Receiver<SessionCommand>,
         snapshot: watch::Sender<RuntimeSessionSnapshot>,
         agent_tree_control: Arc<AgentTreeControl>,
+        shutdown_outcome: Arc<OnceLock<ShutdownOutcome>>,
     ) -> Self {
         let (completions, completion_receiver) = mpsc::channel(1);
         Self {
@@ -506,11 +72,13 @@ impl SessionActor {
             generation: 0,
             active: None,
             closing: false,
+            pending_input: None,
             shutdown_waiters: Vec::new(),
+            shutdown_outcome,
         }
     }
 
-    async fn run(mut self) {
+    pub(super) async fn run(mut self) {
         loop {
             tokio::select! {
                 biased;
@@ -531,10 +99,7 @@ impl SessionActor {
                             }
                         }
                         None => {
-                            self.closing = true;
-                            self.begin_agent_tree_shutdown();
-                            self.cancel_active();
-                            self.publish_snapshot(RuntimeSessionPhase::Closing);
+                            self.begin_shutdown();
                             if self.active.is_none() {
                                 self.finish_shutdown().await;
                                 return;
@@ -555,7 +120,7 @@ impl SessionActor {
         match command {
             SessionCommand::StartTurn {
                 turn_id,
-                prompt,
+                input,
                 output_mode,
                 accepted,
                 completed,
@@ -567,10 +132,31 @@ impl SessionActor {
                     }));
                     return false;
                 }
+                if let Err(error) = input.validate(self.pending_input.as_ref()) {
+                    let _ = accepted.send(Err(error));
+                    return false;
+                }
                 let Some(mut agent) = self.client.agent_mut().take() else {
                     let _ = accepted.send(Err(RuntimeSessionError::ActorStopped));
                     return false;
                 };
+                if let Some(pending) = self.pending_input.take() {
+                    if input.is_answer() {
+                        self.client.event_bus.publish_control_with_turn(
+                            RuntimeEvent::Input(InputEvent::Answered {
+                                waiting_turn: pending.turn_id.to_string(),
+                            }),
+                            RuntimeProvenance::runtime(Some(self.id.to_string())),
+                            Some(turn_id.as_str()),
+                        );
+                    } else {
+                        agent.discard_pending_interactions();
+                        self.publish_discarded_input(
+                            pending.turn_id,
+                            InputDiscardReason::Superseded,
+                        );
+                    }
+                }
                 let cancellation = Arc::new(AtomicBool::new(false));
                 agent.set_cancellation_token(Some(cancellation.clone()));
                 agent.set_runtime_turn_id(Some(turn_id.to_string()));
@@ -579,6 +165,7 @@ impl SessionActor {
                     turn_id: turn_id.clone(),
                     generation: self.generation,
                     cancellation,
+                    stop_kind: None,
                     completed,
                 };
                 self.active = Some(active);
@@ -594,8 +181,8 @@ impl SessionActor {
                 let execution_turn_id = turn_id.clone();
                 tokio::spawn(async move {
                     let event_turn_id = execution_turn_id.clone();
-                    let result = agent
-                        .query_with_mode_and_events(prompt, output_mode, move |event| {
+                    let result = input
+                        .execute(&mut agent, output_mode, move |event| {
                             event_bus.send_with_turn(
                                 event,
                                 provenance.clone(),
@@ -619,17 +206,12 @@ impl SessionActor {
                 });
                 let _ = accepted.send(Ok(()));
             }
-            SessionCommand::Cancel { response } => {
-                let result = if let Some(active) = &self.active {
-                    let turn_id = active.turn_id.clone();
-                    self.cancel_active();
-                    self.publish_snapshot(RuntimeSessionPhase::Cancelling {
-                        turn_id: turn_id.clone(),
-                    });
-                    Ok(turn_id)
-                } else {
-                    Err(RuntimeSessionError::NotRunning)
-                };
+            SessionCommand::StopTurn {
+                expected_turn,
+                kind,
+                response,
+            } => {
+                let result = self.stop_active(expected_turn, kind);
                 let _ = response.send(result);
             }
             SessionCommand::ReplaceBackend { backend, response } => {
@@ -672,15 +254,42 @@ impl SessionActor {
                 transcript,
                 response,
             } => {
-                let result = self.with_idle_agent(|agent| agent.replace_history(transcript));
+                let result = if let Some(pending) = &self.pending_input {
+                    Err(RuntimeSessionError::AwaitingInput {
+                        waiting_turn: pending.turn_id.clone(),
+                    })
+                } else {
+                    self.with_idle_agent(|agent| agent.replace_history(transcript))
+                };
+                let _ = response.send(result);
+            }
+            SessionCommand::PromptSource {
+                request,
+                provenance,
+                response,
+            } => {
+                let result = if let Some(active) = &self.active {
+                    Err(RuntimeSessionError::Busy {
+                        active_turn: active.turn_id.clone(),
+                    })
+                } else {
+                    self.client
+                        .prompt_source_registry
+                        .handle_control_with_provenance(&request, provenance)
+                        .await
+                        .map_err(|error| match error {
+                            PromptSourceError::Invalid => RuntimeSessionError::InvalidSource,
+                            PromptSourceError::Unsupported => {
+                                RuntimeSessionError::UnsupportedSource
+                            }
+                            PromptSourceError::Capacity => RuntimeSessionError::SourceCapacity,
+                        })
+                };
                 let _ = response.send(result);
             }
             SessionCommand::Shutdown { response } => {
-                self.closing = true;
                 self.shutdown_waiters.push(response);
-                self.begin_agent_tree_shutdown();
-                self.cancel_active();
-                self.publish_snapshot(RuntimeSessionPhase::Closing);
+                self.begin_shutdown();
                 self.commands.close();
                 while let Ok(command) = self.commands.try_recv() {
                     Self::reject_closed(command);
@@ -689,6 +298,45 @@ impl SessionActor {
                     self.finish_shutdown().await;
                     return true;
                 }
+            }
+            SessionCommand::QueryState { response } => {
+                let mut snapshot = self.snapshot.borrow().clone();
+                snapshot.last_sequence = self.client.event_bus.current_sequence();
+                self.client.event_bus.publish_control_with_turn(
+                    RuntimeEvent::Session(SessionEvent::RuntimeState { snapshot }),
+                    RuntimeProvenance::runtime(Some(self.id.to_string())),
+                    None,
+                );
+                let _ = response.send(Ok(()));
+            }
+            SessionCommand::SkillSource {
+                request,
+                provenance,
+                response,
+            } => {
+                let result = if let Some(active) = &self.active {
+                    Err(RuntimeSessionError::Busy {
+                        active_turn: active.turn_id.clone(),
+                    })
+                } else if !self
+                    .client
+                    .agent()
+                    .is_some_and(|agent| agent.tool_manager.get_tool("skill").is_some())
+                {
+                    Err(RuntimeSessionError::UnsupportedSource)
+                } else {
+                    self.client
+                        .skill_source_registry
+                        .handle_control_with_provenance(&request, provenance)
+                        .await
+                        .map_err(|error| match error {
+                            SkillSourceError::Invalid => RuntimeSessionError::InvalidSource,
+                            SkillSourceError::Unsupported => RuntimeSessionError::UnsupportedSource,
+                            SkillSourceError::Capacity => RuntimeSessionError::SourceCapacity,
+                            SkillSourceError::Unavailable => RuntimeSessionError::SourceUnavailable,
+                        })
+                };
+                let _ = response.send(result);
             }
         }
         false
@@ -734,6 +382,33 @@ impl SessionActor {
         completion.agent.set_cancellation_token(None);
         completion.agent.set_runtime_turn_id(None);
         let cancelled = active.cancellation.load(Ordering::SeqCst);
+        let pending =
+            RuntimePendingInput::from_agent(completion.turn_id.clone(), &completion.agent);
+        if cancelled || self.closing {
+            completion.agent.discard_pending_interactions();
+            if let Some(pending) = pending {
+                let reason = if self.closing {
+                    InputDiscardReason::Shutdown
+                } else {
+                    match active.stop_kind.unwrap_or(TurnStopKind::Cancel) {
+                        TurnStopKind::Cancel => InputDiscardReason::Cancelled,
+                        TurnStopKind::Interrupt => InputDiscardReason::Interrupted,
+                    }
+                };
+                self.publish_discarded_input(pending.turn_id, reason);
+            }
+        } else {
+            self.pending_input = pending;
+            if let Some(pending) = &self.pending_input {
+                self.client.event_bus.publish_control_with_turn(
+                    RuntimeEvent::Input(InputEvent::Requested {
+                        pending: Box::new(pending.clone()),
+                    }),
+                    RuntimeProvenance::runtime(Some(self.id.to_string())),
+                    Some(completion.turn_id.as_str()),
+                );
+            }
+        }
         *self.client.agent_mut() = Some(completion.agent);
         if let Some(agent) = self.client.agent() {
             self.client
@@ -752,20 +427,37 @@ impl SessionActor {
         };
 
         let result = if cancelled {
-            self.publish_terminal_event(
-                &completion.turn_id,
-                "cancelled",
-                SessionEvent::TurnCancelled,
-            );
-            Err(RuntimeSessionError::Cancelled { outcome })
+            match active.stop_kind.unwrap_or(TurnStopKind::Cancel) {
+                TurnStopKind::Cancel => {
+                    self.publish_terminal_event(
+                        &completion.turn_id,
+                        "cancelled",
+                        SessionEvent::TurnCancelled,
+                    );
+                    Err(RuntimeSessionError::Cancelled { outcome })
+                }
+                TurnStopKind::Interrupt => {
+                    self.publish_terminal_event(
+                        &completion.turn_id,
+                        "interrupted",
+                        SessionEvent::TurnInterrupted,
+                    );
+                    Err(RuntimeSessionError::Interrupted { outcome })
+                }
+            }
         } else {
             match completion.result {
                 Ok(()) => {
+                    let reason = if self.pending_input.is_some() {
+                        "awaiting_input"
+                    } else {
+                        "completed"
+                    };
                     self.publish_terminal_event(
                         &completion.turn_id,
-                        "completed",
+                        reason,
                         SessionEvent::TurnFinished {
-                            reason: Some("completed".to_string()),
+                            reason: Some(reason.to_owned()),
                         },
                     );
                     Ok(outcome)
@@ -791,18 +483,121 @@ impl SessionActor {
             }
         };
         if !self.closing {
-            self.publish_snapshot(RuntimeSessionPhase::Idle);
+            let phase = match &self.pending_input {
+                Some(pending) => RuntimeSessionPhase::AwaitingInput {
+                    turn_id: pending.turn_id.clone(),
+                },
+                None => RuntimeSessionPhase::Idle,
+            };
+            self.publish_snapshot(phase);
         }
         let _ = active.completed.send(result);
     }
 
-    fn cancel_active(&self) {
-        if let Some(active) = &self.active {
+    fn stop_active(
+        &mut self,
+        expected_turn: Option<RuntimeTurnId>,
+        kind: TurnStopKind,
+    ) -> Result<RuntimeTurnId, RuntimeSessionError> {
+        if self.active.is_none() {
+            let pending = self
+                .pending_input
+                .as_ref()
+                .ok_or(RuntimeSessionError::NotRunning)?;
+            if let Some(expected) = expected_turn
+                && expected != pending.turn_id
+            {
+                return Err(RuntimeSessionError::StaleInput {
+                    expected,
+                    waiting: pending.turn_id.clone(),
+                });
+            }
+            let reason = match kind {
+                TurnStopKind::Cancel => InputDiscardReason::Cancelled,
+                TurnStopKind::Interrupt => InputDiscardReason::Interrupted,
+            };
+            let turn_id = self
+                .discard_pending_input(reason)?
+                .ok_or(RuntimeSessionError::NotRunning)?;
+            self.cancel_active();
+            self.publish_snapshot(RuntimeSessionPhase::Idle);
+            return Ok(turn_id);
+        }
+        let active = self
+            .active
+            .as_mut()
+            .ok_or(RuntimeSessionError::NotRunning)?;
+        if let Some(expected) = expected_turn
+            && expected != active.turn_id
+        {
+            return Err(RuntimeSessionError::StaleTurn {
+                expected,
+                active: active.turn_id.clone(),
+            });
+        }
+        if active.stop_kind.is_some_and(|accepted| accepted != kind) {
+            return Err(RuntimeSessionError::StopInProgress {
+                active_turn: active.turn_id.clone(),
+            });
+        }
+        active.stop_kind = Some(kind);
+        let turn_id = active.turn_id.clone();
+        self.cancel_active();
+        self.publish_snapshot(RuntimeSessionPhase::Cancelling {
+            turn_id: turn_id.clone(),
+        });
+        Ok(turn_id)
+    }
+
+    fn cancel_active(&mut self) {
+        if let Some(active) = &mut self.active {
+            active.stop_kind.get_or_insert(TurnStopKind::Cancel);
             active.cancellation.store(true, Ordering::SeqCst);
         }
         if let Err(error) = self.agent_tree_control.cancel_running() {
             log::warn!("failed to cancel active sub-agents: {error}");
         }
+    }
+
+    fn discard_pending_input(
+        &mut self,
+        reason: InputDiscardReason,
+    ) -> Result<Option<RuntimeTurnId>, RuntimeSessionError> {
+        let Some(pending) = &self.pending_input else {
+            return Ok(None);
+        };
+        let turn_id = pending.turn_id.clone();
+        self.client
+            .agent_mut()
+            .as_mut()
+            .ok_or(RuntimeSessionError::ActorStopped)?
+            .discard_pending_interactions();
+        self.pending_input = None;
+        self.publish_discarded_input(turn_id.clone(), reason);
+        Ok(Some(turn_id))
+    }
+
+    fn publish_discarded_input(&self, turn_id: RuntimeTurnId, reason: InputDiscardReason) {
+        self.client.event_bus.publish_control_with_turn(
+            RuntimeEvent::Input(InputEvent::Discarded {
+                waiting_turn: turn_id.to_string(),
+                reason,
+            }),
+            RuntimeProvenance::runtime(Some(self.id.to_string())),
+            Some(turn_id.as_str()),
+        );
+    }
+
+    fn begin_shutdown(&mut self) {
+        self.closing = true;
+        if let Err(error) = self.discard_pending_input(InputDiscardReason::Shutdown) {
+            log::warn!("failed to discard pending session input: {error}");
+            self.shutdown_outcome
+                .get_or_init(|| ShutdownOutcome::Failed);
+        }
+        self.begin_agent_tree_shutdown();
+        self.cancel_active();
+        self.publish_snapshot(RuntimeSessionPhase::Closing);
     }
 
     fn begin_agent_tree_shutdown(&self) {
@@ -812,13 +607,18 @@ impl SessionActor {
     }
 
     async fn finish_shutdown(&mut self) {
-        if let Err(error) = self.agent_tree_control.shutdown().await {
-            log::warn!("failed to shut down session sub-agents: {error}");
-        }
+        let outcome = match self.agent_tree_control.shutdown().await {
+            Ok(()) => ShutdownOutcome::Complete,
+            Err(error) => {
+                log::warn!("failed to shut down session sub-agents: {error}");
+                ShutdownOutcome::Failed
+            }
+        };
         self.client.drain_memory().await;
+        let outcome = *self.shutdown_outcome.get_or_init(|| outcome);
         self.publish_snapshot(RuntimeSessionPhase::Closed);
         for waiter in self.shutdown_waiters.drain(..) {
-            let _ = waiter.send(Ok(()));
+            let _ = waiter.send(outcome.result());
         }
     }
 
@@ -847,6 +647,7 @@ impl SessionActor {
             phase,
             generation: self.generation,
             last_sequence: self.client.event_bus.current_sequence(),
+            pending_input: self.pending_input.clone(),
         });
     }
 
@@ -855,7 +656,7 @@ impl SessionActor {
             SessionCommand::StartTurn { accepted, .. } => {
                 let _ = accepted.send(Err(RuntimeSessionError::Closed));
             }
-            SessionCommand::Cancel { response } => {
+            SessionCommand::StopTurn { response, .. } => {
                 let _ = response.send(Err(RuntimeSessionError::Closed));
             }
             SessionCommand::ReplaceBackend { response, .. }
@@ -863,7 +664,10 @@ impl SessionActor {
             | SessionCommand::DisableTools { response }
             | SessionCommand::DisableExtensionExecution { response }
             | SessionCommand::SetFullAccess { response, .. }
-            | SessionCommand::ReplaceTranscript { response, .. } => {
+            | SessionCommand::ReplaceTranscript { response, .. }
+            | SessionCommand::PromptSource { response, .. }
+            | SessionCommand::SkillSource { response, .. }
+            | SessionCommand::QueryState { response } => {
                 let _ = response.send(Err(RuntimeSessionError::Closed));
             }
             SessionCommand::GetTranscript { response } => {

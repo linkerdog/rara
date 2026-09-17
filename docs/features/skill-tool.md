@@ -115,7 +115,43 @@ RARA's current effective order lets later roots win. The desired precedence is:
 This keeps RARA's source-aware roots explicit while preserving the existing repo/cwd override
 behavior. RARA should not import `~/.codex/skills` as a default compatibility root.
 
+### Protocol Catalogue
+
+Inline protocol skills enter the native catalogue below every local winner.
+Higher numeric priority wins between protocol definitions; ties use earlier
+registration order and then source ID. Replacing the same source/name preserves
+its original order. Disabled definitions remain visible as metadata but cannot
+be selected or invoked. A source-scoped disable never disables a local skill or
+another protocol source. Local reload replaces local records and retains this
+session's protocol registrations.
+
+The protocol layer holds at most 32 definitions, 64 KiB per body and 256 KiB of body
+text in total, including disabled definitions. Identifiers are bounded ASCII.
+Validation and capacity rejection leave the prior definition intact. Skill
+listing exposes source identity, selection/disabled state and compact metadata; full native Markdown
+instructions are returned only by invocation. Registered paths are virtual
+source labels, not implicit filesystem-read authority.
+
+Canonical inline registration, disable and query now share the native SkillTool
+manager through `RuntimeSession::apply_skill_source`. Host-injected tool managers
+and profiles without the native tool reject this capability. Catalogue events
+are body-free; real invocation emits source provenance and the invoking turn.
+Protocol root discovery remains unsupported until its filesystem and resource
+bounds are implemented and verified separately. Runtime discovery and reload use
+the session's explicit workspace; disabling extension discovery also disables
+local reload. Backend replacement retains the session catalogue.
+
 ### 4) Available Skills Prompt
+
+The current native runtime renders sorted compact metadata as a `skill_listing`
+model-context block on the latest user or approval-continuation message. Changes
+append a new context delta; an emptied catalogue appends an explicit clear marker
+once. Old transcript and tool-result evidence remain intact. Static Skills system
+guidance follows native tool availability from initial assembly, preserving the
+system prefix across empty/nonempty catalogue transitions. Context inspection
+marks metadata injected only when its text is present in model-visible history.
+Descriptions use the existing native Markdown fallback and compact renderer;
+this does not establish full frontmatter parsing or a new budget-omission policy.
 
 The model-facing skills section should stay compact and stable:
 

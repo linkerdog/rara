@@ -153,7 +153,111 @@ boundary; `Queue` waits for the current turn to finish. The runtime must not
 silently reinterpret one mode as the other. Neither command is implemented in
 the current checkpoint.
 
+### Structured Input And Waiting
+
+The strict `submit_input` API accepts typed prompt, follow-up and answer commands.
+An answer includes the originating waiting turn and a user, plan or shell
+response. Admission validates the active/pending state, turn identity and answer
+kind before consuming native state. Busy follow-up returns `Busy`; it does not
+queue, steer or cancel. A fresh strict prompt cannot replace a pending approval.
+The existing plain `submit` path remains a compatibility API, not the app-server
+input boundary. It explicitly supersedes any pending interaction and clears its
+native callback state. A transcript replacement is rejected while input is
+pending so an approval cannot act against a different transcript.
+
+After root execution returns, the actor derives a typed pending descriptor from
+the native agent and publishes it with its original turn identity. Snapshots use
+`AwaitingInput` and retain the same descriptor. A wait is distinct from an active
+provider call, and a terminal turn event does not imply the interaction is done.
+Approvals take precedence over a simultaneous plain question. Late, duplicate
+or wrong-kind answers do not consume a newer wait. Stops and shutdown discard
+pending ownership; live approvals are not advertised as surviving process exit.
+Ordered input events distinguish a requested wait, an accepted answer naming its
+original waiting turn, and discard by cancel, interrupt, shutdown or legacy
+replacement. Discarding an already waiting turn does not emit another terminal
+turn event. The native parser still determines when a question exists: structured
+question and plan blocks are interpreted in plan mode.
+
+Accepted answers use the native input/plan/shell execution paths and receive a
+new turn identity. Native approval continuations start fresh turn observations
+and inference accounting. Sources refresh when a continuation will call the
+model; rejecting a plan without model execution does not consume source TTL.
+Refreshed context is attached after the native continuation message is appended,
+so it reaches the next provider request without modifying the system prefix.
+
+### Prompt Source Control
+
+`apply_prompt_source` serializes source changes with session commands and rejects
+mutations while a root turn is active. Provenance is scoped to the target session;
+an explicitly different session ID is rejected. Source content enters the normal
+appended per-turn user context, preserving the stable top-level prompt.
+
+The supported registration contract is protocol/session scope, user layer, and
+session or positive turn-count lifetime. Unsupported scope/layer and persistent
+lifetime requests fail explicitly. IDs and provenance labels are bounded to128
+ASCII identifier bytes. A session retains at most32 sources,64KiB per source and
+256KiB aggregate content. Replacements check the final budget before mutation.
+Lifecycle events retain source provenance; expiry affects subsequent query
+assembly and does not erase historical transcript content.
+
+### Skill Source Control
+
+`apply_skill_source` serializes inline skill registration, source-scoped disable
+and catalogue queries with session commands. It rejects active turns and foreign
+session provenance. Registration requires the native skill tool and its shared
+session catalogue; injected tool registries and profiles without that tool cannot
+advertise this capability. Protocol root discovery is explicitly unsupported.
+
+Registration and query events contain source identity and selection/disabled
+metadata, never full bodies. `Injected` is emitted only when the native skill
+tool returns a protocol body, with the invoking turn and original source
+provenance. Compact winning metadata reaches the latest model-visible context;
+removal is explicit and old transcript evidence remains intact. Static system
+guidance follows tool availability from initial assembly, so registering a first
+skill does not change the system prefix. Local discovery/reload uses the explicit
+workspace; disabling ambient discovery also disables local reload.
+
+### Turn Stop Control
+
+`cancel_turn(expected_turn)` and `interrupt_turn(expected_turn)` target a specific
+active turn; stale identities are rejected without signalling cancellation.
+`cancel()` remains the compatibility operation for the current turn. The first
+accepted stop kind wins. Repeating that kind while the turn drains is idempotent;
+switching kinds returns `StopInProgress`. Shutdown preserves an already accepted
+interruption rather than relabelling it as cancellation.
+
+Both kinds propagate cooperative cancellation immediately and use the
+`Cancelling` snapshot phase while execution drains. Their acknowledgements are
+not completion evidence. The actor publishes `TurnCancelled` or `TurnInterrupted`
+only after execution returns, and the corresponding typed error retains the
+partial `RuntimeTurnOutcome`.
+
+### Shutdown Receipts
+
+Closing a session stops admission, cancels active work, and waits for the root
+turn and child tree to drain. The actor retains one cleanup outcome before
+publishing `Closed`. Concurrent and repeated shutdown calls observe that same
+outcome; a failed child-tree drain returns `ShutdownFailed` on every retry.
+An ended event stream or a `Closed` snapshot alone does not prove cleanup.
+Memory draining retains its existing diagnostic behavior; this receipt does not
+claim a durable memory commit.
+
+A host keeps each session registered until successful cleanup. One owned task
+drains each host shutdown generation, so cancelling a caller does not cancel
+cleanup and simultaneous callers cannot return early from an emptied registry.
+Failed session handles and the failed outcome remain retained. Admission is
+rejected during pending or failed cleanup. After successful shutdown, explicit
+insertion may start a new host generation; shutdown without new admission
+returns the retained success. Removing a session also waits for cleanup before
+releasing its identity, and checks actor identity before deleting the entry.
+
 ### Events And Snapshots
+
+`query_runtime_state` publishes a canonical `session.runtime_state` event through
+the actor, including session identity, lifecycle phase and observed cursor.
+`replay_events(after_sequence)` reads a finite bounded event batch without changing
+original identities; exhausted and future cursors use the same explicit resync
+error as live subscriptions. The stdio adapter consumes these owned APIs.
 
 Each event envelope contains:
 
@@ -174,6 +278,14 @@ before `N`. A subscription begins from an atomically captured snapshot and
 sequence. A bounded replay gap produces `ResyncRequired`; lag must not be
 discarded silently. After shutdown, an observer drains every event already
 published to its stream before receiving the typed `Closed` boundary.
+
+`RuntimeSession::subscribe_after` starts an ordered stream after an explicit,
+exclusive session cursor, retaining original event IDs and sequence values.
+Live subscription is established before reading replay so concurrent publication
+cannot fall between the two paths. An exhausted window or a cursor ahead of the
+current session produces `ResyncRequired`; an invalid future cursor must not
+silently suppress subsequent events. A closed session can still replay retained
+events and then returns `Closed`.
 
 Thinking, assistant output, and tool lifecycle events for a turn precede its
 terminal event because the actor publishes that boundary only after the root
@@ -251,6 +363,8 @@ to `RuntimeSession`. It is not a second runtime owner.
 | Serialization | delivered | Two commands for one session never run two root turns concurrently. |
 | Concurrency | delivered | Two sessions can block at the provider boundary and make progress independently. |
 | Cancellation | delivered | A cooperative provider receives cancellation without waiting for the agent task lock; completion occurs when the backend observes the token or otherwise returns. |
+| Turn stop | delivered | Targeted cancel/interrupt reject stale turns, retain the first accepted kind, and publish terminal evidence only after execution returns. |
+| Shutdown receipt | delivered | Concurrent and repeated callers share cleanup results; failed sessions remain registered and cancelled callers do not cancel host cleanup. |
 | Replacement | target | A completion from an older generation must not replace the rebuilt agent after rebuild support is added. |
 | Event order | delivered | Concurrent producers preserve increasing sequence values; thinking, text, and tool events precede the terminal event. |
 | Replay | delivered | Snapshot plus replay has no gap; an exhausted replay window returns `ResyncRequired`, and shutdown drains published events before `Closed`. |

@@ -217,6 +217,14 @@ Active backlog only. Keep this file small and current.
       transcript, usage, cancellation, and MCP parity before replacing Rig in
       production lanes.
 
+## App Server Stdio
+
+- [ ] Add durable resume, root discovery or additional control families only with
+      independent ownership, bounds and recovery evidence. The version1 CLI now
+      explicitly rejects these unsupported methods. See
+      [the protocol contract](features/app-server-stdio.md) and
+      [the implementation journal](journal/2026-09-18-app-server-stdio.md).
+
 ## Shared Task Lists
 
 - [x] Add read-only `task_list` and `task_get` tools backed by

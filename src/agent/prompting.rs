@@ -167,13 +167,27 @@ impl Agent {
         }
     }
 
-    pub(crate) async fn refresh_protocol_skill_sources_for_query(&mut self) {
+    pub(crate) async fn refresh_protocol_skill_sources_for_query(&mut self) -> anyhow::Result<()> {
         let Some(registry) = self.skill_source_registry.as_ref() else {
-            return;
+            return Ok(());
         };
-        // For now we just emit the Injected events and snapshot them.
-        // Integration with actual skill execution will follow.
-        let _skills = registry.list_skills_for_query().await;
+        if self.tool_manager.get_tool("skill").is_none() {
+            self.prompt_config.available_skills.clear();
+            return Ok(());
+        }
+        if let Some(skills) = registry.prompt_summaries()? {
+            self.prompt_config.available_skills = skills
+                .into_iter()
+                .map(|skill| crate::prompt::PromptSkillSummary {
+                    name: skill.name,
+                    title: skill.title,
+                    description: skill.description,
+                    scope: skill.scope.as_str().to_owned(),
+                    disable_model_invocation: skill.disable_model_invocation,
+                })
+                .collect();
+        }
+        Ok(())
     }
 
     pub fn set_cancellation_token(

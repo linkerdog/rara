@@ -7,16 +7,46 @@ pub enum RuntimeSessionError {
     Busy { active_turn: RuntimeTurnId },
     #[error("runtime session has no active turn")]
     NotRunning,
+    #[error("runtime session is waiting for input from turn {waiting_turn}")]
+    AwaitingInput { waiting_turn: RuntimeTurnId },
+    #[error("runtime session has no pending input")]
+    NoPendingInput,
+    #[error("runtime reply targets turn {expected} but the current wait belongs to {waiting}")]
+    StaleInput {
+        expected: RuntimeTurnId,
+        waiting: RuntimeTurnId,
+    },
+    #[error("runtime reply kind does not match the pending interaction")]
+    InputKindMismatch,
+    #[error("runtime turn target {expected} does not match active turn {active}")]
+    StaleTurn {
+        expected: RuntimeTurnId,
+        active: RuntimeTurnId,
+    },
+    #[error("runtime turn {active_turn} already has a different stop request")]
+    StopInProgress { active_turn: RuntimeTurnId },
+    #[error("runtime source request is invalid or targets a different session")]
+    InvalidSource,
+    #[error("runtime source scope, layer, or lifetime is unsupported")]
+    UnsupportedSource,
+    #[error("runtime source capacity exceeded")]
+    SourceCapacity,
+    #[error("runtime source registry is unavailable")]
+    SourceUnavailable,
     #[error("runtime host already contains session {0}")]
     AlreadyExists(super::RuntimeSessionId),
     #[error("runtime session command queue is full")]
     Overloaded,
     #[error("runtime session is closing or closed")]
     Closed,
+    #[error("runtime session cleanup failed")]
+    ShutdownFailed,
     #[error("runtime session actor stopped before acknowledging the command")]
     ActorStopped,
     #[error("runtime turn was cancelled")]
     Cancelled { outcome: RuntimeTurnOutcome },
+    #[error("runtime turn was interrupted")]
+    Interrupted { outcome: RuntimeTurnOutcome },
     #[error("runtime event subscriber lagged by {0} event(s)")]
     EventLagged(u64),
     #[error(
@@ -35,10 +65,12 @@ pub enum RuntimeSessionError {
 }
 
 impl RuntimeSessionError {
-    /// Return partial turn evidence retained for cancellation or execution failure.
+    /// Return partial evidence retained for cancellation, interruption, or execution failure.
     pub fn turn_outcome(&self) -> Option<&RuntimeTurnOutcome> {
         match self {
-            Self::Cancelled { outcome } | Self::Execution { outcome, .. } => Some(outcome),
+            Self::Cancelled { outcome }
+            | Self::Interrupted { outcome }
+            | Self::Execution { outcome, .. } => Some(outcome),
             _ => None,
         }
     }

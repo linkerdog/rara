@@ -89,6 +89,8 @@ future appserver integrations can use.
 - `app-server-architecture.md`: agent output as typed objects over a lightweight
   event bus; TUI, ACP, Wire as peer consumers. Internal = objects, external =
   protocol.
+- `app-server-stdio.md`: versioned subprocess framing, capability negotiation,
+  request acknowledgement, replay lifetime, and shutdown contracts.
 - `embedded-runtime.md`: supported Rust library facade, workspace-scoped
   construction, typed events, and CLI-as-adapter boundary.
 

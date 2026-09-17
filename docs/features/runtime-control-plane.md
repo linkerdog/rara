@@ -254,11 +254,17 @@ External applications may register prompt sources through structured objects:
 
 Registered prompt sources enter normal prompt assembly and `/context`. They must
 not bypass `PromptRuntime` or introduce unstable top-level prompt prefixes.
+The current session API admits bounded protocol/session-scoped user context with
+session or positive query-count lifetime. Unsupported scope/layer or persistent
+storage claims return an error rather than silently changing their meaning;
+[Runtime Session](runtime-session.md#prompt-source-control) owns the concrete
+limits and serialization contract. `budget_hint_tokens` remains advisory.
 Prompt-source time-to-live is turn-based: a transient source may be active for
-the next N assembled model turns, or for the lifetime of the session. Wall-clock
+the next N root queries, or for the lifetime of the session. Wall-clock
 expiry is only suitable for adapter leases or connection handles and must not
 silently remove prompt context in the middle of a model turn. Persistent sources
-must be updated or unregistered explicitly.
+remain a target capability requiring explicit update/unregistration and durable
+storage evidence.
 
 ### Skill Source Registration
 

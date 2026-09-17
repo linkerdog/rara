@@ -81,6 +81,9 @@ pub enum RuntimeEvent {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "type", content = "payload", rename_all = "snake_case")]
 pub enum SessionEvent {
+    RuntimeState {
+        snapshot: crate::runtime_session::RuntimeSessionSnapshot,
+    },
     Created {
         session_id: String,
     },
@@ -119,6 +122,15 @@ pub enum SessionEvent {
     },
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum InputDiscardReason {
+    Cancelled,
+    Interrupted,
+    Shutdown,
+    Superseded,
+}
+
 #[allow(dead_code)] // ACP protocol type — reserved for future lifecycle events
 #[allow(clippy::enum_variant_names)]
 // The suffix keeps context lifecycle variants self-describing in serialized
@@ -126,8 +138,20 @@ pub enum SessionEvent {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "type", content = "payload", rename_all = "snake_case")]
 pub enum InputEvent {
+    Requested {
+        pending: Box<crate::runtime_session::RuntimePendingInput>,
+    },
+    Discarded {
+        waiting_turn: String,
+        reason: InputDiscardReason,
+    },
+    Answered {
+        waiting_turn: String,
+    },
     UserPromptSubmitted,
-    FollowUpQueued { queue_len: u32 },
+    FollowUpQueued {
+        queue_len: u32,
+    },
     PendingInputAnswered,
 }
 
@@ -258,11 +282,33 @@ pub enum PromptSourceEvent {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "type", content = "payload", rename_all = "snake_case")]
 pub enum SkillEvent {
-    Registered { source_id: String, name: String },
-    Unregistered { source_id: String, name: String },
-    Injected { source_id: String, name: String },
-    Shadowed { name: String, by_source_id: String },
-    Failed { source_id: String, reason: String },
+    Catalogue {
+        skills: Vec<rara_skills::ProtocolSkillStatus>,
+    },
+    Disabled {
+        source_id: String,
+        name: String,
+    },
+    Registered {
+        source_id: String,
+        name: String,
+    },
+    Unregistered {
+        source_id: String,
+        name: String,
+    },
+    Injected {
+        source_id: String,
+        name: String,
+    },
+    Shadowed {
+        name: String,
+        by_source_id: String,
+    },
+    Failed {
+        source_id: String,
+        reason: String,
+    },
 }
 
 #[allow(dead_code)] // ACP protocol type — reserved for future lifecycle events

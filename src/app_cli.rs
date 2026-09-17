@@ -157,6 +157,22 @@ struct ExecArgs {
     prompt: Option<String>,
 }
 
+#[derive(Debug, clap::Args)]
+struct AppServerArgs {
+    #[arg(long, value_parser = clap::value_parser!(u32).range(1..=1), required = true)]
+    protocol_version: u32,
+    #[arg(long, value_parser = ["stdio-jsonl"], required = true)]
+    transport: String,
+    #[arg(long = "cwd", short = 'C', value_name = "DIR")]
+    cwd: Option<PathBuf>,
+    /// Disable ambient extension discovery; inline protocol skills remain available.
+    #[arg(long)]
+    no_extension_discovery: bool,
+    /// Disable runtime-owned memory facilities for externally managed sessions.
+    #[arg(long)]
+    no_memory_facilities: bool,
+}
+
 #[derive(Debug, clap::Subcommand)]
 enum ModelsCommands {
     /// List configured models
@@ -168,6 +184,8 @@ enum ModelsCommands {
 #[derive(Subcommand, Debug)]
 enum Commands {
     Acp,
+    /// Serve the versioned runtime-control protocol over stdin/stdout.
+    AppServer(AppServerArgs),
     /// Register a model provider
     Connect(ConnectArgs),
     /// List, show, or select models
@@ -247,6 +265,20 @@ pub(crate) async fn run_cli() -> Result<()> {
 
     match command.unwrap_or(Commands::Tui) {
         Commands::Acp => run_acp_command(&config, plugin_dirs).await?,
+        Commands::AppServer(args) => {
+            crate::app_server_stdio::run(crate::app_server_stdio::LaunchOptions {
+                config,
+                workspace: match args.cwd {
+                    Some(path) => path,
+                    None => std::env::current_dir()?,
+                },
+                plugin_dirs,
+                extension_discovery: !args.no_extension_discovery,
+                memory_facilities: !args.no_memory_facilities,
+                full_access: startup_permissions == StartupPermissions::FullAccess,
+            })
+            .await?;
+        }
         Commands::Connect(args) => run_connect_command(&config, args)?,
         Commands::Models(cmd) => run_models_command(&config, cmd)?,
         Commands::Plugin(cmd) => run_plugin_command(cmd)?,
@@ -616,6 +648,7 @@ fn startup_resume_target_for_command(command: &Commands) -> Option<StartupResume
         } => Some(StartupResumeTarget::Picker),
         Commands::Tui => Some(StartupResumeTarget::Fresh),
         Commands::Acp
+        | Commands::AppServer(..)
         | Commands::Connect(..)
         | Commands::Models(..)
         | Commands::Plugin(..)

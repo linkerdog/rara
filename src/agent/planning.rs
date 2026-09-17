@@ -611,7 +611,7 @@ impl Agent {
         Ok(true)
     }
 
-    pub(super) fn current_plan_markdown(&self) -> String {
+    pub(crate) fn current_plan_markdown(&self) -> String {
         let mut lines = Vec::new();
         if let Some(explanation) = self.plan_explanation.as_ref() {
             let trimmed = explanation.trim();
