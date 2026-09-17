@@ -3,7 +3,7 @@ use std::sync::{Arc, OnceLock, atomic::AtomicBool, atomic::Ordering};
 use anyhow::Result;
 use tokio::sync::{mpsc, oneshot, watch};
 
-use super::command::{SessionCommand, TurnResultSender};
+use super::command::{SessionCommand, TurnResultSender, TurnStopKind};
 use super::shutdown::ShutdownOutcome;
 use super::{
     RuntimeSessionError, RuntimeSessionId, RuntimeSessionPhase, RuntimeSessionSnapshot,
@@ -20,6 +20,7 @@ struct ActiveTurn {
     turn_id: RuntimeTurnId,
     generation: u64,
     cancellation: Arc<AtomicBool>,
+    stop_kind: Option<TurnStopKind>,
     completed: TurnResultSender,
 }
 
@@ -141,6 +142,7 @@ impl SessionActor {
                     turn_id: turn_id.clone(),
                     generation: self.generation,
                     cancellation,
+                    stop_kind: None,
                     completed,
                 };
                 self.active = Some(active);
@@ -181,17 +183,12 @@ impl SessionActor {
                 });
                 let _ = accepted.send(Ok(()));
             }
-            SessionCommand::Cancel { response } => {
-                let result = if let Some(active) = &self.active {
-                    let turn_id = active.turn_id.clone();
-                    self.cancel_active();
-                    self.publish_snapshot(RuntimeSessionPhase::Cancelling {
-                        turn_id: turn_id.clone(),
-                    });
-                    Ok(turn_id)
-                } else {
-                    Err(RuntimeSessionError::NotRunning)
-                };
+            SessionCommand::StopTurn {
+                expected_turn,
+                kind,
+                response,
+            } => {
+                let result = self.stop_active(expected_turn, kind);
                 let _ = response.send(result);
             }
             SessionCommand::ReplaceBackend { backend, response } => {
@@ -314,12 +311,24 @@ impl SessionActor {
         };
 
         let result = if cancelled {
-            self.publish_terminal_event(
-                &completion.turn_id,
-                "cancelled",
-                SessionEvent::TurnCancelled,
-            );
-            Err(RuntimeSessionError::Cancelled { outcome })
+            match active.stop_kind.unwrap_or(TurnStopKind::Cancel) {
+                TurnStopKind::Cancel => {
+                    self.publish_terminal_event(
+                        &completion.turn_id,
+                        "cancelled",
+                        SessionEvent::TurnCancelled,
+                    );
+                    Err(RuntimeSessionError::Cancelled { outcome })
+                }
+                TurnStopKind::Interrupt => {
+                    self.publish_terminal_event(
+                        &completion.turn_id,
+                        "interrupted",
+                        SessionEvent::TurnInterrupted,
+                    );
+                    Err(RuntimeSessionError::Interrupted { outcome })
+                }
+            }
         } else {
             match completion.result {
                 Ok(()) => {
@@ -358,8 +367,40 @@ impl SessionActor {
         let _ = active.completed.send(result);
     }
 
-    fn cancel_active(&self) {
-        if let Some(active) = &self.active {
+    fn stop_active(
+        &mut self,
+        expected_turn: Option<RuntimeTurnId>,
+        kind: TurnStopKind,
+    ) -> Result<RuntimeTurnId, RuntimeSessionError> {
+        let active = self
+            .active
+            .as_mut()
+            .ok_or(RuntimeSessionError::NotRunning)?;
+        if let Some(expected) = expected_turn
+            && expected != active.turn_id
+        {
+            return Err(RuntimeSessionError::StaleTurn {
+                expected,
+                active: active.turn_id.clone(),
+            });
+        }
+        if active.stop_kind.is_some_and(|accepted| accepted != kind) {
+            return Err(RuntimeSessionError::StopInProgress {
+                active_turn: active.turn_id.clone(),
+            });
+        }
+        active.stop_kind = Some(kind);
+        let turn_id = active.turn_id.clone();
+        self.cancel_active();
+        self.publish_snapshot(RuntimeSessionPhase::Cancelling {
+            turn_id: turn_id.clone(),
+        });
+        Ok(turn_id)
+    }
+
+    fn cancel_active(&mut self) {
+        if let Some(active) = &mut self.active {
+            active.stop_kind.get_or_insert(TurnStopKind::Cancel);
             active.cancellation.store(true, Ordering::SeqCst);
         }
         if let Err(error) = self.agent_tree_control.cancel_running() {
@@ -422,7 +463,7 @@ impl SessionActor {
             SessionCommand::StartTurn { accepted, .. } => {
                 let _ = accepted.send(Err(RuntimeSessionError::Closed));
             }
-            SessionCommand::Cancel { response } => {
+            SessionCommand::StopTurn { response, .. } => {
                 let _ = response.send(Err(RuntimeSessionError::Closed));
             }
             SessionCommand::ReplaceBackend { response, .. }

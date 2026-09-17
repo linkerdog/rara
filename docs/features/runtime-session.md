@@ -153,6 +153,21 @@ boundary; `Queue` waits for the current turn to finish. The runtime must not
 silently reinterpret one mode as the other. Neither command is implemented in
 the current checkpoint.
 
+### Turn Stop Control
+
+`cancel_turn(expected_turn)` and `interrupt_turn(expected_turn)` target a specific
+active turn; stale identities are rejected without signalling cancellation.
+`cancel()` remains the compatibility operation for the current turn. The first
+accepted stop kind wins. Repeating that kind while the turn drains is idempotent;
+switching kinds returns `StopInProgress`. Shutdown preserves an already accepted
+interruption rather than relabelling it as cancellation.
+
+Both kinds propagate cooperative cancellation immediately and use the
+`Cancelling` snapshot phase while execution drains. Their acknowledgements are
+not completion evidence. The actor publishes `TurnCancelled` or `TurnInterrupted`
+only after execution returns, and the corresponding typed error retains the
+partial `RuntimeTurnOutcome`.
+
 ### Shutdown Receipts
 
 Closing a session stops admission, cancels active work, and waits for the root
@@ -278,6 +293,8 @@ to `RuntimeSession`. It is not a second runtime owner.
 | Serialization | delivered | Two commands for one session never run two root turns concurrently. |
 | Concurrency | delivered | Two sessions can block at the provider boundary and make progress independently. |
 | Cancellation | delivered | A cooperative provider receives cancellation without waiting for the agent task lock; completion occurs when the backend observes the token or otherwise returns. |
+| Turn stop | delivered | Targeted cancel/interrupt reject stale turns, retain the first accepted kind, and publish terminal evidence only after execution returns. |
+| Shutdown receipt | delivered | Concurrent and repeated callers share cleanup results; failed sessions remain registered and cancelled callers do not cancel host cleanup. |
 | Replacement | target | A completion from an older generation must not replace the rebuilt agent after rebuild support is added. |
 | Event order | delivered | Concurrent producers preserve increasing sequence values; thinking, text, and tool events precede the terminal event. |
 | Replay | delivered | Snapshot plus replay has no gap; an exhausted replay window returns `ResyncRequired`, and shutdown drains published events before `Closed`. |

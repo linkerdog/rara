@@ -5,7 +5,7 @@ use anyhow::Result;
 use tokio::sync::{broadcast, mpsc, oneshot, watch};
 
 use super::actor::SessionActor;
-use super::command::SessionCommand;
+use super::command::{SessionCommand, TurnStopKind};
 use super::shutdown::ShutdownOutcome;
 use super::subscription::replay_gap_error;
 use super::{
@@ -291,8 +291,38 @@ impl RuntimeSession {
 
     /// Request cancellation without waiting for the running agent to return.
     pub async fn cancel(&self) -> Result<RuntimeTurnId, RuntimeSessionError> {
+        self.stop_turn(None, TurnStopKind::Cancel).await
+    }
+
+    /// Request cancellation only if the expected turn is still active.
+    pub async fn cancel_turn(
+        &self,
+        expected_turn: &RuntimeTurnId,
+    ) -> Result<RuntimeTurnId, RuntimeSessionError> {
+        self.stop_turn(Some(expected_turn.clone()), TurnStopKind::Cancel)
+            .await
+    }
+
+    /// Interrupt one active turn, retaining a distinct terminal interruption outcome.
+    pub async fn interrupt_turn(
+        &self,
+        expected_turn: &RuntimeTurnId,
+    ) -> Result<RuntimeTurnId, RuntimeSessionError> {
+        self.stop_turn(Some(expected_turn.clone()), TurnStopKind::Interrupt)
+            .await
+    }
+
+    async fn stop_turn(
+        &self,
+        expected_turn: Option<RuntimeTurnId>,
+        kind: TurnStopKind,
+    ) -> Result<RuntimeTurnId, RuntimeSessionError> {
         let (sender, receiver) = oneshot::channel();
-        self.try_send(SessionCommand::Cancel { response: sender })?;
+        self.try_send(SessionCommand::StopTurn {
+            expected_turn,
+            kind,
+            response: sender,
+        })?;
         receiver
             .await
             .map_err(|_| RuntimeSessionError::ActorStopped)?

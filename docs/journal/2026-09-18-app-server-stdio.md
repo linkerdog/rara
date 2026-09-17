@@ -3,9 +3,9 @@
 ## Summary
 
 Define the version1 server-first stdio boundary needed by an external process
-supervisor. The shared codec, explicit session cursor subscription and their
-focused checks are implemented. This does not yet make the app-server command
-available or complete a downstream provider integration.
+supervisor. The shared codec, explicit cursor subscription, retained shutdown
+outcomes and targeted turn stop commands are implemented. This does not yet make
+the app-server command available or complete a downstream provider integration.
 
 ## Background
 
@@ -30,6 +30,10 @@ raw-Agent dispatcher would bypass the canonical session owner.
   admission while cleanup is pending or failed. Successful cleanup permits
   explicit host reuse. The near-limit actor module was split into command,
   handle and actor responsibilities without changing public import paths.
+- Fence cancel/interrupt to the expected turn. Keep their distinct terminal
+  outcomes and retain the first accepted stop kind while execution drains.
+  Repeat requests do not relabel that kind; shutdown preserves an accepted
+  interruption. A receipt acknowledges the stop request, not provider completion.
 - Mirror connection gating and bounded ordered output from the inspected Codex
   transport, and correlated/cancelled control responses from the inspected Claude
   Code transport, without adopting either wire schema or implementation.
@@ -62,6 +66,13 @@ active child proves that simultaneous host shutdown calls both wait, caller
 cancellation leaves cleanup running, and a successfully drained host can admit
 a new generation. Fake backends and explicit temporary state roots keep these
 checks independent of provider credentials and ambient memory services.
+
+The targeted stop follow-up brings the runtime-session integration suite to8
+passing tests. Its held-provider workflow checks stale turn rejection, repeated
+and conflicting stop requests, acceptance before execution completion, distinct
+cancellation/interruption events, partial evidence, and shutdown preserving a
+previously accepted interruption. Neither a queue nor approval persistence is
+claimed by these commands.
 
 ```bash
 cargo fmt --all

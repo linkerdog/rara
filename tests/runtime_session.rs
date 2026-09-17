@@ -743,3 +743,214 @@ async fn runtime_host_allows_different_sessions_to_progress_concurrently() {
             .all(|session| matches!(session.snapshot().phase, RuntimeSessionPhase::Closed))
     );
 }
+
+struct HeldCancellationBackend {
+    started: Arc<Notify>,
+    cancelled: Arc<Notify>,
+    release: Arc<Notify>,
+}
+
+#[async_trait]
+impl LlmBackend for HeldCancellationBackend {
+    async fn ask(&self, _messages: &[Message], _tools: &[Value]) -> Result<LlmResponse> {
+        Err(anyhow!("streaming path required"))
+    }
+
+    async fn ask_streaming_with_context(
+        &self,
+        _messages: &[Message],
+        _tools: &[Value],
+        metadata: LlmTurnMetadata,
+        _on_event: &mut (dyn FnMut(LlmStreamEvent) + Send),
+    ) -> Result<LlmResponse> {
+        self.started.notify_one();
+        loop {
+            if let Err(error) = metadata.ensure_not_cancelled() {
+                self.cancelled.notify_one();
+                self.release.notified().await;
+                return Err(error);
+            }
+            tokio::task::yield_now().await;
+        }
+    }
+
+    async fn summarize(&self, _messages: &[Message], _instruction: &str) -> Result<String> {
+        Err(anyhow!("summarization is not expected"))
+    }
+}
+
+#[tokio::test]
+async fn targeted_stop_preserves_identity_kind_and_execution_completion_boundary() {
+    let root = tempdir().expect("workspace");
+    let started = Arc::new(Notify::new());
+    let cancelled = Arc::new(Notify::new());
+    let release = Arc::new(Notify::new());
+    let session = RuntimeSessionBuilder::for_host(
+        RaraConfig::default(),
+        root.path(),
+        Arc::new(HeldCancellationBackend {
+            started: started.clone(),
+            cancelled: cancelled.clone(),
+            release: release.clone(),
+        }),
+        ToolManager::new(),
+    )
+    .with_state_root(root.path().join("state"))
+    .build()
+    .await
+    .expect("session");
+    let mut events = session.subscribe_control();
+    let stale = serde_json::from_value(json!("stale-turn")).expect("stale turn identity");
+    assert!(matches!(
+        session.interrupt_turn(&stale).await,
+        Err(RuntimeSessionError::NotRunning)
+    ));
+
+    let first = session
+        .submit("cancel first", AgentOutputMode::Silent)
+        .await
+        .expect("first turn");
+    let first_id = first.id().clone();
+    timeout(TEST_TIMEOUT, started.notified())
+        .await
+        .expect("first provider call");
+    assert!(
+        matches!(session.cancel_turn(&stale).await, Err(RuntimeSessionError::StaleTurn { expected, active }) if expected == stale && active == first_id)
+    );
+    assert!(
+        timeout(Duration::from_millis(20), cancelled.notified())
+            .await
+            .is_err()
+    );
+    assert_eq!(
+        session
+            .cancel_turn(&first_id)
+            .await
+            .expect("cancel accepted"),
+        first_id
+    );
+    timeout(TEST_TIMEOUT, cancelled.notified())
+        .await
+        .expect("provider observes cancellation");
+    assert_eq!(
+        session.cancel_turn(&first_id).await.expect("repeat cancel"),
+        first_id
+    );
+    assert!(
+        matches!(session.interrupt_turn(&first_id).await, Err(RuntimeSessionError::StopInProgress { active_turn }) if active_turn == first_id)
+    );
+    while let Ok(event) = events.try_recv() {
+        assert!(!matches!(
+            event.event,
+            RuntimeEvent::Session(SessionEvent::TurnCancelled | SessionEvent::TurnInterrupted)
+        ));
+    }
+    release.notify_one();
+    assert!(
+        matches!(timeout(TEST_TIMEOUT, first.wait()).await.expect("first completion"), Err(RuntimeSessionError::Cancelled { outcome }) if outcome.turn_id == first_id && !outcome.transcript.is_empty())
+    );
+    let mut first_terminal = 0;
+    while let Ok(event) = events.try_recv() {
+        if matches!(
+            event.event,
+            RuntimeEvent::Session(SessionEvent::TurnCancelled)
+        ) {
+            assert_eq!(event.turn_id.as_deref(), Some(first_id.as_str()));
+            first_terminal += 1;
+        }
+        assert!(!matches!(
+            event.event,
+            RuntimeEvent::Session(SessionEvent::TurnInterrupted)
+        ));
+    }
+    assert_eq!(first_terminal, 1);
+
+    let second = session
+        .submit("interrupt second", AgentOutputMode::Silent)
+        .await
+        .expect("second turn");
+    let second_id = second.id().clone();
+    timeout(TEST_TIMEOUT, started.notified())
+        .await
+        .expect("second provider call");
+    assert!(
+        matches!(session.interrupt_turn(&first_id).await, Err(RuntimeSessionError::StaleTurn { expected, active }) if expected == first_id && active == second_id)
+    );
+    assert!(
+        timeout(Duration::from_millis(20), cancelled.notified())
+            .await
+            .is_err()
+    );
+    assert_eq!(
+        session
+            .interrupt_turn(&second_id)
+            .await
+            .expect("interrupt accepted"),
+        second_id
+    );
+    timeout(TEST_TIMEOUT, cancelled.notified())
+        .await
+        .expect("provider observes interruption");
+    assert_eq!(
+        session
+            .interrupt_turn(&second_id)
+            .await
+            .expect("repeat interrupt"),
+        second_id
+    );
+    assert!(
+        matches!(session.cancel_turn(&second_id).await, Err(RuntimeSessionError::StopInProgress { active_turn }) if active_turn == second_id)
+    );
+    let owner = session.clone();
+    let shutdown = tokio::spawn(async move { owner.shutdown().await });
+    let mut snapshots = session.subscribe_snapshots();
+    timeout(TEST_TIMEOUT, async {
+        while !matches!(snapshots.borrow().phase, RuntimeSessionPhase::Closing) {
+            snapshots.changed().await.expect("closing snapshot");
+        }
+    })
+    .await
+    .expect("shutdown started");
+    assert!(!shutdown.is_finished());
+    while let Ok(event) = events.try_recv() {
+        assert!(!matches!(
+            event.event,
+            RuntimeEvent::Session(SessionEvent::TurnCancelled | SessionEvent::TurnInterrupted)
+        ));
+    }
+    release.notify_one();
+    let interrupted = timeout(TEST_TIMEOUT, second.wait())
+        .await
+        .expect("second completion")
+        .expect_err("interrupted turn");
+    assert!(
+        matches!(&interrupted, RuntimeSessionError::Interrupted { outcome } if outcome.turn_id == second_id && !outcome.transcript.is_empty())
+    );
+    assert_eq!(
+        interrupted
+            .turn_outcome()
+            .expect("partial evidence")
+            .turn_id,
+        second_id
+    );
+    timeout(TEST_TIMEOUT, shutdown)
+        .await
+        .expect("shutdown completion")
+        .expect("shutdown task")
+        .expect("shutdown");
+    let mut second_terminal = 0;
+    while let Ok(event) = events.try_recv() {
+        if matches!(
+            event.event,
+            RuntimeEvent::Session(SessionEvent::TurnInterrupted)
+        ) {
+            assert_eq!(event.turn_id.as_deref(), Some(second_id.as_str()));
+            second_terminal += 1;
+        }
+        assert!(!matches!(
+            event.event,
+            RuntimeEvent::Session(SessionEvent::TurnCancelled)
+        ));
+    }
+    assert_eq!(second_terminal, 1);
+}

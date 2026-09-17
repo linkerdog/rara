@@ -8,6 +8,12 @@ use crate::llm::{LlmBackend, Message};
 
 pub(super) type TurnResultSender = oneshot::Sender<Result<RuntimeTurnOutcome, RuntimeSessionError>>;
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(super) enum TurnStopKind {
+    Cancel,
+    Interrupt,
+}
+
 pub(super) enum SessionCommand {
     StartTurn {
         turn_id: RuntimeTurnId,
@@ -17,7 +23,9 @@ pub(super) enum SessionCommand {
         completed: TurnResultSender,
         inference_agent: rara_observability::InferenceAgent,
     },
-    Cancel {
+    StopTurn {
+        expected_turn: Option<RuntimeTurnId>,
+        kind: TurnStopKind,
         response: oneshot::Sender<Result<RuntimeTurnId, RuntimeSessionError>>,
     },
     ReplaceBackend {

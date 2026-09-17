@@ -7,6 +7,13 @@ pub enum RuntimeSessionError {
     Busy { active_turn: RuntimeTurnId },
     #[error("runtime session has no active turn")]
     NotRunning,
+    #[error("runtime turn target {expected} does not match active turn {active}")]
+    StaleTurn {
+        expected: RuntimeTurnId,
+        active: RuntimeTurnId,
+    },
+    #[error("runtime turn {active_turn} already has a different stop request")]
+    StopInProgress { active_turn: RuntimeTurnId },
     #[error("runtime host already contains session {0}")]
     AlreadyExists(super::RuntimeSessionId),
     #[error("runtime session command queue is full")]
@@ -19,6 +26,8 @@ pub enum RuntimeSessionError {
     ActorStopped,
     #[error("runtime turn was cancelled")]
     Cancelled { outcome: RuntimeTurnOutcome },
+    #[error("runtime turn was interrupted")]
+    Interrupted { outcome: RuntimeTurnOutcome },
     #[error("runtime event subscriber lagged by {0} event(s)")]
     EventLagged(u64),
     #[error(
@@ -37,10 +46,12 @@ pub enum RuntimeSessionError {
 }
 
 impl RuntimeSessionError {
-    /// Return partial turn evidence retained for cancellation or execution failure.
+    /// Return partial evidence retained for cancellation, interruption, or execution failure.
     pub fn turn_outcome(&self) -> Option<&RuntimeTurnOutcome> {
         match self {
-            Self::Cancelled { outcome } | Self::Execution { outcome, .. } => Some(outcome),
+            Self::Cancelled { outcome }
+            | Self::Interrupted { outcome }
+            | Self::Execution { outcome, .. } => Some(outcome),
             _ => None,
         }
     }
