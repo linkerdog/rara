@@ -6,7 +6,10 @@ use std::io::{self, Write};
 
 use serde::{Deserialize, Serialize};
 
-use crate::runtime_control::RuntimeControlEnvelope;
+use crate::runtime_control::{
+    ApprovalControlRequest, InputControlRequest, RuntimeControlEnvelope, RuntimeControlRequest,
+    SessionControlRequest,
+};
 
 pub const PROTOCOL_VERSION: u32 = 1;
 pub const TRANSPORT: &str = "stdio-jsonl";
@@ -62,6 +65,8 @@ pub enum ClientFrame {
     Control {
         runtime_id: String,
         envelope: Box<RuntimeControlEnvelope>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        expected_turn_id: Option<String>,
     },
     Replay {
         runtime_id: String,
@@ -153,6 +158,7 @@ pub enum ProtocolError {
     FrameTooLarge,
     MalformedFrame,
     InvalidIdentity,
+    InvalidTarget,
     InvalidCapabilities,
     IncompatibleHandshake,
     Serialization,
@@ -164,6 +170,7 @@ impl fmt::Display for ProtocolError {
             Self::FrameTooLarge => "app-server frame exceeds the byte limit",
             Self::MalformedFrame => "app-server frame is malformed",
             Self::InvalidIdentity => "app-server frame has an invalid identity",
+            Self::InvalidTarget => "app-server control has an invalid turn target",
             Self::InvalidCapabilities => "app-server capabilities are invalid",
             Self::IncompatibleHandshake => "app-server handshake is incompatible",
             Self::Serialization => "app-server frame serialization failed",
@@ -287,7 +294,52 @@ impl ClientFrame {
         if let Some(session_id) = session_id {
             validate_id(session_id)?;
         }
+        if let Self::Control {
+            envelope,
+            expected_turn_id,
+            ..
+        } = self
+        {
+            if let Some(turn_id) = expected_turn_id {
+                validate_id(turn_id)?;
+            }
+            let requires_turn = request_requires_turn(&envelope.request);
+            if requires_turn != expected_turn_id.is_some()
+                || (requires_turn && session_id.is_none())
+            {
+                return Err(ProtocolError::InvalidTarget);
+            }
+        }
         Ok(())
+    }
+}
+
+fn request_requires_turn(request: &RuntimeControlRequest) -> bool {
+    match request {
+        RuntimeControlRequest::Session(request) => match request {
+            SessionControlRequest::CancelCurrentTurn
+            | SessionControlRequest::InterruptCurrentTurn => true,
+            SessionControlRequest::CreateSession
+            | SessionControlRequest::ResumeSession { .. }
+            | SessionControlRequest::QueryRuntimeState => false,
+        },
+        RuntimeControlRequest::Input(request) => match request {
+            InputControlRequest::AnswerPendingInput { .. }
+            | InputControlRequest::AnswerPlanApproval { .. }
+            | InputControlRequest::AnswerShellApproval { .. } => true,
+            InputControlRequest::SubmitUserPrompt { .. }
+            | InputControlRequest::SubmitFollowUp { .. } => false,
+        },
+        RuntimeControlRequest::Approval(request) => match request {
+            ApprovalControlRequest::AnswerPendingApproval { .. } => true,
+            ApprovalControlRequest::QueryPendingApprovals => false,
+        },
+        RuntimeControlRequest::Output(_)
+        | RuntimeControlRequest::PromptSource(_)
+        | RuntimeControlRequest::SkillSource(_)
+        | RuntimeControlRequest::Mcp(_)
+        | RuntimeControlRequest::Memory(_)
+        | RuntimeControlRequest::Hook(_) => false,
     }
 }
 

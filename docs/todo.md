@@ -219,10 +219,10 @@ Active backlog only. Keep this file small and current.
 
 ## App Server Stdio
 
-- [ ] Add expected-turn targeting to the wire control frame and real skill
-      registration through SkillManager/SkillTool before advertising those methods.
-      Canonical input/approval fencing, bounded prompt sources, replay cursors,
-      turn-targeted stop and retained shutdown outcomes are implemented.
+- [ ] Complete real skill registration through SkillManager/SkillTool before
+      advertising those methods. Canonical input/approval fencing, wire turn targets,
+      bounded prompt sources, replay cursors, turn-targeted stop and retained
+      shutdown outcomes are implemented.
 - [ ] Connect the version1 codec to the exact stdio CLI command with bounded
       request receipts, one ordered writer, and explicit host cleanup.
 - [ ] Prove handshake-first startup, prompt/event correlation, duplicate and gap

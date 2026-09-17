@@ -81,6 +81,14 @@ target session is the envelope provenance's session ID when required. Transport
 authority and source trust are derived from the server-owned process/session
 context, never accepted merely because the envelope asserts them.
 
+`control.expected_turn_id` names the originating turn for user/plan/shell or
+generic approval answers, and the active or waiting turn for cancel/interrupt.
+These operations require both this field and the envelope session target. Other
+operations must not provide a turn target. The codec rejects missing, misplaced or invalid targets
+before dispatch; the session actor checks the target against current state before
+acceptance. A late reply cannot consume a newer wait. Receipt comparison includes
+the expected turn as part of the original request, not just the envelope body.
+
 `replay` carries `runtime_id`, `request_id`, `session_id`, and `after_sequence`.
 It requests the existing session stream after the given exclusive cursor. The
 adapter must preserve original event IDs and sequence values.

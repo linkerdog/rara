@@ -5,7 +5,8 @@
 Define the version1 server-first stdio boundary needed by an external process
 supervisor. The shared codec, explicit cursor subscription, retained shutdown
 outcomes, targeted turn stop commands, bounded prompt source commands and strict
-native input/approval commands are implemented. This does not yet make the app-server command available or complete
+native input/approval commands are implemented. The wire control frame carries the
+expected turn for stops and answers. This does not yet make the app-server command available or complete
 a downstream provider integration.
 
 ## Background
@@ -49,6 +50,10 @@ raw-Agent dispatcher would bypass the canonical session owner.
   The old direct continuation path could retain the preceding query's report and
   accounting context. Refresh sources only for continuations that need a model
   call, attach them to new continuation context, and emit plan rejection settlement.
+- Require session and expected-turn targets for stop and answer wire methods.
+  Other methods cannot silently ignore a supplied target. The codec validates
+  shape and bounded identity; the actor validates current ownership. Receipt
+  equality will include the target when the transport is implemented.
 - Mirror connection gating and bounded ordered output from the inspected Codex
   transport, and correlated/cancelled control responses from the inspected Claude
   Code transport, without adopting either wire schema or implementation.
@@ -110,6 +115,13 @@ existing planning tests and8 runtime-session integration tests pass. Plan reject
 performs no model request, preserves one-query source eligibility and reports no
 stale usage. Native question parsing remains limited to plan mode.
 
+The wire targeting follow-up brings the shared protocol suite to19 passing tests.
+Three new table-driven cases cover all fenced method variants, absent session or
+turn targets, null turn targets, misplaced targets, inclusive ID bounds and safe error
+messages. Existing prompt, replay, shutdown and handshake golden shapes remain
+unchanged. Generic approval frame validity does not advertise that method as
+implemented; runtime capability negotiation remains authoritative.
+
 ```bash
 cargo fmt --all
 cargo test -p rara-app-server --lib --locked --offline
@@ -131,9 +143,7 @@ evidence remain open until their implementations exist.
 
 ## Follow-Ups
 
-Add an explicit expected-turn field to the upstream wire control frame before
-advertising fenced stop or answer methods. Implement actual skill
-registration through SkillManager/SkillTool, bounded process transport,
+Implement actual skill registration through SkillManager/SkillTool, bounded process transport,
 receipt/replay behavior and real isolated child-process smoke before advertising
 the protocol. The owning contract is
 [App Server Stdio Protocol](../features/app-server-stdio.md).

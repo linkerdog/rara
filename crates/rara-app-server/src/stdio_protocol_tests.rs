@@ -181,6 +181,118 @@ fn control_golden_shape_preserves_envelope_and_escaped_prompt() {
     assert_eq!(serde_json::to_value(frame).unwrap(), golden);
 }
 
+fn control_with_target(request: Value) -> Value {
+    json!({
+        "type": "control",
+        "payload": {
+            "runtime_id": "runtime-1",
+            "expected_turn_id": "turn-1",
+            "envelope": {
+                "request_id": "request-1",
+                "provenance": {
+                    "controller": "app_server", "adapter": "supervisor", "session_id": "session-1",
+                    "source_id": null, "trust": "untrusted", "authorship": "user_provided"
+                },
+                "request": request
+            }
+        }
+    })
+}
+
+#[test]
+fn stops_and_answers_require_both_session_and_turn_targets() {
+    let requests = [
+        json!({"type": "session", "payload": {"type": "cancel_current_turn"}}),
+        json!({"type": "session", "payload": {"type": "interrupt_current_turn"}}),
+        json!({"type": "input", "payload": {"type": "answer_pending_input", "payload": {"answer": "yes"}}}),
+        json!({"type": "input", "payload": {"type": "answer_plan_approval", "payload": {"decision": "approve", "feedback": null}}}),
+        json!({"type": "input", "payload": {"type": "answer_shell_approval", "payload": {"decision": "once"}}}),
+        json!({"type": "approval", "payload": {"type": "answer_pending_approval", "payload": {"approval_id": "approval-1", "approved": true}}}),
+    ];
+    for request in requests {
+        let valid = control_with_target(request);
+        let frame = decode_client_frame(&serde_json::to_vec(&valid).unwrap()).unwrap();
+        assert_eq!(serde_json::to_value(frame).unwrap(), valid);
+        for missing in ["session", "turn", "null_turn"] {
+            let mut invalid = valid.clone();
+            match missing {
+                "session" => {
+                    invalid["payload"]["envelope"]["provenance"]
+                        .as_object_mut()
+                        .unwrap()
+                        .remove("session_id");
+                }
+                "turn" => {
+                    invalid["payload"]
+                        .as_object_mut()
+                        .unwrap()
+                        .remove("expected_turn_id");
+                }
+                "null_turn" => invalid["payload"]["expected_turn_id"] = Value::Null,
+                _ => unreachable!(),
+            }
+            assert_eq!(
+                decode_client_frame(&serde_json::to_vec(&invalid).unwrap()),
+                Err(ProtocolError::InvalidTarget)
+            );
+        }
+    }
+}
+
+#[test]
+fn turn_targets_are_rejected_for_unrelated_methods() {
+    let requests = [
+        json!({"type": "session", "payload": {"type": "create_session"}}),
+        json!({"type": "session", "payload": {"type": "resume_session", "payload": {"session_id": "session-1"}}}),
+        json!({"type": "session", "payload": {"type": "query_runtime_state"}}),
+        json!({"type": "input", "payload": {"type": "submit_user_prompt", "payload": {"prompt": "new"}}}),
+        json!({"type": "input", "payload": {"type": "submit_follow_up", "payload": {"prompt": "next"}}}),
+        json!({"type": "approval", "payload": {"type": "query_pending_approvals"}}),
+    ];
+    for request in requests {
+        let mut invalid = control_with_target(request);
+        assert_eq!(
+            decode_client_frame(&serde_json::to_vec(&invalid).unwrap()),
+            Err(ProtocolError::InvalidTarget)
+        );
+        invalid["payload"]
+            .as_object_mut()
+            .unwrap()
+            .remove("expected_turn_id");
+        assert!(decode_client_frame(&serde_json::to_vec(&invalid).unwrap()).is_ok());
+    }
+}
+
+#[test]
+fn target_id_bounds_and_codec_errors_do_not_expose_the_reply() {
+    let mut frame = control_with_target(
+        json!({"type": "input", "payload": {"type": "answer_pending_input", "payload": {"answer": "private-answer"}}}),
+    );
+    for invalid in [
+        "".into(),
+        "secret target".into(),
+        "x".repeat(MAX_ID_BYTES + 1),
+        "\u{2603}".into(),
+    ] {
+        frame["payload"]["expected_turn_id"] = Value::String(invalid);
+        let error = decode_client_frame(&serde_json::to_vec(&frame).unwrap()).unwrap_err();
+        assert_eq!(error, ProtocolError::InvalidIdentity);
+        assert_eq!(
+            error.to_string(),
+            "app-server frame has an invalid identity"
+        );
+    }
+    frame["payload"]["expected_turn_id"] = Value::String("x".repeat(MAX_ID_BYTES));
+    assert!(decode_client_frame(&serde_json::to_vec(&frame).unwrap()).is_ok());
+    frame["payload"]["expected_turn_id"] = Value::Null;
+    assert_eq!(
+        decode_client_frame(&serde_json::to_vec(&frame).unwrap())
+            .unwrap_err()
+            .to_string(),
+        "app-server control has an invalid turn target"
+    );
+}
+
 #[test]
 fn replay_and_shutdown_golden_shapes_are_correlated() {
     for (golden, expected) in [
