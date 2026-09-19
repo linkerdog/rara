@@ -294,7 +294,7 @@ fn builtin_nowledge_mem_cloud_mode_derives_remote_mcp_and_env_headers() {
 
     let mem = &config.builtin_plugins.nowledge_mem;
     assert_eq!(mem.mode, NowledgeMemMode::Cloud);
-    assert_eq!(mem.mcp_url(), "https://cloud.nowledge.co/remote-api/mcp/");
+    assert_eq!(mem.mcp_url(), "https://cloud.nowledge.co/mcp");
     assert_eq!(
         mem.env_http_headers(),
         Some(BTreeMap::from([
@@ -315,8 +315,16 @@ fn builtin_nowledge_mem_cloud_mode_defaults_to_nowledge_cloud() {
         ..Default::default()
     };
 
-    assert_eq!(mem.mcp_url(), "https://cloud.nowledge.co/remote-api/mcp/");
+    assert_eq!(mem.mcp_url(), "https://cloud.nowledge.co/mcp");
     assert_eq!(mem.api_url(), "https://cloud.nowledge.co/remote-api");
+
+    let custom = NowledgeMemPluginConfig {
+        mode: NowledgeMemMode::Cloud,
+        url: "https://mem.example.com".to_string(),
+        ..Default::default()
+    };
+    assert_eq!(custom.mcp_url(), "https://mem.example.com/mcp");
+    assert_eq!(custom.api_url(), "https://mem.example.com/remote-api");
 }
 
 #[test]
