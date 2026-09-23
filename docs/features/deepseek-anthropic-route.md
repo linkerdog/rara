@@ -90,10 +90,15 @@ of losing it.
   approval- or plan-exit-interrupted turn can abandon part of its batch with
   no result ever recorded, and `repair_tool_result_history` (the general
   repair pass) only runs at the start of a fresh user query, not on the
-  approval-resume path. Fixed in response to a real production 400
-  (`messages.N: tool_use ids were found without tool_result blocks
-  immediately after`) hit on a long-running session with parallel tool
-  calls; see the dated journal entry.
+  approval-resume path. It also mirrors the *other* direction of
+  `repair_tool_result_history`'s own repair (`src/tool_result/transcript.rs`):
+  a `tool_result` block whose id is not currently pending — its real
+  `tool_use` was already resolved, already flushed as a synthetic filler, or
+  never existed — is dropped rather than passed through, since Anthropic
+  rejects that too (`tool_use_id found in tool_result blocks ... without a
+  corresponding tool_use block in the previous message`). Fixed in response
+  to two real production 400s hit on long-running sessions with parallel
+  tool calls; see the dated journal entries.
 - **Thinking-signature replay**: verified live against `api.deepseek.com`
   — a tool-using turn's `thinking` block, including its `signature`, must be
   replayed on the next request whenever tools are active, or the API
@@ -176,3 +181,4 @@ generalized `chat/completions` DSML stream buffering).
 
 - `docs/journal/2026-09-23-deepseek-anthropic-route.md`
 - `docs/journal/2026-09-23-deepseek-anthropic-tool-result-adjacency.md`
+- `docs/journal/2026-09-24-deepseek-anthropic-orphaned-tool-results.md`

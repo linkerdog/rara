@@ -43,11 +43,24 @@ pub(super) fn to_anthropic_messages(messages: &[Message]) -> (Option<String>, Ve
             flush_missing_tool_results(&mut out, &mut pending_tool_use_ids);
         }
         let blocks = as_content_blocks(to_anthropic_message_content(&message.content));
-        if role == "assistant" {
+        let blocks = if role == "assistant" {
             pending_tool_use_ids.extend(tool_use_ids(&blocks));
+            blocks
         } else {
-            resolve_tool_use_ids(&blocks, &mut pending_tool_use_ids);
-        }
+            // The mirror image of `flush_missing_tool_results`: a
+            // `tool_result` whose id isn't currently pending has no
+            // `tool_use` in the message immediately before wherever it lands
+            // (its real one was already resolved, already flushed as a
+            // synthetic filler, or never existed — e.g. stale history from
+            // before a mid-session model/provider switch). Passing it
+            // through gets rejected as "tool_use_id found in tool_result
+            // blocks ... without a corresponding tool_use block in the
+            // previous message"; `repair_tool_result_history`
+            // (`src/tool_result/transcript.rs`) already drops these at the
+            // `Message` level for exactly this reason, so this mirrors that
+            // precedent here.
+            resolve_and_filter_tool_results(blocks, &mut pending_tool_use_ids)
+        };
         // Anthropic requires every `tool_use` in a turn to have its
         // `tool_result` in the very next message. The agent loop records one
         // turn's parallel tool results as several consecutive `user`
@@ -115,17 +128,28 @@ fn tool_use_ids(blocks: &[Value]) -> Vec<String> {
         .collect()
 }
 
-fn resolve_tool_use_ids(blocks: &[Value], pending: &mut Vec<String>) {
-    for block in blocks {
-        if block.get("type").and_then(Value::as_str) != Some("tool_result") {
-            continue;
-        }
-        if let Some(id) = block.get("tool_use_id").and_then(Value::as_str)
-            && let Some(pos) = pending.iter().position(|pending_id| pending_id == id)
-        {
-            pending.remove(pos);
-        }
-    }
+/// Keeps every non-`tool_result` block unconditionally. A `tool_result`
+/// block is kept only if its id is currently pending (and then removed from
+/// `pending`); otherwise it is dropped.
+fn resolve_and_filter_tool_results(blocks: Vec<Value>, pending: &mut Vec<String>) -> Vec<Value> {
+    blocks
+        .into_iter()
+        .filter(|block| {
+            if block.get("type").and_then(Value::as_str) != Some("tool_result") {
+                return true;
+            }
+            let Some(id) = block.get("tool_use_id").and_then(Value::as_str) else {
+                return false;
+            };
+            match pending.iter().position(|pending_id| pending_id == id) {
+                Some(pos) => {
+                    pending.remove(pos);
+                    true
+                }
+                None => false,
+            }
+        })
+        .collect()
 }
 
 /// Synthesizes an error `tool_result` for every `tool_use` id that never got
@@ -280,18 +304,68 @@ mod tests {
 
     #[test]
     fn message_conversion_folds_tool_results_into_user_role() {
-        let messages = [Message {
-            role: "user".to_string(),
-            content: json!([
-                {"type": "tool_result", "tool_use_id": "call_1", "content": "18C, cloudy"},
-            ]),
-        }];
+        let messages = [
+            Message {
+                role: "assistant".to_string(),
+                content: json!([
+                    {"type": "tool_use", "id": "call_1", "name": "get_weather", "input": {}},
+                ]),
+            },
+            Message {
+                role: "user".to_string(),
+                content: json!([
+                    {"type": "tool_result", "tool_use_id": "call_1", "content": "18C, cloudy"},
+                ]),
+            },
+        ];
 
         let (_, out) = to_anthropic_messages(&messages);
-        assert_eq!(out[0]["role"], "user");
+        assert_eq!(out[1]["role"], "user");
         assert_eq!(
-            out[0]["content"],
+            out[1]["content"],
             json!([{"type": "tool_result", "tool_use_id": "call_1", "content": "18C, cloudy"}])
+        );
+    }
+
+    #[test]
+    fn message_conversion_drops_tool_result_with_no_pending_tool_use() {
+        // The mirror image of the missing-result synthesis test: a real
+        // production 400 ("tool_use_id found in tool_result blocks ...
+        // without a corresponding tool_use block in the previous message")
+        // happens when a `tool_result` survives in history for an id that
+        // is no longer (or never was) pending — its real `tool_use` was
+        // already resolved, already flushed as a synthetic filler, or
+        // simply doesn't exist. Passing it through breaks adjacency from
+        // the other direction; `repair_tool_result_history` already drops
+        // these at the `Message` level, so this mirrors that here.
+        let messages = [
+            Message {
+                role: "assistant".to_string(),
+                content: json!([
+                    {"type": "tool_use", "id": "call_1", "name": "read_file", "input": {}},
+                ]),
+            },
+            Message {
+                role: "user".to_string(),
+                content: json!([
+                    {"type": "tool_result", "tool_use_id": "call_1", "content": "A"},
+                    // Stale/unrelated id — no matching tool_use anywhere in
+                    // this history (e.g. survived a compaction or a
+                    // mid-session provider switch).
+                    {"type": "tool_result", "tool_use_id": "call_stale", "content": "B"},
+                    {"type": "text", "text": "keep me"},
+                ]),
+            },
+        ];
+
+        let (_, out) = to_anthropic_messages(&messages);
+        assert_eq!(
+            out[1]["content"],
+            json!([
+                {"type": "tool_result", "tool_use_id": "call_1", "content": "A"},
+                {"type": "text", "text": "keep me"},
+            ]),
+            "the orphaned tool_result must be dropped, non-tool_result blocks kept"
         );
     }
 
