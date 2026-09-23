@@ -1577,6 +1577,47 @@ fn deepseek_stream_scrubber_buffers_partial_dsml_open_tag_across_chunks() {
 }
 
 #[test]
+fn deepseek_stream_scrubber_settled_state_passes_unrelated_angle_brackets_through_immediately() {
+    let mut scrubber = DeepseekTextStreamScrubber::default();
+    assert_eq!(
+        scrubber.push("Here is some code:\n"),
+        "Here is some code:\n"
+    );
+    // None of these should ever be buffered: each must come back unchanged,
+    // proving the settled fast path stayed active instead of falling into
+    // the full-rescan path for every unrelated `<`.
+    for chunk in [
+        "fn foo<T>(x: Vec<T>) -> Option<T> {\n",
+        "    if x.len() < 1 { return None }\n",
+        "    <div class=\"x\">not real markup</div>\n",
+        "}\n",
+    ] {
+        assert_eq!(scrubber.push(chunk), chunk);
+    }
+    assert_eq!(scrubber.finish(), "");
+}
+
+#[test]
+fn deepseek_stream_scrubber_windowed_settle_check_still_catches_marker_split_after_unrelated_text()
+{
+    let mut scrubber = DeepseekTextStreamScrubber::default();
+    let long_unrelated = "x".repeat(64) + " Vec<String> done, ";
+    assert_eq!(scrubber.push(&long_unrelated), long_unrelated);
+    // Split the DSML open tag exactly at the marker, immediately after a
+    // long run of already-settled, unrelated `<`-bearing text — this is the
+    // case the trailing-window check (not the whole `raw_text`) must still
+    // catch correctly.
+    assert_eq!(scrubber.push("<｜DSML｜tool"), "");
+    assert_eq!(
+        scrubber.push(
+            "_calls>\n<｜DSML｜invoke name=\"x\">\n<｜DSML｜parameter name=\"a\" string=\"true\">1</｜DSML｜parameter>\n</｜DSML｜invoke>\n</｜DSML｜tool_calls>After"
+        ),
+        "After"
+    );
+    assert_eq!(scrubber.finish(), "");
+}
+
+#[test]
 fn deepseek_stream_scrubber_shows_unclosed_dsml_tag_only_at_finish() {
     let mut scrubber = DeepseekTextStreamScrubber::default();
 

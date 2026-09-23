@@ -179,12 +179,17 @@ struct DeepseekDsmlStage {
     settled: bool,
 }
 
+/// Bytes of trailing context checked for a possible DSML marker start, long
+/// enough to hold the longest tag this module recognizes
+/// (`<｜DSML｜tool_calls>`, 22 bytes) with margin.
+const DSML_TAIL_WINDOW_BYTES: usize = 32;
+
 impl DeepseekDsmlStage {
     fn push(&mut self, delta: &str) -> String {
         if delta.is_empty() {
             return String::new();
         }
-        if self.settled && !delta.contains('<') {
+        if self.settled && !self.could_extend_dsml_marker(delta) {
             self.raw_text.push_str(delta);
             self.last_visible.push_str(delta);
             return delta.to_string();
@@ -195,6 +200,27 @@ impl DeepseekDsmlStage {
         let emitted = self.flush_to(boundary.unwrap_or(self.raw_text.len()));
         self.settled = boundary.is_none();
         emitted
+    }
+
+    /// Cheap pre-check gating the expensive full-`raw_text` rescan below.
+    /// Once settled, an arbitrary `<`-containing delta (code, HTML) must not
+    /// force an O(raw_text) rescan on every chunk of a long response — a
+    /// long response with `<` in most chunks would otherwise cost O(n²)
+    /// overall. Only a delta that could plausibly start or extend a DSML
+    /// marker warrants the full check, and that only ever depends on a
+    /// short trailing window, not the whole accumulated text: any new
+    /// ambiguity a delta introduces must start within it or right at its
+    /// boundary with already-settled text.
+    fn could_extend_dsml_marker(&self, delta: &str) -> bool {
+        if !delta.contains('<') {
+            return false;
+        }
+        let tail_start = floor_char_boundary(
+            &self.raw_text,
+            self.raw_text.len().saturating_sub(DSML_TAIL_WINDOW_BYTES),
+        );
+        let window = format!("{}{delta}", &self.raw_text[tail_start..]);
+        crate::llm::deepseek_dsml::pending_tool_call_boundary(&window).is_some()
     }
 
     fn finish(&mut self) -> String {
@@ -212,6 +238,16 @@ impl DeepseekDsmlStage {
         self.last_visible = visible.into_owned();
         emitted
     }
+}
+
+/// The largest byte index `<= index` that lies on a UTF-8 char boundary of
+/// `s`, so a byte-offset slice into multi-byte text (DSML's full-width `｜`)
+/// never panics.
+fn floor_char_boundary(s: &str, mut index: usize) -> usize {
+    while index > 0 && !s.is_char_boundary(index) {
+        index -= 1;
+    }
+    index
 }
 
 impl OpenAiApiError {

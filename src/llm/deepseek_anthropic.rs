@@ -191,17 +191,25 @@ impl DeepseekAnthropicBackend {
             Some(false) => body["thinking"] = json!({"type": "disabled"}),
             None => {}
         }
-        if let Some(effort) = self
-            .reasoning_effort
-            .as_deref()
-            .map(str::trim)
-            .filter(|value| !value.is_empty())
+        // Only send an effort when thinking isn't explicitly turned off —
+        // pairing `thinking: disabled` with a non-off `output_config.effort`
+        // is a contradictory request the way chat/completions never sends
+        // effort at all for a thinking-disabled turn.
+        if self.thinking != Some(false)
+            && let Some(effort) = self
+                .reasoning_effort
+                .as_deref()
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
         {
             // Matches the DeepSeek reference harness's request shape
             // (`output_config.effort`); DeepSeek's chat/completions endpoint
             // never applies effort to `deepseek-flash` at all (its gate
             // requires "v4"/"reasoner" in the model name), so there is no
-            // existing normalization to reuse here.
+            // existing normalization to reuse here. Verified live that
+            // DeepSeek's Anthropic-compatible endpoint accepts RARA's
+            // unnormalized effort vocabulary (e.g. "medium", "xhigh")
+            // without erroring.
             body["output_config"] = json!({"effort": effort.to_ascii_lowercase()});
         }
         if let Some(value) = self.temperature {
@@ -322,6 +330,44 @@ impl DeepseekAnthropicBackend {
         finish_attempt(attempt, &result);
         result
     }
+
+    /// Retries once on a stream that idled out before emitting any delta,
+    /// same as `OpenAiCompatibleBackend::ask_streaming_with_context` — this
+    /// backend routes through `ask_streaming_once` for both the streaming
+    /// and non-streaming trait methods, so both need this protection rather
+    /// than failing a `deepseek-flash` turn outright on a transient stall.
+    async fn ask_streaming_with_retry(
+        &self,
+        messages: &[Message],
+        tools: &[Value],
+        metadata: LlmTurnMetadata,
+        on_event: &mut (dyn FnMut(LlmStreamEvent) + Send),
+    ) -> Result<LlmResponse> {
+        let mut attempts = 0usize;
+        loop {
+            let mut emitted_delta = false;
+            let mut relay_event = |event: LlmStreamEvent| {
+                emitted_delta = true;
+                on_event(event);
+            };
+            let result = self
+                .ask_streaming_once(messages, tools, metadata.clone(), &mut relay_event)
+                .await;
+            match result {
+                Ok(response) => return Ok(response),
+                Err(error)
+                    if attempts < super::openai_compatible::STREAM_IDLE_RETRY_ATTEMPTS
+                        && !emitted_delta
+                        && super::openai_compatible::is_openai_stream_idle_error(&error) =>
+                {
+                    attempts += 1;
+                    metadata.ensure_not_cancelled()?;
+                    continue;
+                }
+                Err(error) => return Err(error),
+            }
+        }
+    }
 }
 
 #[async_trait]
@@ -342,7 +388,7 @@ impl LlmBackend for DeepseekAnthropicBackend {
         metadata: LlmTurnMetadata,
     ) -> Result<LlmResponse> {
         let mut ignored = |_event: LlmStreamEvent| {};
-        self.ask_streaming_once(messages, tools, metadata, &mut ignored)
+        self.ask_streaming_with_retry(messages, tools, metadata, &mut ignored)
             .await
     }
 
@@ -353,7 +399,7 @@ impl LlmBackend for DeepseekAnthropicBackend {
         metadata: LlmTurnMetadata,
         on_event: &mut (dyn FnMut(LlmStreamEvent) + Send),
     ) -> Result<LlmResponse> {
-        self.ask_streaming_once(messages, tools, metadata, on_event)
+        self.ask_streaming_with_retry(messages, tools, metadata, on_event)
             .await
     }
 
@@ -747,6 +793,56 @@ fn to_anthropic_message_content(content: &Value) -> Value {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn test_backend(
+        thinking: Option<bool>,
+        reasoning_effort: Option<&str>,
+    ) -> DeepseekAnthropicBackend {
+        DeepseekAnthropicBackend {
+            client: reqwest::Client::new(),
+            api_key: None,
+            base_url: "https://api.deepseek.com/anthropic".to_string(),
+            model: DEEPSEEK_ANTHROPIC_MODEL.to_string(),
+            max_output_tokens: None,
+            temperature: None,
+            top_p: None,
+            thinking,
+            reasoning_effort: reasoning_effort.map(str::to_string),
+            billing_provider: "DeepSeek".to_string(),
+            fallback: OpenAiCompatibleBackend::new(
+                None,
+                "https://api.deepseek.com/v1".to_string(),
+                DEEPSEEK_ANTHROPIC_MODEL.to_string(),
+            )
+            .expect("fallback backend construction cannot fail for a fixed valid URL"),
+        }
+    }
+
+    #[test]
+    fn request_body_never_sends_effort_when_thinking_is_explicitly_disabled() {
+        let backend = test_backend(Some(false), Some("high"));
+        let body = backend.request_body(&[], &[], false);
+        assert_eq!(body["thinking"], json!({"type": "disabled"}));
+        assert!(
+            body.get("output_config").is_none(),
+            "a disabled-thinking request must not also carry a contradictory effort"
+        );
+    }
+
+    #[test]
+    fn request_body_sends_effort_when_thinking_is_enabled_or_unset() {
+        let enabled = test_backend(Some(true), Some("HIGH"));
+        assert_eq!(
+            enabled.request_body(&[], &[], false)["output_config"],
+            json!({"effort": "high"})
+        );
+
+        let unset = test_backend(None, Some("max"));
+        assert_eq!(
+            unset.request_body(&[], &[], false)["output_config"],
+            json!({"effort": "max"})
+        );
+    }
 
     #[test]
     fn base_url_activates_only_for_deepseeks_exact_official_url_shape() {
