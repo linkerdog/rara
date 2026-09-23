@@ -68,10 +68,32 @@ of losing it.
   `chat/completions`.
 - **Message shape**: internal `Message.content` blocks (`text`, `tool_use`,
   `tool_result`) already match Anthropic's content-block shape, so
-  conversion (`to_anthropic_message_content`) is close to identity. System
-  history may be a plain string or an array of text blocks (compaction
-  carry-over); both render into the top-level `system` field via the shared
-  `extract_message_text`.
+  per-message conversion (`to_anthropic_message_content`) is close to
+  identity. System history may be a plain string or an array of text blocks
+  (compaction carry-over); both render into the top-level `system` field via
+  the shared `extract_message_text`.
+- **Tool-result adjacency**: not an identity conversion. Anthropic requires
+  every `tool_use` in an assistant turn to have its `tool_result` in the
+  literal next message, but the agent loop records one turn's parallel tool
+  results as several separate consecutive `user` `Message`s (one
+  `tool_result` block each — `execute_tool_calls`/`tool_result_message` in
+  `src/agent/execution.rs` and `src/agent/planning.rs`), plus a trailing
+  runtime continuation nudge, also `user`-role. `to_anthropic_messages`
+  coalesces consecutive `user` messages into one before sending — never
+  `assistant` messages, since `to_anthropic_message_content` always places a
+  replayed `thinking` block first in its own message, and merging a later
+  assistant message's blocks after an earlier one's would bury it there
+  instead, breaking the thinking-signature replay contract above. It also
+  mirrors `chat/completions`' `flush_missing_tool_results`: a `tool_use` id
+  still unresolved when the next assistant message (or end of history) is
+  reached gets a synthesized `is_error: true` `tool_result`, since an
+  approval- or plan-exit-interrupted turn can abandon part of its batch with
+  no result ever recorded, and `repair_tool_result_history` (the general
+  repair pass) only runs at the start of a fresh user query, not on the
+  approval-resume path. Fixed in response to a real production 400
+  (`messages.N: tool_use ids were found without tool_result blocks
+  immediately after`) hit on a long-running session with parallel tool
+  calls; see the dated journal entry.
 - **Thinking-signature replay**: verified live against `api.deepseek.com`
   — a tool-using turn's `thinking` block, including its `signature`, must be
   replayed on the next request whenever tools are active, or the API
@@ -139,7 +161,18 @@ generalized `chat/completions` DSML stream buffering).
   appearing mid-stream — only a complete tool-call block. The pre-existing
   lenient end-of-stream fallback still covers that rarer, already-malformed
   case.
+- `resume_after_plan_approval_with_feedback_events`/
+  `reject_pending_plan_approval` (`src/agent/planning.rs`) resume the agent
+  loop directly, bypassing `query_inner`'s `repair_tool_result_history`
+  call. An approval- or plan-exit-interrupted turn's earlier-resolved
+  tool results (from tool calls processed before the one needing approval,
+  in the same batch) are therefore lost outright, not just delayed —
+  `flush_missing_tool_results` here only stops the *pairing* from producing
+  a malformed wire request; it synthesizes a filler, it does not recover
+  the original result data. Cross-cutting agent-loop issue, not specific to
+  this backend; out of scope here.
 
 ## Source Journals
 
 - `docs/journal/2026-09-23-deepseek-anthropic-route.md`
+- `docs/journal/2026-09-23-deepseek-anthropic-tool-result-adjacency.md`
