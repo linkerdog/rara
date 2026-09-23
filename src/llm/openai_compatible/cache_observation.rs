@@ -52,7 +52,13 @@ pub(in crate::llm) fn fingerprint_request(
     let instructions = body
         .get("instructions")
         .cloned()
-        .or_else(|| (!system_messages.is_empty()).then_some(Value::Array(system_messages)));
+        .or_else(|| (!system_messages.is_empty()).then_some(Value::Array(system_messages)))
+        // Anthropic-shaped bodies (the DeepSeek Anthropic-compatible route)
+        // carry the system prompt as a top-level `system` field rather than
+        // a leading `messages` entry or `instructions`; without this, every
+        // such request reports `system_sha256: None` and cache-locality
+        // comparisons can't detect a changed system prompt at all.
+        .or_else(|| body.get("system").cloned());
 
     let mut logical_request = body.clone();
     remove_transport_fields(&mut logical_request);
@@ -197,6 +203,32 @@ mod tests {
         assert_eq!(left, right);
         let serialized = serde_json::to_string(&left).expect("serialize fingerprint");
         assert!(!serialized.contains("private"));
+    }
+
+    #[test]
+    fn fingerprint_hashes_anthropic_shaped_top_level_system_field() {
+        let with_system = json!({
+            "model": "deepseek-flash",
+            "system": "be helpful",
+            "messages": [{"role": "user", "content": "hi"}]
+        });
+        let without_system = json!({
+            "model": "deepseek-flash",
+            "system": "be terse",
+            "messages": [{"role": "user", "content": "hi"}]
+        });
+
+        let with_fp = fingerprint_request(&with_system, "scope", b"salt");
+        let without_fp = fingerprint_request(&without_system, "scope", b"salt");
+
+        assert!(
+            with_fp.system_sha256.is_some(),
+            "a top-level `system` field must not report system_sha256: None"
+        );
+        assert_ne!(
+            with_fp.system_sha256, without_fp.system_sha256,
+            "different system prompts must produce different system_sha256"
+        );
     }
 
     #[test]
