@@ -6,19 +6,38 @@ use serde_json::{Value, json};
 use crate::agent::Message;
 use crate::llm::shared::extract_message_text;
 use crate::model_context::{MODEL_CONTEXT_BLOCK_TYPE, model_context_text};
+use crate::tool_result::pairing::{
+    has_tool_result_block, keep_or_drop_tool_results, synthetic_tool_result_blocks,
+    tool_use_ids_in_blocks,
+};
 
+/// Converts history into an Anthropic Messages request body's `system`
+/// string and `messages` array.
+///
+/// Anthropic requires every `tool_use` in a turn to have its `tool_result`
+/// in the literal next message. The agent loop's internal history doesn't
+/// guarantee that shape by construction — a turn's parallel tool results
+/// are recorded as several separate consecutive `Message`s (one
+/// `tool_result` block each — see `execute_tool_calls`/`tool_result_message`
+/// in `src/agent/execution.rs`/`src/agent/planning.rs`), and a tool call can
+/// go permanently unanswered (an approval- or plan-exit-interrupted turn
+/// abandons part of its batch). `chat/completions` doesn't care (it
+/// correlates results by id, not position), so nothing upstream guarantees
+/// this for a route that does. This function therefore runs the same
+/// `tool_use`/`tool_result` pairing repair as
+/// [`repair_tool_result_history`](crate::tool_result::repair_tool_result_history)
+/// — via the shared primitives in
+/// [`crate::tool_result::pairing`] — plus one thing that repair pass doesn't
+/// need: coalescing consecutive `user` messages into one, since Anthropic's
+/// adjacency rule cares about message boundaries and `repair_tool_result_history`
+/// operates one turn at a time. Assistant messages are never coalesced:
+/// `to_anthropic_message_content` always places a replayed `thinking` block
+/// first in its own message, and merging a later assistant message's blocks
+/// after an earlier one's would bury that block instead of keeping it
+/// first, breaking the thinking-signature replay contract.
 pub(super) fn to_anthropic_messages(messages: &[Message]) -> (Option<String>, Vec<Value>) {
     let mut system_parts = Vec::new();
     let mut out: Vec<Value> = Vec::new();
-    // Ids from the most recent assistant turn's `tool_use` blocks not yet
-    // matched by a `tool_result`. A tool call can go permanently unanswered
-    // — an approval- or plan-exit-interrupted turn abandons the rest of its
-    // batch (see `execute_tool_calls` in `src/agent/execution.rs`), and the
-    // repair pass that normally patches this (`repair_tool_result_history`)
-    // only runs at the very start of a fresh user query, not on the
-    // approval-resume path. `chat/completions` has its own
-    // `flush_missing_tool_results` guarding exactly this; this mirrors it
-    // for Anthropic's stricter "tool_result in the very next message" rule.
     let mut pending_tool_use_ids: Vec<String> = Vec::new();
 
     for message in messages {
@@ -34,53 +53,31 @@ pub(super) fn to_anthropic_messages(messages: &[Message]) -> (Option<String>, Ve
             }
             continue;
         }
-        let role = if message.role == "assistant" {
-            "assistant"
-        } else {
-            "user"
-        };
-        if role == "assistant" {
-            flush_missing_tool_results(&mut out, &mut pending_tool_use_ids);
-        }
+
         let blocks = as_content_blocks(to_anthropic_message_content(&message.content));
-        let blocks = if role == "assistant" {
-            pending_tool_use_ids.extend(tool_use_ids(&blocks));
-            blocks
+
+        if message.role == "assistant" {
+            flush_missing_tool_results(&mut out, &mut pending_tool_use_ids);
+            pending_tool_use_ids.extend(tool_use_ids_in_blocks(&blocks));
+            if !blocks.is_empty() {
+                out.push(json!({"role": "assistant", "content": Value::Array(blocks)}));
+            }
+            continue;
+        }
+
+        if has_tool_result_block(&blocks) {
+            let kept = keep_or_drop_tool_results(blocks, &mut pending_tool_use_ids);
+            push_or_merge(&mut out, "user", kept);
         } else {
-            // The mirror image of `flush_missing_tool_results`: a
-            // `tool_result` whose id isn't currently pending has no
-            // `tool_use` in the message immediately before wherever it lands
-            // (its real one was already resolved, already flushed as a
-            // synthetic filler, or never existed — e.g. stale history from
-            // before a mid-session model/provider switch). Passing it
-            // through gets rejected as "tool_use_id found in tool_result
-            // blocks ... without a corresponding tool_use block in the
-            // previous message"; `repair_tool_result_history`
-            // (`src/tool_result/transcript.rs`) already drops these at the
-            // `Message` level for exactly this reason, so this mirrors that
-            // precedent here.
-            resolve_and_filter_tool_results(blocks, &mut pending_tool_use_ids)
-        };
-        // Anthropic requires every `tool_use` in a turn to have its
-        // `tool_result` in the very next message. The agent loop records one
-        // turn's parallel tool results as several consecutive `user`
-        // `Message`s (one `tool_result` block each — see
-        // `execute_tool_calls`/`tool_result_message`), followed by a runtime
-        // continuation nudge, also `user`-role. `chat/completions` tolerates
-        // that shape (it correlates tool results by id, not position), but
-        // Anthropic does not, so runs of consecutive `user` messages are
-        // coalesced into one here or a multi-tool-call turn gets rejected
-        // with "tool_use ids were found without tool_result blocks
-        // immediately after". Assistant messages are never coalesced this
-        // way: `to_anthropic_message_content` places a replayed `thinking`
-        // block first in *its own* message, and merging a later assistant
-        // message's blocks after an earlier one's would bury that block
-        // instead of keeping it first, breaking the thinking-signature
-        // replay contract.
-        if role == "user" {
-            push_or_merge(&mut out, role, blocks);
-        } else if !blocks.is_empty() {
-            out.push(json!({"role": role, "content": Value::Array(blocks)}));
+            // Matches `repair_tool_result_history`'s more conservative rule:
+            // any message that isn't itself carrying the matching
+            // `tool_result` — not just the next assistant message — ends
+            // the window during which a pending `tool_use` can still be
+            // resolved, so a stray message in between (e.g. a queued
+            // follow-up landing before a tool actually finishes) must not
+            // let the pending id ride past it unflushed.
+            flush_missing_tool_results(&mut out, &mut pending_tool_use_ids);
+            push_or_merge(&mut out, "user", blocks);
         }
     }
     flush_missing_tool_results(&mut out, &mut pending_tool_use_ids);
@@ -120,56 +117,12 @@ fn push_or_merge(out: &mut Vec<Value>, role: &str, blocks: Vec<Value>) {
     out.push(json!({"role": role, "content": Value::Array(blocks)}));
 }
 
-fn tool_use_ids(blocks: &[Value]) -> Vec<String> {
-    blocks
-        .iter()
-        .filter(|block| block.get("type").and_then(Value::as_str) == Some("tool_use"))
-        .filter_map(|block| block.get("id").and_then(Value::as_str).map(str::to_string))
-        .collect()
-}
-
-/// Keeps every non-`tool_result` block unconditionally. A `tool_result`
-/// block is kept only if its id is currently pending (and then removed from
-/// `pending`); otherwise it is dropped.
-fn resolve_and_filter_tool_results(blocks: Vec<Value>, pending: &mut Vec<String>) -> Vec<Value> {
-    blocks
-        .into_iter()
-        .filter(|block| {
-            if block.get("type").and_then(Value::as_str) != Some("tool_result") {
-                return true;
-            }
-            let Some(id) = block.get("tool_use_id").and_then(Value::as_str) else {
-                return false;
-            };
-            match pending.iter().position(|pending_id| pending_id == id) {
-                Some(pos) => {
-                    pending.remove(pos);
-                    true
-                }
-                None => false,
-            }
-        })
-        .collect()
-}
-
-/// Synthesizes an error `tool_result` for every `tool_use` id that never got
-/// one, mirroring `chat/completions`' `flush_missing_tool_results`.
 fn flush_missing_tool_results(out: &mut Vec<Value>, pending_tool_use_ids: &mut Vec<String>) {
-    if pending_tool_use_ids.is_empty() {
-        return;
-    }
-    let blocks = pending_tool_use_ids
-        .drain(..)
-        .map(|id| {
-            json!({
-                "type": "tool_result",
-                "tool_use_id": id,
-                "content": "Tool execution was interrupted before a result was recorded.",
-                "is_error": true,
-            })
-        })
-        .collect::<Vec<_>>();
-    push_or_merge(out, "user", blocks);
+    push_or_merge(
+        out,
+        "user",
+        synthetic_tool_result_blocks(pending_tool_use_ids),
+    );
 }
 
 /// Converts one message's content into Anthropic content blocks. Our
@@ -366,6 +319,44 @@ mod tests {
                 {"type": "text", "text": "keep me"},
             ]),
             "the orphaned tool_result must be dropped, non-tool_result blocks kept"
+        );
+    }
+
+    #[test]
+    fn message_conversion_flushes_pending_tool_use_before_an_unrelated_user_message() {
+        // Matches repair_tool_result_history's more conservative rule: any
+        // message that isn't itself carrying the matching tool_result — not
+        // just the next assistant message — ends the window during which a
+        // pending tool_use can still be resolved. A stray user-role message
+        // with no tool_result at all (e.g. a queued follow-up landing before
+        // the tool actually finishes) must not let the pending id ride past
+        // it unflushed.
+        let messages = [
+            Message {
+                role: "assistant".to_string(),
+                content: json!([
+                    {"type": "tool_use", "id": "call_1", "name": "read_file", "input": {}},
+                ]),
+            },
+            Message {
+                role: "user".to_string(),
+                content: json!([{"type": "text", "text": "unrelated interruption"}]),
+            },
+        ];
+
+        let (_, out) = to_anthropic_messages(&messages);
+        assert_eq!(out.len(), 2);
+        assert_eq!(
+            out[1]["content"],
+            json!([
+                {
+                    "type": "tool_result",
+                    "tool_use_id": "call_1",
+                    "content": "Tool execution was interrupted before a result was recorded.",
+                    "is_error": true
+                },
+                {"type": "text", "text": "unrelated interruption"},
+            ])
         );
     }
 
