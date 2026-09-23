@@ -55,8 +55,50 @@ pub(crate) struct OpenAiApiError {
     error_code: Option<String>,
 }
 
+/// Scrubs DeepSeek control markup out of a live `content` delta stream.
+///
+/// This composes two independent buffering stages because they resolve
+/// different kinds of ambiguity:
+///
+/// - [`DeepseekLeadingThinkStage`] decides whether a *leading* `<think>`
+///   block is DeepSeek's hidden reasoning wrapper (hide it) or literal text
+///   the model happens to have written (show it verbatim) — that can only be
+///   decided once corroborating control evidence shows up anywhere in the
+///   message, or the stream ends.
+/// - [`DeepseekDsmlStage`] hides DeepSeek's inline DSML tool-call markup
+///   (`<｜DSML｜tool_calls>...`), which can appear anywhere in the stream, not
+///   just at the start. Unlike the think block, there is no evidence-vs-
+///   literal ambiguity here: an open tag is always held back until it either
+///   closes (and gets stripped) or the stream ends (and it is shown as-is,
+///   matching how a fully-buffered/non-streaming response is scrubbed).
 #[derive(Default)]
 pub(super) struct DeepseekTextStreamScrubber {
+    think: DeepseekLeadingThinkStage,
+    dsml: DeepseekDsmlStage,
+}
+
+impl DeepseekTextStreamScrubber {
+    pub(super) fn new(leading_think_is_control: bool) -> Self {
+        Self {
+            think: DeepseekLeadingThinkStage::new(leading_think_is_control),
+            dsml: DeepseekDsmlStage::default(),
+        }
+    }
+
+    pub(super) fn push(&mut self, delta: &str) -> String {
+        let stage_out = self.think.push(delta);
+        self.dsml.push(&stage_out)
+    }
+
+    pub(super) fn finish(&mut self) -> String {
+        let mut visible = self.dsml.push(&self.think.finish());
+        visible.push_str(&self.dsml.finish());
+        visible
+    }
+}
+
+#[derive(Default)]
+struct DeepseekLeadingThinkStage {
     state: DeepseekThinkStreamState,
     prefix_buffer: String,
     leading_think_is_control: bool,
@@ -70,15 +112,15 @@ enum DeepseekThinkStreamState {
     Done,
 }
 
-impl DeepseekTextStreamScrubber {
-    pub(super) fn new(leading_think_is_control: bool) -> Self {
+impl DeepseekLeadingThinkStage {
+    fn new(leading_think_is_control: bool) -> Self {
         Self {
             leading_think_is_control,
             ..Self::default()
         }
     }
 
-    pub(super) fn push(&mut self, delta: &str) -> String {
+    fn push(&mut self, delta: &str) -> String {
         match self.state {
             DeepseekThinkStreamState::AtStart => self.push_at_start(delta),
             DeepseekThinkStreamState::PendingLeadingThink => {
@@ -114,7 +156,7 @@ impl DeepseekTextStreamScrubber {
         self.finish()
     }
 
-    pub(super) fn finish(&mut self) -> String {
+    fn finish(&mut self) -> String {
         let buffered = std::mem::take(&mut self.prefix_buffer);
         self.state = DeepseekThinkStreamState::Done;
         if buffered.is_empty() {
@@ -123,6 +165,52 @@ impl DeepseekTextStreamScrubber {
         let has_control_evidence =
             self.leading_think_is_control || has_deepseek_control_evidence(&buffered);
         scrub_deepseek_visible_text(&buffered, has_control_evidence)
+    }
+}
+
+/// Buffers DeepSeek's inline `<｜DSML｜tool_calls>...` markup out of a live
+/// `content` delta stream, wherever in the stream it appears.
+#[derive(Default)]
+struct DeepseekDsmlStage {
+    raw_text: String,
+    last_visible: String,
+    /// `true` once `raw_text` no longer ends in an open/ambiguous DSML tag,
+    /// letting subsequent `<`-free deltas skip the rescan below.
+    settled: bool,
+}
+
+impl DeepseekDsmlStage {
+    fn push(&mut self, delta: &str) -> String {
+        if delta.is_empty() {
+            return String::new();
+        }
+        if self.settled && !delta.contains('<') {
+            self.raw_text.push_str(delta);
+            self.last_visible.push_str(delta);
+            return delta.to_string();
+        }
+
+        self.raw_text.push_str(delta);
+        let boundary = crate::llm::deepseek_dsml::pending_tool_call_boundary(&self.raw_text);
+        let emitted = self.flush_to(boundary.unwrap_or(self.raw_text.len()));
+        self.settled = boundary.is_none();
+        emitted
+    }
+
+    fn finish(&mut self) -> String {
+        self.flush_to(self.raw_text.len())
+    }
+
+    fn flush_to(&mut self, settled_len: usize) -> String {
+        let visible = crate::control_tokens::strip_deepseek_v4_dsml_control_blocks(
+            &self.raw_text[..settled_len],
+        );
+        let emitted = visible
+            .strip_prefix(self.last_visible.as_str())
+            .unwrap_or_default()
+            .to_string();
+        self.last_visible = visible.into_owned();
+        emitted
     }
 }
 

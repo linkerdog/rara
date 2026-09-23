@@ -1537,6 +1537,55 @@ fn deepseek_stream_scrubber_streams_after_think_when_thinking_is_enabled() {
 }
 
 #[test]
+fn deepseek_stream_scrubber_hides_mid_stream_dsml_tool_call_block() {
+    let mut scrubber = DeepseekTextStreamScrubber::default();
+
+    assert_eq!(
+        scrubber.push("Let me check that.\n"),
+        "Let me check that.\n"
+    );
+    assert_eq!(
+        scrubber.push("<｜DSML｜tool_calls>\n<｜DSML｜invoke name=\"read_file\">\n"),
+        ""
+    );
+    assert_eq!(
+        scrubber.push(
+            "<｜DSML｜parameter name=\"path\" string=\"true\">src/lib.rs</｜DSML｜parameter>\n"
+        ),
+        ""
+    );
+    assert_eq!(
+        scrubber.push("</｜DSML｜invoke>\n</｜DSML｜tool_calls>\nDone."),
+        "\nDone."
+    );
+    assert_eq!(scrubber.finish(), "");
+}
+
+#[test]
+fn deepseek_stream_scrubber_buffers_partial_dsml_open_tag_across_chunks() {
+    let mut scrubber = DeepseekTextStreamScrubber::default();
+
+    assert_eq!(scrubber.push("Before "), "Before ");
+    assert_eq!(scrubber.push("<｜DSML｜tool"), "");
+    assert_eq!(scrubber.push("_calls>"), "");
+    assert_eq!(
+        scrubber.push("<｜DSML｜invoke name=\"x\"><｜DSML｜parameter name=\"a\" string=\"true\">1</｜DSML｜parameter></｜DSML｜invoke>"),
+        ""
+    );
+    assert_eq!(scrubber.push("</｜DSML｜tool_calls>After"), "After");
+    assert_eq!(scrubber.finish(), "");
+}
+
+#[test]
+fn deepseek_stream_scrubber_shows_unclosed_dsml_tag_only_at_finish() {
+    let mut scrubber = DeepseekTextStreamScrubber::default();
+
+    assert_eq!(scrubber.push("Hello "), "Hello ");
+    assert_eq!(scrubber.push("<｜DSML｜tool_calls>\nstill going"), "");
+    assert_eq!(scrubber.finish(), "<｜DSML｜tool_calls>\nstill going");
+}
+
+#[test]
 fn deepseek_non_thinking_model_keeps_standard_openai_body() {
     let body = build_chat_completion_request_body(
         "deepseek-chat",
