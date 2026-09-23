@@ -19,8 +19,11 @@
 //! round trip requires the assistant's `thinking` block (with its
 //! `signature`) to be replayed on the next turn whenever tools are in play,
 //! exactly like `reasoning_content` on the chat/completions endpoint —
-//! [`to_anthropic_message_content`] reconstructs it from the
+//! [`messages::to_anthropic_messages`] reconstructs it from the
 //! `ContentBlock::ProviderMetadata` slot this backend writes on responses.
+
+mod messages;
+mod stream;
 
 use std::num::NonZeroU32;
 
@@ -30,15 +33,16 @@ use eventsource_stream::Eventsource;
 use secrecy::{ExposeSecret, SecretString};
 use serde_json::{Value, json};
 
+use self::messages::to_anthropic_messages;
+use self::stream::{AnthropicBlockAssembler, merge_usage, parse_anthropic_token_usage};
 use super::inference_transport::{finish_attempt, record_final_usage, record_usage, send_json};
-use super::openai_compatible::OpenAiCompatibleBackend;
+use super::openai_compatible::{OpenAiCompatibleBackend, fingerprint_request};
 use super::shared::{
     ContextBudget, LlmBackend, LlmStreamEvent, LlmTurnMetadata, ProviderCacheProfile,
-    extract_message_text, http_client_for_target, next_stream_item_with_idle_timeout,
+    http_client_for_target, next_stream_item_with_idle_timeout,
 };
 use crate::agent::Message;
-use crate::llm::{ContentBlock, LlmResponse, TokenUsage};
-use crate::model_context::{MODEL_CONTEXT_BLOCK_TYPE, model_context_text};
+use crate::llm::LlmResponse;
 use crate::model_observation::ModelRequestFingerprint;
 
 /// The only model DeepSeek's own reference harness routes through its
@@ -120,6 +124,8 @@ pub(crate) fn wrap_if_eligible(
             return Box::new(fallback);
         }
     };
+    let request_fingerprint_scope = uuid::Uuid::new_v4();
+    let request_fingerprint_salt = uuid::Uuid::new_v4();
     Box::new(DeepseekAnthropicBackend {
         client,
         api_key: config.api_key,
@@ -131,6 +137,8 @@ pub(crate) fn wrap_if_eligible(
         thinking: config.thinking,
         reasoning_effort: config.reasoning_effort,
         billing_provider: fallback.billing_provider(),
+        request_fingerprint_scope: request_fingerprint_scope.to_string(),
+        request_fingerprint_salt: *request_fingerprint_salt.as_bytes(),
         fallback,
     })
 }
@@ -149,6 +157,13 @@ pub(crate) struct DeepseekAnthropicBackend {
     /// attempts price against the same provider/model tariff as
     /// `chat/completions`, rather than reporting as unpriced.
     billing_provider: String,
+    /// Own scope/salt (distinct from `fallback`'s, which has no getter):
+    /// fingerprints must be built from this backend's own Anthropic-shaped
+    /// request body, not `fallback`'s OpenAI-compatible one, since a
+    /// fingerprint from a body that is never actually sent would make
+    /// cache-locality reports meaningless for this path.
+    request_fingerprint_scope: String,
+    request_fingerprint_salt: [u8; 16],
     fallback: OpenAiCompatibleBackend,
 }
 
@@ -453,341 +468,19 @@ impl LlmBackend for DeepseekAnthropicBackend {
         &self,
         messages: &[Message],
         tools: &[Value],
-        metadata: &LlmTurnMetadata,
+        _metadata: &LlmTurnMetadata,
     ) -> Option<ModelRequestFingerprint> {
         self.fallback
-            .request_cache_fingerprint(messages, tools, metadata)
+            .cache_profile()
+            .cache_usage_accounting
+            .then(|| {
+                fingerprint_request(
+                    &self.request_body(messages, tools, true),
+                    &self.request_fingerprint_scope,
+                    &self.request_fingerprint_salt,
+                )
+            })
     }
-}
-
-/// Accumulates one streamed Anthropic `content_block_*` sequence into our
-/// internal [`ContentBlock`] vocabulary, in the order blocks close — which is
-/// also their natural generation order, so no reordering is needed the way
-/// `chat/completions` needs it for DeepSeek's inline DSML fallback.
-#[derive(Default)]
-struct AnthropicBlockAssembler {
-    in_progress: std::collections::HashMap<u64, PendingBlock>,
-    finished: Vec<ContentBlock>,
-}
-
-enum PendingBlock {
-    Text(String),
-    Thinking {
-        thinking: String,
-        signature: String,
-    },
-    ToolUse {
-        id: String,
-        name: String,
-        partial_json: String,
-    },
-}
-
-impl AnthropicBlockAssembler {
-    /// Seeds a pending block from its `content_block_start` payload and
-    /// returns any initial non-empty text/thinking it already carries, so
-    /// the caller can forward it as a delta. Anthropic's own protocol
-    /// always starts these blocks empty and streams content only through
-    /// later `content_block_delta` events, but nothing in the wire format
-    /// guarantees that, so this seeds from whatever the start payload
-    /// actually carries instead of assuming it is always empty.
-    fn start(&mut self, payload: &Value) -> Result<(Option<String>, Option<String>)> {
-        let Some(index) = payload.get("index").and_then(Value::as_u64) else {
-            return Ok((None, None));
-        };
-        let block = payload.get("content_block");
-        let mut initial_text = None;
-        let mut initial_thinking = None;
-        let pending = match block.and_then(|b| b.get("type")).and_then(Value::as_str) {
-            Some("text") => {
-                let text = block
-                    .and_then(|b| b.get("text"))
-                    .and_then(Value::as_str)
-                    .unwrap_or_default();
-                if !text.is_empty() {
-                    initial_text = Some(text.to_string());
-                }
-                PendingBlock::Text(text.to_string())
-            }
-            Some("thinking") => {
-                let thinking = block
-                    .and_then(|b| b.get("thinking"))
-                    .and_then(Value::as_str)
-                    .unwrap_or_default();
-                let signature = block
-                    .and_then(|b| b.get("signature"))
-                    .and_then(Value::as_str)
-                    .unwrap_or_default();
-                if !thinking.is_empty() {
-                    initial_thinking = Some(thinking.to_string());
-                }
-                PendingBlock::Thinking {
-                    thinking: thinking.to_string(),
-                    signature: signature.to_string(),
-                }
-            }
-            Some("tool_use") => {
-                let id = block
-                    .and_then(|b| b.get("id"))
-                    .and_then(Value::as_str)
-                    .filter(|id| !id.is_empty())
-                    .ok_or_else(|| {
-                        anyhow!(
-                            "DeepSeek Anthropic-compatible stream content_block_start[{index}] tool_use missing id"
-                        )
-                    })?
-                    .to_string();
-                let name = block
-                    .and_then(|b| b.get("name"))
-                    .and_then(Value::as_str)
-                    .filter(|name| !name.is_empty())
-                    .ok_or_else(|| {
-                        anyhow!(
-                            "DeepSeek Anthropic-compatible stream content_block_start[{index}] tool_use missing name"
-                        )
-                    })?
-                    .to_string();
-                let partial_json = block
-                    .and_then(|b| b.get("input"))
-                    .filter(|input| input.as_object().is_some_and(|object| !object.is_empty()))
-                    .map(ToString::to_string)
-                    .unwrap_or_default();
-                PendingBlock::ToolUse {
-                    id,
-                    name,
-                    partial_json,
-                }
-            }
-            _ => return Ok((None, None)),
-        };
-        self.in_progress.insert(index, pending);
-        Ok((initial_text, initial_thinking))
-    }
-
-    fn delta_text(&mut self, payload: &Value) -> Option<String> {
-        let index = payload.get("index").and_then(Value::as_u64)?;
-        let delta = payload.get("delta")?;
-        if delta.get("type").and_then(Value::as_str) != Some("text_delta") {
-            return None;
-        }
-        let text = delta.get("text").and_then(Value::as_str)?.to_string();
-        if let Some(PendingBlock::Text(buffer)) = self.in_progress.get_mut(&index) {
-            buffer.push_str(&text);
-        }
-        Some(text)
-    }
-
-    fn delta_thinking(&mut self, payload: &Value) -> Option<String> {
-        let index = payload.get("index").and_then(Value::as_u64)?;
-        let delta = payload.get("delta")?;
-        match delta.get("type").and_then(Value::as_str) {
-            Some("thinking_delta") => {
-                let text = delta.get("thinking").and_then(Value::as_str)?.to_string();
-                if let Some(PendingBlock::Thinking { thinking, .. }) =
-                    self.in_progress.get_mut(&index)
-                {
-                    thinking.push_str(&text);
-                }
-                Some(text)
-            }
-            Some("signature_delta") => {
-                let signature = delta.get("signature").and_then(Value::as_str)?;
-                if let Some(PendingBlock::Thinking { signature: sig, .. }) =
-                    self.in_progress.get_mut(&index)
-                {
-                    sig.push_str(signature);
-                }
-                None
-            }
-            Some("input_json_delta") => {
-                let partial = delta.get("partial_json").and_then(Value::as_str)?;
-                if let Some(PendingBlock::ToolUse { partial_json, .. }) =
-                    self.in_progress.get_mut(&index)
-                {
-                    partial_json.push_str(partial);
-                }
-                None
-            }
-            _ => None,
-        }
-    }
-
-    fn stop(&mut self, payload: &Value) -> Result<()> {
-        let Some(index) = payload.get("index").and_then(Value::as_u64) else {
-            return Ok(());
-        };
-        let Some(pending) = self.in_progress.remove(&index) else {
-            return Ok(());
-        };
-        let block = match pending {
-            PendingBlock::Text(text) => (!text.is_empty()).then(|| ContentBlock::Text { text }),
-            PendingBlock::Thinking {
-                thinking,
-                signature,
-            } => Some(ContentBlock::ProviderMetadata {
-                provider: THINKING_PROVIDER.to_string(),
-                key: THINKING_KEY.to_string(),
-                value: json!({"thinking": thinking, "signature": signature}),
-            }),
-            PendingBlock::ToolUse {
-                id,
-                name,
-                partial_json,
-            } => Some(ContentBlock::ToolUse {
-                id,
-                name,
-                input: parse_tool_use_input(&partial_json)?,
-            }),
-        };
-        if let Some(block) = block {
-            self.finished.push(block);
-        }
-        Ok(())
-    }
-
-    fn into_content(self) -> Vec<ContentBlock> {
-        self.finished
-    }
-}
-
-/// Unlike `chat/completions`' `parse_tool_arguments` (which this mirrors),
-/// truncated or malformed accumulated JSON is propagated as an error rather
-/// than silently substituted with `{}` — an empty-argument tool call is not
-/// a safe stand-in for a decoding failure.
-fn parse_tool_use_input(partial_json: &str) -> Result<Value> {
-    let trimmed = partial_json.trim();
-    if trimmed.is_empty() {
-        return Ok(json!({}));
-    }
-    serde_json::from_str(trimmed).map_err(|error| {
-        anyhow!(
-            "DeepSeek Anthropic-compatible stream tool_use arguments are not valid JSON: {error}"
-        )
-    })
-}
-
-/// Merges an Anthropic-style usage payload onto a possibly-partial prior
-/// one. DeepSeek's `message_delta.usage` has been observed carrying a full
-/// snapshot (superseding `message_start`'s), but Anthropic's own documented
-/// behavior only guarantees `output_tokens` there; merging field-by-field
-/// is correct either way instead of assuming which fields a given event
-/// actually repeats.
-fn merge_usage(base: Option<Value>, update: &Value) -> Value {
-    match (base, update) {
-        (Some(Value::Object(mut existing)), Value::Object(new_fields)) => {
-            existing.extend(new_fields.clone());
-            Value::Object(existing)
-        }
-        _ => update.clone(),
-    }
-}
-
-fn parse_anthropic_token_usage(usage: &Value) -> TokenUsage {
-    let field = |name: &str| usage.get(name).and_then(Value::as_u64).unwrap_or(0) as u32;
-    TokenUsage {
-        input_tokens: field("input_tokens"),
-        output_tokens: field("output_tokens"),
-        cache_hit_tokens: field("cache_read_input_tokens"),
-        cache_miss_tokens: field("cache_creation_input_tokens"),
-    }
-}
-
-fn to_anthropic_messages(messages: &[Message]) -> (Option<String>, Vec<Value>) {
-    let mut system_parts = Vec::new();
-    let mut out = Vec::new();
-    for message in messages {
-        if message.role == "system" {
-            // System history is not always a plain string: compaction
-            // boundaries and carry-over notes store it as an array of text
-            // blocks (see `build_compact_boundary_message`), same as user
-            // messages can.
-            if let Some(text) = extract_message_text(Some(&message.content))
-                && !text.trim().is_empty()
-            {
-                system_parts.push(text);
-            }
-            continue;
-        }
-        let role = if message.role == "assistant" {
-            "assistant"
-        } else {
-            "user"
-        };
-        let content = to_anthropic_message_content(&message.content);
-        let is_empty = match &content {
-            Value::String(text) => text.trim().is_empty(),
-            Value::Array(items) => items.is_empty(),
-            _ => false,
-        };
-        if is_empty {
-            continue;
-        }
-        out.push(json!({"role": role, "content": content}));
-    }
-    let system = (!system_parts.is_empty()).then(|| system_parts.join("\n\n"));
-    (system, out)
-}
-
-/// Converts one message's content into Anthropic content blocks. Our
-/// internal block shapes (`text`, `tool_use`, `tool_result`) already match
-/// Anthropic's wire format directly; the one reconstruction needed is a
-/// `thinking` block (with its `signature`) from the `ProviderMetadata` slot
-/// this backend's own responses populate, which DeepSeek requires replayed
-/// on every subsequent turn while tools are in play.
-fn to_anthropic_message_content(content: &Value) -> Value {
-    if let Some(text) = content.as_str() {
-        return Value::String(text.to_string());
-    }
-    let Some(items) = content.as_array() else {
-        return content.clone();
-    };
-
-    let mut thinking_block = None;
-    let mut blocks = Vec::with_capacity(items.len());
-    for item in items {
-        match item.get("type").and_then(Value::as_str) {
-            Some("text") => blocks.push(item.clone()),
-            Some(MODEL_CONTEXT_BLOCK_TYPE) => {
-                if let Some(text) = model_context_text(item) {
-                    blocks.push(json!({"type": "text", "text": text}));
-                }
-            }
-            Some("tool_use") => blocks.push(json!({
-                "type": "tool_use",
-                "id": item.get("id").and_then(Value::as_str).unwrap_or_default(),
-                "name": item.get("name").and_then(Value::as_str).unwrap_or_default(),
-                "input": item.get("input").cloned().unwrap_or_else(|| json!({})),
-            })),
-            Some("tool_result") => {
-                let mut block = json!({
-                    "type": "tool_result",
-                    "tool_use_id": item.get("tool_use_id").and_then(Value::as_str).unwrap_or_default(),
-                    "content": item.get("content").and_then(Value::as_str).unwrap_or_default(),
-                });
-                if item.get("is_error").and_then(Value::as_bool) == Some(true) {
-                    block["is_error"] = json!(true);
-                }
-                blocks.push(block);
-            }
-            Some("provider_metadata")
-                if item.get("provider").and_then(Value::as_str) == Some(THINKING_PROVIDER)
-                    && item.get("key").and_then(Value::as_str) == Some(THINKING_KEY) =>
-            {
-                if let Some(value) = item.get("value") {
-                    thinking_block = Some(json!({
-                        "type": "thinking",
-                        "thinking": value.get("thinking").and_then(Value::as_str).unwrap_or_default(),
-                        "signature": value.get("signature").and_then(Value::as_str).unwrap_or_default(),
-                    }));
-                }
-            }
-            _ => {}
-        }
-    }
-    if let Some(block) = thinking_block {
-        blocks.insert(0, block);
-    }
-    Value::Array(blocks)
 }
 
 #[cfg(test)]
@@ -809,6 +502,8 @@ mod tests {
             thinking,
             reasoning_effort: reasoning_effort.map(str::to_string),
             billing_provider: "DeepSeek".to_string(),
+            request_fingerprint_scope: "test-scope".to_string(),
+            request_fingerprint_salt: [0u8; 16],
             fallback: OpenAiCompatibleBackend::new(
                 None,
                 "https://api.deepseek.com/v1".to_string(),
@@ -876,207 +571,5 @@ mod tests {
                 "expected {rejected} to stay on chat/completions"
             );
         }
-    }
-
-    #[test]
-    fn message_conversion_reconstructs_leading_thinking_block_from_provider_metadata() {
-        let messages = [Message {
-            role: "assistant".to_string(),
-            content: json!([
-                {"type": "provider_metadata", "provider": "deepseek", "key": "thinking",
-                 "value": {"thinking": "reasoning", "signature": "sig-1"}},
-                {"type": "text", "text": "answer"},
-                {"type": "tool_use", "id": "call_1", "name": "get_weather", "input": {"city": "Paris"}},
-            ]),
-        }];
-
-        let (system, out) = to_anthropic_messages(&messages);
-        assert_eq!(system, None);
-        assert_eq!(
-            out[0]["content"],
-            json!([
-                {"type": "thinking", "thinking": "reasoning", "signature": "sig-1"},
-                {"type": "text", "text": "answer"},
-                {"type": "tool_use", "id": "call_1", "name": "get_weather", "input": {"city": "Paris"}},
-            ])
-        );
-    }
-
-    #[test]
-    fn message_conversion_folds_tool_results_into_user_role() {
-        let messages = [Message {
-            role: "user".to_string(),
-            content: json!([
-                {"type": "tool_result", "tool_use_id": "call_1", "content": "18C, cloudy"},
-            ]),
-        }];
-
-        let (_, out) = to_anthropic_messages(&messages);
-        assert_eq!(out[0]["role"], "user");
-        assert_eq!(
-            out[0]["content"],
-            json!([{"type": "tool_result", "tool_use_id": "call_1", "content": "18C, cloudy"}])
-        );
-    }
-
-    #[test]
-    fn message_conversion_collects_system_text() {
-        let messages = [Message {
-            role: "system".to_string(),
-            content: json!("be helpful"),
-        }];
-        let (system, out) = to_anthropic_messages(&messages);
-        assert_eq!(system, Some("be helpful".to_string()));
-        assert!(out.is_empty());
-    }
-
-    #[test]
-    fn block_assembler_separates_thinking_text_and_tool_use_by_construction() -> Result<()> {
-        let mut assembler = AnthropicBlockAssembler::default();
-        assembler.start(&json!({"index": 0, "content_block": {"type": "thinking", "thinking": "", "signature": ""}}))?;
-        assert_eq!(
-            assembler.delta_thinking(
-                &json!({"index": 0, "delta": {"type": "thinking_delta", "thinking": "hmm"}})
-            ),
-            Some("hmm".to_string())
-        );
-        assembler.delta_thinking(
-            &json!({"index": 0, "delta": {"type": "signature_delta", "signature": "sig-1"}}),
-        );
-        assembler.stop(&json!({"index": 0}))?;
-
-        assembler.start(&json!({"index": 1, "content_block": {"type": "text", "text": ""}}))?;
-        assert_eq!(
-            assembler.delta_text(
-                &json!({"index": 1, "delta": {"type": "text_delta", "text": "Let me check.\n"}})
-            ),
-            Some("Let me check.\n".to_string())
-        );
-        assembler.stop(&json!({"index": 1}))?;
-
-        assembler.start(&json!({"index": 2, "content_block": {"type": "tool_use", "id": "call_1", "name": "get_weather", "input": {}}}))?;
-        for chunk in ["{", "\"city\"", ":", "\"Paris\"", "}"] {
-            assembler.delta_thinking(
-                &json!({"index": 2, "delta": {"type": "input_json_delta", "partial_json": chunk}}),
-            );
-        }
-        assembler.stop(&json!({"index": 2}))?;
-
-        let content = assembler.into_content();
-        assert!(matches!(
-            &content[0],
-            ContentBlock::ProviderMetadata { provider, key, value }
-                if provider == "deepseek" && key == "thinking"
-                    && value["thinking"] == "hmm" && value["signature"] == "sig-1"
-        ));
-        assert!(matches!(&content[1], ContentBlock::Text { text } if text == "Let me check.\n"));
-        assert!(matches!(
-            &content[2],
-            ContentBlock::ToolUse { id, name, input }
-                if id == "call_1" && name == "get_weather" && input["city"] == "Paris"
-        ));
-        Ok(())
-    }
-
-    #[test]
-    fn block_assembler_seeds_and_emits_non_empty_initial_content_block_start() -> Result<()> {
-        let mut assembler = AnthropicBlockAssembler::default();
-        let (initial_text, initial_thinking) = assembler.start(
-            &json!({"index": 0, "content_block": {"type": "thinking", "thinking": "already here", "signature": "sig-0"}}),
-        )?;
-        assert_eq!(initial_thinking, Some("already here".to_string()));
-        assert_eq!(initial_text, None);
-        assembler.stop(&json!({"index": 0}))?;
-
-        let (initial_text, _) = assembler.start(
-            &json!({"index": 1, "content_block": {"type": "text", "text": "partial answer"}}),
-        )?;
-        assert_eq!(initial_text, Some("partial answer".to_string()));
-        assembler.stop(&json!({"index": 1}))?;
-
-        assembler.start(&json!({
-            "index": 2,
-            "content_block": {"type": "tool_use", "id": "call_1", "name": "get_weather", "input": {"city": "Paris"}}
-        }))?;
-        assembler.stop(&json!({"index": 2}))?;
-
-        let content = assembler.into_content();
-        assert!(matches!(
-            &content[0],
-            ContentBlock::ProviderMetadata { key, value, .. }
-                if key == "thinking" && value["thinking"] == "already here"
-        ));
-        assert!(matches!(&content[1], ContentBlock::Text { text } if text == "partial answer"));
-        assert!(matches!(
-            &content[2],
-            ContentBlock::ToolUse { input, .. } if input["city"] == "Paris"
-        ));
-        Ok(())
-    }
-
-    #[test]
-    fn block_assembler_rejects_tool_use_missing_id_or_name() {
-        let mut assembler = AnthropicBlockAssembler::default();
-        assert!(
-            assembler
-                .start(&json!({"index": 0, "content_block": {"type": "tool_use", "id": "", "name": "get_weather"}}))
-                .is_err()
-        );
-        assert!(
-            assembler
-                .start(&json!({"index": 0, "content_block": {"type": "tool_use", "id": "call_1"}}))
-                .is_err()
-        );
-    }
-
-    #[test]
-    fn block_assembler_propagates_malformed_tool_use_json_instead_of_defaulting() -> Result<()> {
-        let mut assembler = AnthropicBlockAssembler::default();
-        assembler.start(&json!({"index": 0, "content_block": {"type": "tool_use", "id": "call_1", "name": "get_weather"}}))?;
-        assembler.delta_thinking(
-            &json!({"index": 0, "delta": {"type": "input_json_delta", "partial_json": "{\"city\": \"Par"}}),
-        );
-        assert!(assembler.stop(&json!({"index": 0})).is_err());
-        Ok(())
-    }
-
-    #[test]
-    fn usage_merges_message_start_input_with_message_delta_output() {
-        let after_start = merge_usage(
-            None,
-            &json!({"input_tokens": 301, "cache_read_input_tokens": 0, "output_tokens": 0}),
-        );
-        let merged = merge_usage(
-            Some(after_start),
-            &json!({"output_tokens": 49, "cache_read_input_tokens": 128}),
-        );
-        assert_eq!(merged["input_tokens"], 301);
-        assert_eq!(merged["output_tokens"], 49);
-        assert_eq!(merged["cache_read_input_tokens"], 128);
-    }
-
-    #[test]
-    fn parses_anthropic_shaped_usage() {
-        let usage = parse_anthropic_token_usage(&json!({
-            "input_tokens": 200, "output_tokens": 55,
-            "cache_read_input_tokens": 128, "cache_creation_input_tokens": 0
-        }));
-        assert_eq!(usage.input_tokens, 200);
-        assert_eq!(usage.output_tokens, 55);
-        assert_eq!(usage.cache_hit_tokens, 128);
-        assert_eq!(usage.cache_miss_tokens, 0);
-    }
-
-    #[test]
-    fn message_conversion_renders_array_shaped_system_content_from_compaction() {
-        let messages = [Message {
-            role: "system".to_string(),
-            content: json!([{"type": "text", "text": "COMPACTION BOUNDARY: carried-over summary"}]),
-        }];
-        let (system, _) = to_anthropic_messages(&messages);
-        assert_eq!(
-            system,
-            Some("COMPACTION BOUNDARY: carried-over summary".to_string())
-        );
     }
 }

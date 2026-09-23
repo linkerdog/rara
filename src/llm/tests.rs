@@ -1598,6 +1598,27 @@ fn deepseek_stream_scrubber_settled_state_passes_unrelated_angle_brackets_throug
 }
 
 #[test]
+fn deepseek_stream_scrubber_settled_state_still_hides_a_complete_block_delivered_whole() {
+    let mut scrubber = DeepseekTextStreamScrubber::default();
+    assert_eq!(
+        scrubber.push("Some code: Vec<String>, "),
+        "Some code: Vec<String>, "
+    );
+    // A single delta carrying an entire open+close DSML block (as a
+    // provider might batch a short tool call into one SSE chunk) must not
+    // slip through the settled-state fast path just because
+    // `pending_tool_call_boundary` reports nothing "pending" — a complete
+    // block isn't pending, but it still needs to be scrubbed out.
+    assert_eq!(
+        scrubber.push(
+            "<｜DSML｜tool_calls>\n<｜DSML｜invoke name=\"x\"><｜DSML｜parameter name=\"a\" string=\"true\">1</｜DSML｜parameter></｜DSML｜invoke>\n</｜DSML｜tool_calls>After"
+        ),
+        "After"
+    );
+    assert_eq!(scrubber.finish(), "");
+}
+
+#[test]
 fn deepseek_stream_scrubber_windowed_settle_check_still_catches_marker_split_after_unrelated_text()
 {
     let mut scrubber = DeepseekTextStreamScrubber::default();

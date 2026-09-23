@@ -28,7 +28,7 @@ pub(super) fn apply_deepseek_user_id(
     }
 }
 
-pub(super) fn fingerprint_request(
+pub(in crate::llm) fn fingerprint_request(
     body: &Value,
     hash_scope: &str,
     hash_salt: &[u8],

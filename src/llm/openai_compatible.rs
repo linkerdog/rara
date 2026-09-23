@@ -21,9 +21,8 @@ use secrecy::{ExposeSecret, SecretString};
 use serde_json::{Value, json};
 use uuid::Uuid;
 
-use self::cache_observation::{
-    apply_deepseek_user_id, enable_streaming_usage, fingerprint_request,
-};
+pub(super) use self::cache_observation::fingerprint_request;
+use self::cache_observation::{apply_deepseek_user_id, enable_streaming_usage};
 #[cfg(test)]
 pub(super) use self::protocol::to_openai_messages;
 pub(super) use self::protocol::{
@@ -220,7 +219,14 @@ impl DeepseekDsmlStage {
             self.raw_text.len().saturating_sub(DSML_TAIL_WINDOW_BYTES),
         );
         let window = format!("{}{delta}", &self.raw_text[tail_start..]);
-        crate::llm::deepseek_dsml::pending_tool_call_boundary(&window).is_some()
+        // `pending_tool_call_boundary` alone is not enough here: it answers
+        // "is something still unresolved", which is `None` for a *complete*
+        // `<｜DSML｜tool_calls>...</｜DSML｜tool_calls>` block that arrived
+        // whole in one delta — exactly the case this fast path must not
+        // take, since that block still needs to be scrubbed out. Checking
+        // for the marker's presence at all catches that case too.
+        crate::llm::deepseek_dsml::contains_dsml(&window)
+            || crate::llm::deepseek_dsml::pending_tool_call_boundary(&window).is_some()
     }
 
     fn finish(&mut self) -> String {
