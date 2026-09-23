@@ -31,6 +31,7 @@ mod types;
 
 pub use self::bedrock::BedrockBackend;
 pub use self::cache_policy::AnthropicCacheTtl;
+pub(crate) use self::deepseek_anthropic::DeepseekAnthropicConfig;
 pub(crate) use self::deepseek_anthropic::wrap_if_eligible as wrap_deepseek_anthropic_if_eligible;
 pub use self::gemini::GeminiBackend;
 pub use self::ollama::OllamaBackend;

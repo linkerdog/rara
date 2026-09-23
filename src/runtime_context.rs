@@ -19,8 +19,9 @@ use crate::google_oauth::GoogleOAuthManager;
 use crate::hook_registry::HookRegistry;
 use crate::hook_runtime::HookRuntime;
 use crate::llm::{
-    BedrockBackend, CodexBackend, GeminiBackend, LlmBackend, Message, MockLlm, OllamaBackend,
-    OpenAiCompatibleBackend, fetch_model_context_window, wrap_deepseek_anthropic_if_eligible,
+    BedrockBackend, CodexBackend, DeepseekAnthropicConfig, GeminiBackend, LlmBackend, Message,
+    MockLlm, OllamaBackend, OpenAiCompatibleBackend, fetch_model_context_window,
+    wrap_deepseek_anthropic_if_eligible,
 };
 use crate::local_backend::{LocalLlmBackend, LocalProgressReporter};
 use crate::lsp_manager::LspManager;
@@ -795,8 +796,14 @@ async fn build_backend_with_progress_for_home(
         .with_auxiliary_model(config.auxiliary_model.clone());
         return Ok(wrap_deepseek_anthropic_if_eligible(
             backend,
-            config.api_key_secret(),
-            config.thinking,
+            DeepseekAnthropicConfig {
+                api_key: config.api_key_secret(),
+                thinking: config.thinking,
+                reasoning_effort: config.reasoning_effort.clone(),
+                max_output_tokens: model.limit.output.and_then(std::num::NonZeroU32::new),
+                temperature: model.options.temperature,
+                top_p: model.options.top_p,
+            },
             kind,
             &base_url,
             &model_name,
@@ -952,8 +959,12 @@ async fn build_openai_compatible_backend(
     }
     Ok(wrap_deepseek_anthropic_if_eligible(
         backend,
-        config.api_key_secret(),
-        config.thinking,
+        DeepseekAnthropicConfig {
+            api_key: config.api_key_secret(),
+            thinking: config.thinking,
+            reasoning_effort: config.reasoning_effort.clone(),
+            ..Default::default()
+        },
         kind,
         &base_url,
         &model,

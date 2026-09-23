@@ -65,6 +65,9 @@ future appserver integrations can use.
   the opt-in official DeepSeek AB/BA measurement contract.
 - `provider-registry.md`: layered provider/model documents, compatible service
   presets, credential isolation, and model selection identity.
+- `deepseek-anthropic-route.md`: `deepseek-flash` routed to DeepSeek's
+  Anthropic Messages-compatible endpoint, eligibility gating, and the
+  generalized chat/completions DSML streaming scrubber it backstops.
 - `local-embedding-runtimes.md`: local Python model server, macOS MLX/Qwen3
   backend, portable FastEmbed/ONNX backend, and server safety contract.
 - `workspace-memory-cache.md`: prompt-source and workspace-memory cache
