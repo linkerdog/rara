@@ -50,16 +50,25 @@ pub(super) fn to_anthropic_messages(messages: &[Message]) -> (Option<String>, Ve
         }
         // Anthropic requires every `tool_use` in a turn to have its
         // `tool_result` in the very next message. The agent loop records one
-        // turn's parallel tool results as several consecutive same-role
+        // turn's parallel tool results as several consecutive `user`
         // `Message`s (one `tool_result` block each — see
         // `execute_tool_calls`/`tool_result_message`), followed by a runtime
         // continuation nudge, also `user`-role. `chat/completions` tolerates
         // that shape (it correlates tool results by id, not position), but
-        // Anthropic does not, so runs of the same role must be coalesced
-        // into one message here or a multi-tool-call turn gets rejected
+        // Anthropic does not, so runs of consecutive `user` messages are
+        // coalesced into one here or a multi-tool-call turn gets rejected
         // with "tool_use ids were found without tool_result blocks
-        // immediately after".
-        push_or_merge(&mut out, role, blocks);
+        // immediately after". Assistant messages are never coalesced this
+        // way: `to_anthropic_message_content` places a replayed `thinking`
+        // block first in *its own* message, and merging a later assistant
+        // message's blocks after an earlier one's would bury that block
+        // instead of keeping it first, breaking the thinking-signature
+        // replay contract.
+        if role == "user" {
+            push_or_merge(&mut out, role, blocks);
+        } else if !blocks.is_empty() {
+            out.push(json!({"role": role, "content": Value::Array(blocks)}));
+        }
     }
     flush_missing_tool_results(&mut out, &mut pending_tool_use_ids);
 
@@ -205,6 +214,45 @@ fn to_anthropic_message_content(content: &Value) -> Value {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn message_conversion_never_merges_consecutive_assistant_messages() {
+        // Coalescing exists only to satisfy Anthropic's tool_result
+        // adjacency rule for `user` messages. Merging assistant messages
+        // instead would bury a later message's leading `thinking` block
+        // (which `to_anthropic_message_content` always places first in its
+        // own message) behind the earlier message's content, breaking the
+        // thinking-signature replay contract.
+        let messages = [
+            Message {
+                role: "assistant".to_string(),
+                content: json!([{"type": "text", "text": "first"}]),
+            },
+            Message {
+                role: "assistant".to_string(),
+                content: json!([
+                    {"type": "provider_metadata", "provider": "deepseek", "key": "thinking",
+                     "value": {"thinking": "reasoning", "signature": "sig-1"}},
+                    {"type": "text", "text": "second"},
+                ]),
+            },
+        ];
+
+        let (_, out) = to_anthropic_messages(&messages);
+        assert_eq!(
+            out.len(),
+            2,
+            "consecutive assistant messages must stay separate"
+        );
+        assert_eq!(
+            out[0]["content"],
+            json!([{"type": "text", "text": "first"}])
+        );
+        assert_eq!(
+            out[1]["content"][0]["type"], "thinking",
+            "the second message's thinking block must stay first in its own message"
+        );
+    }
 
     #[test]
     fn message_conversion_reconstructs_leading_thinking_block_from_provider_metadata() {
