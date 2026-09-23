@@ -21,9 +21,8 @@ use secrecy::{ExposeSecret, SecretString};
 use serde_json::{Value, json};
 use uuid::Uuid;
 
-use self::cache_observation::{
-    apply_deepseek_user_id, enable_streaming_usage, fingerprint_request,
-};
+pub(super) use self::cache_observation::fingerprint_request;
+use self::cache_observation::{apply_deepseek_user_id, enable_streaming_usage};
 #[cfg(test)]
 pub(super) use self::protocol::to_openai_messages;
 pub(super) use self::protocol::{
@@ -55,8 +54,50 @@ pub(crate) struct OpenAiApiError {
     error_code: Option<String>,
 }
 
+/// Scrubs DeepSeek control markup out of a live `content` delta stream.
+///
+/// This composes two independent buffering stages because they resolve
+/// different kinds of ambiguity:
+///
+/// - [`DeepseekLeadingThinkStage`] decides whether a *leading* `<think>`
+///   block is DeepSeek's hidden reasoning wrapper (hide it) or literal text
+///   the model happens to have written (show it verbatim) — that can only be
+///   decided once corroborating control evidence shows up anywhere in the
+///   message, or the stream ends.
+/// - [`DeepseekDsmlStage`] hides DeepSeek's inline DSML tool-call markup
+///   (`<｜DSML｜tool_calls>...`), which can appear anywhere in the stream, not
+///   just at the start. Unlike the think block, there is no evidence-vs-
+///   literal ambiguity here: an open tag is always held back until it either
+///   closes (and gets stripped) or the stream ends (and it is shown as-is,
+///   matching how a fully-buffered/non-streaming response is scrubbed).
 #[derive(Default)]
 pub(super) struct DeepseekTextStreamScrubber {
+    think: DeepseekLeadingThinkStage,
+    dsml: DeepseekDsmlStage,
+}
+
+impl DeepseekTextStreamScrubber {
+    pub(super) fn new(leading_think_is_control: bool) -> Self {
+        Self {
+            think: DeepseekLeadingThinkStage::new(leading_think_is_control),
+            dsml: DeepseekDsmlStage::default(),
+        }
+    }
+
+    pub(super) fn push(&mut self, delta: &str) -> String {
+        let stage_out = self.think.push(delta);
+        self.dsml.push(&stage_out)
+    }
+
+    pub(super) fn finish(&mut self) -> String {
+        let mut visible = self.dsml.push(&self.think.finish());
+        visible.push_str(&self.dsml.finish());
+        visible
+    }
+}
+
+#[derive(Default)]
+struct DeepseekLeadingThinkStage {
     state: DeepseekThinkStreamState,
     prefix_buffer: String,
     leading_think_is_control: bool,
@@ -70,15 +111,15 @@ enum DeepseekThinkStreamState {
     Done,
 }
 
-impl DeepseekTextStreamScrubber {
-    pub(super) fn new(leading_think_is_control: bool) -> Self {
+impl DeepseekLeadingThinkStage {
+    fn new(leading_think_is_control: bool) -> Self {
         Self {
             leading_think_is_control,
             ..Self::default()
         }
     }
 
-    pub(super) fn push(&mut self, delta: &str) -> String {
+    fn push(&mut self, delta: &str) -> String {
         match self.state {
             DeepseekThinkStreamState::AtStart => self.push_at_start(delta),
             DeepseekThinkStreamState::PendingLeadingThink => {
@@ -114,7 +155,7 @@ impl DeepseekTextStreamScrubber {
         self.finish()
     }
 
-    pub(super) fn finish(&mut self) -> String {
+    fn finish(&mut self) -> String {
         let buffered = std::mem::take(&mut self.prefix_buffer);
         self.state = DeepseekThinkStreamState::Done;
         if buffered.is_empty() {
@@ -124,6 +165,95 @@ impl DeepseekTextStreamScrubber {
             self.leading_think_is_control || has_deepseek_control_evidence(&buffered);
         scrub_deepseek_visible_text(&buffered, has_control_evidence)
     }
+}
+
+/// Buffers DeepSeek's inline `<｜DSML｜tool_calls>...` markup out of a live
+/// `content` delta stream, wherever in the stream it appears.
+#[derive(Default)]
+struct DeepseekDsmlStage {
+    raw_text: String,
+    last_visible: String,
+    /// `true` once `raw_text` no longer ends in an open/ambiguous DSML tag,
+    /// letting subsequent `<`-free deltas skip the rescan below.
+    settled: bool,
+}
+
+/// Bytes of trailing context checked for a possible DSML marker start, long
+/// enough to hold the longest tag this module recognizes
+/// (`<｜DSML｜tool_calls>`, 22 bytes) with margin.
+const DSML_TAIL_WINDOW_BYTES: usize = 32;
+
+impl DeepseekDsmlStage {
+    fn push(&mut self, delta: &str) -> String {
+        if delta.is_empty() {
+            return String::new();
+        }
+        if self.settled && !self.could_extend_dsml_marker(delta) {
+            self.raw_text.push_str(delta);
+            self.last_visible.push_str(delta);
+            return delta.to_string();
+        }
+
+        self.raw_text.push_str(delta);
+        let boundary = crate::llm::deepseek_dsml::pending_tool_call_boundary(&self.raw_text);
+        let emitted = self.flush_to(boundary.unwrap_or(self.raw_text.len()));
+        self.settled = boundary.is_none();
+        emitted
+    }
+
+    /// Cheap pre-check gating the expensive full-`raw_text` rescan below.
+    /// Once settled, an arbitrary `<`-containing delta (code, HTML) must not
+    /// force an O(raw_text) rescan on every chunk of a long response — a
+    /// long response with `<` in most chunks would otherwise cost O(n²)
+    /// overall. Only a delta that could plausibly start or extend a DSML
+    /// marker warrants the full check, and that only ever depends on a
+    /// short trailing window, not the whole accumulated text: any new
+    /// ambiguity a delta introduces must start within it or right at its
+    /// boundary with already-settled text.
+    fn could_extend_dsml_marker(&self, delta: &str) -> bool {
+        if !delta.contains('<') {
+            return false;
+        }
+        let tail_start = floor_char_boundary(
+            &self.raw_text,
+            self.raw_text.len().saturating_sub(DSML_TAIL_WINDOW_BYTES),
+        );
+        let window = format!("{}{delta}", &self.raw_text[tail_start..]);
+        // `pending_tool_call_boundary` alone is not enough here: it answers
+        // "is something still unresolved", which is `None` for a *complete*
+        // `<｜DSML｜tool_calls>...</｜DSML｜tool_calls>` block that arrived
+        // whole in one delta — exactly the case this fast path must not
+        // take, since that block still needs to be scrubbed out. Checking
+        // for the marker's presence at all catches that case too.
+        crate::llm::deepseek_dsml::contains_dsml(&window)
+            || crate::llm::deepseek_dsml::pending_tool_call_boundary(&window).is_some()
+    }
+
+    fn finish(&mut self) -> String {
+        self.flush_to(self.raw_text.len())
+    }
+
+    fn flush_to(&mut self, settled_len: usize) -> String {
+        let visible = crate::control_tokens::strip_deepseek_v4_dsml_control_blocks(
+            &self.raw_text[..settled_len],
+        );
+        let emitted = visible
+            .strip_prefix(self.last_visible.as_str())
+            .unwrap_or_default()
+            .to_string();
+        self.last_visible = visible.into_owned();
+        emitted
+    }
+}
+
+/// The largest byte index `<= index` that lies on a UTF-8 char boundary of
+/// `s`, so a byte-offset slice into multi-byte text (DSML's full-width `｜`)
+/// never panics.
+fn floor_char_boundary(s: &str, mut index: usize) -> usize {
+    while index > 0 && !s.is_char_boundary(index) {
+        index -= 1;
+    }
+    index
 }
 
 impl OpenAiApiError {

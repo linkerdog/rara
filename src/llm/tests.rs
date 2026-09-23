@@ -1537,6 +1537,117 @@ fn deepseek_stream_scrubber_streams_after_think_when_thinking_is_enabled() {
 }
 
 #[test]
+fn deepseek_stream_scrubber_hides_mid_stream_dsml_tool_call_block() {
+    let mut scrubber = DeepseekTextStreamScrubber::default();
+
+    assert_eq!(
+        scrubber.push("Let me check that.\n"),
+        "Let me check that.\n"
+    );
+    assert_eq!(
+        scrubber.push("<｜DSML｜tool_calls>\n<｜DSML｜invoke name=\"read_file\">\n"),
+        ""
+    );
+    assert_eq!(
+        scrubber.push(
+            "<｜DSML｜parameter name=\"path\" string=\"true\">src/lib.rs</｜DSML｜parameter>\n"
+        ),
+        ""
+    );
+    assert_eq!(
+        scrubber.push("</｜DSML｜invoke>\n</｜DSML｜tool_calls>\nDone."),
+        "\nDone."
+    );
+    assert_eq!(scrubber.finish(), "");
+}
+
+#[test]
+fn deepseek_stream_scrubber_buffers_partial_dsml_open_tag_across_chunks() {
+    let mut scrubber = DeepseekTextStreamScrubber::default();
+
+    assert_eq!(scrubber.push("Before "), "Before ");
+    assert_eq!(scrubber.push("<｜DSML｜tool"), "");
+    assert_eq!(scrubber.push("_calls>"), "");
+    assert_eq!(
+        scrubber.push("<｜DSML｜invoke name=\"x\"><｜DSML｜parameter name=\"a\" string=\"true\">1</｜DSML｜parameter></｜DSML｜invoke>"),
+        ""
+    );
+    assert_eq!(scrubber.push("</｜DSML｜tool_calls>After"), "After");
+    assert_eq!(scrubber.finish(), "");
+}
+
+#[test]
+fn deepseek_stream_scrubber_settled_state_passes_unrelated_angle_brackets_through_immediately() {
+    let mut scrubber = DeepseekTextStreamScrubber::default();
+    assert_eq!(
+        scrubber.push("Here is some code:\n"),
+        "Here is some code:\n"
+    );
+    // None of these should ever be buffered: each must come back unchanged,
+    // proving the settled fast path stayed active instead of falling into
+    // the full-rescan path for every unrelated `<`.
+    for chunk in [
+        "fn foo<T>(x: Vec<T>) -> Option<T> {\n",
+        "    if x.len() < 1 { return None }\n",
+        "    <div class=\"x\">not real markup</div>\n",
+        "}\n",
+    ] {
+        assert_eq!(scrubber.push(chunk), chunk);
+    }
+    assert_eq!(scrubber.finish(), "");
+}
+
+#[test]
+fn deepseek_stream_scrubber_settled_state_still_hides_a_complete_block_delivered_whole() {
+    let mut scrubber = DeepseekTextStreamScrubber::default();
+    assert_eq!(
+        scrubber.push("Some code: Vec<String>, "),
+        "Some code: Vec<String>, "
+    );
+    // A single delta carrying an entire open+close DSML block (as a
+    // provider might batch a short tool call into one SSE chunk) must not
+    // slip through the settled-state fast path just because
+    // `pending_tool_call_boundary` reports nothing "pending" — a complete
+    // block isn't pending, but it still needs to be scrubbed out.
+    assert_eq!(
+        scrubber.push(
+            "<｜DSML｜tool_calls>\n<｜DSML｜invoke name=\"x\"><｜DSML｜parameter name=\"a\" string=\"true\">1</｜DSML｜parameter></｜DSML｜invoke>\n</｜DSML｜tool_calls>After"
+        ),
+        "After"
+    );
+    assert_eq!(scrubber.finish(), "");
+}
+
+#[test]
+fn deepseek_stream_scrubber_windowed_settle_check_still_catches_marker_split_after_unrelated_text()
+{
+    let mut scrubber = DeepseekTextStreamScrubber::default();
+    let long_unrelated = "x".repeat(64) + " Vec<String> done, ";
+    assert_eq!(scrubber.push(&long_unrelated), long_unrelated);
+    // Split the DSML open tag exactly at the marker, immediately after a
+    // long run of already-settled, unrelated `<`-bearing text — this is the
+    // case the trailing-window check (not the whole `raw_text`) must still
+    // catch correctly.
+    assert_eq!(scrubber.push("<｜DSML｜tool"), "");
+    assert_eq!(
+        scrubber.push(
+            "_calls>\n<｜DSML｜invoke name=\"x\">\n<｜DSML｜parameter name=\"a\" string=\"true\">1</｜DSML｜parameter>\n</｜DSML｜invoke>\n</｜DSML｜tool_calls>After"
+        ),
+        "After"
+    );
+    assert_eq!(scrubber.finish(), "");
+}
+
+#[test]
+fn deepseek_stream_scrubber_shows_unclosed_dsml_tag_only_at_finish() {
+    let mut scrubber = DeepseekTextStreamScrubber::default();
+
+    assert_eq!(scrubber.push("Hello "), "Hello ");
+    assert_eq!(scrubber.push("<｜DSML｜tool_calls>\nstill going"), "");
+    assert_eq!(scrubber.finish(), "<｜DSML｜tool_calls>\nstill going");
+}
+
+#[test]
 fn deepseek_non_thinking_model_keeps_standard_openai_body() {
     let body = build_chat_completion_request_body(
         "deepseek-chat",
