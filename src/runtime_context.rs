@@ -20,7 +20,7 @@ use crate::hook_registry::HookRegistry;
 use crate::hook_runtime::HookRuntime;
 use crate::llm::{
     BedrockBackend, CodexBackend, GeminiBackend, LlmBackend, Message, MockLlm, OllamaBackend,
-    OpenAiCompatibleBackend, fetch_model_context_window,
+    OpenAiCompatibleBackend, fetch_model_context_window, wrap_deepseek_anthropic_if_eligible,
 };
 use crate::local_backend::{LocalLlmBackend, LocalProgressReporter};
 use crate::lsp_manager::LspManager;
@@ -775,23 +775,31 @@ async fn build_backend_with_progress_for_home(
             "openrouter" => OpenAiEndpointKind::Openrouter,
             _ => OpenAiEndpointKind::Custom,
         };
-        return Ok(Box::new(
-            OpenAiCompatibleBackend::new_with_endpoint_kind_and_reasoning(
-                config.api_key_secret(),
-                config
-                    .base_url
-                    .clone()
-                    .context("Configured provider requires an API root")?,
-                config
-                    .model
-                    .clone()
-                    .context("Configured provider requires a model")?,
-                kind,
-                config.reasoning_effort.clone(),
-                config.thinking,
-            )?
-            .with_provider_model(model)
-            .with_auxiliary_model(config.auxiliary_model.clone()),
+        let base_url = config
+            .base_url
+            .clone()
+            .context("Configured provider requires an API root")?;
+        let model_name = config
+            .model
+            .clone()
+            .context("Configured provider requires a model")?;
+        let backend = OpenAiCompatibleBackend::new_with_endpoint_kind_and_reasoning(
+            config.api_key_secret(),
+            base_url.clone(),
+            model_name.clone(),
+            kind,
+            config.reasoning_effort.clone(),
+            config.thinking,
+        )?
+        .with_provider_model(model)
+        .with_auxiliary_model(config.auxiliary_model.clone());
+        return Ok(wrap_deepseek_anthropic_if_eligible(
+            backend,
+            config.api_key_secret(),
+            config.thinking,
+            kind,
+            &base_url,
+            &model_name,
         ));
     }
     match config.provider.as_str() {
@@ -942,7 +950,14 @@ async fn build_openai_compatible_backend(
         )
         .await;
     }
-    Ok(Box::new(backend))
+    Ok(wrap_deepseek_anthropic_if_eligible(
+        backend,
+        config.api_key_secret(),
+        config.thinking,
+        kind,
+        &base_url,
+        &model,
+    ))
 }
 
 fn ollama_thinking_enabled(config: &RaraConfig) -> bool {
