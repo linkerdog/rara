@@ -13,7 +13,8 @@
 //! delegates every other [`LlmBackend`] method to a wrapped
 //! [`OpenAiCompatibleBackend`] on `chat/completions`, which the caller keeps
 //! configured for non-streaming and auxiliary calls (summarize, classify,
-//! context budgeting, cache accounting).
+//! cache accounting). `context_budget` only reuses `fallback`'s window
+//! lookup, not its output-token reservation — see that method's doc.
 //!
 //! Verified live against `api.deepseek.com` (2026-09-22): a `tool_use`
 //! round trip requires the assistant's `thinking` block (with its
@@ -184,24 +185,41 @@ impl DeepseekAnthropicBackend {
         request
     }
 
-    /// The `max_tokens` value this route actually puts on the wire — the
-    /// single source of truth [`Self::request_body`] and
-    /// [`Self::context_budget`] must agree on, since a mismatch between what
-    /// the compaction threshold assumes gets reserved for output and what
-    /// the request actually reserves is exactly how history is allowed to
-    /// grow past the point a completion still fits in what's left of the
-    /// context window.
+    /// The configured or default `max_tokens` this route would ask for,
+    /// unbounded by any particular context window. Never send this value
+    /// directly on the wire or use it unclamped for compaction bookkeeping
+    /// — a registry model can supply an output cap independent of its
+    /// context window (accepted when `limit.output` is set but
+    /// `limit.context` is omitted), so this can exceed the model's actual
+    /// window entirely. [`Self::wire_max_output_tokens`] is the clamped
+    /// value both [`Self::request_body`] and [`Self::context_budget`]
+    /// actually use.
     fn effective_max_output_tokens(&self) -> u32 {
         self.max_output_tokens
             .map(NonZeroU32::get)
             .unwrap_or(DEFAULT_MAX_OUTPUT_TOKENS)
     }
 
+    /// The `max_tokens` value this route actually puts on the wire — kept
+    /// identically equal to [`Self::context_budget`]'s
+    /// `reserved_output_tokens` (falling back to the raw, unclamped
+    /// [`Self::effective_max_output_tokens`] only when no budget is known
+    /// for this model at all) so the compaction threshold and the
+    /// request's actual completion reservation can never disagree. A
+    /// mismatch there is exactly how history was previously allowed to
+    /// grow past the point a completion still fits in what's left of the
+    /// context window — see [`Self::context_budget`]'s doc.
+    fn wire_max_output_tokens(&self, messages: &[Message], tools: &[Value]) -> u32 {
+        self.context_budget(messages, tools)
+            .map(|budget| budget.reserved_output_tokens as u32)
+            .unwrap_or_else(|| self.effective_max_output_tokens())
+    }
+
     fn request_body(&self, messages: &[Message], tools: &[Value], stream: bool) -> Value {
         let (system, anthropic_messages) = to_anthropic_messages(messages);
         let mut body = json!({
             "model": self.model,
-            "max_tokens": self.effective_max_output_tokens(),
+            "max_tokens": self.wire_max_output_tokens(messages, tools),
             "messages": anthropic_messages,
             "stream": stream,
         });
@@ -479,6 +497,17 @@ impl LlmBackend for DeepseekAnthropicBackend {
     /// history around 795K tokens against this model's 1,048,576-token
     /// window, because the fallback-derived reservation was only ~32K
     /// against an actual completion budget of 256K.
+    ///
+    /// `reserved_output_tokens` is capped at half the window — the same
+    /// safety margin `reserved_output_tokens_for_window`
+    /// (`src/llm/shared.rs`) already applies to its own heuristic estimate.
+    /// A registry model can supply an output cap independent of its context
+    /// window (`limit.output` set without `limit.context`), so
+    /// `effective_max_output_tokens()` can exceed the window outright; a
+    /// full-window (or larger) reservation would 400 on literally any
+    /// non-empty history regardless of size, rather than only once history
+    /// legitimately grows too large. [`Self::wire_max_output_tokens`] sends
+    /// this same clamped value, never the raw configured one.
     fn context_budget(&self, messages: &[Message], tools: &[Value]) -> Option<ContextBudget> {
         let budget = self.fallback.context_budget(messages, tools)?;
         let compaction_slack_tokens = budget
@@ -486,7 +515,7 @@ impl LlmBackend for DeepseekAnthropicBackend {
             .saturating_sub(budget.reserved_output_tokens)
             .saturating_sub(budget.compact_threshold_tokens);
         let reserved_output_tokens =
-            (self.effective_max_output_tokens() as usize).min(budget.context_window_tokens);
+            (self.effective_max_output_tokens() as usize).min(budget.context_window_tokens / 2);
         let compact_threshold_tokens = budget
             .context_window_tokens
             .saturating_sub(reserved_output_tokens)
@@ -606,6 +635,46 @@ mod tests {
             budget.compact_threshold_tokens + budget.reserved_output_tokens
                 <= budget.context_window_tokens
         );
+    }
+
+    #[test]
+    fn context_budget_caps_a_misconfigured_output_override_at_half_the_window() {
+        // A registry model can supply `limit.output` independent of
+        // `limit.context` — nothing upstream guarantees the output cap
+        // actually fits the model's real window. Reserving it verbatim
+        // (900K against a 1,048,576-token window) would leave so little
+        // room for input that any non-empty history 400s regardless of
+        // size, rather than only once history legitimately grows too
+        // large.
+        let backend = test_backend_with_max_output_tokens(Some(900_000));
+        let budget = backend
+            .context_budget(&[], &[])
+            .expect("deepseek-flash has a known context window");
+        assert_eq!(
+            budget.reserved_output_tokens,
+            budget.context_window_tokens / 2
+        );
+        assert!(budget.compact_threshold_tokens > 0);
+    }
+
+    #[test]
+    fn request_body_sends_exactly_what_context_budget_reserved_for_output() {
+        // The wire value and the compaction budget must be the same bounded
+        // number by construction — a request that sends more than
+        // `context_budget` assumed was reserved is exactly how a
+        // within-threshold history can still overshoot the window.
+        for max_output_tokens in [None, Some(8_192), Some(900_000)] {
+            let backend = test_backend_with_max_output_tokens(max_output_tokens);
+            let budget = backend
+                .context_budget(&[], &[])
+                .expect("deepseek-flash has a known context window");
+            let body = backend.request_body(&[], &[], false);
+            assert_eq!(
+                body["max_tokens"],
+                json!(budget.reserved_output_tokens),
+                "mismatch for max_output_tokens = {max_output_tokens:?}"
+            );
+        }
     }
 
     #[test]
