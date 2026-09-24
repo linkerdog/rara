@@ -139,16 +139,26 @@ of losing it.
   `limit.output`, or the fixed 256k default matching the DeepSeek reference
   harness), not `fallback`'s own `max_output_tokens` field, which stays
   unset on this route since `fallback` never itself sends a request here.
-  `reserved_output_tokens` is capped at half the window — the same safety
-  margin `reserved_output_tokens_for_window` (`src/llm/shared.rs`) already
-  applies to its own heuristic — since a registry model's `limit.output`
-  can be configured independent of `limit.context` and so can exceed the
-  window outright. `request_body`'s `max_tokens`
-  (`wire_max_output_tokens`) is always this same clamped value, never the
-  raw configured one, so the compaction threshold and the request's actual
-  completion reservation can never disagree. Fixed in response to a real
-  production 400 (`This model's maximum context length is 1048576
-  tokens... requested 1051534`); see the dated journal entry.
+  `request_body`'s `max_tokens` (`wire_max_output_tokens`) is always this
+  same value, never independently recomputed, so the compaction threshold
+  and the request's actual completion reservation can never disagree.
+  Fixed in response to a real production 400 (`This model's maximum
+  context length is 1048576 tokens... requested 1051534`); see the dated
+  journal entry.
+- **Misconfigured output cap**: a registry model's `limit.output` can be
+  set independent of `limit.context`, so `effective_max_output_tokens`
+  can exceed the window outright. `context_budget` returns `None` — no
+  usable budget — whenever that reservation alone would leave
+  `compact_threshold_tokens` at `0` (the reservation plus compaction's own
+  slack margin consumes the whole window), and
+  `ensure_output_budget_fits_window` turns that `None` into a hard
+  `anyhow` error in `ask_streaming_once`, before a request is ever built —
+  deliberately not clamped and sent with a silently reduced budget.
+  Mirrors DeepSeek's own reference harness
+  (`deepseek-ai/deepseek-harness`): `resolveCompactSpec`
+  (`packages/compaction/compaction-basic/src/config.ts`) throws a
+  `TargetPressureConfigError` under the same condition rather than
+  normalizing the value away. See the dated journal entry.
 
 ## Validation Matrix
 
