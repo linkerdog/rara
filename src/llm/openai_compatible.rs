@@ -823,10 +823,24 @@ impl LlmBackend for OpenAiCompatibleBackend {
             (None, Some(summary)) => Some(summary),
             (None, None) => None,
         };
+        // Reserve exactly what `chat_completion_request_body` actually puts
+        // on the wire (`self.max_output_tokens`, sent unconditionally —
+        // see that method) whenever it's set, regardless of how it got
+        // set. This used to also require `self.configured_api_root.is_some()`,
+        // true only via `with_provider_model` (the registry-model
+        // construction path); a caller that sets `max_output_tokens` alone
+        // through the public `with_max_output_tokens` (opt-in measurement
+        // tooling — `deepseek_cache_probe.rs`,
+        // `agent/tests/cache_trial/driver.rs`) still had it sent on every
+        // request while this override sat dormant, leaving
+        // `reserved_output_tokens` at the generic window-heuristic
+        // estimate. The same class of bug this fixed for the DeepSeek
+        // Anthropic route in `src/llm/deepseek_anthropic.rs`
+        // (`effective_max_output_tokens`/`wire_max_output_tokens`): two
+        // independently-derived "how much output does this request
+        // reserve" values are guaranteed to drift eventually.
         budget.map(|mut budget| {
-            if self.configured_api_root.is_some()
-                && let Some(output) = self.max_output_tokens
-            {
+            if let Some(output) = self.max_output_tokens {
                 let slack = budget
                     .context_window_tokens
                     .saturating_sub(budget.reserved_output_tokens)
