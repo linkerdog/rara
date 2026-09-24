@@ -215,7 +215,7 @@ impl DeepseekAnthropicBackend {
             .unwrap_or_else(|| self.effective_max_output_tokens())
     }
 
-    /// Rejects a turn outright when [`Self::effective_max_output_tokens`]
+    /// Rejects a call outright when [`Self::effective_max_output_tokens`]
     /// alone — before a single history token is counted — would leave no
     /// usable room in the model's context window (i.e.
     /// [`Self::context_budget`] finds nothing safe to return). Mirrors
@@ -227,6 +227,22 @@ impl DeepseekAnthropicBackend {
     /// `limit.context`) is a configuration error to surface immediately, not
     /// a value to silently clamp and let the turn proceed on a reduced
     /// budget nobody asked for.
+    ///
+    /// Called from every method that can put `self.max_output_tokens` on
+    /// the wire — `ask_streaming_once` directly, and `summarize`/
+    /// `summarize_with_context`/`classify_with_context`/
+    /// `summarize_with_prefix`, which reach the wire indirectly through
+    /// `fallback`'s own `chat_completion_request_body` (its `max_tokens`
+    /// field is not per-model, so it carries the same value regardless of
+    /// which model string `fallback` targets — including its own
+    /// summary/auxiliary model). Compaction (`Agent::compact_history_with_reporter`
+    /// in `src/agent/compact/main.rs`) treats [`Self::context_budget`]'s
+    /// `None` the same as "this backend doesn't report a budget at all"
+    /// and falls back to a generic 10K-token threshold, which can trigger
+    /// a summarization call for a misconfigured backend before any turn
+    /// ever reaches `ask_streaming_once`'s own check — without this guard
+    /// on the summarize/classify paths too, that call would still reach
+    /// `fallback` and put the oversized `max_output_tokens` on the wire.
     fn ensure_output_budget_fits_window(
         &self,
         messages: &[Message],
@@ -484,6 +500,7 @@ impl LlmBackend for DeepseekAnthropicBackend {
     }
 
     async fn summarize(&self, messages: &[Message], instruction: &str) -> Result<String> {
+        self.ensure_output_budget_fits_window(messages, &[])?;
         self.fallback.summarize(messages, instruction).await
     }
 
@@ -493,6 +510,7 @@ impl LlmBackend for DeepseekAnthropicBackend {
         instruction: &str,
         metadata: LlmTurnMetadata,
     ) -> Result<String> {
+        self.ensure_output_budget_fits_window(messages, &[])?;
         self.fallback
             .summarize_with_context(messages, instruction, metadata)
             .await
@@ -504,6 +522,7 @@ impl LlmBackend for DeepseekAnthropicBackend {
         messages: &[Message],
         metadata: LlmTurnMetadata,
     ) -> Result<String> {
+        self.ensure_output_budget_fits_window(messages, &[])?;
         self.fallback
             .classify_with_context(instructions, messages, metadata)
             .await
@@ -516,6 +535,7 @@ impl LlmBackend for DeepseekAnthropicBackend {
         prefix: &super::SummaryPrefix,
         metadata: LlmTurnMetadata,
     ) -> Result<String> {
+        self.ensure_output_budget_fits_window(messages, &[])?;
         self.fallback
             .summarize_with_prefix(messages, instruction, prefix, metadata)
             .await
@@ -715,6 +735,55 @@ mod tests {
                 .ensure_output_budget_fits_window(&[], &[])
                 .expect("a sane max_output_tokens must not be rejected");
         }
+    }
+
+    #[tokio::test]
+    async fn summarize_paths_reject_a_misconfigured_output_override_before_reaching_fallback() {
+        // A real production hazard Copilot review flagged on this fix:
+        // Agent::compact_history_with_reporter treats context_budget's
+        // None as an unknown (not invalid) budget and falls back to a
+        // generic 10K-token threshold, which can trigger a summarize call
+        // for a misconfigured backend before any turn ever reaches
+        // ask_streaming_once's own guard. If summarize/classify didn't
+        // also call ensure_output_budget_fits_window, that call would
+        // still reach `fallback` and put the oversized max_output_tokens
+        // on the wire — fallback has no server configured here, so if the
+        // guard were missing these calls would fail on a connection error
+        // instead of this backend's own clear configuration error.
+        let backend = test_backend_with_max_output_tokens(Some(1_100_000));
+        let expect_misconfiguration_error = |result: Result<String>, label: &str| {
+            let error = result.expect_err(&format!("{label} must reject before calling fallback"));
+            let message = error.to_string();
+            assert!(
+                message.contains("misconfigured"),
+                "{label} error was {message:?}, expected the configuration-error message"
+            );
+        };
+
+        expect_misconfiguration_error(backend.summarize(&[], "summarize").await, "summarize");
+        expect_misconfiguration_error(
+            backend
+                .summarize_with_context(&[], "summarize", LlmTurnMetadata::default())
+                .await,
+            "summarize_with_context",
+        );
+        expect_misconfiguration_error(
+            backend
+                .classify_with_context("classify", &[], LlmTurnMetadata::default())
+                .await,
+            "classify_with_context",
+        );
+        let prefix = crate::llm::SummaryPrefix {
+            messages: Vec::new(),
+            tools: Vec::new(),
+            execution_mode: crate::llm::LlmExecutionMode::Plan,
+        };
+        expect_misconfiguration_error(
+            backend
+                .summarize_with_prefix(&[], "summarize", &prefix, LlmTurnMetadata::default())
+                .await,
+            "summarize_with_prefix",
+        );
     }
 
     #[test]
