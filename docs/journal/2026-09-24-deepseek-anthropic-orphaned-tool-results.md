@@ -28,12 +28,17 @@ does not contain a matching `tool_use` — the exact rejection reported.
 
 ## Fix
 
-Renamed the tracking helper to `resolve_and_filter_tool_results`: it now
-returns the filtered block list. Every non-`tool_result` block is kept
-unconditionally; a `tool_result` block is kept only if its id is currently
-pending (removing it from the pending set), and dropped otherwise —
-mirroring `repair_tool_result_history`'s existing, proven behavior for
-exactly this case.
+Replaced the tracking-only helper with one that returns the filtered block
+list: every non-`tool_result` block is kept unconditionally, and a
+`tool_result` block is kept only if its id is currently pending (removing
+it from the pending set), dropped otherwise — mirroring
+`repair_tool_result_history`'s existing, proven behavior for exactly this
+case. (This landed here as `resolve_and_filter_tool_results` in
+`src/llm/deepseek_anthropic/messages.rs`; the immediate follow-up extracted
+it into the shared `keep_or_drop_tool_results` in
+`src/tool_result/pairing.rs` — see
+[2026-09-24-deepseek-anthropic-shared-pairing-primitive.md](2026-09-24-deepseek-anthropic-shared-pairing-primitive.md)
+— which is what the code on this branch now actually contains.)
 
 ## Verification
 
