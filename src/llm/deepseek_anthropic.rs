@@ -184,14 +184,24 @@ impl DeepseekAnthropicBackend {
         request
     }
 
+    /// The `max_tokens` value this route actually puts on the wire — the
+    /// single source of truth [`Self::request_body`] and
+    /// [`Self::context_budget`] must agree on, since a mismatch between what
+    /// the compaction threshold assumes gets reserved for output and what
+    /// the request actually reserves is exactly how history is allowed to
+    /// grow past the point a completion still fits in what's left of the
+    /// context window.
+    fn effective_max_output_tokens(&self) -> u32 {
+        self.max_output_tokens
+            .map(NonZeroU32::get)
+            .unwrap_or(DEFAULT_MAX_OUTPUT_TOKENS)
+    }
+
     fn request_body(&self, messages: &[Message], tools: &[Value], stream: bool) -> Value {
         let (system, anthropic_messages) = to_anthropic_messages(messages);
         let mut body = json!({
             "model": self.model,
-            "max_tokens": self
-                .max_output_tokens
-                .map(NonZeroU32::get)
-                .unwrap_or(DEFAULT_MAX_OUTPUT_TOKENS),
+            "max_tokens": self.effective_max_output_tokens(),
             "messages": anthropic_messages,
             "stream": stream,
         });
@@ -456,8 +466,36 @@ impl LlmBackend for DeepseekAnthropicBackend {
             .await
     }
 
+    /// Reproduces `self.fallback.context_budget`'s window/heuristic lookup,
+    /// then re-reserves output tokens for what this route's own
+    /// [`Self::request_body`] actually sends, not `fallback`'s unrelated
+    /// `max_output_tokens` (which, on the plain-configured-provider path,
+    /// stays `None` — `fallback` never issues a request on this route, only
+    /// `DeepseekAnthropicBackend` does). Left as `fallback`'s own estimate,
+    /// a request could keep compacting late enough that
+    /// `history_tokens + effective_max_output_tokens()` overshoots the real
+    /// `context_window_tokens` and DeepSeek's Anthropic-compatible endpoint
+    /// 400s with "maximum context length" — reproduced in production with a
+    /// history around 795K tokens against this model's 1,048,576-token
+    /// window, because the fallback-derived reservation was only ~32K
+    /// against an actual completion budget of 256K.
     fn context_budget(&self, messages: &[Message], tools: &[Value]) -> Option<ContextBudget> {
-        self.fallback.context_budget(messages, tools)
+        let budget = self.fallback.context_budget(messages, tools)?;
+        let compaction_slack_tokens = budget
+            .context_window_tokens
+            .saturating_sub(budget.reserved_output_tokens)
+            .saturating_sub(budget.compact_threshold_tokens);
+        let reserved_output_tokens =
+            (self.effective_max_output_tokens() as usize).min(budget.context_window_tokens);
+        let compact_threshold_tokens = budget
+            .context_window_tokens
+            .saturating_sub(reserved_output_tokens)
+            .saturating_sub(compaction_slack_tokens);
+        Some(ContextBudget {
+            reserved_output_tokens,
+            compact_threshold_tokens,
+            ..budget
+        })
     }
 
     fn cache_profile(&self) -> ProviderCacheProfile {
@@ -511,6 +549,63 @@ mod tests {
             )
             .expect("fallback backend construction cannot fail for a fixed valid URL"),
         }
+    }
+
+    fn test_backend_with_max_output_tokens(
+        max_output_tokens: Option<u32>,
+    ) -> DeepseekAnthropicBackend {
+        DeepseekAnthropicBackend {
+            max_output_tokens: max_output_tokens.and_then(NonZeroU32::new),
+            ..test_backend(None, None)
+        }
+    }
+
+    #[test]
+    fn context_budget_reserves_this_routes_actual_max_output_tokens_not_fallbacks() {
+        // Reproduces a real production 400 ("This model's maximum context
+        // length is 1048576 tokens... requested 1051534") on the plain
+        // configured-provider path, where `fallback.max_output_tokens` stays
+        // `None` and `fallback` never itself sends a request on this route.
+        // Deferring straight to `fallback.context_budget` let history grow
+        // toward its ~32K-reserved heuristic threshold, then the actual
+        // request reserved the real 256K `max_tokens`, overshooting the
+        // window by the difference.
+        let backend = test_backend_with_max_output_tokens(None);
+        let baseline = backend
+            .fallback
+            .context_budget(&[], &[])
+            .expect("deepseek-flash has a known context window");
+        let budget = backend
+            .context_budget(&[], &[])
+            .expect("deepseek-flash has a known context window");
+
+        assert_eq!(budget.context_window_tokens, baseline.context_window_tokens);
+        assert_eq!(
+            budget.reserved_output_tokens, DEFAULT_MAX_OUTPUT_TOKENS as usize,
+            "must reserve what request_body actually sends as max_tokens on this route"
+        );
+        assert_ne!(
+            budget.reserved_output_tokens, baseline.reserved_output_tokens,
+            "fallback's own unrelated heuristic reservation must not leak into this route's compaction budget"
+        );
+        assert!(
+            budget.compact_threshold_tokens + budget.reserved_output_tokens
+                <= budget.context_window_tokens,
+            "compacting right at the threshold and then sending the real max_tokens must still fit in the window"
+        );
+    }
+
+    #[test]
+    fn context_budget_honors_an_explicitly_configured_max_output_tokens() {
+        let backend = test_backend_with_max_output_tokens(Some(8_192));
+        let budget = backend
+            .context_budget(&[], &[])
+            .expect("deepseek-flash has a known context window");
+        assert_eq!(budget.reserved_output_tokens, 8_192);
+        assert!(
+            budget.compact_threshold_tokens + budget.reserved_output_tokens
+                <= budget.context_window_tokens
+        );
     }
 
     #[test]
