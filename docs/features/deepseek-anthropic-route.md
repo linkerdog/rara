@@ -45,9 +45,11 @@ this as scrambled/out-of-order output mid-stream.
   `POST {base}/v1/messages` directly and are the only methods with new
   logic.
 - Every other trait method (`summarize*`, `classify_with_context`,
-  `context_budget`, `cache_profile`, `request_cache_fingerprint`,
-  `model_label`) delegates to `fallback`, so non-streaming and auxiliary
-  calls keep using `chat/completions` unchanged.
+  `cache_profile`, `request_cache_fingerprint`, `model_label`) delegates to
+  `fallback`, so non-streaming and auxiliary calls keep using
+  `chat/completions` unchanged. `context_budget` only reuses `fallback`'s
+  context-window lookup, not its output-token reservation — see the
+  Contracts section below.
 - `billing_provider` is copied from `fallback.billing_provider()` at
   construction so streamed attempts price against the same tariff key as
   `chat/completions`, rather than reporting as a distinct/unpriced provider.
@@ -128,6 +130,25 @@ of losing it.
   guarantees `output_tokens` there; usage from `message_start` and
   `message_delta` is merged field-by-field rather than the later event
   fully overwriting the earlier one.
+- **Context budgeting**: `context_budget` reuses `fallback.context_budget`
+  only for its context-window lookup (a registry model's `limit.context`
+  override, or the built-in `deepseek-flash` → 1,048,576-token window from
+  `rara_provider_catalog::deepseek::MODEL_WINDOWS`); it re-derives
+  `reserved_output_tokens`/`compact_threshold_tokens` from this route's own
+  `max_tokens` (`effective_max_output_tokens`: a registry model's
+  `limit.output`, or the fixed 256k default matching the DeepSeek reference
+  harness), not `fallback`'s own `max_output_tokens` field, which stays
+  unset on this route since `fallback` never itself sends a request here.
+  `reserved_output_tokens` is capped at half the window — the same safety
+  margin `reserved_output_tokens_for_window` (`src/llm/shared.rs`) already
+  applies to its own heuristic — since a registry model's `limit.output`
+  can be configured independent of `limit.context` and so can exceed the
+  window outright. `request_body`'s `max_tokens`
+  (`wire_max_output_tokens`) is always this same clamped value, never the
+  raw configured one, so the compaction threshold and the request's actual
+  completion reservation can never disagree. Fixed in response to a real
+  production 400 (`This model's maximum context length is 1048576
+  tokens... requested 1051534`); see the dated journal entry.
 
 ## Validation Matrix
 
@@ -157,7 +178,12 @@ generalized `chat/completions` DSML stream buffering).
   call site (since `OpenAiCompatibleBackend` exposes no getters for them);
   the non-registry `openai-compatible` construction path has no such
   settings to carry, so this backend falls back to a fixed 256k output cap
-  there, matching the DeepSeek reference harness's own default.
+  there, matching the DeepSeek reference harness's own default. Whichever
+  value is used, `context_budget`/`request_body` now agree on it (see the
+  Contracts section) — a registry model's `limit.output` grossly larger
+  than its actual window is still clamped to half the window rather than
+  rejected outright, which avoids the crash but silently under-serves a
+  misconfigured model's real output capacity.
 - `reasoning_effort` is sent as `output_config.effort` (matching DeepSeek's
   own reference harness's documented request shape) verbatim from
   configuration; the exact accepted value vocabulary for `deepseek-flash`
@@ -186,3 +212,4 @@ generalized `chat/completions` DSML stream buffering).
 - `docs/journal/2026-09-23-deepseek-anthropic-tool-result-adjacency.md`
 - `docs/journal/2026-09-24-deepseek-anthropic-orphaned-tool-results.md`
 - `docs/journal/2026-09-24-deepseek-anthropic-shared-pairing-primitive.md`
+- `docs/journal/2026-09-24-deepseek-anthropic-context-budget-reservation.md`
