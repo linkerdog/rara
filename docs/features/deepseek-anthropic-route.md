@@ -139,16 +139,34 @@ of losing it.
   `limit.output`, or the fixed 256k default matching the DeepSeek reference
   harness), not `fallback`'s own `max_output_tokens` field, which stays
   unset on this route since `fallback` never itself sends a request here.
-  `reserved_output_tokens` is capped at half the window — the same safety
-  margin `reserved_output_tokens_for_window` (`src/llm/shared.rs`) already
-  applies to its own heuristic — since a registry model's `limit.output`
-  can be configured independent of `limit.context` and so can exceed the
-  window outright. `request_body`'s `max_tokens`
-  (`wire_max_output_tokens`) is always this same clamped value, never the
-  raw configured one, so the compaction threshold and the request's actual
-  completion reservation can never disagree. Fixed in response to a real
-  production 400 (`This model's maximum context length is 1048576
-  tokens... requested 1051534`); see the dated journal entry.
+  `request_body`'s `max_tokens` (`wire_max_output_tokens`) is always this
+  same value, never independently recomputed, so the compaction threshold
+  and the request's actual completion reservation can never disagree.
+  Fixed in response to a real production 400 (`This model's maximum
+  context length is 1048576 tokens... requested 1051534`); see the dated
+  journal entry.
+- **Misconfigured output cap**: a registry model's `limit.output` can be
+  set independent of `limit.context`, so `effective_max_output_tokens`
+  can exceed the window outright. `context_budget` returns `None` — no
+  usable budget — whenever that reservation alone would leave
+  `compact_threshold_tokens` at `0` (the reservation plus compaction's own
+  slack margin consumes the whole window), and
+  `ensure_output_budget_fits_window` turns that `None` into a hard
+  `anyhow` error, before a request is ever built — deliberately not
+  clamped and sent with a silently reduced budget. Mirrors DeepSeek's own
+  reference harness (`deepseek-ai/deepseek-harness`): `resolveCompactSpec`
+  (`packages/compaction/compaction-basic/src/config.ts`) throws a
+  `TargetPressureConfigError` under the same condition rather than
+  normalizing the value away. This guard runs in every method that can put
+  `self.max_output_tokens` on the wire — `ask_streaming_once` directly,
+  plus `summarize`/`summarize_with_context`/`classify_with_context`/
+  `summarize_with_prefix`, which reach the wire indirectly through
+  `fallback`'s `chat_completion_request_body` (not gated on `context_budget`
+  itself: compaction, `Agent::compact_history_with_reporter` in
+  `src/agent/compact/main.rs`, treats `context_budget`'s `None` the same as
+  "budget unknown" and falls back to a generic 10K-token threshold, which
+  can trigger a summarize call before a turn ever reaches
+  `ask_streaming_once`'s own check). See the dated journal entry.
 
 ## Validation Matrix
 
@@ -180,10 +198,9 @@ generalized `chat/completions` DSML stream buffering).
   settings to carry, so this backend falls back to a fixed 256k output cap
   there, matching the DeepSeek reference harness's own default. Whichever
   value is used, `context_budget`/`request_body` now agree on it (see the
-  Contracts section) — a registry model's `limit.output` grossly larger
-  than its actual window is still clamped to half the window rather than
-  rejected outright, which avoids the crash but silently under-serves a
-  misconfigured model's real output capacity.
+  "Misconfigured output cap" contract above) — a registry model's
+  `limit.output` grossly larger than its actual window is rejected outright
+  rather than clamped or silently under-served.
 - `reasoning_effort` is sent as `output_config.effort` (matching DeepSeek's
   own reference harness's documented request shape) verbatim from
   configuration; the exact accepted value vocabulary for `deepseek-flash`
