@@ -1,3 +1,5 @@
+use std::num::NonZeroU32;
+
 use rara_tools::planning::ExitPlanModeTool;
 use rara_tools::tool::Tool;
 use reqwest::StatusCode;
@@ -2571,6 +2573,39 @@ fn context_budget_scales_reserved_output_by_window_size() {
     assert_eq!(medium.compact_threshold_tokens, 107_904);
     assert_eq!(large.reserved_output_tokens, 32_768);
     assert_eq!(large.compact_threshold_tokens, 1_007_616);
+}
+
+#[test]
+fn context_budget_reserves_max_output_tokens_even_without_a_configured_provider_model() {
+    // `with_max_output_tokens` alone (opt-in measurement tooling —
+    // `deepseek_cache_probe.rs`, `agent/tests/cache_trial/driver.rs`) never
+    // sets `configured_api_root`, but `chat_completion_request_body` sends
+    // `max_output_tokens` on the wire unconditionally whenever it's set.
+    // `context_budget` must reserve the same value regardless of how
+    // `max_output_tokens` was configured — the same class of bug fixed for
+    // the DeepSeek Anthropic route in `llm/deepseek_anthropic.rs`
+    // (`effective_max_output_tokens`/`wire_max_output_tokens`): two
+    // independently-derived "how much output does this request reserve"
+    // values are guaranteed to drift eventually.
+    let backend = OpenAiCompatibleBackend::new_with_endpoint_kind(
+        None,
+        "https://api.deepseek.com".to_string(),
+        "deepseek-flash".to_string(),
+        OpenAiEndpointKind::Deepseek,
+    )
+    .expect("backend")
+    .with_max_output_tokens(NonZeroU32::new(600_000).expect("nonzero"));
+
+    let budget = backend
+        .context_budget(&[], &[])
+        .expect("deepseek-flash has a known context window");
+    assert_eq!(budget.context_window_tokens, 1_048_576);
+    assert_eq!(
+        budget.reserved_output_tokens, 600_000,
+        "must not fall back to the generic ~32K window heuristic just because \
+         configured_api_root was never set"
+    );
+    assert!(budget.compact_threshold_tokens > 0);
 }
 
 #[test]
