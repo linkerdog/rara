@@ -311,36 +311,52 @@ impl Default for NowledgeMemPluginConfig {
 }
 
 impl NowledgeMemPluginConfig {
-    pub fn mcp_url(&self) -> String {
+    /// Base URL of the configured Nowledge Mem deployment.
+    ///
+    /// Cloud mode falls back to the hosted Nowledge Mem URL when `url` is empty
+    /// or still holds the local default.
+    fn base_url(&self) -> String {
         match self.mode {
             NowledgeMemMode::Local => self.url.clone(),
             NowledgeMemMode::Cloud => {
                 let configured_url = self.url.trim_end_matches('/');
-                let base = if configured_url.is_empty()
+                if configured_url.is_empty()
                     || configured_url == default_nowledge_mem_mcp_url().trim_end_matches('/')
                 {
-                    DEFAULT_NOWLEDGE_MEM_CLOUD_URL
+                    DEFAULT_NOWLEDGE_MEM_CLOUD_URL.to_string()
                 } else {
-                    configured_url
-                };
-                if base.ends_with("/mcp") {
-                    format!("{base}/")
-                } else if base.ends_with("/remote-api") {
-                    format!("{base}/mcp/")
-                } else {
-                    format!("{base}/remote-api/mcp/")
+                    configured_url.to_string()
                 }
             }
         }
     }
 
+    pub fn mcp_url(&self) -> String {
+        match self.mode {
+            NowledgeMemMode::Local => self.base_url(),
+            NowledgeMemMode::Cloud => {
+                let base = self.base_url();
+                let base = base.trim_end_matches('/');
+                let base = base.strip_suffix("/mcp").unwrap_or(base);
+                format!("{base}/mcp")
+            }
+        }
+    }
+
     pub fn api_url(&self) -> String {
-        let mcp_url = self.mcp_url();
-        mcp_url
-            .trim_end_matches('/')
-            .strip_suffix("/mcp")
-            .unwrap_or_else(|| mcp_url.trim_end_matches('/'))
-            .to_string()
+        match self.mode {
+            NowledgeMemMode::Local => {
+                let mcp_url = self.mcp_url();
+                mcp_url
+                    .trim_end_matches('/')
+                    .strip_suffix("/mcp")
+                    .unwrap_or_else(|| mcp_url.trim_end_matches('/'))
+                    .to_string()
+            }
+            NowledgeMemMode::Cloud => {
+                format!("{}/remote-api", self.base_url().trim_end_matches('/'))
+            }
+        }
     }
 
     pub fn env_http_headers(&self) -> Option<BTreeMap<String, String>> {

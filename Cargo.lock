@@ -9100,6 +9100,7 @@ name = "rara-mcp-client"
 version = "0.0.22"
 dependencies = [
  "anyhow",
+ "http 1.4.2",
  "rmcp",
  "serde_json",
  "tokio",
@@ -9636,16 +9637,20 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b23c62fe489ac1d401ab32688cfacac3737a8978dc3343e5361464c7724fd3cb"
 dependencies = [
  "base64 0.23.0",
+ "bytes",
  "chrono",
  "futures",
+ "http 1.4.2",
  "indexmap 2.14.0",
  "pastey",
  "pin-project-lite",
  "process-wrap",
+ "reqwest 0.13.5",
  "rmcp-macros",
  "schemars 1.2.1",
  "serde",
  "serde_json",
+ "sse-stream",
  "thiserror 2.0.20",
  "tokio",
  "tokio-stream",
@@ -10684,6 +10689,19 @@ dependencies = [
  "js-sys",
  "rsqlite-vfs",
  "wasm-bindgen",
+]
+
+[[package]]
+name = "sse-stream"
+version = "0.2.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c25ac7aff0abd1dbc474536e40416e1102c7dd9bfba0b9861c6d357f835dcfb4"
+dependencies = [
+ "bytes",
+ "futures-util",
+ "http-body 1.0.1",
+ "http-body-util",
+ "pin-project-lite",
 ]
 
 [[package]]
