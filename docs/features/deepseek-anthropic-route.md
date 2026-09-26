@@ -222,6 +222,23 @@ generalized `chat/completions` DSML stream buffering).
   a malformed wire request; it synthesizes a filler, it does not recover
   the original result data. Cross-cutting agent-loop issue, not specific to
   this backend; out of scope here.
+- The compaction-trigger check's local token estimate previously used
+  OpenAI's `cl100k_base` tokenizer unconditionally (see
+  `docs/journal/2026-09-26-anchor-compaction-estimate-to-real-usage.md`),
+  which for DeepSeek's own tokenizer could undercount enough at
+  `deepseek-flash`'s 1,048,576-token scale to let history clear the
+  compaction threshold while the real request still overflowed — the exact
+  production 400 that fix addresses by re-anchoring the estimate to
+  provider-reported `usage` after every response. Two related gaps remain,
+  triaged but deliberately deferred: (1) the main turn's own LLM call still
+  has no "catch a context-window overflow, force-compact, retry once"
+  recovery path, and the one that exists for compaction's own internal
+  summarization sub-call doesn't recognize this route's `anyhow`-shaped
+  errors as a context-window error at all; (2)
+  `compact_if_needed_with_reporter` runs once per user query, not before
+  every LLM call within a multi-round agentic turn, so a single turn that
+  grows history substantially through several tool calls has no mid-turn
+  recheck. Cross-cutting agent-loop issues, not specific to this backend.
 
 ## Source Journals
 
@@ -230,3 +247,4 @@ generalized `chat/completions` DSML stream buffering).
 - `docs/journal/2026-09-24-deepseek-anthropic-orphaned-tool-results.md`
 - `docs/journal/2026-09-24-deepseek-anthropic-shared-pairing-primitive.md`
 - `docs/journal/2026-09-24-deepseek-anthropic-context-budget-reservation.md`
+- `docs/journal/2026-09-26-anchor-compaction-estimate-to-real-usage.md`
