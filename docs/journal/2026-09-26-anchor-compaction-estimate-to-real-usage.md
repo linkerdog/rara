@@ -72,9 +72,8 @@ continues to layer correctly on top of the corrected baseline.
 
 This corrects the estimate for every provider that reports `usage`, not
 just DeepSeek — Kimi/Moonshot uses its own tokenizer too and was subject to
-the same class of drift. Providers that never report usage (some local/
-Ollama configurations) keep relying on the local `cl100k_base` estimate
-alone, unchanged from before.
+the same class of drift. A backend that never reports usage at all keeps
+relying on the local `cl100k_base` estimate alone, unchanged from before.
 
 Not addressed here (raised during triage, deferred by the user's own
 priority call):
@@ -95,15 +94,55 @@ priority call):
 Both remain real gaps; this fix narrows the actual production trigger
 (estimate-vs-real drift) without building either recovery path.
 
+## Follow-Up (Copilot Review)
+
+Three review comments on the first version of this fix:
+
+1 and 2. `record_actual_prompt_tokens` trusted any `Some(TokenUsage)` as a
+   real measurement, but Ollama's adapter (`src/llm/ollama.rs`, both the
+   non-streaming `ask` and the streaming path) always returned
+   `Some(TokenUsage { input_tokens: 0, .. })` when its response simply
+   didn't carry `prompt_eval_count` — a zero-filled placeholder, not a
+   measurement of zero. Anchoring to that would have reset a populated,
+   accurate estimate to zero and could suppress compaction as history kept
+   growing — a worse regression than the drift this PR fixes.
+
+   Fixed at the source: both call sites now go through a new
+   `ollama_token_usage(input_tokens: Option<u32>, output_tokens: Option<u32>)`
+   helper that returns `None` unless `prompt_eval_count` was actually
+   present in the response (the streaming path's `apply_ollama_stream_event`
+   now threads `&mut Option<u32>` instead of `&mut u32` for both counters,
+   defaulting to `None`, so "never reported" and "reported as zero" are no
+   longer conflated). `Option<TokenUsage>` now means what
+   `record_actual_prompt_tokens` needs it to mean everywhere: `None` is "no
+   measurement," never a synthetic zero.
+
+3. The new tests only covered the arithmetic helper (`total_prompt_tokens`),
+   not the actual runtime wiring — nothing proved `run_model_turn_with_tools`
+   really re-anchors `compact_state.estimated_history_tokens` from a real
+   response before the turn's own messages get appended. Added
+   `compaction_estimate_is_re_anchored_to_reported_usage_after_a_turn`
+   (`src/agent/tests/compaction.rs`): seeds a deliberately stale estimate of
+   `1`, runs a full turn through a mock backend reporting
+   `usage.input_tokens = 500_000`, and asserts the post-turn estimate
+   reflects that reported value — a value pure local accumulation from a
+   seed of `1` could never reach in one turn.
+
 ## Verification
 
 - `cargo test --lib agent::compact::`: 16 passed, including new
   `total_prompt_tokens_sums_input_and_both_cache_fields` and
   `total_prompt_tokens_handles_no_cache_activity`.
-- `cargo test --lib agent::`: 184 passed, 1 ignored, 0 failed — no
+- `cargo test --lib agent::tests::compaction::`: 16 passed, including new
+  `compaction_estimate_is_re_anchored_to_reported_usage_after_a_turn`.
+- `cargo test --lib agent::`: 185 passed, 1 ignored, 0 failed — no
   regression in existing compaction/microcompact tests that manually seed
   `compact_state.estimated_history_tokens` before a turn (they assert on
   pre-turn compaction/projection behavior, not the corrected post-turn
   value, so they're unaffected).
+- `cargo test --lib llm::tests::`: 95 passed, including new
+  `ollama_token_usage_is_none_without_a_reported_prompt_count`,
+  `ollama_token_usage_reports_zero_output_as_a_real_measurement`, and
+  `ollama_stream_event_leaves_token_counts_none_when_final_line_omits_them`.
 - `cargo clippy --lib -- -D warnings` and `cargo fmt --check` (Rust
   sources): clean.
