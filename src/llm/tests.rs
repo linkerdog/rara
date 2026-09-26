@@ -7,7 +7,7 @@ use serde_json::json;
 
 use super::ollama::{
     apply_ollama_stream_event, build_ollama_options, ensure_ollama_stream_completed,
-    suggest_ollama_num_ctx, to_ollama_messages,
+    ollama_token_usage, suggest_ollama_num_ctx, to_ollama_messages,
 };
 use super::openai_compatible::{
     DeepseekTextStreamScrubber, OpenAiApiError, apply_codex_stream_event,
@@ -2613,8 +2613,8 @@ fn applies_ollama_stream_event_deltas_and_tool_calls() {
     let mut text = String::new();
     let mut tool_calls = Vec::new();
     let mut stop_reason = None;
-    let mut input_tokens = 0u32;
-    let mut output_tokens = 0u32;
+    let mut input_tokens: Option<u32> = None;
+    let mut output_tokens: Option<u32> = None;
     let mut deltas = Vec::new();
 
     let done = apply_ollama_stream_event(
@@ -2662,8 +2662,56 @@ fn applies_ollama_stream_event_deltas_and_tool_calls() {
     assert_eq!(tool_calls[0].name, "read_file");
     assert_eq!(tool_calls[0].arguments, json!({"path":"Cargo.toml"}));
     assert_eq!(stop_reason, Some("stop".to_string()));
-    assert_eq!(input_tokens, 12);
-    assert_eq!(output_tokens, 6);
+    assert_eq!(input_tokens, Some(12));
+    assert_eq!(output_tokens, Some(6));
+}
+
+#[test]
+fn ollama_stream_event_leaves_token_counts_none_when_final_line_omits_them() {
+    // A `done` event with no prompt_eval_count/eval_count fields must not
+    // be reported as a real zero-token measurement — see
+    // `ollama_token_usage`'s doc for why a synthetic zero there would
+    // corrupt the agent loop's compaction token estimate.
+    let mut text = String::new();
+    let mut tool_calls = Vec::new();
+    let mut stop_reason = None;
+    let mut input_tokens: Option<u32> = None;
+    let mut output_tokens: Option<u32> = None;
+    let mut deltas = Vec::new();
+
+    let done = apply_ollama_stream_event(
+        &json!({"message":{"content":"hi"}, "done": true, "done_reason": "stop"}),
+        &mut text,
+        &mut tool_calls,
+        &mut stop_reason,
+        &mut input_tokens,
+        &mut output_tokens,
+        &mut |delta| deltas.push(delta),
+    )
+    .unwrap();
+
+    assert!(done);
+    assert_eq!(input_tokens, None);
+    assert_eq!(output_tokens, None);
+}
+
+#[test]
+fn ollama_token_usage_is_none_without_a_reported_prompt_count() {
+    assert!(ollama_token_usage(None, None).is_none());
+    assert!(
+        ollama_token_usage(None, Some(6)).is_none(),
+        "an output count alone is not a prompt measurement"
+    );
+}
+
+#[test]
+fn ollama_token_usage_reports_zero_output_as_a_real_measurement() {
+    // Only input_tokens (the prompt count) gates whether usage is known at
+    // all; once it's present, a genuinely absent output count is fine to
+    // default to zero (e.g. a response cut off before any output).
+    let usage = ollama_token_usage(Some(12), None).expect("prompt count was reported");
+    assert_eq!(usage.input_tokens, 12);
+    assert_eq!(usage.output_tokens, 0);
 }
 
 #[test]
@@ -2682,8 +2730,8 @@ fn deduplicates_repeated_ollama_stream_tool_calls() {
     let mut text = String::new();
     let mut tool_calls = Vec::new();
     let mut stop_reason = None;
-    let mut input_tokens = 0u32;
-    let mut output_tokens = 0u32;
+    let mut input_tokens: Option<u32> = None;
+    let mut output_tokens: Option<u32> = None;
 
     apply_ollama_stream_event(
         &json!({
@@ -2725,8 +2773,8 @@ fn ignores_incomplete_ollama_stream_tool_calls_until_arguments_are_complete() {
     let mut text = String::new();
     let mut tool_calls = Vec::new();
     let mut stop_reason = None;
-    let mut input_tokens = 0u32;
-    let mut output_tokens = 0u32;
+    let mut input_tokens: Option<u32> = None;
+    let mut output_tokens: Option<u32> = None;
 
     apply_ollama_stream_event(
         &json!({

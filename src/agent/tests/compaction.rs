@@ -987,3 +987,51 @@ async fn manual_compact_preserves_recent_api_round_pair() {
             .contains("tool-recent")
     );
 }
+
+#[tokio::test]
+async fn compaction_estimate_is_re_anchored_to_reported_usage_after_a_turn() {
+    // Regression coverage for the runtime wiring introduced by
+    // record_actual_prompt_tokens (src/agent/compact/main.rs) and its call
+    // site in run_model_turn_with_tools (src/agent/runtime.rs): a stale
+    // local estimate must be corrected to the provider's real reported
+    // prompt size once a response comes back, not left to drift forever.
+    let backend = Arc::new(SequencedBackend::new(vec![LlmResponse {
+        content: vec![ContentBlock::Text {
+            text: "done".to_string(),
+        }],
+        stop_reason: Some("end_turn".to_string()),
+        usage: Some(TokenUsage {
+            input_tokens: 500_000,
+            output_tokens: 10,
+            cache_hit_tokens: 0,
+            cache_miss_tokens: 0,
+        }),
+    }]));
+    let mut agent = Agent::new(
+        ToolManager::new(),
+        backend,
+        Arc::new(MemoryHandle::new("data/memory")),
+        Arc::new(SessionManager::new().expect("session manager")),
+        Arc::new(WorkspaceMemory::new().expect("workspace memory")),
+    );
+    // A deliberately wrong, stale local estimate far below what the
+    // provider is about to report -- simulating the tokenizer-mismatch
+    // drift this fix corrects (a real local estimate could never jump to
+    // 500K+ from continuing to accumulate off a seed of 1 within one turn).
+    agent.compact_state.estimated_history_tokens = 1;
+
+    agent
+        .query_with_mode(
+            "continue".to_string(),
+            crate::agent::AgentOutputMode::Silent,
+        )
+        .await
+        .expect("query should complete");
+
+    assert!(
+        agent.compact_state.estimated_history_tokens >= 500_000,
+        "estimate must be re-anchored to the reported usage.input_tokens (500,000), \
+         not left accumulating from the stale local seed of 1: got {}",
+        agent.compact_state.estimated_history_tokens
+    );
+}
