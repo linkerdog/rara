@@ -44,21 +44,21 @@ async fn deepseek_model_picker_shows_dynamic_models_after_list_load() {
 #[test]
 fn mouse_wheel_with_no_overlay_routes_to_scroll_transcript() {
     let temp = tempdir().expect("tempdir");
-    let app = TuiApp::new(ConfigManager {
+    let mut app = TuiApp::new(ConfigManager {
         path: temp.path().join("config.json"),
     })
     .expect("build tui app");
 
     assert!(app.overlay.is_none());
 
-    match translate_event(mouse_scroll(MouseEventKind::ScrollUp), &app) {
+    match translate_event(mouse_scroll(MouseEventKind::ScrollUp), &mut app) {
         Some(UiEvent::App(AppEvent::ScrollTranscript(delta))) => {
             assert!((-15..=0).contains(&delta), "delta {delta} out of range");
         }
         event => panic!("unexpected event: {event:?}"),
     }
 
-    match translate_event(mouse_scroll(MouseEventKind::ScrollDown), &app) {
+    match translate_event(mouse_scroll(MouseEventKind::ScrollDown), &mut app) {
         Some(UiEvent::App(AppEvent::ScrollTranscript(delta))) => {
             assert!((0..=15).contains(&delta), "delta {delta} out of range");
         }
@@ -82,7 +82,7 @@ fn left_mouse_drag_routes_to_transcript_selection_without_overlay() {
     });
 
     assert!(matches!(
-        translate_event(click.clone(), &app),
+        translate_event(click.clone(), &mut app),
         Some(UiEvent::App(AppEvent::StartTranscriptSelection(position)))
             if position.x == 5 && position.y == 10
     ));
@@ -91,7 +91,7 @@ fn left_mouse_drag_routes_to_transcript_selection_without_overlay() {
     assert!(app.overlay.is_some());
 
     assert!(matches!(
-        translate_event(click, &app),
+        translate_event(click, &mut app),
         Some(UiEvent::App(AppEvent::Noop))
     ));
 }
@@ -126,7 +126,7 @@ fn mouse_wheel_with_status_overlay_routes_to_noop() {
 
     app.overlay = Some(Overlay::Status(StatusTab::Overview));
 
-    match translate_event(mouse_scroll(MouseEventKind::ScrollUp), &app) {
+    match translate_event(mouse_scroll(MouseEventKind::ScrollUp), &mut app) {
         Some(UiEvent::App(AppEvent::Noop)) => {}
         event => panic!("unexpected event: {event:?}"),
     }
@@ -162,7 +162,7 @@ fn mouse_wheel_with_context_overlay_routes_to_scroll_context() {
 
     app.open_overlay(Overlay::Context);
 
-    match translate_event(mouse_scroll(MouseEventKind::ScrollUp), &app) {
+    match translate_event(mouse_scroll(MouseEventKind::ScrollUp), &mut app) {
         Some(UiEvent::App(AppEvent::ScrollContext(delta))) => {
             assert!((-15..=0).contains(&delta), "delta {delta} out of range");
         }

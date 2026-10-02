@@ -33,6 +33,7 @@ pub(super) fn handle_paste(text: String, app: &mut TuiApp) {
         // a short debounce on the next call to drain_paste_burst.
         app.bottom_pane.handle_paste_burst_chunk(&normalized);
     } else {
+        app.flush_composer_paste();
         app.insert_active_input_text(&normalized);
     }
 }

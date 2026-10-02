@@ -59,6 +59,9 @@ async fn dispatch_event_inner(
     oauth_manager: &Arc<OAuthManager>,
     runtime_port: Option<&dyn RuntimeClientPort>,
 ) -> anyhow::Result<bool> {
+    if app.composer_input_is_active() {
+        app.flush_composer_paste();
+    }
     match event {
         AppEvent::Noop => {}
         AppEvent::OpenOverlay(overlay) => app.open_overlay(overlay),
@@ -86,8 +89,9 @@ async fn dispatch_event_inner(
             }
         }
         AppEvent::ClearComposer => {
-            app.bottom_pane.input.clear();
-            app.bottom_pane.input_cursor_offset = None;
+            app.bottom_pane.clear_input();
+            app.reset_input_history_navigation();
+            app.sync_command_palette_with_input();
         }
         AppEvent::ToggleSidebar => {
             app.sidebar_visible = !app.sidebar_visible;

@@ -26,10 +26,13 @@ pub enum UiEvent {
     FocusChanged(bool),
 }
 
-pub fn translate_event(event: Event, app: &TuiApp) -> Option<UiEvent> {
+pub fn translate_event(event: Event, app: &mut TuiApp) -> Option<UiEvent> {
     match event {
         Event::Key(key_event) => {
             if matches!(key_event.kind, KeyEventKind::Press | KeyEventKind::Repeat) {
+                if app.composer_input_is_active() {
+                    app.flush_composer_paste();
+                }
                 Some(UiEvent::App(super::map_key_to_event(key_event, app)))
             } else {
                 None

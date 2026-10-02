@@ -54,6 +54,12 @@ not inherit the plain-list j/k shortcuts.
 - Ctrl+B toggles the sidebar; Alt+T toggles thinking visibility.
 - Pasted content uses the paste event path, including large-paste expansion at
   submission; it must not be replayed as individual shortcut key presses.
+  Pending paste is applied before interpreting the next pressed/repeated key
+  or applying an input action. Immediate submission includes the complete
+  paste, and cursor/history/approval routing sees the resulting composer.
+  Clearing discards pending bursts, deadlines, and placeholder payloads.
+  Esc retains its existing cancellation/no-op behavior and preserves the draft;
+  no paste may appear later in a cleared or submitted composer.
 
 An ordinary composer accepts j/k as text even when empty. Transcript scrolling
 uses arrows, PageUp/PageDown, or the mouse. An empty approval composer retains
@@ -115,7 +121,7 @@ fake does not prove that a live provider accepted the new model.
 | Contract | Observable check |
 | --- | --- |
 | INPUT-01 | Dispatch j/k and arrow keys in search; verify the query and rendered results; exercise Help Commands scrolling |
-| INPUT-02 | Existing cursor, history, newline, paste, and busy-input tests |
+| INPUT-02 | Cursor/history tests plus immediate paste-submit, edit, clear, Esc, and mixed-size paste sequences through production key dispatch |
 | INPUT-03 | Open and dismiss overlays through key dispatch; verify no runtime cancel command is sent |
 | INPUT-04 | Filter by provider; render and select the same model through Enter; verify zero-result behavior |
 | INPUT-05 | Select a model and assert rebuild/setup routing; disambiguate endpoint profiles sharing a model ID |
@@ -133,3 +139,4 @@ fake does not prove that a live provider accepted the new model.
 
 - [TUI interaction contracts](../journal/2026-09-17-tui-interaction-contracts.md)
 - [Input ownership and draft preservation](../journal/2026-09-17-tui-input-ownership.md)
+- [Paste input ordering](../journal/2026-10-02-tui-paste-input-order.md)

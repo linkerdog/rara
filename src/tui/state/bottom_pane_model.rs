@@ -60,6 +60,16 @@ impl BottomPaneModel {
             .min(text.chars().count())
     }
 
+    pub(crate) fn clear_input(&mut self) {
+        self.input.clear();
+        self.input_cursor_offset = None;
+        self.composer_scroll = 0;
+        self.paste_burst_buffer = None;
+        self.paste_burst_deadline = None;
+        self.large_paste_pending.clear();
+        self.large_paste_counter = 0;
+    }
+
     // ── Paste-burst ──────────────────────────────────────────────────
 
     /// Absorb a full paste chunk into the burst buffer rather than inserting
@@ -71,17 +81,9 @@ impl BottomPaneModel {
         self.paste_burst_deadline = Some(Instant::now() + PASTE_BURST_FLUSH_DELAY);
     }
 
-    /// Flush completed paste bursts into the input string.
-    ///
-    /// Returns `true` when a burst was flushed (caller should redraw).
-    pub fn check_paste_burst_flush(&mut self) -> bool {
-        let Some(deadline) = self.paste_burst_deadline else {
-            return false;
-        };
-        if Instant::now() < deadline {
-            return false;
-        }
-        self.flush_paste_burst()
+    pub(crate) fn paste_burst_is_due(&self) -> bool {
+        self.paste_burst_deadline
+            .is_some_and(|deadline| Instant::now() >= deadline)
     }
 
     /// Force-flush any pending paste burst regardless of deadline.
