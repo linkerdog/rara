@@ -1,9 +1,11 @@
 use std::cell::RefCell;
 use std::sync::Arc;
 
-use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
+use unicode_segmentation::UnicodeSegmentation;
 
-const TAB_WIDTH: usize = 4;
+pub(crate) use super::text_wrap::expand_tabs;
+use super::text_wrap::{WrapMode, WrapOptions, display_width, grapheme_width, wrap_ranges};
+
 pub(crate) const COMPOSER_INITIAL_INDENT: &str = "› ";
 pub(crate) const COMPOSER_SUBSEQUENT_INDENT: &str = "  ";
 
@@ -32,7 +34,7 @@ pub(crate) struct VisualPosition {
 /// Plain display rows and character-offset mapping shared by editing and rendering.
 pub(crate) struct WrappedText {
     rows: Vec<String>,
-    positions: Vec<VisualPosition>,
+    positions: Vec<(usize, VisualPosition)>,
     width: usize,
 }
 
@@ -49,16 +51,18 @@ impl WrappedText {
 
     /// Keeps insertion-boundary columns distinct before hardware cursor clipping.
     pub(crate) fn position_for_offset(&self, offset: usize) -> VisualPosition {
-        self.positions[offset.min(self.positions.len() - 1)]
+        let index = self
+            .positions
+            .partition_point(|(boundary, _)| *boundary <= offset);
+        self.positions[index.saturating_sub(1)].1
     }
 
     pub(crate) fn offset_for_position(&self, target: VisualPosition) -> usize {
         if target.row >= self.rows.len() {
-            return self.positions.len() - 1;
+            return self.positions.last().expect("initial cursor boundary").0;
         }
         self.positions
             .iter()
-            .enumerate()
             .filter(|(_, position)| position.row == target.row)
             .min_by_key(|(offset, position)| {
                 (
@@ -66,7 +70,7 @@ impl WrappedText {
                     std::cmp::Reverse(*offset),
                 )
             })
-            .map_or(0, |(offset, _)| offset)
+            .map_or(0, |(offset, _)| *offset)
     }
 }
 
@@ -106,51 +110,48 @@ pub(crate) fn wrapped_text(input: &str, config: WrapConfig<'_>) -> Arc<WrappedTe
 fn build_layout(input: &str, config: &WrapConfig<'_>) -> WrappedText {
     let width = usize::from(config.width.max(1));
     let mut rows = Vec::new();
-    let mut current = config.initial_indent.to_string();
-    let mut prefix_width = UnicodeWidthStr::width(config.initial_indent).min(width);
-    let mut column = prefix_width;
-    let mut positions = vec![VisualPosition { row: 0, column }];
-    for ch in input.chars() {
-        if ch == '\n' {
-            rows.push(current);
-            current = config.subsequent_indent.to_string();
-            prefix_width = UnicodeWidthStr::width(config.subsequent_indent).min(width);
-            column = prefix_width;
+    let ranges = wrap_ranges(
+        input,
+        WrapOptions {
+            width,
+            initial_indent: display_width(config.initial_indent).min(width),
+            subsequent_indent: display_width(config.subsequent_indent).min(width),
+            mode: WrapMode::Grapheme,
+        },
+    );
+    let mut positions: Vec<(usize, VisualPosition)> = Vec::new();
+    let mut byte_offset = 0;
+    let mut offset = 0;
+    for (row, range) in ranges.into_iter().enumerate() {
+        offset += input[byte_offset..range.start].chars().count();
+        let indent = if row == 0 {
+            config.initial_indent
         } else {
-            let char_width = match ch {
-                '\t' => TAB_WIDTH,
-                _ => UnicodeWidthChar::width(ch).unwrap_or(0),
-            };
-            if column.saturating_add(char_width) > width && column > prefix_width {
-                rows.push(current);
-                current = config.subsequent_indent.to_string();
-                prefix_width = UnicodeWidthStr::width(config.subsequent_indent).min(width);
-                column = prefix_width;
-                // This character starts the next row, so its preceding cursor
-                // boundary must move with it instead of staying on the old row.
-                *positions.last_mut().expect("initial cursor boundary") = VisualPosition {
-                    row: rows.len(),
-                    column,
-                };
-            }
-            current.push(ch);
-            column = column.saturating_add(char_width);
+            config.subsequent_indent
+        };
+        let mut column = display_width(indent).min(width);
+        let start = VisualPosition { row, column };
+        if let Some(last) = positions.last_mut()
+            && last.0 == offset
+        {
+            last.1 = start;
+        } else {
+            positions.push((offset, start));
         }
-        positions.push(VisualPosition {
-            row: rows.len(),
-            column,
-        });
+        let text = &input[range.clone()];
+        for grapheme in text.graphemes(true) {
+            offset += grapheme.chars().count();
+            column = column.saturating_add(grapheme_width(grapheme));
+            positions.push((offset, VisualPosition { row, column }));
+        }
+        rows.push(format!("{indent}{text}"));
+        byte_offset = range.end;
     }
-    rows.push(current);
     WrappedText {
         rows,
         positions,
         width,
     }
-}
-
-pub(crate) fn expand_tabs(text: &str) -> String {
-    text.replace('\t', &" ".repeat(TAB_WIDTH))
 }
 
 /// Measures the displayed prefix of a clipped, single-line editor.
@@ -160,7 +161,7 @@ pub(crate) fn clipped_cursor_column(input: &str, offset: usize, width: u16) -> u
         .take(offset)
         .take_while(|ch| *ch != '\n')
         .collect::<String>();
-    UnicodeWidthStr::width(expand_tabs(&prefix).as_str()).min(usize::from(width.max(1) - 1))
+    display_width(&prefix).min(usize::from(width.max(1) - 1))
 }
 
 #[cfg(test)]
@@ -230,5 +231,35 @@ mod tests {
         assert_eq!(clipped_cursor_column("abcdef", 6, 4), 3);
         assert_eq!(clipped_cursor_column("\u{754c}\tx", 2, 10), 6);
         assert_eq!(clipped_cursor_column("abcdef", 4, 0), 0);
+    }
+
+    #[test]
+    fn cursor_geometry_uses_whole_graphemes_without_changing_character_offsets() {
+        let input = "a\u{301}\u{1f469}\u{200d}\u{1f4bb}z";
+        let layout = wrapped_text(input, WrapConfig::composer(5));
+        assert_eq!(
+            layout.rows(),
+            &["› a\u{301}\u{1f469}\u{200d}\u{1f4bb}", "  z"]
+        );
+        for (offset, expected) in [
+            (0, (0, 2)),
+            (1, (0, 2)),
+            (2, (0, 3)),
+            (3, (0, 3)),
+            (4, (0, 3)),
+            (5, (1, 2)),
+            (6, (1, 3)),
+        ] {
+            let position = layout.position_for_offset(offset);
+            assert_eq!((position.row, position.column), expected, "offset {offset}");
+        }
+        assert_eq!(
+            layout.offset_for_position(VisualPosition { row: 0, column: 4 }),
+            2
+        );
+        assert_eq!(
+            layout.offset_for_position(VisualPosition { row: 1, column: 2 }),
+            5
+        );
     }
 }

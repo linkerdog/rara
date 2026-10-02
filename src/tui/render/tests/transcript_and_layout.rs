@@ -488,7 +488,7 @@ fn transcript_scroll_offset_uses_wrapped_visual_height() {
         Line::from("  This is a long streamed response that should wrap across rows."),
     ];
 
-    let visual_rows = transcript_visual_row_count(&lines, 12);
+    let visual_rows = crate::tui::transcript_text::wrap_lines(&lines, 12).len();
     assert!(visual_rows > lines.len());
     assert_eq!(
         transcript_scroll_offset(&app, 3, visual_rows),
@@ -518,7 +518,7 @@ fn effective_height_includes_final_row_at_bottom_sticky() {
     }]);
 
     let viewport = transcript_viewport(&app, 80, 5);
-    let (visible_lines, _inner) = viewport.visible_window(80, 5);
+    let visible_lines = viewport.visible_window(5);
 
     // Effective height = 5 - 1 = 4. With scroll=0 (bottom sticky),
     // the viewport should show the last 4 content rows.
@@ -721,7 +721,7 @@ fn bottom_pane_height_does_not_panic_on_tiny_terminal() {
 }
 
 #[test]
-fn transcript_viewport_visible_window_keeps_partial_wrapped_line_offset() {
+fn transcript_viewport_visible_window_slices_partial_wrapped_lines() {
     let viewport = TranscriptViewport::new(
         vec![
             Line::from("• This is a long first line that wraps across rows."),
@@ -731,15 +731,13 @@ fn transcript_viewport_visible_window_keeps_partial_wrapped_line_offset() {
         12,
     );
 
-    let (lines, inner_scroll) = viewport.visible_window(12, 3);
+    let lines = viewport.visible_window(3);
     let rendered = lines
-        .into_iter()
+        .iter()
         .map(|line| line.to_string())
         .collect::<Vec<_>>();
 
-    assert_eq!(inner_scroll, 1);
-    assert_eq!(rendered.len(), 1);
-    assert!(rendered[0].contains("long first line"));
+    assert_eq!(rendered, ["long first", "line that", "wraps across"]);
 }
 
 #[test]
@@ -756,13 +754,12 @@ fn transcript_viewport_visible_window_slices_to_visible_rows() {
     );
 
     // height=3 gives 3 visible content rows.
-    let (lines, inner_scroll) = viewport.visible_window(80, 3);
+    let lines = viewport.visible_window(3);
     let rendered = lines
-        .into_iter()
+        .iter()
         .map(|line| line.to_string())
         .collect::<Vec<_>>();
 
-    assert_eq!(inner_scroll, 0);
     assert_eq!(rendered, vec!["• Second", "  Third", "  Fourth"]);
 }
 

@@ -67,6 +67,11 @@ continuations use a two-column indent, including explicit newlines. Tabs retain
 the existing four-column expansion. At a soft-wrap boundary before another
 character, the cursor belongs to the next displayed row. Moving vertically
 chooses the nearest valid character offset on the adjacent displayed row.
+The shared grapheme wrapping profile keeps combining sequences and joined emoji
+on one row and maps vertical navigation to their character-offset boundaries.
+Transcript uses the same range/width primitives with word wrapping; see
+[mouse selection](../features/mouse-text-selection.md). This layout guarantee
+does not add grapheme-aware Backspace/Delete or change stored draft offsets.
 Navigation compares untruncated insertion-boundary columns; hardware cursor
 clipping must not make the last character indistinguishable from a newline or
 end of input. Setup editors retain their single-line clipped rendering and
