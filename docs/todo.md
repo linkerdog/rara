@@ -46,7 +46,9 @@ Active backlog only. Keep this file small and current.
 - [ ] Complete [#921](https://github.com/linkerdog/rara/issues/921) transcript
       layout caching and bounded redraw work. Shared materialized visual rows
       fix the correctness boundary, not per-delta rendering complexity; see
-      [the wrapping checkpoint](journal/2026-10-02-shared-transcript-wrapping.md).
+      [the wrapping checkpoint](journal/2026-10-02-shared-transcript-wrapping.md)
+      and [the scroll-anchor checkpoint](journal/2026-10-02-transcript-scroll-anchors.md).
+      Scroll input still refreshes complete visual rows before navigation.
 - [ ] Complete remaining keyboard contracts: resume-search cursor editing,
       Help General/Runtime scrolling, grapheme-cluster editing, and an explicit
       opt-in Vim mode. See [input risks](interaction/composer-and-overlays.md#open-risks).

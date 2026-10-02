@@ -155,7 +155,7 @@ pub async fn run_tui(
                 let mut changed = false;
                 let app = maintainer.app_mut();
                 if let Some(delta) = app.transcript_selection.autoscroll_delta() {
-                    app.scroll_transcript(delta);
+                    super::render::scroll_transcript(app, delta);
                     changed = true;
                 }
                 changed |= app.poll_shared_task_files();

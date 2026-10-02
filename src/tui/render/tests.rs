@@ -14,7 +14,7 @@ use super::{
     compact_summary_text, current_turn_exploration_summary_from_entries, current_turn_tool_summary,
     desired_bottom_pane_height, desired_viewport_height, display_directory_for_startup,
     formatted_message_lines, prefixed_message_lines, renderable_transcript_lines,
-    tool_action_label, transcript_scroll_offset, transcript_viewport,
+    scroll_transcript, tool_action_label, transcript_viewport,
 };
 use crate::config::{ConfigManager, OpenAiEndpointKind, RaraConfig};
 use crate::tools::bash::BashCommandInput;
@@ -24,7 +24,7 @@ use crate::tui::state::{
     ApiKeyTarget, InteractionKind, ListPickerKind, Overlay, PendingApprovalSnapshot,
     PendingInteractionSnapshot, PlanningApprovalStatus, PlanningLifecycleSnapshot, ProviderFamily,
     RuntimeSnapshot, StatusTab, ToolTranscriptPayload, ToolTranscriptStatus, TranscriptEntry,
-    TranscriptEntryPayload, TranscriptTurn, TuiApp,
+    TranscriptEntryPayload, TranscriptScroll, TranscriptScrollLayout, TranscriptTurn, TuiApp,
 };
 
 fn provider_family_idx(family: ProviderFamily) -> usize {

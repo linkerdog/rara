@@ -89,7 +89,7 @@ impl TuiApp {
             resume_search_query: String::new(),
             committed_render_generation: 0,
             committed_render_cache: RefCell::new(CommittedTranscriptRenderCache::default()),
-            transcript_scroll: 0,
+            transcript_scroll: TranscriptScroll::default(),
             transcript_selection: crate::tui::selection::TranscriptSelection::default(),
             context_scroll: 0,
             terminal_width: 80,

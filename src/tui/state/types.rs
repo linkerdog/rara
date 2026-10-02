@@ -16,6 +16,7 @@ use super::super::markdown_stream::MarkdownStreamCollector;
 use super::super::queued_input::PendingFollowUpMessage;
 use super::bottom_pane_model::BottomPaneModel;
 use super::planning_lifecycle::PlanningLifecycleSnapshot;
+use super::transcript_scroll::TranscriptScroll;
 use crate::agent::{Agent, AgentExecutionMode, BashApprovalMode};
 use crate::codex_model_catalog::CodexModelOption;
 use crate::config::{ConfigManager, OpenAiEndpointKind, RaraConfig};
@@ -795,7 +796,7 @@ pub struct TuiApp {
     pub resume_search_query: String,
     pub committed_render_generation: u64,
     pub committed_render_cache: RefCell<CommittedTranscriptRenderCache>,
-    pub transcript_scroll: usize,
+    pub(crate) transcript_scroll: TranscriptScroll,
     pub(crate) transcript_selection: TranscriptSelection,
     pub context_scroll: u16,
     pub terminal_width: u16,
