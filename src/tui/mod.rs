@@ -2,6 +2,7 @@ mod app_event;
 mod auth_mode_picker;
 mod clipboard;
 mod command;
+mod composer_text;
 mod context_display;
 mod controller;
 mod custom_terminal;
@@ -26,6 +27,7 @@ mod markdown_render;
 mod markdown_stream;
 mod message_role;
 mod model_search;
+mod pane_geometry;
 #[cfg(test)]
 mod paste_input_tests;
 #[cfg(test)]

@@ -9,6 +9,7 @@ use ratatui::{
 use unicode_width::UnicodeWidthChar;
 
 use super::Frame;
+use crate::tui::composer_text::expand_tabs;
 use crate::tui::render::bottom_pane::composer::editor_cursor_position;
 use crate::tui::state::{ApiKeyTarget, TuiApp};
 use crate::tui::theme::{ThemeToken, theme_color};
@@ -243,7 +244,8 @@ pub(super) fn render_api_key_editor_modal(
                 .title(title),
         )
         .wrap(Wrap { trim: false });
-    let editor = Paragraph::new(app.api_key_input.chars().map(|_| '*').collect::<String>()).block(
+    let masked_input = "*".repeat(app.api_key_input.chars().count());
+    let editor = Paragraph::new(masked_input.as_str()).block(
         Block::default()
             .style(element_bg())
             .padding(Padding::horizontal(1))
@@ -254,7 +256,7 @@ pub(super) fn render_api_key_editor_modal(
     f.render_widget(editor, chunks[1]);
     f.render_widget(footer, chunks[2]);
     Some(editor_cursor_position(
-        app.api_key_input.as_str(),
+        masked_input.as_str(),
         app.api_key_cursor_offset(),
         chunks[1],
     ))
@@ -283,7 +285,7 @@ pub(super) fn render_base_url_editor_modal(
                 .title(" Base URL "),
         )
         .wrap(Wrap { trim: false });
-    let editor = Paragraph::new(app.base_url_input.as_str()).block(
+    let editor = Paragraph::new(expand_tabs(app.base_url_input.as_str())).block(
         Block::default()
             .style(element_bg())
             .padding(Padding::horizontal(1))
@@ -328,7 +330,7 @@ pub(super) fn render_model_name_editor_modal(
                 .title(" Model Name "),
         )
         .wrap(Wrap { trim: false });
-    let editor = Paragraph::new(app.model_name_input.as_str()).block(
+    let editor = Paragraph::new(expand_tabs(app.model_name_input.as_str())).block(
         Block::default()
             .style(element_bg())
             .padding(Padding::horizontal(1))
@@ -375,7 +377,7 @@ pub(super) fn render_openai_profile_label_editor_modal(
                 .title(" New Endpoint Profile "),
         )
         .wrap(Wrap { trim: false });
-    let editor = Paragraph::new(app.openai_profile_label_input.as_str()).block(
+    let editor = Paragraph::new(expand_tabs(app.openai_profile_label_input.as_str())).block(
         Block::default()
             .style(element_bg())
             .padding(Padding::horizontal(1))
@@ -394,4 +396,59 @@ pub(super) fn render_openai_profile_label_editor_modal(
 
 fn element_bg() -> Style {
     Style::default().bg(theme_color(ThemeToken::UiElementBg))
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::tui::state::{ApiKeyTarget, Overlay, RuntimeSnapshot};
+    use crate::tui::testing::TuiHarness;
+
+    #[test]
+    fn clipped_setup_editors_keep_overflow_cursors_on_the_rendered_row() {
+        for overlay in [
+            Overlay::BaseUrlEditor,
+            Overlay::ModelNameEditor,
+            Overlay::OpenAiProfileLabelEditor,
+            Overlay::ApiKeyEditor(ApiKeyTarget::OpenAiCompatible),
+        ] {
+            let mut tui = TuiHarness::new(RuntimeSnapshot::default()).expect("harness");
+            tui.app_mut().open_overlay(overlay);
+            let app = tui.app_mut();
+            app.base_url_input = "z".repeat(500);
+            app.model_name_input = "z".repeat(500);
+            app.openai_profile_label_input = "z".repeat(500);
+            app.api_key_input = "\u{754c}".repeat(500);
+            app.base_url_cursor_offset = Some(0);
+            app.model_name_cursor_offset = Some(0);
+            app.openai_profile_label_cursor_offset = Some(0);
+            app.api_key_cursor_offset = Some(0);
+            let (buffer, cursor) = tui.screen_buffer(80, 40);
+            let first = cursor.expect("editor cursor");
+            let symbol = if matches!(overlay, Overlay::ApiKeyEditor(_)) {
+                "*"
+            } else {
+                "z"
+            };
+            assert_eq!(buffer[first].symbol(), symbol);
+            let visible_width = (first.0..buffer.area.right())
+                .take_while(|x| buffer[(*x, first.1)].symbol() == symbol)
+                .count();
+            assert!(visible_width > 1);
+            for offset in [1, visible_width, visible_width + 1, 500] {
+                let app = tui.app_mut();
+                app.base_url_cursor_offset = Some(offset);
+                app.model_name_cursor_offset = Some(offset);
+                app.openai_profile_label_cursor_offset = Some(offset);
+                app.api_key_cursor_offset = Some(offset);
+                let (buffer, cursor) = tui.screen_buffer(80, 40);
+                let expected = (first.0 + offset.min(visible_width - 1) as u16, first.1);
+                assert_eq!(
+                    cursor,
+                    Some(expected),
+                    "overlay={overlay:?}, offset={offset}"
+                );
+                assert_eq!(buffer[expected].symbol(), symbol);
+            }
+        }
+    }
 }
