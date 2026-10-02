@@ -39,6 +39,26 @@ fn cleanup_returns_first_error_when_multiple_modes_fail() {
     assert_eq!(error.to_string(), "Mouse");
 }
 
+#[test]
+fn failed_guard_restoration_is_not_retried() {
+    let mut guard = super::TerminalModeGuard { active: true };
+    let calls = std::cell::Cell::new(0);
+    guard
+        .restore_with(|| {
+            calls.set(calls.get() + 1);
+            Err(io::Error::other("injected cleanup failure"))
+        })
+        .expect_err("cleanup failure must surface");
+    guard
+        .restore_with(|| {
+            calls.set(calls.get() + 1);
+            Ok(())
+        })
+        .expect("repeat restore is a no-op");
+    drop(guard);
+    assert_eq!(calls.get(), 1, "failed cleanup must consume ownership");
+}
+
 #[cfg(unix)]
 mod pty {
     use std::io::{Read, Write};
@@ -55,6 +75,7 @@ mod pty {
     #[test]
     fn terminal_modes_restore_on_exit_without_disabling_caught_workers() {
         for scenario in [
+            "pipe",
             "normal",
             "error",
             "partial",
@@ -104,7 +125,7 @@ mod pty {
             assert!(output.contains("raw_after=false"), "{scenario}: {output}");
             for reset in ["\x1b[?1000l", "\x1b[?1006l", "\x1b[?2004l", "\x1b[?25h"] {
                 assert!(
-                    output.contains(reset),
+                    scenario == "pipe" || output.contains(reset),
                     "missing {reset:?}: {scenario}: {output}"
                 );
             }
@@ -123,9 +144,9 @@ mod pty {
         }
     }
 
-    // Runs only inside the PTY subprocess; never changes the parent test runner's modes or hook.
+    // Runs only in a subprocess; never changes the parent test runner's modes or hook.
     #[test]
-    #[ignore = "PTY subprocess fixture"]
+    #[ignore = "terminal subprocess fixture"]
     fn terminal_modes_child() {
         let scenario = std::env::var(SCENARIO_ENV).expect("PTY scenario");
         std::panic::set_hook(Box::new(|_| {
@@ -135,6 +156,38 @@ mod pty {
             );
         }));
         match scenario.as_str() {
+            "pipe" => {
+                // Keep the pipe child inside this isolated PTY session so even
+                // the pre-fix path cannot alter the parent runner's terminal.
+                let output =
+                    std::process::Command::new(std::env::current_exe().expect("test executable"))
+                        .args([
+                            "--exact",
+                            "tui::terminal_modes::tests::pty::terminal_modes_child",
+                            "--ignored",
+                            "--nocapture",
+                        ])
+                        .env(SCENARIO_ENV, "pipe_child")
+                        .stdin(std::process::Stdio::null())
+                        .output()
+                        .expect("pipe child");
+                assert!(
+                    !output.stdout.contains(&0x1b),
+                    "non-TTY stdout: {}",
+                    String::from_utf8_lossy(&output.stdout)
+                );
+                assert!(
+                    output.status.success(),
+                    "pipe child: {}",
+                    String::from_utf8_lossy(&output.stderr)
+                );
+            }
+            "pipe_child" => {
+                let error = TerminalModeGuard::start()
+                    .err()
+                    .expect("non-TTY startup error");
+                assert_eq!(error.to_string(), "stdout is not a terminal");
+            }
             "normal" => {
                 let mut guard = TerminalModeGuard::start().expect("start terminal modes");
                 execute!(std::io::stdout(), Hide).expect("hide cursor");

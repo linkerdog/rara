@@ -89,6 +89,7 @@ restored committed output, restored pending state, and newly running work.
 ### RUN-05: Terminal Lifetime And Restoration
 
 Terminal mode ownership begins before raw mode or input reporting is enabled.
+Non-TTY stdout is rejected before ownership or escape-sequence output begins.
 Startup failures, event-loop errors, normal exits, and unwinding must restore
 raw mode, mouse reporting, bracketed paste, and cursor visibility. Partial
 initialization has the same restoration obligation as a running UI.
@@ -102,6 +103,9 @@ disable a running UI's terminal modes, including tasks on the same executor
 thread between owner polls. If the owner catches a panic after restoration,
 the UI must exit instead of continuing with disabled terminal modes.
 Restore modes before asynchronous exit work such as memory draining.
+Explicit restoration consumes guard ownership even when a cleanup operation
+fails; Drop must not repeat that failed cleanup attempt. Signal termination
+such as SIGTERM/SIGHUP and non-unwinding aborts are outside this contract.
 
 Only one TUI may own the process terminal at a time. Restoration is idempotent
 and does not modify keyboard enhancement stacks that the TUI never enabled.

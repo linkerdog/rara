@@ -18,6 +18,9 @@ on normal, error, partial-initialization, and panic exits.
 - Adapt these patterns through a private terminal-mode guard, a separate
   session runner, and isolated PTY subprocess regression checks. Preserve
   runtime error identity and keep mode ownership out of the rendering backend.
+- Non-TTY follow-up: Codex `tui.rs::init` checks stdout before arming its
+  initialization guard; Claude Code `cleanupTerminalModes` skips non-TTY
+  output. Reject piped stdout before acquiring terminal ownership.
 
 ## Scope And Key Decisions
 
@@ -31,12 +34,17 @@ on normal, error, partial-initialization, and panic exits.
   instead of continuing a UI whose modes have already been restored.
   Repeated TUI starts do not accumulate hook wrappers.
 - Cleanup attempts mouse, bracketed paste, raw mode, and cursor restoration
-  independently and returns the first error. Failed cleanup can be retried by
-  Drop; errors are logged and never replace an existing runtime error.
+  independently and returns the first error. Explicit restoration consumes
+  guard ownership even on failure, so Drop does not retry failed writes;
+  errors are logged and never replace an existing runtime error.
 - The renderer no longer owns reporting-mode initialization or teardown.
   Mode restoration happens before memory draining.
 - Keyboard enhancement is not enabled by this TUI, so cleanup does not pop an
   unowned keyboard stack. Viewport behavior and suspend/resume remain #925.
+- Reject non-TTY stdout before initialization, without writing reset sequences
+  into its pipe. Global ownership is limited to the one process terminal, not
+  runtime/session handles. The once-installed hook does not own hooks installed
+  afterward. SIGTERM/SIGHUP and non-unwinding aborts remain outside RUN-05.
 
 ## Validation
 
@@ -73,8 +81,12 @@ Behavioral RED evidence:
   against that implementation: `previous_hook_raw=false`, followed by an
   assertion failure because the running owner's raw mode was disabled.
   Per-poll ownership and a caught-owner termination boundary fix this case.
+- Follow-up REDs: non-TTY startup writes reset sequences into its pipe, and
+  an injected restoration failure invokes cleanup twice instead of once.
+  The final pipe regression runs a piped grandchild inside an isolated PTY
+  session, so even the pre-fix raw-mode path cannot affect the parent runner.
 
-Final validation evidence: the focused terminal-mode suite reports three
+Pre-follow-up validation evidence: the focused terminal-mode suite reports three
 passing tests and one ignored subprocess fixture; the existing event-loop
 plugin-rebuild helper reports one passing test. That helper is not a startup
 failure or terminal-restoration integration test. `cargo check`, strict Clippy, formatting,
@@ -84,3 +96,10 @@ repository configuration are changed. Remote CI remains pending.
 
 The PTY checks prove mode restoration; they do not prove shell-prompt placement,
 scrollback, terminal resizing, or suspend/resume acceptance.
+The full `run_tui`/`run_tui_session` exit ordering is still source-reviewed,
+not an end-to-end entry-point regression; no broader acceptance is claimed.
+
+The non-TTY/retry follow-up reports four passing focused tests and one ignored
+subprocess fixture, including nine isolated PTY scenarios. Cargo check, strict
+all-target Clippy, formatting, and diff checks are clean. Exact-head remote CI
+must be refreshed after the follow-up push.

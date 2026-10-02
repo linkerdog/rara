@@ -1,6 +1,6 @@
 use std::cell::Cell;
 use std::future::{Future, poll_fn};
-use std::io;
+use std::io::{self, IsTerminal};
 use std::pin::pin;
 use std::sync::Once;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -13,6 +13,9 @@ use crossterm::{
     terminal::{disable_raw_mode, enable_raw_mode},
 };
 
+// These own the single process terminal, never session runtime handles. The
+// hook chains only the hook present at first acquisition; later replacements
+// remain the installing caller's responsibility.
 static TERMINAL_ACTIVE: AtomicBool = AtomicBool::new(false);
 static PANIC_HOOK: Once = Once::new();
 
@@ -55,6 +58,9 @@ pub(super) struct TerminalModeGuard {
 
 impl TerminalModeGuard {
     pub(super) fn start() -> io::Result<Self> {
+        if !io::stdout().is_terminal() {
+            return Err(io::Error::other("stdout is not a terminal"));
+        }
         Self::acquire_with(|| {
             enable_raw_mode()?;
             execute!(io::stdout(), EnableBracketedPaste, EnableMouseCapture)
@@ -112,13 +118,18 @@ impl TerminalModeGuard {
     }
 
     pub(super) fn restore(&mut self) -> io::Result<()> {
+        self.restore_with(restore_terminal_modes)
+    }
+
+    // Isolates the ownership-consumption boundary for failure injection.
+    fn restore_with(&mut self, restore: impl FnOnce() -> io::Result<()>) -> io::Result<()> {
         if !self.active {
             return Ok(());
         }
-        restore_terminal_modes()?;
         self.active = false;
+        let result = restore();
         TERMINAL_ACTIVE.store(false, Ordering::Release);
-        Ok(())
+        result
     }
 }
 
@@ -126,7 +137,6 @@ impl Drop for TerminalModeGuard {
     fn drop(&mut self) {
         if let Err(error) = self.restore() {
             log::warn!("Failed to restore terminal on exit: {error}");
-            TERMINAL_ACTIVE.store(false, Ordering::Release);
         }
     }
 }
