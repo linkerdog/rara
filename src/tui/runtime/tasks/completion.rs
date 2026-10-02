@@ -88,7 +88,11 @@ async fn finish_running_task_if_ready_with_completion_mode(
         while task.receiver.try_recv().is_ok() {}
     }
     match completion {
-        TaskCompletion::Query { mut agent, result } => {
+        TaskCompletion::Query {
+            mut agent,
+            result,
+            goal_turn,
+        } => {
             let query_started_in_plan_mode = matches!(
                 app.agent_execution_mode,
                 crate::agent::AgentExecutionMode::Plan
@@ -111,6 +115,29 @@ async fn finish_running_task_if_ready_with_completion_mode(
                     let permission_changed =
                         super::permissions::apply_pending_permission_mode(app, &mut agent);
                     app.clear_active_live_sections();
+                    let continuation = match RuntimeClient::continue_goal(
+                        &app.goal_handle,
+                        &agent,
+                        goal_turn.as_ref(),
+                        finished_plan_turn,
+                        app.has_pending_plan_approval(),
+                    ) {
+                        Ok(continuation) => continuation,
+                        Err(error) => {
+                            log::warn!("Goal accounting failed; stopping continuation: {error:#}");
+                            app.push_notice(format!(
+                                "Goal accounting failed; continuation stopped: {error:#}"
+                            ));
+                            app.finalize_active_turn();
+                            app.set_runtime_phase(
+                                RuntimePhase::Failed,
+                                Some("goal persistence failed".into()),
+                            );
+                            *agent_slot = Some(agent);
+                            return Ok(());
+                        }
+                    };
+                    app.goal = app.goal_handle.snapshot();
                     if finished_plan_turn {
                         match plan_continuation {
                             crate::runtime_client::PlanContinuation::AwaitApproval { tool_id } => {
@@ -136,30 +163,6 @@ async fn finish_running_task_if_ready_with_completion_mode(
                             }
                         }
                     }
-                    app.goal = app.goal_handle.snapshot();
-                    let prior_total_input_tokens = app.snapshot.total_input_tokens;
-                    let continuation = match RuntimeClient::continue_goal(
-                        &app.goal_handle,
-                        &agent,
-                        prior_total_input_tokens,
-                        finished_plan_turn,
-                        app.has_pending_plan_approval(),
-                    ) {
-                        Ok(continuation) => continuation,
-                        Err(error) => {
-                            log::warn!("Goal accounting failed; stopping continuation: {error:#}");
-                            app.push_notice(format!(
-                                "Goal accounting failed; continuation stopped: {error:#}"
-                            ));
-                            app.finalize_active_turn();
-                            app.set_runtime_phase(
-                                RuntimePhase::Failed,
-                                Some("goal persistence failed".into()),
-                            );
-                            *agent_slot = Some(agent);
-                            return Ok(());
-                        }
-                    };
                     match continuation {
                         GoalContinuation::BudgetLimited { goal, prompt } => {
                             app.goal = Some(goal.clone());

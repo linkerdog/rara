@@ -409,6 +409,7 @@ pub enum TaskCompletion {
     Query {
         agent: Agent,
         result: anyhow::Result<()>,
+        goal_turn: Option<crate::runtime_goals::GoalTurn>,
     },
     Compact {
         agent: Agent,

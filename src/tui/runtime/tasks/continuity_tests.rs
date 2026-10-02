@@ -1,5 +1,328 @@
 use super::*;
 
+struct GoalTurnUsageBackend;
+
+#[async_trait::async_trait]
+impl LlmBackend for GoalTurnUsageBackend {
+    async fn ask(
+        &self,
+        _messages: &[Message],
+        _tools: &[serde_json::Value],
+    ) -> anyhow::Result<LlmResponse> {
+        Ok(LlmResponse {
+            content: vec![ContentBlock::Text {
+                text: "Finished this turn.".into(),
+            }],
+            stop_reason: Some("end_turn".into()),
+            usage: Some(TokenUsage {
+                input_tokens: 15,
+                ..TokenUsage::default()
+            }),
+        })
+    }
+
+    async fn summarize(&self, _messages: &[Message], _instruction: &str) -> anyhow::Result<String> {
+        Ok("summary".into())
+    }
+}
+
+#[tokio::test]
+async fn query_start_captures_runtime_token_baseline_and_effective_plan_mode() {
+    use crate::runtime_control::{InputControlRequest, PlanApprovalDecision};
+
+    let temp = tempdir().expect("tempdir");
+    for (mode, request, expected_turns) in [
+        (
+            AgentExecutionMode::Execute,
+            InputControlRequest::SubmitUserPrompt {
+                prompt: "finish this goal".into(),
+            },
+            1,
+        ),
+        (
+            AgentExecutionMode::Review,
+            InputControlRequest::SubmitUserPrompt {
+                prompt: "review this goal".into(),
+            },
+            1,
+        ),
+        (
+            AgentExecutionMode::Plan,
+            InputControlRequest::SubmitUserPrompt {
+                prompt: "plan this goal".into(),
+            },
+            0,
+        ),
+        (
+            AgentExecutionMode::Plan,
+            InputControlRequest::AnswerPlanApproval {
+                decision: PlanApprovalDecision::Approve,
+                feedback: None,
+            },
+            1,
+        ),
+        (
+            AgentExecutionMode::Plan,
+            InputControlRequest::AnswerPlanApproval {
+                decision: PlanApprovalDecision::ContinuePlanning,
+                feedback: None,
+            },
+            0,
+        ),
+        (
+            AgentExecutionMode::Plan,
+            InputControlRequest::AnswerPlanApproval {
+                decision: PlanApprovalDecision::Reject,
+                feedback: None,
+            },
+            0,
+        ),
+    ] {
+        let mut app = TuiApp::new(ConfigManager {
+            path: temp.path().join("config.json"),
+        })
+        .expect("app");
+        install_runtime_services(&mut app);
+        app.agent_execution_mode = mode;
+        app.snapshot.total_input_tokens = 500;
+        app.goal_handle
+            .replace(Some(RalphGoal::new("capture the real query".into(), None)))
+            .expect("seed goal");
+        let mut agent = create_test_agent_with_backend(&temp, Arc::new(GoalTurnUsageBackend));
+        agent.total_input_tokens = 10;
+        agent.current_plan = vec![PlanStep {
+            step: "Finish this goal".into(),
+            status: PlanStepStatus::InProgress,
+        }];
+        super::super::start_input_control_task(
+            &mut app,
+            agent,
+            request,
+            "Running goal query.".into(),
+            RuntimePhase::SendingPrompt,
+            None,
+        );
+        app.goal_handle
+            .mutate(|stored| {
+                stored.as_mut().expect("goal").status = GoalStatus::Complete;
+                Ok(())
+            })
+            .expect("complete during query");
+        let task = app.bottom_pane.running_task.as_mut().expect("query");
+        let completion = (&mut task.handle).await.expect("query completion");
+        let TaskCompletion::Query { result, .. } = &completion else {
+            panic!("expected query completion");
+        };
+        assert!(result.is_ok(), "{mode:?}: {result:?}");
+        let mut slot = None;
+        super::super::finish_running_task_if_ready_from_runtime_port(
+            &mut app,
+            &mut slot,
+            Some(Ok(completion)),
+            None,
+        )
+        .await
+        .expect("finish query");
+        let goal = app.goal_handle.snapshot().expect("goal");
+        assert_eq!(goal.status, GoalStatus::Complete);
+        assert_eq!(goal.turns_completed, expected_turns, "{mode:?}");
+        assert_eq!(goal.tokens_used, expected_turns * 15, "{mode:?}");
+        assert!(app.bottom_pane.running_task.is_none());
+        assert!(slot.is_some());
+    }
+}
+
+#[tokio::test]
+async fn terminal_goal_turn_persists_final_usage_without_continuing() {
+    use rara_tools::tool::Tool;
+
+    let temp = tempdir().expect("tempdir");
+    let db = Arc::new(
+        rara_state::state_db::StateDb::new_for_root_dir(temp.path().join("state"))
+            .expect("state db"),
+    );
+    for (tool_status, expected_status) in [
+        ("complete", GoalStatus::Complete),
+        ("blocked", GoalStatus::Blocked),
+    ] {
+        let mut app = TuiApp::new(ConfigManager {
+            path: temp.path().join("config.json"),
+        })
+        .expect("app");
+        app.snapshot.session_id = "terminal-goal-thread".into();
+        app.snapshot.total_input_tokens = 10;
+        app.attach_state_db(db.clone());
+        install_runtime_services(&mut app);
+        let mut goal = RalphGoal::new("account the final turn".into(), Some(100));
+        goal.tokens_used = 90;
+        goal.turns_completed = 2;
+        app.goal_handle
+            .replace(Some(goal.clone()))
+            .expect("seed goal");
+        let mut agent = create_test_agent(&temp);
+        agent.total_input_tokens = 25;
+        install_completed_query_task(&mut app, agent, Ok(()));
+        crate::tools::goal::UpdateGoalTool {
+            store: app.goal_handle.clone(),
+        }
+        .call(json!({"status": tool_status}))
+        .await
+        .expect("terminal update");
+        let task = app.bottom_pane.running_task.as_mut().expect("query");
+        let completion = (&mut task.handle).await.expect("query completion");
+        let mut slot = None;
+        super::super::finish_running_task_if_ready_from_runtime_port(
+            &mut app,
+            &mut slot,
+            Some(Ok(completion)),
+            None,
+        )
+        .await
+        .expect("finish task");
+        assert!(slot.is_some());
+        assert!(app.bottom_pane.running_task.is_none());
+        goal.status = expected_status;
+        goal.tokens_used = 105;
+        goal.turns_completed = 3;
+        let mut fresh = TuiApp::new(ConfigManager {
+            path: temp.path().join("config.json"),
+        })
+        .expect("fresh app");
+        fresh.snapshot.session_id = "terminal-goal-thread".into();
+        fresh.attach_state_db(db.clone());
+        assert_eq!(fresh.goal, Some(goal));
+    }
+}
+
+#[test]
+fn paused_goal_turn_is_accounted_without_overriding_its_status() {
+    let temp = tempdir().expect("tempdir");
+    let store = Arc::new(crate::runtime_goals::GoalStore::default());
+    let mut goal = RalphGoal::new("pause after this turn".into(), Some(10));
+    store.replace(Some(goal.clone())).expect("seed goal");
+    let turn = store.begin_turn(10);
+    goal.status = GoalStatus::Paused;
+    store.replace(Some(goal.clone())).expect("pause");
+    let mut agent = create_test_agent(&temp);
+    agent.total_input_tokens = 25;
+    let continuation = crate::runtime_client::RuntimeClient::continue_goal(
+        &store,
+        &agent,
+        turn.as_ref(),
+        false,
+        false,
+    )
+    .expect("account paused turn");
+    assert!(matches!(
+        continuation,
+        crate::runtime_client::GoalContinuation::NotActive
+    ));
+    goal.tokens_used = 15;
+    goal.turns_completed = 1;
+    assert_eq!(store.snapshot(), Some(goal));
+}
+
+#[test]
+fn a_query_cannot_charge_a_goal_created_later_or_replaced_mid_turn() {
+    let temp = tempdir().expect("tempdir");
+    let store = Arc::new(crate::runtime_goals::GoalStore::default());
+    let mut agent = create_test_agent(&temp);
+    agent.total_input_tokens = 25;
+    let goal = RalphGoal::new("same objective and creation second".into(), None);
+    let unassigned = store.begin_turn(10);
+    store
+        .replace(Some(goal.clone()))
+        .expect("create during query");
+    crate::runtime_client::RuntimeClient::continue_goal(
+        &store,
+        &agent,
+        unassigned.as_ref(),
+        false,
+        false,
+    )
+    .expect("finish non-goal query");
+    assert_eq!(store.snapshot(), Some(goal.clone()));
+
+    let old_turn = store.begin_turn(10);
+    store
+        .mutate(|stored| {
+            stored.as_mut().expect("goal").status = GoalStatus::Complete;
+            Ok(())
+        })
+        .expect("complete old goal");
+    store
+        .replace(Some(goal.clone()))
+        .expect("replace completed goal");
+    crate::runtime_client::RuntimeClient::continue_goal(
+        &store,
+        &agent,
+        old_turn.as_ref(),
+        false,
+        false,
+    )
+    .expect("finish replaced goal query");
+    assert_eq!(store.snapshot(), Some(goal.clone()));
+
+    let cleared_turn = store.begin_turn(10);
+    store.replace(None).expect("clear goal");
+    store
+        .replace(Some(goal.clone()))
+        .expect("recreate identical goal");
+    crate::runtime_client::RuntimeClient::continue_goal(
+        &store,
+        &agent,
+        cleared_turn.as_ref(),
+        false,
+        false,
+    )
+    .expect("finish cleared goal query");
+    assert_eq!(store.snapshot(), Some(goal));
+}
+
+#[test]
+fn goal_turn_membership_survives_rebuild_but_not_thread_restoration() {
+    let temp = tempdir().expect("tempdir");
+    let db = Arc::new(
+        rara_state::state_db::StateDb::new_for_root_dir(temp.path().join("state"))
+            .expect("state db"),
+    );
+    let original = Arc::new(crate::runtime_goals::GoalStore::default());
+    original
+        .restore_for_thread("original", db.clone())
+        .expect("bind");
+    let goal = RalphGoal::new("keep the query's goal".into(), None);
+    original.replace(Some(goal.clone())).expect("seed goal");
+    let turn = original.begin_turn(10);
+    let rebuilt = Arc::new(crate::runtime_goals::GoalStore::default());
+    rebuilt.inherit_from(&original);
+    let mut agent = create_test_agent(&temp);
+    agent.total_input_tokens = 25;
+    crate::runtime_client::RuntimeClient::continue_goal(
+        &rebuilt,
+        &agent,
+        turn.as_ref(),
+        false,
+        false,
+    )
+    .expect("finish rebuilt goal turn");
+    assert_eq!(rebuilt.snapshot().expect("goal").tokens_used, 15);
+
+    db.save_goal("other", &serde_json::to_value(&goal).expect("serialize"))
+        .expect("seed identical goal on other thread");
+    rebuilt
+        .restore_for_thread("other", db)
+        .expect("switch thread");
+    crate::runtime_client::RuntimeClient::continue_goal(
+        &rebuilt,
+        &agent,
+        turn.as_ref(),
+        false,
+        false,
+    )
+    .expect("finish old thread's query");
+    assert_eq!(rebuilt.snapshot(), Some(goal));
+}
+
 #[tokio::test]
 async fn accounting_failure_keeps_the_runtime_agent_and_stops_automatic_continuation() {
     let temp = tempdir().expect("tempdir");
@@ -75,9 +398,15 @@ fn goal_turn_accounting_persists_budget_limit_usage_and_creation_time() {
     store.replace(Some(goal.clone())).expect("seed goal");
     let mut agent = create_test_agent(&temp);
     agent.total_input_tokens = 25;
-    let continuation =
-        crate::runtime_client::RuntimeClient::continue_goal(&store, &agent, 10, false, false)
-            .expect("account turn");
+    let turn = store.begin_turn(10);
+    let continuation = crate::runtime_client::RuntimeClient::continue_goal(
+        &store,
+        &agent,
+        turn.as_ref(),
+        false,
+        false,
+    )
+    .expect("account turn");
     assert!(matches!(
         continuation,
         crate::runtime_client::GoalContinuation::BudgetLimited { .. }
@@ -116,9 +445,16 @@ fn failed_goal_accounting_returns_an_error_without_a_continuation() {
         .expect("failure trigger");
     let mut agent = create_test_agent(&temp);
     agent.total_input_tokens = 25;
+    let turn = store.begin_turn(10);
     assert!(
-        crate::runtime_client::RuntimeClient::continue_goal(&store, &agent, 10, false, false)
-            .is_err()
+        crate::runtime_client::RuntimeClient::continue_goal(
+            &store,
+            &agent,
+            turn.as_ref(),
+            false,
+            false
+        )
+        .is_err()
     );
     assert_eq!(store.snapshot(), Some(goal));
 }

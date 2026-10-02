@@ -282,7 +282,16 @@ fn create_test_agent_with_backend(temp: &tempfile::TempDir, backend: Arc<dyn Llm
 
 fn install_completed_query_task(app: &mut TuiApp, agent: Agent, result: anyhow::Result<()>) {
     let (_sender, receiver) = mpsc::unbounded_channel();
-    let handle = tokio::spawn(async move { TaskCompletion::Query { agent, result } });
+    let goal_turn = (!matches!(app.agent_execution_mode, AgentExecutionMode::Plan))
+        .then(|| app.goal_handle.begin_turn(app.snapshot.total_input_tokens))
+        .flatten();
+    let handle = tokio::spawn(async move {
+        TaskCompletion::Query {
+            agent,
+            result,
+            goal_turn,
+        }
+    });
     app.bottom_pane.running_task = Some(RunningTask {
         kind: TaskKind::Query,
         receiver,

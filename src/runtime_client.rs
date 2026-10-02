@@ -23,7 +23,7 @@ use crate::memory_lifecycle::{
 use crate::protocol_sources::{PromptSourceRegistry, SkillSourceRegistry};
 use crate::runtime_context::RuntimeBootstrap;
 use crate::runtime_event_bus::RuntimeEventBus;
-use crate::runtime_goals::{GoalHandle, GoalStatus, RalphGoal};
+use crate::runtime_goals::{GoalHandle, GoalStatus, GoalTurn, RalphGoal};
 use crate::tools::agent::{AgentActivitySnapshot, AgentTreeControl};
 use crate::tui::state::RuntimeExtensionSnapshot;
 
@@ -304,21 +304,22 @@ impl RuntimeClient {
     pub(crate) fn continue_goal(
         goal_handle: &GoalHandle,
         agent: &Agent,
-        prior_input_tokens: u32,
+        turn: Option<&GoalTurn>,
         plan_turn_finished: bool,
         plan_approval_pending: bool,
     ) -> anyhow::Result<GoalContinuation> {
-        goal_handle.mutate(|stored| {
+        goal_handle.mutate_for_turn(turn, |stored, prior_input_tokens| {
             let Some(goal) = stored.as_mut() else {
                 return Ok(GoalContinuation::NotActive);
             };
+            if let Some(prior_input_tokens) = prior_input_tokens {
+                let turn_input_tokens = agent.total_input_tokens.saturating_sub(prior_input_tokens);
+                goal.tokens_used = goal.tokens_used.saturating_add(turn_input_tokens);
+                goal.turns_completed = goal.turns_completed.saturating_add(1);
+            }
             if goal.status != GoalStatus::Pursuing || plan_turn_finished || plan_approval_pending {
                 return Ok(GoalContinuation::NotActive);
             }
-
-            let turn_input_tokens = agent.total_input_tokens.saturating_sub(prior_input_tokens);
-            goal.tokens_used = goal.tokens_used.saturating_add(turn_input_tokens);
-            goal.turns_completed = goal.turns_completed.saturating_add(1);
             let budget_exhausted = goal
                 .token_budget
                 .is_some_and(|budget| goal.tokens_used >= budget);

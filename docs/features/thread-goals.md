@@ -55,6 +55,14 @@ an active goal. A missing row clears any prior thread's presentation snapshot.
 Runtime rebuilding preserves the current goal's thread binding and state.
 Persistence-disabled embedded profiles remain explicitly in-memory.
 
+Successful non-plan queries capture their goal membership and input-token
+baseline at turn start. They persist usage and increment the turn counter even
+when the goal becomes complete, blocked, or paused during that query. The
+resulting status controls continuation, not accounting. Clearing or replacing
+the goal, or switching threads, prevents the old query from charging the new
+goal. Queries that start without an active goal do not charge a goal created
+later in that query.
+
 The lifecycle is:
 
 - `Pursuing`: runtime may auto-continue after tool-using turns.
@@ -180,6 +188,9 @@ Detailed goal state belongs in `/goal`, not the bottom pane.
   thread with a goal. Replacement uses the new goal's creation time.
 - Write failures leave the prior snapshot unchanged and stop continuation;
   corrupt stored status or numeric values cannot restore as `Pursuing`.
+- Complete and blocked snapshots include the final successful goal turn after
+  fresh-app restoration, without launching another continuation. Non-goal and
+  plan queries do not charge a newly created or inactive goal.
 
 ## Open Risks
 
@@ -196,3 +207,4 @@ Detailed goal state belongs in `/goal`, not the bottom pane.
 - `docs/journal/2026-05-08-codex-129-goals.md`
 - `docs/journal/2026-09-16-codex-v0154-goals.md`
 - `docs/journal/2026-09-16-goal-resume-permission-tui.md`
+- `docs/journal/2026-10-02-thread-goal-persistence.md`

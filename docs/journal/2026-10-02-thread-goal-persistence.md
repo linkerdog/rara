@@ -18,7 +18,7 @@ creation time and narrowed stored counters with unchecked casts.
   Claude Code implements the same goal API.
 - Adapt these patterns to one private runtime goal store. Keep the existing
   database schema, tool response fields, lifecycle policy, and input-token
-  accounting algorithm. Make persistence errors stop publication/continuation,
+  usage metric. Make persistence errors stop publication/continuation,
   and prove status, usage, time, and deletion through fresh-app restoration.
 
 ## Implementation And Trade-offs
@@ -41,6 +41,14 @@ creation time and narrowed stored counters with unchecked casts.
 - A failed accounting write returns no continuation, keeps the runtime agent,
   and displays a failure notice. A failed command/tool write retains the last
   committed goal snapshot rather than reporting success.
+- Review follow-up: Codex captures the active goal identity and token baseline
+  at turn start. Adopt that boundary so a successful terminal or paused goal
+  turn still persists usage; only the resulting status decides continuation.
+  Ephemeral membership survives runtime rebuild, but clear, replacement, and
+  thread restoration invalidate it. It cannot charge an identical replacement
+  created in the same second. The baseline comes from the actual runtime agent,
+  not the presentation snapshot. Plan-only and rejected-plan tasks do not
+  participate; approving a plan captures the ensuing implementation query.
 - Existing state-database schema and rollout-migration helpers, and existing
   goal/session-continuity tests, are mechanically split into private modules
   so every touched Rust source file stays below 1000 lines.
@@ -54,12 +62,18 @@ Behavioral RED: `tool_created_goal_survives_a_fresh_app` fails against the prior
 implementation because the tool-created goal has no durable row. This is a
 runtime assertion failure, not a compilation failure.
 
+Review RED: `terminal_goal_turn_persists_final_usage_without_continuing`
+restores a completed goal with 90 tokens and two turns instead of the expected
+105 tokens and three turns after a successful query. This regression exercises
+the update tool, task completion, and fresh-app restoration boundary.
+
 Focused checks:
 
 ```bash
 cargo test --locked --lib goal
 cargo test --locked --lib tui::
 cargo test --locked --lib runtime_context
+cargo test --locked --lib continuity_tests -- --nocapture
 cargo test --locked --lib --quiet
 cargo test --locked -p rara-state
 cargo check --locked
@@ -77,7 +91,11 @@ SQLite failure triggers prove failed create/delete/accounting writes do not
 publish new snapshots. A task-completion test also proves that accounting
 failure keeps the returned agent and does not launch a continuation.
 
-The root library suite reports 1531 passing tests and one ignored fixture;
+The review follow-up's focused continuity suite reports 12 passing tests,
+including complete/blocked durable final-turn usage, paused status retention,
+same-second replacement, thread changes, rebuild membership, and actual query
+start with execute/review/plan/approve/refine/reject modes. The root library
+suite reports 1536 passing tests and one ignored fixture;
 the state-database suite reports 10 passing tests. Strict Clippy completes
 without source warnings. The macOS debug linker still reports its existing
 large `__eh_frame` compact-unwind limitation; no linker settings are changed.
