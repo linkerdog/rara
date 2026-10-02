@@ -63,6 +63,11 @@ Active backlog only. Keep this file small and current.
       See [the source-cache checkpoint](journal/2026-10-03-incremental-markdown.md),
       [the streaming contract](features/streaming-transcript.md) and
       [the frame checkpoint](journal/2026-10-02-tui-frame-coalescing.md).
+- [ ] Finish [#922](https://github.com/linkerdog/rara/issues/922) delivery gates:
+      exact-head remote CI/review/merge and bounded real-terminal acceptance.
+      Typed stop admission, execution-return terminal publication, matching-turn
+      completion barriers, and stale-event fencing have focused automated proof.
+      See [the cancellation checkpoint](journal/2026-10-03-turn-cancellation-barrier.md).
 - [ ] Complete remaining keyboard contracts: resume-search cursor editing,
       Help General/Runtime scrolling, grapheme-cluster editing, and an explicit
       opt-in Vim mode. See [input risks](interaction/composer-and-overlays.md#open-risks).

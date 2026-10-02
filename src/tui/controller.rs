@@ -14,11 +14,11 @@ use super::app_event::AppEvent;
 use super::runtime::RuntimeCommandProcessor;
 use super::runtime_port::{
     RuntimeClientPort, RuntimeCommand, RuntimeEventStream, RuntimeProjectionEvent,
-    accept_runtime_event,
 };
 use super::state::{TaskCompletion, TuiApp};
 use crate::oauth::OAuthManager;
-use crate::runtime_control::{ErrorEvent, RuntimeEvent, SessionEvent};
+mod event_fence;
+use event_fence::{RuntimeEventFence, is_terminal_turn_event};
 
 pub(super) enum RuntimeActivity {
     Event(Option<RuntimeProjectionEvent>),
@@ -76,6 +76,7 @@ pub(super) struct TuiController {
     runtime_events: RuntimeEventStream,
     runtime_commands: tokio::sync::mpsc::UnboundedReceiver<RuntimeCommand>,
     last_runtime_event: Option<(Option<String>, u64, String)>,
+    runtime_event_fence: RuntimeEventFence,
     query_completion_barrier: QueryCompletionBarrier,
     /// Set to true every time an event is applied and the screen should repaint.
     pub(super) needs_redraw: bool,
@@ -94,6 +95,7 @@ impl TuiController {
             runtime_events,
             runtime_commands,
             last_runtime_event: None,
+            runtime_event_fence: RuntimeEventFence::default(),
             query_completion_barrier: QueryCompletionBarrier::default(),
             needs_redraw: true,
         }
@@ -157,6 +159,15 @@ impl TuiController {
         let Some(completion) = self.query_completion_barrier.take_ready() else {
             return Ok(false);
         };
+        if let Some(control) = self
+            .app
+            .bottom_pane
+            .running_task
+            .as_ref()
+            .and_then(|task| task.query_control.as_ref())
+        {
+            self.runtime_event_fence.close(control);
+        }
         processor.complete(&mut self.app, completion).await?;
         self.needs_redraw = true;
         Ok(true)
@@ -206,10 +217,21 @@ impl TuiController {
     }
 
     pub(super) fn apply_runtime_event(&mut self, event: RuntimeProjectionEvent) -> bool {
-        let terminal_event = is_terminal_projection_event(&event);
+        let mut terminal_event = is_terminal_projection_event(&event);
         match event {
             RuntimeProjectionEvent::Runtime(event) => {
-                if !accept_runtime_event(&mut self.last_runtime_event, &event) {
+                let query = self
+                    .app
+                    .bottom_pane
+                    .running_task
+                    .as_ref()
+                    .and_then(|task| task.query_control.as_ref());
+                if !self.runtime_event_fence.accept(
+                    &mut self.last_runtime_event,
+                    &event,
+                    &self.app.snapshot.session_id,
+                    query,
+                ) {
                     return false;
                 }
                 super::runtime::apply_tui_event(
@@ -223,6 +245,17 @@ impl TuiController {
                 self.app.apply_model_catalog_snapshots(&catalogs);
             }
             RuntimeProjectionEvent::Completed { reason } => {
+                // This unscoped compatibility notification cannot end an
+                // identity-bearing in-process query.
+                terminal_event = self
+                    .app
+                    .bottom_pane
+                    .running_task
+                    .as_ref()
+                    .is_none_or(|task| task.query_control.is_none());
+                if !terminal_event {
+                    return false;
+                }
                 self.app
                     .set_runtime_phase(super::state::RuntimePhase::Idle, reason);
             }
@@ -272,18 +305,7 @@ impl TuiController {
 
 fn is_terminal_projection_event(event: &RuntimeProjectionEvent) -> bool {
     match event {
-        RuntimeProjectionEvent::Runtime(event) => matches!(
-            &event.event,
-            RuntimeEvent::Session(
-                SessionEvent::TurnFinished { .. }
-                    | SessionEvent::TurnFailed { .. }
-                    | SessionEvent::TurnCancelled
-                    | SessionEvent::TurnInterrupted
-            ) | RuntimeEvent::Error(ErrorEvent::RuntimeError {
-                recoverable: false,
-                ..
-            })
-        ),
+        RuntimeProjectionEvent::Runtime(event) => is_terminal_turn_event(&event.event),
         RuntimeProjectionEvent::Completed { .. } | RuntimeProjectionEvent::Disconnected { .. } => {
             true
         }
@@ -308,6 +330,10 @@ async fn select_runtime_activity(
         RuntimeActivity::Completed(result) => RuntimeActivity::Completed(result),
     }
 }
+
+#[cfg(test)]
+#[path = "controller/cancellation_tests.rs"]
+mod cancellation_tests;
 
 #[cfg(test)]
 mod tests {
@@ -345,7 +371,7 @@ mod tests {
                 started_at: Instant::now(),
                 next_heartbeat_after_secs: 2,
                 cancellation_token: None,
-                cancellation_requested: false,
+                query_control: None,
             });
             tokio::task::yield_now().await;
             let port = Arc::new(FakeRuntimeClient::new(RuntimeSnapshot::default()));
@@ -377,7 +403,7 @@ mod tests {
         }
     }
 
-    fn test_completion() -> Box<Result<TaskCompletion, tokio::task::JoinError>> {
+    pub(super) fn test_completion() -> Box<Result<TaskCompletion, tokio::task::JoinError>> {
         Box::new(Ok(TaskCompletion::ModelCatalog {
             provider: rara_provider_catalog::ModelCatalogProvider::Kimi,
             result: Ok(Vec::new()),

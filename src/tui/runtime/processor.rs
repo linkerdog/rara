@@ -125,11 +125,11 @@ impl RuntimeCommandProcessor {
                     Some(services),
                 );
             }
-            RuntimeCommand::Session(SessionControlRequest::CancelCurrentTurn) => {
-                input_control::handle_session_control(
-                    app,
-                    SessionControlRequest::CancelCurrentTurn,
-                );
+            RuntimeCommand::Session(
+                request @ (SessionControlRequest::CancelCurrentTurn
+                | SessionControlRequest::InterruptCurrentTurn),
+            ) => {
+                input_control::handle_session_control(app, request);
             }
             RuntimeCommand::Maintenance(RuntimeMaintenanceCommand::Compact) => {
                 if let Some(agent) = self.runtime.agent() {

@@ -46,6 +46,12 @@ because a cancellation request was sent.
 The controller coordinates terminal events with query completion so trailing
 events are not lost. A task join failure must surface rather than leave the
 presentation waiting indefinitely for an event that can no longer arrive.
+Cancellation and interruption retain their typed first accepted stop kind.
+An accepted request keeps progress visible while execution drains; terminal
+feedback is published only after the task returns. Late output for a terminal
+turn, another turn, or another session is ignored before it can reopen a stream
+or mark a new query complete. A request after task return is rejected even if
+the previous cancellation notice is still visible.
 
 ### RUN-03: Approval Focus And Scope
 
@@ -113,7 +119,7 @@ materialize changed source on presentation access and reuse unchanged rows.
 | Contract | Existing proving surface |
 | --- | --- |
 | RUN-01 | Busy-submit tests, queued-input tests, queue/approval render tests |
-| RUN-02 | Controller completion-barrier tests and scripted runtime cancellation |
+| RUN-02 | `controller::cancellation_tests`, typed query-control races, and `tasks::tests::query_lifecycle` scripted cancel/interrupt/task-return interleavings |
 | RUN-03 | Pending-input dispatch, permission-mode tests, approval card render tests |
 | RUN-04 | `TuiHarness` lifecycle tests, runtime event projection tests, transcript restore tests |
 
@@ -132,3 +138,4 @@ materialize changed source on presentation access and reuse unchanged rows.
 - [TUI test harness](../journal/2026-08-02-tui-test-harness.md)
 - [Goal resume and permissions](../journal/2026-09-16-goal-resume-permission-tui.md)
 - [Incremental Markdown](../journal/2026-10-03-incremental-markdown.md)
+- [Turn cancellation barrier](../journal/2026-10-03-turn-cancellation-barrier.md)

@@ -51,6 +51,9 @@ async fn controller_stream_retains_events_and_holds_table_until_final_render() {
     let port = Arc::new(FakeRuntimeClient::new(RuntimeSnapshot::default()));
     let (_sender, receiver) = tokio::sync::mpsc::unbounded_channel();
     let mut controller = TuiController::new(app, port, receiver);
+    assert!(
+        controller.apply_runtime_event(event(1, RuntimeEvent::Session(SessionEvent::TurnStarted)))
+    );
     let chunks = [
         "Visible introduction.\n\n",
         "| StreamHeader | StreamValue |\n",
@@ -62,7 +65,7 @@ async fn controller_stream_retains_events_and_holds_table_until_final_render() {
     for (index, chunk) in chunks.iter().enumerate() {
         expected.push_str(chunk);
         assert!(controller.apply_runtime_event(event(
-            index as u64 + 1,
+            index as u64 + 2,
             RuntimeEvent::Assistant(AssistantEvent::TextDelta((*chunk).into())),
         )));
     }
@@ -91,11 +94,11 @@ async fn controller_stream_retains_events_and_holds_table_until_final_render() {
     );
 
     assert!(controller.apply_runtime_event(event(
-        6,
+        7,
         RuntimeEvent::Assistant(AssistantEvent::Text(expected)),
     )));
     assert!(controller.apply_runtime_event(event(
-        7,
+        8,
         RuntimeEvent::Session(SessionEvent::TurnFinished { reason: None }),
     )));
     assert!(controller.apply_runtime_event(RuntimeProjectionEvent::Completed { reason: None }));
@@ -118,10 +121,13 @@ async fn controller_thinking_stream_reuses_rows_and_commits_once_before_text() {
     let port = Arc::new(FakeRuntimeClient::new(RuntimeSnapshot::default()));
     let (_sender, receiver) = tokio::sync::mpsc::unbounded_channel();
     let mut controller = TuiController::new(app, port, receiver);
+    assert!(
+        controller.apply_runtime_event(event(1, RuntimeEvent::Session(SessionEvent::TurnStarted)))
+    );
     let chunks = ["Checking the **source**.\n\n", "The evidence agrees."];
     for (index, chunk) in chunks.iter().enumerate() {
         assert!(controller.apply_runtime_event(event(
-            index as u64 + 1,
+            index as u64 + 2,
             RuntimeEvent::Assistant(AssistantEvent::ThinkingDelta((*chunk).into())),
         )));
     }
@@ -154,7 +160,7 @@ async fn controller_thinking_stream_reuses_rows_and_commits_once_before_text() {
             .markdown_work(),
         work
     );
-    for (sequence, chunk) in [(3, "Final "), (4, "answer.")] {
+    for (sequence, chunk) in [(4, "Final "), (5, "answer.")] {
         assert!(controller.apply_runtime_event(event(
             sequence,
             RuntimeEvent::Assistant(AssistantEvent::TextDelta(chunk.into())),
@@ -172,11 +178,11 @@ async fn controller_thinking_stream_reuses_rows_and_commits_once_before_text() {
     assert_eq!(thinking[0].message, chunks.concat());
     assert!(paint(&mut controller).contains("Final answer."));
     assert!(controller.apply_runtime_event(event(
-        5,
+        6,
         RuntimeEvent::Assistant(AssistantEvent::Text("Final answer.".into())),
     )));
     assert!(controller.apply_runtime_event(event(
-        6,
+        7,
         RuntimeEvent::Session(SessionEvent::TurnFinished { reason: None }),
     )));
     assert!(controller.apply_runtime_event(RuntimeProjectionEvent::Completed { reason: None }));

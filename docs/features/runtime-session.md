@@ -232,6 +232,21 @@ not completion evidence. The actor publishes `TurnCancelled` or `TurnInterrupted
 only after execution returns, and the corresponding typed error retains the
 partial `RuntimeTurnOutcome`.
 
+The TUI compatibility task bridge preserves the same stop boundary. A stop
+request records a typed cancel/interrupt kind, signals cooperative cancellation,
+and leaves the turn running while its execution drains. Task return, not request
+acceptance or notice text, owns the terminal publication. Query events carry one
+session/turn identity, including the terminal event. A stop racing with task
+return is serialized; a finished task rejects the request and the first accepted
+stop kind cannot be relabelled.
+
+The TUI completion barrier requires both task return and the matching ordered
+terminal event. Foreign-session, mismatched-turn, duplicate, and post-terminal
+turn events cannot mutate presentation or satisfy the barrier. Unscoped runtime
+catalog/status events remain compatible; unscoped turn output is not valid once
+a scoped query owns the presentation. A task join failure remains an explicit
+error boundary rather than waiting for a producer that no longer exists.
+
 ### Shutdown Receipts
 
 Closing a session stops admission, cancels active work, and waits for the root
@@ -364,6 +379,7 @@ to `RuntimeSession`. It is not a second runtime owner.
 | Concurrency | delivered | Two sessions can block at the provider boundary and make progress independently. |
 | Cancellation | delivered | A cooperative provider receives cancellation without waiting for the agent task lock; completion occurs when the backend observes the token or otherwise returns. |
 | Turn stop | delivered | Targeted cancel/interrupt reject stale turns, retain the first accepted kind, and publish terminal evidence only after execution returns. |
+| TUI stop bridge | delivered | Task-return/terminal-event interleavings retain trailing output; typed stop admission rejects finished tasks; session/turn fencing rejects stale output and terminal events before the completion barrier. |
 | Shutdown receipt | delivered | Concurrent and repeated callers share cleanup results; failed sessions remain registered and cancelled callers do not cancel host cleanup. |
 | Replacement | target | A completion from an older generation must not replace the rebuilt agent after rebuild support is added. |
 | Event order | delivered | Concurrent producers preserve increasing sequence values; thinking, text, and tool events precede the terminal event. |
@@ -373,7 +389,7 @@ to `RuntimeSession`. It is not a second runtime owner.
 | Isolation | delivered | Workspace, state root, MCP, LSP, hooks, memory, and child-agent controls remain session-scoped. |
 | Library | partial | An integration fixture injects a fake backend, tool, stable identity, and transcript; async store traits remain target work. |
 | Dependency boundary | target | The future minimal runtime dependency graph excludes Ratatui, Candle, ACP, and OAuth. |
-| Build | partial | Cargo formatting, checks, Clippy, and tests pass; the default Bazel configuration is blocked before analysis by an unsupported local startup option. |
+| Build | partial | Root Cargo library tests, strict all-target Clippy, formatting, and the default `//:rara_unit_tests` Bazel gate pass; exact-head remote CI/review/merge remain separate gates. |
 
 ## Host Integration Example
 
@@ -426,3 +442,4 @@ model-generated tool arguments.
 ## Source Journals
 
 - `docs/journal/2026-08-22-runtime-session.md`
+- [TUI cancellation barrier](../journal/2026-10-03-turn-cancellation-barrier.md)

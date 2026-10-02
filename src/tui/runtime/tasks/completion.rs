@@ -224,7 +224,8 @@ async fn finish_running_task_if_ready_with_completion_mode(
                 }
                 Err(err) => {
                     let error_message = format_error_chain(&err);
-                    let cancelled = error_message.contains("cancelled by user");
+                    let stopped = task.query_control.as_ref().and_then(QueryTaskControl::stop_kind);
+                    let cancelled = stopped.is_some() || error_message.contains("cancelled by user");
                     app.set_agent_execution_mode(agent.execution_mode);
                     super::permissions::apply_pending_permission_mode(app, &mut agent);
                     app.clear_active_live_sections();
@@ -243,8 +244,12 @@ async fn finish_running_task_if_ready_with_completion_mode(
                     app.finalize_agent_stream(None);
                     if cancelled {
                         app.finalize_active_turn();
-                        app.bottom_pane.notice = Some("Query cancelled.".into());
-                        app.set_runtime_phase(RuntimePhase::Idle, Some("query cancelled".into()));
+                        let (notice, detail) = match stopped {
+                            Some(QueryStopKind::Interrupt) => ("Query interrupted.", "query interrupted"),
+                            Some(QueryStopKind::Cancel) | None => ("Query cancelled.", "query cancelled"),
+                        };
+                        app.bottom_pane.notice = Some(notice.into());
+                        app.set_runtime_phase(RuntimePhase::Idle, Some(detail.into()));
                         try_start_queued_follow_up(app, agent_slot, runtime.as_deref().cloned());
                         return Ok(());
                     }
