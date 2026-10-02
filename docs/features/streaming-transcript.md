@@ -12,6 +12,8 @@ the last update must become visible even when no later event arrives.
 - Incremental markdown source, with a stable prefix and replaceable tail.
 - Reusable styled visual rows and selection text for unchanged history.
 - Deterministic work-count regressions before timing benchmarks.
+- Chunk-independent display sanitization and bounded tool-progress tails; see
+  [display text boundary](display-text-boundary.md) for the owning contract.
 
 ## Non-Goals
 
@@ -158,7 +160,10 @@ on a slow output device.
   Long single paragraphs/lists still require mutable-tail work; this is not
   an unconditional O(new-delta) guarantee for every Markdown document.
 - Source-cache work counters exclude the display sanitizer and control-token
-  scrubber; their incremental-state contract is tracked separately by #923.
+  scrubber. Terminal-control parsing is incremental with constant-size carry;
+  control-token fallback can still revisit accumulated source. See
+  [display text boundary](display-text-boundary.md). Neither boundary proves a
+  complete per-delta work bound for arbitrary Markdown.
 
 ## Source Journals
 
@@ -166,3 +171,4 @@ on a slow output device.
 - [Incremental markdown](../journal/2026-10-03-incremental-markdown.md)
 - [Shared transcript rows](../journal/2026-10-03-transcript-row-reuse.md)
 - [Active streaming rows](../journal/2026-10-03-active-stream-rows.md)
+- [Display text boundary](../journal/2026-10-03-display-text-boundary.md)

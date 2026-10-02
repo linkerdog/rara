@@ -152,3 +152,4 @@ machine clipboard rather than the user's local desktop clipboard.
 - [2026-10-02-transcript-scroll-anchors](../journal/2026-10-02-transcript-scroll-anchors.md)
 - [2026-10-03-transcript-row-reuse](../journal/2026-10-03-transcript-row-reuse.md)
 - [2026-10-03-active-stream-rows](../journal/2026-10-03-active-stream-rows.md)
+- [2026-10-03-display-text-boundary](../journal/2026-10-03-display-text-boundary.md)

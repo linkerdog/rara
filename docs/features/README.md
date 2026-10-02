@@ -86,6 +86,8 @@ future appserver integrations can use.
   integration, and embedded syntax theme selection.
 - `streaming-transcript.md`: coalesced frames and incremental markdown/visual-row
   work boundaries, including the remaining implementation gates.
+- `display-text-boundary.md`: chunk-independent control removal, sanitized
+  paste/transcript ingestion, bounded tool display tails, and selection identity.
 - `wasm-core.md`: pure Rust browser/worker core boundary for deterministic
   patch preview and future protocol/reducer logic.
 

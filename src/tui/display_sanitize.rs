@@ -10,32 +10,122 @@
 //! terminal side effects. Raw payloads may still be persisted elsewhere when
 //! needed; this module defines the display contract only.
 
-#[cfg(test)]
 use ratatui::text::{Line, Span};
 
-pub(crate) fn sanitize_display_text(input: &str) -> String {
-    let mut output = String::with_capacity(input.len());
-    let mut chars = input.chars().peekable();
-    while let Some(ch) = chars.next() {
-        if ch == '\u{1b}' {
-            strip_escape_sequence(&mut chars);
-            continue;
-        }
+#[derive(Clone, Copy, Debug, Default)]
+enum EscapeState {
+    #[default]
+    Ground,
+    Escape,
+    Intermediate,
+    Csi,
+    StringControl,
+    StringEscape,
+}
 
-        match ch {
-            '\r' => {
-                if chars.peek() == Some(&'\n') {
-                    chars.next();
-                }
-                output.push('\n');
+#[derive(Clone, Copy, Debug, Default)]
+enum Tabs {
+    #[default]
+    Expand,
+    Preserve,
+}
+
+/// Removes terminal side effects with constant-size state across text deltas.
+#[derive(Clone, Debug, Default)]
+pub(crate) struct StreamSanitizer {
+    escape: EscapeState,
+    after_cr: bool,
+    tabs: Tabs,
+}
+
+impl StreamSanitizer {
+    pub(crate) fn push_delta(&mut self, input: &str) -> String {
+        let mut output = String::with_capacity(input.len());
+        self.write(input, |ch| output.push(ch));
+        output
+    }
+
+    /// A bounded consumer can evict output while parsing instead of allocating
+    /// a complete sanitized copy of an arbitrarily large incoming chunk.
+    pub(crate) fn write(&mut self, input: &str, mut emit: impl FnMut(char)) {
+        for ch in input.chars() {
+            let after_cr = std::mem::take(&mut self.after_cr);
+            if matches!(ch, '\u{18}' | '\u{1a}') {
+                self.escape = EscapeState::Ground;
+                continue;
             }
-            '\n' => output.push('\n'),
-            '\t' => output.push_str("    "),
-            ch if ch.is_control() => {}
-            ch => output.push(ch),
+            match self.escape {
+                EscapeState::Ground => match ch {
+                    '\u{1b}' => self.escape = EscapeState::Escape,
+                    '\u{9b}' => self.escape = EscapeState::Csi,
+                    '\u{90}' | '\u{98}' | '\u{9d}' | '\u{9e}' | '\u{9f}' => {
+                        self.escape = EscapeState::StringControl;
+                    }
+                    '\r' => {
+                        emit('\n');
+                        self.after_cr = true;
+                    }
+                    '\n' => {
+                        if !after_cr {
+                            emit('\n');
+                        }
+                    }
+                    '\t' => match self.tabs {
+                        Tabs::Expand => {
+                            for _ in 0..4 {
+                                emit(' ');
+                            }
+                        }
+                        Tabs::Preserve => emit('\t'),
+                    },
+                    ch if ch.is_control() => {}
+                    ch => emit(ch),
+                },
+                EscapeState::Escape => {
+                    self.escape = match ch {
+                        '[' => EscapeState::Csi,
+                        ']' | 'P' | 'X' | '^' | '_' => EscapeState::StringControl,
+                        ' '..='/' => EscapeState::Intermediate,
+                        '\u{1b}' => EscapeState::Escape,
+                        ch if ch.is_control() => EscapeState::Escape,
+                        _ => EscapeState::Ground,
+                    };
+                }
+                EscapeState::Intermediate | EscapeState::Csi => {
+                    if ch == '\u{1b}' {
+                        self.escape = EscapeState::Escape;
+                    } else if ('@'..='~').contains(&ch)
+                        || (matches!(self.escape, EscapeState::Intermediate)
+                            && ('0'..='?').contains(&ch))
+                    {
+                        self.escape = EscapeState::Ground;
+                    }
+                }
+                EscapeState::StringControl | EscapeState::StringEscape => {
+                    self.escape = match ch {
+                        '\u{7}' | '\u{9c}' => EscapeState::Ground,
+                        '\\' if matches!(self.escape, EscapeState::StringEscape) => {
+                            EscapeState::Ground
+                        }
+                        '\u{1b}' => EscapeState::StringEscape,
+                        _ => EscapeState::StringControl,
+                    };
+                }
+            }
         }
     }
-    output
+}
+
+pub(crate) fn sanitize_display_text(input: &str) -> String {
+    StreamSanitizer::default().push_delta(input)
+}
+
+pub(crate) fn sanitize_paste_text(input: &str) -> String {
+    StreamSanitizer {
+        tabs: Tabs::Preserve,
+        ..StreamSanitizer::default()
+    }
+    .push_delta(input)
 }
 
 pub(crate) fn sanitize_display_line(input: &str) -> String {
@@ -45,13 +135,18 @@ pub(crate) fn sanitize_display_line(input: &str) -> String {
         .to_string()
 }
 
-#[cfg(test)]
 pub(crate) fn sanitize_display_line_segments(line: &Line<'_>) -> Line<'static> {
+    let mut sanitizer = StreamSanitizer::default();
     let spans = line
         .spans
         .iter()
         .map(|span| Span {
-            content: sanitize_display_line(span.content.as_ref()).into(),
+            // A styled Line is already one physical row. Source ingestion,
+            // not Ratatui's Line formatter, owns explicit line boundaries.
+            content: sanitizer
+                .push_delta(span.content.as_ref())
+                .replace('\n', "")
+                .into(),
             style: span.style,
         })
         .collect::<Vec<_>>();
@@ -59,47 +154,6 @@ pub(crate) fn sanitize_display_line_segments(line: &Line<'_>) -> Line<'static> {
         spans,
         style: line.style,
         alignment: line.alignment,
-    }
-}
-
-fn strip_escape_sequence<I>(chars: &mut std::iter::Peekable<I>)
-where
-    I: Iterator<Item = char>,
-{
-    match chars.peek().copied() {
-        Some('[') => {
-            chars.next();
-            for next in chars.by_ref() {
-                if ('@'..='~').contains(&next) {
-                    break;
-                }
-            }
-        }
-        Some(']') => {
-            chars.next();
-            strip_string_control_sequence(chars);
-        }
-        Some('P' | 'X' | '^' | '_') => {
-            chars.next();
-            strip_string_control_sequence(chars);
-        }
-        Some(_) => {
-            chars.next();
-        }
-        None => {}
-    }
-}
-
-fn strip_string_control_sequence<I>(chars: &mut std::iter::Peekable<I>)
-where
-    I: Iterator<Item = char>,
-{
-    let mut previous_escape = false;
-    for next in chars.by_ref() {
-        if next == '\u{7}' || (previous_escape && next == '\\') {
-            break;
-        }
-        previous_escape = next == '\u{1b}';
     }
 }
 
@@ -138,8 +192,76 @@ mod tests {
         let sanitized = sanitize_display_line_segments(&line);
 
         assert_eq!(sanitized.to_string(), "okred");
+        assert_eq!(sanitized.spans[0].content, "okred");
         assert_eq!(sanitized.spans[0].style.fg, Some(Color::Red));
         assert!(!sanitized.to_string().contains('\r'));
         assert!(!sanitized.to_string().contains('\u{1b}'));
+    }
+
+    #[test]
+    fn every_character_boundary_preserves_escape_and_crlf_state() {
+        let cases = [
+            ("a\u{1b}[31mred\u{1b}[0mz", "aredz"),
+            (
+                "a\u{1b}]8;;https://example.test\u{1b}\\link\u{1b}]8;;\u{7}z",
+                "alinkz",
+            ),
+            ("a\u{1b}Ppayload\u{1b}\\z", "az"),
+            ("a\u{1b}Xpayload\u{1b}\\z", "az"),
+            ("a\u{1b}^payload\u{1b}\\z", "az"),
+            ("a\u{1b}_payload\u{1b}\\z", "az"),
+            ("a\u{1b}(Bz", "az"),
+            ("a\u{1b}\u{0}[31mred\u{1b}[0mz", "aredz"),
+            ("a\u{9b}31mred\u{9b}0mz", "aredz"),
+            ("a\u{9d}payload\u{9c}z", "az"),
+            ("a\r\nb\r\n\r\nc", "a\nb\n\nc"),
+            ("a\r\rb\nc\t\u{754c}", "a\n\nb\nc    \u{754c}"),
+            ("a\u{1b}[31\u{18}z", "az"),
+        ];
+        for (source, expected) in cases {
+            assert_eq!(sanitize_display_text(source), expected);
+            let boundaries = source
+                .char_indices()
+                .map(|(index, _)| index)
+                .chain([source.len()])
+                .collect::<Vec<_>>();
+            for &first in &boundaries {
+                for &second in boundaries.iter().filter(|&&index| index >= first) {
+                    let mut sanitizer = super::StreamSanitizer::default();
+                    let result = [&source[..first], &source[first..second], &source[second..]]
+                        .into_iter()
+                        .map(|chunk| sanitizer.push_delta(chunk))
+                        .collect::<String>();
+                    assert_eq!(result, expected, "{source:?} split at {first}/{second}");
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn unterminated_controls_retain_no_payload_bytes() {
+        let mut sanitizer = super::StreamSanitizer::default();
+        assert_eq!(sanitizer.push_delta("before\u{1b}]"), "before");
+        let mut emitted = 0;
+        sanitizer.write(&"x".repeat(10 * 1024 * 1024), |_| emitted += 1);
+        assert_eq!(emitted, 0);
+        assert!(std::mem::size_of_val(&sanitizer) < 32);
+        assert_eq!(sanitizer.push_delta("\u{1b}"), "");
+        assert_eq!(sanitizer.push_delta("\\after"), "after");
+        assert_eq!(sanitize_display_text("before\u{1b}[31"), "before");
+        assert_eq!(sanitize_display_text("before\u{1b}]payload"), "before");
+    }
+
+    #[test]
+    fn styled_spans_share_parser_state_and_keep_visible_styles() {
+        let line = Line::from(vec![
+            Span::raw("left\u{1b}[3"),
+            Span::styled("1mred\u{1b}[0", Style::default().fg(Color::Red)),
+            Span::raw("mright"),
+        ]);
+        let sanitized = sanitize_display_line_segments(&line);
+        assert_eq!(sanitized.to_string(), "leftredright");
+        assert_eq!(sanitized.spans[1].content, "red");
+        assert_eq!(sanitized.spans[1].style.fg, Some(Color::Red));
     }
 }

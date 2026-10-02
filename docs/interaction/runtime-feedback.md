@@ -114,6 +114,15 @@ the response's canonical final render. Earlier prose remains visible; event
 delivery and transcript chronology are unchanged. Agent and thinking streams
 materialize changed source on presentation access and reuse unchanged rows.
 
+Assistant/thinking text is sanitized before source ingestion, with independent
+escape and CRLF state across deltas. Tool progress keeps a bounded tail per
+invocation and stdout/stderr identity, including interleaved same-name calls.
+Every progress entry, including its label and truncation marker, is at most
+16 KiB and 16 logical lines. Complete terminal-output previews sanitize before
+line splitting and retain at most 16 KiB and six nonempty lines. Truncation does
+not replace the original runtime/tool artifact. See
+[display text boundary](../features/display-text-boundary.md).
+
 ## Validation Matrix
 
 | Contract | Existing proving surface |

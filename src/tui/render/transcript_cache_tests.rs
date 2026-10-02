@@ -22,6 +22,48 @@ fn history_harness() -> TuiHarness {
     harness
 }
 
+#[test]
+fn same_length_middle_edit_refreshes_production_selection() {
+    let mut harness = TuiHarness::new(RuntimeSnapshot::default()).expect("isolated harness");
+    harness
+        .app_mut()
+        .push_entry("Agent", "```text\nfirst\nold\nlast\n```");
+    let rows = super::renderable_transcript_lines(harness.app(), 80);
+    let middle = rows
+        .iter()
+        .position(|line| line.to_string().trim() == "old")
+        .expect("middle row");
+    let text = &rows.get(middle).unwrap().text;
+    let column = text.find("old").unwrap() as u16;
+    let selection = &mut harness.app_mut().transcript_selection;
+    let area = ratatui::layout::Rect::new(0, 0, 80, 20);
+    selection.update_snapshot(&rows, area, 0);
+    assert!(selection.start(ScreenPosition::new(column, middle as u16)));
+    assert!(selection.drag(ScreenPosition::new(column + 3, middle as u16)));
+    assert_eq!(selection.selected_text().as_deref(), Some("old"));
+    harness.app_mut().active_turn.entries[0].message = "```text\nfirst\nnew\nlast\n```".into();
+    let changed = super::renderable_transcript_lines(harness.app(), 80);
+    assert_eq!(rows.len(), changed.len());
+    assert_eq!(rows.get(0).unwrap().text, changed.get(0).unwrap().text);
+    assert_eq!(
+        rows.get(rows.len() - 1).unwrap().text,
+        changed.get(changed.len() - 1).unwrap().text
+    );
+    harness
+        .app_mut()
+        .transcript_selection
+        .update_snapshot(&changed, area, 0);
+    assert_eq!(
+        harness
+            .app()
+            .transcript_selection
+            .selected_text()
+            .as_deref(),
+        Some("new")
+    );
+    assert_eq!(rows.get(middle).unwrap().text.trim(), "old");
+}
+
 fn work(harness: &TuiHarness) -> TranscriptWork {
     let render = harness.app().committed_render_cache.borrow().work.get();
     let selection = harness.app().transcript_selection.work.get();

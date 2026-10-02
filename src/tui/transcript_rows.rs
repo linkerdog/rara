@@ -28,6 +28,7 @@ impl RowBlock {
             rows: lines
                 .into_iter()
                 .map(|line| {
+                    let line = super::display_sanitize::sanitize_display_line_segments(&line);
                     let text = line.to_string();
                     let width = display_width(&text);
                     VisualRow { line, text, width }

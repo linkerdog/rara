@@ -54,6 +54,11 @@ not inherit the plain-list j/k shortcuts.
 - Ctrl+B toggles the sidebar; Alt+T toggles thinking visibility.
 - Pasted content uses the paste event path, including large-paste expansion at
   submission; it must not be replayed as individual shortcut key presses.
+- Paste removes escape/control sequences before active-surface routing and
+  burst buffering, preserving tabs and normalizing CR/CRLF to one newline.
+  Editable overlays receive sanitized text with line breaks converted to
+  spaces; read-only ownership remains unchanged. See
+  [display text boundary](../features/display-text-boundary.md).
 
 An ordinary composer accepts j/k as text even when empty. Transcript scrolling
 uses arrows, PageUp/PageDown, or the mouse. An empty approval composer retains
@@ -157,3 +162,4 @@ character-offset editor contract.
 - [TUI interaction contracts](../journal/2026-09-17-tui-interaction-contracts.md)
 - [Input ownership and draft preservation](../journal/2026-09-17-tui-input-ownership.md)
 - [Composer wrap geometry](../journal/2026-10-02-composer-wrap-geometry.md)
+- [Display text boundary](../journal/2026-10-03-display-text-boundary.md)

@@ -96,6 +96,7 @@ impl TuiApp {
             agent_markdown_stream: None,
             agent_thinking_stream: None,
             active_live: ActiveLiveSections::default(),
+            tool_progress: crate::tui::tool_progress::ToolProgressState::default(),
             running_tool_boundary_count: 0,
             terminal_focused: true,
             state_db: None,

@@ -37,7 +37,7 @@ use crate::protocol_sources::{PromptSourceRegistry, SkillSourceRegistry};
 use crate::runtime_event_bus::RuntimeEventBus;
 use crate::thread_store::ThreadSummary;
 use crate::tools::bash::BashCommandInput;
-use crate::tui::display_sanitize::sanitize_display_text;
+use crate::tui::display_sanitize::{StreamSanitizer, sanitize_display_text};
 use crate::tui::selection::TranscriptSelection;
 use crate::tui::terminal_event::TerminalEvent;
 
@@ -438,6 +438,7 @@ pub enum TuiEvent {
     },
     Terminal(TerminalEvent),
     ToolProgress {
+        call_id: Option<String>,
         name: String,
         stream: ToolOutputStream,
         chunk: String,
@@ -522,6 +523,7 @@ pub struct TranscriptEntry {
 #[derive(Clone, Debug)]
 pub enum TranscriptEntryPayload {
     Terminal(TerminalEvent),
+    ToolProgress(crate::tui::tool_progress::ToolProgressTranscriptPayload),
     Tool(ToolTranscriptPayload),
     Compaction(CompactionTranscriptPayload),
     /// Reserved for semantic transcript filtering and future per-kind system
@@ -568,16 +570,17 @@ pub enum SystemMessageKind {
 impl TranscriptEntry {
     pub fn new(role: impl Into<String>, message: impl Into<String>) -> Self {
         Self {
-            role: role.into(),
-            message: message.into(),
+            role: crate::tui::display_sanitize::sanitize_display_line(&role.into()),
+            message: sanitize_display_text(&message.into()),
             payload: None,
         }
     }
 
     pub fn terminal_event(event: TerminalEvent) -> Self {
+        let event = event.sanitized_for_display();
         Self {
             role: "Terminal Event".to_string(),
-            message: event.to_transcript_message(),
+            message: sanitize_display_text(&event.to_transcript_message()),
             payload: Some(TranscriptEntryPayload::Terminal(event)),
         }
     }
@@ -595,10 +598,10 @@ impl TranscriptEntry {
         };
         Self {
             role: role.to_string(),
-            message: message.into(),
+            message: sanitize_display_text(&message.into()),
             payload: Some(TranscriptEntryPayload::Tool(ToolTranscriptPayload {
                 call_id: call_id.map(ToString::to_string),
-                name: name.into(),
+                name: crate::tui::display_sanitize::sanitize_display_line(&name.into()),
                 status,
             })),
         }
@@ -607,7 +610,7 @@ impl TranscriptEntry {
     pub fn system(message: impl Into<String>, kind: SystemMessageKind) -> Self {
         Self {
             role: "System".to_string(),
-            message: message.into(),
+            message: sanitize_display_text(&message.into()),
             payload: Some(TranscriptEntryPayload::System(kind)),
         }
     }
@@ -621,13 +624,16 @@ impl TranscriptEntry {
     ) -> Self {
         Self {
             role: "Compaction".to_string(),
-            message: summary.into(),
+            message: sanitize_display_text(&summary.into()),
             payload: Some(TranscriptEntryPayload::Compaction(
                 CompactionTranscriptPayload {
                     count,
                     before_tokens,
                     after_tokens,
-                    recent_files,
+                    recent_files: recent_files
+                        .into_iter()
+                        .map(|path| crate::tui::display_sanitize::sanitize_display_line(&path))
+                        .collect(),
                 },
             )),
         }
@@ -644,6 +650,7 @@ pub(crate) use crate::tui::render::CommittedTranscriptRenderCache;
 
 pub struct AgentMarkdownStreamState {
     pub(crate) raw_text: String,
+    sanitizer: StreamSanitizer,
     last_visible_text: String,
     incremental_passthrough: bool,
     collector: RefCell<MarkdownStreamCollector>,
@@ -653,6 +660,7 @@ impl AgentMarkdownStreamState {
     pub(crate) fn new(cwd: PathBuf) -> Self {
         Self {
             raw_text: String::new(),
+            sanitizer: StreamSanitizer::default(),
             last_visible_text: String::new(),
             incremental_passthrough: true,
             collector: RefCell::new(MarkdownStreamCollector::new(None, &cwd)),
@@ -660,18 +668,19 @@ impl AgentMarkdownStreamState {
     }
 
     pub(crate) fn push_delta(&mut self, delta: &str) {
+        let delta = self.sanitizer.push_delta(delta);
+        let delta = delta.as_str();
         if self.incremental_passthrough && !delta.contains('<') {
             self.raw_text.push_str(delta);
-            let visible_delta = sanitize_display_text(delta);
-            self.last_visible_text.push_str(&visible_delta);
-            if !visible_delta.is_empty() {
-                self.collector.get_mut().push_delta(&visible_delta);
+            self.last_visible_text.push_str(delta);
+            if !delta.is_empty() {
+                self.collector.get_mut().push_delta(delta);
             }
             return;
         }
 
         self.raw_text.push_str(delta);
-        let visible_text = sanitize_display_text(&scrub_internal_control_tokens(&self.raw_text));
+        let visible_text = scrub_internal_control_tokens(&self.raw_text);
         if let Some(new_visible_delta) = visible_text.strip_prefix(&self.last_visible_text) {
             if !new_visible_delta.is_empty() {
                 self.collector.get_mut().push_delta(new_visible_delta);
@@ -684,7 +693,7 @@ impl AgentMarkdownStreamState {
     }
 
     pub(crate) fn sanitized_raw_text(&self) -> String {
-        sanitize_display_text(&scrub_internal_control_tokens(&self.raw_text))
+        scrub_internal_control_tokens(&self.raw_text)
     }
 
     fn replace_display_text(&mut self, text: &str) {
@@ -804,6 +813,7 @@ pub struct TuiApp {
     pub agent_markdown_stream: Option<AgentMarkdownStreamState>,
     pub agent_thinking_stream: Option<AgentMarkdownStreamState>,
     pub active_live: ActiveLiveSections,
+    pub(crate) tool_progress: crate::tui::tool_progress::ToolProgressState,
     pub running_tool_boundary_count: u64,
     pub terminal_focused: bool,
     pub state_db: Option<Arc<StateDb>>,
