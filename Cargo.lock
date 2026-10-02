@@ -9190,6 +9190,7 @@ name = "rara-state"
 version = "0.0.22"
 dependencies = [
  "anyhow",
+ "log",
  "rara-config",
  "rara-persistence",
  "rusqlite",

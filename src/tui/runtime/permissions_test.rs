@@ -85,7 +85,11 @@ async fn complete(app: &mut TuiApp, agent: Agent, result: anyhow::Result<()>) ->
     crate::tui::runtime::tasks::finish_running_task_if_ready_from_runtime_port(
         app,
         &mut slot,
-        Some(Ok(TaskCompletion::Query { agent, result })),
+        Some(Ok(TaskCompletion::Query {
+            agent,
+            result,
+            goal_turn: None,
+        })),
         None,
     )
     .await
