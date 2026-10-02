@@ -43,7 +43,9 @@ pub async fn run_tui(
     startup: TuiStartupOptions,
 ) -> anyhow::Result<Option<String>> {
     let mut terminal_modes = TerminalModeGuard::start()?;
-    let result = run_tui_session(runtime, oauth_manager, startup).await;
+    let result = terminal_modes
+        .run_owner(run_tui_session(runtime, oauth_manager, startup))
+        .await?;
     if let Err(error) = terminal_modes.restore() {
         if result.is_ok() {
             return Err(error.into());

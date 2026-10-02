@@ -96,7 +96,11 @@ initialization has the same restoration obligation as a running UI.
 Cleanup attempts every owned mode even when one operation fails, preserving
 the first cleanup error. An existing startup or runtime error remains the
 primary error; a cleanup failure must also surface. A panic hook restores the
-terminal before invoking the previous hook so panic diagnostics are readable.
+terminal before invoking the previous hook when the TUI owner panics during
+initialization or an event-loop poll. Caught background-task panics must not
+disable a running UI's terminal modes, including tasks on the same executor
+thread between owner polls. If the owner catches a panic after restoration,
+the UI must exit instead of continuing with disabled terminal modes.
 Restore modes before asynchronous exit work such as memory draining.
 
 Only one TUI may own the process terminal at a time. Restoration is idempotent

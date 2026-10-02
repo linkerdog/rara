@@ -23,9 +23,13 @@ on normal, error, partial-initialization, and panic exits.
 
 - The guard is armed before raw mode, mouse reporting, or paste reporting.
   Every startup and loop error crosses the same restoration boundary.
-- The panic hook is installed once, checks terminal ownership, restores
-  synchronously, and invokes the previous hook. Repeated TUI starts do not
-  accumulate hook wrappers.
+- The panic hook is installed once and restores synchronously before invoking
+  the previous hook only during owner initialization or an owner future poll.
+  A thread-local scope is reset on every Pending/yield as well as on unwind:
+  a caught worker panic on the same executor thread cannot disable the UI.
+  If the owner itself catches a panic, the poll boundary returns an error
+  instead of continuing a UI whose modes have already been restored.
+  Repeated TUI starts do not accumulate hook wrappers.
 - Cleanup attempts mouse, bracketed paste, raw mode, and cursor restoration
   independently and returns the first error. Failed cleanup can be retried by
   Drop; errors are logged and never replace an existing runtime error.
@@ -50,8 +54,10 @@ git diff --check
 The cleanup test injects failures at each restoration step and multiple
 failures together. Unix PTY subprocesses inspect real kernel termios and
 reporting/cursor reset sequences for normal return, loop error, partial setup,
-panic unwinding, panic before guard unwinding, and repeated acquisition.
-The previous panic hook observes raw mode already disabled.
+owner panic unwinding, initializer panic, internally caught owner panic, and
+repeated acquisition. The previous panic hook observes raw mode disabled for
+owner panics. A caught Tokio worker panic on the same current-thread executor
+leaves raw mode enabled until the owner exits.
 
 Behavioral RED evidence:
 
@@ -62,10 +68,16 @@ Behavioral RED evidence:
   early-return behavior. The failure-injection test observes only `[Mouse]`
   instead of all four restoration actions.
 - Both mutations are reverted in the final implementation.
+- Review identified that process-global ownership alone also restores modes
+  for caught worker panics. The new current-thread PTY worker regression fails
+  against that implementation: `previous_hook_raw=false`, followed by an
+  assertion failure because the running owner's raw mode was disabled.
+  Per-poll ownership and a caught-owner termination boundary fix this case.
 
 Final validation evidence: the focused terminal-mode suite reports three
-passing tests and one ignored subprocess fixture; the event-loop startup
-regression reports one passing test. `cargo check`, strict Clippy, formatting,
+passing tests and one ignored subprocess fixture; the existing event-loop
+plugin-rebuild helper reports one passing test. That helper is not a startup
+failure or terminal-restoration integration test. `cargo check`, strict Clippy, formatting,
 and diff checks complete without source warnings. The macOS debug test linker
 reports its large `__eh_frame` compact-unwind limitation; no linker flags or
 repository configuration are changed. Remote CI remains pending.
