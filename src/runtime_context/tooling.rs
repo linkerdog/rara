@@ -22,6 +22,7 @@ use crate::lsp_manager::LspManager;
 use crate::mcp_tool_cache::McpToolCache;
 use crate::prompt::PromptRuntimeConfig;
 use crate::protocol_sources::SkillSourceRegistry;
+use crate::runtime_goals::GoalHandle;
 use crate::sandbox::SandboxManager;
 use crate::session::SessionManager;
 use crate::skill::SkillManager;
@@ -46,7 +47,6 @@ use crate::tools::tasklist::{TaskCreateTool, TaskGetTool, TaskListTool, TaskUpda
 use crate::tools::todo::TodoWriteTool;
 use crate::tools::web::{WebFetchTool, WebSearchTool};
 use crate::tools::workspace::UpdateProjectMemoryTool;
-use crate::tui::state::GoalHandle;
 use crate::workspace::WorkspaceMemory;
 
 #[allow(clippy::too_many_arguments)]

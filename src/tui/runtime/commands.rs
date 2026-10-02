@@ -183,6 +183,7 @@ pub(super) async fn execute_local_command_with_runtime(
         }
         LocalCommandKind::Goal => {
             mark_local_command(app, Some("processing goal command".into()));
+            app.goal = app.goal_handle.snapshot();
             let arg = command.arg.as_deref().unwrap_or("").trim();
             match arg {
                 "" => {
@@ -209,16 +210,30 @@ pub(super) async fn execute_local_command_with_runtime(
                     }
                 }
                 "pause" => {
-                    if let Some(goal) = app.goal.as_mut() {
-                        if goal.status == GoalStatus::Pursuing {
+                    let previous_status = app.goal_handle.mutate(|stored| {
+                        let Some(goal) = stored.as_mut() else {
+                            return Ok(None);
+                        };
+                        let previous_status = goal.status;
+                        if previous_status == GoalStatus::Pursuing {
                             goal.status = GoalStatus::Paused;
+                        }
+                        Ok(Some(previous_status))
+                    })?;
+                    app.goal = app.goal_handle.snapshot();
+                    match previous_status {
+                        Some(GoalStatus::Pursuing) => {
                             app.push_notice("Goal paused. Use /goal resume to continue.");
-                            *app.goal_handle.write().unwrap() = app.goal.clone();
-                        } else {
+                        }
+                        Some(
+                            GoalStatus::Paused
+                            | GoalStatus::Blocked
+                            | GoalStatus::Complete
+                            | GoalStatus::BudgetLimited,
+                        ) => {
                             app.push_notice("Goal is not currently pursuing; nothing to pause.");
                         }
-                    } else {
-                        app.push_notice("No active goal to pause.");
+                        None => app.push_notice("No active goal to pause."),
                     }
                 }
                 "resume" => {
@@ -226,8 +241,8 @@ pub(super) async fn execute_local_command_with_runtime(
                 }
                 "clear" => {
                     if app.goal.is_some() {
-                        app.goal = None;
-                        *app.goal_handle.write().unwrap() = None;
+                        app.goal_handle.replace(None)?;
+                        app.goal = app.goal_handle.snapshot();
                         app.push_notice("Goal cleared.");
                     } else {
                         app.push_notice("No active goal to clear.");
@@ -246,26 +261,17 @@ pub(super) async fn execute_local_command_with_runtime(
                     }
                     match parse_goal_objective_and_budget(objective) {
                         Ok((objective_clean, budget)) => {
-                            app.goal = Some(RalphGoal::new(objective_clean.clone(), budget));
-                            *app.goal_handle.write().unwrap() = app.goal.clone();
-                            if let Some(db) = app.state_db.as_ref()
-                                && let Some(ref goal) = app.goal
-                            {
-                                match serde_json::to_value(goal) {
-                                    Ok(v) => {
-                                        if let Err(e) = db.save_goal(&app.snapshot.session_id, &v) {
-                                            app.push_notice(format!(
-                                                "Goal saved but persistence failed: {e}"
-                                            ));
-                                        }
-                                    }
-                                    Err(e) => {
-                                        app.push_notice(format!(
-                                            "Goal saved but serialisation failed: {e}"
-                                        ));
-                                    }
-                                }
-                            }
+                            app.goal_handle.mutate(|stored| {
+                                anyhow::ensure!(
+                                    stored
+                                        .as_ref()
+                                        .is_none_or(|goal| goal.status == GoalStatus::Complete),
+                                    "an unfinished goal already exists"
+                                );
+                                *stored = Some(RalphGoal::new(objective_clean.clone(), budget));
+                                Ok(())
+                            })?;
+                            app.goal = app.goal_handle.snapshot();
                             let mut notice = format!("Goal set: {}", objective_clean);
                             if let Some(b) = budget {
                                 notice.push_str(&format!(" [budget: {b} tokens]"));
@@ -301,6 +307,10 @@ pub(super) async fn execute_local_command_with_runtime(
     Ok(false)
 }
 
+#[cfg(test)]
+#[path = "goal_persistence_tests.rs"]
+mod goal_persistence_tests;
+
 async fn resume_goal_continuation(
     app: &mut TuiApp,
     agent_slot: &mut Option<Agent>,
@@ -319,7 +329,7 @@ async fn resume_goal_continuation(
         return Ok(());
     }
 
-    let Some(goal) = app.goal.as_mut() else {
+    let Some(mut goal) = app.goal_handle.snapshot() else {
         app.push_notice("No active goal to resume.");
         return Ok(());
     };
@@ -329,19 +339,23 @@ async fn resume_goal_continuation(
             GoalStatus::Blocked,
             "Goal resumed. The blocked-goal audit has restarted.",
         ),
-        _ => {
+        GoalStatus::Pursuing | GoalStatus::Complete | GoalStatus::BudgetLimited => {
             app.push_notice("Goal is not paused or blocked; nothing to resume.");
             return Ok(());
         }
     };
     goal.status = GoalStatus::Pursuing;
-    *app.goal_handle.write().unwrap() = app.goal.clone();
+    app.goal_handle.replace(Some(goal))?;
+    app.goal = app.goal_handle.snapshot();
 
     if let Err(error) = start_active_goal_continuation(app, agent_slot, runtime_port).await {
-        if let Some(goal) = app.goal.as_mut() {
-            goal.status = previous_status;
-        }
-        *app.goal_handle.write().unwrap() = app.goal.clone();
+        app.goal_handle.mutate(|stored| {
+            if let Some(goal) = stored.as_mut() {
+                goal.status = previous_status;
+            }
+            Ok(())
+        })?;
+        app.goal = app.goal_handle.snapshot();
         return Err(error);
     }
     app.push_notice(notice);

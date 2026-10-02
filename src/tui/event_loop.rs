@@ -47,7 +47,7 @@ pub async fn run_tui(
     let initial_size = terminal_size()?;
     let mut app = TuiApp::with_config(crate::config::ConfigManager::new()?, startup.config)?;
     app.goal_handle = runtime.goal_handle.clone();
-    app.goal = runtime.goal_handle.read().unwrap().clone();
+    app.goal = runtime.goal_handle.snapshot();
     app.mcp_tool_cache = Some(runtime.mcp_tool_cache.clone());
     app.sandbox_network_access = runtime.sandbox_network_access.clone();
     app.event_bus = Some(runtime.event_bus.clone());

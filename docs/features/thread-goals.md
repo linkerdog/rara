@@ -27,11 +27,11 @@ RARA should mirror that shape while keeping its local TUI command surface.
 - Automatic goal continuation prompts.
 - Goal budget accounting and budget-limit wrap-up.
 - Compact bottom-pane status for active goals.
+- Durable lifecycle, usage, creation time, and clear across thread restoration.
 
 ## Non-Goals
 
 - Multi-goal scheduling.
-- Durable synchronization of every lifecycle mutation across process restarts.
 - A full Codex-style goal confirmation menu.
 - Auxiliary-model planning or compression for goals.
 - A runtime classifier or durable counter that second-guesses model goal
@@ -39,10 +39,21 @@ RARA should mirror that shape while keeping its local TUI command surface.
 
 ## Architecture
 
-`RalphGoal` remains in-memory session state shared by the TUI and model-facing
-goal tools through `GoalHandle`. The local command may save a goal snapshot,
-and session restoration recognizes every lifecycle status present in that
-snapshot; durable synchronization of every lifecycle mutation is out of scope.
+`RalphGoal` is runtime-owned session state shared through `GoalHandle`. Commands,
+model-facing tools, and turn accounting use one serialized mutation boundary.
+When thread persistence is enabled, that boundary writes SQLite before
+publishing a new in-memory snapshot. A failed write surfaces an error and keeps
+the previous snapshot; no continuation may launch from a failed mutation.
+The TUI holds only a presentation snapshot and delegates writes to the runtime.
+
+The existing `goals` row stores every lifecycle status, budget, usage counter,
+and the original creation timestamp. Clearing deletes that row. Replacing a
+completed goal starts a new creation time; updating an existing goal retains
+its creation time. Restoration uses checked deserialization: unknown statuses,
+negative or oversized counters, and invalid timestamps fail rather than become
+an active goal. A missing row clears any prior thread's presentation snapshot.
+Runtime rebuilding preserves the current goal's thread binding and state.
+Persistence-disabled embedded profiles remain explicitly in-memory.
 
 The lifecycle is:
 
@@ -163,6 +174,12 @@ Detailed goal state belongs in `/goal`, not the bottom pane.
   classifier-injected system reason.
 - Budget-limit prompts ask for wrap-up without new work.
 - Bottom-pane rendering keeps the goal label compact and uses `tokens` units.
+- Fresh-app round trips preserve all five statuses, counters, budgets, and the
+  original creation time through both command and tool mutations.
+- Clear remains absent after restoration, including a switch from another
+  thread with a goal. Replacement uses the new goal's creation time.
+- Write failures leave the prior snapshot unchanged and stop continuation;
+  corrupt stored status or numeric values cannot restore as `Pursuing`.
 
 ## Open Risks
 

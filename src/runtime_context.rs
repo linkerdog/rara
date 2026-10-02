@@ -31,6 +31,7 @@ use crate::prompt::{PromptRuntimeConfig, PromptSkillSummary};
 use crate::protocol_sources::{PromptSourceRegistry, SkillSourceRegistry};
 use crate::runtime_control::{ExtensionEvent, ExtensionReadinessSnapshot, RuntimeEvent};
 use crate::runtime_event_bus::RuntimeEventBus;
+use crate::runtime_goals::{GoalHandle, GoalStore};
 use crate::runtime_session::RuntimeSessionProfile;
 use crate::sandbox::SandboxManager;
 use crate::session::SessionManager;
@@ -40,7 +41,6 @@ use crate::tools::agent::{
     AgentDefinitionCache, AgentTreeConfig, AgentTreeControl, ResolvedSubagentBackend,
     SubagentBackendResolver, SubagentProviderTarget,
 };
-use crate::tui::state::GoalHandle;
 use crate::workspace::WorkspaceMemory;
 
 pub(crate) struct RuntimeBootstrap {
@@ -557,7 +557,16 @@ pub(crate) async fn initialize_rara_context_with_options(
         crate::tools::skill::SkillReloadPolicy::Disabled
     };
     let hook_registry = Arc::new(HookRegistry::new(event_bus.clone()));
-    let goal_handle: GoalHandle = Arc::new(std::sync::RwLock::new(None));
+    let goal_handle = Arc::new(GoalStore::default());
+    if options.transcript_persistence {
+        let thread_id = options
+            .session_id
+            .get_or_insert_with(|| uuid::Uuid::new_v4().to_string());
+        let db = Arc::new(rara_state::state_db::StateDb::new_for_root_dir(
+            workspace.rara_dir.clone(),
+        )?);
+        goal_handle.restore_for_thread(thread_id, db)?;
+    }
     let mcp_tool_cache = McpToolCache::new();
     mcp_tool_cache.clear();
     let lsp_manager = Arc::new(LspManager::new(workspace.root.clone()));

@@ -89,6 +89,21 @@ impl TuiApp {
 
     pub fn attach_state_db(&mut self, state_db: Arc<StateDb>) {
         let status = state_db.path().display().to_string();
+        if !self.snapshot.session_id.is_empty() {
+            match self
+                .goal_handle
+                .restore_for_thread(&self.snapshot.session_id, state_db.clone())
+            {
+                Ok(goal) => self.goal = goal,
+                Err(error) => {
+                    log::warn!("Failed to bind thread goal persistence: {error:#}");
+                    self.goal_handle
+                        .disable_after_persistence_failure(format!("{error:#}"));
+                    self.goal = None;
+                    self.push_notice(format!("Goal persistence unavailable: {error:#}"));
+                }
+            }
+        }
         self.state_db = Some(state_db);
         self.refresh_recent_threads();
         self.state_db_status = Some(status);

@@ -23,8 +23,9 @@ use crate::memory_lifecycle::{
 use crate::protocol_sources::{PromptSourceRegistry, SkillSourceRegistry};
 use crate::runtime_context::RuntimeBootstrap;
 use crate::runtime_event_bus::RuntimeEventBus;
+use crate::runtime_goals::{GoalHandle, GoalStatus, RalphGoal};
 use crate::tools::agent::{AgentActivitySnapshot, AgentTreeControl};
-use crate::tui::state::{GoalHandle, GoalStatus, RalphGoal, RuntimeExtensionSnapshot};
+use crate::tui::state::RuntimeExtensionSnapshot;
 
 /// Fully initialized replacement runtime returned by a backend rebuild.
 pub(crate) struct RebuildSuccess {
@@ -306,34 +307,41 @@ impl RuntimeClient {
         prior_input_tokens: u32,
         plan_turn_finished: bool,
         plan_approval_pending: bool,
-    ) -> GoalContinuation {
-        let Some(mut goal) = read_goal(goal_handle) else {
-            return GoalContinuation::NotActive;
-        };
-        if goal.status != GoalStatus::Pursuing || plan_turn_finished || plan_approval_pending {
-            return GoalContinuation::NotActive;
-        }
+    ) -> anyhow::Result<GoalContinuation> {
+        goal_handle.mutate(|stored| {
+            let Some(goal) = stored.as_mut() else {
+                return Ok(GoalContinuation::NotActive);
+            };
+            if goal.status != GoalStatus::Pursuing || plan_turn_finished || plan_approval_pending {
+                return Ok(GoalContinuation::NotActive);
+            }
 
-        let turn_input_tokens = agent.total_input_tokens.saturating_sub(prior_input_tokens);
-        goal.tokens_used = goal.tokens_used.saturating_add(turn_input_tokens);
-        goal.turns_completed = goal.turns_completed.saturating_add(1);
-        let budget_exhausted = goal
-            .token_budget
-            .is_some_and(|budget| goal.tokens_used >= budget);
-        if budget_exhausted {
-            goal.status = GoalStatus::BudgetLimited;
-        }
-        let prompt = if budget_exhausted {
-            goal_budget_limit_prompt(&goal)
-        } else {
-            goal_continuation_prompt(&goal)
-        };
-        write_goal(goal_handle, Some(goal.clone()));
-        if budget_exhausted {
-            return GoalContinuation::BudgetLimited { goal, prompt };
-        }
-
-        GoalContinuation::Continue { goal, prompt }
+            let turn_input_tokens = agent.total_input_tokens.saturating_sub(prior_input_tokens);
+            goal.tokens_used = goal.tokens_used.saturating_add(turn_input_tokens);
+            goal.turns_completed = goal.turns_completed.saturating_add(1);
+            let budget_exhausted = goal
+                .token_budget
+                .is_some_and(|budget| goal.tokens_used >= budget);
+            if budget_exhausted {
+                goal.status = GoalStatus::BudgetLimited;
+            }
+            let prompt = if budget_exhausted {
+                goal_budget_limit_prompt(goal)
+            } else {
+                goal_continuation_prompt(goal)
+            };
+            if budget_exhausted {
+                Ok(GoalContinuation::BudgetLimited {
+                    goal: goal.clone(),
+                    prompt,
+                })
+            } else {
+                Ok(GoalContinuation::Continue {
+                    goal: goal.clone(),
+                    prompt,
+                })
+            }
+        })
     }
 
     /// Merge session continuity into a newly rebuilt backend before swapping it in.
@@ -387,26 +395,6 @@ impl RuntimeClient {
         rebuilt.set_prompt_config(prompt_config);
         rebuilt.set_agent_tree_control(agent_tree_control);
         rebuilt
-    }
-}
-
-fn read_goal(goal_handle: &GoalHandle) -> Option<RalphGoal> {
-    match goal_handle.read() {
-        Ok(goal) => goal.clone(),
-        Err(poisoned) => {
-            log::warn!("goal handle read lock was poisoned; recovering the stored goal");
-            poisoned.into_inner().clone()
-        }
-    }
-}
-
-fn write_goal(goal_handle: &GoalHandle, goal: Option<RalphGoal>) {
-    match goal_handle.write() {
-        Ok(mut stored_goal) => *stored_goal = goal,
-        Err(poisoned) => {
-            log::warn!("goal handle write lock was poisoned; recovering the stored goal");
-            *poisoned.into_inner() = goal;
-        }
     }
 }
 
