@@ -1,3 +1,5 @@
+#[cfg(test)]
+mod active_stream_tests;
 mod bottom_pane;
 pub(crate) mod cells;
 pub(crate) mod diff;
@@ -6,6 +8,9 @@ mod layout;
 mod overlay;
 mod sidebar;
 mod spinner;
+mod stream_rows;
+#[cfg(test)]
+mod stream_rows_tests;
 #[cfg(test)]
 mod tests;
 mod transcript_cache;
@@ -28,10 +33,11 @@ use ratatui::{
 #[cfg(test)]
 use self::bottom_pane::desired_bottom_pane_height;
 pub(crate) use self::bottom_pane::desired_viewport_height;
-pub(crate) use self::cells::{ActiveCell, HistoryCell};
 use self::cells::{ActiveTurnCell, CommittedTurnCell, StartupCardCell};
+pub(crate) use self::cells::{HistoryCell, RespondingCell};
 pub use self::layout::render;
 pub(crate) use self::overlay::popup_block;
+pub(crate) use self::stream_rows::{RenderedStream, ResponseView, StreamRowCache};
 pub(crate) use self::transcript_cache::CommittedTranscriptRenderCache;
 use self::viewport::TranscriptViewport;
 use super::custom_terminal::Frame;
@@ -721,36 +727,11 @@ fn bulleted_markdown_message_lines(
     lines
 }
 
-pub(crate) fn rendered_markdown_lines(
-    role: &str,
-    rendered: &[Line<'static>],
-    max_lines: usize,
-) -> Vec<Line<'static>> {
-    if rendered.is_empty() {
-        return vec![Line::from(role.to_string())];
-    }
-
-    let rendered_len = rendered.len();
-    let capped = if max_lines == usize::MAX {
-        rendered_len
-    } else {
-        max_lines.min(rendered_len)
-    };
-
-    let mut lines = vec![Line::from(role.to_string())];
-    let prefixed = prefix_lines(
-        rendered.iter().take(capped).cloned().collect(),
-        Span::raw("  "),
-        Span::raw("  "),
-    );
-    lines.extend(prefixed);
-    if capped < rendered_len {
-        lines.push(Line::from(Span::styled(
-            format!("  ... {} more line(s)", rendered_len - capped),
-            Style::default().fg(Color::DarkGray),
-        )));
-    }
-    lines
+fn markdown_truncation_line(remaining: usize) -> Line<'static> {
+    Line::from(Span::styled(
+        format!("  ... {remaining} more line(s)"),
+        Style::default().fg(Color::DarkGray),
+    ))
 }
 
 fn is_exploration_tool(name: &str) -> bool {

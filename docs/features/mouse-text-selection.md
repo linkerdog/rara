@@ -60,6 +60,12 @@ plain text, and measured widths across frames and appended turns. Width, cwd,
 thinking visibility, committed replacement, reset, and restore invalidate the
 history layout. The replaceable active block uses complete styled-line equality,
 including middle content, styles, and alignment, not an edge-only fingerprint.
+An eligible streaming response has its own source-epoch/width/view cache:
+stable body blocks are retained, and only the preview/compact summary changes.
+Selection consumes the joined history/prefix/response snapshot without copying
+its row content. Source replacement and canonical replay cannot retain a stale
+response body, including when byte length is unchanged. Selection coordinates
+remain numeric; growing a selected row does not automatically extend its endpoint.
 Styles do not change copied text. Graphemes wider than the available
 transcript row are displayed as a single replacement character rather than
 creating invisible selectable content.
@@ -119,6 +125,7 @@ best-effort fallbacks for local sessions.
 | Stable streaming anchor | Production key dispatch followed by appended stream deltas; visible buffer rows remain unchanged |
 | Long transcript reachability | Production renderer with 70,000 rows; tail buffer, highlight, and copied text agree |
 | Shared snapshot reuse | Work counts for unchanged frames, scroll, copy, and streamed tails; retained allocations on committed append |
+| Active stream snapshot | Retained stable body allocations; current preview copy after drag extension; full/compact, suppression, thinking, and finalization transitions |
 | Snapshot refresh | Same-sized middle replacement and full styled-tail invalidation; width/cwd/visibility/reset/restore guards |
 | Mouse event routing | Existing TUI event tests plus focused selection events |
 | Clipboard fallback safety | Manual SSH/local verification |
@@ -144,3 +151,4 @@ machine clipboard rather than the user's local desktop clipboard.
 - [2026-10-02-shared-transcript-wrapping](../journal/2026-10-02-shared-transcript-wrapping.md)
 - [2026-10-02-transcript-scroll-anchors](../journal/2026-10-02-transcript-scroll-anchors.md)
 - [2026-10-03-transcript-row-reuse](../journal/2026-10-03-transcript-row-reuse.md)
+- [2026-10-03-active-stream-rows](../journal/2026-10-03-active-stream-rows.md)

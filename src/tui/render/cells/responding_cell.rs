@@ -18,8 +18,8 @@ use crate::tui::queued_input::{
 };
 use crate::tui::render::diff::render_message_diff_preview;
 use crate::tui::render::{
-    formatted_message_lines, prefixed_message_lines, rendered_markdown_lines,
-    startup_card_inner_width, truncate_for_startup_card, truncate_path_middle,
+    formatted_message_lines, prefixed_message_lines, startup_card_inner_width,
+    truncate_for_startup_card, truncate_path_middle,
 };
 use crate::tui::state::{ActivePendingInteractionKind, TuiApp};
 use crate::tui::sub_agent_display::SUB_AGENT_QUESTION_COLOR;
@@ -27,9 +27,12 @@ use crate::tui::theme::*;
 
 pub(crate) struct RespondingCell<'a> {
     content: RespondingCellContent<'a>,
+    #[cfg(test)]
+    work: Option<crate::tui::transcript_work::WorkMeter>,
 }
 
 enum RespondingCellContent<'a> {
+    #[cfg(test)]
     Stream {
         lines: &'a [Line<'static>],
         max_lines: usize,
@@ -54,21 +57,41 @@ enum RespondingCellContent<'a> {
 }
 
 impl<'a> RespondingCell<'a> {
+    pub(crate) fn stream_body_line(line: &Line<'static>, index: usize) -> Line<'static> {
+        let mut spans = vec![
+            Span::raw(if index == 0 { "• " } else { "  " }),
+            Span::raw("  "),
+        ];
+        spans.extend(line.spans.clone());
+        Line::from(spans).style(line.style)
+    }
+
+    pub(crate) fn stream_summary_line(remaining: usize) -> Line<'static> {
+        let mut line = super::super::markdown_truncation_line(remaining);
+        line.spans.insert(0, Span::raw("  "));
+        line
+    }
+    #[cfg(test)]
     pub(crate) fn from_stream(stream_lines: &'a [Line<'static>]) -> Self {
         Self {
             content: RespondingCellContent::Stream {
                 lines: stream_lines,
                 max_lines: usize::MAX,
             },
+            #[cfg(test)]
+            work: None,
         }
     }
 
+    #[cfg(test)]
     pub(crate) fn from_stream_compact(stream_lines: &'a [Line<'static>], max_lines: usize) -> Self {
         Self {
             content: RespondingCellContent::Stream {
                 lines: stream_lines,
                 max_lines,
             },
+            #[cfg(test)]
+            work: None,
         }
     }
 
@@ -85,6 +108,8 @@ impl<'a> RespondingCell<'a> {
                 max_lines,
                 cwd,
             },
+            #[cfg(test)]
+            work: None,
         }
     }
 
@@ -99,6 +124,8 @@ impl<'a> RespondingCell<'a> {
                 max_lines,
                 cwd,
             },
+            #[cfg(test)]
+            work: None,
         }
     }
 
@@ -109,20 +136,38 @@ impl<'a> RespondingCell<'a> {
                 message,
                 max_lines,
             },
+            #[cfg(test)]
+            work: None,
         }
     }
 
     pub(crate) fn working(detail: &'a str) -> Self {
         Self {
             content: RespondingCellContent::Working(detail),
+            #[cfg(test)]
+            work: None,
         }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn with_work_meter(mut self, work: crate::tui::transcript_work::WorkMeter) -> Self {
+        self.work = Some(work);
+        self
     }
 }
 
 impl HistoryCell for RespondingCell<'_> {
     fn display_lines(&self, width: u16) -> Vec<Line<'static>> {
         match &self.content {
+            #[cfg(test)]
             RespondingCellContent::Stream { lines, max_lines } => {
+                #[cfg(test)]
+                if let Some(work) = &self.work {
+                    work.record(
+                        crate::tui::transcript_work::WorkKind::Clone,
+                        lines.len().min(*max_lines),
+                    );
+                }
                 lightweight_stream_lines(lines, *max_lines)
             }
             RespondingCellContent::Message {
@@ -243,20 +288,27 @@ fn bash_completion_lines(
     Some(rendered)
 }
 
+#[cfg(test)]
 fn lightweight_stream_lines(rendered: &[Line<'static>], max_lines: usize) -> Vec<Line<'static>> {
-    let mut lines = markdown_body_lines(rendered, max_lines);
-    if lines.is_empty() {
-        return vec![Line::from("•")];
+    if rendered.is_empty() {
+        return vec![Line::from("• ")];
     }
-
-    if let Some(first) = lines.first_mut() {
-        first.spans.insert(0, Span::raw("• "));
+    let cap = rendered.len().min(max_lines);
+    let mut lines = rendered
+        .iter()
+        .take(cap)
+        .enumerate()
+        .map(|(index, line)| RespondingCell::stream_body_line(line, index))
+        .collect::<Vec<_>>();
+    if cap < rendered.len() {
+        let mut summary = RespondingCell::stream_summary_line(rendered.len() - cap);
+        if lines.is_empty()
+            && let Some(first) = summary.spans.first_mut()
+        {
+            *first = Span::raw("• ");
+        }
+        lines.push(summary);
     }
-
-    for line in lines.iter_mut().skip(1) {
-        line.spans.insert(0, Span::raw("  "));
-    }
-
     lines
 }
 
@@ -285,20 +337,6 @@ fn compact_message_lines(message: &str, max_lines: usize) -> Vec<Line<'static>> 
         )));
     }
 
-    lines
-}
-
-pub(crate) fn markdown_body_lines(
-    rendered: &[Line<'static>],
-    max_lines: usize,
-) -> Vec<Line<'static>> {
-    let mut lines = rendered_markdown_lines("Responding", rendered, max_lines);
-    if !lines.is_empty() {
-        lines.remove(0);
-    }
-    if lines.is_empty() {
-        lines.push(Line::from(String::new()));
-    }
     lines
 }
 

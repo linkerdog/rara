@@ -4,7 +4,7 @@ use std::{path::Path, rc::Rc};
 
 use ratatui::text::Line;
 
-use super::{ActiveCell, active_turn_cell, committed_turn_lines, turn_divider_line};
+use super::{active_turn_cell, committed_turn_lines, turn_divider_line};
 #[cfg(test)]
 use crate::tui::transcript_work::{WorkKind, WorkMeter};
 use crate::tui::{
@@ -91,12 +91,19 @@ pub(super) fn materialize(app: &TuiApp, width: u16) -> TranscriptRows {
     }
     cache.rendered_turns = app.committed_turns.len();
 
-    let mut active = active_turn_cell(app).display_lines(width);
-    if !active.is_empty() && !cache.history.is_empty() {
-        active.insert(0, turn_divider_line(width));
+    let mut active = active_turn_cell(app).shared_layout(width);
+    if (!active.lines.is_empty() || active.stream.is_some()) && !cache.history.is_empty() {
+        active.lines.insert(0, turn_divider_line(width));
     }
-    cache.update_active(active, width);
-    TranscriptRows::new(cache.history.clone(), cache.active.clone())
+    cache.update_active(active.lines, width);
+    let rows = TranscriptRows::new(cache.history.clone(), cache.active.clone());
+    if let Some(view) = active.stream
+        && let Some(stream) = &app.agent_markdown_stream
+    {
+        TranscriptRows::joined(rows, stream.response_rows(width, view))
+    } else {
+        rows
+    }
 }
 
 #[cfg(test)]

@@ -18,8 +18,7 @@ use crate::tui::queued_input::{
 };
 use crate::tui::render::diff::render_message_diff_preview;
 use crate::tui::render::{
-    formatted_message_lines, prefixed_message_lines, prefixed_tail_message_lines,
-    rendered_markdown_lines, section_label,
+    formatted_message_lines, prefixed_message_lines, prefixed_tail_message_lines, section_label,
 };
 use crate::tui::state::{ActivePendingInteractionKind, TuiApp};
 use crate::tui::sub_agent_display::SUB_AGENT_QUESTION_COLOR;

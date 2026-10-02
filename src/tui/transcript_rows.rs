@@ -41,18 +41,48 @@ impl RowBlock {
     }
 }
 
-#[derive(Clone, Debug, Default)]
-struct HistoryBlocks {
-    blocks: Vec<Rc<RowBlock>>,
-    ends: Vec<usize>,
+#[derive(Debug)]
+enum HistoryNode {
+    Block(Rc<RowBlock>),
+    Pair {
+        left: Rc<HistoryTree>,
+        right: Rc<HistoryTree>,
+    },
+}
+
+#[derive(Debug)]
+struct HistoryTree {
+    rows: usize,
+    blocks: usize,
+    node: HistoryNode,
+}
+
+impl HistoryTree {
+    fn get(&self, row: usize) -> Option<&VisualRow> {
+        match &self.node {
+            HistoryNode::Block(block) => block.rows.get(row),
+            HistoryNode::Pair { left, right } => {
+                if row < left.rows {
+                    left.get(row)
+                } else {
+                    right.get(row - left.rows)
+                }
+            }
+        }
+    }
 }
 
 #[derive(Clone, Debug, Default)]
-pub(crate) struct SharedHistory(Rc<HistoryBlocks>);
+pub(crate) struct SharedHistory {
+    // A binary-carry forest has at most 1 + floor(log2(blocks)) roots. Snapshots
+    // copy only this small root list; immutable balanced subtrees stay shared.
+    roots: Rc<Vec<Rc<HistoryTree>>>,
+    rows: usize,
+}
 
 impl SharedHistory {
     pub(crate) fn len(&self) -> usize {
-        self.0.ends.last().copied().unwrap_or(0)
+        self.rows
     }
 
     pub(crate) fn is_empty(&self) -> bool {
@@ -63,38 +93,84 @@ impl SharedHistory {
         if block.len() == 0 {
             return;
         }
-        let end = self.len() + block.len();
-        // Only block handles/index metadata can be copied while a prior frame
-        // or selection retains the old collection. Styled/text rows stay shared.
-        let history = Rc::make_mut(&mut self.0);
-        history.blocks.push(block);
-        history.ends.push(end);
+        self.rows += block.len();
+        let roots = Rc::make_mut(&mut self.roots);
+        let mut tree = Rc::new(HistoryTree {
+            rows: block.len(),
+            blocks: 1,
+            node: HistoryNode::Block(block),
+        });
+        while roots.last().is_some_and(|root| root.blocks == tree.blocks) {
+            let Some(left) = roots.pop() else {
+                break;
+            };
+            tree = Rc::new(HistoryTree {
+                rows: left.rows + tree.rows,
+                blocks: left.blocks + tree.blocks,
+                node: HistoryNode::Pair { left, right: tree },
+            });
+        }
+        roots.push(tree);
     }
 
-    fn get(&self, row: usize) -> Option<&VisualRow> {
-        let block = self.0.ends.partition_point(|end| *end <= row);
-        let start = if block == 0 {
-            0
-        } else {
-            self.0.ends[block - 1]
-        };
-        self.0.blocks.get(block)?.rows.get(row - start)
+    fn get(&self, mut row: usize) -> Option<&VisualRow> {
+        for root in self.roots.iter() {
+            if row < root.rows {
+                return root.get(row);
+            }
+            row -= root.rows;
+        }
+        None
     }
 }
 
-#[derive(Clone, Debug, Default)]
+#[derive(Debug)]
+enum RowSource {
+    Blocks {
+        history: SharedHistory,
+        active: Rc<RowBlock>,
+    },
+    Joined {
+        first: TranscriptRows,
+        second: TranscriptRows,
+    },
+}
+
+#[derive(Clone, Debug)]
 pub(crate) struct TranscriptRows {
-    history: SharedHistory,
-    active: Rc<RowBlock>,
+    source: Rc<RowSource>,
+    len: usize,
+}
+
+impl Default for TranscriptRows {
+    fn default() -> Self {
+        Self::new(SharedHistory::default(), Rc::default())
+    }
 }
 
 impl TranscriptRows {
     pub(crate) fn new(history: SharedHistory, active: Rc<RowBlock>) -> Self {
-        Self { history, active }
+        Self {
+            len: history.len() + active.len(),
+            source: Rc::new(RowSource::Blocks { history, active }),
+        }
+    }
+
+    pub(crate) fn joined(first: Self, second: Self) -> Self {
+        if first.is_empty() {
+            return second;
+        }
+        if second.is_empty() {
+            return first;
+        }
+        Self {
+            len: first.len() + second.len(),
+            source: Rc::new(RowSource::Joined { first, second }),
+        }
     }
 
     pub(crate) fn len(&self) -> usize {
-        self.history.len() + self.active.len()
+        self.len
     }
 
     pub(crate) fn is_empty(&self) -> bool {
@@ -102,10 +178,21 @@ impl TranscriptRows {
     }
 
     pub(crate) fn get(&self, row: usize) -> Option<&VisualRow> {
-        if row < self.history.len() {
-            self.history.get(row)
-        } else {
-            self.active.rows.get(row - self.history.len())
+        match self.source.as_ref() {
+            RowSource::Blocks { history, active } => {
+                if row < history.len() {
+                    history.get(row)
+                } else {
+                    active.rows.get(row - history.len())
+                }
+            }
+            RowSource::Joined { first, second } => {
+                if row < first.len() {
+                    first.get(row)
+                } else {
+                    second.get(row - first.len())
+                }
+            }
         }
     }
 
@@ -119,13 +206,7 @@ impl TranscriptRows {
 
     #[cfg(test)]
     pub(crate) fn iter(&self) -> impl Iterator<Item = &Line<'static>> {
-        self.history
-            .0
-            .blocks
-            .iter()
-            .flat_map(|block| &block.rows)
-            .chain(&self.active.rows)
-            .map(|row| &row.line)
+        (0..self.len()).filter_map(|row| self.get(row).map(|row| &row.line))
     }
 }
 
@@ -180,5 +261,84 @@ mod tests {
             selection.selected_text().as_deref(),
             Some("first\n\nsecond\ntail")
         );
+    }
+
+    #[test]
+    fn retained_forest_snapshots_copy_only_logarithmic_roots() {
+        let mut history = SharedHistory::default();
+        let mut retained = Vec::new();
+        let mut expected = Vec::new();
+        for block in 0usize..4096 {
+            retained.push(TranscriptRows::new(history.clone(), Rc::default()));
+            let lines = (0..1 + block % 3)
+                .map(|row| Line::from(format!("block-{block}-row-{row}")))
+                .collect::<Vec<_>>();
+            expected.extend(lines.iter().cloned());
+            history.append(Rc::new(RowBlock::from_visual_lines(lines)));
+            assert_eq!(history.len(), expected.len());
+            assert_eq!(history.roots.len(), (block + 1).count_ones() as usize);
+            assert!(
+                history
+                    .roots
+                    .iter()
+                    .all(|root| root.blocks.is_power_of_two())
+            );
+            assert!(
+                history
+                    .roots
+                    .windows(2)
+                    .all(|pair| pair[0].blocks > pair[1].blocks)
+            );
+        }
+        let rows = TranscriptRows::new(history, Rc::default());
+        assert_eq!(rows.iter().cloned().collect::<Vec<_>>(), expected);
+        for snapshot in retained.into_iter().skip(1) {
+            assert!(std::ptr::eq(snapshot.get(0).unwrap(), rows.get(0).unwrap()));
+            let last = snapshot.len() - 1;
+            assert!(std::ptr::eq(
+                snapshot.get(last).unwrap(),
+                rows.get(last).unwrap()
+            ));
+            assert!(snapshot.get(snapshot.len()).is_none());
+        }
+    }
+
+    #[test]
+    fn joined_rows_preserve_offsets_snapshots_and_cross_boundary_copy() {
+        use crate::tui::selection::{ScreenPosition, TranscriptSelection};
+
+        let prefix = TranscriptRows::from_visual_lines(vec![Line::from("first"), Line::from("")]);
+        let stable = TranscriptRows::from_visual_lines(vec![Line::from("second")]);
+        let preview = TranscriptRows::from_visual_lines(vec![Line::from("tail")]);
+        let rows = TranscriptRows::joined(
+            prefix.clone(),
+            TranscriptRows::joined(stable.clone(), preview.clone()),
+        );
+        assert_eq!(rows.len(), 4);
+        assert!(std::ptr::eq(prefix.get(0).unwrap(), rows.get(0).unwrap()));
+        assert!(std::ptr::eq(stable.get(0).unwrap(), rows.get(2).unwrap()));
+        assert!(std::ptr::eq(preview.get(0).unwrap(), rows.get(3).unwrap()));
+        assert!(rows.get(4).is_none());
+        assert!(rows.get(usize::MAX).is_none());
+        let mut selection = TranscriptSelection::default();
+        selection.update_snapshot(&rows, ratatui::layout::Rect::new(0, 0, 10, 4), 0);
+        assert!(selection.start(ScreenPosition::new(0, 0)));
+        assert!(selection.drag(ScreenPosition::new(4, 3)));
+        assert_eq!(
+            selection.selected_text().as_deref(),
+            Some("first\n\nsecond\ntail")
+        );
+    }
+
+    #[test]
+    fn joining_empty_sources_retains_existing_row_allocations() {
+        let rows = TranscriptRows::from_visual_lines(vec![Line::from("retained")]);
+        for joined in [
+            TranscriptRows::joined(TranscriptRows::default(), rows.clone()),
+            TranscriptRows::joined(rows.clone(), TranscriptRows::default()),
+        ] {
+            assert_eq!(joined.len(), 1);
+            assert!(std::ptr::eq(rows.get(0).unwrap(), joined.get(0).unwrap()));
+        }
     }
 }

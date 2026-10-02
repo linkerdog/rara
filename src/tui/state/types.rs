@@ -700,9 +700,22 @@ impl AgentMarkdownStreamState {
         })
     }
 
+    pub(crate) fn response_rows(
+        &self,
+        width: u16,
+        view: crate::tui::render::ResponseView,
+    ) -> crate::tui::transcript_rows::TranscriptRows {
+        self.collector.borrow_mut().response_rows(width, view)
+    }
+
     #[cfg(test)]
     pub(crate) fn markdown_work(&self) -> crate::tui::markdown_stream::MarkdownWork {
         self.collector.borrow().work()
+    }
+
+    #[cfg(test)]
+    pub(crate) fn layout_work(&self) -> crate::tui::transcript_work::WorkMeter {
+        self.collector.borrow().layout_work()
     }
 
     pub(crate) fn finalize_display_lines(&mut self) {
