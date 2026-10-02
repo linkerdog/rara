@@ -281,7 +281,7 @@ pub(super) async fn execute_local_command_with_runtime(
                                     && app.active_pending_interaction().is_none()
                                     && agent_slot.is_some()
                                 {
-                                    start_active_goal_continuation(app, agent_slot, runtime_port)
+                                    start_goal_follow_up(app, agent_slot, runtime_port)
                                         .await?;
                                     notice.push_str(". Continuing active goal.");
                                 }
@@ -338,7 +338,7 @@ async fn resume_goal_continuation(
         app.push_notice("No active goal to resume.");
         return Ok(());
     };
-    let (previous_status, notice) = match goal.status {
+    let (previous_status, mut notice) = match goal.status {
         GoalStatus::Paused => (GoalStatus::Paused, "Goal resumed. Continuing active goal."),
         GoalStatus::Blocked => (
             GoalStatus::Blocked,
@@ -349,11 +349,19 @@ async fn resume_goal_continuation(
             return Ok(());
         }
     };
-    goal.status = GoalStatus::Pursuing;
+    goal.status = if goal
+        .token_budget
+        .is_some_and(|budget| goal.tokens_used >= budget)
+    {
+        notice = "Goal budget exhausted. Wrapping up without new work.";
+        GoalStatus::BudgetLimited
+    } else {
+        GoalStatus::Pursuing
+    };
     app.goal_handle.replace(Some(goal))?;
     app.goal = app.goal_handle.snapshot();
 
-    if let Err(error) = start_active_goal_continuation(app, agent_slot, runtime_port).await {
+    if let Err(error) = start_goal_follow_up(app, agent_slot, runtime_port).await {
         app.goal_handle.mutate(|stored| {
             if let Some(goal) = stored.as_mut() {
                 goal.status = previous_status;
@@ -367,17 +375,19 @@ async fn resume_goal_continuation(
     Ok(())
 }
 
-async fn start_active_goal_continuation(
+async fn start_goal_follow_up(
     app: &mut TuiApp,
     agent_slot: &mut Option<Agent>,
     runtime_port: Option<&dyn RuntimeClientPort>,
 ) -> anyhow::Result<()> {
-    let prompt = app
-        .goal
-        .as_ref()
-        .filter(|goal| goal.status == GoalStatus::Pursuing)
-        .map(crate::runtime_client::goal_continuation_prompt)
-        .expect("goal continuation requires an active goal");
+    let goal = app.goal.as_ref().expect("goal follow-up requires a goal");
+    let prompt = match goal.status {
+        GoalStatus::Pursuing => crate::runtime_client::goal_continuation_prompt(goal),
+        GoalStatus::BudgetLimited => crate::runtime_client::goal_budget_limit_prompt(goal),
+        GoalStatus::Paused | GoalStatus::Blocked | GoalStatus::Complete => {
+            unreachable!("inactive goals cannot start a follow-up")
+        }
+    };
 
     if let Some(runtime_port) = runtime_port {
         runtime_port

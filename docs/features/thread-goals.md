@@ -97,6 +97,9 @@ The TUI owns local lifecycle controls:
   has no agent to execute the continuation.
 - A failed `/goal` mutation displays a diagnostic, retains the committed
   snapshot, and keeps the command loop alive without launching continuation.
+- Resuming a paused/blocked goal whose stored usage meets its budget persists
+  `BudgetLimited` and starts only the existing wrap-up prompt, not another
+  substantive continuation. A failed status write starts neither path.
 - `/goal` shows the current objective, lifecycle state, elapsed seconds, turns,
   tokens used, budget, and remaining tokens.
 
@@ -203,6 +206,9 @@ Detailed goal state belongs in `/goal`, not the bottom pane.
 - Write failures leave the prior snapshot unchanged and stop continuation;
   corrupt stored status, objective, budget, or numeric values cannot restore
   as `Pursuing`. Command failures do not exit the TUI event loop.
+  A goal-accounting failure still publishes the returned agent's completed
+  runtime snapshot and session metadata before stopping; the failed goal
+  usage write does not roll back the successful query itself.
 - Corrupt todo/runtime JSON retains the prior thread and goal binding.
   Corrupt goals preserve bootstrap and requested/latest-thread restoration
   with a warning and fail-closed goal tools, without altering either thread's

@@ -4,14 +4,16 @@ use rara_memory::memory_handle::MemoryHandle;
 use rara_state::state_db::StateDb;
 use rara_tools::tool::ToolManager;
 
-use super::execute_local_command;
+use super::{execute_local_command, execute_local_command_with_runtime};
 use crate::agent::Agent;
 use crate::config::ConfigManager;
 use crate::llm::MockLlm;
 use crate::oauth::OAuthManager;
 use crate::runtime_goals::RalphGoal;
 use crate::session::SessionManager;
+use crate::tui::runtime_port::RuntimeCommand;
 use crate::tui::state::{GoalStatus, LocalCommand, LocalCommandKind, TuiApp};
+use crate::tui::testing::FakeRuntimeClient;
 use crate::workspace::WorkspaceMemory;
 
 #[tokio::test]
@@ -88,21 +90,7 @@ async fn failed_goal_commands_keep_the_loop_and_committed_snapshot_alive() {
         .expect("failure triggers");
     let oauth =
         Arc::new(OAuthManager::new_for_config_dir(dir.path().join("oauth")).expect("oauth"));
-    let data = dir.path().join("state");
-    let mut ready_agent = Agent::new(
-        ToolManager::new(),
-        Arc::new(MockLlm),
-        Arc::new(MemoryHandle::new(
-            &data.join("memory").display().to_string(),
-        )),
-        Arc::new(SessionManager::new_for_rara_dir(data.clone()).expect("sessions")),
-        Arc::new(WorkspaceMemory::from_paths(
-            dir.path().join("workspace"),
-            data,
-        )),
-    );
-    ready_agent.set_session_id("command-thread".into());
-    let mut agent = Some(ready_agent);
+    let mut agent = Some(ready_agent(&dir));
     for command in ["pause", "clear"] {
         assert!(
             !execute_local_command(
@@ -156,4 +144,131 @@ async fn failed_goal_commands_keep_the_loop_and_committed_snapshot_alive() {
         db.try_load_goal("command-thread").expect("durable row"),
         stored
     );
+}
+
+#[tokio::test]
+async fn resumed_goal_respects_persisted_budget_before_starting_a_turn() {
+    for status in [GoalStatus::Paused, GoalStatus::Blocked] {
+        for tokens_used in [9, 10, 15] {
+            let dir = tempfile::tempdir().expect("tempdir");
+            let db = Arc::new(StateDb::new_for_root_dir(dir.path().join("state")).expect("db"));
+            let mut app = TuiApp::new(ConfigManager {
+                path: dir.path().join("config.json"),
+            })
+            .expect("app");
+            app.snapshot.session_id = "command-thread".into();
+            app.attach_state_db(db.clone());
+            let mut goal = RalphGoal::new("respect resumed budget".into(), Some(10));
+            goal.status = status;
+            goal.tokens_used = tokens_used;
+            app.goal_handle
+                .replace(Some(goal.clone()))
+                .expect("seed goal");
+            let mut slot = Some(ready_agent(&dir));
+            let runtime = FakeRuntimeClient::new(app.snapshot.clone());
+            execute_local_command_with_runtime(
+                LocalCommand {
+                    kind: LocalCommandKind::Goal,
+                    arg: Some("resume".into()),
+                },
+                &mut app,
+                &mut slot,
+                Some(&runtime),
+            )
+            .await
+            .expect("resume");
+            goal.status = if tokens_used >= 10 {
+                GoalStatus::BudgetLimited
+            } else {
+                GoalStatus::Pursuing
+            };
+            assert_eq!(app.goal, Some(goal.clone()));
+            assert_eq!(app.goal_handle.snapshot(), Some(goal.clone()));
+            let commands = runtime.commands();
+            let [RuntimeCommand::ContinueGoal { prompt }] = commands.as_slice() else {
+                panic!("expected one goal query: {commands:?}")
+            };
+            let expected_prompt = if tokens_used >= 10 {
+                crate::runtime_client::goal_budget_limit_prompt(&goal)
+            } else {
+                crate::runtime_client::goal_continuation_prompt(&goal)
+            };
+            // Elapsed seconds may advance between command dispatch and this assertion.
+            let without_elapsed = |value: &str| {
+                value
+                    .lines()
+                    .filter(|line| !line.starts_with("- Time spent pursuing goal:"))
+                    .map(str::to_owned)
+                    .collect::<Vec<_>>()
+            };
+            assert_eq!(without_elapsed(prompt), without_elapsed(&expected_prompt));
+            let stored: RalphGoal = serde_json::from_value(
+                db.try_load_goal("command-thread")
+                    .expect("load goal")
+                    .expect("goal row"),
+            )
+            .expect("deserialize");
+            assert_eq!(stored, goal);
+        }
+    }
+}
+
+#[tokio::test]
+async fn failed_exhausted_resume_write_sends_no_wrap_up() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let db = Arc::new(StateDb::new_for_root_dir(dir.path().join("state")).expect("db"));
+    let mut app = TuiApp::new(ConfigManager {
+        path: dir.path().join("config.json"),
+    })
+    .expect("app");
+    app.snapshot.session_id = "command-thread".into();
+    app.attach_state_db(db.clone());
+    let mut goal = RalphGoal::new("fail closed on budget write".into(), Some(10));
+    goal.status = GoalStatus::Paused;
+    goal.tokens_used = 10;
+    app.goal_handle
+        .replace(Some(goal.clone()))
+        .expect("seed goal");
+    rusqlite::Connection::open(db.path()).expect("connection").execute_batch("CREATE TRIGGER reject_goal_write BEFORE INSERT ON goals BEGIN SELECT RAISE(FAIL, 'injected budget status failure'); END;").expect("trigger");
+    let mut slot = Some(ready_agent(&dir));
+    let runtime = FakeRuntimeClient::new(app.snapshot.clone());
+    execute_local_command_with_runtime(
+        LocalCommand {
+            kind: LocalCommandKind::Goal,
+            arg: Some("resume".into()),
+        },
+        &mut app,
+        &mut slot,
+        Some(&runtime),
+    )
+    .await
+    .expect("visible command failure");
+    assert_eq!(app.goal, Some(goal));
+    assert!(runtime.commands().is_empty());
+    assert!(slot.is_some());
+    assert!(
+        app.bottom_pane
+            .notice
+            .as_deref()
+            .expect("notice")
+            .contains("injected budget status failure")
+    );
+}
+
+fn ready_agent(dir: &tempfile::TempDir) -> Agent {
+    let data = dir.path().join("state");
+    let mut agent = Agent::new(
+        ToolManager::new(),
+        Arc::new(MockLlm),
+        Arc::new(MemoryHandle::new(
+            &data.join("memory").display().to_string(),
+        )),
+        Arc::new(SessionManager::new_for_rara_dir(data.clone()).expect("sessions")),
+        Arc::new(WorkspaceMemory::from_paths(
+            dir.path().join("workspace"),
+            data,
+        )),
+    );
+    agent.set_session_id("command-thread".into());
+    agent
 }

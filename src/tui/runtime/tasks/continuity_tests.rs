@@ -350,7 +350,17 @@ async fn accounting_failure_keeps_the_runtime_agent_and_stops_automatic_continua
         )
         .expect("failure trigger");
     let mut agent = create_test_agent(&temp);
+    agent.set_session_id("failed-turn-thread".into());
     agent.total_input_tokens = 25;
+    agent.total_output_tokens = 7;
+    agent.set_bash_approval_mode(BashApprovalMode::Once);
+    let mut prompt = agent.prompt_config().clone();
+    prompt.append_system_prompt = Some("Preserve completed runtime state.".into());
+    agent.set_prompt_config(prompt);
+    agent.current_plan = vec![PlanStep {
+        step: "Completed work".into(),
+        status: PlanStepStatus::Completed,
+    }];
     install_completed_query_task(&mut app, agent, Ok(()));
     let mut slot = None;
     for _ in 0..20 {
@@ -371,6 +381,28 @@ async fn accounting_failure_keeps_the_runtime_agent_and_stops_automatic_continua
         "must not launch a continuation"
     );
     assert_eq!(app.goal_handle.snapshot(), Some(goal));
+    assert_eq!(app.snapshot.total_input_tokens, 25);
+    assert_eq!(app.snapshot.total_output_tokens, 7);
+    assert_eq!(
+        app.snapshot.plan_steps,
+        vec![("completed".into(), "Completed work".into())]
+    );
+    assert_eq!(app.bash_approval_mode, BashApprovalMode::Once);
+    let persisted = db
+        .load_session_runtime_state("failed-turn-thread")
+        .expect("runtime state")
+        .expect("persisted runtime");
+    assert_eq!(persisted.bash_approval, "once");
+    let persisted_plan = db
+        .load_plan_steps("failed-turn-thread")
+        .expect("persisted plan");
+    assert_eq!(persisted_plan.len(), 1);
+    assert_eq!(persisted_plan[0].status, "completed");
+    assert_eq!(persisted_plan[0].step, "Completed work");
+    assert_eq!(
+        persisted.prompt_runtime.append_system_prompt.as_deref(),
+        Some("Preserve completed runtime state.")
+    );
     assert!(
         app.bottom_pane
             .notice

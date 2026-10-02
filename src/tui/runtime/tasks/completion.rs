@@ -124,6 +124,11 @@ async fn finish_running_task_if_ready_with_completion_mode(
                     ) {
                         Ok(continuation) => continuation,
                         Err(error) => {
+                            app.goal = app.goal_handle.snapshot();
+                            app.apply_runtime_snapshot(
+                                &agent,
+                                RuntimeClient::extension_snapshot_for_agent(&agent, 0),
+                            );
                             log::warn!("Goal accounting failed; stopping continuation: {error:#}");
                             app.push_notice(format!(
                                 "Goal accounting failed; continuation stopped: {error:#}"

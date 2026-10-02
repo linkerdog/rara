@@ -27,6 +27,12 @@ creation time and narrowed stored counters with unchecked casts.
   database schema, tool response fields, lifecycle policy, and input-token
   usage metric. Make persistence errors stop publication/continuation,
   and prove status, usage, time, and deletion through fresh-app restoration.
+- Further review: Codex's goal runtime treats active and budget-limited states
+  separately instead of restarting active work from an exhausted budget.
+  Apply that distinction before local resume dispatch. Keep successful query
+  snapshot publication independent from its optional goal accounting write;
+  Claude Code's recovery path likewise keeps restored conversation state
+  explicit rather than inventing a goal-accounting API.
 
 ## Implementation And Trade-offs
 
@@ -46,8 +52,13 @@ creation time and narrowed stored counters with unchecked casts.
   timestamp; replacement writes the new goal's timestamp. No schema migration
   or provider/tool protocol change is required.
 - A failed accounting write returns no continuation, keeps the runtime agent,
-  and displays a failure notice. A failed command/tool write retains the last
+  publishes that agent's completed runtime snapshot/session metadata, and
+  displays a failure notice. A failed command/tool write retains the last
   committed goal snapshot rather than reporting success.
+- Resume checks persisted usage before starting a turn. Paused/blocked goals
+  at or beyond budget enter durable `BudgetLimited` and use only the existing
+  wrap-up prompt; goals below budget retain normal continuation. A failed
+  status write sends no query. This does not change which turns are charged.
 - Restoration follow-up stages thread, todo, and runtime JSON reads before
   rebinding the goal. Required read failures preserve agent history, session
   ID, presentation, and the previous durable goal binding. Bootstrap and resume
@@ -108,6 +119,15 @@ writes fail closed, both durable rows are unchanged, and a valid subsequent
 restore recovers goal persistence. Required todo/runtime failure tests retain
 their original rollback contract.
 
+Further review REDs: resuming a paused 10/10-token goal publishes `Pursuing`
+instead of `BudgetLimited`, and injected accounting failure leaves input-token
+snapshot at 0 instead of the returned agent's 25. The corrected cases exercise
+paused/blocked statuses below/at/above budget, exact normal/wrap-up prompt
+selection (excluding elapsed-second formatting), durable status round trips,
+failed status writes with no dispatch, and completed query token/plan/prompt/
+permission snapshot plus persisted session metadata. The last goal snapshot
+remains committed and no automatic continuation starts on accounting failure.
+
 Focused checks:
 
 ```bash
@@ -151,8 +171,13 @@ The resume follow-up reports nine passing thread-restoration tests, 60 passing
 goal-filtered tests, and 1541 passing library tests with one ignored fixture.
 `cargo check`, strict all-target Clippy, formatting, and diff checks pass.
 The goal persistence test-module declaration is moved to the end of its owning
-command module. No new logic is added to the 993-line runtime-context facade;
+command module. No new logic is added to the 993-line runtime-context assembly;
 the touched session-restore source remains below 1000 lines.
+
+The budget/snapshot follow-up reports 62 passing goal-filtered tests, twelve
+passing continuity tests, and 1543 passing library tests with one ignored
+fixture. Compilation, strict all-target Clippy, formatting, and diff checks
+pass. The existing macOS compact-unwind linker warning remains unchanged.
 
 ## Remaining Work
 
