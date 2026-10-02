@@ -18,6 +18,11 @@ at a different character from the selected input offset.
 - Adapt these patterns to a private plain-text layout. Keep the existing
   character-offset editor and fixed four-column tab behavior. Share pane
   geometry instead of giving state a dependency on a renderer.
+- Viewport follow-up: Codex's composer height removes the same reserved
+  columns used by its textarea, and its textarea renders precomputed wrapped
+  ranges at the actual area width. Claude Code builds `Cursor` with the input
+  columns. Measure viewport/palette reservation at the main-pane width and
+  publish the frame width for later navigation; do not re-wrap measured rows.
 - Review follow-up: Codex's `move_cursor_up` chooses a target column against
   a wrapped text range; Claude Code's `Cursor.up/down` converts display columns
   back into offsets through measured rows. Preserve distinct insertion
@@ -35,6 +40,14 @@ at a different character from the selected input offset.
   Placeholder rows use this same layout and discard stale draft scroll.
 - `pane_geometry.rs` centralizes the existing sidebar threshold and width.
   Renderer and navigation compute main-pane width from the same geometry.
+- Viewport reservation and palette anchoring also derive main width from that
+  geometry. The viewport API still accepts full terminal width and performs
+  the conversion internally. Rendering publishes its actual frame width so
+  subsequent navigation does not reuse a stale pre-resize width. Sidebar
+  width/threshold and composer indents have named shared constants.
+- Measured composer rows are rendered without `Paragraph` wrapping, including
+  widths smaller than the prefix. Horizontal clipping preserves row count
+  rather than creating extra rows that navigation does not know about.
 - At a soft boundary before another character, cursor membership follows that
   character to the next row. At the full final row, the cursor retains the
   existing last-visible-column behavior. Vertical movement chooses the
@@ -65,6 +78,14 @@ text row. Corrected tests cover the last character before end-of-input and
 newlines, distinct full-row insertion boundaries, actual insertion, all four
 setup surfaces, soft-boundary/overflow offsets, and masked wide-character keys.
 
+Viewport review REDs: at 121 columns with a visible sidebar, viewport height is
+31 instead of the main-width-derived 29; palette anchoring overlaps the taller
+sidebar-narrowed composer; a rendered resize leaves navigation width at 80
+instead of 160; and at one column a second `Paragraph` wrap displays `a` on a
+row whose measured content clips to a space. Four regressions cover the
+sidebar threshold, sidebar off/on, explicit width reservation, stale resize
+state, palette/composer adjacency, and 1/2/3-column rendering.
+
 Focused coverage includes indent isolation, height measurement, actual screen
 buffer cells, Up/Down round trips at 80/120/160 columns with the sidebar on/off,
 soft-boundary ownership, blank lines, tabs, wide characters, and cache changes
@@ -93,3 +114,11 @@ production-render/navigation checks. The corrected TUI-filtered suite reports
 663 passing tests, and the pure composer layout suite reports five passing
 tests. Preferred-column restoration across
 shorter rows remains the existing nearest-column behavior, not a new contract.
+
+The viewport review follow-up adds four regressions. The corrected render suite
+reports 216 passing tests and the full TUI-filtered suite reports 667 passing
+tests. `cargo check`, strict all-target Clippy, formatting, and diff checks
+pass. All touched source files remain below 1000 lines. No snapshots are
+regenerated; actual production buffer cells are checked. The private indent
+adapters remain live testable boundaries, including the interaction renderer's
+unindented rows; this follow-up does not expand their API cleanup scope.

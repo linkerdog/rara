@@ -3,7 +3,7 @@ use ratatui::{
     layout::{Alignment, Constraint, Direction, Layout, Rect},
     style::{Modifier, Style},
     text::{Line, Span},
-    widgets::{Block, Paragraph, Wrap},
+    widgets::{Block, Paragraph},
 };
 
 use super::super::super::custom_terminal::Frame;
@@ -11,7 +11,10 @@ use super::super::super::interaction_text::pending_interaction_hint_text;
 use super::super::super::queued_input::{pending_follow_up_hint, queued_follow_up_hint};
 use super::super::super::state::{ActivePendingInteractionKind, GoalStatus, TaskKind, TuiApp};
 use super::bottom_pane_style;
-use crate::tui::composer_text::{WrapConfig, clipped_cursor_column, expand_tabs, wrapped_text};
+use crate::tui::composer_text::{
+    COMPOSER_INITIAL_INDENT, COMPOSER_SUBSEQUENT_INDENT, WrapConfig, clipped_cursor_column,
+    expand_tabs, wrapped_text,
+};
 use crate::tui::theme::{TEXT_ACCENT, TEXT_MUTED, TEXT_SECONDARY};
 
 const COMPOSER_PLACEHOLDER: &str =
@@ -31,7 +34,7 @@ pub(super) fn render_composer(f: &mut Frame, app: &mut TuiApp, area: Rect) -> Op
         let pending = app.active_pending_interaction().unwrap();
         vec![Line::from(vec![Span::styled(
             format!(
-                "› {} — use ↑↓ or keys to respond",
+                "{COMPOSER_INITIAL_INDENT}{} — use ↑↓ or keys to respond",
                 super::super::super::interaction_text::pending_interaction_card_title(pending.kind),
             ),
             Style::default()
@@ -62,13 +65,14 @@ pub(super) fn render_composer(f: &mut Frame, app: &mut TuiApp, area: Rect) -> Op
             .iter()
             .map(|row| {
                 let mut spans = Vec::new();
-                let (prefix, remainder) = if let Some(rest) = row.strip_prefix("› ") {
-                    ("› ", rest)
-                } else if let Some(rest) = row.strip_prefix("  ") {
-                    ("  ", rest)
-                } else {
-                    ("", row.as_str())
-                };
+                let (prefix, remainder) =
+                    if let Some(rest) = row.strip_prefix(COMPOSER_INITIAL_INDENT) {
+                        (COMPOSER_INITIAL_INDENT, rest)
+                    } else if let Some(rest) = row.strip_prefix(COMPOSER_SUBSEQUENT_INDENT) {
+                        (COMPOSER_SUBSEQUENT_INDENT, rest)
+                    } else {
+                        ("", row.as_str())
+                    };
                 if !prefix.is_empty() {
                     spans.push(Span::styled(
                         prefix.to_string(),
@@ -102,7 +106,6 @@ pub(super) fn render_composer(f: &mut Frame, app: &mut TuiApp, area: Rect) -> Op
         Paragraph::new(composer_lines)
             .block(Block::default())
             .style(bottom_pane_style())
-            .wrap(Wrap { trim: false })
             .scroll((app.bottom_pane.composer_scroll as u16, 0)),
         chunks[0],
     );
@@ -201,7 +204,13 @@ pub(super) fn composer_cursor_position(
     area: Rect,
     scroll: usize,
 ) -> (u16, u16) {
-    let (x, y) = wrapped_text_cursor_position(input, cursor_offset, area, Some("› "), Some("  "));
+    let (x, y) = wrapped_text_cursor_position(
+        input,
+        cursor_offset,
+        area,
+        Some(COMPOSER_INITIAL_INDENT),
+        Some(COMPOSER_SUBSEQUENT_INDENT),
+    );
     let adjusted_y = y.saturating_sub(scroll as u16);
     (x, adjusted_y)
 }

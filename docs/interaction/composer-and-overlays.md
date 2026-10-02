@@ -72,6 +72,10 @@ clipping must not make the last character indistinguishable from a newline or
 end of input. Setup editors retain their single-line clipped rendering and
 compute the cursor from that same display text, including masked API keys.
 Resize and sidebar toggles recompute the width from the same pane geometry.
+Viewport height reservation and palette anchoring measure the bottom pane at
+that same main-pane width, not the full terminal width. Each rendered frame
+publishes its width for subsequent navigation. Already measured composer rows
+are clipped rather than wrapped a second time at degenerate widths.
 
 ### INPUT-03: Overlay Lifecycle
 

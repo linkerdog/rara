@@ -200,6 +200,7 @@ pub async fn run_tui(
                         Some(UiEvent::Draw) => {
                             let app = maintainer.app_mut();
                             let size = terminal_size()?;
+                            app.terminal_width = size.0;
                             let desired_height = desired_viewport_height(app, size.0, size.1);
                             match update_terminal_viewport(&mut terminal, desired_height, app) {
                                 Ok(()) => {}
@@ -207,7 +208,6 @@ pub async fn run_tui(
                                     "Skipped viewport redraw update: {err}"
                                 )),
                             }
-                            app.terminal_width = size.0;
                             let _ = terminal.clear_visible_screen();
                             needs_redraw = true;
                         }

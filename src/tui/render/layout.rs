@@ -8,8 +8,9 @@ use crate::tui::pane_geometry::PaneColumns;
 use crate::tui::state::TuiApp;
 
 pub fn render(f: &mut Frame, app: &mut TuiApp) {
+    app.terminal_width = f.area().width;
     let columns = PaneColumns {
-        terminal_width: f.area().width,
+        terminal_width: app.terminal_width,
         sidebar_visible: app.sidebar_visible,
     };
     let bottom_pane_height = desired_bottom_pane_height(app, columns.main_width(), f.area().height);

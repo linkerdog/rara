@@ -4,6 +4,8 @@ use std::sync::Arc;
 use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 
 const TAB_WIDTH: usize = 4;
+pub(crate) const COMPOSER_INITIAL_INDENT: &str = "› ";
+pub(crate) const COMPOSER_SUBSEQUENT_INDENT: &str = "  ";
 
 pub(crate) struct WrapConfig<'a> {
     pub width: u16,
@@ -15,8 +17,8 @@ impl WrapConfig<'static> {
     pub(crate) fn composer(width: u16) -> Self {
         Self {
             width,
-            initial_indent: "› ",
-            subsequent_indent: "  ",
+            initial_indent: COMPOSER_INITIAL_INDENT,
+            subsequent_indent: COMPOSER_SUBSEQUENT_INDENT,
         }
     }
 }

@@ -315,6 +315,78 @@ fn composer_height_counts_the_same_indented_rows_as_rendering() {
 }
 
 #[test]
+fn viewport_reserves_composer_height_at_the_rendered_main_width() {
+    use crate::tui::render::bottom_pane::desired_viewport_height;
+    use crate::tui::testing::TuiHarness;
+
+    let mut tui = TuiHarness::new(RuntimeSnapshot::default()).expect("harness");
+    tui.app_mut().push_entry("You", "Earlier prompt");
+    tui.app_mut().bottom_pane.input = "x".repeat(720);
+    for (terminal_width, sidebar_visible, main_width) in [
+        (80, true, 80_u16),
+        (120, true, 120),
+        (121, true, 83),
+        (160, true, 122_u16),
+        (160, false, 160),
+    ] {
+        tui.app_mut().sidebar_visible = sidebar_visible;
+        let expected_bottom = 720_usize.div_ceil(usize::from(main_width - 2)).max(3) as u16 + 2;
+        assert_eq!(
+            desired_viewport_height(tui.app(), terminal_width, 40),
+            40 - expected_bottom,
+            "width={terminal_width}, sidebar={sidebar_visible}"
+        );
+    }
+}
+
+#[test]
+fn rendered_resize_updates_the_width_used_by_vertical_navigation() {
+    use crate::tui::testing::TuiHarness;
+
+    let mut tui = TuiHarness::new(RuntimeSnapshot::default()).expect("harness");
+    for (terminal_width, sidebar_visible, main_width) in
+        [(160, true, 122_u16), (160, false, 160), (80, true, 80)]
+    {
+        let offset = usize::from(main_width - 2) + 7;
+        let app = tui.app_mut();
+        app.terminal_width = if terminal_width == 80 { 160 } else { 80 };
+        app.sidebar_visible = sidebar_visible;
+        app.bottom_pane.input = "abcdefghijklmnopqrstuvwxyz".repeat(20);
+        app.bottom_pane.input_cursor_offset = Some(offset);
+        tui.screen_buffer(terminal_width, 40);
+        assert_eq!(tui.app().terminal_width, terminal_width);
+        tui.app_mut().move_composer_cursor_up();
+        assert_eq!(tui.app().composer_cursor_offset(), 7);
+        tui.app_mut().move_composer_cursor_down();
+        assert_eq!(tui.app().composer_cursor_offset(), offset);
+    }
+}
+
+#[test]
+fn measured_composer_rows_are_not_rewrapped_at_degenerate_widths() {
+    use crate::tui::testing::TuiHarness;
+
+    let mut tui = TuiHarness::new(RuntimeSnapshot::default()).expect("harness");
+    tui.app_mut().bottom_pane.input = "ab".into();
+    tui.app_mut().bottom_pane.input_cursor_offset = Some(0);
+    for width in [1, 2, 3] {
+        let (buffer, cursor) = tui.screen_buffer(width, 40);
+        let (_, top) = cursor.expect("cursor");
+        let expected = wrapped_text_rows("ab", width, Some("› "), Some("  "));
+        for (row, text) in expected.iter().take(2).enumerate() {
+            let rendered = (0..width)
+                .map(|x| buffer[(x, top + row as u16)].symbol())
+                .collect::<String>();
+            assert_eq!(
+                rendered,
+                text.chars().take(usize::from(width)).collect::<String>(),
+                "width={width}, row={row}"
+            );
+        }
+    }
+}
+
+#[test]
 fn placeholder_uses_the_measured_layout_and_discards_stale_draft_scroll() {
     use crate::tui::testing::TuiHarness;
 
