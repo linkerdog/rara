@@ -102,7 +102,6 @@ async fn dispatch_event_inner(
             app.thinking_collapsed = !app.thinking_collapsed;
         }
         AppEvent::SubmitComposer => {
-            app.bottom_pane.expand_large_paste();
             let should_quit = if let Some(runtime_port) = runtime_port {
                 handle_submit_with_port(app, agent_slot, oauth_manager, runtime_port).await?
             } else {

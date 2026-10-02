@@ -59,6 +59,9 @@ not inherit the plain-list j/k shortcuts.
   paste, and cursor/history/approval routing sees the resulting composer.
   Clearing discards pending bursts, deadlines, placeholder payloads, and the
   current paste-generated notice, while preserving unrelated warnings/status.
+  Submission expands and consumes the complete draft through the same cleanup
+  boundary, including whitespace-only input; submitted paste notices do not
+  linger after their content is sent or discarded.
   Esc retains its existing cancellation/no-op behavior and preserves the draft;
   no paste may appear later in a cleared or submitted composer.
 

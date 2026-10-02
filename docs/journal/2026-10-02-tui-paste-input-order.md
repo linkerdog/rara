@@ -25,6 +25,10 @@ against stale empty input. INPUT-02 now names the complete input boundary.
 - Preserve the current burst and large-paste placeholders, flush before key
   routing and direct action dispatch, and clear all pending paste state when
   the user clears input. Verify through the production event/dispatch path.
+- Codex `prepare_submission_text_with_options` expands pending placeholders
+  while resetting draft state; Claude Code passes the complete normalized text
+  to `onSubmit`. Make the shared submit handler consume complete text and
+  retire owned paste state instead of relying on dispatch-only expansion.
 
 ## Scope And Key Decisions
 
@@ -47,6 +51,10 @@ against stale empty input. INPUT-02 now names the complete input boundary.
   dismissal already discards its complete draft. Other keys/actions still use
   complete-input routing. This prevents a whitespace-containing paste from
   hiding the palette before the close action reaches its cleanup boundary.
+- Both submit adapters share flush/expansion before taking input, then call
+  complete draft cleanup. Empty/whitespace-only input also retires its paste
+  notice. Later unrelated warnings remain visible. Placeholder expansion is
+  owned by submission rather than duplicated in event dispatch.
 - `TuiHarness` now uses production terminal-event translation before key
   dispatch, so tests exercise the same pre-routing boundary as the live UI.
 
@@ -102,3 +110,15 @@ The palette-intent follow-up reports 665 passing TUI tests and twelve focused
 paste tests plus the separate timer test. Compilation, strict all-target
 Clippy, formatting, and diff checks pass. Existing idle Escape and running-turn
 cancellation behavior remain covered and unchanged.
+
+Submission review REDs: immediate submission leaves its paste notice, the
+owned notice remains after taking input, and direct submit treats a buffered
+large paste as empty. Corrected coverage includes multiline/large/whitespace
+input, newer unrelated warnings (including `Pasted`-prefixed warnings), and the
+direct submit adapter. A pending approval test proves an unflushed `1` would
+select its first option, while production pre-routing flush instead inserts
+`1` into the pasted draft without sending an approval command.
+
+The submission follow-up reports 668 passing TUI tests, including fifteen
+focused paste tests and the separate timer test. Compilation, strict all-target
+Clippy, formatting, and diff checks pass; no source-size limit is exceeded.

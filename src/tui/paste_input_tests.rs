@@ -3,7 +3,10 @@ use std::sync::Arc;
 use crossterm::event::{KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
 
 use super::runtime_port::RuntimeCommand;
-use super::state::{Overlay, RunningTask, RuntimeSnapshot, TaskKind};
+use super::state::{
+    InteractionKind, Overlay, PendingApprovalSnapshot, PendingInteractionSnapshot, RunningTask,
+    RuntimeSnapshot, TaskKind,
+};
 use super::terminal_ui::handle_paste;
 use super::testing::TuiHarness;
 use crate::oauth::OAuthManager;
@@ -33,7 +36,119 @@ async fn submit_immediately_after_paste_includes_full_text_and_clears_pending_st
         assert!(tui.app().bottom_pane.input.is_empty());
         assert!(tui.app().bottom_pane.large_paste_pending.is_empty());
         assert!(!tui.app_mut().bottom_pane.flush_paste_burst());
+        assert!(
+            tui.app().bottom_pane.notice.is_none(),
+            "submitted paste notice"
+        );
     }
+}
+
+#[tokio::test]
+async fn submission_retires_paste_notices_but_preserves_later_warnings() {
+    for paste in [
+        "first\nsecond".to_string(),
+        "x".repeat(1200),
+        " \n \n".into(),
+    ] {
+        for warning in [
+            None,
+            Some("Network unavailable"),
+            Some("Pasted content is prohibited by policy"),
+        ] {
+            let mut tui = harness();
+            handle_paste(paste.clone(), tui.app_mut());
+            assert!(tui.app_mut().flush_composer_paste());
+            if let Some(warning) = warning {
+                tui.app_mut().bottom_pane.notice = Some(warning.into());
+            }
+            press(&mut tui, KeyCode::Enter, KeyModifiers::NONE).await;
+            let whitespace_only = paste.trim().is_empty();
+            assert_eq!(
+                tui.app().bottom_pane.notice.as_deref(),
+                warning.or(if whitespace_only {
+                    Some("Ready.")
+                } else {
+                    None
+                })
+            );
+            assert!(tui.app().bottom_pane.input.is_empty());
+            assert!(tui.app().bottom_pane.large_paste_pending.is_empty());
+            assert!(!tui.app_mut().flush_composer_paste());
+            if whitespace_only {
+                tui.expect_no_commands();
+            } else {
+                tui.expect_command(RuntimeCommand::Input(
+                    InputControlRequest::SubmitUserPrompt {
+                        prompt: paste.clone(),
+                    },
+                ));
+            }
+        }
+    }
+}
+
+#[tokio::test]
+async fn approval_shortcut_edits_the_flushed_pasted_draft() {
+    let mut tui = harness();
+    tui.app_mut()
+        .snapshot
+        .pending_interactions
+        .push(PendingInteractionSnapshot {
+            kind: InteractionKind::Approval,
+            title: "Approve command".into(),
+            summary: "cargo check".into(),
+            options: Vec::new(),
+            note: None,
+            approval: Some(PendingApprovalSnapshot {
+                tool_use_id: "approval-1".into(),
+                command: "cargo check".into(),
+                allow_net: false,
+                payload: crate::tools::bash::BashCommandInput::from_value(
+                    serde_json::json!({"command": "cargo check"}),
+                )
+                .expect("approval payload"),
+            }),
+            source: None,
+            created_at_epoch_seconds: None,
+        });
+    handle_paste("first\nsecond".into(), tui.app_mut());
+    assert!(
+        matches!(
+            super::keymap::map_key_to_event(
+                KeyEvent::new(KeyCode::Char('1'), KeyModifiers::NONE),
+                tui.app()
+            ),
+            super::app_event::AppEvent::SelectPendingOption(0)
+        ),
+        "the unflushed draft would route to the approval shortcut"
+    );
+    press(&mut tui, KeyCode::Char('1'), KeyModifiers::NONE).await;
+    assert_eq!(tui.app().bottom_pane.input, "first\nsecond1");
+    assert!(tui.app().active_pending_interaction().is_some());
+    tui.expect_no_commands();
+}
+
+#[tokio::test]
+async fn direct_submit_expands_pending_paste_before_consuming_the_draft() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let oauth =
+        Arc::new(OAuthManager::new_for_config_dir(dir.path().join("oauth")).expect("oauth"));
+    let mut tui = harness();
+    let runtime = super::testing::FakeRuntimeClient::new(tui.app().snapshot.clone());
+    let paste = "x".repeat(1200);
+    handle_paste(paste.clone(), tui.app_mut());
+    super::submit::handle_submit_with_port(tui.app_mut(), &mut None, &oauth, &runtime)
+        .await
+        .expect("direct submit");
+    assert_eq!(
+        runtime.commands(),
+        vec![RuntimeCommand::Input(
+            InputControlRequest::SubmitUserPrompt { prompt: paste }
+        )]
+    );
+    assert!(tui.app().bottom_pane.input.is_empty());
+    assert!(tui.app().bottom_pane.notice.is_none());
+    assert!(!tui.app_mut().flush_composer_paste());
 }
 
 #[tokio::test]
