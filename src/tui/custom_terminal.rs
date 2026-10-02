@@ -43,7 +43,6 @@ use ratatui::layout::Size;
 use ratatui::style::Color;
 use ratatui::style::Modifier;
 use ratatui::widgets::{StatefulWidget, Widget};
-use unicode_width::UnicodeWidthStr;
 
 /// Returns the display width of a cell symbol, ignoring OSC escape sequences.
 ///
@@ -54,44 +53,13 @@ use unicode_width::UnicodeWidthStr;
 /// This function strips them first so that only visible characters contribute
 /// to the width.
 fn display_width(s: &str) -> usize {
-    // Fast path: no escape sequences present.
-    if !s.contains('\x1B') {
-        return s.width();
+    // Canonical cell symbols have no controls; legacy symbols share the
+    // display sanitizer instead of maintaining another escape parser here.
+    if !s.chars().any(char::is_control) {
+        return super::text_wrap::display_width(s);
     }
-
-    let mut visible = String::with_capacity(s.len());
-    let mut chars = s.chars().peekable();
-    while let Some(ch) = chars.next() {
-        if ch == '\x1B' {
-            match chars.peek() {
-                Some(']') => {
-                    chars.next();
-                    while let Some(c) = chars.next() {
-                        if c == '\x07' {
-                            break;
-                        }
-                        if c == '\x1B' && chars.peek() == Some(&'\\') {
-                            chars.next();
-                            break;
-                        }
-                    }
-                    continue;
-                }
-                Some('[') => {
-                    chars.next();
-                    for c in chars.by_ref() {
-                        if (0x40..=0x7E).contains(&(c as u32)) {
-                            break;
-                        }
-                    }
-                    continue;
-                }
-                _ => {}
-            }
-        }
-        visible.push(ch);
-    }
-    visible.width()
+    let visible = super::display_sanitize::sanitize_display_text(s);
+    super::text_wrap::display_width(&visible)
 }
 
 #[derive(Debug, Hash)]
@@ -682,7 +650,7 @@ impl ModifierDiff {
 
 #[cfg(test)]
 mod tests {
-    use super::display_width;
+    use super::{DrawCommand, diff_buffers, display_width};
 
     #[test]
     fn display_width_ignores_osc_sequences() {
@@ -700,5 +668,36 @@ mod tests {
     fn display_width_ignores_csi_sequences() {
         let text = "\x1b[31mred\x1b[0m";
         assert_eq!(display_width(text), 3);
+    }
+
+    #[test]
+    fn terminal_diff_width_matches_halfwidth_sound_mark_cells() {
+        for symbol in ["\u{ff9e}", "\u{ff9f}", "\u{ff76}\u{ff9e}"] {
+            let mut buffer = ratatui::buffer::Buffer::empty(ratatui::layout::Rect::new(0, 0, 8, 1));
+            let (end, _) = buffer.set_stringn(0, 0, symbol, 8, ratatui::style::Style::default());
+            assert_eq!(display_width(symbol), usize::from(end), "{symbol:?}");
+            assert_eq!(
+                display_width(&format!("\u{1b}[31m{symbol}\u{1b}[0m")),
+                usize::from(end)
+            );
+        }
+    }
+
+    #[test]
+    fn terminal_diff_clears_after_the_complete_halfwidth_cluster() {
+        let before = ratatui::buffer::Buffer::empty(ratatui::layout::Rect::new(0, 0, 4, 1));
+        let mut after = before.clone();
+        after.set_string(0, 0, "\u{ff76}\u{ff9e}", ratatui::style::Style::default());
+        let commands = diff_buffers(&before, &after);
+        assert!(
+            commands
+                .iter()
+                .any(|command| matches!(command, DrawCommand::ClearToEnd { x: 2, .. }))
+        );
+        assert!(
+            !commands
+                .iter()
+                .any(|command| matches!(command, DrawCommand::ClearToEnd { x: 1, .. }))
+        );
     }
 }

@@ -64,7 +64,7 @@ CI, review/merge, and physical-terminal acceptance remain separate gates.
   zero-width marker overflow, so they now reuse the column/grapheme boundary.
   ASCII marker styles remain unchanged (`...` for diagnostics; `…` elsewhere).
 
-## Validation
+## Initial Validation
 
 - Ten production-path baseline regressions failed at `c331611`: diagnostic
   overflow, multibyte title panic, scalar navigation/deletion, joiner insertion
@@ -85,6 +85,38 @@ CI, review/merge, and physical-terminal acceptance remain separate gates.
   `git diff --check`: passed. Touched source files remain below 1,000 lines.
 - The existing macOS debug-linker compact-unwind warning appeared in both the
   baseline and final Cargo checks; no new Rust/Clippy warning was introduced.
+
+## Terminal Writer Follow-Up
+
+The #925 lifecycle audit found a missed final consumer: the custom terminal
+diff writer still measured halfwidth sound marks with raw `unicode-width`
+and carried its own escape parser. Ratatui buffer correctness alone did not
+prove the emitted erase/skip boundaries. The follow-up keeps the existing
+diff algorithm but routes cell measurement through the shared width policy
+and sanitizer. Dedicated regressions compare measured cells and the actual
+trailing erase command; fixture compilation errors are not RED evidence.
+
+Two added regressions fail against the unchanged writer at
+`3f1a035aa570bf9865f5988f31e2de2062381ff2`: its sound-mark width is zero
+instead of Ratatui's one cell, and its trailing erase starts inside the
+two-cell halfwidth cluster. A preliminary fixture used `set_string` as though
+it returned coordinates; correcting it to `set_stringn` preceded the RED
+checks and is not defect evidence.
+
+The follow-up adds two tests (27 added tests across this PR), removes the
+duplicate escape parser, and preserves the control-free measurement fast path.
+Current source checks:
+
+- `cargo test --quiet --lib tui::`: 827 passed.
+- `cargo test --quiet`: 1,692 root tests passed, the existing paid-provider
+  trial ignored; integration suites passed (1 and 8 tests).
+- Default Bazel actual execution `60c45a3e-41dc-47f3-b14b-643124b0d533`
+  passed with 1,692 tests and the same ignored trial. Subsequent default
+  invocation `1b9f0067-c80c-446f-b0da-116446f8249a` reused that same-source
+  result; it executed zero tests and is a cache readback, not a fresh run.
+- Strict all-target Clippy, formatting, and diff checks pass. The pre-existing
+  macOS linker diagnostic is unchanged. No dependencies, snapshots, protocol,
+  persistence, or build configuration changed.
 
 ## Follow-Ups
 

@@ -76,6 +76,10 @@ does not first allocate a huge sanitized or formatted display string.
   abbreviation likewise uses display columns rather than UTF-8 byte slices.
   Shared startup/path truncation uses the same grapheme-column primitives;
   zero available columns produce empty text, not an overflowing marker.
+- The custom terminal diff writer uses that same column policy for glyph
+  invalidation, skipped continuation cells, and trailing erase boundaries.
+  Legacy escaped cell symbols are measured through the shared sanitizer rather
+  than a second ANSI parser; halfwidth sound marks must remain visible cells.
 
 ## Validation Matrix
 
@@ -89,6 +93,7 @@ does not first allocate a huge sanitized or formatted display string.
 | Selection identity | Production rows and drag/copy after a same-sized middle replacement |
 | Unicode columns | Diagnostic chrome/prefix/message and startup/path/title matrices at zero, narrow, and wide widths; styled cross-span clusters and halfwidth sound marks |
 | Visible projection | Standalone zero-width removal, cross-style combining/ZWJ preservation, idempotent re-segmentation, and buffer/highlight/copy agreement |
+| Final terminal diff | Halfwidth sound-mark widths agree with Ratatui cells, including escaped legacy symbols; trailing erase starts after the complete cluster |
 
 ## Operational Notes
 
