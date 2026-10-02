@@ -5,7 +5,7 @@ use rara_state::state_db::{PersistedCompactState, PersistedPromptRuntimeState, S
 use rara_tools::tool::ToolManager;
 use serde_json::json;
 
-use super::restore_thread_by_id;
+use super::{restore_latest_thread, restore_thread_by_id};
 use crate::agent::Agent;
 use crate::config::ConfigManager;
 use crate::llm::{Message, MockLlm};
@@ -71,17 +71,14 @@ fn thread_restore_round_trips_every_goal_status_and_does_not_revive_clear() {
 
 #[test]
 fn failed_thread_reads_preserve_agent_snapshot_and_goal_binding() {
-    for corrupt in ["todo", "runtime", "goal"] {
+    for corrupt in ["todo", "runtime"] {
         let dir = tempfile::tempdir().expect("tempdir");
         let root = dir.path().join("workspace");
         let data = dir.path().join("state");
         let sessions = Arc::new(SessionManager::new_for_rara_dir(data.clone()).expect("sessions"));
         let db = Arc::new(StateDb::new_for_root_dir(data.clone()).expect("state db"));
         seed_thread(&db, "target-thread", &root);
-        let mut target = RalphGoal::new("target goal".into(), None);
-        if corrupt == "goal" {
-            target.objective.clear();
-        }
+        let target = RalphGoal::new("target goal".into(), None);
         db.save_goal(
             "target-thread",
             &serde_json::to_value(&target).expect("serialize"),
@@ -130,7 +127,6 @@ fn failed_thread_reads_preserve_agent_snapshot_and_goal_binding() {
                     )
                     .expect("corrupt runtime JSON");
             }
-            "goal" => {}
             other => panic!("unexpected fixture {other}"),
         }
         assert!(
@@ -155,6 +151,119 @@ fn failed_thread_reads_preserve_agent_snapshot_and_goal_binding() {
             db.try_load_goal("target-thread").expect("target row"),
             target_row
         );
+    }
+}
+
+#[test]
+fn corrupt_goal_does_not_block_requested_or_latest_thread_restore() {
+    for (field, value) in [
+        ("status", json!("unknown")),
+        ("objective", json!("")),
+        ("token_budget", json!(0)),
+    ] {
+        for latest in [false, true] {
+            let dir = tempfile::tempdir().expect("tempdir");
+            let root = dir.path().join("workspace");
+            let data = dir.path().join("state");
+            let sessions =
+                Arc::new(SessionManager::new_for_rara_dir(data.clone()).expect("sessions"));
+            let db = Arc::new(StateDb::new_for_root_dir(data.clone()).expect("state db"));
+            seed_thread(&db, "target-thread", &root);
+            let target = RalphGoal::new("target goal".into(), Some(1000));
+            let mut corrupted = serde_json::to_value(&target).expect("serialize");
+            corrupted[field] = value.clone();
+            db.save_goal("target-thread", &corrupted)
+                .expect("corrupt goal");
+            let target_row = db.try_load_goal("target-thread").expect("target row");
+            let mut agent = Agent::new(
+                ToolManager::new(),
+                Arc::new(MockLlm),
+                Arc::new(MemoryHandle::new(
+                    &data.join("memory").display().to_string(),
+                )),
+                sessions,
+                Arc::new(WorkspaceMemory::from_paths(root, data)),
+            );
+            agent.set_session_id("original-thread".into());
+            agent.history = vec![Message {
+                role: "user".into(),
+                content: json!("old history"),
+            }];
+            let mut slot = Some(agent);
+            let mut app = TuiApp::new(ConfigManager {
+                path: dir.path().join("config.json"),
+            })
+            .expect("app");
+            app.snapshot.session_id = "original-thread".into();
+            app.attach_state_db(db.clone());
+            let original = RalphGoal::new("original goal".into(), None);
+            app.goal_handle
+                .replace(Some(original.clone()))
+                .expect("original goal");
+            app.goal = Some(original);
+            let original_row = db.try_load_goal("original-thread").expect("original row");
+            if latest {
+                restore_latest_thread(&db, &mut app, &mut slot)
+            } else {
+                restore_thread_by_id("target-thread", &mut app, &mut slot)
+            }
+            .expect("optional goal corruption must not abort thread restore");
+            assert_eq!(slot.as_ref().expect("agent").session_id, "target-thread");
+            assert!(slot.as_ref().expect("agent").history.is_empty());
+            assert_eq!(app.snapshot.session_id, "target-thread");
+            assert!(app.goal.is_none());
+            assert!(app.goal_handle.snapshot().is_none());
+            assert!(
+                app.bottom_pane
+                    .notice
+                    .as_deref()
+                    .expect("warning")
+                    .contains("Goal persistence unavailable")
+            );
+            let error = app
+                .goal_handle
+                .replace(Some(RalphGoal::new(
+                    "no memory-only replacement".into(),
+                    None,
+                )))
+                .expect_err("goal writes stay disabled");
+            assert!(error.to_string().contains("goal persistence unavailable"));
+            assert_eq!(
+                db.try_load_goal("target-thread")
+                    .expect("target row unchanged"),
+                target_row
+            );
+            assert_eq!(
+                db.try_load_goal("original-thread")
+                    .expect("original row unchanged"),
+                original_row
+            );
+            db.save_goal(
+                "target-thread",
+                &serde_json::to_value(&target).expect("serialize"),
+            )
+            .expect("repair fixture");
+            restore_thread_by_id("target-thread", &mut app, &mut slot)
+                .expect("valid restore re-enables persistence");
+            assert_eq!(app.goal, Some(target));
+            app.goal_handle
+                .mutate(|goal| {
+                    goal.as_mut().expect("goal").status = GoalStatus::Paused;
+                    Ok(())
+                })
+                .expect("durable write re-enabled");
+            assert_eq!(
+                db.try_load_goal("target-thread")
+                    .expect("updated target")
+                    .expect("goal")["status"],
+                "Paused"
+            );
+            assert_eq!(
+                db.try_load_goal("original-thread")
+                    .expect("original row unchanged"),
+                original_row
+            );
+        }
     }
 }
 

@@ -41,10 +41,22 @@ pub(super) fn restore_thread_by_id(
     let thread = thread_store.load_thread(thread_id)?;
     let todo_state = agent.session_manager.load_todo_state(thread_id)?;
     let runtime_state = state_db.load_session_runtime_state(thread_id)?;
-    // Rebinding the goal is the final fallible step before publishing the thread.
-    let restored_goal = app
+    // Required thread reads succeed before rebinding optional goal state.
+    let mut resume_notice = format!("Resumed thread {thread_id}.");
+    let restored_goal = match app
         .goal_handle
-        .restore_for_thread(thread_id, state_db.clone())?;
+        .restore_for_thread(thread_id, state_db.clone())
+    {
+        Ok(goal) => goal,
+        Err(error) => {
+            let reason = format!("{error:#}");
+            log::warn!("Goal persistence unavailable for resumed thread {thread_id}: {reason}");
+            app.goal_handle
+                .disable_after_persistence_failure(reason.clone());
+            resume_notice.push_str(&format!(" Goal persistence unavailable: {reason}"));
+            None
+        }
+    };
     let crate::thread_store::ThreadSnapshot {
         metadata,
         provenance: _,
@@ -248,7 +260,7 @@ pub(super) fn restore_thread_by_id(
 
     app.goal = restored_goal;
 
-    app.bottom_pane.notice = Some(format!("Resumed thread {thread_id}."));
+    app.bottom_pane.notice = Some(resume_notice);
     Ok(())
 }
 

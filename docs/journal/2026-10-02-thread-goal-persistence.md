@@ -21,7 +21,8 @@ creation time and narrowed stored counters with unchecked casts.
   `extension.rs::on_thread_resume` reports restoration failures without aborting
   the thread callback. Claude Code `conversationRecovery.ts` reports and
   rethrows deserialization errors. Keep required thread reads transactional;
-  isolate the optional initial goal binding with a visible diagnostic.
+  isolate optional goal binding during bootstrap and resume with a visible
+  diagnostic instead of rejecting an otherwise readable thread.
 - Adapt these patterns to one private runtime goal store. Keep the existing
   database schema, tool response fields, lifecycle policy, and input-token
   usage metric. Make persistence errors stop publication/continuation,
@@ -38,9 +39,9 @@ creation time and narrowed stored counters with unchecked casts.
   root. Persistence-disabled embedded profiles stay explicitly in-memory.
   Runtime rebuild inherits the old binding and goal, not a newly generated ID.
 - A checked load distinguishes an absent row from an unreadable one and
-  deserializes original creation time, statuses, and numeric bounds. A failed
-  thread restore retains the previous valid binding. An unavailable initial
-  binding cannot silently accept an in-memory goal.
+  deserializes original creation time, statuses, and numeric bounds. Failed
+  required thread reads retain the previous valid binding. An unavailable
+  optional goal binding cannot silently accept an in-memory goal.
 - Clear deletes the existing row. Mutations preserve their goal's creation
   timestamp; replacement writes the new goal's timestamp. No schema migration
   or provider/tool protocol change is required.
@@ -48,10 +49,12 @@ creation time and narrowed stored counters with unchecked casts.
   and displays a failure notice. A failed command/tool write retains the last
   committed goal snapshot rather than reporting success.
 - Restoration follow-up stages thread, todo, and runtime JSON reads before
-  rebinding the goal as the final fallible step. Failure preserves agent
-  history, session ID, presentation, and the previous durable goal binding.
-  Bootstrap logs a warning and disables goal persistence when binding fails;
-  it does not rewrite corrupt records or accept memory-only replacements.
+  rebinding the goal. Required read failures preserve agent history, session
+  ID, presentation, and the previous durable goal binding. Bootstrap and resume
+  log a warning and disable goal persistence when optional goal binding fails;
+  resume still publishes the requested thread with an empty goal snapshot.
+  Neither path rewrites corrupt records or accepts memory-only replacements.
+  A later valid restore re-enables durable writes for its own thread.
   Empty/whitespace objectives and zero budgets are rejected before restoration
   publication. `/goal` errors are contained at the command boundary, with a
   visible notice and no event-loop exit or failed-write continuation.
@@ -68,6 +71,8 @@ creation time and narrowed stored counters with unchecked casts.
   created in the same second. The baseline comes from the actual runtime agent,
   not the presentation snapshot. Plan-only and rejected-plan tasks do not
   participate; approving a plan captures the ensuing implementation query.
+  Errored/cancelled turns and budget-limited wrap-up turns are not charged;
+  this is successful-active-query accounting, not a full usage ledger.
 - Existing state-database schema and rollout-migration helpers, and existing
   goal/session-continuity tests, are mechanically split into private modules
   so every touched Rust source file stays below 1000 lines.
@@ -93,6 +98,15 @@ command loop. These are behavioral assertion failures. The corrected cases
 also cover runtime JSON, rejected goal restore, whitespace objectives, zero
 budgets, failed clear/create, unchanged durable rows, and actual agent-ID
 binding for both explicit and generated IDs.
+
+Resume review RED: an unknown goal status propagates out of
+`restore_thread_by_id` instead of restoring the readable target thread. The
+regression covers explicit and latest-thread restore with unknown status,
+empty objective, and zero budget. It verifies the target thread/history are
+published, the prior goal snapshot is removed, warnings remain visible, goal
+writes fail closed, both durable rows are unchanged, and a valid subsequent
+restore recovers goal persistence. Required todo/runtime failure tests retain
+their original rollback contract.
 
 Focused checks:
 
@@ -133,6 +147,13 @@ the runtime-context suite reports 22 passing tests, and the root library suite
 reports 1540 passing tests with one ignored fixture. Source-size limits remain
 preserved by a private bootstrap goal-binding module.
 
+The resume follow-up reports nine passing thread-restoration tests, 60 passing
+goal-filtered tests, and 1541 passing library tests with one ignored fixture.
+`cargo check`, strict all-target Clippy, formatting, and diff checks pass.
+The goal persistence test-module declaration is moved to the end of its owning
+command module. No new logic is added to the 993-line runtime-context facade;
+the touched session-restore source remains below 1000 lines.
+
 ## Remaining Work
 
 - Issue #931 owns restored-goal auto-continuation and richer goal interaction;
@@ -140,3 +161,7 @@ preserved by a private bootstrap goal-binding module.
 - These are SQLite and fresh-app/thread restoration checks, not a manual
   quit/restart PTY acceptance run. Multi-process goal synchronization and a
   different token-accounting policy are outside this change.
+- A resume continuation failure followed by a failed durable rollback can
+  still report the rollback error instead of the original startup error.
+  This existing diagnostic limitation does not launch a continuation and is
+  outside the optional restoration correction.

@@ -316,10 +316,6 @@ pub(super) async fn execute_local_command_with_runtime(
     Ok(false)
 }
 
-#[cfg(test)]
-#[path = "goal_persistence_tests.rs"]
-mod goal_persistence_tests;
-
 async fn resume_goal_continuation(
     app: &mut TuiApp,
     agent_slot: &mut Option<Agent>,
@@ -684,3 +680,7 @@ fn mark_local_command(app: &mut TuiApp, detail: Option<String>) {
 #[cfg(test)]
 #[path = "commands_test.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "goal_persistence_tests.rs"]
+mod goal_persistence_tests;

@@ -52,11 +52,15 @@ completed goal starts a new creation time; updating an existing goal retains
 its creation time. Restoration uses checked deserialization: unknown statuses,
 negative or oversized counters, empty objectives, zero budgets, and invalid
 timestamps fail rather than become an active goal. A missing row clears any
-prior thread's presentation snapshot. Thread restoration stages all fallible
-reads before publishing the agent, TUI snapshot, or new goal binding; a failed
-restore retains the previous thread and its binding. Initial bootstrap warns
-and disables goal persistence when its optional goal binding is unavailable,
-without aborting the whole runtime or silently accepting memory-only goals.
+prior thread's presentation snapshot. Thread restoration stages required
+thread/todo/runtime reads before publishing the agent, TUI snapshot, or new
+goal binding; a failed required read retains the previous thread and its
+binding. Initial bootstrap and thread resume both warn and disable goal
+persistence when the optional goal binding is unavailable, without aborting
+the whole runtime or silently accepting memory-only goals. Resume still
+publishes the requested thread and clears the prior goal snapshot; it does
+not rewrite the unreadable row. A later valid thread restore can re-enable
+durable goal mutations.
 Runtime rebuilding preserves the current goal's thread binding and state.
 Persistence-disabled embedded profiles remain explicitly in-memory.
 
@@ -67,6 +71,9 @@ resulting status controls continuation, not accounting. Clearing or replacing
 the goal, or switching threads, prevents the old query from charging the new
 goal. Queries that start without an active goal do not charge a goal created
 later in that query.
+Errored/cancelled queries, plan-only queries, and the budget-limited wrap-up
+query are not charged under the current successful-active-query policy. The
+counters are not an all-provider-spend ledger.
 
 The lifecycle is:
 
@@ -196,9 +203,11 @@ Detailed goal state belongs in `/goal`, not the bottom pane.
 - Write failures leave the prior snapshot unchanged and stop continuation;
   corrupt stored status, objective, budget, or numeric values cannot restore
   as `Pursuing`. Command failures do not exit the TUI event loop.
-- Corrupt todo, runtime JSON, or goal records cannot partially switch the
-  agent or goal binding. Initial corrupt goals preserve normal bootstrap with
-  a warning and fail-closed goal tools; explicit and generated session IDs
+- Corrupt todo/runtime JSON retains the prior thread and goal binding.
+  Corrupt goals preserve bootstrap and requested/latest-thread restoration
+  with a warning and fail-closed goal tools, without altering either thread's
+  durable goal row; a subsequent valid restore re-enables persistence.
+  Explicit and generated session IDs
   address the same durable binding as the assembled agent.
 - Complete and blocked snapshots include the final successful goal turn after
   fresh-app restoration, without launching another continuation. Non-goal and
