@@ -48,11 +48,15 @@ Active backlog only. Keep this file small and current.
       fix the correctness boundary, not per-delta rendering complexity; see
       [the wrapping checkpoint](journal/2026-10-02-shared-transcript-wrapping.md)
       and [the scroll-anchor checkpoint](journal/2026-10-02-transcript-scroll-anchors.md).
-      Scroll input still refreshes complete visual rows before navigation.
       Frame scheduling and stable/mutable Markdown source caching are implemented
-      checkpoints. Complete-history clone/wrap/hash reuse, scroll-path reuse,
-      and render/copy/scroll work-count acceptance remain open. Long mutable
-      blocks and source-wide reference fallbacks still need explicit work bounds.
+      checkpoints. Indexed shared committed blocks now remove complete-history
+      clone/wrap/hash work from frames, scroll, and selection, with focused work
+      counts and retained-allocation guards. Active-cell assembly, complete
+      styled-tail comparisons, changed-active-block rewrapping, and retained
+      block-index metadata copies remain explicit costs. Long mutable blocks
+      and source-wide reference fallbacks still need explicit work bounds;
+      exact-head CI/review/merge and terminal acceptance remain separate gates.
+      See [the shared-row checkpoint](journal/2026-10-03-transcript-row-reuse.md).
       See [the source-cache checkpoint](journal/2026-10-03-incremental-markdown.md),
       [the streaming contract](features/streaming-transcript.md) and
       [the frame checkpoint](journal/2026-10-02-tui-frame-coalescing.md).

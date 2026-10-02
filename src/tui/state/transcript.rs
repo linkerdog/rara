@@ -326,7 +326,7 @@ impl TuiApp {
         let turn = std::mem::take(&mut self.active_turn);
         self.committed_turns.push(turn);
         self.clear_live_log();
-        self.invalidate_committed_render_cache();
+        // Append preserves prior immutable render blocks; layout sees the new count.
         self.clear_active_live_sections();
     }
 
@@ -347,8 +347,9 @@ impl TuiApp {
 
     pub(crate) fn invalidate_committed_render_cache(&mut self) {
         self.committed_render_generation = self.committed_render_generation.wrapping_add(1);
-        *self.committed_render_cache.borrow_mut() =
-            super::CommittedTranscriptRenderCache::default();
+        self.committed_render_cache
+            .borrow_mut()
+            .invalidate_history();
     }
 
     pub fn clear_active_live_sections(&mut self) {

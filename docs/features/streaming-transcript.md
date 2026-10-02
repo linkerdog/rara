@@ -46,6 +46,15 @@ Confirmed tables and following source are held until canonical finalization;
 reference definitions require explicit source-wide invalidation. Source
 replacement resets source and row boundaries together.
 
+Visual-row reuse separates immutable committed blocks from the replaceable
+active tail. Viewport counting, visible rendering, and selection share the same
+materialized styled rows and plain text. Frame/scroll updates must not clone,
+wrap, stringify, or hash unchanged historical rows. Appended committed turns
+reuse prior blocks; width, thinking visibility, cwd, replacement, and reset
+invalidate the appropriate blocks. Active-tail layout reuse compares complete
+styled logical lines rather than an edge-only or text-length fingerprint.
+This layout boundary does not itself eliminate active-cell row assembly.
+
 ## Contracts
 
 ### Frame Scheduling
@@ -67,8 +76,8 @@ replacement resets source and row boundaries together.
 
 ### Incremental Markdown And Rows
 
-The source cache and frame scheduler are separate from the remaining
-whole-transcript visual-row reuse target for issue #921:
+The source cache, frame scheduler, and visual-row cache are separate work
+boundaries for issue #921:
 
 - Append bookkeeping examines new source, not the complete accumulated string.
 - Completed stable blocks are not re-parsed or copied on each delta. Mutable
@@ -93,6 +102,8 @@ whole-transcript visual-row reuse target for issue #921:
 | Markdown work | Parse/source-byte counts over long multiline streams, including mutable structural tails |
 | Ingestion and repeated reads | No parsing per delta; no parse or stable-row clone on unchanged presentation reads |
 | Row reuse | Rows wrapped, cloned, and hashed per delta/frame; unchanged history remains untouched |
+| Layout invalidation | Full middle-row text/style/alignment changes; width/cwd/visibility, append, replacement, reset, and restore |
+| Shared history | Retained styled/text allocations across appended turns and indexed windows across block boundaries |
 | Correctness | Production renderer and copy/selection agreement after streaming, finalization, resize, and reset |
 
 ## Operational Notes
@@ -104,8 +115,13 @@ on a slow output device.
 
 ## Open Risks
 
-- Whole-history styled/wrapped-row and selection reuse remain open; source
-  caching does not remove each frame's complete-history clone/wrap/hash work.
+- Historical styled/wrapped rows and selection text are shared. Active-cell
+  assembly and complete styled-tail comparison still traverse active content;
+  changing a tail rewraps that active block. Historical-row counters do not
+  include these assembly/comparison costs. This is not a complete per-delta bound.
+- Appending while an older snapshot is retained copies block handles and index
+  metadata, not row content. Many short committed turns can still grow that
+  metadata-copy cost; no constant-cost append guarantee is claimed.
 - Deterministic scheduler and renderer tests do not prove OS terminal latency,
   terminal key encoding, viewport lifecycle, or clipboard acceptance.
 - Arbitrary markdown may have a long mutable suffix. Work bounds must distinguish
@@ -122,3 +138,4 @@ on a slow output device.
 
 - [Frame coalescing](../journal/2026-10-02-tui-frame-coalescing.md)
 - [Incremental markdown](../journal/2026-10-03-incremental-markdown.md)
+- [Shared transcript rows](../journal/2026-10-03-transcript-row-reuse.md)
