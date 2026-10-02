@@ -84,6 +84,8 @@ future appserver integrations can use.
   dispatch, and hook output context injection boundaries.
 - `tui-theme-tokens.md`: configurable semantic TUI theme tokens, renderer
   integration, and embedded syntax theme selection.
+- `streaming-transcript.md`: coalesced frames and incremental markdown/visual-row
+  work boundaries, including the remaining implementation gates.
 - `wasm-core.md`: pure Rust browser/worker core boundary for deterministic
   patch preview and future protocol/reducer logic.
 

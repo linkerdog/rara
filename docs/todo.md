@@ -49,6 +49,10 @@ Active backlog only. Keep this file small and current.
       [the wrapping checkpoint](journal/2026-10-02-shared-transcript-wrapping.md)
       and [the scroll-anchor checkpoint](journal/2026-10-02-transcript-scroll-anchors.md).
       Scroll input still refreshes complete visual rows before navigation.
+      Frame scheduling is the first independent stage; incremental markdown and
+      visual-row/selection reuse remain open. See
+      [the streaming contract](features/streaming-transcript.md) and
+      [the frame checkpoint](journal/2026-10-02-tui-frame-coalescing.md).
 - [ ] Complete remaining keyboard contracts: resume-search cursor editing,
       Help General/Runtime scrolling, grapheme-cluster editing, and an explicit
       opt-in Vim mode. See [input risks](interaction/composer-and-overlays.md#open-risks).

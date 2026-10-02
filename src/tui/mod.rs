@@ -11,6 +11,7 @@ mod event_dispatch;
 mod event_loop;
 mod event_stream;
 mod format;
+mod frame_scheduler;
 mod highlight;
 mod input_control;
 #[cfg(test)]
