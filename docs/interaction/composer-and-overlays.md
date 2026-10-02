@@ -73,6 +73,9 @@ its explicit navigation shortcuts. A configurable Vim mode is not provided.
 - Explicit palette dismissal clears its slash input so it does not reopen
   immediately, using the same complete draft/paste cleanup boundary. Selecting
   a command dismisses the palette before dispatch.
+- Palette Esc and direct close preserve their pre-paste dismissal intent:
+  discard the pending draft without a preliminary flush that could hide the
+  palette. Other keys still route against the complete flushed draft.
 - Esc affects the top overlay. Setup cancellation follows the owning setup
   flow; it must not implicitly submit a credential or change permissions.
 - Model-search dismissal resets only its query, cursor, and selection. It

@@ -59,7 +59,9 @@ async fn dispatch_event_inner(
     oauth_manager: &Arc<OAuthManager>,
     runtime_port: Option<&dyn RuntimeClientPort>,
 ) -> anyhow::Result<bool> {
-    if app.composer_input_is_active() {
+    let discarding_palette = matches!(&event, AppEvent::CloseOverlay)
+        && matches!(app.overlay, Some(Overlay::CommandPalette));
+    if app.composer_input_is_active() && !discarding_palette {
         app.flush_composer_paste();
     }
     match event {

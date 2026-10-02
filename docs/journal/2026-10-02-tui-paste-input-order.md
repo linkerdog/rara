@@ -18,6 +18,10 @@ against stale empty input. INPUT-02 now names the complete input boundary.
 - Codex `chat_composer.rs::set_text_content_with_mention_bindings` clears its
   draft-owned footer flash and pending pastes when replacing composer content.
   Adapt that ownership boundary without clearing unrelated runtime notices.
+- Codex tracks command-popup Esc dismissal separately from popup synchronization;
+  Claude Code's `useTextInput` explicitly defers Escape when autocomplete owns
+  it. Preserve palette dismissal intent before a paste-driven projection can
+  hide that surface, retaining the existing local discard contract.
 - Preserve the current burst and large-paste placeholders, flush before key
   routing and direct action dispatch, and clear all pending paste state when
   the user clears input. Verify through the production event/dispatch path.
@@ -39,6 +43,10 @@ against stale empty input. INPUT-02 now names the complete input boundary.
   dismissal uses the same complete clear boundary. Esc keeps its existing
   cancellation/no-op semantics and preserves drafts; it does not introduce a
   new discard gesture.
+- Palette Esc and direct `CloseOverlay` skip the preliminary composer flush:
+  dismissal already discards its complete draft. Other keys/actions still use
+  complete-input routing. This prevents a whitespace-containing paste from
+  hiding the palette before the close action reaches its cleanup boundary.
 - `TuiHarness` now uses production terminal-event translation before key
   dispatch, so tests exercise the same pre-routing boundary as the live UI.
 
@@ -73,6 +81,13 @@ adds palette-dismissal and unrelated-warning coverage, and verifies that a
 timed flush notice is cleared with its draft. The paste suite now contains ten
 tests plus the separate deterministic timer test.
 
+A further review catches two previously missed production-path failures:
+palette Esc and direct `CloseOverlay` retain the pasted slash draft after
+pre-flush hides the palette. Both are behavioral REDs on the prior head. The
+added regressions cover small multiline and large placeholder pastes, both
+pressed and repeated Esc, production key translation and direct action
+dispatch, and the absence of late paste/notice/payload state.
+
 The TUI suite reports 663 passing tests. `cargo check`, strict Clippy,
 formatting, and diff checks complete without source warnings. The macOS debug
 test linker reports its large `__eh_frame` compact-unwind limitation. Remote
@@ -82,3 +97,8 @@ Runtime-opened overlays and mouse events may still defer insertion until the
 existing timer; their cosmetic timing is unchanged. Unbracketed paste
 detection and streaming redraw optimization remain separate work; this fix
 does not alter the paste debounce duration.
+
+The palette-intent follow-up reports 665 passing TUI tests and twelve focused
+paste tests plus the separate timer test. Compilation, strict all-target
+Clippy, formatting, and diff checks pass. Existing idle Escape and running-turn
+cancellation behavior remain covered and unchanged.

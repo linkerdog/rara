@@ -1,9 +1,12 @@
+use std::sync::Arc;
+
 use crossterm::event::{KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
 
 use super::runtime_port::RuntimeCommand;
 use super::state::{Overlay, RunningTask, RuntimeSnapshot, TaskKind};
 use super::terminal_ui::handle_paste;
 use super::testing::TuiHarness;
+use crate::oauth::OAuthManager;
 use crate::runtime_control::{InputControlRequest, SessionControlRequest};
 
 fn harness() -> TuiHarness {
@@ -109,6 +112,59 @@ fn palette_dismissal_discards_pending_burst_and_large_payloads() {
         );
         assert!(tui.app().bottom_pane.notice.is_none());
         tui.expect_no_commands();
+    }
+}
+
+#[tokio::test]
+async fn palette_escape_discards_paste_before_key_routing() {
+    for paste in ["first\nsecond".to_string(), "x".repeat(1200)] {
+        for kind in [KeyEventKind::Press, KeyEventKind::Repeat] {
+            let mut tui = harness();
+            tui.app_mut().bottom_pane.input = "/".into();
+            tui.app_mut().open_overlay(Overlay::CommandPalette);
+            handle_paste(paste.clone(), tui.app_mut());
+            assert!(
+                !tui.press_key(KeyEvent::new_with_kind(
+                    KeyCode::Esc,
+                    KeyModifiers::NONE,
+                    kind
+                ))
+                .await
+                .expect("palette Esc")
+            );
+            assert!(tui.app().overlay.is_none());
+            assert!(tui.app().bottom_pane.input.is_empty());
+            assert!(tui.app().bottom_pane.large_paste_pending.is_empty());
+            assert!(tui.app().bottom_pane.notice.is_none());
+            assert!(!tui.app_mut().flush_composer_paste());
+            tui.expect_no_commands();
+        }
+    }
+}
+
+#[tokio::test]
+async fn direct_palette_close_discards_paste_before_action_flush() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let oauth =
+        Arc::new(OAuthManager::new_for_config_dir(dir.path().join("oauth")).expect("oauth"));
+    for paste in ["first\nsecond".to_string(), "x".repeat(1200)] {
+        let mut tui = harness();
+        tui.app_mut().bottom_pane.input = "/".into();
+        tui.app_mut().open_overlay(Overlay::CommandPalette);
+        handle_paste(paste, tui.app_mut());
+        super::event_dispatch::dispatch_event(
+            super::app_event::AppEvent::CloseOverlay,
+            tui.app_mut(),
+            &mut None,
+            &oauth,
+        )
+        .await
+        .expect("direct close");
+        assert!(tui.app().overlay.is_none());
+        assert!(tui.app().bottom_pane.input.is_empty());
+        assert!(tui.app().bottom_pane.large_paste_pending.is_empty());
+        assert!(tui.app().bottom_pane.notice.is_none());
+        assert!(!tui.app_mut().flush_composer_paste());
     }
 }
 
