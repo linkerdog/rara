@@ -179,6 +179,28 @@ passing continuity tests, and 1543 passing library tests with one ignored
 fixture. Compilation, strict all-target Clippy, formatting, and diff checks
 pass. The existing macOS compact-unwind linker warning remains unchanged.
 
+## Documentation Re-review
+
+The final re-review asks for an explicit recovery path when goal persistence
+is unavailable. The feature spec now states that `/goal clear` does not delete
+an unreadable row and no in-app repair command exists. Operator recovery must
+stop database users, back up SQLite, inspect the exact thread's `goals` row,
+repair only known-correct values (or explicitly approve discarding that one
+goal), and restore the same thread to validate and re-enable persistence.
+This preserves the fail-closed policy without introducing automatic deletion,
+a new command, a schema change, or a live database mutation.
+
+The requested accounting limitation is already explicit in the feature spec
+and this journal: errored/cancelled, plan-only, and budget-limited wrap-up
+queries are not charged. No accounting policy change is included.
+
+All eight remote checks for implementation head `c06d1723` are green as of
+2026-10-02, including [Bazel](https://github.com/linkerdog/rara/actions/runs/37015841818)
+and [tests](https://github.com/linkerdog/rara/actions/runs/37015840651).
+This documentation-only checkpoint is checked with `cargo fmt --all -- --check`
+and `git diff --check`; behavioral tests are not rerun. Remote CI for the new
+commit and manual terminal acceptance remain separate gates.
+
 ## Remaining Work
 
 - Issue #931 owns restored-goal auto-continuation and richer goal interaction;

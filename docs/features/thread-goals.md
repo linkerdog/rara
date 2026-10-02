@@ -219,6 +219,36 @@ Detailed goal state belongs in `/goal`, not the bottom pane.
   fresh-app restoration, without launching another continuation. Non-goal and
   plan queries do not charge a newly created or inactive goal.
 
+## Operational Notes
+
+### Recovering Unavailable Goal Persistence
+
+An unreadable goal row disables goal mutations for the resumed session while
+leaving its thread history available. The restore notice/log records the
+diagnostic. `/goal clear` currently reports no active goal in this state: it
+does not delete the unreadable row or repair the durable binding. Creating a
+replacement goal also fails with the persistence-unavailable error. There is
+no in-app repair command.
+
+For operator-managed recovery:
+
+1. Record the affected thread ID and diagnostic. Stop all processes using the
+   state database and create a verified SQLite backup before editing it; do
+   not edit a live database or reset the entire state database.
+2. Inspect only the `goals` row whose `session_id` equals that exact thread ID.
+   Repair invalid fields from known-correct data using the validation rules
+   above. If the goal cannot be recovered, removing that single row requires
+   explicit operator approval to discard its objective, status, and counters.
+   Keep the backup and leave unrelated goal, thread, and runtime rows intact.
+3. Restart and resume the same thread. A successfully validated row restores
+   its goal; an intentionally absent row restores no goal and permits a new
+   one. Successful restoration re-enables durable mutations. If validation
+   still fails, retain the diagnostic and keep writes disabled.
+
+Resuming a different healthy thread can re-enable persistence for that thread,
+but does not repair the original row. Recovery must not invent a `Pursuing`
+status, zero usage, or a fresh creation time to hide corrupted data.
+
 ## Open Risks
 
 - RARA does not yet have Codex's full confirmation menu for replacing a goal;
