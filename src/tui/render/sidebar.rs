@@ -64,15 +64,16 @@ fn push_session_info(lines: &mut Vec<Line<'static>>, app: &TuiApp) {
         "RARA".to_string()
     } else {
         // Shorten session id for display.
-        let session_id = &app.snapshot.session_id;
-        if session_id.len() > 14 {
-            format!(
-                "{}…{}",
-                &session_id[..8],
-                &session_id[session_id.len().saturating_sub(4)..]
-            )
+        let line = crate::tui::display_sanitize::sanitize_display_line_segments(&Line::from(
+            app.snapshot.session_id.as_str(),
+        ));
+        let session_id = line.to_string();
+        if crate::tui::text_wrap::display_width(&session_id) > 14 {
+            let prefix = crate::tui::text_wrap::truncate_to_width(&session_id, 8);
+            let suffix = crate::tui::text_wrap::suffix_to_width(&session_id, 4);
+            format!("{prefix}…{suffix}")
         } else {
-            session_id.clone()
+            session_id
         }
     };
 

@@ -11,6 +11,7 @@
 //! needed; this module defines the display contract only.
 
 use ratatui::text::{Line, Span};
+use unicode_segmentation::UnicodeSegmentation;
 
 #[derive(Clone, Copy, Debug, Default)]
 enum EscapeState {
@@ -137,7 +138,7 @@ pub(crate) fn sanitize_display_line(input: &str) -> String {
 
 pub(crate) fn sanitize_display_line_segments(line: &Line<'_>) -> Line<'static> {
     let mut sanitizer = StreamSanitizer::default();
-    let spans = line
+    let sanitized_spans = line
         .spans
         .iter()
         .map(|span| Span {
@@ -150,11 +151,70 @@ pub(crate) fn sanitize_display_line_segments(line: &Line<'_>) -> Line<'static> {
             style: span.style,
         })
         .collect::<Vec<_>>();
+    let sanitized_len = sanitized_spans
+        .iter()
+        .map(|span| span.content.len())
+        .sum::<usize>();
+    let mut spans = visible_grapheme_spans(sanitized_spans);
+    if spans.iter().map(|span| span.content.len()).sum::<usize>() < sanitized_len {
+        // Removing an invisible separator can join neighboring visible
+        // clusters. Re-segment once so style spans and plain-text widths agree.
+        spans = visible_grapheme_spans(spans);
+    }
     Line {
         spans,
         style: line.style,
         alignment: line.alignment,
     }
+}
+
+fn visible_grapheme_spans(source: Vec<Span<'static>>) -> Vec<Span<'static>> {
+    let text = source
+        .iter()
+        .map(|span| span.content.as_ref())
+        .collect::<String>();
+    let mut span_ends = source
+        .iter()
+        .scan(0, |end, span| {
+            *end += span.content.len();
+            Some(*end)
+        })
+        .peekable();
+    let needs_projection = text.grapheme_indices(true).any(|(offset, grapheme)| {
+        while span_ends.next_if(|end| *end <= offset).is_some() {}
+        super::text_wrap::grapheme_width(grapheme) == 0
+            || span_ends
+                .peek()
+                .is_some_and(|end| *end < offset + grapheme.len())
+    });
+    drop(span_ends);
+    if !needs_projection {
+        // Keep already valid style boundaries stable for row-cache equality.
+        return source;
+    }
+    let mut spans: Vec<Span<'static>> = Vec::new();
+    let mut span_index = 0;
+    let mut span_end = source.first().map_or(0, |span| span.content.len());
+    for (offset, grapheme) in text.grapheme_indices(true) {
+        while offset >= span_end && span_index + 1 < source.len() {
+            span_index += 1;
+            span_end += source[span_index].content.len();
+        }
+        if super::text_wrap::grapheme_width(grapheme) == 0 {
+            continue;
+        }
+        // Ratatui segments individual spans. Joining across style boundaries
+        // here preserves the base character's complete visible cluster.
+        let style = source[span_index].style;
+        if let Some(last) = spans.last_mut()
+            && last.style == style
+        {
+            last.content.to_mut().push_str(grapheme);
+        } else {
+            spans.push(Span::styled(grapheme.to_owned(), style));
+        }
+    }
+    spans
 }
 
 #[cfg(test)]

@@ -5,7 +5,8 @@
 
 use std::time::{Duration, Instant};
 
-use super::char_offset_to_byte_index;
+use super::{char_offset_to_byte_index, effective_cursor_offset};
+use crate::tui::input_text::ceil_grapheme_offset;
 use crate::tui::queued_input::PendingFollowUpMessage;
 use crate::tui::state::types::RunningTask;
 
@@ -54,10 +55,7 @@ impl BottomPaneModel {
     }
 
     pub fn composer_cursor_offset(&self) -> usize {
-        let text = &self.input;
-        self.input_cursor_offset
-            .unwrap_or_else(|| text.chars().count())
-            .min(text.chars().count())
+        effective_cursor_offset(&self.input, self.input_cursor_offset)
     }
 
     // ── Paste-burst ──────────────────────────────────────────────────
@@ -102,7 +100,10 @@ impl BottomPaneModel {
             let offset = self.composer_cursor_offset();
             let pos = char_offset_to_byte_index(&self.input, offset);
             self.input.insert_str(pos, &placeholder);
-            self.input_cursor_offset = Some(offset + placeholder.chars().count());
+            self.input_cursor_offset = Some(ceil_grapheme_offset(
+                &self.input,
+                offset + placeholder.chars().count(),
+            ));
             self.large_paste_pending.push((placeholder, buf));
             self.notice = Some(format!(
                 "Large paste #{counter} ({char_count} chars) — expanded on submit"
@@ -118,7 +119,10 @@ impl BottomPaneModel {
             } else {
                 let pos = char_offset_to_byte_index(&self.input, old_offset);
                 self.input.insert_str(pos, &buf);
-                Some(old_offset + buf.chars().count())
+                Some(ceil_grapheme_offset(
+                    &self.input,
+                    old_offset + buf.chars().count(),
+                ))
             }
         };
         self.input_cursor_offset = paste_end;

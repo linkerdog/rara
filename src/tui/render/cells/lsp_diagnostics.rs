@@ -5,6 +5,7 @@ use ratatui::{
 use serde::Deserialize;
 
 use super::HistoryCell;
+use crate::tui::display_clip::truncate_line_to_width;
 use crate::tui::theme::{
     STATUS_ERROR, STATUS_INFO, STATUS_SUCCESS, STATUS_WARNING, TEXT_MUTED, TEXT_SECONDARY,
 };
@@ -102,13 +103,13 @@ impl HistoryCell for LspDiagnosticsCell {
             }
         };
         lines.push(Line::from(vec![
-            Span::styled(shorten(&self.file, width), Style::default().fg(TEXT_MUTED)),
+            Span::styled(self.file.clone(), Style::default().fg(TEXT_MUTED)),
             Span::raw(" · "),
             Span::styled(status_label, Style::default().fg(self.summary_color())),
         ]));
 
         for diagnostic in self.diagnostics.iter().take(MAX_VISIBLE_DIAGNOSTICS) {
-            lines.push(diagnostic_line(diagnostic, width));
+            lines.push(diagnostic_line(diagnostic));
         }
 
         let hidden = self
@@ -130,6 +131,9 @@ impl HistoryCell for LspDiagnosticsCell {
         }
 
         lines
+            .iter()
+            .map(|line| truncate_line_to_width(line, width))
+            .collect()
     }
 }
 
@@ -149,7 +153,7 @@ impl LspDiagnosticsCell {
     }
 }
 
-fn diagnostic_line(diagnostic: &LspDiagnostic, width: u16) -> Line<'static> {
+fn diagnostic_line(diagnostic: &LspDiagnostic) -> Line<'static> {
     let severity = diagnostic.severity.to_ascii_lowercase();
     let code = diagnostic
         .code
@@ -160,16 +164,13 @@ fn diagnostic_line(diagnostic: &LspDiagnostic, width: u16) -> Line<'static> {
     let location = format!(
         "{}:{}:{}",
         diagnostic.file,
-        diagnostic.line + 1,
-        diagnostic.column + 1
+        u64::from(diagnostic.line) + 1,
+        u64::from(diagnostic.column) + 1
     );
     let prefix = format!("{} {location}{code} ", severity_label(&severity));
-    let remaining = usize::from(width)
-        .saturating_sub(prefix.chars().count())
-        .min(usize::from(width));
     Line::from(vec![
         Span::styled(prefix, Style::default().fg(severity_color(&severity))),
-        Span::raw(shorten(&diagnostic.message, remaining as u16)),
+        Span::raw(diagnostic.message.clone()),
     ])
 }
 
@@ -204,23 +205,6 @@ fn status_summary(status: &LspStatus) -> String {
     )
 }
 
-fn shorten(value: &str, width: u16) -> String {
-    let width = usize::from(width);
-    let char_count = value.chars().count();
-    if char_count <= width {
-        return value.to_string();
-    }
-    if width == 0 {
-        return String::new();
-    }
-    if width <= 3 {
-        return value.chars().take(width).collect();
-    }
-    let mut collected = value.chars().take(width - 3).collect::<String>();
-    collected.push_str("...");
-    collected
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -230,6 +214,22 @@ mod tests {
             .iter()
             .map(|span| span.content.as_ref())
             .collect::<String>()
+    }
+
+    #[test]
+    fn maximum_lsp_positions_keep_exact_one_based_coordinates() {
+        let diagnostic = LspDiagnostic {
+            file: "x".into(),
+            line: u32::MAX,
+            column: u32::MAX,
+            severity: "error".into(),
+            message: "position".into(),
+            code: None,
+        };
+        assert_eq!(
+            diagnostic_line(&diagnostic).to_string(),
+            "[error] x:4294967296:4294967296 position"
+        );
     }
 
     #[test]
@@ -306,14 +306,5 @@ mod tests {
 
         assert!(rendered.contains("src/main.rs · diagnostics pending"));
         assert!(!rendered.contains("no diagnostics"));
-    }
-
-    #[test]
-    fn shorten_respects_width_when_truncated() {
-        assert_eq!(shorten("abcdef", 0), "");
-        assert_eq!(shorten("abcdef", 2), "ab");
-        assert_eq!(shorten("abcdef", 3), "abc");
-        assert_eq!(shorten("abcdef", 4), "a...");
-        assert_eq!(shorten("abcdef", 6), "abcdef");
     }
 }

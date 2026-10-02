@@ -76,7 +76,10 @@ The shared grapheme wrapping profile keeps combining sequences and joined emoji
 on one row and maps vertical navigation to their character-offset boundaries.
 Transcript uses the same range/width primitives with word wrapping; see
 [mouse selection](../features/mouse-text-selection.md). This layout guarantee
-does not add grapheme-aware Backspace/Delete or change stored draft offsets.
+preserves character-offset storage while horizontal movement and Backspace/Delete
+operate on whole graphemes in every shared editable surface. Stale offsets inside
+a grapheme snap to its start; insertion and paste snap forward after newly joined
+clusters, while deletion snaps back if neighboring clusters join.
 Navigation compares untruncated insertion-boundary columns; hardware cursor
 clipping must not make the last character indistinguishable from a newline or
 end of input. Setup editors retain their single-line clipped rendering and
@@ -144,6 +147,7 @@ fake does not prove that a live provider accepted the new model.
 | --- | --- |
 | INPUT-01 | Dispatch j/k and arrow keys in search; verify the query and rendered results; exercise Help Commands scrolling |
 | INPUT-02 | Cursor, history, newline, paste, and busy-input tests; indent cache isolation and rendered vertical movement across sidebar/resize widths |
+| Grapheme editing | Shared editor ownership; previous/next whole clusters; Backspace/Delete; stale character offsets; insertion/paste/deletion joining neighboring clusters |
 | INPUT-03 | Open and dismiss overlays through key dispatch; verify no runtime cancel command is sent |
 | INPUT-04 | Filter by provider; render and select the same model through Enter; verify zero-result behavior |
 | INPUT-05 | Select a model and assert rebuild/setup routing; disambiguate endpoint profiles sharing a model ID |
@@ -154,8 +158,7 @@ fake does not prove that a live provider accepted the new model.
   acceptance needs clipping tests and an explicit scrolling design.
 - Resume search retains append/backspace editing; full cursor editing there
   remains a separate follow-up.
-- Grapheme-cluster editing and a configurable Vim mode are outside the current
-character-offset editor contract.
+- A configurable Vim mode remains outside the current editor contract.
 
 ## Source Journals
 
@@ -163,3 +166,4 @@ character-offset editor contract.
 - [Input ownership and draft preservation](../journal/2026-09-17-tui-input-ownership.md)
 - [Composer wrap geometry](../journal/2026-10-02-composer-wrap-geometry.md)
 - [Display text boundary](../journal/2026-10-03-display-text-boundary.md)
+- [Unicode display and editing boundaries](../journal/2026-10-03-unicode-boundaries.md)

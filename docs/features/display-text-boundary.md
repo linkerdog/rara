@@ -13,6 +13,8 @@ not bound a single long line.
 - Paste sanitization before active-surface routing and burst buffering.
 - Stateful per-source tool progress, bounded by bytes and logical lines.
 - Canonical visual rows and content-sensitive selection snapshots.
+- Grapheme-safe display-column truncation of diagnostic rows, startup labels,
+  paths, and session titles.
 
 ## Non-Goals
 
@@ -62,6 +64,18 @@ does not first allocate a huge sanitized or formatted display string.
 - Selection uses the latest canonical immutable visual rows. A same-length
   middle edit must refresh copy/highlight even when edges and row counts match.
   Unchanged history does not require a full-content hash on every frame.
+- Physical styled rows remove standalone zero-width graphemes that Ratatui
+  does not render. Combining marks and joiners inside visible clusters remain
+  intact, even across style boundaries; the first contributing span owns the
+  cluster style. Rendering, widths, highlight, and copy consume this projection.
+  Removing an invisible separator can join visible clusters; the final
+  projection is re-segmented so repeated normalization cannot change its layout.
+- Diagnostic rows sanitize all metadata before display-column truncation.
+  Every row, including headings, prefixes, summaries, and hidden counts, fits
+  the requested width. Truncation never splits a grapheme. Session-title middle
+  abbreviation likewise uses display columns rather than UTF-8 byte slices.
+  Shared startup/path truncation uses the same grapheme-column primitives;
+  zero available columns produce empty text, not an overflowing marker.
 
 ## Validation Matrix
 
@@ -73,6 +87,8 @@ does not first allocate a huge sanitized or formatted display string.
 | Paste | Composer, burst expansion, editable overlays, and read-only ownership after sanitization |
 | Display coverage | Complete/restored constructors and styled tool-output rows contain no terminal controls |
 | Selection identity | Production rows and drag/copy after a same-sized middle replacement |
+| Unicode columns | Diagnostic chrome/prefix/message and startup/path/title matrices at zero, narrow, and wide widths; styled cross-span clusters and halfwidth sound marks |
+| Visible projection | Standalone zero-width removal, cross-style combining/ZWJ preservation, idempotent re-segmentation, and buffer/highlight/copy agreement |
 
 ## Operational Notes
 
@@ -89,3 +105,4 @@ large chunk still requires work proportional to its input size.
 ## Source Journals
 
 - [Display text boundary](../journal/2026-10-03-display-text-boundary.md)
+- [Unicode display and editing boundaries](../journal/2026-10-03-unicode-boundaries.md)

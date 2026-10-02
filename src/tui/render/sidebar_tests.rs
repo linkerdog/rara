@@ -18,6 +18,50 @@ use crate::tui::status_display::format_token_count;
 // ── format_token_count ──────────────────────────────────────────────
 
 #[test]
+fn session_title_obeys_unicode_boundaries() {
+    let temp = tempdir().expect("tempdir");
+    let mut app = TuiApp::new(ConfigManager {
+        path: temp.path().join("config.json"),
+    })
+    .expect("app");
+    let joined = "\u{1f469}\u{200d}\u{1f4bb}";
+    for (session_id, expected) in [
+        ("0123456789abcdef".to_string(), "01234567…cdef".to_string()),
+        (
+            "\u{754c}".repeat(8),
+            format!("{}…{}", "\u{754c}".repeat(4), "\u{754c}".repeat(2)),
+        ),
+        (
+            joined.repeat(8),
+            format!("{}…{}", joined.repeat(4), joined.repeat(2)),
+        ),
+        (
+            "a\u{301}".repeat(16),
+            format!("{}…{}", "a\u{301}".repeat(8), "a\u{301}".repeat(4)),
+        ),
+        ("ab\u{200b}cd".to_string(), "abcd".to_string()),
+        (
+            "\u{ff76}\u{ff9e}".repeat(10),
+            format!(
+                "{}…{}",
+                "\u{ff76}\u{ff9e}".repeat(4),
+                "\u{ff76}\u{ff9e}".repeat(2)
+            ),
+        ),
+    ] {
+        app.snapshot.session_id = session_id;
+        let mut lines = Vec::new();
+        push_session_info(&mut lines, &app);
+        let title = lines[0].to_string();
+        assert!(
+            crate::tui::text_wrap::display_width(&title) <= 14,
+            "{title:?}"
+        );
+        assert_eq!(title, expected);
+    }
+}
+
+#[test]
 fn format_token_count_small() {
     assert_eq!(format_token_count(0), "0");
     assert_eq!(format_token_count(42), "42");

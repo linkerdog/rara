@@ -82,6 +82,15 @@ The model-facing tool contract is intentionally narrower:
 
 ## Contracts
 
+### Snapshot Numeric Safety
+
+Restoration checks token budgets, used tokens, and completed turns against the
+in-memory `u32` range. An invalid or out-of-range numeric field rejects that
+goal snapshot with a visible notice while keeping the thread resumable and the
+stored data untouched. It must not wrap counts, discard an invalid budget into
+an unlimited goal, or keep another thread's in-memory goal. Missing counters
+retain the legacy zero default; a missing/null budget remains explicitly unlimited.
+
 ### Tool Response Shape
 
 `get_goal`, `create_goal`, and `update_goal` return:
@@ -163,6 +172,10 @@ Detailed goal state belongs in `/goal`, not the bottom pane.
   classifier-injected system reason.
 - Budget-limit prompts ask for wrap-up without new work.
 - Bottom-pane rendering keeps the goal label compact and uses `tokens` units.
+- Production thread restoration rejects each overflowing numeric field without
+  mutating its stored snapshot, then admits exact `u32` limits. Decoder tests
+  cover malformed/negative values, legacy defaults, and all lifecycle statuses.
+  An absent/invalid target snapshot cannot retain another thread's goal.
 
 ## Open Risks
 
@@ -179,3 +192,4 @@ Detailed goal state belongs in `/goal`, not the bottom pane.
 - `docs/journal/2026-05-08-codex-129-goals.md`
 - `docs/journal/2026-09-16-codex-v0154-goals.md`
 - `docs/journal/2026-09-16-goal-resume-permission-tui.md`
+- [Unicode boundary checkpoint](../journal/2026-10-03-unicode-boundaries.md)

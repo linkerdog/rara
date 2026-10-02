@@ -69,6 +69,11 @@ remain numeric; growing a selected row does not automatically extend its endpoin
 Styles do not change copied text. Graphemes wider than the available
 transcript row are displayed as a single replacement character rather than
 creating invisible selectable content.
+Canonical physical rows also omit standalone zero-width graphemes that the
+renderer would skip. Visible combining/ZWJ clusters remain whole across styles,
+using their first contributing span's style. Width measurement includes the
+pinned Ratatui halfwidth sound-mark adjustment. The same normalized projection
+feeds buffer output, selection coordinates, and plain-text copy.
 
 Mouse handling uses that latest snapshot to map screen coordinates back to
 wrapped transcript rows. The tick loop drives edge autoscroll while dragging.
@@ -119,6 +124,7 @@ best-effort fallbacks for local sessions.
 | Behavior | Validation |
 | --- | --- |
 | Wrapped text range extraction | Production viewport buffers and `TranscriptSelection` across narrow/wide widths, prose, CJK, emoji, combining marks, tabs, and URLs |
+| Invisible/cross-style clusters | Standalone zero-width projection, cross-span combining/ZWJ preservation, normalization idempotence, halfwidth cell-width agreement, and drag/highlight/copy assertions |
 | Exact rows and partial scrolling | Counted rows equal materialized/rendered rows; tail and partial-window buffer assertions |
 | Autoscroll selection extension | Unit tests for non-zero scroll offset |
 | Scroll bounds and tail-following | Pure state tests for extreme deltas, empty/short content, layout changes, appends, and return to tail |
@@ -153,3 +159,4 @@ machine clipboard rather than the user's local desktop clipboard.
 - [2026-10-03-transcript-row-reuse](../journal/2026-10-03-transcript-row-reuse.md)
 - [2026-10-03-active-stream-rows](../journal/2026-10-03-active-stream-rows.md)
 - [2026-10-03-display-text-boundary](../journal/2026-10-03-display-text-boundary.md)
+- [2026-10-03-unicode-boundaries](../journal/2026-10-03-unicode-boundaries.md)

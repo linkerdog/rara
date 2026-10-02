@@ -2,6 +2,9 @@ use super::types::{Overlay, TuiApp};
 use super::{
     INPUT_HISTORY_LIMIT, TextInputTarget, char_offset_to_byte_index, effective_cursor_offset,
 };
+use crate::tui::input_text::{
+    ceil_grapheme_offset, floor_grapheme_offset, next_grapheme_offset, previous_grapheme_offset,
+};
 
 impl TuiApp {
     fn active_text_input_target(&self) -> Option<TextInputTarget> {
@@ -205,7 +208,7 @@ impl TuiApp {
         let cursor = effective_cursor_offset(text.as_str(), *cursor_offset);
         let byte_idx = char_offset_to_byte_index(text.as_str(), cursor);
         text.insert(byte_idx, ch);
-        *cursor_offset = Some(cursor.saturating_add(1));
+        *cursor_offset = Some(ceil_grapheme_offset(text, cursor.saturating_add(1)));
         self.update_after_active_input_edit(target);
     }
 
@@ -220,7 +223,10 @@ impl TuiApp {
         let cursor = effective_cursor_offset(text.as_str(), *cursor_offset);
         let byte_idx = char_offset_to_byte_index(text.as_str(), cursor);
         text.insert_str(byte_idx, inserted);
-        *cursor_offset = Some(cursor.saturating_add(inserted.chars().count()));
+        *cursor_offset = Some(ceil_grapheme_offset(
+            text,
+            cursor.saturating_add(inserted.chars().count()),
+        ));
         self.update_after_active_input_edit(target);
     }
 
@@ -228,7 +234,10 @@ impl TuiApp {
         let cursor = self.composer_cursor_offset();
         let byte_idx = char_offset_to_byte_index(self.bottom_pane.input.as_str(), cursor);
         self.bottom_pane.input.insert(byte_idx, '\n');
-        self.bottom_pane.input_cursor_offset = Some(cursor.saturating_add(1));
+        self.bottom_pane.input_cursor_offset = Some(ceil_grapheme_offset(
+            &self.bottom_pane.input,
+            cursor.saturating_add(1),
+        ));
         self.sync_command_palette_with_input();
     }
 
@@ -275,10 +284,11 @@ impl TuiApp {
         if cursor == 0 {
             return;
         }
-        let start = char_offset_to_byte_index(text.as_str(), cursor - 1);
+        let previous = previous_grapheme_offset(text, cursor);
+        let start = char_offset_to_byte_index(text.as_str(), previous);
         let end = char_offset_to_byte_index(text.as_str(), cursor);
         text.replace_range(start..end, "");
-        *cursor_offset = Some(cursor - 1);
+        *cursor_offset = Some(floor_grapheme_offset(text, previous));
         self.update_after_active_input_edit(target);
     }
 
@@ -292,9 +302,9 @@ impl TuiApp {
             return;
         }
         let start = char_offset_to_byte_index(text.as_str(), cursor);
-        let end = char_offset_to_byte_index(text.as_str(), cursor + 1);
+        let end = char_offset_to_byte_index(text.as_str(), next_grapheme_offset(text, cursor));
         text.replace_range(start..end, "");
-        *cursor_offset = Some(cursor);
+        *cursor_offset = Some(floor_grapheme_offset(text, cursor));
         self.update_after_active_input_edit(target);
     }
 
@@ -304,7 +314,7 @@ impl TuiApp {
         };
         let (text, cursor_offset) = self.text_and_cursor_mut(target);
         let cursor = effective_cursor_offset(text.as_str(), *cursor_offset);
-        *cursor_offset = Some(cursor.saturating_sub(1));
+        *cursor_offset = Some(previous_grapheme_offset(text, cursor));
     }
 
     pub fn move_active_input_cursor_right(&mut self) {
@@ -313,7 +323,7 @@ impl TuiApp {
         };
         let (text, cursor_offset) = self.text_and_cursor_mut(target);
         let cursor = effective_cursor_offset(text.as_str(), *cursor_offset);
-        *cursor_offset = Some((cursor + 1).min(text.chars().count()));
+        *cursor_offset = Some(next_grapheme_offset(text, cursor));
     }
 
     pub fn move_active_input_cursor_home(&mut self) {

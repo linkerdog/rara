@@ -75,8 +75,14 @@ Active backlog only. Keep this file small and current.
       focused automated coverage. Legacy identity-free events cannot separate
       concurrent same-name calls. See
       [the display checkpoint](journal/2026-10-03-display-text-boundary.md).
+- [ ] Finish [#924](https://github.com/linkerdog/rara/issues/924) delivery gates:
+      exact-head remote CI/review/merge and bounded real-terminal acceptance.
+      Diagnostic/startup/path/title column clipping, whole-grapheme shared
+      editing, normalized visual-row selection, and checked non-destructive
+      goal restoration have focused automated coverage. See
+      [the Unicode checkpoint](journal/2026-10-03-unicode-boundaries.md).
 - [ ] Complete remaining keyboard contracts: resume-search cursor editing,
-      Help General/Runtime scrolling, grapheme-cluster editing, and an explicit
+      Help General/Runtime scrolling, and an explicit
       opt-in Vim mode. See [input risks](interaction/composer-and-overlays.md#open-risks).
 - [ ] Add a runtime-owned skill enablement update and readback before restoring
       editing controls to the read-only `/skills` inspector. See
