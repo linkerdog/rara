@@ -1,12 +1,6 @@
 use std::io;
 
 use anyhow::Result;
-use crossterm::{
-    cursor::Show,
-    event::{DisableBracketedPaste, DisableMouseCapture, EnableBracketedPaste, EnableMouseCapture},
-    execute,
-    terminal::disable_raw_mode,
-};
 use ratatui::{backend::CrosstermBackend, layout::Rect};
 
 use super::custom_terminal::Terminal;
@@ -41,24 +35,9 @@ pub(super) fn build_terminal(
     viewport_height: u16,
 ) -> Result<Terminal<CrosstermBackend<std::io::Stdout>>> {
     let mut terminal = Terminal::new(CrosstermBackend::new(io::stdout()))?;
-    execute!(
-        terminal.backend_mut(),
-        EnableBracketedPaste,
-        EnableMouseCapture
-    )?;
-
-    let result = (|| -> Result<()> {
-        let size = terminal.size()?;
-        terminal.set_viewport_area(viewport_area(size.width, size.height, viewport_height));
-        terminal.clear_visible_screen()?;
-        Ok(())
-    })();
-
-    if let Err(err) = result {
-        let _ = execute!(terminal.backend_mut(), DisableBracketedPaste);
-        return Err(err);
-    }
-
+    let size = terminal.size()?;
+    terminal.set_viewport_area(viewport_area(size.width, size.height, viewport_height));
+    terminal.clear_visible_screen()?;
     Ok(terminal)
 }
 
@@ -73,20 +52,6 @@ pub(super) fn update_terminal_viewport(
         terminal.clear_visible_screen()?;
         terminal.set_viewport_area(area);
     }
-    Ok(())
-}
-
-pub(super) fn teardown_terminal(
-    mut terminal: Terminal<CrosstermBackend<std::io::Stdout>>,
-) -> Result<()> {
-    execute!(
-        terminal.backend_mut(),
-        DisableBracketedPaste,
-        DisableMouseCapture
-    )?;
-    disable_raw_mode()?;
-    execute!(terminal.backend_mut(), Show)?;
-    terminal.show_cursor()?;
     Ok(())
 }
 

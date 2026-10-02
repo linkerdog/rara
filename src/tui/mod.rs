@@ -46,6 +46,7 @@ mod status_display;
 mod sub_agent_display;
 mod submit;
 mod terminal_event;
+mod terminal_modes;
 mod terminal_ui;
 #[cfg(test)]
 mod testing;
