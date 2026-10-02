@@ -1,7 +1,7 @@
 use crossterm::event::{KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
 
 use super::runtime_port::RuntimeCommand;
-use super::state::{RunningTask, RuntimeSnapshot, TaskKind};
+use super::state::{Overlay, RunningTask, RuntimeSnapshot, TaskKind};
 use super::terminal_ui::handle_paste;
 use super::testing::TuiHarness;
 use crate::runtime_control::{InputControlRequest, SessionControlRequest};
@@ -47,9 +47,14 @@ async fn paste_is_inserted_at_original_cursor_before_next_edit() {
 
 #[tokio::test]
 async fn clear_removes_pending_paste_and_flushed_placeholder_payloads() {
-    for flush_first in [false, true] {
+    for (paste, flush_first) in [
+        ("first\nsecond".to_string(), false),
+        ("first\nsecond".to_string(), true),
+        ("x".repeat(1200), false),
+        ("x".repeat(1200), true),
+    ] {
         let mut tui = harness();
-        handle_paste("x".repeat(1200), tui.app_mut());
+        handle_paste(paste, tui.app_mut());
         if flush_first {
             tui.app_mut().bottom_pane.flush_paste_burst();
         }
@@ -58,6 +63,51 @@ async fn clear_removes_pending_paste_and_flushed_placeholder_payloads() {
         assert!(tui.app().bottom_pane.large_paste_pending.is_empty());
         assert_eq!(tui.app().bottom_pane.large_paste_counter, 0);
         assert!(!tui.app_mut().bottom_pane.flush_paste_burst());
+        assert!(
+            tui.app().bottom_pane.notice.is_none(),
+            "discarded paste notice"
+        );
+        tui.expect_no_commands();
+    }
+}
+
+#[tokio::test]
+async fn clear_preserves_unrelated_notices_after_flushing_a_paste() {
+    for warning in [
+        "Network unavailable",
+        "Pasted content is prohibited by policy",
+    ] {
+        let mut tui = harness();
+        handle_paste("x".repeat(1200), tui.app_mut());
+        assert!(tui.app_mut().flush_composer_paste());
+        tui.app_mut().bottom_pane.notice = Some(warning.into());
+        press(&mut tui, KeyCode::Char('c'), KeyModifiers::CONTROL).await;
+        assert!(tui.app().bottom_pane.input.is_empty());
+        assert_eq!(tui.app().bottom_pane.notice.as_deref(), Some(warning));
+        tui.expect_no_commands();
+    }
+}
+
+#[test]
+fn palette_dismissal_discards_pending_burst_and_large_payloads() {
+    for flush_first in [false, true] {
+        let mut tui = harness();
+        tui.app_mut().bottom_pane.input = "/".into();
+        tui.app_mut().open_overlay(Overlay::CommandPalette);
+        tui.app_mut()
+            .bottom_pane
+            .handle_paste_burst_chunk(&"x".repeat(1200));
+        if flush_first {
+            tui.app_mut().bottom_pane.flush_paste_burst();
+        }
+        tui.app_mut().dismiss_overlay();
+        assert!(tui.app().bottom_pane.input.is_empty());
+        assert!(tui.app().bottom_pane.large_paste_pending.is_empty());
+        assert!(
+            !tui.app_mut().bottom_pane.flush_paste_burst(),
+            "dismissed burst must not reappear"
+        );
+        assert!(tui.app().bottom_pane.notice.is_none());
         tui.expect_no_commands();
     }
 }

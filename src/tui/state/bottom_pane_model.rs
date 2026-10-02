@@ -23,6 +23,8 @@ pub struct BottomPaneModel {
     pub queued_follow_up_messages: Vec<String>,
     pub running_task: Option<RunningTask>,
     pub notice: Option<String>,
+    // Track the paste-owned notice so discarding a draft preserves newer warnings.
+    pub(super) paste_notice: Option<String>,
 
     // Paste-burst state: when a paste contains newlines or exceeds the
     // large-paste threshold we accumulate chars and flush in one `push_str`,
@@ -46,6 +48,7 @@ impl BottomPaneModel {
             queued_follow_up_messages: Vec::new(),
             running_task: None,
             notice: None,
+            paste_notice: None,
             paste_burst_buffer: None,
             paste_burst_deadline: None,
             large_paste_pending: Vec::new(),
@@ -68,6 +71,11 @@ impl BottomPaneModel {
         self.paste_burst_deadline = None;
         self.large_paste_pending.clear();
         self.large_paste_counter = 0;
+        if let Some(paste_notice) = self.paste_notice.take()
+            && self.notice.as_ref() == Some(&paste_notice)
+        {
+            self.notice = None;
+        }
     }
 
     // ── Paste-burst ──────────────────────────────────────────────────
@@ -106,7 +114,7 @@ impl BottomPaneModel {
             self.input.insert_str(pos, &placeholder);
             self.input_cursor_offset = Some(offset + placeholder.chars().count());
             self.large_paste_pending.push((placeholder, buf));
-            self.notice = Some(format!(
+            self.set_paste_notice(format!(
                 "Large paste #{counter} ({char_count} chars) — expanded on submit"
             ));
             return true;
@@ -124,8 +132,13 @@ impl BottomPaneModel {
             }
         };
         self.input_cursor_offset = paste_end;
-        self.notice = Some(format!("Pasted {char_count} chars"));
+        self.set_paste_notice(format!("Pasted {char_count} chars"));
         true
+    }
+
+    fn set_paste_notice(&mut self, notice: String) {
+        self.notice = Some(notice.clone());
+        self.paste_notice = Some(notice);
     }
 
     pub fn has_pending_planning_suggestion(&self) -> bool {

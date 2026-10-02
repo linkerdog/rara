@@ -57,7 +57,8 @@ not inherit the plain-list j/k shortcuts.
   Pending paste is applied before interpreting the next pressed/repeated key
   or applying an input action. Immediate submission includes the complete
   paste, and cursor/history/approval routing sees the resulting composer.
-  Clearing discards pending bursts, deadlines, and placeholder payloads.
+  Clearing discards pending bursts, deadlines, placeholder payloads, and the
+  current paste-generated notice, while preserving unrelated warnings/status.
   Esc retains its existing cancellation/no-op behavior and preserves the draft;
   no paste may appear later in a cleared or submitted composer.
 
@@ -70,7 +71,8 @@ its explicit navigation shortcuts. A configurable Vim mode is not provided.
 - A slash token opens the command palette; adding argument whitespace returns
   to the composer so arguments can be entered explicitly.
 - Explicit palette dismissal clears its slash input so it does not reopen
-  immediately. Selecting a command dismisses the palette before dispatch.
+  immediately, using the same complete draft/paste cleanup boundary. Selecting
+  a command dismisses the palette before dispatch.
 - Esc affects the top overlay. Setup cancellation follows the owning setup
   flow; it must not implicitly submit a credential or change permissions.
 - Model-search dismissal resets only its query, cursor, and selection. It

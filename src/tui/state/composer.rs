@@ -474,5 +474,9 @@ mod tests {
         assert_eq!(app.bottom_pane.input, "old promptfirst\nsecond");
         assert!(app.input_history_cursor.is_none());
         assert!(!app.check_composer_paste_flush());
+        app.bottom_pane.clear_input();
+        assert!(app.bottom_pane.notice.is_none());
+        assert!(app.bottom_pane.paste_burst_deadline.is_none());
+        assert!(!app.check_composer_paste_flush());
     }
 }
