@@ -3,7 +3,7 @@ use rara_tool_macros::tool_spec;
 use rara_tools::tool::{Tool, ToolError};
 use serde_json::{Value, json};
 
-use crate::tui::state::{GoalHandle, GoalStatus, RalphGoal};
+use crate::runtime_goals::{GoalHandle, GoalStatus, RalphGoal};
 
 pub const CREATE_GOAL_TOOL_NAME: &str = "create_goal";
 pub const GET_GOAL_TOOL_NAME: &str = "get_goal";
@@ -24,8 +24,7 @@ pub struct GetGoalTool {
 #[async_trait]
 impl Tool for GetGoalTool {
     async fn call(&self, _input: Value) -> Result<Value, ToolError> {
-        let guard = self.store.read().unwrap();
-        Ok(goal_tool_response(guard.as_ref(), false))
+        Ok(goal_tool_response(self.store.snapshot().as_ref(), false))
     }
 }
 
@@ -55,18 +54,6 @@ pub struct CreateGoalTool {
 #[async_trait]
 impl Tool for CreateGoalTool {
     async fn call(&self, input: Value) -> Result<Value, ToolError> {
-        if self
-            .store
-            .read()
-            .unwrap()
-            .as_ref()
-            .is_some_and(|goal| goal.status != GoalStatus::Complete)
-        {
-            return Err(ToolError::InvalidInput(
-                "cannot create a new goal because this thread already has an unfinished goal; use update_goal only when the existing goal is complete".into(),
-            ));
-        }
-
         let objective = input["objective"]
             .as_str()
             .ok_or_else(|| ToolError::InvalidInput("objective must be a string".into()))?
@@ -92,10 +79,18 @@ impl Tool for CreateGoalTool {
         };
 
         let goal = RalphGoal::new(objective, token_budget);
-        let response = goal_tool_response(Some(&goal), false);
-        *self.store.write().unwrap() = Some(goal);
-
-        Ok(response)
+        self.store
+            .mutate(|stored| {
+                if stored.as_ref().is_some_and(|goal| goal.status != GoalStatus::Complete) {
+                    return Err(ToolError::InvalidInput(
+                        "cannot create a new goal because this thread already has an unfinished goal; use update_goal only when the existing goal is complete".into(),
+                    ).into());
+                }
+                let response = goal_tool_response(Some(&goal), false);
+                *stored = Some(goal);
+                Ok(response)
+            })
+            .map_err(goal_mutation_error)
     }
 }
 
@@ -135,17 +130,25 @@ impl Tool for UpdateGoalTool {
             }
         };
 
-        let mut guard = self.store.write().unwrap();
-        let goal = guard
-            .as_mut()
-            .ok_or_else(|| ToolError::InvalidInput("No active goal to update.".into()))?;
+        self.store
+            .mutate(|stored| {
+                let goal = stored
+                    .as_mut()
+                    .ok_or_else(|| ToolError::InvalidInput("No active goal to update.".into()))?;
+                goal.status = status;
+                Ok(goal_tool_response(
+                    Some(goal),
+                    status == GoalStatus::Complete,
+                ))
+            })
+            .map_err(goal_mutation_error)
+    }
+}
 
-        goal.status = status;
-
-        Ok(goal_tool_response(
-            Some(goal),
-            status == GoalStatus::Complete,
-        ))
+fn goal_mutation_error(error: anyhow::Error) -> ToolError {
+    match error.downcast::<ToolError>() {
+        Ok(error) => error,
+        Err(error) => ToolError::ExecutionFailed(format!("failed to persist goal: {error:#}")),
     }
 }
 
@@ -206,6 +209,10 @@ fn completion_budget_report(goal: &RalphGoal) -> Option<String> {
 }
 
 #[cfg(test)]
+#[path = "goal_persistence_tests.rs"]
+mod persistence_tests;
+
+#[cfg(test)]
 mod tests {
     use std::sync::Arc;
 
@@ -214,7 +221,7 @@ mod tests {
     use super::*;
 
     fn goal_handle() -> GoalHandle {
-        Arc::new(std::sync::RwLock::new(None))
+        Arc::new(crate::runtime_goals::GoalStore::default())
     }
 
     fn block<F: std::future::Future>(f: F) -> F::Output {
@@ -257,7 +264,9 @@ mod tests {
     #[test]
     fn create_goal_fails_when_goal_is_unfinished() {
         let store = goal_handle();
-        *store.write().unwrap() = Some(RalphGoal::new("existing".into(), None));
+        store
+            .replace(Some(RalphGoal::new("existing".into(), None)))
+            .expect("seed goal");
 
         let create = CreateGoalTool {
             store: store.clone(),
@@ -271,7 +280,7 @@ mod tests {
         let store = goal_handle();
         let mut completed = RalphGoal::new("existing".into(), None);
         completed.status = GoalStatus::Complete;
-        *store.write().unwrap() = Some(completed);
+        store.replace(Some(completed)).expect("seed goal");
 
         let create = CreateGoalTool {
             store: store.clone(),
@@ -338,7 +347,7 @@ mod tests {
         goal.turns_completed = 3;
         goal.created_at_epoch_seconds =
             crate::tui::state::current_unix_timestamp_secs().saturating_sub(75);
-        *store.write().unwrap() = Some(goal);
+        store.replace(Some(goal)).expect("seed goal");
 
         let update = UpdateGoalTool {
             store: store.clone(),
@@ -360,7 +369,9 @@ mod tests {
     #[test]
     fn update_goal_marks_blocked_without_completion_report() {
         let store = goal_handle();
-        *store.write().unwrap() = Some(RalphGoal::new("test".into(), None));
+        store
+            .replace(Some(RalphGoal::new("test".into(), None)))
+            .expect("seed goal");
 
         let update = UpdateGoalTool { store };
         let result = block(update.call(serde_json::json!({"status": "blocked"}))).unwrap();
@@ -372,7 +383,9 @@ mod tests {
     #[test]
     fn update_goal_rejects_invalid_status() {
         let store = goal_handle();
-        *store.write().unwrap() = Some(RalphGoal::new("test".into(), None));
+        store
+            .replace(Some(RalphGoal::new("test".into(), None)))
+            .expect("seed goal");
 
         let update = UpdateGoalTool { store };
         let err = block(update.call(serde_json::json!({"status": "pursuing"}))).unwrap_err();

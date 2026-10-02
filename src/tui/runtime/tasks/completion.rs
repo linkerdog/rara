@@ -88,7 +88,11 @@ async fn finish_running_task_if_ready_with_completion_mode(
         while task.receiver.try_recv().is_ok() {}
     }
     match completion {
-        TaskCompletion::Query { mut agent, result } => {
+        TaskCompletion::Query {
+            mut agent,
+            result,
+            goal_turn,
+        } => {
             let query_started_in_plan_mode = matches!(
                 app.agent_execution_mode,
                 crate::agent::AgentExecutionMode::Plan
@@ -111,6 +115,34 @@ async fn finish_running_task_if_ready_with_completion_mode(
                     let permission_changed =
                         super::permissions::apply_pending_permission_mode(app, &mut agent);
                     app.clear_active_live_sections();
+                    let continuation = match RuntimeClient::continue_goal(
+                        &app.goal_handle,
+                        &agent,
+                        goal_turn.as_ref(),
+                        finished_plan_turn,
+                        app.has_pending_plan_approval(),
+                    ) {
+                        Ok(continuation) => continuation,
+                        Err(error) => {
+                            app.goal = app.goal_handle.snapshot();
+                            app.apply_runtime_snapshot(
+                                &agent,
+                                RuntimeClient::extension_snapshot_for_agent(&agent, 0),
+                            );
+                            log::warn!("Goal accounting failed; stopping continuation: {error:#}");
+                            app.push_notice(format!(
+                                "Goal accounting failed; continuation stopped: {error:#}"
+                            ));
+                            app.finalize_active_turn();
+                            app.set_runtime_phase(
+                                RuntimePhase::Failed,
+                                Some("goal persistence failed".into()),
+                            );
+                            *agent_slot = Some(agent);
+                            return Ok(());
+                        }
+                    };
+                    app.goal = app.goal_handle.snapshot();
                     if finished_plan_turn {
                         match plan_continuation {
                             crate::runtime_client::PlanContinuation::AwaitApproval { tool_id } => {
@@ -136,17 +168,7 @@ async fn finish_running_task_if_ready_with_completion_mode(
                             }
                         }
                     }
-                    if let Some(goal) = app.goal_handle.read().unwrap().clone() {
-                        app.goal = Some(goal);
-                    }
-                    let prior_total_input_tokens = app.snapshot.total_input_tokens;
-                    match RuntimeClient::continue_goal(
-                        &app.goal_handle,
-                        &agent,
-                        prior_total_input_tokens,
-                        finished_plan_turn,
-                        app.has_pending_plan_approval(),
-                    ) {
+                    match continuation {
                         GoalContinuation::BudgetLimited { goal, prompt } => {
                             app.goal = Some(goal.clone());
                             app.push_notice(format!(
@@ -193,7 +215,7 @@ async fn finish_running_task_if_ready_with_completion_mode(
                         GoalContinuation::NotActive => {}
                     }
                     *agent_slot = Some(agent);
-                    app.goal = app.goal_handle.read().unwrap().clone();
+                    app.goal = app.goal_handle.snapshot();
                     if let Some(a) = agent_slot.as_ref() {
                         app.apply_runtime_snapshot(
                             a,
@@ -334,11 +356,9 @@ async fn finish_running_task_if_ready_with_completion_mode(
                 );
                 app.sandbox_network_access = rebuilt.sandbox_network_access;
                 super::permissions::apply_pending_permission_mode(app, &mut agent);
-                if let Some(goal) = app.goal.as_ref() {
-                    *rebuilt.goal_handle.write().unwrap() = Some(goal.clone());
-                }
+                rebuilt.goal_handle.inherit_from(&app.goal_handle);
                 app.goal_handle = rebuilt.goal_handle;
-                app.goal = app.goal_handle.read().unwrap().clone();
+                app.goal = app.goal_handle.snapshot();
                 app.mcp_tool_cache = Some(rebuilt.mcp_tool_cache);
                 app.mcp_manager = Some(rebuilt.mcp_manager);
                 app.lsp_manager = Some(rebuilt.lsp_manager);
