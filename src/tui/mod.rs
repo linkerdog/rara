@@ -27,6 +27,8 @@ mod markdown_stream;
 mod message_role;
 mod model_search;
 #[cfg(test)]
+mod paste_input_tests;
+#[cfg(test)]
 mod permission_controls_tests;
 mod permission_policy;
 mod plan_display;

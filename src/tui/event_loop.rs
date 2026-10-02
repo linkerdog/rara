@@ -168,7 +168,7 @@ async fn run_tui_session(
                 terminal.draw(|f| render(f, app))?;
                 needs_redraw = false;
             }
-            if app.bottom_pane.check_paste_burst_flush() {
+            if app.check_composer_paste_flush() {
                 needs_redraw = true;
             }
         }
