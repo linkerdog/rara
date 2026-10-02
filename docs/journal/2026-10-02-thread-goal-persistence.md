@@ -16,6 +16,12 @@ creation time and narrowed stored counters with unchecked casts.
   documents why active session ID and project storage root must stay aligned
   across resume/branch. This is a session-binding pattern, not a claim that
   Claude Code implements the same goal API.
+- Follow-up references: Codex `ext/goal/src/runtime.rs::restore_after_resume`
+  checks the stored goal before publishing accounting state, and its
+  `extension.rs::on_thread_resume` reports restoration failures without aborting
+  the thread callback. Claude Code `conversationRecovery.ts` reports and
+  rethrows deserialization errors. Keep required thread reads transactional;
+  isolate the optional initial goal binding with a visible diagnostic.
 - Adapt these patterns to one private runtime goal store. Keep the existing
   database schema, tool response fields, lifecycle policy, and input-token
   usage metric. Make persistence errors stop publication/continuation,
@@ -41,6 +47,19 @@ creation time and narrowed stored counters with unchecked casts.
 - A failed accounting write returns no continuation, keeps the runtime agent,
   and displays a failure notice. A failed command/tool write retains the last
   committed goal snapshot rather than reporting success.
+- Restoration follow-up stages thread, todo, and runtime JSON reads before
+  rebinding the goal as the final fallible step. Failure preserves agent
+  history, session ID, presentation, and the previous durable goal binding.
+  Bootstrap logs a warning and disables goal persistence when binding fails;
+  it does not rewrite corrupt records or accept memory-only replacements.
+  Empty/whitespace objectives and zero budgets are rejected before restoration
+  publication. `/goal` errors are contained at the command boundary, with a
+  visible notice and no event-loop exit or failed-write continuation.
+- Explicit and generated bootstrap IDs match the assembled agent's durable
+  binding. ACP supplies its session ID, exec uses the bootstrap's ID, and
+  subagents allocate their own IDs in `agent_control`/`agent_runtime` without
+  traversing this bootstrap path. Keep the TUI type re-exports: presentation
+  consumers still use them.
 - Review follow-up: Codex captures the active goal identity and token baseline
   at turn start. Adopt that boundary so a successful terminal or paused goal
   turn still persists usage; only the resulting status decides continuation.
@@ -66,6 +85,14 @@ Review RED: `terminal_goal_turn_persists_final_usage_without_continuing`
 restores a completed goal with 90 tokens and two turns instead of the expected
 105 tokens and three turns after a successful query. This regression exercises
 the update tool, task completion, and fresh-app restoration boundary.
+
+Restoration review REDs: a corrupt todo changes the agent ID to the target
+thread before failing; a corrupt goal aborts bootstrap; an empty objective is
+published as active; and an injected SQLite pause write escapes the local
+command loop. These are behavioral assertion failures. The corrected cases
+also cover runtime JSON, rejected goal restore, whitespace objectives, zero
+budgets, failed clear/create, unchanged durable rows, and actual agent-ID
+binding for both explicit and generated IDs.
 
 Focused checks:
 
@@ -100,6 +127,11 @@ the state-database suite reports 10 passing tests. Strict Clippy completes
 without source warnings. The macOS debug linker still reports its existing
 large `__eh_frame` compact-unwind limitation; no linker settings are changed.
 Remote exact-head CI remains a separate gate after publication.
+
+The restoration follow-up's goal-filtered suite reports 59 passing tests;
+the runtime-context suite reports 22 passing tests, and the root library suite
+reports 1540 passing tests with one ignored fixture. Source-size limits remain
+preserved by a private bootstrap goal-binding module.
 
 ## Remaining Work
 

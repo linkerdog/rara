@@ -124,6 +124,9 @@ fn corrupt_goal_never_becomes_active_or_overwrites_the_current_binding() {
         ("tokens_used", json!(u64::from(u32::MAX) + 1)),
         ("turns_completed", json!(-1)),
         ("token_budget", json!(u64::from(u32::MAX) + 1)),
+        ("objective", json!("")),
+        ("objective", json!(" \t\n")),
+        ("token_budget", json!(0)),
     ] {
         let mut corrupt = serde_json::to_value(&goal).expect("serialize");
         corrupt[field] = value;

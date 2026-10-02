@@ -1,3 +1,4 @@
+mod goal_persistence;
 mod tooling;
 
 use std::path::{Path, PathBuf};
@@ -558,15 +559,12 @@ pub(crate) async fn initialize_rara_context_with_options(
     };
     let hook_registry = Arc::new(HookRegistry::new(event_bus.clone()));
     let goal_handle = Arc::new(GoalStore::default());
-    if options.transcript_persistence {
-        let thread_id = options
-            .session_id
-            .get_or_insert_with(|| uuid::Uuid::new_v4().to_string());
-        let db = Arc::new(rara_state::state_db::StateDb::new_for_root_dir(
-            workspace.rara_dir.clone(),
-        )?);
-        goal_handle.restore_for_thread(thread_id, db)?;
-    }
+    goal_persistence::bind_bootstrap_goal(
+        &goal_handle,
+        &mut options,
+        &workspace,
+        &mut prompt_config.warnings,
+    );
     let mcp_tool_cache = McpToolCache::new();
     mcp_tool_cache.clear();
     let lsp_manager = Arc::new(LspManager::new(workspace.root.clone()));

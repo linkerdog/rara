@@ -50,8 +50,13 @@ The existing `goals` row stores every lifecycle status, budget, usage counter,
 and the original creation timestamp. Clearing deletes that row. Replacing a
 completed goal starts a new creation time; updating an existing goal retains
 its creation time. Restoration uses checked deserialization: unknown statuses,
-negative or oversized counters, and invalid timestamps fail rather than become
-an active goal. A missing row clears any prior thread's presentation snapshot.
+negative or oversized counters, empty objectives, zero budgets, and invalid
+timestamps fail rather than become an active goal. A missing row clears any
+prior thread's presentation snapshot. Thread restoration stages all fallible
+reads before publishing the agent, TUI snapshot, or new goal binding; a failed
+restore retains the previous thread and its binding. Initial bootstrap warns
+and disables goal persistence when its optional goal binding is unavailable,
+without aborting the whole runtime or silently accepting memory-only goals.
 Runtime rebuilding preserves the current goal's thread binding and state.
 Persistence-disabled embedded profiles remain explicitly in-memory.
 
@@ -83,6 +88,8 @@ The TUI owns local lifecycle controls:
   audit and immediately starts a continuation turn when the session is idle.
   Resume refuses to change state while another task is running or the runtime
   has no agent to execute the continuation.
+- A failed `/goal` mutation displays a diagnostic, retains the committed
+  snapshot, and keeps the command loop alive without launching continuation.
 - `/goal` shows the current objective, lifecycle state, elapsed seconds, turns,
   tokens used, budget, and remaining tokens.
 
@@ -187,7 +194,12 @@ Detailed goal state belongs in `/goal`, not the bottom pane.
 - Clear remains absent after restoration, including a switch from another
   thread with a goal. Replacement uses the new goal's creation time.
 - Write failures leave the prior snapshot unchanged and stop continuation;
-  corrupt stored status or numeric values cannot restore as `Pursuing`.
+  corrupt stored status, objective, budget, or numeric values cannot restore
+  as `Pursuing`. Command failures do not exit the TUI event loop.
+- Corrupt todo, runtime JSON, or goal records cannot partially switch the
+  agent or goal binding. Initial corrupt goals preserve normal bootstrap with
+  a warning and fail-closed goal tools; explicit and generated session IDs
+  address the same durable binding as the assembled agent.
 - Complete and blocked snapshots include the final successful goal turn after
   fresh-app restoration, without launching another continuation. Non-goal and
   plan queries do not charge a newly created or inactive goal.

@@ -182,113 +182,122 @@ pub(super) async fn execute_local_command_with_runtime(
             handle_tasks_command(command.arg.as_deref(), app, agent_slot);
         }
         LocalCommandKind::Goal => {
-            mark_local_command(app, Some("processing goal command".into()));
-            app.goal = app.goal_handle.snapshot();
-            let arg = command.arg.as_deref().unwrap_or("").trim();
-            match arg {
-                "" => {
-                    // /goal with no subcommand: show current goal status
-                    if let Some(goal) = app.goal.as_ref() {
-                        let status_str = match goal.status {
-                            GoalStatus::Pursuing => "active",
-                            GoalStatus::Paused => "paused",
-                            GoalStatus::Blocked => "blocked",
-                            GoalStatus::Complete => "complete",
-                            GoalStatus::BudgetLimited => "budget-limited",
-                        };
-                        let usage = goal
-                            .token_budget
-                            .map(|budget| {
-                                format!(" · {} / {budget} tokens", goal.tokens_used.min(budget))
-                            })
-                            .unwrap_or_default();
-                        let notice =
-                            format!("Goal: {} [{status_str}]{usage}", goal.objective.as_str());
-                        app.push_notice(notice);
-                    } else {
-                        app.push_notice("No active goal. Use /help for /goal details.");
-                    }
-                }
-                "pause" => {
-                    let previous_status = app.goal_handle.mutate(|stored| {
-                        let Some(goal) = stored.as_mut() else {
-                            return Ok(None);
-                        };
-                        let previous_status = goal.status;
-                        if previous_status == GoalStatus::Pursuing {
-                            goal.status = GoalStatus::Paused;
-                        }
-                        Ok(Some(previous_status))
-                    })?;
-                    app.goal = app.goal_handle.snapshot();
-                    match previous_status {
-                        Some(GoalStatus::Pursuing) => {
-                            app.push_notice("Goal paused. Use /goal resume to continue.");
-                        }
-                        Some(
-                            GoalStatus::Paused
-                            | GoalStatus::Blocked
-                            | GoalStatus::Complete
-                            | GoalStatus::BudgetLimited,
-                        ) => {
-                            app.push_notice("Goal is not currently pursuing; nothing to pause.");
-                        }
-                        None => app.push_notice("No active goal to pause."),
-                    }
-                }
-                "resume" => {
-                    resume_goal_continuation(app, agent_slot, runtime_port).await?;
-                }
-                "clear" => {
-                    if app.goal.is_some() {
-                        app.goal_handle.replace(None)?;
-                        app.goal = app.goal_handle.snapshot();
-                        app.push_notice("Goal cleared.");
-                    } else {
-                        app.push_notice("No active goal to clear.");
-                    }
-                }
-                objective => {
-                    if app
-                        .goal
-                        .as_ref()
-                        .is_some_and(|goal| goal.status != GoalStatus::Complete)
-                    {
-                        app.push_notice(
-                            "An unfinished goal already exists. Use /goal clear before setting a new goal.",
-                        );
-                        return Ok(false);
-                    }
-                    match parse_goal_objective_and_budget(objective) {
-                        Ok((objective_clean, budget)) => {
-                            app.goal_handle.mutate(|stored| {
-                                anyhow::ensure!(
-                                    stored
-                                        .as_ref()
-                                        .is_none_or(|goal| goal.status == GoalStatus::Complete),
-                                    "an unfinished goal already exists"
-                                );
-                                *stored = Some(RalphGoal::new(objective_clean.clone(), budget));
-                                Ok(())
-                            })?;
-                            app.goal = app.goal_handle.snapshot();
-                            let mut notice = format!("Goal set: {}", objective_clean);
-                            if let Some(b) = budget {
-                                notice.push_str(&format!(" [budget: {b} tokens]"));
-                            }
-                            if !app.is_busy()
-                                && app.active_pending_interaction().is_none()
-                                && agent_slot.is_some()
-                            {
-                                start_active_goal_continuation(app, agent_slot, runtime_port)
-                                    .await?;
-                                notice.push_str(". Continuing active goal.");
-                            }
+            let result: anyhow::Result<()> = async {
+                mark_local_command(app, Some("processing goal command".into()));
+                app.goal = app.goal_handle.snapshot();
+                let arg = command.arg.as_deref().unwrap_or("").trim();
+                match arg {
+                    "" => {
+                        // /goal with no subcommand: show current goal status
+                        if let Some(goal) = app.goal.as_ref() {
+                            let status_str = match goal.status {
+                                GoalStatus::Pursuing => "active",
+                                GoalStatus::Paused => "paused",
+                                GoalStatus::Blocked => "blocked",
+                                GoalStatus::Complete => "complete",
+                                GoalStatus::BudgetLimited => "budget-limited",
+                            };
+                            let usage = goal
+                                .token_budget
+                                .map(|budget| {
+                                    format!(" · {} / {budget} tokens", goal.tokens_used.min(budget))
+                                })
+                                .unwrap_or_default();
+                            let notice =
+                                format!("Goal: {} [{status_str}]{usage}", goal.objective.as_str());
                             app.push_notice(notice);
+                        } else {
+                            app.push_notice("No active goal. Use /help for /goal details.");
                         }
-                        Err(message) => app.push_notice(message),
+                    }
+                    "pause" => {
+                        let previous_status = app.goal_handle.mutate(|stored| {
+                            let Some(goal) = stored.as_mut() else {
+                                return Ok(None);
+                            };
+                            let previous_status = goal.status;
+                            if previous_status == GoalStatus::Pursuing {
+                                goal.status = GoalStatus::Paused;
+                            }
+                            Ok(Some(previous_status))
+                        })?;
+                        app.goal = app.goal_handle.snapshot();
+                        match previous_status {
+                            Some(GoalStatus::Pursuing) => {
+                                app.push_notice("Goal paused. Use /goal resume to continue.");
+                            }
+                            Some(
+                                GoalStatus::Paused
+                                | GoalStatus::Blocked
+                                | GoalStatus::Complete
+                                | GoalStatus::BudgetLimited,
+                            ) => {
+                                app.push_notice("Goal is not currently pursuing; nothing to pause.");
+                            }
+                            None => app.push_notice("No active goal to pause."),
+                        }
+                    }
+                    "resume" => {
+                        resume_goal_continuation(app, agent_slot, runtime_port).await?;
+                    }
+                    "clear" => {
+                        if app.goal.is_some() {
+                            app.goal_handle.replace(None)?;
+                            app.goal = app.goal_handle.snapshot();
+                            app.push_notice("Goal cleared.");
+                        } else {
+                            app.push_notice("No active goal to clear.");
+                        }
+                    }
+                    objective => {
+                        if app
+                            .goal
+                            .as_ref()
+                            .is_some_and(|goal| goal.status != GoalStatus::Complete)
+                        {
+                            app.push_notice(
+                                "An unfinished goal already exists. Use /goal clear before setting a new goal.",
+                            );
+                            return Ok(());
+                        }
+                        match parse_goal_objective_and_budget(objective) {
+                            Ok((objective_clean, budget)) => {
+                                app.goal_handle.mutate(|stored| {
+                                    anyhow::ensure!(
+                                        stored
+                                            .as_ref()
+                                            .is_none_or(|goal| goal.status == GoalStatus::Complete),
+                                        "an unfinished goal already exists"
+                                    );
+                                    *stored = Some(RalphGoal::new(objective_clean.clone(), budget));
+                                    Ok(())
+                                })?;
+                                app.goal = app.goal_handle.snapshot();
+                                let mut notice = format!("Goal set: {}", objective_clean);
+                                if let Some(b) = budget {
+                                    notice.push_str(&format!(" [budget: {b} tokens]"));
+                                }
+                                if !app.is_busy()
+                                    && app.active_pending_interaction().is_none()
+                                    && agent_slot.is_some()
+                                {
+                                    start_active_goal_continuation(app, agent_slot, runtime_port)
+                                        .await?;
+                                    notice.push_str(". Continuing active goal.");
+                                }
+                                app.push_notice(notice);
+                            }
+                            Err(message) => app.push_notice(message),
+                        }
                     }
                 }
+                Ok(())
+            }
+            .await;
+            if let Err(error) = result {
+                log::warn!("Goal command failed: {error:#}");
+                app.goal = app.goal_handle.snapshot();
+                app.push_notice(format!("Goal command failed: {error:#}"));
             }
         }
         LocalCommandKind::Skills => {

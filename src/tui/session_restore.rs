@@ -39,6 +39,9 @@ pub(super) fn restore_thread_by_id(
     };
     let thread_store = ThreadStore::new(agent.session_manager.as_ref(), state_db.as_ref());
     let thread = thread_store.load_thread(thread_id)?;
+    let todo_state = agent.session_manager.load_todo_state(thread_id)?;
+    let runtime_state = state_db.load_session_runtime_state(thread_id)?;
+    // Rebinding the goal is the final fallible step before publishing the thread.
     let restored_goal = app
         .goal_handle
         .restore_for_thread(thread_id, state_db.clone())?;
@@ -54,8 +57,8 @@ pub(super) fn restore_thread_by_id(
     } = thread;
     agent.history = history;
     agent.session_id = metadata.session_id;
-    agent.todo_state = agent.session_manager.load_todo_state(thread_id)?;
-    if let Some(runtime_state) = state_db.load_session_runtime_state(thread_id)? {
+    agent.todo_state = todo_state;
+    if let Some(runtime_state) = runtime_state {
         agent.set_bash_approval_mode(parse_bash_approval_mode(
             runtime_state.bash_approval.as_str(),
         ));

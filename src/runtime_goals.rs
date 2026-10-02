@@ -134,6 +134,16 @@ impl GoalStore {
             .map(serde_json::from_value::<RalphGoal>)
             .transpose()
             .with_context(|| format!("invalid persisted goal for thread {thread_id}"))?;
+        if let Some(goal) = goal.as_ref() {
+            anyhow::ensure!(
+                !goal.objective.trim().is_empty(),
+                "invalid persisted goal for thread {thread_id}: objective must not be empty"
+            );
+            anyhow::ensure!(
+                goal.token_budget != Some(0),
+                "invalid persisted goal for thread {thread_id}: token budget must be positive"
+            );
+        }
         state.goal = goal.clone();
         state.membership = Arc::new(());
         state.persistence = GoalPersistence::Durable {
