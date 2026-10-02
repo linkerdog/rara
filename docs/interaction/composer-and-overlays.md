@@ -55,15 +55,18 @@ not inherit the plain-list j/k shortcuts.
 - Pasted content uses the paste event path, including large-paste expansion at
   submission; it must not be replayed as individual shortcut key presses.
   Pending paste is applied before interpreting the next pressed/repeated key
-  or applying an input action. Immediate submission includes the complete
-  paste, and cursor/history/approval routing sees the resulting composer.
+  or applying an input action, except palette dismissal described in INPUT-03.
+  Immediate submission includes the complete paste, and cursor/history/approval
+  routing sees the resulting composer.
   Clearing discards pending bursts, deadlines, placeholder payloads, and the
   current paste-generated notice, while preserving unrelated warnings/status.
   Submission expands and consumes the complete draft through the same cleanup
   boundary, including whitespace-only input; submitted paste notices do not
   linger after their content is sent or discarded.
-  Esc retains its existing cancellation/no-op behavior and preserves the draft;
-  no paste may appear later in a cleared or submitted composer.
+  Outside the command palette, Esc retains its existing cancellation/no-op
+  behavior and preserves the draft. Palette dismissal discards its draft as
+  specified in INPUT-03; no paste may appear later in a cleared or submitted
+  composer.
 
 An ordinary composer accepts j/k as text even when empty. Transcript scrolling
 uses arrows, PageUp/PageDown, or the mouse. An empty approval composer retains

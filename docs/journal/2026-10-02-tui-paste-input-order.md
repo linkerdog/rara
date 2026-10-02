@@ -44,9 +44,9 @@ against stale empty input. INPUT-02 now names the complete input boundary.
   paste payloads. It also removes the current paste-owned notice, but preserves
   a newer warning/status notice. Track the generated notice instead of matching
   a text prefix that could also describe an unrelated warning. Command-palette
-  dismissal uses the same complete clear boundary. Esc keeps its existing
-  cancellation/no-op semantics and preserves drafts; it does not introduce a
-  new discard gesture.
+  dismissal uses the same complete clear boundary. Outside the command palette,
+  Esc keeps its existing cancellation/no-op semantics and preserves drafts;
+  it does not introduce a new composer discard gesture.
 - Palette Esc and direct `CloseOverlay` skip the preliminary composer flush:
   dismissal already discards its complete draft. Other keys/actions still use
   complete-input routing. This prevents a whitespace-containing paste from
@@ -86,8 +86,8 @@ The review follow-up reproduces two additional failures on the prior PR head:
 the stale paste notice after clear and a pending burst reappearing after palette
 dismissal. It broadens clear coverage to small/large and pending/flushed pastes,
 adds palette-dismissal and unrelated-warning coverage, and verifies that a
-timed flush notice is cleared with its draft. The paste suite now contains ten
-tests plus the separate deterministic timer test.
+timed flush notice is cleared with its draft. At this clear-notice checkpoint,
+the paste suite contains ten tests plus the separate deterministic timer test.
 
 A further review catches two previously missed production-path failures:
 palette Esc and direct `CloseOverlay` retain the pasted slash draft after
@@ -96,10 +96,10 @@ added regressions cover small multiline and large placeholder pastes, both
 pressed and repeated Esc, production key translation and direct action
 dispatch, and the absence of late paste/notice/payload state.
 
-The TUI suite reports 663 passing tests. `cargo check`, strict Clippy,
-formatting, and diff checks complete without source warnings. The macOS debug
+The clear-notice checkpoint reports 663 passing TUI tests. `cargo check`, strict
+Clippy, formatting, and diff checks complete without source warnings. The macOS debug
 test linker reports its large `__eh_frame` compact-unwind limitation. Remote
-CI for the review follow-up remains pending at this checkpoint. Direct input
+CI for that historical checkpoint was still pending. Direct input
 replacement in history/palette selection is already preceded by a flush.
 Runtime-opened overlays and mouse events may still defer insertion until the
 existing timer; their cosmetic timing is unchanged. Unbracketed paste
@@ -122,3 +122,19 @@ select its first option, while production pre-routing flush instead inserts
 The submission follow-up reports 668 passing TUI tests, including fifteen
 focused paste tests and the separate timer test. Compilation, strict all-target
 Clippy, formatting, and diff checks pass; no source-size limit is exceeded.
+
+## Documentation Re-review
+
+The final re-review identifies an ambiguous Esc sentence in INPUT-02. The spec
+and this journal now explicitly exclude command-palette dismissal from the
+draft-preserving composer Esc rule and cross-reference INPUT-03. Runtime behavior
+and the existing regressions are unchanged.
+
+On 2026-10-02, all eight remote checks for implementation head `0e536d77`
+completed successfully, including [Bazel](https://github.com/linkerdog/rara/actions/runs/37016604426)
+and [tests](https://github.com/linkerdog/rara/actions/runs/37016604253).
+The earlier counts above describe successive implementation checkpoints.
+This documentation-only follow-up does not rerun behavioral tests.
+Its verification is `cargo fmt --all -- --check` and
+`git diff --check`; remote CI for its new commit is a separate gate. Green CI
+does not establish manual terminal acceptance or merge completion.
