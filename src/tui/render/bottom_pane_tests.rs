@@ -283,6 +283,103 @@ fn wrapped_text_rows_preserve_space_only_and_blank_lines() {
 }
 
 #[test]
+fn wrapped_text_cache_keeps_indent_variants_separate() {
+    let input = "abcdefghij";
+    assert_eq!(
+        wrapped_text_rows(input, 6, None, None),
+        vec!["abcdef", "ghij"]
+    );
+    assert_eq!(
+        wrapped_text_rows(input, 6, Some("› "), Some("  ")),
+        vec!["› abcd", "  efgh", "  ij"]
+    );
+    assert_eq!(
+        wrapped_text_rows(input, 6, Some("› "), None),
+        vec!["› abcd", "efghij"]
+    );
+    assert_eq!(
+        wrapped_text_rows(input, 6, None, None),
+        vec!["abcdef", "ghij"]
+    );
+}
+
+#[test]
+fn composer_height_counts_the_same_indented_rows_as_rendering() {
+    let temp = tempdir().expect("tempdir");
+    let mut app = TuiApp::new(ConfigManager {
+        path: temp.path().join("config.json"),
+    })
+    .expect("app");
+    app.bottom_pane.input = "0123456789".into();
+    assert_eq!(super::composer_content_line_count(&app, 6), 3);
+}
+
+#[test]
+fn placeholder_uses_the_measured_layout_and_discards_stale_draft_scroll() {
+    use crate::tui::testing::TuiHarness;
+
+    let mut tui = TuiHarness::new(RuntimeSnapshot::default()).expect("harness");
+    tui.app_mut().bottom_pane.composer_scroll = 99;
+    let (buffer, cursor) = tui.screen_buffer(24, 40);
+    let cursor = cursor.expect("composer cursor");
+    assert_eq!(cursor.0, 2);
+    assert_eq!(tui.app().bottom_pane.composer_scroll, 0);
+    let expected = wrapped_text_rows(super::COMPOSER_PLACEHOLDER, 24, Some("› "), Some("  "));
+    assert_eq!(expected[0], "› Ask about the repo, re");
+    for (row, expected) in expected.iter().take(3).enumerate() {
+        let actual = (0..24)
+            .map(|x| buffer[(x, cursor.1 + row as u16)].symbol())
+            .collect::<String>();
+        assert_eq!(actual.trim_end(), expected.trim_end());
+    }
+}
+
+#[test]
+fn composer_vertical_movement_tracks_the_rendered_row_with_or_without_sidebar() {
+    use crate::tui::testing::TuiHarness;
+
+    let mut tui = TuiHarness::new(RuntimeSnapshot::default()).expect("harness");
+    for (terminal_width, sidebar_visible, main_width) in [
+        (80, true, 80),
+        (120, true, 120),
+        (160, true, 122),
+        (160, false, 160),
+    ] {
+        let content_width = usize::from(main_width - 2);
+        let cursor_offset = content_width + 7;
+        let app = tui.app_mut();
+        app.terminal_width = terminal_width;
+        app.sidebar_visible = sidebar_visible;
+        app.bottom_pane.input = "abcdefghijklmnopqrstuvwxyz".repeat(20);
+        app.bottom_pane.input_cursor_offset = Some(cursor_offset);
+        app.bottom_pane.composer_scroll = 0;
+        let expected_character = app
+            .bottom_pane
+            .input
+            .chars()
+            .nth(cursor_offset)
+            .expect("cursor character")
+            .to_string();
+        let (before_buffer, before_cursor) = tui.screen_buffer(terminal_width, 40);
+        let before = before_cursor.expect("composer cursor");
+        assert_eq!(before.0, terminal_width - main_width + 9);
+        assert_eq!(before_buffer[before].symbol(), expected_character);
+        tui.app_mut().move_composer_cursor_up();
+        let (up_buffer, up_cursor) = tui.screen_buffer(terminal_width, 40);
+        assert_eq!(
+            up_cursor,
+            Some((before.0, before.1 - 1)),
+            "width={terminal_width}, sidebar={sidebar_visible}"
+        );
+        assert_eq!(tui.app().composer_cursor_offset(), 7);
+        assert_eq!(up_buffer[up_cursor.expect("up cursor")].symbol(), "h");
+        tui.app_mut().move_composer_cursor_down();
+        assert_eq!(tui.screen_with_cursor(terminal_width, 40).1, Some(before));
+        assert_eq!(tui.app().composer_cursor_offset(), cursor_offset);
+    }
+}
+
+#[test]
 fn wrapped_text_cursor_tracks_trailing_blank_composer_line() {
     let area = Rect {
         x: 4,

@@ -59,6 +59,16 @@ An ordinary composer accepts j/k as text even when empty. Transcript scrolling
 uses arrows, PageUp/PageDown, or the mouse. An empty approval composer retains
 its explicit navigation shortcuts. A configurable Vim mode is not provided.
 
+Composer rendering, height, cursor placement, scrolling, and Up/Down movement
+consume one pure text layout with the actual main-pane width after any sidebar.
+The layout cache includes text, width, initial indent, and subsequent indent;
+setup editors without indents cannot reuse composer-prefixed rows. Composer
+continuations use a two-column indent, including explicit newlines. Tabs retain
+the existing four-column expansion. At a soft-wrap boundary before another
+character, the cursor belongs to the next displayed row. Moving vertically
+chooses the nearest valid character offset on the adjacent displayed row.
+Resize and sidebar toggles recompute the width from the same pane geometry.
+
 ### INPUT-03: Overlay Lifecycle
 
 - A slash token opens the command palette; adding argument whitespace returns
@@ -115,7 +125,7 @@ fake does not prove that a live provider accepted the new model.
 | Contract | Observable check |
 | --- | --- |
 | INPUT-01 | Dispatch j/k and arrow keys in search; verify the query and rendered results; exercise Help Commands scrolling |
-| INPUT-02 | Existing cursor, history, newline, paste, and busy-input tests |
+| INPUT-02 | Cursor, history, newline, paste, and busy-input tests; indent cache isolation and rendered vertical movement across sidebar/resize widths |
 | INPUT-03 | Open and dismiss overlays through key dispatch; verify no runtime cancel command is sent |
 | INPUT-04 | Filter by provider; render and select the same model through Enter; verify zero-result behavior |
 | INPUT-05 | Select a model and assert rebuild/setup routing; disambiguate endpoint profiles sharing a model ID |
@@ -127,9 +137,10 @@ fake does not prove that a live provider accepted the new model.
 - Resume search retains append/backspace editing; full cursor editing there
   remains a separate follow-up.
 - Grapheme-cluster editing and a configurable Vim mode are outside the current
-  character-offset editor contract.
+character-offset editor contract.
 
 ## Source Journals
 
 - [TUI interaction contracts](../journal/2026-09-17-tui-interaction-contracts.md)
 - [Input ownership and draft preservation](../journal/2026-09-17-tui-input-ownership.md)
+- [Composer wrap geometry](../journal/2026-10-02-composer-wrap-geometry.md)

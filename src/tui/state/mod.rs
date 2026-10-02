@@ -19,7 +19,6 @@ use rara_persistence::redaction::redact_secrets;
 use rara_provider_catalog::ModelCatalogEntry;
 use rara_provider_catalog::{ModelCatalogProvider, fallback_models};
 use rara_state::state_db::StateDb;
-use unicode_width::UnicodeWidthChar;
 
 pub use self::planning_lifecycle::{
     PlanningApprovalDecision, PlanningApprovalStatus, PlanningLifecycleSnapshot,
@@ -57,7 +56,7 @@ mod model_selection;
 mod provider_setup;
 mod support;
 
-pub(super) use support::{INPUT_HISTORY_LIMIT, composer_display_char_width};
+pub(super) use support::INPUT_HISTORY_LIMIT;
 use support::{
     TextInputTarget, effective_cursor_offset, startup_warning_for_config, state_db_status_error,
     terminal_multiplexer_label, terminal_remote_label,
