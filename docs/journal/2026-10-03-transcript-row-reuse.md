@@ -11,10 +11,10 @@ are included.
 
 Inspected references before implementation:
 
-- Codex `4b9d30f7953273e567a18eb819f4eddd45fcc877`, `pager_overlay.rs`: immutable
+- Codex `ea2046f36d5ee12d39c8e168fc3e5129301afa2b`, `pager_overlay.rs`: immutable
   history cells and cached heights, append preserving old cells, and live-tail
   invalidation including width, revision, continuation spacing, and animation.
-- Claude Code `ea2046f36d5ee12d39c8e168fc3e5129301afa2b`, `Message.tsx`: static
+- Claude Code `4b9d30f7953273e567a18eb819f4eddd45fcc877`, `Message.tsx`: static
   message identity with width/visibility keys; `OffscreenFreeze.tsx` reuses
   references but deliberately avoids freezing virtual-list content.
 

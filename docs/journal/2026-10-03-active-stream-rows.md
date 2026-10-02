@@ -13,13 +13,18 @@ clipboard, or terminal-lifecycle contract changes are included.
 
 Inspected before implementation:
 
-- Codex `4b9d30f7953273e567a18eb819f4eddd45fcc877`: source-only newline
+- Codex `ea2046f36d5ee12d39c8e168fc3e5129301afa2b`: source-only newline
   collection and canonical replay in `markdown_stream.rs`; immutable cached
   history and width/revision/continuation/animation live-tail keys in
   `pager_overlay.rs`.
-- Claude Code `ea2046f36d5ee12d39c8e168fc3e5129301afa2b`: `Message.tsx`
+- Claude Code `4b9d30f7953273e567a18eb819f4eddd45fcc877`: `Message.tsx`
   separates static message identity from width, thinking visibility, and latest
   bash-output invalidation. No offscreen freeze is introduced.
+
+The earlier source/shared-row journals transposed these two reference SHAs.
+This checkpoint corrects the mapping after checking each local repository's
+origin and the target files in its exact commit (`git cat-file -e`). The
+implementation patterns and validation results are unchanged.
 
 Long Plan:
 
