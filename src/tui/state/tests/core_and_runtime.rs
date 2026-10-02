@@ -30,7 +30,7 @@ fn agent_markdown_stream_sanitizes_terminal_controls() {
 
     assert_eq!(stream.sanitized_raw_text(), "First\nSecond red!");
     let rendered = stream
-        .display_lines
+        .display_lines()
         .iter()
         .map(|line| line.to_string())
         .collect::<Vec<_>>()
@@ -50,13 +50,28 @@ fn agent_markdown_stream_finalize_commits_partial_line() {
     stream.finalize_display_lines();
 
     let rendered = stream
-        .display_lines
+        .display_lines()
         .iter()
         .map(|line| line.to_string())
         .collect::<Vec<_>>()
         .join("\n");
     assert!(rendered.contains("Partial answer without newline"));
-    assert_eq!(stream.display_lines.len(), 1);
+    assert_eq!(stream.display_lines().len(), 1);
+}
+
+#[test]
+fn agent_markdown_ingestion_and_borrowed_reads_do_not_repeat_work() {
+    let mut stream = AgentMarkdownStreamState::new(std::path::PathBuf::from("."));
+    for _ in 0..1000 {
+        stream.push_delta("word ");
+    }
+    assert_eq!(stream.markdown_work().parses, 0);
+    let first = stream.display_lines();
+    let work = stream.markdown_work();
+    let second = stream.display_lines();
+    assert_eq!(first.as_ptr(), second.as_ptr());
+    assert_eq!(stream.markdown_work(), work);
+    assert_eq!(work.parses, 1);
 }
 
 #[test]

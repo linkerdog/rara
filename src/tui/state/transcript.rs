@@ -1,3 +1,4 @@
+use std::cell::Ref;
 use std::path::PathBuf;
 
 use rara_persistence::redaction::redact_secrets;
@@ -176,16 +177,16 @@ impl TuiApp {
         self.push_active_progress_entry("Thinking", message);
     }
 
-    pub fn agent_stream_lines(&self) -> Option<&[Line<'static>]> {
+    pub fn agent_stream_lines(&self) -> Option<Ref<'_, [Line<'static>]>> {
         self.agent_markdown_stream
             .as_ref()
-            .map(|stream| stream.display_lines.as_slice())
+            .map(super::AgentMarkdownStreamState::display_lines)
     }
 
-    pub fn agent_thinking_stream_lines(&self) -> Option<&[Line<'static>]> {
+    pub fn agent_thinking_stream_lines(&self) -> Option<Ref<'_, [Line<'static>]>> {
         self.agent_thinking_stream
             .as_ref()
-            .map(|stream| stream.display_lines.as_slice())
+            .map(super::AgentMarkdownStreamState::display_lines)
     }
 
     pub fn has_agent_stream(&self) -> bool {

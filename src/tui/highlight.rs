@@ -1,9 +1,15 @@
-use std::sync::{OnceLock, RwLock};
+mod streaming;
+
+use std::sync::{
+    OnceLock, RwLock,
+    atomic::{AtomicU64, Ordering},
+};
 
 use ratatui::{
     style::{Color as RtColor, Modifier, Style},
     text::{Line, Span},
 };
+pub(crate) use streaming::StreamingCodeHighlighter;
 use syntect::{
     easy::HighlightLines,
     highlighting::{Color as SyntectColor, FontStyle, Style as SyntectStyle, Theme},
@@ -14,6 +20,7 @@ use two_face::theme::{EmbeddedLazyThemeSet, EmbeddedThemeName};
 
 static SYNTAX_SET: OnceLock<syntect::parsing::SyntaxSet> = OnceLock::new();
 static THEME: OnceLock<RwLock<Theme>> = OnceLock::new();
+static THEME_REVISION: AtomicU64 = AtomicU64::new(0);
 
 const ANSI_ALPHA_INDEX: u8 = 0x00;
 const ANSI_ALPHA_DEFAULT: u8 = 0x01;
@@ -54,9 +61,24 @@ pub(crate) fn install_syntax_theme(name: Option<&str>) {
         })
         .unwrap_or_else(default_syntax_theme);
     match theme_lock().write() {
-        Ok(mut active) => *active = theme,
-        Err(poisoned) => *poisoned.into_inner() = theme,
+        Ok(mut active) => {
+            if *active != theme {
+                *active = theme;
+                THEME_REVISION.fetch_add(1, Ordering::Release);
+            }
+        }
+        Err(poisoned) => {
+            let mut active = poisoned.into_inner();
+            if *active != theme {
+                *active = theme;
+                THEME_REVISION.fetch_add(1, Ordering::Release);
+            }
+        }
     }
+}
+
+fn syntax_theme_revision() -> u64 {
+    THEME_REVISION.load(Ordering::Acquire)
 }
 
 fn current_syntax_theme() -> Theme {

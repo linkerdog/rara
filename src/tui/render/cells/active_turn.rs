@@ -215,7 +215,9 @@ impl ActiveCell for ActiveTurnCell<'_> {
             // The toggle only affects committed (finalized) thinking blocks.
             push_streaming_thinking(
                 &mut cells,
-                streaming_thinking_lines.filter(|_| has_live_thinking),
+                streaming_thinking_lines
+                    .as_deref()
+                    .filter(|_| has_live_thinking),
                 false,
                 thinking_dur,
             );
@@ -474,7 +476,7 @@ impl ActiveCell for ActiveTurnCell<'_> {
             && !suppress_planning_chatter
             && !suppress_structured_plan_response
         {
-            if let Some(stream_lines) = streaming_agent_lines {
+            if let Some(stream_lines) = streaming_agent_lines.as_deref() {
                 if compact_live_response {
                     cells.push(Box::new(RespondingCell::from_stream_compact(
                         stream_lines,
