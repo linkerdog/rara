@@ -18,6 +18,11 @@ at a different character from the selected input offset.
 - Adapt these patterns to a private plain-text layout. Keep the existing
   character-offset editor and fixed four-column tab behavior. Share pane
   geometry instead of giving state a dependency on a renderer.
+- Review follow-up: Codex's `move_cursor_up` chooses a target column against
+  a wrapped text range; Claude Code's `Cursor.up/down` converts display columns
+  back into offsets through measured rows. Preserve distinct insertion
+  boundaries before hardware clipping. Setup fields are intentionally clipped
+  single-line editors, so they must not inherit the composer's soft wrapping.
 
 ## Implementation And Trade-offs
 
@@ -37,6 +42,14 @@ at a different character from the selected input offset.
 - Remove the duplicated state wrapping and display-width implementations.
   Transcript-wide wrapping, grapheme editing, and terminal lifecycle are not
   included in this fix.
+- Review follow-up separates logical insertion columns from clipped hardware
+  cursor columns. Offset lookup compares the stored columns, not their clipped
+  aliases, so the last character does not tie with a newline or end boundary.
+- URL, model-name, profile-label, and API-key editors retain their unwrapped
+  rendering and clip the cursor on that same row. Shared tab expansion is used
+  by both plaintext editor rendering and its cursor measurement. Masked keys
+  use the actual asterisks for cursor measurement, not the secret's Unicode
+  widths. No horizontal-scroll or grapheme-editing API is added.
 
 ## Validation
 
@@ -44,6 +57,13 @@ Behavioral RED: requesting composer indents after no-indent rows returns
 `["abcdef", "ghij"]` instead of `["› abcd", "  efgh", "  ij"]`. A rendered
 cursor regression also reads `j` at the cursor cell when the selected input
 offset points to `h`.
+
+Review REDs: at 80 columns, offset 155 in a 156-character draft becomes 156
+after Up/Down, changing insertion to append. In the production URL editor,
+offset 76 returns `(2, 9)` on an empty row instead of `(77, 8)` on the clipped
+text row. Corrected tests cover the last character before end-of-input and
+newlines, distinct full-row insertion boundaries, actual insertion, all four
+setup surfaces, soft-boundary/overflow offsets, and masked wide-character keys.
 
 Focused coverage includes indent isolation, height measurement, actual screen
 buffer cells, Up/Down round trips at 80/120/160 columns with the sidebar on/off,
@@ -63,7 +83,13 @@ git diff --check
 Remote exact-head CI and manual terminal interaction remain separate from
 these pure layout and production-render checks.
 
-The final TUI-filtered suite reports 659 passing tests. `cargo check`, strict
+The pre-review TUI-filtered suite reports 659 passing tests. `cargo check`, strict
 all-target Clippy, formatting, and diff checks complete without source
 warnings. The macOS debug test linker retains its existing large `__eh_frame`
 compact-unwind warning; no linker flags or Bazel configuration are changed.
+
+The review follow-up adds four regressions: two pure layout tests and two
+production-render/navigation checks. The corrected TUI-filtered suite reports
+663 passing tests, and the pure composer layout suite reports five passing
+tests. Preferred-column restoration across
+shorter rows remains the existing nearest-column behavior, not a new contract.

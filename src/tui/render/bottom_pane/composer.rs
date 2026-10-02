@@ -11,7 +11,7 @@ use super::super::super::interaction_text::pending_interaction_hint_text;
 use super::super::super::queued_input::{pending_follow_up_hint, queued_follow_up_hint};
 use super::super::super::state::{ActivePendingInteractionKind, GoalStatus, TaskKind, TuiApp};
 use super::bottom_pane_style;
-use crate::tui::composer_text::{WrapConfig, expand_tabs, wrapped_text};
+use crate::tui::composer_text::{WrapConfig, clipped_cursor_column, expand_tabs, wrapped_text};
 use crate::tui::theme::{TEXT_ACCENT, TEXT_MUTED, TEXT_SECONDARY};
 
 const COMPOSER_PLACEHOLDER: &str =
@@ -232,7 +232,9 @@ pub(super) fn composer_content_line_count(app: &TuiApp, width: u16) -> u16 {
 }
 
 pub(crate) fn editor_cursor_position(input: &str, cursor_offset: usize, area: Rect) -> (u16, u16) {
-    wrapped_text_cursor_position(input, cursor_offset, inner_rect(area), None, None)
+    let inner = inner_rect(area);
+    let column = clipped_cursor_column(input, cursor_offset, inner.width) as u16;
+    (inner.x.saturating_add(column), inner.y)
 }
 
 fn inner_rect(area: Rect) -> Rect {

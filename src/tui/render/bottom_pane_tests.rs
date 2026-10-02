@@ -380,6 +380,52 @@ fn composer_vertical_movement_tracks_the_rendered_row_with_or_without_sidebar() 
 }
 
 #[test]
+fn composer_last_column_navigation_preserves_insertion_offsets() {
+    use crate::tui::testing::TuiHarness;
+
+    let mut tui = TuiHarness::new(RuntimeSnapshot::default()).expect("harness");
+    for terminal_width in [80, 120, 160] {
+        let content_width = usize::from(terminal_width - 2);
+        for input in [
+            "z".repeat(content_width * 2),
+            format!(
+                "{}\n{}\n",
+                "z".repeat(content_width),
+                "z".repeat(content_width)
+            ),
+        ] {
+            let second_row_end = if input.contains('\n') {
+                content_width * 2 + 1
+            } else {
+                content_width * 2
+            };
+            for offset in [second_row_end - 1, second_row_end] {
+                if !input.contains('\n') && offset == second_row_end {
+                    // A soft-wrapped previous row has no insertion boundary past
+                    // its last character. Nearest-column movement still clamps there.
+                    continue;
+                }
+                let app = tui.app_mut();
+                app.terminal_width = terminal_width;
+                app.sidebar_visible = false;
+                app.bottom_pane.input = input.clone();
+                app.bottom_pane.input_cursor_offset = Some(offset);
+                tui.app_mut().move_composer_cursor_up();
+                tui.app_mut().move_composer_cursor_down();
+                assert_eq!(
+                    tui.app().composer_cursor_offset(),
+                    offset,
+                    "width={terminal_width}, offset={offset}, newline={}",
+                    input.contains('\n')
+                );
+                tui.app_mut().insert_active_input_char('X');
+                assert_eq!(tui.app().bottom_pane.input.chars().nth(offset), Some('X'));
+            }
+        }
+    }
+}
+
+#[test]
 fn wrapped_text_cursor_tracks_trailing_blank_composer_line() {
     let area = Rect {
         x: 4,

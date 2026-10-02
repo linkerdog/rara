@@ -335,7 +335,7 @@ impl TuiApp {
     pub fn move_composer_cursor_up(&mut self) {
         let cursor = self.composer_cursor_offset();
         let layout = self.composer_text_layout();
-        let position = layout.cursor_position(cursor);
+        let position = layout.position_for_offset(cursor);
         if position.row == 0 {
             self.bottom_pane.input_cursor_offset = Some(0);
             return;
@@ -351,7 +351,7 @@ impl TuiApp {
     pub fn move_composer_cursor_down(&mut self) {
         let cursor = self.composer_cursor_offset();
         let layout = self.composer_text_layout();
-        let position = layout.cursor_position(cursor);
+        let position = layout.position_for_offset(cursor);
         let target = layout.offset_for_position(crate::tui::composer_text::VisualPosition {
             row: position.row + 1,
             column: position.column,

@@ -40,9 +40,14 @@ impl WrappedText {
     }
 
     pub(crate) fn cursor_position(&self, offset: usize) -> VisualPosition {
-        let mut position = self.positions[offset.min(self.positions.len() - 1)];
+        let mut position = self.position_for_offset(offset);
         position.column = position.column.min(self.width - 1);
         position
+    }
+
+    /// Keeps insertion-boundary columns distinct before hardware cursor clipping.
+    pub(crate) fn position_for_offset(&self, offset: usize) -> VisualPosition {
+        self.positions[offset.min(self.positions.len() - 1)]
     }
 
     pub(crate) fn offset_for_position(&self, target: VisualPosition) -> usize {
@@ -55,7 +60,7 @@ impl WrappedText {
             .filter(|(_, position)| position.row == target.row)
             .min_by_key(|(offset, position)| {
                 (
-                    position.column.min(self.width - 1).abs_diff(target.column),
+                    position.column.abs_diff(target.column),
                     std::cmp::Reverse(*offset),
                 )
             })
@@ -146,6 +151,16 @@ pub(crate) fn expand_tabs(text: &str) -> String {
     text.replace('\t', &" ".repeat(TAB_WIDTH))
 }
 
+/// Measures the displayed prefix of a clipped, single-line editor.
+pub(crate) fn clipped_cursor_column(input: &str, offset: usize, width: u16) -> usize {
+    let prefix = input
+        .chars()
+        .take(offset)
+        .take_while(|ch| *ch != '\n')
+        .collect::<String>();
+    UnicodeWidthStr::width(expand_tabs(&prefix).as_str()).min(usize::from(width.max(1) - 1))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -183,5 +198,35 @@ mod tests {
         assert!(!Arc::ptr_eq(&first, &resized));
         let changed = wrapped_text("cache the new draft", WrapConfig::composer(13));
         assert!(!Arc::ptr_eq(&resized, &changed));
+    }
+
+    #[test]
+    fn full_row_insertion_boundaries_remain_distinct_when_the_cursor_is_clipped() {
+        for input in ["abcdefgh", "abcd\nefgh\n"] {
+            let layout = wrapped_text(input, WrapConfig::composer(6));
+            let end = if input.contains('\n') { 9 } else { 8 };
+            for offset in [end - 1, end] {
+                assert_eq!(
+                    layout.offset_for_position(layout.position_for_offset(offset)),
+                    offset
+                );
+            }
+            assert_eq!(
+                layout.cursor_position(end - 1).column,
+                layout.cursor_position(end).column
+            );
+            assert_ne!(
+                layout.position_for_offset(end - 1).column,
+                layout.position_for_offset(end).column
+            );
+        }
+    }
+
+    #[test]
+    fn clipped_editors_measure_display_columns_without_soft_wrapping() {
+        assert_eq!(clipped_cursor_column("abcdef", 4, 4), 3);
+        assert_eq!(clipped_cursor_column("abcdef", 6, 4), 3);
+        assert_eq!(clipped_cursor_column("\u{754c}\tx", 2, 10), 6);
+        assert_eq!(clipped_cursor_column("abcdef", 4, 0), 0);
     }
 }

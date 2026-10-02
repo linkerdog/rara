@@ -67,6 +67,10 @@ continuations use a two-column indent, including explicit newlines. Tabs retain
 the existing four-column expansion. At a soft-wrap boundary before another
 character, the cursor belongs to the next displayed row. Moving vertically
 chooses the nearest valid character offset on the adjacent displayed row.
+Navigation compares untruncated insertion-boundary columns; hardware cursor
+clipping must not make the last character indistinguishable from a newline or
+end of input. Setup editors retain their single-line clipped rendering and
+compute the cursor from that same display text, including masked API keys.
 Resize and sidebar toggles recompute the width from the same pane geometry.
 
 ### INPUT-03: Overlay Lifecycle
