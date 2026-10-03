@@ -244,6 +244,7 @@ pub(crate) fn start_input_control_task_with_services(
     agent.set_full_access_mode(app.permission_mode == PermissionMode::FullAccess);
     sync_bash_prefixes_from_config(app, &mut agent);
     agent.set_cancellation_token(Some(cancellation_token.clone()));
+    crate::tui::goal_resume::record_turn_started(app);
     let goal_turn = match &request {
         crate::runtime_control::InputControlRequest::AnswerPlanApproval { decision, .. } => {
             match decision {
@@ -421,6 +422,7 @@ pub(super) fn start_review_task(app: &mut TuiApp, prompt: String, mut agent: Age
         Some("reviewing changes".into()),
     );
     app.push_entry(MessageRole::User, prompt.clone());
+    crate::tui::goal_resume::record_turn_started(app);
     let goal_turn = app.goal_handle.begin_turn(agent.total_input_tokens);
 
     let handle = tokio::spawn(async move {
@@ -716,6 +718,7 @@ pub(super) fn request_running_task_cancellation(app: &mut TuiApp, kind: QuerySto
     }
     if task.handle.is_finished() {
         app.bottom_pane.notice = Some("The query has already stopped.".into());
+        crate::tui::goal_resume::defer_for_user_stop(app);
         return false;
     }
     if let Some((token, control)) = task
@@ -731,6 +734,7 @@ pub(super) fn request_running_task_cancellation(app: &mut TuiApp, kind: QuerySto
             }
             QueryStopRequest::Finished => {
                 app.bottom_pane.notice = Some("The query has already stopped.".into());
+                crate::tui::goal_resume::defer_for_user_stop(app);
                 return false;
             }
             QueryStopRequest::Requested => {}
@@ -742,6 +746,7 @@ pub(super) fn request_running_task_cancellation(app: &mut TuiApp, kind: QuerySto
         };
         app.bottom_pane.notice = Some(notice.into());
         app.set_runtime_phase(RuntimePhase::ProcessingResponse, Some(detail.into()));
+        crate::tui::goal_resume::defer_for_user_stop(app);
         true
     } else {
         app.bottom_pane.notice = Some("This running task does not expose cancellation.".into());

@@ -244,6 +244,7 @@ async fn run_event_loop<B: Backend<Error = io::Error> + Write>(
 
     loop {
         let mut needs_redraw = std::mem::take(&mut maintainer.needs_redraw);
+        needs_redraw |= maintainer.queue_restored_goal(processor).await;
         if maintainer.poll_repo_context().await {
             needs_redraw = true;
         }
@@ -277,6 +278,7 @@ async fn run_event_loop<B: Backend<Error = io::Error> + Write>(
                     super::render::scroll_transcript(app, delta);
                     changed = true;
                 }
+                changed |= super::goal_ui::update_elapsed(app, crate::runtime_goals::current_unix_timestamp_secs());
                 changed |= app.poll_shared_task_files();
                 changed |= processor.sync_agent_activity(app);
                 changed |= super::runtime::emit_query_heartbeat(app);
@@ -309,6 +311,9 @@ async fn run_event_loop<B: Backend<Error = io::Error> + Write>(
                                 .dispatch_event(processor, event, oauth_manager)
                                 .await?
                             {
+                                if maintainer.app().is_busy() {
+                                    super::goal_resume::defer_for_user_stop(maintainer.app_mut());
+                                }
                                 if let Some(task) = maintainer.app_mut().bottom_pane.running_task.take() {
                                     task.handle.abort();
                                 }

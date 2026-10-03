@@ -129,6 +129,8 @@ impl TuiApp {
             permission_mode: PermissionMode::Custom,
             pending_permission_mode: None,
             goal: None,
+            goal_ui: Default::default(),
+            pending_goal_resume: None,
             goal_handle: Arc::new(crate::runtime_goals::GoalStore::default()),
             event_bus: None,
             mcp_tool_cache: None,

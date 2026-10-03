@@ -73,6 +73,30 @@ pub struct GoalTurn {
     prior_input_tokens: u32,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum GoalContinuationMode {
+    Automatic,
+    Requested,
+}
+
+/// Identifies one restored goal before another turn or lifecycle change.
+#[derive(Clone, Debug)]
+pub(crate) struct GoalResumeTicket(Arc<()>);
+
+impl PartialEq for GoalResumeTicket {
+    fn eq(&self, other: &Self) -> bool {
+        Arc::ptr_eq(&self.0, &other.0)
+    }
+}
+
+#[derive(Deserialize)]
+struct StoredGoal {
+    #[serde(flatten)]
+    goal: RalphGoal,
+    #[serde(default)]
+    continuation_deferred: bool,
+}
+
 /// Serializes goal mutations and publishes state only after its durable write succeeds.
 #[derive(Default)]
 pub struct GoalStore {
@@ -83,6 +107,8 @@ pub struct GoalStore {
 struct GoalState {
     goal: Option<RalphGoal>,
     persistence: GoalPersistence,
+    continuation_deferred: bool,
+    admission: Arc<()>,
     membership: Arc<()>,
 }
 
@@ -131,9 +157,13 @@ impl GoalStore {
         let mut state = self.locked();
         let goal = db
             .try_load_goal(thread_id)?
-            .map(serde_json::from_value::<RalphGoal>)
+            .map(serde_json::from_value::<StoredGoal>)
             .transpose()
             .with_context(|| format!("invalid persisted goal for thread {thread_id}"))?;
+        let deferred = goal
+            .as_ref()
+            .is_some_and(|stored| stored.continuation_deferred);
+        let goal = goal.map(|stored| stored.goal);
         if let Some(goal) = goal.as_ref() {
             anyhow::ensure!(
                 !goal.objective.trim().is_empty(),
@@ -145,6 +175,8 @@ impl GoalStore {
             );
         }
         state.goal = goal.clone();
+        state.continuation_deferred = deferred;
+        state.admission = Arc::new(());
         state.membership = Arc::new(());
         state.persistence = GoalPersistence::Durable {
             db,
@@ -156,6 +188,7 @@ impl GoalStore {
     pub(crate) fn disable_after_persistence_failure(&self, reason: String) {
         let mut state = self.locked();
         state.goal = None;
+        state.admission = Arc::new(());
         state.membership = Arc::new(());
         state.persistence = GoalPersistence::Unavailable { reason };
     }
@@ -178,16 +211,6 @@ impl GoalStore {
         if next == state.goal {
             return Ok(result);
         }
-        match &state.persistence {
-            GoalPersistence::InMemory => {}
-            GoalPersistence::Durable { db, thread_id } => match &next {
-                Some(goal) => db.save_goal(thread_id, &serde_json::to_value(goal)?)?,
-                None => db.delete_goal(thread_id)?,
-            },
-            GoalPersistence::Unavailable { reason } => {
-                anyhow::bail!("goal persistence unavailable: {reason}");
-            }
-        }
         let same_goal = match (&state.goal, &next) {
             (Some(previous), Some(next)) => {
                 previous.objective == next.objective
@@ -198,11 +221,148 @@ impl GoalStore {
             (None, None) => true,
             (None, Some(_)) | (Some(_), None) => false,
         };
+        let deferred = same_goal && state.continuation_deferred;
+        Self::persist(&state, &next, deferred)?;
+        state.continuation_deferred = deferred;
+        state.admission = Arc::new(());
         if !same_goal {
             state.membership = Arc::new(());
         }
         state.goal = next;
         Ok(result)
+    }
+
+    fn persist(state: &GoalState, goal: &Option<RalphGoal>, deferred: bool) -> Result<()> {
+        match &state.persistence {
+            GoalPersistence::InMemory => Ok(()),
+            GoalPersistence::Durable { db, thread_id } => match goal {
+                Some(goal) => {
+                    let mut row = serde_json::to_value(goal)?;
+                    row["continuation_deferred"] = deferred.into();
+                    db.save_goal(thread_id, &row)
+                }
+                None => db.delete_goal(thread_id),
+            },
+            GoalPersistence::Unavailable { reason } => {
+                anyhow::bail!("goal persistence unavailable: {reason}")
+            }
+        }
+    }
+
+    pub(crate) fn continuation_deferred(&self) -> bool {
+        self.locked().continuation_deferred
+    }
+
+    pub(crate) fn defer_continuation(&self) -> Result<()> {
+        let mut state = self.locked();
+        // Invalidate queued admission even when the durable stop cannot be saved.
+        state.admission = Arc::new(());
+        if state.goal.is_none() || state.continuation_deferred {
+            return Ok(());
+        }
+        Self::persist(&state, &state.goal, true)?;
+        state.continuation_deferred = true;
+        Ok(())
+    }
+
+    pub(crate) fn record_turn_started(&self) -> Result<()> {
+        let mut state = self.locked();
+        state.admission = Arc::new(());
+        if state.continuation_deferred {
+            Self::persist(&state, &state.goal, false)?;
+            state.continuation_deferred = false;
+        }
+        Ok(())
+    }
+
+    pub(crate) fn resume_ticket(&self) -> Option<GoalResumeTicket> {
+        let state = self.locked();
+        state
+            .goal
+            .as_ref()
+            .map(|_| GoalResumeTicket(state.admission.clone()))
+    }
+
+    pub(crate) fn matches_resume_ticket(&self, ticket: &GoalResumeTicket) -> bool {
+        Arc::ptr_eq(&self.locked().admission, &ticket.0)
+    }
+
+    pub(crate) fn edit_objective(
+        &self,
+        ticket: &GoalResumeTicket,
+        objective: String,
+    ) -> Result<()> {
+        let mut state = self.locked();
+        anyhow::ensure!(
+            Arc::ptr_eq(&state.admission, &ticket.0),
+            "goal changed; reopen the editor"
+        );
+        anyhow::ensure!(
+            !objective.trim().is_empty(),
+            "goal objective must not be empty"
+        );
+        let mut goal = state.goal.clone().context("no goal to edit")?;
+        goal.objective = objective;
+        Self::persist(&state, &Some(goal.clone()), state.continuation_deferred)?;
+        state.goal = Some(goal);
+        state.admission = Arc::new(());
+        Ok(())
+    }
+
+    pub(crate) fn replace_confirmed(
+        &self,
+        ticket: &GoalResumeTicket,
+        goal: RalphGoal,
+    ) -> Result<()> {
+        let mut state = self.locked();
+        anyhow::ensure!(
+            Arc::ptr_eq(&state.admission, &ticket.0),
+            "goal changed; request replacement again"
+        );
+        Self::persist(&state, &Some(goal.clone()), false)?;
+        state.goal = Some(goal);
+        state.continuation_deferred = false;
+        state.admission = Arc::new(());
+        state.membership = Arc::new(());
+        Ok(())
+    }
+
+    /// Claim once under the goal lock and enforce the budget before generating work.
+    pub(crate) fn claim_continuation(
+        &self,
+        ticket: &GoalResumeTicket,
+        mode: GoalContinuationMode,
+    ) -> Result<Option<RalphGoal>> {
+        let mut state = self.locked();
+        if !Arc::ptr_eq(&state.admission, &ticket.0)
+            || (mode == GoalContinuationMode::Automatic && state.continuation_deferred)
+        {
+            return Ok(None);
+        }
+        let Some(mut goal) = state.goal.clone() else {
+            return Ok(None);
+        };
+        match goal.status {
+            GoalStatus::Pursuing => {}
+            GoalStatus::BudgetLimited if mode == GoalContinuationMode::Requested => {}
+            GoalStatus::Paused
+            | GoalStatus::Blocked
+            | GoalStatus::Complete
+            | GoalStatus::BudgetLimited => return Ok(None),
+        }
+        if goal
+            .token_budget
+            .is_some_and(|budget| goal.tokens_used >= budget)
+        {
+            goal.status = GoalStatus::BudgetLimited;
+        }
+        if state.goal.as_ref() != Some(&goal) || state.continuation_deferred {
+            Self::persist(&state, &Some(goal.clone()), false)?;
+            state.goal = Some(goal.clone());
+            state.continuation_deferred = false;
+        }
+        state.admission = Arc::new(());
+        Ok(Some(goal))
     }
 
     pub fn replace(&self, goal: Option<RalphGoal>) -> Result<()> {

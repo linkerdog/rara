@@ -127,7 +127,7 @@ pub const COMMAND_SPECS: [CommandSpec; 18] = [
         name: "goal",
         usage: "/goal",
         summary: "Manage the active thread goal.",
-        detail: "Set a persistent objective that the agent keeps working toward across turns. A completed goal is replaced when a new objective is set.\n\n/goal                         show current goal status\n/goal --tokens <N> <objective> start goal with token budget N\n/goal <objective>             start goal with no budget\n/goal pause                   pause an active goal\n/goal resume                  resume a paused or blocked goal\n/goal clear                   clear the current goal",
+        detail: "Set a persistent objective that the agent keeps working toward across turns. Replacing an unfinished goal requires confirmation.\n\n/goal                         show goal summary and available commands\n/goal --tokens <N> <objective> start goal with token budget N\n/goal <objective>             start goal with no budget\n/goal edit                    edit the objective without resetting usage\n/goal pause                   pause future goal continuations\n/goal resume                  resume a paused, blocked, or interrupted goal\n/goal clear                   clear the current goal",
     },
 ];
 

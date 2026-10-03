@@ -1,5 +1,10 @@
 # `/goal` Evaluator Loop
 
+> Historical design, superseded by [Thread Goals](thread-goals.md). The auxiliary
+> goal evaluator described below was removed. Only the main agent's goal tool
+> updates determine completion or blocked state; do not implement this design.
+
+
 ## Status
 - [x] Evaluator placeholder wired into agent turn cycle
 - [x] Real LLM evaluator call through the backend classifier boundary

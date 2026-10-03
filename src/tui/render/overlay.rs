@@ -1,4 +1,5 @@
 use crate::tui::theme::{ThemeToken, theme_color, token_bg, token_fg};
+mod goal;
 mod setup;
 
 use ratatui::{
@@ -28,6 +29,12 @@ use crate::tui::status_display::render_status_lines;
 
 pub(super) fn render_overlay(f: &mut Frame, app: &TuiApp, overlay: Overlay) -> Option<(u16, u16)> {
     match overlay {
+        Overlay::Goal => {
+            let popup = popup_rect(f.area(), 85, 70);
+            render_dimmer(f, f.area());
+            f.render_widget(Clear, popup);
+            goal::render_goal_dialog(f, app, popup)
+        }
         Overlay::Help(tab) => {
             let popup = popup_rect(f.area(), 80, 60);
             render_dimmer(f, f.area());

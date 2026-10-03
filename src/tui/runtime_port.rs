@@ -32,7 +32,10 @@ pub(crate) type RuntimeEventStream = Pin<Box<dyn Stream<Item = RuntimeProjection
 pub(crate) enum RuntimeCommand {
     Session(SessionControlRequest),
     Input(InputControlRequest),
-    ContinueGoal { prompt: String },
+    ContinueGoal {
+        ticket: crate::runtime_goals::GoalResumeTicket,
+        mode: crate::runtime_goals::GoalContinuationMode,
+    },
     Approval(ApprovalControlRequest),
     Maintenance(RuntimeMaintenanceCommand),
     SetPermissionMode(crate::tui::state::PermissionMode),

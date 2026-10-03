@@ -113,13 +113,22 @@ impl Fixture {
         .await
         .unwrap();
         let runtime = RuntimeClient::from_bootstrap(bootstrap).await;
-        let app = TuiApp::with_config(
+        let mut app = TuiApp::with_config(
             ConfigManager {
                 path: dir.path().join("config.json"),
             },
             config,
         )
         .unwrap();
+        app.goal_handle = runtime.goal_handle.clone();
+        app.event_bus = Some(runtime.event_bus.clone());
+        app.mcp_manager = Some(runtime.mcp_manager.clone());
+        app.memory_handler = Some(Arc::new(
+            crate::protocol_sources::MemoryControlHandler::with_store(
+                runtime.event_bus.clone(),
+                runtime.agent().unwrap().memory_store.clone(),
+            ),
+        ));
         let port = Arc::new(FakeRuntimeClient::new(app.snapshot.clone()));
         let (commands, receiver) = mpsc::unbounded_channel();
         let controller = TuiController::new(app, port.clone(), receiver);
@@ -507,3 +516,6 @@ async fn joined_task_completion_is_consumed_and_painted_without_input() {
     }
     assert!(fixture.controller.app().bottom_pane.running_task.is_none());
 }
+
+#[path = "event_loop_goal_tests.rs"]
+mod goal_tests;

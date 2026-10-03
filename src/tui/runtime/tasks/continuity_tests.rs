@@ -1,5 +1,6 @@
 use super::*;
 use crate::tui::message_role::MessageRole;
+use crate::tui::runtime::QueryStopKind;
 
 struct GoalTurnUsageBackend;
 
@@ -688,4 +689,164 @@ fn merge_rebuilt_agent_preserves_session_and_turn_state() {
         merged.prompt_config().warnings,
         vec!["missing custom prompt".to_string()]
     );
+}
+
+#[tokio::test]
+async fn late_user_stop_preserves_successful_turn_but_defers_goal_continuation() {
+    let temp = tempdir().unwrap();
+    let mut app = TuiApp::new(ConfigManager {
+        path: temp.path().join("config.json"),
+    })
+    .unwrap();
+    install_runtime_services(&mut app);
+    app.goal_handle
+        .replace(Some(RalphGoal::new(
+            "stop before the next turn".into(),
+            None,
+        )))
+        .unwrap();
+    let agent = create_test_agent_with_backend(&temp, Arc::new(GoalTurnUsageBackend));
+    super::super::start_query_task(&mut app, "finish this turn".into(), agent);
+    tokio::time::timeout(std::time::Duration::from_secs(5), async {
+        while !app
+            .bottom_pane
+            .running_task
+            .as_ref()
+            .unwrap()
+            .handle
+            .is_finished()
+        {
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .unwrap();
+    assert!(!request_running_task_cancellation(
+        &mut app,
+        QueryStopKind::Cancel
+    ));
+    assert!(app.goal_handle.continuation_deferred());
+    let task = app.bottom_pane.running_task.take().unwrap();
+    let TaskCompletion::Query {
+        agent,
+        result,
+        goal_turn,
+    } = task.handle.await.unwrap()
+    else {
+        panic!("query")
+    };
+    assert!(
+        result.is_ok(),
+        "late stop must not rewrite the completed turn outcome"
+    );
+    assert!(matches!(
+        crate::runtime_client::RuntimeClient::continue_goal(
+            &app.goal_handle,
+            &agent,
+            goal_turn.as_ref(),
+            false,
+            false
+        )
+        .unwrap(),
+        crate::runtime_client::GoalContinuation::NotActive
+    ));
+    let goal = app.goal_handle.snapshot().unwrap();
+    assert_eq!(
+        (goal.status, goal.turns_completed, goal.tokens_used),
+        (GoalStatus::Pursuing, 1, 15)
+    );
+}
+
+#[test]
+fn goal_continuation_yields_to_pending_user_interactions_after_accounting() {
+    let temp = tempdir().unwrap();
+    for kind in ["input", "approval"] {
+        let store = Arc::new(crate::runtime_goals::GoalStore::default());
+        store
+            .replace(Some(RalphGoal::new(
+                "respect the pending interaction".into(),
+                None,
+            )))
+            .unwrap();
+        let turn = store.begin_turn(10);
+        let mut agent = create_test_agent(&temp);
+        agent.total_input_tokens = 25;
+        if kind == "input" {
+            agent.pending_user_input = Some(crate::agent::PendingUserInput {
+                question: "Choose the deployment region".into(),
+                options: vec![],
+                note: None,
+            });
+        } else {
+            agent.pending_approval = Some(crate::agent::PendingApproval {
+                tool_use_id: "approval-1".into(),
+                request: crate::tools::bash::BashCommandInput::from_value(
+                    serde_json::json!({"command":"git status"}),
+                )
+                .unwrap(),
+            });
+        }
+        assert!(
+            matches!(
+                crate::runtime_client::RuntimeClient::continue_goal(
+                    &store,
+                    &agent,
+                    turn.as_ref(),
+                    false,
+                    false
+                )
+                .unwrap(),
+                crate::runtime_client::GoalContinuation::NotActive
+            ),
+            "{kind}"
+        );
+        assert_eq!(store.snapshot().unwrap().tokens_used, 15);
+        assert_eq!(store.snapshot().unwrap().turns_completed, 1);
+    }
+}
+
+#[tokio::test]
+async fn goal_continuation_yields_to_queued_user_work() {
+    let temp = tempdir().unwrap();
+    let mut app = TuiApp::new(ConfigManager {
+        path: temp.path().join("config.json"),
+    })
+    .unwrap();
+    install_runtime_services(&mut app);
+    app.goal_handle
+        .replace(Some(RalphGoal::new(
+            "make progress without starving user work".into(),
+            None,
+        )))
+        .unwrap();
+    let agent = create_test_agent_with_backend(&temp, Arc::new(GoalTurnUsageBackend));
+    super::super::start_query_task(&mut app, "finish this turn".into(), agent);
+    app.queue_follow_up_message("inspect the user-selected file first");
+    let completion = (&mut app.bottom_pane.running_task.as_mut().unwrap().handle)
+        .await
+        .unwrap();
+    let mut slot = None;
+    super::super::finish_running_task_if_ready_from_runtime_port(
+        &mut app,
+        &mut slot,
+        Some(Ok(completion)),
+        None,
+    )
+    .await
+    .unwrap();
+    assert!(
+        app.active_turn
+            .entries
+            .iter()
+            .any(|entry| entry.role == MessageRole::User
+                && entry.message == "inspect the user-selected file first")
+    );
+    assert!(app.bottom_pane.queued_follow_up_messages.is_empty());
+    let task = app
+        .bottom_pane
+        .running_task
+        .take()
+        .expect("user follow-up starts");
+    task.handle.abort();
+    assert!(matches!(task.handle.await, Err(error) if error.is_cancelled()));
 }

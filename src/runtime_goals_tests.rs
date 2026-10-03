@@ -196,3 +196,204 @@ fn write_failure_does_not_publish_a_new_goal_or_clear_the_old_one() {
         Some(goal)
     );
 }
+
+#[test]
+fn interrupted_goal_marker_survives_database_round_trip() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let db = StateDb::new_for_root_dir(dir.path().join("state")).expect("db");
+    let mut row =
+        serde_json::to_value(RalphGoal::new("keep stopped work idle".into(), None)).unwrap();
+    row["continuation_deferred"] = json!(true);
+    db.save_goal("interrupted", &row).expect("save");
+    assert_eq!(
+        db.try_load_goal("interrupted").unwrap().unwrap()["continuation_deferred"],
+        true
+    );
+}
+
+#[test]
+fn deferral_survives_mutation_rebuild_and_restart_until_a_new_turn() {
+    let dir = tempfile::tempdir().unwrap();
+    let db = Arc::new(StateDb::new_for_root_dir(dir.path().join("state")).unwrap());
+    let store = GoalStore::default();
+    store.restore_for_thread("thread", db.clone()).unwrap();
+    store
+        .replace(Some(RalphGoal::new("resume safely".into(), None)))
+        .unwrap();
+    let ticket = store.resume_ticket().unwrap();
+    store.defer_continuation().unwrap();
+    assert!(
+        store
+            .claim_continuation(&ticket, super::GoalContinuationMode::Automatic)
+            .unwrap()
+            .is_none()
+    );
+    store
+        .mutate(|goal| {
+            goal.as_mut().unwrap().tokens_used = 7;
+            Ok(())
+        })
+        .unwrap();
+    let rebuilt = GoalStore::default();
+    rebuilt.inherit_from(&store);
+    assert!(rebuilt.continuation_deferred());
+    let restored = GoalStore::default();
+    restored.restore_for_thread("thread", db.clone()).unwrap();
+    assert!(restored.continuation_deferred());
+    let ticket = restored.resume_ticket().unwrap();
+    restored
+        .edit_objective(&ticket, "edited interrupted goal".into())
+        .unwrap();
+    assert!(
+        restored.continuation_deferred(),
+        "editing must not restart interrupted work"
+    );
+    restored.record_turn_started().unwrap();
+    assert!(!restored.continuation_deferred());
+    assert_eq!(restored.snapshot().unwrap().tokens_used, 7);
+    assert_eq!(
+        db.try_load_goal("thread").unwrap().unwrap()["continuation_deferred"],
+        false
+    );
+}
+
+#[test]
+fn resume_claim_is_single_use_and_rejects_new_turn_or_thread() {
+    let store = GoalStore::default();
+    store
+        .replace(Some(RalphGoal::new("once".into(), None)))
+        .unwrap();
+    let ticket = store.resume_ticket().unwrap();
+    let rebuilt = GoalStore::default();
+    rebuilt.inherit_from(&store);
+    assert!(rebuilt.matches_resume_ticket(&ticket));
+    assert!(
+        rebuilt
+            .claim_continuation(&ticket, super::GoalContinuationMode::Automatic)
+            .unwrap()
+            .is_some()
+    );
+    assert!(
+        rebuilt
+            .claim_continuation(&ticket, super::GoalContinuationMode::Automatic)
+            .unwrap()
+            .is_none()
+    );
+    let ticket = store.resume_ticket().unwrap();
+    store.record_turn_started().unwrap();
+    assert!(
+        store
+            .claim_continuation(&ticket, super::GoalContinuationMode::Automatic)
+            .unwrap()
+            .is_none()
+    );
+    let ticket = store.resume_ticket().unwrap();
+    let dir = tempfile::tempdir().unwrap();
+    let db = Arc::new(StateDb::new_for_root_dir(dir.path().join("state")).unwrap());
+    store.restore_for_thread("other", db).unwrap();
+    assert!(
+        store
+            .claim_continuation(&ticket, super::GoalContinuationMode::Automatic)
+            .unwrap()
+            .is_none()
+    );
+}
+
+#[test]
+fn interruption_write_failure_invalidates_queued_work_without_changing_committed_flag() {
+    let dir = tempfile::tempdir().unwrap();
+    let db = Arc::new(StateDb::new_for_root_dir(dir.path().join("state")).unwrap());
+    let store = GoalStore::default();
+    store.restore_for_thread("thread", db.clone()).unwrap();
+    store
+        .replace(Some(RalphGoal::new("stop on error".into(), None)))
+        .unwrap();
+    let ticket = store.resume_ticket().unwrap();
+    let conn = rusqlite::Connection::open(db.path()).unwrap();
+    conn.execute_batch("CREATE TRIGGER reject_stop BEFORE INSERT ON goals BEGIN SELECT RAISE(FAIL, 'injected stop failure'); END;").unwrap();
+    assert!(store.defer_continuation().is_err());
+    assert!(!store.matches_resume_ticket(&ticket));
+    assert!(!store.continuation_deferred());
+    assert_eq!(
+        db.try_load_goal("thread").unwrap().unwrap()["continuation_deferred"],
+        false
+    );
+    conn.execute_batch("DROP TRIGGER reject_stop;").unwrap();
+    store.defer_continuation().unwrap();
+    conn.execute_batch("CREATE TRIGGER reject_start BEFORE INSERT ON goals BEGIN SELECT RAISE(FAIL, 'injected start failure'); END;").unwrap();
+    assert!(store.record_turn_started().is_err());
+    assert!(store.continuation_deferred());
+    assert_eq!(
+        db.try_load_goal("thread").unwrap().unwrap()["continuation_deferred"],
+        true
+    );
+}
+
+#[test]
+fn restored_exhausted_budget_requires_a_successful_write_before_admission() {
+    let dir = tempfile::tempdir().unwrap();
+    let db = Arc::new(StateDb::new_for_root_dir(dir.path().join("state")).unwrap());
+    let store = GoalStore::default();
+    store.restore_for_thread("thread", db.clone()).unwrap();
+    let mut goal = RalphGoal::new("budget wrap-up".into(), Some(10));
+    goal.tokens_used = 12;
+    store.replace(Some(goal.clone())).unwrap();
+    let ticket = store.resume_ticket().unwrap();
+    let conn = rusqlite::Connection::open(db.path()).unwrap();
+    conn.execute_batch("CREATE TRIGGER reject_budget BEFORE INSERT ON goals BEGIN SELECT RAISE(FAIL, 'injected budget failure'); END;").unwrap();
+    assert!(
+        store
+            .claim_continuation(&ticket, super::GoalContinuationMode::Automatic)
+            .is_err()
+    );
+    assert_eq!(store.snapshot(), Some(goal));
+    conn.execute_batch("DROP TRIGGER reject_budget;").unwrap();
+    assert_eq!(
+        store
+            .claim_continuation(&ticket, super::GoalContinuationMode::Automatic)
+            .unwrap()
+            .unwrap()
+            .status,
+        GoalStatus::BudgetLimited
+    );
+    assert_eq!(
+        db.try_load_goal("thread").unwrap().unwrap()["status"],
+        "BudgetLimited"
+    );
+    assert!(
+        store
+            .claim_continuation(&ticket, super::GoalContinuationMode::Automatic)
+            .unwrap()
+            .is_none()
+    );
+}
+
+#[test]
+fn legacy_goal_table_migrates_and_invalid_deferral_is_rejected() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().join("state");
+    let db = StateDb::new_for_root_dir(root.clone()).unwrap();
+    let goal = RalphGoal::new("legacy active goal".into(), None);
+    db.save_goal("thread", &serde_json::to_value(&goal).unwrap())
+        .unwrap();
+    let conn = rusqlite::Connection::open(db.path()).unwrap();
+    conn.execute_batch("ALTER TABLE goals DROP COLUMN continuation_deferred;")
+        .unwrap();
+    drop(db);
+    let db = Arc::new(StateDb::new_for_root_dir(root).unwrap());
+    let store = GoalStore::default();
+    assert_eq!(
+        store.restore_for_thread("thread", db.clone()).unwrap(),
+        Some(goal.clone())
+    );
+    assert!(!store.continuation_deferred());
+    for value in ["2", "-1", "'invalid'"] {
+        conn.execute(
+            &format!("UPDATE goals SET continuation_deferred = {value}"),
+            [],
+        )
+        .unwrap();
+        assert!(store.restore_for_thread("thread", db.clone()).is_err());
+        assert_eq!(store.snapshot(), Some(goal.clone()));
+    }
+}

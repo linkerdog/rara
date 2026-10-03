@@ -146,11 +146,14 @@ Active backlog only. Keep this file small and current.
 
 ## Thread Goals
 
-- [ ] Complete [#931](https://github.com/linkerdog/rara/issues/931): resume a
-      restored pursuing goal only when the runtime is idle, ready, and free of
-      pending interactions. Define cancelled-turn usage reconciliation and
-      explicit goal pause/resume policy there; the turn cancellation barrier does
-      not change goal state. Keep richer goal controls in that follow-up.
+- [x] Implement [#931](https://github.com/linkerdog/rara/issues/931): explicit
+      restore continues an eligible goal once idle; durable user-stop deferral,
+      revision-checked admission, paused choice, summary, edit, replacement
+      confirmation, and compact elapsed/budget status. See
+      [thread goals](features/thread-goals.md) and the
+      [implementation journal](journal/2026-10-03-goal-resume.md).
+      Successful-turn usage remains charged; cancelled/error turns retain the
+      existing non-ledger accounting policy.
 
 ## Memory Lifecycle
 

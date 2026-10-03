@@ -181,6 +181,13 @@ impl TuiHarness {
         (buffer, cursor)
     }
 
+    pub(crate) async fn queue_restored_goal(
+        &mut self,
+        readiness: crate::tui::goal_resume::AgentReadiness,
+    ) {
+        crate::tui::goal_resume::queue_if_idle(&mut self.app, &self.runtime, readiness).await;
+    }
+
     pub(crate) fn expect_no_commands(&self) {
         assert!(self.runtime.commands().is_empty());
     }

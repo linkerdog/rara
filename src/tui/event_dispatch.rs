@@ -79,6 +79,9 @@ async fn dispatch_event_inner(
     }
     match event {
         AppEvent::QuitShortcut(_) => unreachable!("quit shortcut was resolved before dispatch"),
+        AppEvent::Goal(action) => {
+            super::runtime::apply_goal_dialog_action(action, app, agent_slot, runtime_port).await;
+        }
         AppEvent::Noop => {}
         AppEvent::OpenOverlay(overlay) => app.open_overlay(overlay),
         AppEvent::CloseOverlay => {

@@ -83,6 +83,7 @@ impl ApiKeyTarget {
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Overlay {
+    Goal,
     Help(HelpTab),
     CommandPalette,
     Status(StatusTab),
@@ -857,8 +858,10 @@ pub struct TuiApp {
     pub(crate) pending_permission_mode: Option<PermissionMode>,
     /// Currently active ralph loop goal, if any.
     pub goal: Option<RalphGoal>,
+    pub(in crate::tui) goal_ui: crate::tui::goal_ui::GoalUiState,
     /// Shared handle that model-facing goal tools write to.
     pub goal_handle: GoalHandle,
+    pub(in crate::tui) pending_goal_resume: Option<crate::tui::goal_resume::PendingGoalResume>,
     /// Optional runtime event bus that mirrors AgentEvent to ACP/Wire
     /// subscribers. Set during TUI startup; None only in test contexts.
     pub event_bus: Option<Arc<RuntimeEventBus>>,
