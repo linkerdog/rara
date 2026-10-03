@@ -42,8 +42,18 @@ impl Drop for HelperCleanup {
 }
 
 #[tokio::test]
-async fn timeout_terminates_and_reaps_helpers_stalled_on_stdin_or_exit() {
-    for scenario in ["stdin", "exit"] {
+async fn timeout_and_session_drop_terminate_and_reap_stalled_helpers() {
+    #[derive(Debug)]
+    enum EndCopy {
+        Timeout,
+        SessionDrop,
+    }
+    for (scenario, end) in [
+        ("stdin", EndCopy::Timeout),
+        ("exit", EndCopy::Timeout),
+        ("stdin", EndCopy::SessionDrop),
+        ("exit", EndCopy::SessionDrop),
+    ] {
         let dir = tempfile::tempdir().expect("tempdir");
         let pid_file = dir.path().join("helper.pid");
         let mut clipboard = Clipboard::new(ClipboardOptions {
@@ -73,20 +83,25 @@ async fn timeout_terminates_and_reaps_helpers_stalled_on_stdin_or_exit() {
         .await
         .expect("helper startup");
         let mut cleanup = HelperCleanup(Some(pid));
-        let notice = tokio::time::timeout(Duration::from_secs(3), async {
-            loop {
-                if let Some(notice) = clipboard.poll().await {
-                    break notice;
-                }
-                tokio::time::sleep(Duration::from_millis(10)).await;
+        match end {
+            EndCopy::Timeout => {
+                let notice = tokio::time::timeout(Duration::from_secs(3), async {
+                    loop {
+                        if let Some(notice) = clipboard.poll().await {
+                            break notice;
+                        }
+                        tokio::time::sleep(Duration::from_millis(10)).await;
+                    }
+                })
+                .await
+                .expect("bounded copy");
+                assert!(
+                    notice.contains("native clipboard copy timed out"),
+                    "{scenario}: {notice}"
+                );
             }
-        })
-        .await
-        .expect("bounded copy");
-        assert!(
-            notice.contains("native clipboard copy timed out"),
-            "{scenario}: {notice}"
-        );
+            EndCopy::SessionDrop => drop(clipboard),
+        }
         tokio::time::timeout(Duration::from_secs(2), async {
             loop {
                 match kill(pid, None) {
@@ -97,7 +112,7 @@ async fn timeout_terminates_and_reaps_helpers_stalled_on_stdin_or_exit() {
             }
         })
         .await
-        .expect("timed-out helper must be terminated and reaped");
+        .unwrap_or_else(|_| panic!("{end:?} ({scenario}) must terminate and reap the helper"));
         cleanup.0 = None;
     }
 }

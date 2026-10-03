@@ -3,7 +3,34 @@ use std::process::Stdio;
 
 use async_trait::async_trait;
 use tokio::io::AsyncWriteExt;
-use tokio::process::Command;
+use tokio::process::{Child, Command};
+
+struct ClipboardHelper(Option<Child>);
+
+impl Drop for ClipboardHelper {
+    fn drop(&mut self) {
+        let Some(mut child) = self.0.take() else {
+            return;
+        };
+        if let Err(error) = child.start_kill() {
+            log::warn!("Failed to terminate clipboard helper: {error}");
+        }
+        // Tokio's orphan queue only provides best-effort reaping. Keep an
+        // explicit waiter alive after cancellation without blocking the UI.
+        match tokio::runtime::Handle::try_current() {
+            Ok(runtime) => {
+                runtime.spawn(async move {
+                    if let Err(error) = child.wait().await {
+                        log::warn!("Failed to reap clipboard helper: {error}");
+                    }
+                });
+            }
+            Err(error) => {
+                log::warn!("Cannot schedule clipboard helper cleanup: {error}");
+            }
+        }
+    }
+}
 
 /// Writes complete selections without blocking the UI. Dropping an in-flight
 /// future must terminate its owned helper; the caller owns the overall deadline.
@@ -53,12 +80,18 @@ impl NativeClipboard for PlatformClipboard {
 }
 
 pub(super) async fn pipe_to_command(command: &mut Command, text: &str) -> io::Result<()> {
-    let mut child = command
-        .stdin(Stdio::piped())
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .kill_on_drop(true)
-        .spawn()?;
+    let mut helper = ClipboardHelper(Some(
+        command
+            .stdin(Stdio::piped())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .kill_on_drop(true)
+            .spawn()?,
+    ));
+    let child = helper
+        .0
+        .as_mut()
+        .ok_or_else(|| io::Error::other("clipboard helper is unavailable"))?;
     let Some(mut stdin) = child.stdin.take() else {
         return Err(io::Error::other("clipboard helper stdin is unavailable"));
     };
@@ -66,6 +99,7 @@ pub(super) async fn pipe_to_command(command: &mut Command, text: &str) -> io::Re
     stdin.shutdown().await?;
     drop(stdin);
     let status = child.wait().await?;
+    helper.0 = None;
     if status.success() {
         Ok(())
     } else {

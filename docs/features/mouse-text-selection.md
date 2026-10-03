@@ -138,7 +138,9 @@ copy is a request, not proof that the terminal accepted the clipboard write.
 - Clipboard failures must not terminate the TUI; they surface as notices and
   warning logs without including the selected content. Nonzero helper exit
   status is a failure. Timeout/cancellation drops and terminates the owned
-  helper instead of leaving a process waiting for input indefinitely.
+  helper instead of leaving a process waiting for input indefinitely. An
+  asynchronous waiter retains ownership until the terminated helper is reaped;
+  UI dispatch does not wait for that cleanup.
 
 ## Validation Matrix
 

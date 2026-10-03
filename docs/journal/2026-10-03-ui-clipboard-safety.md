@@ -31,8 +31,9 @@ goal-continuation policy, or general lint-suppression changes are included.
   replace the latest notice, and helper ordering prevents an older native
   copy from completing after a newer native copy.
 - One deadline covers native input writes, process waits, and fallback attempts.
-  Dropping the timed-out future or the session terminates the owned helper via
-  Tokio child ownership. Nonzero exit codes are failures.
+  Dropping the timed-out future or the session explicitly terminates the owned
+  helper and schedules an asynchronous waiter to reap it. Tokio's
+  `kill_on_drop` remains a shutdown fallback. Nonzero exit codes are failures.
 - OSC 52 validates UTF-8 bytes before encoding and writes no sequence on overflow.
   Local native helpers still receive the complete text. SSH sends only to the
   terminal clipboard; its notice describes a request rather than confirmed
@@ -74,6 +75,21 @@ never write to the real native clipboard.
   configuration or BUILD files changed.
 - `cargo clippy --locked --all-targets --no-deps -- -D warnings`: passed.
 - `cargo fmt --all -- --check` and `git diff --check`: passed.
+
+## Reaping Follow-Up
+
+Subsequent full-suite and isolated runs reproduced a timeout-cleanup failure:
+the child was still observable after the existing two-second reaping bound.
+Tokio's drop path places unfinished children into a best-effort orphan queue;
+that is insufficient as the only cleanup owner here. The helper now sends the
+kill request synchronously on cancellation and transfers the child to an
+explicit asynchronous waiter. Normal completed waits disarm that cleanup.
+The existing reaping assertion remains unchanged, and the process fixture also
+covers session drop while the helper stalls on stdin or exit. The focused
+replay passed, followed by five repetitions covering 20 helper lifecycles.
+Cargo and default Bazel TUI suites again passed all 918 tests, with three
+ignored subprocess fixtures exercised by parents. Strict all-target Clippy
+also passed on the follow-up.
 
 ## Remaining Limits
 
