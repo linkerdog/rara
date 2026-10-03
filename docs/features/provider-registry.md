@@ -70,6 +70,26 @@ before starting a task.
 - `limit.context` and `limit.output` control context and output budgets.
   Only explicitly supported request options are accepted; unsupported transports
   fail with an actionable error instead of silently using Chat Completions.
+- **Context budgeting**: `OpenAiCompatibleBackend::context_budget`
+  (`src/llm/openai_compatible.rs`) reserves `limit.output` in
+  `reserved_output_tokens`/`compact_threshold_tokens` whenever
+  `max_output_tokens` is set on the backend, regardless of which
+  constructor set it — `with_provider_model` (a registry model's
+  `limit.output`) or the public `with_max_output_tokens` (opt-in
+  measurement tooling: `deepseek_cache_probe.rs`,
+  `agent/tests/cache_trial/driver.rs`). This matches
+  `chat_completion_request_body`'s own unconditional `max_tokens` send —
+  before this fix, the override required `configured_api_root` too (true
+  only via `with_provider_model`), so a caller using
+  `with_max_output_tokens` alone had that value sent on the wire while
+  `context_budget` still reported the generic window-percentage heuristic.
+  A `limit.output` grossly larger than the model's actual window is not
+  validated here (unlike the DeepSeek Anthropic route's own
+  `ensure_output_budget_fits_window` — this shared, far more widely used
+  backend has more request call sites, including a separate
+  auxiliary/summary model path, and deserves its own separate
+  consideration rather than a reflexive copy of that guard). See the dated
+  journal entry.
 - Explicit `model` wins over the saved recent selection; otherwise an available
   recent registry model is restored. With no legacy selection, the first
   available configured model is used. An explicit model without credentials
@@ -148,3 +168,4 @@ discovery for registry providers remain follow-up work.
 ## Source Journals
 
 - [Provider comparison and rollout](../journal/2026-09-18-provider-registry.md)
+- [Context budget must reserve max_output_tokens whenever it's set](../journal/2026-09-24-openai-compatible-context-budget-max-output-tokens-gate.md)

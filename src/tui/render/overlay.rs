@@ -23,6 +23,7 @@ use super::super::custom_terminal::Frame;
 use super::super::state::{CommandSpec, HelpTab, Overlay, StatusTab, TuiApp};
 use super::bottom_pane::desired_bottom_pane_height;
 use crate::tui::context_display::render_context_lines;
+use crate::tui::pane_geometry::PaneColumns;
 use crate::tui::status_display::render_status_lines;
 
 pub(super) fn render_overlay(f: &mut Frame, app: &TuiApp, overlay: Overlay) -> Option<(u16, u16)> {
@@ -521,7 +522,11 @@ fn command_palette_rect(area: Rect, app: &TuiApp) -> Rect {
     let width = area.width;
     let x = area.x;
     // Position above the bottom pane (composer/status) so user input stays visible.
-    let bottom_pane_height = desired_bottom_pane_height(app, area.width, area.height);
+    let columns = PaneColumns {
+        terminal_width: area.width,
+        sidebar_visible: app.sidebar_visible,
+    };
+    let bottom_pane_height = desired_bottom_pane_height(app, columns.main_width(), area.height);
     let bottom_pane_top = area.y + area.height.saturating_sub(bottom_pane_height);
     let y = bottom_pane_top.saturating_sub(height).max(area.y);
 
@@ -627,6 +632,21 @@ mod tests {
             "palette should be entirely above the bottom pane (top at y={})",
             area.y + area.height - bottom_pane_h
         );
+    }
+
+    #[test]
+    fn palette_anchors_above_the_sidebar_narrowed_composer() {
+        let temp = tempdir().expect("tempdir");
+        let mut app = TuiApp::new(ConfigManager {
+            path: temp.path().join("config.json"),
+        })
+        .expect("app");
+        app.sidebar_visible = true;
+        app.bottom_pane.input = "x".repeat(720);
+        let area = Rect::new(0, 0, 160, 40);
+        let popup = command_palette_rect(area, &app);
+        let bottom_height = desired_bottom_pane_height(&app, 122, area.height);
+        assert_eq!(popup.bottom(), area.bottom() - bottom_height);
     }
 
     #[test]

@@ -345,6 +345,29 @@ fn builtin_nowledge_mem_api_key_roundtrips_through_config() {
 }
 
 #[test]
+fn review_regression_mcp_cloud_rest_uses_normalized_endpoint_base() {
+    for (configured, base) in [
+        ("https://mem.example.com/mcp/", "https://mem.example.com"),
+        (
+            "https://mem.example.com/prefix/mcp/",
+            "https://mem.example.com/prefix",
+        ),
+        (
+            "https://mem.example.com/prefix/",
+            "https://mem.example.com/prefix",
+        ),
+    ] {
+        let mem = NowledgeMemPluginConfig {
+            mode: NowledgeMemMode::Cloud,
+            url: configured.into(),
+            ..Default::default()
+        };
+        assert_eq!(mem.mcp_url(), format!("{base}/mcp"));
+        assert_eq!(mem.api_url(), format!("{base}/remote-api"), "{configured}");
+    }
+}
+
+#[test]
 fn sandbox_workspace_network_access_can_be_disabled() {
     let config: RaraConfig = serde_json::from_str(
         r#"{

@@ -16,9 +16,6 @@ use crate::tui::status_display::context_sidebar_summary;
 use crate::tui::sub_agent_display::SubAgentActivityDisplay;
 use crate::tui::theme::*;
 
-/// Width allocated to the sidebar when the terminal is wide enough.
-pub(crate) const SIDEBAR_WIDTH: u16 = 38;
-
 /// Render the wide-screen sidebar into `area`.
 pub(crate) fn render_sidebar(f: &mut Frame, app: &TuiApp, area: Rect) {
     let block = Block::default()

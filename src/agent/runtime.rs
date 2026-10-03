@@ -599,6 +599,12 @@ impl Agent {
             self.total_output_tokens += usage.output_tokens;
             self.total_cache_hit_tokens += usage.cache_hit_tokens;
             self.total_cache_miss_tokens += usage.cache_miss_tokens;
+            // Re-anchor the compaction estimate to this request's real,
+            // provider-reported prompt size before anything from this turn's
+            // own response gets appended to history below — see
+            // `record_actual_prompt_tokens`'s doc for why the local
+            // per-message estimate alone can't be trusted at this scale.
+            self.record_actual_prompt_tokens(usage);
         }
 
         let mut tool_calls = Vec::new();

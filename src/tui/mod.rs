@@ -2,6 +2,7 @@ mod app_event;
 mod auth_mode_picker;
 mod clipboard;
 mod command;
+mod composer_text;
 mod context_display;
 mod controller;
 mod custom_terminal;
@@ -18,7 +19,6 @@ mod input_ownership_tests;
 mod interaction_tests;
 mod interaction_text;
 mod keymap;
-mod layout_utils;
 mod line_utils;
 mod list_picker;
 mod markdown;
@@ -26,6 +26,9 @@ mod markdown_render;
 mod markdown_stream;
 mod message_role;
 mod model_search;
+mod pane_geometry;
+#[cfg(test)]
+mod paste_input_tests;
 #[cfg(test)]
 mod permission_controls_tests;
 mod permission_policy;
@@ -46,13 +49,16 @@ mod status_display;
 mod sub_agent_display;
 mod submit;
 mod terminal_event;
+mod terminal_modes;
 mod terminal_ui;
 #[cfg(test)]
 mod testing;
 #[cfg(test)]
 mod tests;
+mod text_wrap;
 mod theme;
 mod tool_text;
+mod transcript_text;
 
 #[cfg(test)]
 pub(crate) use self::event_dispatch::dispatch_event;

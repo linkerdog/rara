@@ -4,18 +4,19 @@ use super::bottom_pane::{desired_bottom_pane_height, render_bottom_pane};
 use super::overlay::render_overlay;
 use super::{render_startup_header, render_transcript, sidebar};
 use crate::tui::custom_terminal::Frame;
+use crate::tui::pane_geometry::PaneColumns;
 use crate::tui::state::TuiApp;
 
 pub fn render(f: &mut Frame, app: &mut TuiApp) {
-    let main_width = if f.area().width > 120 && app.sidebar_visible {
-        f.area().width.saturating_sub(sidebar::SIDEBAR_WIDTH)
-    } else {
-        f.area().width
+    app.terminal_width = f.area().width;
+    let columns = PaneColumns {
+        terminal_width: app.terminal_width,
+        sidebar_visible: app.sidebar_visible,
     };
-    let bottom_pane_height = desired_bottom_pane_height(app, main_width, f.area().height);
+    let bottom_pane_height = desired_bottom_pane_height(app, columns.main_width(), f.area().height);
 
-    if f.area().width > 120 && app.sidebar_visible {
-        render_wide(f, app, bottom_pane_height);
+    if let Some(sidebar_width) = columns.sidebar_width() {
+        render_wide(f, app, bottom_pane_height, sidebar_width);
     } else {
         render_narrow(f, app, bottom_pane_height);
     }
@@ -40,13 +41,10 @@ fn render_narrow(f: &mut Frame, app: &mut TuiApp, bottom_pane_height: u16) {
     }
 }
 
-fn render_wide(f: &mut Frame, app: &mut TuiApp, bottom_pane_height: u16) {
+fn render_wide(f: &mut Frame, app: &mut TuiApp, bottom_pane_height: u16, sidebar_width: u16) {
     let layout = Layout::default()
         .direction(Direction::Horizontal)
-        .constraints([
-            Constraint::Length(sidebar::SIDEBAR_WIDTH),
-            Constraint::Fill(1),
-        ])
+        .constraints([Constraint::Length(sidebar_width), Constraint::Fill(1)])
         .split(f.area());
 
     sidebar::render_sidebar(f, app, layout[0]);

@@ -33,9 +33,9 @@ Cloud mode was unreachable for a second reason. The derived endpoint was
 - `rmcp` gains the `transport-streamable-http-client-reqwest` and `reqwest`
   features. The `reqwest` feature selects rustls, which is also reqwest 0.13's
   default TLS path, so HTTPS works without native-tls.
-- The transport builds its own reqwest client through
-  `StreamableHttpClientTransport::from_config`, so `rara-mcp-client` does not
-  depend on reqwest directly and cannot drift from the rmcp client type.
+- The initial transport used `StreamableHttpClientTransport::from_config`.
+  The [October review checkpoint](2026-10-03-mcp-http-review.md) supersedes this
+  choice with an explicit reqwest client to enforce registry proxy routing.
 - All resolved headers are sent as `custom_headers`. `bearer_token_env_var`
   becomes a literal `Authorization: Bearer <token>` header instead of rmcp's
   `auth_header` field, because rmcp 3.4.0 documents the `Bearer` prefix handling
@@ -47,9 +47,9 @@ Cloud mode was unreachable for a second reason. The derived endpoint was
   fails neither that server nor the index build, and it stays visible in the TUI.
 - The tool listing failure path now uses `log::warn!` instead of `eprintln!`, so
   connect failures surface in the TUI alongside the conversation.
-- Cloud MCP endpoints derive as `<base>/mcp`. `api_url()` still returns
-  `<base>/remote-api`, because that REST base is unchanged and was not shown to
-  be wrong; only the MCP path was.
+- Cloud MCP endpoints derive as `<base>/mcp`, with REST at `<base>/remote-api`.
+  The October review fixes REST derivation when configuration already ends in
+  `/mcp/`, including deployments with a path prefix.
 - Tool invocation stays out of scope. The index is discovery-only for both
   transports.
 

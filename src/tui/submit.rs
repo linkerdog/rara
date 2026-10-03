@@ -32,7 +32,11 @@ async fn handle_submit_inner(
     oauth_manager: &Arc<crate::oauth::OAuthManager>,
     runtime_port: Option<&dyn RuntimeClientPort>,
 ) -> anyhow::Result<bool> {
-    if app.bottom_pane.input.is_empty() {
+    app.flush_composer_paste();
+    app.bottom_pane.expand_large_paste();
+    let input = std::mem::take(&mut app.bottom_pane.input);
+    app.bottom_pane.clear_input();
+    if input.is_empty() {
         if let Some(interaction) = app.active_pending_interaction()
             && matches!(
                 interaction.kind,
@@ -51,15 +55,12 @@ async fn handle_submit_inner(
         }
         return Ok(false);
     }
-    let input = std::mem::take(&mut app.bottom_pane.input);
-    app.bottom_pane.input_cursor_offset = None;
     let trimmed = input.trim().to_string();
     if trimmed.is_empty() {
         // Whitespace-only input: same lightweight feedback.
         if app.bottom_pane.notice.is_none() {
             app.bottom_pane.notice = Some("Ready.".into());
         }
-        app.bottom_pane.input.clear();
         return Ok(false);
     }
     app.record_input_history(&trimmed);

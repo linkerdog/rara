@@ -1,3 +1,4 @@
+mod goal_persistence;
 mod tooling;
 
 use std::path::{Path, PathBuf};
@@ -19,8 +20,9 @@ use crate::google_oauth::GoogleOAuthManager;
 use crate::hook_registry::HookRegistry;
 use crate::hook_runtime::HookRuntime;
 use crate::llm::{
-    BedrockBackend, CodexBackend, GeminiBackend, LlmBackend, Message, MockLlm, OllamaBackend,
-    OpenAiCompatibleBackend, fetch_model_context_window,
+    BedrockBackend, CodexBackend, DeepseekAnthropicConfig, GeminiBackend, LlmBackend, Message,
+    MockLlm, OllamaBackend, OpenAiCompatibleBackend, fetch_model_context_window,
+    wrap_deepseek_anthropic_if_eligible,
 };
 use crate::local_backend::{LocalLlmBackend, LocalProgressReporter};
 use crate::lsp_manager::LspManager;
@@ -30,6 +32,7 @@ use crate::prompt::{PromptRuntimeConfig, PromptSkillSummary};
 use crate::protocol_sources::{PromptSourceRegistry, SkillSourceRegistry};
 use crate::runtime_control::{ExtensionEvent, ExtensionReadinessSnapshot, RuntimeEvent};
 use crate::runtime_event_bus::RuntimeEventBus;
+use crate::runtime_goals::{GoalHandle, GoalStore};
 use crate::runtime_session::RuntimeSessionProfile;
 use crate::sandbox::SandboxManager;
 use crate::session::SessionManager;
@@ -39,7 +42,6 @@ use crate::tools::agent::{
     AgentDefinitionCache, AgentTreeConfig, AgentTreeControl, ResolvedSubagentBackend,
     SubagentBackendResolver, SubagentProviderTarget,
 };
-use crate::tui::state::GoalHandle;
 use crate::workspace::WorkspaceMemory;
 
 pub(crate) struct RuntimeBootstrap {
@@ -556,7 +558,13 @@ pub(crate) async fn initialize_rara_context_with_options(
         crate::tools::skill::SkillReloadPolicy::Disabled
     };
     let hook_registry = Arc::new(HookRegistry::new(event_bus.clone()));
-    let goal_handle: GoalHandle = Arc::new(std::sync::RwLock::new(None));
+    let goal_handle = Arc::new(GoalStore::default());
+    goal_persistence::bind_bootstrap_goal(
+        &goal_handle,
+        &mut options,
+        &workspace,
+        &mut prompt_config.warnings,
+    );
     let mcp_tool_cache = McpToolCache::new();
     mcp_tool_cache.clear();
     let lsp_manager = Arc::new(LspManager::new(workspace.root.clone()));
@@ -775,23 +783,37 @@ async fn build_backend_with_progress_for_home(
             "openrouter" => OpenAiEndpointKind::Openrouter,
             _ => OpenAiEndpointKind::Custom,
         };
-        return Ok(Box::new(
-            OpenAiCompatibleBackend::new_with_endpoint_kind_and_reasoning(
-                config.api_key_secret(),
-                config
-                    .base_url
-                    .clone()
-                    .context("Configured provider requires an API root")?,
-                config
-                    .model
-                    .clone()
-                    .context("Configured provider requires a model")?,
-                kind,
-                config.reasoning_effort.clone(),
-                config.thinking,
-            )?
-            .with_provider_model(model)
-            .with_auxiliary_model(config.auxiliary_model.clone()),
+        let base_url = config
+            .base_url
+            .clone()
+            .context("Configured provider requires an API root")?;
+        let model_name = config
+            .model
+            .clone()
+            .context("Configured provider requires a model")?;
+        let backend = OpenAiCompatibleBackend::new_with_endpoint_kind_and_reasoning(
+            config.api_key_secret(),
+            base_url.clone(),
+            model_name.clone(),
+            kind,
+            config.reasoning_effort.clone(),
+            config.thinking,
+        )?
+        .with_provider_model(model)
+        .with_auxiliary_model(config.auxiliary_model.clone());
+        return Ok(wrap_deepseek_anthropic_if_eligible(
+            backend,
+            DeepseekAnthropicConfig {
+                api_key: config.api_key_secret(),
+                thinking: config.thinking,
+                reasoning_effort: config.reasoning_effort.clone(),
+                max_output_tokens: model.limit.output.and_then(std::num::NonZeroU32::new),
+                temperature: model.options.temperature,
+                top_p: model.options.top_p,
+            },
+            kind,
+            &base_url,
+            &model_name,
         ));
     }
     match config.provider.as_str() {
@@ -942,7 +964,18 @@ async fn build_openai_compatible_backend(
         )
         .await;
     }
-    Ok(Box::new(backend))
+    Ok(wrap_deepseek_anthropic_if_eligible(
+        backend,
+        DeepseekAnthropicConfig {
+            api_key: config.api_key_secret(),
+            thinking: config.thinking,
+            reasoning_effort: config.reasoning_effort.clone(),
+            ..Default::default()
+        },
+        kind,
+        &base_url,
+        &model,
+    ))
 }
 
 fn ollama_thinking_enabled(config: &RaraConfig) -> bool {

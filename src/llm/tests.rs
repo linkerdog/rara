@@ -1,3 +1,5 @@
+use std::num::NonZeroU32;
+
 use rara_tools::planning::ExitPlanModeTool;
 use rara_tools::tool::Tool;
 use reqwest::StatusCode;
@@ -5,7 +7,7 @@ use serde_json::json;
 
 use super::ollama::{
     apply_ollama_stream_event, build_ollama_options, ensure_ollama_stream_completed,
-    suggest_ollama_num_ctx, to_ollama_messages,
+    ollama_token_usage, suggest_ollama_num_ctx, to_ollama_messages,
 };
 use super::openai_compatible::{
     DeepseekTextStreamScrubber, OpenAiApiError, apply_codex_stream_event,
@@ -1537,6 +1539,117 @@ fn deepseek_stream_scrubber_streams_after_think_when_thinking_is_enabled() {
 }
 
 #[test]
+fn deepseek_stream_scrubber_hides_mid_stream_dsml_tool_call_block() {
+    let mut scrubber = DeepseekTextStreamScrubber::default();
+
+    assert_eq!(
+        scrubber.push("Let me check that.\n"),
+        "Let me check that.\n"
+    );
+    assert_eq!(
+        scrubber.push("<｜DSML｜tool_calls>\n<｜DSML｜invoke name=\"read_file\">\n"),
+        ""
+    );
+    assert_eq!(
+        scrubber.push(
+            "<｜DSML｜parameter name=\"path\" string=\"true\">src/lib.rs</｜DSML｜parameter>\n"
+        ),
+        ""
+    );
+    assert_eq!(
+        scrubber.push("</｜DSML｜invoke>\n</｜DSML｜tool_calls>\nDone."),
+        "\nDone."
+    );
+    assert_eq!(scrubber.finish(), "");
+}
+
+#[test]
+fn deepseek_stream_scrubber_buffers_partial_dsml_open_tag_across_chunks() {
+    let mut scrubber = DeepseekTextStreamScrubber::default();
+
+    assert_eq!(scrubber.push("Before "), "Before ");
+    assert_eq!(scrubber.push("<｜DSML｜tool"), "");
+    assert_eq!(scrubber.push("_calls>"), "");
+    assert_eq!(
+        scrubber.push("<｜DSML｜invoke name=\"x\"><｜DSML｜parameter name=\"a\" string=\"true\">1</｜DSML｜parameter></｜DSML｜invoke>"),
+        ""
+    );
+    assert_eq!(scrubber.push("</｜DSML｜tool_calls>After"), "After");
+    assert_eq!(scrubber.finish(), "");
+}
+
+#[test]
+fn deepseek_stream_scrubber_settled_state_passes_unrelated_angle_brackets_through_immediately() {
+    let mut scrubber = DeepseekTextStreamScrubber::default();
+    assert_eq!(
+        scrubber.push("Here is some code:\n"),
+        "Here is some code:\n"
+    );
+    // None of these should ever be buffered: each must come back unchanged,
+    // proving the settled fast path stayed active instead of falling into
+    // the full-rescan path for every unrelated `<`.
+    for chunk in [
+        "fn foo<T>(x: Vec<T>) -> Option<T> {\n",
+        "    if x.len() < 1 { return None }\n",
+        "    <div class=\"x\">not real markup</div>\n",
+        "}\n",
+    ] {
+        assert_eq!(scrubber.push(chunk), chunk);
+    }
+    assert_eq!(scrubber.finish(), "");
+}
+
+#[test]
+fn deepseek_stream_scrubber_settled_state_still_hides_a_complete_block_delivered_whole() {
+    let mut scrubber = DeepseekTextStreamScrubber::default();
+    assert_eq!(
+        scrubber.push("Some code: Vec<String>, "),
+        "Some code: Vec<String>, "
+    );
+    // A single delta carrying an entire open+close DSML block (as a
+    // provider might batch a short tool call into one SSE chunk) must not
+    // slip through the settled-state fast path just because
+    // `pending_tool_call_boundary` reports nothing "pending" — a complete
+    // block isn't pending, but it still needs to be scrubbed out.
+    assert_eq!(
+        scrubber.push(
+            "<｜DSML｜tool_calls>\n<｜DSML｜invoke name=\"x\"><｜DSML｜parameter name=\"a\" string=\"true\">1</｜DSML｜parameter></｜DSML｜invoke>\n</｜DSML｜tool_calls>After"
+        ),
+        "After"
+    );
+    assert_eq!(scrubber.finish(), "");
+}
+
+#[test]
+fn deepseek_stream_scrubber_windowed_settle_check_still_catches_marker_split_after_unrelated_text()
+{
+    let mut scrubber = DeepseekTextStreamScrubber::default();
+    let long_unrelated = "x".repeat(64) + " Vec<String> done, ";
+    assert_eq!(scrubber.push(&long_unrelated), long_unrelated);
+    // Split the DSML open tag exactly at the marker, immediately after a
+    // long run of already-settled, unrelated `<`-bearing text — this is the
+    // case the trailing-window check (not the whole `raw_text`) must still
+    // catch correctly.
+    assert_eq!(scrubber.push("<｜DSML｜tool"), "");
+    assert_eq!(
+        scrubber.push(
+            "_calls>\n<｜DSML｜invoke name=\"x\">\n<｜DSML｜parameter name=\"a\" string=\"true\">1</｜DSML｜parameter>\n</｜DSML｜invoke>\n</｜DSML｜tool_calls>After"
+        ),
+        "After"
+    );
+    assert_eq!(scrubber.finish(), "");
+}
+
+#[test]
+fn deepseek_stream_scrubber_shows_unclosed_dsml_tag_only_at_finish() {
+    let mut scrubber = DeepseekTextStreamScrubber::default();
+
+    assert_eq!(scrubber.push("Hello "), "Hello ");
+    assert_eq!(scrubber.push("<｜DSML｜tool_calls>\nstill going"), "");
+    assert_eq!(scrubber.finish(), "<｜DSML｜tool_calls>\nstill going");
+}
+
+#[test]
 fn deepseek_non_thinking_model_keeps_standard_openai_body() {
     let body = build_chat_completion_request_body(
         "deepseek-chat",
@@ -2463,12 +2576,45 @@ fn context_budget_scales_reserved_output_by_window_size() {
 }
 
 #[test]
+fn context_budget_reserves_max_output_tokens_even_without_a_configured_provider_model() {
+    // `with_max_output_tokens` alone (opt-in measurement tooling —
+    // `deepseek_cache_probe.rs`, `agent/tests/cache_trial/driver.rs`) never
+    // sets `configured_api_root`, but `chat_completion_request_body` sends
+    // `max_output_tokens` on the wire unconditionally whenever it's set.
+    // `context_budget` must reserve the same value regardless of how
+    // `max_output_tokens` was configured — the same class of bug fixed for
+    // the DeepSeek Anthropic route in `llm/deepseek_anthropic.rs`
+    // (`effective_max_output_tokens`/`wire_max_output_tokens`): two
+    // independently-derived "how much output does this request reserve"
+    // values are guaranteed to drift eventually.
+    let backend = OpenAiCompatibleBackend::new_with_endpoint_kind(
+        None,
+        "https://api.deepseek.com".to_string(),
+        "deepseek-flash".to_string(),
+        OpenAiEndpointKind::Deepseek,
+    )
+    .expect("backend")
+    .with_max_output_tokens(NonZeroU32::new(600_000).expect("nonzero"));
+
+    let budget = backend
+        .context_budget(&[], &[])
+        .expect("deepseek-flash has a known context window");
+    assert_eq!(budget.context_window_tokens, 1_048_576);
+    assert_eq!(
+        budget.reserved_output_tokens, 600_000,
+        "must not fall back to the generic ~32K window heuristic just because \
+         configured_api_root was never set"
+    );
+    assert!(budget.compact_threshold_tokens > 0);
+}
+
+#[test]
 fn applies_ollama_stream_event_deltas_and_tool_calls() {
     let mut text = String::new();
     let mut tool_calls = Vec::new();
     let mut stop_reason = None;
-    let mut input_tokens = 0u32;
-    let mut output_tokens = 0u32;
+    let mut input_tokens: Option<u32> = None;
+    let mut output_tokens: Option<u32> = None;
     let mut deltas = Vec::new();
 
     let done = apply_ollama_stream_event(
@@ -2516,8 +2662,56 @@ fn applies_ollama_stream_event_deltas_and_tool_calls() {
     assert_eq!(tool_calls[0].name, "read_file");
     assert_eq!(tool_calls[0].arguments, json!({"path":"Cargo.toml"}));
     assert_eq!(stop_reason, Some("stop".to_string()));
-    assert_eq!(input_tokens, 12);
-    assert_eq!(output_tokens, 6);
+    assert_eq!(input_tokens, Some(12));
+    assert_eq!(output_tokens, Some(6));
+}
+
+#[test]
+fn ollama_stream_event_leaves_token_counts_none_when_final_line_omits_them() {
+    // A `done` event with no prompt_eval_count/eval_count fields must not
+    // be reported as a real zero-token measurement — see
+    // `ollama_token_usage`'s doc for why a synthetic zero there would
+    // corrupt the agent loop's compaction token estimate.
+    let mut text = String::new();
+    let mut tool_calls = Vec::new();
+    let mut stop_reason = None;
+    let mut input_tokens: Option<u32> = None;
+    let mut output_tokens: Option<u32> = None;
+    let mut deltas = Vec::new();
+
+    let done = apply_ollama_stream_event(
+        &json!({"message":{"content":"hi"}, "done": true, "done_reason": "stop"}),
+        &mut text,
+        &mut tool_calls,
+        &mut stop_reason,
+        &mut input_tokens,
+        &mut output_tokens,
+        &mut |delta| deltas.push(delta),
+    )
+    .unwrap();
+
+    assert!(done);
+    assert_eq!(input_tokens, None);
+    assert_eq!(output_tokens, None);
+}
+
+#[test]
+fn ollama_token_usage_is_none_without_a_reported_prompt_count() {
+    assert!(ollama_token_usage(None, None).is_none());
+    assert!(
+        ollama_token_usage(None, Some(6)).is_none(),
+        "an output count alone is not a prompt measurement"
+    );
+}
+
+#[test]
+fn ollama_token_usage_reports_zero_output_as_a_real_measurement() {
+    // Only input_tokens (the prompt count) gates whether usage is known at
+    // all; once it's present, a genuinely absent output count is fine to
+    // default to zero (e.g. a response cut off before any output).
+    let usage = ollama_token_usage(Some(12), None).expect("prompt count was reported");
+    assert_eq!(usage.input_tokens, 12);
+    assert_eq!(usage.output_tokens, 0);
 }
 
 #[test]
@@ -2536,8 +2730,8 @@ fn deduplicates_repeated_ollama_stream_tool_calls() {
     let mut text = String::new();
     let mut tool_calls = Vec::new();
     let mut stop_reason = None;
-    let mut input_tokens = 0u32;
-    let mut output_tokens = 0u32;
+    let mut input_tokens: Option<u32> = None;
+    let mut output_tokens: Option<u32> = None;
 
     apply_ollama_stream_event(
         &json!({
@@ -2579,8 +2773,8 @@ fn ignores_incomplete_ollama_stream_tool_calls_until_arguments_are_complete() {
     let mut text = String::new();
     let mut tool_calls = Vec::new();
     let mut stop_reason = None;
-    let mut input_tokens = 0u32;
-    let mut output_tokens = 0u32;
+    let mut input_tokens: Option<u32> = None;
+    let mut output_tokens: Option<u32> = None;
 
     apply_ollama_stream_event(
         &json!({

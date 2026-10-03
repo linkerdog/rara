@@ -4,7 +4,7 @@
 //! Supports stdio child-process servers and streamable-HTTP servers.
 //!
 //! Used by the MCP Tool Search feature to build the tool index at startup.
-//! Follows the same `rmcp`-based pattern used by Claude Code and Codex.
+//! Uses the explicit HTTP client construction pattern from Codex.
 
 use std::collections::HashMap;
 use std::ffi::OsString;
@@ -13,16 +13,26 @@ use std::time::Duration;
 
 use anyhow::{Context, Result};
 use http::{HeaderName, HeaderValue};
-use rmcp::ServiceExt;
 use rmcp::model::Tool;
 use rmcp::transport::StreamableHttpClientTransport;
 use rmcp::transport::child_process::TokioChildProcess;
 use rmcp::transport::streamable_http_client::StreamableHttpClientTransportConfig;
+use rmcp::{Peer, RoleClient, ServiceExt};
 use tokio::process::Command;
 use tokio::time::timeout;
 
 /// Default timeout for connecting to an MCP server.
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
+
+/// One deadline covers every page, including a server that repeats its cursor.
+const LIST_TIMEOUT: Duration = Duration::from_secs(10);
+
+/// Proxy routing selected by the configuration registry for an HTTP endpoint.
+#[derive(Clone, Copy, Debug)]
+pub enum HttpProxyPolicy {
+    System,
+    Bypass,
+}
 
 /// A single MCP tool record for caching.
 #[derive(Debug, Clone)]
@@ -65,12 +75,7 @@ pub async fn list_stdio_tools(
         .context("MCP connect timed out")?
         .with_context(|| format!("Failed to connect to MCP server {:?}", command))?;
 
-    let tools_result = service
-        .list_tools(Default::default())
-        .await
-        .context("MCP tools/list failed")?;
-
-    Ok(tool_records(tools_result.tools))
+    list_tools(&service).await
 }
 
 /// Connect to an MCP server over streamable HTTP and list all available tools.
@@ -79,26 +84,41 @@ pub async fn list_stdio_tools(
 /// * `url` — the MCP endpoint URL
 /// * `headers` — headers applied to every request, already resolved from static
 ///   config, env-var-backed headers, and bearer-token sources
+/// * `proxy_policy` — the registry's routing decision, including loopback bypass
 pub async fn list_http_tools(
     url: String,
     headers: Vec<(String, String)>,
+    proxy_policy: HttpProxyPolicy,
 ) -> Result<Vec<McpToolRecord>> {
-    let config = StreamableHttpClientTransportConfig::with_uri(url.clone())
-        .custom_headers(header_map(&headers)?);
-    let transport = StreamableHttpClientTransport::from_config(config);
+    let config =
+        StreamableHttpClientTransportConfig::with_uri(url).custom_headers(header_map(&headers)?);
+    let builder = reqwest::Client::builder();
+    let builder = match proxy_policy {
+        HttpProxyPolicy::System => builder,
+        HttpProxyPolicy::Bypass => builder.no_proxy(),
+    };
+    let client = builder.build().context("Failed to build MCP HTTP client")?;
+    let transport = StreamableHttpClientTransport::with_client(client, config);
 
     let service = timeout(CONNECT_TIMEOUT, ().serve(transport))
         .await
         .context("MCP connect timed out")?
-        .with_context(|| format!("Failed to connect to MCP server at {url}"))?;
+        .context("Failed to connect to MCP HTTP server")?;
 
-    let tools_result = service
-        .list_tools(Default::default())
+    list_tools(&service).await
+}
+
+async fn list_tools(peer: &Peer<RoleClient>) -> Result<Vec<McpToolRecord>> {
+    let tools = timeout(LIST_TIMEOUT, peer.list_all_tools())
         .await
+        .context("MCP tools/list timed out")?
         .context("MCP tools/list failed")?;
 
-    Ok(tool_records(tools_result.tools))
+    Ok(tool_records(tools))
 }
+
+#[cfg(test)]
+mod http_tests;
 
 fn header_map(headers: &[(String, String)]) -> Result<HashMap<HeaderName, HeaderValue>> {
     headers

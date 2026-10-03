@@ -1,0 +1,480 @@
+//! Converts RARA's internal [`Message`] history into Anthropic Messages
+//! request shapes.
+
+use serde_json::{Value, json};
+
+use crate::agent::Message;
+use crate::llm::shared::extract_message_text;
+use crate::model_context::{MODEL_CONTEXT_BLOCK_TYPE, model_context_text};
+use crate::tool_result::pairing::{
+    has_tool_result_block, keep_or_drop_tool_results, synthetic_tool_result_blocks,
+    tool_use_ids_in_blocks,
+};
+
+/// Converts history into an Anthropic Messages request body's `system`
+/// string and `messages` array.
+///
+/// Anthropic requires every `tool_use` in a turn to have its `tool_result`
+/// in the literal next message. The agent loop's internal history doesn't
+/// guarantee that shape by construction — a turn's parallel tool results
+/// are recorded as several separate consecutive `Message`s (one
+/// `tool_result` block each — see `execute_tool_calls`/`tool_result_message`
+/// in `src/agent/execution.rs`/`src/agent/planning.rs`), and a tool call can
+/// go permanently unanswered (an approval- or plan-exit-interrupted turn
+/// abandons part of its batch). `chat/completions` doesn't care (it
+/// correlates results by id, not position), so nothing upstream guarantees
+/// this for a route that does. This function therefore runs the same
+/// `tool_use`/`tool_result` pairing repair as
+/// [`repair_tool_result_history`](crate::tool_result::repair_tool_result_history)
+/// — via the shared primitives in
+/// [`crate::tool_result::pairing`] — plus one thing that repair pass doesn't
+/// need: coalescing consecutive `user` messages into one, since Anthropic's
+/// adjacency rule cares about message boundaries and `repair_tool_result_history`
+/// operates one turn at a time. Assistant messages are never coalesced:
+/// `to_anthropic_message_content` always places a replayed `thinking` block
+/// first in its own message, and merging a later assistant message's blocks
+/// after an earlier one's would bury that block instead of keeping it
+/// first, breaking the thinking-signature replay contract.
+pub(super) fn to_anthropic_messages(messages: &[Message]) -> (Option<String>, Vec<Value>) {
+    let mut system_parts = Vec::new();
+    let mut out: Vec<Value> = Vec::new();
+    let mut pending_tool_use_ids: Vec<String> = Vec::new();
+
+    for message in messages {
+        if message.role == "system" {
+            // System history is not always a plain string: compaction
+            // boundaries and carry-over notes store it as an array of text
+            // blocks (see `build_compact_boundary_message`), same as user
+            // messages can.
+            if let Some(text) = extract_message_text(Some(&message.content))
+                && !text.trim().is_empty()
+            {
+                system_parts.push(text);
+            }
+            continue;
+        }
+
+        let blocks = as_content_blocks(to_anthropic_message_content(&message.content));
+
+        if message.role == "assistant" {
+            flush_missing_tool_results(&mut out, &mut pending_tool_use_ids);
+            pending_tool_use_ids.extend(tool_use_ids_in_blocks(&blocks));
+            if !blocks.is_empty() {
+                out.push(json!({"role": "assistant", "content": Value::Array(blocks)}));
+            }
+            continue;
+        }
+
+        if has_tool_result_block(&blocks) {
+            let kept = keep_or_drop_tool_results(blocks, &mut pending_tool_use_ids);
+            push_or_merge(&mut out, "user", kept);
+        } else {
+            // Matches `repair_tool_result_history`'s more conservative rule:
+            // any message that isn't itself carrying the matching
+            // `tool_result` — not just the next assistant message — ends
+            // the window during which a pending `tool_use` can still be
+            // resolved, so a stray message in between (e.g. a queued
+            // follow-up landing before a tool actually finishes) must not
+            // let the pending id ride past it unflushed.
+            flush_missing_tool_results(&mut out, &mut pending_tool_use_ids);
+            push_or_merge(&mut out, "user", blocks);
+        }
+    }
+    flush_missing_tool_results(&mut out, &mut pending_tool_use_ids);
+
+    let system = (!system_parts.is_empty()).then(|| system_parts.join("\n\n"));
+    (system, out)
+}
+
+/// Normalizes converted message content into a flat block list so runs of
+/// the same role can be merged by extending one array, regardless of
+/// whether the original content was a plain string or already an array.
+fn as_content_blocks(content: Value) -> Vec<Value> {
+    match content {
+        Value::String(text) => {
+            if text.trim().is_empty() {
+                Vec::new()
+            } else {
+                vec![json!({"type": "text", "text": text})]
+            }
+        }
+        Value::Array(items) => items,
+        _ => Vec::new(),
+    }
+}
+
+fn push_or_merge(out: &mut Vec<Value>, role: &str, blocks: Vec<Value>) {
+    if blocks.is_empty() {
+        return;
+    }
+    if let Some(last) = out.last_mut()
+        && last["role"] == role
+        && let Some(existing) = last["content"].as_array_mut()
+    {
+        existing.extend(blocks);
+        return;
+    }
+    out.push(json!({"role": role, "content": Value::Array(blocks)}));
+}
+
+fn flush_missing_tool_results(out: &mut Vec<Value>, pending_tool_use_ids: &mut Vec<String>) {
+    push_or_merge(
+        out,
+        "user",
+        synthetic_tool_result_blocks(pending_tool_use_ids),
+    );
+}
+
+/// Converts one message's content into Anthropic content blocks. Our
+/// internal block shapes (`text`, `tool_use`, `tool_result`) already match
+/// Anthropic's wire format directly; the one reconstruction needed is a
+/// `thinking` block (with its `signature`) from the `ProviderMetadata` slot
+/// this backend's own responses populate, which DeepSeek requires replayed
+/// on every subsequent turn while tools are in play.
+fn to_anthropic_message_content(content: &Value) -> Value {
+    if let Some(text) = content.as_str() {
+        return Value::String(text.to_string());
+    }
+    let Some(items) = content.as_array() else {
+        return content.clone();
+    };
+
+    let mut thinking_block = None;
+    let mut blocks = Vec::with_capacity(items.len());
+    for item in items {
+        match item.get("type").and_then(Value::as_str) {
+            Some("text") => blocks.push(item.clone()),
+            Some(MODEL_CONTEXT_BLOCK_TYPE) => {
+                if let Some(text) = model_context_text(item) {
+                    blocks.push(json!({"type": "text", "text": text}));
+                }
+            }
+            Some("tool_use") => blocks.push(json!({
+                "type": "tool_use",
+                "id": item.get("id").and_then(Value::as_str).unwrap_or_default(),
+                "name": item.get("name").and_then(Value::as_str).unwrap_or_default(),
+                "input": item.get("input").cloned().unwrap_or_else(|| json!({})),
+            })),
+            Some("tool_result") => {
+                let mut block = json!({
+                    "type": "tool_result",
+                    "tool_use_id": item.get("tool_use_id").and_then(Value::as_str).unwrap_or_default(),
+                    "content": item.get("content").and_then(Value::as_str).unwrap_or_default(),
+                });
+                if item.get("is_error").and_then(Value::as_bool) == Some(true) {
+                    block["is_error"] = json!(true);
+                }
+                blocks.push(block);
+            }
+            Some("provider_metadata")
+                if item.get("provider").and_then(Value::as_str)
+                    == Some(super::THINKING_PROVIDER)
+                    && item.get("key").and_then(Value::as_str) == Some(super::THINKING_KEY) =>
+            {
+                if let Some(value) = item.get("value") {
+                    thinking_block = Some(json!({
+                        "type": "thinking",
+                        "thinking": value.get("thinking").and_then(Value::as_str).unwrap_or_default(),
+                        "signature": value.get("signature").and_then(Value::as_str).unwrap_or_default(),
+                    }));
+                }
+            }
+            _ => {}
+        }
+    }
+    if let Some(block) = thinking_block {
+        blocks.insert(0, block);
+    }
+    Value::Array(blocks)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn message_conversion_never_merges_consecutive_assistant_messages() {
+        // Coalescing exists only to satisfy Anthropic's tool_result
+        // adjacency rule for `user` messages. Merging assistant messages
+        // instead would bury a later message's leading `thinking` block
+        // (which `to_anthropic_message_content` always places first in its
+        // own message) behind the earlier message's content, breaking the
+        // thinking-signature replay contract.
+        let messages = [
+            Message {
+                role: "assistant".to_string(),
+                content: json!([{"type": "text", "text": "first"}]),
+            },
+            Message {
+                role: "assistant".to_string(),
+                content: json!([
+                    {"type": "provider_metadata", "provider": "deepseek", "key": "thinking",
+                     "value": {"thinking": "reasoning", "signature": "sig-1"}},
+                    {"type": "text", "text": "second"},
+                ]),
+            },
+        ];
+
+        let (_, out) = to_anthropic_messages(&messages);
+        assert_eq!(
+            out.len(),
+            2,
+            "consecutive assistant messages must stay separate"
+        );
+        assert_eq!(
+            out[0]["content"],
+            json!([{"type": "text", "text": "first"}])
+        );
+        assert_eq!(
+            out[1]["content"][0]["type"], "thinking",
+            "the second message's thinking block must stay first in its own message"
+        );
+    }
+
+    #[test]
+    fn message_conversion_reconstructs_leading_thinking_block_from_provider_metadata() {
+        let messages = [Message {
+            role: "assistant".to_string(),
+            content: json!([
+                {"type": "provider_metadata", "provider": "deepseek", "key": "thinking",
+                 "value": {"thinking": "reasoning", "signature": "sig-1"}},
+                {"type": "text", "text": "answer"},
+                {"type": "tool_use", "id": "call_1", "name": "get_weather", "input": {"city": "Paris"}},
+            ]),
+        }];
+
+        let (system, out) = to_anthropic_messages(&messages);
+        assert_eq!(system, None);
+        assert_eq!(
+            out[0]["content"],
+            json!([
+                {"type": "thinking", "thinking": "reasoning", "signature": "sig-1"},
+                {"type": "text", "text": "answer"},
+                {"type": "tool_use", "id": "call_1", "name": "get_weather", "input": {"city": "Paris"}},
+            ])
+        );
+    }
+
+    #[test]
+    fn message_conversion_folds_tool_results_into_user_role() {
+        let messages = [
+            Message {
+                role: "assistant".to_string(),
+                content: json!([
+                    {"type": "tool_use", "id": "call_1", "name": "get_weather", "input": {}},
+                ]),
+            },
+            Message {
+                role: "user".to_string(),
+                content: json!([
+                    {"type": "tool_result", "tool_use_id": "call_1", "content": "18C, cloudy"},
+                ]),
+            },
+        ];
+
+        let (_, out) = to_anthropic_messages(&messages);
+        assert_eq!(out[1]["role"], "user");
+        assert_eq!(
+            out[1]["content"],
+            json!([{"type": "tool_result", "tool_use_id": "call_1", "content": "18C, cloudy"}])
+        );
+    }
+
+    #[test]
+    fn message_conversion_drops_tool_result_with_no_pending_tool_use() {
+        // The mirror image of the missing-result synthesis test: a real
+        // production 400 ("tool_use_id found in tool_result blocks ...
+        // without a corresponding tool_use block in the previous message")
+        // happens when a `tool_result` survives in history for an id that
+        // is no longer (or never was) pending — its real `tool_use` was
+        // already resolved, already flushed as a synthetic filler, or
+        // simply doesn't exist. Passing it through breaks adjacency from
+        // the other direction; `repair_tool_result_history` already drops
+        // these at the `Message` level, so this mirrors that here.
+        let messages = [
+            Message {
+                role: "assistant".to_string(),
+                content: json!([
+                    {"type": "tool_use", "id": "call_1", "name": "read_file", "input": {}},
+                ]),
+            },
+            Message {
+                role: "user".to_string(),
+                content: json!([
+                    {"type": "tool_result", "tool_use_id": "call_1", "content": "A"},
+                    // Stale/unrelated id — no matching tool_use anywhere in
+                    // this history (e.g. survived a compaction or a
+                    // mid-session provider switch).
+                    {"type": "tool_result", "tool_use_id": "call_stale", "content": "B"},
+                    {"type": "text", "text": "keep me"},
+                ]),
+            },
+        ];
+
+        let (_, out) = to_anthropic_messages(&messages);
+        assert_eq!(
+            out[1]["content"],
+            json!([
+                {"type": "tool_result", "tool_use_id": "call_1", "content": "A"},
+                {"type": "text", "text": "keep me"},
+            ]),
+            "the orphaned tool_result must be dropped, non-tool_result blocks kept"
+        );
+    }
+
+    #[test]
+    fn message_conversion_flushes_pending_tool_use_before_an_unrelated_user_message() {
+        // Matches repair_tool_result_history's more conservative rule: any
+        // message that isn't itself carrying the matching tool_result — not
+        // just the next assistant message — ends the window during which a
+        // pending tool_use can still be resolved. A stray user-role message
+        // with no tool_result at all (e.g. a queued follow-up landing before
+        // the tool actually finishes) must not let the pending id ride past
+        // it unflushed.
+        let messages = [
+            Message {
+                role: "assistant".to_string(),
+                content: json!([
+                    {"type": "tool_use", "id": "call_1", "name": "read_file", "input": {}},
+                ]),
+            },
+            Message {
+                role: "user".to_string(),
+                content: json!([{"type": "text", "text": "unrelated interruption"}]),
+            },
+        ];
+
+        let (_, out) = to_anthropic_messages(&messages);
+        assert_eq!(out.len(), 2);
+        assert_eq!(
+            out[1]["content"],
+            json!([
+                {
+                    "type": "tool_result",
+                    "tool_use_id": "call_1",
+                    "content": "Tool execution was interrupted before a result was recorded.",
+                    "is_error": true
+                },
+                {"type": "text", "text": "unrelated interruption"},
+            ])
+        );
+    }
+
+    #[test]
+    fn message_conversion_collects_system_text() {
+        let messages = [Message {
+            role: "system".to_string(),
+            content: json!("be helpful"),
+        }];
+        let (system, out) = to_anthropic_messages(&messages);
+        assert_eq!(system, Some("be helpful".to_string()));
+        assert!(out.is_empty());
+    }
+
+    #[test]
+    fn message_conversion_merges_parallel_tool_results_into_one_message_for_anthropic_adjacency() {
+        // Reproduces a real production 400: DeepSeek's Anthropic-compatible
+        // endpoint rejects a request where a multi-tool_use assistant turn's
+        // results are split across several consecutive `user` messages
+        // (as `execute_tool_calls`/`tool_result_message` record them
+        // internally, one message per tool call) instead of gathered into
+        // the single message immediately following that turn.
+        let messages = [
+            Message {
+                role: "assistant".to_string(),
+                content: json!([
+                    {"type": "tool_use", "id": "call_1", "name": "read_file", "input": {"path": "a"}},
+                    {"type": "tool_use", "id": "call_2", "name": "read_file", "input": {"path": "b"}},
+                ]),
+            },
+            Message {
+                role: "user".to_string(),
+                content: json!([{"type": "tool_result", "tool_use_id": "call_1", "content": "A"}]),
+            },
+            Message {
+                role: "user".to_string(),
+                content: json!([{"type": "tool_result", "tool_use_id": "call_2", "content": "B"}]),
+            },
+            Message {
+                role: "user".to_string(),
+                content: json!([{"type": "text", "text": "continuation nudge"}]),
+            },
+        ];
+
+        let (_, out) = to_anthropic_messages(&messages);
+        assert_eq!(
+            out.len(),
+            2,
+            "the tool_use turn's three trailing user messages must merge into one"
+        );
+        assert_eq!(out[0]["role"], "assistant");
+        assert_eq!(out[1]["role"], "user");
+        assert_eq!(
+            out[1]["content"],
+            json!([
+                {"type": "tool_result", "tool_use_id": "call_1", "content": "A"},
+                {"type": "tool_result", "tool_use_id": "call_2", "content": "B"},
+                {"type": "text", "text": "continuation nudge"},
+            ])
+        );
+    }
+
+    #[test]
+    fn message_conversion_synthesizes_missing_tool_result_before_next_assistant_turn() {
+        // A second production scenario, distinct from the parallel-results
+        // one above: an approval- or plan-exit-interrupted turn can abandon
+        // the rest of its tool_use batch, leaving some ids with no
+        // tool_result at all anywhere in history (see `execute_tool_calls`
+        // in `src/agent/execution.rs`, and `repair_tool_result_history`'s
+        // gap on the approval-resume path). Without a repair here, the
+        // still-pending `tool_use` id from the earlier turn would ride into
+        // the next assistant message unresolved, the same class of 400 this
+        // module exists to avoid.
+        let messages = [
+            Message {
+                role: "assistant".to_string(),
+                content: json!([
+                    {"type": "tool_use", "id": "call_1", "name": "read_file", "input": {"path": "a"}},
+                    {"type": "tool_use", "id": "call_2", "name": "exit_plan_mode", "input": {}},
+                ]),
+            },
+            Message {
+                role: "user".to_string(),
+                content: json!([{"type": "tool_result", "tool_use_id": "call_1", "content": "A"}]),
+            },
+            Message {
+                role: "assistant".to_string(),
+                content: json!([{"type": "text", "text": "next turn"}]),
+            },
+        ];
+
+        let (_, out) = to_anthropic_messages(&messages);
+        assert_eq!(out.len(), 3);
+        assert_eq!(
+            out[1]["content"],
+            json!([
+                {"type": "tool_result", "tool_use_id": "call_1", "content": "A"},
+                {
+                    "type": "tool_result",
+                    "tool_use_id": "call_2",
+                    "content": "Tool execution was interrupted before a result was recorded.",
+                    "is_error": true
+                },
+            ])
+        );
+        assert_eq!(out[2]["role"], "assistant");
+    }
+
+    #[test]
+    fn message_conversion_renders_array_shaped_system_content_from_compaction() {
+        let messages = [Message {
+            role: "system".to_string(),
+            content: json!([{"type": "text", "text": "COMPACTION BOUNDARY: carried-over summary"}]),
+        }];
+        let (system, _) = to_anthropic_messages(&messages);
+        assert_eq!(
+            system,
+            Some("COMPACTION BOUNDARY: carried-over summary".to_string())
+        );
+    }
+}

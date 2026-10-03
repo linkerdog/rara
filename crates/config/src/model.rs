@@ -344,18 +344,12 @@ impl NowledgeMemPluginConfig {
     }
 
     pub fn api_url(&self) -> String {
+        let mcp_url = self.mcp_url();
+        let base = mcp_url.trim_end_matches('/');
+        let base = base.strip_suffix("/mcp").unwrap_or(base);
         match self.mode {
-            NowledgeMemMode::Local => {
-                let mcp_url = self.mcp_url();
-                mcp_url
-                    .trim_end_matches('/')
-                    .strip_suffix("/mcp")
-                    .unwrap_or_else(|| mcp_url.trim_end_matches('/'))
-                    .to_string()
-            }
-            NowledgeMemMode::Cloud => {
-                format!("{}/remote-api", self.base_url().trim_end_matches('/'))
-            }
+            NowledgeMemMode::Local => base.to_string(),
+            NowledgeMemMode::Cloud => format!("{base}/remote-api"),
         }
     }
 

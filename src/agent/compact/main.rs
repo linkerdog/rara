@@ -2,7 +2,7 @@ use std::sync::OnceLock;
 
 use super::types::*;
 use crate::agent::*;
-use crate::llm::{ContextBudget, is_context_window_error};
+use crate::llm::{ContextBudget, TokenUsage, is_context_window_error};
 use crate::session::PersistedCompactionEvent;
 
 impl Agent {
@@ -381,6 +381,55 @@ impl Agent {
         self.compact_state.estimated_history_tokens =
             estimate_history_tokens(&self.history).unwrap_or_default();
     }
+
+    /// Replaces the local, per-message token estimate with the provider's
+    /// own reported prompt size for the request that was just answered.
+    ///
+    /// `estimate_history_tokens`/`record_history_message_tokens` always
+    /// count against `cl100k_base` (OpenAI's tokenizer, via `tokenizer()`
+    /// in `helpers.rs`), the only vocabulary this crate has a local BPE
+    /// for. Every non-OpenAI provider's real tokenizer disagrees with it —
+    /// DeepSeek's most visibly, since its models route through an
+    /// Anthropic-shaped surface with `deepseek-flash`'s 1,048,576-token
+    /// window: a several-thousand-token local-vs-real gap is invisible at
+    /// small scale but, right at the edge of a huge window, is exactly
+    /// enough to let history clear the compaction threshold while still
+    /// legitimately overshooting the real API limit once the reserved
+    /// completion budget is added (reproduced in production: DeepSeek
+    /// rejected a request with "requested 1049096 tokens" against this
+    /// model's 1,048,576-token window, only 520 tokens over, after the
+    /// local estimate had judged the same history safely under threshold).
+    ///
+    /// Mirrors the DeepSeek reference harness's own token-meter design
+    /// (`deepseek-ai/deepseek-harness`,
+    /// `packages/llm/token-meter/src/projection.ts`): anchor the known
+    /// quantity — what the provider says this exact request's prompt
+    /// cost — and let only the *delta* since that anchor (new messages
+    /// `record_history_message_tokens` adds afterward, until the next
+    /// response corrects it again) ride on the imprecise local estimate.
+    /// That bounds the accumulated error to one turn's worth of drift
+    /// instead of letting it compound, uncorrected, over an entire
+    /// session.
+    ///
+    /// `usage.input_tokens` is Anthropic-shaped semantics (also what
+    /// DeepSeek's Anthropic-compatible surface and this crate's other
+    /// providers report through the same [`TokenUsage`] shape):
+    /// non-cached prompt tokens only, with `cache_hit_tokens`/
+    /// `cache_miss_tokens` (`cache_read_input_tokens`/
+    /// `cache_creation_input_tokens` on the wire) reported separately and
+    /// additively — the full prompt this response answered is their sum.
+    pub(in crate::agent) fn record_actual_prompt_tokens(&mut self, usage: &TokenUsage) {
+        self.compact_state.estimated_history_tokens = total_prompt_tokens(usage);
+    }
+}
+
+/// The full prompt size a request cost: `usage.input_tokens` plus its
+/// separately-reported cache tokens (see `record_actual_prompt_tokens`'s
+/// doc for why these are additive, not already included).
+fn total_prompt_tokens(usage: &TokenUsage) -> usize {
+    (usage.input_tokens as usize)
+        .saturating_add(usage.cache_hit_tokens as usize)
+        .saturating_add(usage.cache_miss_tokens as usize)
 }
 
 include!("planning.rs");
@@ -590,8 +639,11 @@ pub(crate) fn compact_boundary_item(content: &Value) -> Option<&serde_json::Map<
 mod tests {
     use serde_json::{Map, Value, json};
 
-    use super::{build_compact_plan, group_history_by_api_round, read_file_line_range};
+    use super::{
+        build_compact_plan, group_history_by_api_round, read_file_line_range, total_prompt_tokens,
+    };
     use crate::agent::Message;
+    use crate::llm::TokenUsage;
 
     fn object(value: Value) -> Map<String, Value> {
         value.as_object().expect("object").clone()
@@ -763,5 +815,33 @@ mod tests {
             ..Default::default()
         };
         assert_eq!(state.estimated_history_tokens, 500);
+    }
+
+    #[test]
+    fn total_prompt_tokens_sums_input_and_both_cache_fields() {
+        // usage.input_tokens is non-cached prompt tokens only (Anthropic
+        // wire semantics); cache_hit_tokens/cache_miss_tokens
+        // (cache_read_input_tokens/cache_creation_input_tokens on the
+        // wire) are reported separately and must be added, not treated as
+        // already included — otherwise re-anchoring would still
+        // undercount a request that hit the prompt cache.
+        let usage = TokenUsage {
+            input_tokens: 100,
+            output_tokens: 999, // irrelevant to prompt size, must be ignored
+            cache_hit_tokens: 50,
+            cache_miss_tokens: 25,
+        };
+        assert_eq!(total_prompt_tokens(&usage), 175);
+    }
+
+    #[test]
+    fn total_prompt_tokens_handles_no_cache_activity() {
+        let usage = TokenUsage {
+            input_tokens: 42,
+            output_tokens: 10,
+            cache_hit_tokens: 0,
+            cache_miss_tokens: 0,
+        };
+        assert_eq!(total_prompt_tokens(&usage), 42);
     }
 }

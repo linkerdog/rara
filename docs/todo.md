@@ -43,6 +43,10 @@ Active backlog only. Keep this file small and current.
 
 ## TUI / UX
 
+- [ ] Complete [#921](https://github.com/linkerdog/rara/issues/921) transcript
+      layout caching and bounded redraw work. Shared materialized visual rows
+      fix the correctness boundary, not per-delta rendering complexity; see
+      [the wrapping checkpoint](journal/2026-10-02-shared-transcript-wrapping.md).
 - [ ] Complete remaining keyboard contracts: resume-search cursor editing,
       Help General/Runtime scrolling, grapheme-cluster editing, and an explicit
       opt-in Vim mode. See [input risks](interaction/composer-and-overlays.md#open-risks).
@@ -89,6 +93,12 @@ Active backlog only. Keep this file small and current.
       services; only test-only fixtures retain local registry setup helpers.
 - [x] Construct `TuiController` directly from an injected port and add
       deterministic scripted lifecycle controls to the shared harness.
+
+## Thread Goals
+
+- [ ] Complete [#931](https://github.com/linkerdog/rara/issues/931): resume a
+      restored pursuing goal only when the runtime is idle, ready, and free of
+      pending interactions. Keep richer goal controls in that follow-up.
 
 ## Memory Lifecycle
 

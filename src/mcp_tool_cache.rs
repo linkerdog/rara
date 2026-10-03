@@ -8,7 +8,7 @@
 use std::collections::{BTreeMap, HashMap};
 use std::sync::{Arc, Mutex};
 
-use rara_mcp_client::McpToolRecord;
+use rara_mcp_client::{HttpProxyPolicy, McpToolRecord};
 
 use crate::config::McpServerTransport;
 
@@ -41,7 +41,7 @@ fn resolve_http_headers(
     if let Some(env_var) = sources.bearer_token_env_var {
         match lookup_env(env_var) {
             Some(token) => {
-                headers.insert("Authorization".to_string(), format!("Bearer {token}"));
+                headers.insert("authorization".to_string(), format!("Bearer {token}"));
             }
             None => missing_env_vars.push(env_var.to_string()),
         }
@@ -50,7 +50,7 @@ fn resolve_http_headers(
         for (name, env_var) in env_headers {
             match lookup_env(env_var) {
                 Some(value) => {
-                    headers.insert(name.clone(), value);
+                    headers.insert(name.to_ascii_lowercase(), value);
                 }
                 None => missing_env_vars.push(env_var.clone()),
             }
@@ -58,7 +58,7 @@ fn resolve_http_headers(
     }
     if let Some(static_headers) = sources.headers {
         for (name, value) in static_headers {
-            headers.insert(name.clone(), value.clone());
+            headers.insert(name.to_ascii_lowercase(), value.clone());
         }
     }
 
@@ -66,6 +66,11 @@ fn resolve_http_headers(
         headers: headers.into_iter().collect(),
         missing_env_vars,
     }
+}
+
+/// Redact the complete diagnostic chain at the runtime logging boundary.
+fn probe_error_for_display(error: &anyhow::Error) -> String {
+    rara_persistence::redaction::redact_secrets(format!("{error:#}"))
 }
 
 /// In-memory cache of MCP tool records, keyed by server name.
@@ -188,7 +193,13 @@ impl McpToolCache {
                             resolved.missing_env_vars.join(", ")
                         );
                     }
-                    rara_mcp_client::list_http_tools(url.clone(), resolved.headers).await
+                    let proxy_policy = if entry.config.transport.bypasses_proxy() {
+                        HttpProxyPolicy::Bypass
+                    } else {
+                        HttpProxyPolicy::System
+                    };
+                    rara_mcp_client::list_http_tools(url.clone(), resolved.headers, proxy_policy)
+                        .await
                 }
             };
 
@@ -197,7 +208,10 @@ impl McpToolCache {
                     self.insert_server_tools(name.clone(), tools);
                 }
                 Err(e) => {
-                    log::warn!("[mcp-tool-cache] failed to list tools from {name}: {e}");
+                    log::warn!(
+                        "[mcp-tool-cache] failed to list tools from {name}: {}",
+                        probe_error_for_display(&e)
+                    );
                 }
             }
         }
@@ -207,6 +221,67 @@ impl McpToolCache {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn probe_errors_redact_credentials_in_nested_causes() {
+        let error = anyhow::anyhow!(
+            "request failed for https://user:pass@example.com/mcp?token=short&exaApiKey=private&mode=search#fragment"
+        ).context("MCP tools/list failed");
+        let rendered = probe_error_for_display(&error);
+        assert!(rendered.contains("MCP tools/list failed: request failed"));
+        assert!(rendered.contains("example.com/mcp"));
+        for secret in ["user", "pass", "short", "private", "fragment"] {
+            assert!(!rendered.contains(secret), "leaked credential: {secret}");
+        }
+    }
+
+    #[test]
+    fn env_authorization_overrides_bearer_without_static_header() {
+        let env_headers = BTreeMap::from([("AuThOrIzAtIoN".into(), "AUTH".into())]);
+        let resolved = resolve_http_headers(
+            HttpHeaderSources {
+                bearer_token_env_var: Some("BEARER"),
+                headers: None,
+                env_headers: Some(&env_headers),
+            },
+            |name| Some(format!("env-{name}")),
+        );
+        assert_eq!(
+            resolved.headers,
+            [("authorization".into(), "env-AUTH".into())]
+        );
+    }
+
+    #[test]
+    fn review_regression_mcp_header_precedence_is_case_insensitive() {
+        let env_headers = BTreeMap::from([
+            ("Authorization".into(), "AUTH".into()),
+            ("X-Custom".into(), "CUSTOM".into()),
+        ]);
+        let static_headers = BTreeMap::from([
+            ("AUTHORIZATION".into(), "static-auth".into()),
+            ("x-custom".into(), "static-custom".into()),
+        ]);
+        let resolved = resolve_http_headers(
+            HttpHeaderSources {
+                bearer_token_env_var: Some("BEARER"),
+                headers: Some(&static_headers),
+                env_headers: Some(&env_headers),
+            },
+            |name| Some(format!("env-{name}")),
+        );
+        assert_eq!(resolved.headers.len(), 2);
+        for (name, value) in [
+            ("authorization", "static-auth"),
+            ("x-custom", "static-custom"),
+        ] {
+            let actual = resolved
+                .headers
+                .iter()
+                .find(|(key, _)| key.eq_ignore_ascii_case(name));
+            assert_eq!(actual.map(|(_, value)| value.as_str()), Some(value));
+        }
+    }
 
     #[test]
     fn resolve_http_headers_merges_bearer_env_headers_and_static_headers() {
@@ -228,12 +303,12 @@ mod tests {
         assert_eq!(
             resolved.headers,
             vec![
-                ("APP".to_string(), "RARA".to_string()),
+                ("app".to_string(), "RARA".to_string()),
                 (
-                    "Authorization".to_string(),
+                    "authorization".to_string(),
                     "Bearer nmem_ck_test".to_string()
                 ),
-                ("X-NMEM-API-Key".to_string(), "nmem_ck_test".to_string()),
+                ("x-nmem-api-key".to_string(), "nmem_ck_test".to_string()),
             ]
         );
         assert_eq!(resolved.missing_env_vars, vec!["NMEM_SPACE".to_string()]);
@@ -255,7 +330,7 @@ mod tests {
 
         assert_eq!(
             resolved.headers,
-            vec![("Authorization".to_string(), "Bearer explicit".to_string())]
+            vec![("authorization".to_string(), "Bearer explicit".to_string())]
         );
         assert!(resolved.missing_env_vars.is_empty());
     }

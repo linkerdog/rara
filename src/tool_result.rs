@@ -1,5 +1,6 @@
 mod batch;
 mod content;
+pub(crate) mod pairing;
 mod projection;
 mod render;
 mod store;

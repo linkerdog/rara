@@ -81,13 +81,6 @@ pub(crate) fn char_offset_to_byte_index(text: &str, char_offset: usize) -> usize
         .unwrap_or(text.len())
 }
 
-pub(in crate::tui) fn composer_display_char_width(ch: char) -> usize {
-    match ch {
-        '\t' => 4,
-        _ => UnicodeWidthChar::width(ch).unwrap_or(0),
-    }
-}
-
 pub(super) fn startup_warning_for_config(config: &crate::config::RaraConfig) -> Option<String> {
     if config.provider == "codex" {
         return None;

@@ -242,7 +242,7 @@ fn strip_deepseek_leading_think_block(message: &str) -> Cow<'_, str> {
     }
 }
 
-fn strip_deepseek_v4_dsml_control_blocks(message: &str) -> Cow<'_, str> {
+pub(crate) fn strip_deepseek_v4_dsml_control_blocks(message: &str) -> Cow<'_, str> {
     if !deepseek_dsml::contains_dsml(message) {
         return Cow::Borrowed(message);
     }

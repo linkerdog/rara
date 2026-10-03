@@ -54,17 +54,57 @@ not inherit the plain-list j/k shortcuts.
 - Ctrl+B toggles the sidebar; Alt+T toggles thinking visibility.
 - Pasted content uses the paste event path, including large-paste expansion at
   submission; it must not be replayed as individual shortcut key presses.
+  Pending paste is applied before interpreting the next pressed/repeated key
+  or applying an input action, except palette dismissal described in INPUT-03.
+  Immediate submission includes the complete paste, and cursor/history/approval
+  routing sees the resulting composer.
+  Clearing discards pending bursts, deadlines, placeholder payloads, and the
+  current paste-generated notice, while preserving unrelated warnings/status.
+  Submission expands and consumes the complete draft through the same cleanup
+  boundary, including whitespace-only input; submitted paste notices do not
+  linger after their content is sent or discarded.
+  Outside the command palette, Esc retains its existing cancellation/no-op
+  behavior and preserves the draft. Palette dismissal discards its draft as
+  specified in INPUT-03; no paste may appear later in a cleared or submitted
+  composer.
 
 An ordinary composer accepts j/k as text even when empty. Transcript scrolling
 uses arrows, PageUp/PageDown, or the mouse. An empty approval composer retains
 its explicit navigation shortcuts. A configurable Vim mode is not provided.
+
+Composer rendering, height, cursor placement, scrolling, and Up/Down movement
+consume one pure text layout with the actual main-pane width after any sidebar.
+The layout cache includes text, width, initial indent, and subsequent indent;
+setup editors without indents cannot reuse composer-prefixed rows. Composer
+continuations use a two-column indent, including explicit newlines. Tabs retain
+the existing four-column expansion. At a soft-wrap boundary before another
+character, the cursor belongs to the next displayed row. Moving vertically
+chooses the nearest valid character offset on the adjacent displayed row.
+The shared grapheme wrapping profile keeps combining sequences and joined emoji
+on one row and maps vertical navigation to their character-offset boundaries.
+Transcript uses the same range/width primitives with word wrapping; see
+[mouse selection](../features/mouse-text-selection.md). This layout guarantee
+does not add grapheme-aware Backspace/Delete or change stored draft offsets.
+Navigation compares untruncated insertion-boundary columns; hardware cursor
+clipping must not make the last character indistinguishable from a newline or
+end of input. Setup editors retain their single-line clipped rendering and
+compute the cursor from that same display text, including masked API keys.
+Resize and sidebar toggles recompute the width from the same pane geometry.
+Viewport height reservation and palette anchoring measure the bottom pane at
+that same main-pane width, not the full terminal width. Each rendered frame
+publishes its width for subsequent navigation. Already measured composer rows
+are clipped rather than wrapped a second time at degenerate widths.
 
 ### INPUT-03: Overlay Lifecycle
 
 - A slash token opens the command palette; adding argument whitespace returns
   to the composer so arguments can be entered explicitly.
 - Explicit palette dismissal clears its slash input so it does not reopen
-  immediately. Selecting a command dismisses the palette before dispatch.
+  immediately, using the same complete draft/paste cleanup boundary. Selecting
+  a command dismisses the palette before dispatch.
+- Palette Esc and direct close preserve their pre-paste dismissal intent:
+  discard the pending draft without a preliminary flush that could hide the
+  palette. Other keys still route against the complete flushed draft.
 - Esc affects the top overlay. Setup cancellation follows the owning setup
   flow; it must not implicitly submit a credential or change permissions.
 - Model-search dismissal resets only its query, cursor, and selection. It
@@ -115,7 +155,7 @@ fake does not prove that a live provider accepted the new model.
 | Contract | Observable check |
 | --- | --- |
 | INPUT-01 | Dispatch j/k and arrow keys in search; verify the query and rendered results; exercise Help Commands scrolling |
-| INPUT-02 | Existing cursor, history, newline, paste, and busy-input tests |
+| INPUT-02 | Cursor/history tests plus immediate paste-submit, edit, clear, Esc, and mixed-size paste sequences through production key dispatch; indent cache isolation and rendered vertical movement across sidebar/resize widths |
 | INPUT-03 | Open and dismiss overlays through key dispatch; verify no runtime cancel command is sent |
 | INPUT-04 | Filter by provider; render and select the same model through Enter; verify zero-result behavior |
 | INPUT-05 | Select a model and assert rebuild/setup routing; disambiguate endpoint profiles sharing a model ID |
@@ -127,9 +167,11 @@ fake does not prove that a live provider accepted the new model.
 - Resume search retains append/backspace editing; full cursor editing there
   remains a separate follow-up.
 - Grapheme-cluster editing and a configurable Vim mode are outside the current
-  character-offset editor contract.
+character-offset editor contract.
 
 ## Source Journals
 
 - [TUI interaction contracts](../journal/2026-09-17-tui-interaction-contracts.md)
 - [Input ownership and draft preservation](../journal/2026-09-17-tui-input-ownership.md)
+- [Paste input ordering](../journal/2026-10-02-tui-paste-input-order.md)
+- [Composer wrap geometry](../journal/2026-10-02-composer-wrap-geometry.md)

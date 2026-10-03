@@ -242,7 +242,21 @@ Implementation checkpoint:
 - Streamable-HTTP request headers resolve from `bearer_token_env_var`,
   `env_http_headers`, and `http_headers` at connect time. A literal
   `http_headers` value takes precedence over an environment-derived value for
-  the same header name.
+  the same case-insensitive header name. Bearer-derived authorization has the
+  lowest priority; one normalized name produces one request header.
+- HTTP discovery applies the registry transport's loopback proxy-bypass policy
+  before creating its client. Local endpoints must not send requests or headers
+  through environment-configured proxies.
+- Discovery bounds initialization and the complete paginated `tools/list`
+  traversal separately to ten seconds each. Listing all pages shares one
+  deadline; a responsive initialization cannot leave later servers waiting
+  indefinitely for a tool page. A failed probe does not publish partial tools.
+- Probe warnings preserve useful error causes while redacting URL credentials,
+  sensitive query values and fragments. Raw configured URLs are not added to
+  HTTP connection error context.
+- Built-in cloud memory REST endpoints derive from the normalized MCP endpoint
+  base: both `https://host/prefix` and `https://host/prefix/mcp/` use
+  `https://host/prefix/mcp` and `https://host/prefix/remote-api` respectively.
 
 ## Validation Matrix
 
@@ -264,6 +278,12 @@ Implementation checkpoint:
 | the same header name is set in `http_headers` and in an env-derived source | the literal `http_headers` value is used |
 | `bearer_token_env_var` names an unset variable | the header is omitted and the variable name is reported as missing |
 | a streamable-HTTP header name or value is invalid | connect fails with the offending header named |
+| header sources use different capitalization | static overrides env overrides bearer, with one header per normalized name |
+| local HTTP MCP endpoint with proxy environment | endpoint receives the probe; proxy receives no request or credentials |
+| initialization succeeds but tool listing stalls | the complete listing deadline expires and indexing can continue |
+| tool listing returns a continuation cursor | all pages are included within one deadline |
+| HTTP probe fails with URL credentials | warning and its error causes do not expose URL secrets |
+| configured cloud URL ends in `/mcp/` | REST endpoint removes the normalized MCP suffix before adding `/remote-api` |
 
 ## Open Risks
 
