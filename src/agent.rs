@@ -5,6 +5,7 @@ mod compact;
 mod context_view;
 mod control_handler;
 mod execution;
+mod loop_driver;
 mod memory_retrieval;
 mod planning;
 mod prompting;
@@ -59,21 +60,14 @@ use crate::tools::todo::TODO_WRITE_TOOL_NAME;
 use crate::workspace::WorkspaceMemory;
 
 const MAX_RUNTIME_ERROR_RECOVERY_ATTEMPTS: usize = 1;
-const MAX_PLAN_EXIT_REPAIR_ATTEMPTS: usize = 1;
-const MAX_STOP_HOOK_CONTINUATIONS: usize = 8;
+
+pub use rara_agent::ExecutionMode as AgentExecutionMode;
 
 pub use self::compact::{CompactBoundaryMetadata, CompactState, latest_compact_boundary_metadata};
 pub use self::planning::{
     CompletedInteraction, PendingApproval, PendingUserInput, PlanStep, PlanStepStatus,
 };
 use self::planning::{InspectionProgress, RuntimeContinuationPhase, tool_result_message};
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum AgentExecutionMode {
-    Execute,
-    Plan,
-    Review,
-}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum BashApprovalMode {

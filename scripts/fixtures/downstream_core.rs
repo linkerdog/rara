@@ -12,6 +12,10 @@ mod tests {
 
     use anyhow::{Result, bail};
     use async_trait::async_trait;
+    use rara_agent::{
+        ContinuationContext, IterationBudget, LoopEffect, LoopEnd, LoopMachine, LoopProgress,
+        ModelObservation, ResponseEvidence, StopHookOutcome, ToolBatchOutcome,
+    };
     use rara_core::llm::backend::{LlmBackend, LlmTurnMetadata};
     use rara_core::llm::contracts::LlmStreamEvent;
     use rara_core::llm::types::{ContentBlock, LlmResponse, Message};
@@ -83,6 +87,22 @@ mod tests {
             on_event: &mut (dyn FnMut(LlmStreamEvent) + Send),
         ) -> Result<LlmResponse> {
             metadata.ensure_not_cancelled()?;
+            if messages.len() > 1 {
+                let results = messages.last().expect("nonempty transcript");
+                assert_eq!(results.role, "user");
+                let blocks = results.content.as_array().expect("tool results");
+                assert_eq!(blocks.len(), 2);
+                assert_eq!(blocks[0]["tool_use_id"], "first");
+                assert_eq!(blocks[1]["tool_use_id"], "second");
+                on_event(LlmStreamEvent::TextDelta("done".into()));
+                return Ok(LlmResponse {
+                    content: vec![ContentBlock::Text {
+                        text: "done".into(),
+                    }],
+                    stop_reason: Some("end_turn".into()),
+                    usage: None,
+                });
+            }
             assert_eq!(
                 messages,
                 &[Message {
@@ -120,11 +140,15 @@ mod tests {
         let mut tools = ToolManager::new();
         tools.register(Box::new(HostTool));
         let mut deltas = Vec::new();
+        let mut machine = LoopMachine::new(LoopProgress::default());
+        let model = machine.begin_iteration(IterationBudget::default())?;
+        assert_eq!(model.effect, LoopEffect::RequestModel);
+        let mut transcript = vec![Message {
+            role: "user".into(),
+            content: json!("echo twice"),
+        }];
         let response = immediate(backend.ask_streaming_with_context(
-            &[Message {
-                role: "user".into(),
-                content: json!("echo twice"),
-            }],
+            &transcript,
             &tools.get_schemas(),
             LlmTurnMetadata::execute(),
             &mut |event| {
@@ -134,6 +158,21 @@ mod tests {
             },
         ))?;
         assert_eq!(deltas, ["two ", "calls"]);
+        let assistant = machine.model_completed(
+            model.id,
+            ModelObservation {
+                tool_call_count: response.content.len(),
+                ..Default::default()
+            },
+        )?;
+        assert_eq!(assistant.effect, LoopEffect::RecordAssistant);
+        transcript.push(Message {
+            role: "assistant".into(),
+            content: serde_json::to_value(&response.content)?,
+        });
+        let tool_request =
+            machine.assistant_recorded(assistant.id, ContinuationContext::default())?;
+        assert_eq!(tool_request.effect, LoopEffect::RunTools);
         let mut results = Vec::new();
         let mut progress = Vec::new();
         for block in response.content {
@@ -169,6 +208,67 @@ mod tests {
                 };
                 2
             ]
+        );
+        let commit =
+            machine.tools_completed(tool_request.id, ToolBatchOutcome::ResultsAvailable)?;
+        assert_eq!(commit.effect, LoopEffect::CommitToolResults);
+        transcript.push(Message {
+            role: "user".into(),
+            content: json!(
+                results
+                    .iter()
+                    .map(|result| json!({
+                        "type": "tool_result", "tool_use_id": result["call"],
+                        "content": result.to_string(), "is_error": false,
+                    }))
+                    .collect::<Vec<_>>()
+            ),
+        });
+        // Only control state is restored; the host retains transcript/results.
+        machine = serde_json::from_slice(&serde_json::to_vec(&machine)?)?;
+        let model = machine.checkpoint_completed(commit.id, IterationBudget::default())?;
+        assert_eq!(model.effect, LoopEffect::RequestModel);
+        let response = immediate(backend.ask_streaming_with_context(
+            &transcript,
+            &tools.get_schemas(),
+            LlmTurnMetadata::execute(),
+            &mut |event| {
+                if let LlmStreamEvent::TextDelta(text) = event {
+                    deltas.push(text);
+                }
+            },
+        ))?;
+        let assistant = machine.model_completed(
+            model.id,
+            ModelObservation {
+                response: ResponseEvidence {
+                    had_text_response: true,
+                    had_reasoning_response: false,
+                },
+                ..Default::default()
+            },
+        )?;
+        transcript.push(Message {
+            role: "assistant".into(),
+            content: serde_json::to_value(response.content)?,
+        });
+        let hooks = machine.assistant_recorded(assistant.id, ContinuationContext::default())?;
+        assert_eq!(
+            hooks.effect,
+            LoopEffect::RunStopHooks {
+                stop_hook_active: false
+            }
+        );
+        let finish = machine.stop_hooks_completed(hooks.id, StopHookOutcome::AllowCompletion)?;
+        assert_eq!(
+            machine.finalization_completed(finish.id)?,
+            LoopEnd::ResponseComplete
+        );
+        assert_eq!(machine.progress().agentic_turns, 1);
+        assert_eq!(deltas, ["two ", "calls", "done"]);
+        assert_eq!(
+            transcript.last().expect("final response").content[0]["text"],
+            "done"
         );
         Ok(())
     }

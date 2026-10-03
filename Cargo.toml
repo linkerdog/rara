@@ -22,6 +22,7 @@ members = [
     "crates/rara-app-server",
     "crates/rara-background-tasks",
     "crates/rara-core",
+    "crates/rara-agent",
 ]
 resolver = "2"
 
@@ -70,6 +71,7 @@ rara-plugins = { path = "crates/rara-plugins" }
 rara-app-server = { path = "crates/rara-app-server" }
 rara-state = { path = "crates/rara-state" }
 rara-core = { path = "crates/rara-core" }
+rara-agent = { path = "crates/rara-agent" }
 rara-background-tasks = { path = "crates/rara-background-tasks" }
 tokio = { version = "1.0", features = ["full"] }
 tokio-stream = { version = "0.1", features = ["sync"] }
