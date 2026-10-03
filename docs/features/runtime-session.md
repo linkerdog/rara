@@ -364,7 +364,9 @@ The application uses the [shared loop executor](portable-agent-loop.md) for
 effect scheduling and the pure machine for continuation, bounded repair,
 tool/approval, and finalization decisions. Its `LoopEffects` adapter retains
 native model/tool execution, persistence, hooks, and cancellation cleanup.
-Only machine control state is serializable. Portable model/tool adapters and
+Model dispatch and response collection use the shared `execute_model_turn`
+effect, with native accounting, planning, and hooks supplied by `ModelTurnPolicy`.
+Only machine control state is serializable. Portable context/tool adapters and
 session assembly remain necessary for a lightweight host runtime.
 
 Direct transcript handoff, usage observation, and memory opt-out are

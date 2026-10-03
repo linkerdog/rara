@@ -7,11 +7,10 @@ license.workspace = true
 [dependencies]
 anyhow.workspace = true
 async-trait.workspace = true
+rara-core = { path = "../rara-core" }
 serde.workspace = true
-thiserror = "2"
-
-[dev-dependencies]
 serde_json.workspace = true
+thiserror = "2"
 
 [lints]
 workspace = true

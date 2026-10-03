@@ -9014,6 +9014,7 @@ version = "0.0.22"
 dependencies = [
  "anyhow",
  "async-trait",
+ "rara-core",
  "serde",
  "serde_json",
  "thiserror 2.0.20",
