@@ -108,7 +108,7 @@ async fn run_tui_session(
     let mut processor = RuntimeCommandProcessor::new(runtime);
     let (runtime_port, runtime_commands) = InProcessRuntimeClientPort::new(
         processor.event_bus(),
-        Arc::new(std::sync::RwLock::new(app.snapshot.clone())),
+        Arc::new(std::sync::RwLock::new(app.snapshot.clone().into_inner())),
     );
     let runtime_port: Arc<dyn RuntimeClientPort> = Arc::new(runtime_port);
     let mut maintainer = TuiController::new(app, runtime_port, runtime_commands);

@@ -560,7 +560,7 @@ fn status_context_text_includes_prompt_sources_and_plan_state() {
         },
         todo_artifact_path: Some("/workspace/rara/.rara/sessions/session-123/todo.json".into()),
         ..RuntimeSnapshot::default()
-    };
+    }.into();
 
     let rendered = status_context_text(&app);
     assert!(rendered.contains("Context Usage"));
@@ -630,7 +630,8 @@ fn status_runtime_text_reports_todo_summary() {
             ],
         },
         ..RuntimeSnapshot::default()
-    };
+    }
+    .into();
 
     let rendered = status_runtime_text(&app);
     assert!(rendered.contains(

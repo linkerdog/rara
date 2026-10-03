@@ -39,6 +39,7 @@ use crate::thread_store::ThreadSummary;
 use crate::tools::bash::BashCommandInput;
 use crate::tui::display_sanitize::{StreamSanitizer, sanitize_display_text};
 use crate::tui::message_role::MessageRole;
+use crate::tui::presentation_revision::{PresentationInput, PresentationRevision};
 use crate::tui::selection::TranscriptSelection;
 use crate::tui::terminal_event::TerminalEvent;
 
@@ -650,6 +651,7 @@ pub struct TranscriptTurn {
 pub(crate) use crate::tui::render::CommittedTranscriptRenderCache;
 
 pub struct AgentMarkdownStreamState {
+    presentation_revision: PresentationRevision,
     pub(crate) raw_text: String,
     sanitizer: StreamSanitizer,
     last_visible_text: String,
@@ -661,6 +663,7 @@ pub struct AgentMarkdownStreamState {
 impl AgentMarkdownStreamState {
     pub(crate) fn new(cwd: PathBuf) -> Self {
         Self {
+            presentation_revision: Default::default(),
             raw_text: String::new(),
             sanitizer: StreamSanitizer::default(),
             last_visible_text: String::new(),
@@ -671,6 +674,7 @@ impl AgentMarkdownStreamState {
     }
 
     pub(crate) fn push_delta(&mut self, delta: &str) {
+        self.presentation_revision = Default::default();
         let delta = self.sanitizer.push_delta(delta);
         let delta = delta.as_str();
         if self.incremental_passthrough && !delta.contains('<') {
@@ -697,6 +701,10 @@ impl AgentMarkdownStreamState {
 
     pub(crate) fn sanitized_raw_text(&self) -> String {
         scrub_internal_control_tokens(&self.raw_text)
+    }
+
+    pub(crate) fn presentation_revision(&self) -> PresentationRevision {
+        self.presentation_revision.clone()
     }
 
     fn replace_display_text(&mut self, text: &str) {
@@ -739,6 +747,7 @@ impl AgentMarkdownStreamState {
 
     #[cfg(test)]
     pub(crate) fn finalize_display_lines(&mut self) {
+        self.presentation_revision = Default::default();
         self.collector.get_mut().finalize();
     }
 }
@@ -756,12 +765,14 @@ pub struct ActiveLiveSections {
 }
 
 pub struct TuiApp {
+    #[cfg(test)]
+    pub(crate) active_assembly_count: std::cell::Cell<usize>,
     pub bottom_pane: BottomPaneModel,
     pub input_history: Vec<String>,
     pub input_history_cursor: Option<usize>,
     pub input_history_draft: Option<String>,
     pub committed_turns: Vec<TranscriptTurn>,
-    pub active_turn: TranscriptTurn,
+    pub active_turn: PresentationInput<TranscriptTurn>,
     pub overlay: Option<Overlay>,
     /// Dialog stack for back-navigation. The last element is always the
     /// current overlay.  When empty, no overlay is shown.
@@ -776,8 +787,8 @@ pub struct TuiApp {
     pub config_manager: ConfigManager,
     pub setup_status: Option<String>,
     pub runtime_phase: RuntimePhase,
-    pub runtime_phase_detail: Option<String>,
-    pub snapshot: RuntimeSnapshot,
+    pub runtime_phase_detail: PresentationInput<Option<String>>,
+    pub snapshot: PresentationInput<RuntimeSnapshot>,
     pub agent_execution_mode: AgentExecutionMode,
     pub bash_approval_mode: BashApprovalMode,
     pub provider_picker_idx: usize,
@@ -825,7 +836,7 @@ pub struct TuiApp {
     pub terminal_width: u16,
     pub agent_markdown_stream: Option<AgentMarkdownStreamState>,
     pub agent_thinking_stream: Option<AgentMarkdownStreamState>,
-    pub active_live: ActiveLiveSections,
+    pub active_live: PresentationInput<ActiveLiveSections>,
     pub(crate) tool_progress: crate::tui::tool_progress::ToolProgressState,
     pub running_tool_boundary_count: u64,
     pub terminal_focused: bool,

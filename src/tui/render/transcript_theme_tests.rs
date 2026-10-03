@@ -48,6 +48,33 @@ fn themes() -> [TuiThemeConfig; 2] {
 }
 
 #[test]
+fn cached_active_prefix_refreshes_styled_rows_on_theme_changes() {
+    if !isolated_theme_test() {
+        return;
+    }
+    let mut harness = TuiHarness::new(RuntimeSnapshot::default()).unwrap();
+    harness.app_mut().push_entry(MessageRole::Agent, SOURCE);
+    let mut rows = super::renderable_transcript_lines(harness.app(), 80);
+    for config in themes() {
+        theme::install_config(&config);
+        let changed = super::renderable_transcript_lines(harness.app(), 80);
+        assert_ne!(
+            rows.iter().cloned().collect::<Vec<_>>(),
+            changed.iter().cloned().collect::<Vec<_>>()
+        );
+        assert_eq!(
+            changed.iter().cloned().collect::<Vec<_>>(),
+            super::transcript_cache_tests::canonical_rows(harness.app(), 80)
+        );
+        let count = harness.app().active_assembly_count.get();
+        theme::install_config(&config);
+        super::renderable_transcript_lines(harness.app(), 80);
+        assert_eq!(harness.app().active_assembly_count.get(), count);
+        rows = changed;
+    }
+}
+
+#[test]
 fn committed_rows_refresh_after_theme_installation() {
     if !isolated_theme_test() {
         return;
