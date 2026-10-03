@@ -1,11 +1,14 @@
-use std::io;
+use std::io::{self, Write};
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use crossterm::{event::EventStream, terminal::size as terminal_size};
+use crossterm::{
+    event::{Event, EventStream},
+    terminal::size as terminal_size,
+};
 use futures::StreamExt;
 use rara_state::state_db::StateDb;
-use ratatui::backend::CrosstermBackend;
+use ratatui::backend::{Backend, CrosstermBackend};
 use tokio::time::{Duration, Instant, MissedTickBehavior, interval};
 
 use super::controller::{RuntimeActivity, TuiController};
@@ -26,6 +29,7 @@ use super::terminal_modes::TerminalModeGuard;
 use super::terminal_ui::handle_paste;
 use crate::oauth::OAuthManager;
 use crate::runtime_client::RuntimeClient;
+use crate::tui::message_role::MessageRole;
 
 #[derive(Debug, Clone)]
 pub enum StartupResumeTarget {
@@ -90,7 +94,11 @@ async fn run_tui_session(
     app.memory_handler = Some(Arc::new(
         crate::protocol_sources::MemoryControlHandler::with_store(
             runtime.event_bus.clone(),
-            runtime.agent().expect("runtime agent").memory_store.clone(),
+            runtime
+                .agent()
+                .ok_or_else(|| anyhow::anyhow!("runtime agent is not ready for the TUI"))?
+                .memory_store
+                .clone(),
         ),
     ));
     app.sandbox_network_access
@@ -145,7 +153,7 @@ async fn run_tui_session(
     if should_start_initial_rebuild(&maintainer.app().explicit_plugin_dirs) {
         maintainer
             .app_mut()
-            .push_entry("Runtime", "Loading explicit plugin directories.");
+            .push_entry(MessageRole::Runtime, "Loading explicit plugin directories.");
         maintainer
             .send_runtime_command(RuntimeCommand::Maintenance(
                 RuntimeMaintenanceCommand::Rebuild,
@@ -153,14 +161,20 @@ async fn run_tui_session(
             .await?;
     }
 
-    let result = run_event_loop(
-        &mut terminal,
-        &mut maintainer,
-        &mut processor,
-        &oauth_manager,
-        terminal_modes,
-    )
-    .await;
+    let result = {
+        let mut events = TerminalEventSource {
+            events: Some(EventStream::new()),
+            modes: terminal_modes,
+        };
+        run_event_loop(
+            &mut terminal,
+            &mut maintainer,
+            &mut processor,
+            &oauth_manager,
+            &mut events,
+        )
+        .await
+    };
     if let Err(error) = terminal.finish_inline_viewport() {
         if result.is_ok() {
             return Err(error.into());
@@ -181,21 +195,56 @@ async fn run_tui_session(
     })
 }
 
+/// Owns terminal input and mode handoff. Implementors must release the input
+/// reader before suspension and surface maintenance/reacquisition errors.
+/// Input reads must be cancellation-safe because select drops losing futures.
+trait EventSource<B: Backend<Error = io::Error> + Write> {
+    async fn next_event(&mut self) -> Option<io::Result<Event>>;
+    fn maintain_raw_mode(&mut self) -> io::Result<()>;
+    #[cfg(unix)]
+    fn suspend(&mut self, terminal: &mut Terminal<B>) -> io::Result<()>;
+}
+
+struct TerminalEventSource<'a> {
+    events: Option<EventStream>,
+    modes: &'a mut TerminalModeGuard,
+}
+
+impl EventSource<CrosstermBackend<io::Stdout>> for TerminalEventSource<'_> {
+    async fn next_event(&mut self) -> Option<io::Result<Event>> {
+        self.events.as_mut()?.next().await
+    }
+
+    fn maintain_raw_mode(&mut self) -> io::Result<()> {
+        self.modes.maintain_raw_mode()
+    }
+
+    #[cfg(unix)]
+    fn suspend(&mut self, terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> io::Result<()> {
+        let events = self
+            .events
+            .take()
+            .ok_or_else(|| io::Error::other("terminal reader unavailable for suspend"))?;
+        self.events = Some(super::job_control::suspend(terminal, self.modes, events)?);
+        Ok(())
+    }
+}
+
 // Keep the terminal alive across loop errors so shell handoff precedes mode restoration.
-async fn run_event_loop(
-    terminal: &mut Terminal<CrosstermBackend<io::Stdout>>,
+async fn run_event_loop<B: Backend<Error = io::Error> + Write>(
+    terminal: &mut Terminal<B>,
     maintainer: &mut TuiController,
     processor: &mut RuntimeCommandProcessor,
     oauth_manager: &Arc<OAuthManager>,
-    terminal_modes: &mut TerminalModeGuard,
+    events: &mut impl EventSource<B>,
 ) -> anyhow::Result<()> {
-    let mut events = EventStream::new();
     let mut tick = interval(Duration::from_millis(166));
     tick.set_missed_tick_behavior(MissedTickBehavior::Delay);
     let mut frames = FrameScheduler::default();
 
     loop {
         let mut needs_redraw = std::mem::take(&mut maintainer.needs_redraw);
+        needs_redraw |= maintainer.queue_restored_goal(processor).await;
         if maintainer.poll_repo_context().await {
             needs_redraw = true;
         }
@@ -206,8 +255,7 @@ async fn run_event_loop(
         if frames.is_due(Instant::now()) {
             let app = maintainer.app_mut();
             clamp_command_palette_selection(app);
-            let size = terminal_size()?;
-            app.terminal_width = size.0;
+            app.terminal_width = terminal.size()?.width;
             terminal.draw_inline(|f| render(f, app))?;
             frames.mark_drawn(Instant::now());
         }
@@ -216,14 +264,21 @@ async fn run_event_loop(
         tokio::select! {
             _ = frames.wait() => {}
             _ = tick.tick() => {
-                terminal_modes.maintain_raw_mode()?;
+                events.maintain_raw_mode()?;
                 let mut changed = false;
                 let app = maintainer.app_mut();
+                if let Some(clipboard) = &mut app.clipboard
+                    && let Some(notice) = clipboard.poll().await
+                {
+                    app.push_notice(notice);
+                    changed = true;
+                }
                 changed |= app.quit_shortcut.expire(std::time::Instant::now());
                 if let Some(delta) = app.transcript_selection.autoscroll_delta() {
                     super::render::scroll_transcript(app, delta);
                     changed = true;
                 }
+                changed |= super::goal_ui::update_elapsed(app, crate::runtime_goals::current_unix_timestamp_secs());
                 changed |= app.poll_shared_task_files();
                 changed |= processor.sync_agent_activity(app);
                 changed |= super::runtime::emit_query_heartbeat(app);
@@ -248,7 +303,7 @@ async fn run_event_loop(
                     RuntimeActivity::Command(None) => {}
                 }
             }
-            maybe_event = events.next() => {
+            maybe_event = events.next_event() => {
                 match maybe_event {
                     Some(Ok(event)) => match translate_event(event, maintainer.app_mut()) {
                         Some(UiEvent::App(event)) => {
@@ -256,6 +311,9 @@ async fn run_event_loop(
                                 .dispatch_event(processor, event, oauth_manager)
                                 .await?
                             {
+                                if maintainer.app().is_busy() {
+                                    super::goal_resume::defer_for_user_stop(maintainer.app_mut());
+                                }
                                 if let Some(task) = maintainer.app_mut().bottom_pane.running_task.take() {
                                     task.handle.abort();
                                 }
@@ -279,7 +337,7 @@ async fn run_event_loop(
                         }
                         #[cfg(unix)]
                         Some(UiEvent::Suspend) => {
-                            events = super::job_control::suspend(terminal, terminal_modes, events)?;
+                            events.suspend(terminal)?;
                             needs_redraw = true;
                         }
                         None => {}
@@ -304,8 +362,11 @@ fn should_start_initial_rebuild(explicit_plugin_dirs: &[PathBuf]) -> bool {
 }
 
 #[cfg(test)]
+#[path = "event_loop_tests.rs"]
+mod loop_tests;
+
+#[cfg(test)]
 mod tests {
-    use std::io;
     use std::path::PathBuf;
 
     use super::should_start_initial_rebuild;

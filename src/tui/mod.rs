@@ -1,3 +1,6 @@
+#![deny(clippy::print_stdout, clippy::print_stderr)]
+#![deny(clippy::disallowed_methods)]
+
 mod app_event;
 mod auth_mode_picker;
 mod clipboard;
@@ -16,6 +19,8 @@ mod event_loop;
 mod event_stream;
 mod format;
 mod frame_scheduler;
+mod goal_resume;
+mod goal_ui;
 mod highlight;
 mod input_control;
 #[cfg(test)]
@@ -35,6 +40,7 @@ mod markdown;
 mod markdown_render;
 mod markdown_stream;
 mod message_role;
+pub(crate) use message_role::MessageRole;
 mod model_search;
 mod pane_geometry;
 #[cfg(test)]

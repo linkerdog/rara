@@ -1,61 +1,147 @@
 use std::io::{self, Write};
-use std::process::{Command, Stdio};
+use std::sync::Arc;
+use std::time::Duration;
 
-use base64::{Engine, engine::general_purpose::STANDARD};
+use tokio::task::JoinHandle;
 
-pub(crate) fn copy_text(text: &str) -> io::Result<()> {
-    write_osc52(text)?;
-    try_native_clipboard(text);
-    Ok(())
+mod native;
+mod osc52;
+
+use native::{NativeClipboard, PlatformClipboard};
+use osc52::{TerminalTarget, write_osc52};
+
+const NATIVE_COPY_TIMEOUT: Duration = Duration::from_secs(2);
+
+struct ClipboardOptions {
+    target: TerminalTarget,
+    writer: Box<dyn Write + Send>,
+    native: Option<Arc<dyn NativeClipboard>>,
+    timeout: Duration,
 }
 
-fn write_osc52(text: &str) -> io::Result<()> {
-    let encoded = STANDARD.encode(text.as_bytes());
-    let sequence = if std::env::var_os("TMUX").is_some() {
-        format!("\x1bPtmux;\x1b\x1b]52;c;{encoded}\x07\x1b\\")
-    } else if std::env::var_os("STY").is_some() {
-        format!("\x1bP\x1b]52;c;{encoded}\x07\x1b\\")
-    } else {
-        format!("\x1b]52;c;{encoded}\x07")
-    };
-    let mut stdout = io::stdout();
-    stdout.write_all(sequence.as_bytes())?;
-    stdout.flush()
+struct CopyRequest {
+    text: String,
+    terminal: io::Result<()>,
 }
 
-fn try_native_clipboard(text: &str) {
-    #[cfg(not(any(target_os = "macos", target_os = "linux")))]
-    let _ = text;
+struct CopyTask {
+    handle: JoinHandle<io::Result<()>>,
+    terminal: io::Result<()>,
+}
 
-    #[cfg(target_os = "macos")]
-    {
-        let _ = pipe_to_command("pbcopy", &[], text);
+pub(crate) struct Clipboard {
+    options: ClipboardOptions,
+    active: Option<CopyTask>,
+    pending: Option<CopyRequest>,
+}
+
+impl Clipboard {
+    pub(crate) fn from_environment() -> Self {
+        Self::new(ClipboardOptions {
+            target: TerminalTarget::from_environment(),
+            writer: Box::new(io::stdout()),
+            native: (!super::terminal_ui::is_ssh_session())
+                .then(|| Arc::new(PlatformClipboard) as Arc<dyn NativeClipboard>),
+            timeout: NATIVE_COPY_TIMEOUT,
+        })
     }
 
-    #[cfg(target_os = "linux")]
-    {
-        if std::env::var_os("WAYLAND_DISPLAY").is_some()
-            && pipe_to_command("wl-copy", &[], text).is_ok()
+    fn new(options: ClipboardOptions) -> Self {
+        Self {
+            options,
+            active: None,
+            pending: None,
+        }
+    }
+
+    pub(crate) fn request(&mut self, text: String) -> String {
+        let terminal = write_osc52(&text, self.options.target, self.options.writer.as_mut());
+        if let Err(error) = &terminal {
+            log::warn!("Terminal clipboard request failed: {error}");
+        }
+        let request = CopyRequest { text, terminal };
+        if self.options.native.is_none() {
+            return terminal_notice(request.terminal);
+        }
+        if self.active.is_some() {
+            self.pending = Some(request);
+            "Clipboard copy queued.".into()
+        } else {
+            self.start(request);
+            "Copying transcript selection to clipboard...".into()
+        }
+    }
+
+    fn start(&mut self, request: CopyRequest) {
+        let Some(native) = self.options.native.clone() else {
+            return;
+        };
+        let timeout = self.options.timeout;
+        self.active = Some(CopyTask {
+            terminal: request.terminal,
+            handle: tokio::spawn(async move {
+                tokio::time::timeout(timeout, native.copy(&request.text))
+                    .await
+                    .map_err(|_| {
+                        io::Error::new(io::ErrorKind::TimedOut, "native clipboard copy timed out")
+                    })?
+            }),
+        });
+    }
+
+    /// Only await a completed task; slow clipboard helpers never stall input.
+    pub(crate) async fn poll(&mut self) -> Option<String> {
+        if !self
+            .active
+            .as_ref()
+            .is_some_and(|task| task.handle.is_finished())
         {
-            return;
+            return None;
         }
-        if pipe_to_command("xclip", &["-selection", "clipboard"], text).is_ok() {
-            return;
+        let task = self.active.take()?;
+        let result = match task.handle.await {
+            Ok(result) => result,
+            Err(error) => Err(io::Error::other(format!("clipboard task failed: {error}"))),
+        };
+        if let Err(error) = &result {
+            log::warn!("Native clipboard copy failed: {error}");
         }
-        let _ = pipe_to_command("xsel", &["--clipboard", "--input"], text);
+        if let Some(request) = self.pending.take() {
+            self.start(request);
+            return None;
+        }
+        Some(match result {
+            Ok(()) => "Copied transcript selection to clipboard.".into(),
+            Err(error) => match task.terminal {
+                Ok(()) => {
+                    format!("Sent selection to terminal clipboard; native copy failed: {error}")
+                }
+                Err(terminal) => {
+                    format!("Failed to copy transcript selection: {terminal}; {error}")
+                }
+            },
+        })
     }
 }
 
-fn pipe_to_command(program: &str, args: &[&str], text: &str) -> io::Result<()> {
-    let mut child = Command::new(program)
-        .args(args)
-        .stdin(Stdio::piped())
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .spawn()?;
-    if let Some(mut stdin) = child.stdin.take() {
-        stdin.write_all(text.as_bytes())?;
+impl Drop for Clipboard {
+    fn drop(&mut self) {
+        if let Some(task) = &self.active {
+            task.handle.abort();
+        }
     }
-    child.wait()?;
-    Ok(())
 }
+
+fn terminal_notice(result: io::Result<()>) -> String {
+    match result {
+        Ok(()) => {
+            "Sent selection to terminal clipboard (acceptance depends on terminal policy).".into()
+        }
+        Err(error) => format!("Failed to copy transcript selection: {error}"),
+    }
+}
+
+#[cfg(all(test, unix))]
+mod process_tests;
+#[cfg(test)]
+mod tests;

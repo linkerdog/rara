@@ -92,7 +92,7 @@ impl TerminalModeGuard {
                 });
                 if TERMINAL_ACTIVE.load(Ordering::Acquire)
                     && owner_panicked
-                    && let Err(error) = restore_terminal_modes()
+                    && let Err(error) = restore_before_panic()
                 {
                     log::warn!("Failed to restore terminal before panic: {error}");
                 }
@@ -201,6 +201,30 @@ fn restore_terminal_modes() -> io::Result<()> {
         RestoreAction::RawMode => disable_raw_mode(),
         RestoreAction::Cursor => execute!(io::stdout(), Show),
     })
+}
+
+fn restore_before_panic() -> io::Result<()> {
+    let modes = restore_terminal_modes();
+    // Do this before delegating to the previous hook. Unwinding destructors
+    // cannot safely move the cursor after panic diagnostics have been printed.
+    let handoff = (|| {
+        let (_, rows) = crossterm::terminal::size()?;
+        execute!(
+            io::stdout(),
+            crossterm::cursor::MoveTo(0, rows.saturating_sub(1)),
+            crossterm::style::SetAttribute(crossterm::style::Attribute::Reset),
+            crossterm::style::ResetColor,
+            crossterm::style::Print("\r\n")
+        )
+    })();
+    match (modes, handoff) {
+        (Err(error), Err(handoff)) => {
+            log::warn!("Failed to hand off terminal before panic: {handoff}");
+            Err(error)
+        }
+        (Err(error), Ok(())) | (Ok(()), Err(error)) => Err(error),
+        (Ok(()), Ok(())) => Ok(()),
+    }
 }
 
 // A failed output write must never prevent restoring the kernel's raw-mode state.

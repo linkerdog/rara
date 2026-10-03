@@ -67,11 +67,11 @@ a list named `[task_list_id]`.
 - An unknown slash command produces an explicit notice and is not submitted
   as ordinary task input.
 - During a running task, allow `/help`, `/status`, `/context`, `/permissions`,
-  `/skills`, `/mcp`, `/tasks` without an argument, `/goal` without an argument,
+  `/skills`, `/mcp`, `/tasks` without an argument, `/goal` without an argument or with `pause`,
   and `/quit`, including aliases. Inspection must preserve the running phase.
 - Commands that replace or mutate the active runtime wait until the task ends.
   The palette and Commands help show the same disabled reason that submission
-  enforces. `/tasks <id>` and goal mutations remain unavailable while busy.
+  enforces. `/tasks <id>` and goal mutations other than pause remain unavailable while busy.
   Ordinary text follows [RUN-01](runtime-feedback.md#run-01-submission-and-queueing).
 - `/goal` argument semantics are owned by [thread goals](../features/thread-goals.md).
 - `/tasks` argument semantics are owned by [shared task lists](../features/shared-task-lists.md).

@@ -62,6 +62,7 @@ pub(super) enum TextInputTarget {
     ApiKey,
     ModelName,
     OpenAiProfileLabel,
+    GoalObjective,
 }
 
 pub(super) fn effective_cursor_offset(text: &str, cursor_offset: Option<usize>) -> usize {

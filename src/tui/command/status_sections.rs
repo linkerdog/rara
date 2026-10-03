@@ -1,4 +1,6 @@
-fn todo_summary_line(app: &TuiApp) -> String {
+use super::*;
+
+pub(super) fn todo_summary_line(app: &TuiApp) -> String {
     let summary = &app.snapshot.todo.summary;
     if summary.total == 0 {
         return "none".to_string();
@@ -19,7 +21,7 @@ fn todo_summary_line(app: &TuiApp) -> String {
     )
 }
 
-fn shared_task_summary_line(app: &TuiApp) -> String {
+pub(super) fn shared_task_summary_line(app: &TuiApp) -> String {
     let tasks = &app.snapshot.shared_tasks;
     if let Some(error) = tasks.error.as_deref() {
         return format!(
@@ -43,7 +45,7 @@ fn shared_task_summary_line(app: &TuiApp) -> String {
     )
 }
 
-fn render_todo_context(app: &TuiApp) -> String {
+pub(super) fn render_todo_context(app: &TuiApp) -> String {
     let summary = &app.snapshot.todo.summary;
     if summary.total == 0 {
         return "Todo\n  artifact: -\n  items: none".to_string();
@@ -96,7 +98,7 @@ fn render_todo_context(app: &TuiApp) -> String {
     )
 }
 
-fn render_planning_lifecycle_context(app: &TuiApp) -> String {
+pub(super) fn render_planning_lifecycle_context(app: &TuiApp) -> String {
     let lifecycle = &app.snapshot.planning_lifecycle;
     let tool_line = lifecycle
         .tool_use_id
@@ -114,7 +116,7 @@ fn render_planning_lifecycle_context(app: &TuiApp) -> String {
     )
 }
 
-fn render_shared_tasks_context(app: &TuiApp) -> String {
+pub(super) fn render_shared_tasks_context(app: &TuiApp) -> String {
     let tasks = &app.snapshot.shared_tasks;
     if let Some(error) = tasks.error.as_deref() {
         return format!(
@@ -172,7 +174,7 @@ fn render_shared_tasks_context(app: &TuiApp) -> String {
     )
 }
 
-fn format_unix_timestamp_utc(timestamp: i64) -> String {
+pub(super) fn format_unix_timestamp_utc(timestamp: i64) -> String {
     let format =
         time::macros::format_description!("[year]-[month]-[day] [hour]:[minute]:[second] UTC");
 

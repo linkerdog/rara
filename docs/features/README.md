@@ -84,6 +84,8 @@ future appserver integrations can use.
   Claude-compatible read tools for future subagent/team coordination.
 - `hooks-plugin-lifecycle.md`: hook/plugin lifecycle phases, MemoryQuery
   dispatch, and hook output context injection boundaries.
+- `tui-transcript.md`: typed presentation roles/events, stable persisted labels,
+  and internal transcript module boundaries.
 - `tui-theme-tokens.md`: configurable semantic TUI theme tokens, renderer
   integration, and embedded syntax theme selection.
 - `streaming-transcript.md`: coalesced frames and incremental markdown/visual-row

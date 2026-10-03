@@ -59,13 +59,12 @@ fn build_activity_view(app: &TuiApp, width: u16) -> ActivityView {
 }
 
 fn goal_label_text(status: GoalStatus) -> (&'static str, Color) {
-    match status {
-        GoalStatus::Pursuing => ("pursuing", STATUS_INFO),
-        GoalStatus::Paused => ("paused", STATUS_WARNING),
-        GoalStatus::Blocked => ("blocked", STATUS_WARNING),
-        GoalStatus::Complete => ("done", STATUS_SUCCESS),
-        GoalStatus::BudgetLimited => ("budget", STATUS_WARNING),
-    }
+    let color = match status {
+        GoalStatus::Pursuing => STATUS_INFO,
+        GoalStatus::Paused | GoalStatus::Blocked | GoalStatus::BudgetLimited => STATUS_WARNING,
+        GoalStatus::Complete => STATUS_SUCCESS,
+    };
+    (crate::tui::goal_ui::status_label(status), color)
 }
 
 fn goal_detail_text(goal: &RalphGoal) -> String {
@@ -78,7 +77,11 @@ fn goal_detail_text(goal: &RalphGoal) -> String {
             goal.remaining_tokens().unwrap_or(0)
         )
     } else {
-        format!("t{} · {} tokens", goal.turns_completed, goal.tokens_used)
+        format!(
+            "{}s · {} tokens",
+            goal.time_used_seconds(),
+            goal.tokens_used
+        )
     }
 }
 

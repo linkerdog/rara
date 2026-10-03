@@ -12,6 +12,7 @@ use super::{
     HistoryCell, InteractionCompletionKind, LspDiagnosticsCell, is_progress_stack_title,
     trim_trailing_empty_lines,
 };
+use crate::tui::message_role::MessageRole;
 use crate::tui::state::{TranscriptEntry, TranscriptEntryPayload};
 
 const TOOL_MESSAGE_MAX_LINES: usize = 5;
@@ -94,13 +95,13 @@ fn push_ordered_committed_activity<'a>(
     };
 
     for entry in entries {
-        if entry.role == "You" {
+        if entry.role == MessageRole::User {
             flush_progress(cells, &mut pending_progress, thinking_duration);
             cells.push(Box::new(UserCell::new(entry.message.clone())));
             continue;
         }
 
-        if let Some(role) = ProgressRole::from_entry_role(entry.role.as_str()) {
+        if let Some(role) = ProgressRole::from_entry_role(&entry.role) {
             let messages = progress_entry_message_lines(role, &entry.message);
             if messages.is_empty() {
                 continue;
@@ -128,7 +129,7 @@ fn push_ordered_committed_activity<'a>(
             continue;
         }
 
-        if let Some(kind) = InteractionCompletionKind::from_role(entry.role.as_str()) {
+        if let Some(kind) = InteractionCompletionKind::from_role(&entry.role) {
             cells.push(Box::new(CommittedInteractionCell::new(
                 kind,
                 entry.message.clone(),
@@ -137,11 +138,16 @@ fn push_ordered_committed_activity<'a>(
         }
 
         if matches!(
-            entry.role.as_str(),
-            "Tool" | "Tool Result" | "Tool Error" | "Tool Progress"
+            &entry.role,
+            MessageRole::Tool
+                | MessageRole::ToolResult
+                | MessageRole::ToolError
+                | MessageRole::ToolProgress
         ) {
-            if matches!(entry.role.as_str(), "Tool Result" | "Tool Error")
-                && let Some(cell) = LspDiagnosticsCell::from_message(&entry.message)
+            if matches!(
+                &entry.role,
+                MessageRole::ToolResult | MessageRole::ToolError
+            ) && let Some(cell) = LspDiagnosticsCell::from_message(&entry.message)
             {
                 cells.push(Box::new(cell));
                 continue;
@@ -164,10 +170,14 @@ fn push_ordered_committed_activity<'a>(
             continue;
         }
 
-        if entry.role == "Agent"
-            || (entry.role == "System" && super::is_renderable_system_message(entry))
+        if entry.role == MessageRole::Agent
+            || (entry.role == MessageRole::System && super::is_renderable_system_message(entry))
         {
-            let max_lines = if entry.role == "Agent" { usize::MAX } else { 4 };
+            let max_lines = if entry.role == MessageRole::Agent {
+                usize::MAX
+            } else {
+                4
+            };
             cells.push(Box::new(MessageCell::new(
                 &entry.role,
                 &entry.message,

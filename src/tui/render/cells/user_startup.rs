@@ -6,6 +6,7 @@ use ratatui::{
 };
 
 use super::HistoryCell;
+use crate::tui::message_role::MessageRole;
 use crate::tui::render::{
     display_width, prefixed_message_lines, startup_card_inner_width, truncate_for_startup_card,
     truncate_path_middle,
@@ -28,7 +29,7 @@ impl UserCell {
 
 impl HistoryCell for UserCell {
     fn display_lines(&self, _width: u16) -> Vec<Line<'static>> {
-        prefixed_message_lines("You", &self.message, 4)
+        prefixed_message_lines(&MessageRole::User, &self.message, 4)
     }
 }
 

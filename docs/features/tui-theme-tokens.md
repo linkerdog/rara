@@ -68,6 +68,10 @@ name. Unknown names fall back to the existing `CatppuccinMocha` default.
 - Invalid token keys and invalid color values are non-fatal and must not break
   TUI startup.
 - Renderers should depend on semantic tokens instead of raw palette constants.
+- TUI Clippy gates reject raw RGB/indexed constructors and white/black/yellow
+  `Stylize` shortcuts outside the theme owner and syntax-color conversion
+  boundary. These exceptions preserve configurable themes and highlighted
+  source colors; they do not permit raw colors in individual renderers.
 - The default theme must preserve the existing Nord-compatible visual baseline.
 
 ## Validation Matrix
@@ -91,3 +95,4 @@ name. Unknown names fall back to the existing `CatppuccinMocha` default.
 ## Source Journals
 
 - `docs/journal/2026-07-03-tui-theme-tokens.md`
+- [Terminal oracles and lint gates](../journal/2026-10-03-tui-quality-gates.md)

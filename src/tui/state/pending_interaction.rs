@@ -4,17 +4,18 @@ use super::{
     InteractionKind, PendingInteractionSnapshot, TuiApp,
 };
 use crate::agent::{AgentExecutionMode, BashApprovalMode};
+use crate::tui::message_role::MessageRole;
 use crate::tui::state::TranscriptEntry;
 
-fn completed_interaction_role(kind: InteractionKind, source: Option<&str>) -> &'static str {
+fn completed_interaction_role(kind: InteractionKind, source: Option<&str>) -> MessageRole {
     match kind {
-        InteractionKind::Approval => "Shell Approval Completed",
-        InteractionKind::PlanApproval => "Plan Decision",
+        InteractionKind::Approval => MessageRole::ShellApprovalCompleted,
+        InteractionKind::PlanApproval => MessageRole::PlanDecision,
         InteractionKind::RequestInput => match source {
-            Some("plan_agent") => "Planning Question Answered",
-            Some("explore_agent") => "Exploration Question Answered",
-            Some(_) => "Sub-agent Question Answered",
-            None => "Question Answered",
+            Some("plan_agent") => MessageRole::PlanningQuestionAnswered,
+            Some("explore_agent") => MessageRole::ExplorationQuestionAnswered,
+            Some(_) => MessageRole::SubAgentQuestionAnswered,
+            None => MessageRole::QuestionAnswered,
         },
     }
 }
@@ -27,7 +28,7 @@ impl TuiApp {
         summary: &str,
         source: Option<&str>,
     ) {
-        let role = completed_interaction_role(kind, source).to_string();
+        let role = completed_interaction_role(kind, source);
         let message = format!("{title}: {summary}");
         let exists = self
             .active_turn

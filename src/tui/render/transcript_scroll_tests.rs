@@ -1,6 +1,7 @@
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use ratatui::{buffer::Buffer, style::Modifier};
 
+use crate::tui::message_role::MessageRole;
 use crate::tui::selection::ScreenPosition;
 use crate::tui::state::{RuntimePhase, RuntimeSnapshot, TranscriptEntry, TranscriptTurn};
 use crate::tui::testing::TuiHarness;
@@ -18,7 +19,7 @@ fn harness_with_rows(rows: usize) -> TuiHarness {
         .restore_committed_turns(vec![TranscriptTurn {
             thinking_duration: None,
             entries: vec![TranscriptEntry::new(
-                "Agent",
+                MessageRole::Agent,
                 format!("```text\n{}```", numbered_rows(0..rows)),
             )],
         }]);
@@ -28,7 +29,7 @@ fn harness_with_rows(rows: usize) -> TuiHarness {
 fn streaming_harness() -> TuiHarness {
     let mut harness = harness_with_rows(10);
     let app = harness.app_mut();
-    app.push_entry("You", "stream a numbered response");
+    app.push_entry(MessageRole::User, "stream a numbered response");
     app.set_runtime_phase(RuntimePhase::ProcessingResponse, None);
     app.append_agent_delta(&format!("```text\n{}", numbered_rows(10..70)));
     harness

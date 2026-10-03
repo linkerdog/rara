@@ -1,4 +1,5 @@
 use super::*;
+use crate::tui::message_role::MessageRole;
 
 fn pending_shell_app() -> (tempfile::TempDir, TuiApp) {
     let temp = tempdir().unwrap();
@@ -11,7 +12,7 @@ fn pending_shell_app() -> (tempfile::TempDir, TuiApp) {
         "review the permission interaction contract ".repeat(8),
         "additional command context ".repeat(6),
     );
-    app.push_entry("You", "Publish the prepared change.");
+    app.push_entry(MessageRole::User, "Publish the prepared change.");
     app.snapshot
         .pending_interactions
         .push(PendingInteractionSnapshot {

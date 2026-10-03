@@ -4,6 +4,7 @@ use super::runtime::apply_tui_event;
 use super::state::{AgentMarkdownStreamState, RuntimeSnapshot, TuiEvent};
 use super::testing::TuiHarness;
 use crate::runtime_control::{RuntimeControlEvent, RuntimeEvent, RuntimeProvenance, ToolEvent};
+use crate::tui::message_role::MessageRole;
 
 #[test]
 fn split_ansi_is_removed_before_stream_storage_and_rendering() {
@@ -125,7 +126,7 @@ fn complete_transcript_constructors_remove_terminal_controls() {
     use super::state::{SystemMessageKind, ToolTranscriptStatus, TranscriptEntry};
     let text = "before\u{1b}]secret\nmore\u{1b}\\after\r\n\tEND\u{8}";
     let entries = [
-        TranscriptEntry::new("Agent", text),
+        TranscriptEntry::new(MessageRole::Agent, text),
         TranscriptEntry::tool(Some("call"), "bash", ToolTranscriptStatus::Completed, text),
         TranscriptEntry::system(text, SystemMessageKind::Other),
         TranscriptEntry::compaction(1, 2, 1, text, vec![text.into()]),

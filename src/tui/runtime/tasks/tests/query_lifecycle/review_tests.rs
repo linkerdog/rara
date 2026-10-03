@@ -1,4 +1,5 @@
 use super::*;
+use crate::tui::message_role::MessageRole;
 
 #[tokio::test]
 async fn broadcast_boundary_does_not_replay_future_query_receipts() {
@@ -48,7 +49,7 @@ async fn broadcast_boundary_does_not_replay_future_query_receipts() {
         .committed_turns
         .iter()
         .flat_map(|turn| &turn.entries)
-        .filter(|entry| entry.role == "Agent")
+        .filter(|entry| entry.role == MessageRole::Agent)
         .map(|entry| entry.message.as_str())
         .collect::<Vec<_>>()
         .join("\n");
@@ -131,7 +132,7 @@ async fn lagged_terminal_is_recovered_before_a_later_catalog_sequence() {
         .committed_turns
         .iter()
         .flat_map(|turn| &turn.entries)
-        .filter(|entry| entry.role == "Agent")
+        .filter(|entry| entry.role == MessageRole::Agent)
         .map(|entry| entry.message.as_str())
         .collect::<Vec<_>>()
         .join("\n");
@@ -209,7 +210,7 @@ async fn review_regression_dropped_broadcast_recovers_tail_and_completion() {
         .committed_turns
         .iter()
         .flat_map(|turn| &turn.entries)
-        .filter(|entry| entry.role == "Agent")
+        .filter(|entry| entry.role == MessageRole::Agent)
         .map(|entry| entry.message.as_str())
         .collect::<Vec<_>>()
         .join("\n");

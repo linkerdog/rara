@@ -9,6 +9,7 @@ pub enum AppEvent {
     #[allow(dead_code)] // Reserved for protocol/UI-control callers (docs/todo.md)
     OpenOverlay(Overlay),
     CloseOverlay,
+    Goal(super::goal_ui::GoalUiAction),
     SubmitComposer,
     InsertNewline,
     InputChar(char),

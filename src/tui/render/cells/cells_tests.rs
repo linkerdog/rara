@@ -16,5 +16,9 @@ use crate::tui::terminal_event::{TerminalCommandEvent, TerminalEvent, TerminalTa
 mod active_general;
 #[path = "cells_tests/active_plan.rs"]
 mod active_plan;
+#[path = "cells_tests/active_stream_order.rs"]
+mod active_stream_order;
+#[path = "cells_tests/active_tool_output.rs"]
+mod active_tool_output;
 #[path = "cells_tests/committed.rs"]
 mod committed;

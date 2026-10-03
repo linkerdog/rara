@@ -19,6 +19,7 @@ use super::{
 use crate::config::{ConfigManager, OpenAiEndpointKind, RaraConfig};
 use crate::tools::bash::BashCommandInput;
 use crate::tui::custom_terminal::Frame;
+use crate::tui::message_role::MessageRole;
 use crate::tui::state::SkillPickerEntry;
 use crate::tui::state::{
     ApiKeyTarget, InteractionKind, ListPickerKind, Overlay, PendingApprovalSnapshot,
@@ -400,7 +401,7 @@ fn render_screen_buffer(app: &mut TuiApp, width: u16, height: u16) -> Buffer {
 #[test]
 fn prefixed_message_lines_keep_first_and_latest_lines() {
     let rendered = prefixed_message_lines(
-        "Tool",
+        &MessageRole::Tool,
         &["intro", "middle 1", "middle 2", "latest 1", "latest 2"].join("\n"),
         3,
     )
@@ -415,19 +416,21 @@ fn prefixed_message_lines_keep_first_and_latest_lines() {
 
 #[test]
 fn prefixed_message_lines_show_truncation_when_max_lines_is_one() {
-    let tool_rendered = prefixed_message_lines("Tool", &["intro", "latest 1"].join("\n"), 1)
-        .into_iter()
-        .map(|line| line.to_string())
-        .collect::<Vec<_>>();
+    let tool_rendered =
+        prefixed_message_lines(&MessageRole::Tool, &["intro", "latest 1"].join("\n"), 1)
+            .into_iter()
+            .map(|line| line.to_string())
+            .collect::<Vec<_>>();
     assert_eq!(tool_rendered[0], "⚙ intro");
     assert!(tool_rendered[1].contains("more line"));
     assert_eq!(tool_rendered.len(), 2);
 
     // Second call with same arguments — should be identical.
-    let tool_rendered2 = prefixed_message_lines("Tool", &["intro", "latest 1"].join("\n"), 1)
-        .into_iter()
-        .map(|line| line.to_string())
-        .collect::<Vec<_>>();
+    let tool_rendered2 =
+        prefixed_message_lines(&MessageRole::Tool, &["intro", "latest 1"].join("\n"), 1)
+            .into_iter()
+            .map(|line| line.to_string())
+            .collect::<Vec<_>>();
     assert_eq!(tool_rendered2[0], "⚙ intro");
     assert!(tool_rendered2[1].contains("more line"));
     assert_eq!(tool_rendered2.len(), 2);
@@ -436,7 +439,7 @@ fn prefixed_message_lines_show_truncation_when_max_lines_is_one() {
 #[test]
 fn formatted_agent_markdown_keeps_first_and_latest_lines() {
     let rendered = formatted_message_lines(
-        "Agent",
+        &MessageRole::Agent,
         &["first line", "middle 1", "middle 2", "latest 1", "latest 2"].join("\n"),
         3,
         Some(Path::new(".")),
@@ -459,7 +462,7 @@ fn formatted_agent_markdown_keeps_first_and_latest_lines() {
 #[test]
 fn formatted_agent_markdown_sanitizes_terminal_controls() {
     let rendered = formatted_message_lines(
-        "Agent",
+        &MessageRole::Agent,
         "Again\rcommit-to-main\u{1b}[31m red\u{1b}[0m\u{8}!",
         10,
         Some(Path::new(".")),

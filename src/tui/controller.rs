@@ -128,6 +128,18 @@ impl TuiController {
             .await
     }
 
+    pub(super) async fn queue_restored_goal(
+        &mut self,
+        processor: &RuntimeCommandProcessor,
+    ) -> bool {
+        let readiness = if processor.agent().is_some() {
+            super::goal_resume::AgentReadiness::Ready
+        } else {
+            super::goal_resume::AgentReadiness::Unavailable
+        };
+        super::goal_resume::queue_if_idle(&mut self.app, &*self.runtime_port, readiness).await
+    }
+
     pub(super) async fn send_runtime_command(&self, command: RuntimeCommand) -> anyhow::Result<()> {
         self.runtime_port.send(command).await
     }

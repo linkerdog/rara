@@ -4,6 +4,7 @@ use rara_tools::tool::ToolOutputStream;
 use serde::{Deserialize, Serialize};
 
 use crate::tools::bash::BashCommandInput;
+use crate::tui::message_role::MessageRole;
 use crate::tui::tool_text::compact_instruction;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -137,16 +138,16 @@ impl TerminalEvent {
         }
     }
 
-    pub(crate) fn transcript_role(&self) -> &'static str {
+    pub(crate) fn transcript_role(&self) -> MessageRole {
         match self {
-            Self::Begin(_) | Self::OutputDelta(_) => "Tool",
-            Self::End(event) if event.is_error => "Tool Error",
+            Self::Begin(_) | Self::OutputDelta(_) => MessageRole::Tool,
+            Self::End(event) if event.is_error => MessageRole::ToolError,
             Self::List(event) | Self::Stop(event)
                 if event.items.iter().any(|item| item.is_error) =>
             {
-                "Tool Error"
+                MessageRole::ToolError
             }
-            Self::End(_) | Self::List(_) | Self::Stop(_) => "Tool Result",
+            Self::End(_) | Self::List(_) | Self::Stop(_) => MessageRole::ToolResult,
         }
     }
 
@@ -462,6 +463,7 @@ mod tests {
     use super::{
         TerminalEvent, TerminalTarget, output_tail_preview, sanitize_terminal_output_line,
     };
+    use crate::tui::message_role::MessageRole;
 
     #[test]
     fn builds_background_start_event_from_bash_result() {
@@ -477,7 +479,7 @@ mod tests {
         )
         .expect("terminal event");
 
-        assert_eq!(event.transcript_role(), "Tool Result");
+        assert_eq!(event.transcript_role(), MessageRole::ToolResult);
         assert_eq!(
             event.to_transcript_message(),
             "background task task-1 running\noutput: /tmp/rara.log"

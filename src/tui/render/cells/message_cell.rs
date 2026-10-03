@@ -12,6 +12,7 @@ use crate::tui::interaction_text::{
     pending_interaction_card_title, status_planning_suggestion_text,
 };
 use crate::tui::markdown_render::render_markdown_text_with_width;
+use crate::tui::message_role::MessageRole;
 use crate::tui::plan_display::updated_plan_lines;
 use crate::tui::queued_input::{
     QueuedFollowUpSection, pending_follow_up_heading, queued_follow_up_heading,
@@ -25,7 +26,7 @@ use crate::tui::sub_agent_display::SUB_AGENT_QUESTION_COLOR;
 use crate::tui::theme::*;
 
 pub(crate) struct MessageCell<'a> {
-    role: &'a str,
+    role: &'a MessageRole,
     message: &'a str,
     max_lines: usize,
     cwd: Option<&'a Path>,
@@ -40,7 +41,7 @@ enum MessageWindow {
 
 impl<'a> MessageCell<'a> {
     pub(crate) fn new(
-        role: &'a str,
+        role: &'a MessageRole,
         message: &'a str,
         max_lines: usize,
         cwd: Option<&'a Path>,
@@ -55,7 +56,7 @@ impl<'a> MessageCell<'a> {
     }
 
     pub(crate) fn new_tail(
-        role: &'a str,
+        role: &'a MessageRole,
         message: &'a str,
         max_lines: usize,
         cwd: Option<&'a Path>,
@@ -72,7 +73,9 @@ impl<'a> MessageCell<'a> {
 
 impl HistoryCell for MessageCell<'_> {
     fn display_lines(&self, width: u16) -> Vec<Line<'static>> {
-        if let Some(lines) = render_message_diff_preview(Some(self.role), self.message, width) {
+        if let Some(lines) =
+            render_message_diff_preview(Some(self.role.as_str()), self.message, width)
+        {
             return lines;
         }
         if matches!(self.window, MessageWindow::Tail) {

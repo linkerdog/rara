@@ -1,3 +1,8 @@
+#![expect(
+    clippy::print_stderr,
+    reason = "Work-count regression tests expose measured counts in test diagnostics."
+)]
+
 use super::*;
 use crate::tui::markdown_render::render_markdown_text_with_width_and_cwd;
 

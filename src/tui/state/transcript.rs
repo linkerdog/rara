@@ -9,19 +9,20 @@ use super::{
     PendingFollowUpMessage, RuntimePhase, SystemMessageKind, TranscriptEntry, TranscriptScroll,
     TranscriptTurn, TuiApp,
 };
+use crate::tui::message_role::MessageRole;
 use crate::tui::terminal_event::TerminalEvent;
 
 fn is_agent_segment_boundary(entry: &TranscriptEntry) -> bool {
     if matches!(
-        entry.role.as_str(),
-        "Tool"
-            | "Tool Result"
-            | "Tool Error"
-            | "Tool Progress"
-            | "Thinking"
-            | "Exploring"
-            | "Planning"
-            | "Running"
+        &entry.role,
+        MessageRole::Tool
+            | MessageRole::ToolResult
+            | MessageRole::ToolError
+            | MessageRole::ToolProgress
+            | MessageRole::Thinking
+            | MessageRole::Exploring
+            | MessageRole::Planning
+            | MessageRole::Running
     ) {
         return true;
     }
@@ -42,7 +43,7 @@ impl TuiApp {
             .map_or(0, |idx| idx + 1);
         let Some(last_agent_idx) = turn.entries[segment_start..]
             .iter()
-            .rposition(|entry| entry.role == "Agent")
+            .rposition(|entry| entry.role == MessageRole::Agent)
             .map(|idx| segment_start + idx)
         else {
             return false;
@@ -51,7 +52,7 @@ impl TuiApp {
         turn.entries[last_agent_idx].message = message;
         let mut retained = Vec::with_capacity(turn.entries.len());
         for (idx, entry) in turn.entries.drain(..).enumerate() {
-            if idx >= segment_start && idx != last_agent_idx && entry.role == "Agent" {
+            if idx >= segment_start && idx != last_agent_idx && entry.role == MessageRole::Agent {
                 continue;
             }
             retained.push(entry);
@@ -60,17 +61,38 @@ impl TuiApp {
         true
     }
 
-    pub fn push_entry(&mut self, role: &'static str, message: impl Into<String>) {
+    pub fn push_entry(&mut self, role: MessageRole, message: impl Into<String>) {
         let message = match role {
-            "System" | "Runtime" => redact_secrets(message.into()),
-            _ => message.into(),
+            MessageRole::System | MessageRole::Runtime => redact_secrets(message.into()),
+            MessageRole::User
+            | MessageRole::Agent
+            | MessageRole::Responding
+            | MessageRole::Tool
+            | MessageRole::ToolResult
+            | MessageRole::ToolError
+            | MessageRole::ToolProgress
+            | MessageRole::Exploring
+            | MessageRole::Planning
+            | MessageRole::Running
+            | MessageRole::Thinking
+            | MessageRole::Todo
+            | MessageRole::Download
+            | MessageRole::TerminalEvent
+            | MessageRole::Compaction
+            | MessageRole::ShellApprovalCompleted
+            | MessageRole::QuestionAnswered
+            | MessageRole::PlanningQuestionAnswered
+            | MessageRole::ExplorationQuestionAnswered
+            | MessageRole::SubAgentQuestionAnswered
+            | MessageRole::PlanDecision
+            | MessageRole::Legacy(_) => message.into(),
         };
-        if role == "You" && !self.active_turn.entries.is_empty() {
+        if role == MessageRole::User && !self.active_turn.entries.is_empty() {
             self.commit_active_turn();
         }
         let entry = TranscriptEntry::new(role, message);
         self.record_entry_realtime(&PersistedTurnEntry {
-            role: entry.role.clone(),
+            role: entry.role.as_str().to_owned(),
             message: entry.message.clone(),
         });
         self.active_turn.entries.push(entry);
@@ -85,7 +107,7 @@ impl TuiApp {
     ) {
         let entry = super::TranscriptEntry::tool(call_id, name, status, message);
         self.record_entry_realtime(&PersistedTurnEntry {
-            role: entry.role.clone(),
+            role: entry.role.as_str().to_owned(),
             message: entry.message.clone(),
         });
         self.active_turn.entries.push(entry);
@@ -107,7 +129,7 @@ impl TuiApp {
             recent_files,
         );
         self.record_entry_realtime(&PersistedTurnEntry {
-            role: entry.role.clone(),
+            role: entry.role.as_str().to_owned(),
             message: entry.message.clone(),
         });
         self.active_turn.entries.push(entry);
@@ -116,7 +138,7 @@ impl TuiApp {
     pub fn push_terminal_event(&mut self, event: TerminalEvent) {
         let entry = TranscriptEntry::terminal_event(event);
         self.record_entry_realtime(&PersistedTurnEntry {
-            role: entry.role.clone(),
+            role: entry.role.as_str().to_owned(),
             message: entry.message.clone(),
         });
         self.active_turn.entries.push(entry);
@@ -125,7 +147,7 @@ impl TuiApp {
     pub fn push_system(&mut self, message: impl Into<String>, kind: SystemMessageKind) {
         let entry = TranscriptEntry::system(redact_secrets(message.into()), kind);
         self.record_entry_realtime(&PersistedTurnEntry {
-            role: entry.role.clone(),
+            role: entry.role.as_str().to_owned(),
             message: entry.message.clone(),
         });
         self.active_turn.entries.push(entry);
@@ -174,7 +196,7 @@ impl TuiApp {
         if message.trim().is_empty() {
             return;
         }
-        self.push_active_progress_entry("Thinking", message);
+        self.push_active_progress_entry(MessageRole::Thinking, message);
     }
 
     pub fn agent_stream_lines(&self) -> Option<Ref<'_, [Line<'static>]>> {
@@ -225,13 +247,13 @@ impl TuiApp {
             self.invalidate_committed_render_cache();
             return;
         }
-        self.push_entry("Agent", message);
+        self.push_entry(MessageRole::Agent, message);
     }
 
     pub fn push_notice(&mut self, message: impl Into<String>) {
         let message = redact_secrets(message.into());
         self.bottom_pane.notice = Some(message.clone());
-        self.push_entry("System", message);
+        self.push_entry(MessageRole::System, message);
     }
 
     pub fn reset_transcript(&mut self) {
@@ -355,7 +377,7 @@ impl TuiApp {
         self.tool_progress = crate::tui::tool_progress::ToolProgressState::default();
     }
 
-    fn push_active_progress_entry(&mut self, role: &'static str, message: String) {
+    fn push_active_progress_entry(&mut self, role: MessageRole, message: String) {
         let message = crate::tui::display_sanitize::sanitize_display_text(&message);
         self.push_entry(role, message);
     }
@@ -364,7 +386,7 @@ impl TuiApp {
     pub fn record_exploration_action(&mut self, action: impl Into<String>) {
         let action = crate::tui::display_sanitize::sanitize_display_text(&action.into());
         self.cache_exploration_action(action.clone());
-        self.push_active_progress_entry("Exploring", action);
+        self.push_active_progress_entry(MessageRole::Exploring, action);
     }
 
     pub(crate) fn cache_exploration_action(&mut self, action: impl Into<String>) {
@@ -389,14 +411,14 @@ impl TuiApp {
         {
             self.active_live.exploration_notes.push(note.clone());
         }
-        self.push_active_progress_entry("Exploring", note);
+        self.push_active_progress_entry(MessageRole::Exploring, note);
     }
 
     #[cfg(test)]
     pub fn record_running_action(&mut self, action: impl Into<String>) {
         let action = crate::tui::display_sanitize::sanitize_display_text(&action.into());
         self.cache_running_action(action.clone());
-        self.push_active_progress_entry("Running", action);
+        self.push_active_progress_entry(MessageRole::Running, action);
     }
 
     pub(crate) fn cache_running_action(&mut self, action: impl Into<String>) {
@@ -415,7 +437,7 @@ impl TuiApp {
     pub fn record_planning_action(&mut self, action: impl Into<String>) {
         let action = crate::tui::display_sanitize::sanitize_display_text(&action.into());
         self.cache_planning_action(action.clone());
-        self.push_active_progress_entry("Planning", action);
+        self.push_active_progress_entry(MessageRole::Planning, action);
     }
 
     pub(crate) fn cache_planning_action(&mut self, action: impl Into<String>) {
@@ -440,7 +462,7 @@ impl TuiApp {
         {
             self.active_live.planning_notes.push(note.clone());
         }
-        self.push_active_progress_entry("Planning", note);
+        self.push_active_progress_entry(MessageRole::Planning, note);
     }
 
     pub fn has_pending_planning_suggestion(&self) -> bool {

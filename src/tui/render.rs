@@ -49,6 +49,7 @@ use super::tool_text::{
     bash_rg_exploration_action_label, compact_delegate_rest, compact_instruction,
 };
 use super::transcript_rows::TranscriptRows;
+use crate::tui::message_role::MessageRole;
 use crate::tui::sub_agent_display::SubAgentKind;
 use crate::tui::theme::*;
 
@@ -196,8 +197,7 @@ pub(crate) fn current_turn_exploration_summary_from_entries(
 ) -> Option<String> {
     let mut actions = Vec::new();
     for entry in current_turn {
-        use crate::tui::message_role::MessageRole;
-        if MessageRole::try_from_str(&entry.role) != Some(MessageRole::Tool) {
+        if entry.role != MessageRole::Tool {
             continue;
         }
         if let Some(action) = exploration_action_label(&entry.message)
@@ -259,9 +259,8 @@ pub(crate) fn current_turn_tool_summary(
             continue;
         }
 
-        use crate::tui::message_role::MessageRole;
-        match MessageRole::try_from_str(&entry.role) {
-            Some(MessageRole::Tool) => {
+        match &entry.role {
+            MessageRole::Tool => {
                 if let Some(action) = tool_action_label(&entry.message) {
                     lines.push(format!("└ {action}"));
                     pending_legacy_tool = true;
@@ -269,7 +268,10 @@ pub(crate) fn current_turn_tool_summary(
                     pending_legacy_tool = false;
                 }
             }
-            Some(MessageRole::ToolResult) | Some(MessageRole::ToolError) if pending_legacy_tool => {
+            MessageRole::ToolResult | MessageRole::ToolError => {
+                if !pending_legacy_tool {
+                    continue;
+                }
                 lines.extend(
                     tool_result_summary_lines(&entry.message, RESULT_LINE_LIMIT)
                         .into_iter()
@@ -277,7 +279,27 @@ pub(crate) fn current_turn_tool_summary(
                 );
                 pending_legacy_tool = false;
             }
-            _ => {}
+            MessageRole::User
+            | MessageRole::Agent
+            | MessageRole::System
+            | MessageRole::Runtime
+            | MessageRole::Responding
+            | MessageRole::ToolProgress
+            | MessageRole::Exploring
+            | MessageRole::Planning
+            | MessageRole::Running
+            | MessageRole::Thinking
+            | MessageRole::Todo
+            | MessageRole::Download
+            | MessageRole::TerminalEvent
+            | MessageRole::Compaction
+            | MessageRole::ShellApprovalCompleted
+            | MessageRole::QuestionAnswered
+            | MessageRole::PlanningQuestionAnswered
+            | MessageRole::ExplorationQuestionAnswered
+            | MessageRole::SubAgentQuestionAnswered
+            | MessageRole::PlanDecision
+            | MessageRole::Legacy(_) => {}
         }
     }
 
@@ -434,45 +456,54 @@ fn head_tail_line_window<T>(items: &[T], max_lines: usize) -> (&[T], &[T]) {
     (&items[..1], &items[items.len() - tail_len..])
 }
 
-fn role_prefix_icon(role: &str) -> (&'static str, Color) {
-    use crate::tui::message_role::MessageRole;
-    match MessageRole::try_from_str(role) {
-        Some(MessageRole::User) => ("You", ROLE_USER),
-        Some(MessageRole::Agent) => ("Agent", ROLE_AGENT),
-        Some(MessageRole::System) => ("System", ROLE_SYSTEM),
-        Some(MessageRole::ToolResult) => ("✓", STATUS_SUCCESS),
-        Some(MessageRole::ToolError) => ("✕", STATUS_ERROR),
-        Some(MessageRole::ToolProgress) => ("…", STATUS_WARNING),
-        Some(MessageRole::Tool) => ("⚙", TEXT_SECONDARY),
-        Some(MessageRole::Exploring) => ("🔍", PHASE_EXPLORING),
-        Some(MessageRole::Planning) => ("📋", PHASE_PLANNING),
-        Some(MessageRole::Running) => ("▶", PHASE_RUNNING),
-        Some(MessageRole::Todo) => ("☑", PHASE_PLANNING),
-        _ => ("", TEXT_SECONDARY),
+fn role_prefix_icon(role: &MessageRole) -> (&'static str, Color) {
+    match role {
+        MessageRole::User => ("You", ROLE_USER),
+        MessageRole::Agent => ("Agent", ROLE_AGENT),
+        MessageRole::System => ("System", ROLE_SYSTEM),
+        MessageRole::ToolResult => ("✓", STATUS_SUCCESS),
+        MessageRole::ToolError => ("✕", STATUS_ERROR),
+        MessageRole::ToolProgress => ("…", STATUS_WARNING),
+        MessageRole::Tool => ("⚙", TEXT_SECONDARY),
+        MessageRole::Exploring => ("🔍", PHASE_EXPLORING),
+        MessageRole::Planning => ("📋", PHASE_PLANNING),
+        MessageRole::Running => ("▶", PHASE_RUNNING),
+        MessageRole::Todo => ("☑", PHASE_PLANNING),
+        MessageRole::Runtime
+        | MessageRole::Responding
+        | MessageRole::Thinking
+        | MessageRole::Download
+        | MessageRole::TerminalEvent
+        | MessageRole::Compaction
+        | MessageRole::ShellApprovalCompleted
+        | MessageRole::QuestionAnswered
+        | MessageRole::PlanningQuestionAnswered
+        | MessageRole::ExplorationQuestionAnswered
+        | MessageRole::SubAgentQuestionAnswered
+        | MessageRole::PlanDecision
+        | MessageRole::Legacy(_) => ("", TEXT_SECONDARY),
     }
 }
 
 pub(crate) fn prefixed_message_lines(
-    role: &str,
+    role: &MessageRole,
     message: &str,
     max_lines: usize,
 ) -> Vec<Line<'static>> {
-    use crate::tui::message_role::MessageRole;
     let message = crate::tui::display_sanitize::sanitize_display_text(message);
     let message = message.as_str();
-    let role_kind = MessageRole::try_from_str(role);
-    if role_kind == Some(MessageRole::User) {
+    if *role == MessageRole::User {
         return user_message_lines(message, usize::MAX);
     }
-    if role_kind == Some(MessageRole::Agent) {
+    if *role == MessageRole::Agent {
         return agent_message_lines(message, usize::MAX);
     }
-    if role_kind == Some(MessageRole::System) {
+    if *role == MessageRole::System {
         return system_message_lines(message, usize::MAX);
     }
     let (icon, color) = role_prefix_icon(role);
     let label = if icon.is_empty() {
-        format!("{}:", role)
+        format!("{}:", role.as_str())
     } else {
         icon.to_string()
     };
@@ -503,7 +534,7 @@ pub(crate) fn prefixed_message_lines(
 }
 
 pub(crate) fn prefixed_tail_message_lines(
-    role: &str,
+    role: &MessageRole,
     message: &str,
     max_lines: usize,
 ) -> Vec<Line<'static>> {
@@ -511,7 +542,7 @@ pub(crate) fn prefixed_tail_message_lines(
     let message = message.as_str();
     let (icon, color) = role_prefix_icon(role);
     let label = if icon.is_empty() {
-        format!("{}:", role)
+        format!("{}:", role.as_str())
     } else {
         icon.to_string()
     };
@@ -642,16 +673,14 @@ fn system_message_lines(message: &str, max_lines: usize) -> Vec<Line<'static>> {
     lines
 }
 pub(crate) fn formatted_message_lines(
-    role: &str,
+    role: &MessageRole,
     message: &str,
     max_lines: usize,
     cwd: Option<&Path>,
 ) -> Vec<Line<'static>> {
-    use crate::tui::message_role::MessageRole;
     let message = crate::tui::display_sanitize::sanitize_display_text(message);
     let message = message.as_str();
-    let role_kind = MessageRole::try_from_str(role);
-    if role_kind == Some(MessageRole::Agent) {
+    if *role == MessageRole::Agent {
         let mut lines = vec![Line::from(vec![Span::styled(
             "# Agent",
             Style::default().fg(ROLE_AGENT),
@@ -660,7 +689,7 @@ pub(crate) fn formatted_message_lines(
         lines.extend(body);
         return lines;
     }
-    if role_kind == Some(MessageRole::System) {
+    if *role == MessageRole::System {
         let mut lines = vec![Line::from(vec![Span::styled(
             "# System",
             Style::default().fg(ROLE_SYSTEM),
@@ -837,7 +866,7 @@ fn tool_action_label(message: &str) -> Option<String> {
         )),
         "spawn_agent" => {
             let kind = SubAgentKind::from_tool_name(name).unwrap_or_else(|| {
-                eprintln!("Warning: unknown sub-agent tool name in render: {name}");
+                log::warn!("Unknown sub-agent tool name in render: {name}");
                 SubAgentKind::General
             });
             let (icon, _) = kind.action_icon();
@@ -846,7 +875,7 @@ fn tool_action_label(message: &str) -> Option<String> {
         }
         "explore_agent" | "plan_agent" | "team_create" => {
             let kind = SubAgentKind::from_tool_name(name).unwrap_or_else(|| {
-                eprintln!("Warning: unknown sub-agent tool name in render: {name}");
+                log::warn!("Unknown sub-agent tool name in render: {name}");
                 SubAgentKind::General
             });
             let (icon, _) = kind.action_icon();

@@ -9,6 +9,11 @@ use crate::tui::input_text::{
 impl TuiApp {
     fn active_text_input_target(&self) -> Option<TextInputTarget> {
         match self.overlay {
+            Some(Overlay::Goal) => matches!(
+                self.goal_ui.dialog,
+                Some(crate::tui::goal_ui::GoalDialog::Edit(_))
+            )
+            .then_some(TextInputTarget::GoalObjective),
             None | Some(Overlay::CommandPalette) => Some(TextInputTarget::Composer),
             Some(Overlay::ModelSearch) => Some(TextInputTarget::ModelSearch),
             Some(Overlay::BaseUrlEditor) => Some(TextInputTarget::BaseUrl),
@@ -47,6 +52,7 @@ impl TuiApp {
         target: TextInputTarget,
     ) -> (&mut String, &mut Option<usize>) {
         match target {
+            TextInputTarget::GoalObjective => (&mut self.goal_ui.input, &mut self.goal_ui.cursor),
             TextInputTarget::Composer => (
                 &mut self.bottom_pane.input,
                 &mut self.bottom_pane.input_cursor_offset,
@@ -77,7 +83,8 @@ impl TuiApp {
                 self.sync_command_palette_with_input();
             }
             TextInputTarget::ModelSearch => self.model_search_idx = 0,
-            TextInputTarget::BaseUrl
+            TextInputTarget::GoalObjective
+            | TextInputTarget::BaseUrl
             | TextInputTarget::ApiKey
             | TextInputTarget::ModelName
             | TextInputTarget::OpenAiProfileLabel => {}
