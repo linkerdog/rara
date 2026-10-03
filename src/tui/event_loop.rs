@@ -1,11 +1,14 @@
-use std::io;
+use std::io::{self, Write};
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use crossterm::{event::EventStream, terminal::size as terminal_size};
+use crossterm::{
+    event::{Event, EventStream},
+    terminal::size as terminal_size,
+};
 use futures::StreamExt;
 use rara_state::state_db::StateDb;
-use ratatui::backend::CrosstermBackend;
+use ratatui::backend::{Backend, CrosstermBackend};
 use tokio::time::{Duration, Instant, MissedTickBehavior, interval};
 
 use super::controller::{RuntimeActivity, TuiController};
@@ -157,14 +160,20 @@ async fn run_tui_session(
             .await?;
     }
 
-    let result = run_event_loop(
-        &mut terminal,
-        &mut maintainer,
-        &mut processor,
-        &oauth_manager,
-        terminal_modes,
-    )
-    .await;
+    let result = {
+        let mut events = TerminalEventSource {
+            events: Some(EventStream::new()),
+            modes: terminal_modes,
+        };
+        run_event_loop(
+            &mut terminal,
+            &mut maintainer,
+            &mut processor,
+            &oauth_manager,
+            &mut events,
+        )
+        .await
+    };
     if let Err(error) = terminal.finish_inline_viewport() {
         if result.is_ok() {
             return Err(error.into());
@@ -185,15 +194,49 @@ async fn run_tui_session(
     })
 }
 
+/// Owns terminal input and mode handoff. Implementors must release the input
+/// reader before suspension and surface maintenance/reacquisition errors.
+/// Input reads must be cancellation-safe because select drops losing futures.
+trait EventSource<B: Backend<Error = io::Error> + Write> {
+    async fn next_event(&mut self) -> Option<io::Result<Event>>;
+    fn maintain_raw_mode(&mut self) -> io::Result<()>;
+    #[cfg(unix)]
+    fn suspend(&mut self, terminal: &mut Terminal<B>) -> io::Result<()>;
+}
+
+struct TerminalEventSource<'a> {
+    events: Option<EventStream>,
+    modes: &'a mut TerminalModeGuard,
+}
+
+impl EventSource<CrosstermBackend<io::Stdout>> for TerminalEventSource<'_> {
+    async fn next_event(&mut self) -> Option<io::Result<Event>> {
+        self.events.as_mut()?.next().await
+    }
+
+    fn maintain_raw_mode(&mut self) -> io::Result<()> {
+        self.modes.maintain_raw_mode()
+    }
+
+    #[cfg(unix)]
+    fn suspend(&mut self, terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> io::Result<()> {
+        let events = self
+            .events
+            .take()
+            .ok_or_else(|| io::Error::other("terminal reader unavailable for suspend"))?;
+        self.events = Some(super::job_control::suspend(terminal, self.modes, events)?);
+        Ok(())
+    }
+}
+
 // Keep the terminal alive across loop errors so shell handoff precedes mode restoration.
-async fn run_event_loop(
-    terminal: &mut Terminal<CrosstermBackend<io::Stdout>>,
+async fn run_event_loop<B: Backend<Error = io::Error> + Write>(
+    terminal: &mut Terminal<B>,
     maintainer: &mut TuiController,
     processor: &mut RuntimeCommandProcessor,
     oauth_manager: &Arc<OAuthManager>,
-    terminal_modes: &mut TerminalModeGuard,
+    events: &mut impl EventSource<B>,
 ) -> anyhow::Result<()> {
-    let mut events = EventStream::new();
     let mut tick = interval(Duration::from_millis(166));
     tick.set_missed_tick_behavior(MissedTickBehavior::Delay);
     let mut frames = FrameScheduler::default();
@@ -210,8 +253,7 @@ async fn run_event_loop(
         if frames.is_due(Instant::now()) {
             let app = maintainer.app_mut();
             clamp_command_palette_selection(app);
-            let size = terminal_size()?;
-            app.terminal_width = size.0;
+            app.terminal_width = terminal.size()?.width;
             terminal.draw_inline(|f| render(f, app))?;
             frames.mark_drawn(Instant::now());
         }
@@ -220,7 +262,7 @@ async fn run_event_loop(
         tokio::select! {
             _ = frames.wait() => {}
             _ = tick.tick() => {
-                terminal_modes.maintain_raw_mode()?;
+                events.maintain_raw_mode()?;
                 let mut changed = false;
                 let app = maintainer.app_mut();
                 if let Some(clipboard) = &mut app.clipboard
@@ -258,7 +300,7 @@ async fn run_event_loop(
                     RuntimeActivity::Command(None) => {}
                 }
             }
-            maybe_event = events.next() => {
+            maybe_event = events.next_event() => {
                 match maybe_event {
                     Some(Ok(event)) => match translate_event(event, maintainer.app_mut()) {
                         Some(UiEvent::App(event)) => {
@@ -289,7 +331,7 @@ async fn run_event_loop(
                         }
                         #[cfg(unix)]
                         Some(UiEvent::Suspend) => {
-                            events = super::job_control::suspend(terminal, terminal_modes, events)?;
+                            events.suspend(terminal)?;
                             needs_redraw = true;
                         }
                         None => {}
@@ -312,6 +354,10 @@ async fn run_event_loop(
 fn should_start_initial_rebuild(explicit_plugin_dirs: &[PathBuf]) -> bool {
     !explicit_plugin_dirs.is_empty()
 }
+
+#[cfg(test)]
+#[path = "event_loop_tests.rs"]
+mod loop_tests;
 
 #[cfg(test)]
 mod tests {

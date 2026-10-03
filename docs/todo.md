@@ -107,10 +107,6 @@ Active backlog only. Keep this file small and current.
       interleavings, vt100 output, isolated Unix PTY lifecycle checks, and TUI
       print/raw-color lints now have focused guards. Each new gate needs a
       concrete protected defect and RED evidence before becoming required.
-- [ ] Complete #927 with injected event-source and frame-output seams in the
-      real asynchronous TUI loop. Verify pending frame wakeups, resize wiring,
-      maintenance and ordered runtime/input handling without a real terminal.
-      Current harness/scheduler guards do not execute that loop; see #938 review.
 - [x] Complete the session-scoped `RuntimeClient` migration: route typed
       commands and runtime snapshots/events through the client, then remove
       runtime registries and completion orchestration from `TuiApp`.

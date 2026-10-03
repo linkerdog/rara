@@ -59,6 +59,7 @@ the existing root test target; no additional slow CI job is needed for them.
 Suggested local checks for this surface:
 
 ```bash
+cargo test --locked --lib tui::event_loop::loop_tests
 cargo test --locked --lib tui::interaction_tests
 cargo test --locked --lib tui::input_ownership_tests
 cargo test --locked --lib permission
@@ -101,7 +102,7 @@ printing and color baseline.
 | Terminal scrollback, resize, wide-cell replacement, synchronized output | `testing::terminal_emulator::EmulatorBackend` and `custom_terminal::inline::tests` |
 | Error/panic cleanup and Unix suspend/resume | `terminal_modes_tests` and `job_control_tests`, isolated PTY children |
 | Input ordering, paste/submit, key release/repeat, focus, selection | `TuiHarness::send_terminal_event`, production translation/dispatch, `paste_input_tests`, `key_control_tests`, `event_stream`, and `clipboard::tests` |
-| Frame deadlines and ordered runtime projection | `FrameScheduler` with explicit instants, `frame_scheduler_tests`, and `FakeRuntimeClient` |
+| Frame deadlines and ordered runtime/input projection | `FrameScheduler` unit guards and `event_loop::loop_tests` with paused time and vt100 frame output |
 | Cancel/completion admission and final projection | `controller::cancellation_tests` and `runtime::tasks::tests` |
 | Wrapped selection and scroll bounds | `render::viewport_tests` and `selection` tests |
 | Composer indentation and split terminal controls | `render::bottom_pane_tests`, `display_sanitize`, and `display_boundary_tests` |
@@ -112,10 +113,26 @@ frame instants avoid sleeps in scheduling tests. VT100 output and PTY mode
 checks complement Ratatui buffer assertions; they do not establish acceptance
 on every physical terminal, SSH setup, or multiplexer.
 
-These injected-event and scheduler tests do not execute the real asynchronous
-`run_event_loop`. Its `EventStream`, frame wakeup, maintenance, and resize wiring
-still need a shared production-loop seam; the #938 review tracks this remaining
-part of #927. Do not describe the component guards as whole-loop coverage.
+### QUALITY-06: Exercise The Production Event Loop
+
+The asynchronous `run_event_loop` accepts a terminal event source and a generic
+terminal backend. The source owns input-reader lifetime, raw-mode maintenance,
+and suspend handoff. Production uses Crossterm and the session's mode guard;
+tests inject events without installing a reader or signaling the process group.
+Terminal dimensions come from the same backend that receives frame output.
+
+Loop tests must retain the production controller, command processor, scheduler,
+event translation, renderer, and select loop. Pause Tokio time and observe real
+ANSI frames through `EmulatorBackend`; do not replace the scheduler or manually
+reimplement dirty-state propagation. Verify that bursts retain ordered runtime
+and input state, a pending frame wakes independently of maintenance/input,
+idle maintenance does not repaint, and resize invalidates stale cells even
+when a burst ends at the original dimensions. Errors must retain their normal
+notice or fatal-session behavior.
+
+The private I/O seam is not a public extension API. These loop tests complement
+the isolated PTY tests; a fake suspend callback cannot establish OS job-control
+or physical-terminal reflow correctness.
 
 ## Follow-Up Quality Gates
 
@@ -142,3 +159,4 @@ evidence before becoming required jobs. Track the open work in [TODO](../todo.md
 - [Input ownership and draft preservation](../journal/2026-09-17-tui-input-ownership.md)
 - [Permission controls and approval layout](../journal/2026-09-17-tui-permission-controls.md)
 - [Terminal oracles and lint gates](../journal/2026-10-03-tui-quality-gates.md)
+- [Production event-loop verification](../journal/2026-10-03-tui-event-loop-verification.md)
