@@ -705,7 +705,7 @@ mod tests {
             .collect::<Vec<_>>()
             .join("\n");
 
-        assert!(rendered.contains("https://mem.example.com/remote-api/mcp/"));
+        assert!(rendered.contains("https://mem.example.com/mcp"));
         assert!(rendered.contains("cloud / remote"));
         assert!(rendered.contains("api key env RARA_NMEM_API_KEY"));
     }

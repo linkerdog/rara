@@ -25,6 +25,8 @@ This spec covers:
 - Enterprise-managed MCP policies.
 - Project approval UI for newly discovered `.mcp.json` servers.
 - Letting MCP tools bypass RARA approval, sandbox, or transcript policy.
+- Invoking MCP tools from the model. The Tool Search index is discovery-only in
+  the current slice.
 
 ## Architecture
 
@@ -74,8 +76,19 @@ Project config follows the Claude-compatible JSON shape:
 Supported transports:
 
 - stdio: `command`, optional `args`, `env`, and `cwd`;
-- streamable HTTP: `url`, optional bearer-token environment variable and
-  headers.
+- streamable HTTP: `url`, optional `bearer_token_env_var`, `http_headers`, and
+  `env_http_headers`.
+
+Streamable-HTTP request headers resolve when the server is connected:
+
+- `bearer_token_env_var` contributes `Authorization: Bearer <token>`;
+- `env_http_headers` maps a header name to the environment variable that
+  supplies its value;
+- `http_headers` supplies literal values and wins over an environment-derived
+  value for the same header name.
+
+An unset environment variable is reported as a runtime warning. It does not
+abort the server or any other server.
 
 ### Registry Boundary
 
@@ -182,6 +195,17 @@ installations make context unstable and consume budget. The target model is:
 This follows the same cache-prefix principle used by prompt sources and memory:
 large dynamic surfaces should be searched or referenced, not eagerly appended.
 
+Implementation checkpoint:
+
+- `rara-mcp-client` connects over both transports. `list_stdio_tools` spawns a
+  child process; `list_http_tools` uses the `rmcp` streamable-HTTP client with
+  the `reqwest` transport and rustls TLS.
+- `McpToolCache::populate_from_registry_owned` indexes tools for stdio and
+  streamable-HTTP servers. A server that fails to connect or to list tools is
+  reported through `log::warn!`, and the remaining servers are still indexed.
+- Tool invocation is not part of this slice. `mcp_tool_search` returns records
+  from the index only.
+
 ## Contracts
 
 - Loading user `config.toml` and project `.mcp.json` is deterministic.
@@ -212,6 +236,27 @@ large dynamic surfaces should be searched or referenced, not eagerly appended.
   structured runtime events.
 - MCP tools, resources, prompts, and status changes must later enter the
   runtime control plane as structured events.
+- Tool Search index population covers every supported transport. Servers whose
+  transport cannot be connected are reported as warnings and skipped instead of
+  failing the whole index build.
+- Streamable-HTTP request headers resolve from `bearer_token_env_var`,
+  `env_http_headers`, and `http_headers` at connect time. A literal
+  `http_headers` value takes precedence over an environment-derived value for
+  the same case-insensitive header name. Bearer-derived authorization has the
+  lowest priority; one normalized name produces one request header.
+- HTTP discovery applies the registry transport's loopback proxy-bypass policy
+  before creating its client. Local endpoints must not send requests or headers
+  through environment-configured proxies.
+- Discovery bounds initialization and the complete paginated `tools/list`
+  traversal separately to ten seconds each. Listing all pages shares one
+  deadline; a responsive initialization cannot leave later servers waiting
+  indefinitely for a tool page. A failed probe does not publish partial tools.
+- Probe warnings preserve useful error causes while redacting URL credentials,
+  sensitive query values and fragments. Raw configured URLs are not added to
+  HTTP connection error context.
+- Built-in cloud memory REST endpoints derive from the normalized MCP endpoint
+  base: both `https://host/prefix` and `https://host/prefix/mcp/` use
+  `https://host/prefix/mcp` and `https://host/prefix/remote-api` respectively.
 
 ## Validation Matrix
 
@@ -229,12 +274,24 @@ large dynamic surfaces should be searched or referenced, not eagerly appended.
 | `/mcp` load failure with runtime subscribers | emits an `mcp.status_load_failed` runtime event |
 | MCP control request serde | locks `query_status`, `refresh`, and `reconnect` wire shapes |
 | MCP server target contains secrets | status snapshot stores only redacted display text |
+| `bearer_token_env_var`, `env_http_headers`, and `http_headers` all set | resolved headers carry `Authorization: Bearer <token>`, the env-backed headers, and the literal headers |
+| the same header name is set in `http_headers` and in an env-derived source | the literal `http_headers` value is used |
+| `bearer_token_env_var` names an unset variable | the header is omitted and the variable name is reported as missing |
+| a streamable-HTTP header name or value is invalid | connect fails with the offending header named |
+| header sources use different capitalization | static overrides env overrides bearer, with one header per normalized name |
+| local HTTP MCP endpoint with proxy environment | endpoint receives the probe; proxy receives no request or credentials |
+| initialization succeeds but tool listing stalls | the complete listing deadline expires and indexing can continue |
+| tool listing returns a continuation cursor | all pages are included within one deadline |
+| HTTP probe fails with URL credentials | warning and its error causes do not expose URL secrets |
+| configured cloud URL ends in `/mcp/` | REST endpoint removes the normalized MCP suffix before adding `/remote-api` |
 
 ## Open Risks
 
 - Project `.mcp.json` can start arbitrary stdio commands once connection startup
   exists. RARA should add project trust or per-server approval before spawning.
 - HTTP MCP auth and OAuth state need a separate credential policy.
+- MCP tools are discoverable through Tool Search but cannot be invoked yet. The
+  runtime needs a tool-call path before MCP servers are usable as tools.
 - Tool Search needs careful prompt design so tools remain discoverable without
   bloating the system prompt.
 - Dynamic refresh and reconnect need bounded retry policy to avoid noisy loops.
@@ -244,3 +301,4 @@ large dynamic surfaces should be searched or referenced, not eagerly appended.
 - `docs/journal/2026-05-05-mcp-config-registry.md`
 - `docs/journal/2026-05-05-mcp-status-surface.md`
 - `docs/journal/2026-05-05-mcp-runtime-events.md`
+- `docs/journal/2026-09-19-mcp-streamable-http-tool-index.md`
