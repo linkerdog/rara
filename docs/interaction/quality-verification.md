@@ -24,7 +24,8 @@ expected visible result, and the cheapest layer that proves it.
 | Swallowed input, wrong overlay, wrong action | Real key mapping and production dispatch, followed by state/render assertions |
 | Hidden, clipped, reordered, or misleading content | Production renderer into a Ratatui buffer; focused text/style assertions or reviewed snapshot |
 | Queue/cancel/approval ordering | Scripted runtime events and typed commands, followed by visible state |
-| Terminal encoding, resize, paste, alternate-screen restoration | PTY/manual acceptance in the affected terminal environment |
+| Terminal encoding, wide-cell diffs, scrollback, resize | Production terminal output through the vt100-backed `EmulatorBackend` |
+| OS terminal modes, process-group suspend, error/panic restoration | Isolated PTY child; manual acceptance for terminal-specific policy |
 
 State fixtures are allowed; replacing the production renderer with a parallel
 test-only implementation is not a rendering oracle. Metadata assertions alone
@@ -73,19 +74,64 @@ Workflow configuration is not proof that a particular remote run passed or
 that branch protection requires a job. A Ratatui buffer test is not PTY or
 release acceptance.
 
+### QUALITY-05: Keep Rendering Output And Colors At Their Owned Boundaries
+
+The TUI module denies `clippy::print_stdout`, `clippy::print_stderr`, and
+`clippy::disallowed_methods`. Diagnostics use the logger so they cannot write
+untracked text into the terminal frame. Terminal protocol writes remain owned
+by the terminal and clipboard adapters; the print lints do not intercept all
+possible `Write` calls or output from dependencies.
+
+The root `clippy.toml` disallows raw RGB/indexed Ratatui constructors and
+white/black/yellow `Stylize` shortcuts. Renderers should use semantic theme
+tokens. Theme resolution owns configurable palette values and has an explicit
+module exception; the two syntax-color conversion functions have narrow
+exceptions. Isolated test fixtures may print protocol markers or diagnostics
+under test-only lint expectations with reasons.
+
+These gates use the existing strict Clippy job. A real renderer stderr write
+must fail the print gate; a temporary raw-color/shortcut insertion must fail
+the color gate. The legacy monolith panic-lint allows are separate from this
+printing and color baseline.
+
+### Existing Regression Surfaces
+
+| Protected behavior | Production seam and regression owner |
+| --- | --- |
+| Terminal scrollback, resize, wide-cell replacement, synchronized output | `testing::terminal_emulator::EmulatorBackend` and `custom_terminal::inline::tests` |
+| Error/panic cleanup and Unix suspend/resume | `terminal_modes_tests` and `job_control_tests`, isolated PTY children |
+| Input ordering, paste/submit, key release/repeat, focus, selection | `TuiHarness::send_terminal_event`, production translation/dispatch, `paste_input_tests`, `key_control_tests`, `event_stream`, and `clipboard::tests` |
+| Frame deadlines and ordered runtime projection | `FrameScheduler` with explicit instants, `frame_scheduler_tests`, and `FakeRuntimeClient` |
+| Cancel/completion admission and final projection | `controller::cancellation_tests` and `runtime::tasks::tests` |
+| Wrapped selection and scroll bounds | `render::viewport_tests` and `selection` tests |
+| Composer indentation and split terminal controls | `render::bottom_pane_tests`, `display_sanitize`, and `display_boundary_tests` |
+
+The harness injects `crossterm::Event` values directly into production routing;
+it does not duplicate key mapping or install a real terminal reader. Explicit
+frame instants avoid sleeps in scheduling tests. VT100 output and PTY mode
+checks complement Ratatui buffer assertions; they do not establish acceptance
+on every physical terminal, SSH setup, or multiplexer.
+
+These injected-event and scheduler tests do not execute the real asynchronous
+`run_event_loop`. Its `EventStream`, frame wakeup, maintenance, and resize wiring
+still need a shared production-loop seam; the #938 review tracks this remaining
+part of #927. Do not describe the component guards as whole-loop coverage.
+
 ## Follow-Up Quality Gates
 
 These are proposed follow-ups, not installed gates:
 
-- A monotonic baseline for new raw-color usage and presentation dependencies
-  in state/projection modules; resolved baseline entries must disappear.
+- A monotonic baseline for presentation dependencies in state/projection modules;
+  resolved baseline entries must disappear. Raw-color construction already has
+  the QUALITY-05 Clippy boundary.
 - A small width/height matrix for command/help/model/approval surfaces,
   including CJK, emoji, multiline paste, and empty results.
-- Scripted completion/cancel/approval interleavings and stale-session events.
-- Measured redraw/scroll cost for long transcripts, with deterministic work
-  counts before wall-clock performance thresholds.
-- PTY smoke tests for terminal-specific keys, resize, and terminal restoration
-  in a separate acceptance stage.
+- Broader approval interleavings beyond the installed cancel/completion and
+  stale-session guards.
+- Wall-clock redraw/scroll baselines for long transcripts, building on the
+  installed deterministic work-count guards.
+- Physical-terminal and optional tmux resize acceptance outside required CI,
+  complementing isolated PTY lifecycle tests.
 
 These checks need concrete defect examples, owners, runtime budgets, and RED
 evidence before becoming required jobs. Track the open work in [TODO](../todo.md).
@@ -95,3 +141,4 @@ evidence before becoming required jobs. Track the open work in [TODO](../todo.md
 - [TUI interaction contracts and reference analysis](../journal/2026-09-17-tui-interaction-contracts.md)
 - [Input ownership and draft preservation](../journal/2026-09-17-tui-input-ownership.md)
 - [Permission controls and approval layout](../journal/2026-09-17-tui-permission-controls.md)
+- [Terminal oracles and lint gates](../journal/2026-10-03-tui-quality-gates.md)

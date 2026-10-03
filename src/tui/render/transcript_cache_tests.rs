@@ -1,3 +1,8 @@
+#![expect(
+    clippy::print_stderr,
+    reason = "Work-count regression tests expose measured counts in test diagnostics."
+)]
+
 use crate::tui::{
     selection::ScreenPosition,
     state::{RuntimePhase, RuntimeSnapshot, TranscriptEntry, TranscriptTurn},

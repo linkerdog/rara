@@ -1,3 +1,8 @@
+#![expect(
+    clippy::disallowed_methods,
+    reason = "The theme owner resolves configurable RGB/indexed colors and defines the default palette."
+)]
+
 // Semantic color tokens for the TUI.
 //
 // Render-layer code should prefer ThemeToken lookups over raw

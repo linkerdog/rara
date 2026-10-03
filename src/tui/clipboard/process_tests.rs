@@ -1,3 +1,8 @@
+#![expect(
+    clippy::print_stderr,
+    reason = "Isolated subprocess cleanup reports failures to the test runner."
+)]
+
 use std::path::PathBuf;
 
 use async_trait::async_trait;

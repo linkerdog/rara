@@ -1,3 +1,6 @@
+#![deny(clippy::print_stdout, clippy::print_stderr)]
+#![deny(clippy::disallowed_methods)]
+
 mod app_event;
 mod auth_mode_picker;
 mod clipboard;

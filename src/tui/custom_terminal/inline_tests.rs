@@ -1,10 +1,52 @@
 use std::io::Write;
 
 use ratatui::layout::Rect;
+use ratatui::style::{Modifier, Style};
+use ratatui::text::{Line, Span};
 use ratatui::widgets::Paragraph;
 
 use super::super::Terminal;
 use crate::tui::testing::terminal_emulator::EmulatorBackend;
+
+#[test]
+fn wide_cell_replacement_preserves_text_and_clears_stale_attributes() {
+    let backend = EmulatorBackend::new(3, 16);
+    let screen = backend.screen.clone();
+    let mut terminal = Terminal::new(backend).unwrap();
+    for text in [
+        "old trailing",
+        "ab\u{4e2d}tail",
+        "abxtail",
+        "\u{4e2d}\u{6587}",
+        "x",
+        "",
+    ] {
+        terminal
+            .draw_inline(|frame| {
+                let line = Line::from(vec![
+                    Span::styled(text, Style::default().add_modifier(Modifier::BOLD)),
+                    Span::raw("!"),
+                ]);
+                frame.render_widget(Paragraph::new(line), frame.area());
+            })
+            .unwrap();
+        let screen = screen.borrow();
+        let expected = format!("{text}!");
+        assert_eq!(screen.parser.screen().contents().trim_end(), expected);
+        let suffix_column = unicode_width::UnicodeWidthStr::width(text) as u16;
+        assert!(
+            !screen
+                .parser
+                .screen()
+                .cell(0, suffix_column)
+                .unwrap()
+                .bold()
+        );
+        if !text.is_empty() {
+            assert!(screen.parser.screen().cell(0, 0).unwrap().bold());
+        }
+    }
+}
 
 #[test]
 fn first_inline_frame_preserves_shell_output_in_scrollback() {

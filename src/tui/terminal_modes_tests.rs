@@ -66,6 +66,10 @@ fn failed_guard_restoration_is_not_retried() {
 }
 
 #[cfg(unix)]
+#[expect(
+    clippy::print_stdout,
+    reason = "Isolated PTY children emit mode and readiness markers to their parent."
+)]
 mod pty {
     use std::io::{Read, Write};
     use std::time::{Duration, Instant};
